@@ -1,0 +1,22 @@
+# Local Claude Code permission grants (per-machine)
+.claude/settings.local.json
+
+# Secrets — only .env.example is committed
+.env
+.env.*
+!.env.example
+
+# Runtime data
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Frontend build output and dependencies (web/dist is embedded at Docker build time)
+web/node_modules/
+web/dist/
+
+# Go build output
+/kipple
+/kipple.exe
+/bin/
