@@ -118,3 +118,21 @@ func StatSetScroll(ctx context.Context, q Querier, sessionKey string, value int6
 	_, err = q.ExecContext(ctx, `UPDATE stats_events SET value = ? WHERE id = ? AND value < ?`, value, id, value)
 	return true, err
 }
+
+// StatItemBasics reads just the item-level fields of a live item; ok is false
+// for a trimmed or unknown id (callers fall back to StatItemSnapshot).
+func StatItemBasics(ctx context.Context, q Querier, itemID int64) (feedID int64, title, url string, ok bool, err error) {
+	err = q.QueryRowContext(ctx, `SELECT feed_id, title, url FROM items WHERE id = ?`, itemID).Scan(&feedID, &title, &url)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", "", false, nil
+	}
+	return feedID, title, url, err == nil, err
+}
+
+// StatFeedSnapshot reads the feed and folder identity for a stats row.
+func StatFeedSnapshot(ctx context.Context, q Querier, feedID int64) (s StatSnapshot, err error) {
+	s.FeedID = feedID
+	err = q.QueryRowContext(ctx, `SELECT COALESCE(f.custom_title, f.title, ''), f.folder_id, fo.name
+		FROM feeds f LEFT JOIN folders fo ON fo.id = f.folder_id WHERE f.id = ?`, feedID).Scan(&s.FeedTitle, &s.FolderID, &s.FolderName)
+	return s, err
+}

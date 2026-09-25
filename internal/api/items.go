@@ -472,6 +472,8 @@ func (s *Server) noteCounts() {
 }
 
 func (s *Server) publishCounts() {
+	s.pubMu.Lock()
+	defer s.pubMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	unread, _, err := s.db.Counts(ctx)

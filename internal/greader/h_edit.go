@@ -96,6 +96,15 @@ func (c *call) editTag() {
 				if *op.starred {
 					kind = stats.KindStar
 				}
+				if br, ok := c.a.opt.Stats.(interface {
+					RecordStars(tx *sql.Tx, kind, client string, ids []int64) error
+				}); ok {
+					if err := br.RecordStars(tx, kind, c.family, res.Changed); err != nil {
+						return err
+					}
+					changes = append(changes, change{op, res})
+					continue
+				}
 				for _, id := range res.Changed {
 					err := c.a.opt.Stats.Record(tx, stats.Event{Kind: kind, Client: c.family, ItemID: id})
 					if err != nil && !errors.Is(err, stats.ErrDropped) {

@@ -137,3 +137,46 @@ func (r *SQL) Record(tx *sql.Tx, ev Event) error {
 		ItemTitle: snap.ItemTitle, ItemURL: snap.ItemURL, Value: value, SessionKey: ev.SessionKey,
 	})
 }
+
+// RecordStars records one star or unstar event per id in a single transaction.
+// It loads the time zone once and looks each feed up once, so a 10k-id bulk
+// edit stays inside the write deadline. ErrDropped ids are skipped.
+func (r *SQL) RecordStars(tx *sql.Tx, kind, client string, ids []int64) error {
+	if !clients[client] || (kind != KindStar && kind != KindUnstar) {
+		return nil
+	}
+	ctx := context.Background()
+	now := r.now()
+	lt := now.In(store.LoadLocation(ctx, tx))
+	feeds := map[int64]store.StatSnapshot{}
+	for _, id := range ids {
+		feedID, title, url, ok, err := store.StatItemBasics(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		var snap store.StatSnapshot
+		if ok {
+			var cached bool
+			if snap, cached = feeds[feedID]; !cached {
+				if snap, err = store.StatFeedSnapshot(ctx, tx, feedID); err != nil {
+					return err
+				}
+				feeds[feedID] = snap
+			}
+			snap.ItemTitle, snap.ItemURL = title, url
+		} else if snap, ok, err = store.StatItemSnapshot(ctx, tx, id); err != nil {
+			return err
+		} else if !ok {
+			continue
+		}
+		if err := store.InsertStat(ctx, tx, store.StatRow{
+			TS: now.Unix(), LocalDate: lt.Format("2006-01-02"), LocalHour: lt.Hour(), LocalWeekday: int(lt.Weekday()),
+			Kind: kind, Client: client, ItemID: id,
+			FeedID: snap.FeedID, FeedTitle: snap.FeedTitle, FolderID: snap.FolderID, FolderName: snap.FolderName,
+			ItemTitle: snap.ItemTitle, ItemURL: snap.ItemURL,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}

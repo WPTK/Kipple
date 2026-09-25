@@ -98,6 +98,7 @@ type Server struct {
 	imgSecret []byte
 	imgH      *imgproxy.Handler
 
+	pubMu  sync.Mutex // serializes query+publish so counts events never arrive out of order
 	cmu    sync.Mutex // guards the counts coalescer
 	clast  time.Time
 	ctimer *time.Timer

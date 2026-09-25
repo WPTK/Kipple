@@ -43,11 +43,19 @@ func (f *ftFlights) do(id int64, fn func() (extract.Result, error)) (extract.Res
 	c := &ftCall{done: make(chan struct{})}
 	f.m[id] = c
 	f.mu.Unlock()
+	finished := false
+	defer func() {
+		if !finished {
+			c.err = errors.New("fulltext: extraction panicked")
+		}
+		// runs on panic too, so waiters are released and the id is not stuck
+		f.mu.Lock()
+		delete(f.m, id)
+		f.mu.Unlock()
+		close(c.done)
+	}()
 	c.res, c.err = fn()
-	f.mu.Lock()
-	delete(f.m, id)
-	f.mu.Unlock()
-	close(c.done)
+	finished = true
 	return c.res, c.err
 }
 
