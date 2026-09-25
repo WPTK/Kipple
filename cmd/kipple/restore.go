@@ -23,11 +23,12 @@ type restoreOptions struct {
 	DataDir string
 	Src     string
 	Yes     bool
+	In      io.Reader // read when Src is "-"
 	Out     io.Writer
 	Now     func() time.Time
 }
 
-const restoreUsage = "usage: kipple restore <backup.zip|kipple.db> [--yes]"
+const restoreUsage = "usage: kipple restore <backup.zip|kipple.db|-> [--yes]  (- reads the file from standard input)"
 
 // runRestore implements `kipple restore <backup.zip|.db> [--yes]`.
 func runRestore(args []string) error {
@@ -52,7 +53,7 @@ func runRestore(args []string) error {
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
-	return restore(context.Background(), restoreOptions{DataDir: cfg.DataDir, Src: src, Yes: yes, Out: os.Stdout, Now: time.Now})
+	return restore(context.Background(), restoreOptions{DataDir: cfg.DataDir, Src: src, Yes: yes, In: os.Stdin, Out: os.Stdout, Now: time.Now})
 }
 
 var errNotConfirmed = errors.New("nothing was changed: run the same command again with --yes to restore")
@@ -101,6 +102,10 @@ func copyFile(src, dst string) error {
 // temporary copy completely, keep the current database, swap, say what next.
 func restore(ctx context.Context, o restoreOptions) error {
 	out := o.Out
+	label := o.Src
+	if label == "-" {
+		label = "standard input"
+	}
 	if o.Now == nil {
 		o.Now = time.Now
 	}
@@ -126,6 +131,29 @@ func restore(ctx context.Context, o restoreOptions) error {
 	removeTmp() // a leftover of an interrupted restore
 	defer removeTmp()
 
+	// "-" spools standard input into the data directory first (the distroless
+	// container's user cannot read a bind-mounted /import, and a zip needs random
+	// access), and removes the spool afterwards.
+	if o.Src == "-" {
+		upload := filepath.Join(o.DataDir, "restore-upload.tmp")
+		_ = os.Remove(upload)
+		defer os.Remove(upload)
+		if o.In == nil {
+			return errors.New("no input to read")
+		}
+		f, err := os.OpenFile(upload, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(f, o.In)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return fmt.Errorf("read the backup from standard input: %w", err)
+		}
+		o.Src = upload
+	}
 	if a, err1 := filepath.Abs(o.Src); err1 == nil {
 		if b, err2 := filepath.Abs(live); err2 == nil && a == b {
 			return errors.New("that is the live database itself; restore takes a backup zip or a snapshot copy")
@@ -133,13 +161,13 @@ func restore(ctx context.Context, o restoreOptions) error {
 	}
 	zipped, err := isZip(o.Src)
 	if err != nil {
-		return fmt.Errorf("%s: %w", o.Src, err)
+		return fmt.Errorf("%s: %w", label, err)
 	}
 	var created string
 	if zipped {
 		mf, err := backup.ExtractDB(o.Src, tmp)
 		if err != nil {
-			return fmt.Errorf("%s: %w", o.Src, err)
+			return fmt.Errorf("%s: %w", label, err)
 		}
 		created = mf.CreatedAt + " by Kipple " + mf.KippleVersion + "; checksums verified"
 	} else {
@@ -150,10 +178,10 @@ func restore(ctx context.Context, o restoreOptions) error {
 	}
 	info, err := backup.Inspect(ctx, tmp, true)
 	if err != nil {
-		return fmt.Errorf("%s: %w", o.Src, err)
+		return fmt.Errorf("%s: %w", label, err)
 	}
 	fmt.Fprintf(out, "Backup: %s\n  taken: %s\n  schema version %d, %d feeds, %d items, %d starred; passes the integrity checks.\n",
-		o.Src, created, info.SchemaVersion, info.Feeds, info.Items, info.Starred)
+		label, created, info.SchemaVersion, info.Feeds, info.Items, info.Starred)
 	if !o.Yes {
 		return errNotConfirmed
 	}

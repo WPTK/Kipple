@@ -59,7 +59,8 @@ imports into any feed reader.
 
 To restore, stop Kipple, then run
     kipple restore <this file> --yes
-(with Docker: docker compose run --rm --no-deps kipple restore /import/<this file> --yes)
+(with Docker, from where you keep this file, with the kipple service stopped:
+    docker compose run --rm -T --no-deps kipple restore - --yes < <this file>)
 and start Kipple again. The current database is moved to backup/pre-restore-*
 first. Every web session is signed out by a restore.
 

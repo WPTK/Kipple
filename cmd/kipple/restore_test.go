@@ -244,3 +244,18 @@ func TestRunRestoreArgs(t *testing.T) {
 	require.ErrorContains(t, runRestore([]string{"a.zip", "b.zip"}), "usage")
 	require.ErrorContains(t, runRestore([]string{"--force", "a.zip"}), "unknown option")
 }
+
+func TestRestoreFromStandardInput(t *testing.T) {
+	src := newData(t, 9)
+	zipPath := export(t, src)
+	f, err := os.Open(zipPath)
+	require.NoError(t, err)
+	defer f.Close()
+
+	dir := t.TempDir()
+	var out bytes.Buffer
+	require.NoError(t, restore(context.Background(), restoreOptions{DataDir: dir, Src: "-", Yes: true, In: f, Out: &out, Now: time.Now}))
+	require.Contains(t, out.String(), "standard input")
+	require.Equal(t, 9, countItems(t, dir))
+	require.NoFileExists(t, filepath.Join(dir, "restore-upload.tmp"), "the spool is removed")
+}
