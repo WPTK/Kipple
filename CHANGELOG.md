@@ -60,6 +60,7 @@ Phase 2 (reading UI backend) so far.
   crawl time (capped at 60 s, inside the `ot` slack, so a client that synced meanwhile still gets
   it next time). Decided in SQL, so paging is exact. The web UI is not held. No setting.
 - Cards and item details carry `origin_title` (the feed an archived starred item came from) and `source` (`origin_title`, else the feed title), so unsubscribed starred items show where they came from.
+- Startup self-check: the store probes JSON1 and FTS5 (unicode61, `snippet`, `bm25`) in the temp schema before migrating and refuses to start, naming every missing feature, so a driver swap cannot silently lose search.
 
 ### Changed
 

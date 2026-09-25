@@ -207,6 +207,10 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 		d.writer.Close()
 		return nil, err
 	}
+	if err := selfCheck(ctx, d.writer); err != nil {
+		d.writer.Close()
+		return nil, err
+	}
 	if err := d.migrate(ctx); err != nil {
 		d.writer.Close()
 		return nil, err
