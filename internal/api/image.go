@@ -38,14 +38,14 @@ func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 	defer s.imgMu.Unlock()
 	if s.imgH == nil {
 		s.imgH = imgproxy.New(imgproxy.Options{
-			Secret: secret, UserAgent: s.imageUA(), Logger: s.log,
+			Secret: secret, UserAgent: s.outgoingUA(), Logger: s.log,
 			Transport: func(allowPrivate, insecure bool) http.RoundTripper { return s.opt.Guard(allowPrivate, insecure, false) },
 		})
 	}
 	return s.imgH, true
 }
 
-func (s *Server) imageUA() string {
+func (s *Server) outgoingUA() string {
 	ua := "Mozilla/5.0 (compatible; Kipple/" + s.opt.Version
 	if s.opt.PublicURL != "" {
 		ua += "; +" + s.opt.PublicURL

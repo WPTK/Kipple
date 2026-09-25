@@ -19,6 +19,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/imgproxy"
 	"github.com/WPTK/kipple/internal/sched"
@@ -85,6 +86,9 @@ type Server struct {
 	verifier *auth.Verifier // shared with the Reader API (one argon2 slot per process)
 	rec      stats.Recorder
 
+	extractor *extract.Extractor
+	ftFlights ftFlights
+
 	imgMu     sync.Mutex // guards imgSecret and imgH
 	imgSecret []byte
 	imgH      *imgproxy.Handler
@@ -113,6 +117,7 @@ func New(opt Options) *Server {
 	if s.opt.Guard == nil {
 		s.opt.Guard = fetch.NewClient(fetch.ClientOptions{Version: opt.Version, PublicURL: opt.PublicURL}).Transport
 	}
+	s.extractor = extract.New(extract.Options{Transport: s.opt.Guard, UserAgent: s.outgoingUA(), Timeout: extractBudget})
 	s.rec = opt.Stats
 	if s.rec == nil {
 		s.rec = stats.New(s.now)
@@ -144,6 +149,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("GET /api/items", s.authed(s.listItems))
 	handle("POST /api/items/mark-read", s.authed(s.markRead))
 	handle("GET /api/items/{id}", s.authed(s.getItem))
+	handle("POST /api/items/{id}/fulltext", s.authed(s.itemFulltext))
 	handle("POST /api/items/{id}/open", s.authed(s.openItem))
 	handle("PUT /api/items/{id}/star", s.authed(s.starItem))
 	handle("POST /api/maintenance/fts-rebuild", s.authed(s.ftsRebuild))
