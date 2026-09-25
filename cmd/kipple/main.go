@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,6 +20,10 @@ import (
 	_ "time/tzdata"
 
 	"github.com/WPTK/kipple/internal/config"
+	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/sched"
+	"github.com/WPTK/kipple/internal/store"
 	kweb "github.com/WPTK/kipple/internal/web"
 )
 
@@ -74,6 +79,27 @@ func runServe() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	slog.SetDefault(logger)
 
+	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+		return fmt.Errorf("data dir: %w", err)
+	}
+	db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(cfg.DataDir, "kipple.db"), Logger: logger})
+	if err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+	// db.Close (WAL checkpoint, pools) runs last, after the scheduler has drained.
+	defer func() {
+		if err := db.Close(); err != nil {
+			logger.Error("closing store", "err", err)
+		}
+	}()
+
+	hub := events.New()
+	client := fetch.NewClient(fetch.ClientOptions{Version: version, PublicURL: cfg.PublicURL})
+	scheduler := sched.New(db, client, hub, nil, logger, sched.Options{
+		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick,
+	})
+	scheduler.Start()
+
 	webHandler, err := kweb.NewHandler()
 	if err != nil {
 		return fmt.Errorf("web: %w", err)
@@ -108,15 +134,33 @@ func runServe() error {
 		serveErr <- nil
 	}()
 
+	// Shutdown order (design §4.10): stop the scheduler, close SSE, drain HTTP,
+	// wait for the workers, then (deferred) checkpoint and close the store.
+	stopAll := func() error {
+		scheduler.Stop()
+		hub.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		shutErr := srv.Shutdown(shutdownCtx)
+		select {
+		case <-scheduler.Stopped():
+		case <-time.After(15 * time.Second):
+			logger.Error("scheduler did not drain in time")
+		}
+		if shutErr != nil {
+			return fmt.Errorf("shutdown: %w", shutErr)
+		}
+		return nil
+	}
+
 	select {
 	case err := <-serveErr:
+		_ = stopAll()
 		return err
 	case <-ctx.Done():
 		logger.Info("shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown: %w", err)
+		if err := stopAll(); err != nil {
+			return err
 		}
 		return <-serveErr
 	}
