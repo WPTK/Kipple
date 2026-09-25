@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { ApiError, authStore } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
@@ -65,7 +65,9 @@ function Gate() {
 }
 
 export default function App({ client }: { client?: QueryClient }) {
-  const qc = client ?? makeQueryClient();
+  // Created once: a re-render of App must not throw the cache away.
+  const [own] = useState(() => client ?? makeQueryClient());
+  const qc = client ?? own;
   return (
     <QueryClientProvider client={qc}>
       <BrowserRouter>

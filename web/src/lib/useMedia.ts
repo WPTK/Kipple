@@ -1,9 +1,10 @@
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 /** Subscribe to a media query. Falls back to `false` when matchMedia is unavailable. */
 export function useMedia(query: string): boolean {
-  return useSyncExternalStore(
-    (cb) => {
+  // Stable functions per query: an inline subscribe would unsubscribe and resubscribe every render.
+  const subscribe = useCallback(
+    (cb: () => void) => {
       let m: MediaQueryList | null = null;
       try {
         m = window.matchMedia(query);
@@ -13,15 +14,16 @@ export function useMedia(query: string): boolean {
       }
       return () => m?.removeEventListener("change", cb);
     },
-    () => {
-      try {
-        return window.matchMedia(query).matches;
-      } catch {
-        return false;
-      }
-    },
-    () => false,
+    [query],
   );
+  const getSnapshot = useCallback(() => {
+    try {
+      return window.matchMedia(query).matches;
+    } catch {
+      return false;
+    }
+  }, [query]);
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 
 /** Wide layout: sidebar plus list plus reader pane (design: container >= 900 px). */
