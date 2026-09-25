@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -269,4 +270,51 @@ func TestDecodeBodyCharsetEdgeCases(t *testing.T) {
 		require.Equal(t, "iso-8859-2", d.Source)
 		require.Contains(t, string(d.Body), "ą")
 	})
+}
+
+const rssWithBadEntries = `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://e.example/</link>
+<item><title>Good one</title><link>https://e.example/1</link><guid>g1</guid><description>hello there</description>
+  <enclosure url="https://e.example/a.mp3" type="audio/mpeg" length="1"/>
+  <enclosure url="https://e.example/a.mp3" type="audio/mpeg" length="1"/>
+  <enclosure url="/b.mp3" type="audio/mpeg" length="2"/>
+  <enclosure url="https://e.example/b.mp3" type="audio/mpeg" length="2"/></item>
+<item></item>
+<item><title>Explodes</title><link>https://e.example/3</link><guid>g3</guid><description>BOOM</description></item>
+<item><title>Good two</title><link>https://e.example/4</link><guid>g4</guid><description>fine</description></item>
+</channel></rss>`
+
+// One unusable entry (empty, or one that panics in conversion) is dropped and
+// counted; the rest of the document still commits (design §13 item 9).
+func TestParseFeedSkipsMalformedItems(t *testing.T) {
+	content := func(raw string, _ ...string) (string, string) {
+		if raw == "BOOM" {
+			panic("hostile markup")
+		}
+		return raw, raw
+	}
+	f, err := ParseFeed([]byte(rssWithBadEntries), ParseOptions{FeedURL: "https://e.example/feed", Content: content})
+	require.NoError(t, err)
+	require.Len(t, f.Items, 2)
+	require.Equal(t, "Good one", f.Items[0].Title)
+	require.Equal(t, "Good two", f.Items[1].Title)
+	require.Contains(t, f.Notes, "skipped_malformed_items: 2/4")
+
+	// A clean document has no note.
+	clean, err := ParseFeed([]byte(strings.Replace(rssWithBadEntries, "<item></item>", "", 1)), ParseOptions{FeedURL: "https://e.example/feed", Content: func(raw string, _ ...string) (string, string) { return raw, raw }})
+	require.NoError(t, err)
+	require.Len(t, clean.Items, 3)
+	for _, n := range clean.Notes {
+		require.NotContains(t, n, "skipped_malformed_items")
+	}
+}
+
+// The same file listed twice (also once relative, once absolute) is one enclosure (design §13 item 10).
+func TestParseFeedDedupesEnclosuresByURL(t *testing.T) {
+	f, err := ParseFeed([]byte(rssWithBadEntries), ParseOptions{FeedURL: "https://e.example/feed", Content: func(raw string, _ ...string) (string, string) { return raw, raw }})
+	require.NoError(t, err)
+	var urls []string
+	for _, e := range f.Items[0].Enclosures {
+		urls = append(urls, e.URL)
+	}
+	require.Equal(t, []string{"https://e.example/a.mp3", "https://e.example/b.mp3"}, urls)
 }
