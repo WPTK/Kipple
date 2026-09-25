@@ -8,6 +8,14 @@ import (
 	"golang.org/x/net/html"
 )
 
+// EmbedSandbox is the sandbox the stored YouTube/Vimeo iframes carry. bluemonday
+// would otherwise write sandbox="", which blocks the player's script and shows
+// a blank box in Reader clients (Reeder, NetNewsWire) that render the stored
+// HTML. The four tokens are what the tap-to-load iframe uses (design 7.8); the
+// page is never a same-origin parent of the player, so they are the least the
+// player needs. Only the two allowlisted hosts ever reach this.
+const EmbedSandbox = "allow-scripts allow-same-origin allow-presentation allow-popups"
+
 var vimeoEmbed = regexp.MustCompile(`^https://player\.vimeo\.com/video/[0-9]+([?&/#][^\s"'<>]*)?$`)
 
 // IframesToLinks is the ingest pre-pass that runs before bluemonday (design
@@ -57,8 +65,10 @@ func IframesToLinks(src string) string {
 		}
 		u := attrVal(t, "src")
 		if youtubeEmbed.MatchString(u) || vimeoEmbed.MatchString(u) {
-			// Re-emit the opening tag and the end tag the skip would swallow.
-			b.Write(raw)
+			// Re-emit the opening tag (with the stored sandbox, see EmbedSandbox)
+			// and the end tag the skip would swallow.
+			setAttr(&t, "sandbox", EmbedSandbox)
+			b.WriteString(t.String())
 			if tt == html.StartTagToken {
 				b.WriteString("</iframe>")
 			}

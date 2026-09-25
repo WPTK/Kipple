@@ -38,8 +38,12 @@ func FeedPolicy() *bluemonday.Policy {
 		p.AllowURLSchemes("http", "https", "mailto", "tel")
 
 		p.AllowAttrs("src").Matching(embedSrc).OnElements("iframe")
-		p.AllowAttrs("width", "height", "allowfullscreen", "frameborder").OnElements("iframe")
-		p.RequireSandboxOnIFrame(bluemonday.SandboxAllowScripts, bluemonday.SandboxAllowSameOrigin, bluemonday.SandboxAllowPresentation)
+		p.AllowAttrs("width", "height", "allowfullscreen", "frameborder", "sandbox").OnElements("iframe")
+		// sandbox has to be an allowed attribute or bluemonday drops it and writes
+		// sandbox="" (a blank player in Reader clients); IframesToLinks sets the
+		// value and this filters it to the tokens Kipple grants.
+		p.RequireSandboxOnIFrame(bluemonday.SandboxAllowScripts, bluemonday.SandboxAllowSameOrigin,
+			bluemonday.SandboxAllowPresentation, bluemonday.SandboxAllowPopups)
 		policy = p
 	})
 	return policy
