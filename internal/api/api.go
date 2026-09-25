@@ -19,6 +19,8 @@ import (
 
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/imgproxy"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
@@ -58,8 +60,13 @@ type Options struct {
 	Verifier *auth.Verifier
 	// Stats records open and star events; nil builds the SQL recorder on Now.
 	Stats stats.Recorder
-	// Version is reported by /api/bootstrap.
+	// Version is reported by /api/bootstrap and used in the proxy User-Agent.
 	Version string
+	// PublicURL is the "+url" of the outgoing User-Agent; optional.
+	PublicURL string
+	// Guard supplies the SSRF-guarded HTTP transports of the image proxy and
+	// full-text extraction (fetch.Client.Transport); nil builds a private client.
+	Guard func(allowPrivate, insecureTLS, noHTTP2 bool) http.RoundTripper
 	// CountsInterval is the minimum gap between `counts` events (default 1 s).
 	CountsInterval time.Duration
 	// Now defaults to the wall clock. Heartbeat defaults to 15 s.
@@ -77,6 +84,10 @@ type Server struct {
 
 	verifier *auth.Verifier // shared with the Reader API (one argon2 slot per process)
 	rec      stats.Recorder
+
+	imgMu     sync.Mutex // guards imgSecret and imgH
+	imgSecret []byte
+	imgH      *imgproxy.Handler
 
 	cmu    sync.Mutex // guards the counts coalescer
 	clast  time.Time
@@ -98,6 +109,9 @@ func New(opt Options) *Server {
 	}
 	if s.verifier == nil {
 		s.verifier = auth.NewVerifier(nil, auth.VerifierOptions{})
+	}
+	if s.opt.Guard == nil {
+		s.opt.Guard = fetch.NewClient(fetch.ClientOptions{Version: opt.Version, PublicURL: opt.PublicURL}).Transport
 	}
 	s.rec = opt.Stats
 	if s.rec == nil {
@@ -125,6 +139,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/refresh", s.authed(s.refresh))
 	handle("GET /api/events", s.authed(s.events))
 	handle("GET /api/bootstrap", s.authed(s.bootstrap))
+	handle("GET /img/{sig}/{flags}/{u}", s.authed(s.image))
 	handle("GET /api/feeds/{id}/icon", s.authed(s.feedIcon))
 	handle("GET /api/items", s.authed(s.listItems))
 	handle("POST /api/items/mark-read", s.authed(s.markRead))

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -424,4 +425,37 @@ func (d *DB) FeedIconAny(ctx context.Context, feedID int64) (data []byte, conten
 		return nil, "", false, nil
 	}
 	return data, contentType, err == nil, err
+}
+
+// StringSetting reads a string setting through the reader pool.
+func (d *DB) StringSetting(ctx context.Context, key, def string) string {
+	return settingString(ctx, d.reader, key, def)
+}
+
+// FeedImageFlags returns, per feed id, the image proxy flag bits taken from
+// the feed (bit 0 allow_private_net, bit 1 allow_insecure_tls; design §7.4).
+func (d *DB) FeedImageFlags(ctx context.Context, feedIDs []int64) (map[int64]int, error) {
+	out := make(map[int64]int, len(feedIDs))
+	if len(feedIDs) == 0 {
+		return out, nil
+	}
+	js, err := json.Marshal(feedIDs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := d.reader.QueryContext(ctx,
+		"SELECT id, allow_private_net | (allow_insecure_tls << 1) FROM feeds WHERE id IN (SELECT value FROM json_each(?))", string(js))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var f int
+		if err := rows.Scan(&id, &f); err != nil {
+			return nil, err
+		}
+		out[id] = f
+	}
+	return out, rows.Err()
 }

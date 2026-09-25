@@ -151,7 +151,7 @@ func runServe() error {
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
 		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
-		Stats: recorder, Version: version,
+		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport,
 	})
 	defer uiAPI.Close()
 	uiAPI.Register(mux)

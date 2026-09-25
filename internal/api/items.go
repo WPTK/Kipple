@@ -139,6 +139,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
+	s.proxyCards(r.Context(), cards)
 	var cur any
 	if next != nil {
 		cur = next.Encode()
@@ -165,6 +166,7 @@ func (s *Server) getItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
+	s.proxyDetail(r.Context(), &det)
 	writeJSON(w, http.StatusOK, det)
 }
 
@@ -223,6 +225,7 @@ func (s *Server) openItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
+	s.proxyDetail(r.Context(), &det)
 	writeJSON(w, http.StatusOK, map[string]any{"session_key": key, "item": det})
 }
 

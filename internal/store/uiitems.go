@@ -134,7 +134,7 @@ func scanCard(rows interface{ Scan(...any) error }) (Card, error) {
 	}
 	c.Excerpt = excerpt(text)
 	if img.Valid && img.String != "" {
-		c.Image = &img.String // TODO(phase 2 step 3): rewrite through the signed image proxy (design §7.4)
+		c.Image = &img.String // raw here; internal/api rewrites it through the image proxy at serve time (design §7.4)
 	}
 	c.Read, c.Starred = read == 1, starred == 1
 	c.ReadingMinutes = readingMinutes(c.WordCount)
@@ -288,7 +288,7 @@ func (d *DB) GetItem(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 func (det *ItemDetail) finish(text string, img, enc sql.NullString) {
 	det.Excerpt = excerpt(text)
 	if img.Valid && img.String != "" {
-		det.Image = &img.String // TODO(phase 2 step 3): image proxy rewrite (design §7.4)
+		det.Image = &img.String // raw here; internal/api rewrites it (design §7.4)
 	}
 	det.ReadingMinutes = readingMinutes(det.WordCount)
 	det.Enclosures = json.RawMessage("[]")
