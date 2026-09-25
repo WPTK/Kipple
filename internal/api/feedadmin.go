@@ -236,7 +236,7 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	} else if rep, got, werr := s.awaitReply(r, ch, addWait); werr == nil && got && rep.Err == nil {
 		fo = outcomeOf(rep)
 	}
-	fd, _, err := s.db.FeedDetail(ctx, res.FeedID)
+	fd, _, err := s.db.FeedDetail(ctx, res.FeedID, s.statusEnv())
 	if err != nil {
 		s.serverError(w, "add feed", err)
 		return
@@ -245,7 +245,7 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) writeExisting(w http.ResponseWriter, r *http.Request, id int64) {
-	fd, found, err := s.db.FeedDetail(r.Context(), id)
+	fd, found, err := s.db.FeedDetail(r.Context(), id, s.statusEnv())
 	if err != nil || !found {
 		if err == nil {
 			err = store.ErrFeedNotFound
@@ -423,7 +423,7 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 	if res.Notify {
 		s.publishFeedChanged(id)
 	}
-	fd, _, err := s.db.FeedDetail(r.Context(), id)
+	fd, _, err := s.db.FeedDetail(r.Context(), id, s.statusEnv())
 	if err != nil {
 		s.serverError(w, "patch feed", err)
 		return
@@ -489,7 +489,7 @@ func (s *Server) refreshFeed(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusBadRequest, "bad_request", "full must be 0 or 1")
 		return
 	}
-	fd, found, err := s.db.FeedDetail(r.Context(), id)
+	fd, found, err := s.db.FeedDetail(r.Context(), id, s.statusEnv())
 	if err != nil {
 		s.serverError(w, "refresh feed", err)
 		return

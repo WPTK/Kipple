@@ -116,15 +116,16 @@ type UIFeed struct {
 
 // UIFeeds lists feeds in display order. The archive feed is listed only while
 // it holds items.
-func (d *DB) UIFeeds(ctx context.Context) ([]UIFeed, error) {
-	return d.uiFeeds(ctx, "f.disabled_reason IS NOT 'archive' OR EXISTS (SELECT 1 FROM items WHERE feed_id = f.id)")
+func (d *DB) UIFeeds(ctx context.Context, env StatusEnv) ([]UIFeed, error) {
+	return d.uiFeeds(ctx, env, "f.disabled_reason IS NOT 'archive' OR EXISTS (SELECT 1 FROM items WHERE feed_id = f.id)")
 }
 
 // uiFeeds runs the feed list query with a WHERE condition.
-func (d *DB) uiFeeds(ctx context.Context, where string, args ...any) ([]UIFeed, error) {
+func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...any) ([]UIFeed, error) {
 	rows, err := d.reader.QueryContext(ctx, `
 		SELECT f.id, f.folder_id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url, fi.hash,
 		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes,
+		       f.host, f.redirect_kind, f.redirect_to, COALESCE(f.last_new_items_at, f.created_at),
 		       (SELECT count(*) FROM items WHERE feed_id = f.id AND starred = 1)
 		FROM feeds f JOIN folders fo ON fo.id = f.folder_id
 		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
@@ -138,27 +139,20 @@ func (d *DB) uiFeeds(ctx context.Context, where string, args ...any) ([]UIFeed, 
 	out := []UIFeed{}
 	for rows.Next() {
 		var f UIFeed
-		var hash, reason sql.NullString
+		var hash, reason, host, rKind, rTo sql.NullString
+		var lastNew int64
 		var enabled, failures, fulltext int64
 		var retention, interval sql.NullInt64
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &f.StarredCount); err != nil {
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &host, &rKind, &rTo, &lastNew, &f.StarredCount); err != nil {
 			return nil, err
 		}
 		if hash.Valid {
 			icon := "/api/feeds/" + strconv.FormatInt(f.ID, 10) + "/icon?h=" + hash.String
 			f.Icon = &icon
 		}
-		switch {
-		case reason.Valid:
-			f.Status = reason.String
-			f.IsArchive = reason.String == "archive"
-		case enabled == 0:
-			f.Status = "disabled"
-		case failures > 0:
-			f.Status = "failing"
-		default:
-			f.Status = "ok"
-		}
+		f.IsArchive = reason.Valid && reason.String == "archive"
+		f.Status = FeedStatus(StatusRow{DisabledReason: strp(reason), Enabled: enabled == 1, ConsecutiveFailures: failures,
+			RedirectKind: strp(rKind), RedirectTo: strp(rTo), LastNewItemsAt: lastNew}, env.HostUntil[host.String], env.Now)
 		f.Fulltext = fulltext == 1
 		f.Retention, f.IntervalMinutes = intp(retention), intp(interval)
 		out = append(out, f)

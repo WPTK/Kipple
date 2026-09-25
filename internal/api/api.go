@@ -46,6 +46,8 @@ type Scheduler interface {
 	ApplyRetention(all bool) (sched.RunInfo, error)
 	StartImport(feedIDs []int64) (sched.RunInfo, error)
 	Status() ([]sched.RunStatus, int)
+	// HostHolds is the per-host politeness deadlines still in the future.
+	HostHolds() map[string]time.Time
 	// Submit queues a per-feed priority job; Wake nudges a tick; Shutdown closes
 	// when the scheduler stops, so a waiting handler can bail out.
 	Submit(p sched.Priority) (<-chan sched.Reply, error)

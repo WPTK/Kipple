@@ -41,7 +41,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
-	feeds, err := s.db.UIFeeds(ctx)
+	feeds, err := s.db.UIFeeds(ctx, s.statusEnv())
 	if err != nil {
 		fail(err)
 		return

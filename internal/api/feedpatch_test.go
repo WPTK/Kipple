@@ -209,7 +209,7 @@ func TestPatchFeedEnableDisable(t *testing.T) {
 	require.Equal(t, 200, code)
 	require.Equal(t, false, body["enabled"])
 	require.Equal(t, "user", h.feedRow(id, "disabled_reason").String)
-	require.Equal(t, "user", body["status"])
+	require.Equal(t, "disabled", body["status"])
 	require.Len(t, feedChanged(t, sub), 1)
 
 	// a gone feed with a failure history, enabled again

@@ -488,6 +488,11 @@ func TestRetryAfterFloorHostDeadlineAndSkippedRows(t *testing.T) {
 	r.waitEvents("fetch.done", 1)
 	require.EqualValues(t, base.Add(time.Hour).Unix(), r.next(a), "next = max(now+30m backoff, now+Retry-After)")
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM fetch_log WHERE feed_id=? AND note LIKE '%retry_after=3600s%'", a))
+	holds := r.s.HostHolds() // what the health view calls "throttled"
+	require.Len(t, holds, 1)
+	for _, until := range holds {
+		require.EqualValues(t, base.Add(time.Hour).Unix(), until.Unix())
+	}
 
 	// B is due at 15 min but the host is held until 60 min: it stays due, no request is made
 	r.clk.Advance(15 * time.Minute)

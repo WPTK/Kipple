@@ -45,6 +45,7 @@ type fakeSched struct {
 	retentionAll []bool
 	wakes        int
 	down         chan struct{}
+	holds        map[string]time.Time
 }
 
 func (f *fakeSched) Submit(p sched.Priority) (<-chan sched.Reply, error) {
@@ -100,6 +101,12 @@ func (f *fakeSched) StartImport(ids []int64) (sched.RunInfo, error) {
 
 func (f *fakeSched) Status() ([]sched.RunStatus, int) {
 	return []sched.RunStatus{{ID: 42, Kind: "manual", Done: 1, Total: 3}}, 2
+}
+
+func (f *fakeSched) HostHolds() map[string]time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.holds
 }
 
 type harness struct {
@@ -407,7 +414,8 @@ func TestStatusMeHealthRefresh(t *testing.T) {
 			ID                  string   `json:"id"`
 			Title               string   `json:"title"`
 			Status              string   `json:"status"`
-			Migrated            bool     `json:"migrated"`
+			RedirectPending     bool     `json:"redirect_pending"`
+			HostThrottledUntil  *int64   `json:"host_throttled_until"`
 			Notices             []string `json:"notices"`
 			LastError           string   `json:"last_error"`
 			ConsecutiveFailures int      `json:"consecutive_failures"`
@@ -419,8 +427,9 @@ func TestStatusMeHealthRefresh(t *testing.T) {
 	require.Len(t, hf.Feeds, 1)
 	f := hf.Feeds[0]
 	require.Equal(t, "Alpha", f.Title)
-	require.Equal(t, "failing", f.Status)
-	require.True(t, f.Migrated)
+	require.Equal(t, "erroring", f.Status, "3 failures is erroring; failing starts at 14")
+	require.True(t, f.RedirectPending)
+	require.Nil(t, f.HostThrottledUntil)
 	require.Equal(t, "boom", f.LastError)
 	require.Equal(t, 3, f.ConsecutiveFailures)
 	require.Nil(t, f.LastSuccessAt)

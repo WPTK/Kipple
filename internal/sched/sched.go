@@ -428,3 +428,38 @@ func (s *Scheduler) Status() (runs []RunStatus, inflight int) {
 	sort.Slice(runs, func(i, j int) bool { return runs[i].ID < runs[j].ID })
 	return runs, inflight
 }
+
+// HostHolds snapshots the per-host politeness deadlines still in the future
+// (host -> until). Like Status it reads dispatcher state on the dispatcher
+// goroutine and gives up (returning an empty map) at shutdown or statusWait.
+func (s *Scheduler) HostHolds() map[string]time.Time {
+	out := make(chan map[string]time.Time, 1)
+	fn := func() {
+		now := s.clk.Now()
+		m := map[string]time.Time{}
+		for h, t := range s.hostUntil {
+			if t.After(now) {
+				m[h] = t
+			}
+		}
+		out <- m
+	}
+	timer := time.NewTimer(statusWait)
+	defer timer.Stop()
+	select {
+	case s.syncCh <- fn:
+	case <-s.shutdownCh:
+		return map[string]time.Time{}
+	case <-s.stopped:
+		return map[string]time.Time{}
+	case <-timer.C:
+		return map[string]time.Time{}
+	}
+	select {
+	case m := <-out:
+		return m
+	case <-s.shutdownCh:
+	case <-timer.C:
+	}
+	return map[string]time.Time{}
+}

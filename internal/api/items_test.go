@@ -279,8 +279,9 @@ func TestNewRoutesOriginRules(t *testing.T) {
 	})
 	require.Equal(t, http.StatusForbidden, code)
 
-	// The CSV export gets the same guard as the OPML download.
-	code, _, _ = h.api(c, "GET", "/api/stats/export.csv", "", noClient)
+	// The CSV export gets the same guard as the OPML download: the origin rule alone,
+	// so a cross-site request is refused before routing (the route itself is phase 4).
+	code, _, _ = h.api(c, "GET", "/api/stats/export.csv", "", crossSite)
 	require.Equal(t, http.StatusForbidden, code)
 }
 
@@ -1040,7 +1041,7 @@ func TestBootstrap(t *testing.T) {
 	}, fa)
 	require.Equal(t, map[string]any{
 		"id": sid(b), "folder_id": sid(fo), "title": "Bee", "site_url": "https://x.example/", "icon": nil,
-		"unread": float64(2), "status": "failing", "fulltext": true, "retention": float64(100), "interval_minutes": float64(60), "is_archive": false, "starred_count": float64(0),
+		"unread": float64(2), "status": "erroring", "fulltext": true, "retention": float64(100), "interval_minutes": float64(60), "is_archive": false, "starred_count": float64(0),
 	}, fb)
 
 	require.Equal(t, []any{map[string]any{"id": "42", "kind": "manual", "done": float64(1), "total": float64(3), "new_items": float64(0), "errors": float64(0)}}, body["runs"])

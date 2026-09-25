@@ -49,8 +49,8 @@ type FeedDetail struct {
 }
 
 // FeedDetail loads one feed (the archive feed included); ok is false when it does not exist.
-func (d *DB) FeedDetail(ctx context.Context, id int64) (FeedDetail, bool, error) {
-	l, err := d.uiFeeds(ctx, "f.id = ?", id)
+func (d *DB) FeedDetail(ctx context.Context, id int64, env StatusEnv) (FeedDetail, bool, error) {
+	l, err := d.uiFeeds(ctx, env, "f.id = ?", id)
 	if err != nil || len(l) == 0 {
 		return FeedDetail{}, false, err
 	}
