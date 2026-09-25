@@ -92,9 +92,13 @@ func rawString(raw json.RawMessage) (string, bool) {
 	return s, true
 }
 
+// hasControl reports a control character: anything below 0x20 except tab, and
+// DEL (the HTTP header-value rule). It is the one check for every user-supplied
+// text that ends up in a header or a display name (titles, folder names, the
+// per-feed User-Agent and HTTP auth, the custom User-Agent setting).
 func hasControl(s string) bool {
-	for _, c := range s {
-		if c < 0x20 || c == 0x7f {
+	for i := 0; i < len(s); i++ { // bytes: a multi-byte rune never has a byte below 0x80
+		if c := s[i]; c < 0x20 && c != '	' || c == 0x7f {
 			return true
 		}
 	}
@@ -615,16 +619,6 @@ func (s *Server) feedLog(w http.ResponseWriter, r *http.Request) {
 
 // ---- folders ----
 
-func (s *Server) folderJSON(r *http.Request, id int64) (store.UIFolder, error) {
-	fs, err := s.db.UIFolders(r.Context())
-	for _, f := range fs {
-		if f.ID == id {
-			return f, err
-		}
-	}
-	return store.UIFolder{}, err
-}
-
 func parseFolderName(raw json.RawMessage) (string, bool) {
 	n, ok := rawString(raw)
 	n = strings.TrimSpace(n)
@@ -688,7 +682,7 @@ func (s *Server) patchFolder(w http.ResponseWriter, r *http.Request) {
 		}
 		pos = &n
 	}
-	_, err := s.db.UpdateFolder(r.Context(), id, name, pos)
+	f, err := s.db.UpdateFolder(r.Context(), id, name, pos)
 	switch {
 	case errors.Is(err, store.ErrFolderNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
@@ -697,11 +691,6 @@ func (s *Server) patchFolder(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusConflict, "folder_exists", "a folder with that name exists")
 		return
 	case err != nil:
-		s.serverError(w, "patch folder", err)
-		return
-	}
-	f, err := s.folderJSON(r, id)
-	if err != nil {
 		s.serverError(w, "patch folder", err)
 		return
 	}
@@ -761,6 +750,13 @@ func (s *Server) getFeed(w http.ResponseWriter, r *http.Request) {
 
 // ---- POST /api/reorder ----
 
+func unmarshalMember(m map[string]json.RawMessage, key string, into any) error {
+	if raw, ok := m[key]; ok {
+		return json.Unmarshal(raw, into)
+	}
+	return nil
+}
+
 const reorderMaxIDs = 20000
 
 // reorder is POST /api/reorder: {folders?:[ids in order], feeds?:[{folder_id, ids}]}.
@@ -776,8 +772,9 @@ func (s *Server) reorder(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	raw, _ := json.Marshal(m)
-	if err := json.Unmarshal(raw, &body); err != nil {
+	// readObject already parsed the body once; decode each member from its raw
+	// bytes instead of marshalling the whole object and parsing it again.
+	if err := errors.Join(unmarshalMember(m, "folders", &body.Folders), unmarshalMember(m, "feeds", &body.Feeds)); err != nil {
 		writeErrorMsg(w, http.StatusBadRequest, "bad_request", "folders is a list of ids and feeds a list of {folder_id, ids}")
 		return
 	}

@@ -342,3 +342,12 @@ func TestAddFeedDiscoveryRetriesWithBrowserUserAgent(t *testing.T) {
 	require.Equal(t, 200, code, body)
 	require.Len(t, uas, 1, "browser_always leads with the browser string")
 }
+
+// One control-character rule for titles, folder names and header values: tab is
+// fine, everything else below 0x20 and DEL is not.
+func TestHasControlRule(t *testing.T) {
+	require.False(t, hasControl("a\tb ünï"))
+	for _, s := range []string{"a\nb", "a\rb", "a\x00b", "a\x1fb", "a\x7fb"} {
+		require.True(t, hasControl(s), "%q", s)
+	}
+}

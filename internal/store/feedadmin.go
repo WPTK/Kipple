@@ -468,7 +468,9 @@ func (d *DB) UpdateFolder(ctx context.Context, id int64, name *string, position 
 		}
 		var def int
 		out.ID = id
-		if err := tx.QueryRowContext(ctx, "SELECT name, position, is_default FROM folders WHERE id = ?", id).Scan(&out.Name, &out.Position, &def); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT name, position, is_default,
+			COALESCE((SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.folder_id = folders.id AND i.read = 0), 0)
+			FROM folders WHERE id = ?`, id).Scan(&out.Name, &out.Position, &def, &out.Unread); err != nil {
 			return err
 		}
 		out.IsDefault = def == 1
