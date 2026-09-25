@@ -1,0 +1,283 @@
+// Settings, feed management, health, account and backup calls (docs/design.md 7.1).
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { api, ApiError } from "./client";
+import { keys } from "./queries";
+import type { Bootstrap, Feed, Folder } from "./types";
+
+// ---- Settings -----------------------------------------------------------------
+
+export type SettingKind = "bool" | "enum" | "int" | "text" | "json";
+export type SettingGroup = "reading" | "sync" | "library" | "images" | "account" | "advanced";
+export type SettingSurface = "reader_menu" | "settings" | "hidden";
+
+export interface SettingOption {
+  value: string | number;
+  label: string;
+  css?: Record<string, unknown>;
+}
+
+export interface SettingMeta {
+  key: string;
+  value: unknown;
+  default: unknown;
+  label: string;
+  description: string;
+  group: SettingGroup;
+  kind: SettingKind;
+  options?: SettingOption[];
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  surface: SettingSurface;
+}
+
+export interface SettingsResponse {
+  settings: SettingMeta[];
+  values: Record<string, unknown>;
+}
+
+/** The 400 body of PATCH /api/settings. */
+export interface SettingsIssues {
+  keys: string[];
+  issues: { key: string; message: string }[];
+}
+
+export const settingsKey = ["settings"] as const;
+
+export function useSettings() {
+  return useQuery({
+    queryKey: settingsKey,
+    queryFn: ({ signal }) => api<SettingsResponse>("/api/settings", { signal }),
+    staleTime: 60_000,
+  });
+}
+
+/** Issues from a failed PATCH /api/settings (`keys`, `issues`), or null when the error is something else. */
+export function settingsIssues(e: unknown): SettingsIssues | null {
+  if (!(e instanceof ApiError) || e.status !== 400 || !e.body) return null;
+  const b = e.body as Partial<SettingsIssues>;
+  return { keys: Array.isArray(b.keys) ? b.keys : [], issues: Array.isArray(b.issues) ? b.issues : [] };
+}
+
+/** PATCH one or more settings (null resets to the default). Optimistic; rolls back on an error. */
+export function usePatchSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Record<string, unknown>) => api<SettingsResponse>("/api/settings", { method: "PATCH", body: patch }),
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: settingsKey });
+      const prev = qc.getQueryData<SettingsResponse>(settingsKey);
+      if (prev) {
+        const resolved = (k: string, v: unknown) => (v === null ? prev.settings.find((s) => s.key === k)?.default : v);
+        qc.setQueryData<SettingsResponse>(settingsKey, {
+          settings: prev.settings.map((s) => (s.key in patch ? { ...s, value: resolved(s.key, patch[s.key]) } : s)),
+          values: { ...prev.values, ...Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, resolved(k, v)])) },
+        });
+      }
+      return { prev };
+    },
+    onError: (_e, _p, ctx) => {
+      if (ctx?.prev) qc.setQueryData(settingsKey, ctx.prev);
+    },
+    onSuccess: (res) => {
+      qc.setQueryData(settingsKey, res);
+      qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, settings: res.values } : old));
+    },
+  });
+}
+
+// ---- Feeds ----------------------------------------------------------------------
+
+/** What add and edit calls return: the bootstrap feed plus the editable fields. */
+export interface FeedDetail extends Feed {
+  url: string;
+  url_original: string | null;
+  custom_title: string | null;
+  position: number;
+  enabled: boolean;
+  disabled_reason: string | null;
+  dedup_mode: "auto" | "link" | "link_title";
+  rekey_pending: boolean;
+  user_agent: string | null;
+  has_http_auth: boolean;
+  ignore_http_cache: boolean;
+  disable_http2: boolean;
+  allow_insecure_tls: boolean;
+  allow_private_net: boolean;
+  next_fetch_at: number;
+}
+
+export interface Candidate {
+  url: string;
+  title: string;
+  type: string;
+}
+
+export interface FetchOutcome {
+  outcome?: string;
+  new_items?: number;
+  error_class?: string | null;
+  error?: string | null;
+  pending?: boolean;
+}
+
+export type AddFeedResult =
+  | { status: "exists"; feed: FeedDetail }
+  | { status: "choose"; candidates: Candidate[] }
+  | { status: "ok"; feed: FeedDetail; fetch?: FetchOutcome };
+
+export const addFeed = (body: { url: string; title?: string; folder_id?: string }) =>
+  api<AddFeedResult>("/api/feeds", { method: "POST", body });
+
+export const patchFeed = (id: string, body: Record<string, unknown>) =>
+  api<FeedDetail>(`/api/feeds/${id}`, { method: "PATCH", body });
+
+/**
+ * There is no GET /api/feeds/{id}, and the editor needs custom_title, dedup_mode, the user agent and the
+ * flags. A PATCH that re-sends the feed's current `fulltext` value changes nothing and returns the full
+ * FeedDetail. Listed as an API gap in the F3 report.
+ */
+export const loadFeedDetail = (f: Feed) => patchFeed(f.id, { fulltext: f.fulltext });
+
+export const deleteFeed = (id: string, deleteStarred: boolean) =>
+  api(`/api/feeds/${id}`, { method: "DELETE", params: deleteStarred ? { delete_starred: 1 } : undefined });
+
+export const refreshFeed = (id: string, full = false) =>
+  api<FetchOutcome>(`/api/feeds/${id}/refresh`, { method: "POST", params: full ? { full: 1 } : undefined });
+
+export const createFolder = (name: string) => api<Folder>("/api/folders", { method: "POST", body: { name } });
+export const patchFolder = (id: string, body: { name?: string; position?: number }) =>
+  api<Folder>(`/api/folders/${id}`, { method: "PATCH", body });
+export const deleteFolder = (id: string) => api(`/api/folders/${id}`, { method: "DELETE" });
+
+export const invalidateFeeds = (qc: QueryClient) => {
+  void qc.invalidateQueries({ queryKey: keys.bootstrap });
+  void qc.invalidateQueries({ queryKey: ["health"] });
+};
+
+export interface OpmlResult {
+  folders_created: number;
+  feeds_added: number;
+  feeds_existing: { url: string; feed_id: string }[];
+  folders_merged_case: string[];
+  memberships_dropped: { url: string; kept: string; dropped: string[] }[];
+  ignored_attrs?: unknown[];
+  run_id?: string;
+}
+
+/** Multipart OPML upload (the api() helper is JSON only). */
+export async function importOpml(file: File, markReadOlderThanDays?: number): Promise<OpmlResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const q = markReadOlderThanDays ? `?mark_read_older_than_days=${markReadOlderThanDays}` : "";
+  const res = await fetch(`/api/opml${q}`, {
+    method: "POST",
+    headers: { "X-Kipple-Client": "web", Accept: "application/json" },
+    body: fd,
+    credentials: "same-origin",
+  });
+  if (!res.ok) {
+    let code = `http_${res.status}`;
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = (await res.json()) as Record<string, unknown>;
+      if (typeof body.error === "string") code = body.error;
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(res.status, code, body);
+  }
+  return (await res.json()) as OpmlResult;
+}
+
+// ---- Health ---------------------------------------------------------------------
+
+export interface HealthFeed {
+  id: string;
+  title: string;
+  url: string;
+  url_original: string | null;
+  status: string;
+  redirect_pending: boolean;
+  notices: string[];
+  enabled: boolean;
+  disabled_reason: string | null;
+  last_success_at: number | null;
+  last_fetch_at: number | null;
+  last_error_at: number | null;
+  last_error_class: string | null;
+  last_error: string | null;
+  last_status: number | null;
+  consecutive_failures: number;
+  current_delay_s: number | null;
+  next_fetch_at: number | null;
+  redirect_to: string | null;
+  redirect_kind: string | null;
+  redirect_count: number;
+  last_new_items_at: number | null;
+  trimmed_unread_count: number;
+  trimmed_unread_since: number | null;
+  host_throttled_until: number | null;
+}
+
+export interface HealthResponse {
+  feeds: HealthFeed[];
+  clients: { family: string; last_seen_at: number }[];
+  snapshot: { last_at: number | null; last_error: string | null };
+  clock: { ahead_s: number };
+  db: { db_bytes: number; wal_bytes: number; backup_bytes: number; imgcache_bytes: number };
+  unread_total: number;
+}
+
+export interface FetchLogRow {
+  id: string;
+  trigger: string;
+  started_at: number;
+  duration_ms: number;
+  outcome: string;
+  http_status: number | null;
+  error_class: string | null;
+  error: string | null;
+  new_items: number;
+  updated_items: number;
+  trimmed_items: number;
+  first_item_id: string | null;
+  last_item_id: string | null;
+  bytes: number | null;
+  final_url: string | null;
+  note: string | null;
+  keep: boolean;
+}
+
+export const useHealth = () =>
+  useQuery({ queryKey: ["health", "feeds"], queryFn: ({ signal }) => api<HealthResponse>("/api/health/feeds", { signal }), staleTime: 15_000 });
+
+export const useFeedLog = (id: string | null) =>
+  useQuery({
+    queryKey: ["health", "log", id],
+    queryFn: ({ signal }) => api<{ log?: FetchLogRow[]; rows?: FetchLogRow[] } | FetchLogRow[]>(`/api/health/feeds/${id}/log`, { signal }),
+    enabled: !!id,
+    select: (d): FetchLogRow[] => (Array.isArray(d) ? d : (d.log ?? d.rows ?? [])),
+  });
+
+// ---- Account and backup ---------------------------------------------------------
+
+export const changePassword = (current: string, next: string) =>
+  api("/api/account/password", { method: "POST", body: { current, new: next } });
+export const generateApiPassword = (current: string) =>
+  api<{ api_password: string }>("/api/account/api-password", { method: "POST", body: { current, generate: true } });
+export const applyRetention = () => api<{ run_id: string; total: number }>("/api/retention/apply", { method: "POST" });
+
+export interface BackupInfo {
+  token: string;
+  url: string;
+  filename: string;
+  bytes: number;
+  expires_at: number;
+  expires_in: number;
+  warning: string;
+  contents: { kipple_version: string; schema_version: number; created_at: number; feeds: number; items: number; starred: number; db_bytes: number };
+}
+
+export const createBackup = () => api<BackupInfo>("/api/backup", { method: "POST" });

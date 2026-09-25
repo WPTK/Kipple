@@ -3,11 +3,14 @@ import { createStore } from "@/lib/store";
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
-  constructor(status: number, code: string) {
+  /** The parsed JSON error body, when there was one (settings 400s carry `keys` and `issues`). */
+  readonly body: Record<string, unknown> | null;
+  constructor(status: number, code: string, body: Record<string, unknown> | null = null) {
     super(`${status} ${code}`);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.body = body;
   }
 }
 
@@ -75,13 +78,14 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
   }
   if (!res.ok) {
     let code = "http_" + res.status;
+    let body: Record<string, unknown> | null = null;
     try {
-      const j = (await res.json()) as { error?: string };
-      if (j.error) code = j.error;
+      body = (await res.json()) as Record<string, unknown>;
+      if (typeof body.error === "string") code = body.error;
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(res.status, code);
+    throw new ApiError(res.status, code, body);
   }
   if (authStore.get() !== "in") authStore.set("in");
   if (res.status === 204) return undefined as T;
