@@ -27,6 +27,7 @@ import (
 	"github.com/WPTK/kipple/internal/greader"
 	"github.com/WPTK/kipple/internal/maint"
 	"github.com/WPTK/kipple/internal/sched"
+	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 	kweb "github.com/WPTK/kipple/internal/web"
 )
@@ -134,8 +135,9 @@ func runServe() error {
 
 	// The Reader API claims /api/greader.php and its root aliases ahead of the
 	// mux, so no ServeMux ever sees a Reader path (design §6.1).
+	recorder := stats.New(time.Now)
 	readerAPI := greader.New(greader.Options{
-		DB: db, Logger: logger, Wake: scheduler.Wake, Events: hub,
+		DB: db, Logger: logger, Wake: scheduler.Wake, Events: hub, Stats: recorder,
 		TrustedProxies: cfg.TrustedProxyIPs, PublicURL: cfg.PublicURL, LogForms: cfg.LogGreaderForms,
 		Verifier: verifier,
 	})
@@ -146,10 +148,13 @@ func runServe() error {
 	}
 
 	mux := http.NewServeMux()
-	api.New(api.Options{
+	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
 		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
-	}).Register(mux)
+		Stats: recorder, Version: version,
+	})
+	defer uiAPI.Close()
+	uiAPI.Register(mux)
 	mux.Handle("/", webHandler)
 
 	srv := &http.Server{

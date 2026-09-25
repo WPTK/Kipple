@@ -14,11 +14,13 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/sched"
+	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -54,6 +56,12 @@ type Options struct {
 	// shared with greader.Options.Verifier (nil builds a private one, tests only).
 	Lockout  *auth.Lockout
 	Verifier *auth.Verifier
+	// Stats records open and star events; nil builds the SQL recorder on Now.
+	Stats stats.Recorder
+	// Version is reported by /api/bootstrap.
+	Version string
+	// CountsInterval is the minimum gap between `counts` events (default 1 s).
+	CountsInterval time.Duration
 	// Now defaults to the wall clock. Heartbeat defaults to 15 s.
 	Now       func() time.Time
 	Heartbeat time.Duration
@@ -68,6 +76,12 @@ type Server struct {
 	lock *auth.Lockout
 
 	verifier *auth.Verifier // shared with the Reader API (one argon2 slot per process)
+	rec      stats.Recorder
+
+	cmu    sync.Mutex // guards the counts coalescer
+	clast  time.Time
+	ctimer *time.Timer
+	closed bool
 }
 
 // New builds the API server.
@@ -84,6 +98,13 @@ func New(opt Options) *Server {
 	}
 	if s.verifier == nil {
 		s.verifier = auth.NewVerifier(nil, auth.VerifierOptions{})
+	}
+	s.rec = opt.Stats
+	if s.rec == nil {
+		s.rec = stats.New(s.now)
+	}
+	if s.opt.CountsInterval <= 0 {
+		s.opt.CountsInterval = time.Second
 	}
 	if s.opt.Heartbeat <= 0 {
 		s.opt.Heartbeat = heartbeatDefault
@@ -103,6 +124,13 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("GET /api/health/feeds", s.authed(s.healthFeeds))
 	handle("POST /api/refresh", s.authed(s.refresh))
 	handle("GET /api/events", s.authed(s.events))
+	handle("GET /api/bootstrap", s.authed(s.bootstrap))
+	handle("GET /api/items", s.authed(s.listItems))
+	handle("POST /api/items/mark-read", s.authed(s.markRead))
+	handle("GET /api/items/{id}", s.authed(s.getItem))
+	handle("POST /api/items/{id}/open", s.authed(s.openItem))
+	handle("PUT /api/items/{id}/star", s.authed(s.starItem))
+	handle("POST /api/stats/events", s.authed(s.statsEvents))
 	handle("POST /api/opml", s.authed(s.opmlImport))
 	handle("GET /api/opml", s.authed(s.opmlExport))
 	handle("/api/", s.authed(func(w http.ResponseWriter, r *http.Request) {
@@ -152,7 +180,7 @@ func needsOriginCheck(r *http.Request) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		return true
 	}
-	return r.URL.Path == "/api/opml"
+	return r.URL.Path == "/api/opml" || r.URL.Path == "/api/stats/export.csv"
 }
 
 // sameOrigin is design §7's same-origin enforcement.
@@ -163,6 +191,9 @@ func (s *Server) sameOrigin(r *http.Request) bool {
 		}
 	} else if o := r.Header.Get("Origin"); o == "" || o != s.scheme(r)+"://"+r.Host {
 		return false
+	}
+	if r.Method == http.MethodPost && r.URL.Path == "/api/stats/events" {
+		return true // sendBeacon cannot set headers; rules 1 and 2 still applied (design §7)
 	}
 	c := r.Header.Get("X-Kipple-Client")
 	return c == "web" || c == "pwa"

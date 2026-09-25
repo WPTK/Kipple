@@ -87,6 +87,7 @@ func newHarness(t *testing.T, tune ...func(*Options)) *harness {
 		f(&opt)
 	}
 	h.srv = New(opt)
+	t.Cleanup(h.srv.Close)
 	h.srv.Register(h.mux)
 	return h
 }
