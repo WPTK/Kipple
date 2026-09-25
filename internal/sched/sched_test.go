@@ -403,11 +403,13 @@ func TestManualRunAttachesToInFlightFetches(t *testing.T) {
 		byFeed[ev["feed_id"].(string)] = ev["run_ids"].([]any)
 	}
 	for _, id := range ids {
-		require.Contains(t, byFeed[fmt.Sprint(id)], float64(info.RunID))
+		require.Contains(t, byFeed[fmt.Sprint(id)], fmt.Sprint(info.RunID), "run ids are strings")
 	}
 	start := r.events("run.start")
 	require.Len(t, start, 1)
 	require.EqualValues(t, 4, start[0]["total"])
+	require.Equal(t, fmt.Sprint(info.RunID), start[0]["run_id"], "run.start carries the run id as a string")
+	require.Equal(t, fmt.Sprint(info.RunID), r.events("run.done")[0]["run_id"])
 }
 
 func TestRunKindsDoNotJoinAndEmptyRunFinishes(t *testing.T) {
@@ -887,6 +889,7 @@ func TestPartialChunkedCommitStillReportsCommittedItems(t *testing.T) {
 	require.EqualValues(t, 250, ev["new_items"], "but chunk 1's items are reported")
 	ids, _ := ev["new_item_ids"].([]any)
 	require.Len(t, ids, maxEventIDs)
+	require.IsType(t, "", ids[0], "item ids are strings")
 	require.EqualValues(t, 250, r.num("SELECT count(*) FROM items WHERE feed_id = ?", id))
 }
 

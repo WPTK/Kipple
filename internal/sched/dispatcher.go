@@ -224,9 +224,10 @@ func (s *Scheduler) handleDone(r result) {
 		delete(s.notBefore, r.feedID)
 	}
 
-	var runIDs []int64
+	// Ids are strings in every JSON body (design §7).
+	runIDs := []string{}
 	for _, run := range f.runs {
-		runIDs = append(runIDs, run.ID)
+		runIDs = append(runIDs, strconv.FormatInt(run.ID, 10))
 		run.Done++
 		run.NewItems += r.newItems
 		if r.outcome == fetch.OutcomeError {
@@ -237,7 +238,7 @@ func (s *Scheduler) handleDone(r result) {
 			if s.runs[run.Kind] == run {
 				delete(s.runs, run.Kind)
 			}
-			s.hub.Publish("run.done", map[string]any{"run_id": run.ID, "new_items": run.NewItems, "errors": run.Errors})
+			s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": run.NewItems, "errors": run.Errors})
 		}
 	}
 
@@ -250,12 +251,12 @@ func (s *Scheduler) handleDone(r result) {
 		}
 	}
 
-	ids := r.newIDs
-	if len(ids) > maxEventIDs {
-		ids = ids[:maxEventIDs]
+	ids := make([]string, 0, min(len(r.newIDs), maxEventIDs))
+	for _, id := range r.newIDs[:min(len(r.newIDs), maxEventIDs)] {
+		ids = append(ids, idStr(id))
 	}
 	ev := map[string]any{
-		"feed_id": strconv.FormatInt(r.feedID, 10), "run_ids": runIDs, "trigger": r.trigger, "outcome": r.outcome,
+		"feed_id": idStr(r.feedID), "run_ids": runIDs, "trigger": r.trigger, "outcome": r.outcome,
 		"new_items": r.newItems, "new_item_ids": ids, "updated_items": r.updated, "trimmed_items": r.trimmed,
 		"error_class": r.errClass, "error": r.errMsg,
 	}
@@ -264,12 +265,12 @@ func (s *Scheduler) handleDone(r result) {
 	}
 	s.hub.Publish("fetch.done", ev)
 	if r.migrated || r.gone {
-		s.hub.Publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(r.feedID, 10)})
+		s.hub.Publish("feed.changed", map[string]any{"feed_id": idStr(r.feedID)})
 	}
 	for _, run := range f.runs {
 		if s.runs[run.Kind] == run && now.Sub(run.lastProgress) >= progressEvery {
 			run.lastProgress = now
-			s.hub.Publish("run.progress", map[string]any{"run_id": run.ID, "done": run.Done, "total": run.Total,
+			s.hub.Publish("run.progress", map[string]any{"run_id": idStr(run.ID), "done": run.Done, "total": run.Total,
 				"new_items": run.NewItems, "errors": run.Errors})
 		}
 	}
@@ -346,12 +347,12 @@ func (s *Scheduler) handleRun(req runReq) {
 	}
 	run.Total = run.Outstanding
 	if run.Total == 0 {
-		s.hub.Publish("run.done", map[string]any{"run_id": run.ID, "new_items": 0, "errors": 0})
+		s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": 0, "errors": 0})
 		reply(runReply{info: RunInfo{RunID: run.ID, Kind: run.Kind}})
 		return
 	}
 	s.runs[run.Kind] = run
-	s.hub.Publish("run.start", map[string]any{"run_id": run.ID, "kind": run.Kind, "total": run.Total})
+	s.hub.Publish("run.start", map[string]any{"run_id": idStr(run.ID), "kind": run.Kind, "total": run.Total})
 	for _, f := range toEnqueue {
 		s.enqueue(f)
 	}
@@ -512,6 +513,8 @@ func (s *Scheduler) settleRunFeed(run *Run, isErr bool) {
 		if s.runs[run.Kind] == run {
 			delete(s.runs, run.Kind)
 		}
-		s.hub.Publish("run.done", map[string]any{"run_id": run.ID, "new_items": run.NewItems, "errors": run.Errors})
+		s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": run.NewItems, "errors": run.Errors})
 	}
 }
+
+func idStr(id int64) string { return strconv.FormatInt(id, 10) }
