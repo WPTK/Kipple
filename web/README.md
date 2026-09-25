@@ -12,8 +12,11 @@ React 19, TypeScript (strict), Vite 8, Tailwind v4, TanStack Query and Virtual, 
 - **Data:** TanStack Query (lists are snapshots: `staleTime: Infinity`, patched in place by mutations and SSE),
   TanStack Virtual for the list.
 - **TypeScript is 6.0.x**, not 7: `typescript-eslint` supports up to 6.0.
-- **Fonts** are self-hosted through `@fontsource` (Literata variable, Atkinson Hyperlegible Next as "Easy to
-  read"). The other CLAUDE.md fonts come with the reading-settings step.
+- **Fonts** are self-hosted through `@fontsource` (all OFL): Literata, Vollkorn, Source Serif 4, Inter, Manrope,
+  Source Sans 3 and JetBrains Mono (variable), Gentium Book Plus, Arvo and Source Code Pro (static), plus Atkinson
+  Hyperlegible Next labelled "Easy to read". `src/lib/fonts.ts` is the list. **Charter is not vendored**: Butterick's
+  release has to be downloaded from his site and its licence text could not be confirmed from here, so Charter is
+  offered only where the device has it (macOS and iOS ship it), like New York, SF Pro, SF Mono, Georgia and Menlo.
 - **`internal/web` only serves `/assets/*` and `index.html`.** Anything in `public/` would fall through to
   `index.html`, so there is no `public/`; generated files (theme boot script, fonts) go under `assets/`.
 
@@ -23,7 +26,8 @@ React 19, TypeScript (strict), Vite 8, Tailwind v4, TanStack Query and Virtual, 
 src/api/      fetch client (X-Kipple-Client, 401), types, TanStack Query hooks, SSE + fallback polling
 src/layouts/  the five list layouts behind the ListLayout interface (Magazine, Cards, Compact, Inbox, Headlines)
 src/gestures/ row swipe, long press, swipe back, pull to refresh (pointer tracking, no gesture library)
-src/screens/  list pane, article pane, feeds, search, settings, login
+src/screens/  list pane, article pane, feeds (add, edit, folders, OPML), feed health, search, settings, login
+src/ui/       button, segmented control, kit.tsx (modal, field, switch, stepper, disclosure, notices)
 src/shell/    app shell (tab bar / sidebar, landmarks, live region, toasts)
 src/theme/    schemes.json, CSS + boot script generators, picker (see src/theme/README.md)
 src/lib/      keyboard, per-device prefs (layout, order, density, font, text size), undo, formatting, safe HTML
@@ -67,6 +71,51 @@ oldest-first list). If the event stream is closed for good (a proxy 502 during a
 **Bulk read API.** `POST /api/items/mark-read` with `{scope:{view, feed_id|folder_id|all:true, q?}, bound?:{order,
 side, anchor:{sort_at,id}, inclusive:false}, max_id, read:true, reason}`, answered by `{changed, restored, count,
 undoable}` (docs/design.md 7.1). Toasts and announcements go through the shell's persistent live regions.
+
+## Settings, feed management, health, account (step F3)
+
+**Settings** (`SettingsScreen`) draws the server's `GET /api/settings` metadata with one generic renderer
+(`SettingField`): a switch for `bool`, segmented buttons (up to four options) or a select for `enum`, a stepper for
+`int` (no sliders), a text box for `text`; `json` is never shown. Changes are a `PATCH /api/settings` with an
+optimistic update that rolls back on error; a 400's `keys` and `issues` show under the control; "Reset to default"
+sends `null`. Groups: Reading, Sync, Library, Images, Account, and Advanced (collapsed). Keys the screen draws itself
+or cannot honor yet (`ui.mark_read_on_scroll` sits in Accessibility; `ui.font_ui` is skipped until the interface
+font is wired) are left out of the generic list.
+
+**Reading appearance** (the "Aa" button in the list header and the article toolbar, and Settings > Appearance):
+theme (including "Match my device" with any day and night pair), font, text size, one Density choice with an "Adjust
+separately" disclosure, and reading spacing. Everything is stored per device (`prefs.ts`, `theme/`); the server's
+`ui.*` reader-menu keys are global, so today they only supply labels.
+
+**Feeds** (`FeedsScreen`, `screens/feeds/`): add (address, optional title and folder; the exists, choose and ok
+flows, then the first-fetch result), edit (title, address, folder, layout on this device, interval, retention, full
+text, enabled; Advanced: duplicate detection, user agent, login, ignore HTTP cache, no HTTP/2; "Unsafe options" for
+insecure TLS and private network, with warnings), delete with the starred count and "delete starred too", refresh
+now, folders (create, rename, delete, layout override) and reordering with Move up and Move down buttons, OPML import
+(with `mark_read_older_than_days` and a result summary) and export (a plain download link). **Changing the feed URL**
+is the address field: `PATCH /api/feeds/{id}` with `url`.
+
+**Feed health** (`/health`): a sortable, filterable table on wide screens and cards on phones, plain-English
+statuses (`lib/feedStatus.ts`), the one-tap "Update to new URL" for a pending permanent redirect, the 14-day fetch
+log with "Mark this fetch read", refresh now, turn on or off, reset the trimmed-unread count, and the bootstrap
+`warnings` (also shown once per session as a banner above every screen).
+
+**Account and backup**: change the web password, generate an API password (shown once, with Copy and the Reeder or
+NetNewsWire server URL), export a backup (build, confirm the returned `warning` and `contents`, then a real download
+link so the browser's save dialog picks the place; 409, 507 and 413 have their own messages), apply retention now,
+sign out.
+
+**Live updates**: the app owns event-stream reconnection. It closes the `EventSource` on every error, so the
+browser's own retry (every `retry: 3000` ms with no backoff, forever) never runs, and schedules exactly one attempt
+per backoff step (1 s doubling to 30 s with jitter). The backoff restarts only after a delivered message or a stream
+that stayed open 10 s. Tests: `api/events.hook.test.tsx`.
+
+## Accessibility
+
+`ACCESSIBILITY.md` is the checklist. Settings > Accessibility holds Text size, Easy-to-read font, Reading spacing,
+Reduce motion (follow system, on, off), Mark as read while scrolling (off by default), Listen to articles (voice and
+speed), plus Larger buttons and Titles only in lists. The OS settings for contrast, forced colors, text size and
+motion are followed without any setting.
 
 ## Scripts
 
