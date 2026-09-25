@@ -20,6 +20,7 @@ import (
 const (
 	maxBodyBytes   = 1 << 20
 	maxMarkIDs     = 10000
+	maxLedgerIDs   = 20000
 	maxIDsQuery    = store.CardMaxLimit
 	maxSearchQuery = 1000
 	maxStatsBatch  = 200
@@ -146,6 +147,13 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 			q.Cursor = &c
 		}
 	}
+	// as_of is read before the list so every item the page shows has an id at or
+	// below it; the client sends it back as mark-read max_id (design §7.1).
+	asOf, err := s.db.MaxCommittedID(r.Context())
+	if err != nil {
+		s.serverError(w, "list items", err)
+		return
+	}
 	cards, next, err := s.db.ListCards(r.Context(), q)
 	if err != nil {
 		s.log.Error("api: list items", "err", err)
@@ -157,7 +165,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	if next != nil {
 		cur = next.Encode()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": cards, "next_cursor": cur})
+	writeJSON(w, http.StatusOK, map[string]any{"items": cards, "next_cursor": cur, "as_of": strconv.FormatInt(asOf, 10)})
 }
 
 // ---- GET /api/items/{id} ----
@@ -316,9 +324,10 @@ type markReadRequest struct {
 		} `json:"anchor"`
 		Inclusive bool `json:"inclusive"`
 	} `json:"bound"`
-	MaxID  json.RawMessage `json:"max_id"`
-	Read   *bool           `json:"read"`
-	Reason string          `json:"reason"`
+	MaxID     json.RawMessage   `json:"max_id"`
+	LedgerIDs []json.RawMessage `json:"ledger_ids"`
+	Read      *bool             `json:"read"`
+	Reason    string            `json:"reason"`
 }
 
 // markRead never receives the Recorder: read-state changes are not stats
@@ -344,7 +353,7 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 
 	var scope store.MarkScope
 	var filter store.MarkFilter
-	var ids []int64
+	var ids, ledger []int64
 	var maxID int64
 	if req.Scope != nil {
 		sc := req.Scope
@@ -424,6 +433,18 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 			}
 			ids = append(ids, id)
 		}
+		if len(req.LedgerIDs) > maxLedgerIDs || (len(req.LedgerIDs) > 0 && read) {
+			bad()
+			return
+		}
+		for _, raw := range req.LedgerIDs {
+			id, ok := parseID(raw)
+			if !ok {
+				bad()
+				return
+			}
+			ledger = append(ledger, id)
+		}
 	}
 
 	var res store.StateResult
@@ -433,6 +454,9 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 			res, err = store.MarkScopeRead(ctx, tx, scope, filter, maxID, now)
 		} else {
 			res, err = store.SetRead(ctx, tx, ids, read, now)
+			if err == nil {
+				res.LedgerRead, err = store.UnreadLedger(ctx, tx, ledger)
+			}
 		}
 		return err
 	})
@@ -443,11 +467,11 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 	s.log.Debug("api: mark-read", "reason", req.Reason, "read", read, "changed", len(res.Changed))
 	s.publishState(res, map[string]any{"read": read})
 	// Above the cap the ids are withheld: the client resyncs and offers no undo.
-	changed, undoable := res.Changed, len(res.Changed) <= maxMarkIDs
+	changed, ledgerIDs, undoable := res.Changed, res.LedgerRead, len(res.Changed) <= maxMarkIDs && len(res.LedgerRead) <= maxLedgerIDs
 	if !undoable {
-		changed = nil
+		changed, ledgerIDs = nil, nil
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"changed": idStrings(nonNil(changed)), "restored": idStrings(nonNil(res.Restored)), "count": len(res.Changed), "undoable": undoable})
+	writeJSON(w, http.StatusOK, map[string]any{"changed": idStrings(nonNil(changed)), "restored": idStrings(nonNil(res.Restored)), "ledger_ids": idStrings(nonNil(ledgerIDs)), "count": len(res.Changed), "undoable": undoable})
 }
 
 func nonNil(ids []int64) []int64 {

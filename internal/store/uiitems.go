@@ -475,7 +475,11 @@ func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilte
 		return res, err
 	}
 	if !scope.Starred && !f.any() {
-		if _, err := tx.ExecContext(ctx, "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :max"+feedWhere, base...); err != nil {
+		lrows, err := tx.QueryContext(ctx, "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :max"+feedWhere+" RETURNING id, feed_id", base...)
+		if err != nil {
+			return res, fmt.Errorf("store: mark scope ledger: %w", err)
+		}
+		if res.LedgerRead, err = scanIDs(lrows); err != nil {
 			return res, fmt.Errorf("store: mark scope ledger: %w", err)
 		}
 	}

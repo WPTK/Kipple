@@ -17,6 +17,10 @@ type StateResult struct {
 	Changed []int64
 	// Restored are ids that came back from the retention ledger.
 	Restored []int64
+	// LedgerRead are trimmed-ledger ids a scope mark flipped to read. They are not
+	// items, so they are not in Changed; a client keeps them for undo
+	// (UnreadLedger), since the Reader API still reports the ledger.
+	LedgerRead []int64
 }
 
 func idsJSON(ids []int64) (string, error) {
@@ -239,4 +243,24 @@ func (d *DB) MaxCommittedID(ctx context.Context) (int64, error) {
 	err := d.reader.QueryRowContext(ctx, `SELECT max(COALESCE((SELECT max(id) FROM items), 0),
 		COALESCE((SELECT max(id) FROM trimmed_items), 0))`).Scan(&id)
 	return id, err
+}
+
+// UnreadLedger flips ledger rows back to unread without restoring any stub: the
+// undo of a bulk mark-read, whose ledger rows were only ever flag-flipped.
+// Live items are untouched. It returns the ids that changed.
+func UnreadLedger(ctx context.Context, tx *sql.Tx, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	js, err := idsJSON(ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `UPDATE trimmed_items SET read = 0
+		WHERE id IN (SELECT value FROM json_each(?1)) AND read = 1
+		  AND id NOT IN (SELECT id FROM items) RETURNING id, feed_id`, js)
+	if err != nil {
+		return nil, err
+	}
+	return scanIDs(rows)
 }
