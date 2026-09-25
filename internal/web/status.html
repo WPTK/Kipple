@@ -69,6 +69,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var H = { "X-Kipple-Client": "web" };
   var es = null, refreshTimer = null;
+  var titles = {}, runs = {};
 
   function api(method, path, body, raw) {
     var opt = { method: method, headers: Object.assign({}, H), credentials: "same-origin" };
@@ -100,6 +101,7 @@
       return r.json().then(function (d) {
         var tb = $("feeds"); tb.textContent = "";
         d.feeds.forEach(function (f) {
+          titles[String(f.id)] = f.title;
           var tr = document.createElement("tr");
           cell(tr, f.title).title = f.url;
           cell(tr, f.status, f.status);
@@ -126,12 +128,45 @@
     if (refreshTimer) return;
     refreshTimer = setTimeout(function () { refreshTimer = null; loadFeeds(); loadStatus(); }, 800);
   }
-  function log(type, data) {
+  function log(text, cls, raw) {
     var d = $("log"), line = document.createElement("div");
-    line.textContent = new Date().toLocaleTimeString() + "  " + type + "  " + (data || "");
+    line.textContent = new Date().toLocaleTimeString() + "  " + text;
+    if (cls) line.className = cls;
+    if (raw) line.title = raw;
     d.appendChild(line);
     while (d.childNodes.length > 200) d.removeChild(d.firstChild);
     d.scrollTop = d.scrollHeight;
+  }
+  function feedName(id) { return titles[String(id)] || "feed #" + id; }
+  function runLine(r) { return "refresh " + r.done + "/" + r.total + " (" + r.new_items + " new, " + r.errors + " errors)"; }
+  // Turn one server event into a short line. Raw JSON stays in the line's title.
+  function describe(type, raw) {
+    var d = {};
+    try { d = JSON.parse(raw) || {}; } catch (x) { return [type, ""]; }
+    var r;
+    switch (type) {
+      case "fetch.done":
+        if (d.error) return ["fetch " + d.outcome + "  " + feedName(d.feed_id) + "  " + (d.error_class || "error") + ": " + d.error, "failing"];
+        return ["fetch " + d.outcome + "  " + feedName(d.feed_id) + "  " + (d.new_items || 0) + " new", ""];
+      case "run.start":
+        r = runs[d.run_id] = { done: 0, total: d.total || 0, new_items: 0, errors: 0 };
+        return [runLine(r), ""];
+      case "run.progress":
+        r = runs[d.run_id] = { done: d.done, total: d.total, new_items: d.new_items, errors: d.errors };
+        return [runLine(r), ""];
+      case "run.done":
+        r = runs[d.run_id] || { done: 0, total: 0 };
+        r.new_items = d.new_items; r.errors = d.errors; r.done = r.total;
+        delete runs[d.run_id];
+        return [runLine(r) + " done", d.errors ? "failing" : ""];
+      case "items.state":
+        return ["items changed (" + (d.ids ? d.ids.length : 0) + ")", ""];
+      case "feed.changed":
+        return ["feed changed" + (d.feed_id ? "  " + feedName(d.feed_id) : ""), ""];
+      case "resync":
+        return ["resync requested", "warn"];
+    }
+    return [type, ""];
   }
   function start() {
     stop();
@@ -140,7 +175,7 @@
     es.onerror = function () { $("conn").textContent = "events: reconnecting"; };
     ["run.start", "run.progress", "run.done", "fetch.done", "items.state", "counts", "feed.changed", "resync"].forEach(function (t) {
       es.addEventListener(t, function (e) {
-        log(t, e.data);
+        var l = describe(t, e.data); log(l[0], l[1], e.data);
         if (t !== "items.state") scheduleReload();
       });
     });
@@ -184,7 +219,7 @@
     file.text().then(function (t) { return api("POST", "/api/opml", t, true); }).then(function (r) {
       return r.json().then(function (d) {
         if (!r.ok) { err("Import failed: " + (d.error || r.status)); return; }
-        err(""); log("import", d.feeds_added + " added, " + d.feeds_existing.length + " existing");
+        err(""); log("import  " + d.feeds_added + " added, " + d.feeds_existing.length + " existing");
         scheduleReload();
       });
     }).catch(function () { err("Import failed."); });
