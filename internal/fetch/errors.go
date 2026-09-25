@@ -1,0 +1,71 @@
+package fetch
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+)
+
+// Error classes (fetch_log.error_class, design §2.2).
+const (
+	ClassTimeout      = "timeout"
+	ClassDNS          = "dns"
+	ClassConnect      = "connect"
+	ClassTLS          = "tls"
+	ClassHTTP         = "http"
+	ClassCloudflare   = "cloudflare"
+	ClassTooLarge     = "too_large"
+	ClassEmpty        = "empty"
+	ClassParse        = "parse"
+	ClassSSRF         = "ssrf"
+	ClassRedirectLoop = "redirect_loop"
+	ClassGone         = "gone"
+)
+
+// errTooManyHops is returned by CheckRedirect after more than 5 redirects.
+var errTooManyHops = errors.New("stopped after 5 redirects")
+
+// Classify maps a transport-level error to an error class and message
+// (design §4.5).
+func Classify(err error) (class, msg string) {
+	var blocked *BlockedError
+	var dnsErr *net.DNSError
+	var maxBytes *http.MaxBytesError
+	var unknownCA x509.UnknownAuthorityError
+	var hostErr x509.HostnameError
+	var certInvalid x509.CertificateInvalidError
+	var verifyErr *tls.CertificateVerificationError
+	var recHdr tls.RecordHeaderError
+	var opErr *net.OpError
+	var urlErr *url.Error
+
+	switch {
+	case errors.As(err, &blocked):
+		return ClassSSRF, blocked.Error()
+	case errors.Is(err, errTooManyHops):
+		return ClassRedirectLoop, errTooManyHops.Error()
+	case errors.As(err, &maxBytes):
+		return ClassTooLarge, fmt.Sprintf("response larger than %d MiB", maxBodyBytes>>20)
+	case errors.Is(err, context.DeadlineExceeded), isTimeout(err):
+		return ClassTimeout, "timed out"
+	case errors.As(err, &dnsErr):
+		return ClassDNS, dnsErr.Error()
+	case errors.As(err, &unknownCA), errors.As(err, &hostErr), errors.As(err, &certInvalid),
+		errors.As(err, &verifyErr), errors.As(err, &recHdr):
+		return ClassTLS, err.Error()
+	case errors.As(err, &opErr), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF), errors.As(err, &urlErr):
+		return ClassConnect, err.Error()
+	}
+	return ClassConnect, err.Error()
+}
+
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
