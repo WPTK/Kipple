@@ -175,6 +175,16 @@ func restore(ctx context.Context, o restoreOptions) error {
 			return fmt.Errorf("copy %s: %w", o.Src, err)
 		}
 		created = "a bare database file (no checksums to verify, only its own integrity checks)"
+		// A database that was not closed cleanly has its newest transactions in a
+		// -wal beside it (a pre-restore copy after an unclean stop). Bring the WAL
+		// along so opening the copy replays and checkpoints it; the .db alone would
+		// silently drop those transactions.
+		if st, err := os.Stat(o.Src + "-wal"); err == nil && st.Size() > 0 {
+			if err := copyFile(o.Src+"-wal", tmp+"-wal"); err != nil {
+				return fmt.Errorf("copy %s-wal: %w", o.Src, err)
+			}
+			created += "; its -wal was applied"
+		}
 	}
 	info, err := backup.Inspect(ctx, tmp, true)
 	if err != nil {
@@ -192,10 +202,14 @@ func restore(ctx context.Context, o restoreOptions) error {
 		fmt.Fprintf(out, "  %d web session(s) in the backup were signed out.\n", n)
 	}
 
+	fixOwnership(out, o.DataDir, tmp) // before the swap: it is renamed, ownership kept
 	var pre string
 	moved, err := swap(o.DataDir, tmp, live, o.Now(), &pre)
 	if err != nil {
 		return err
+	}
+	if moved {
+		fixOwnership(out, o.DataDir, pre)
 	}
 	prunePreRestore(filepath.Join(o.DataDir, "backup"))
 	if moved {
@@ -213,7 +227,7 @@ func restore(ctx context.Context, o restoreOptions) error {
 // backup/pre-restore-<ts>/ directory and renames tmp over kipple.db. Any
 // failure puts everything back.
 func swap(dataDir, tmp, live string, now time.Time, preOut *string) (moved bool, err error) {
-	pre := filepath.Join(dataDir, "backup", "pre-restore-"+now.Format("20060102-150405"))
+	var pre string
 	var done []string // suffixes moved so far
 	rollback := func() {
 		for _, s := range done {
@@ -225,7 +239,8 @@ func swap(dataDir, tmp, live string, now time.Time, preOut *string) (moved bool,
 			continue
 		}
 		if len(done) == 0 {
-			if err := os.MkdirAll(pre, 0o755); err != nil {
+			var err error
+			if pre, err = newPreRestoreDir(filepath.Join(dataDir, "backup"), now); err != nil {
 				return false, fmt.Errorf("pre-restore directory: %w", err)
 			}
 		}
@@ -241,6 +256,28 @@ func swap(dataDir, tmp, live string, now time.Time, preOut *string) (moved bool,
 	}
 	*preOut = pre
 	return len(done) > 0, nil
+}
+
+// newPreRestoreDir creates backup/pre-restore-<second>, or <second>-2, -3, ...
+// when that name is taken: two restores in one second must never share (and
+// overwrite) a directory. The names still sort oldest to newest as text.
+func newPreRestoreDir(backupDir string, now time.Time) (string, error) {
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return "", err
+	}
+	base := filepath.Join(backupDir, "pre-restore-"+now.Format("20060102-150405"))
+	dir := base
+	for i := 2; i < 1000; i++ {
+		err := os.Mkdir(dir, 0o755)
+		if err == nil {
+			return dir, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", err
+		}
+		dir = fmt.Sprintf("%s-%d", base, i)
+	}
+	return "", errors.New("too many pre-restore directories with the same timestamp")
 }
 
 func prunePreRestore(backupDir string) {

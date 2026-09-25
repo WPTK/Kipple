@@ -102,6 +102,10 @@ the `alpine ls` command above):
 
     ssh host-a 'cd /home/user/stack && docker compose run --rm -T --no-deps kipple restore /data/backup/pre-restore-<timestamp>/kipple.db --yes'
 
+A bare `.db` restore also applies a `-wal` file sitting beside it (a pre-restore copy taken after an unclean stop keeps its newest transactions there), and says so. Two restores in the same second get `pre-restore-<ts>` and `pre-restore-<ts>-2`, never the same directory.
+
+**Run restore as Kipple's own user.** `docker compose run` does that by default; do not add `-u root`. A restore run as root would leave a root-owned `0600` `kipple.db` that the server (nonroot) cannot open. If it detects root it warns and hands the new database and the pre-restore directory to the data directory's owner, but do not rely on that.
+
 If the refusal says "kipple is running": the service is still up (`docker compose stop kipple`), or
 a second `run` is open. Do not delete `kipple.lock`; it is not a file marker, the OS drops it.
 

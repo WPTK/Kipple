@@ -88,3 +88,14 @@ func (d *DB) SetPasswordHash(ctx context.Context, hash, keepSession string) erro
 		return err
 	})
 }
+
+// AccountSecret is the account secret alone: a single-row point read cheap
+// enough for every image request, so a rotation by `kipple password` (another
+// process) is seen at once.
+func (d *DB) AccountSecret(ctx context.Context) (secret string, ok bool, err error) {
+	err = d.reader.QueryRowContext(ctx, "SELECT secret FROM account WHERE id = 1").Scan(&secret)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return secret, err == nil, err
+}

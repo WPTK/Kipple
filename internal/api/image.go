@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 
@@ -9,22 +10,26 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// imageSecret returns the account secret that keys image proxy signatures. It
-// is cached once read; a failure is not cached.
+// imageSecret returns the account secret that keys image proxy signatures. It is
+// read on every call (one indexed row) and the proxy handler is rebuilt when it
+// changed: `kipple password` rotates the secret from another process while the
+// server runs, and old signed image URLs must stop verifying at once. A failed
+// read falls back to the last good value.
 func (s *Server) imageSecret(ctx context.Context) ([]byte, bool) {
+	secret, ok, err := s.db.AccountSecret(ctx)
 	s.imgMu.Lock()
 	defer s.imgMu.Unlock()
-	if s.imgSecret != nil {
-		return s.imgSecret, true
+	if err != nil {
+		s.log.Error("api: image secret", "err", err)
+		return s.imgSecret, s.imgSecret != nil
 	}
-	acct, ok, err := s.db.Account(ctx)
-	if err != nil || !ok || acct.Secret == "" {
-		if err != nil {
-			s.log.Error("api: image secret", "err", err)
-		}
+	if !ok || secret == "" {
 		return nil, false
 	}
-	s.imgSecret = []byte(acct.Secret)
+	if s.imgSecret == nil || string(s.imgSecret) != secret {
+		s.imgSecret = []byte(secret)
+		s.imgH = nil // keyed by the old secret
+	}
 	return s.imgSecret, true
 }
 
@@ -36,7 +41,8 @@ func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 	}
 	s.imgMu.Lock()
 	defer s.imgMu.Unlock()
-	if s.imgH == nil {
+	if s.imgH == nil || !bytes.Equal(s.imgHSecret, secret) {
+		s.imgHSecret = secret
 		s.imgH = imgproxy.New(imgproxy.Options{
 			Secret: secret, UserAgent: s.outgoingUA(), Logger: s.log,
 			Transport: func(allowPrivate, insecure bool) http.RoundTripper { return s.opt.Guard(allowPrivate, insecure, false) },

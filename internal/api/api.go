@@ -110,10 +110,11 @@ type Server struct {
 
 	backups *backup.Manager
 
-	imgMu     sync.Mutex // guards imgSecret and imgH
-	imgSecret []byte
-	imgH      *imgproxy.Handler
-	imgMode   atomic.Pointer[string] // cached imgproxy.mode for the CSP; refreshed on PATCH
+	imgMu      sync.Mutex // guards imgSecret and imgH
+	imgSecret  []byte
+	imgHSecret []byte // the secret imgH was built with
+	imgH       *imgproxy.Handler
+	imgMode    atomic.Pointer[string] // cached imgproxy.mode for the CSP; refreshed on PATCH
 
 	pubMu  sync.Mutex // serializes query+publish so counts events never arrive out of order
 	cmu    sync.Mutex // guards the counts coalescer

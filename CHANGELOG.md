@@ -147,6 +147,13 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- `kipple restore` from a bare `.db` now applies a `-wal` beside it, so undoing a restore from a
+  `pre-restore-*` copy no longer drops the transactions that were only in the WAL after an unclean stop.
+- Two `kipple restore` runs within one second no longer share a `pre-restore-*` directory (`-2`, `-3`
+  suffixes). Running restore as root warns and hands the database to the data directory's owner; the
+  deploy guide says to run it as Kipple's own user.
+- Image proxy links follow a rotated account secret: `kipple password` changes the secret from another
+  process, and the running server used to keep signing and verifying image URLs with the old one.
 - `POST /api/backup` is now an asynchronous job: it answers 200 with the token as before when the build
   finishes within about 5 s, otherwise `202 {job_id, status:"building"}`, and `GET /api/backup/jobs/{id}`
   reports `building`, `ready` (the token payload) or `failed`. The build no longer dies with the client

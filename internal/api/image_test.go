@@ -114,3 +114,33 @@ func TestImageRouteClaimedBeforeSPA(t *testing.T) {
 	rec = h.do("GET", "/img/sig/0/aHR0cDovL3guZXhhbXBsZS9h", "")
 	require.Equal(t, 401, rec.Code)
 }
+
+// `kipple password` rotates account.secret from another process; the running
+// server must stop honoring old signed URLs and sign new ones with the new key.
+func TestImageSecretRotationIsSeenByARunningServer(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(testPNG)
+	}))
+	t.Cleanup(up.Close)
+	orig := up.URL + "/a.png"
+	f := h.addFeed("A", 0)
+	h.exec("UPDATE feeds SET allow_private_net = 1 WHERE id = ?", f)
+	id := h.addItem(f, seedItem{Image: orig})
+
+	oldPath := imgproxy.Path([]byte(testSecret), imgproxy.FlagPrivateNet, orig)
+	require.Equal(t, 200, h.do("GET", oldPath, "", withCookie(c)).Code)
+	_, det, _ := h.api(c, "GET", "/api/items/"+sid(id), "")
+	require.Equal(t, oldPath, det["image"])
+
+	newSecret := strings.Repeat("f", len(testSecret))
+	h.exec("UPDATE account SET secret = ? WHERE id = 1", newSecret)
+
+	require.Equal(t, 403, h.do("GET", oldPath, "", withCookie(c)).Code, "old signed URLs stop verifying")
+	newPath := imgproxy.Path([]byte(newSecret), imgproxy.FlagPrivateNet, orig)
+	require.Equal(t, 200, h.do("GET", newPath, "", withCookie(c)).Code)
+	_, det, _ = h.api(c, "GET", "/api/items/"+sid(id), "")
+	require.Equal(t, newPath, det["image"], "new lists are signed with the new secret")
+}
