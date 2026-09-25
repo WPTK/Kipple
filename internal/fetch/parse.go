@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	stdhtml "html"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -116,7 +118,7 @@ func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	items := make([]Item, 0, len(gf.Items))
 	skipped := 0
 	for i, gi := range gf.Items {
-		it, ok := convertItem(i, gi, out.SiteURL, opt, content, jsonItems)
+		it, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
 		if !ok {
 			skipped++
 			continue
@@ -144,11 +146,11 @@ func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 }
 
 // convertItem turns one gofeed item into an Item. ok is false for an entry that
-// cannot be used: a nil entry, one with no title, link, guid or text at all
-// (every such entry would share one uid), or one whose conversion panics on
+// cannot be used: a nil entry, one with no title, link, guid, text, enclosure or
+// image at all (every such entry would share one uid), or one whose conversion panics on
 // hostile input. One bad entry is dropped and counted, never fatal to the
 // fetch (design §13 item 9).
-func convertItem(i int, gi *gofeed.Item, siteURL string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, ok bool) {
+func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			it, ok = Item{}, false
@@ -198,9 +200,37 @@ func convertItem(i int, gi *gofeed.Item, siteURL string, opt ParseOptions, conte
 		}
 	}
 	if it.GUID == "" && it.RawLink == "" && it.Title == "" && it.ContentText == "" {
-		return Item{}, false
+		// An enclosure-only entry (a podcast or photo feed with no text) is real
+		// content: keep it, named after its file, or the feed when there is none.
+		// Its first media URL doubles as the guid so two such entries get their
+		// own uids instead of sharing the empty-text one.
+		media := ""
+		if len(it.Enclosures) > 0 {
+			media = it.Enclosures[0].URL
+		} else {
+			media = it.ImageURL
+		}
+		if media == "" {
+			return Item{}, false
+		}
+		it.GUID = media
+		it.Title = mediaTitle(media, feedTitle)
 	}
 	return it, true
+}
+
+// mediaTitle names an enclosure-only entry: the file name of its media URL
+// (percent-decoded), else the feed title, else "Untitled".
+func mediaTitle(mediaURL, feedTitle string) string {
+	if u, err := url.Parse(mediaURL); err == nil {
+		if name := path.Base(u.Path); name != "" && name != "." && name != "/" {
+			return name
+		}
+	}
+	if feedTitle != "" {
+		return feedTitle
+	}
+	return "Untitled"
 }
 
 func formatName(t string) string {

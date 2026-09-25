@@ -318,3 +318,23 @@ func TestParseFeedDedupesEnclosuresByURL(t *testing.T) {
 	}
 	require.Equal(t, []string{"https://e.example/a.mp3", "https://e.example/b.mp3"}, urls)
 }
+
+// Enclosure-only entries (podcast or photo feeds without text) are kept, named
+// after their file; a truly empty entry is still dropped.
+func TestEnclosureOnlyItemsAreKept(t *testing.T) {
+	body := []byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>Pod Feed</title><link>https://p.example/</link>
+<item><enclosure url="https://cdn.example/audio/ep%201.mp3" type="audio/mpeg" length="5"/></item>
+<item><enclosure url="https://cdn.example/audio/ep2.mp3" type="audio/mpeg" length="5"/></item>
+<item><enclosure url="https://cdn.example/" type="audio/mpeg" length="5"/></item>
+<item></item>
+</channel></rss>`)
+	f, err := ParseFeed(body, ParseOptions{FeedURL: "https://p.example/feed.xml"})
+	require.NoError(t, err)
+	require.Len(t, f.Items, 3)
+	require.Equal(t, "ep 1.mp3", f.Items[0].Title)
+	require.Equal(t, "ep2.mp3", f.Items[1].Title)
+	require.Equal(t, "Pod Feed", f.Items[2].Title, "no file name: the feed title")
+	require.Len(t, f.Items[0].Enclosures, 1)
+	require.NotEqual(t, f.Items[0].UID, f.Items[1].UID)
+	require.Contains(t, strings.Join(f.Notes, ";"), "skipped_malformed_items: 1/4")
+}
