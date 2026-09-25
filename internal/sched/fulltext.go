@@ -21,6 +21,7 @@ const (
 	defaultFTTotal       = 60 * time.Second
 	defaultFTConcurrency = 3
 	defaultFTPerHost     = 2
+	defaultFTGlobal      = 4
 )
 
 // Extractor fetches and extracts one article page. *extract.Extractor
@@ -195,6 +196,14 @@ func (s *Scheduler) extractOne(ctx context.Context, snap fetch.Snapshot, it fetc
 	host := "?"
 	if u, err := url.Parse(it.URL); err == nil && u.Host != "" {
 		host = u.Host
+	}
+	// The global slot comes first, so a worker never sits on a host slot while
+	// waiting for memory budget.
+	select {
+	case s.ftSem <- struct{}{}:
+		defer func() { <-s.ftSem }()
+	case <-ctx.Done():
+		return fetch.FulltextResult{}, false
 	}
 	release, ok := s.ftHosts.acquire(ctx, host)
 	if !ok {

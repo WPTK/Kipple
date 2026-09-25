@@ -70,6 +70,16 @@ Phase 2 (reading UI backend) so far.
 - A per-feed refresh request keeps its intent when the feed is already in flight.
 - A fetch commit for a feed whose URL was edited mid-flight is dropped.
 - `feed_id` in SSE events is a string; `trim_only` runs on disabled feeds.
+- Reader API: a password change no longer leaves the old token valid for a few seconds when an
+  account lookup was in flight during the invalidation.
+- The custom user agent setting rejects control characters (other than tab) and DEL, which would
+  otherwise make every fetch fail.
+- A fetch made stale by a URL edit no longer teaches the feed the browser user agent; editing a
+  feed's URL or its own user agent resets the learned browser-UA flag.
+- Lowering the refresh interval no longer pulls a feed ahead of its publisher refresh hint when
+  following publisher hints is on.
+- Inline full-text extraction is capped at 4 articles at once across all workers (`Options.FulltextGlobal`),
+  so refreshing many full-text feeds cannot spike memory.
 - Discovery reads up to the 10 MiB fetch limit and sniffs the body instead of trusting
   `text/html`.
 - Full-text flights are panic-safe, counts publishes are ordered and bulk-star stats are batched.

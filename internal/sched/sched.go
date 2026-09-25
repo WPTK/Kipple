@@ -50,6 +50,7 @@ type Options struct {
 	FulltextTotal       time.Duration // per fetch, 60 s
 	FulltextConcurrency int           // concurrent articles per fetch, 3
 	FulltextPerHost     int           // concurrent articles per article host, all workers, 2
+	FulltextGlobal      int           // concurrent articles across all workers, 4 (memory guard)
 }
 
 // RunInfo answers a refresh-all, import or retention request.
@@ -172,6 +173,7 @@ type Scheduler struct {
 
 	ext     Extractor
 	ftHosts *hostLimiter
+	ftSem   chan struct{} // global cap on concurrent inline extractions
 
 	failCommit func(feedID int64) error // test hook: replaces the fetch commit
 
@@ -222,6 +224,9 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	if opt.FulltextPerHost <= 0 {
 		opt.FulltextPerHost = defaultFTPerHost
 	}
+	if opt.FulltextGlobal <= 0 {
+		opt.FulltextGlobal = defaultFTGlobal
+	}
 	if opt.Extractor == nil {
 		opt.Extractor = extract.New(extract.Options{
 			Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: opt.FulltextItemTimeout,
@@ -238,7 +243,7 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
-		ext: opt.Extractor, ftHosts: newHostLimiter(opt.FulltextPerHost),
+		ext: opt.Extractor, ftHosts: newHostLimiter(opt.FulltextPerHost), ftSem: make(chan struct{}, opt.FulltextGlobal),
 		db: db, client: client, hub: hub, clk: clk, log: log, opt: opt,
 		jobs:       make(chan *flight, opt.Workers),
 		doneCh:     make(chan result, opt.Workers),

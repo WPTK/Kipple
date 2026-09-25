@@ -312,3 +312,26 @@ func TestHostLimiterReleasesAndCancels(t *testing.T) {
 	require.Empty(t, l.m, "idle hosts are forgotten")
 	l.mu.Unlock()
 }
+
+func TestInlineGlobalCapAcrossFeeds(t *testing.T) {
+	fx := &fakeExt{hold: 150 * time.Millisecond}
+	r := newRig(t, Options{Extractor: fx, Workers: 6, FulltextConcurrency: 3, FulltextPerHost: 3, FulltextGlobal: 2, FulltextTotal: 30 * time.Second})
+	const feeds = 5
+	for i := 0; i < feeds; i++ {
+		srv := newFTServer(t)
+		var b strings.Builder
+		b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://ex.com/</link>`)
+		for j := 1; j <= 3; j++ {
+			fmt.Fprintf(&b, `<item><guid>g%d</guid><title>I%d</title><link>https://f%dh%d.test/a</link></item>`, j, j, i, j)
+		}
+		b.WriteString(`</channel></rss>`)
+		srv.body.Store(b.String())
+		r.ftFeed(srv.URL + "/f")
+	}
+	r.s.Wake()
+	r.waitEvents("fetch.done", feeds)
+	calls, maxAll, _ := fx.snapshot()
+	require.Len(t, calls, feeds*3)
+	require.LessOrEqual(t, maxAll, 2, "global cap holds across workers")
+	require.Equal(t, 2, maxAll, "and is actually used")
+}
