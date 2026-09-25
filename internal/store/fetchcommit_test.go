@@ -521,3 +521,46 @@ func TestCommitKeepsSiteURLWhenFeedHasNoLink(t *testing.T) {
 	e.fetchBody(id, body)
 	require.Equal(t, "https://kept.example/", scalar[string](t, e.db.Reader(), "SELECT site_url FROM feeds WHERE id=?", id))
 }
+
+func TestChunkedCommitFailureReportsCommittedChunks(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	// items are inserted oldest first (g0 first): chunk 1 is g0..g249, chunk 2 fails at g300
+	e.exec(fmt.Sprintf(`CREATE TRIGGER boom BEFORE INSERT ON items WHEN NEW.uid = 'g:%s' BEGIN SELECT RAISE(ABORT, 'boom'); END`, fetch.H("g300")))
+	res := e.okResult(e.snap(id), rss(numbered(620)...))
+	info, err := e.db.CommitFetch(e.ctx, res)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "chunk 2/3")
+	require.Equal(t, 250, info.New, "chunk 1 committed and is reported")
+	require.Len(t, info.NewIDs, 250)
+	require.Equal(t, 250, e.count("SELECT count(*) FROM items"), "the failed chunk rolled back")
+	for _, nid := range info.NewIDs {
+		require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ?", nid), "every reported id exists")
+	}
+	require.Zero(t, e.count("SELECT count(*) FROM fetch_log"), "no log row until the last chunk commits")
+
+	// a retry after the fault clears finishes the job without duplicating chunk 1
+	e.exec("DROP TRIGGER boom")
+	info, err = e.db.CommitFetch(e.ctx, e.okResult(e.snap(id), rss(numbered(620)...)))
+	require.NoError(t, err)
+	require.Equal(t, 370, info.New)
+	require.Equal(t, 620, e.count("SELECT count(*) FROM items"))
+}
+
+func TestChunkedCommitEachChunkHasItsOwnDeadline(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	// a generous per-chunk budget commits everything even though the whole
+	// commit is allowed to take longer than any single chunk
+	info, err := e.db.CommitFetchTimeout(e.ctx, e.okResult(e.snap(id), rss(numbered(620)...)), 30*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, 620, info.New)
+
+	// an already-expired budget fails the chunk (and reports nothing)
+	id2 := e.addFeed("http://b.example/feed")
+	info, err = e.db.CommitFetchTimeout(e.ctx, e.okResult(e.snap(id2), rss(numbered(5)...)), time.Nanosecond)
+	require.Error(t, err)
+	require.Zero(t, info.New)
+}

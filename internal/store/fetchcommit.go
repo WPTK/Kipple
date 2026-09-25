@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
@@ -46,11 +47,24 @@ func (st *commitState) note(s string, keep bool) {
 	st.keep = st.keep || keep
 }
 
+// DefaultCommitTimeout bounds each chunk's transaction (gate wait included).
+const DefaultCommitTimeout = 10 * time.Second
+
 // CommitFetch applies a successful fetch (ok, unchanged or not_modified) in
 // one transaction: items, retention trim, feed bookkeeping, fetch_log
 // (design §4.8). More than 500 items are committed in chunks of 250, the gate
 // taken and released per chunk, with the trim and bookkeeping in the last one.
+//
+// Each chunk gets its own DefaultCommitTimeout; ctx should carry no deadline of
+// its own (only cancellation). On a failed chunk the error comes back together
+// with the CommitInfo of the chunks that did commit: those items are durable,
+// so callers must still report them.
 func (d *DB) CommitFetch(ctx context.Context, res *fetch.Result) (CommitInfo, error) {
+	return d.CommitFetchTimeout(ctx, res, DefaultCommitTimeout)
+}
+
+// CommitFetchTimeout is CommitFetch with an explicit per-chunk deadline.
+func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk time.Duration) (CommitInfo, error) {
 	var items []fetch.Item
 	if res.Outcome == fetch.OutcomeOK && res.Feed != nil {
 		items = oldestFirst(res.Feed.Items)
@@ -64,21 +78,35 @@ func (d *DB) CommitFetch(ctx context.Context, res *fetch.Result) (CommitInfo, er
 	}
 
 	st := &commitState{firstNewID: maxInt64}
+	info := func() CommitInfo {
+		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs}
+	}
 	for i, ch := range chunks {
 		last := i == len(chunks)-1
-		release, err := d.AcquireGate(ctx)
-		if err != nil {
-			return CommitInfo{}, err
-		}
-		err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-			return d.commitTx(ctx, tx, res, ch, last, st)
-		})
-		release()
-		if err != nil {
-			return CommitInfo{}, fmt.Errorf("store: commit fetch of feed %d: %w", res.Snap.ID, err)
+		if err := d.commitChunk(ctx, res, ch, last, st, perChunk); err != nil {
+			return info(), fmt.Errorf("store: commit fetch of feed %d (chunk %d/%d): %w", res.Snap.ID, i+1, len(chunks), err)
 		}
 	}
-	return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs}, nil
+	return info(), nil
+}
+
+// commitChunk runs one chunk under its own bounded context.
+func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item, last bool, st *commitState, perChunk time.Duration) error {
+	cctx, cancel := context.WithTimeout(ctx, perChunk)
+	defer cancel()
+	release, err := d.AcquireGate(cctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	saved := *st
+	err = d.WithWrite(cctx, func(ctx context.Context, tx *sql.Tx) error {
+		return d.commitTx(ctx, tx, res, ch, last, st)
+	})
+	if err != nil {
+		*st = saved // the transaction rolled back: forget what it collected
+	}
+	return err
 }
 
 // oldestFirst orders items by published ascending, ties by reverse document

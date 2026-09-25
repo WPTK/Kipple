@@ -853,3 +853,31 @@ func TestCommitFailureBacksOffInMemory(t *testing.T) {
 	require.Equal(t, 2, srv.count("/f"))
 	r.s.inDispatcher(func() { require.Empty(t, r.s.notBefore, "cleared by the next successful commit") })
 }
+
+func TestPartialChunkedCommitStillReportsCommittedItems(t *testing.T) {
+	r := newRig(t, Options{})
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://ex.com/</link>`)
+	for i := 0; i < 620; i++ {
+		fmt.Fprintf(&b, `<item><guid>g%d</guid><title>t%d</title><link>https://ex.com/%d</link><pubDate>%s</pubDate></item>`,
+			i, i, i, base.Add(-time.Duration(620-i)*time.Minute).Format(time.RFC1123Z))
+	}
+	b.WriteString(`</channel></rss>`)
+	srv := newSrv(t, func(_ string, w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(b.String()))
+	})
+	id := r.add(srv.URL+"/big", nil)
+	r.sql("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	// oldest first: chunk 1 = g0..g249, chunk 2 aborts at g300
+	r.sql(fmt.Sprintf(`CREATE TRIGGER boom BEFORE INSERT ON items WHEN NEW.uid = 'g:%s' BEGIN SELECT RAISE(ABORT, 'boom'); END`, fetch.H("g300")))
+
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	ev := r.events("fetch.done")[0]
+	require.Equal(t, "error", ev["outcome"], "the fetch did not fully commit")
+	require.EqualValues(t, 250, ev["new_items"], "but chunk 1's items are reported")
+	ids, _ := ev["new_item_ids"].([]any)
+	require.Len(t, ids, maxEventIDs)
+	require.EqualValues(t, 250, r.num("SELECT count(*) FROM items WHERE feed_id = ?", id))
+}
