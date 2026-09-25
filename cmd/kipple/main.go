@@ -181,6 +181,9 @@ func runServe() error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		shutErr := srv.Shutdown(shutdownCtx)
+		if shutErr != nil {
+			_ = srv.Close() // a request outlived the grace period: cut it
+		}
 		select {
 		case <-scheduler.Stopped():
 		case <-time.After(15 * time.Second):
@@ -192,15 +195,35 @@ func runServe() error {
 		return nil
 	}
 
+	return superviseServe(ctx, serveErr, stopAll, logger)
+}
+
+// serveDrainWait bounds the wait for ListenAndServe to report after a shutdown.
+var serveDrainWait = 5 * time.Second
+
+// superviseServe waits for either the listener to fail or a signal, runs
+// stopAll, and always reads serveErr so the serve goroutine is never left
+// behind. A shutdown that a signal asked for is a normal exit (nil) even when
+// the grace period ran out (that is only logged); a listener that failed is
+// returned.
+func superviseServe(ctx context.Context, serveErr <-chan error, stopAll func() error, logger *slog.Logger) error {
 	select {
 	case err := <-serveErr:
-		_ = stopAll()
+		if stopErr := stopAll(); stopErr != nil {
+			logger.Warn("shutdown after listener exit", "err", stopErr)
+		}
 		return err
 	case <-ctx.Done():
 		logger.Info("shutting down")
 		if err := stopAll(); err != nil {
-			return err
+			logger.Warn("shutdown was not clean", "err", err)
 		}
-		return <-serveErr
+		select {
+		case err := <-serveErr:
+			return err // nil after Shutdown/Close (http.ErrServerClosed is mapped to nil)
+		case <-time.After(serveDrainWait):
+			logger.Warn("listener did not report after shutdown")
+			return nil
+		}
 	}
 }
