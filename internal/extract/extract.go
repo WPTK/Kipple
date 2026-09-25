@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"codeberg.org/readeck/go-readability/v2"
 	"golang.org/x/net/html/charset"
 
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/sanitize"
 )
 
@@ -29,6 +31,8 @@ const (
 	maxElems       = 60000 // readability's own guard against pathological DOMs
 	maxErrLen      = 300
 )
+
+var errTooManyRedirects = errors.New("too many redirects")
 
 // Options configures New.
 type Options struct {
@@ -79,9 +83,10 @@ type Result struct {
 // Error is an extraction failure with a message safe to show the user.
 type Error struct {
 	Msg string
-	// Transient marks a failure worth retrying later (timeout, connection
-	// error, HTTP 5xx or 429). Everything else (404, 403, not readable) is
-	// permanent for the page as it stands.
+	// Transient marks a failure worth retrying later (timeout, reset or
+	// refused connection, HTTP 5xx, 429 or 408). Everything else (404, 403,
+	// not readable, a blocked address, a bad certificate, an unknown host, a
+	// redirect loop) is permanent for the page as it stands.
 	Transient bool
 }
 
@@ -123,18 +128,18 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 		Timeout:   e.opt.Timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > maxHops {
-				return errors.New("too many redirects")
+				return errTooManyRedirects
 			}
 			return nil
 		},
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return Result{}, failTransient("could not fetch the page: %s", cleanErr(err))
+		return Result{}, failClass(transientTransport(err), "could not fetch the page: %s", cleanErr(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusRequestTimeout {
 			return Result{}, failTransient("the page answered HTTP %d", resp.StatusCode)
 		}
 		return Result{}, fail("the page answered HTTP %d", resp.StatusCode)
@@ -180,6 +185,25 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 		img = sanitize.ResolveURL(art.ImageURL(), u.String(), final.String())
 	}
 	return Result{HTML: htmlOut, Text: text, WordCount: wc, ImageURL: img, SourceURL: final.String()}, nil
+}
+
+// transientTransport reports whether a client.Do error may go away on its own.
+// It mirrors fetch.Classify: a blocked address (SSRF guard), a certificate that
+// does not verify, a host that does not exist and a redirect loop repeat every
+// time, so they are permanent; timeouts, resets, refused connections and DNS
+// failures other than not-found are transient.
+func transientTransport(err error) bool {
+	if errors.Is(err, errTooManyRedirects) {
+		return false
+	}
+	switch class, _ := fetch.Classify(err); class {
+	case fetch.ClassSSRF, fetch.ClassTLS, fetch.ClassRedirectLoop:
+		return false
+	case fetch.ClassDNS:
+		var dnsErr *net.DNSError
+		return !(errors.As(err, &dnsErr) && dnsErr.IsNotFound)
+	}
+	return true
 }
 
 // cleanErr trims a transport error to something readable without file paths.

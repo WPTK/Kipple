@@ -57,6 +57,10 @@ Phase 2 (reading UI backend) so far.
 
 ### Changed
 
+- Full-text extraction now classes transport failures like feed fetches: a blocked address, an
+  unverifiable certificate, an unknown host and a redirect loop are permanent (no hourly retry);
+  timeouts, resets, refused connections, 5xx, 429 and HTTP 408 stay transient.
+
 - `fetch.user_agent` is now an optional custom User-Agent that replaces the built-in browser
   string; it no longer applies when the mode is `default`.
 - Account passwords may be 5 to 256 characters (was 12 to 256).

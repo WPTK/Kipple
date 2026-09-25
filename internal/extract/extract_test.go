@@ -2,6 +2,8 @@ package extract
 
 import (
 	"context"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -186,4 +188,40 @@ func TestFailuresAreClassifiedTransientOrPermanent(t *testing.T) {
 	var ee *Error
 	require.ErrorAs(t, err, &ee)
 	require.True(t, ee.Transient)
+}
+
+func TestTransportFailuresAreClassedLikeFetch(t *testing.T) {
+	// The SSRF guard refuses this every time.
+	_, err := newExtractor().Extract(context.Background(), Target{URL: "http://10.1.2.3/"})
+	var ee *Error
+	require.ErrorAs(t, err, &ee)
+	require.False(t, ee.Transient, "blocked address")
+
+	// A certificate that does not verify (httptest's is self-signed).
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(tlsSrv.Close)
+	_, err = newExtractor().Extract(context.Background(), Target{URL: tlsSrv.URL, AllowPrivate: true})
+	require.ErrorAs(t, err, &ee)
+	require.False(t, ee.Transient, "untrusted certificate: %s", ee.Msg)
+
+	// A redirect loop.
+	var loop *httptest.Server
+	loop = page(t, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, loop.URL+"/again", http.StatusFound) })
+	_, err = newExtractor().Extract(context.Background(), Target{URL: loop.URL, AllowPrivate: true})
+	require.ErrorAs(t, err, &ee)
+	require.False(t, ee.Transient, "redirect loop: %s", ee.Msg)
+
+	// HTTP 408 is transient, like a timeout.
+	slow := page(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusRequestTimeout) })
+	_, err = newExtractor().Extract(context.Background(), Target{URL: slow.URL, AllowPrivate: true})
+	require.ErrorAs(t, err, &ee)
+	require.True(t, ee.Transient, "HTTP 408")
+}
+
+func TestTransientTransportDNS(t *testing.T) {
+	require.False(t, transientTransport(&net.DNSError{Err: "no such host", Name: "x.invalid", IsNotFound: true}))
+	require.True(t, transientTransport(&net.DNSError{Err: "server misbehaving", Name: "x.example", IsTemporary: true}))
+	require.True(t, transientTransport(&net.DNSError{Err: "i/o timeout", Name: "x.example", IsTimeout: true}))
+	require.True(t, transientTransport(context.DeadlineExceeded))
+	require.True(t, transientTransport(io.ErrUnexpectedEOF))
 }
