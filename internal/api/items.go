@@ -18,11 +18,12 @@ import (
 )
 
 const (
-	maxBodyBytes  = 1 << 20
-	maxMarkIDs    = 10000
-	maxIDsQuery   = store.CardMaxLimit
-	maxStatsBatch = 200
-	statsBodyMax  = 64 << 10
+	maxBodyBytes   = 1 << 20
+	maxMarkIDs     = 10000
+	maxIDsQuery    = store.CardMaxLimit
+	maxSearchQuery = 1000
+	maxStatsBatch  = 200
+	statsBodyMax   = 64 << 10
 )
 
 // decodeBody reads a JSON body into v. An empty body leaves v untouched and
@@ -68,15 +69,21 @@ func client(r *http.Request) string {
 
 func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	qv := r.URL.Query()
-	if qv.Get("q") != "" || qv.Get("order") == "rank" {
-		writeError(w, http.StatusNotImplemented, "not_implemented") // search arrives with phase 2 step 2
-		return
-	}
-	if o := qv.Get("order"); o != "" && o != "date" {
+	search := qv.Get("q")
+	var q store.CardQuery
+	switch qv.Get("order") {
+	case "", "date":
+	case "rank":
+		q.Rank = true
+	default:
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
-	var q store.CardQuery
+	if len(search) > maxSearchQuery || (q.Rank && strings.TrimSpace(search) == "") {
+		writeError(w, http.StatusBadRequest, "bad_request")
+		return
+	}
+	q.Query = strings.TrimSpace(search)
 	if v := qv.Get("ids"); v != "" {
 		for _, p := range strings.Split(v, ",") {
 			id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
@@ -91,6 +98,9 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		switch q.View {
 		case "":
 			q.View = "unread"
+			if q.Query != "" {
+				q.View = "all" // a search spans read items unless the client narrows it
+			}
 		case "unread", "all", "starred":
 		default:
 			writeError(w, http.StatusBadRequest, "bad_request")
@@ -114,6 +124,10 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 			c, err := store.ParseCursor(v)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, "bad_request")
+				return
+			}
+			if c.ByRank != q.Rank {
+				writeError(w, http.StatusBadRequest, "bad_request") // cursor from another ordering
 				return
 			}
 			q.Cursor = &c

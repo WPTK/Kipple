@@ -130,6 +130,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("GET /api/items/{id}", s.authed(s.getItem))
 	handle("POST /api/items/{id}/open", s.authed(s.openItem))
 	handle("PUT /api/items/{id}/star", s.authed(s.starItem))
+	handle("POST /api/maintenance/fts-rebuild", s.authed(s.ftsRebuild))
 	handle("POST /api/stats/events", s.authed(s.statsEvents))
 	handle("POST /api/opml", s.authed(s.opmlImport))
 	handle("GET /api/opml", s.authed(s.opmlExport))

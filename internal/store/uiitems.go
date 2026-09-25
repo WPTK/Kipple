@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -69,16 +70,27 @@ type CardQuery struct {
 	Cursor   *Cursor
 	Limit    int
 	IDs      []int64
+	// Query is raw user search text (turned into a safe FTS5 expression by
+	// BuildFTSQuery); Rank orders results by relevance instead of date.
+	Query string
+	Rank  bool
 }
 
 // Cursor is the keyset position (sort_at, id) of the last card served.
+// A relevance cursor (ByRank) keys on (Rank, ID) instead.
 type Cursor struct {
 	SortAt int64
 	ID     int64
+	Rank   float64
+	ByRank bool
 }
 
-// Encode renders the opaque cursor: base64url of "sort_at.id".
+// Encode renders the opaque cursor: base64url of "sort_at.id", or "r<rank>|id"
+// for a relevance cursor.
 func (c Cursor) Encode() string {
+	if c.ByRank {
+		return base64.RawURLEncoding.EncodeToString([]byte("r" + formatRank(c.Rank) + "|" + strconv.FormatInt(c.ID, 10)))
+	}
 	return base64.RawURLEncoding.EncodeToString([]byte(strconv.FormatInt(c.SortAt, 10) + "." + strconv.FormatInt(c.ID, 10)))
 }
 
@@ -87,6 +99,15 @@ func ParseCursor(s string) (Cursor, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
 		return Cursor{}, errors.New("store: bad cursor")
+	}
+	if rest, isRank := strings.CutPrefix(string(raw), "r"); isRank {
+		a, b, ok := strings.Cut(rest, "|")
+		rank, err1 := strconv.ParseFloat(a, 64)
+		id, err2 := strconv.ParseInt(b, 10, 64)
+		if !ok || err1 != nil || err2 != nil || math.IsNaN(rank) || math.IsInf(rank, 0) {
+			return Cursor{}, errors.New("store: bad cursor")
+		}
+		return Cursor{ID: id, Rank: rank, ByRank: true}, nil
 	}
 	a, b, ok := strings.Cut(string(raw), ".")
 	if !ok {
@@ -97,7 +118,7 @@ func ParseCursor(s string) (Cursor, error) {
 	if err1 != nil || err2 != nil {
 		return Cursor{}, errors.New("store: bad cursor")
 	}
-	return Cursor{sortAt, id}, nil
+	return Cursor{SortAt: sortAt, ID: id}, nil
 }
 
 const cardCols = `i.id, i.feed_id, i.title, i.url, i.author, substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url,
@@ -127,6 +148,12 @@ func (d *DB) ListCards(ctx context.Context, q CardQuery) ([]Card, *Cursor, error
 	var where []string
 	var args []any
 	limit := q.Limit
+	if q.Query != "" && len(q.IDs) == 0 {
+		if limit <= 0 {
+			limit = CardDefaultLimit
+		}
+		return d.searchCards(ctx, q, min(limit, CardMaxLimit))
+	}
 	if len(q.IDs) > 0 {
 		js, err := json.Marshal(q.IDs)
 		if err != nil {
@@ -186,7 +213,7 @@ func (d *DB) ListCards(ctx context.Context, q CardQuery) ([]Card, *Cursor, error
 		cards = cards[:limit]
 		if len(q.IDs) == 0 {
 			last := cards[len(cards)-1]
-			return cards, &Cursor{last.SortAt, last.ID}, nil
+			return cards, &Cursor{SortAt: last.SortAt, ID: last.ID}, nil
 		}
 	}
 	return cards, nil, nil
