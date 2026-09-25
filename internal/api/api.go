@@ -42,6 +42,7 @@ const (
 // Scheduler is what the API needs from sched.Scheduler.
 type Scheduler interface {
 	RefreshAll() (sched.RunInfo, error)
+	ApplyRetention(all bool) (sched.RunInfo, error)
 	StartImport(feedIDs []int64) (sched.RunInfo, error)
 	Status() ([]sched.RunStatus, int)
 	// Submit queues a per-feed priority job; Wake nudges a tick; Shutdown closes
@@ -64,6 +65,9 @@ type Options struct {
 	// shared with greader.Options.Verifier (nil builds a private one, tests only).
 	Lockout  *auth.Lockout
 	Verifier *auth.Verifier
+	// OnAPIPasswordChange runs after the Reader API password changes (drops the
+	// Reader API cached token at once); optional.
+	OnAPIPasswordChange func()
 	// Stats records open and star events; nil builds the SQL recorder on Now.
 	Stats stats.Recorder
 	// Version is reported by /api/bootstrap and used in the proxy User-Agent.
@@ -160,6 +164,11 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("PUT /api/items/{id}/star", s.authed(s.starItem))
 	handle("POST /api/maintenance/fts-rebuild", s.authed(s.ftsRebuild))
 	handle("POST /api/stats/events", s.authed(s.statsEvents))
+	handle("GET /api/settings", s.authed(s.getSettings))
+	handle("PATCH /api/settings", s.authed(s.patchSettings))
+	handle("POST /api/retention/apply", s.authed(s.retentionApply))
+	handle("POST /api/account/password", s.authed(s.accountPassword))
+	handle("POST /api/account/api-password", s.authed(s.accountAPIPassword))
 	handle("POST /api/opml", s.authed(s.opmlImport))
 	handle("GET /api/opml", s.authed(s.opmlExport))
 	handle("POST /api/feeds", s.authed(s.addFeed))

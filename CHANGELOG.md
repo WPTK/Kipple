@@ -26,6 +26,14 @@ Phase 2 (reading UI backend) so far.
 - CI security tooling: govulncheck, staticcheck, gosec (gated on high severity and confidence),
   gitleaks and a Trivy image scan; gofmt check; Dependabot for Go, npm, Actions and Docker.
 - `CHANGELOG.md`, pull request template and `SECURITY.md`.
+- Settings API: `GET`/`PATCH /api/settings` with per-key validation (unknown and `sys.*` keys
+  answer 400 naming the key; `null` resets to the default). A `retention.default` change starts
+  a retention run; a changed refresh interval pulls due times in and wakes the scheduler.
+  `POST /api/retention/apply` ("Apply retention now").
+- Account API: `POST /api/account/password` (signs out other sessions, keeps the caller's) and
+  `POST /api/account/api-password` (generate or set; revokes the Reader token at once and clears
+  the login memo). Both verify the current password under the login lockout.
+- Settings `greader.ot_includes_user_changes`, `greader.subscribe_fetch_now` and `ui.*` defaults.
 
 ### Changed
 
@@ -41,6 +49,7 @@ Phase 2 (reading UI backend) so far.
 - Discovery reads up to the 10 MiB fetch limit and sniffs the body instead of trusting
   `text/html`.
 - Full-text flights are panic-safe, counts publishes are ordered and bulk-star stats are batched.
+- The time zone setting is stored under `tz` as the design says (it was read as `settings.tz`).
 
 ## [0.1.0] - 2026-09-25
 

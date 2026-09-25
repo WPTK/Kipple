@@ -38,12 +38,13 @@ type fakeSched struct {
 	refreshN int
 	imported [][]int64
 
-	submits   []sched.Priority
-	reply     sched.Reply // what Submit answers at once, unless hang
-	hang      bool        // Submit's reply channel never fires
-	submitErr error
-	wakes     int
-	down      chan struct{}
+	submits      []sched.Priority
+	reply        sched.Reply // what Submit answers at once, unless hang
+	hang         bool        // Submit's reply channel never fires
+	submitErr    error
+	retentionAll []bool
+	wakes        int
+	down         chan struct{}
 }
 
 func (f *fakeSched) Submit(p sched.Priority) (<-chan sched.Reply, error) {
@@ -655,4 +656,11 @@ func (f *fakeSched) stop() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	close(f.down)
+}
+
+func (f *fakeSched) ApplyRetention(all bool) (sched.RunInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.retentionAll = append(f.retentionAll, all)
+	return sched.RunInfo{RunID: 44, Kind: "retention", Total: 7}, nil
 }

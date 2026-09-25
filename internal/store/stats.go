@@ -38,10 +38,10 @@ type StatSnapshot struct {
 	ItemURL    string
 }
 
-// LoadLocation returns the settings.tz location (default America/New_York),
+// LoadLocation returns the tz setting location (default America/New_York),
 // falling back to UTC when the name does not resolve.
 func LoadLocation(ctx context.Context, q Querier) *time.Location {
-	loc, err := time.LoadLocation(settingString(ctx, q, "settings.tz", "America/New_York"))
+	loc, err := time.LoadLocation(settingString(ctx, q, "tz", "America/New_York"))
 	if err != nil {
 		return time.UTC
 	}

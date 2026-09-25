@@ -78,3 +78,47 @@ func settingString(ctx context.Context, q Querier, key, def string) string {
 	}
 	return s
 }
+
+// SetSettings writes the given overrides in one transaction: a nil value
+// deletes the row (back to the default). Validation is the caller's job.
+func (d *DB) SetSettings(ctx context.Context, set map[string]any) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		for k, v := range set {
+			if v == nil {
+				if _, err := tx.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", k); err != nil {
+					return err
+				}
+				continue
+			}
+			b, err := json.Marshal(v)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)
+				ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()`, k, string(b)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// PullInSchedule makes a lowered refresh.interval_minutes take effect now: every
+// enabled, healthy feed that inherits the interval and is due later than
+// last_fetch_at + interval becomes due then. It never postpones a feed (a raised
+// interval applies from each feed's next fetch). Returns the feeds moved.
+func (d *DB) PullInSchedule(ctx context.Context, intervalMinutes int) (int64, error) {
+	var n int64
+	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE feeds SET next_fetch_at = last_fetch_at + ?
+			WHERE enabled = 1 AND interval_minutes IS NULL AND consecutive_failures = 0
+			  AND last_fetch_at IS NOT NULL AND next_fetch_at > last_fetch_at + ?`,
+			intervalMinutes*60, intervalMinutes*60)
+		if err != nil {
+			return err
+		}
+		n, _ = res.RowsAffected()
+		return nil
+	})
+	return n, err
+}

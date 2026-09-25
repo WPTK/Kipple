@@ -16,10 +16,24 @@ var DefaultSettings = map[string]any{
 	"retention.restore_days":        90,
 	"fetch.user_agent":              "",
 	"fetch.honor_publisher_ttl":     true,
-	"settings.tz":                   "America/New_York",
+	"tz":                            "America/New_York",
 	"stats.api_single_read_is_open": false,
 	"imgproxy.mode":                 "http_only",
 	"greader.icon_urls":             false,
+
+	// Named by design §2.2 but not yet read by any code (greader/ui phases).
+	"greader.ot_includes_user_changes": false,
+	"greader.subscribe_fetch_now":      false,
+
+	// ui.* (design §2.2 names the keys; values and ranges from CLAUDE.md decisions).
+	"ui.theme":               "system",
+	"ui.font_body":           "",
+	"ui.font_ui":             "",
+	"ui.font_size":           18,
+	"ui.line_height":         1.6,
+	"ui.content_width":       680,
+	"ui.layouts":             map[string]any{},
+	"ui.mark_read_on_scroll": false,
 }
 
 // MergedSettings returns DefaultSettings overlaid with the stored rows for

@@ -1019,7 +1019,7 @@ func TestBootstrap(t *testing.T) {
 	require.EqualValues(t, 500, set["retention.default"], "override wins")
 	require.EqualValues(t, 30, set["refresh.interval_minutes"], "default fills in")
 	require.EqualValues(t, 90, set["retention.restore_days"])
-	require.Equal(t, "America/New_York", set["settings.tz"])
+	require.Equal(t, "America/New_York", set["tz"])
 	require.Equal(t, "http_only", set["imgproxy.mode"])
 	require.Equal(t, false, set["stats.api_single_read_is_open"])
 	require.NotContains(t, set, "sys.id_high_water")

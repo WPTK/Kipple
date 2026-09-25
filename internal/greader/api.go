@@ -512,3 +512,7 @@ func (a *API) publish(typ string, data any) {
 		a.opt.Events.Publish(typ, data)
 	}
 }
+
+// InvalidateAccount drops the cached account snapshot, so a changed API
+// password revokes every token on the next request instead of within acctTTL.
+func (a *API) InvalidateAccount() { a.acct.Store(nil) }
