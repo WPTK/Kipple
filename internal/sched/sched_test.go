@@ -982,3 +982,25 @@ func TestPriorityIntentSurvivesInFlightFeed(t *testing.T) {
 	require.Empty(t, inms[1], "a full refetch drops validators")
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM fetch_log WHERE feed_id=? AND outcome='trim_only'", id))
 }
+
+// A trim needs no network, so a disabled feed still honors a lowered cap.
+func TestTrimRunsOnDisabledFeed(t *testing.T) {
+	r := newRig(t, Options{})
+	srv := newSrv(t, serveOK)
+	id := r.add(srv.URL+"/d", nil)
+	r.sql("UPDATE feeds SET enabled = 0, disabled_reason = 'user', retention = 50 WHERE id = ?", id)
+	r.sql(`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < 60)
+	       INSERT INTO items (id, feed_id, uid, url, title, published_at, sort_at, content_hash, text_hash)
+	       SELECT 1000+n, ?1, 'x'||n, '', 't', 1, 1, 'c', 't' FROM seq`, id)
+	ch, err := r.s.Submit(Priority{FeedID: id, Kind: PriorityTrim})
+	require.NoError(t, err)
+	rep := <-ch
+	require.NoError(t, rep.Err)
+	require.EqualValues(t, 10, rep.Trimmed)
+	require.EqualValues(t, 50, r.num("SELECT count(*) FROM items WHERE feed_id=?", id))
+	require.Zero(t, srv.total(), "a trim never touches the network")
+
+	// while a fetch-type job on the same disabled feed is still refused
+	ch, _ = r.s.Submit(Priority{FeedID: id, Full: true})
+	require.ErrorIs(t, (<-ch).Err, ErrDisabled)
+}

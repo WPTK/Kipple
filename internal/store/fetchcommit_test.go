@@ -565,26 +565,42 @@ func TestChunkedCommitEachChunkHasItsOwnDeadline(t *testing.T) {
 	require.Zero(t, info.New)
 }
 
-func TestStaleFetchAfterURLEditIsDropped(t *testing.T) {
-	e := newEnv(t)
-	id := e.addFeed("http://example.test/old.xml")
-	snap := e.snap(id) // the fetch starts on the old URL
-	nu := "http://example.test/new.xml"
-	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &nu, Cols: map[string]any{}})
+// staleFetch starts a fetch on the old URL, edits the URL, and returns the
+// snapshot of the in-flight fetch plus the new URL.
+func staleFetch(t *testing.T) (e *env, id int64, snap fetch.Snapshot, newURL string) {
+	e = newEnv(t)
+	id = e.addFeed("http://example.test/old.xml")
+	snap = e.snap(id) // the fetch starts on the old URL
+	newURL = "http://example.test/new.xml"
+	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &newURL, Cols: map[string]any{}})
 	require.NoError(t, err)
-	before := e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id)
+	return
+}
 
-	// success on the old URL: nothing lands, validators stay cleared, url stays repointed
+func TestStaleFetchAfterURLEditDropsItems(t *testing.T) {
+	e, id, snap, _ := staleFetch(t)
+	e.commit(e.okResult(snap, rss(numbered(2)...)))
+	require.Equal(t, 0, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	require.Equal(t, 0, e.count("SELECT count(*) FROM fetch_log WHERE feed_id = ? AND outcome = 'ok'", id))
+}
+
+func TestStaleFetchAfterURLEditKeepsPatchedRow(t *testing.T) {
+	e, id, snap, nu := staleFetch(t)
+	before := e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id)
 	res := e.okResult(snap, rss(numbered(2)...))
 	res.Redirect = fetch.RedirectDecision{Action: fetch.RedirectMigrate, To: "http://example.test/elsewhere.xml", Kind: "permanent", Count: 3}
 	e.commit(res)
-	require.Equal(t, 0, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	// validators stay cleared, the url stays repointed (no migrate), the schedule is untouched
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND url = ? AND etag IS NULL AND last_modified IS NULL", id, nu))
 	require.Equal(t, before, e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id))
+}
 
-	// a 410 on the old URL must not disable the repointed feed
+func TestStaleFetchErrorAfterURLEditIsIgnored(t *testing.T) {
+	e, id, snap, _ := staleFetch(t)
+	// a 410 on the old URL must not disable the repointed feed, nor count as its failure
 	er := &fetch.Result{Snap: snap, StartedAt: e.clk.Now(), Outcome: fetch.OutcomeError, ErrClass: "http", ErrMsg: "gone", Gone: true,
 		NextFetchAt: e.clk.Now().Add(time.Hour), CurrentDelayS: 3600}
 	require.NoError(t, e.db.CommitFetchError(e.ctx, er))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND enabled = 1 AND consecutive_failures = 0", id))
+	require.Equal(t, 0, e.count("SELECT count(*) FROM fetch_log WHERE feed_id = ? AND outcome = 'error'", id))
 }
