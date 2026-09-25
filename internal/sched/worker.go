@@ -61,9 +61,9 @@ func (s *Scheduler) exec(f *flight) (out result) {
 		// (Snap.HostUntil). A Retry-After a sibling feed learns while this fetch
 		// is in flight is intentionally not applied here: tick skips held hosts,
 		// so this feed simply waits out the deadline when it next comes due.
-		// Extraction runs before, never inside, the commit transaction. It cannot
-		// fail the fetch: failures land on the item's item_fulltext row.
-		s.extractInline(s.fetchCtx, res)
+		// Extraction happens after the commit, in the background pool (design
+		// §4.3): only the candidates and the fetch_log notes are chosen here.
+		cand := s.pickFulltext(s.fetchCtx, res)
 		res.Schedule(s.clk.Now(), s.opt.Rand)
 		out.outcome, out.status = res.Outcome, res.Status
 		out.errClass, out.errMsg = res.ErrClass, res.ErrMsg
@@ -82,6 +82,9 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			err = cerr
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
 			out.migrated = ci.Migrated
+			if cerr == nil && !ci.Stale {
+				s.queueFulltext(cctx, f.snap.ID, cand, ci.NewIDs)
+			}
 			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil && !ci.Stale {
 				if uerr := s.db.SetFeedUAFallback(cctx, f.snap.ID); uerr != nil {
 					s.log.Warn("sched: remember browser user agent", "feed", f.snap.ID, "err", uerr)

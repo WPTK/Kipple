@@ -55,6 +55,7 @@ func (s *Scheduler) dispatch(tickC <-chan time.Time, stopTick func()) {
 			for s.live > 0 {
 				s.handleDone(<-s.doneCh)
 			}
+			s.stopFulltext()
 			return
 		}
 	}

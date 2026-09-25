@@ -45,12 +45,11 @@ type Options struct {
 
 	// Inline full-text extraction (design §4.3).
 	Extractor           Extractor     // default: the guarded extract.Extractor
-	FulltextMaxItems    int           // new items extracted per fetch, 20; the rest are deferred
+	FulltextMaxItems    int           // new items queued per fetch, 20; the rest are left to on-demand
 	FulltextItemTimeout time.Duration // per article, 10 s
-	FulltextTotal       time.Duration // per fetch, 60 s
-	FulltextConcurrency int           // concurrent articles per fetch, 3
-	FulltextPerHost     int           // concurrent articles per article host, all workers, 2
-	FulltextGlobal      int           // concurrent articles across all workers, 4 (memory guard)
+	FulltextPerHost     int           // concurrent articles per article host, 2
+	FulltextGlobal      int           // extraction pool size = concurrent articles overall, 4 (memory guard)
+	FulltextQueue       int           // items waiting for extraction, 500; beyond it items are left to on-demand
 }
 
 // RunInfo answers a refresh-all, import or retention request.
@@ -171,9 +170,9 @@ type Scheduler struct {
 	stopped    chan struct{}
 	syncCh     chan func()
 
-	ext     Extractor
-	ftHosts *hostLimiter
-	ftSem   chan struct{} // global cap on concurrent inline extractions
+	ext  Extractor
+	ftq  *ftQueue // bounded background extraction queue, drained by the pool
+	ftWG sync.WaitGroup
 
 	failCommit func(feedID int64) error // test hook: replaces the fetch commit
 
@@ -215,11 +214,8 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	if opt.FulltextItemTimeout <= 0 {
 		opt.FulltextItemTimeout = defaultFTItemTimeout
 	}
-	if opt.FulltextTotal <= 0 {
-		opt.FulltextTotal = defaultFTTotal
-	}
-	if opt.FulltextConcurrency <= 0 {
-		opt.FulltextConcurrency = defaultFTConcurrency
+	if opt.FulltextQueue <= 0 {
+		opt.FulltextQueue = defaultFTQueue
 	}
 	if opt.FulltextPerHost <= 0 {
 		opt.FulltextPerHost = defaultFTPerHost
@@ -243,7 +239,7 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
-		ext: opt.Extractor, ftHosts: newHostLimiter(opt.FulltextPerHost), ftSem: make(chan struct{}, opt.FulltextGlobal),
+		ext: opt.Extractor, ftq: newFTQueue(opt.FulltextQueue, opt.FulltextPerHost),
 		db: db, client: client, hub: hub, clk: clk, log: log, opt: opt,
 		jobs:       make(chan *flight, opt.Workers),
 		doneCh:     make(chan result, opt.Workers),
@@ -271,6 +267,7 @@ func (s *Scheduler) Start() {
 		for i := 0; i < s.opt.Workers; i++ {
 			go s.worker()
 		}
+		s.startFulltext()
 		go s.dispatch(tickC, stopTick)
 	})
 }
