@@ -650,9 +650,11 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 
 ### 2.6 Maintenance (one goroutine, one cancellable context)
 
-- **Hourly:** `PRAGMA wal_checkpoint(PASSIVE)` through `WithWrite`.
+- **Implementation (as built).** `internal/maint` owns the schedule (a 1-minute `clock.Clock` ticker; hourly and nightly are due-checks against the injected clock, so a coalesced tick never loses a job) and `internal/store/maint.go` owns the SQL. Each job logs one summary line (rows, batches, duration) and calls the optional `OnJob` hook.
+- **Batching.** Every purge below is a loop of bounded batches: 1000 rows per `WithWrite`, each behind the commit gate, with a 25 ms pause between batches (cancellable) so fetch commits and edit-tags interleave. A batch shorter than 1000 ends the loop.
+- **Hourly:** `PRAGMA wal_checkpoint(PASSIVE)` on the writer's single connection. It cannot run inside the `WithWrite` transaction (SQLite answers "database table is locked"), so it takes the writer connection directly, which is the same exclusion `WithWrite` uses.
 - **Nightly at 04:10 in `settings.tz`:**
-  1. Through `WithWrite`, one short transaction per statement:
+  1. Through `WithWrite`, batched as above (a restore also refuses ledger rows older than `restore_days`, so it never depends on when this ran):
      - `DELETE FROM trimmed_content WHERE id IN (SELECT id FROM trimmed_items WHERE trimmed_at < now − restore_days·86400)`
      - `DELETE FROM trimmed_items WHERE last_seen_at < now − 180 d`
      - `DELETE FROM sessions WHERE expires_at < now`
@@ -1729,8 +1731,9 @@ internal/sanitize       absolutize.go (URL attribute resolution, base chain), bl
                         (RequireParseableURLs, no relative URLs), plain text + word count, lead-image pick,
                         serve-time proxy rewrite
 internal/readability    go-readabilityV2 pipeline (guarded fetch, charset, absolutize, sanitize, text, image)
-internal/sched          dispatcher.go, worker.go, run.go (attach/outstanding), maintenance.go
-                        (hourly/nightly/weekly, cancellable)
+internal/sched          dispatcher.go, worker.go, run.go (attach/outstanding)
+internal/maint          maint.go: the one maintenance goroutine (hourly/nightly/Sunday, cancellable);
+                        its SQL is store/maint.go
 internal/greader        front.go (path cleaning, dispatch switch), form.go (raw-preserving), auth.go,
                         itemid.go, stream.go, filter.go, h_ids.go, h_contents.go (streaming encoder),
                         h_edit.go, h_markall.go, h_subs.go, h_tags.go, h_misc.go, response.go (no-null

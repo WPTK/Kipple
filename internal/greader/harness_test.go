@@ -249,7 +249,7 @@ func (h *harness) trim(id int64, withStub bool) {
 	h.t.Helper()
 	require.NoError(h.t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at)
-			SELECT id, feed_id, uid, read, 1, 1 FROM items WHERE id = ?`, id); err != nil {
+			SELECT id, feed_id, uid, read, unixepoch(), unixepoch() FROM items WHERE id = ?`, id); err != nil {
 			return err
 		}
 		if withStub {

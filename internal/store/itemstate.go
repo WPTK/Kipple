@@ -123,7 +123,10 @@ func SetStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, now 
 
 // restoreTrimmed puts trimmed items that still have a restore stub back into
 // items and item_content with their original id, uid and sort_at (design §5).
-// mode is "star" or "unread". It returns the restored ids.
+// Only ledger rows trimmed within retention.restore_days qualify: the nightly
+// purge deletes older stubs, but until it runs a stub can outlive the window,
+// and a restore must not depend on when the purge last ran. mode is "star" or
+// "unread". It returns the ids actually restored (inserted into items).
 func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, now int64) ([]int64, error) {
 	if mode != "star" && mode != "unread" {
 		return nil, fmt.Errorf("store: restore mode %q", mode)
@@ -132,8 +135,9 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 	if err != nil {
 		return nil, err
 	}
+	cutoff := now - int64(LoadFetchSettings(ctx, tx).RestoreDays)*86400
 	rows, err := tx.QueryContext(ctx, `SELECT t.id, t.feed_id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
-		WHERE t.id IN (SELECT value FROM json_each(?1))`, js)
+		WHERE t.id IN (SELECT value FROM json_each(?1)) AND t.trimmed_at >= ?2`, js, cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -145,8 +149,7 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 	if err != nil {
 		return nil, err
 	}
-	stmts := []string{
-		`INSERT INTO items (id, feed_id, uid, read, starred, read_at, starred_at, retain_until, fulltext_mode,
+	rows, err = tx.QueryContext(ctx, `INSERT INTO items (id, feed_id, uid, read, starred, read_at, starred_at, retain_until, fulltext_mode,
 		                   published_at, updated_at, sort_at, word_count, content_hash, text_hash,
 		                   url, title, author, image_url, origin_title)
 		  SELECT t.id, t.feed_id, t.uid,
@@ -159,7 +162,15 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 		         c.url, c.title, c.author, c.image_url, c.origin_title
 		  FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
 		  WHERE t.id IN (SELECT value FROM json_each(?3))
-		ON CONFLICT DO NOTHING`,
+		ON CONFLICT DO NOTHING RETURNING id, feed_id`, mode, now, rjs)
+	if err != nil {
+		return nil, fmt.Errorf("store: restore trimmed: %w", err)
+	}
+	inserted, err := scanIDs(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: restore trimmed: %w", err)
+	}
+	stmts := []string{
 		`INSERT INTO item_content (item_id, content_html, content_text, enclosures_json)
 		  SELECT c.id, c.content_html, c.content_text, c.enclosures_json FROM trimmed_content c
 		  WHERE c.id IN (SELECT value FROM json_each(?3)) AND EXISTS (SELECT 1 FROM items i WHERE i.id = c.id)
@@ -171,7 +182,7 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 			return nil, fmt.Errorf("store: restore trimmed: %w", err)
 		}
 	}
-	return restorable, nil
+	return inserted, nil
 }
 
 // MarkScope selects what MarkAllRead touches. The zero value is every item.

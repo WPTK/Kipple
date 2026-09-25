@@ -25,6 +25,7 @@ import (
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/greader"
+	"github.com/WPTK/kipple/internal/maint"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/store"
 	kweb "github.com/WPTK/kipple/internal/web"
@@ -128,6 +129,8 @@ func runServe() error {
 		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick,
 	})
 	scheduler.Start()
+	maintenance := maint.New(maint.Options{DB: db, Logger: logger})
+	maintenance.Start()
 
 	// The Reader API claims /api/greader.php and its root aliases ahead of the
 	// mux, so no ServeMux ever sees a Reader path (design §6.1).
@@ -174,7 +177,7 @@ func runServe() error {
 	}()
 
 	// Shutdown order (design §4.10): stop the scheduler, close SSE, drain HTTP,
-	// wait for the workers, then (deferred) checkpoint and close the store.
+	// wait for the workers, stop maintenance, then (deferred) checkpoint and close the store.
 	stopAll := func() error {
 		scheduler.Stop()
 		hub.Close()
@@ -189,6 +192,9 @@ func runServe() error {
 		case <-time.After(15 * time.Second):
 			logger.Error("scheduler did not drain in time")
 		}
+		// Design §4.10 step 5: cancel maintenance (interrupts a running purge or
+		// VACUUM INTO) before the final checkpoint in the deferred db.Close.
+		maintenance.Stop()
 		if shutErr != nil {
 			return fmt.Errorf("shutdown: %w", shutErr)
 		}
