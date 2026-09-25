@@ -129,3 +129,11 @@ func (c *Client) httpClient(v variant, hops *[]Hop) *http.Client {
 		},
 	}
 }
+
+// Transport returns the cached guarded transport for a variant, for callers
+// outside the feed fetcher that need the same dial-time SSRF guard: the image
+// proxy (keyed by its signed flags, design §7.4) and full-text extraction.
+// The result is shared and must not be modified.
+func (c *Client) Transport(allowPrivate, insecureTLS, noHTTP2 bool) http.RoundTripper {
+	return c.transport(variant{noHTTP2: noHTTP2, insecureTLS: insecureTLS, allowPrivate: allowPrivate})
+}
