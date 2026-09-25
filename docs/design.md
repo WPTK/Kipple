@@ -247,9 +247,9 @@ PRAGMA application_id = 1263095884;   -- 'KIPL' = 0x4B49504C
 
 -- Single-user key/value settings. Values are JSON. Defaults live in Go; a row exists only for
 -- overridden keys. User keys (whitelisted for PATCH): refresh.interval_minutes, retention.default,
--- retention.restore_days, fetch.user_agent, fetch.honor_publisher_ttl, greader.icon_urls,
+-- retention.restore_days, fetch.user_agent, fetch.user_agent_mode, fetch.honor_publisher_ttl, greader.icon_urls,
 -- greader.ot_includes_user_changes, greader.subscribe_fetch_now, stats.api_single_read_is_open,
--- imgproxy.mode, tz, ui.* (theme, font_body, font_ui, font_size, line_height, content_width,
+-- imgproxy.mode, tz, ui.* (theme, font_body, font_ui, font_size, reading_density,
 -- layouts, mark_read_on_scroll, ...). System keys (never PATCHable): sys.id_high_water (JSON
 -- integer, allocator high-water mark), sys.last_snapshot_at, sys.last_snapshot_error.
 CREATE TABLE settings (
@@ -821,7 +821,7 @@ doneCh <- workerExit
 - **Variants.** Built lazily and cached: `disable_http2`, `allow_insecure_tls`, and their private-net versions. The image proxy uses the same variants, keyed by its signed flags.
 - **Client.** `http.Client{Timeout: 20s, CheckRedirect: recordHop}`. `recordHop` records every hop's status and allows at most 5 hops.
 - **Request headers:**
-  - `User-Agent`: `feeds.user_agent`, else the `fetch.user_agent` setting, else `Mozilla/5.0 (compatible; Kipple/<ver>; +<KIPPLE_PUBLIC_URL>)`. The `+url` part is included only when configured.
+  - `User-Agent`: `feeds.user_agent` wins and never retries. Otherwise `fetch.user_agent_mode` decides: `default` sends `Mozilla/5.0 (compatible; Kipple/<ver>; +<KIPPLE_PUBLIC_URL>)` (the `+url` part only when configured) and never retries; `browser_always` sends a browser string; `browser_on_failure` (the default) sends Kipple's UA and, on a 403, 406 or a Cloudflare 503 challenge, retries once with the browser string through the same guarded transport, then sets `feeds.ua_fallback = 1` so later fetches use the browser string directly. The browser string is a common Chrome UA unless the `fetch.user_agent` setting supplies a custom one.
   - `Accept: application/rss+xml, application/atom+xml, application/feed+json, application/json;q=0.9, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8`.
   - Basic auth from `http_auth`.
   - `If-None-Match` and `If-Modified-Since` (verbatim), sent only when stored non-empty, the job is not `full`, and `ignore_http_cache=0`.
@@ -1545,7 +1545,7 @@ Other conventions:
 | `GET /api/events` | `Last-Event-ID` | SSE (§7.3) |
 | `GET /api/health/feeds` | — | `{feeds:[{id,title,url,url_original,status,enabled,disabled_reason,last_success_at,last_fetch_at,last_error_at,last_error_class,last_error,last_status,consecutive_failures,current_delay_s,next_fetch_at,redirect_to,redirect_kind,redirect_count,last_new_items_at,trimmed_unread_count,trimmed_unread_since,host_throttled_until}], clients:[{family,last_seen_at}], snapshot:{last_at,last_error}, clock:{ahead_s}, unread_total}` |
 | `GET /api/health/feeds/{id}/log` | — | The feed's fetch_log rows (14 days, plus kept rows) |
-| `GET /api/settings`, `PATCH /api/settings` | `{key: value, …}` (whitelisted user keys, validated) | Merged settings. A `retention.default` change starts a `retention` run |
+| `GET /api/settings`, `PATCH /api/settings` | `{key: value, …}` (whitelisted user keys, validated) | `{settings: [{key, value, default, label, description, group, kind, options, min, max, step, unit, surface}, …], values: {key: value, …}}`. `surface` is `reader_menu`, `settings` or `hidden`; option `css` carries the `ui.reading_density` line height and column width. A `retention.default` change starts a `retention` run |
 | `POST /api/account/password`, `POST /api/account/api-password` | `{current, new}` or `{current, generate:true}` | `204`, or `{api_password}` once when generated. Changing the API password revokes the Reader token and clears the login memo |
 | `POST /api/opml` | Raw OPML or multipart; `?mark_read_older_than_days=N` (1–365, optional) | `{folders_created, feeds_added, feeds_existing:[{url, feed_id}], folders_merged_case:[…], memberships_dropped:[{url, kept, dropped:[…]}], run_id}` |
 | `GET /api/opml` | — | OPML attachment (§7.6) |

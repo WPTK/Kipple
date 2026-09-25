@@ -21,7 +21,7 @@ not localhost, name compose services explicitly).
   Source Serif 4, Arvo, Inter, Manrope, Source Sans 3, JetBrains Mono, Source Code Pro. System
   when present: New York, SF Pro, SF Mono, Georgia, Menlo. Default body: New York on Apple,
   Literata elsewhere.
-- **Themes:** white, off-white, sepia, soft green, brown, dark, follow-system.
+- **Themes:** white, off-white, sepia, soft green, brown, dark, OLED dark (true black), follow-system.
 - **Look:** Feedly is the reference (magazine/cards with images up front). Not NewsBlur,
   FreshRSS or Miniflux.
 - **Non-goals:** no AI features, no notifications, no social, no monitoring, no multi-user.

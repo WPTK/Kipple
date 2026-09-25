@@ -34,12 +34,30 @@ Phase 2 (reading UI backend) so far.
   `POST /api/account/api-password` (generate or set; revokes the Reader token at once and clears
   the login memo). Both verify the current password under the login lockout.
 - Settings `greader.ot_includes_user_changes`, `greader.subscribe_fetch_now` and `ui.*` defaults.
+- `GET`/`PATCH /api/settings` now describe every user-visible key for the UI: label, one-sentence
+  help, group, kind, options, range, step, unit and surface (`reader_menu`, `settings` or
+  `hidden`), plus the current value and default. The response is `{settings: [...], values: {...}}`.
+- `ui.reading_density` (`compact`, `comfortable`, `relaxed`) with its CSS mapping (line height and
+  column width) served in the option metadata.
+- `oled` theme (true black, for battery savings on OLED screens).
+- `fetch.user_agent_mode`: `default`, `browser_on_failure` (the default) or `browser_always`.
+  With `browser_on_failure` a feed that answers 403/406 (or a Cloudflare 503 challenge) is retried
+  once with a browser User-Agent; if that works the feed remembers it (`feeds.ua_fallback`,
+  migration 0002) and uses the browser UA from then on. A per-feed User-Agent still wins.
 
 ### Changed
 
+- `fetch.user_agent` is now an optional custom User-Agent that replaces the built-in browser
+  string; it no longer applies when the mode is `default`.
+- Account passwords may be 5 to 256 characters (was 12 to 256).
 - CI runs `go test -race -shuffle=on` with a 15 minute timeout and on `phase-2` pushes; the
   Docker job loads the image so it can be scanned.
 - Cleanups from staticcheck: removed dead code and a dead test field, named HTTP status constants.
+
+### Removed
+
+- `ui.line_height` and `ui.content_width`, replaced by `ui.reading_density`. Stored rows are
+  deleted by migration 0002.
 
 ### Fixed
 
