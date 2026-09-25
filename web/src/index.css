@@ -56,6 +56,7 @@
 
   --kp-gutter: 1rem;
   --tabbar-h: 3.5rem;
+  --toolbar-h: 3.5rem; /* article toolbar: 44 px buttons plus padding */
 }
 
 :root[data-font="easy"] {

@@ -160,7 +160,7 @@ export function AppShell() {
         {showTabs ? <TabBar /> : null}
       </div>
       <LiveRegion />
-      <Toasts>
+      <Toasts inset={wide ? "none" : inArticle ? "toolbar" : "tabbar"}>
         <UndoToast />
       </Toasts>
       <HelpDialog />

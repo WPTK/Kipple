@@ -258,7 +258,7 @@ describe("order", () => {
     routes();
     updateDevicePrefs({ order: "oldest" });
     go("/l/unread");
-    expect(await screen.findByText(/can't sort oldest first yet/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/can't sort oldest first yet/)).length).toBeGreaterThan(0);
     await waitFor(() => expect(devicePrefsStore.get().order).toBe("newest"));
   });
 
@@ -267,7 +267,7 @@ describe("order", () => {
     updateDevicePrefs({ order: "oldest" });
     go("/l/unread");
     await screen.findByText("Article number 1");
-    expect(screen.queryByText(/can't sort oldest first yet/)).toBeNull();
+    expect(screen.queryAllByText(/can't sort oldest first yet/)).toHaveLength(0);
     expect(devicePrefsStore.get().order).toBe("oldest");
   });
 });
