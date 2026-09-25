@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
-import { Inbox, List, Search, Settings, Star } from "lucide-react";
+import { HeartPulse, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
 import { useHotkeys } from "@/lib/keys";
@@ -87,6 +87,14 @@ function Sidebar() {
         <Search aria-hidden="true" className="size-5" />
         Search
       </NavLink>
+      <NavLink to="/feeds" className={item}>
+        <Rss aria-hidden="true" className="size-5" />
+        Manage feeds
+      </NavLink>
+      <NavLink to="/health" className={item}>
+        <HeartPulse aria-hidden="true" className="size-5" />
+        Feed health
+      </NavLink>
       <NavLink to="/settings" className={item}>
         <Settings aria-hidden="true" className="size-5" />
         Settings
@@ -94,6 +102,51 @@ function Sidebar() {
       <h2 className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Feeds</h2>
       <FeedTree />
     </nav>
+  );
+}
+
+const WARN_KEY = "kipple.warnings.dismissed";
+
+/** Bootstrap warnings (clock ahead, stale snapshot, too many unread for sync apps): shown once per session. */
+function WarningsBanner() {
+  const boot = useBootstrap();
+  const [gone, setGone] = useState(() => {
+    try {
+      return sessionStorage.getItem(WARN_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const ws = boot.data?.warnings ?? [];
+  const sig = ws.map((w) => w.code).join(",");
+  if (ws.length === 0 || gone === sig) return null;
+  return (
+    <div role="status" className="pt-safe flex shrink-0 items-start gap-2 border-b border-line bg-surface px-4 py-2 text-sm">
+      <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-danger" />
+      <div className="min-w-0 flex-1">
+        {ws.map((w) => (
+          <p key={w.code}>{w.message}</p>
+        ))}
+        <NavLink to="/health" className="text-link underline underline-offset-2">
+          Open feed health
+        </NavLink>
+      </div>
+      <button
+        type="button"
+        aria-label="Dismiss warnings"
+        className="hit -my-2 inline-flex items-center justify-center rounded-lg hover:bg-selection"
+        onClick={() => {
+          setGone(sig);
+          try {
+            sessionStorage.setItem(WARN_KEY, sig);
+          } catch {
+            /* not remembered */
+          }
+        }}
+      >
+        <X aria-hidden="true" className="size-5" />
+      </button>
+    </div>
   );
 }
 
@@ -154,6 +207,7 @@ export function AppShell() {
       </a>
       {wide ? <Sidebar /> : null}
       <div className="flex min-w-0 flex-1 flex-col">
+        <WarningsBanner />
         <main id="main" ref={mainRef} tabIndex={-1} className="pl-safe pr-safe min-h-0 flex-1 outline-none">
           <Outlet />
         </main>

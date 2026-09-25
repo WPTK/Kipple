@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
 import { ArrowDown, ArrowUp, CircleAlert, CircleCheck, CirclePause, FolderPlus, HeartPulse, MoreVertical, Pencil, Plus, Upload, Download } from "lucide-react";
@@ -180,8 +180,9 @@ export function FeedsScreen() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const c = boot.data?.counts;
-  const [adding, setAdding] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const open = (useLocation().state as { open?: string } | null)?.open;
+  const [adding, setAdding] = useState(open === "add");
+  const [importing, setImporting] = useState(open === "import");
   const [editing, setEditing] = useState<Feed | null>(null);
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null);
   const [reorder, setReorder] = useState(false);

@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
-import { flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
+import { applyRead, flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
 import { maxItemId } from "@/api/bulk";
 import { clearPending, liveStore, pendingFor } from "@/api/events";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
@@ -23,6 +23,7 @@ import { useHotkeys } from "@/lib/keys";
 import { useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { articleTo } from "@/lib/routes";
+import { FirstRun } from "./FeedsScreen";
 import { announce, toast } from "@/shell/toasts";
 
 // Scroll and selection memory per list, so "back" lands where you were
@@ -205,6 +206,39 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
   }, [lastIndex, rows.length, q]);
 
   const openItem = useCallback((item: Card) => setSelectedId(item.id), []);
+
+  // "Mark as read while scrolling" (Accessibility, off by default): rows that have scrolled past the top of
+  // the list are marked read once scrolling settles. Goes through mark-read with reason "scroll": no stats,
+  // no undo toast, and never on Starred or search.
+  const markOnScroll = boot.data?.settings?.["ui.mark_read_on_scroll"] === true && scope.view !== "starred" && !scope.q;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const sentByScroll = useRef(new Set<string>());
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!markOnScroll || !el) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      const start = virtualizer.range?.startIndex ?? 0;
+      const ids: string[] = [];
+      for (const r of rowsRef.current.slice(0, start)) {
+        const list = r.kind === "item" ? [r.item] : r.kind === "group" ? r.items : [];
+        for (const i of list) if (!i.read && !sentByScroll.current.has(i.id)) ids.push(i.id);
+      }
+      if (ids.length === 0) return;
+      ids.forEach((id) => sentByScroll.current.add(id));
+      void applyRead(qc, ids, true, "scroll");
+    };
+    const onScroll = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(flush, 700);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      if (timer) clearTimeout(timer);
+      el.removeEventListener("scroll", onScroll);
+    };
+  }, [markOnScroll, qc, virtualizer]);
 
   const move = useCallback(
     (delta: 1 | -1) => {
@@ -462,6 +496,11 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
       );
     }
     if (rows.length === 0) {
+      if (boot.data && boot.data.feeds.every((f) => f.is_archive) && !scope.q) {
+        return (
+          <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
+        );
+      }
       const c = emptyCopy(scope);
       return <StatusBlock role="status" title={c.title} body={c.body} />;
     }
