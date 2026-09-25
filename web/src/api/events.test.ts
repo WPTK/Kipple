@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import { announcementFor, applyCounts, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent } from "./events";
+import { announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent } from "./events";
 import { keys, scopeKey } from "./queries";
 import type { ItemsPage, ServerEvent } from "./types";
 import { bootstrap, card, detail, pageOf } from "@/test/mockApi";
@@ -22,9 +22,9 @@ describe("reduceEvent", () => {
     let s = reduceEvent(initialLive, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 3 } });
     s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "2", outcome: "ok", new_items: 2 } });
     s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "3", outcome: "not_modified", new_items: 0 } });
-    expect(s.pendingNew).toBe(5);
+    expect(s.pendingByFeed).toEqual({ "1": 3, "2": 2 });
     s = reduceEvent(s, { type: "resync", data: {} });
-    expect(s).toMatchObject({ pendingNew: 0, resyncTick: 1 });
+    expect(s).toMatchObject({ pendingByFeed: {}, resyncTick: 1 });
   });
 
   it("records full-text readiness and feed changes", () => {
@@ -117,5 +117,30 @@ describe("transport helpers", () => {
   it("polls every 2 s during a run and every 60 s otherwise", () => {
     expect(pollInterval(true)).toBe(2000);
     expect(pollInterval(false)).toBe(60000);
+  });
+});
+
+describe('pendingFor (the "n new" pill)', () => {
+  const feeds = [
+    { id: "1", folder_id: "a" },
+    { id: "2", folder_id: "a" },
+    { id: "3", folder_id: "b" },
+  ];
+  const pending = { "1": 3, "2": 2, "3": 4 };
+  it("counts only feeds inside the list's scope", () => {
+    expect(pendingFor(pending, { view: "unread" }, feeds)).toBe(9);
+    expect(pendingFor(pending, { view: "all", feed: "3" }, feeds)).toBe(4);
+    expect(pendingFor(pending, { view: "unread", folder: "a" }, feeds)).toBe(5);
+    expect(pendingFor(pending, { view: "unread", feed: "9" }, feeds)).toBe(0);
+  });
+  it("shows nothing for starred, search and oldest-first lists", () => {
+    expect(pendingFor(pending, { view: "starred" }, feeds)).toBe(0);
+    expect(pendingFor(pending, { view: "all", q: "x" }, feeds)).toBe(0);
+    expect(pendingFor(pending, { view: "unread", order: "oldest" }, feeds)).toBe(0);
+  });
+  it("clears only the covered feeds", () => {
+    expect(clearPending(pending, { view: "unread", folder: "a" }, feeds)).toEqual({ "3": 4 });
+    expect(clearPending(pending, { view: "unread", feed: "3" }, feeds)).toEqual({ "1": 3, "2": 2 });
+    expect(clearPending(pending, { view: "unread" }, feeds)).toEqual({});
   });
 });

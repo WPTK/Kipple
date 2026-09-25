@@ -17,8 +17,8 @@ import {
 // ---- Live state: what the UI shows about background activity ----------------
 
 export interface LiveState {
-  /** New items fetched since the visible list loaded (drives the "n new" pill). */
-  pendingNew: number;
+  /** New items fetched since the visible list loaded, by feed id (drives the "n new" pill). */
+  pendingByFeed: Record<string, number>;
   /** Active fetch runs by run id. */
   runs: Record<string, RunStatus>;
   /** Increments on `resync`; screens refetch when it changes. */
@@ -31,7 +31,7 @@ export interface LiveState {
 }
 
 export const initialLive: LiveState = {
-  pendingNew: 0,
+  pendingByFeed: {},
   runs: {},
   resyncTick: 0,
   fulltextReady: [],
@@ -68,18 +68,54 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
       return { ...s, runs: rest };
     }
     case "fetch.done":
-      return ev.data.new_items > 0 ? { ...s, pendingNew: s.pendingNew + ev.data.new_items } : s;
+      return ev.data.new_items > 0
+        ? { ...s, pendingByFeed: { ...s.pendingByFeed, [ev.data.feed_id]: (s.pendingByFeed[ev.data.feed_id] ?? 0) + ev.data.new_items } }
+        : s;
     case "fulltext.ready":
       return { ...s, fulltextReady: [...s.fulltextReady, ...ev.data.ids].slice(-500) };
     case "feed.changed":
       return { ...s, feedsStaleTick: s.feedsStaleTick + 1 };
     case "resync":
-      return { ...s, resyncTick: s.resyncTick + 1, pendingNew: 0 };
+      return { ...s, resyncTick: s.resyncTick + 1, pendingByFeed: {} };
     case "items.state":
     case "counts":
       return s; // cache-only events
   }
 }
+
+/**
+ * New items that would appear in this list: the feeds the scope includes (a feed, a folder's feeds,
+ * or all). Starred and search lists never show a pill (their membership is not "new arrivals"),
+ * and an oldest-first list gets new items at its far end, so a jump-to-top pill would mislead.
+ */
+export function pendingFor(
+  pending: Record<string, number>,
+  scope: { view: string; feed?: string; folder?: string; q?: string; order?: string },
+  feeds: readonly { id: string; folder_id: string }[],
+): number {
+  if (scope.view === "starred" || scope.q || scope.order === "oldest") return 0;
+  let n = 0;
+  if (scope.feed) return pending[scope.feed] ?? 0;
+  if (scope.folder) {
+    for (const f of feeds) if (f.folder_id === scope.folder) n += pending[f.id] ?? 0;
+    return n;
+  }
+  for (const v of Object.values(pending)) n += v;
+  return n;
+}
+
+/** `pending` without the feeds a just-reloaded list for `scope` covered. */
+export function clearPending(
+  pending: Record<string, number>,
+  scope: Parameters<typeof pendingFor>[1],
+  feeds: readonly { id: string; folder_id: string }[],
+): Record<string, number> {
+  if (pendingFor(pending, scope, feeds) === 0) return pending;
+  if (scope.feed) return omit(pending, [scope.feed]);
+  if (scope.folder) return omit(pending, feeds.filter((f) => f.folder_id === scope.folder).map((f) => f.id));
+  return {};
+}
+const omit = (o: Record<string, number>, ids: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !ids.includes(k)));
 
 /** Text for the polite live region, or null when the event is not announced. */
 export function announcementFor(ev: ServerEvent): string | null {

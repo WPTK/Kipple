@@ -5,7 +5,7 @@ import { useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
 import { flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
 import { maxItemId } from "@/api/bulk";
-import { liveStore } from "@/api/events";
+import { clearPending, liveStore, pendingFor } from "@/api/events";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, Scope } from "@/api/types";
 import { SwipeRow } from "@/gestures/SwipeRow";
@@ -382,13 +382,17 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
 
   // ---- render ------------------------------------------------------------
 
-  const showPill = live.pendingNew > 0 && scope.view !== "starred" && !scope.q;
+  const pendingNew = pendingFor(live.pendingByFeed, scope, boot.data?.feeds ?? []);
+  const showPill = pendingNew > 0;
   const loadNew = () => {
-    liveStore.set((s) => ({ ...s, pendingNew: 0 }));
+    // Only what this list showed is now loaded; other feeds' arrivals keep counting for other lists.
+    liveStore.set((s) => ({ ...s, pendingByFeed: clearPending(s.pendingByFeed, scope, boot.data?.feeds ?? []) }));
     memory.delete(key);
     asOf.current = undefined;
     setHidden(new Set());
     setChecked(new Set());
+    // Other cached lists for the cleared feeds are now stale too; they refetch when next opened.
+    void qc.invalidateQueries({ queryKey: keys.itemsAll, refetchType: "none" });
     void qc.resetQueries({ queryKey: keys.items(scope) }).then(() => {
       virtualizer.scrollToOffset(0);
       announce("List updated");
@@ -512,7 +516,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
         {showPill ? (
           <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
             <Button variant="solid" className="pointer-events-auto rounded-full shadow-lg" onClick={loadNew}>
-              {live.pendingNew} new article{live.pendingNew === 1 ? "" : "s"}
+              {pendingNew} new article{pendingNew === 1 ? "" : "s"}
             </Button>
           </div>
         ) : null}
