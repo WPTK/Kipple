@@ -1,0 +1,185 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"strconv"
+)
+
+// DefaultSettings are the user-visible settings with their defaults (design
+// §2.2: a row exists only for an overridden key). System keys (sys.*) are never
+// listed.
+var DefaultSettings = map[string]any{
+	"refresh.interval_minutes":      30,
+	"retention.default":             250,
+	"retention.restore_days":        90,
+	"fetch.user_agent":              "",
+	"fetch.honor_publisher_ttl":     true,
+	"settings.tz":                   "America/New_York",
+	"stats.api_single_read_is_open": false,
+	"imgproxy.mode":                 "http_only",
+	"greader.icon_urls":             false,
+}
+
+// MergedSettings returns DefaultSettings overlaid with the stored rows for
+// those keys (a malformed stored value keeps the default).
+func (d *DB) MergedSettings(ctx context.Context) (map[string]any, error) {
+	out := make(map[string]any, len(DefaultSettings))
+	for k, v := range DefaultSettings {
+		out[k] = v
+	}
+	rows, err := d.reader.QueryContext(ctx, "SELECT key, value FROM settings WHERE key NOT LIKE 'sys.%'")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		if _, known := DefaultSettings[k]; !known {
+			continue
+		}
+		var val any
+		if json.Unmarshal([]byte(v), &val) == nil {
+			out[k] = val
+		}
+	}
+	return out, rows.Err()
+}
+
+// UIFolder is a folder with its unread count.
+type UIFolder struct {
+	ID        int64  `json:"id,string"`
+	Name      string `json:"name"`
+	Position  int64  `json:"position"`
+	IsDefault bool   `json:"is_default"`
+	Unread    int64  `json:"unread"`
+}
+
+// UIFolders lists folders in display order with unread counts.
+func (d *DB) UIFolders(ctx context.Context) ([]UIFolder, error) {
+	rows, err := d.reader.QueryContext(ctx, `SELECT fo.id, fo.name, fo.position, fo.is_default,
+		COALESCE((SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.folder_id = fo.id AND i.read = 0), 0)
+		FROM folders fo ORDER BY fo.position, fo.name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []UIFolder{}
+	for rows.Next() {
+		var f UIFolder
+		var def int
+		if err := rows.Scan(&f.ID, &f.Name, &f.Position, &def, &f.Unread); err != nil {
+			return nil, err
+		}
+		f.IsDefault = def == 1
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// UIFeed is a feed as GET /api/bootstrap lists it. Status is the disabled
+// reason, "failing" while consecutive_failures > 0, else "ok".
+type UIFeed struct {
+	ID              int64   `json:"id,string"`
+	FolderID        int64   `json:"folder_id,string"`
+	Title           string  `json:"title"`
+	SiteURL         string  `json:"site_url"`
+	Icon            *string `json:"icon"`
+	Unread          int64   `json:"unread"`
+	Status          string  `json:"status"`
+	Fulltext        bool    `json:"fulltext"`
+	Retention       *int64  `json:"retention"`
+	IntervalMinutes *int64  `json:"interval_minutes"`
+	IsArchive       bool    `json:"is_archive"`
+}
+
+// UIFeeds lists feeds in display order. The archive feed is listed only while
+// it holds items.
+func (d *DB) UIFeeds(ctx context.Context) ([]UIFeed, error) {
+	rows, err := d.reader.QueryContext(ctx, `
+		SELECT f.id, f.folder_id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url, fi.hash,
+		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes
+		FROM feeds f JOIN folders fo ON fo.id = f.folder_id
+		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
+		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id
+		WHERE f.disabled_reason IS NOT 'archive' OR EXISTS (SELECT 1 FROM items WHERE feed_id = f.id)
+		ORDER BY fo.position, fo.name, f.position, lower(COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url)), f.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []UIFeed{}
+	for rows.Next() {
+		var f UIFeed
+		var hash, reason sql.NullString
+		var enabled, failures, fulltext int64
+		var retention, interval sql.NullInt64
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval); err != nil {
+			return nil, err
+		}
+		if hash.Valid {
+			icon := "/api/feeds/" + strconv.FormatInt(f.ID, 10) + "/icon?h=" + hash.String
+			f.Icon = &icon
+		}
+		switch {
+		case reason.Valid:
+			f.Status = reason.String
+			f.IsArchive = reason.String == "archive"
+		case enabled == 0:
+			f.Status = "disabled"
+		case failures > 0:
+			f.Status = "failing"
+		default:
+			f.Status = "ok"
+		}
+		f.Fulltext = fulltext == 1
+		f.Retention, f.IntervalMinutes = intp(retention), intp(interval)
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// Counts returns the unread and starred item totals.
+func (d *DB) Counts(ctx context.Context) (unread, starred int64, err error) {
+	err = d.reader.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM items WHERE read = 0),
+		(SELECT count(*) FROM items WHERE starred = 1)`).Scan(&unread, &starred)
+	return
+}
+
+// SnapshotStatus is the nightly snapshot's last outcome (sys.last_snapshot_*).
+type SnapshotStatus struct {
+	LastAt    int64  // 0 = never
+	LastError string // "" = none
+}
+
+// SnapshotStatus reads the snapshot bookkeeping keys.
+func (d *DB) SnapshotStatus(ctx context.Context) SnapshotStatus {
+	return SnapshotStatus{
+		LastAt:    int64(settingInt(ctx, d.reader, "sys.last_snapshot_at", 0)),
+		LastError: settingString(ctx, d.reader, "sys.last_snapshot_error", ""),
+	}
+}
+
+// FeedUnreadCounts returns every feed's unread count, zeros included, so a
+// `counts` event can zero a feed that just emptied.
+func (d *DB) FeedUnreadCounts(ctx context.Context) (map[int64]int64, error) {
+	rows, err := d.reader.QueryContext(ctx, `SELECT f.id, COALESCE(u.n, 0) FROM feeds f
+		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int64{}
+	for rows.Next() {
+		var id, n int64
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
