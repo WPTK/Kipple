@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
-import { Dialog } from "radix-ui";
 import { Inbox, List, Search, Settings, Star } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
@@ -11,7 +10,9 @@ import { useWide } from "@/lib/useMedia";
 import { listTo } from "@/lib/routes";
 import { cn } from "@/lib/cn";
 import { FeedTree } from "@/screens/FeedTree";
-import { Button } from "@/ui/button";
+import { undoLast } from "@/lib/undo";
+import { HelpDialog, openHelp } from "./HelpDialog";
+import { UndoToast } from "./UndoToast";
 import { LiveRegion, Toasts } from "./toasts";
 
 const tab = "flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-xs font-medium";
@@ -96,47 +97,6 @@ function Sidebar() {
   );
 }
 
-const HELP: [string, string][] = [
-  ["j / k", "Next / previous article"],
-  ["Enter", "Open the selected article"],
-  ["o", "Open original"],
-  ["s", "Star or unstar"],
-  ["m", "Mark read or unread"],
-  ["f", "Toggle full text (article)"],
-  ["r", "Refresh all feeds"],
-  ["u / Esc", "Back to the list"],
-  ["g g", "Jump to top"],
-  ["G", "Jump to bottom"],
-  ["g i / a / s / f / ,", "Go to Unread / All / Starred / Feeds / Settings"],
-  ["/", "Search"],
-  ["?", "This help"],
-];
-
-function HelpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
-        <Dialog.Content className="fixed inset-x-4 top-[10vh] z-50 mx-auto max-h-[80dvh] max-w-md overflow-y-auto rounded-2xl border border-line bg-bg p-5 text-fg shadow-xl">
-          <Dialog.Title className="text-lg font-bold">Keyboard shortcuts</Dialog.Title>
-          <Dialog.Description className="mb-3 text-sm text-fg2">Single-key shortcuts can be turned off in Settings.</Dialog.Description>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-            {HELP.map(([k, d]) => (
-              <div key={k} className="contents">
-                <dt className="font-mono font-semibold">{k}</dt>
-                <dd className="text-fg2">{d}</dd>
-              </div>
-            ))}
-          </dl>
-          <Dialog.Close asChild>
-            <Button className="mt-4">Close</Button>
-          </Dialog.Close>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
-
 /**
  * The signed-in frame. Landmarks: nav (tab bar or sidebar), main. A polite live
  * region and the toast area live here, and focus moves to the new screen's
@@ -147,7 +107,6 @@ export function AppShell() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const prefs = useStore(prefsStore);
-  const [help, setHelp] = useState(false);
   useServerEvents(true);
 
   useHotkeys(
@@ -158,7 +117,8 @@ export function AppShell() {
       goFeeds: () => navigate("/feeds"),
       goSettings: () => navigate("/settings"),
       search: () => navigate("/search"),
-      help: () => setHelp(true),
+      help: openHelp,
+      undo: () => void undoLast(),
     },
     { singleKeys: prefs.shortcuts },
   );
@@ -200,8 +160,10 @@ export function AppShell() {
         {showTabs ? <TabBar /> : null}
       </div>
       <LiveRegion />
-      <Toasts />
-      <HelpDialog open={help} onOpenChange={setHelp} />
+      <Toasts>
+        <UndoToast />
+      </Toasts>
+      <HelpDialog />
     </div>
   );
 }

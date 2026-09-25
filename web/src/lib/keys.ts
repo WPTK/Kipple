@@ -23,7 +23,16 @@ export type Action =
   | "goSettings"
   | "search"
   | "help"
-  | "fulltext";
+  | "fulltext"
+  | "background"
+  | "markAll"
+  | "markAbove"
+  | "markBelow"
+  | "select"
+  | "undo"
+  | "compact"
+  | "prevFeed"
+  | "nextFeed";
 
 export const CHORD_TIMEOUT_MS = 1200;
 
@@ -50,6 +59,7 @@ const SINGLE: Record<string, Action> = {
   k: "prev",
   Enter: "open",
   o: "original",
+  v: "background",
   m: "toggleRead",
   s: "star",
   r: "refresh",
@@ -58,6 +68,14 @@ const SINGLE: Record<string, Action> = {
   G: "bottom",
   Home: "top",
   f: "fulltext",
+  A: "markAll",
+  "{": "markAbove",
+  "}": "markBelow",
+  x: "select",
+  z: "undo",
+  c: "compact",
+  "[": "prevFeed",
+  "]": "nextFeed",
   "/": "search",
   "?": "help",
 };
@@ -111,7 +129,7 @@ export function useHotkeys(handlers: Handlers, opts: { singleKeys: boolean; enab
       const { handlers: h, opts: o } = ref.current;
       if (o.enabled === false) return;
       // A modal dialog owns the keyboard (Radix handles Esc itself).
-      if (document.querySelector('[role="dialog"]')) return;
+      if (document.querySelector('[role="dialog"],[role="menu"]')) return;
       // Enter on a focused control activates that control, not the list selection.
       if (e.key === "Enter" && e.target instanceof HTMLElement && e.target.closest('a,button,summary,[role="button"],[role="link"]')) return;
       const res = interpretKey(e, pendingG, { typing: isTypingTarget(e.target), singleKeys: o.singleKeys });
@@ -131,3 +149,33 @@ export function useHotkeys(handlers: Handlers, opts: { singleKeys: boolean; enab
     };
   }, []);
 }
+
+export interface KeyDoc {
+  keys: string;
+  desc: string;
+  scope: "List" | "Article" | "Everywhere";
+}
+
+/** The shortcut overlay's source of truth, kept beside the maps above. */
+export const KEYMAP: KeyDoc[] = [
+  { keys: "j / k", desc: "Next / previous article", scope: "List" },
+  { keys: "Enter", desc: "Open the selected article", scope: "List" },
+  { keys: "x", desc: "Select or deselect the row (then m, s, { and } act on the selection)", scope: "List" },
+  { keys: "m", desc: "Mark read or unread", scope: "List" },
+  { keys: "s", desc: "Star or unstar", scope: "List" },
+  { keys: "{ / }", desc: "Mark above / below as read", scope: "List" },
+  { keys: "Shift+A", desc: "Mark everything in this list as read", scope: "List" },
+  { keys: "g g / G", desc: "Jump to top / bottom", scope: "List" },
+  { keys: "[ / ]", desc: "Previous / next feed", scope: "List" },
+  { keys: "c", desc: "Switch to the Compact layout and back", scope: "List" },
+  { keys: "o / v", desc: "Open the original in a new tab", scope: "Everywhere" },
+  { keys: "j / k", desc: "Next / previous article", scope: "Article" },
+  { keys: "m / s", desc: "Mark read or unread / star", scope: "Article" },
+  { keys: "f", desc: "Toggle full text", scope: "Article" },
+  { keys: "u or Esc", desc: "Back to the list", scope: "Article" },
+  { keys: "r", desc: "Refresh all feeds", scope: "Everywhere" },
+  { keys: "z", desc: "Undo the last action (60 seconds, 2 minutes for bulk)", scope: "Everywhere" },
+  { keys: "g i / a / s / f / ,", desc: "Go to Unread / All / Starred / Feeds / Settings", scope: "Everywhere" },
+  { keys: "/", desc: "Search", scope: "Everywhere" },
+  { keys: "?", desc: "This overlay", scope: "Everywhere" },
+];

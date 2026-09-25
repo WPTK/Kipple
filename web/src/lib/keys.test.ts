@@ -55,3 +55,25 @@ describe("isTypingTarget", () => {
     expect(isTypingTarget(null)).toBe(false);
   });
 });
+
+describe("round-2 keymap additions", () => {
+  const on2 = { typing: false, singleKeys: true };
+  it("maps the new single keys", () => {
+    const map: Record<string, string> = { v: "background", A: "markAll", "{": "markAbove", "}": "markBelow", x: "select", z: "undo", c: "compact", "[": "prevFeed", "]": "nextFeed" };
+    for (const [key, action] of Object.entries(map)) expect(interpretKey({ key }, false, on2).action, key).toBe(action);
+  });
+  it("gg jumps to the top and g then i/a/s/f go to views", () => {
+    expect(interpretKey({ key: "g" }, false, on2)).toEqual({ action: null, pendingG: true });
+    expect(interpretKey({ key: "g" }, true, on2).action).toBe("top");
+    expect(interpretKey({ key: "i" }, true, on2).action).toBe("goUnread");
+    expect(interpretKey({ key: "a" }, true, on2).action).toBe("goAll");
+    expect(interpretKey({ key: "s" }, true, on2).action).toBe("goStarred");
+  });
+  it("none of the new keys work while typing or with the setting off", () => {
+    for (const key of ["v", "A", "{", "}", "x", "z", "c", "[", "]"]) {
+      expect(interpretKey({ key }, false, { typing: true, singleKeys: true }).action, key).toBeNull();
+      expect(interpretKey({ key }, false, { typing: false, singleKeys: false }).action, key).toBeNull();
+      expect(interpretKey({ key, ctrlKey: true }, false, on2).action, key).toBeNull();
+    }
+  });
+});
