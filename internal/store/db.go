@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"modernc.org/sqlite"
+
+	"github.com/WPTK/kipple/internal/clock"
 )
 
 // Pool sizes and page caches (KiB) per design.md 2.1.
@@ -43,6 +45,9 @@ type DB struct {
 	reader *sql.DB
 	gate   chan struct{}
 
+	clock clock.Clock
+	alloc *IDAlloc
+
 	// migrations overrides the embedded set (tests only).
 	migrations []migration
 
@@ -60,6 +65,8 @@ type Options struct {
 	BackupDir string
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
+	// Clock defaults to the wall clock; tests inject a fake.
+	Clock clock.Clock
 }
 
 var ofdOnce sync.Once
@@ -155,7 +162,11 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 		}
 	})
 
-	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1)}
+	clk := opts.Clock
+	if clk == nil {
+		clk = clock.Real{}
+	}
+	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1), clock: clk}
 
 	if err := checkForeign(ctx, opts.Path); err != nil {
 		return nil, err
@@ -193,6 +204,11 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 		d.reader.Close()
 		return nil, fmt.Errorf("store: ping reader: %w", err)
 	}
+	if d.alloc, err = seedIDAlloc(ctx, d.reader, clk, log); err != nil {
+		d.writer.Close()
+		d.reader.Close()
+		return nil, err
+	}
 	return d, nil
 }
 
@@ -227,6 +243,12 @@ func (d *DB) openSnapshot() (*sql.DB, error) {
 
 // Reader returns the read-only pool. Never hold a read transaction across network writes.
 func (d *DB) Reader() *sql.DB { return d.reader }
+
+// Clock returns the store's time source.
+func (d *DB) Clock() clock.Clock { return d.clock }
+
+// IDs returns the item id allocator.
+func (d *DB) IDs() *IDAlloc { return d.alloc }
 
 // Path returns the database file path.
 func (d *DB) Path() string { return d.path }
