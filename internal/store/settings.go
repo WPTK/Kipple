@@ -6,12 +6,17 @@ import (
 	"encoding/json"
 )
 
+// MaxRestoreDays caps retention.restore_days. The nightly ledger purge removes a
+// trimmed id (and its stub) 180 days after its uid was last seen, so a longer
+// stub window could never be honored.
+const MaxRestoreDays = 180
+
 // FetchSettings are the settings the fetch layer reads. Defaults live here;
 // a settings row exists only for an overridden key.
 type FetchSettings struct {
 	IntervalMinutes  int    // refresh.interval_minutes, default 30
 	RetentionDefault int    // retention.default, default 250 (0 = unlimited)
-	RestoreDays      int    // retention.restore_days, default 90
+	RestoreDays      int    // retention.restore_days, default 90, clamped to 0..MaxRestoreDays
 	UserAgent        string // fetch.user_agent, default "" (client default)
 	HonorTTL         bool   // fetch.honor_publisher_ttl, default true
 }
@@ -21,7 +26,7 @@ func LoadFetchSettings(ctx context.Context, q Querier) FetchSettings {
 	return FetchSettings{
 		IntervalMinutes:  settingInt(ctx, q, "refresh.interval_minutes", 30),
 		RetentionDefault: settingInt(ctx, q, "retention.default", 250),
-		RestoreDays:      settingInt(ctx, q, "retention.restore_days", 90),
+		RestoreDays:      min(max(settingInt(ctx, q, "retention.restore_days", 90), 0), MaxRestoreDays),
 		UserAgent:        settingString(ctx, q, "fetch.user_agent", ""),
 		HonorTTL:         settingBool(ctx, q, "fetch.honor_publisher_ttl", true),
 	}

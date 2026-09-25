@@ -1087,7 +1087,7 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and enqueues 
 - `feeds.retention` uses the same values; NULL means inherit. The archive feed is fixed at 0.
 - `N = COALESCE(feeds.retention, default)`. When `N = 0` the trim is skipped.
 - N counts **non-starred, non-held** items only. "Keep newest N" means the N newest unstarred items, plus every starred item, plus items whose `retain_until` is still in the future.
-- `settings.retention.restore_days` (0–365, default **90**) is how long a restore stub is kept.
+- `settings.retention.restore_days` (0–180, default **90**; capped at 180 because the nightly purge drops ledger rows and their stubs 180 days after the uid was last seen) is how long a restore stub is kept.
 
 **When.**
 
@@ -2029,7 +2029,7 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 | **The `ot` slack of 120 s on both legs** returns up to 2 minutes of already-known ids | Harmless: clients de-duplicate by id |
 | **NNW's `Date` parser uses a full-weekday pattern** and may fall back to a 3-month `ot` every refresh | A few pages of 1000 ids at worst. Watch the access log for `ot` of about now − 90 d |
 | **Newest-N retention with NNW:** a trimmed unread item vanishes and NNW marks it read locally | Default N=250, `trimmed_unread_count` in the health view, per-feed overrides. A mark-unread within 90 days restores and holds the item |
-| **Stars and mark-unread on items older than `restore_days`** (stub purged) are still ignored, and the client undoes them | 90 days matches NNW's article window. The window is a setting (≤ 365) if the owner stars very old items from app caches |
+| **Stars and mark-unread on items older than `restore_days`** (stub purged) are still ignored, and the client undoes them | 90 days matches NNW's article window. The window is a setting (≤ 180) if the owner stars very old items from app caches |
 | **Restore stubs cost disk** (about 270 MB at 90 days for busy feeds) | `retention.restore_days` can be lowered; the nightly snapshot size shows the cost |
 | **The archive feed is a visible pseudo-feed** in both clients ("Unsubscribed (starred)") | It is listed only while it holds items. "Purge unstarred" and a real unsubscribe of the archive are explicit actions |
 | **The API `open` inference is approximate** | Off by default. When enabled it is stored with `inferred=1` and excluded from every view unless the toggle is on |
