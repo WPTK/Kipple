@@ -34,6 +34,11 @@ class FakeES {
     this.readyState = 2;
     this.onerror?.();
   }
+  /** A dropped connection: the browser would retry natively (readyState CONNECTING) after `retry:`. */
+  drop() {
+    this.readyState = 0;
+    this.onerror?.();
+  }
 }
 
 function setup() {
@@ -86,7 +91,7 @@ describe("useServerEvents", () => {
   });
 
   it("recreates a CLOSED stream with capped backoff, polls meanwhile, resyncs on reconnect", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     try {
       const { calls } = mockFetch({
         "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 4 }),
@@ -98,12 +103,13 @@ describe("useServerEvents", () => {
       act(() => first.fail());
       expect(first.closed).toBe(true);
       expect(FakeES.all).toHaveLength(1);
-      expect(liveStore.get().transport).toBe("fallback");
       await act(() => vi.advanceTimersByTimeAsync(1_500));
       expect(FakeES.all).toHaveLength(2);
-      expect(calls.some((c) => c.url.pathname === "/api/status")).toBe(true);
-      // Still failing: the delay grows.
+      // Still failing: the delay grows, and the second error starts the fallback poll.
       act(() => FakeES.all[1]!.fail());
+      expect(liveStore.get().transport).toBe("fallback");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls.some((c) => c.url.pathname === "/api/status")).toBe(true);
       await act(() => vi.advanceTimersByTimeAsync(1_000));
       expect(FakeES.all).toHaveLength(2);
       await act(() => vi.advanceTimersByTimeAsync(2_000));
@@ -112,7 +118,8 @@ describe("useServerEvents", () => {
       act(() => FakeES.all[2]!.onopen?.());
       expect(liveStore.get().transport).toBe("open");
       expect(liveStore.get().resyncTick).toBe(before + 1);
-      // Stream is back: a later drop restarts the delay at about 1 s.
+      // Stream is back and stays up: a later drop restarts the delay at about 1 s.
+      vi.setSystemTime(Date.now() + 60_000);
       act(() => FakeES.all[2]!.fail());
       await act(() => vi.advanceTimersByTimeAsync(1_500));
       expect(FakeES.all).toHaveLength(4);
@@ -120,6 +127,68 @@ describe("useServerEvents", () => {
       act(() => undefined);
       await vi.advanceTimersByTimeAsync(60_000);
       expect(FakeES.all).toHaveLength(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("reconnect discipline (killed backend)", () => {
+  it("closes a dropped source at once so the browser's native 3 s retry never stacks on ours", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      mockFetch({ "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 0 }) });
+      const { unmount } = setup();
+      act(() => FakeES.all[0]!.drop());
+      expect(FakeES.all[0]!.closed).toBe(true);
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      // Backend stays dead: every attempt is refused instantly. In 60 s the backoff allows about
+      // 1 + 2 + 4 + 8 + 16 + 30 s gaps, so at most 7 attempts, never one per 3 s (20) or a burst.
+      for (let i = 0; i < 12; i += 1) {
+        const last = FakeES.all[FakeES.all.length - 1]!;
+        if (!last.closed) act(() => last.fail());
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+      }
+      let attempts = FakeES.all.length;
+      expect(attempts).toBeLessThanOrEqual(20);
+      // Never two sources open at once.
+      expect(FakeES.all.filter((e) => !e.closed).length).toBeLessThanOrEqual(1);
+      // Measure the window: after the delay has grown to the cap, 60 s yields at most 3 attempts.
+      const before = FakeES.all.length;
+      const last = FakeES.all[FakeES.all.length - 1]!;
+      if (!last.closed) act(() => last.fail());
+      for (let t = 0; t < 60; t += 1) {
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        const cur = FakeES.all[FakeES.all.length - 1]!;
+        if (!cur.closed) act(() => cur.fail());
+      }
+      attempts = FakeES.all.length - before;
+      expect(attempts).toBeLessThanOrEqual(3);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not reset the backoff for a stream that opens and dies at once", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      mockFetch({ "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 0 }) });
+      const { unmount } = setup();
+      for (let i = 0; i < 3; i += 1) {
+        const cur = FakeES.all[FakeES.all.length - 1]!;
+        act(() => cur.onopen?.());
+        act(() => cur.drop());
+        await act(() => vi.advanceTimersByTimeAsync(1_500 * 2 ** i));
+      }
+      // Delays 1 s, 2 s, 4 s: a fourth attempt is not due after 1.5 s more.
+      const n = FakeES.all.length;
+      const cur = FakeES.all[n - 1]!;
+      act(() => cur.onopen?.());
+      act(() => cur.drop());
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(FakeES.all).toHaveLength(n);
+      unmount();
     } finally {
       vi.useRealTimers();
     }

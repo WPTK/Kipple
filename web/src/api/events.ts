@@ -212,6 +212,9 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
 
 // ---- Hook ---------------------------------------------------------------------
 
+/** A stream open at least this long counts as healthy when it later drops. */
+const STABLE_MS = 10_000;
+
 /** Reconnect delay after the browser gave up on the stream: 1 s doubling to 30 s, with jitter. */
 export function reconnectDelay(attempt: number, rand: () => number = Math.random): number {
   const base = Math.min(30_000, 1_000 * 2 ** Math.max(0, attempt));
@@ -221,10 +224,10 @@ export function reconnectDelay(attempt: number, rand: () => number = Math.random
 /**
  * Subscribes to /api/events. If EventSource errors twice without delivering a
  * message it falls back to polling /api/status (2 s during a run, 60 s
- * otherwise); a message or a reopened stream ends the fallback. A browser
- * EventSource only retries by itself while the connection dropped; after a
- * non-200 answer (a proxy 502 during a deploy) it is CLOSED for good, so the
- * hook recreates it with capped exponential backoff and resyncs on reconnect.
+ * otherwise); a message or a reopened stream ends the fallback. The browser's
+ * native retry is disabled (the source is closed on every error) so that
+ * exactly one reconnect is scheduled per backoff interval, 1 s doubling to
+ * 30 s, and a resync runs on reconnect.
  */
 export function useServerEvents(enabled: boolean): void {
   const qc = useQueryClient();
@@ -253,9 +256,10 @@ export function useServerEvents(enabled: boolean): void {
       }
       if (!stopped && liveStore.get().transport === "fallback") pollTimer = setTimeout(poll, pollInterval(active));
     };
+    let openedAt = 0;
+    /** The stream is up: leave fallback polling and resync if events were missed. */
     const connected = () => {
       errors = 0;
-      attempt = 0;
       stopPolling();
       if (liveStore.get().transport !== "open") liveStore.set((s) => ({ ...s, transport: "open" }));
       if (lost) {
@@ -270,29 +274,33 @@ export function useServerEvents(enabled: boolean): void {
       const src = new EventSource("/api/events");
       es = src;
       const onMessage = (type: string) => (m: MessageEvent<string>) => {
+        attempt = 0; // a delivered message proves the stream is healthy
         connected();
         const ev = parseServerEvent(type, m.data);
         if (ev) handleServerEvent(qc, ev);
       };
       for (const t of SERVER_EVENT_TYPES) src.addEventListener(t, onMessage(t) as EventListener);
-      src.onopen = () => connected();
+      src.onopen = () => {
+        openedAt = Date.now();
+        connected();
+      };
       src.onerror = () => {
+        // We own reconnection. The browser's own retry (the server's `retry: 3000`, every 3 s with
+        // no backoff) would stack on top of ours, so close the source on EVERY error and schedule
+        // exactly one attempt. A stream that stayed up a while before dropping restarts the backoff;
+        // one that opened and died at once (a proxy that accepts then resets) does not.
+        src.close();
+        if (es !== src) return; // a late error from a source we already replaced
         errors += 1;
         if (authStore.get() === "out") return;
+        if (openedAt && Date.now() - openedAt >= STABLE_MS) attempt = 0;
+        openedAt = 0;
         lost = true;
         if (errors >= 2 && liveStore.get().transport !== "fallback") {
           liveStore.set((s) => ({ ...s, transport: "fallback" }));
           void poll();
         }
-        if (src.readyState === EventSource.CLOSED) {
-          src.close();
-          if (!retryTimer && !stopped) retryTimer = setTimeout(connect, reconnectDelay(attempt++));
-          // A stream that closed before ever erroring twice still needs the fallback.
-          if (liveStore.get().transport !== "fallback") {
-            liveStore.set((s) => ({ ...s, transport: "fallback" }));
-            void poll();
-          }
-        }
+        if (!retryTimer && !stopped) retryTimer = setTimeout(connect, reconnectDelay(attempt++));
       };
     };
     connect();
