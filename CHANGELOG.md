@@ -24,7 +24,7 @@ Phase 2 (reading UI backend) so far.
   feed's network flags. Each result is stored with one small write, only while the item still
   exists with the same URL, and announced with a `fulltext.ready` SSE event. A failure never fails
   the fetch and polling does not retry it. Items past the caps are left for the on-demand endpoint
-  and counted in the fetch log note (`fulltext_queued: n`, `fulltext_deferred: n`). The queue is in
+  and counted in the fetch log note (`fulltext_picked: n`, `fulltext_deferred: n`). The queue is in
   memory: items queued at a restart are extracted on demand instead.
 - Migration 0003: `item_fulltext.error_class` (`transient` or `permanent`); errors stored before it
   read as permanent.
@@ -57,6 +57,19 @@ Phase 2 (reading UI backend) so far.
 
 ### Changed
 
+- Full-text extraction runs through one shared runner (`internal/ftrun`) for the ingest pool and
+  `POST /api/items/{id}/fulltext`: opening an item the pool is extracting joins that run instead of
+  fetching twice, and the per-article-host limit of 2 covers both. The outcome is saved inside the
+  run, before joined requests are released, so they no longer each save. The endpoint's fetch now
+  uses the same outgoing User-Agent as ingest.
+- A background full-text save also requires the effective mode to still be on, so switching it off
+  mid-extraction skips the save and the `fulltext.ready` announcement.
+- The fetch log note `fulltext_queued` is now `fulltext_picked` (it is chosen before the commit);
+  items picked but not queued are logged with the real counts. A closed queue at shutdown is logged
+  as shut, not as full.
+- The post-commit lookup of new item ids has its own 5 s deadline and, if it fails, leaves the items
+  to on-demand with a warning.
+
 - Full-text extraction now classes transport failures like feed fetches: a blocked address, an
   unverifiable certificate, an unknown host and a redirect loop are permanent (no hourly retry);
   timeouts, resets, refused connections, 5xx, 429 and HTTP 408 stay transient.
@@ -74,6 +87,9 @@ Phase 2 (reading UI backend) so far.
   deleted by migration 0002.
 
 ### Fixed
+
+- A panic while parsing a hostile article page no longer crashes the process: it is stored as a
+  permanent extraction error and logged with its stack.
 
 - `POST /api/feeds/{id}/refresh` on a full-text feed no longer waits for article extraction (it used
   to run inside the fetch worker for up to 60 s, so the refresh often answered 202 pending and slow
