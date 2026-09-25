@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"math/rand/v2"
+	"sort"
 	"sync"
 	"time"
 
@@ -318,4 +319,33 @@ func (s *Scheduler) inDispatcher(fn func()) {
 		<-done
 	case <-s.stopped:
 	}
+}
+
+// RunStatus is one active run as GET /api/status reports it.
+type RunStatus struct {
+	ID       int64  `json:"id,string"`
+	Kind     string `json:"kind"`
+	Done     int    `json:"done"`
+	Total    int    `json:"total"`
+	NewItems int    `json:"new_items"`
+	Errors   int    `json:"errors"`
+}
+
+// Status snapshots the active runs and the number of fetches in flight. It
+// reads dispatcher-owned state on the dispatcher goroutine. After shutdown it
+// returns empty.
+func (s *Scheduler) Status() (runs []RunStatus, inflight int) {
+	runs = []RunStatus{}
+	s.inDispatcher(func() {
+		for _, r := range s.runs {
+			runs = append(runs, RunStatus{ID: r.ID, Kind: r.Kind, Done: r.Done, Total: r.Total, NewItems: r.NewItems, Errors: r.Errors})
+		}
+		for _, f := range s.flights {
+			if f.started {
+				inflight++
+			}
+		}
+	})
+	sort.Slice(runs, func(i, j int) bool { return runs[i].ID < runs[j].ID })
+	return runs, inflight
 }

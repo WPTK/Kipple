@@ -282,3 +282,104 @@ func GeneratePassword(n int) (string, error) {
 	}
 	return string(out), nil
 }
+
+// PeerTrusted reports whether the TCP peer of r is one of the trusted proxies.
+func PeerTrusted(r *http.Request, trusted []netip.Addr) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	peer, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	peer = peer.Unmap()
+	for _, t := range trusted {
+		if t == peer {
+			return true
+		}
+	}
+	return false
+}
+
+// EffectiveScheme is "https" when the connection is TLS, or when a trusted
+// proxy says so with X-Forwarded-Proto (design §7); otherwise "http".
+func EffectiveScheme(r *http.Request, trusted []netip.Addr) string {
+	if r.TLS != nil {
+		return "https"
+	}
+	if PeerTrusted(r, trusted) && strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https") {
+		return "https"
+	}
+	return "http"
+}
+
+// Lockout is the web login lockout: after Max failures from one IP inside a
+// fixed Window (started by the first failure), that IP is refused until the
+// window ends. Per IP, never global, so an attacker elsewhere cannot lock the owner
+// out. A success clears the IP.
+type Lockout struct {
+	Max    int
+	Window time.Duration
+	Now    func() time.Time
+
+	mu sync.Mutex
+	m  map[string]*failure
+}
+
+// NewLockout returns the plan defaults: 10 failures per 15 minutes.
+func NewLockout(now func() time.Time) *Lockout {
+	if now == nil {
+		now = time.Now
+	}
+	return &Lockout{Max: 10, Window: 15 * time.Minute, Now: now, m: map[string]*failure{}}
+}
+
+// Locked reports whether ip is locked out and for how much longer.
+func (l *Lockout) Locked(ip string) (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e := l.m[ip]
+	if e == nil {
+		return false, 0
+	}
+	now := l.Now()
+	if now.Sub(e.start) >= l.Window {
+		delete(l.m, ip)
+		return false, 0
+	}
+	if e.n >= l.Max {
+		return true, e.start.Add(l.Window).Sub(now)
+	}
+	return false, 0
+}
+
+// Fail records a failed attempt.
+func (l *Lockout) Fail(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.Now()
+	e := l.m[ip]
+	if e == nil || now.Sub(e.start) >= l.Window {
+		if len(l.m) >= 4096 {
+			for k, v := range l.m {
+				if now.Sub(v.start) >= l.Window {
+					delete(l.m, k)
+				}
+			}
+			if len(l.m) >= 4096 {
+				return
+			}
+		}
+		e = &failure{start: now}
+		l.m[ip] = e
+	}
+	e.n++
+}
+
+// Clear forgets ip.
+func (l *Lockout) Clear(ip string) {
+	l.mu.Lock()
+	delete(l.m, ip)
+	l.mu.Unlock()
+}
