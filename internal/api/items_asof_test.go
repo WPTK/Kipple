@@ -15,14 +15,12 @@ func TestListItemsAsOfSweepsOldestFirstList(t *testing.T) {
 	c := h.login()
 	f := h.addFeed("A", 0)
 	// backdated sort_at: the newest id sorts first in an oldest-first list
-	newest := h.addItem(f, seedItem{SortAt: 10})
-	var rest []int64
+	h.addItem(f, seedItem{SortAt: 10})
 	for i := 0; i < 5; i++ {
-		rest = append(rest, h.addItem(f, seedItem{SortAt: int64(100 + i)}))
+		h.addItem(f, seedItem{SortAt: int64(100 + i)})
 	}
 	ledger := h.addItem(f, seedItem{})
 	h.trim(ledger, false, 5)
-	_ = newest
 
 	code, out, _ := h.api(c, "GET", "/api/items?view=unread&order=oldest&limit=2", "")
 	require.Equal(t, 200, code)
