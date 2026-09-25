@@ -56,3 +56,14 @@ Phases: 1 fetch/store/retention/Reader API; 2 reading UI; 3 themes, fonts, PWA; 
 uses each phase for a day before the next starts. Sonnet for routine code, Opus as advisor and
 reviewer. One writer on Host-A at a time. Verify iOS layout in the browser pane at the mobile
 preset before calling a UI phase done. Save decisions and gotchas to memory.
+
+## Releases and CI
+
+- SemVer, with `-alpha.N`/`-beta.N`/`-rc.N` prereleases. Annotated tag `vX.Y.Z[-pre.N]` on the
+  exact commit deployed to Host-A, made at deploy time; never move or reuse a pushed tag.
+- `CHANGELOG.md` is Keep a Changelog 1.1.0: every behavior change adds an entry under
+  `[Unreleased]`; a release moves it under the version heading.
+- CI has govulncheck, staticcheck, gosec (fails on high/high only), gitleaks and Trivy. Any
+  dependency change gets a govulncheck run. Suppress findings only with a written reason.
+- TODO when the phase 2 frontend deps land: add `npm audit --omit=dev`, ESLint and Vitest to
+  the web job.
