@@ -89,6 +89,15 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
     requestAnimationFrame(() => focusRow(parentRef.current, saved.selectedId as string));
   }, [items.length, saved?.selectedId]);
 
+  // The reader pane (or j/k in it) changed the open item: keep it in view.
+  const lastActive = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!activeId || lastActive.current === activeId) return;
+    lastActive.current = activeId;
+    const i = rows.findIndex((r) => r.kind === "item" && r.item.id === activeId);
+    if (i >= 0) virtualizer.scrollToIndex(i, { align: "auto" });
+  }, [activeId, rows, virtualizer]);
+
   // Infinite scroll: fetch the next page when the tail comes into view.
   const virtualItems = virtualizer.getVirtualItems();
   const lastIndex = virtualItems.length ? (virtualItems[virtualItems.length - 1]?.index ?? 0) : 0;
