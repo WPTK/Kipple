@@ -200,7 +200,7 @@ var settingDefs = []settingDef{
 		}},
 
 	// Library.
-	{Key: "retention.default", Label: "Articles to keep per feed", Description: "Older read articles beyond this many are removed; starred articles are always kept.",
+	{Key: "retention.default", Label: "Articles to keep per feed", Description: "Only the newest N articles per feed are kept, read or unread. Starred articles are always kept.",
 		Group: groupLibrary, Kind: "enum", Options: retentionOptions(), Surface: surfaceSettings, check: func(v any) (any, string) {
 			if f, ok := v.(float64); ok && f == math.Trunc(f) && retentionValues[int(f)] {
 				return int(f), ""
@@ -211,7 +211,7 @@ var settingDefs = []settingDef{
 		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(store.MaxRestoreDays), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, store.MaxRestoreDays)},
 
 	// Account.
-	{Key: "tz", Label: "Time zone", Description: "Used for daily statistics and for showing times.",
+	{Key: "tz", Label: "Time zone", Description: "Used for daily statistics and the nightly maintenance job.",
 		Group: groupAccount, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
 			s, ok := v.(string)
 			if !ok || s == "" || s == "Local" || len(s) > 64 {

@@ -24,8 +24,8 @@ const (
 	// DefaultPause is the yield between batches: the commit gate and the
 	// writer are free during it, so a queued fetch commit or edit-tag runs.
 	DefaultPause = 25 * time.Millisecond
-	// DefaultNightlyAt is the local time of day of the nightly job (04:10,
-	// design §2.6), as an offset from local midnight.
+	// DefaultNightlyAt is the time of day of the nightly job (04:10 in the
+	// `tz` setting, design §2.6), as an offset from midnight.
 	DefaultNightlyAt = 4*time.Hour + 10*time.Minute
 
 	hourly   = time.Hour
@@ -49,7 +49,7 @@ type Options struct {
 
 	BatchSize int           // default DefaultBatchSize
 	Pause     time.Duration // between batches; default DefaultPause
-	NightlyAt time.Duration // local time of day; default DefaultNightlyAt
+	NightlyAt time.Duration // time of day in the tz setting; default DefaultNightlyAt
 
 	// OnJob, if set, is called after every job (tests).
 	OnJob func(Job)
@@ -118,22 +118,30 @@ func (m *Maint) Stop() {
 	<-done
 }
 
-// nextNightly is the first local occurrence of at (offset from midnight)
+// nextNightly is the first occurrence of at (offset from midnight in loc)
 // strictly after now.
-func nextNightly(now time.Time, at time.Duration) time.Time {
-	now = now.In(time.Local)
+func nextNightly(now time.Time, at time.Duration, loc *time.Location) time.Time {
+	now = now.In(loc)
 	y, mo, d := now.Date()
-	t := time.Date(y, mo, d, int(at/time.Hour), int(at%time.Hour/time.Minute), 0, 0, time.Local)
+	t := time.Date(y, mo, d, int(at/time.Hour), int(at%time.Hour/time.Minute), 0, 0, loc)
 	if !t.After(now) {
-		t = time.Date(y, mo, d+1, int(at/time.Hour), int(at%time.Hour/time.Minute), 0, 0, time.Local)
+		t = time.Date(y, mo, d+1, int(at/time.Hour), int(at%time.Hour/time.Minute), 0, 0, loc)
 	}
 	return t
+}
+
+// location is the `tz` setting (design §2.6): the one time zone source for the
+// nightly job and statistics. It is read at every due-check, so a change takes
+// effect at the next tick. The process TZ only affects log timestamps.
+func (m *Maint) location(ctx context.Context) *time.Location {
+	return store.LoadLocation(ctx, m.o.DB.Reader())
 }
 
 func (m *Maint) run(ctx context.Context, done chan struct{}, tick <-chan time.Time, stopTick func(), start time.Time) {
 	defer close(done)
 	defer stopTick()
-	lastCheckpoint, next := start, nextNightly(start, m.o.NightlyAt)
+	loc := m.location(ctx)
+	lastCheckpoint, next := start, nextNightly(start, m.o.NightlyAt, loc)
 	for {
 		select {
 		case <-ctx.Done():
@@ -145,9 +153,14 @@ func (m *Maint) run(ctx context.Context, done chan struct{}, tick <-chan time.Ti
 			lastCheckpoint = now
 			m.checkpoint(ctx)
 		}
+		// A changed tz moves the pending run to its next 04:10 in the new zone.
+		if cur := m.location(ctx); cur.String() != loc.String() {
+			loc = cur
+			next = nextNightly(now, m.o.NightlyAt, loc)
+		}
 		if !now.Before(next) {
-			next = nextNightly(now, m.o.NightlyAt)
-			m.nightly(ctx, now)
+			next = nextNightly(now, m.o.NightlyAt, loc)
+			m.nightly(ctx, now, loc)
 		}
 	}
 }
@@ -178,7 +191,7 @@ func (m *Maint) checkpoint(ctx context.Context) {
 
 // nightly runs the design §2.6 nightly sequence. A failed step is logged and
 // does not stop the later ones; a cancelled context stops everything.
-func (m *Maint) nightly(ctx context.Context, now time.Time) {
+func (m *Maint) nightly(ctx context.Context, now time.Time, loc *time.Location) {
 	unix := now.Unix()
 	db := m.o.DB
 	m.purge(ctx, "purge_stubs", func() (int64, error) { return db.PurgeStubs(ctx, unix, m.o.BatchSize) })
@@ -194,7 +207,7 @@ func (m *Maint) nightly(ctx context.Context, now time.Time) {
 	}
 	// FTS integrity-check runs on Sundays, against the snapshot file (design §2.4).
 	began = time.Now()
-	_, err := db.WriteSnapshot(ctx, unix, now.In(time.Local).Weekday() == time.Sunday)
+	_, err := db.WriteSnapshot(ctx, unix, now.In(loc).Weekday() == time.Sunday)
 	m.finish(Job{Name: "snapshot", Batches: 1, Err: err}, began)
 }
 

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	_ "time/tzdata" // the tz setting resolves IANA names even where the OS has no zoneinfo
 
 	"github.com/stretchr/testify/require"
 
@@ -101,7 +102,32 @@ func (e *env) noJob(d time.Duration) {
 
 // local returns a local-zone time on a fixed 2026 date (23 Sep is a Wednesday,
 // 27 Sep a Sunday).
-func local(day, h, m int) time.Time { return time.Date(2026, 9, day, h, m, 0, 0, time.Local) }
+// The default tz setting is America/New_York; the tests do not depend on the machine's TZ.
+var newYork = func() *time.Location {
+	l, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		panic(err)
+	}
+	return l
+}()
+
+// noNightly fails on any job but the hourly checkpoint within d.
+func (e *env) noNightly(d time.Duration) {
+	e.t.Helper()
+	deadline := time.After(d)
+	for {
+		select {
+		case j := <-e.jobs:
+			if j.Name != "checkpoint" {
+				e.t.Fatalf("unexpected job %s", j.Name)
+			}
+		case <-deadline:
+			return
+		}
+	}
+}
+
+func local(day, h, m int) time.Time { return time.Date(2026, 9, day, h, m, 0, 0, newYork) }
 
 func TestHourlyCheckpointFires(t *testing.T) {
 	e := newEnv(t, local(23, 12, 0))
@@ -232,7 +258,36 @@ func TestStopCancelsARunningPurgePromptly(t *testing.T) {
 
 func TestNextNightly(t *testing.T) {
 	at := DefaultNightlyAt
-	require.Equal(t, local(23, 4, 10), nextNightly(local(23, 3, 59), at))
-	require.Equal(t, local(24, 4, 10), nextNightly(local(23, 4, 10), at))
-	require.Equal(t, local(24, 4, 10), nextNightly(local(23, 23, 0), at))
+	require.Equal(t, local(23, 4, 10), nextNightly(local(23, 3, 59), at, newYork))
+	require.Equal(t, local(24, 4, 10), nextNightly(local(23, 4, 10), at, newYork))
+	require.Equal(t, local(24, 4, 10), nextNightly(local(23, 23, 0), at, newYork))
+}
+
+func TestNextNightlyUsesTheGivenZone(t *testing.T) {
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	require.NoError(t, err)
+	// 03:59 in New York is 16:59 in Tokyo: Tokyo's next 04:10 is 11 minutes past 04:00 NY + 11h.
+	now := local(23, 3, 59)
+	got := nextNightly(now, DefaultNightlyAt, tokyo)
+	require.Equal(t, time.Date(2026, 9, 24, 4, 10, 0, 0, tokyo), got)
+	require.True(t, got.After(local(23, 4, 10)))
+}
+
+// A changed tz setting moves the nightly run: the job follows the setting, not the process TZ.
+func TestNightlyFollowsTheTzSetting(t *testing.T) {
+	e := newEnv(t, local(23, 3, 59)) // default tz America/New_York: due at 04:10 NY
+	e.start(Options{})
+	require.NoError(t, e.db.SetSettings(context.Background(), map[string]any{"tz": "Asia/Tokyo"}))
+
+	// 04:11 in New York is 17:11 in Tokyo: not due any more.
+	e.clk.Advance(12 * time.Minute)
+	e.noNightly(300 * time.Millisecond)
+
+	// 15:09 NY is 04:09 next day in Tokyo, still not due.
+	e.clk.Advance(11*time.Hour - 2*time.Minute)
+	e.noNightly(300 * time.Millisecond)
+
+	// 15:11 NY is 04:11 Tokyo: the nightly job runs.
+	e.clk.Advance(2 * time.Minute)
+	require.NoError(t, e.waitJob("optimize").Err)
 }

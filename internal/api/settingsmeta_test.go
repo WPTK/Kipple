@@ -138,3 +138,14 @@ func TestOldReadingRowsAreIgnored(t *testing.T) {
 	require.NotContains(t, vals(out), "ui.content_width")
 	require.Equal(t, "comfortable", vals(out)["ui.reading_density"])
 }
+
+// The help texts state what the code does (audit C6, C7): retention counts unread
+// articles too, and the tz setting drives the nightly job as well as statistics.
+func TestSettingHelpTexts(t *testing.T) {
+	text := map[string]string{}
+	for _, d := range settingDefs {
+		text[d.Key] = d.Description
+	}
+	require.Equal(t, "Only the newest N articles per feed are kept, read or unread. Starred articles are always kept.", text["retention.default"])
+	require.Equal(t, "Used for daily statistics and the nightly maintenance job.", text["tz"])
+}
