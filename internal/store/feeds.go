@@ -85,7 +85,7 @@ func FindFeedByURL(ctx context.Context, q Querier, u string) (id int64, found bo
 	return id, err == nil, err
 }
 
-const snapshotCols = `id, url, host, etag, last_modified, body_hash, user_agent, http_auth,
+const snapshotCols = `id, url, host, enabled, etag, last_modified, body_hash, user_agent, http_auth,
 	ignore_http_cache, disable_http2, allow_insecure_tls, allow_private_net, dedup_mode, rekey_pending,
 	interval_minutes, retention, fulltext, redirect_to, redirect_kind, redirect_count,
 	consecutive_failures, initial_read_before, last_success_at`
@@ -104,13 +104,14 @@ func (d *DB) feedSnapshots(ctx context.Context, set FetchSettings, where string,
 		var s fetch.Snapshot
 		var etag, lm, bh, ua, auth, rto, rkind sql.NullString
 		var interval, retention, irb, lsa sql.NullInt64
-		var ignore, h2, insecure, private, rekey, ft int
-		if err := rows.Scan(&s.ID, &s.URL, &s.Host, &etag, &lm, &bh, &ua, &auth,
+		var enabled, ignore, h2, insecure, private, rekey, ft int
+		if err := rows.Scan(&s.ID, &s.URL, &s.Host, &enabled, &etag, &lm, &bh, &ua, &auth,
 			&ignore, &h2, &insecure, &private, &s.DedupMode, &rekey,
 			&interval, &retention, &ft, &rto, &rkind, &s.Redirect.Count,
 			&s.ConsecutiveFailures, &irb, &lsa); err != nil {
 			return nil, err
 		}
+		s.Enabled = enabled == 1
 		s.ETag, s.LastModified, s.BodyHash, s.HTTPAuth = etag.String, lm.String, bh.String, auth.String
 		s.IgnoreHTTPCache, s.DisableHTTP2, s.AllowInsecureTLS, s.AllowPrivateNet = ignore == 1, h2 == 1, insecure == 1, private == 1
 		s.RekeyPending, s.Fulltext = rekey == 1, ft == 1

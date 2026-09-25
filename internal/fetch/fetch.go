@@ -40,6 +40,7 @@ type Snapshot struct {
 	ID      int64
 	URL     string
 	Host    string
+	Enabled bool
 	Trigger string
 
 	ETag         string
