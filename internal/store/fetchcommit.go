@@ -24,9 +24,12 @@ type CommitInfo struct {
 	Updated int
 	Trimmed int64
 	NewIDs  []int64 // ascending
+	// Migrated is set when the commit rewrote feeds.url (design §4.7).
+	Migrated bool
 }
 
 type commitState struct {
+	migrated   bool
 	before     int // items in the feed before the fetch
 	firstNewID int64
 	firstID    int64
@@ -79,7 +82,7 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 
 	st := &commitState{firstNewID: maxInt64}
 	info := func() CommitInfo {
-		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs}
+		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated}
 	}
 	for i, ch := range chunks {
 		last := i == len(chunks)-1
@@ -514,6 +517,7 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 			return err
 		}
 		st.note(fmt.Sprintf("redirect_migrated: %s -> %s", res.Snap.URL, dec.To), true)
+		st.migrated = true
 		return nil
 	default: // clear
 		_, err := tx.ExecContext(ctx, `UPDATE feeds SET redirect_to = NULL, redirect_kind = NULL, redirect_count = 0

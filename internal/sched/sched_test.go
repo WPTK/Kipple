@@ -557,6 +557,8 @@ func TestGoneDisablesAndStopsFetching(t *testing.T) {
 	r.s.Wake()
 	r.waitEvents("fetch.done", 1)
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM feeds WHERE id=? AND enabled=0 AND disabled_reason='gone'", id))
+	r.waitEvents("feed.changed", 1)
+	require.Equal(t, fmt.Sprint(id), fmt.Sprint(int64(r.events("feed.changed")[0]["feed_id"].(float64))))
 	r.clk.Advance(72 * time.Hour)
 	r.barrier()
 	require.Equal(t, 1, srv.count("/g"))
@@ -919,4 +921,61 @@ func TestStatusNeverBlocksShutdown(t *testing.T) {
 	require.Less(t, time.Since(start), 2*time.Second)
 	require.Empty(t, runs)
 	require.Zero(t, inflight)
+}
+
+// A per-feed request that arrives while the feed is already in flight used to
+// borrow the running job's reply and lose its intent. A Full refresh must run
+// as its own fetch (validators dropped) after the in-flight one, and a trim
+// request must run a trim.
+func TestPriorityIntentSurvivesInFlightFeed(t *testing.T) {
+	r := newRig(t, Options{})
+	release := make(chan struct{})
+	started := make(chan struct{}, 4)
+	var mu sync.Mutex
+	var inms []string
+	srv := newSrv(t, func(_ string, w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		inms = append(inms, req.Header.Get("If-None-Match"))
+		first := len(inms) == 1
+		mu.Unlock()
+		if first {
+			started <- struct{}{}
+			<-release
+		}
+		w.Header().Set("ETag", `"v1"`)
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(feedXML))
+	})
+	id := r.add(srv.URL+"/f", nil)
+	// seed a validator so a non-full fetch would send If-None-Match
+	r.sql("UPDATE feeds SET etag = '\"v1\"' WHERE id = ?", id)
+	r.s.Wake()
+	<-started // the scheduled fetch is now in flight
+
+	full, err := r.s.Submit(Priority{FeedID: id, Full: true})
+	require.NoError(t, err)
+	trim, err := r.s.Submit(Priority{FeedID: id, Kind: PriorityTrim})
+	require.NoError(t, err)
+	r.barrier()
+	close(release)
+
+	for name, ch := range map[string]<-chan Reply{"full": full, "trim": trim} {
+		select {
+		case rep := <-ch:
+			require.NoError(t, rep.Err, name)
+			if name == "trim" {
+				require.Equal(t, fetch.OutcomeTrimOnly, rep.Outcome)
+			} else {
+				require.NotEqual(t, fetch.OutcomeNotModified, rep.Outcome)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s reply never arrived", name)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, inms, 2, "the full refresh must run as its own fetch")
+	require.Equal(t, `"v1"`, inms[0])
+	require.Empty(t, inms[1], "a full refetch drops validators")
+	require.EqualValues(t, 1, r.num("SELECT count(*) FROM fetch_log WHERE feed_id=? AND outcome='trim_only'", id))
 }

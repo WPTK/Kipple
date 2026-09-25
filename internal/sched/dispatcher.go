@@ -173,6 +173,15 @@ func (s *Scheduler) handleDone(r result) {
 	}
 	f := s.flights[r.feedID]
 	delete(s.flights, r.feedID)
+	if f != nil {
+		// Replayed last, on every exit path (including a cancelled job, where
+		// stopping is set and each request is answered ErrStopped).
+		defer func() {
+			for _, req := range f.followups {
+				s.handlePriority(req)
+			}
+		}()
+	}
 	if f != nil && f.started {
 		s.running--
 		s.perHost[r.host]--
@@ -246,6 +255,9 @@ func (s *Scheduler) handleDone(r result) {
 		ev["next_fetch_at"] = r.nextFetch.Unix()
 	}
 	s.hub.Publish("fetch.done", ev)
+	if r.migrated || r.gone {
+		s.hub.Publish("feed.changed", map[string]any{"feed_id": r.feedID})
+	}
 	for _, run := range f.runs {
 		if s.runs[run.Kind] == run && now.Sub(run.lastProgress) >= progressEvery {
 			run.lastProgress = now
@@ -358,12 +370,15 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 		answer(Reply{FeedID: req.p.FeedID, Err: ErrStopped})
 		return
 	}
-	// Known and latent (review #18, deliberately not changed): a request for a
-	// feed that is already in flight only borrows that job's reply. Its intent
-	// (Full refetch, a trim, a different trigger) is not applied, so it gets the
-	// outcome of whatever is running. No caller depends on more today.
 	if f, busy := s.flights[req.p.FeedID]; busy {
-		f.replies = append(f.replies, req.reply) // it answers when the running job does
+		if satisfies(f, req.p) {
+			f.replies = append(f.replies, req.reply) // it answers when the running job does
+		} else {
+			// The running job cannot honor this request's intent (a full refetch,
+			// a trim, a re-key that arrived after its snapshot). Keep the request
+			// whole and run it after this job, on a fresh snapshot.
+			f.followups = append(f.followups, req)
+		}
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), tickQueryTimeout)
@@ -404,5 +419,17 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 	s.flights[snap.ID] = f
 	if !s.tryStart(f) {
 		s.pending = append([]*flight{f}, s.pending...)
+	}
+}
+
+// satisfies reports whether the in-flight job f already does what p asks: a
+// plain refresh is covered by any fetch, a full refresh only by a full fetch,
+// a trim only by a trim.
+func satisfies(f *flight, p Priority) bool {
+	switch p.Kind {
+	case PriorityTrim:
+		return f.kind == kindTrim
+	default:
+		return f.kind == kindFetch && (!p.Full || f.snap.Full)
 	}
 }

@@ -78,8 +78,10 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			ci, cerr := s.db.CommitFetch(cctx, res)
 			err = cerr
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
+			out.migrated = ci.Migrated
 		} else {
 			err = s.db.CommitFetchError(cctx, res)
+			out.gone = res.Gone && err == nil
 		}
 		if err != nil {
 			out.commitFailed = true

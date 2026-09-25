@@ -97,6 +97,10 @@ type flight struct {
 	started bool
 	runs    []*Run
 	replies []chan Reply
+	// followups are priority requests that arrived while this job was running
+	// and that it does not satisfy (a full refetch, a trim, a re-key). They are
+	// replayed, each as a fresh job on a fresh snapshot, once this one is done.
+	followups []priorityReq
 }
 
 type result struct {
@@ -112,6 +116,8 @@ type result struct {
 	updated   int
 	trimmed   int64
 	newItems  int
+	migrated  bool // the commit rewrote feeds.url (redirect migration)
+	gone      bool // a 410 disabled the feed
 	retry     time.Duration
 	nextFetch time.Time
 	cancelled bool
