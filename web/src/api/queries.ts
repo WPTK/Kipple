@@ -133,28 +133,60 @@ export function patchItems(qc: QueryClient, ids: string[], patch: Patch): void {
   }
 }
 
-/** Adjust unread counts locally so badges move before the counts event lands. */
+/** Adjust unread counts locally (total, feed and its folder) so badges move before the counts event lands. */
 export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void {
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => {
     if (!old) return old;
+    const feed = old.feeds.find((f) => f.id === feedId);
     return {
       ...old,
       counts: { ...old.counts, unread: Math.max(0, old.counts.unread + delta) },
       feeds: old.feeds.map((f) => (f.id === feedId ? { ...f, unread: Math.max(0, f.unread + delta) } : f)),
+      folders: old.folders.map((fo) =>
+        feed && fo.id === feed.folder_id ? { ...fo, unread: Math.max(0, fo.unread + delta) } : fo,
+      ),
     };
   });
 }
 
+/** The cached card or detail for an id, wherever it is cached. */
+export function findCached(qc: QueryClient, id: string): Pick<Card, "feed_id" | "read"> | undefined {
+  const d = qc.getQueryData<ItemDetail>(keys.item(id));
+  if (d) return d;
+  for (const [, data] of qc.getQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll })) {
+    for (const p of data?.pages ?? []) {
+      const c = p.items.find((i) => i.id === id);
+      if (c) return c;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Opening marks the item read. The badge moves optimistically in onMutate, before the request, so a
+ * server `counts` event that arrives ahead of the response (absolute numbers) simply overwrites it
+ * and nothing is applied twice; onSuccess never bumps. A failure puts everything back.
+ */
 export function useOpenItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, via }: { id: string; via: "tap" | "key" | "nav" }) =>
       api<OpenResponse>(`/api/items/${id}/open`, { method: "POST", body: { via } }),
+    onMutate: ({ id }) => {
+      const cached = findCached(qc, id);
+      if (!cached || cached.read) return { bumped: null as string | null };
+      patchItems(qc, [id], { read: true });
+      bumpUnread(qc, cached.feed_id, -1);
+      return { bumped: cached.feed_id as string | null };
+    },
+    onError: (_e, { id }, ctx) => {
+      if (!ctx?.bumped) return;
+      patchItems(qc, [id], { read: false });
+      bumpUnread(qc, ctx.bumped, 1);
+    },
     onSuccess: (res, { id }) => {
-      const before = qc.getQueryData<ItemDetail>(keys.item(id));
       qc.setQueryData(keys.item(id), (old: ItemDetail | undefined) => ({ ...(old ?? res.item), ...res.item }));
       patchItems(qc, [id], { read: true });
-      if (before && !before.read) bumpUnread(qc, before.feed_id, -1);
     },
   });
 }

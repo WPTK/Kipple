@@ -12,8 +12,8 @@ import (
 const (
 	// minPasswordLen is the shortest password accepted (the owner chose 5; the design sets no
 	// number). maxPasswordLen bounds the hashing input.
-	minPasswordLen = 5
-	maxPasswordLen = 256
+	minPasswordLen = auth.MinPasswordLen
+	maxPasswordLen = auth.MaxPasswordLen
 	apiPasswordLen = 24 // design §1: the UI generates 24 characters
 )
 

@@ -15,7 +15,18 @@ import (
 // Export writes the subscription list as OPML 2.0. The document is built fully
 // in memory before the first write to w (design §8).
 func Export(ctx context.Context, db *store.DB, w io.Writer) error {
-	rows, err := db.Reader().QueryContext(ctx, `
+	return ExportFrom(ctx, db.Reader(), w)
+}
+
+// Queryer is what ExportFrom reads through: a *sql.DB or *sql.Tx.
+type Queryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// ExportFrom is Export against any database with Kipple's schema, such as a
+// backup snapshot file, so the OPML in a backup matches its database exactly.
+func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
+	rows, err := q.QueryContext(ctx, `
 		SELECT fo.id, fo.name, f.url, f.site_url, COALESCE(f.custom_title, NULLIF(f.title,''), ''),
 		       f.interval_minutes, f.retention, f.fulltext, f.dedup_mode, f.user_agent,
 		       f.ignore_http_cache, f.disable_http2, f.allow_insecure_tls, f.allow_private_net, f.enabled

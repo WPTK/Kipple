@@ -44,6 +44,9 @@ type DB struct {
 	writer *sql.DB
 	reader *sql.DB
 	gate   chan struct{}
+	// snap is the one-slot exclusion shared by the nightly snapshot and the
+	// backup export (both run VACUUM INTO on the snapshot pool).
+	snap chan struct{}
 
 	clock clock.Clock
 	alloc *IDAlloc
@@ -187,7 +190,7 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	if clk == nil {
 		clk = clock.Real{}
 	}
-	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1), clock: clk,
+	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1), snap: make(chan struct{}, 1), clock: clk,
 		noMigrate: opts.NoMigrate, noCheckpoint: opts.NoCheckpoint}
 
 	if err := checkForeign(ctx, opts.Path); err != nil {

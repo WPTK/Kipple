@@ -129,6 +129,12 @@ func (d *DB) CheckpointPassive(ctx context.Context) (int64, error) {
 // the tmp file and records nothing. It returns the snapshot path.
 func (d *DB) WriteSnapshot(ctx context.Context, now int64, integrity bool) (string, error) {
 	final := filepath.Join(d.backupDir, SnapshotName)
+	// Wait for an export in progress rather than skip the night: it is short.
+	release, aerr := d.acquireSnapshot(ctx)
+	if aerr != nil {
+		return final, aerr
+	}
+	defer release()
 	err := d.writeSnapshot(ctx, final, integrity)
 	if ctx.Err() != nil {
 		return final, ctx.Err()

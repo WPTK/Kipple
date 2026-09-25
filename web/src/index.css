@@ -135,6 +135,15 @@ body {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+/* Tailwind's focus:not-sr-only resets clip-path and sizing but not the legacy clip. */
+.sr-only-live:focus {
+  clip: auto;
+  clip-path: none;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  white-space: normal;
+}
 
 /* ---------- Article body ---------- */
 
