@@ -26,7 +26,8 @@ type CommitInfo struct {
 	NewIDs  []int64 // ascending
 	// Migrated is set when the commit rewrote feeds.url (design §4.7).
 	Migrated bool
-	// Stale is set when the feed's URL changed under the fetch and nothing was
+	// Stale is set when the feed's URL changed under the fetch and nothing (or,
+	// for a chunked commit, only the chunks before the change) was
 	// written.
 	Stale bool
 }
@@ -92,6 +93,9 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 		last := i == len(chunks)-1
 		if err := d.commitChunk(ctx, res, ch, last, st, perChunk); err != nil {
 			return info(), fmt.Errorf("store: commit fetch of feed %d (chunk %d/%d): %w", res.Snap.ID, i+1, len(chunks), err)
+		}
+		if st.stale {
+			break // the URL changed under the fetch: stop here and report what did commit
 		}
 	}
 	return info(), nil
@@ -161,7 +165,12 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	now := d.clock.Now().Unix()
 	// A URL edit that landed while this fetch was in flight makes its result
 	// stale: the validators, redirect state and schedule belong to the old URL.
-	// Drop the whole commit (items included) and leave the feed row as PATCH set it.
+	// Drop this chunk and every later one (the trim, the bookkeeping and the log
+	// row with them) and leave the feed row as PATCH set it. The check is per
+	// chunk, so a URL edit that lands between chunks of a large fetch leaves the
+	// earlier chunks' items durable; CommitInfo.Stale is set and NewIDs/New list
+	// exactly what did commit, which callers use (the scheduler still queues
+	// full-text extraction for those items).
 	var curURL string
 	if err := tx.QueryRowContext(ctx, "SELECT url FROM feeds WHERE id = ?", feedID).Scan(&curURL); err != nil {
 		return err

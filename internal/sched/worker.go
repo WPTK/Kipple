@@ -82,11 +82,17 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			err = cerr
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
 			out.migrated = ci.Migrated
-			if cerr == nil && !ci.Stale {
+			if cerr == nil {
+				// ci.NewIDs is what really committed: empty for a stale fetch, the
+				// early chunks for a large one cut short by a URL edit.
 				s.queueFulltext(f.snap.ID, cand, ci.NewIDs)
 			}
 			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil && !ci.Stale {
-				if uerr := s.db.SetFeedUAFallback(cctx, f.snap.ID); uerr != nil {
+				moved := ""
+				if ci.Migrated {
+					moved = res.Redirect.To
+				}
+				if uerr := s.db.SetFeedUAFallback(cctx, f.snap.ID, f.snap.URL, moved); uerr != nil {
 					s.log.Warn("sched: remember browser user agent", "feed", f.snap.ID, "err", uerr)
 				}
 			}

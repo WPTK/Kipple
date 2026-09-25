@@ -185,10 +185,13 @@ func ResolveUserAgent(set FetchSettings, feedUA string, uaFallback bool) (ua, re
 	}
 }
 
-// SetFeedUAFallback remembers that a feed needs the browser User-Agent.
-func (d *DB) SetFeedUAFallback(ctx context.Context, feedID int64) error {
+// SetFeedUAFallback remembers that a feed needs the browser User-Agent. It is
+// bound to the URL the fetch used (or, when that very commit migrated the feed
+// after a permanent redirect, the URL it moved to; "" otherwise): a URL edit
+// between the commit and this write must not mark the new URL, which was never tried.
+func (d *DB) SetFeedUAFallback(ctx context.Context, feedID int64, fetchedURL, migratedTo string) error {
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "UPDATE feeds SET ua_fallback = 1 WHERE id = ?", feedID)
+		_, err := tx.ExecContext(ctx, "UPDATE feeds SET ua_fallback = 1 WHERE id = ? AND (url = ? OR url = NULLIF(?, ''))", feedID, fetchedURL, migratedTo)
 		return err
 	})
 }

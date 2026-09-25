@@ -607,7 +607,7 @@ func TestStaleFetchErrorAfterURLEditIsIgnored(t *testing.T) {
 
 func TestPatchFeedResetsLearnedUAFallback(t *testing.T) {
 	learn := func(e *env, id int64) {
-		require.NoError(t, e.db.SetFeedUAFallback(e.ctx, id))
+		require.NoError(t, e.db.SetFeedUAFallback(e.ctx, id, "http://example.test/a.xml", ""))
 		require.Equal(t, 1, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id))
 	}
 	e := newEnv(t)
@@ -652,4 +652,34 @@ func TestPullInScheduleRespectsPublisherTTL(t *testing.T) {
 	_, err = e.db.PullInSchedule(e.ctx, 10)
 	require.NoError(t, err)
 	require.Equal(t, 1000+600, next(longTTL))
+}
+
+// A URL edit landing between chunks of a large fetch: the earlier chunks are
+// durable and reported, the rest (trim, bookkeeping, log row) is dropped.
+func TestChunkedCommitStaleMidwayReportsWhatCommitted(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	// the edit rides along with chunk 1's transaction, after that chunk's own check
+	e.exec(fmt.Sprintf(`CREATE TRIGGER moved AFTER INSERT ON items WHEN NEW.uid = 'g:%s'
+		BEGIN UPDATE feeds SET url = 'http://b.example/feed' WHERE id = %d; END`, fetch.H("g0"), id))
+	res := e.okResult(e.snap(id), rss(numbered(620)...))
+	info, err := e.db.CommitFetch(e.ctx, res)
+	require.NoError(t, err)
+	require.True(t, info.Stale)
+	require.Equal(t, 250, info.New, "chunk 1 is reported as committed")
+	require.Len(t, info.NewIDs, 250)
+	require.Equal(t, 250, e.count("SELECT count(*) FROM items"))
+	require.Zero(t, e.count("SELECT count(*) FROM fetch_log"))
+	require.Equal(t, "http://b.example/feed", scalar[string](t, e.db.Reader(), "SELECT url FROM feeds WHERE id=?", id))
+}
+
+func TestSetFeedUAFallbackIsBoundToTheFetchedURL(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://example.test/a.xml")
+	e.exec("UPDATE feeds SET url = 'http://example.test/b.xml' WHERE id = ?", id) // PATCHed after the fetch
+	require.NoError(t, e.db.SetFeedUAFallback(e.ctx, id, "http://example.test/a.xml", ""))
+	require.Equal(t, 0, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "the new URL was never tried")
+	require.NoError(t, e.db.SetFeedUAFallback(e.ctx, id, "http://example.test/a.xml", "http://example.test/b.xml"))
+	require.Equal(t, 1, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "a migration target counts")
 }
