@@ -160,3 +160,28 @@ func TestContentThenServe(t *testing.T) {
 	// The stored form is not touched by serving.
 	require.Contains(t, stored, "utm_source=rss")
 }
+
+// An unterminated <video src="http://..."> still gets its "Open video" link.
+func TestServeHTMLUnclosedMixedContentMediaKeepsLink(t *testing.T) {
+	for _, tag := range []string{"video", "audio"} {
+		out := ServeHTML(`<p>a</p><`+tag+` src="http://a.example/m.mp4">no end tag`, testOpts)
+		require.Contains(t, out, `<a href="http://a.example/m.mp4" target="_blank" rel="noopener noreferrer">Open `+tag+`</a>`, tag)
+		require.NotContains(t, out, "<"+tag)
+	}
+	// A closed one is unchanged: exactly one link.
+	out := ServeHTML(`<video src="http://a.example/m.mp4"></video>`, testOpts)
+	require.Equal(t, 1, strings.Count(out, "Open video"))
+}
+
+// References to ids follow the "kp-" prefix the ids get, and stay idempotent.
+func TestServeHTMLPrefixesIDReferences(t *testing.T) {
+	in := `<table><tr><th id="h1">a</th><th id="h2">b</th></tr><tr><td headers="h1 h2">x</td></tr></table>` +
+		`<label for="f">L</label><input id="f" aria-describedby="d1  d2" aria-labelledby="l" aria-controls="c">` +
+		`<img usemap="#m" src="/x.png"><map name="m"></map>`
+	out := ServeHTML(in, ServeOptions{})
+	for _, want := range []string{`headers="kp-h1 kp-h2"`, `for="kp-f"`, `aria-describedby="kp-d1 kp-d2"`,
+		`aria-labelledby="kp-l"`, `aria-controls="kp-c"`, `usemap="#kp-m"`, `id="kp-h1"`, `name="kp-m"`} {
+		require.Contains(t, out, want)
+	}
+	require.Equal(t, out, ServeHTML(out, ServeOptions{}))
+}

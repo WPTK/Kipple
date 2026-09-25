@@ -46,7 +46,8 @@ type mediaState struct {
 //     tracking parameters when StripTracking is set; links with any other scheme
 //     than http, https, mailto and tel lose their href;
 //   - every id and name gets a "kp-" prefix and in-page links "#x" become "#kp-x"
-//     (no DOM clobbering, footnotes keep working);
+//     (no DOM clobbering, footnotes keep working); the references to ids follow
+//     (headers, for, aria-describedby, aria-labelledby, aria-controls, usemap="#map");
 //   - iframes become click-to-load placeholders (YouTube, Vimeo) or vanish;
 //   - audio and video get controls and preload="none", lose autoplay, and an
 //     http:// source becomes a link (it would be mixed content);
@@ -72,6 +73,11 @@ func ServeHTML(src string, opt ServeOptions) string {
 	for {
 		tt := z.Next()
 		if tt == html.ErrorToken {
+			// A skipped element that never closed (an unterminated <video>) still
+			// owes its fallback link.
+			if skipName != "" {
+				b.WriteString(after)
+			}
 			return b.String()
 		}
 		raw := append([]byte(nil), z.Raw()...)
@@ -191,6 +197,16 @@ func serveTag(t *html.Token, opt ServeOptions) bool {
 				a.Val = "kp-" + a.Val
 				changed = true
 			}
+		case idRefAttrs[key]:
+			if nv := prefixIDRefs(a.Val); nv != a.Val {
+				a.Val = nv
+				changed = true
+			}
+		case key == "usemap":
+			if v := strings.TrimSpace(a.Val); strings.HasPrefix(v, "#") && len(v) > 1 && !strings.HasPrefix(v, "#kp-") {
+				a.Val = "#kp-" + v[1:]
+				changed = true
+			}
 		}
 		out = append(out, a)
 	}
@@ -216,6 +232,30 @@ func serveTag(t *html.Token, opt ServeOptions) bool {
 		changed = true
 	}
 	return changed
+}
+
+// idRefAttrs are the attributes whose value is a space-separated list of ids.
+// Ids get a "kp-" prefix, so the references must too or they point at nothing.
+var idRefAttrs = map[string]bool{
+	"headers": true, "for": true,
+	"aria-describedby": true, "aria-labelledby": true, "aria-controls": true,
+}
+
+// prefixIDRefs prefixes every token of an id-reference list that lacks "kp-".
+// Whitespace between tokens is kept; an unchanged value comes back as is.
+func prefixIDRefs(v string) string {
+	fields := strings.Fields(v)
+	changed := false
+	for i, f := range fields {
+		if !strings.HasPrefix(f, "kp-") {
+			fields[i] = "kp-" + f
+			changed = true
+		}
+	}
+	if !changed {
+		return v
+	}
+	return strings.Join(fields, " ")
 }
 
 func serveLink(t *html.Token, opt ServeOptions) bool {
