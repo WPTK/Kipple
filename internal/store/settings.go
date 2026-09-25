@@ -113,16 +113,24 @@ func (d *DB) SetSettings(ctx context.Context, set map[string]any) error {
 }
 
 // PullInSchedule makes a lowered refresh.interval_minutes take effect now: every
-// enabled, healthy feed that inherits the interval and is due later than
-// last_fetch_at + interval becomes due then. It never postpones a feed (a raised
-// interval applies from each feed's next fetch). Returns the feeds moved.
+// enabled, healthy feed that inherits the interval and is due later than its new
+// due time becomes due then. The new due time is last_fetch_at + interval, or,
+// when fetch.honor_publisher_ttl is on, no earlier than last_fetch_at plus the
+// feed's publisher TTL hint (capped at a day, as scheduling caps it). It never
+// postpones a feed (a raised interval applies from each feed's next fetch).
+// Returns the feeds moved.
 func (d *DB) PullInSchedule(ctx context.Context, intervalMinutes int) (int64, error) {
+	honor := 0
+	if d.FetchSettings(ctx).HonorTTL {
+		honor = 1
+	}
 	var n int64
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE feeds SET next_fetch_at = last_fetch_at + ?
+		res, err := tx.ExecContext(ctx, `UPDATE feeds SET next_fetch_at = last_fetch_at + max(?1, CASE WHEN ?2 = 1 THEN min(coalesce(ttl_hint_s, 0), 86400) ELSE 0 END)
 			WHERE enabled = 1 AND interval_minutes IS NULL AND consecutive_failures = 0
-			  AND last_fetch_at IS NOT NULL AND next_fetch_at > last_fetch_at + ?`,
-			intervalMinutes*60, intervalMinutes*60)
+			  AND last_fetch_at IS NOT NULL
+			  AND next_fetch_at > last_fetch_at + max(?1, CASE WHEN ?2 = 1 THEN min(coalesce(ttl_hint_s, 0), 86400) ELSE 0 END)`,
+			intervalMinutes*60, honor)
 		if err != nil {
 			return err
 		}

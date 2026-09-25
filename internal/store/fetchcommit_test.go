@@ -628,3 +628,28 @@ func TestPatchFeedResetsLearnedUAFallback(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "changed URL resets it")
 }
+
+func TestPullInScheduleRespectsPublisherTTL(t *testing.T) {
+	e := newEnv(t)
+	mk := func(url string, ttl any) int64 {
+		id := e.addFeed(url)
+		e.exec("UPDATE feeds SET last_fetch_at = 1000, next_fetch_at = 1000 + 7200, ttl_hint_s = ? WHERE id = ?", ttl, id)
+		return id
+	}
+	noTTL, shortTTL, longTTL, hugeTTL := mk("http://a.test/1", nil), mk("http://a.test/2", 300), mk("http://a.test/3", 3600), mk("http://a.test/4", 999999)
+	next := func(id int64) int { return e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id) }
+
+	_, err := e.db.PullInSchedule(e.ctx, 10) // 600 s
+	require.NoError(t, err)
+	require.Equal(t, 1000+600, next(noTTL))
+	require.Equal(t, 1000+600, next(shortTTL), "a TTL shorter than the interval does not matter")
+	require.Equal(t, 1000+3600, next(longTTL), "held back to the publisher TTL")
+	require.Equal(t, 1000+7200, next(hugeTTL), "TTL capped at a day, and never postponed: 7200 already sooner")
+
+	// With the setting off the TTL is ignored.
+	require.NoError(t, e.db.SetSettings(e.ctx, map[string]any{"fetch.honor_publisher_ttl": false}))
+	e.exec("UPDATE feeds SET next_fetch_at = 1000 + 7200 WHERE id = ?", longTTL)
+	_, err = e.db.PullInSchedule(e.ctx, 10)
+	require.NoError(t, err)
+	require.Equal(t, 1000+600, next(longTTL))
+}
