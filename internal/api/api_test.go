@@ -723,3 +723,37 @@ func TestDownloadOriginMatrix(t *testing.T) {
 	// Not a download: a POST to the same path keeps the header rule.
 	require.Equal(t, http.StatusForbidden, h.do("POST", "/api/opml", "<opml/>", withCookie(c), plain("same-origin")).Code)
 }
+
+func TestSSEReplayFromLastEventIDQueryParam(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	ts := sseServer(t, h)
+	h.hub.Publish("one", 1)
+	first := h.hub.LastID()
+	h.hub.Publish("two", 2)
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/events?last_event_id="+itoa(first), nil)
+	req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	br := bufio.NewReader(resp.Body)
+	require.Equal(t, "event: two\n", readUntil(t, br, "event: two", 2*time.Second))
+}
+
+func TestSSEEndsWhenItsSessionIsGone(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	ts := sseServer(t, h)
+	br, closeBody := openStream(t, ts, c, "")
+	defer closeBody()
+	readUntil(t, br, ": connected", time.Second)
+	h.exec("DELETE FROM sessions")
+	done := make(chan struct{})
+	go func() { _, _ = io.Copy(io.Discard, br); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream outlived its session")
+	}
+}
