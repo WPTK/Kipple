@@ -1,15 +1,29 @@
 import { useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { applyRead, applyStar, patchItems } from "@/api/queries";
+import { api, errorMessage } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
 import type { Card, Scope } from "@/api/types";
-import { announce } from "@/shell/toasts";
+import { announce, toast } from "@/shell/toasts";
 import { pushUndo } from "./undo";
 
 /** Read, unread and star changes with their undo entries. One place, so every gesture agrees. */
 export function useItemActions() {
   const qc = useQueryClient();
   return useMemo(() => itemActions(qc), [qc]);
+}
+
+/** Undo a scope mark: the changed ids plus the trimmed-ledger ids it flipped (design 7.1). */
+async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promise<boolean> {
+  patchItems(qc, ids, { read: false });
+  try {
+    await api("/api/items/mark-read", { method: "POST", body: { ids, ...(ledger.length ? { ledger_ids: ledger } : {}), read: false, reason: "bulk" } });
+    return true;
+  } catch (e) {
+    patchItems(qc, ids, { read: true });
+    toast(errorMessage(e), "error");
+    return false;
+  }
 }
 
 export function itemActions(qc: QueryClient) {
@@ -25,9 +39,7 @@ export function itemActions(qc: QueryClient) {
       kind: read ? "read" : "unread",
       ids,
       restore,
-      undo: async (undoIds) => {
-        await applyRead(qc, undoIds, !read, "key");
-      },
+      undo: async (undoIds) => (await applyRead(qc, undoIds, !read, "key")) !== undefined,
     });
   }
 
@@ -41,16 +53,26 @@ export function itemActions(qc: QueryClient) {
     if (!ok) return;
     announce(starred ? "Starred" : "Unstarred");
     if (undoable) {
-      pushUndo({ kind: starred ? "star" : "unstar", ids: [item.id], undo: async () => void (await applyStar(qc, item.id, !starred)) });
+      // Merged swipe-stars share the first closure, so it must act on the ids it is handed.
+      pushUndo({
+        kind: starred ? "star" : "unstar",
+        ids: [item.id],
+        undo: async (ids) => {
+          const done = await Promise.all(ids.map((id) => applyStar(qc, id, !starred)));
+          return done.every(Boolean);
+        },
+      });
     }
   }
 
   /** After a bulk call: patch the ids the server changed and offer undo through them. */
-  function finishBulk(res: { changed: string[]; count?: number; undoable?: boolean }, fallbackIds: string[], restore?: () => void): void {
-    const changed = res.changed.length ? res.changed : res.undoable === false ? [] : fallbackIds;
+  function finishBulk(res: { changed: string[]; count?: number; undoable?: boolean; ledger_ids?: string[] }, restore?: () => void): void {
+    // Only what the server says it changed is undoable: local guesses would flip items another client read.
+    const changed = res.undoable === false ? [] : res.changed;
+    const ledger = res.ledger_ids ?? [];
     if (changed.length) patchItems(qc, changed, { read: true });
     const n = res.count ?? changed.length;
-    if (res.undoable === false || changed.length === 0) {
+    if (changed.length === 0) {
       announce(n === 0 ? "Nothing to mark" : `Marked ${n} as read`);
       return;
     }
@@ -59,16 +81,14 @@ export function itemActions(qc: QueryClient) {
       bulk: true,
       ids: changed,
       restore,
-      undo: async (ids) => {
-        await applyRead(qc, ids, false, "bulk");
-      },
+      undo: (ids) => undoBulk(qc, ids, ledger),
     });
   }
 
   async function markSide(p: RangeParams, local: string[], restore?: () => void): Promise<void> {
     patchItems(qc, local, { read: true });
     try {
-      finishBulk(await markRange(p), local, restore);
+      finishBulk(await markRange(p), restore);
     } catch {
       patchItems(qc, local, { read: false });
       restore?.();
@@ -79,7 +99,7 @@ export function itemActions(qc: QueryClient) {
   async function markAll(scope: Scope, maxId: string | undefined, local: string[], restore?: () => void): Promise<void> {
     patchItems(qc, local, { read: true });
     try {
-      finishBulk(await markAllRead(scope, maxId), local, restore);
+      finishBulk(await markAllRead(scope, maxId), restore);
     } catch {
       patchItems(qc, local, { read: false });
       restore?.();

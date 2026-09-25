@@ -146,3 +146,18 @@ describe("undo toast", () => {
     expect(undoStore.get().canUndo).toBe(true);
   });
 });
+
+describe("undo failures", () => {
+  it("a rejected or false undo keeps the group and does not say Undone", async () => {
+    const undo = vi.fn().mockResolvedValueOnce(false).mockRejectedValueOnce(new Error("net")).mockResolvedValue(undefined);
+    read(["1"], undo);
+    await undoToast();
+    expect(undoStore.get().canUndo).toBe(true);
+    expect(toast()).toBe("Marked read");
+    await undoLast();
+    expect(undoStore.get().canUndo).toBe(true);
+    await undoLast();
+    expect(undoStore.get().canUndo).toBe(false);
+    expect(undo).toHaveBeenCalledTimes(3);
+  });
+});

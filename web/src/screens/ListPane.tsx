@@ -4,7 +4,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
 import { applyRead, flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
-import { maxItemId } from "@/api/bulk";
 import { clearPending, liveStore, pendingFor } from "@/api/events";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, Scope } from "@/api/types";
@@ -139,10 +138,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
   const unreadView = scope.view === "unread" && !scope.q;
 
   // "Only items present when the list loaded": the highest id the list knew about.
+  // The server's own `as_of` for the first page (ids follow arrival, not sort order, so the page maximum is wrong).
   const asOf = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (!asOf.current && allItems.length) asOf.current = maxItemId(allItems.map((i) => i.id));
-  }, [allItems]);
+  asOf.current = q.data?.pages[0]?.as_of;
 
   const saved = memory.get(key);
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
@@ -162,6 +160,11 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
     overscan: 8,
     initialOffset: saved?.offset ?? 0,
   });
+
+  // A different layout has different row heights: drop the sizes measured for the old one.
+  useEffect(() => {
+    virtualizer.measure();
+  }, [layout.id, cols, virtualizer]);
 
   const rowIndexOf = useCallback(
     (id: string) => rows.findIndex((r) => (r.kind === "item" ? r.item.id === id : r.kind === "group" && r.items.some((i) => i.id === id))),
@@ -385,8 +388,19 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
         setChecked(new Set());
       },
       select: toggleChecked,
-      markAbove: () => selectedItem && range(selectedItem, "above"),
-      markBelow: () => selectedItem && range(selectedItem, "below"),
+      // With rows ticked with `x`, the range is around the selection: above its first row, below its last.
+      markAbove: () => {
+        const t = checked.size ? targets() : [];
+        const anchor = t.length ? t[0] : selectedItem;
+        if (anchor) range(anchor, "above");
+        setChecked(new Set());
+      },
+      markBelow: () => {
+        const t = checked.size ? targets() : [];
+        const anchor = t.length ? t[t.length - 1] : selectedItem;
+        if (anchor) range(anchor, "below");
+        setChecked(new Set());
+      },
       markAll: markAllRead,
       compact: () => {
         if (session) sessionLayoutStore.set(null);

@@ -81,6 +81,6 @@ export function mockFetch(routes: Record<string, Handler>) {
   return { fn, calls };
 }
 
-export function pageOf(items: Card[], next: string | null = null): ItemsPage {
-  return { items, next_cursor: next };
+export function pageOf(items: Card[], next: string | null = null, as_of?: string): ItemsPage {
+  return { items, next_cursor: next, ...(as_of ? { as_of } : {}) };
 }

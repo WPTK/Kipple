@@ -420,7 +420,7 @@ describe("row swipe (touch, iOS Mail directions)", () => {
 
 describe("mark above and below, and mark all", () => {
   it("sends the list's own order, the anchor and the snapshot bound (anchor excluded)", async () => {
-    const { calls } = routes({ "POST /api/items/mark-read": () => json({ changed: ["1001", "1002"], restored: [], count: 2, undoable: true }) });
+    const { calls } = routes({ "GET /api/items": () => json(pageOf(items(), null, "1200")), "POST /api/items/mark-read": () => json({ changed: ["1001", "1002"], restored: [], count: 2, undoable: true }) });
     go("/l/unread");
     await screen.findByText("Article number 3");
     const user = userEvent.setup();
@@ -432,7 +432,7 @@ describe("mark above and below, and mark all", () => {
     expect(body).toEqual({
       scope: { view: "unread", all: true },
       bound: { order: "date", side: "above", anchor: { sort_at: BASE - 3 * 3600, id: "1003" }, inclusive: false },
-      max_id: "1005",
+      max_id: "1200",
       read: true,
       reason: "bulk",
     });
@@ -466,18 +466,64 @@ describe("mark above and below, and mark all", () => {
   });
 
   it("Shift+A marks the whole list, bounded by what was loaded", async () => {
-    const { calls } = routes({ "POST /api/items/mark-read": () => json({ changed: ["1001", "1004", "1005"], restored: [], count: 3, undoable: true }) });
+    const { calls } = routes({ "GET /api/items": () => json(pageOf(items(), null, "1200")), "POST /api/items/mark-read": () => json({ changed: ["1001", "1004", "1005"], restored: [], count: 3, undoable: true }) });
     go("/l/unread?feed=1");
     await screen.findByText("Article number 3");
     await userEvent.setup().keyboard("A");
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
     expect(bodyOf(calls.find((c) => c.url.pathname === "/api/items/mark-read"))).toEqual({
       scope: { view: "unread", feed_id: "1" },
-      max_id: "1005",
+      max_id: "1200",
       read: true,
       reason: "bulk",
     });
     expect(screen.getByTestId("undo-region")).toHaveTextContent("Marked 3 as read");
+  });
+
+  it("oldest-first: mark all sends the server's as_of, not the first page's highest id", async () => {
+    // Oldest first, and a backdated new item: the page maximum (1005) is not the bound.
+    const { calls } = routes({ "GET /api/items": () => json(pageOf(items().reverse(), null, "1777")), "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }) });
+    updateDevicePrefs({ order: "oldest" });
+    go("/l/unread");
+    await screen.findByText("Article number 3");
+    await userEvent.setup().keyboard("A");
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
+    expect(bodyOf(calls.find((c) => c.url.pathname === "/api/items/mark-read")).max_id).toBe("1777");
+  });
+
+  it("offers no undo from local guesses when the server answers changed: [] with undoable: true", async () => {
+    const { calls } = routes({ "POST /api/items/mark-read": () => json({ changed: [], restored: [], count: 0, undoable: true }) });
+    go("/l/unread");
+    await screen.findByText("Article number 3");
+    await userEvent.setup().keyboard("A");
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  it("undo sends the ledger ids along with the changed ids", async () => {
+    const { calls } = routes({ "POST /api/items/mark-read": (_u, init) => json(JSON.parse(String(init?.body)).scope ? { changed: ["1001", "1004"], ledger_ids: ["77", "78"], restored: [], count: 4, undoable: true } : { changed: ["1001", "1004"], restored: [] }) });
+    go("/l/unread");
+    await screen.findByText("Article number 3");
+    const user = userEvent.setup();
+    await user.keyboard("A");
+    await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read").length).toBe(2));
+    expect(bodyOf(calls.filter((c) => c.url.pathname === "/api/items/mark-read")[1])).toEqual({ ids: ["1001", "1004"], ledger_ids: ["77", "78"], read: false, reason: "bulk" });
+  });
+
+  it("a failed undo does not say Undone and keeps the toast's Undo", async () => {
+    let n = 0;
+    routes({ "POST /api/items/mark-read": () => (++n === 1 ? json({ changed: ["1001", "1004"], restored: [], count: 2, undoable: true }) : json({ error: "boom" }, 500)) });
+    go("/l/unread");
+    await screen.findByText("Article number 3");
+    const user = userEvent.setup();
+    await user.keyboard("A");
+    await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(n).toBe(2));
+    await screen.findByText(/Couldn.t undo/);
+    expect(screen.queryByText("Undone")).toBeNull();
+    expect(within(screen.getByTestId("undo-region")).getByRole("button", { name: "Undo" })).toBeInTheDocument();
   });
 
   it("stays quiet about undo when the server withholds the ids (above its cap)", async () => {

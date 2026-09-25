@@ -18,8 +18,8 @@ export interface UndoRequest {
   ids: string[];
   /** A bulk batch: its own toast text, never merged, longer window. */
   bulk?: boolean;
-  /** Reverse the change for exactly these ids. */
-  undo: (ids: string[]) => void | Promise<void>;
+  /** Reverse the change for exactly these ids. Resolve `false` (or throw) when the request failed: the group is kept. */
+  undo: (ids: string[]) => void | boolean | Promise<void | boolean>;
   /** UI-only reversal (for example un-hiding a swiped row). */
   restore?: () => void;
 }
@@ -30,7 +30,7 @@ interface Group {
   ids: string[];
   bulk: boolean;
   at: number;
-  undo: (ids: string[]) => void | Promise<void>;
+  undo: (ids: string[]) => void | boolean | Promise<void | boolean>;
   restores: (() => void)[];
 }
 
@@ -107,14 +107,30 @@ export function pushUndo(req: UndoRequest): void {
 }
 
 async function run(g: Group): Promise<void> {
+  const wasToast = toastGroup === g;
+  const at = stack.indexOf(g);
   stack = stack.filter((x) => x !== g);
-  if (toastGroup === g) {
+  if (wasToast) {
     toastGroup = null;
     armTimer();
   }
   publish();
+  // The UI restore goes first so a hidden row is back at once; if the request then fails the row simply
+  // shows its real (read) state and the group stays undoable.
   for (const r of g.restores) r();
-  await g.undo(g.ids);
+  const ok = await (async () => g.undo([...g.ids]))().then(
+    (r) => r !== false,
+    () => false,
+  );
+  if (!ok) {
+    // The reversal did not happen: keep the group so `z` or the toast can try again, and say so.
+    if (!stack.includes(g)) stack.splice(Math.min(at < 0 ? stack.length : at, stack.length), 0, g);
+    if (wasToast && !toastGroup) toastGroup = g;
+    armTimer();
+    publish();
+    announce("Couldn't undo. Try again.");
+    return;
+  }
   announce("Undone");
 }
 

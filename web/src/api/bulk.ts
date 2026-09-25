@@ -27,7 +27,7 @@ export interface RangeParams {
   order: "date" | "oldest";
   side: "above" | "below";
   anchor: Pick<Card, "id" | "sort_at">;
-  /** Highest item id present when the list loaded: nothing newer is swept up. */
+  /** The list's `as_of` (GET /api/items): nothing committed after it is swept up. */
   maxId: string | undefined;
 }
 
@@ -51,18 +51,4 @@ export function markAllRead(scope: Scope, maxId: string | undefined): Promise<Bu
     method: "POST",
     body: { scope: scopeBody(scope), ...(maxId ? { max_id: maxId } : {}), read: true, reason: "bulk" },
   });
-}
-
-/** Largest id as a decimal string (ids are 64-bit; compare as BigInt). */
-export function maxItemId(ids: string[]): string | undefined {
-  let best: bigint | undefined;
-  for (const id of ids) {
-    try {
-      const v = BigInt(id);
-      if (best === undefined || v > best) best = v;
-    } catch {
-      /* not numeric */
-    }
-  }
-  return best?.toString();
 }

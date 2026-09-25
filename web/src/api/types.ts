@@ -42,6 +42,8 @@ export interface ItemDetail extends Card {
 export interface ItemsPage {
   items: Card[];
   next_cursor: string | null;
+  /** The store's highest committed id when the page was read; sent back as mark-read `max_id`. */
+  as_of?: string;
 }
 
 export interface Folder {
@@ -185,4 +187,6 @@ export const SERVER_EVENT_TYPES: ServerEvent["type"][] = [
 export interface BulkMarkResponse extends MarkReadResponse {
   count?: number;
   undoable?: boolean;
+  /** Trimmed-ledger rows a scope mark also flipped; undo sends them back with `changed`. */
+  ledger_ids?: string[];
 }
