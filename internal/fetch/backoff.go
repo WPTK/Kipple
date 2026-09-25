@@ -125,15 +125,22 @@ func directive(cc, name string) (int64, bool) {
 }
 
 // ParseRetryAfter reads Retry-After (delta-seconds or HTTP-date), defaulting
-// to 1500 s when absent or invalid and clamping to [60 s, 24 h].
-func ParseRetryAfter(v string, now time.Time) time.Duration {
+// to 1500 s when absent or invalid and clamping to [60 s, 24 h]. An HTTP-date is
+// measured against the response's own Date header (respDate, zero when absent
+// or unparseable), which tolerates a publisher whose clock is off; without one
+// it is measured against now.
+func ParseRetryAfter(v string, now, respDate time.Time) time.Duration {
 	s := int64(defaultRetryS)
 	v = strings.TrimSpace(v)
 	if v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			s = n
 		} else if t, err := http.ParseTime(v); err == nil {
-			s = int64(math.Ceil(t.Sub(now).Seconds()))
+			ref := now
+			if !respDate.IsZero() {
+				ref = respDate
+			}
+			s = int64(math.Ceil(t.Sub(ref).Seconds()))
 		}
 	}
 	s = max(minRetryAfterS, min(s, maxRetryAfterS))

@@ -177,7 +177,13 @@ func TestErrorStatusRows(t *testing.T) {
 			w.WriteHeader(429)
 		}, ClassHTTP, false, 600 * time.Second, "retry_after=600s"},
 		{"429 date", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Date", t0.Format(http.TimeFormat))
 			w.Header().Set("Retry-After", t0.Add(2*time.Hour).Format(http.TimeFormat))
+			w.WriteHeader(429)
+		}, ClassHTTP, false, 2 * time.Hour, "retry_after=7200s"},
+		{"429 date relative to a skewed server clock", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Date", t0.Add(5*time.Hour).Format(http.TimeFormat)) // the publisher's clock is 5 h fast
+			w.Header().Set("Retry-After", t0.Add(7*time.Hour).Format(http.TimeFormat))
 			w.WriteHeader(429)
 		}, ClassHTTP, false, 2 * time.Hour, "retry_after=7200s"},
 		{"429 clamped low", func(w http.ResponseWriter, _ *http.Request) {

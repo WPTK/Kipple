@@ -236,7 +236,7 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		res.Gone = true
 		return res.fail(ClassGone, "410 Gone: the feed was removed")
 	case code == http.StatusTooManyRequests || code == http.StatusServiceUnavailable:
-		res.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"), now)
+		res.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"), now, responseDate(resp.Header))
 		res.Notes = append(res.Notes, fmt.Sprintf("retry_after=%ds", int64(res.RetryAfter.Seconds())))
 		return res.fail(ClassHTTP, fmt.Sprintf("HTTP %d", code))
 	case code == http.StatusForbidden && resp.Header.Get("cf-mitigated") == "challenge" &&
@@ -298,4 +298,14 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	res.SetValidators, res.ETag, res.LastModified = true, etag, lm
 	res.Notes = append(res.Notes, feed.Notes...)
 	return res
+}
+
+// responseDate is the response's Date header, or the zero time when it is
+// missing or not an HTTP date.
+func responseDate(h http.Header) time.Time {
+	t, err := http.ParseTime(h.Get("Date"))
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }

@@ -97,13 +97,20 @@ func TestPublisherHint(t *testing.T) {
 }
 
 func TestParseRetryAfter(t *testing.T) {
-	require.Equal(t, 300*time.Second, ParseRetryAfter("300", t0))
-	require.Equal(t, 1500*time.Second, ParseRetryAfter("", t0))
-	require.Equal(t, 1500*time.Second, ParseRetryAfter("soon", t0))
-	require.Equal(t, 60*time.Second, ParseRetryAfter("0", t0))
-	require.Equal(t, 24*time.Hour, ParseRetryAfter("9999999", t0))
-	require.Equal(t, time.Hour, ParseRetryAfter(t0.Add(time.Hour).Format(http.TimeFormat), t0))
-	require.Equal(t, 60*time.Second, ParseRetryAfter(t0.Add(-time.Hour).Format(http.TimeFormat), t0), "a past date clamps up")
+	require.Equal(t, 300*time.Second, ParseRetryAfter("300", t0, time.Time{}))
+	require.Equal(t, 1500*time.Second, ParseRetryAfter("", t0, time.Time{}))
+	require.Equal(t, 1500*time.Second, ParseRetryAfter("soon", t0, time.Time{}))
+	require.Equal(t, 60*time.Second, ParseRetryAfter("0", t0, time.Time{}))
+	require.Equal(t, 24*time.Hour, ParseRetryAfter("9999999", t0, time.Time{}))
+	require.Equal(t, time.Hour, ParseRetryAfter(t0.Add(time.Hour).Format(http.TimeFormat), t0, time.Time{}))
+	require.Equal(t, 60*time.Second, ParseRetryAfter(t0.Add(-time.Hour).Format(http.TimeFormat), t0, time.Time{}), "a past date clamps up")
+
+	// An HTTP-date is relative to the response's Date header, so a publisher clock
+	// that is 3 hours fast still gets the intended one hour.
+	fast := t0.Add(3 * time.Hour)
+	require.Equal(t, time.Hour, ParseRetryAfter(fast.Add(time.Hour).Format(http.TimeFormat), t0, fast))
+	require.Equal(t, 4*time.Hour, ParseRetryAfter(fast.Add(time.Hour).Format(http.TimeFormat), t0, time.Time{}), "without a Date header it is measured against now")
+	require.Equal(t, 300*time.Second, ParseRetryAfter("300", t0, fast), "delta-seconds ignore Date")
 }
 
 func TestDecideRedirect(t *testing.T) {
