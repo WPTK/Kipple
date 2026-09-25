@@ -1,0 +1,22 @@
+{
+  "format": "rss",
+  "title": "日本語のフィード",
+  "site_url": "https://cs.example.com/",
+  "description": "d",
+  "items": [
+    {
+      "uid": "g:6b86b273ff34fce19d6b804eff5a3f57",
+      "guid": "1",
+      "raw_link": "https://cs.example.com/1",
+      "url": "https://cs.example.com/1",
+      "link_hash": "95f872f29d511de833393d4e21b32c67",
+      "title": "こんにちは世界",
+      "content_html": "こんにちは世界",
+      "content_text": "こんにちは世界",
+      "published": "2026-09-21T10:00:00Z",
+      "content_hash": "e81a4249c3fdd692abebbdc53b8aa051",
+      "text_hash": "e3e5596001092a612779661d65e65932"
+    }
+  ],
+  "charset": "shift_jis"
+}

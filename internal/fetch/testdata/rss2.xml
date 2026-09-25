@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/" xmlns:feedburner="http://rssnamespace.org/feedburner/ext/1.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>  Example Blog  </title>
+    <link>https://example.com/</link>
+    <description>Notes &amp; things</description>
+    <lastBuildDate>Tue, 22 Sep 2026 10:00:00 GMT</lastBuildDate>
+    <atom:link href="https://example.com/feed.xml" rel="self" type="application/rss+xml"/>
+    <item>
+      <title>Full content post</title>
+      <link>https://example.com/posts/full?utm_source=rss</link>
+      <guid isPermaLink="false">post-1</guid>
+      <pubDate>Mon, 21 Sep 2026 08:30:00 -0400</pubDate>
+      <dc:creator>Alice Author</dc:creator>
+      <description>Short teaser</description>
+      <content:encoded><![CDATA[<p>Hello <b>world</b>.</p><img src="/img/pixel.gif" width="1" height="1"><img src="/img/hero.jpg" width="800"><p>Second para.</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>Feedburner post</title>
+      <link>http://feedproxy.google.com/~r/example/~3/abc123/story.html</link>
+      <feedburner:origLink>https://example.com/posts/story.html</feedburner:origLink>
+      <guid isPermaLink="false">http://feedproxy.google.com/~r/example/~3/abc123/story.html</guid>
+      <pubDate>Sun, 20 Sep 2026 12:00:00 GMT</pubDate>
+      <description>&lt;p&gt;Story body&lt;/p&gt;</description>
+      <media:thumbnail url="https://cdn.example.com/thumb.jpg"/>
+    </item>
+    <item>
+      <title>Enclosure image post</title>
+      <link>/posts/enclosure</link>
+      <guid isPermaLink="true">https://example.com/posts/enclosure</guid>
+      <pubDate>Sat, 19 Sep 2026 12:00:00 GMT</pubDate>
+      <description>Body with no markup</description>
+      <enclosure url="/media/cover.png" type="image/png" length="12345"/>
+      <enclosure url="https://example.com/media/ep1.mp3" type="audio/mpeg" length="999"/>
+    </item>
+    <item>
+      <title>Content image only</title>
+      <link>https://example.com/posts/inline</link>
+      <guid>https://example.com/posts/inline</guid>
+      <pubDate>Fri, 18 Sep 2026 12:00:00 GMT</pubDate>
+      <description>&lt;p&gt;See &lt;img src="photo.jpg"&gt; here&lt;/p&gt;</description>
+    </item>
+  </channel>
+</rss>

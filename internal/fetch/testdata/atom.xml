@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xml:lang="en">
+  <title>Atom Example</title>
+  <subtitle>An Atom feed</subtitle>
+  <link href="https://atom.example.net/" rel="alternate"/>
+  <link href="https://atom.example.net/atom.xml" rel="self"/>
+  <updated>2026-09-22T12:00:00Z</updated>
+  <id>tag:atom.example.net,2026:feed</id>
+  <author><name>Feed Author</name></author>
+  <entry>
+    <title type="html">Entry &amp;lt;one&amp;gt;</title>
+    <link rel="alternate" href="/entries/one"/>
+    <link rel="enclosure" href="https://atom.example.net/one.mp3" type="audio/mpeg" length="10"/>
+    <id>tag:atom.example.net,2026:one</id>
+    <published>2026-09-21T10:00:00Z</published>
+    <updated>2026-09-22T11:00:00Z</updated>
+    <author><name>Carol</name></author>
+    <content type="html">&lt;p&gt;Atom &lt;em&gt;content&lt;/em&gt;&lt;/p&gt;</content>
+    <media:group>
+      <media:thumbnail url="https://atom.example.net/thumb-one.jpg" width="120" height="90"/>
+    </media:group>
+  </entry>
+  <entry>
+    <title>Updated only</title>
+    <link href="https://atom.example.net/entries/two"/>
+    <id>tag:atom.example.net,2026:two</id>
+    <updated>2026-09-19T10:00:00Z</updated>
+    <summary>Just a summary</summary>
+  </entry>
+</feed>

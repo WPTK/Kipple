@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>No Dates</title>
+    <link>https://nodates.example.com/</link>
+    <description>Feed whose items carry no dates</description>
+    <item>
+      <title>Undated one</title>
+      <link>https://nodates.example.com/1</link>
+      <description>One</description>
+    </item>
+    <item>
+      <title>Bad date</title>
+      <link>https://nodates.example.com/2</link>
+      <pubDate>not a date at all</pubDate>
+      <description>Two</description>
+    </item>
+    <item>
+      <title>Zero date</title>
+      <link>https://nodates.example.com/3</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 GMT</pubDate>
+      <description>Three</description>
+    </item>
+    <item>
+      <title>Title only, no link no guid</title>
+      <description>Four</description>
+    </item>
+  </channel>
+</rss>

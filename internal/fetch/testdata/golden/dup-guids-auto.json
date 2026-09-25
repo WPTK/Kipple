@@ -1,0 +1,73 @@
+{
+  "format": "rss",
+  "title": "Dup GUIDs",
+  "site_url": "https://dup.example.com/",
+  "description": "Same guid on every item, plus empties",
+  "items": [
+    {
+      "uid": "g:0967115f2813a3541eaef77de9d9d577",
+      "guid": "same",
+      "raw_link": "https://dup.example.com/a",
+      "url": "https://dup.example.com/a",
+      "link_hash": "a711b0310381894049778080f8f38949",
+      "title": "First",
+      "content_html": "A",
+      "content_text": "A",
+      "published": "2026-09-21T10:00:00Z",
+      "content_hash": "99e3db8386baad3605bf31be78275706",
+      "text_hash": "99efeeb3bc466a3a4f8e78755ed42e04"
+    },
+    {
+      "uid": "g:7e3244ead7233286ed835985c4e13549",
+      "guid": "same",
+      "raw_link": "https://dup.example.com/b",
+      "url": "https://dup.example.com/b",
+      "link_hash": "8a07e50921fc66224e5a2226a8ec0aa3",
+      "title": "Second",
+      "content_html": "B",
+      "content_text": "B",
+      "published": "2026-09-21T11:00:00Z",
+      "content_hash": "1713c41e2e470e044a0209bf40ef6572",
+      "text_hash": "2ce24cb6aa3ee00cd886d6a44e0a1d14"
+    },
+    {
+      "uid": "g:93841242863bdd84d0e51c5b27ebde5e",
+      "guid": "same",
+      "url": "",
+      "title": "Third (no link)",
+      "content_html": "C",
+      "content_text": "C",
+      "published": "2026-09-21T12:00:00Z",
+      "content_hash": "58f7d06ce1bc2af46289eaa387de9b8c",
+      "text_hash": "0c5885242350041de0582472d59be83d"
+    },
+    {
+      "uid": "l:25da9de62458077be6e1b09d900b53c2",
+      "raw_link": "https://dup.example.com/d",
+      "url": "https://dup.example.com/d",
+      "link_hash": "25da9de62458077be6e1b09d900b53c2",
+      "title": "Fourth (empty guid, link)",
+      "content_html": "D",
+      "content_text": "D",
+      "published": "2026-09-21T13:00:00Z",
+      "content_hash": "af1cb0a6167e955b53ef5b0f24d45bee",
+      "text_hash": "d75d48e976378c7c66ae875f509631b3"
+    },
+    {
+      "uid": "l:a711b0310381894049778080f8f38949",
+      "raw_link": "https://dup.example.com/a",
+      "url": "https://dup.example.com/a",
+      "link_hash": "a711b0310381894049778080f8f38949",
+      "title": "Fifth (link repeats First)",
+      "content_html": "E",
+      "content_text": "E",
+      "published": "2026-09-21T14:00:00Z",
+      "content_hash": "06504d25ae272903b3fd143231fc001d",
+      "text_hash": "8dcea2b2c22a46b0ea35d21748706489"
+    }
+  ],
+  "notes": [
+    "guid_duplicates: 4/5"
+  ],
+  "charset": "utf-8"
+}

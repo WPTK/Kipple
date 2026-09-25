@@ -1,0 +1,54 @@
+{
+  "format": "rss",
+  "title": "No Dates",
+  "site_url": "https://nodates.example.com/",
+  "description": "Feed whose items carry no dates",
+  "items": [
+    {
+      "uid": "l:af56366a379d5e5f1e2af6fdf74ab703",
+      "raw_link": "https://nodates.example.com/1",
+      "url": "https://nodates.example.com/1",
+      "link_hash": "af56366a379d5e5f1e2af6fdf74ab703",
+      "title": "Undated one",
+      "content_html": "One",
+      "content_text": "One",
+      "content_hash": "e4c1f66a15547359beb2fe9c8afcea1a",
+      "text_hash": "b21b6f5272ea8cf42c2e227ebba91c88"
+    },
+    {
+      "uid": "l:e799c9a1e75cbefcd263f99eb86f87b1",
+      "raw_link": "https://nodates.example.com/2",
+      "url": "https://nodates.example.com/2",
+      "link_hash": "e799c9a1e75cbefcd263f99eb86f87b1",
+      "title": "Bad date",
+      "content_html": "Two",
+      "content_text": "Two",
+      "content_hash": "4740cd691afd509c115c7c7e3ad92842",
+      "text_hash": "4608ddc86f619ca752a2fda85f6d5997"
+    },
+    {
+      "uid": "l:0b18f99d6a87fbd1ab99a2740d5281ff",
+      "raw_link": "https://nodates.example.com/3",
+      "url": "https://nodates.example.com/3",
+      "link_hash": "0b18f99d6a87fbd1ab99a2740d5281ff",
+      "title": "Zero date",
+      "content_html": "Three",
+      "content_text": "Three",
+      "content_hash": "5d4ee26643d8e28a8a8e5c46536cf85c",
+      "text_hash": "c8571be21cffa89f4148b341a589a139"
+    },
+    {
+      "uid": "h:fd779927ee6d0bc291b26ec1a6076c2d",
+      "url": "",
+      "title": "Title only, no link no guid",
+      "content_html": "Four",
+      "content_text": "Four",
+      "content_hash": "994ed329ff94e650f377f8ebe0878c8a",
+      "text_hash": "fd779927ee6d0bc291b26ec1a6076c2d"
+    }
+  ],
+  "notes": [
+    "guid_duplicates: 4/4"
+  ],
+  "charset": "utf-8"
+}

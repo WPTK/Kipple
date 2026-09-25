@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<rss version="2.0"><channel><title>Café feed</title><link>https://cs.example.com/</link><description>d</description>
+<item><title>Café ‘quoted’ – naïve €5</title><link>https://cs.example.com/1</link><guid>1</guid><pubDate>Mon, 21 Sep 2026 10:00:00 GMT</pubDate><description>Café ‘quoted’ – naïve €5</description></item>
+</channel></rss>
