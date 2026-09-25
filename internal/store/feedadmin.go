@@ -119,13 +119,13 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 	now := d.clock.Now().Unix()
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		res = PatchResult{}
-		var url, urlKey, dedup string
+		var url, urlKey, dedup, oldHost string
 		var reason sql.NullString
 		var retention, folder sql.NullInt64
 		var custom, curUA sql.NullString
 		var enabled, private int64
-		err := tx.QueryRowContext(ctx, `SELECT url, url_key, dedup_mode, disabled_reason, retention, folder_id, custom_title, enabled, allow_private_net, user_agent
-			FROM feeds WHERE id = ?`, id).Scan(&url, &urlKey, &dedup, &reason, &retention, &folder, &custom, &enabled, &private, &curUA)
+		err := tx.QueryRowContext(ctx, `SELECT url, url_key, host, dedup_mode, disabled_reason, retention, folder_id, custom_title, enabled, allow_private_net, user_agent
+			FROM feeds WHERE id = ?`, id).Scan(&url, &urlKey, &oldHost, &dedup, &reason, &retention, &folder, &custom, &enabled, &private, &curUA)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrFeedNotFound
 		}
@@ -198,6 +198,12 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 				set("url", norm)
 				set("url_key", key)
 				set("host", host)
+				// Credentials are for the host they were entered for: moving the feed
+				// to another host must not send them there. A patch that sets
+				// http_auth in the same request wins.
+				if _, has := p.Cols["http_auth"]; !has && !strings.EqualFold(host, oldHost) {
+					sets = append(sets, "http_auth = NULL")
+				}
 				sets = append(sets, "url_original = COALESCE(url_original, url)", "url_original_key = COALESCE(url_original_key, url_key)",
 					"etag = NULL", "last_modified = NULL", "body_hash = NULL", "ttl_hint_s = NULL",
 					"redirect_to = NULL", "redirect_kind = NULL", "redirect_count = 0",

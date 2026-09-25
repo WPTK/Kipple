@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
+	"io/fs"
 	"os"
+	"path/filepath"
 )
 
 // FeedHealth is one feed's fetch health (GET /api/health/feeds, design §7.1).
@@ -102,8 +104,9 @@ type DiskUsage struct {
 	ImgcacheBytes int64 `json:"imgcache_bytes"`
 }
 
-// DiskUsage sizes the database file, its WAL and the backup directory
-// (snapshots and pre-migration copies). Missing files count as 0.
+// DiskUsage sizes the database file, its WAL and the backup directory tree
+// (snapshots, pre-migration copies, pre-restore-* copies and the export/
+// scratch files). Missing files count as 0.
 func (d *DB) DiskUsage() DiskUsage {
 	var u DiskUsage
 	if fi, err := os.Stat(d.path); err == nil {
@@ -112,12 +115,17 @@ func (d *DB) DiskUsage() DiskUsage {
 	if fi, err := os.Stat(d.path + "-wal"); err == nil {
 		u.WALBytes = fi.Size()
 	}
-	if ents, err := os.ReadDir(d.backupDir); err == nil {
-		for _, e := range ents {
-			if info, err := e.Info(); err == nil && info.Mode().IsRegular() {
-				u.BackupBytes += info.Size()
-			}
+	// Recursive: pre-restore-* directories and the export/ scratch directory
+	// (temporary export files) count too, since they are all disk the backup
+	// directory holds.
+	_ = filepath.WalkDir(d.backupDir, func(_ string, e fs.DirEntry, err error) error {
+		if err != nil || e.IsDir() {
+			return nil // unreadable or vanished entries (an export finishing) count as 0
 		}
-	}
+		if info, ierr := e.Info(); ierr == nil && info.Mode().IsRegular() {
+			u.BackupBytes += info.Size()
+		}
+		return nil
+	})
 	return u
 }
