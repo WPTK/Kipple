@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -29,6 +30,8 @@ type Options struct {
 	Logger *slog.Logger
 	// Wake asks the scheduler for a tick (non-blocking); optional.
 	Wake func()
+	// Events receives items.state and feed.changed notifications; optional.
+	Events *events.Hub
 	// Failures and Verifier default to the design settings; tests inject fakes.
 	Failures *auth.FailureTracker
 	Verifier *auth.Verifier
@@ -389,9 +392,6 @@ func (c *call) userInfo() {
 	})
 }
 
-// icon serves feed icons when greader.icon_urls is on (wired with the subscription handlers).
-func (c *call) icon(string) { c.text(http.StatusNotFound, "Not Found") }
-
 // ---- responses ----
 
 func (c *call) text(status int, body string) {
@@ -445,4 +445,11 @@ func (c *call) ok() { c.text(http.StatusOK, "OK") }
 func (c *call) serverError(what string, err error) {
 	c.a.log.Error("greader: "+what, "err", err, "path", c.path)
 	c.text(http.StatusInternalServerError, "Internal Server Error")
+}
+
+// publish sends an SSE event when a hub is attached.
+func (a *API) publish(typ string, data any) {
+	if a.opt.Events != nil {
+		a.opt.Events.Publish(typ, data)
+	}
 }
