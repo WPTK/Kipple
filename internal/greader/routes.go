@@ -5,4 +5,5 @@ package greader
 func (a *API) registerRoutes() {
 	a.registerSubs()
 	a.registerStreams()
+	a.registerEdit()
 }
