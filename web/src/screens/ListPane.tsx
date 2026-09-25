@@ -209,7 +209,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
   const virtualItems = virtualizer.getVirtualItems();
   const lastIndex = virtualItems.length ? (virtualItems[virtualItems.length - 1]?.index ?? 0) : 0;
   useEffect(() => {
-    if (q.hasNextPage && !q.isFetchingNextPage && rows.length > 0 && lastIndex >= rows.length - 10) void q.fetchNextPage();
+    // After a failed page the auto-fetch stops (offline would retry every render); the inline Retry row resumes it.
+    if (q.hasNextPage && !q.isFetchingNextPage && !q.isFetchNextPageError && rows.length > 0 && lastIndex >= rows.length - 10) void q.fetchNextPage();
   }, [lastIndex, rows.length, q]);
 
   const openItem = useCallback((item: Card) => setSelectedId(item.id), []);
@@ -423,7 +424,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
 
   const body = (() => {
     if (q.isPending) return <Skeleton />;
-    if (q.isError) {
+    // Only a failed first load replaces the list; a failed later page keeps it (and the scroll position).
+    if (q.isError && !q.data) {
       return (
         <StatusBlock role="alert" title="Couldn't load articles" body="Kipple couldn't reach the server. Your place in the list is saved.">
           <Button onClick={() => void q.refetch()}>Try again</Button>
@@ -435,6 +437,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
       return <StatusBlock role="status" title={c.title} body={c.body} />;
     }
     return (
+      <>
       <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
         {virtualItems.map((v) => {
           const r = rows[v.index];
@@ -468,6 +471,15 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
           </p>
         ) : null}
       </div>
+      {q.isFetchNextPageError ? (
+        <div role="alert" className="flex items-center justify-center gap-2 px-4 py-3 text-sm text-fg2">
+          <span>Couldn&apos;t load more.</span>
+          <Button variant="ghost" onClick={() => void q.fetchNextPage()}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+      </>
     );
   })();
 
