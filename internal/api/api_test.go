@@ -315,16 +315,19 @@ func TestCrossOriginRejected(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		mod  []func(*http.Request)
+		// clientOnly marks a failure of the X-Kipple-Client rule alone: GET
+		// downloads are reachable by a plain link, so only the origin rule guards them.
+		clientOnly bool
 	}{
-		{"cross-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }}},
-		{"same-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "same-site") }}},
-		{"no metadata no origin", []func(*http.Request){strip, func(r *http.Request) { r.Header.Set("X-Kipple-Client", "web") }}},
+		{"cross-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }}, false},
+		{"same-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "same-site") }}, false},
+		{"no metadata no origin", []func(*http.Request){strip, func(r *http.Request) { r.Header.Set("X-Kipple-Client", "web") }}, false},
 		{"foreign origin", []func(*http.Request){strip, func(r *http.Request) {
 			r.Header.Set("Origin", "https://evil.example")
 			r.Header.Set("X-Kipple-Client", "web")
-		}}},
-		{"missing client header", []func(*http.Request){func(r *http.Request) { r.Header.Del("X-Kipple-Client") }}},
-		{"bad client header", []func(*http.Request){func(r *http.Request) { r.Header.Set("X-Kipple-Client", "curl") }}},
+		}}, false},
+		{"missing client header", []func(*http.Request){func(r *http.Request) { r.Header.Del("X-Kipple-Client") }}, true},
+		{"bad client header", []func(*http.Request){func(r *http.Request) { r.Header.Set("X-Kipple-Client", "curl") }}, true},
 	} {
 		mods := append([]func(*http.Request){withCookie(c)}, tc.mod...)
 		for _, path := range []string{"/api/refresh", "/api/auth/logout"} {
@@ -334,7 +337,11 @@ func TestCrossOriginRejected(t *testing.T) {
 		}
 		rec := h.do("POST", "/api/opml", "<opml/>", mods...)
 		require.Equal(t, http.StatusForbidden, rec.Code, tc.name)
-		require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", mods...).Code, "%s GET opml", tc.name)
+		wantGet := http.StatusForbidden
+		if tc.clientOnly {
+			wantGet = http.StatusOK
+		}
+		require.Equal(t, wantGet, h.do("GET", "/api/opml", "", mods...).Code, "%s GET opml", tc.name)
 	}
 	require.Zero(t, h.sched.refreshN)
 
@@ -672,4 +679,28 @@ func (f *fakeSched) ApplyRetention(all bool) (sched.RunInfo, error) {
 	defer f.mu.Unlock()
 	f.retentionAll = append(f.retentionAll, all)
 	return sched.RunInfo{RunID: 44, Kind: "retention", Total: 7}, nil
+}
+
+// GET downloads answer to the Sec-Fetch-Site/Origin rule alone (a link click
+// carries no X-Kipple-Client); every other GET and every write still needs it.
+func TestDownloadOriginMatrix(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	plain := func(site string) func(*http.Request) {
+		return func(r *http.Request) {
+			r.Header.Del("X-Kipple-Client")
+			r.Header.Del("Sec-Fetch-Site")
+			r.Header.Del("Origin")
+			if site != "" {
+				r.Header.Set("Sec-Fetch-Site", site)
+			}
+		}
+	}
+	require.Equal(t, http.StatusOK, h.do("GET", "/api/opml", "", withCookie(c), plain("same-origin")).Code, "link click")
+	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", withCookie(c), plain("cross-site")).Code)
+	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", withCookie(c), plain("same-site")).Code)
+	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", withCookie(c), plain("")).Code, "no metadata and no Origin")
+	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/opml", "", plain("same-origin")).Code, "auth still first")
+	// Not a download: a POST to the same path keeps the header rule.
+	require.Equal(t, http.StatusForbidden, h.do("POST", "/api/opml", "<opml/>", withCookie(c), plain("same-origin")).Code)
 }
