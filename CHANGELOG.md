@@ -10,6 +10,12 @@ Phase 2 (reading UI backend) so far.
 
 ### Added
 
+- Web UI: five list layouts (Magazine, Cards, Compact, Inbox, Headlines) with per-device, per-feed and per-folder choice; iOS Mail-style row swipes, long-press menu, swipe back, pull to refresh, a 15-second merging undo toast, and a full keymap with a shortcuts overlay.
+- Web UI: click-to-load YouTube and Vimeo embeds, in-article footnote scrolling, newest/oldest order toggle, previous/next feed buttons.
+- Web UI: settings screen rendered from the API metadata, the "Aa" reading menu (theme, font, size, density), an accessibility section (text size, easy-to-read font, reading spacing, reduce motion, large targets, read aloud, prefers-contrast and forced-colors support), and all bundled fonts.
+- Web UI: feed add, edit (including changing a feed's URL), delete, folders, OPML import and export, a feed health view, password and API-password screens, and Export backup.
+- Live updates: the event stream reconnects with backoff, polls while disconnected, resyncs on return, and a heartbeat watchdog detects a hung stream.
+
 - `GET /api/feeds/{id}` returns the full feed detail (what PATCH returns; never the HTTP credentials),
   so the feed editor no longer sends a no-op PATCH to load it.
 - `POST /api/reorder` sets folder and feed positions (and feed folder moves) for a whole list in one
@@ -152,6 +158,10 @@ Phase 2 (reading UI backend) so far.
   deleted by migration 0002.
 
 ### Fixed
+
+- Bulk mark (mark all, above/below) now uses the server's `as_of`, so it covers every unread item in oldest-first lists and with backdated new items; undo only touches what the server changed and restores ledger rows.
+- Undo of merged swipe-stars reverts all of them; a failed undo no longer says "Undone".
+- Unread badge no longer drops twice when opening an article; failed next-page loads keep the list; the skip link is visible on focus; toasts are announced to screen readers; pinch-zoom works from a list row.
 
 - Nightly maintenance read the `tz` setting in its goroutine while the start time was taken in `Start`; a tz change right after start could pick a different baseline (flaky `TestTzChangeBeforeTheRunDoesNotSkipTheDate` in CI). The zone is now read in `Start` too.
 - Nightly job after a time zone change: the last run is recorded as an absolute instant and read in the
