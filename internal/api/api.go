@@ -21,6 +21,7 @@ import (
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/imgproxy"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/stats"
@@ -77,6 +78,10 @@ type Options struct {
 	// Guard supplies the SSRF-guarded HTTP transports of the image proxy and
 	// full-text extraction (fetch.Client.Transport); nil builds a private client.
 	Guard func(allowPrivate, insecureTLS, noHTTP2 bool) http.RoundTripper
+	// Runner runs full-text extractions. Share the scheduler's so the ingest pool
+	// and the on-demand endpoint join each other's runs and share the per-host
+	// limit; nil builds a private one.
+	Runner *ftrun.Runner
 	// CountsInterval is the minimum gap between `counts` events (default 1 s).
 	CountsInterval time.Duration
 	// Now defaults to the wall clock. Heartbeat defaults to 15 s.
@@ -95,8 +100,7 @@ type Server struct {
 	verifier *auth.Verifier // shared with the Reader API (one argon2 slot per process)
 	rec      stats.Recorder
 
-	extractor *extract.Extractor
-	ftFlights ftFlights
+	runner *ftrun.Runner // full-text extraction, shared with the ingest pool
 
 	imgMu     sync.Mutex // guards imgSecret and imgH
 	imgSecret []byte
@@ -127,7 +131,13 @@ func New(opt Options) *Server {
 	if s.opt.Guard == nil {
 		s.opt.Guard = fetch.NewClient(fetch.ClientOptions{Version: opt.Version, PublicURL: opt.PublicURL}).Transport
 	}
-	s.extractor = extract.New(extract.Options{Transport: s.opt.Guard, UserAgent: s.outgoingUA(), Timeout: extractBudget})
+	s.runner = opt.Runner
+	if s.runner == nil {
+		s.runner = ftrun.New(ftrun.Options{
+			DB: s.db, Log: s.log,
+			Extractor: extract.New(extract.Options{Transport: s.opt.Guard, UserAgent: s.outgoingUA(), Timeout: extractBudget}),
+		})
+	}
 	s.rec = opt.Stats
 	if s.rec == nil {
 		s.rec = stats.New(s.now)

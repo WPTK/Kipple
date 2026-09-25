@@ -83,7 +83,7 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
 			out.migrated = ci.Migrated
 			if cerr == nil && !ci.Stale {
-				s.queueFulltext(cctx, f.snap.ID, cand, ci.NewIDs)
+				s.queueFulltext(f.snap.ID, cand, ci.NewIDs)
 			}
 			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil && !ci.Stale {
 				if uerr := s.db.SetFeedUAFallback(cctx, f.snap.ID); uerr != nil {

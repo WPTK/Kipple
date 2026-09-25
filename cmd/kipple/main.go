@@ -23,7 +23,9 @@ import (
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/greader"
 	"github.com/WPTK/kipple/internal/maint"
 	"github.com/WPTK/kipple/internal/sched"
@@ -126,8 +128,14 @@ func runServe() error {
 	// single argon2id slot, so they can never hash at the same time.
 	verifier := auth.NewVerifier(nil, auth.VerifierOptions{})
 	client := fetch.NewClient(fetch.ClientOptions{Version: version, PublicURL: cfg.PublicURL})
+	// One full-text runner for the process: the ingest pool and the on-demand
+	// endpoint join each other's extractions and share the per-article-host limit.
+	ftRunner := ftrun.New(ftrun.Options{
+		DB: db, Log: logger,
+		Extractor: extract.New(extract.Options{Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: 15 * time.Second}),
+	})
 	scheduler := sched.New(db, client, hub, nil, logger, sched.Options{
-		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick,
+		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick, Runner: ftRunner,
 	})
 	scheduler.Start()
 	maintenance := maint.New(maint.Options{DB: db, Logger: logger})
@@ -151,7 +159,7 @@ func runServe() error {
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
 		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
-		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport,
+		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, Runner: ftRunner,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount,
 	})
 	defer uiAPI.Close()

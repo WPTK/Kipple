@@ -106,7 +106,7 @@ func TestExtractsNewItemsAfterCommitOnce(t *testing.T) {
 	r.s.Wake()
 	r.waitEvents("fetch.done", 1)
 	require.EqualValues(t, 2, r.num("SELECT count(*) FROM items WHERE feed_id = ?", id))
-	require.Contains(t, r.lastNote(id), "fulltext_queued: 2")
+	require.Contains(t, r.lastNote(id), "fulltext_picked: 2")
 	r.waitRows(id, 2, 0)
 	require.Equal(t, 1, srv.count("/a/1"))
 	require.Equal(t, 1, srv.count("/a/2"))
@@ -171,6 +171,7 @@ type fakeExt struct {
 	maxHost int
 	hold    time.Duration
 	block   bool          // wait for ctx to end
+	panics  string        // when set, Extract panics with it for URLs containing it
 	gate    chan struct{} // when set, wait for it to close
 }
 
@@ -192,6 +193,9 @@ func (f *fakeExt) Extract(ctx context.Context, t extract.Target) (extract.Result
 		f.perHost[host]--
 		f.mu.Unlock()
 	}()
+	if f.panics != "" && strings.Contains(t.URL, f.panics) {
+		panic("hostile page")
+	}
 	if f.block {
 		<-ctx.Done()
 		return extract.Result{}, errors.New("cut off")
@@ -238,7 +242,7 @@ func TestFetchDoesNotWaitForSlowArticleHosts(t *testing.T) {
 	require.Less(t, time.Since(start), 5*time.Second)
 	require.Equal(t, "ok", r.events("fetch.done")[0]["outcome"])
 	require.EqualValues(t, 5, r.num("SELECT count(*) FROM items WHERE feed_id = ?", id))
-	require.Contains(t, r.lastNote(id), "fulltext_queued: 5")
+	require.Contains(t, r.lastNote(id), "fulltext_picked: 5")
 	fx.waitCalls(t, 2) // extraction is under way, and the worker is already free
 	require.Zero(t, r.flights(), "the feed's worker is not tied up by extraction")
 	ok, failed := r.ftRows(id)
@@ -276,7 +280,7 @@ func TestCapDefersTheRestNewestFirst(t *testing.T) {
 	calls, _, _ := fx.snapshot()
 	require.ElementsMatch(t, []string{"https://art.test/a/5", "https://art.test/a/4"}, calls, "the two newest")
 	note := r.lastNote(id)
-	require.Contains(t, note, "fulltext_queued: 2")
+	require.Contains(t, note, "fulltext_picked: 2")
 	require.Contains(t, note, "fulltext_deferred: 3")
 }
 
@@ -289,7 +293,7 @@ func TestQueueBoundDefersWithANote(t *testing.T) {
 	r.s.Wake()
 	r.waitEvents("fetch.done", 1)
 	note := r.lastNote(id)
-	require.Contains(t, note, "fulltext_queued: 2")
+	require.Contains(t, note, "fulltext_picked: 2")
 	require.Contains(t, note, "fulltext_deferred: 3", "items beyond the queue bound are left to on-demand, and say so")
 	require.EqualValues(t, 5, r.num("SELECT count(*) FROM items WHERE feed_id = ?", id))
 }
@@ -381,7 +385,7 @@ func TestQueuedWorkSurvivesEditsAndDeletes(t *testing.T) {
 	itemID := func(n int) int64 {
 		return r.num("SELECT id FROM items WHERE feed_id = ? AND url = ?", id, fmt.Sprintf("https://art.test/a/%d", n))
 	}
-	i3, i2, i1 := itemID(3), itemID(2), itemID(1)
+	i4, i3, i2, i1 := itemID(4), itemID(3), itemID(2), itemID(1)
 	r.sql("DELETE FROM items WHERE id = ?", i3)                                 // item gone
 	r.sql("UPDATE items SET url = 'https://elsewhere.test/x' WHERE id = ?", i2) // URL changed
 	r.sql("UPDATE feeds SET fulltext = 0 WHERE id = ?", id)                     // no longer a full-text feed
@@ -389,11 +393,14 @@ func TestQueuedWorkSurvivesEditsAndDeletes(t *testing.T) {
 	close(gate)
 	waitFor(t, "the surviving work", func() bool {
 		ok, _ := r.ftRows(id)
-		return ok >= 2
+		return ok >= 1
 	})
-	// item 4 was running (feed setting flipped after it began: its result is
-	// stored because its own check passed earlier); item 1 is forced on; 3 is
-	// gone; 2 changed URL.
+	// item 4 was running when the feed's setting flipped off, so its result is
+	// dropped at the write; item 1 is forced on and stored; 3 is gone; 2 changed
+	// URL.
+	require.Eventually(t, func() bool { return r.num("SELECT count(*) FROM item_fulltext WHERE item_id = ?", i4) == 0 }, time.Second, 20*time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+	require.EqualValues(t, 0, r.num("SELECT count(*) FROM item_fulltext WHERE item_id = ?", i4), "full text was turned off while it ran")
 	calls, _, _ := fx.snapshot()
 	require.NotContains(t, calls, "https://art.test/a/3")
 	require.NotContains(t, calls, "https://art.test/a/2")
@@ -446,15 +453,11 @@ func TestStopCancelsExtractionCleanly(t *testing.T) {
 func TestQueueDedupesBoundsAndSpreadsHosts(t *testing.T) {
 	q := newFTQueue(3, 1)
 	a1 := ftJob{itemID: 1, url: "https://a/1", host: "a"}
-	queued, dup, full := q.push(a1)
-	require.True(t, queued)
-	require.False(t, dup || full)
-	_, dup, _ = q.push(a1)
-	require.True(t, dup, "an item already queued is not queued twice")
+	require.Equal(t, pushQueued, q.push(a1))
+	require.Equal(t, pushDup, q.push(a1), "an item already queued is not queued twice")
 	q.push(ftJob{itemID: 2, url: "https://a/2", host: "a"})
 	q.push(ftJob{itemID: 3, url: "https://b/3", host: "b"})
-	_, _, full = q.push(ftJob{itemID: 4, url: "https://b/4", host: "b"})
-	require.True(t, full, "beyond the bound nothing is queued")
+	require.Equal(t, pushFull, q.push(ftJob{itemID: 4, url: "https://b/4", host: "b"}), "beyond the bound nothing is queued")
 	require.Zero(t, q.free())
 
 	j1, done1, ok := q.take()
@@ -463,12 +466,48 @@ func TestQueueDedupesBoundsAndSpreadsHosts(t *testing.T) {
 	j2, done2, ok := q.take()
 	require.True(t, ok)
 	require.EqualValues(t, 3, j2.itemID, "host a is at its limit, so the next job is for host b")
-	_, dup, _ = q.push(a1)
-	require.True(t, dup, "a running item is still deduped")
+	require.Equal(t, pushDup, q.push(a1), "a running item is still deduped")
 	done1()
 	done2()
 
 	q.close()
 	_, _, ok = q.take()
 	require.False(t, ok)
+	require.Equal(t, pushClosed, q.push(ftJob{itemID: 9, url: "https://c/9", host: "c"}), "a shut queue reports closed, not full")
+}
+
+// A parser panic on a hostile page must not take the process down: it is stored
+// as a permanent failure for that item and the pool carries on.
+func TestPanickingExtractionIsStoredAsPermanentErrorAndPoolSurvives(t *testing.T) {
+	fx := &fakeExt{panics: "/a/2"}
+	r := newRig(t, Options{Extractor: fx, FulltextGlobal: 1})
+	srv := newFTServer(t, nil)
+	srv.body.Store(ftFeed("https://art.test", 1, 2, 3))
+	id := r.ftFeed(srv.URL + "/f")
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	r.waitRows(id, 2, 1)
+	require.EqualValues(t, 1, r.num(`SELECT count(*) FROM item_fulltext ft JOIN items i ON i.id = ft.item_id
+		WHERE i.feed_id = ? AND i.url = 'https://art.test/a/2' AND ft.error IS NOT NULL AND ft.error_class = 'permanent'`, id))
+}
+
+// A document that repeats an item (same link, different guids, link dedup) is
+// collapsed to its first occurrence before the pick and the commit alike, so
+// the URL extracted is the URL stored and it is fetched once.
+func TestDuplicateItemsInADocumentExtractTheStoredURLOnce(t *testing.T) {
+	fx := &fakeExt{}
+	r := newRig(t, Options{Extractor: fx})
+	srv := newFTServer(t, nil)
+	srv.body.Store(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://ex.com/</link>` +
+		`<item><guid>a</guid><title>First</title><link>https://art.test/same</link></item>` +
+		`<item><guid>b</guid><title>Second</title><link>https://art.test/same</link></item></channel></rss>`)
+	id := r.ftFeed(srv.URL + "/f")
+	r.sql("UPDATE feeds SET dedup_mode = 'link' WHERE id = ?", id)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	r.waitRows(id, 1, 0)
+	require.EqualValues(t, 1, r.num("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	calls, _, _ := fx.snapshot()
+	require.Equal(t, []string{"https://art.test/same"}, calls)
+	require.EqualValues(t, 1, r.num("SELECT count(*) FROM items WHERE feed_id = ? AND url = 'https://art.test/same'", id))
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -45,6 +46,7 @@ type Options struct {
 
 	// Inline full-text extraction (design §4.3).
 	Extractor           Extractor     // default: the guarded extract.Extractor
+	Runner              *ftrun.Runner // shared with the on-demand endpoint; default: built from Extractor and FulltextPerHost
 	FulltextMaxItems    int           // new items queued per fetch, 20; the rest are left to on-demand
 	FulltextItemTimeout time.Duration // per article, 10 s
 	FulltextPerHost     int           // concurrent articles per article host, 2
@@ -170,9 +172,9 @@ type Scheduler struct {
 	stopped    chan struct{}
 	syncCh     chan func()
 
-	ext  Extractor
-	ftq  *ftQueue // bounded background extraction queue, drained by the pool
-	ftWG sync.WaitGroup
+	runner *ftrun.Runner
+	ftq    *ftQueue // bounded background extraction queue, drained by the pool
+	ftWG   sync.WaitGroup
 
 	failCommit func(feedID int64) error // test hook: replaces the fetch commit
 
@@ -237,9 +239,12 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	if log == nil {
 		log = slog.Default()
 	}
+	if opt.Runner == nil {
+		opt.Runner = ftrun.New(ftrun.Options{DB: db, Extractor: opt.Extractor, PerHost: opt.FulltextPerHost, Log: log})
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
-		ext: opt.Extractor, ftq: newFTQueue(opt.FulltextQueue, opt.FulltextPerHost),
+		runner: opt.Runner, ftq: newFTQueue(opt.FulltextQueue, opt.FulltextPerHost),
 		db: db, client: client, hub: hub, clk: clk, log: log, opt: opt,
 		jobs:       make(chan *flight, opt.Workers),
 		doneCh:     make(chan result, opt.Workers),

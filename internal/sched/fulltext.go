@@ -13,7 +13,7 @@ import (
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
-	"github.com/WPTK/kipple/internal/store"
+	"github.com/WPTK/kipple/internal/ftrun"
 )
 
 // Ingest extraction limits (design §4.3, §7.5). Every one is overridable in
@@ -26,6 +26,8 @@ const (
 	defaultFTQueue       = 500
 	// ftFlushDelay coalesces "text is ready" notifications into one event.
 	ftFlushDelay = 300 * time.Millisecond
+	// ftLookupTimeout bounds the post-commit lookup of the new items' ids.
+	ftLookupTimeout = 5 * time.Second
 )
 
 // Extractor fetches and extracts one article page. *extract.Extractor
@@ -70,23 +72,32 @@ func (q *ftQueue) free() int {
 	return max(q.limit-len(q.jobs), 0)
 }
 
-// push adds a job. dup means it was already queued or running; full means the
-// queue is at its bound (or shut).
-func (q *ftQueue) push(j ftJob) (queued, dup, full bool) {
+// pushResult is what push did with a job.
+type pushResult int
+
+const (
+	pushQueued pushResult = iota
+	pushDup               // already queued or running
+	pushFull              // the queue is at its bound
+	pushClosed            // the queue is shut (shutdown)
+)
+
+// push adds a job.
+func (q *ftQueue) push(j ftJob) pushResult {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	switch {
 	case q.closed:
-		return false, false, true
+		return pushClosed
 	case q.queued[j.itemID]:
-		return false, true, false
+		return pushDup
 	case len(q.jobs) >= q.limit:
-		return false, false, true
+		return pushFull
 	}
 	q.queued[j.itemID] = true
 	q.jobs = append(q.jobs, j)
 	q.cond.Signal()
-	return true, false, false
+	return pushQueued
 }
 
 // take blocks for the oldest job whose host has a free slot. ok is false once
@@ -267,7 +278,10 @@ func (s *Scheduler) pickFulltext(ctx context.Context, res *fetch.Result) []fetch
 	deferred := len(cand) - keep
 	cand = cand[:keep]
 	if keep > 0 {
-		res.Notes = append(res.Notes, fmt.Sprintf("fulltext_queued: %d", keep))
+		// Picked before the commit, so this is the number handed to the queue, not
+		// a promise: a stale commit, a filled queue or a shutdown between the pick
+		// and the push leave items to on-demand, logged with the real counts.
+		res.Notes = append(res.Notes, fmt.Sprintf("fulltext_picked: %d", keep))
 	}
 	if deferred > 0 {
 		res.Notes = append(res.Notes, fmt.Sprintf("fulltext_deferred: %d", deferred))
@@ -276,47 +290,57 @@ func (s *Scheduler) pickFulltext(ctx context.Context, res *fetch.Result) []fetch
 }
 
 // queueFulltext hands the picked items of a committed fetch to the pool. Only
-// items this commit actually inserted are queued. The queue may have filled
-// since pickFulltext; those items are logged and left to the on-demand path.
-func (s *Scheduler) queueFulltext(ctx context.Context, feedID int64, cand []fetch.Item, newIDs []int64) {
+// items this commit actually inserted are queued. The queue may have filled (or
+// shut) since pickFulltext; those items are logged and left to the on-demand
+// path. The id lookup has its own short deadline, so a slow commit cannot
+// starve it, and a failed lookup leaves the items to on-demand too.
+func (s *Scheduler) queueFulltext(feedID int64, cand []fetch.Item, newIDs []int64) {
 	if len(cand) == 0 || len(newIDs) == 0 {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.fetchCtx), ftLookupTimeout)
+	defer cancel()
 	uids := make([]string, len(cand))
 	for i, it := range cand {
 		uids[i] = it.UID
 	}
 	ids, err := s.db.ItemIDsByUID(ctx, feedID, uids)
 	if err != nil {
-		s.log.Warn("sched: fulltext resolve new items", "feed", feedID, "err", err)
+		s.log.Warn("sched: fulltext resolve new items; they extract on demand", "feed", feedID, "items", len(cand), "err", err)
 		return
 	}
 	isNew := make(map[int64]bool, len(newIDs))
 	for _, id := range newIDs {
 		isNew[id] = true
 	}
-	queued, dropped := 0, 0
+	var queued, full, closed int
 	for _, it := range cand {
 		id, ok := ids[it.UID]
 		if !ok || !isNew[id] {
 			continue
 		}
-		q, _, full := s.ftq.push(ftJob{itemID: id, url: it.URL, host: articleHost(it.URL)})
-		switch {
-		case q:
+		switch s.ftq.push(ftJob{itemID: id, url: it.URL, host: articleHost(it.URL)}) {
+		case pushQueued:
 			queued++
-		case full:
-			dropped++
+		case pushFull:
+			full++
+		case pushClosed:
+			closed++
 		}
 	}
-	if dropped > 0 {
-		s.log.Warn("sched: fulltext queue full; items extract on demand", "feed", feedID, "dropped", dropped, "queued", queued)
+	if full > 0 {
+		s.log.Warn("sched: fulltext queue full; items extract on demand", "feed", feedID, "dropped", full, "queued", queued)
+	}
+	if closed > 0 {
+		s.log.Info("sched: fulltext queue shut; items extract on demand", "feed", feedID, "dropped", closed, "queued", queued)
 	}
 }
 
-// runFulltext extracts one queued item and stores the outcome with one small
-// write. It re-reads the item first, so work for an item that was deleted,
-// whose URL or feed setting changed, or that already has an outcome is skipped.
+// runFulltext extracts one queued item through the shared runner, which stores
+// the outcome with one small guarded write. It re-reads the item first, so work
+// for an item that was deleted, whose URL or feed setting changed, or that
+// already has an outcome is skipped. If the item is being extracted already
+// (someone opened it), the runner joins that run instead of fetching twice.
 func (s *Scheduler) runFulltext(ctx context.Context, j ftJob) {
 	it, ok, err := s.db.GetFulltextItem(ctx, j.itemID)
 	if err != nil {
@@ -328,41 +352,22 @@ func (s *Scheduler) runFulltext(ctx context.Context, j ftJob) {
 	if !ok || it.URL != j.url || it.Effective != 1 || it.HasRow {
 		return
 	}
-	ictx, cancel := context.WithTimeout(ctx, s.opt.FulltextItemTimeout)
-	defer cancel()
-	r, err := s.ext.Extract(ictx, extract.Target{
-		URL: it.URL, UserAgent: it.UserAgent,
-		AllowPrivate: it.AllowPrivateNet, InsecureTLS: it.AllowInsecureTLS, NoHTTP2: it.NoHTTP2,
-	})
-	save := store.FulltextSave{HTML: r.HTML, Text: r.Text, WordCount: r.WordCount, ImageURL: r.ImageURL, SourceURL: r.SourceURL}
-	if err != nil {
-		if ctx.Err() != nil {
-			return // shutdown, not the page's fault; on-demand covers it
+	out, err := s.runner.Run(ctx, ftrun.Request{Item: it, Now: s.clk.Now().Unix(), Timeout: s.opt.FulltextItemTimeout, Background: true})
+	switch {
+	case errors.Is(err, ftrun.ErrAborted):
+		return // shutdown, not the page's fault; on-demand covers it
+	case err != nil:
+		if ctx.Err() == nil {
+			s.log.Warn("sched: fulltext save", "item", j.itemID, "err", err)
 		}
-		var ee *extract.Error
-		switch {
-		case errors.As(err, &ee):
-			save = store.FulltextSave{Error: ee.Msg, ErrorTransient: ee.Transient}
-		case ictx.Err() != nil:
-			save = store.FulltextSave{Error: "extraction timed out", ErrorTransient: true}
-		default:
-			save = store.FulltextSave{Error: "extraction failed", ErrorTransient: true}
-		}
-	}
-	cctx, ccancel := s.commitCtx()
-	defer ccancel()
-	written, serr := s.db.SaveFulltextIfURL(cctx, j.itemID, j.url, s.clk.Now().Unix(), save)
-	if serr != nil {
-		s.log.Warn("sched: fulltext save", "item", j.itemID, "err", serr)
 		return
+	case !out.Written || out.Joined:
+		return // refused by the guard, or the on-demand caller already has the result
 	}
-	if !written {
-		return
-	}
-	if save.Error != "" {
-		s.log.Info("sched: fulltext failed", "feed", it.FeedID, "item", j.itemID, "error", save.Error, "transient", save.ErrorTransient)
+	if out.Save.Error != "" {
+		s.log.Info("sched: fulltext failed", "feed", it.FeedID, "item", j.itemID, "error", out.Save.Error, "transient", out.Save.ErrorTransient)
 	} else {
-		s.log.Debug("sched: fulltext ok", "feed", it.FeedID, "item", j.itemID, "words", save.WordCount)
+		s.log.Debug("sched: fulltext ok", "feed", it.FeedID, "item", j.itemID, "words", out.Save.WordCount)
 	}
 	s.noteReady(j.itemID)
 }
