@@ -63,6 +63,8 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   const oldest = dp.order === "oldest";
   // Feed and folder scopes do not carry the order; it is a device preference.
   const go = (s: Scope | undefined) => s && navigate(listTo(s));
+  const noun = scope.feed ? "feed" : "folder";
+  const hint = (k: string) => (prefs.shortcuts ? <kbd className="ml-auto rounded border border-line px-1.5 font-mono text-xs text-fg2">{k}</kbd> : null);
   useHotkeys(
     { refresh: () => refresh.mutate(), prevFeed: () => go(prev), nextFeed: () => go(next) },
     { singleKeys: prefs.shortcuts },
@@ -112,13 +114,15 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
               {prev ? (
                 <DropdownMenu.Item className={menuItem} onSelect={() => go(prev)}>
                   <ChevronLeft className="size-5" aria-hidden="true" />
-                  Previous {scope.feed ? "feed" : "folder"}
+                  Previous {noun}
+                  {hint("[")}
                 </DropdownMenu.Item>
               ) : null}
               {next ? (
                 <DropdownMenu.Item className={menuItem} onSelect={() => go(next)}>
                   <ChevronRight className="size-5" aria-hidden="true" />
-                  Next {scope.feed ? "feed" : "folder"}
+                  Next {noun}
+                  {hint("]")}
                 </DropdownMenu.Item>
               ) : null}
               <DropdownMenu.Separator className="my-1 h-px bg-line" />
@@ -130,7 +134,8 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
       </div>
-      <nav aria-label="Show" className="mt-1 flex gap-1">
+      <div className="mt-1 flex items-center gap-1">
+      <nav aria-label="Show" className="flex gap-1">
         {VIEWS.map((v) => {
           const active = v.view === scope.view;
           return (
@@ -149,6 +154,33 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           );
         })}
       </nav>
+        {prev || next ? (
+          <div className="ml-auto flex" role="group" aria-label={`Switch ${noun}`}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Previous ${noun}`}
+              aria-keyshortcuts="["
+              title={`Previous ${noun}${prefs.shortcuts ? " ([)" : ""}`}
+              disabled={!prev}
+              onClick={() => go(prev)}
+            >
+              <ChevronLeft aria-hidden="true" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Next ${noun}`}
+              aria-keyshortcuts="]"
+              title={`Next ${noun}${prefs.shortcuts ? " (])" : ""}`}
+              disabled={!next}
+              onClick={() => go(next)}
+            >
+              <ChevronRight aria-hidden="true" />
+            </Button>
+          </div>
+        ) : null}
+      </div>
     </header>
   );
 }

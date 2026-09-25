@@ -105,3 +105,19 @@ describe("row collapse in the Unread view", () => {
     expect(container.querySelector('.kp-row[data-leaving="true"]')).toBeNull();
   });
 });
+
+describe("previous and next feed controls", () => {
+  it("shows labelled buttons with key hints on a feed list and navigates", async () => {
+    const two = {
+      ...bootstrap,
+      feeds: [bootstrap.feeds[0]!, { ...bootstrap.feeds[0]!, id: "2", title: "Second" }],
+    };
+    mockFetch({ "GET /api/bootstrap": () => json(two), "GET /api/items": () => json(pageOf([card(1)])) });
+    go("/l/unread?feed=1");
+    const next = await screen.findByRole("button", { name: "Next feed" });
+    expect(next).toHaveAttribute("title", expect.stringContaining("]"));
+    expect(screen.getByRole("button", { name: "Previous feed" })).toBeDisabled();
+    await userEvent.setup().click(next);
+    await waitFor(() => expect(window.location.search).toContain("feed=2"));
+  });
+});
