@@ -19,6 +19,8 @@ function inHorizontalScroller(target: Element, root: Element): boolean {
  */
 export function swipeBackBlocked(target: EventTarget | null, root: Element): boolean {
   if (!(target instanceof Element)) return true;
+  // Pinch-zoomed in: a horizontal drag pans the page, it is not a back gesture.
+  if ((window.visualViewport?.scale ?? 1) > 1.01) return true;
   if (target.closest(CONTROL) || target.closest("[data-zoomable]")) return true;
   if (inHorizontalScroller(target, root)) return true;
   try {

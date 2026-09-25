@@ -101,6 +101,7 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
     latest.current.onLongPress();
   }
 
+  const finishRef = useRef<(cancelled: boolean) => void>(() => undefined);
   useEffect(() => {
     fireRef.current = fireLongPress;
   });
@@ -109,9 +110,16 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
     const lp = new LongPress(() => fireRef.current());
     lpRef.current = lp;
     const timerList = timers.current;
+    const pointers = touches.current;
     return () => {
       timerList.forEach(clearTimeout);
       lp.cancel();
+      // Unmounted mid-swipe (virtualizer recycle, resync, navigation): no pointerup will come to release the lock.
+      if (activePointer.current !== null) {
+        activePointer.current = null;
+        pointers.clear();
+        gestureLock.rowSwipe = false;
+      }
       if (suppressTimer.current) clearTimeout(suppressTimer.current);
       if (openRow?.id === item.id) openRow = null;
     };
@@ -210,6 +218,23 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
       paint(0, true);
     }
   };
+
+  useEffect(() => {
+    finishRef.current = finish;
+  });
+
+  // A touch that ends without a pointer event (the app loses focus, the OS steals the touch) must not leave the lock on.
+  useEffect(() => {
+    const abort = () => {
+      if (activePointer.current !== null) finishRef.current(true);
+    };
+    window.addEventListener("blur", abort);
+    document.addEventListener("touchcancel", abort, true);
+    return () => {
+      window.removeEventListener("blur", abort);
+      document.removeEventListener("touchcancel", abort, true);
+    };
+  }, []);
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     touches.current.delete(e.pointerId);

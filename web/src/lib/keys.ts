@@ -137,6 +137,8 @@ export function useHotkeys(handlers: Handlers, opts: { singleKeys: boolean; enab
       if (timer) clearTimeout(timer);
       if (pendingG) timer = setTimeout(() => (pendingG = false), CHORD_TIMEOUT_MS);
       if (!res.action) return;
+      // Held keys repeat only for moving through the list; a held z, m, s or A must act once.
+      if (e.repeat && res.action !== "next" && res.action !== "prev") return;
       const fn = h[res.action];
       if (!fn) return;
       e.preventDefault();
@@ -160,7 +162,7 @@ export interface KeyDoc {
 export const KEYMAP: KeyDoc[] = [
   { keys: "j / k", desc: "Next / previous article", scope: "List" },
   { keys: "Enter", desc: "Open the selected article", scope: "List" },
-  { keys: "x", desc: "Select or deselect the row (then m, s, { and } act on the selection)", scope: "List" },
+  { keys: "x", desc: "Select or deselect the row (then m, s, { and } act on the selection; { and } anchor on its first and last row)", scope: "List" },
   { keys: "m", desc: "Mark read or unread", scope: "List" },
   { keys: "s", desc: "Star or unstar", scope: "List" },
   { keys: "{ / }", desc: "Mark above / below as read", scope: "List" },

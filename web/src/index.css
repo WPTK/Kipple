@@ -337,7 +337,7 @@ body {
 }
 
 /* The swipe layer: rows pan vertically by the browser and horizontally by us. */
-.swipe-content { touch-action: pan-y; -webkit-touch-callout: none; }
+.swipe-content { touch-action: pan-y pinch-zoom; -webkit-touch-callout: none; }
 @media (prefers-reduced-motion: reduce) {
   :root:not([data-motion="off"]) .swipe-content, :root:not([data-motion="off"]) .swipe-panel { transition: none !important; }
 }
