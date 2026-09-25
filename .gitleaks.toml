@@ -10,3 +10,16 @@ paths = [
   '''^docker-compose\.example\.yml$''',
   '''^docs/.*\.md$''',
 ]
+
+[[allowlists]]
+description = "Test-only fixture secrets (testSecret) in Go test files; not real credentials"
+paths = [
+  '''^internal/api/api_test\.go$''',
+  '''^internal/greader/harness_test\.go$''',
+]
+regexes = ['''testSecret\s*=''']
+
+[[allowlists]]
+description = "Character set used to generate random passwords, not a secret"
+paths = ['''^internal/auth/auth\.go$''']
+regexes = ['''passwordAlphabet\s*=''']
