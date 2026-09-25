@@ -18,6 +18,12 @@ Phase 2 (reading UI backend) so far.
   fts-rebuild`.
 - Full-text extraction (readability) through the guarded client: `POST /api/items/{id}/fulltext`
   with stored results and errors.
+- Inline full-text extraction at ingest: for feeds whose full-text mode is on, the worker extracts
+  the article pages of new items (newest first, at most 20 per fetch, 3 at a time, 2 per article
+  host, 10 s each, 60 s per fetch) before the commit, through the guarded client with the feed's
+  network flags. Results and failures are stored in `item_fulltext`; a failure never fails the
+  fetch and is not retried by polling. Items past the cap or budget are left for the on-demand
+  endpoint and counted in the fetch log note (`fulltext: ok/tried`, `fulltext_deferred: n`).
 - Signed streaming image proxy at `/img` with SSRF-guarded transports; card, detail and open
   images are rewritten to it at serve time.
 - Feed icons at `/api/feeds/{id}/icon`.
