@@ -100,7 +100,8 @@ func TestKippleAttrsAndMarkRead(t *testing.T) {
 	require.NoError(t, db.Reader().QueryRowContext(ctx, `SELECT interval_minutes, retention, fulltext, enabled, allow_private_net,
 		initial_read_before, next_fetch_at, dedup_mode, disabled_reason, user_agent FROM feeds WHERE url = 'http://a.test/rss'`).
 		Scan(&interval, &retention, &ft, &en, &priv, &irb, &next, &dedup, &reason, &ua))
-	require.EqualValues(t, []int64{30, 0, 1, 0, 1}, []int64{interval, retention, ft, en, priv})
+	require.EqualValues(t, []int64{30, 0, 1, 0, 0}, []int64{interval, retention, ft, en, priv}, "allow_private_net is never applied by import")
+	require.Equal(t, []string{"http://a.test/rss: kipple:allow_private_net"}, r.IgnoredAttrs)
 	require.Equal(t, []string{"link", "user", "x/1"}, []string{dedup, reason, ua})
 	require.Equal(t, next-10*86400, irb)
 	var n int
@@ -242,4 +243,31 @@ func TestParseNonUTF8Charsets(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Café", d.Feeds[0].Title)
 	require.Equal(t, "http://u.test/rss", d.Feeds[0].URL)
+}
+
+func TestImportIgnoresDangerousAttrsAndBareNamespace(t *testing.T) {
+	db := openDB(t)
+	// No xmlns declaration: the bare "kipple" prefix must not count as ours.
+	r := importString(t, db, `<opml><body><outline text="F">
+	<outline text="A" xmlUrl="http://a.test/rss" kipple:interval="30" kipple:allow_private_net="1"/>
+	</outline></body></opml>`, ImportOptions{})
+	require.Equal(t, 1, r.FeedsAdded)
+	require.Empty(t, r.IgnoredAttrs)
+	require.Empty(t, r.InvalidAttrs)
+
+	r = importString(t, db, `<opml xmlns:kipple="`+NS+`"><body><outline text="F">
+	<outline text="B" xmlUrl="http://b.test/rss" htmlUrl="javascript:alert(1)" kipple:allow_insecure_tls="1" kipple:allow_private_net="1"/>
+	<outline text="C" xmlUrl="http://c.test/rss" htmlUrl="https://c.test/"/>
+	</outline></body></opml>`, ImportOptions{})
+	require.Equal(t, []string{"http://b.test/rss: kipple:allow_private_net", "http://b.test/rss: kipple:allow_insecure_tls"}, r.IgnoredAttrs)
+	var tls, priv int
+	var site string
+	require.NoError(t, db.Reader().QueryRowContext(context.Background(),
+		`SELECT allow_insecure_tls, allow_private_net, site_url FROM feeds WHERE url='http://b.test/rss'`).Scan(&tls, &priv, &site))
+	require.Zero(t, tls)
+	require.Zero(t, priv)
+	require.Equal(t, "", site, "non-http htmlUrl is dropped")
+	require.NoError(t, db.Reader().QueryRowContext(context.Background(),
+		`SELECT site_url FROM feeds WHERE url='http://c.test/rss'`).Scan(&site))
+	require.Equal(t, "https://c.test/", site)
 }

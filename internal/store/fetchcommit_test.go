@@ -511,3 +511,13 @@ func TestIDAllocMonotonicAcrossRestart(t *testing.T) {
 	defer db2.Close()
 	require.Equal(t, last+1, db2.IDs().Next(), "seeded from the high-water mark and MAX(items.id)")
 }
+
+func TestCommitKeepsSiteURLWhenFeedHasNoLink(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET site_url = 'https://kept.example/' WHERE id = ?", id)
+	body := []byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>Feed</title>` +
+		`<item><guid>x</guid><title>t</title><description>d</description></item></channel></rss>`)
+	e.fetchBody(id, body)
+	require.Equal(t, "https://kept.example/", scalar[string](t, e.db.Reader(), "SELECT site_url FROM feeds WHERE id=?", id))
+}

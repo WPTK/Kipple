@@ -174,7 +174,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		f := res.Feed
 		if _, err := tx.ExecContext(ctx, `UPDATE feeds SET
 			title = CASE WHEN ?2 != '' THEN ?2 ELSE title END,
-			site_url = ?3, description = ?4,
+			site_url = CASE WHEN ?3 != '' THEN ?3 ELSE site_url END, description = ?4,
 			custom_title = CASE WHEN last_success_at IS NULL AND custom_title = ?2 THEN NULL ELSE custom_title END,
 			rekey_pending = 0
 			WHERE id = ?1`, feedID, f.Title, f.SiteURL, f.Description); err != nil {

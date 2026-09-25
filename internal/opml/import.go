@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/WPTK/kipple/internal/feedurl"
@@ -46,6 +47,9 @@ type Result struct {
 	MembershipsDropped []Dropped    `json:"memberships_dropped"`
 	Skipped            []Skipped    `json:"skipped"`
 	InvalidAttrs       []string     `json:"invalid_attrs"`
+	// IgnoredAttrs are valid but security-sensitive kipple:* attributes that an
+	// import never applies (allow_private_net, allow_insecure_tls).
+	IgnoredAttrs []string `json:"ignored_attrs"`
 	// NewFeedIDs are the inserted feeds in document order (for sched.StartImport).
 	NewFeedIDs []int64 `json:"-"`
 }
@@ -60,6 +64,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		MembershipsDropped: []Dropped{},
 		Skipped:            []Skipped{},
 		InvalidAttrs:       []string{},
+		IgnoredAttrs:       []string{},
 		NewFeedIDs:         []int64{},
 	}
 	now := db.Clock().Now().Unix()
@@ -144,6 +149,15 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			host, _ := feedurl.Host(norm)
 			a := f.Attrs
 			res.InvalidAttrs = append(res.InvalidAttrs, prefixAll(norm, f.BadAttrs)...)
+			// An imported file must not weaken the SSRF/TLS guards of a feed.
+			if a.AllowPrivateNet != nil {
+				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_private_net")
+				a.AllowPrivateNet = nil
+			}
+			if a.AllowInsecureTLS != nil {
+				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_insecure_tls")
+				a.AllowInsecureTLS = nil
+			}
 			enabled, reason := 1, any(nil)
 			if a.Enabled != nil && !*a.Enabled {
 				enabled, reason = 0, "user"
@@ -157,7 +171,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				 interval_minutes, retention, fulltext, dedup_mode, user_agent, ignore_http_cache,
 				 disable_http2, allow_insecure_tls, allow_private_net, initial_read_before, next_fetch_at)
 				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				folderID[f.Folder], norm, key, host, nullStr(f.Title), f.SiteURL, nextFeedPos, enabled, reason,
+				folderID[f.Folder], norm, key, host, nullStr(f.Title), httpURLOrEmpty(f.SiteURL), nextFeedPos, enabled, reason,
 				nullInt(a.Interval), nullInt(a.Retention), b2i(a.Fulltext), dedup, nullStrP(a.UserAgent),
 				b2i(a.IgnoreHTTPCache), b2i(a.DisableHTTP2), b2i(a.AllowInsecureTLS), b2i(a.AllowPrivateNet),
 				readBefore, now)
@@ -183,6 +197,15 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		return Result{}, err
 	}
 	return res, nil
+}
+
+// httpURLOrEmpty keeps only absolute http(s) URLs (htmlUrl is rendered as a link).
+func httpURLOrEmpty(s string) string {
+	u, err := url.Parse(strings.TrimSpace(s))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	return u.String()
 }
 
 func prefixAll(u string, l []string) []string {

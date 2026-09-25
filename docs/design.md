@@ -1613,7 +1613,7 @@ The React app reconciles by item id. For `new_item_ids` inside the current view 
 3. Match every `xmlUrl` through `FindFeedByURL`. Matches are reported as `feeds_existing` and left untouched.
 4. A feed listed in several folders keeps the first. The others are reported in `memberships_dropped`.
 5. Folder names that differ only by case are merged (the `COLLATE NOCASE` unique) and reported in `folders_merged_case`.
-6. For a new feed, a non-empty `title`/`text` goes into `custom_title`, and `kipple:*` attributes are applied (validated like PATCH).
+6. For a new feed, a non-empty `title`/`text` goes into `custom_title`, and `kipple:*` attributes are applied (validated like PATCH). Only the real `kipple` namespace counts. `kipple:allow_private_net` and `kipple:allow_insecure_tls` are never applied on import; they are listed in the result as `ignored_attrs`. A non-http(s) `htmlUrl` is dropped.
 7. The UI option `mark_read_older_than_days=N` sets `initial_read_before = now − N·86400` on every new feed.
 8. Values are never split on commas, and the `category` attribute is ignored.
 

@@ -186,7 +186,7 @@ func parseAttrs(attrs []xml.Attr) (Attrs, []string) {
 	var a Attrs
 	var bad []string
 	for _, at := range attrs {
-		if at.Name.Space != NS && at.Name.Space != "kipple" {
+		if at.Name.Space != NS {
 			continue
 		}
 		v := strings.TrimSpace(at.Value)
