@@ -1,6 +1,6 @@
 // Settings, feed management, health, account and backup calls (docs/design.md 7.1).
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { api, ApiError } from "./client";
+import { api, ApiError, clientKind } from "./client";
 import { keys } from "./queries";
 import type { Bootstrap, Feed, Folder } from "./types";
 
@@ -173,7 +173,7 @@ export async function importOpml(file: File, markReadOlderThanDays?: number): Pr
   const q = markReadOlderThanDays ? `?mark_read_older_than_days=${markReadOlderThanDays}` : "";
   const res = await fetch(`/api/opml${q}`, {
     method: "POST",
-    headers: { "X-Kipple-Client": "web", Accept: "application/json" },
+    headers: { "X-Kipple-Client": clientKind(), Accept: "application/json" },
     body: fd,
     credentials: "same-origin",
   });

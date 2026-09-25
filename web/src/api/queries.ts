@@ -36,7 +36,6 @@ export function scopeKey(s: Scope): string {
   if (s.folder) parts.push(`folder:${s.folder}`);
   if (s.q) parts.push(`q:${encodeURIComponent(s.q)}`);
   if (s.order === "oldest") parts.push("order:oldest");
-  if (s.rank) parts.push("rank:1");
   return parts.join("|");
 }
 
@@ -55,7 +54,6 @@ export function parseScopeKey(key: string | null | undefined): Scope {
     else if (k === "folder") scope.folder = v;
     else if (k === "q") scope.q = decodeURIComponent(v);
     else if (k === "order" && v === "oldest") scope.order = "oldest";
-    else if (k === "rank") scope.rank = true;
   }
   return scope;
 }
@@ -68,7 +66,7 @@ export function itemsParams(scope: Scope, cursor?: string, limit = PAGE_SIZE) {
     q: scope.q,
     // Newest first is the server default, so it is not sent. The UI is embedded in the server binary,
     // so `order=oldest` is always understood (docs/design.md 7.1: cursor `a<sort_at>.<id>`).
-    order: scope.rank ? "rank" : scope.order === "oldest" ? "oldest" : undefined,
+    order: scope.order === "oldest" ? "oldest" : undefined,
     cursor,
     limit,
   };
@@ -215,21 +213,6 @@ export function useToggleStar() {
     },
     onError: (e, { id }, ctx) => {
       if (ctx?.prev !== undefined) patchItems(qc, [id], { starred: ctx.prev });
-      toast(errorMessage(e), "error");
-    },
-  });
-}
-
-export function useMarkRead() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, read, reason }: { ids: string[]; read: boolean; reason: "swipe" | "key" | "scroll" | "bulk" }) =>
-      api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason } }),
-    onMutate: ({ ids, read }) => {
-      patchItems(qc, ids, { read });
-    },
-    onError: (e, { ids, read }) => {
-      patchItems(qc, ids, { read: !read });
       toast(errorMessage(e), "error");
     },
   });

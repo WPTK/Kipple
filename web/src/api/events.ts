@@ -19,23 +19,17 @@ import {
 export interface LiveState {
   /** New items fetched since the visible list loaded, by feed id (drives the "n new" pill). */
   pendingByFeed: Record<string, number>;
+  /** The new item ids behind `pendingByFeed`, when the server sent them: an id the list already has is not "new". */
+  pendingIds: Record<string, string[]>;
   /** Active fetch runs by run id. */
   runs: Record<string, RunStatus>;
-  /** Increments on `resync`; screens refetch when it changes. */
-  resyncTick: number;
-  /** Ids whose background full-text extraction finished. */
-  fulltextReady: string[];
-  /** Increments when `feed.changed` says the feed list is stale. */
-  feedsStaleTick: number;
   transport: "connecting" | "open" | "fallback";
 }
 
 export const initialLive: LiveState = {
   pendingByFeed: {},
+  pendingIds: {},
   runs: {},
-  resyncTick: 0,
-  fulltextReady: [],
-  feedsStaleTick: 0,
   transport: "connecting",
 };
 
@@ -44,44 +38,44 @@ export const liveStore = createStore<LiveState>(initialLive);
 /** Pure reducer for the parts of an SSE event that live outside the query cache. */
 export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
   switch (ev.type) {
-    case "run.start":
-      return {
-        ...s,
-        runs: {
-          ...s.runs,
-          [ev.data.run_id]: { id: ev.data.run_id, kind: ev.data.kind, done: 0, total: ev.data.total, new_items: 0, errors: 0 },
-        },
-      };
+    case "run.start": {
+      const id = String(ev.data.run_id);
+      return { ...s, runs: { ...s.runs, [id]: { id, kind: ev.data.kind, done: 0, total: ev.data.total, new_items: 0, errors: 0 } } };
+    }
     case "run.progress": {
-      const cur = s.runs[ev.data.run_id];
-      return {
-        ...s,
-        runs: {
-          ...s.runs,
-          [ev.data.run_id]: { id: ev.data.run_id, kind: cur?.kind ?? "refresh", ...ev.data },
-        },
-      };
+      const id = String(ev.data.run_id);
+      const cur = s.runs[id];
+      return { ...s, runs: { ...s.runs, [id]: { ...ev.data, id, kind: cur?.kind ?? "manual" } } };
     }
     case "run.done": {
-      const { [ev.data.run_id]: _done, ...rest } = s.runs;
+      const { [String(ev.data.run_id)]: _done, ...rest } = s.runs;
       void _done;
       return { ...s, runs: rest };
     }
-    case "fetch.done":
-      return ev.data.new_items > 0
-        ? { ...s, pendingByFeed: { ...s.pendingByFeed, [ev.data.feed_id]: (s.pendingByFeed[ev.data.feed_id] ?? 0) + ev.data.new_items } }
-        : s;
-    case "fulltext.ready":
-      return { ...s, fulltextReady: [...s.fulltextReady, ...ev.data.ids].slice(-500) };
-    case "feed.changed":
-      return { ...s, feedsStaleTick: s.feedsStaleTick + 1 };
+    case "fetch.done": {
+      if (!(ev.data.new_items > 0)) return s;
+      const feed = String(ev.data.feed_id);
+      const ids = (ev.data.new_item_ids ?? []).map(String);
+      return {
+        ...s,
+        pendingByFeed: { ...s.pendingByFeed, [feed]: (s.pendingByFeed[feed] ?? 0) + ev.data.new_items },
+        pendingIds: ids.length ? { ...s.pendingIds, [feed]: [...(s.pendingIds[feed] ?? []), ...ids].slice(-PENDING_IDS_CAP) } : s.pendingIds,
+      };
+    }
     case "resync":
-      return { ...s, resyncTick: s.resyncTick + 1, pendingByFeed: {} };
+      return { ...s, pendingByFeed: {}, pendingIds: {} };
+    case "fulltext.ready":
+    case "feed.changed":
     case "items.state":
     case "counts":
       return s; // cache-only events
   }
 }
+
+const PENDING_IDS_CAP = 500;
+
+/** Only refresh-like runs (manual, import) are "refreshing"; the retention sweep is housekeeping. */
+export const isRefreshKind = (kind: string): boolean => kind !== "retention";
 
 /**
  * New items that would appear in this list: the feeds the scope includes (a feed, a folder's feeds,
@@ -92,15 +86,23 @@ export function pendingFor(
   pending: Record<string, number>,
   scope: { view: string; feed?: string; folder?: string; q?: string; order?: string },
   feeds: readonly { id: string; folder_id: string }[],
+  /** Ids the list already holds (with `ids`, the pending ids per feed): those are not new to it. */
+  loaded?: { ids: ReadonlySet<string>; pendingIds: Record<string, string[]> },
 ): number {
   if (scope.view === "starred" || scope.q || scope.order === "oldest") return 0;
+  const count = (id: string): number => {
+    const n = pending[id] ?? 0;
+    if (!loaded || n === 0) return n;
+    const seen = (loaded.pendingIds[id] ?? []).filter((x) => loaded.ids.has(x)).length;
+    return Math.max(0, n - seen);
+  };
+  if (scope.feed) return count(scope.feed);
   let n = 0;
-  if (scope.feed) return pending[scope.feed] ?? 0;
   if (scope.folder) {
-    for (const f of feeds) if (f.folder_id === scope.folder) n += pending[f.id] ?? 0;
+    for (const f of feeds) if (f.folder_id === scope.folder) n += count(f.id);
     return n;
   }
-  for (const v of Object.values(pending)) n += v;
+  for (const id of Object.keys(pending)) n += count(id);
   return n;
 }
 
@@ -115,12 +117,14 @@ export function clearPending(
   if (scope.folder) return omit(pending, feeds.filter((f) => f.folder_id === scope.folder).map((f) => f.id));
   return {};
 }
-const omit = (o: Record<string, number>, ids: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !ids.includes(k)));
+const omit = <T,>(o: Record<string, T>, ids: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !ids.includes(k))) as Record<string, T>;
 
 /** Text for the polite live region, or null when the event is not announced. */
-export function announcementFor(ev: ServerEvent): string | null {
+export function announcementFor(ev: ServerEvent, runKind?: string): string | null {
   const plural = (n: number) => `${n} new article${n === 1 ? "" : "s"}`;
   if (ev.type === "run.done") {
+    // The retention sweep is housekeeping, not a refresh: nothing to announce.
+    if (runKind !== undefined && !isRefreshKind(runKind)) return null;
     if (ev.data.errors > 0) return `Couldn't refresh ${ev.data.errors} feed${ev.data.errors === 1 ? "" : "s"}. The rest updated.`;
     return ev.data.new_items > 0 ? plural(ev.data.new_items) : "No new articles";
   }
@@ -151,6 +155,7 @@ let countsRefetch: ReturnType<typeof setTimeout> | undefined;
 
 /** Everything one event does: reducer, query cache, live region. */
 export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
+  const runKind = ev.type === "run.done" ? liveStore.get().runs[String(ev.data.run_id)]?.kind : undefined;
   liveStore.set((s) => reduceEvent(s, ev));
   switch (ev.type) {
     case "items.state": {
@@ -182,13 +187,14 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
       for (const id of ev.data.ids) void qc.invalidateQueries({ queryKey: keys.item(id) });
       break;
     case "resync":
+      // The server says it cannot replay what we missed: only then are the lists refetched.
       void qc.invalidateQueries({ queryKey: keys.bootstrap });
       void qc.invalidateQueries({ queryKey: keys.itemsAll });
       break;
     default:
       break;
   }
-  const say = announcementFor(ev);
+  const say = announcementFor(ev, runKind);
   if (say) announce(say);
 }
 
@@ -208,11 +214,14 @@ export function pollInterval(active: boolean): number {
   return active ? 2_000 : 60_000;
 }
 
-/** Poll GET /api/status once and fold it into the cache and live state. */
+/**
+ * Poll GET /api/status once and fold it into the cache and live state. The runs it reports replace the
+ * live runs wholesale, so a run whose `run.done` was missed stops counting as active.
+ */
 export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
   const st = await api<StatusResponse>("/api/status");
   const runs: Record<string, RunStatus> = {};
-  for (const r of st.runs ?? []) runs[r.id] = r;
+  for (const r of st.runs ?? []) runs[String(r.id)] = { ...r, id: String(r.id) };
   const before = liveStore.get().runs;
   const finished = Object.keys(before).filter((id) => !runs[id]);
   liveStore.set((s) => ({ ...s, runs }));
@@ -221,6 +230,22 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
   );
   if (finished.length) void qc.invalidateQueries({ queryKey: keys.bootstrap });
   return { ...st, runs: st.runs ?? [] };
+}
+
+/**
+ * After a gap in the stream: reconcile runs and counts from the server instead of trusting events that
+ * were never delivered. Lists are deliberately not refetched (a list is a snapshot; the "n new" pill and
+ * the stale marker tell the user); only counts and the feed tree refresh.
+ */
+export async function reconcile(qc: QueryClient): Promise<void> {
+  await pollStatus(qc);
+  void qc.invalidateQueries({ queryKey: keys.bootstrap });
+}
+
+/** Seed live runs from a freshly loaded bootstrap when nothing is known yet (a run already going at load). */
+export function seedRuns(runs: RunStatus[] | undefined): void {
+  if (!runs?.length || Object.keys(liveStore.get().runs).length) return;
+  liveStore.set((s) => ({ ...s, runs: Object.fromEntries(runs.map((r) => [String(r.id), { ...r, id: String(r.id) }])) }));
 }
 
 // ---- Hook ---------------------------------------------------------------------
@@ -243,7 +268,7 @@ export function reconnectDelay(attempt: number, rand: () => number = Math.random
  * otherwise); a message or a reopened stream ends the fallback. The browser's
  * native retry is disabled (the source is closed on every error) so that
  * exactly one reconnect is scheduled per backoff interval, 1 s doubling to
- * 30 s, and a resync runs on reconnect.
+ * 30 s, and runs and counts are reconciled from /api/status on reconnect.
  */
 export function useServerEvents(enabled: boolean): void {
   const qc = useQueryClient();
@@ -282,21 +307,35 @@ export function useServerEvents(enabled: boolean): void {
       watchdog = undefined;
       if (heartbeatSeen && !stopped) watchdog = setTimeout(() => fail(src), WATCHDOG_MS);
     };
-    /** The stream is up: leave fallback polling and resync if events were missed. */
+    let lastEventId = "";
+    /** The stream is up: leave fallback polling and reconcile runs and counts if events were missed. */
     const connected = () => {
       errors = 0;
       stopPolling();
       if (liveStore.get().transport !== "open") liveStore.set((s) => ({ ...s, transport: "open" }));
       if (lost) {
-        // Events were missed while disconnected: refetch counts, feeds and the visible lists.
         lost = false;
-        handleServerEvent(qc, { type: "resync", data: {} } as ServerEvent);
+        reconcile(qc).catch(() => {
+          lost = true; // try again on the next message
+        });
       }
     };
+    // A run.done can be missed while a phone sleeps with the stream apparently open: look again on return.
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && Object.keys(liveStore.get().runs).length > 0) void reconcile(qc).catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const stopSeed = qc.getQueryCache().subscribe((e) => {
+      if (e.type === "updated" && e.action.type === "success" && e.query.queryKey[0] === "bootstrap") {
+        seedRuns((e.query.state.data as Bootstrap | undefined)?.runs);
+      }
+    });
 
     const connect = () => {
       retryTimer = undefined;
-      const src = new EventSource("/api/events");
+      // A recreated EventSource never sends Last-Event-ID, so the last id we saw goes in the URL; a server
+      // that ignores it is still fine (runs and counts are reconciled from /api/status either way).
+      const src = new EventSource(lastEventId ? `/api/events?last_event_id=${encodeURIComponent(lastEventId)}` : "/api/events");
       es = src;
       src.addEventListener("heartbeat", () => {
         heartbeatSeen = true;
@@ -306,6 +345,7 @@ export function useServerEvents(enabled: boolean): void {
       });
       const onMessage = (type: string) => (m: MessageEvent<string>) => {
         attempt = 0; // a delivered message proves the stream is healthy
+        if (m.lastEventId) lastEventId = m.lastEventId;
         connected();
         pet(src);
         const ev = parseServerEvent(type, m.data);
@@ -345,6 +385,8 @@ export function useServerEvents(enabled: boolean): void {
 
     return () => {
       stopped = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      stopSeed();
       stopPolling();
       if (retryTimer) clearTimeout(retryTimer);
       if (watchdog) clearTimeout(watchdog);

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import { announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent } from "./events";
+import { isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent } from "./events";
 import { keys, scopeKey } from "./queries";
 import type { ItemsPage, ServerEvent } from "./types";
 import { bootstrap, card, detail, pageOf } from "@/test/mockApi";
@@ -24,14 +24,23 @@ describe("reduceEvent", () => {
     s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "3", outcome: "not_modified", new_items: 0 } });
     expect(s.pendingByFeed).toEqual({ "1": 3, "2": 2 });
     s = reduceEvent(s, { type: "resync", data: {} });
-    expect(s).toMatchObject({ pendingByFeed: {}, resyncTick: 1 });
+    expect(s).toMatchObject({ pendingByFeed: {}, pendingIds: {} });
   });
 
-  it("records full-text readiness and feed changes", () => {
-    let s = reduceEvent(initialLive, { type: "fulltext.ready", data: { ids: ["5", "6"], source: "ingest" } });
-    expect(s.fulltextReady).toEqual(["5", "6"]);
-    s = reduceEvent(s, { type: "feed.changed", data: { feed_id: "1" } });
-    expect(s.feedsStaleTick).toBe(1);
+  it("tracks the new item ids so the pill can skip ones the list already has", () => {
+    const s = reduceEvent(initialLive, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, new_item_ids: ["7", "8"] } });
+    expect(s.pendingIds).toEqual({ "1": ["7", "8"] });
+    expect(s.pendingByFeed).toEqual({ "1": 2 });
+  });
+
+  it("accepts numeric run ids from an older server", () => {
+    let s = reduceEvent(initialLive, { type: "run.start", data: { run_id: 9, kind: "manual", total: 4 } });
+    expect(Object.keys(s.runs)).toEqual(["9"]);
+    expect(s.runs["9"]?.id).toBe("9");
+    s = reduceEvent(s, { type: "run.progress", data: { run_id: 9, done: 1, total: 4, new_items: 0, errors: 0 } });
+    expect(s.runs["9"]).toMatchObject({ id: "9", kind: "manual", done: 1 });
+    s = reduceEvent(s, { type: "run.done", data: { run_id: "9", new_items: 0, errors: 0 } });
+    expect(s.runs).toEqual({});
   });
 
   it("leaves state alone for cache-only events", () => {
@@ -46,6 +55,12 @@ describe("announcementFor", () => {
     expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 1, errors: 0 } })).toBe("1 new article");
     expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } })).toBe("No new articles");
     expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 3, errors: 2 } })).toMatch(/Couldn't refresh 2 feeds/);
+  });
+
+  it("does not announce the retention sweep as a refresh", () => {
+    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } }, "retention")).toBeNull();
+    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } }, "manual")).toBe("No new articles");
+    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } }, "import")).toBe("No new articles");
   });
 
   it("announces a scheduled fetch but not one inside a run", () => {
@@ -92,7 +107,6 @@ describe("cache reconciliation", () => {
     handleServerEvent(qc, { type: "resync", data: {} });
     expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(true);
     expect(qc.getQueryState(keys.bootstrap)?.isInvalidated).toBe(true);
-    expect(liveStore.get().resyncTick).toBe(1);
   });
 
   it("fulltext.ready invalidates just those items", () => {
@@ -104,6 +118,15 @@ describe("cache reconciliation", () => {
 
   it("scopeKey stays stable", () => {
     expect(scopeKey({ view: "unread" })).toBe("unread");
+  });
+});
+
+describe("retention runs", () => {
+  it("do not count as refreshing", () => {
+    const st = reduceEvent(initialLive, { type: "run.start", data: { run_id: "5", kind: "retention", total: 1 } });
+    expect(Object.values(st.runs).some((r) => isRefreshKind(r.kind))).toBe(false);
+    expect(isRefreshKind("manual")).toBe(true);
+    expect(isRefreshKind("import")).toBe(true);
   });
 });
 
@@ -137,6 +160,14 @@ describe('pendingFor (the "n new" pill)', () => {
     expect(pendingFor(pending, { view: "starred" }, feeds)).toBe(0);
     expect(pendingFor(pending, { view: "all", q: "x" }, feeds)).toBe(0);
     expect(pendingFor(pending, { view: "unread", order: "oldest" }, feeds)).toBe(0);
+  });
+  it("does not count ids the list already holds", () => {
+    const loaded = { ids: new Set(["a", "b"]), pendingIds: { "1": ["a", "b", "c"], "2": ["z"] } };
+    // Feed 1: 3 pending, a and b are already loaded, so 1 is new; feed 2: 2 pending, z not loaded.
+    expect(pendingFor({ "1": 3, "2": 2 }, { view: "unread" }, feeds, loaded)).toBe(3);
+    expect(pendingFor({ "1": 3 }, { view: "unread", feed: "1" }, feeds, { ...loaded, ids: new Set(["a", "b", "c"]) })).toBe(0);
+    // Without ids from the server the count stands.
+    expect(pendingFor({ "3": 4 }, { view: "unread" }, feeds, loaded)).toBe(4);
   });
   it("clears only the covered feeds", () => {
     expect(clearPending(pending, { view: "unread", folder: "a" }, feeds)).toEqual({ "3": 4 });

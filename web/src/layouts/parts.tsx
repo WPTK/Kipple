@@ -94,11 +94,11 @@ export function RowMenu({
             {item.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
             {item.read ? "Mark unread" : "Mark read"}
           </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} disabled={!actions.canRange} onSelect={() => actions.markAbove(item)}>
+          <DropdownMenu.Item className={menuItem} onSelect={() => actions.markAbove(item)}>
             <MoveUp className="size-5" aria-hidden="true" />
             Mark above as read
           </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} disabled={!actions.canRange} onSelect={() => actions.markBelow(item)}>
+          <DropdownMenu.Item className={menuItem} onSelect={() => actions.markBelow(item)}>
             <MoveDown className="size-5" aria-hidden="true" />
             Mark below as read
           </DropdownMenu.Item>

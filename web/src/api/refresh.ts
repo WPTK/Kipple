@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 import { api, errorMessage } from "./client";
-import { liveStore } from "./events";
+import { isRefreshKind, liveStore } from "./events";
 import { announce, toast } from "@/shell/toasts";
 
 /** Manual refresh: fetch every feed now. The result arrives as run.* events. */
@@ -13,7 +13,7 @@ export function useRefreshAll() {
   });
 }
 
-/** True while any fetch run is active. */
+/** True while a refresh or import run is active (the retention sweep does not count). */
 export function useRefreshing(): boolean {
-  return useSyncExternalStore(liveStore.subscribe, () => Object.keys(liveStore.get().runs).length > 0);
+  return useSyncExternalStore(liveStore.subscribe, () => Object.values(liveStore.get().runs).some((r) => isRefreshKind(r.kind)));
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNavigate } from "react-router";
@@ -6,17 +6,17 @@ import { RefreshCw, X } from "lucide-react";
 import { applyRead, flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
 import { clearPending, liveStore, pendingFor } from "@/api/events";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
-import type { Card, Scope } from "@/api/types";
+import type { Card, Feed, Scope } from "@/api/types";
 import { SwipeRow } from "@/gestures/SwipeRow";
 import { openRowMenu } from "@/gestures/rowMenu";
 import { prefersReducedMotion } from "@/gestures/tracking";
 import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib/collapse";
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { useResolvedLayout } from "@/layouts";
-import type { RowMenuActions } from "@/layouts";
+import type { ListLayout, RowMenuActions } from "@/layouts";
 import { sessionLayoutStore, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
-import { useStore } from "@/lib/store";
+import { useStore, useStoreSelector } from "@/lib/store";
 import { withDayHeaders, type Row } from "@/lib/format";
 import { useHotkeys } from "@/lib/keys";
 import { useItemActions } from "@/lib/itemActions";
@@ -118,7 +118,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
   const dp = useDevicePrefs();
   const session = useStore(sessionLayoutStore);
   const { layout } = useResolvedLayout(scope);
-  const live = useStore(liveStore);
+  // Only the pending-new slices: run progress and fetch ticks must not re-render every row.
+  const pendingByFeed = useStoreSelector(liveStore, (s) => s.pendingByFeed);
+  const pendingIds = useStoreSelector(liveStore, (s) => s.pendingIds);
   const act = useItemActions();
   const refreshAll = useRefreshAll();
   const refreshing = useRefreshing();
@@ -311,7 +313,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
 
   const range = useCallback(
     (item: Card, side: "above" | "below") => {
-      if (scope.rank) return;
       const at = items.findIndex((i) => i.id === item.id);
       if (at < 0) return;
       const part = side === "above" ? items.slice(0, at) : items.slice(at + 1);
@@ -334,7 +335,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
       toggleStar: (item) => void act.toggleStar(item),
       markAbove: (item) => range(item, "above"),
       markBelow: (item) => range(item, "below"),
-      canRange: !scope.rank,
       openOriginal: (item) => void window.open(item.url, "_blank", "noopener,noreferrer"),
       copyLink: (item) => copyLink(item.url),
       share: (item) => {
@@ -343,7 +343,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
         } else copyLink(item.url);
       },
     }),
-    [act, range, scope.rank],
+    [act, range],
   );
 
   const toggleChecked = () => {
@@ -454,11 +454,16 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
 
   // ---- render ------------------------------------------------------------
 
-  const pendingNew = pendingFor(live.pendingByFeed, scope, boot.data?.feeds ?? []);
+  // Items the list already holds are not "new" to it, whatever fetched them (a later load, another route).
+  const loadedIds = useMemo(() => new Set(allItems.map((i) => i.id)), [allItems]);
+  const pendingNew = pendingFor(pendingByFeed, scope, boot.data?.feeds ?? [], { ids: loadedIds, pendingIds });
   const showPill = pendingNew > 0;
   const loadNew = () => {
     // Only what this list showed is now loaded; other feeds' arrivals keep counting for other lists.
-    liveStore.set((s) => ({ ...s, pendingByFeed: clearPending(s.pendingByFeed, scope, boot.data?.feeds ?? []) }));
+    liveStore.set((s) => {
+      const left = clearPending(s.pendingByFeed, scope, boot.data?.feeds ?? []);
+      return { ...s, pendingByFeed: left, pendingIds: Object.fromEntries(Object.entries(s.pendingIds).filter(([k]) => k in left)) };
+    });
     memory.delete(key);
     asOf.current = undefined;
     setHidden(new Set());
@@ -472,31 +477,32 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
     });
   };
 
+  // Row callbacks take the item as an argument, so they stay the same function between renders and the
+  // memoized rows below skip renders that did not change them.
+  const onLeading = swipeRead;
+  const onTrailing = useCallback((item: Card) => void act.toggleStar(item, true), [act]);
+  const onStar = useCallback((item: Card) => void act.toggleStar(item), [act]);
+  const onMore = useCallback((item: Card) => openRowMenu(item.id), []);
   const renderRow = (item: Card, swipe: boolean, peek: boolean) => (
-    <SwipeRow
+    <ListRow
       key={item.id}
       item={item}
-      enabled={swipe}
-      onLeading={() => swipeRead(item)}
-      onTrailing={() => void act.toggleStar(item, true)}
-      onStarButton={() => void act.toggleStar(item)}
-      onMore={() => openRowMenu(item.id)}
-      onLongPress={() => openRowMenu(item.id)}
+      feed={feedById.get(item.feed_id)}
+      layout={layout}
+      scope={scope}
+      swipe={swipe}
       peek={peek}
+      selected={item.id === selected}
+      checked={checked.has(item.id)}
+      showThumb={dp.inboxThumbs === "auto"}
+      actions={menuActions}
+      onOpen={openItem}
+      onLeading={onLeading}
+      onTrailing={onTrailing}
+      onStar={onStar}
+      onMore={onMore}
       onPeekEnd={endPeek}
-    >
-      <layout.Row
-        item={item}
-        feed={feedById.get(item.feed_id)}
-        selected={item.id === selected}
-        checked={checked.has(item.id)}
-        to={articleTo(item.id, scope)}
-        onOpen={openItem}
-        onToggleStar={(i) => void act.toggleStar(i)}
-        actions={menuActions}
-        showThumb={dp.inboxThumbs === "auto"}
-      />
-    </SwipeRow>
+    />
   );
 
   const body = (() => {
@@ -632,6 +638,55 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
     </section>
   );
 }
+
+interface ListRowProps {
+  item: Card;
+  feed: Feed | undefined;
+  layout: ListLayout;
+  scope: Scope;
+  swipe: boolean;
+  peek: boolean;
+  selected: boolean;
+  checked: boolean;
+  showThumb: boolean;
+  actions: RowMenuActions;
+  onOpen: (item: Card) => void;
+  onLeading: (item: Card) => void;
+  onTrailing: (item: Card) => void;
+  onStar: (item: Card) => void;
+  onMore: (item: Card) => void;
+  onPeekEnd: () => void;
+}
+
+/** One list row. Memoized: run progress, fetch ticks and unrelated selection changes leave it alone. */
+export const ListRow = memo(function ListRow(p: ListRowProps) {
+  const { item } = p;
+  return (
+    <SwipeRow
+      item={item}
+      enabled={p.swipe}
+      onLeading={() => p.onLeading(item)}
+      onTrailing={() => p.onTrailing(item)}
+      onStarButton={() => p.onStar(item)}
+      onMore={() => p.onMore(item)}
+      onLongPress={() => p.onMore(item)}
+      peek={p.peek}
+      onPeekEnd={p.onPeekEnd}
+    >
+      <p.layout.Row
+        item={item}
+        feed={p.feed}
+        selected={p.selected}
+        checked={p.checked}
+        to={articleTo(item.id, p.scope)}
+        onOpen={p.onOpen}
+        onToggleStar={p.onStar}
+        actions={p.actions}
+        showThumb={p.showThumb}
+      />
+    </SwipeRow>
+  );
+});
 
 function copyLink(url: string): void {
   const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;

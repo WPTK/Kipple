@@ -12,8 +12,6 @@ export interface RowMenuActions {
   toggleStar: (item: Card) => void;
   markAbove: (item: Card) => void;
   markBelow: (item: Card) => void;
-  /** Mark above/below is off for relevance-sorted search. */
-  canRange: boolean;
   openOriginal: (item: Card) => void;
   copyLink: (item: Card) => void;
   share: (item: Card) => void;

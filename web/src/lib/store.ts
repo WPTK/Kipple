@@ -28,3 +28,11 @@ export function createStore<T>(initial: T): Store<T> {
 export function useStore<T>(store: Store<T>): T {
   return useSyncExternalStore(store.subscribe, store.get, store.get);
 }
+
+/**
+ * Subscribe to a slice of a store. `select` must return an existing reference (a field, not a fresh
+ * object), so the component re-renders only when that slice changes.
+ */
+export function useStoreSelector<T, S>(store: Store<T>, select: (s: T) => S): S {
+  return useSyncExternalStore(store.subscribe, () => select(store.get()), () => select(store.get()));
+}

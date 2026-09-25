@@ -6,7 +6,7 @@ import { WATCHDOG_MS, handleServerEvent, initialLive, liveStore, reconnectDelay,
 import { bumpUnread, keys, resetCountsGuard } from "./queries";
 import type { ServerEvent } from "./types";
 import { authStore } from "./client";
-import { json, mockFetch } from "@/test/mockApi";
+import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 
 class FakeES {
   static CLOSED = 2;
@@ -24,8 +24,8 @@ class FakeES {
   addEventListener(t: string, f: (m: MessageEvent<string>) => void) {
     this.listeners.set(t, [...(this.listeners.get(t) ?? []), f]);
   }
-  emit(t: string, data: unknown) {
-    for (const f of this.listeners.get(t) ?? []) f({ data: JSON.stringify(data) } as MessageEvent<string>);
+  emit(t: string, data: unknown, lastEventId = "") {
+    for (const f of this.listeners.get(t) ?? []) f({ data: JSON.stringify(data), lastEventId } as MessageEvent<string>);
   }
   close() {
     this.closed = true;
@@ -116,10 +116,12 @@ describe("useServerEvents", () => {
       expect(FakeES.all).toHaveLength(2);
       await act(() => vi.advanceTimersByTimeAsync(2_000));
       expect(FakeES.all).toHaveLength(3);
-      const before = liveStore.get().resyncTick;
+      const statusBefore = calls.filter((c) => c.url.pathname === "/api/status").length;
       act(() => FakeES.all[2]!.onopen?.());
       expect(liveStore.get().transport).toBe("open");
-      expect(liveStore.get().resyncTick).toBe(before + 1);
+      await vi.advanceTimersByTimeAsync(0);
+      // Reconnect reconciles from /api/status (no invalidation of the lists).
+      expect(calls.filter((c) => c.url.pathname === "/api/status").length).toBeGreaterThan(statusBefore);
       // Stream is back and stays up: a later drop restarts the delay at about 1 s.
       vi.setSystemTime(Date.now() + 60_000);
       act(() => FakeES.all[2]!.fail());
@@ -132,6 +134,71 @@ describe("useServerEvents", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("reconnect reconciliation", () => {
+  it("clears a run whose run.done was missed, without refetching any list", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      mockFetch({
+        "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 2 }),
+        "GET /api/bootstrap": () => json(bootstrap),
+      });
+      const qc = new QueryClient();
+      qc.setQueryData(keys.items({ view: "unread" }), { pages: [pageOf([card(1)])], pageParams: [""] });
+      qc.setQueryData(keys.bootstrap, bootstrap);
+      const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+      const { unmount } = renderHook(() => useServerEvents(true), { wrapper });
+      act(() => FakeES.all[0]!.emit("run.start", { run_id: "7", kind: "manual", total: 3 }));
+      expect(Object.keys(liveStore.get().runs)).toEqual(["7"]);
+      act(() => FakeES.all[0]!.drop());
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      act(() => FakeES.all[1]!.onopen?.());
+      await act(() => vi.advanceTimersByTimeAsync(10));
+      expect(liveStore.get().runs).toEqual({});
+      expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(false);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("passes the last seen event id on the recreated stream", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      mockFetch({ "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
+      const { unmount } = setup();
+      act(() => FakeES.all[0]!.emit("counts", { unread_total: 1, feeds: {} }, "41"));
+      act(() => FakeES.all[0]!.drop());
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(FakeES.all[1]!.url).toBe("/api/events?last_event_id=41");
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-checks status when the tab becomes visible with a run showing", async () => {
+    const { calls } = mockFetch({ "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
+    const { unmount } = setup();
+    act(() => FakeES.all[0]!.emit("run.start", { run_id: "7", kind: "manual", total: 3 }));
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(liveStore.get().runs).toEqual({}));
+    expect(calls.some((c) => c.url.pathname === "/api/status")).toBe(true);
+    unmount();
+  });
+
+  it("seeds runs from the bootstrap when a run is already going at load", async () => {
+    mockFetch({});
+    const qc = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const { unmount } = renderHook(() => useServerEvents(true), { wrapper });
+    act(() => qc.setQueryData(keys.bootstrap, { ...bootstrap, runs: [{ id: "3", kind: "manual", done: 1, total: 5, new_items: 0, errors: 0 }] }));
+    await waitFor(() => expect(Object.keys(liveStore.get().runs)).toEqual(["3"]));
+    unmount();
   });
 });
 

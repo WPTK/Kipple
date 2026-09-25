@@ -70,6 +70,7 @@ export interface Feed {
 }
 
 export interface RunStatus {
+  /** A string on the wire (design 7); String() at the boundary tolerates a number from an older server. */
   id: string;
   kind: string;
   done: number;
@@ -128,11 +129,12 @@ export interface Scope {
   q?: string;
   /** Oldest first (device preference). Absent means newest first. */
   order?: "oldest";
-  /** Relevance-sorted search: "mark above/below" has no meaning there. */
-  rank?: boolean;
 }
 
 // ---- SSE ----
+
+/** Run ids are strings (design 7); a number is tolerated defensively and normalised with String(). */
+export type RunId = string | number;
 
 export interface ItemsStateEvent {
   ids: string[];
@@ -149,7 +151,7 @@ export interface CountsEvent {
 
 export interface FetchDoneEvent {
   feed_id: string;
-  run_ids?: string[];
+  run_ids?: RunId[];
   trigger?: string;
   outcome: string;
   new_items: number;
@@ -161,9 +163,9 @@ export interface FetchDoneEvent {
 }
 
 export type ServerEvent =
-  | { type: "run.start"; data: { run_id: string; kind: string; total: number } }
-  | { type: "run.progress"; data: { run_id: string; done: number; total: number; new_items: number; errors: number } }
-  | { type: "run.done"; data: { run_id: string; new_items: number; errors: number } }
+  | { type: "run.start"; data: { run_id: RunId; kind: string; total: number } }
+  | { type: "run.progress"; data: { run_id: RunId; done: number; total: number; new_items: number; errors: number } }
+  | { type: "run.done"; data: { run_id: RunId; new_items: number; errors: number } }
   | { type: "fetch.done"; data: FetchDoneEvent }
   | { type: "items.state"; data: ItemsStateEvent }
   | { type: "fulltext.ready"; data: { ids: string[]; source: string } }
