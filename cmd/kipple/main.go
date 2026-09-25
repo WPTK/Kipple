@@ -20,6 +20,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/WPTK/kipple/internal/api"
+	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/fetch"
@@ -104,6 +105,9 @@ func runServe() error {
 	}
 
 	hub := events.New()
+	// One verifier for the whole process: the web login and ClientLogin share its
+	// single argon2id slot, so they can never hash at the same time.
+	verifier := auth.NewVerifier(nil, auth.VerifierOptions{})
 	client := fetch.NewClient(fetch.ClientOptions{Version: version, PublicURL: cfg.PublicURL})
 	scheduler := sched.New(db, client, hub, nil, logger, sched.Options{
 		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick,
@@ -115,6 +119,7 @@ func runServe() error {
 	readerAPI := greader.New(greader.Options{
 		DB: db, Logger: logger, Wake: scheduler.Wake, Events: hub,
 		TrustedProxies: cfg.TrustedProxyIPs, PublicURL: cfg.PublicURL, LogForms: cfg.LogGreaderForms,
+		Verifier: verifier,
 	})
 
 	webHandler, err := kweb.NewHandler()
@@ -125,7 +130,7 @@ func runServe() error {
 	mux := http.NewServeMux()
 	api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
-		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen,
+		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
 	}).Register(mux)
 	mux.Handle("/", webHandler)
 

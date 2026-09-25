@@ -43,7 +43,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "auth")
 		return
 	}
-	pwOK, busy := s.getVerifier(acct.Secret).VerifyBusy(r.Context(), "web", body.Password, acct.PasswordHash)
+	s.verifier.SetSecret([]byte(acct.Secret))
+	pwOK, busy := s.verifier.VerifyBusy(r.Context(), "web", body.Password, acct.PasswordHash)
 	if busy {
 		// says nothing about the password: not counted as a failure
 		w.Header().Set("Retry-After", "5")

@@ -32,7 +32,9 @@ type Options struct {
 	Wake func()
 	// Events receives items.state and feed.changed notifications; optional.
 	Events *events.Hub
-	// Failures and Verifier default to the design settings; tests inject fakes.
+	// Failures defaults to the design settings. Verifier must be the one
+	// instance shared with api.Options.Verifier (nil builds a private one, tests
+	// only). Tests inject fakes.
 	Failures *auth.FailureTracker
 	Verifier *auth.Verifier
 	// TrustedProxies are the peers allowed to set CF-Connecting-IP.
@@ -55,13 +57,10 @@ type API struct {
 	now    func() time.Time
 	sleep  func(ctx context.Context, d time.Duration)
 	fails  *auth.FailureTracker
+	ver    *auth.Verifier
 	routes map[string]route
 
 	acct atomic.Pointer[acctSnap]
-
-	verMu  sync.Mutex
-	ver    *auth.Verifier
-	verFor string
 
 	seenMu sync.Mutex
 	seen   map[string]time.Time
@@ -91,7 +90,7 @@ type call struct {
 func New(opt Options) *API {
 	a := &API{
 		db: opt.DB, log: opt.Logger, wake: opt.Wake, opt: opt,
-		now: opt.Now, sleep: opt.Sleep, fails: opt.Failures,
+		now: opt.Now, sleep: opt.Sleep, fails: opt.Failures, ver: opt.Verifier,
 		routes: map[string]route{}, seen: map[string]time.Time{},
 	}
 	if a.log == nil {
@@ -112,6 +111,9 @@ func New(opt Options) *API {
 	}
 	if a.fails == nil {
 		a.fails = auth.NewFailureTracker()
+	}
+	if a.ver == nil {
+		a.ver = auth.NewVerifier(nil, auth.VerifierOptions{})
 	}
 	if a.wake == nil {
 		a.wake = func() {}
@@ -332,18 +334,6 @@ func makeToken(username, secret, apiHash string) string {
 	return username + "/" + hex.EncodeToString(h.Sum(nil))
 }
 
-func (a *API) verifier(s *acctSnap) *auth.Verifier {
-	if a.opt.Verifier != nil {
-		return a.opt.Verifier
-	}
-	a.verMu.Lock()
-	defer a.verMu.Unlock()
-	if a.ver == nil || a.verFor != s.secret {
-		a.ver, a.verFor = auth.NewVerifier([]byte(s.secret), auth.VerifierOptions{}), s.secret
-	}
-	return a.ver
-}
-
 func tokEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
@@ -408,7 +398,8 @@ func (c *call) clientLogin() {
 	}
 	email, pass := c.p.Get("Email"), c.p.Get("Passwd")
 	// The password is always verified, even when the email is wrong.
-	ok, busy := a.verifier(s).VerifyBusy(ctx, "api", pass, s.hash)
+	a.ver.SetSecret([]byte(s.secret))
+	ok, busy := a.ver.VerifyBusy(ctx, "api", pass, s.hash)
 	if busy {
 		// Hashing slot unavailable: says nothing about the password, so no failure is recorded.
 		c.w.Header().Set("Retry-After", "5")

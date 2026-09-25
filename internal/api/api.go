@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
@@ -51,7 +50,8 @@ type Options struct {
 	TrustedProxies []netip.Addr
 	// Clients reports Reader client families' last-seen times (greader.API.LastSeen); optional.
 	Clients func() map[string]time.Time
-	// Lockout and Verifier default to the plan settings; tests inject fakes.
+	// Lockout defaults to the plan settings. Verifier must be the one instance
+	// shared with greader.Options.Verifier (nil builds a private one, tests only).
 	Lockout  *auth.Lockout
 	Verifier *auth.Verifier
 	// Now defaults to the wall clock. Heartbeat defaults to 15 s.
@@ -67,8 +67,7 @@ type Server struct {
 	now  func() time.Time
 	lock *auth.Lockout
 
-	verMu    sync.Mutex
-	verifier *auth.Verifier
+	verifier *auth.Verifier // shared with the Reader API (one argon2 slot per process)
 }
 
 // New builds the API server.
@@ -82,6 +81,9 @@ func New(opt Options) *Server {
 	}
 	if s.lock == nil {
 		s.lock = auth.NewLockout(s.now)
+	}
+	if s.verifier == nil {
+		s.verifier = auth.NewVerifier(nil, auth.VerifierOptions{})
 	}
 	if s.opt.Heartbeat <= 0 {
 		s.opt.Heartbeat = heartbeatDefault
@@ -217,12 +219,3 @@ func writeError(w http.ResponseWriter, code int, kind string) {
 }
 
 func (s *Server) clientIP(r *http.Request) string { return auth.ClientIP(r, s.opt.TrustedProxies) }
-
-func (s *Server) getVerifier(secret string) *auth.Verifier {
-	s.verMu.Lock()
-	defer s.verMu.Unlock()
-	if s.verifier == nil {
-		s.verifier = auth.NewVerifier([]byte(secret), auth.VerifierOptions{})
-	}
-	return s.verifier
-}

@@ -168,7 +168,7 @@ func TestConcurrentWrongLoginsRunOneHashAtATime(t *testing.T) {
 		return false
 	}})
 	h := newHarness(t)
-	h.api.opt.Verifier = ver
+	h.api.ver = ver
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)

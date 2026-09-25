@@ -73,3 +73,18 @@ func TestGeneratePassword(t *testing.T) {
 	_, err = GeneratePassword(0)
 	require.Error(t, err)
 }
+
+func TestVerifierSetSecretDropsMemo(t *testing.T) {
+	var checks int
+	v := NewVerifier(nil, VerifierOptions{Check: func(pw, phc string) bool { checks++; return pw == "pw" }})
+	v.SetSecret([]byte("one"))
+	require.True(t, v.Verify(t.Context(), "web", "pw", "h"))
+	require.True(t, v.Verify(t.Context(), "web", "pw", "h"))
+	require.Equal(t, 1, checks, "memo hit")
+	v.SetSecret([]byte("one"))
+	require.True(t, v.Verify(t.Context(), "web", "pw", "h"))
+	require.Equal(t, 1, checks, "same secret keeps the memo")
+	v.SetSecret([]byte("two"))
+	require.True(t, v.Verify(t.Context(), "web", "pw", "h"))
+	require.Equal(t, 2, checks, "a rotated secret forgets remembered logins")
+}

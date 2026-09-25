@@ -5,6 +5,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -95,7 +96,9 @@ type VerifierOptions struct {
 	Wait time.Duration
 }
 
-// NewVerifier returns a Verifier keyed by the account secret.
+// NewVerifier returns a Verifier keyed by the account secret. There is one per
+// process, shared by the web login and ClientLogin so the semaphore of 1 bounds
+// hashing across both; the secret may be (re)set later with SetSecret.
 func NewVerifier(secret []byte, opts VerifierOptions) *Verifier {
 	v := &Verifier{secret: secret, sem: make(chan struct{}, 1), wait: opts.Wait, check: opts.Check, memo: map[string][]byte{}}
 	if v.wait <= 0 {
@@ -107,10 +110,24 @@ func NewVerifier(secret []byte, opts VerifierOptions) *Verifier {
 	return v
 }
 
-func (v *Verifier) mac(kind, phc, pw string) []byte {
-	h := hmac.New(sha256.New, v.secret)
+func mac(secret []byte, kind, phc, pw string) []byte {
+	h := hmac.New(sha256.New, secret)
 	h.Write([]byte("login|" + kind + "|" + phc + "|" + pw))
 	return h.Sum(nil)
+}
+
+// SetSecret installs the account secret that keys the success memo. It is a
+// no-op when the secret is unchanged and drops every remembered login when it
+// changes, so one Verifier can be shared by the web login and ClientLogin and
+// survive a secret rotation.
+func (v *Verifier) SetSecret(secret []byte) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if bytes.Equal(v.secret, secret) {
+		return
+	}
+	v.secret = append([]byte(nil), secret...)
+	v.memo = map[string][]byte{}
 }
 
 // Verify reports whether pw matches phc. kind ("api" or "web") separates the
@@ -128,7 +145,10 @@ func (v *Verifier) VerifyBusy(ctx context.Context, kind, pw, phc string) (ok, bu
 	if pw == "" || phc == "" {
 		return false, false
 	}
-	want := v.mac(kind, phc, pw)
+	v.mu.Lock()
+	secret := v.secret
+	v.mu.Unlock()
+	want := mac(secret, kind, phc, pw)
 	v.mu.Lock()
 	memo := v.memo[kind]
 	v.mu.Unlock()
@@ -148,7 +168,9 @@ func (v *Verifier) VerifyBusy(ctx context.Context, kind, pw, phc string) (ok, bu
 	<-v.sem
 	if ok {
 		v.mu.Lock()
-		v.memo[kind] = want
+		if bytes.Equal(v.secret, secret) { // not rotated while hashing
+			v.memo[kind] = want
+		}
 		v.mu.Unlock()
 	}
 	return ok, false
