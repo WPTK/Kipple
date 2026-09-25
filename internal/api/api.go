@@ -125,6 +125,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/refresh", s.authed(s.refresh))
 	handle("GET /api/events", s.authed(s.events))
 	handle("GET /api/bootstrap", s.authed(s.bootstrap))
+	handle("GET /api/feeds/{id}/icon", s.authed(s.feedIcon))
 	handle("GET /api/items", s.authed(s.listItems))
 	handle("POST /api/items/mark-read", s.authed(s.markRead))
 	handle("GET /api/items/{id}", s.authed(s.getItem))

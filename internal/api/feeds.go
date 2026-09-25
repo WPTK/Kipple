@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/store"
@@ -103,4 +105,41 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"run_id": fmt.Sprint(info.RunID), "total": info.Total, "joined": info.Joined})
+}
+
+// feedIcon is GET /api/feeds/{id}/icon. The ?h=<hash> in bootstrap's URL only
+// busts the cache, so the week-long max-age is safe.
+func (s *Server) feedIcon(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	data, ct, ok, err := s.db.FeedIconAny(r.Context(), id)
+	if err != nil {
+		s.serverError(w, "feed icon", err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if !isImageType(ct) {
+		ct = http.DetectContentType(data)
+		if !isImageType(ct) {
+			ct = "application/octet-stream"
+		}
+	}
+	h := w.Header()
+	h.Set("Content-Type", ct)
+	h.Set("Cache-Control", "private, max-age=604800")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox; frame-ancestors 'none'") // an SVG icon must never run script
+	_, _ = w.Write(data)
+}
+
+// isImageType reports an image/* type; SVG is allowed here because the CSP above sandboxes it.
+func isImageType(ct string) bool {
+	ct = strings.ToLower(strings.TrimSpace(strings.SplitN(ct, ";", 2)[0]))
+	return strings.HasPrefix(ct, "image/")
 }

@@ -414,3 +414,14 @@ func (d *DB) FindFeedID(ctx context.Context, u string) (int64, bool, error) {
 	}
 	return FindFeedByURL(ctx, d.reader, u)
 }
+
+// FeedIconAny returns a feed's icon whatever its hash (the web UI's /api/feeds/{id}/icon;
+// the ?h= value is only a cache-buster).
+func (d *DB) FeedIconAny(ctx context.Context, feedID int64) (data []byte, contentType string, ok bool, err error) {
+	err = d.reader.QueryRowContext(ctx, "SELECT data, content_type FROM feed_icons WHERE feed_id = ?", feedID).
+		Scan(&data, &contentType)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", false, nil
+	}
+	return data, contentType, err == nil, err
+}
