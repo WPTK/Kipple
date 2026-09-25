@@ -133,8 +133,20 @@ export function patchItems(qc: QueryClient, ids: string[], patch: Patch): void {
   }
 }
 
+/** When the last optimistic count change was made (ms); `counts` events older than it are stale. */
+let lastBumpAt = 0;
+export const COUNTS_GUARD_MS = 1500;
+/** Ms left in the window after a local count change, 0 when none. */
+export function countsGuardLeft(now = Date.now()): number {
+  return Math.max(0, lastBumpAt + COUNTS_GUARD_MS - now);
+}
+export function resetCountsGuard(): void {
+  lastBumpAt = 0;
+}
+
 /** Adjust unread counts locally (total, feed and its folder) so badges move before the counts event lands. */
 export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void {
+  lastBumpAt = Date.now();
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => {
     if (!old) return old;
     const feed = old.feeds.find((f) => f.id === feedId);

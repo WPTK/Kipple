@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { initialLive, liveStore, reconnectDelay, useServerEvents } from "./events";
+import { WATCHDOG_MS, handleServerEvent, initialLive, liveStore, reconnectDelay, useServerEvents } from "./events";
+import { bumpUnread, keys, resetCountsGuard } from "./queries";
+import type { ServerEvent } from "./types";
 import { authStore } from "./client";
 import { json, mockFetch } from "@/test/mockApi";
 
@@ -201,5 +203,74 @@ describe("reconnectDelay", () => {
     expect([0, 1, 2, 3, 4, 5, 6, 9].map((n) => reconnectDelay(n, mid))).toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000]);
     expect(reconnectDelay(0, () => 0)).toBe(750);
     expect(reconnectDelay(0, () => 1)).toBe(1250);
+  });
+});
+
+describe("hung-stream watchdog", () => {
+  const fake = () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+
+  it("reconnects when nothing arrives for 45 s after a heartbeat was seen", async () => {
+    fake();
+    try {
+      mockFetch({ "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 0 }), "GET /api/bootstrap": () => json({}) });
+      const { unmount } = setup();
+      const first = FakeES.all[0]!;
+      act(() => first.onopen?.());
+      act(() => first.emit("heartbeat", {}));
+      await act(() => vi.advanceTimersByTimeAsync(WATCHDOG_MS - 1_000));
+      act(() => first.emit("heartbeat", {})); // any event restarts the clock
+      await act(() => vi.advanceTimersByTimeAsync(WATCHDOG_MS - 1_000));
+      expect(first.closed).toBe(false);
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(first.closed).toBe(true);
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(FakeES.all).toHaveLength(2);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays out of the way of older servers that never send a heartbeat", async () => {
+    fake();
+    try {
+      const { unmount } = setup();
+      const first = FakeES.all[0]!;
+      act(() => first.onopen?.());
+      await act(() => vi.advanceTimersByTimeAsync(WATCHDOG_MS * 3));
+      expect(first.closed).toBe(false);
+      expect(FakeES.all).toHaveLength(1);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("counts events versus optimistic bumps", () => {
+  it("a stale counts event right after a local bump is skipped, then the truth is refetched", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      resetCountsGuard();
+      const qc = new QueryClient();
+      const boot = {
+        counts: { unread: 3, starred: 0 },
+        feeds: [{ id: "1", folder_id: "1", unread: 3 }],
+        folders: [{ id: "1", unread: 3 }],
+      };
+      qc.setQueryData(keys.bootstrap, boot);
+      const inval = vi.spyOn(qc, "invalidateQueries");
+      bumpUnread(qc, "1", -1);
+      const stale = { type: "counts", data: { unread_total: 3, feeds: { "1": 3 } } } as unknown as ServerEvent;
+      handleServerEvent(qc, stale);
+      expect((qc.getQueryData(keys.bootstrap) as typeof boot).counts.unread).toBe(2);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(inval).toHaveBeenCalledWith({ queryKey: keys.bootstrap });
+      // Outside the window an event applies as before.
+      handleServerEvent(qc, { type: "counts", data: { unread_total: 1, feeds: { "1": 1 } } } as unknown as ServerEvent);
+      expect((qc.getQueryData(keys.bootstrap) as typeof boot).counts.unread).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

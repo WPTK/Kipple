@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, authStore } from "./client";
-import { keys, patchItems } from "./queries";
+import { countsGuardLeft, keys, patchItems } from "./queries";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
 import {
@@ -147,6 +147,8 @@ export function applyCounts(qc: QueryClient, c: CountsEvent): void {
   });
 }
 
+let countsRefetch: ReturnType<typeof setTimeout> | undefined;
+
 /** Everything one event does: reducer, query cache, live region. */
 export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
   liveStore.set((s) => reduceEvent(s, ev));
@@ -159,9 +161,20 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
       if (Object.keys(patch).length) patchItems(qc, ids, patch);
       break;
     }
-    case "counts":
-      applyCounts(qc, ev.data);
+    case "counts": {
+      // An event already in flight when the user opened an item carries the old numbers and would undo the
+      // optimistic bump. Inside the window, skip it and refetch the truth once the window is over.
+      const left = countsGuardLeft();
+      if (left > 0) {
+        if (!countsRefetch) {
+          countsRefetch = setTimeout(() => {
+            countsRefetch = undefined;
+            void qc.invalidateQueries({ queryKey: keys.bootstrap });
+          }, left + 50);
+        }
+      } else applyCounts(qc, ev.data);
       break;
+    }
     case "feed.changed":
       void qc.invalidateQueries({ queryKey: keys.bootstrap });
       break;
@@ -215,6 +228,9 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
 /** A stream open at least this long counts as healthy when it later drops. */
 const STABLE_MS = 10_000;
 
+/** No event of any kind for this long on a server that sends heartbeats: the stream is hung. */
+export const WATCHDOG_MS = 45_000;
+
 /** Reconnect delay after the browser gave up on the stream: 1 s doubling to 30 s, with jitter. */
 export function reconnectDelay(attempt: number, rand: () => number = Math.random): number {
   const base = Math.min(30_000, 1_000 * 2 ** Math.max(0, attempt));
@@ -257,6 +273,15 @@ export function useServerEvents(enabled: boolean): void {
       if (!stopped && liveStore.get().transport === "fallback") pollTimer = setTimeout(poll, pollInterval(active));
     };
     let openedAt = 0;
+    // Older servers send no heartbeat; the watchdog only arms once one has been seen.
+    let heartbeatSeen = false;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    let fail: (src: EventSource) => void = () => undefined;
+    const pet = (src: EventSource) => {
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = undefined;
+      if (heartbeatSeen && !stopped) watchdog = setTimeout(() => fail(src), WATCHDOG_MS);
+    };
     /** The stream is up: leave fallback polling and resync if events were missed. */
     const connected = () => {
       errors = 0;
@@ -273,9 +298,16 @@ export function useServerEvents(enabled: boolean): void {
       retryTimer = undefined;
       const src = new EventSource("/api/events");
       es = src;
+      src.addEventListener("heartbeat", () => {
+        heartbeatSeen = true;
+        attempt = 0;
+        connected();
+        pet(src);
+      });
       const onMessage = (type: string) => (m: MessageEvent<string>) => {
         attempt = 0; // a delivered message proves the stream is healthy
         connected();
+        pet(src);
         const ev = parseServerEvent(type, m.data);
         if (ev) handleServerEvent(qc, ev);
       };
@@ -283,8 +315,14 @@ export function useServerEvents(enabled: boolean): void {
       src.onopen = () => {
         openedAt = Date.now();
         connected();
+        pet(src);
+      };
+      fail = (s: EventSource) => {
+        if (s === src) src.onerror?.(new Event("error"));
       };
       src.onerror = () => {
+        if (watchdog) clearTimeout(watchdog);
+        watchdog = undefined;
         // We own reconnection. The browser's own retry (the server's `retry: 3000`, every 3 s with
         // no backoff) would stack on top of ours, so close the source on EVERY error and schedule
         // exactly one attempt. A stream that stayed up a while before dropping restarts the backoff;
@@ -309,6 +347,7 @@ export function useServerEvents(enabled: boolean): void {
       stopped = true;
       stopPolling();
       if (retryTimer) clearTimeout(retryTimer);
+      if (watchdog) clearTimeout(watchdog);
       es?.close();
       liveStore.set((s) => ({ ...s, transport: "connecting" }));
     };
