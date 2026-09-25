@@ -12,11 +12,15 @@
 *.db-shm
 *.db-wal
 
-# Frontend build output and dependencies (web/dist is embedded at Docker build time)
+# Frontend build output; internal/web embeds a committed web/dist/.gitkeep
+# placeholder so `go build`/`go test` work on a fresh clone before
+# `npm run build` has ever run. See web/embed.go.
 web/node_modules/
-web/dist/
+web/dist/*
+!web/dist/.gitkeep
 
 # Go build output
 /kipple
 /kipple.exe
 /bin/
+*.test
