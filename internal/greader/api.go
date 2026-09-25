@@ -64,6 +64,13 @@ type API struct {
 	routes map[string]route
 
 	acct atomic.Pointer[acctSnap]
+	// acctMu makes "generation unchanged, so store" atomic against
+	// InvalidateAccount, which bumps acctGen. A snapshot read before an
+	// invalidation is therefore never cached after it.
+	acctMu  sync.Mutex
+	acctGen uint64
+	// afterAcctRead is a test hook run between the DB read and the store.
+	afterAcctRead func()
 
 	seenMu sync.Mutex
 	seen   map[string]time.Time
@@ -329,16 +336,26 @@ func (a *API) account(ctx context.Context) (*acctSnap, error) {
 	if s := a.acct.Load(); s != nil && a.now().Sub(s.loaded) < acctTTL {
 		return s, nil
 	}
+	a.acctMu.Lock()
+	gen := a.acctGen
+	a.acctMu.Unlock()
 	acc, ok, err := a.db.Account(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if a.afterAcctRead != nil {
+		a.afterAcctRead()
 	}
 	s := &acctSnap{loaded: a.now()}
 	if ok && acc.APIPasswordHash != "" {
 		s.enabled, s.username, s.hash, s.secret = true, acc.Username, acc.APIPasswordHash, acc.Secret
 		s.token = makeToken(acc.Username, acc.Secret, acc.APIPasswordHash)
 	}
-	a.acct.Store(s)
+	a.acctMu.Lock()
+	if a.acctGen == gen {
+		a.acct.Store(s)
+	}
+	a.acctMu.Unlock()
 	return s, nil
 }
 
@@ -515,4 +532,9 @@ func (a *API) publish(typ string, data any) {
 
 // InvalidateAccount drops the cached account snapshot, so a changed API
 // password revokes every token on the next request instead of within acctTTL.
-func (a *API) InvalidateAccount() { a.acct.Store(nil) }
+func (a *API) InvalidateAccount() {
+	a.acctMu.Lock()
+	a.acctGen++
+	a.acct.Store(nil)
+	a.acctMu.Unlock()
+}

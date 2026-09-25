@@ -240,3 +240,23 @@ func TestClientLoginBusyHashingSlotIs401WithoutFailureOrRetryAfter(t *testing.T)
 	close(release)
 	<-done
 }
+
+// A snapshot read before InvalidateAccount must not be cached after it, or the
+// old token would keep working until the TTL expires.
+func TestInvalidateAccountDuringInflightLoad(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.api.afterAcctRead = func() {
+		// The password changes and is invalidated while the load is in flight.
+		h.api.afterAcctRead = nil
+		require.NoError(t, h.db.SetAPIPasswordHash(ctx, "new-hash"))
+		h.api.InvalidateAccount()
+	}
+	_, err := h.api.account(ctx) // read the old row, then lost the race
+	require.NoError(t, err)
+
+	s, err := h.api.account(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "new-hash", s.hash, "stale snapshot was cached across InvalidateAccount")
+	require.NotEqual(t, h.tok, s.token)
+}
