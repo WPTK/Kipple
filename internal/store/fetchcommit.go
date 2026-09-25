@@ -348,6 +348,13 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 			return err
 		}
 		defer insContent.Close()
+		insFT, err := tx.PrepareContext(ctx, `INSERT INTO item_fulltext
+			(item_id, content_html, content_text, word_count, image_url, source_url, extracted_at, error)
+			VALUES (?,?,?,?,?,?,?,?)`)
+		if err != nil {
+			return err
+		}
+		defer insFT.Close()
 
 		for _, it := range fresh {
 			id := d.alloc.Next()
@@ -382,6 +389,16 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 			}
 			if _, err := insContent.ExecContext(ctx, id, it.ContentHTML, it.ContentText, enc); err != nil {
 				return err
+			}
+			if ft, ok := res.Fulltext[it.UID]; ok {
+				if ft.Error != "" {
+					_, err = insFT.ExecContext(ctx, id, nil, nil, 0, nil, nil, now, ft.Error)
+				} else {
+					_, err = insFT.ExecContext(ctx, id, ft.HTML, ft.Text, ft.WordCount, nullStr(ft.ImageURL), nullStr(ft.SourceURL), now, nil)
+				}
+				if err != nil {
+					return err
+				}
 			}
 			if st.firstNewID == maxInt64 {
 				st.firstNewID = id

@@ -104,6 +104,10 @@ type Result struct {
 	Feed  *Feed // parsed feed, Outcome ok only
 	Notes []string
 
+	// Fulltext holds inline extractions for new items, keyed by item uid
+	// (design §4.3). CommitFetch stores a row for each uid it actually inserts.
+	Fulltext map[string]FulltextResult
+
 	// Validators to store when SetValidators (empty string stores NULL).
 	SetValidators bool
 	ETag          string
@@ -117,6 +121,14 @@ type Result struct {
 
 	NextFetchAt   time.Time
 	CurrentDelayS int64
+}
+
+// FulltextResult is one inline extraction outcome. Error non-empty is a
+// failure (the HTML fields are then empty).
+type FulltextResult struct {
+	HTML, Text, ImageURL, SourceURL string
+	WordCount                       int
+	Error                           string
 }
 
 // Success reports whether the outcome counts as a successful fetch.

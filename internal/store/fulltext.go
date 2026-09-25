@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 )
 
@@ -99,4 +100,29 @@ func (d *DB) SaveFulltext(ctx context.Context, id, now int64, s FulltextSave) er
 			id, s.HTML, s.Text, s.WordCount, nullStr(s.ImageURL), nullStr(s.SourceURL), now)
 		return err
 	})
+}
+
+// KnownUIDs returns which of uids the feed already has, live or as a trimmed
+// tombstone. The worker uses it to pick the new items worth extracting before
+// the commit (design §4.3); the commit itself stays the authority on what is new.
+func (d *DB) KnownUIDs(ctx context.Context, feedID int64, uids []string) (map[string]bool, error) {
+	known := map[string]bool{}
+	if len(uids) == 0 {
+		return known, nil
+	}
+	b, _ := json.Marshal(uids)
+	rows, err := d.reader.QueryContext(ctx, `SELECT uid FROM items WHERE feed_id = ?1 AND uid IN (SELECT value FROM json_each(?2))
+		UNION SELECT uid FROM trimmed_items WHERE feed_id = ?1 AND uid IN (SELECT value FROM json_each(?2))`, feedID, string(b))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		known[u] = true
+	}
+	return known, rows.Err()
 }
