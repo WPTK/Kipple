@@ -214,7 +214,7 @@ func TestPatchFeedEnableDisable(t *testing.T) {
 
 	// a gone feed with a failure history, enabled again
 	h.exec("UPDATE feeds SET disabled_reason = 'gone', consecutive_failures = 9, current_delay_s = 3600, next_fetch_at = 4102444800 WHERE id = ?", id)
-	before := h.sched.wakes
+	before := len(h.sched.submits)
 	code, body, _ = h.api(c, "PATCH", path, `{"enabled":true}`)
 	require.Equal(t, 200, code)
 	require.Equal(t, true, body["enabled"])
@@ -222,7 +222,8 @@ func TestPatchFeedEnableDisable(t *testing.T) {
 	require.Equal(t, "0", h.feedRow(id, "consecutive_failures").String)
 	require.Equal(t, "0", h.feedRow(id, "current_delay_s").String)
 	require.Equal(t, fmt.Sprint(h.clk.Now().Unix()), h.feedRow(id, "next_fetch_at").String)
-	require.Equal(t, before+1, h.sched.wakes, "the scheduler is nudged")
+	require.Equal(t, before+1, len(h.sched.submits), "a full fetch is queued")
+	require.True(t, h.sched.submits[before].Full)
 	require.Len(t, feedChanged(t, sub), 1)
 
 	// disabling an already disabled feed keeps its reason
@@ -258,7 +259,7 @@ func TestPatchFeedURLChange(t *testing.T) {
 	require.Equal(t, "e", h.feedRow(id, "etag").String)
 	require.Empty(t, feedChanged(t, sub))
 
-	wakes := h.sched.wakes
+	subs := len(h.sched.submits)
 	code, body, _ := h.api(c, "PATCH", path, `{"url":" https://B.example:443/atom?x=1#top "}`)
 	require.Equal(t, 200, code, body)
 	require.Equal(t, "https://b.example/atom?x=1", body["url"])
@@ -273,7 +274,8 @@ func TestPatchFeedURLChange(t *testing.T) {
 	require.Equal(t, "0", h.feedRow(id, "consecutive_failures").String)
 	require.Equal(t, "0", h.feedRow(id, "current_delay_s").String)
 	require.Equal(t, fmt.Sprint(h.clk.Now().Unix()), h.feedRow(id, "next_fetch_at").String)
-	require.Equal(t, wakes+1, h.sched.wakes)
+	require.Equal(t, subs+1, len(h.sched.submits), "a full fetch on the new URL is queued")
+	require.True(t, h.sched.submits[subs].Full)
 	require.Len(t, feedChanged(t, sub), 1)
 
 	// the first URL stays the original through later edits; the old URLs still resolve
@@ -283,10 +285,10 @@ func TestPatchFeedURLChange(t *testing.T) {
 
 	// setting the very same URL is a no-op (no reset, no wake)
 	h.exec("UPDATE feeds SET etag = 'keep' WHERE id = ?", id)
-	wakes = h.sched.wakes
+	subs = len(h.sched.submits)
 	h.api(c, "PATCH", path, `{"url":"https://c.example/feed"}`)
 	require.Equal(t, "keep", h.feedRow(id, "etag").String)
-	require.Equal(t, wakes, h.sched.wakes)
+	require.Equal(t, subs, len(h.sched.submits))
 
 	// going back to a URL it used to have is not a collision with itself
 	code, _, _ = h.api(c, "PATCH", path, `{"url":"http://a.example/feed"}`)

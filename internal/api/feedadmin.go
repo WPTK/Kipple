@@ -413,7 +413,12 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if res.NeedsFetch {
-		s.opt.Sched.Wake()
+		// A full job replays the fetch on the new URL even when one on the old URL
+		// is in flight (its commit is dropped as stale). Wake is the fallback.
+		if _, err := s.opt.Sched.Submit(sched.Priority{FeedID: id, Full: true}); err != nil {
+			s.log.Warn("api: patch feed: submit fetch", "err", err)
+			s.opt.Sched.Wake()
+		}
 	}
 	if res.Notify {
 		s.publishFeedChanged(id)

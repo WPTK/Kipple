@@ -564,3 +564,27 @@ func TestChunkedCommitEachChunkHasItsOwnDeadline(t *testing.T) {
 	require.Error(t, err)
 	require.Zero(t, info.New)
 }
+
+func TestStaleFetchAfterURLEditIsDropped(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://example.test/old.xml")
+	snap := e.snap(id) // the fetch starts on the old URL
+	nu := "http://example.test/new.xml"
+	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &nu, Cols: map[string]any{}})
+	require.NoError(t, err)
+	before := e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id)
+
+	// success on the old URL: nothing lands, validators stay cleared, url stays repointed
+	res := e.okResult(snap, rss(numbered(2)...))
+	res.Redirect = fetch.RedirectDecision{Action: fetch.RedirectMigrate, To: "http://example.test/elsewhere.xml", Kind: "permanent", Count: 3}
+	e.commit(res)
+	require.Equal(t, 0, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND url = ? AND etag IS NULL AND last_modified IS NULL", id, nu))
+	require.Equal(t, before, e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id))
+
+	// a 410 on the old URL must not disable the repointed feed
+	er := &fetch.Result{Snap: snap, StartedAt: e.clk.Now(), Outcome: fetch.OutcomeError, ErrClass: "http", ErrMsg: "gone", Gone: true,
+		NextFetchAt: e.clk.Now().Add(time.Hour), CurrentDelayS: 3600}
+	require.NoError(t, e.db.CommitFetchError(e.ctx, er))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND enabled = 1 AND consecutive_failures = 0", id))
+}

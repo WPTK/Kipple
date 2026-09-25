@@ -43,6 +43,7 @@ type commitState struct {
 	notes      []string
 	keep       bool
 	begun      bool
+	stale      bool // the feed's URL changed under the fetch; nothing was written
 }
 
 func (st *commitState) note(s string, keep bool) {
@@ -155,6 +156,17 @@ type existingRow struct {
 func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, last bool, st *commitState) error {
 	feedID := res.Snap.ID
 	now := d.clock.Now().Unix()
+	// A URL edit that landed while this fetch was in flight makes its result
+	// stale: the validators, redirect state and schedule belong to the old URL.
+	// Drop the whole commit (items included) and leave the feed row as PATCH set it.
+	var curURL string
+	if err := tx.QueryRowContext(ctx, "SELECT url FROM feeds WHERE id = ?", feedID).Scan(&curURL); err != nil {
+		return err
+	}
+	if curURL != res.Snap.URL {
+		st.stale = true
+		return nil
+	}
 	first := !st.begun
 	st.begun = true
 
@@ -544,15 +556,19 @@ func (d *DB) CommitFetchError(ctx context.Context, res *fetch.Result) error {
 	now := d.clock.Now().Unix()
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		feedID := res.Snap.ID
-		if _, err := tx.ExecContext(ctx, `UPDATE feeds SET
+		upd, err := tx.ExecContext(ctx, `UPDATE feeds SET
 			consecutive_failures = consecutive_failures + 1,
 			last_error = ?2, last_error_class = ?3, last_error_at = ?4, last_status = ?5, last_fetch_at = ?4,
 			next_fetch_at = ?6, current_delay_s = ?7, updated_at = ?4,
 			enabled = CASE WHEN ?8 THEN 0 ELSE enabled END,
 			disabled_reason = CASE WHEN ?8 THEN 'gone' ELSE disabled_reason END
-			WHERE id = ?1`,
-			feedID, res.ErrMsg, res.ErrClass, now, nullInt(res.Status), res.NextFetchAt.Unix(), res.CurrentDelayS, res.Gone); err != nil {
+			WHERE id = ?1 AND url = ?9`,
+			feedID, res.ErrMsg, res.ErrClass, now, nullInt(res.Status), res.NextFetchAt.Unix(), res.CurrentDelayS, res.Gone, res.Snap.URL)
+		if err != nil {
 			return err
+		}
+		if n, _ := upd.RowsAffected(); n == 0 {
+			return nil // the URL was edited while this fetch ran: the error is about the old URL
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO fetch_log
 			(feed_id, trigger, started_at, duration_ms, outcome, http_status, error_class, error, bytes, final_url, note)
