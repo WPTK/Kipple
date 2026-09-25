@@ -35,6 +35,7 @@ func TestFulltextErrorClassRoundTripAndURLGuard(t *testing.T) {
 	require.False(t, it.ErrorTransient)
 	require.EqualValues(t, 2000, it.AttemptedAt)
 
+	e.exec("UPDATE feeds SET fulltext = 1 WHERE id = ?", id)
 	// A background result for a URL the item no longer has is dropped.
 	written, err := e.db.SaveFulltextIfURL(e.ctx, item, "https://other/", 3000, FulltextSave{HTML: "<p>x</p>", Text: "x", WordCount: 1})
 	require.NoError(t, err)
@@ -47,6 +48,27 @@ func TestFulltextErrorClassRoundTripAndURLGuard(t *testing.T) {
 	require.Empty(t, it.Error)
 	require.False(t, it.ErrorTransient)
 	require.Nil(t, scalar[*string](t, e.db.Reader(), "SELECT error_class FROM item_fulltext WHERE item_id = ?", item))
+
+	// Full text switched off meanwhile (feed or item) drops a background save, for
+	// successes and failures; an item forced on still saves under a feed that is off.
+	e.exec("DELETE FROM item_fulltext WHERE item_id = ?", item)
+	e.exec("UPDATE feeds SET fulltext = 0 WHERE id = ?", id)
+	for _, sv := range []FulltextSave{{HTML: "<p>y</p>", Text: "y", WordCount: 1}, {Error: "boom", ErrorTransient: true}} {
+		written, err = e.db.SaveFulltextIfURL(e.ctx, item, url, 5000, sv)
+		require.NoError(t, err)
+		require.False(t, written, "feed off")
+	}
+	e.exec("UPDATE feeds SET fulltext = 1 WHERE id = ?", id)
+	e.exec("UPDATE items SET fulltext_mode = 0 WHERE id = ?", item)
+	written, err = e.db.SaveFulltextIfURL(e.ctx, item, url, 5000, FulltextSave{HTML: "<p>y</p>", Text: "y", WordCount: 1})
+	require.NoError(t, err)
+	require.False(t, written, "item forced off")
+	e.exec("UPDATE feeds SET fulltext = 0 WHERE id = ?", id)
+	e.exec("UPDATE items SET fulltext_mode = 1 WHERE id = ?", item)
+	written, err = e.db.SaveFulltextIfURL(e.ctx, item, url, 5000, FulltextSave{HTML: "<p>y</p>", Text: "y", WordCount: 1})
+	require.NoError(t, err)
+	require.True(t, written, "item forced on")
+	require.Zero(t, scalar[int](t, e.db.Reader(), "SELECT count(*) FROM item_fulltext WHERE error IS NOT NULL"))
 
 	// A deleted item is not resurrected as an orphan row.
 	e.exec("DELETE FROM items WHERE id = ?", item)

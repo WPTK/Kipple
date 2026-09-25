@@ -104,10 +104,20 @@ func (d *DB) SaveFulltext(ctx context.Context, id, now int64, s FulltextSave) er
 }
 
 // SaveFulltextIfURL is SaveFulltext for a background extraction: it writes only
-// while the item still exists with the given URL, so a result for a page the
-// item no longer points at is dropped. It reports whether a row was written.
+// while the item still exists with the given URL and its effective full-text
+// mode (COALESCE(items.fulltext_mode, feeds.fulltext)) is still 1, checked in
+// the same transaction as the write. A result for a page the item no longer
+// points at, or for an item whose full text was switched off meanwhile, is
+// dropped. It reports whether a row was written.
 func (d *DB) SaveFulltextIfURL(ctx context.Context, id int64, url string, now int64, s FulltextSave) (bool, error) {
 	return d.saveFulltext(ctx, id, now, s, url)
+}
+
+// itemStillWanted is the WHERE of a guarded save: the item exists and, when
+// onlyURL is set, still has that URL and full text still on. ?N is the
+// placeholder index of onlyURL.
+func itemStillWanted(n string) string {
+	return "EXISTS (SELECT 1 FROM items i JOIN feeds f ON f.id = i.feed_id WHERE i.id = ?1 AND (" + n + " = '' OR (i.url = " + n + " AND COALESCE(i.fulltext_mode, f.fulltext) = 1)))"
 }
 
 func (d *DB) saveFulltext(ctx context.Context, id, now int64, s FulltextSave, onlyURL string) (written bool, err error) {
@@ -116,12 +126,12 @@ func (d *DB) saveFulltext(ctx context.Context, id, now int64, s FulltextSave, on
 		var err error
 		if s.Error != "" {
 			res, err = tx.ExecContext(ctx, `INSERT INTO item_fulltext (item_id, extracted_at, error, error_class)
-				SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1 AND (?5 = '' OR url = ?5))
+				SELECT ?1, ?2, ?3, ?4 WHERE `+itemStillWanted("?5")+`
 				ON CONFLICT (item_id) DO UPDATE SET error = excluded.error, extracted_at = excluded.extracted_at, error_class = excluded.error_class
 				WHERE item_fulltext.content_html IS NULL`, id, now, s.Error, errorClass(s.ErrorTransient), onlyURL)
 		} else {
 			res, err = tx.ExecContext(ctx, `INSERT INTO item_fulltext (item_id, content_html, content_text, word_count, image_url, source_url, extracted_at, error, error_class)
-				SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1 AND (?8 = '' OR url = ?8))
+				SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL WHERE `+itemStillWanted("?8")+`
 				ON CONFLICT (item_id) DO UPDATE SET content_html = excluded.content_html, content_text = excluded.content_text,
 					word_count = excluded.word_count, image_url = excluded.image_url, source_url = excluded.source_url,
 					extracted_at = excluded.extracted_at, error = NULL, error_class = NULL`,
