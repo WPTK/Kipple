@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
 import { ArrowDown, ArrowUp, CircleAlert, CircleCheck, CirclePause, FolderPlus, HeartPulse, MoreVertical, Pencil, Plus, Upload, Download } from "lucide-react";
-import { createFolder, deleteFolder, invalidateFeeds, patchFeed, patchFolder } from "@/api/admin";
+import { createFolder, deleteFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { errorMessage } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import type { Feed, Folder } from "@/api/types";
@@ -143,11 +143,6 @@ function FolderDialogs({ dialog, onClose }: { dialog: FolderDialog; onClose: () 
   );
 }
 
-/** Renumber positions 0..n-1 in the given order (the server stores absolute positions). */
-async function renumber(kind: "folder" | "feed", ids: string[]): Promise<void> {
-  for (const [i, id] of ids.entries()) await (kind === "folder" ? patchFolder(id, { position: i }) : patchFeed(id, { position: i }));
-}
-
 function move<T>(list: T[], i: number, d: -1 | 1): T[] {
   const out = [...list];
   const [x] = out.splice(i, 1);
@@ -187,9 +182,10 @@ export function FeedsScreen() {
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null);
   const [reorder, setReorder] = useState(false);
 
-  const reorderTo = async (kind: "folder" | "feed", ids: string[]) => {
+  /** Folders in order, or one folder's feeds in order: a single POST /api/reorder (positions are absolute). */
+  const reorderTo = async (kind: "folder" | "feed", ids: string[], folderId?: string) => {
     try {
-      await renumber(kind, ids);
+      await reorderApi(kind === "folder" ? { folders: ids } : { feeds: [{ folder_id: folderId as string, ids }] });
       invalidateFeeds(qc);
     } catch (e) {
       toast(errorMessage(e), "error");
@@ -326,10 +322,10 @@ export function FeedsScreen() {
                           </Link>
                           {reorder ? (
                             <>
-                              <Button variant="ghost" size="icon" aria-label={`Move ${f.title} up`} disabled={i === 0} onClick={() => void reorderTo("feed", move(inFolder, i, -1).map((x) => x.id))}>
+                              <Button variant="ghost" size="icon" aria-label={`Move ${f.title} up`} disabled={i === 0} onClick={() => void reorderTo("feed", move(inFolder, i, -1).map((x) => x.id), fo.id)}>
                                 <ArrowUp aria-hidden="true" />
                               </Button>
-                              <Button variant="ghost" size="icon" aria-label={`Move ${f.title} down`} disabled={i === inFolder.length - 1} onClick={() => void reorderTo("feed", move(inFolder, i, 1).map((x) => x.id))}>
+                              <Button variant="ghost" size="icon" aria-label={`Move ${f.title} down`} disabled={i === inFolder.length - 1} onClick={() => void reorderTo("feed", move(inFolder, i, 1).map((x) => x.id), fo.id)}>
                                 <ArrowDown aria-hidden="true" />
                               </Button>
                             </>

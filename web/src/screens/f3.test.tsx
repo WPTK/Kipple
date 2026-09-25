@@ -286,6 +286,7 @@ describe("Add feed", () => {
 describe("Feed editor", () => {
   it("changes the feed URL, sending only what changed", async () => {
     const { calls } = base({
+      "GET /api/feeds/1": () => json(feedDetail()),
       "PATCH /api/feeds/1": (_u, init) => {
         const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return b.url === "https://example.com/dup" ? json({ error: "url_exists", message: "used", feed_id: "9" }, 409) : json(feedDetail({ url: b.url ?? "https://example.com/feed.xml" }));
@@ -307,10 +308,13 @@ describe("Feed editor", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit feed" })).toBeNull());
     const saves = calls.filter((c) => c.method === "PATCH").map(body);
     expect(saves[saves.length - 1]).toEqual({ url: "https://example.com/new.xml" });
+    // Opening the editor is a GET, not a no-op PATCH: the first PATCH is the duplicate-URL attempt.
+    expect(saves[0]).toEqual({ url: "https://example.com/dup" });
+    expect(calls.some((c) => c.method === "GET" && c.url.pathname === "/api/feeds/1")).toBe(true);
   });
 
   it("keeps unsafe options behind a warned disclosure", async () => {
-    base({ "PATCH /api/feeds/1": () => json(feedDetail()) });
+    base({ "GET /api/feeds/1": () => json(feedDetail()) });
     go("/feeds");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Edit Example Feed" }));
@@ -326,7 +330,7 @@ describe("Feed editor", () => {
     const withStars = { ...bootstrap, feeds: [{ ...bootstrap.feeds[0], starred_count: 3 }] };
     const { calls } = mockFetch({
       "GET /api/bootstrap": () => json(withStars),
-      "PATCH /api/feeds/1": () => json(feedDetail({ starred_count: 3 })),
+      "GET /api/feeds/1": () => json(feedDetail({ starred_count: 3 })),
       "DELETE /api/feeds/1": () => new Response(null, { status: 204 }),
     });
     go("/feeds");
@@ -366,8 +370,7 @@ describe("Folders and OPML", () => {
     const { calls } = mockFetch({
       "GET /api/bootstrap": () => json(two),
       "POST /api/folders": () => json({ id: "3", name: "Fun", position: 2, is_default: false, unread: 0 }),
-      "PATCH /api/folders/1": () => json({}),
-      "PATCH /api/folders/2": () => json({}),
+      "POST /api/reorder": () => json({ changed_feeds: [], changed_folders: ["1", "2"] }),
     });
     go("/feeds");
     const user = userEvent.setup();
@@ -380,7 +383,21 @@ describe("Folders and OPML", () => {
     await user.click(screen.getByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Reorder folders and feeds" }));
     await user.click(await screen.findByRole("button", { name: "Move folder Tech up" }));
-    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH").map((c) => `${c.url.pathname}:${body(c).position}`)).toEqual(["/api/folders/2:0", "/api/folders/1:1"]));
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/reorder").map(body)).toEqual([{ folders: ["2", "1"] }]));
+  });
+
+  it("reorders a folder's feeds with one reorder call carrying the folder id", async () => {
+    const two = { ...bootstrap, feeds: [bootstrap.feeds[0], { ...bootstrap.feeds[0], id: "2", title: "Second Feed" }] };
+    const { calls } = mockFetch({
+      "GET /api/bootstrap": () => json(two),
+      "POST /api/reorder": () => json({ changed_feeds: ["1", "2"], changed_folders: [] }),
+    });
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Reorder folders and feeds" }));
+    await user.click(await screen.findByRole("button", { name: "Move Second Feed up" }));
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/reorder").map(body)).toEqual([{ feeds: [{ folder_id: "1", ids: ["2", "1"] }] }]));
   });
 
   it("imports OPML with the mark-older option and shows the summary", async () => {

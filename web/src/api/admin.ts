@@ -133,12 +133,12 @@ export const addFeed = (body: { url: string; title?: string; folder_id?: string 
 export const patchFeed = (id: string, body: Record<string, unknown>) =>
   api<FeedDetail>(`/api/feeds/${id}`, { method: "PATCH", body });
 
-/**
- * There is no GET /api/feeds/{id}, and the editor needs custom_title, dedup_mode, the user agent and the
- * flags. A PATCH that re-sends the feed's current `fulltext` value changes nothing and returns the full
- * FeedDetail. Listed as an API gap in the F3 report.
- */
-export const loadFeedDetail = (f: Feed) => patchFeed(f.id, { fulltext: f.fulltext });
+/** The editor's full FeedDetail (custom_title, dedup_mode, user agent, the flags). */
+export const loadFeedDetail = (f: Feed) => api<FeedDetail>(`/api/feeds/${f.id}`);
+
+/** Reorder in one transaction: folders in the given order, and/or the feeds of each listed folder. */
+export const reorder = (body: { folders?: string[]; feeds?: { folder_id: string; ids: string[] }[] }) =>
+  api<{ changed_feeds: string[]; changed_folders: string[] }>("/api/reorder", { method: "POST", body });
 
 export const deleteFeed = (id: string, deleteStarred: boolean) =>
   api(`/api/feeds/${id}`, { method: "DELETE", params: deleteStarred ? { delete_starred: 1 } : undefined });
