@@ -30,8 +30,32 @@ var statusPage []byte
 //go:embed status.js
 var statusScript []byte
 
+// Option configures NewHandler.
+type Option func(*handlerOpts)
+
+type handlerOpts struct{ imgMode func() string }
+
+// WithImgMode supplies the current imgproxy.mode. The page CSP (img-src)
+// depends on it and a 304 cannot carry a new policy, so the mode is folded into
+// the ETag of every HTML page: a mode change invalidates cached copies.
+func WithImgMode(f func() string) Option { return func(o *handlerOpts) { o.imgMode = f } }
+
 // NewHandler returns an http.Handler serving the embedded frontend.
-func NewHandler() (http.Handler, error) {
+func NewHandler(opts ...Option) (http.Handler, error) {
+	var o handlerOpts
+	for _, f := range opts {
+		f(&o)
+	}
+	modeTag := func() string {
+		if o.imgMode == nil {
+			return "all"
+		}
+		return o.imgMode()
+	}
+	// pageETag is the content hash plus the policy input, so it changes when
+	// either does.
+	pageETag := func(base string) string { return base[:len(base)-1] + "." + modeTag() + `"` }
+
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		return nil, fmt.Errorf("web: %w", err)
@@ -44,7 +68,7 @@ func NewHandler() (http.Handler, error) {
 	mux.Handle("GET /assets/", immutable(http.FileServerFS(dist)))
 	mux.HandleFunc("GET /_status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("ETag", etagOf(statusPage))
+		w.Header().Set("ETag", pageETag(etagOf(statusPage)))
 		http.ServeContent(w, r, "status.html", time.Time{}, bytes.NewReader(statusPage))
 	})
 	mux.HandleFunc("GET /_status.js", func(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +79,7 @@ func NewHandler() (http.Handler, error) {
 	})
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("ETag", etag)
+		w.Header().Set("ETag", pageETag(etag))
 		http.ServeContent(w, r, "index.html", modTime, bytes.NewReader(index))
 	})
 	return mux, nil

@@ -151,11 +151,6 @@ func runServe() error {
 		Verifier: verifier,
 	})
 
-	webHandler, err := kweb.NewHandler()
-	if err != nil {
-		return fmt.Errorf("web: %w", err)
-	}
-
 	mux := http.NewServeMux()
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
@@ -165,6 +160,10 @@ func runServe() error {
 	})
 	defer uiAPI.Close()
 	uiAPI.Register(mux)
+	webHandler, err := kweb.NewHandler(kweb.WithImgMode(uiAPI.ImgMode))
+	if err != nil {
+		return fmt.Errorf("web: %w", err)
+	}
 	mux.Handle("/", webHandler)
 
 	srv := &http.Server{

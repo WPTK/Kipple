@@ -151,6 +151,7 @@ Phase 2 (reading UI backend) so far.
   `text/html`.
 - Full-text flights are panic-safe, counts publishes are ordered and bulk-star stats are batched.
 - The time zone setting is stored under `tz` as the design says (it was read as `settings.tz`).
+- A changed `imgproxy.mode` no longer leaves cached pages with the old CSP `img-src`: the mode is folded into the ETag of `/` and `/_status`, so the next load revalidates with a full 200 and the new policy (a 304 cannot carry headers).
 
 ## [0.1.0] - 2026-09-25
 

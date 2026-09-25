@@ -187,3 +187,32 @@ func TestNotModifiedKeepsPolicyOffTheResponse(t *testing.T) {
 	require.Empty(t, rec.Header().Get("Content-Security-Policy"))
 	require.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
 }
+
+// The page CSP depends on imgproxy.mode and a 304 cannot carry a new policy, so
+// a mode change must change the ETag of / and /_status.
+func TestETagChangesWithImgMode(t *testing.T) {
+	mode := "all"
+	h, err := NewHandler(WithImgMode(func() string { return mode }))
+	require.NoError(t, err)
+	for _, path := range []string{"/", "/_status"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		before := rec.Header().Get("ETag")
+		require.NotEmpty(t, before, path)
+
+		mode = "http_only"
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("If-None-Match", before)
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, path+": stale ETag must not revalidate")
+		require.NotEqual(t, before, rec.Header().Get("ETag"), path)
+
+		req = httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("If-None-Match", rec.Header().Get("ETag"))
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusNotModified, rec.Code, path)
+		mode = "all"
+	}
+}
