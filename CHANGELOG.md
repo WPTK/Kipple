@@ -54,6 +54,11 @@ Phase 2 (reading UI backend) so far.
   With `browser_on_failure` a feed that answers 403/406 (or a Cloudflare 503 challenge) is retried
   once with a browser User-Agent; if that works the feed remembers it (`feeds.ua_fallback`,
   migration 0002) and uses the browser UA from then on. A per-feed User-Agent still wins.
+- Reader API full-text hold: a new item of a full-text feed is left out of `stream/items/ids`,
+  `stream/contents`, `stream/items/contents`, `unread-count` and the default `mark-all-as-read`
+  until its extraction has finished (a result or a stored error) or 30 s have passed since its
+  crawl time (capped at 60 s, inside the `ot` slack, so a client that synced meanwhile still gets
+  it next time). Decided in SQL, so paging is exact. The web UI is not held. No setting.
 
 ### Changed
 

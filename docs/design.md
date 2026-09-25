@@ -1343,6 +1343,15 @@ Response:
 
 `continuation` is present only when `n+1` rows came back; the page is then exactly `n` rows, and `continuation` is the id of the n-th row. `itemRefs` carries no `timestampUsec` or `directStreamIds`.
 
+**Full-text hold.** A new item of a full-text feed is *held back* from every Reader API listing until its extraction has finished or a hold window has passed, whichever comes first, so a client that syncs right after a fetch gets the extracted text and not the feed stub (open question 55, decided). An item is held when all of these are true at request time: its effective mode `COALESCE(items.fulltext_mode, feeds.fulltext)` is 1; it has no `item_fulltext` row (a stored result **or** a stored error releases it); and `id > :hold_cut`, where `:hold_cut = (now − window)·1e6`. The id is the crawl time in microseconds, so the window is measured from insert time. The window is `greader.Options.FulltextHold`: 0 means 30 s, negative disables it, and it is capped at 60 s. It is an Options field, not a user setting. Non-full-text feeds and items, and items older than the window, are never held.
+
+- **SQL, not Go.** The predicate (`store.HeldSQL`) is ANDed into the stream filter, so `LIMIT`, continuation and both `ot` legs see only visible rows and a page is never short.
+- **Everything the Reader API reads.** It applies to `stream/items/ids`, `stream/contents`, `stream/items/contents` (a held id is absent even if a client asks for it), `unread-count` and the default `mark-all-as-read`. The web UI (`/api/items`, bootstrap counts, SSE `counts`) is **not** held; the UI already swaps in text through `fulltext.ready`.
+- **Counts.** `unread-count` leaves held items out (total, per folder, per feed and `newestItemTimestampUsec`), so a client whose count is the length of its unread list agrees with the listing. The UI count includes them, so for at most the window the UI and a Reader client can differ by the held items.
+- **mark-all-as-read** skips held items, with or without `ts`: a client cannot have seen them, and marking them read would silently swallow them.
+- **Monotonic ids and `ot`.** Ids are unchanged; only visibility moves, and it moves from hidden to visible (the one exception is turning full-text on for a feed or item younger than the window, which can hide an already listed item; that is ignored). A held item H has crawl time t0. A client that synced while H was held holds an `ot` (its sync time, or the newest crawl time it saw) of at most t0 + window. Leg 1 of its next sync lists ids at or after `ot − 120 s`, and 120 s exceeds the window (capped at 60 s, which leaves 60 s for client clock skew), so H is returned then. That is why the cap exists: a longer window could let `ot` pass H by more than the slack and lose it. Clients that list without `ot` (Reeder's unread and starred lists, NNW) get H from the full list. Paging: if H is released between two pages of one continuation pass and its id is above `c`, that pass misses it, exactly as it would miss any item committed mid-pass, and the next sync gets it.
+- **NNW.** A held id was never listed, so nothing is removed on the client; a missing unread id is only marked read there when it had been listed before.
+
 ### 6.6 stream/items/contents (POST; GET tolerated) and stream/contents
 
 - **Id cap.** `i=` values beyond the first 1000 are ignored with a WARN. NNW sends 150 and Reeder 100.
@@ -1389,7 +1398,7 @@ Rules for the item fields:
 - **Strings, never null.** `author`, `title`, `alternate[].href`, `canonical[].href` and `origin.htmlUrl` are always strings, possibly `""`. `enclosure` is omitted when there are none.
 - **Titles are plain JSON strings.** There is no fullwidth `＆＜＞` escaping.
 - **Required fields.** `summary`, `categories` and `origin` are always present. `origin.streamId` always equals the subscription id (for archived items, the archive feed's id).
-- **Ids.** Trimmed and unknown ids are absent.
+- **Ids.** Trimmed and unknown ids are absent, and so are ids held back by the full-text hold (§6.5).
 
 **stream/contents.** `GET /reader/api/0/stream/contents[/<stream>]` (or `?s=`) runs the §6.5 filter with `n` capped at 1000, then streams contents the same way. The envelope `id` is the requested stream, with a continuation as in §6.5.
 
@@ -1612,7 +1621,7 @@ The React app reconciles by item id. For `new_item_ids` inside the current view 
 ### 7.5 Full-text rules
 
 - **Effective mode** = `COALESCE(items.fulltext_mode, feeds.fulltext)`.
-- **Ingest.** For full-text feeds, new items are extracted after the commit in a bounded background pool, as in §4.3. Until an item's extraction finishes it has no row and every reader sees the feed content; `fulltext.ready` tells the UI when to swap in the text. A Reader client that synced the item in that window keeps the feed content unless it refetches contents for ids it already has; whether Reeder does is open question 55 (verify at deploy).
+- **Ingest.** For full-text feeds, new items are extracted after the commit in a bounded background pool, as in §4.3. Until an item's extraction finishes it has no row and the UI shows the feed content; `fulltext.ready` tells it to swap in the text. Reader API clients are not shown the item at all until its extraction has finished (result or stored error) or 30 s have passed since its crawl time (the full-text hold, §6.5), so they normally fetch the text on first sight; open question 55 keeps a deploy-time check with Reeder.
 - **Shared runs.** The endpoint extracts through the same runner as the pool (§4.3): it joins a run already in flight for the item, honors the per-host limit of 2, and the save happens inside the run, so every joined request reads the stored result. The endpoint's run is detached from the request and has a 15 s budget from when the host slot is free.
 - **UI.** When the effective mode is 1 and `available=false`, the UI calls `POST /api/items/{id}/fulltext` with an empty body, which triggers extraction without changing the mode.
 - **Per-article toggle.** In the article view the toggle sets `mode` to 1 or 0; "reset" sets `null`.
