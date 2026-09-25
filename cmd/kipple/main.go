@@ -22,6 +22,7 @@ import (
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/greader"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/store"
 	kweb "github.com/WPTK/kipple/internal/web"
@@ -62,13 +63,15 @@ func run(args []string) error {
 	switch cmd {
 	case "serve":
 		return runServe()
+	case "api-password":
+		return runAPIPassword(args[1:])
 	case "import":
 		return runImport(args[1:])
 	case "version":
 		fmt.Println(version)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (want serve, import or version)", cmd)
+		return fmt.Errorf("unknown command %q (want serve, import, api-password or version)", cmd)
 	}
 }
 
@@ -95,12 +98,23 @@ func runServe() error {
 		}
 	}()
 
+	if err := ensureAccount(context.Background(), db, cfg, logger); err != nil {
+		return fmt.Errorf("account: %w", err)
+	}
+
 	hub := events.New()
 	client := fetch.NewClient(fetch.ClientOptions{Version: version, PublicURL: cfg.PublicURL})
 	scheduler := sched.New(db, client, hub, nil, logger, sched.Options{
 		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick,
 	})
 	scheduler.Start()
+
+	// The Reader API claims /api/greader.php and its root aliases ahead of the
+	// mux, so no ServeMux ever sees a Reader path (design §6.1).
+	readerAPI := greader.New(greader.Options{
+		DB: db, Logger: logger, Wake: scheduler.Wake, Events: hub,
+		TrustedProxies: cfg.TrustedProxyIPs, PublicURL: cfg.PublicURL, LogForms: cfg.LogGreaderForms,
+	})
 
 	webHandler, err := kweb.NewHandler()
 	if err != nil {
@@ -117,7 +131,7 @@ func runServe() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           mux,
+		Handler:           readerAPI.Front(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,

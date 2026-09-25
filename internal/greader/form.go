@@ -170,7 +170,7 @@ func (p *Params) BodyEmpty() bool { return len(p.body) == 0 && p.rawBody == "" }
 // keys returns the distinct keys, sorted, for logging (never values).
 func (p *Params) keys(pairs []pair) []string {
 	seen := map[string]bool{}
-	var out []string
+	out := []string{}
 	for _, e := range pairs {
 		if !seen[e.key] {
 			seen[e.key] = true

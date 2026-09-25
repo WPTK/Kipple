@@ -62,3 +62,14 @@ func TestClientIP(t *testing.T) {
 	r.Header.Set("CF-Connecting-IP", "junk")
 	require.Equal(t, "192.0.2.20", ClientIP(r, trusted))
 }
+
+func TestGeneratePassword(t *testing.T) {
+	a, err := GeneratePassword(24)
+	require.NoError(t, err)
+	b, _ := GeneratePassword(24)
+	require.Len(t, a, 24)
+	require.NotEqual(t, a, b)
+	require.Regexp(t, `^[a-km-np-zA-HJ-NP-Z2-9]{24}$`, a)
+	_, err = GeneratePassword(0)
+	require.Error(t, err)
+}

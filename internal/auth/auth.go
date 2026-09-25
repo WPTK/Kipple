@@ -244,3 +244,33 @@ func ClientIP(r *http.Request, trusted []netip.Addr) string {
 	}
 	return peer.String()
 }
+
+// passwordAlphabet has no look-alike characters (no 0/O, 1/l/I).
+const passwordAlphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+// GeneratePassword returns n random characters from an unambiguous alphabet
+// (24 characters is about 137 bits).
+func GeneratePassword(n int) (string, error) {
+	if n <= 0 {
+		return "", fmt.Errorf("auth: password length %d", n)
+	}
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	out := make([]byte, n)
+	// 256 is not a multiple of len(alphabet): reject the biased tail.
+	const limit = 256 - 256%len(passwordAlphabet)
+	for i := 0; i < n; {
+		b := buf[i]
+		if int(b) >= limit {
+			if _, err := rand.Read(buf[i : i+1]); err != nil {
+				return "", err
+			}
+			continue
+		}
+		out[i] = passwordAlphabet[int(b)%len(passwordAlphabet)]
+		i++
+	}
+	return string(out), nil
+}
