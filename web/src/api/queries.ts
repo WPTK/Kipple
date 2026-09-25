@@ -66,8 +66,8 @@ export function itemsParams(scope: Scope, cursor?: string, limit = PAGE_SIZE) {
     feed: scope.feed,
     folder: scope.folder,
     q: scope.q,
-    // `order=oldest` needs the backend's ordering step; a server without it ignores the parameter
-    // (the list screen notices and says so). Newest first is the server default, so it is not sent.
+    // Newest first is the server default, so it is not sent. The UI is embedded in the server binary,
+    // so `order=oldest` is always understood (docs/design.md 7.1: cursor `a<sort_at>.<id>`).
     order: scope.rank ? "rank" : scope.order === "oldest" ? "oldest" : undefined,
     cursor,
     limit,

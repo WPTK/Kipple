@@ -140,18 +140,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
     if (!asOf.current && allItems.length) asOf.current = maxItemId(allItems.map((i) => i.id));
   }, [allItems]);
 
-  // A server that ignores order=oldest would leave a newest-first list under an "oldest" label.
-  const orderChecked = useRef<string>("");
-  useEffect(() => {
-    const first = q.data?.pages[0]?.items;
-    if (scope.order !== "oldest" || !first || first.length < 2 || orderChecked.current === key) return;
-    orderChecked.current = key;
-    if ((first[0] as Card).sort_at > (first[first.length - 1] as Card).sort_at) {
-      toast("This server can't sort oldest first yet, so the list stays newest first.");
-      updateDevicePrefs({ order: "newest" });
-    }
-  }, [q.data, scope.order, key]);
-
   const saved = memory.get(key);
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
   const selected = activeId ?? selectedId;

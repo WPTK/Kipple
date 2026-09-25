@@ -252,24 +252,6 @@ describe("order", () => {
     await waitFor(() => expect(calls.some((c) => c.url.searchParams.get("order") === "oldest")).toBe(true));
     expect(screen.getByRole("button", { name: "Oldest first" })).toHaveAttribute("aria-pressed", "true");
   });
-
-  it("degrades gracefully when the server ignores order=oldest", async () => {
-    // The mock keeps answering newest first: card(1) is newest, so sort_at falls down the list.
-    routes();
-    updateDevicePrefs({ order: "oldest" });
-    go("/l/unread");
-    expect((await screen.findAllByText(/can't sort oldest first yet/)).length).toBeGreaterThan(0);
-    await waitFor(() => expect(devicePrefsStore.get().order).toBe("newest"));
-  });
-
-  it("keeps oldest when the server honours it", async () => {
-    routes({ "GET /api/items": () => json(pageOf(items().reverse())) });
-    updateDevicePrefs({ order: "oldest" });
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    expect(screen.queryAllByText(/can't sort oldest first yet/)).toHaveLength(0);
-    expect(devicePrefsStore.get().order).toBe("oldest");
-  });
 });
 
 describe("undo toast", () => {
