@@ -6,6 +6,8 @@ package events
 import (
 	"encoding/json"
 	"sync"
+
+	"github.com/WPTK/kipple/internal/clock"
 )
 
 const (
@@ -37,8 +39,18 @@ type Hub struct {
 	closed bool
 }
 
-// New returns an empty hub.
-func New() *Hub { return &Hub{subs: map[*Sub]struct{}{}} }
+// New returns an empty hub on the wall clock.
+func New() *Hub { return NewWithClock(clock.Real{}) }
+
+// NewWithClock returns an empty hub whose event ids start at the clock's
+// current time in microseconds, so ids stay monotonic across process restarts
+// and a client's Last-Event-ID from a previous run is never ahead of a new one.
+func NewWithClock(clk clock.Clock) *Hub {
+	if clk == nil {
+		clk = clock.Real{}
+	}
+	return &Hub{subs: map[*Sub]struct{}{}, seq: uint64(max(clk.Now().UnixMicro(), 0))}
+}
 
 // Publish marshals data and delivers the event to every subscriber. A
 // subscriber whose buffer is full is dropped: it receives one final `resync`
@@ -80,7 +92,11 @@ func (h *Hub) Subscribe(lastID uint64) *Sub {
 		s.dead = true
 		return s
 	}
-	if lastID > 0 && lastID < h.seq {
+	if lastID > h.seq {
+		// the client remembers an id from a previous process (or the future):
+		// nothing can be replayed, so make it refetch
+		s.C <- Event{ID: h.seq, Type: "resync", Data: json.RawMessage("{}")}
+	} else if lastID > 0 && lastID < h.seq {
 		var replay []Event
 		for _, ev := range h.ring {
 			if ev.ID > lastID {
@@ -100,7 +116,7 @@ func (h *Hub) Subscribe(lastID uint64) *Sub {
 	return s
 }
 
-// LastID is the id of the most recent event (0 before the first).
+// LastID is the id of the most recent event (the seed before the first).
 func (h *Hub) LastID() uint64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()

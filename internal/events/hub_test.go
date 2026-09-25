@@ -2,9 +2,15 @@ package events
 
 import (
 	"testing"
+	"time"
+
+	"github.com/WPTK/kipple/internal/clock"
 
 	"github.com/stretchr/testify/require"
 )
+
+// newHub starts ids at 0 so tests can use small literal ids.
+func newHub() *Hub { return NewWithClock(clock.NewFake(time.Unix(0, 0))) }
 
 func drain(s *Sub) []Event {
 	var out []Event
@@ -15,7 +21,7 @@ func drain(s *Sub) []Event {
 }
 
 func TestPublishSubscribeOrder(t *testing.T) {
-	h := New()
+	h := newHub()
 	s := h.Subscribe(0)
 	h.Publish("a", map[string]int{"n": 1})
 	h.Publish("b", nil)
@@ -27,7 +33,7 @@ func TestPublishSubscribeOrder(t *testing.T) {
 }
 
 func TestOverflowDropsWithResync(t *testing.T) {
-	h := New()
+	h := newHub()
 	slow := h.Subscribe(0)
 	fast := h.Subscribe(0)
 	for i := 0; i < subBuffer; i++ {
@@ -43,7 +49,7 @@ func TestOverflowDropsWithResync(t *testing.T) {
 }
 
 func TestReplayFromRing(t *testing.T) {
-	h := New()
+	h := newHub()
 	for i := 0; i < 10; i++ {
 		h.Publish("e", i)
 	}
@@ -57,7 +63,7 @@ func TestReplayFromRing(t *testing.T) {
 }
 
 func TestReplayBeyondRingResyncs(t *testing.T) {
-	h := New()
+	h := newHub()
 	for i := 0; i < ringSize+50; i++ {
 		h.Publish("e", i)
 	}
@@ -68,7 +74,7 @@ func TestReplayBeyondRingResyncs(t *testing.T) {
 }
 
 func TestCloseClosesEveryChannel(t *testing.T) {
-	h := New()
+	h := newHub()
 	a, b := h.Subscribe(0), h.Subscribe(0)
 	h.Close()
 	h.Publish("late", nil) // no-op, no panic
@@ -80,4 +86,41 @@ func TestCloseClosesEveryChannel(t *testing.T) {
 	late := h.Subscribe(0)
 	_, ok = <-late.C
 	require.False(t, ok)
+}
+
+func TestSubscribeAheadOfSeqResyncs(t *testing.T) {
+	h := newHub()
+	for i := 0; i < 5; i++ {
+		h.Publish("e", i)
+	}
+	s := h.Subscribe(9999) // e.g. an id from before a restart
+	ev := <-s.C
+	require.Equal(t, "resync", ev.Type)
+	require.Equal(t, uint64(5), ev.ID)
+	h.Publish("e", 5)
+	require.Equal(t, uint64(6), (<-s.C).ID)
+
+	same := h.Subscribe(6) // caught up: nothing to send
+	select {
+	case ev := <-same.C:
+		t.Fatalf("unexpected event %v", ev)
+	default:
+	}
+}
+
+func TestSeqSeededFromClockStaysMonotonicAcrossRestart(t *testing.T) {
+	clk := clock.NewFake(time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC))
+	h1 := NewWithClock(clk)
+	h1.Publish("e", 1)
+	last := h1.LastID()
+	require.Equal(t, uint64(clk.Now().UnixMicro())+1, last)
+
+	clk.Advance(2 * time.Second) // process restarts later
+	h2 := NewWithClock(clk)
+	h2.Publish("e", 1)
+	require.Greater(t, h2.LastID(), last)
+
+	// a client holding the old id replays or resyncs, never silently gets nothing
+	s := h2.Subscribe(last)
+	require.Equal(t, "resync", (<-s.C).Type, "old id is behind the ring's start")
 }
