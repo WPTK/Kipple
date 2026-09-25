@@ -225,3 +225,25 @@ func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+// TZName is the `tz` setting as written (default America/New_York), without
+// resolving it: the caller decides what an unknown name means.
+func TZName(ctx context.Context, q Querier) string {
+	return settingString(ctx, q, "tz", "America/New_York")
+}
+
+// NightlyDate is the local calendar date (YYYY-MM-DD, in the zone that was
+// current then) of the last completed nightly run, or "" when there is none
+// (sys.last_nightly_date).
+func NightlyDate(ctx context.Context, q Querier) string {
+	return settingString(ctx, q, "sys.last_nightly_date", "")
+}
+
+// RecordNightlyDate stores the local date of a nightly run that has started.
+func (d *DB) RecordNightlyDate(ctx context.Context, date string, now int64) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES('sys.last_nightly_date', ?1, ?2)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, jsonString(date), now)
+		return err
+	})
+}

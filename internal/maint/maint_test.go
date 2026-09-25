@@ -3,7 +3,9 @@ package maint
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -256,38 +258,116 @@ func TestStopCancelsARunningPurgePromptly(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(e.db.BackupDir(), store.SnapshotName))
 }
 
-func TestNextNightly(t *testing.T) {
+func TestNightlyPassedAndBaseline(t *testing.T) {
 	at := DefaultNightlyAt
-	require.Equal(t, local(23, 4, 10), nextNightly(local(23, 3, 59), at, newYork))
-	require.Equal(t, local(24, 4, 10), nextNightly(local(23, 4, 10), at, newYork))
-	require.Equal(t, local(24, 4, 10), nextNightly(local(23, 23, 0), at, newYork))
-}
-
-func TestNextNightlyUsesTheGivenZone(t *testing.T) {
+	require.False(t, nightlyPassed(local(23, 4, 9), at, newYork))
+	require.True(t, nightlyPassed(local(23, 4, 10), at, newYork))
+	require.Equal(t, "2026-09-22", baseline(local(23, 3, 59), at, newYork), "today's run is still ahead")
+	require.Equal(t, "2026-09-23", baseline(local(23, 4, 10), at, newYork), "today's time has passed: the run is tomorrow's")
 	tokyo, err := time.LoadLocation("Asia/Tokyo")
 	require.NoError(t, err)
-	// 03:59 in New York is 16:59 in Tokyo: Tokyo's next 04:10 is 11 minutes past 04:00 NY + 11h.
-	now := local(23, 3, 59)
-	got := nextNightly(now, DefaultNightlyAt, tokyo)
-	require.Equal(t, time.Date(2026, 9, 24, 4, 10, 0, 0, tokyo), got)
-	require.True(t, got.After(local(23, 4, 10)))
+	// 03:59 in New York is 16:59 in Tokyo the same date.
+	require.True(t, nightlyPassed(local(23, 3, 59), at, tokyo))
+	require.Equal(t, "2026-09-23", baseline(local(23, 3, 59), at, tokyo))
 }
 
-// A changed tz setting moves the nightly run: the job follows the setting, not the process TZ.
-func TestNightlyFollowsTheTzSetting(t *testing.T) {
-	e := newEnv(t, local(23, 3, 59)) // default tz America/New_York: due at 04:10 NY
+func (e *env) setTZ(name string) {
+	e.t.Helper()
+	require.NoError(e.t, e.db.SetSettings(context.Background(), map[string]any{"tz": name}))
+}
+
+// nightlyOnce waits for the nightly to run (its optimize job) and then checks
+// that no second one follows within d.
+func (e *env) nightlyOnce(d time.Duration) {
+	e.t.Helper()
+	require.NoError(e.t, e.waitJob("snapshot").Err)
+	e.noNightly(d)
+}
+
+// Changing tz right after the nightly run neither repeats that local date nor
+// skips the next one, in a zone ahead of or behind the old one.
+func TestTzChangeAfterTheRunDoesNotRunTwiceOrSkip(t *testing.T) {
+	for _, tc := range []struct {
+		zone string
+		// minutes from 04:20 NY on the 23rd to the next expected run
+		wait time.Duration
+	}{
+		{"Asia/Tokyo", 10*time.Hour + 50*time.Minute},       // Tokyo 04:10 on the 24th is 15:10 NY on the 23rd
+		{"Pacific/Honolulu", 29*time.Hour + 50*time.Minute}, // HST 04:10 on the 24th is 10:10 NY on the 24th
+		{"America/Los_Angeles", 26*time.Hour + 50*time.Minute},
+	} {
+		t.Run(tc.zone, func(t *testing.T) {
+			e := newEnv(t, local(23, 3, 59))
+			e.start(Options{})
+			e.clk.Advance(12 * time.Minute) // 04:11 NY: the run for the 23rd
+			e.nightlyOnce(200 * time.Millisecond)
+
+			e.setTZ(tc.zone)
+			e.clk.Advance(9 * time.Minute) // 04:20 NY: the new zone's date is not later than the last run's
+			e.noNightly(300 * time.Millisecond)
+			e.clk.Advance(tc.wait - time.Minute)
+			e.noNightly(300 * time.Millisecond)
+			e.clk.Advance(time.Minute)
+			e.nightlyOnce(200 * time.Millisecond)
+		})
+	}
+}
+
+// Moving the zone earlier before the night's run must not skip that date: the
+// run for the 23rd happens as soon as the new zone's 04:10 has passed.
+func TestTzChangeBeforeTheRunDoesNotSkipTheDate(t *testing.T) {
+	e := newEnv(t, local(23, 3, 59)) // NY: due at 04:10
 	e.start(Options{})
-	require.NoError(t, e.db.SetSettings(context.Background(), map[string]any{"tz": "Asia/Tokyo"}))
+	e.setTZ("Asia/Tokyo") // 16:59 on the 23rd in Tokyo, the 23rd has not run
+	e.clk.Advance(time.Minute)
+	e.nightlyOnce(200 * time.Millisecond)
 
-	// 04:11 in New York is 17:11 in Tokyo: not due any more.
-	e.clk.Advance(12 * time.Minute)
+	// The next one is Tokyo 04:10 on the 24th (15:10 NY on the 23rd).
+	e.clk.Advance(11*time.Hour + 9*time.Minute)
 	e.noNightly(300 * time.Millisecond)
-
-	// 15:09 NY is 04:09 next day in Tokyo, still not due.
-	e.clk.Advance(11*time.Hour - 2*time.Minute)
-	e.noNightly(300 * time.Millisecond)
-
-	// 15:11 NY is 04:11 Tokyo: the nightly job runs.
 	e.clk.Advance(2 * time.Minute)
-	require.NoError(t, e.waitJob("optimize").Err)
+	e.nightlyOnce(200 * time.Millisecond)
 }
+
+// An unknown tz keeps the previous zone (no run at the UTC fallback's 04:10,
+// which is 00:10 NY... or here 09:10 NY) and logs a warning.
+func TestUnknownTzKeepsThePreviousZone(t *testing.T) {
+	var buf syncBuf
+	e := newEnv(t, local(23, 3, 59))
+	e.start(Options{Logger: slog.New(slog.NewTextHandler(&buf, nil))})
+	e.setTZ("Not/AZone")
+	e.clk.Advance(6 * time.Minute) // 04:05 NY = 09:05 UTC: past 04:10 only under a UTC fallback
+	e.noNightly(300 * time.Millisecond)
+	e.clk.Advance(6 * time.Minute) // 04:11 NY: on time in the kept zone
+	e.nightlyOnce(200 * time.Millisecond)
+	require.Contains(t, buf.String(), "unknown tz setting")
+	require.Equal(t, 1, strings.Count(buf.String(), "unknown tz setting"), "one warning per bad value")
+}
+
+// The last run's date survives a restart: no second run the same day, and a
+// night missed while stopped runs on the first tick.
+func TestNightlyDateSurvivesRestart(t *testing.T) {
+	e := newEnv(t, local(23, 3, 59))
+	m := e.start(Options{})
+	e.clk.Advance(12 * time.Minute)
+	e.nightlyOnce(200 * time.Millisecond)
+	m.Stop()
+
+	e.clk.Advance(time.Hour) // 05:20 the same day
+	e.start(Options{})
+	e.clk.Advance(time.Minute)
+	e.noNightly(300 * time.Millisecond)
+
+	e2 := e
+	e2.clk.Advance(48 * time.Hour) // down across two runs
+	e2.clk.Advance(time.Minute)
+	e2.nightlyOnce(200 * time.Millisecond)
+}
+
+type syncBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.b.Write(p) }
+func (s *syncBuf) String() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }

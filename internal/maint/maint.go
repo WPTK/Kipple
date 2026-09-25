@@ -118,30 +118,59 @@ func (m *Maint) Stop() {
 	<-done
 }
 
-// nextNightly is the first occurrence of at (offset from midnight in loc)
-// strictly after now.
-func nextNightly(now time.Time, at time.Duration, loc *time.Location) time.Time {
+// dateFmt is the layout of the persisted local date. It sorts as text.
+const dateFmt = "2006-01-02"
+
+// nightlyPassed reports whether the nightly time of day has been reached on the
+// local calendar date of now in loc (DST-safe: it builds the instant).
+func nightlyPassed(now time.Time, at time.Duration, loc *time.Location) bool {
 	now = now.In(loc)
 	y, mo, d := now.Date()
-	t := time.Date(y, mo, d, int(at/time.Hour), int(at%time.Hour/time.Minute), 0, 0, loc)
-	if !t.After(now) {
-		t = time.Date(y, mo, d+1, int(at/time.Hour), int(at%time.Hour/time.Minute), 0, 0, loc)
-	}
-	return t
+	return !now.Before(time.Date(y, mo, d, int(at/time.Hour), int(at%time.Hour/time.Minute), 0, 0, loc))
 }
 
-// location is the `tz` setting (design §2.6): the one time zone source for the
-// nightly job and statistics. It is read at every due-check, so a change takes
-// effect at the next tick. The process TZ only affects log timestamps.
-func (m *Maint) location(ctx context.Context) *time.Location {
-	return store.LoadLocation(ctx, m.o.DB.Reader())
+// baseline is the "already covered" date for a Maint that has never run: the
+// local date of start when the nightly time is already behind it (the run is
+// tomorrow's), else the day before (the run is today's).
+func baseline(start time.Time, at time.Duration, loc *time.Location) string {
+	l := start.In(loc)
+	if nightlyPassed(start, at, loc) {
+		return l.Format(dateFmt)
+	}
+	return l.AddDate(0, 0, -1).Format(dateFmt)
+}
+
+// zone resolves the `tz` setting (design 2.6). An unknown name keeps prev (the
+// zone in use) and is warned about once per distinct bad value; it is never
+// treated as a zone change.
+func (m *Maint) zone(ctx context.Context, prev *time.Location, badTZ *string) *time.Location {
+	name := store.TZName(ctx, m.o.DB.Reader())
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		if *badTZ != name {
+			*badTZ = name
+			m.log.Warn("maint: unknown tz setting, keeping the previous zone", "tz", name, "keeping", prev.String(), "err", err)
+		}
+		return prev
+	}
+	*badTZ = ""
+	return loc
 }
 
 func (m *Maint) run(ctx context.Context, done chan struct{}, tick <-chan time.Time, stopTick func(), start time.Time) {
 	defer close(done)
 	defer stopTick()
-	loc := m.location(ctx)
-	lastCheckpoint, next := start, nextNightly(start, m.o.NightlyAt, loc)
+	var badTZ string
+	loc := store.LoadLocation(ctx, m.o.DB.Reader()) // an unknown name is warned about on the first tick
+	// last is the local date (in the zone it ran under) of the last nightly run.
+	// The nightly job runs when the local date is later than last and the time
+	// of day has passed, so it runs once per local date, and a zone change can
+	// neither repeat a date nor skip one. It survives restarts.
+	last := baseline(start, m.o.NightlyAt, loc)
+	if p := store.NightlyDate(ctx, m.o.DB.Reader()); p != "" {
+		last = p // an older date means downtime over a run time: catch up on the first tick
+	}
+	lastCheckpoint := start
 	for {
 		select {
 		case <-ctx.Done():
@@ -153,13 +182,13 @@ func (m *Maint) run(ctx context.Context, done chan struct{}, tick <-chan time.Ti
 			lastCheckpoint = now
 			m.checkpoint(ctx)
 		}
-		// A changed tz moves the pending run to its next 04:10 in the new zone.
-		if cur := m.location(ctx); cur.String() != loc.String() {
-			loc = cur
-			next = nextNightly(now, m.o.NightlyAt, loc)
-		}
-		if !now.Before(next) {
-			next = nextNightly(now, m.o.NightlyAt, loc)
+		loc = m.zone(ctx, loc, &badTZ)
+		if today := now.In(loc).Format(dateFmt); today > last && nightlyPassed(now, m.o.NightlyAt, loc) {
+			last = today
+			// Recorded before the run: a crash mid-run is not retried in a loop.
+			if err := m.o.DB.RecordNightlyDate(ctx, today, now.Unix()); err != nil && ctx.Err() == nil {
+				m.log.Error("maint: record nightly date", "err", err)
+			}
 			m.nightly(ctx, now, loc)
 		}
 	}

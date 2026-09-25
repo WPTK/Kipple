@@ -156,6 +156,7 @@ Phase 2 (reading UI backend) so far.
 - Stored YouTube and Vimeo iframes carry `sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"` instead of bluemonday's empty `sandbox=""`, which showed a blank player in Reader clients (Reeder, NetNewsWire). A feed cannot widen the tokens (design 4.4 step 2a, 7.8).
 - Serve-time HTML: an unclosed `<video src="http://...">` or `<audio>` keeps its "Open video"/"Open audio" fallback link (written at the end of the input); the id-reference attributes `headers`, `for`, `aria-describedby`, `aria-labelledby`, `aria-controls` and `usemap` are prefixed `kp-` along with the ids they point at, so table headers, labels and image maps keep working.
 - Enclosure-only entries (podcast or photo feeds with no text) are no longer dropped as empty: they are kept, titled after the media file name (or the feed title), with the first media URL as their guid. Truly empty entries are still skipped and counted.
+- Nightly maintenance follows the `tz` setting without doubling or skipping a day: the local date of the last run is kept (`sys.last_nightly_date`, survives restarts) and the job runs once per local date once 04:10 has passed. An unknown `tz` name keeps the previous zone and logs a warning instead of being treated as a change to UTC.
 
 ## [0.1.0] - 2026-09-25
 
