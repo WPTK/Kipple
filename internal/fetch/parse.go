@@ -123,7 +123,7 @@ func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 			Title:   strings.TrimSpace(gi.Title),
 			Author:  itemAuthor(gi),
 		}
-		bases := []string{opt.FeedURL}
+		var bases []string
 		it.URL = sanitize.ResolveURL(origLink(gi), opt.FeedURL)
 		if it.URL == "" {
 			it.URL = sanitize.ResolveURL(it.RawLink, opt.FeedURL)

@@ -687,11 +687,9 @@ func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
 	}
 	r := newRig(t, Options{PerHost: 8})
 	srv := newSrv(t, serveOK)
-	var ids []int64
 	for i := 0; i < 138; i++ {
 		id := r.add(fmt.Sprintf("%s/f%d", srv.URL, i), nil)
 		r.setHost(id, fmt.Sprintf("h%d", i%40))
-		ids = append(ids, id)
 	}
 	// items the "API" will flip while the run commits
 	r.sql(`INSERT INTO feeds (url, url_key, host, enabled, disabled_reason, retention) VALUES ('kipple:archive','kipple:archive','',0,'archive',0)`)

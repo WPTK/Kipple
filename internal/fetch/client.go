@@ -95,7 +95,7 @@ func (c *Client) transport(v variant) *http.Transport {
 		t.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 	}
 	if v.insecureTLS {
-		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // per-feed opt-in
+		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // #nosec G402 -- deliberate per-feed opt-in for self-signed feeds (feeds.insecure_tls)
 	}
 	c.transports[v] = t
 	return t

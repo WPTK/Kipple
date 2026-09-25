@@ -282,11 +282,17 @@ func TestRedirectRows(t *testing.T) {
 	var target string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/feed", serveRSS)
-	mux.HandleFunc("/perm", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target+"/feed", 301) })
-	mux.HandleFunc("/perm308", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target+"/feed", 308) })
-	mux.HandleFunc("/temp", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target+"/feed", 302) })
-	mux.HandleFunc("/mixed", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target+"/perm", 302) })
-	mux.HandleFunc("/loop", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target+"/loop", 301) })
+	mux.HandleFunc("/perm", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target+"/feed", http.StatusMovedPermanently)
+	})
+	mux.HandleFunc("/perm308", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target+"/feed", http.StatusPermanentRedirect)
+	})
+	mux.HandleFunc("/temp", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target+"/feed", http.StatusFound) })
+	mux.HandleFunc("/mixed", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target+"/perm", http.StatusFound) })
+	mux.HandleFunc("/loop", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target+"/loop", http.StatusMovedPermanently)
+	})
 	srv, c := feedServer(t, mux.ServeHTTP)
 	target = srv.URL
 

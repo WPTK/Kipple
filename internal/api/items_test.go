@@ -728,12 +728,12 @@ func TestMarkReadUnreadRestoresLedger(t *testing.T) {
 
 func TestMarkReadScope(t *testing.T) {
 	type fixture struct {
-		h                        *harness
-		c                        *http.Cookie
-		a, b                     int64
-		fo                       int64
-		a1, a2, a3, b1, b2       int64
-		ledgerA, ledgerB, starrd int64
+		h                  *harness
+		c                  *http.Cookie
+		a, b               int64
+		fo                 int64
+		a1, a2, a3, b1, b2 int64
+		ledgerA, ledgerB   int64
 	}
 	setup := func(t *testing.T) fixture {
 		h := newHarness(t)

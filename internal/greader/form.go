@@ -66,14 +66,8 @@ func (c *capReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// splitPairs implements steps 2-3 of §6.2.
-func splitPairs(s string) []pair {
-	out, _ := splitPairsLimit(s)
-	return out
-}
-
-// splitPairsLimit is splitPairs that refuses (ok false, before allocating the
-// parts) an input with more than maxPairs pairs.
+// splitPairsLimit implements steps 2-3 of §6.2 and refuses (ok false, before
+// allocating the parts) an input with more than maxPairs pairs.
 func splitPairsLimit(s string) (out []pair, ok bool) {
 	if s == "" {
 		return nil, true

@@ -179,6 +179,7 @@ func fail(w http.ResponseWriter, code int) {
 }
 
 func (h *Handler) fetch(w http.ResponseWriter, r *http.Request, u *url.URL, flags int) {
+	// #nosec G704 -- URL is HMAC-signed by us; the transport dial guard blocks private ranges
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u.String(), nil)
 	if err != nil {
 		fail(w, http.StatusBadRequest)
@@ -204,6 +205,7 @@ func (h *Handler) fetch(w http.ResponseWriter, r *http.Request, u *url.URL, flag
 			return nil
 		},
 	}
+	// #nosec G704 -- same as above: signed URL, SSRF-guarded transport, capped redirects
 	resp, err := client.Do(req)
 	if err != nil {
 		h.log.Debug("imgproxy: upstream", "host", u.Host, "err", err)
