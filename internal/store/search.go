@@ -94,6 +94,10 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 		where = append(where, "i.feed_id IN (SELECT id FROM feeds WHERE folder_id = ?)")
 		args = append(args, q.FolderID)
 	}
+	if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes); w != "" {
+		where = append(where, w)
+		args = append(args, a...)
+	}
 	var outer, order string
 	var outerArgs []any
 	if q.Rank {
@@ -103,9 +107,9 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 			outerArgs = []any{q.Cursor.Rank, q.Cursor.Rank, q.Cursor.ID}
 		}
 	} else {
-		order = "sort_at DESC, id DESC"
+		order = dateOrder("", q.Oldest)
 		if q.Cursor != nil {
-			where = append(where, "(i.sort_at, i.id) < (?, ?)")
+			where = append(where, "(i.sort_at, i.id) "+keysetOp(q.Oldest)+" (?, ?)")
 			args = append(args, q.Cursor.SortAt, q.Cursor.ID)
 		}
 	}
@@ -153,7 +157,7 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 	if len(cards) > limit {
 		cards = cards[:limit]
 		last := cards[len(cards)-1]
-		return cards, &Cursor{SortAt: last.SortAt, ID: last.ID, Rank: lastRank, ByRank: q.Rank}, nil
+		return cards, &Cursor{SortAt: last.SortAt, ID: last.ID, Rank: lastRank, ByRank: q.Rank, Asc: q.Oldest}, nil
 	}
 	return cards, nil, nil
 }

@@ -73,6 +73,8 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	var q store.CardQuery
 	switch qv.Get("order") {
 	case "", "date":
+	case "oldest":
+		q.Oldest = true
 	case "rank":
 		q.Rank = true
 	default:
@@ -106,6 +108,17 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "bad_request")
 			return
 		}
+		var errMin, errMax error
+		if v := qv.Get("min_minutes"); v != "" {
+			q.MinMinutes, errMin = strconv.Atoi(v)
+		}
+		if v := qv.Get("max_minutes"); v != "" {
+			q.MaxMinutes, errMax = strconv.Atoi(v)
+		}
+		if errMin != nil || errMax != nil || !validMinutes(q.MinMinutes, q.MaxMinutes) {
+			writeError(w, http.StatusBadRequest, "bad_request")
+			return
+		}
 		var err1, err2, err3 error
 		if v := qv.Get("feed"); v != "" {
 			q.FeedID, err1 = strconv.ParseInt(v, 10, 64)
@@ -126,7 +139,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "bad_request")
 				return
 			}
-			if c.ByRank != q.Rank {
+			if c.ByRank != q.Rank || c.Asc != q.Oldest {
 				writeError(w, http.StatusBadRequest, "bad_request") // cursor from another ordering
 				return
 			}
@@ -290,7 +303,19 @@ type markReadRequest struct {
 		FolderID json.RawMessage `json:"folder_id"`
 		All      bool            `json:"all"`
 		View     string          `json:"view"`
+		Q        string          `json:"q"`
+		MinMin   int             `json:"min_minutes"`
+		MaxMin   int             `json:"max_minutes"`
 	} `json:"scope"`
+	Bound *struct {
+		Order  string `json:"order"`
+		Side   string `json:"side"`
+		Anchor *struct {
+			SortAt *int64          `json:"sort_at"`
+			ID     json.RawMessage `json:"id"`
+		} `json:"anchor"`
+		Inclusive bool `json:"inclusive"`
+	} `json:"bound"`
 	MaxID  json.RawMessage `json:"max_id"`
 	Read   *bool           `json:"read"`
 	Reason string          `json:"reason"`
@@ -310,7 +335,7 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 		bad()
 		return
 	}
-	if req.Read == nil || (req.IDs != nil) == (req.Scope != nil) {
+	if req.Read == nil || (req.IDs != nil) == (req.Scope != nil) || (req.Bound != nil && req.Scope == nil) {
 		bad()
 		return
 	}
@@ -318,6 +343,7 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 	now := s.now().Unix()
 
 	var scope store.MarkScope
+	var filter store.MarkFilter
 	var ids []int64
 	var maxID int64
 	if req.Scope != nil {
@@ -346,9 +372,27 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 		case "", "unread", "all":
 		case "starred":
 			scope.Starred = true
-		default:
+		default: // "muted" arrives with the filters engine
 			bad()
 			return
+		}
+		filter.Query = strings.TrimSpace(sc.Q)
+		filter.MinMinutes, filter.MaxMinutes = sc.MinMin, sc.MaxMin
+		if len(sc.Q) > maxSearchQuery || !validMinutes(sc.MinMin, sc.MaxMin) {
+			bad()
+			return
+		}
+		if req.Bound != nil {
+			if req.Bound.Anchor == nil {
+				bad()
+				return
+			}
+			b, ok := parseBound(req.Bound.Order, req.Bound.Side, req.Bound.Anchor.SortAt, req.Bound.Anchor.ID, req.Bound.Inclusive)
+			if !ok {
+				bad()
+				return
+			}
+			filter.Bound = &b
 		}
 		if targets != 1 || !read { // scope marks read only; mark-unread is by id
 			bad()
@@ -386,7 +430,7 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 	err := s.db.WithWrite(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
 		var err error
 		if req.Scope != nil {
-			res, err = store.MarkScopeRead(ctx, tx, scope, maxID, now)
+			res, err = store.MarkScopeRead(ctx, tx, scope, filter, maxID, now)
 		} else {
 			res, err = store.SetRead(ctx, tx, ids, read, now)
 		}
@@ -398,7 +442,12 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Debug("api: mark-read", "reason", req.Reason, "read", read, "changed", len(res.Changed))
 	s.publishState(res, map[string]any{"read": read})
-	writeJSON(w, http.StatusOK, map[string]any{"changed": idStrings(nonNil(res.Changed)), "restored": idStrings(nonNil(res.Restored))})
+	// Above the cap the ids are withheld: the client resyncs and offers no undo.
+	changed, undoable := res.Changed, len(res.Changed) <= maxMarkIDs
+	if !undoable {
+		changed = nil
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"changed": idStrings(nonNil(changed)), "restored": idStrings(nonNil(res.Restored)), "count": len(res.Changed), "undoable": undoable})
 }
 
 func nonNil(ids []int64) []int64 {
@@ -554,4 +603,40 @@ func (s *Server) Close() {
 		s.ctimer.Stop()
 		s.ctimer = nil
 	}
+}
+
+// maxMinutes bounds the reading-time filters to something a person could type.
+const maxMinutes = 10000
+
+func validMinutes(minM, maxM int) bool {
+	return minM >= 0 && maxM >= 0 && minM <= maxMinutes && maxM <= maxMinutes && (maxM == 0 || minM <= maxM)
+}
+
+// parseBound validates a mark-read bound. Rank order has no above or below, so
+// only the two date orders are accepted.
+func parseBound(order, side string, sortAt *int64, id json.RawMessage, inclusive bool) (store.Bound, bool) {
+	b := store.Bound{Inclusive: inclusive}
+	switch order {
+	case "date":
+	case "oldest":
+		b.Oldest = true
+	default:
+		return b, false
+	}
+	switch side {
+	case "above":
+		b.Above = true
+	case "below":
+	default:
+		return b, false
+	}
+	var ok bool
+	if sortAt == nil || *sortAt < 0 {
+		return b, false
+	}
+	b.SortAt = *sortAt
+	if b.ID, ok = parseID(id); !ok {
+		return b, false
+	}
+	return b, true
 }

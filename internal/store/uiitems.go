@@ -89,6 +89,47 @@ type CardQuery struct {
 	// BuildFTSQuery); Rank orders results by relevance instead of date.
 	Query string
 	Rank  bool
+	// Oldest lists ascending (sort_at ASC, id ASC) instead of newest first.
+	Oldest bool
+	// MinMinutes and MaxMinutes (0 = unset) keep items whose reading time
+	// (ceil(words/230)) is at least/at most that many minutes; items with no
+	// extracted text (word_count 0) never match either filter.
+	MinMinutes int
+	MaxMinutes int
+}
+
+// ReadingWhere is the SQL for the reading-time filters on column col
+// (word_count), or "" when neither is set. Minutes m means word_count in
+// ((m-1)*230, m*230].
+func ReadingWhere(col string, minM, maxM int) (string, []any) {
+	if minM <= 0 && maxM <= 0 {
+		return "", nil
+	}
+	sqlText, args := col+" > 0", []any(nil)
+	if minM > 1 {
+		sqlText += " AND " + col + " > ?"
+		args = append(args, int64(minM-1)*wordsPerMinute)
+	}
+	if maxM > 0 {
+		sqlText += " AND " + col + " <= ?"
+		args = append(args, int64(maxM)*wordsPerMinute)
+	}
+	return sqlText, args
+}
+
+// keysetOp is the row-value comparison that selects the rows after a cursor.
+func keysetOp(oldest bool) string {
+	if oldest {
+		return ">"
+	}
+	return "<"
+}
+
+func dateOrder(prefix string, oldest bool) string {
+	if oldest {
+		return prefix + "sort_at ASC, " + prefix + "id ASC"
+	}
+	return prefix + "sort_at DESC, " + prefix + "id DESC"
 }
 
 // Cursor is the keyset position (sort_at, id) of the last card served.
@@ -98,6 +139,7 @@ type Cursor struct {
 	ID     int64
 	Rank   float64
 	ByRank bool
+	Asc    bool // an oldest-first cursor: (sort_at, id) ascending
 }
 
 // Encode renders the opaque cursor: base64url of "sort_at.id", or "r<rank>|id"
@@ -106,7 +148,11 @@ func (c Cursor) Encode() string {
 	if c.ByRank {
 		return base64.RawURLEncoding.EncodeToString([]byte("r" + formatRank(c.Rank) + "|" + strconv.FormatInt(c.ID, 10)))
 	}
-	return base64.RawURLEncoding.EncodeToString([]byte(strconv.FormatInt(c.SortAt, 10) + "." + strconv.FormatInt(c.ID, 10)))
+	tag := ""
+	if c.Asc {
+		tag = "a"
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(tag + strconv.FormatInt(c.SortAt, 10) + "." + strconv.FormatInt(c.ID, 10)))
 }
 
 // ParseCursor is the inverse of Encode.
@@ -124,7 +170,8 @@ func ParseCursor(s string) (Cursor, error) {
 		}
 		return Cursor{ID: id, Rank: rank, ByRank: true}, nil
 	}
-	a, b, ok := strings.Cut(string(raw), ".")
+	body, asc := strings.CutPrefix(string(raw), "a")
+	a, b, ok := strings.Cut(body, ".")
 	if !ok {
 		return Cursor{}, errors.New("store: bad cursor")
 	}
@@ -133,7 +180,7 @@ func ParseCursor(s string) (Cursor, error) {
 	if err1 != nil || err2 != nil {
 		return Cursor{}, errors.New("store: bad cursor")
 	}
-	return Cursor{SortAt: sortAt, ID: id}, nil
+	return Cursor{SortAt: sortAt, ID: id, Asc: asc}, nil
 }
 
 const cardCols = `i.id, i.feed_id, i.title, i.url, i.author, substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url,
@@ -162,19 +209,52 @@ func scanCard(rows interface{ Scan(...any) error }) (Card, error) {
 // the next page, or nil when there is none. An ids query returns those cards
 // that still exist in items, with no cursor.
 func (d *DB) ListCards(ctx context.Context, q CardQuery) ([]Card, *Cursor, error) {
-	var where []string
-	var args []any
-	limit := q.Limit
 	if q.Query != "" && len(q.IDs) == 0 {
+		limit := q.Limit
 		if limit <= 0 {
 			limit = CardDefaultLimit
 		}
 		return d.searchCards(ctx, q, min(limit, CardMaxLimit))
 	}
+	sqlText, args, limit, err := listCardsSQL(q)
+	if err != nil {
+		return nil, nil, err
+	}
+	rows, err := d.reader.QueryContext(ctx, sqlText, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	cards := []Card{}
+	for rows.Next() {
+		c, err := scanCard(rows)
+		if err != nil {
+			return nil, nil, err
+		}
+		cards = append(cards, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	if len(cards) > limit {
+		cards = cards[:limit]
+		if len(q.IDs) == 0 {
+			last := cards[len(cards)-1]
+			return cards, &Cursor{SortAt: last.SortAt, ID: last.ID, Asc: q.Oldest}, nil
+		}
+	}
+	return cards, nil, nil
+}
+
+// listCardsSQL builds the non-search card query and returns the page limit.
+func listCardsSQL(q CardQuery) (string, []any, int, error) {
+	var where []string
+	var args []any
+	limit := q.Limit
 	if len(q.IDs) > 0 {
 		js, err := json.Marshal(q.IDs)
 		if err != nil {
-			return nil, nil, err
+			return "", nil, 0, err
 		}
 		where = append(where, "i.id IN (SELECT value FROM json_each(?))")
 		args = append(args, string(js))
@@ -198,8 +278,12 @@ func (d *DB) ListCards(ctx context.Context, q CardQuery) ([]Card, *Cursor, error
 			where = append(where, "i.feed_id IN (SELECT id FROM feeds WHERE folder_id = ?)")
 			args = append(args, q.FolderID)
 		}
+		if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes); w != "" {
+			where = append(where, w)
+			args = append(args, a...)
+		}
 		if q.Cursor != nil {
-			where = append(where, "(i.sort_at, i.id) < (?, ?)")
+			where = append(where, "(i.sort_at, i.id) "+keysetOp(q.Oldest)+" (?, ?)")
 			args = append(args, q.Cursor.SortAt, q.Cursor.ID)
 		}
 	}
@@ -207,33 +291,9 @@ func (d *DB) ListCards(ctx context.Context, q CardQuery) ([]Card, *Cursor, error
 	if len(where) > 0 {
 		sqlText += " WHERE " + strings.Join(where, " AND ")
 	}
-	sqlText += " ORDER BY i.sort_at DESC, i.id DESC LIMIT ?"
+	sqlText += " ORDER BY " + dateOrder("i.", q.Oldest && len(q.IDs) == 0) + " LIMIT ?"
 	args = append(args, limit+1)
-
-	rows, err := d.reader.QueryContext(ctx, sqlText, args...)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-	cards := []Card{}
-	for rows.Next() {
-		c, err := scanCard(rows)
-		if err != nil {
-			return nil, nil, err
-		}
-		cards = append(cards, c)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
-	if len(cards) > limit {
-		cards = cards[:limit]
-		if len(q.IDs) == 0 {
-			last := cards[len(cards)-1]
-			return cards, &Cursor{SortAt: last.SortAt, ID: last.ID}, nil
-		}
-	}
-	return cards, nil, nil
+	return sqlText, args, limit, nil
 }
 
 // ItemFeed is the feed summary embedded in an item.
@@ -354,24 +414,55 @@ func (d *DB) ItemKnown(ctx context.Context, id, now int64) (bool, error) {
 	return n == 1, err
 }
 
-// MarkScopeRead marks the unread items inside scope with id <= maxID read and
-// returns which ids changed; the scope's ledger rows are marked read too
-// (design §7.1). Like the other read-state functions it has no stats side effect.
-func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now int64) (StateResult, error) {
-	where, feedWhere := "", ""
-	args := []any{sql.Named("max", maxID)}
-	if scope.Starred {
-		where = " AND starred = 1"
-	}
+// Bound restricts a mark to one side of an anchor in the list's own
+// (sort_at, id) order (design §7.1). The anchor is excluded unless Inclusive.
+type Bound struct {
+	Oldest    bool // the list is oldest-first
+	Above     bool // rows shown before the anchor; false = after it
+	SortAt    int64
+	ID        int64
+	Inclusive bool
+}
+
+// op is the comparison that selects the bounded rows. In a newest-first list
+// "above" means a larger key; oldest-first flips it.
+func (b Bound) op() string {
+	greater := b.Above != b.Oldest
 	switch {
-	case scope.FeedID != 0:
-		feedWhere = " AND feed_id = :feed"
-		args = append(args, sql.Named("feed", scope.FeedID))
-	case scope.FolderID != 0:
-		feedWhere = " AND feed_id IN (SELECT id FROM feeds WHERE folder_id = :folder)"
-		args = append(args, sql.Named("folder", scope.FolderID))
+	case greater && b.Inclusive:
+		return ">="
+	case greater:
+		return ">"
+	case b.Inclusive:
+		return "<="
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT id, feed_id FROM items WHERE read = 0 AND id <= :max"+where+feedWhere, args...)
+	return "<"
+}
+
+// MarkFilter narrows a scope to what the list behind it showed: search text,
+// reading-time limits and an anchor bound. The zero value adds nothing.
+type MarkFilter struct {
+	Query      string
+	MinMinutes int
+	MaxMinutes int
+	Bound      *Bound
+}
+
+func (f MarkFilter) any() bool {
+	return f.Query != "" || f.MinMinutes > 0 || f.MaxMinutes > 0 || f.Bound != nil
+}
+
+// MarkScopeRead marks the unread items inside scope with id <= maxID read and
+// returns which ids changed. Without a filter the scope's ledger rows are
+// marked read too (design §7.1); a filtered scope never touches the ledger,
+// which has no sort_at, text or word count to test. Like the other read-state
+// functions it has no stats side effect.
+func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilter, maxID, now int64) (StateResult, error) {
+	sel, args, feedWhere, base, ok := markSelectSQL(scope, f, maxID)
+	if !ok {
+		return StateResult{}, nil // a search with no usable terms matches nothing
+	}
+	rows, err := tx.QueryContext(ctx, sel, args...)
 	if err != nil {
 		return StateResult{}, err
 	}
@@ -383,10 +474,50 @@ func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now 
 	if err != nil {
 		return res, err
 	}
-	if !scope.Starred {
-		if _, err := tx.ExecContext(ctx, "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :max"+feedWhere, args...); err != nil {
+	if !scope.Starred && !f.any() {
+		if _, err := tx.ExecContext(ctx, "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :max"+feedWhere, base...); err != nil {
 			return res, fmt.Errorf("store: mark scope ledger: %w", err)
 		}
 	}
 	return res, nil
+}
+
+// markSelectSQL builds the query that picks the unread ids to mark. base holds
+// the arguments the ledger statement shares (max and the feed/folder target).
+func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64) (sel string, args []any, feedWhere string, base []any, ok bool) {
+	where := ""
+	args = []any{sql.Named("max", maxID)}
+	if scope.Starred {
+		where = " AND starred = 1"
+	}
+	switch {
+	case scope.FeedID != 0:
+		feedWhere = " AND feed_id = :feed"
+		args = append(args, sql.Named("feed", scope.FeedID))
+	case scope.FolderID != 0:
+		feedWhere = " AND feed_id IN (SELECT id FROM feeds WHERE folder_id = :folder)"
+		args = append(args, sql.Named("folder", scope.FolderID))
+	}
+	base = append([]any(nil), args...)
+	extra := ""
+	if f.Query != "" {
+		match, ok := BuildFTSQuery(f.Query)
+		if !ok {
+			return "", nil, "", nil, false
+		}
+		extra += " AND id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH :match)"
+		args = append(args, sql.Named("match", match))
+	}
+	if w, a := ReadingWhere("word_count", f.MinMinutes, f.MaxMinutes); w != "" {
+		for i, v := range a {
+			w = strings.Replace(w, "?", fmt.Sprintf(":wc%d", i), 1)
+			args = append(args, sql.Named(fmt.Sprintf("wc%d", i), v))
+		}
+		extra += " AND " + w
+	}
+	if b := f.Bound; b != nil {
+		extra += " AND (sort_at, id) " + b.op() + " (:bsort, :bid)"
+		args = append(args, sql.Named("bsort", b.SortAt), sql.Named("bid", b.ID))
+	}
+	return "SELECT id, feed_id FROM items WHERE read = 0 AND id <= :max" + where + feedWhere + extra, args, feedWhere, base, true
 }
