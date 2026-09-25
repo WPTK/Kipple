@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { applyRead, applyStar, patchItems } from "@/api/queries";
+import { applyRead, applyStar, keys, patchItems } from "@/api/queries";
 import { api, errorMessage } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
 import type { Card, Scope } from "@/api/types";
@@ -65,12 +65,34 @@ export function itemActions(qc: QueryClient) {
     }
   }
 
-  /** After a bulk call: patch the ids the server changed and offer undo through them. */
-  function finishBulk(res: { changed: string[]; count?: number; undoable?: boolean; ledger_ids?: string[] }, restore?: () => void): void {
+  /**
+   * After a bulk call: patch the ids the server changed and offer undo through them. `local` are the rows
+   * the caller optimistically marked (and possibly hid); the ones the server did not change (above the
+   * list's `as_of`, or read elsewhere already) go back to unread, and `unhide` brings them back on screen.
+   */
+  function finishBulk(
+    res: { changed: string[]; count?: number; undoable?: boolean; ledger_ids?: string[] },
+    local: string[],
+    restore?: () => void,
+    unhide?: (ids: string[]) => void,
+  ): void {
+    const overCap = res.undoable === false && res.changed.length === 0 && (res.count ?? 0) > 0;
     // Only what the server says it changed is undoable: local guesses would flip items another client read.
     const changed = res.undoable === false ? [] : res.changed;
     const ledger = res.ledger_ids ?? [];
+    if (overCap) {
+      // The server marked more than it will list, so which local rows it skipped is unknown: refetch the truth.
+      announce(`Marked ${res.count} as read`);
+      void qc.invalidateQueries({ queryKey: keys.itemsAll }).then(() => unhide?.(local));
+      return;
+    }
     if (changed.length) patchItems(qc, changed, { read: true });
+    const kept = new Set(changed);
+    const skipped = local.filter((id) => !kept.has(id));
+    if (skipped.length) {
+      patchItems(qc, skipped, { read: false });
+      unhide?.(skipped);
+    }
     const n = res.count ?? changed.length;
     if (changed.length === 0) {
       announce(n === 0 ? "Nothing to mark" : `Marked ${n} as read`);
@@ -85,10 +107,10 @@ export function itemActions(qc: QueryClient) {
     });
   }
 
-  async function markSide(p: RangeParams, local: string[], restore?: () => void): Promise<void> {
+  async function markSide(p: RangeParams, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
     patchItems(qc, local, { read: true });
     try {
-      finishBulk(await markRange(p), restore);
+      finishBulk(await markRange(p), local, restore, unhide);
     } catch {
       patchItems(qc, local, { read: false });
       restore?.();
@@ -96,10 +118,10 @@ export function itemActions(qc: QueryClient) {
     }
   }
 
-  async function markAll(scope: Scope, maxId: string | undefined, local: string[], restore?: () => void): Promise<void> {
+  async function markAll(scope: Scope, maxId: string | undefined, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
     patchItems(qc, local, { read: true });
     try {
-      finishBulk(await markAllRead(scope, maxId), restore);
+      finishBulk(await markAllRead(scope, maxId), local, restore, unhide);
     } catch {
       patchItems(qc, local, { read: false });
       restore?.();

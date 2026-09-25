@@ -295,6 +295,12 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
     };
   }, []);
 
+  /** Bring some hidden rows back (the server did not mark them). */
+  const unhide = useCallback((ids: string[]) => {
+    setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
+    setHidden((h) => new Set([...h].filter((x) => !ids.includes(x))));
+  }, []);
+
   // After rows are removed, put the first visible row back where it was on screen.
   useLayoutEffect(() => {
     const a = pendingAnchor.current;
@@ -318,16 +324,16 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
       const part = side === "above" ? items.slice(0, at) : items.slice(at + 1);
       const local = part.filter((i) => !i.read).map((i) => i.id);
       const restore = unreadView && local.length ? hide(local) : undefined;
-      void act.markSide({ scope, order: scope.order === "oldest" ? "oldest" : "date", side, anchor: item, maxId: asOf.current }, local, restore);
+      void act.markSide({ scope, order: scope.order === "oldest" ? "oldest" : "date", side, anchor: item, maxId: asOf.current }, local, restore, unhide);
     },
-    [act, hide, items, scope, unreadView],
+    [act, hide, unhide, items, scope, unreadView],
   );
 
   const markAllRead = useCallback(() => {
     const local = items.filter((i) => !i.read).map((i) => i.id);
     const restore = unreadView && local.length ? hide(local) : undefined;
-    void act.markAll(scope, asOf.current, local, restore);
-  }, [act, hide, items, scope, unreadView]);
+    void act.markAll(scope, asOf.current, local, restore, unhide);
+  }, [act, hide, unhide, items, scope, unreadView]);
 
   const menuActions: RowMenuActions = useMemo(
     () => ({
