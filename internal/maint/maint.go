@@ -111,7 +111,10 @@ func (m *Maint) Start() {
 	// The ticker and the start time are taken here, not in the goroutine, so a
 	// clock advanced right after Start can never be missed.
 	tick, stopTick := m.clk.Ticker(tickEach)
-	go m.run(ctx, m.done, tick, stopTick, m.clk.Now())
+	// The zone is read here too: the baseline depends on it, so reading it in the
+	// goroutine let a tz change made right after Start pick a different baseline.
+	start := m.clk.Now()
+	go m.run(ctx, m.done, tick, stopTick, start, store.LoadLocation(ctx, m.o.DB.Reader()))
 }
 
 // Stop cancels the maintenance context (interrupting a running purge or
@@ -183,11 +186,10 @@ func (m *Maint) zone(ctx context.Context, prev *time.Location, badTZ *string) *t
 	return loc
 }
 
-func (m *Maint) run(ctx context.Context, done chan struct{}, tick <-chan time.Time, stopTick func(), start time.Time) {
+func (m *Maint) run(ctx context.Context, done chan struct{}, tick <-chan time.Time, stopTick func(), start time.Time, loc *time.Location) {
 	defer close(done)
 	defer stopTick()
 	var badTZ string
-	loc := store.LoadLocation(ctx, m.o.DB.Reader()) // an unknown name is warned about on the first tick
 	// last is the instant of the last nightly run. The job runs when the local
 	// date now is later than the date of that instant IN THE ZONE NOW IN USE and the
 	// time of day has passed, so it runs once per local date, and a zone change

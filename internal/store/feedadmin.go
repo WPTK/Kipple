@@ -506,3 +506,95 @@ func (d *DB) DeleteFolder(ctx context.Context, id int64) (moved []int64, err err
 	})
 	return moved, err
 }
+
+// ErrReorder is a bad Reorder request (an unknown or repeated id); it wraps
+// the reason for the caller's message.
+type ErrReorder struct{ Reason string }
+
+func (e *ErrReorder) Error() string { return "store: reorder: " + e.Reason }
+
+// FeedOrder is the wanted order of the feeds of one folder.
+type FeedOrder struct {
+	FolderID int64
+	IDs      []int64
+}
+
+// ReorderResult lists what actually changed.
+type ReorderResult struct {
+	Feeds   []int64 // feeds whose position or folder moved
+	Folders []int64 // folders whose position moved
+}
+
+// Reorder sets folder positions (0..n-1 in the order given) and feed positions
+// (0..n-1 inside each named folder, moving a feed into that folder if it is
+// elsewhere) in ONE transaction. Any unknown id, repeated id or the archive feed
+// aborts the whole call with nothing written (*ErrReorder, or ErrArchiveFeed).
+// Only rows whose values change are written.
+func (d *DB) Reorder(ctx context.Context, folders []int64, feeds []FeedOrder) (ReorderResult, error) {
+	var res ReorderResult
+	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		res = ReorderResult{}
+		seenF := map[int64]bool{}
+		for i, id := range folders {
+			if seenF[id] {
+				return &ErrReorder{fmt.Sprintf("folder %d is listed twice", id)}
+			}
+			seenF[id] = true
+			var pos int64
+			if err := tx.QueryRowContext(ctx, "SELECT position FROM folders WHERE id = ?", id).Scan(&pos); errors.Is(err, sql.ErrNoRows) {
+				return &ErrReorder{fmt.Sprintf("no such folder %d", id)}
+			} else if err != nil {
+				return err
+			}
+			if pos != int64(i) {
+				if _, err := tx.ExecContext(ctx, "UPDATE folders SET position = ? WHERE id = ?", i, id); err != nil {
+					return err
+				}
+				res.Folders = append(res.Folders, id)
+			}
+		}
+		seenG := map[int64]bool{}
+		seenID := map[int64]bool{}
+		for _, g := range feeds {
+			if seenG[g.FolderID] {
+				return &ErrReorder{fmt.Sprintf("folder %d has two feed lists", g.FolderID)}
+			}
+			seenG[g.FolderID] = true
+			var n int
+			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM folders WHERE id = ?", g.FolderID).Scan(&n); err != nil {
+				return err
+			}
+			if n == 0 {
+				return &ErrReorder{fmt.Sprintf("no such folder %d", g.FolderID)}
+			}
+			for i, id := range g.IDs {
+				if seenID[id] {
+					return &ErrReorder{fmt.Sprintf("feed %d is listed twice", id)}
+				}
+				seenID[id] = true
+				var pos, folder int64
+				var reason sql.NullString
+				err := tx.QueryRowContext(ctx, "SELECT position, folder_id, disabled_reason FROM feeds WHERE id = ?", id).Scan(&pos, &folder, &reason)
+				if errors.Is(err, sql.ErrNoRows) {
+					return &ErrReorder{fmt.Sprintf("no such feed %d", id)}
+				} else if err != nil {
+					return err
+				}
+				if reason.String == "archive" {
+					return ErrArchiveFeed
+				}
+				if pos != int64(i) || folder != g.FolderID {
+					if _, err := tx.ExecContext(ctx, "UPDATE feeds SET position = ?, folder_id = ?, updated_at = unixepoch() WHERE id = ?", i, g.FolderID, id); err != nil {
+						return err
+					}
+					res.Feeds = append(res.Feeds, id)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return ReorderResult{}, err
+	}
+	return res, nil
+}

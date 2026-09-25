@@ -51,7 +51,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-tick.C:
-			if !write(": ping\n\n") {
+			// The comment keeps proxies open; the named event (no id, so it never
+			// moves Last-Event-ID) is what an EventSource listener can observe, so
+			// a client watchdog can tell a hung stream from a quiet one.
+			if !write(": ping\n\nevent: heartbeat\ndata: {\"t\":%d}\n\n", s.now().Unix()) {
 				return
 			}
 		case <-r.Context().Done():

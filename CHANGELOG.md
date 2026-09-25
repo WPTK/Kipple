@@ -10,6 +10,12 @@ Phase 2 (reading UI backend) so far.
 
 ### Added
 
+- `GET /api/feeds/{id}` returns the full feed detail (what PATCH returns; never the HTTP credentials),
+  so the feed editor no longer sends a no-op PATCH to load it.
+- `POST /api/reorder` sets folder and feed positions (and feed folder moves) for a whole list in one
+  transaction; any bad id aborts it with nothing written. Replaces one PATCH per item when renumbering.
+- SSE `heartbeat` event (`{t}`, no id) every 15 s next to the `: ping` comment, so `EventSource` clients
+  can detect a hung stream.
 - Web UI foundation: React shell with a phone tab bar and desktop panes, 20 reading themes with a
   follow-system day/night pair, the Magazine list, the article view, live updates over SSE. `/` now serves
   the app; the status page stays at `/_status`.
@@ -147,6 +153,7 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- Nightly maintenance read the `tz` setting in its goroutine while the start time was taken in `Start`; a tz change right after start could pick a different baseline (flaky `TestTzChangeBeforeTheRunDoesNotSkipTheDate` in CI). The zone is now read in `Start` too.
 - Nightly job after a time zone change: the last run is recorded as an absolute instant and read in the
   new zone's calendar, so moving `tz` to a zone further behind no longer skips about a day (the old zone's
   date string compared as "tomorrow"). A night missed while the server was down now runs 5 minutes after

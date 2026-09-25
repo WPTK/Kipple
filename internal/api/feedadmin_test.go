@@ -110,7 +110,7 @@ func TestFeedAdminRoutesRequireSessionAndOrigin(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
 	routes := []struct{ method, path string }{
-		{"POST", "/api/feeds"}, {"PATCH", "/api/feeds/1"}, {"DELETE", "/api/feeds/1"},
+		{"POST", "/api/feeds"}, {"POST", "/api/reorder"}, {"GET", "/api/feeds/1"}, {"PATCH", "/api/feeds/1"}, {"DELETE", "/api/feeds/1"},
 		{"POST", "/api/feeds/1/refresh"}, {"POST", "/api/feeds/1/mark-fetch-read"},
 		{"POST", "/api/feeds/1/trimmed-unread/reset"}, {"POST", "/api/archive/purge-unstarred"},
 		{"POST", "/api/folders"}, {"PATCH", "/api/folders/1"}, {"DELETE", "/api/folders/1"},

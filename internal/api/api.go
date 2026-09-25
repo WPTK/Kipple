@@ -199,6 +199,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/opml", s.authed(s.opmlImport))
 	handle("GET /api/opml", s.authed(s.opmlExport))
 	handle("POST /api/feeds", s.authed(s.addFeed))
+	handle("GET /api/feeds/{id}", s.authed(s.getFeed))
+	handle("POST /api/reorder", s.authed(s.reorder))
 	handle("PATCH /api/feeds/{id}", s.authed(s.patchFeed))
 	handle("DELETE /api/feeds/{id}", s.authed(s.deleteFeed))
 	handle("POST /api/feeds/{id}/refresh", s.authed(s.refreshFeed))

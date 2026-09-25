@@ -722,3 +722,111 @@ func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// ---- GET /api/feeds/{id} ----
+
+// getFeed returns the same FeedDetail object PATCH returns, so the editor can
+// load it without a no-op PATCH. The archive feed answers like PATCH and refresh
+// do (409 archive_feed): it has no editor.
+func (s *Server) getFeed(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathItemID(r)
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	fd, found, err := s.db.FeedDetail(r.Context(), id, s.statusEnv())
+	if err != nil {
+		s.serverError(w, "get feed", err)
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if fd.IsArchive {
+		writeErrorMsg(w, http.StatusConflict, "archive_feed", "the archive feed cannot be edited")
+		return
+	}
+	writeJSON(w, http.StatusOK, fd)
+}
+
+// ---- POST /api/reorder ----
+
+const reorderMaxIDs = 20000
+
+// reorder is POST /api/reorder: {folders?:[ids in order], feeds?:[{folder_id, ids}]}.
+func (s *Server) reorder(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Folders []json.RawMessage `json:"folders"`
+		Feeds   []struct {
+			FolderID json.RawMessage   `json:"folder_id"`
+			IDs      []json.RawMessage `json:"ids"`
+		} `json:"feeds"`
+	}
+	m, ok := readObject(w, r, "folders", "feeds")
+	if !ok {
+		return
+	}
+	raw, _ := json.Marshal(m)
+	if err := json.Unmarshal(raw, &body); err != nil {
+		writeErrorMsg(w, http.StatusBadRequest, "bad_request", "folders is a list of ids and feeds a list of {folder_id, ids}")
+		return
+	}
+	bad := func(msg string) { writeErrorMsg(w, http.StatusBadRequest, "bad_request", msg) }
+	if len(body.Folders) == 0 && len(body.Feeds) == 0 {
+		bad("give folders and/or feeds")
+		return
+	}
+	total := len(body.Folders)
+	var folders []int64
+	for _, rw := range body.Folders {
+		id, ok := parseID(rw)
+		if !ok {
+			bad("folders must be folder ids")
+			return
+		}
+		folders = append(folders, id)
+	}
+	var feeds []store.FeedOrder
+	for _, g := range body.Feeds {
+		fid, ok := parseID(g.FolderID)
+		if !ok {
+			bad("feeds[].folder_id must be a folder id")
+			return
+		}
+		fo := store.FeedOrder{FolderID: fid}
+		for _, rw := range g.IDs {
+			id, ok := parseID(rw)
+			if !ok {
+				bad("feeds[].ids must be feed ids")
+				return
+			}
+			fo.IDs = append(fo.IDs, id)
+		}
+		total += len(fo.IDs)
+		feeds = append(feeds, fo)
+	}
+	if total > reorderMaxIDs {
+		bad("too many ids")
+		return
+	}
+	res, err := s.db.Reorder(r.Context(), folders, feeds)
+	var re *store.ErrReorder
+	switch {
+	case errors.As(err, &re):
+		bad(re.Reason)
+		return
+	case errors.Is(err, store.ErrArchiveFeed):
+		writeErrorMsg(w, http.StatusConflict, "archive_feed", "the archive feed cannot be reordered")
+		return
+	case err != nil:
+		s.serverError(w, "reorder", err)
+		return
+	}
+	for _, id := range res.Feeds {
+		s.publishFeedChanged(id)
+	}
+	// There is no folder-level event: the UI re-reads folders with the bootstrap
+	// after feed.changed, and the response below carries the new order.
+	writeJSON(w, http.StatusOK, map[string]any{"changed_feeds": idStrings(res.Feeds), "changed_folders": idStrings(res.Folders)})
+}

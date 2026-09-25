@@ -567,7 +567,7 @@ func TestSSEHeartbeatAndSurvivesWriteAndReadTimeout(t *testing.T) {
 	}
 	// and a real event published after both timeouts have elapsed is delivered
 	h.hub.Publish("run.done", map[string]any{"run_id": 1})
-	require.Equal(t, "event: run.done\n", readUntil(t, br, "event:", 2*time.Second))
+	require.Equal(t, "event: run.done\n", readUntil(t, br, "event: run.done", 2*time.Second)) // heartbeat events interleave
 	require.Contains(t, readUntil(t, br, "data:", time.Second), `"run_id":1`)
 }
 
@@ -581,12 +581,12 @@ func TestSSEReplayAndResync(t *testing.T) {
 	h.hub.Publish("two", 2)
 
 	br, closeBody := openStream(t, ts, c, itoa(first))
-	require.Equal(t, "event: two\n", readUntil(t, br, "event:", 2*time.Second))
+	require.Equal(t, "event: two\n", readUntil(t, br, "event: two", 2*time.Second))
 	closeBody()
 
 	br, closeBody = openStream(t, ts, c, "1") // ring cannot cover id 1
 	defer closeBody()
-	require.Equal(t, "event: resync\n", readUntil(t, br, "event:", 2*time.Second))
+	require.Equal(t, "event: resync\n", readUntil(t, br, "event: resync", 2*time.Second))
 }
 
 func TestSSEEndsOnHubClose(t *testing.T) {

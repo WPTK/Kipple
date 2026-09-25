@@ -1093,7 +1093,7 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and enqueues 
 
 - **`GET /api/events`** (session-authenticated):
   - Headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`, no `Content-Length`. The handler calls `http.Flusher` after every event.
-  - A `: ping` comment goes out every 15 s, well under Cloudflare's 125 s proxy read timeout.
+  - Every 15 s a `: ping` comment goes out, well under Cloudflare's 125 s proxy read timeout, followed by a named `heartbeat` event (`data: {"t":<unix>}`, no `id`), which `EventSource` can observe (§7.3).
   - Each subscriber has a buffered channel of 64. When it overflows, the hub drops the channel and sends one `resync` event.
   - The handler holds no database connection while waiting. Event ids are monotonic, and `Last-Event-ID` replays from a 500-event ring buffer.
   - Event list in §7.3.
@@ -1580,6 +1580,8 @@ Other conventions:
 | `POST /api/items/{id}/fulltext` | `{mode: 1\|0\|null}` (omit to keep the mode), `?refresh=1` | Sets `items.fulltext_mode`. If the effective mode is 1 and no successful extraction exists (or `refresh=1`), it extracts synchronously (15 s budget, guarded client, go-readabilityV2, absolutized against the article URL, the same sanitize policy) and stores `item_fulltext`; a stored transient failure older than 1 hour is retried the same way (§7.5). Returns `{mode, effective, status:"ok"\|"error"\|"skipped", content_html(proxied), word_count, error}` |
 | `GET /api/feeds/{id}/icon` | — | Icon bytes. `Cache-Control: private, max-age=604800` |
 | `POST /api/feeds` | `{url, folder_id?, title?}` | `FindFeedByURL` first: an existing match returns `{status:"exists", feed}`. Else `{status:"choose", candidates:[{url,title,type}]}` when discovery finds several; else creates the feed, waits ≤ 8 s for the first fetch, and returns `{status:"ok", feed}` |
+| `GET /api/feeds/{id}` | — | `feed`: the same FeedDetail object PATCH returns (`custom_title`, `dedup_mode`, `user_agent`, the network flags, `has_http_auth` (never `http_auth`), `retention`, `fulltext`, `interval_minutes`, `url`, `url_original`, `position`, `enabled`, `next_fetch_at`, `starred_count`, …). `404` for an unknown id, `409 archive_feed` for the archive feed (like PATCH and refresh). The editor loads it instead of sending a no-op PATCH |
+| `POST /api/reorder` | `{folders?:[folder ids in order], feeds?:[{folder_id, ids:[feed ids in order]}]}`; ids are strings or numbers, at least one key | `{changed_feeds:[ids], changed_folders:[ids]}`. One transaction: folder positions become 0..n-1 in the order given, and each listed feed gets position 0..n-1 in its `folder_id` (a feed listed under another folder moves there). Only rows whose position or folder changes are written. Any unknown or repeated id, a folder with two lists or the archive feed aborts everything: `400 bad_request` (message names the id), or `409 archive_feed`. Publishes `feed.changed` per changed feed; there is no folder-level event, so the UI reads `changed_folders` from the response and other tabs pick the order up on the next bootstrap |
 | `PATCH /api/feeds/{id}` | Any of `custom_title, folder_id, position, interval_minutes, retention, fulltext, dedup_mode, user_agent, http_auth, ignore_http_cache, disable_http2, allow_insecure_tls, allow_private_net, enabled` | `feed`. A `dedup_mode` change sets `rekey_pending`. `enabled:true` resets failures and sets `next_fetch_at = now`. A `retention` change enqueues a `trim_only` job |
 | `DELETE /api/feeds/{id}` | `?delete_starred=1` | `204`. By default starred items move to the archive feed (§6.9). The confirm dialog shows `starred_count` from the feed object |
 | `POST /api/feeds/{id}/refresh` | `?full=1` | Waits ≤ 15 s: `{outcome, new_items, error_class, error}`, or `202 {pending:true}` |
@@ -1626,7 +1628,10 @@ Each event is `event: <type>`, `id: <seq>`, `data: <json>`.
 | `fulltext.ready` | `{ids, source: "ingest"}`: ids (strings) whose background extraction finished, with text or an error; at most 500 per event, coalesced over about 300 ms. The UI refetches those items if it shows them |
 | `counts` | `{unread_total, feeds: {id: unread}}`, coalesced to at most 1 per second |
 | `feed.changed` | `{feed_id}`, on migration, disable, rename, move, archive or delete |
+| `heartbeat` | `{t: <unix seconds>}`, every 15 s, sent with **no `id`** so it never advances `Last-Event-ID`. It exists only so `EventSource` can see the stream is alive (a `: ping` comment is invisible to it) |
 | `resync` | `{}`, on buffer overflow or failed replay |
+
+A client watchdog reconnects when no event of any kind (heartbeat included) has arrived for 45 s, which catches a stream hung after a backend crash.
 
 The React app reconciles by item id. For `new_item_ids` inside the current view it calls `GET /api/items?ids=…`. If `EventSource` errors twice without a message, it polls `/api/status` every 2 s while a run is active, and every 60 s otherwise.
 
