@@ -112,6 +112,8 @@ type flight struct {
 	// and that it does not satisfy (a full refetch, a trim, a re-key). They are
 	// replayed, each as a fresh job on a fresh snapshot, once this one is done.
 	followups []priorityReq
+	// runFollows are runs' jobs for this feed that this job cannot stand in for.
+	runFollows []runFollow
 }
 
 type result struct {
