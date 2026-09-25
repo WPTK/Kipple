@@ -87,3 +87,21 @@ describe("toasts", () => {
     expect(screen.getByTestId("toast-region")).toHaveAttribute("data-inset", "toolbar");
   });
 });
+
+describe("row collapse in the Unread view", () => {
+  it("marks the row as leaving, then removes it after the collapse", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf([card(1), card(2)])),
+      "POST /api/items/mark-read": () => json({ changed: ["1001", "1002"], restored: [], count: 2, undoable: true }),
+    });
+    const { container } = go("/l/unread");
+    await screen.findByText("Article number 1");
+    const user = userEvent.setup();
+    await user.keyboard("{Shift>}A{/Shift}");
+    await waitFor(() => expect(container.querySelector('.kp-row[data-leaving="true"]')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull());
+    expect(screen.queryByText("Article number 2")).toBeNull();
+    expect(container.querySelector('.kp-row[data-leaving="true"]')).toBeNull();
+  });
+});

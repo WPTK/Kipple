@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNavigate } from "react-router";
@@ -11,6 +11,7 @@ import type { Card, Scope } from "@/api/types";
 import { SwipeRow } from "@/gestures/SwipeRow";
 import { openRowMenu } from "@/gestures/rowMenu";
 import { prefersReducedMotion } from "@/gestures/tracking";
+import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib/collapse";
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { useResolvedLayout } from "@/layouts";
 import type { RowMenuActions } from "@/layouts";
@@ -127,6 +128,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
   const cols = layout.grid ? columnsFor(width) : 1;
 
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
+  // Rows that are collapsing (COLLAPSE_MS) before they leave the list.
+  const [leaving, setLeaving] = useState<ReadonlySet<string>>(() => new Set());
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
   const allItems = useMemo(() => flattenItems(q.data), [q.data]);
   const items = useMemo(() => (hidden.size ? allItems.filter((i) => !hidden.has(i.id)) : allItems), [allItems, hidden]);
@@ -222,10 +225,43 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
 
   // ---- actions -----------------------------------------------------------
 
-  const hide = useCallback((ids: string[]): (() => void) => {
-    setHidden((h) => new Set([...h, ...ids]));
-    return () => setHidden((h) => new Set([...h].filter((x) => !ids.includes(x))));
+  const colsRef = useRef(cols);
+  colsRef.current = cols;
+  const pendingAnchor = useRef<ScrollAnchor | null>(null);
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const t = timers.current;
+    return () => t.forEach(clearTimeout);
   }, []);
+
+  /** Take rows out of the list: collapse them, then remove; the still-visible rows stay put on screen. */
+  const hide = useCallback((ids: string[]): (() => void) => {
+    const commit = () => {
+      const el = parentRef.current;
+      pendingAnchor.current = el && el.scrollTop > 0 ? captureAnchor(el, ids) : null;
+      setHidden((h) => new Set([...h, ...ids]));
+      setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (prefersReducedMotion() || colsRef.current > 1) commit();
+    else {
+      setLeaving((l) => new Set([...l, ...ids]));
+      timer = setTimeout(commit, COLLAPSE_MS);
+      timers.current.add(timer);
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+      setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
+      setHidden((h) => new Set([...h].filter((x) => !ids.includes(x))));
+    };
+  }, []);
+
+  // After rows are removed, put the first visible row back where it was on screen.
+  useLayoutEffect(() => {
+    const a = pendingAnchor.current;
+    pendingAnchor.current = null;
+    if (a && parentRef.current) compensate(parentRef.current, a);
+  }, [hidden]);
 
   /** Swipe right, `m` in the menu: toggle read. Unread view: a row that became read leaves at once. */
   const swipeRead = useCallback(
@@ -378,6 +414,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
     memory.delete(key);
     asOf.current = undefined;
     setHidden(new Set());
+    setLeaving(new Set());
     setChecked(new Set());
     // Other cached lists for the cleared feeds are now stale too; they refetch when next opened.
     void qc.invalidateQueries({ queryKey: keys.itemsAll, refetchType: "none" });
@@ -441,6 +478,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
               ref={virtualizer.measureElement}
               style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${v.start}px)` }}
             >
+              <div className="kp-row" data-leaving={r.kind === "item" && leaving.has(r.item.id) ? "true" : undefined}>
               {r.kind === "header" ? (
                 <h2 className="sticky top-0 z-[1] border-b border-line bg-bg px-4 py-2 text-xs font-semibold tracking-wide text-fg2 uppercase">
                   {r.label}
@@ -454,6 +492,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
               ) : (
                 renderRow(r.item, true, peekOn && r.item.id === firstItemId)
               )}
+              </div>
             </div>
           );
         })}

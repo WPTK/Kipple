@@ -146,6 +146,19 @@ body {
   white-space: normal;
 }
 
+/* Rows leaving the Unread list collapse to nothing (180 ms, matching lib/collapse.ts). */
+.kp-row { display: grid; grid-template-rows: 1fr; }
+.kp-row > * { min-height: 0; }
+.kp-row[data-leaving="true"] { animation: kp-collapse 180ms cubic-bezier(0.2, 0, 0, 1) forwards; pointer-events: none; }
+.kp-row[data-leaving="true"] > * { overflow: hidden; }
+@keyframes kp-collapse {
+  from { grid-template-rows: 1fr; opacity: 1; }
+  to { grid-template-rows: 0fr; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kp-row[data-leaving="true"] { animation: none; }
+}
+
 /* ---------- Article body ---------- */
 
 .article-body {
