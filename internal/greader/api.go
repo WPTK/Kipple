@@ -18,6 +18,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -30,6 +31,8 @@ type Options struct {
 	Logger *slog.Logger
 	// Wake asks the scheduler for a tick (non-blocking); optional.
 	Wake func()
+	// Stats records star/unstar rows from edit-tag (design §8); optional.
+	Stats stats.Recorder
 	// Events receives items.state and feed.changed notifications; optional.
 	Events *events.Hub
 	// Failures defaults to the design settings. Verifier must be the one

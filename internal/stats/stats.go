@@ -1,0 +1,139 @@
+// Package stats records reading events (design §8). Recorder is the only way
+// to write stats_events, and it is injected only into the web open handler, the
+// web star handler, the stats ingest handler and the Reader API edit-tag
+// handler. The mark-read paths never receive one.
+package stats
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
+	"errors"
+	"time"
+
+	"github.com/WPTK/kipple/internal/store"
+)
+
+// Event kinds (the stats_events CHECK is the whitelist).
+const (
+	KindOpen         = "open"
+	KindReadTime     = "read_time"
+	KindScroll       = "scroll"
+	KindStar         = "star"
+	KindUnstar       = "unstar"
+	KindOpenOriginal = "open_original"
+	KindShare        = "share"
+)
+
+var clients = map[string]bool{"web": true, "pwa": true, "reeder": true, "netnewswire": true, "unread": true, "api": true}
+
+// ErrDropped means the event failed validation and was not recorded. It is not
+// a database failure: the transaction may continue.
+var ErrDropped = errors.New("stats: event dropped")
+
+const (
+	sessionWindow = 12 * time.Hour
+	maxReadTime   = 3600
+)
+
+// Event is one stat to record.
+type Event struct {
+	Kind       string
+	Client     string
+	Inferred   bool
+	ItemID     int64
+	Value      int64 // read_time seconds, scroll percent
+	HasValue   bool
+	SessionKey string
+}
+
+// Recorder writes one event inside the caller's write transaction.
+type Recorder interface {
+	Record(tx *sql.Tx, ev Event) error
+}
+
+// SQL is the Recorder over the store's stats_events table.
+type SQL struct {
+	now func() time.Time
+}
+
+// New returns a Recorder; now defaults to the wall clock.
+func New(now func() time.Time) *SQL {
+	if now == nil {
+		now = time.Now
+	}
+	return &SQL{now: now}
+}
+
+// NewSessionKey returns a fresh random session key for an open event.
+func NewSessionKey() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b) // never fails on supported platforms
+	return hex.EncodeToString(b)
+}
+
+// Record validates ev (design §8 rule 4) and appends it. An event that fails
+// validation returns ErrDropped and writes nothing.
+func (r *SQL) Record(tx *sql.Tx, ev Event) error {
+	ctx := context.Background() // tx is already bound to the WithWrite deadline
+	if !clients[ev.Client] {
+		return ErrDropped
+	}
+	now := r.now()
+	snap, ok, err := store.StatItemSnapshot(ctx, tx, ev.ItemID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrDropped
+	}
+	var value sql.NullInt64
+	switch ev.Kind {
+	case KindOpen:
+		if ev.SessionKey == "" {
+			return ErrDropped
+		}
+	case KindStar, KindUnstar, KindOpenOriginal, KindShare:
+		ev.SessionKey = "" // session keys only belong to open, read_time and scroll
+	case KindReadTime, KindScroll:
+		if ev.SessionKey == "" || !ev.HasValue {
+			return ErrDropped
+		}
+		openTS, ok, err := store.StatOpenTS(ctx, tx, ev.SessionKey, ev.ItemID, now.Add(-sessionWindow).Unix())
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrDropped
+		}
+		if ev.Kind == KindReadTime {
+			if ev.Value < 1 || ev.Value > 60 {
+				return ErrDropped
+			}
+			sum, err := store.StatReadTimeSum(ctx, tx, ev.SessionKey)
+			if err != nil {
+				return err
+			}
+			if total := sum + ev.Value; total > now.Unix()-openTS+5 || total > maxReadTime {
+				return ErrDropped
+			}
+		} else {
+			ev.Value = min(max(ev.Value, 0), 100)
+			existed, err := store.StatSetScroll(ctx, tx, ev.SessionKey, ev.Value)
+			if err != nil || existed {
+				return err
+			}
+		}
+		value = sql.NullInt64{Int64: ev.Value, Valid: true}
+	default:
+		return ErrDropped
+	}
+	lt := now.In(store.LoadLocation(ctx, tx))
+	return store.InsertStat(ctx, tx, store.StatRow{
+		TS: now.Unix(), LocalDate: lt.Format("2006-01-02"), LocalHour: lt.Hour(), LocalWeekday: int(lt.Weekday()),
+		Kind: ev.Kind, Client: ev.Client, Inferred: ev.Inferred, ItemID: ev.ItemID,
+		FeedID: snap.FeedID, FeedTitle: snap.FeedTitle, FolderID: snap.FolderID, FolderName: snap.FolderName,
+		ItemTitle: snap.ItemTitle, ItemURL: snap.ItemURL, Value: value, SessionKey: ev.SessionKey,
+	})
+}

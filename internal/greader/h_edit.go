@@ -3,9 +3,11 @@ package greader
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strconv"
 
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -87,6 +89,19 @@ func (c *call) editTag() {
 			}
 			if err != nil {
 				return err
+			}
+			if op.starred != nil && c.a.opt.Stats != nil {
+				// one star/unstar row per id RETURNING showed changing (restores included)
+				kind := stats.KindUnstar
+				if *op.starred {
+					kind = stats.KindStar
+				}
+				for _, id := range res.Changed {
+					err := c.a.opt.Stats.Record(tx, stats.Event{Kind: kind, Client: c.family, ItemID: id})
+					if err != nil && !errors.Is(err, stats.ErrDropped) {
+						return err
+					}
+				}
 			}
 			changes = append(changes, change{op, res})
 		}
