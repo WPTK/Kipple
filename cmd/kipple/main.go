@@ -19,6 +19,7 @@ import (
 	// distroless images don't have.
 	_ "time/tzdata"
 
+	"github.com/WPTK/kipple/internal/api"
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/fetch"
@@ -122,11 +123,10 @@ func runServe() error {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+	api.New(api.Options{
+		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
+		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen,
+	}).Register(mux)
 	mux.Handle("/", webHandler)
 
 	srv := &http.Server{
@@ -134,8 +134,10 @@ func runServe() error {
 		Handler:           readerAPI.Front(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		// WriteTimeout would kill /api/events; the SSE handler replaces it with a
+		// per-write deadline through http.ResponseController (internal/api/sse.go).
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

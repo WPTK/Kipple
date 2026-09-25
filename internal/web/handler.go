@@ -7,6 +7,7 @@ package web
 import (
 	"bytes"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"fmt"
 	"io/fs"
@@ -16,17 +17,12 @@ import (
 	"github.com/WPTK/kipple/web"
 )
 
-// placeholderIndex is served in place of the real SPA when web/dist has not
-// been built (a fresh clone with no `npm run build` yet, e.g. `go test`).
-const placeholderIndex = `<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Kipple</title></head>
-<body>
-<p>Kipple's frontend has not been built. Run "npm run build" in web/, or
-use the Docker image, which builds it as part of the image.</p>
-</body>
-</html>
-`
+// statusPage is the one-file status page (login, feed health, refresh, live
+// events). It is served in place of the SPA until web/dist has a real build
+// (a fresh clone, `go test`, or phase 1), and always at /_status.
+//
+//go:embed status.html
+var statusPage []byte
 
 // NewHandler returns an http.Handler serving the embedded frontend.
 func NewHandler() (http.Handler, error) {
@@ -40,6 +36,11 @@ func NewHandler() (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /assets/", immutable(http.FileServerFS(dist)))
+	mux.HandleFunc("GET /_status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("ETag", etagOf(statusPage))
+		http.ServeContent(w, r, "status.html", time.Time{}, bytes.NewReader(statusPage))
+	})
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("ETag", etag)
@@ -54,7 +55,7 @@ func NewHandler() (http.Handler, error) {
 func readIndex(dist fs.FS) ([]byte, time.Time) {
 	b, err := fs.ReadFile(dist, "index.html")
 	if err != nil {
-		return []byte(placeholderIndex), time.Time{}
+		return statusPage, time.Time{}
 	}
 	return b, time.Now()
 }
