@@ -4,7 +4,8 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { ApiError, authStore } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import { useStore } from "@/lib/store";
-import { FeedsScreen } from "@/screens/FeedTree";
+import { FeedsScreen } from "@/screens/FeedsScreen";
+import { HealthScreen } from "@/screens/HealthScreen";
 import { LoginScreen } from "@/screens/LoginScreen";
 import { ItemRoute, ListRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
@@ -56,6 +57,7 @@ function Gate() {
         <Route path="l/:view" element={<ListRoute />} />
         <Route path="i/:id" element={<ItemRoute />} />
         <Route path="feeds" element={<FeedsScreen />} />
+        <Route path="health" element={<HealthScreen />} />
         <Route path="search" element={<SearchScreen />} />
         <Route path="settings" element={<SettingsScreen />} />
         <Route path="*" element={<Navigate to="/l/unread" replace />} />

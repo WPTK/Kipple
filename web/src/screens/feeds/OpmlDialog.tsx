@@ -1,0 +1,113 @@
+import { useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ApiError, errorMessage } from "@/api/client";
+import { importOpml, invalidateFeeds, type OpmlResult } from "@/api/admin";
+import { Button } from "@/ui/button";
+import { Field, Modal, Notice, inputCls } from "@/ui/kit";
+import { announce } from "@/shell/toasts";
+
+export function opmlError(e: unknown): string {
+  if (e instanceof ApiError) {
+    const msg = typeof e.body?.message === "string" ? e.body.message : "";
+    if (e.status === 413) return "That file is too large to import.";
+    if (e.status === 400 || e.status === 422) return msg ? `Kipple couldn't read that file: ${msg}` : "Kipple couldn't read that file. Choose an OPML file exported from another reader.";
+  }
+  return errorMessage(e);
+}
+
+/** Import an OPML file: file picker, the mark-older-as-read option, then the result summary. */
+export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const input = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [days, setDays] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<OpmlResult | null>(null);
+
+  const daysNum = days.trim() === "" ? undefined : Number(days);
+  const daysBad = daysNum !== undefined && (!Number.isInteger(daysNum) || daysNum < 1 || daysNum > 365);
+
+  const run = async () => {
+    if (!file || daysBad) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await importOpml(file, daysNum);
+      setResult(r);
+      invalidateFeeds(qc);
+      announce(`Imported ${r.feeds_added} feed${r.feeds_added === 1 ? "" : "s"}`);
+    } catch (e) {
+      setError(opmlError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (result) {
+    const existing = result.feeds_existing.length;
+    const dropped = result.memberships_dropped.length;
+    return (
+      <Modal open onOpenChange={(o) => !o && onClose()} title="Import finished" footer={<Button variant="solid" onClick={onClose}>Done</Button>}>
+        <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
+          <li>
+            {result.feeds_added} feed{result.feeds_added === 1 ? "" : "s"} added
+          </li>
+          <li>
+            {result.folders_created} folder{result.folders_created === 1 ? "" : "s"} created
+          </li>
+          {existing ? (
+            <li>
+              {existing} feed{existing === 1 ? " was" : "s were"} already in Kipple and left as they are
+            </li>
+          ) : null}
+          {dropped ? (
+            <li>
+              {dropped} feed{dropped === 1 ? " was" : "s were"} listed in more than one folder. Each stays in the first.
+            </li>
+          ) : null}
+          {result.folders_merged_case.length ? <li>Folders that differed only by capital letters were merged: {result.folders_merged_case.join(", ")}</li> : null}
+        </ul>
+        {result.run_id ? <p className="text-sm text-fg2">Kipple is fetching the new feeds now.</p> : null}
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Import OPML"
+      description="OPML is the file most feed readers export. Feeds you already have are left alone."
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="solid" disabled={!file || busy || daysBad} onClick={() => void run()}>
+            {busy ? "Importing" : "Import"}
+          </Button>
+        </>
+      }
+    >
+      {error ? <Notice tone="error">{error}</Notice> : null}
+      <Field label="OPML file">
+        {(a) => (
+          <input
+            {...a}
+            ref={input}
+            type="file"
+            accept=".opml,.xml,text/xml,application/xml,text/x-opml"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className={`${inputCls} py-2`}
+          />
+        )}
+      </Field>
+      <Field
+        label="Mark older articles as read (optional)"
+        help="Enter a number of days. Articles older than that arrive already read, so a big import doesn't flood Unread."
+        error={daysBad ? "Enter a whole number from 1 to 365, or leave empty." : null}
+      >
+        {(a) => <input {...a} inputMode="numeric" type="text" value={days} onChange={(e) => setDays(e.target.value)} placeholder="For example 7" className={inputCls} />}
+      </Field>
+    </Modal>
+  );
+}

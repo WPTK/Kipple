@@ -54,3 +54,21 @@ export function withDayHeaders<T extends { id: string; sort_at: number }>(items:
   }
   return rows;
 }
+
+/** "3 hours ago" or "in 20 minutes" for a unix-seconds time; "never" for null. */
+export function whenLabel(unix: number | null | undefined, nowMs: number = Date.now()): string {
+  if (!unix) return "Never";
+  const diff = Math.round(unix - nowMs / 1000);
+  const abs = Math.abs(diff);
+  const [n, unit] = abs < 60 ? [abs, "second"] : abs < 3600 ? [Math.round(abs / 60), "minute"] : abs < DAY ? [Math.round(abs / 3600), "hour"] : [Math.round(abs / DAY), "day"];
+  if (abs < 45) return diff <= 0 ? "Just now" : "Any moment";
+  const span = `${n} ${unit}${n === 1 ? "" : "s"}`;
+  return diff < 0 ? `${span} ago` : `in ${span}`;
+}
+
+export function bytesLabel(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  return `${(n / 1024 ** 3).toFixed(2)} GB`;
+}

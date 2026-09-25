@@ -12,7 +12,7 @@ function Badge({ n }: { n: number }) {
   );
 }
 
-const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
+export const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 
 /** Folders and their feeds, each linking to that scope's unread list. */
 export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
@@ -54,37 +54,5 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
         );
       })}
     </ul>
-  );
-}
-
-export function FeedsScreen() {
-  const boot = useBootstrap();
-  const c = boot.data?.counts;
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="pt-safe shrink-0 border-b border-line px-4 pb-2">
-        <h1 className="pt-2 text-xl font-bold" tabIndex={-1} data-route-heading>Feeds</h1>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-        <ul className="mb-2 flex flex-col gap-1">
-          <li>
-            <Link to={listTo({ view: "unread" })} className={row}>
-              Unread
-              <Badge n={c?.unread ?? 0} />
-            </Link>
-          </li>
-          <li>
-            <Link to={listTo({ view: "all" })} className={row}>All articles</Link>
-          </li>
-          <li>
-            <Link to={listTo({ view: "starred" })} className={row}>
-              Starred
-              <Badge n={c?.starred ?? 0} />
-            </Link>
-          </li>
-        </ul>
-        <FeedTree />
-      </div>
-    </div>
   );
 }
