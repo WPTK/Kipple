@@ -16,11 +16,9 @@ export const STEP_LABELS: Record<Step, string> = {
 export const TEXT_SIZES = [0.875, 1, 1.125, 1.25, 1.5] as const;
 export const TEXT_SIZE_LABELS = ["Smaller", "Default", "Large", "Larger", "Largest"] as const;
 
-export type LayoutId = "magazine";
 export type FontId = "default" | "easy";
 
 export interface Prefs {
-  layout: LayoutId;
   font: FontId;
   textSize: number;
   /** One "Density" choice drives both by default; "Adjust separately" splits them. */
@@ -32,7 +30,6 @@ export interface Prefs {
 }
 
 export const DEFAULT_PREFS: Prefs = {
-  layout: "magazine",
   font: "default",
   textSize: 1,
   listDensity: "standard",
@@ -51,7 +48,6 @@ export function parsePrefs(raw: string | null): Prefs {
   try {
     const v = JSON.parse(raw) as Partial<Prefs> | null;
     return {
-      layout: "magazine",
       font: v?.font === "easy" ? "easy" : "default",
       textSize: (TEXT_SIZES as readonly number[]).includes(v?.textSize as number) ? (v?.textSize as number) : d.textSize,
       listDensity: isStep(v?.listDensity) ? v.listDensity : d.listDensity,

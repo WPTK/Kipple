@@ -154,7 +154,7 @@ body {
 .article-body h1, .article-body h2, .article-body h3, .article-body h4 {
   line-height: 1.25;
   margin-block: var(--kp-hgap) 0.5em;
-  font-weight: 700;
+  font-size: 0; /* the label is the aria-label; the glyph is drawn below */
 }
 .article-body h1 { font-size: 1.5em; }
 .article-body h2 { font-size: 1.3em; }
@@ -207,3 +207,95 @@ body {
 #article-title:focus {
   outline: none;
 }
+
+/* ---------- Row chrome shared by every layout ---------- */
+
+/* Row controls: 44 px hit area on touch, 32 px with a mouse. */
+.hit-row { min-width: 32px; min-height: 32px; }
+@media (pointer: coarse) {
+  .hit-row { min-width: 44px; min-height: 44px; }
+}
+
+/* Mouse users get controls on hover or keyboard focus; touch users see them always. */
+@media (hover: hover) and (pointer: fine) {
+  .row-reveal { opacity: 0; }
+  .row-host:hover .row-reveal,
+  .row-host:focus-within .row-reveal,
+  .row-reveal[data-state="open"],
+  .row-reveal:focus-visible { opacity: 1; }
+}
+.row-fine-only { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .row-fine-only { display: inline-flex; }
+}
+
+/* Row heights by list density step (D1 to D5): docs round-2 section 2.2.
+   Compact 44/48/56/64/72; Headlines 44 touch (28/32/36/56/64 with a mouse). */
+:root { --compact-row: 3.5rem; --head-row: 2.25rem; }
+[data-list-density="dense"] { --compact-row: 2.75rem; --head-row: 1.75rem; }
+[data-list-density="snug"] { --compact-row: 3rem; --head-row: 2rem; }
+[data-list-density="standard"] { --compact-row: 3.5rem; --head-row: 2.25rem; }
+[data-list-density="relaxed"] { --compact-row: 4rem; --head-row: 3.5rem; }
+[data-list-density="airy"] { --compact-row: 4.5rem; --head-row: 4rem; }
+.row-compact { min-height: var(--compact-row); }
+.row-headline { min-height: var(--head-row); }
+@media (pointer: coarse) {
+  .row-compact, .row-headline { min-height: max(44px, var(--compact-row)); }
+  .row-headline { min-height: max(44px, calc(var(--head-row) + 0.5rem)); }
+}
+
+/* The swipe layer: rows pan vertically by the browser and horizontally by us. */
+.swipe-content { touch-action: pan-y; -webkit-touch-callout: none; }
+@media (prefers-reduced-motion: reduce) {
+  .swipe-content, .swipe-panel { transition: none !important; }
+}
+
+/* ---------- Article embeds (click to load) ---------- */
+
+.swipe-back-area { touch-action: pan-y pinch-zoom; }
+
+.article-body figure.kp-embed {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: var(--kp-surface);
+  border: 1px solid var(--kp-border);
+}
+.article-body figure.kp-embed > img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 0; }
+.article-body figure.kp-embed:not(:has(> img)):not([data-loaded="1"]) { padding-block: 0.75rem; text-align: center; }
+.article-body figure.kp-embed > a { display: block; padding: 0.5rem 0.75rem; font-size: 0.875em; }
+.article-body .kp-embed-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
+.article-body .kp-embed-play {
+  position: absolute;
+  inset: 0 0 auto 0;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--kp-bg);
+  font-size: 0; /* label is the aria-label; the glyph is drawn below */
+  cursor: pointer;
+}
+.article-body .kp-embed-play::before {
+  content: "";
+  position: absolute;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 9999px;
+  background: var(--kp-text);
+  opacity: 0.85;
+}
+.article-body .kp-embed-play { z-index: 1; }
+.article-body .kp-embed-play::after {
+  content: "";
+  position: absolute;
+  border-style: solid;
+  border-width: 0.9rem 0 0.9rem 1.4rem;
+  border-color: transparent transparent transparent var(--kp-bg);
+  margin-left: 0.25rem;
+}
+.article-body a[href^="#kp-"] { text-decoration-style: dotted; }

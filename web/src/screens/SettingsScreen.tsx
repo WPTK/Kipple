@@ -2,6 +2,7 @@ import { useId, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, authStore, errorMessage } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
+import { LAYOUT_IDS, LAYOUT_LABELS, updateDevicePrefs, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
 import { STEPS, STEP_LABELS, TEXT_SIZES, TEXT_SIZE_LABELS, prefsStore, updatePrefs, type FontId, type Step } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { ThemePicker } from "@/theme/ThemePicker";
@@ -46,6 +47,7 @@ function DensityPreview({ list, reading }: { list: Step; reading: Step }) {
 
 export function SettingsScreen() {
   const p = useStore(prefsStore);
+  const dp = useDevicePrefs();
   const boot = useBootstrap();
   const qc = useQueryClient();
   const switchId = useId();
@@ -110,6 +112,31 @@ export function SettingsScreen() {
             />
             Adjust lists and reading separately
           </label>
+        </Section>
+
+        <Section title="Lists">
+          <Segmented<LayoutId>
+            legend="Layout"
+            hint="The default for this device. Each feed and folder can override it from the layout button in its list."
+            value={dp.layout}
+            onChange={(layout) => updateDevicePrefs({ layout })}
+            options={LAYOUT_IDS.map((id) => ({ value: id, label: LAYOUT_LABELS[id] }))}
+          />
+          <Segmented<"auto" | "off">
+            legend="Thumbnails in Inbox"
+            value={dp.inboxThumbs}
+            onChange={(inboxThumbs) => updateDevicePrefs({ inboxThumbs })}
+            options={[
+              { value: "auto", label: "Auto" },
+              { value: "off", label: "Off" },
+            ]}
+          />
+          <div>
+            <Button onClick={() => updateDevicePrefs({ peekSeen: false })} className="self-start">
+              Show swipe tips again
+            </Button>
+            <p className="mt-1 text-xs text-fg2">Swipe a row right to mark it read or unread, left to star it or see more. Every swipe has a button.</p>
+          </div>
         </Section>
 
         <Section title="Keyboard">

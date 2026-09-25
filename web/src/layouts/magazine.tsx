@@ -1,7 +1,7 @@
 import { Link } from "react-router";
-import { Star } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/format";
+import { CheckBadge, RowMenu, SourceIcon, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 
 /**
@@ -10,27 +10,23 @@ import type { ListLayout, RowProps } from "./types";
  * text, never color alone; read rows dim to the secondary color.
  * Row height is max(--row-min, content), never fixed (see index.css).
  */
-function MagazineRow({ item, feed, selected, to, onOpen, onToggleStar }: RowProps) {
+function MagazineRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
   const unread = !item.read;
   return (
     <article
       data-item-id={item.id}
       data-selected={selected || undefined}
       className={cn(
-        "relative flex min-h-[var(--row-min)] gap-3 border-b border-line px-4 py-[var(--row-py)]",
+        "row-host relative flex min-h-[var(--row-min)] gap-3 border-b border-line bg-bg px-4 py-[var(--row-py)]",
         "@container",
         selected ? "bg-selection" : "hover:bg-surface",
       )}
     >
+      <CheckBadge checked={checked} />
       <div className="flex min-w-0 flex-1 flex-col gap-[var(--row-gap)]">
         <div className="flex items-center gap-1.5 text-xs text-fg2">
-          <span
-            aria-hidden="true"
-            className={cn("size-2 shrink-0 rounded-full", unread ? "bg-unread" : "bg-transparent")}
-          />
-          {feed?.icon ? (
-            <img src={feed.icon} alt="" width={16} height={16} loading="lazy" className="size-4 shrink-0 rounded-sm" />
-          ) : null}
+          <UnreadDot unread={unread} />
+          <SourceIcon src={feed?.icon} />
           <span className="truncate">{item.source}</span>
           <span aria-hidden="true">·</span>
           <time dateTime={new Date(item.published_at * 1000).toISOString()} className="shrink-0">
@@ -42,7 +38,7 @@ function MagazineRow({ item, feed, selected, to, onOpen, onToggleStar }: RowProp
             to={to}
             onClick={() => onOpen(item)}
             className="after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:outline-accent"
-            aria-label={`${unread ? "Unread, " : ""}${item.title || "Untitled"}, ${item.source}`}
+            aria-label={rowLabel(item)}
           >
             {item.title || "Untitled"}
           </Link>
@@ -68,18 +64,10 @@ function MagazineRow({ item, feed, selected, to, onOpen, onToggleStar }: RowProp
             }}
           />
         ) : null}
-        <button
-          type="button"
-          onClick={() => onToggleStar(item)}
-          aria-pressed={item.starred}
-          aria-label={item.starred ? "Unstar" : "Star"}
-          className={cn(
-            "hit pointer-events-auto -mr-2 inline-flex items-center justify-center rounded-lg",
-            item.starred ? "text-star" : "text-fg2 opacity-70 hover:opacity-100",
-          )}
-        >
-          <Star className="size-5" fill={item.starred ? "currentColor" : "none"} aria-hidden="true" />
-        </button>
+        <div className="-mr-2 flex items-center">
+          <StarButton item={item} onToggleStar={onToggleStar} />
+          <RowMenu item={item} actions={actions} revealOnHover />
+        </div>
       </div>
     </article>
   );
@@ -90,4 +78,5 @@ export const magazine: ListLayout = {
   label: "Magazine",
   Row: MagazineRow,
   estimateRow: (item) => (item.image ? 128 : 112),
+  paneRem: 25,
 };
