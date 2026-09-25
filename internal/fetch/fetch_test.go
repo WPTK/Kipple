@@ -410,3 +410,82 @@ func TestCancelledWritesNothing(t *testing.T) {
 	res := c.Fetch(ctx, snapFor(srv.URL), t0)
 	require.True(t, res.Cancelled)
 }
+
+func TestUserAgentRetryOnRefusal(t *testing.T) {
+	for _, code := range []int{403, 406} {
+		var uas []string
+		srv, c := feedServer(t, func(w http.ResponseWriter, r *http.Request) {
+			uas = append(uas, r.UserAgent())
+			if r.UserAgent() != BrowserUserAgent {
+				w.WriteHeader(code)
+				return
+			}
+			serveRSS(w, r)
+		})
+		s := snapFor(srv.URL + "/feed")
+		s.RetryUserAgent = BrowserUserAgent
+		res := doFetch(t, c, s)
+		require.Equal(t, OutcomeOK, res.Outcome, code)
+		require.True(t, res.UAFallbackWorked)
+		require.Len(t, uas, 2)
+		require.Equal(t, BrowserUserAgent, uas[1])
+	}
+}
+
+func TestUserAgentNoRetryCases(t *testing.T) {
+	for name, mod := range map[string]func(*Snapshot){
+		"no retry ua (mode default / per-feed override)": func(s *Snapshot) {},
+		"retry equals current":                           func(s *Snapshot) { s.UserAgent, s.RetryUserAgent = BrowserUserAgent, BrowserUserAgent },
+	} {
+		hits := 0
+		srv, c := feedServer(t, func(w http.ResponseWriter, r *http.Request) { hits++; w.WriteHeader(403) })
+		s := snapFor(srv.URL + "/feed")
+		mod(&s)
+		res := doFetch(t, c, s)
+		require.Equal(t, OutcomeError, res.Outcome, name)
+		require.False(t, res.UAFallbackWorked)
+		require.Equal(t, 1, hits, name)
+	}
+}
+
+func TestUserAgentRetryStillRefused(t *testing.T) {
+	hits := 0
+	srv, c := feedServer(t, func(w http.ResponseWriter, r *http.Request) { hits++; w.WriteHeader(403) })
+	s := snapFor(srv.URL + "/feed")
+	s.RetryUserAgent = BrowserUserAgent
+	res := doFetch(t, c, s)
+	require.Equal(t, OutcomeError, res.Outcome)
+	require.False(t, res.UAFallbackWorked)
+	require.Equal(t, 2, hits, "exactly one retry")
+}
+
+func TestUserAgentRetryCloudflare503(t *testing.T) {
+	srv, c := feedServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.UserAgent() != BrowserUserAgent {
+			w.Header().Set("cf-mitigated", "challenge")
+			w.WriteHeader(503)
+			return
+		}
+		serveRSS(w, r)
+	})
+	s := snapFor(srv.URL + "/feed")
+	s.RetryUserAgent = BrowserUserAgent
+	require.Equal(t, OutcomeOK, doFetch(t, c, s).Outcome)
+	// A plain 503 is an outage, not a UA refusal.
+	hits := 0
+	srv2, c2 := feedServer(t, func(w http.ResponseWriter, r *http.Request) { hits++; w.WriteHeader(503) })
+	s2 := snapFor(srv2.URL + "/feed")
+	s2.RetryUserAgent = BrowserUserAgent
+	doFetch(t, c2, s2)
+	require.Equal(t, 1, hits)
+}
+
+func TestUserAgentRetryKeepsSSRFGuard(t *testing.T) {
+	srv, c := feedServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(403) })
+	s := snapFor(srv.URL + "/feed")
+	s.AllowPrivateNet = false // httptest listens on loopback
+	s.RetryUserAgent = BrowserUserAgent
+	res := doFetch(t, c, s)
+	require.Equal(t, OutcomeError, res.Outcome)
+	require.False(t, res.UAFallbackWorked)
+}

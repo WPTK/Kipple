@@ -88,7 +88,7 @@ func FindFeedByURL(ctx context.Context, q Querier, u string) (id int64, found bo
 const snapshotCols = `id, url, host, enabled, etag, last_modified, body_hash, user_agent, http_auth,
 	ignore_http_cache, disable_http2, allow_insecure_tls, allow_private_net, dedup_mode, rekey_pending,
 	interval_minutes, retention, fulltext, redirect_to, redirect_kind, redirect_count,
-	consecutive_failures, initial_read_before, last_success_at`
+	consecutive_failures, initial_read_before, last_success_at, ua_fallback`
 
 // FeedSnapshots runs a snapshot query (`where` is appended after FROM feeds,
 // e.g. "WHERE id = ?") on the reader pool and resolves the settings-dependent
@@ -104,11 +104,11 @@ func (d *DB) feedSnapshots(ctx context.Context, set FetchSettings, where string,
 		var s fetch.Snapshot
 		var etag, lm, bh, ua, auth, rto, rkind sql.NullString
 		var interval, retention, irb, lsa sql.NullInt64
-		var enabled, ignore, h2, insecure, private, rekey, ft int
+		var enabled, ignore, h2, insecure, private, rekey, ft, uaFallback int
 		if err := rows.Scan(&s.ID, &s.URL, &s.Host, &enabled, &etag, &lm, &bh, &ua, &auth,
 			&ignore, &h2, &insecure, &private, &s.DedupMode, &rekey,
 			&interval, &retention, &ft, &rto, &rkind, &s.Redirect.Count,
-			&s.ConsecutiveFailures, &irb, &lsa); err != nil {
+			&s.ConsecutiveFailures, &irb, &lsa, &uaFallback); err != nil {
 			return nil, err
 		}
 		s.Enabled = enabled == 1
@@ -127,10 +127,8 @@ func (d *DB) feedSnapshots(ctx context.Context, set FetchSettings, where string,
 			iv = s.IntervalMinutes
 		}
 		s.IntervalS = fetch.IntervalSeconds(iv)
-		s.UserAgent = strings.TrimSpace(ua.String)
-		if s.UserAgent == "" {
-			s.UserAgent = set.UserAgent
-		}
+		s.UAFallback = uaFallback == 1
+		s.UserAgent, s.RetryUserAgent = ResolveUserAgent(set, strings.TrimSpace(ua.String), s.UAFallback)
 		s.HonorTTL = set.HonorTTL
 		out = append(out, s)
 	}
@@ -159,4 +157,38 @@ func (d *DB) FeedSnapshot(ctx context.Context, set FetchSettings, id int64) (fet
 // FetchSettings loads the fetch settings on the reader pool.
 func (d *DB) FetchSettings(ctx context.Context) FetchSettings {
 	return LoadFetchSettings(ctx, d.reader)
+}
+
+// ResolveUserAgent picks the User-Agent for a fetch and the one to retry with
+// on a 403/406 ("" = no retry). The per-feed override beats everything and never
+// retries. Otherwise the mode decides: default = Kipple's UA (custom setting is
+// only used in place of the browser string); browser_always = browser UA;
+// browser_on_failure = Kipple's UA until a retry as a browser worked for this feed.
+func ResolveUserAgent(set FetchSettings, feedUA string, uaFallback bool) (ua, retry string) {
+	if feedUA != "" {
+		return feedUA, ""
+	}
+	browser := set.UserAgent
+	if browser == "" {
+		browser = fetch.BrowserUserAgent
+	}
+	switch set.UAMode {
+	case UAModeAlways:
+		return browser, ""
+	case UAModeDefault:
+		return "", ""
+	default: // browser_on_failure, and anything unrecognized
+		if uaFallback {
+			return browser, ""
+		}
+		return "", browser
+	}
+}
+
+// SetFeedUAFallback remembers that a feed needs the browser User-Agent.
+func (d *DB) SetFeedUAFallback(ctx context.Context, feedID int64) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "UPDATE feeds SET ua_fallback = 1 WHERE id = ?", feedID)
+		return err
+	})
 }

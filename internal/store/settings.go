@@ -11,13 +11,21 @@ import (
 // stub window could never be honored.
 const MaxRestoreDays = 180
 
+// Values of fetch.user_agent_mode.
+const (
+	UAModeDefault   = "default"            // always Kipple's own User-Agent, never retry
+	UAModeOnFailure = "browser_on_failure" // Kipple's UA; retry once as a browser on 403/406, then remember per feed
+	UAModeAlways    = "browser_always"     // browser User-Agent for every fetch
+)
+
 // FetchSettings are the settings the fetch layer reads. Defaults live here;
 // a settings row exists only for an overridden key.
 type FetchSettings struct {
 	IntervalMinutes  int    // refresh.interval_minutes, default 30
 	RetentionDefault int    // retention.default, default 250 (0 = unlimited)
 	RestoreDays      int    // retention.restore_days, default 90, clamped to 0..MaxRestoreDays
-	UserAgent        string // fetch.user_agent, default "" (client default)
+	UserAgent        string // fetch.user_agent, default "": optional custom UA that replaces the built-in browser string
+	UAMode           string // fetch.user_agent_mode, default UAModeOnFailure
 	HonorTTL         bool   // fetch.honor_publisher_ttl, default true
 }
 
@@ -28,6 +36,7 @@ func LoadFetchSettings(ctx context.Context, q Querier) FetchSettings {
 		RetentionDefault: settingInt(ctx, q, "retention.default", 250),
 		RestoreDays:      min(max(settingInt(ctx, q, "retention.restore_days", 90), 0), MaxRestoreDays),
 		UserAgent:        settingString(ctx, q, "fetch.user_agent", ""),
+		UAMode:           settingString(ctx, q, "fetch.user_agent_mode", UAModeOnFailure),
 		HonorTTL:         settingBool(ctx, q, "fetch.honor_publisher_ttl", true),
 	}
 }

@@ -1002,3 +1002,50 @@ func TestTrimRunsOnDisabledFeed(t *testing.T) {
 	ch, _ = r.s.Submit(Priority{FeedID: id, Full: true})
 	require.ErrorIs(t, (<-ch).Err, ErrDisabled)
 }
+
+// uaSrv refuses any User-Agent without "Chrome" with 403 and records every UA.
+func uaSrv(t *testing.T) (*feedSrv, func() []string) {
+	var mu sync.Mutex
+	var uas []string
+	srv := newSrv(t, func(_ string, w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		uas = append(uas, req.UserAgent())
+		mu.Unlock()
+		if !strings.Contains(req.UserAgent(), "Chrome") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		serveOK("", w, req)
+	})
+	return srv, func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), uas...) }
+}
+
+func TestBrowserUARetryIsRememberedPerFeed(t *testing.T) {
+	r := newRig(t, Options{})
+	srv, uas := uaSrv(t)
+	id := r.add(srv.URL+"/f", nil)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	require.Len(t, uas(), 2, "Kipple UA refused, then one browser retry")
+	require.Contains(t, uas()[0], "Kipple")
+	require.Contains(t, uas()[1], "Chrome")
+	require.Equal(t, "ok", r.events("fetch.done")[0]["outcome"])
+	require.EqualValues(t, 1, r.num("SELECT ua_fallback FROM feeds WHERE id = ?", id))
+
+	r.clk.Advance(31 * time.Minute)
+	r.waitEvents("fetch.done", 2)
+	require.Len(t, uas(), 3, "the remembered feed goes straight to the browser UA")
+	require.Contains(t, uas()[2], "Chrome")
+}
+
+func TestUAModeDefaultNeverRetries(t *testing.T) {
+	r := newRig(t, Options{})
+	require.NoError(t, r.db.SetSettings(context.Background(), map[string]any{"fetch.user_agent_mode": "default"}))
+	srv, uas := uaSrv(t)
+	id := r.add(srv.URL+"/f", nil)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	require.Len(t, uas(), 1)
+	require.Equal(t, "error", r.events("fetch.done")[0]["outcome"])
+	require.Zero(t, r.num("SELECT ua_fallback FROM feeds WHERE id = ?", id))
+}
