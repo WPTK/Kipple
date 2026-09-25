@@ -596,6 +596,7 @@ func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 
 // Close cancels a pending trailing `counts` event.
 func (s *Server) Close() {
+	s.backups.Close()
 	s.cmu.Lock()
 	defer s.cmu.Unlock()
 	s.closed = true

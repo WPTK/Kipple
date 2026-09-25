@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/backup"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
@@ -72,6 +73,8 @@ type Options struct {
 	// OnAPIPasswordChange runs after the Reader API password changes (drops the
 	// Reader API cached token at once); optional.
 	OnAPIPasswordChange func()
+	// Backups builds and serves backup exports; nil builds one on DB (tests).
+	Backups *backup.Manager
 	// Stats records open and star events; nil builds the SQL recorder on Now.
 	Stats stats.Recorder
 	// Version is reported by /api/bootstrap and used in the proxy User-Agent.
@@ -104,6 +107,8 @@ type Server struct {
 	rec      stats.Recorder
 
 	runner *ftrun.Runner // full-text extraction, shared with the ingest pool
+
+	backups *backup.Manager
 
 	imgMu     sync.Mutex // guards imgSecret and imgH
 	imgSecret []byte
@@ -141,6 +146,10 @@ func New(opt Options) *Server {
 			DB: s.db, Log: s.log,
 			Extractor: extract.New(extract.Options{Transport: s.opt.Guard, UserAgent: s.outgoingUA(), Timeout: extractBudget}),
 		})
+	}
+	s.backups = opt.Backups
+	if s.backups == nil {
+		s.backups = backup.New(backup.Options{DB: s.db, Logger: s.log, Version: opt.Version})
 	}
 	s.rec = opt.Stats
 	if s.rec == nil {
@@ -183,6 +192,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/retention/apply", s.authed(s.retentionApply))
 	handle("POST /api/account/password", s.authed(s.accountPassword))
 	handle("POST /api/account/api-password", s.authed(s.accountAPIPassword))
+	handle("POST /api/backup", s.authed(s.backupCreate))
+	handle("GET /api/backup/{token}", s.authed(s.backupDownload))
 	handle("POST /api/opml", s.authed(s.opmlImport))
 	handle("GET /api/opml", s.authed(s.opmlExport))
 	handle("POST /api/feeds", s.authed(s.addFeed))
@@ -239,7 +250,7 @@ func needsOriginCheck(r *http.Request) bool {
 // backend additions): they get the Sec-Fetch-Site/Origin rule alone, because a
 // navigation cannot carry X-Kipple-Client.
 func isDownload(r *http.Request) bool {
-	return r.Method == http.MethodGet && (r.URL.Path == "/api/opml" || r.URL.Path == "/api/stats/export.csv")
+	return r.Method == http.MethodGet && (r.URL.Path == "/api/opml" || r.URL.Path == "/api/stats/export.csv" || strings.HasPrefix(r.URL.Path, "/api/backup/"))
 }
 
 // sameOrigin is design §7's same-origin enforcement.
