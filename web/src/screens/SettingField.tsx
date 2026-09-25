@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { errorMessage } from "@/api/client";
 import { settingsIssues, usePatchSettings, type SettingMeta } from "@/api/admin";
 import { Segmented } from "@/ui/segmented";
@@ -24,19 +24,33 @@ export function SettingField({ meta }: { meta: SettingMeta }) {
 
   if (meta.kind === "json") return null;
 
-  const send = (value: unknown) => {
+  // One PATCH per key at a time, latest value wins: while one is in flight, later values replace the
+  // queued one, so responses can never arrive out of order and an older value never lands last.
+  const inflight = useRef(false);
+  const queued = useRef<{ value: unknown } | null>(null);
+  const send = (value: unknown): void => {
+    if (inflight.current) {
+      queued.current = { value };
+      return;
+    }
+    inflight.current = true;
     setError(null);
-    patch.mutate(
-      { [meta.key]: value },
-      {
-        onError: (e) => {
-          const bad = settingsIssues(e)?.issues.find((i) => i.key === meta.key);
-          setError(bad ? bad.message : errorMessage(e));
-        },
-        onSuccess: () => {
-          setDraft(null);
-          announce(`${meta.label} saved`);
-        },
+    patch.mutateAsync({ [meta.key]: value }).then(
+      () => {
+        inflight.current = false;
+        const next = queued.current;
+        queued.current = null;
+        if (next) return send(next.value);
+        setDraft(null);
+        announce(`${meta.label} saved`);
+      },
+      (e: unknown) => {
+        inflight.current = false;
+        const next = queued.current;
+        queued.current = null;
+        if (next) return send(next.value);
+        const bad = settingsIssues(e)?.issues.find((i) => i.key === meta.key);
+        setError(bad ? bad.message : errorMessage(e));
       },
     );
   };

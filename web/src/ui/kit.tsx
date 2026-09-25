@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "radix-ui";
 import { Collapsible } from "radix-ui";
 import { ChevronDown, TriangleAlert } from "lucide-react";
@@ -139,7 +139,24 @@ export function Switch({
   );
 }
 
-/** A number with minus and plus buttons; typing works too. Not a slider. */
+/** Wait after the last keystroke or +/- click before a value is committed (blur and Enter commit at once). */
+export const STEPPER_DEBOUNCE_MS = 700;
+
+/** Why `raw` is not a usable value, or null when it is. */
+export function stepperProblem(raw: string, min: number | undefined, max: number | undefined, step: number): string | null {
+  const range = min !== undefined && max !== undefined ? ` from ${min} to ${max}` : min !== undefined ? ` of at least ${min}` : max !== undefined ? ` of at most ${max}` : "";
+  const n = raw.trim() === "" ? NaN : Number(raw);
+  const whole = Number.isInteger(step);
+  if (!Number.isFinite(n) || (whole && !Number.isInteger(n))) return `Enter a ${whole ? "whole " : ""}number${range}.`;
+  if ((min !== undefined && n < min) || (max !== undefined && n > max)) return `Enter a number${range || " in range"}.`;
+  return null;
+}
+
+/**
+ * A number with minus and plus buttons; typing works too. Not a slider. `onChange` only ever receives a
+ * valid, in-range value, and only once the user has finished: on blur or Enter, or 700 ms after the last
+ * keystroke or button click. Typing "120" therefore commits 120, not 1 and 12 on the way.
+ */
 export function Stepper({
   label,
   value,
@@ -162,32 +179,96 @@ export function Stepper({
   invalid?: boolean;
 }) {
   const clamp = (n: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n));
+  const [text, setText] = useState(String(value));
+  const [problem, setProblem] = useState<string | null>(null);
+  const latest = useRef({ value, onChange, text });
+  useEffect(() => {
+    latest.current = { value, onChange, text };
+  });
+  // The saved value changed under us (a reset, a rollback): show it.
+  useEffect(() => {
+    setText(String(value));
+    setProblem(null);
+  }, [value]);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pending = useRef(false);
+
+  const commit = (raw: string) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = undefined;
+    pending.current = false;
+    const bad = stepperProblem(raw, min, max, step);
+    setProblem(bad);
+    if (bad) return;
+    const n = Number(raw);
+    if (n !== latest.current.value) latest.current.onChange(n);
+  };
+  const schedule = (raw: string) => {
+    if (timer.current) clearTimeout(timer.current);
+    pending.current = true;
+    timer.current = setTimeout(() => commit(raw), STEPPER_DEBOUNCE_MS);
+  };
+  // Leaving the screen inside the debounce window must not drop the edit.
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+      if (pending.current && stepperProblem(latest.current.text, min, max, step) === null && Number(latest.current.text) !== latest.current.value) {
+        latest.current.onChange(Number(latest.current.text));
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const bump = (dir: 1 | -1) => {
+    const cur = stepperProblem(text, min, max, step) === null ? Number(text) : value;
+    const n = clamp(cur + dir * step);
+    setText(String(n));
+    setProblem(null);
+    schedule(String(n));
+  };
+  const current = stepperProblem(text, min, max, step) === null ? Number(text) : value;
+  const errId = problem ? `${describedBy ?? "stepper"}-local` : undefined;
   return (
-    <div className="flex items-center gap-2" role="group" aria-label={label}>
-      <Button size="icon" aria-label={`Decrease ${label}`} disabled={min !== undefined && value <= min} onClick={() => onChange(clamp(value - step))}>
-        <span aria-hidden="true">−</span>
-      </Button>
-      <input
-        aria-label={label}
-        aria-describedby={describedBy}
-        aria-invalid={invalid || undefined}
-        inputMode="numeric"
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => {
-          const n = e.target.valueAsNumber;
-          if (Number.isFinite(n)) onChange(n);
-        }}
-        className={cn(inputCls, "w-24 text-center tabular-nums")}
-      />
-      <Button size="icon" aria-label={`Increase ${label}`} disabled={max !== undefined && value >= max} onClick={() => onChange(clamp(value + step))}>
-        <span aria-hidden="true">+</span>
-      </Button>
-      {unit ? <span className="text-sm text-fg2">{unit}</span> : null}
-    </div>
+    <>
+      <div className="flex items-center gap-2" role="group" aria-label={label}>
+        <Button size="icon" aria-label={`Decrease ${label}`} disabled={min !== undefined && current <= min} onClick={() => bump(-1)}>
+          <span aria-hidden="true">−</span>
+        </Button>
+        <input
+          aria-label={label}
+          aria-describedby={[describedBy, errId].filter(Boolean).join(" ") || undefined}
+          aria-invalid={invalid || !!problem || undefined}
+          inputMode="numeric"
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            setProblem(null);
+            schedule(e.target.value);
+          }}
+          onBlur={() => commit(text)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit(text);
+            }
+          }}
+          className={cn(inputCls, "w-24 text-center tabular-nums")}
+        />
+        <Button size="icon" aria-label={`Increase ${label}`} disabled={max !== undefined && current >= max} onClick={() => bump(1)}>
+          <span aria-hidden="true">+</span>
+        </Button>
+        {unit ? <span className="text-sm text-fg2">{unit}</span> : null}
+      </div>
+      {problem ? (
+        <p id={errId} role="alert" className="mt-1 text-sm text-danger">
+          {problem}
+        </p>
+      ) : null}
+    </>
   );
 }
 

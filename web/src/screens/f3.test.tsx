@@ -152,7 +152,7 @@ describe("Settings renderer", () => {
     await waitFor(() => expect(calls.filter((c) => c.method === "PATCH").some((c) => body(c)["links.strip_tracking"] === null)).toBe(true));
 
     await user.click(screen.getByRole("button", { name: "Increase How often to check feeds" }));
-    const alert = await screen.findByText("must be an integer from 5 to 1440");
+    const alert = await screen.findByText("must be an integer from 5 to 1440", {}, { timeout: 3000 });
     expect(alert).toHaveAttribute("role", "alert");
     expect(interval).toBe(30);
   });
