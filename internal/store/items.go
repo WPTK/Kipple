@@ -1,0 +1,204 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"math"
+	"strings"
+)
+
+// StreamFilter is the predicate of a Reader API stream plus its it/xt state
+// filters (design §6.4). Contradictory Read or Starred values simply match nothing.
+type StreamFilter struct {
+	Empty    bool  // matches nothing (broadcast, like, unknown streams)
+	FeedID   int64 // feed_id = FeedID when non-zero
+	FolderID int64 // feed in folder FolderID when non-zero
+	Read     []int // each entry ANDs read = v
+	Starred  []int // each entry ANDs starred = v
+}
+
+func intPreds(col string, vs []int) string {
+	var b strings.Builder
+	for _, v := range vs {
+		if v != 0 {
+			v = 1
+		}
+		fmt.Fprintf(&b, " AND %s = %d", col, v) // literals, so the partial indexes are usable
+	}
+	return b.String()
+}
+
+// where renders the predicate (always starts with "1") and its named args.
+func (f StreamFilter) where() (string, []any) {
+	w := "1"
+	var args []any
+	if f.FeedID != 0 {
+		w += " AND feed_id = :feed"
+		args = append(args, sql.Named("feed", f.FeedID))
+	}
+	if f.FolderID != 0 {
+		w += " AND feed_id IN (SELECT id FROM feeds WHERE folder_id = :folder)"
+		args = append(args, sql.Named("folder", f.FolderID))
+	}
+	w += intPreds("read", f.Read) + intPreds("starred", f.Starred)
+	return w, args
+}
+
+// IDPage is the paging and time-window part of stream/items/ids.
+type IDPage struct {
+	N       int   // rows to return (the query fetches N+1 to detect a next page)
+	Asc     bool  // r=o
+	Cont    int64 // c=, valid only when HasCont
+	HasCont bool
+	OT      int64 // ot= seconds, valid only when HasOT
+	HasOT   bool
+	NT      int64 // nt= seconds, valid only when HasNT
+	HasNT   bool
+}
+
+// otSlack is the 120 s slack on both legs of the ot filter (design §3).
+const otSlack = 120
+
+// streamIDsSQL builds the id query (design §6.5): no ot is one ordered range;
+// with ot it is two disjoint ordered legs (crawled after ot, then content
+// changed after ot among older ids) merged, so continuation stays valid
+// across both legs.
+func streamIDsSQL(f StreamFilter, p IDPage) (string, []any) {
+	preds, args := f.where()
+	cont := p.Cont
+	if !p.HasCont {
+		if p.Asc {
+			cont = 0
+		} else {
+			cont = math.MaxInt64
+		}
+	}
+	args = append(args, sql.Named("c", cont), sql.Named("n1", p.N+1))
+	nt := ""
+	if p.HasNT {
+		nt = " AND id < :nt_us"
+		args = append(args, sql.Named("nt_us", (p.NT+1)*1_000_000))
+	}
+	order, cmp := "DESC", "<"
+	if p.Asc {
+		order, cmp = "ASC", ">"
+	}
+	if !p.HasOT {
+		return fmt.Sprintf(`SELECT id FROM items WHERE %s AND id %s :c%s ORDER BY id %s LIMIT :n1`, preds, cmp, nt, order), args
+	}
+	otS := p.OT - otSlack
+	args = append(args, sql.Named("ot_s", otS), sql.Named("ot_us", otS*1_000_000))
+	var leg2Bound string
+	if p.Asc {
+		leg2Bound = "id < :ot_us AND id > :c"
+	} else {
+		leg2Bound = "id < min(:ot_us, :c)"
+	}
+	q := fmt.Sprintf(`SELECT id FROM (
+  SELECT id FROM (SELECT id FROM items WHERE id >= :ot_us AND id %[1]s :c AND %[2]s%[3]s ORDER BY id %[4]s LIMIT :n1)
+  UNION ALL
+  SELECT id FROM (SELECT id FROM items INDEXED BY idx_items_changed
+                  WHERE content_changed_at >= :ot_s AND %[5]s AND %[2]s%[3]s ORDER BY id %[4]s LIMIT :n1)
+) ORDER BY id %[4]s LIMIT :n1`, cmp, preds, nt, order, leg2Bound)
+	return q, args
+}
+
+// StreamIDs runs the id query on the reader pool and calls fn for each of the
+// first p.N ids in order, one row at a time. more is true when an N+1th row
+// exists (the caller then emits last as the continuation).
+func (d *DB) StreamIDs(ctx context.Context, f StreamFilter, p IDPage, fn func(id int64) error) (last int64, more bool, err error) {
+	if f.Empty || p.N <= 0 {
+		return 0, false, nil
+	}
+	q, args := streamIDsSQL(f, p)
+	rows, err := d.reader.QueryContext(ctx, q, args...)
+	if err != nil {
+		return 0, false, err
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return last, false, err
+		}
+		if n == p.N {
+			return last, true, nil
+		}
+		if err := fn(id); err != nil {
+			return last, false, err
+		}
+		last = id
+		n++
+	}
+	return last, false, rows.Err()
+}
+
+// ContentRow is one item as served by stream/items/contents.
+type ContentRow struct {
+	ID           int64
+	FeedID       int64
+	URL          string
+	Title        string
+	Author       string
+	HTML         string // item_content.content_html
+	Published    int64
+	Updated      sql.NullInt64
+	Read         bool
+	Starred      bool
+	Enclosures   string // enclosures_json, "" when none
+	OriginTitle  string // "" unless re-parented to the archive feed
+	FeedTitle    string
+	SiteURL      string
+	Folder       string
+	UseFulltext  bool           // COALESCE(fulltext_mode, feed fulltext) = 1
+	FulltextHTML sql.NullString // extracted text, when one exists
+}
+
+// StreamItems calls fn for each requested id that is still in items (trimmed
+// and unknown ids are absent), one row at a time, ordered by id (ascending when
+// asc). The id list is bound as one JSON array, so any count is one statement.
+func (d *DB) StreamItems(ctx context.Context, ids []int64, asc bool, fn func(*ContentRow) error) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	js, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+	order := "DESC"
+	if asc {
+		order = "ASC"
+	}
+	rows, err := d.reader.QueryContext(ctx, `
+SELECT i.id, i.feed_id, i.url, i.title, i.author, c.content_html, i.published_at, i.updated_at,
+       i.read, i.starred, c.enclosures_json, i.origin_title,
+       COALESCE(f.custom_title, f.title), f.site_url, fo.name,
+       COALESCE(i.fulltext_mode, f.fulltext), ft.content_html
+FROM items i JOIN item_content c ON c.item_id = i.id
+JOIN feeds f ON f.id = i.feed_id JOIN folders fo ON fo.id = f.folder_id
+LEFT JOIN item_fulltext ft ON ft.item_id = i.id
+WHERE i.id IN (SELECT value FROM json_each(?))
+ORDER BY i.id `+order, string(js))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r ContentRow
+		var read, starred, ft int
+		var enc, origin sql.NullString
+		if err := rows.Scan(&r.ID, &r.FeedID, &r.URL, &r.Title, &r.Author, &r.HTML, &r.Published, &r.Updated,
+			&read, &starred, &enc, &origin, &r.FeedTitle, &r.SiteURL, &r.Folder, &ft, &r.FulltextHTML); err != nil {
+			return err
+		}
+		r.Read, r.Starred, r.UseFulltext = read == 1, starred == 1, ft == 1
+		r.Enclosures, r.OriginTitle = enc.String, origin.String
+		if err := fn(&r); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}

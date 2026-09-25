@@ -406,3 +406,11 @@ func (d *DB) UnreadCounts(ctx context.Context) ([]UnreadRow, error) {
 	}
 	return out, rows.Err()
 }
+
+// FindFeedID is FindFeedByURL on the reader pool; an unparseable URL is "not found".
+func (d *DB) FindFeedID(ctx context.Context, u string) (int64, bool, error) {
+	if _, err := feedurl.Key(u); err != nil {
+		return 0, false, nil
+	}
+	return FindFeedByURL(ctx, d.reader, u)
+}

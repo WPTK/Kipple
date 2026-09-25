@@ -4,4 +4,5 @@ package greader
 // New; each area below adds its own.
 func (a *API) registerRoutes() {
 	a.registerSubs()
+	a.registerStreams()
 }
