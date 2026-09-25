@@ -18,12 +18,16 @@ Phase 2 (reading UI backend) so far.
   fts-rebuild`.
 - Full-text extraction (readability) through the guarded client: `POST /api/items/{id}/fulltext`
   with stored results and errors.
-- Inline full-text extraction at ingest: for feeds whose full-text mode is on, the worker extracts
-  the article pages of new items (newest first, at most 20 per fetch, 3 at a time, 2 per article
-  host, 10 s each, 60 s per fetch) before the commit, through the guarded client with the feed's
-  network flags. Results and failures are stored in `item_fulltext`; a failure never fails the
-  fetch and is not retried by polling. Items past the cap or budget are left for the on-demand
-  endpoint and counted in the fetch log note (`fulltext: ok/tried`, `fulltext_deferred: n`).
+- Full-text extraction at ingest: for feeds whose full-text mode is on, the new items are committed
+  first and then extracted in a bounded background pool (newest first, at most 20 per fetch, 4 at
+  once overall, 2 per article host, 10 s each, 500 queued), through the guarded client with the
+  feed's network flags. Each result is stored with one small write, only while the item still
+  exists with the same URL, and announced with a `fulltext.ready` SSE event. A failure never fails
+  the fetch and polling does not retry it. Items past the caps are left for the on-demand endpoint
+  and counted in the fetch log note (`fulltext_queued: n`, `fulltext_deferred: n`). The queue is in
+  memory: items queued at a restart are extracted on demand instead.
+- Migration 0003: `item_fulltext.error_class` (`transient` or `permanent`); errors stored before it
+  read as permanent.
 - Signed streaming image proxy at `/img` with SSRF-guarded transports; card, detail and open
   images are rewritten to it at serve time.
 - Feed icons at `/api/feeds/{id}/icon`.
@@ -67,6 +71,12 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- `POST /api/feeds/{id}/refresh` on a full-text feed no longer waits for article extraction (it used
+  to run inside the fetch worker for up to 60 s, so the refresh often answered 202 pending and slow
+  article hosts could tie up the worker pool).
+- `POST /api/items/{id}/fulltext` retries a stored transient failure (timeout, connection error,
+  5xx, 429) by itself once the last attempt is over an hour old; permanent failures (404, 410, 403,
+  not readable) stay sticky and `?refresh=1` always retries.
 - A per-feed refresh request keeps its intent when the feed is already in flight.
 - A fetch commit for a feed whose URL was edited mid-flight is dropped.
 - `feed_id` in SSE events is a string; `trim_only` runs on disabled feeds.

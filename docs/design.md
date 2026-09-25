@@ -103,7 +103,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
 
 18. **Trim runs in every successful fetch commit** (`ok`, `unchanged`, `not_modified`). Changing a feed's `retention`, or `retention.default`, also enqueues a `trim_only` job for the affected feeds. So does "Apply retention now". Trim never runs on page load or on API traffic. On a quiet feed it costs one indexed statement over ≤ N+starred narrow rows. *Rejected:* "only when the fetch inserted items" (revision 1). Lowering N on a quiet feed then did nothing for days.
 
-19. **Full text lives in its own `item_fulltext` table** and can be toggled per feed (`feeds.fulltext`) and per article (`items.fulltext_mode`). For full-text feeds, extraction runs **inline in the worker, before the commit**: up to 20 newest new items, 10 s each, 60 s total. Items not extracted within the budget are extracted on demand from the UI. *Rejected:* a background queue. *Rejected:* a column on `items`.
+19. **Full text lives in its own `item_fulltext` table** and can be toggled per feed (`feeds.fulltext`) and per article (`items.fulltext_mode`). For full-text feeds, the new items are committed first and then extracted **after the commit in a bounded background pool** (§4.3): up to 20 newest new items per fetch, 10 s each, 4 at once overall, 2 per article host. Items not queued are extracted on demand from the UI. *Rejected:* extracting inline in the worker before the commit (a slow article host held a fetch worker for up to 60 s and made `POST /api/feeds/{id}/refresh` answer 202 pending). *Rejected:* a column on `items`.
 
 20. **The image proxy is UI-only.**
     - Route `/img/{sig}/{flags}/{b64url}`, HMAC-signed over flags and URL, and session-gated. `flags` carries `allow_private_net` from the item's feed.
@@ -474,8 +474,9 @@ CREATE TABLE item_fulltext (
   word_count   INTEGER NOT NULL DEFAULT 0,
   image_url    TEXT,
   source_url   TEXT,
-  extracted_at INTEGER NOT NULL,
+  extracted_at INTEGER NOT NULL,   -- time of the last attempt
   error        TEXT,
+  error_class  TEXT CHECK (error_class IN ('transient','permanent')),  -- migration 0003; NULL = unknown = permanent
   CHECK (content_html IS NOT NULL OR error IS NOT NULL)
 ) STRICT;
 
@@ -522,7 +523,8 @@ CREATE TABLE trimmed_content (
 -- error_class: timeout|dns|connect|tls|http|cloudflare|too_large|empty|parse|ssrf|redirect_loop|gone
 -- note: 'redirect_migrated: <old> -> <new>', 'redirect_target_owned_by_feed <id>',
 --       'retry_after=<s>s', 'guid_churn_suspected', 'guid_duplicates: <k>/<n>', 'rekeyed: <k>',
---       'skipped: host retry-after until <ts>', 'fulltext: <ok>/<tried>', 'initial_read: <k>'.
+--       'skipped: host retry-after until <ts>', 'fulltext_queued: <n>', 'fulltext_deferred: <n>',
+--       'fulltext: skipped (...)', 'initial_read: <k>'.
 CREATE TABLE fetch_log (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   feed_id       INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
@@ -797,17 +799,23 @@ for job := range jobs:                            // exits when jobs is closed
                                                   // absolutize, sanitize, text, word count, lead image; no DB held
   if res.OK && snap.fulltext:
       known := store.KnownUIDs(readerCtx, snap.id, res.UIDs)   // reader pool: items ∪ trimmed_items
-      res.Fulltext = extractInline(fetchCtx, newest-first new items, max 20, 10 s each, 60 s total)
+      cand := newest-first new items, max 20, no more than the queue has room for   // picking only, no network
   if fetchCtx cancelled and res is not complete: send result{cancelled}; continue   // nothing written
   cctx := context.WithTimeout(context.WithoutCancel(fetchCtx), 10*time.Second)
   commitGate <- struct{}{}
       store.CommitFetch(cctx, res)  or  store.CommitFetchError(cctx, res)   // WithWrite, one BEGIN IMMEDIATE
   <-commitGate
+  if committed and not stale: ftQueue.push(the items of cand this commit inserted)   // never blocks
   doneCh <- result{feed, host, outcome, newIDs, retryAfter}
 doneCh <- workerExit
 ```
 
 - No transaction is held across a network call, a channel send or an SSE write.
+- **Full-text extraction runs after the commit, off the worker.** The worker only picks candidates before the commit and queues the inserted ones after it, so a slow article host never ties up a fetch worker and `POST /api/feeds/{id}/refresh` returns when the fetch is committed. Why: extracting inline meant up to 60 s of extra worker time per feed behind a 15 s refresh wait, so refreshes of full-text feeds usually answered 202 pending, and a few hanging hosts could starve the whole pool.
+  - **Pool.** `FulltextGlobal` (4) goroutines drain one bounded queue (500 items, `FulltextQueue`). A job runs only when its article host has fewer than 2 running (`FulltextPerHost`), so one slow site cannot block the others. Each extraction has a 10 s timeout, the guarded client and the feed's network flags, read fresh from the database when the job starts.
+  - **Bounds are never silent.** At most 20 (`FulltextMaxItems`) newest new items per fetch are queued, and no more than the queue has room for. The fetch_log note records `fulltext_queued: n` and `fulltext_deferred: m`; a rare overflow between the pick and the push is logged at warn level. Deferred items are extracted on demand when opened. Outcomes are logged as they finish (failures at info level). There is no per-run `ok/tried` note any more, since the fetch is already committed and logged by then.
+  - **Stored with a small write.** Each result is one `SaveFulltextIfURL` write (one `WithWrite`, not the bulk commit), applied only if the item still exists with the queued URL. Work for an item that was trimmed or deleted, whose URL changed, that already has a row, or whose full-text setting was turned off is skipped, so editing or deleting the feed meanwhile is safe. Finished items (text or error) are announced with one coalesced `fulltext.ready` event (§7.3). Until then the Reader API and the UI serve the feed's own content, because there is no `item_fulltext` row.
+  - **Shutdown and restarts.** Stop cancels the fetch context: running extractions end, queued ones are dropped (logged), the pool goroutines are joined before the scheduler reports stopped, and a cut-off extraction is not stored as a failure. The queue is in memory only: items queued at a crash or restart get no extraction at ingest and are extracted on demand when opened (§7.5).
 - A fetch that completed before shutdown still commits, under `WithoutCancel` with its own 10 s deadline, so the fetch_log row is not lost.
 - Fetches of more than 500 new items (only realistic on a first fetch) are committed in chunks of 250. The gate is taken and released for each chunk. The trim and the feed bookkeeping run in the last chunk. A crash between chunks is safe.
 - Job kinds that skip HTTP are `skip` (writes a `skipped` fetch_log row) and `trim_only` (the retention transaction only). Both go through the same gate.
@@ -1003,7 +1011,6 @@ for each new item (oldest-first):
                     published_at, updated_at, sort_at, read, read_at)
     -- published_at = PublishedParsed ?? UpdatedParsed ?? id/1e6; sort_at = min(published_at, id/1e6 + 86400)
   INSERT INTO item_content(item_id, content_html, content_text, enclosures_json)     -- FTS insert fires here
-INSERT INTO item_fulltext(...) for inline extractions (keyed by uid → new id)
 UPDATE trimmed_items SET last_seen_at = :now WHERE feed_id = :f AND uid IN (SELECT value FROM json_each(:seen_tomb))
 retention trim (§5), with :first_new_id
 churn check: IF new ≥ 10 AND new ≥ 0.8 × document size AND the feed had ≥ 20 items before
@@ -1530,7 +1537,7 @@ Other conventions:
 | `POST /api/items/{id}/open` | `{via:"tap"\|"key"\|"nav"}` | In one `WithWrite`: `store.SetRead` (no stats side effect), then `Recorder.Record(tx, open)`. Returns `{session_key, item:<as GET>}` |
 | `PUT /api/items/{id}/star` | `{starred: bool}` | `{starred, restored}`. A star on a ledger id restores it (§5). Records `star`/`unstar` in the same transaction only when `RETURNING` shows a change |
 | `POST /api/items/mark-read` | `{ids:[…]}` or `{scope:{feed_id\|folder_id\|all:true, view}, max_id}`, plus `read: bool`, `reason: "swipe"\|"key"\|"scroll"\|"bulk"` | `{changed:[ids], restored:[ids]}`. `max_id` bounds the scope. `read:false` on ledger ids restores them (§5). `reason` is only logged. **No stats code path** |
-| `POST /api/items/{id}/fulltext` | `{mode: 1\|0\|null}` (omit to keep the mode), `?refresh=1` | Sets `items.fulltext_mode`. If the effective mode is 1 and no successful extraction exists (or `refresh=1`), it extracts synchronously (15 s budget, guarded client, go-readabilityV2, absolutized against the article URL, the same sanitize policy) and stores `item_fulltext`. Returns `{mode, effective, status:"ok"\|"error"\|"skipped", content_html(proxied), word_count, error}` |
+| `POST /api/items/{id}/fulltext` | `{mode: 1\|0\|null}` (omit to keep the mode), `?refresh=1` | Sets `items.fulltext_mode`. If the effective mode is 1 and no successful extraction exists (or `refresh=1`), it extracts synchronously (15 s budget, guarded client, go-readabilityV2, absolutized against the article URL, the same sanitize policy) and stores `item_fulltext`; a stored transient failure older than 1 hour is retried the same way (§7.5). Returns `{mode, effective, status:"ok"\|"error"\|"skipped", content_html(proxied), word_count, error}` |
 | `GET /api/feeds/{id}/icon` | — | Icon bytes. `Cache-Control: private, max-age=604800` |
 | `POST /api/feeds` | `{url, folder_id?, title?}` | `FindFeedByURL` first: an existing match returns `{status:"exists", feed}`. Else `{status:"choose", candidates:[{url,title,type}]}` when discovery finds several; else creates the feed, waits ≤ 8 s for the first fetch, and returns `{status:"ok", feed}` |
 | `PATCH /api/feeds/{id}` | Any of `custom_title, folder_id, position, interval_minutes, retention, fulltext, dedup_mode, user_agent, http_auth, ignore_http_cache, disable_http2, allow_insecure_tls, allow_private_net, enabled` | `feed`. A `dedup_mode` change sets `rekey_pending`. `enabled:true` resets failures and sets `next_fetch_at = now`. A `retention` change enqueues a `trim_only` job |
@@ -1572,6 +1579,7 @@ Each event is `event: <type>`, `id: <seq>`, `data: <json>`.
 | `run.progress` | `{run_id, done, total, new_items, errors}`, at most every 500 ms |
 | `run.done` | `{run_id, new_items, errors}` |
 | `items.state` | `{ids, read?, starred?, restored?, source: "web"\|"reeder"\|…}` |
+| `fulltext.ready` | `{ids, source: "ingest"}`: ids (strings) whose background extraction finished, with text or an error; at most 500 per event, coalesced over about 300 ms. The UI refetches those items if it shows them |
 | `counts` | `{unread_total, feeds: {id: unread}}`, coalesced to at most 1 per second |
 | `feed.changed` | `{feed_id}`, on migration, disable, rename, move, archive or delete |
 | `resync` | `{}`, on buffer overflow or failed replay |
@@ -1601,10 +1609,11 @@ The React app reconciles by item id. For `new_item_ids` inside the current view 
 ### 7.5 Full-text rules
 
 - **Effective mode** = `COALESCE(items.fulltext_mode, feeds.fulltext)`.
-- **Ingest.** Inline extraction for full-text feeds, as in §4.3.
+- **Ingest.** For full-text feeds, new items are extracted after the commit in a bounded background pool, as in §4.3. Until an item's extraction finishes it has no row and every reader sees the feed content; `fulltext.ready` tells the UI when to swap in the text.
 - **UI.** When the effective mode is 1 and `available=false`, the UI calls `POST /api/items/{id}/fulltext` with an empty body, which triggers extraction without changing the mode.
 - **Per-article toggle.** In the article view the toggle sets `mode` to 1 or 0; "reset" sets `null`.
-- **Failures.** A failed extraction is stored with `error`. The UI shows the feed content with a retry action, and the Reader API falls back to the feed content.
+- **Failures.** A failed extraction is stored with `error`, its class (`error_class`) and the attempt time (`extracted_at`). The UI shows the feed content with a retry action, and the Reader API falls back to the feed content.
+- **Retry rule.** A stored failure is reported as is and not refetched when the article is opened, with two exceptions. (1) If the error is **transient** (timeout, connection error, HTTP 5xx or 429) and the last attempt was **more than 1 hour ago**, the endpoint tries again itself; a new failure restarts the hour, a success replaces the error. (2) `?refresh=1` always retries. **Permanent** errors (HTTP 404, 410, 403 and other 4xx, not HTML, no readable content, too large, no article URL) and errors stored without a class (before migration 0003) stay sticky until `refresh=1`. Ingest and the endpoint classify the same way. The hour bounds the load a flaky host sees: at most one attempt per item per hour, and only when someone opens it.
 - **"Open original"** is a plain link (`target=_blank`, `rel=noopener noreferrer`). It also records `open_original` through `POST /api/stats/events`.
 
 ### 7.6 OPML import and export (`internal/opml`)
