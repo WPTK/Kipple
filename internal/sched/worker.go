@@ -61,6 +61,9 @@ func (s *Scheduler) exec(f *flight) (out result) {
 		// (Snap.HostUntil). A Retry-After a sibling feed learns while this fetch
 		// is in flight is intentionally not applied here: tick skips held hosts,
 		// so this feed simply waits out the deadline when it next comes due.
+		// Extraction runs before, never inside, the commit transaction. It cannot
+		// fail the fetch: failures land on the item's item_fulltext row.
+		s.extractInline(s.fetchCtx, res)
 		res.Schedule(s.clk.Now(), s.opt.Rand)
 		out.outcome, out.status = res.Outcome, res.Status
 		out.errClass, out.errMsg = res.ErrClass, res.ErrMsg

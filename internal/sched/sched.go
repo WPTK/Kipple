@@ -15,6 +15,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/clock"
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -41,6 +42,14 @@ type Options struct {
 	Rand    fetch.Rand    // jitter source, default math/rand/v2
 
 	CommitTimeout time.Duration // per-commit deadline, 10 s
+
+	// Inline full-text extraction (design §4.3).
+	Extractor           Extractor     // default: the guarded extract.Extractor
+	FulltextMaxItems    int           // new items extracted per fetch, 20; the rest are deferred
+	FulltextItemTimeout time.Duration // per article, 10 s
+	FulltextTotal       time.Duration // per fetch, 60 s
+	FulltextConcurrency int           // concurrent articles per fetch, 3
+	FulltextPerHost     int           // concurrent articles per article host, all workers, 2
 }
 
 // RunInfo answers a refresh-all, import or retention request.
@@ -161,6 +170,9 @@ type Scheduler struct {
 	stopped    chan struct{}
 	syncCh     chan func()
 
+	ext     Extractor
+	ftHosts *hostLimiter
+
 	failCommit func(feedID int64) error // test hook: replaces the fetch commit
 
 	fetchCtx    context.Context
@@ -195,6 +207,26 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	if opt.CommitTimeout <= 0 {
 		opt.CommitTimeout = commitTimeout
 	}
+	if opt.FulltextMaxItems <= 0 {
+		opt.FulltextMaxItems = defaultFTMaxItems
+	}
+	if opt.FulltextItemTimeout <= 0 {
+		opt.FulltextItemTimeout = defaultFTItemTimeout
+	}
+	if opt.FulltextTotal <= 0 {
+		opt.FulltextTotal = defaultFTTotal
+	}
+	if opt.FulltextConcurrency <= 0 {
+		opt.FulltextConcurrency = defaultFTConcurrency
+	}
+	if opt.FulltextPerHost <= 0 {
+		opt.FulltextPerHost = defaultFTPerHost
+	}
+	if opt.Extractor == nil {
+		opt.Extractor = extract.New(extract.Options{
+			Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: opt.FulltextItemTimeout,
+		})
+	}
 	if opt.Rand == nil {
 		opt.Rand = rand.Float64
 	}
@@ -206,6 +238,7 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
+		ext: opt.Extractor, ftHosts: newHostLimiter(opt.FulltextPerHost),
 		db: db, client: client, hub: hub, clk: clk, log: log, opt: opt,
 		jobs:       make(chan *flight, opt.Workers),
 		doneCh:     make(chan result, opt.Workers),
