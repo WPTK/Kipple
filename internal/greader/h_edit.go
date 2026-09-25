@@ -3,7 +3,6 @@ package greader
 import (
 	"context"
 	"database/sql"
-	"net/http"
 	"strconv"
 
 	"github.com/WPTK/kipple/internal/store"
@@ -54,8 +53,7 @@ func tagOps(add, remove []string) []tagOp {
 func (c *call) editTag() {
 	raw := c.p.All("i")
 	if len(raw) > maxEditIDs {
-		c.text(http.StatusBadRequest, "Bad Request")
-		return
+		raw = raw[:maxEditIDs] // process the first maxEditIDs, still 200 (never wedge a client's queue)
 	}
 	ids := make([]int64, 0, len(raw))
 	for _, v := range raw {
@@ -116,7 +114,7 @@ func (c *call) editTag() {
 	c.ok()
 }
 
-// maxEditIDs caps the item ids in one edit-tag request.
+// maxEditIDs caps the item ids processed in one edit-tag request; the rest are ignored.
 const maxEditIDs = 10000
 
 func idStrings(ids []int64) []string {

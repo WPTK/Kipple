@@ -214,3 +214,29 @@ func TestClientFamilyAndLastSeen(t *testing.T) {
 	h.do(http.MethodGet, base+rd+"token", "", map[string]string{"User-Agent": "Reeder/5"})
 	require.True(t, h.api.LastSeen()["reeder"].After(first))
 }
+
+func TestClientLoginBusyHashingSlotIs401WithoutFailureOrRetryAfter(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	h := newHarness(t)
+	h.api.ver = auth.NewVerifier([]byte(testSecret), auth.VerifierOptions{Wait: 20 * time.Millisecond, Check: func(pw, phc string) bool {
+		started <- struct{}{}
+		<-release
+		return false
+	}})
+	done := make(chan struct{})
+	go func() { defer close(done); login(h, "owner", "first") }()
+	<-started // the only hashing slot is now held
+
+	w := h.do(http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd=second", map[string]string{"Authorization": ""})
+	require.Equal(t, http.StatusUnauthorized, w.Code, "design 6.3: a busy slot is a 401")
+	require.Equal(t, "Error=BadAuthentication\n", w.Body.String())
+	require.Empty(t, w.Header().Get("Retry-After"))
+	require.Equal(t, "true", w.Header().Get("Google-Bad-Token"))
+	require.Zero(t, h.api.fails.Count("192.0.2.10"), "busy is not a failure")
+	h.mu.Lock()
+	require.Empty(t, h.slept, "and adds no delay")
+	h.mu.Unlock()
+	close(release)
+	<-done
+}

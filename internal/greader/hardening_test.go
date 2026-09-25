@@ -28,7 +28,7 @@ func TestPairFloodRejectedCheaply(t *testing.T) {
 	d := allocDelta(func() {
 		w = h.do(http.MethodPost, base+rd+"edit-tag", flood, map[string]string{"Authorization": ""})
 	})
-	require.Contains(t, []int{400, 401}, w.Code)
+	require.Contains(t, []int{400, 401, 413}, w.Code)
 	require.Less(t, d, uint64(4<<20))
 
 	// Authenticated: 400 before any pair is allocated.
@@ -41,7 +41,7 @@ func TestPairFloodRejectedCheaply(t *testing.T) {
 	d = allocDelta(func() {
 		w = h.do(http.MethodPost, base+"/accounts/ClientLogin", flood, map[string]string{"Authorization": ""})
 	})
-	require.Contains(t, []int{400, 401}, w.Code)
+	require.Contains(t, []int{400, 401, 413}, w.Code)
 	require.Less(t, d, uint64(2<<20))
 
 	// Over the pair cap in a small body is a 400 too.
@@ -62,9 +62,36 @@ func TestEditTagManyIDsStillWorks(t *testing.T) {
 	require.Equal(t, 200, w.Code)
 	require.True(t, isRead(h, first))
 
-	// More than 10000 ids is refused.
-	w = h.post(rd+"edit-tag", "a=user/-/state/com.google/read&"+strings.Repeat("i=1&", maxEditIDs+1))
-	require.Equal(t, 400, w.Code)
+}
+
+func TestEditTagOverTheIDCapProcessesTheFirstAndReturns200(t *testing.T) {
+	h := newHarness(t)
+	f := h.addFeed("https://a.example/f", "A", "")
+	inside := h.addItem(f, itemSeed{})
+	beyond := h.addItem(f, itemSeed{})
+	body := "T=" + h.tok + "&a=user/-/state/com.google/read&i=" + FormatDecimal(inside) + "&" +
+		strings.Repeat("i=1&", maxEditIDs-1) + "i=" + FormatDecimal(beyond)
+	w := h.post(rd+"edit-tag", body)
+	require.Equal(t, 200, w.Code, "never a 400 for too many ids")
+	require.True(t, isRead(h, inside), "the first ids are processed")
+	require.False(t, isRead(h, beyond), "ids past the cap are ignored")
+}
+
+func TestBodyOverTheReadCapIs413NotATruncatedParse(t *testing.T) {
+	h := newHarness(t)
+	noHdr := map[string]string{"Authorization": ""}
+	// T sits past the 64 KiB pre-auth cap: 413, not a 401 (or worse, a parse of
+	// whatever fit before the cut).
+	pad := strings.Repeat("z=1&", maxLoginBody/4+10)
+	w := h.do(http.MethodPost, base+rd+"edit-tag", pad+"T="+h.tok+"&a=user/-/state/com.google/read&i=1", noHdr)
+	require.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	// A header-authenticated body over the 4 MiB cap is refused the same way.
+	big := strings.Repeat("z=1&", maxBody/4+10)
+	w = h.post(rd+"edit-tag", big+"a=user/-/state/com.google/read&i=1")
+	require.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	// Exactly at the cap is fine.
+	w = h.post(rd+"edit-tag", "a=user/-/state/com.google/read&i=1&"+strings.Repeat("z", 1024))
+	require.Equal(t, 200, w.Code)
 }
 
 func TestIconOnlyServesSafeTypes(t *testing.T) {

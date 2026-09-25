@@ -207,8 +207,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
 		return
 	case rest == "/accounts/ClientLogin":
 		c.p = readParamsLimit(r, false, maxLoginBody)
-		if c.p.tooMany {
-			c.text(http.StatusBadRequest, "Bad Request")
+		if c.rejectParams() {
 			return
 		}
 		c.clientLogin()
@@ -237,8 +236,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
 		limit = maxLoginBody
 	}
 	c.p = readParamsLimit(r, rt.raw, limit)
-	if c.p.tooMany {
-		c.text(http.StatusBadRequest, "Bad Request")
+	if c.rejectParams() {
 		return
 	}
 	if !c.authenticate(acct, rt) {
@@ -257,6 +255,21 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
 		return
 	}
 	rt.h(c)
+}
+
+// rejectParams answers 413 for a body longer than its read cap (never act on a
+// truncated parse: the T or an id may have been cut off) and 400 for too many
+// pairs. It reports whether it answered.
+func (c *call) rejectParams() bool {
+	switch {
+	case c.p.truncated:
+		c.text(http.StatusRequestEntityTooLarge, "Request Entity Too Large")
+	case c.p.tooMany:
+		c.text(http.StatusBadRequest, "Bad Request")
+	default:
+		return false
+	}
+	return true
 }
 
 func (a *API) lookup(name string) (route, bool) {
@@ -401,9 +414,12 @@ func (c *call) clientLogin() {
 	a.ver.SetSecret([]byte(s.secret))
 	ok, busy := a.ver.VerifyBusy(ctx, "api", pass, s.hash)
 	if busy {
-		// Hashing slot unavailable: says nothing about the password, so no failure is recorded.
-		c.w.Header().Set("Retry-After", "5")
-		c.text(http.StatusServiceUnavailable, "Service Unavailable")
+		// Hashing slot unavailable (design §6.3: a 401 after the 5 s wait). It says
+		// nothing about the password, so no failure is recorded and there is no
+		// delay or Retry-After.
+		c.w.Header().Set("Google-Bad-Token", "true")
+		c.w.Header().Set("X-Reader-Google-Bad-Token", "true")
+		c.text(http.StatusUnauthorized, "Error=BadAuthentication\n")
 		return
 	}
 	if !ok || !strings.EqualFold(email, s.username) {

@@ -37,6 +37,33 @@ type Params struct {
 	rawBody string
 	// tooMany is set when a query string or body exceeded maxPairs.
 	tooMany bool
+	// truncated is set when the body was longer than the read cap. What was
+	// parsed is then incomplete (a T= or i= past the cap is missing), so callers
+	// answer 413 instead of acting on it.
+	truncated bool
+}
+
+// capReader reads at most left bytes and records whether the source held more.
+type capReader struct {
+	r    io.Reader
+	left int64
+	hit  bool
+}
+
+func (c *capReader) Read(p []byte) (int, error) {
+	if c.left <= 0 {
+		var b [1]byte
+		if n, _ := c.r.Read(b[:]); n > 0 {
+			c.hit = true
+		}
+		return 0, io.EOF
+	}
+	if int64(len(p)) > c.left {
+		p = p[:c.left]
+	}
+	n, err := c.r.Read(p)
+	c.left -= int64(n)
+	return n, err
 }
 
 // splitPairs implements steps 2-3 of §6.2.
@@ -93,18 +120,20 @@ func readParamsLimit(r *http.Request, raw bool, limit int64) *Params {
 	if err != nil {
 		mt = ""
 	}
+	body := &capReader{r: r.Body, left: limit}
+	defer func() { p.truncated = body.hit }()
 	if raw {
-		b, _ := io.ReadAll(io.LimitReader(r.Body, limit))
+		b, _ := io.ReadAll(body)
 		p.rawBody = string(b)
 		return p
 	}
 	if mt == "multipart/form-data" {
 		if boundary := mparams["boundary"]; boundary != "" {
-			p.readMultipart(multipart.NewReader(io.LimitReader(r.Body, limit), boundary))
+			p.readMultipart(multipart.NewReader(body, boundary))
 			return p
 		}
 	}
-	b, _ := io.ReadAll(io.LimitReader(r.Body, limit))
+	b, _ := io.ReadAll(body)
 	p.rawBody = string(b)
 	if p.body, ok = splitPairsLimit(p.rawBody); !ok {
 		p.tooMany = true
