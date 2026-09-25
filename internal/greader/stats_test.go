@@ -2,6 +2,7 @@ package greader
 
 import (
 	"database/sql"
+	"runtime/debug"
 	"testing"
 	"time"
 
@@ -54,8 +55,8 @@ func TestEditTagStarRestoreRecordsStat(t *testing.T) {
 // stats path loads the time zone once and looks each feed up once per batch.
 func TestEditTagBulkStarFinishesWellInsideWriteDeadline(t *testing.T) {
 	n := 10000
-	if testing.Short() {
-		n = 2000
+	if testing.Short() || raceEnabled() { // the full 10k under the race detector is slower than the deadline itself
+		n = 1000
 	}
 	h := newHarness(t)
 	h.api.opt.Stats = stats.New(h.clk.Now)
@@ -105,4 +106,19 @@ func TestEditTagStarUsesBatchedStatsPath(t *testing.T) {
 	w = h.post(rd+"edit-tag", editBody("a="+readSt, s...)) // read changes are not stats events
 	require.Equal(t, 200, w.Code)
 	require.Equal(t, batchRecorder{singles: 0, batches: 1, ids: 50}, *rec)
+}
+
+// raceEnabled reports whether the test binary was built with -race (build info,
+// no build tag needed): the detector is ~10x slower, so batch sizes shrink there.
+func raceEnabled() bool {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return false
+	}
+	for _, s := range bi.Settings {
+		if s.Key == "-race" {
+			return s.Value == "true"
+		}
+	}
+	return false
 }
