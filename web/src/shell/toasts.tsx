@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { createStore, useStore } from "@/lib/store";
 
 export interface ToastItem {
@@ -33,7 +33,7 @@ export function clearToasts(): void {
 }
 
 /** Toast region. Errors use role=alert; info toasts are polite. Auto-dismiss 6 s (15 s with an action). */
-export function Toasts() {
+export function Toasts({ children }: { children?: ReactNode }) {
   const list = useStore(toasts);
   return (
     <div
@@ -43,6 +43,7 @@ export function Toasts() {
       {list.map((t) => (
         <ToastView key={t.id} t={t} />
       ))}
+      {children}
     </div>
   );
 }

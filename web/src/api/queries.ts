@@ -35,6 +35,8 @@ export function scopeKey(s: Scope): string {
   if (s.feed) parts.push(`feed:${s.feed}`);
   if (s.folder) parts.push(`folder:${s.folder}`);
   if (s.q) parts.push(`q:${encodeURIComponent(s.q)}`);
+  if (s.order === "oldest") parts.push("order:oldest");
+  if (s.rank) parts.push("rank:1");
   return parts.join("|");
 }
 
@@ -52,6 +54,8 @@ export function parseScopeKey(key: string | null | undefined): Scope {
     if (k === "feed") scope.feed = v;
     else if (k === "folder") scope.folder = v;
     else if (k === "q") scope.q = decodeURIComponent(v);
+    else if (k === "order" && v === "oldest") scope.order = "oldest";
+    else if (k === "rank") scope.rank = true;
   }
   return scope;
 }
@@ -62,6 +66,9 @@ export function itemsParams(scope: Scope, cursor?: string, limit = PAGE_SIZE) {
     feed: scope.feed,
     folder: scope.folder,
     q: scope.q,
+    // `order=oldest` needs the backend's ordering step; a server without it ignores the parameter
+    // (the list screen notices and says so). Newest first is the server default, so it is not sent.
+    order: scope.rank ? "rank" : scope.order === "oldest" ? "oldest" : undefined,
     cursor,
     limit,
   };
@@ -211,4 +218,34 @@ export function useFulltext() {
     },
     onError: (e) => toast(errorMessage(e), "error"),
   });
+}
+
+/** Mark ids read or unread with an optimistic patch; reverts and toasts on failure. */
+export async function applyRead(
+  qc: QueryClient,
+  ids: string[],
+  read: boolean,
+  reason: "swipe" | "key" | "scroll" | "bulk",
+): Promise<MarkReadResponse | undefined> {
+  patchItems(qc, ids, { read });
+  try {
+    return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason } });
+  } catch (e) {
+    patchItems(qc, ids, { read: !read });
+    toast(errorMessage(e), "error");
+    return undefined;
+  }
+}
+
+/** Set starred with an optimistic patch; reverts and toasts on failure. */
+export async function applyStar(qc: QueryClient, id: string, starred: boolean): Promise<boolean> {
+  patchItems(qc, [id], { starred: starred });
+  try {
+    await api(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
+    return true;
+  } catch (e) {
+    patchItems(qc, [id], { starred: !starred });
+    toast(errorMessage(e), "error");
+    return false;
+  }
 }

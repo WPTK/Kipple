@@ -124,6 +124,10 @@ export interface Scope {
   feed?: string;
   folder?: string;
   q?: string;
+  /** Oldest first (device preference). Absent means newest first. */
+  order?: "oldest";
+  /** Relevance-sorted search: "mark above/below" has no meaning there. */
+  rank?: boolean;
 }
 
 // ---- SSE ----
@@ -176,3 +180,9 @@ export const SERVER_EVENT_TYPES: ServerEvent["type"][] = [
   "feed.changed",
   "resync",
 ];
+
+/** Response of a scoped or bounded mark-read. `changed` is empty and `undoable` false above the server cap. */
+export interface BulkMarkResponse extends MarkReadResponse {
+  count?: number;
+  undoable?: boolean;
+}
