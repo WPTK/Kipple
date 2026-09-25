@@ -17,7 +17,6 @@ import (
 // real `npm run build` output otherwise. Either way index.html must come
 // back with the right cache headers.
 func TestIndexServedWithCacheHeaders(t *testing.T) {
-	realApp(t)
 	h, err := NewHandler()
 	require.NoError(t, err)
 
@@ -44,7 +43,6 @@ func TestSPAFallbackServesIndexForUnknownPath(t *testing.T) {
 }
 
 func TestETagRevalidation(t *testing.T) {
-	realApp(t)
 	h, err := NewHandler()
 	require.NoError(t, err)
 
@@ -109,35 +107,23 @@ func TestExistingAssetGetsImmutableCacheControl(t *testing.T) {
 	require.Contains(t, rec.Header().Get("Cache-Control"), "immutable")
 }
 
-// realApp serves index.html at "/" for the test (the placeholder redirect off).
-func realApp(t *testing.T) {
-	t.Helper()
-	prev := placeholderApp
-	placeholderApp = false
-	t.Cleanup(func() { placeholderApp = prev })
-}
-
-// While the app is a placeholder, "/" (only) redirects to the status page.
-func TestRootRedirectsToStatusWhilePlaceholder(t *testing.T) {
+// "/" serves the app (index.html, or the status page when dist has no build);
+// the status page and assets are unaffected.
+func TestRootServesTheApp(t *testing.T) {
 	h, err := NewHandler()
 	require.NoError(t, err)
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(method, "/", nil))
-		require.Equal(t, http.StatusFound, rec.Code, method)
-		require.Equal(t, "/_status", rec.Header().Get("Location"), method)
+		require.Equal(t, http.StatusOK, rec.Code, method)
+		require.Empty(t, rec.Header().Get("Location"), method)
 	}
-	// Not the root: SPA fallback, status page and assets are untouched.
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/some/route", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_status", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/missing.js", nil))
 	require.Equal(t, http.StatusNotFound, rec.Code)
-	require.Empty(t, rec.Header().Get("Location"))
 }
 
 // The page must carry no inline script, or the strict CSP (script-src 'self')
@@ -187,7 +173,6 @@ func TestUIResponsesUnderSecure(t *testing.T) {
 
 // A revalidation must not replace the cached page policy with a weaker one.
 func TestNotModifiedKeepsPolicyOffTheResponse(t *testing.T) {
-	realApp(t)
 	inner, err := NewHandler()
 	require.NoError(t, err)
 	h := httpx.Secure(inner, httpx.Options{})

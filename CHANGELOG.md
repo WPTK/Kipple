@@ -10,6 +10,9 @@ Phase 2 (reading UI backend) so far.
 
 ### Added
 
+- Web UI foundation: React shell with a phone tab bar and desktop panes, 20 reading themes with a
+  follow-system day/night pair, the Magazine list, the article view, live updates over SSE. `/` now serves
+  the app; the status page stays at `/_status`.
 - Security headers on every response (`internal/httpx`): a strict Content-Security-Policy for pages (no
   inline script; `img-src` follows `imgproxy.mode`), `default-src 'none'` for API responses, plus
   `Referrer-Policy: no-referrer`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`,

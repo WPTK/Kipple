@@ -30,12 +30,6 @@ var statusPage []byte
 //go:embed status.js
 var statusScript []byte
 
-// placeholderApp is true until the real single-page app exists: "/" then
-// redirects to /_status instead of serving web/dist/index.html (which is only
-// the Vite scaffold). Flip it to false when phase 2 lands. Every other path,
-// including /assets/, is unaffected. Tests may set it before NewHandler.
-var placeholderApp = true
-
 // NewHandler returns an http.Handler serving the embedded frontend.
 func NewHandler() (http.Handler, error) {
 	dist, err := fs.Sub(web.Dist, "dist")
@@ -59,12 +53,6 @@ func NewHandler() (http.Handler, error) {
 		w.Header().Set("ETag", etagOf(statusScript))
 		http.ServeContent(w, r, "status.js", time.Time{}, bytes.NewReader(statusScript))
 	})
-	if placeholderApp {
-		// "/{$}" matches the root only (GET also covers HEAD).
-		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/_status", http.StatusFound)
-		})
-	}
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("ETag", etag)
