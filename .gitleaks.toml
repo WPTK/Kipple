@@ -16,8 +16,10 @@ description = "Test-only fixture secrets (testSecret) in Go test files; not real
 paths = [
   '''^internal/api/api_test\.go$''',
   '''^internal/greader/harness_test\.go$''',
+  '''^internal/backup/backup_test\.go$''',
+  '''^cmd/kipple/restore_test\.go$''',
 ]
-regexes = ['''testSecret\s*=''']
+regexes = ['''(testSecret|secret64)\s*=''']
 
 [[allowlists]]
 description = "Character set used to generate random passwords, not a secret"

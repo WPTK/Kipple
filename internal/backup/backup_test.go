@@ -27,14 +27,14 @@ import (
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-const secret64 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+const testSecret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 func openDB(t *testing.T) *store.DB {
 	t.Helper()
 	db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(t.TempDir(), "kipple.db"), Logger: quiet})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	_, err = db.CreateAccount(context.Background(), store.Account{Username: "owner", PasswordHash: "h", Secret: secret64})
+	_, err = db.CreateAccount(context.Background(), store.Account{Username: "owner", PasswordHash: "h", Secret: testSecret})
 	require.NoError(t, err)
 	return db
 }
