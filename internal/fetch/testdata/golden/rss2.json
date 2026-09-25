@@ -1,0 +1,79 @@
+{
+  "format": "rss",
+  "title": "Example Blog",
+  "site_url": "https://example.com/",
+  "description": "Notes \u0026 things",
+  "updated": "2026-09-22T10:00:00Z",
+  "items": [
+    {
+      "uid": "g:38ba61681706177105d426c1890b083b",
+      "guid": "post-1",
+      "raw_link": "https://example.com/posts/full?utm_source=rss",
+      "url": "https://example.com/posts/full?utm_source=rss",
+      "link_hash": "c2841e8f78d43ddccca380bb7d617a2a",
+      "title": "Full content post",
+      "author": "Alice Author",
+      "content_html": "\u003cp\u003eHello \u003cb\u003eworld\u003c/b\u003e.\u003c/p\u003e\u003cimg src=\"/img/pixel.gif\" width=\"1\" height=\"1\"\u003e\u003cimg src=\"/img/hero.jpg\" width=\"800\"\u003e\u003cp\u003eSecond para.\u003c/p\u003e",
+      "content_text": "Hello world. Second para.",
+      "image_url": "https://example.com/img/hero.jpg",
+      "published": "2026-09-21T12:30:00Z",
+      "content_hash": "4c96f5e0372062e87d59d0ba41b5af30",
+      "text_hash": "10ee8ef80caa424e796daa7e6c00808f"
+    },
+    {
+      "uid": "g:7668f134ca2aef75c191d4e9256e0096",
+      "guid": "http://feedproxy.google.com/~r/example/~3/abc123/story.html",
+      "raw_link": "http://feedproxy.google.com/~r/example/~3/abc123/story.html",
+      "url": "https://example.com/posts/story.html",
+      "link_hash": "3bb6bf6214c66cc7e2e23db60a3db910",
+      "title": "Feedburner post",
+      "content_html": "\u003cp\u003eStory body\u003c/p\u003e",
+      "content_text": "Story body",
+      "image_url": "https://cdn.example.com/thumb.jpg",
+      "published": "2026-09-20T12:00:00Z",
+      "content_hash": "8877feb6b9aa79ee484a21e24d423e4b",
+      "text_hash": "3921770df75b37291b794bfc943a483b"
+    },
+    {
+      "uid": "g:aebc92422de56ff244c000db891c0eaf",
+      "guid": "https://example.com/posts/enclosure",
+      "raw_link": "/posts/enclosure",
+      "url": "https://example.com/posts/enclosure",
+      "link_hash": "aebc92422de56ff244c000db891c0eaf",
+      "title": "Enclosure image post",
+      "content_html": "Body with no markup",
+      "content_text": "Body with no markup",
+      "image_url": "https://example.com/media/cover.png",
+      "published": "2026-09-19T12:00:00Z",
+      "enclosures": [
+        {
+          "url": "https://example.com/media/cover.png",
+          "type": "image/png",
+          "length": "12345"
+        },
+        {
+          "url": "https://example.com/media/ep1.mp3",
+          "type": "audio/mpeg",
+          "length": "999"
+        }
+      ],
+      "content_hash": "32cfac45afd7c9d8d32b092165250188",
+      "text_hash": "d367eb3ef71aa03446f76f2d3cc6cf92"
+    },
+    {
+      "uid": "g:5029699e60865d09587f964a87d09ba1",
+      "guid": "https://example.com/posts/inline",
+      "raw_link": "https://example.com/posts/inline",
+      "url": "https://example.com/posts/inline",
+      "link_hash": "5029699e60865d09587f964a87d09ba1",
+      "title": "Content image only",
+      "content_html": "\u003cp\u003eSee \u003cimg src=\"photo.jpg\"\u003e here\u003c/p\u003e",
+      "content_text": "See here",
+      "image_url": "https://example.com/posts/photo.jpg",
+      "published": "2026-09-18T12:00:00Z",
+      "content_hash": "6208fcdaae81a61e2c6f0667e09cd4c3",
+      "text_hash": "17542de2249b3c4722176f6edd12a96a"
+    }
+  ],
+  "charset": "utf-8"
+}

@@ -1,0 +1,47 @@
+{
+  "format": "json",
+  "title": "JSON Example",
+  "site_url": "https://json.example.com/",
+  "description": "A JSON Feed",
+  "updated": "2026-09-22T10:00:00Z",
+  "items": [
+    {
+      "uid": "g:6b86b273ff34fce19d6b804eff5a3f57",
+      "guid": "1",
+      "raw_link": "https://json.example.com/1",
+      "url": "https://json.example.com/1",
+      "link_hash": "e81702219250984f82fbc676765be884",
+      "title": "HTML item",
+      "author": "Dana",
+      "content_html": "\u003cp\u003eHello \u003ca href=\"/rel\"\u003erel\u003c/a\u003e\u003c/p\u003e",
+      "content_text": "Hello rel",
+      "image_url": "https://json.example.com/img/1.jpg",
+      "published": "2026-09-21T10:00:00Z",
+      "updated": "2026-09-22T10:00:00Z",
+      "content_hash": "db9a937f193435e3739059312e7363b1",
+      "text_hash": "3d58e3b6be876aa519bf8917efa63423"
+    },
+    {
+      "uid": "g:d4735e3a265e16eee03f59718b9b5d03",
+      "guid": "2",
+      "raw_link": "https://json.example.com/2",
+      "url": "https://json.example.com/2",
+      "link_hash": "88abe5b6eaf6cb17c684f2b0f0ba824a",
+      "title": "",
+      "content_html": "\u003cp\u003ePlain \u0026lt;text\u0026gt; \u0026amp; more\u003cbr\u003esecond line\u003c/p\u003e",
+      "content_text": "Plain \u003ctext\u003e \u0026 more second line",
+      "image_url": "https://json.example.com/banner/2.png",
+      "published": "2026-09-20T10:00:00Z",
+      "enclosures": [
+        {
+          "url": "https://json.example.com/a.mp3",
+          "type": "audio/mpeg",
+          "length": "42"
+        }
+      ],
+      "content_hash": "2ad608c574cd25b21c07f4ced74261f7",
+      "text_hash": "5185815741a97d395c1e875ee62dd229"
+    }
+  ],
+  "charset": "utf-8"
+}

@@ -1,0 +1,37 @@
+{
+  "format": "rss",
+  "title": "RDF Site",
+  "site_url": "https://rdf.example.org/",
+  "description": "An RSS 1.0 feed",
+  "updated": "2026-09-22T09:00:00Z",
+  "items": [
+    {
+      "uid": "l:fd806911ed8a6bce0d7ee35a761583f1",
+      "raw_link": "https://rdf.example.org/a",
+      "url": "https://rdf.example.org/a",
+      "link_hash": "fd806911ed8a6bce0d7ee35a761583f1",
+      "title": "Item A",
+      "author": "Bob",
+      "content_html": "Plain description A",
+      "content_text": "Plain description A",
+      "published": "2026-09-21T19:00:00Z",
+      "updated": "2026-09-21T19:00:00Z",
+      "content_hash": "febad84363c58eb3119fa64c46d419d1",
+      "text_hash": "8f898cd203c1c7a847217cae2ef5e409"
+    },
+    {
+      "uid": "l:103dc0fa853630b480ed1f4d14341784",
+      "raw_link": "https://rdf.example.org/b",
+      "url": "https://rdf.example.org/b",
+      "link_hash": "103dc0fa853630b480ed1f4d14341784",
+      "title": "Item B",
+      "content_html": "\u003cp\u003eRich B\u003c/p\u003e",
+      "content_text": "Rich B",
+      "published": "2026-09-20T15:00:00Z",
+      "updated": "2026-09-20T15:00:00Z",
+      "content_hash": "45b55686246eb7712b959d262b4e7415",
+      "text_hash": "3e3d345715d90964ec301528185d52f6"
+    }
+  ],
+  "charset": "utf-8"
+}

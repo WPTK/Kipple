@@ -1,0 +1,20 @@
+.git
+.github
+docs
+*.md
+
+# Frontend: built fresh by the "web" stage, node_modules never needed in-image
+web/node_modules
+web/dist
+
+# Go build output
+kipple
+kipple.exe
+*.test
+
+# Local-only
+.env
+.env.*
+!.env.example
+docker-compose.example.yml
+.claude

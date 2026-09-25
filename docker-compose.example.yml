@@ -1,0 +1,35 @@
+# Example compose file for the `kipple` service in Host-A's stack compose
+# project. Copy the relevant bits into that project's docker-compose.yml
+# rather than running this file standalone — see CLAUDE.md "Deploy".
+#
+# Name the service explicitly when starting it: never a bare
+# `docker compose up -d` / `down` against the shared stack file.
+
+services:
+  kipple:
+    build: .
+    image: kipple:latest
+    container_name: kipple
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "7080:7080"
+    volumes:
+      - kipple_data:/data
+    stop_grace_period: 30s
+    mem_limit: 256m
+    environment:
+      - GOMEMLIMIT=64MiB
+      # Address your reverse proxy / tunnel connects from (placeholder value;
+      # see .env.example). Kipple logs a WARN if proxy headers arrive from any
+      # other peer.
+      # - KIPPLE_TRUSTED_PROXY_IPS=192.0.2.10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  kipple_data:

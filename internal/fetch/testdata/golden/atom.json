@@ -1,0 +1,47 @@
+{
+  "format": "atom",
+  "title": "Atom Example",
+  "site_url": "https://atom.example.net/",
+  "description": "An Atom feed",
+  "updated": "2026-09-22T12:00:00Z",
+  "items": [
+    {
+      "uid": "g:80c09637960fd6814c7544720691686c",
+      "guid": "tag:atom.example.net,2026:one",
+      "raw_link": "/entries/one",
+      "url": "https://atom.example.net/entries/one",
+      "link_hash": "3bfc24a82e139c7894be969a3e047f42",
+      "title": "Entry \u0026lt;one\u0026gt;",
+      "author": "Carol",
+      "content_html": "\u003cp\u003eAtom \u003cem\u003econtent\u003c/em\u003e\u003c/p\u003e",
+      "content_text": "Atom content",
+      "image_url": "https://atom.example.net/thumb-one.jpg",
+      "published": "2026-09-21T10:00:00Z",
+      "updated": "2026-09-22T11:00:00Z",
+      "enclosures": [
+        {
+          "url": "https://atom.example.net/one.mp3",
+          "type": "audio/mpeg",
+          "length": "10"
+        }
+      ],
+      "content_hash": "85fe382dc11d01e1f161e31091ee5623",
+      "text_hash": "593a026d62ca576ceaf57bcbc08b352a"
+    },
+    {
+      "uid": "g:ae502ecb9db48e45d8f6b20952062617",
+      "guid": "tag:atom.example.net,2026:two",
+      "raw_link": "https://atom.example.net/entries/two",
+      "url": "https://atom.example.net/entries/two",
+      "link_hash": "1571e81c7826ec35ced694b70691f2f7",
+      "title": "Updated only",
+      "content_html": "Just a summary",
+      "content_text": "Just a summary",
+      "published": "2026-09-19T10:00:00Z",
+      "updated": "2026-09-19T10:00:00Z",
+      "content_hash": "eb17771b47a5d4454f59fddd4d63c86a",
+      "text_hash": "eb019a9680fb87eb86f4cf22de7ead32"
+    }
+  ],
+  "charset": "utf-8"
+}

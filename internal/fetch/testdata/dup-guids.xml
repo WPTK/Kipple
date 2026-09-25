@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Dup GUIDs</title>
+    <link>https://dup.example.com/</link>
+    <description>Same guid on every item, plus empties</description>
+    <item>
+      <title>First</title>
+      <link>https://dup.example.com/a</link>
+      <guid>same</guid>
+      <pubDate>Mon, 21 Sep 2026 10:00:00 GMT</pubDate>
+      <description>A</description>
+    </item>
+    <item>
+      <title>Second</title>
+      <link>https://dup.example.com/b</link>
+      <guid>same</guid>
+      <pubDate>Mon, 21 Sep 2026 11:00:00 GMT</pubDate>
+      <description>B</description>
+    </item>
+    <item>
+      <title>Third (no link)</title>
+      <guid>same</guid>
+      <pubDate>Mon, 21 Sep 2026 12:00:00 GMT</pubDate>
+      <description>C</description>
+    </item>
+    <item>
+      <title>Fourth (empty guid, link)</title>
+      <link>https://dup.example.com/d</link>
+      <guid>  </guid>
+      <pubDate>Mon, 21 Sep 2026 13:00:00 GMT</pubDate>
+      <description>D</description>
+    </item>
+    <item>
+      <title>Fifth (link repeats First)</title>
+      <link>https://dup.example.com/a</link>
+      <pubDate>Mon, 21 Sep 2026 14:00:00 GMT</pubDate>
+      <description>E</description>
+    </item>
+  </channel>
+</rss>
