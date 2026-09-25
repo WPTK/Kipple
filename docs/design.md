@@ -71,7 +71,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
     - A successful verification is remembered in memory as `HMAC(secret, "login|" + password)` and compared in constant time, so the owner's clients re-running ClientLogin cost no hashing. The memo is cleared whenever the password changes.
     - The password is **always** verified. A correct one succeeds and clears that IP's failure count. Only failures are delayed (§6.3).
     - The UI generates a 24-character random API password by default.
-    - *Rejected:* API session rows. *Rejected:* reusing the web password on the public path. *Rejected:* a global failure lockout, because an attacker could then lock the owner out; the semaphore already caps the global hash rate and memory.
+    - *Rejected:* API session rows. *Rejected:* reusing the web password on the public path. *Rejected:* a global failure lockout on ClientLogin, because an attacker could then lock the owner out; the semaphore already caps the global hash rate and memory. The web login is different: it keeps a per-IP lockout of 10 failures per 15 minutes (§7), which never affects other addresses.
 
 11. **Retry-After host deadlines live in memory**, owned by the dispatcher. *Rejected:* a `host_backoff` table.
 
@@ -274,7 +274,7 @@ CREATE TABLE account (
 ) STRICT;
 
 -- Web UI sessions only (Reader tokens are stateless). id = hex sha256 of the cookie value; the
--- cookie itself is never stored. 30-day sliding expiry, purged nightly.
+-- cookie itself is never stored. 90-day sliding expiry, purged nightly.
 CREATE TABLE sessions (
   id           TEXT PRIMARY KEY,
   created_at   INTEGER NOT NULL,
@@ -1495,7 +1495,8 @@ On an invalid URL the reply is `200 {"numResults":0,"error":"<msg>"}`.
 
 Everything under `/api/` except the Reader paths requires the `kipple_session` cookie. Details of the cookie:
 
-- It is HttpOnly, `SameSite=Lax`, `Path=/`, persistent with `Max-Age` 30 days and sliding (`last_seen_at` updated at most hourly).
+- It is HttpOnly, `SameSite=Lax`, `Path=/`, persistent with `Max-Age` 90 days and sliding (`last_seen_at` updated at most hourly).
+- **Web login lockout.** `POST /api/auth/login` allows 10 failed attempts per client IP per fixed 15-minute window (started by the first failure). The attempt is reserved atomically before the password is checked, so a parallel burst cannot verify more than 10; a success clears the IP, a busy or malformed request gives its reservation back. A locked IP gets `429` with `Retry-After`. It is per IP, never global, so an attacker elsewhere cannot lock the owner out. When the tracker is full the oldest entry is evicted. Client IP rules are those of §6.3.
 - It is `Secure` when the effective scheme is https: `X-Forwarded-Proto: https` from a trusted proxy IP, or real TLS.
 - It is persistent, not a session cookie, because WebKit bug 272325 drops session cookies in Home Screen apps.
 
@@ -2089,7 +2090,7 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 | 28 | [major] OPML re-import and quickadd duplicate feeds after the http→https migration | **FIX** | One `FindFeedByURL` (normalized, scheme-less, `url` or `url_original` key) used by every subscribe path; `url_key` is UNIQUE; a re-import test expects 0 new feeds |
 | 29 | [major] The OPML round trip loses titles, order and per-feed settings | **FIX** (partial **REJECT**) | The OPML title goes to `custom_title` (cleared if it equals the doc title after the first fetch); positions from document order; `kipple:` override attributes; `http_auth` never exported; case merges and dropped memberships reported. Keeping multi-folder membership is rejected: decision 9, NNW disallows it (§7.6) |
 | 30 | [major] Unsubscribing hard-deletes starred items | **FIX** | Starred items are re-parented to a single archive feed that stays in subscription/list while non-empty; the web dialog shows the count with an opt-in delete (decision 24, §6.9). Validated |
-| 31 | [major] Unbounded argon2id on the public ClientLogin | **FIX** (partial **REJECT**) | m=19 MiB/t=2/p=1, a global semaphore of 1 with a 5 s wait, a success memo, a generated 24-character API password. The global failure lockout is rejected: it would let an attacker lock the owner out, and the semaphore already bounds global rate and memory |
+| 31 | [major] Unbounded argon2id on the public ClientLogin | **FIX** (partial **REJECT**) | m=19 MiB/t=2/p=1, a global semaphore of 1 with a 5 s wait, a success memo, a generated 24-character API password. The global failure lockout is rejected for ClientLogin: it would let an attacker lock the owner out, and the semaphore already bounds global rate and memory. The web login keeps its per-IP lockout (10 failures per 15 minutes) and a 90-day cookie (the owner's decision) |
 | 32 | [minor] The backoff cap makes long-interval feeds poll more often when failing | **FIX** | `delay_s = min(interval_s·2^(n−1), max(86400, interval_s))`; 10080-minute rows in the backoff test (§4.6) |
 | 33 | [minor] The health view's history and trim signals erode quickly | **FIX** | fetch_log kept 14 days with a 50-row floor, the last 10 errors kept, `keep=1` for redirect/churn/rekey notes; `last_error*` kept after success; an immutable `trimmed_unread_count` excluding same-transaction inserts, with a reset; no ledger update for starred-scope mark-all (§4.8, §5) |
 | 34 | [minor] Lowering per-feed retention does nothing until new items arrive | **FIX** | Trim runs on every successful fetch (ok/unchanged/not_modified), and a retention PATCH or default change enqueues `trim_only` jobs (decision 18) |

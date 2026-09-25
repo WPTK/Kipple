@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -545,4 +546,44 @@ func TestSSEEndsOnHubClose(t *testing.T) {
 func itoa(n uint64) string {
 	b, _ := json.Marshal(n)
 	return string(b)
+}
+
+func TestLoginBurstCannotExceedLockoutLimit(t *testing.T) {
+	var checks atomic.Int32
+	h := newHarness(t, func(o *Options) {
+		o.Verifier = auth.NewVerifier([]byte(testSecret), auth.VerifierOptions{Wait: 30 * time.Second, Check: func(pw, phc string) bool {
+			checks.Add(1)
+			time.Sleep(5 * time.Millisecond) // slow enough that the burst overlaps
+			return pw == testPass
+		}})
+	})
+	var wg sync.WaitGroup
+	var wrong, locked atomic.Int32
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			switch h.do("POST", "/api/auth/login", loginBody("wrong")).Code {
+			case http.StatusUnauthorized:
+				wrong.Add(1)
+			case http.StatusTooManyRequests:
+				locked.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	require.EqualValues(t, 10, checks.Load(), "only Max passwords were ever verified")
+	require.EqualValues(t, 10, wrong.Load())
+	require.EqualValues(t, 30, locked.Load())
+	// the right password is refused while locked, and never reaches the verifier
+	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
+	require.EqualValues(t, 10, checks.Load())
+}
+
+func TestBusyAndMalformedLoginsAreNotCountedAgainstLockout(t *testing.T) {
+	h := newHarness(t)
+	for i := 0; i < 15; i++ {
+		require.Equal(t, http.StatusBadRequest, h.do("POST", "/api/auth/login", "{not json").Code)
+	}
+	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
 }

@@ -213,16 +213,7 @@ func (f *FailureTracker) Fail(ip string) time.Duration {
 	now := f.Now()
 	e := f.m[ip]
 	if e == nil || now.Sub(e.start) > f.Window {
-		if len(f.m) >= 4096 {
-			for k, v := range f.m {
-				if now.Sub(v.start) > f.Window {
-					delete(f.m, k)
-				}
-			}
-			if len(f.m) >= 4096 { // still full of live entries: stop tracking new IPs
-				return 0
-			}
-		}
+		makeRoom(f.m, now, f.Window, false)
 		e = &failure{start: now}
 		f.m[ip] = e
 	}
@@ -349,7 +340,7 @@ type Lockout struct {
 	m  map[string]*failure
 }
 
-// NewLockout returns the plan defaults: 10 failures per 15 minutes.
+// NewLockout returns the plan defaults: 10 attempts (failures) per 15 minutes.
 func NewLockout(now func() time.Time) *Lockout {
 	if now == nil {
 		now = time.Now
@@ -376,27 +367,72 @@ func (l *Lockout) Locked(ip string) (bool, time.Duration) {
 	return false, 0
 }
 
-// Fail records a failed attempt.
-func (l *Lockout) Fail(ip string) {
+// Reserve counts one attempt for ip *before* its password is checked, so a
+// parallel burst cannot run more than Max verifications: the check and the
+// increment are one atomic step. It returns false (and how long the lockout
+// has left) when ip is locked. The caller then calls Clear on success, Release
+// when the attempt says nothing about the password (busy, malformed), and does
+// nothing on a wrong password: the reservation stays as the recorded failure.
+func (l *Lockout) Reserve(ip string) (ok bool, left time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.Now()
 	e := l.m[ip]
-	if e == nil || now.Sub(e.start) >= l.Window {
-		if len(l.m) >= 4096 {
-			for k, v := range l.m {
-				if now.Sub(v.start) >= l.Window {
-					delete(l.m, k)
-				}
-			}
-			if len(l.m) >= 4096 {
-				return
-			}
-		}
+	if e != nil && now.Sub(e.start) >= l.Window {
+		delete(l.m, ip)
+		e = nil
+	}
+	if e != nil && e.n >= l.Max {
+		return false, e.start.Add(l.Window).Sub(now)
+	}
+	if e == nil {
+		makeRoom(l.m, now, l.Window, true)
 		e = &failure{start: now}
 		l.m[ip] = e
 	}
 	e.n++
+	return true, 0
+}
+
+// Release gives back one reservation.
+func (l *Lockout) Release(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if e := l.m[ip]; e != nil {
+		if e.n--; e.n <= 0 {
+			delete(l.m, ip)
+		}
+	}
+}
+
+// maxTracked bounds the per-IP maps. When they are full of live entries the
+// oldest one is evicted, so new offenders are always tracked. (Stopping instead
+// would let an attacker rotating source addresses switch tracking off.)
+const maxTracked = 4096
+
+// makeRoom frees one slot in m when it is full: expired entries first (start
+// plus window <= now; inclusive reports whether the boundary itself is expired),
+// then the entry with the oldest window start.
+func makeRoom(m map[string]*failure, now time.Time, window time.Duration, inclusive bool) {
+	if len(m) < maxTracked {
+		return
+	}
+	for k, v := range m {
+		if d := now.Sub(v.start); d > window || (inclusive && d == window) {
+			delete(m, k)
+		}
+	}
+	if len(m) < maxTracked {
+		return
+	}
+	var oldest string
+	var oldestAt time.Time
+	for k, v := range m {
+		if oldest == "" || v.start.Before(oldestAt) {
+			oldest, oldestAt = k, v.start
+		}
+	}
+	delete(m, oldest)
 }
 
 // Clear forgets ip.

@@ -19,7 +19,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := s.clientIP(r)
-	if locked, left := s.lock.Locked(ip); locked {
+	// The attempt is reserved before the password is checked (atomically with
+	// the lock test), so a parallel burst cannot exceed the limit.
+	if ok, left := s.lock.Reserve(ip); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
 		writeError(w, http.StatusTooManyRequests, "locked")
 		return
@@ -29,17 +31,18 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLoginBody)).Decode(&body); err != nil {
+		s.lock.Release(ip)
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
 	acct, ok, err := s.db.Account(r.Context())
 	if err != nil {
 		s.log.Error("api: load account", "err", err)
+		s.lock.Release(ip)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 	if !ok {
-		s.lock.Fail(ip)
 		writeError(w, http.StatusUnauthorized, "auth")
 		return
 	}
@@ -47,12 +50,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	pwOK, busy := s.verifier.VerifyBusy(r.Context(), "web", body.Password, acct.PasswordHash)
 	if busy {
 		// says nothing about the password: not counted as a failure
+		s.lock.Release(ip)
 		w.Header().Set("Retry-After", "5")
 		writeError(w, http.StatusServiceUnavailable, "busy")
 		return
 	}
 	if !pwOK || !strings.EqualFold(strings.TrimSpace(body.Username), acct.Username) {
-		s.lock.Fail(ip)
+		// the reservation stays counted as the failure
 		writeError(w, http.StatusUnauthorized, "auth")
 		return
 	}
