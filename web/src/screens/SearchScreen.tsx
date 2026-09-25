@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import type { Scope } from "@/api/types";
+import { useDevicePrefs } from "@/lib/devicePrefs";
 import { useHotkeys } from "@/lib/keys";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
@@ -15,6 +16,7 @@ export function SearchScreen() {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const prefs = useStore(prefsStore);
+  const { order } = useDevicePrefs();
 
   // Debounce the URL (and so the query) at 300 ms.
   useEffect(() => {
@@ -32,7 +34,7 @@ export function SearchScreen() {
   useHotkeys({ up: () => navigate(-1) }, { singleKeys: prefs.shortcuts });
 
   const q = urlQ.trim();
-  const scope: Scope | null = useMemo(() => (q.length >= 2 ? { view: "all", q } : null), [q]);
+  const scope: Scope | null = useMemo(() => (q.length >= 2 ? { view: "all", q, ...(order === "oldest" ? { order: "oldest" as const } : {}) } : null), [q, order]);
 
   const header = (
     <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-3">

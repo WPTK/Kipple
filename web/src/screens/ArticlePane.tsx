@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, Star } from "lucide-react";
-import { flattenItems, useFulltext, useItem, useItems, useMarkRead, useOpenItem, useToggleStar } from "@/api/queries";
+import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
+import { useSwipeBack } from "@/gestures/useSwipeBack";
+import { prefersReducedMotion } from "@/gestures/tracking";
+import { enhanceEmbeds, handleArticleClick } from "@/lib/articleDom";
+import { useItemActions } from "@/lib/itemActions";
 import { scopeFromSearch, articleTo, listTo } from "@/lib/routes";
 import { sanitizeArticleHtml } from "@/lib/safeHtml";
 import { fullDate } from "@/lib/format";
@@ -31,7 +35,7 @@ export function ArticlePane({ id, pane }: Props) {
   const list = useItems(scope, hasFrom);
   const open = useOpenItem();
   const star = useToggleStar();
-  const markRead = useMarkRead();
+  const act = useItemActions();
   const fulltext = useFulltext();
 
   const ids = useMemo(() => flattenItems(list.data).map((i) => i.id), [list.data]);
@@ -100,7 +104,7 @@ export function ArticlePane({ id, pane }: Props) {
   };
   const toggleRead = () => {
     if (!item.data) return;
-    markRead.mutate({ ids: [id], read: !item.data.read, reason: "key" });
+    void act.toggleRead(item.data, "key");
   };
   const toggleFulltext = () => {
     if (!item.data) return;
@@ -131,6 +135,16 @@ export function ArticlePane({ id, pane }: Props) {
     scroller.current?.scrollTo({ top: 0 });
   }, [id]);
 
+  // Right-swipe from the body (not the left 24 px) pops to the list you came from.
+  const frame = useRef<HTMLDivElement>(null);
+  useSwipeBack(frame, { enabled: !pane && !!item.data, onBack: back });
+
+  // Embed placeholders get a real Play button once the HTML is in the DOM.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (bodyRef.current) enhanceEmbeds(bodyRef.current);
+  }, [html, item.data?.trimmed]);
+
   if (item.isPending) {
     return (
       <div className="p-6" aria-busy="true" role="status">
@@ -160,7 +174,7 @@ export function ArticlePane({ id, pane }: Props) {
   const ftOn = a.fulltext.effective === 1;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={frame} className="flex h-full min-h-0 flex-col bg-bg">
       {!pane && <TopBar onBack={back} />}
       {pane && (
         <Toolbar
@@ -178,7 +192,7 @@ export function ArticlePane({ id, pane }: Props) {
           onOriginal={openOriginal}
         />
       )}
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+      <div ref={scroller} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <article className="px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title">
           <header className="mx-auto mb-5 max-w-[min(var(--kp-measure),46rem)]">
             <p className="text-sm text-fg2">
@@ -206,7 +220,15 @@ export function ArticlePane({ id, pane }: Props) {
           {a.trimmed ? (
             <StatusBlock role="status" title="This article was removed" body="Kipple keeps only the newest articles for this feed. Open the original to read it." />
           ) : (
-            <div className="article-body" data-testid="article-body" dangerouslySetInnerHTML={{ __html: html }} />
+            <div
+              ref={bodyRef}
+              className="article-body"
+              data-testid="article-body"
+              onClick={(e) => {
+                if (bodyRef.current) handleArticleClick(e, bodyRef.current, scroller.current, !prefersReducedMotion());
+              }}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
           )}
         </article>
       </div>

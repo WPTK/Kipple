@@ -43,3 +43,10 @@ if (!window.matchMedia) {
       dispatchEvent: () => false,
     }) as MediaQueryList;
 }
+
+// Radix menus and the gesture layer call these; jsdom has none of them.
+Element.prototype.hasPointerCapture = function () {
+  return false;
+};
+Element.prototype.setPointerCapture = function () {};
+Element.prototype.releasePointerCapture = function () {};

@@ -9,7 +9,8 @@ function ensureHooks(): void {
   hooked = true;
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
     if (node instanceof Element) {
-      if (node.tagName === "A" && node.hasAttribute("href")) {
+      // Footnote links (#kp-...) stay in the article; every other link opens in a new tab.
+      if (node.tagName === "A" && node.hasAttribute("href") && !(node.getAttribute("href") ?? "").startsWith("#")) {
         node.setAttribute("target", "_blank");
         node.setAttribute("rel", "noopener noreferrer");
       }
