@@ -225,3 +225,34 @@ func TestTransientTransportDNS(t *testing.T) {
 	require.True(t, transientTransport(context.DeadlineExceeded))
 	require.True(t, transientTransport(io.ErrUnexpectedEOF))
 }
+
+func TestExtractRetriesOnceWithRetryUserAgent(t *testing.T) {
+	var uas []string
+	srv := page(t, func(w http.ResponseWriter, r *http.Request) {
+		uas = append(uas, r.UserAgent())
+		if !strings.Contains(r.UserAgent(), "Chrome") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(article(longBody())))
+	})
+	tgt := Target{URL: srv.URL + "/a", AllowPrivate: true}
+
+	_, err := newExtractor().Extract(context.Background(), tgt)
+	require.Error(t, err, "no retry UA: a 403 stays a failure")
+	require.Len(t, uas, 1)
+
+	uas = nil
+	tgt.RetryUserAgent = "Mozilla/5.0 Chrome/140"
+	res, err := newExtractor().Extract(context.Background(), tgt)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.HTML)
+	require.Len(t, uas, 2, "one retry, as a browser")
+
+	uas = nil
+	tgt.UserAgent = "Mozilla/5.0 Chrome/140" // browser_always: already the browser
+	res, err = newExtractor().Extract(context.Background(), tgt)
+	require.NoError(t, err)
+	require.Len(t, uas, 1)
+}

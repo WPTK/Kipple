@@ -64,11 +64,14 @@ func New(opt Options) *Extractor {
 
 // Target is one page to extract, with the owning feed's network switches.
 type Target struct {
-	URL          string
-	UserAgent    string // feed override; "" = the extractor default
-	AllowPrivate bool
-	InsecureTLS  bool
-	NoHTTP2      bool
+	URL       string
+	UserAgent string // resolved for the feed (override, mode, remembered fallback); "" = the extractor default
+	// RetryUserAgent, when set, is tried once after a 403/406 or a Cloudflare
+	// challenge served as a 503 (fetch.user_agent_mode = browser_on_failure).
+	RetryUserAgent string
+	AllowPrivate   bool
+	InsecureTLS    bool
+	NoHTTP2        bool
 }
 
 // Result is a successful extraction.
@@ -113,16 +116,10 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, e.opt.Timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return Result{}, fail("bad article URL")
-	}
 	ua := t.UserAgent
 	if ua == "" {
 		ua = e.opt.UserAgent
 	}
-	req.Header.Set("User-Agent", ua)
-	req.Header.Set("Accept", "text/html, application/xhtml+xml;q=0.9, */*;q=0.1")
 	client := &http.Client{
 		Transport: e.opt.Transport(t.AllowPrivate, t.InsecureTLS, t.NoHTTP2),
 		Timeout:   e.opt.Timeout,
@@ -133,7 +130,11 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 			return nil
 		},
 	}
-	resp, err := client.Do(req)
+	resp, err := e.get(ctx, client, u.String(), ua)
+	if err == nil && t.RetryUserAgent != "" && t.RetryUserAgent != ua && uaRefused(resp) {
+		resp.Body.Close()
+		resp, err = e.get(ctx, client, u.String(), t.RetryUserAgent)
+	}
 	if err != nil {
 		return Result{}, failClass(transientTransport(err), "could not fetch the page: %s", cleanErr(err))
 	}
@@ -217,4 +218,28 @@ func cleanErr(err error) string {
 		m = m[:200]
 	}
 	return m
+}
+
+// get sends one GET for the article with the given User-Agent.
+func (e *Extractor) get(ctx context.Context, client *http.Client, u, ua string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", ua)
+	req.Header.Set("Accept", "text/html, application/xhtml+xml;q=0.9, */*;q=0.1")
+	return client.Do(req)
+}
+
+// uaRefused reports whether a response looks like the publisher rejecting the
+// User-Agent: 403 or 406, or a Cloudflare challenge served as a 503 (the same
+// rule the feed fetcher uses).
+func uaRefused(resp *http.Response) bool {
+	switch resp.StatusCode {
+	case http.StatusForbidden, http.StatusNotAcceptable:
+		return true
+	case http.StatusServiceUnavailable:
+		return resp.Header.Get("cf-mitigated") == "challenge"
+	}
+	return false
 }

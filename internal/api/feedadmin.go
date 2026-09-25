@@ -190,7 +190,13 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dctx, cancel := context.WithTimeout(ctx, discoverWait)
-	found, err := discover.Find(dctx, s.opt.Guard(false, false, false), s.outgoingUA(), norm)
+	// Same User-Agent policy as a feed fetch (fetch.user_agent_mode, a custom UA),
+	// minus the per-feed switches a new feed does not have yet.
+	ua, retryUA := store.ResolveUserAgent(s.db.FetchSettings(ctx), "", false)
+	if ua == "" {
+		ua = s.outgoingUA()
+	}
+	found, err := discover.Find(dctx, s.opt.Guard(false, false, false), ua, retryUA, norm)
 	cancel()
 	if err != nil {
 		if errors.Is(err, discover.ErrNoFeed) {

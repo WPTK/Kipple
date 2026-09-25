@@ -304,3 +304,41 @@ func TestAddFeedReportsFailedFirstFetch(t *testing.T) {
 	require.Equal(t, "http", fo["error_class"])
 	require.Equal(t, "HTTP 500", fo["error"])
 }
+
+// Web discovery follows fetch.user_agent_mode: a site that refuses Kipple's
+// User-Agent is retried once as a browser; "default" never retries.
+func TestAddFeedDiscoveryRetriesWithBrowserUserAgent(t *testing.T) {
+	var uas []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uas = append(uas, r.UserAgent())
+		if !strings.Contains(r.UserAgent(), "Chrome") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(rssBody))
+	}))
+	t.Cleanup(srv.Close)
+	base := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
+	c := h.login()
+
+	h.exec(`INSERT INTO settings (key, value) VALUES ('fetch.user_agent_mode', '"default"')`)
+	code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": base + "/feed.xml"}))
+	require.Equal(t, 422, code, body)
+	require.Equal(t, "discovery_failed", body["error"])
+	require.Len(t, uas, 1)
+
+	uas = nil
+	h.exec(`UPDATE settings SET value = '"browser_on_failure"' WHERE key = 'fetch.user_agent_mode'`)
+	code, body, _ = h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": base + "/feed.xml"}))
+	require.Equal(t, 200, code, body)
+	require.Len(t, uas, 2)
+
+	h.exec("DELETE FROM feeds")
+	uas = nil
+	h.exec(`UPDATE settings SET value = '"browser_always"' WHERE key = 'fetch.user_agent_mode'`)
+	code, body, _ = h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": base + "/feed.xml"}))
+	require.Equal(t, 200, code, body)
+	require.Len(t, uas, 1, "browser_always leads with the browser string")
+}

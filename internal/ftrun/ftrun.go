@@ -156,7 +156,7 @@ func (r *Runner) lead(ctx context.Context, req Request) (Outcome, error) {
 	ictx, cancel := context.WithTimeout(work, req.Timeout)
 	defer cancel()
 	res, err := r.safeExtract(ictx, extract.Target{
-		URL: it.URL, UserAgent: it.UserAgent,
+		URL: it.URL, UserAgent: it.UserAgent, RetryUserAgent: it.RetryUserAgent,
 		AllowPrivate: it.AllowPrivateNet, InsecureTLS: it.AllowInsecureTLS, NoHTTP2: it.NoHTTP2,
 	})
 	save := store.FulltextSave{HTML: res.HTML, Text: res.Text, WordCount: res.WordCount, ImageURL: res.ImageURL, SourceURL: res.SourceURL}

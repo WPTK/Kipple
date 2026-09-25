@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/clock"
+	"github.com/WPTK/kipple/internal/fetch"
 )
 
 func TestFulltextErrorClassRoundTripAndURLGuard(t *testing.T) {
@@ -112,4 +113,38 @@ func TestMigration0003KeepsExistingFulltextErrors(t *testing.T) {
 		_, err := tx.ExecContext(ctx, "UPDATE item_fulltext SET error_class = 'bogus' WHERE item_id = ?", item)
 		return err
 	}), "error_class is constrained")
+}
+
+// Article extraction resolves the User-Agent like a feed fetch does (mode,
+// remembered fallback, per-feed override).
+func TestGetFulltextItemResolvesUserAgent(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("https://ex.com/feed")
+	e.fetchBody(id, rss(numbered(1)...))
+	item := int64(scalar[int](t, e.db.Reader(), "SELECT id FROM items WHERE feed_id = ?", id))
+	get := func() FulltextItem {
+		it, ok, err := e.db.GetFulltextItem(e.ctx, item)
+		require.NoError(t, err)
+		require.True(t, ok)
+		return it
+	}
+	it := get() // default mode is browser_on_failure
+	require.Equal(t, "", it.UserAgent)
+	require.Equal(t, fetch.BrowserUserAgent, it.RetryUserAgent)
+
+	e.exec("UPDATE feeds SET ua_fallback = 1 WHERE id = ?", id)
+	it = get()
+	require.Equal(t, fetch.BrowserUserAgent, it.UserAgent)
+	require.Empty(t, it.RetryUserAgent)
+
+	e.exec("UPDATE feeds SET ua_fallback = 0 WHERE id = ?", id)
+	e.exec(`INSERT INTO settings (key, value) VALUES ('fetch.user_agent_mode', '"browser_always"')`)
+	require.Equal(t, fetch.BrowserUserAgent, get().UserAgent)
+
+	e.exec("UPDATE settings SET value = '\"default\"' WHERE key = 'fetch.user_agent_mode'")
+	it = get()
+	require.Empty(t, it.UserAgent+it.RetryUserAgent)
+
+	e.exec("UPDATE feeds SET user_agent = 'Feed/2' WHERE id = ?", id)
+	require.Equal(t, "Feed/2", get().UserAgent)
 }

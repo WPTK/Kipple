@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 // FulltextItem is what POST /api/items/{id}/fulltext needs about an item and
@@ -15,7 +16,11 @@ type FulltextItem struct {
 	Mode       *int // items.fulltext_mode
 	Effective  int  // COALESCE(mode, feeds.fulltext)
 
-	UserAgent                                  string // feeds.user_agent, "" = default
+	// UserAgent is resolved for the feed exactly as a feed fetch resolves it
+	// (per-feed override, fetch.user_agent_mode, the remembered browser fallback,
+	// custom fetch.user_agent); "" = Kipple's default. RetryUserAgent is tried
+	// once after a 403/406 ("" = no retry).
+	UserAgent, RetryUserAgent                  string
 	AllowPrivateNet, AllowInsecureTLS, NoHTTP2 bool
 
 	// Stored extraction, if any: HTML set means a success, Error set a failure.
@@ -35,12 +40,12 @@ func (d *DB) GetFulltextItem(ctx context.Context, id int64) (it FulltextItem, ok
 	var mode sql.NullInt64
 	var ua, html, ferr, eclass sql.NullString
 	var row, words, attempted sql.NullInt64
-	var priv, insecure, noH2 int
+	var priv, insecure, noH2, uaFallback int
 	err = d.reader.QueryRowContext(ctx, `SELECT i.id, i.feed_id, i.url, i.fulltext_mode, COALESCE(i.fulltext_mode, f.fulltext),
-			f.user_agent, f.allow_private_net, f.allow_insecure_tls, f.disable_http2,
+			f.user_agent, f.allow_private_net, f.allow_insecure_tls, f.disable_http2, f.ua_fallback,
 			ft.item_id, ft.content_html, ft.error, ft.word_count, ft.error_class, ft.extracted_at
 		FROM items i JOIN feeds f ON f.id = i.feed_id LEFT JOIN item_fulltext ft ON ft.item_id = i.id WHERE i.id = ?`, id).
-		Scan(&it.ID, &it.FeedID, &it.URL, &mode, &it.Effective, &ua, &priv, &insecure, &noH2, &row, &html, &ferr, &words, &eclass, &attempted)
+		Scan(&it.ID, &it.FeedID, &it.URL, &mode, &it.Effective, &ua, &priv, &insecure, &noH2, &uaFallback, &row, &html, &ferr, &words, &eclass, &attempted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return it, false, nil
 	}
@@ -51,7 +56,7 @@ func (d *DB) GetFulltextItem(ctx context.Context, id int64) (it FulltextItem, ok
 		m := int(mode.Int64)
 		it.Mode = &m
 	}
-	it.UserAgent = ua.String
+	it.UserAgent, it.RetryUserAgent = ResolveUserAgent(d.FetchSettings(ctx), strings.TrimSpace(ua.String), uaFallback == 1)
 	it.AllowPrivateNet, it.AllowInsecureTLS, it.NoHTTP2 = priv == 1, insecure == 1, noH2 == 1
 	it.HasRow, it.HTML, it.Error, it.Words = row.Valid, html.String, ferr.String, words.Int64
 	it.ErrorTransient, it.AttemptedAt = eclass.String == "transient", attempted.Int64

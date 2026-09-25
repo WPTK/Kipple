@@ -47,21 +47,30 @@ var ErrNoFeed = errors.New("no feed found at that address")
 var ErrTooLarge = fmt.Errorf("the response is larger than %d MiB", maxBody>>20)
 
 // Find fetches raw through rt and reports whether it is a feed or which feeds
-// it links to. ctx bounds the whole attempt.
-func Find(ctx context.Context, rt http.RoundTripper, userAgent, raw string) (Result, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
-	if err != nil {
-		return Result{}, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/feed+json, application/xml;q=0.9, text/xml;q=0.9, text/html;q=0.8, */*;q=0.5")
+// it links to. ctx bounds the whole attempt. When the site refuses userAgent
+// (403, 406, or a Cloudflare challenge served as a 503) and retryUA is set and
+// different, it asks once more with retryUA, as the feed fetcher does.
+func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw string) (Result, error) {
 	hc := &http.Client{Transport: rt, CheckRedirect: func(_ *http.Request, via []*http.Request) error {
 		if len(via) > maxRedirects {
 			return errors.New("too many redirects")
 		}
 		return nil
 	}}
-	resp, err := hc.Do(req)
+	get := func(ua string) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", ua)
+		req.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/feed+json, application/xml;q=0.9, text/xml;q=0.9, text/html;q=0.8, */*;q=0.5")
+		return hc.Do(req)
+	}
+	resp, err := get(userAgent)
+	if err == nil && retryUA != "" && retryUA != userAgent && uaRefused(resp) {
+		resp.Body.Close()
+		resp, err = get(retryUA)
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -184,6 +193,18 @@ func hasToken(list, want string) bool {
 		if t == want {
 			return true
 		}
+	}
+	return false
+}
+
+// uaRefused reports whether a response looks like the publisher rejecting the
+// User-Agent (the rule the feed fetcher uses).
+func uaRefused(resp *http.Response) bool {
+	switch resp.StatusCode {
+	case http.StatusForbidden, http.StatusNotAcceptable:
+		return true
+	case http.StatusServiceUnavailable:
+		return resp.Header.Get("cf-mitigated") == "challenge"
 	}
 	return false
 }

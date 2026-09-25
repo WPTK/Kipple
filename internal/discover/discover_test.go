@@ -24,7 +24,7 @@ func serve(t *testing.T, ct, body string) string {
 
 func find(t *testing.T, ct, body string) (Result, error) {
 	t.Helper()
-	return Find(context.Background(), http.DefaultTransport, "ua", serve(t, ct, body))
+	return Find(context.Background(), http.DefaultTransport, "ua", "", serve(t, ct, body))
 }
 
 // sized returns a valid feed padded (inside a comment) to exactly n bytes.
@@ -69,4 +69,35 @@ func TestOneByteOverLimitIsTooLarge(t *testing.T) {
 	require.ErrorIs(t, err, ErrTooLarge)
 	_, err = find(t, "text/html", sized(maxBody+1000))
 	require.ErrorIs(t, err, ErrTooLarge, "the label does not matter")
+}
+
+func TestRetriesOnceWithTheRetryUserAgent(t *testing.T) {
+	var uas []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uas = append(uas, r.UserAgent())
+		switch {
+		case r.UserAgent() == "browser":
+			w.Header().Set("Content-Type", "application/atom+xml")
+			_, _ = w.Write([]byte(atom))
+		case r.URL.Path == "/cf":
+			w.Header().Set("cf-mitigated", "challenge")
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case r.URL.Path == "/406":
+			w.WriteHeader(http.StatusNotAcceptable)
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	for _, path := range []string{"/403", "/406", "/cf"} {
+		uas = nil
+		res, err := Find(context.Background(), http.DefaultTransport, "kipple", "browser", srv.URL+path)
+		require.NoError(t, err, path)
+		require.True(t, res.IsFeed, path)
+		require.Equal(t, []string{"kipple", "browser"}, uas, path)
+	}
+	uas = nil
+	_, err := Find(context.Background(), http.DefaultTransport, "kipple", "", srv.URL+"/403")
+	require.ErrorContains(t, err, "HTTP 403")
+	require.Len(t, uas, 1, "no retry UA, no retry")
 }
