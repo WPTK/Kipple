@@ -47,6 +47,7 @@ func TestGetSettingsDefaults(t *testing.T) {
 	h := newHarness(t)
 	code, out, _ := h.api(h.login(), "GET", "/api/settings", "")
 	require.Equal(t, http.StatusOK, code)
+	out = vals(out)
 	require.EqualValues(t, 30, out["refresh.interval_minutes"])
 	require.EqualValues(t, 250, out["retention.default"])
 	require.EqualValues(t, 90, out["retention.restore_days"])
@@ -55,6 +56,9 @@ func TestGetSettingsDefaults(t *testing.T) {
 	require.Equal(t, "system", out["ui.theme"])
 	require.NotContains(t, out, "sys.id_high_water")
 }
+
+// vals unwraps the flat key->value map of a GET/PATCH /api/settings response.
+func vals(out map[string]any) map[string]any { return out["values"].(map[string]any) }
 
 func TestPatchSettingsValidation(t *testing.T) {
 	for _, tc := range []struct {
@@ -80,8 +84,10 @@ func TestPatchSettingsValidation(t *testing.T) {
 		{"theme enum", `{"ui.theme":"neon"}`, "ui.theme"},
 		{"font enum", `{"ui.font_body":"Comic Sans"}`, "ui.font_body"},
 		{"font size range", `{"ui.font_size":40}`, "ui.font_size"},
-		{"line height range", `{"ui.line_height":3}`, "ui.line_height"},
-		{"content width range", `{"ui.content_width":100}`, "ui.content_width"},
+		{"removed line height", `{"ui.line_height":1.6}`, "ui.line_height"},
+		{"removed content width", `{"ui.content_width":680}`, "ui.content_width"},
+		{"density enum", `{"ui.reading_density":"huge"}`, "ui.reading_density"},
+		{"ua mode enum", `{"fetch.user_agent_mode":"sometimes"}`, "fetch.user_agent_mode"},
 		{"layouts not object", `{"ui.layouts":[1]}`, "ui.layouts"},
 		{"layouts non-string value", `{"ui.layouts":{"all":5}}`, "ui.layouts"},
 		{"valid plus invalid is all-or-nothing", `{"ui.theme":"dark","retention.restore_days":999}`, "retention.restore_days"},
@@ -101,6 +107,7 @@ func TestPatchSettingsValidation(t *testing.T) {
 			}
 			// nothing was written, no side effects
 			_, got, _ := h.api(c, "GET", "/api/settings", "")
+			got = vals(got)
 			require.Equal(t, "system", got["ui.theme"])
 			require.EqualValues(t, 90, got["retention.restore_days"])
 			require.Empty(t, h.sched.retentionAll)
@@ -138,8 +145,11 @@ func TestPatchSettingsAccepted(t *testing.T) {
 		{"ui.font_body", `"Literata"`, "Literata"},
 		{"ui.font_ui", `""`, ""},
 		{"ui.font_size", `20`, float64(20)},
-		{"ui.line_height", `1.75`, 1.75},
-		{"ui.content_width", `720`, float64(720)},
+		{"ui.reading_density", `"compact"`, "compact"},
+		{"ui.reading_density", `"relaxed"`, "relaxed"},
+		{"ui.theme", `"oled"`, "oled"},
+		{"fetch.user_agent_mode", `"default"`, "default"},
+		{"fetch.user_agent_mode", `"browser_always"`, "browser_always"},
 		{"ui.mark_read_on_scroll", `true`, true},
 		{"ui.layouts", `{"all":"cards","feed:3":"list"}`, map[string]any{"all": "cards", "feed:3": "list"}},
 	} {
@@ -148,9 +158,9 @@ func TestPatchSettingsAccepted(t *testing.T) {
 			c := h.login()
 			code, out, _ := h.api(c, "PATCH", "/api/settings", `{"`+tc.key+`":`+tc.body+`}`)
 			require.Equal(t, http.StatusOK, code)
-			require.EqualValues(t, tc.want, out[tc.key])
+			require.EqualValues(t, tc.want, vals(out)[tc.key])
 			_, got, _ := h.api(c, "GET", "/api/settings", "")
-			require.EqualValues(t, tc.want, got[tc.key])
+			require.EqualValues(t, tc.want, vals(got)[tc.key])
 		})
 	}
 }
@@ -161,7 +171,7 @@ func TestPatchSettingsNullResetsToDefault(t *testing.T) {
 	h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":"all"}`)
 	code, out, _ := h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":null}`)
 	require.Equal(t, http.StatusOK, code)
-	require.Equal(t, "http_only", out["imgproxy.mode"])
+	require.Equal(t, "http_only", vals(out)["imgproxy.mode"])
 	var n int
 	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx, "SELECT count(*) FROM settings WHERE key = 'imgproxy.mode'").Scan(&n)
@@ -257,7 +267,7 @@ func TestAccountPassword(t *testing.T) {
 	}{
 		{"wrong current", `{"current":"nope-nope-nope","new":"a-brand-new-passphrase"}`, http.StatusForbidden, "bad_password"},
 		{"empty current", `{"current":"","new":"a-brand-new-passphrase"}`, http.StatusForbidden, "bad_password"},
-		{"new too short", `{"current":"correct-horse","new":"short"}`, http.StatusBadRequest, "bad_new_password"},
+		{"new too short", `{"current":"correct-horse","new":"four"}`, http.StatusBadRequest, "bad_new_password"},
 		{"new missing", `{"current":"correct-horse"}`, http.StatusBadRequest, "bad_new_password"},
 		{"new too long", `{"current":"correct-horse","new":"` + string(repeatByte('x', 257)) + `"}`, http.StatusBadRequest, "bad_new_password"},
 		{"bad json", `{`, http.StatusBadRequest, "bad_request"},
@@ -361,7 +371,7 @@ func TestAccountAPIPassword(t *testing.T) {
 		{"neither new nor generate", `{"current":"correct-horse"}`, http.StatusBadRequest, "bad_request"},
 		{"generate false", `{"current":"correct-horse","generate":false}`, http.StatusBadRequest, "bad_request"},
 		{"both", `{"current":"correct-horse","new":"my-own-api-passphrase","generate":true}`, http.StatusBadRequest, "bad_request"},
-		{"new too short", `{"current":"correct-horse","new":"short"}`, http.StatusBadRequest, "bad_new_password"},
+		{"new too short", `{"current":"correct-horse","new":"four"}`, http.StatusBadRequest, "bad_new_password"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var hook int
@@ -438,4 +448,22 @@ func authLine(body string) string {
 		}
 	}
 	return ""
+}
+
+func TestPasswordLengthBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name, pw string
+		want     int
+	}{
+		{"four is too short", "abcd", http.StatusBadRequest},
+		{"five is the minimum", "abcde", http.StatusNoContent},
+		{"256 is the maximum", string(repeatByte('x', 256)), http.StatusNoContent},
+		{"257 is too long", string(repeatByte('x', 257)), http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, realVerifier)
+			code, _, _ := h.api(h.login(), "POST", "/api/account/password", jsonStr(map[string]string{"current": testPass, "new": tc.pw}))
+			require.Equal(t, tc.want, code)
+		})
+	}
 }

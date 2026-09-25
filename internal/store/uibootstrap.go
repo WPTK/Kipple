@@ -15,6 +15,7 @@ var DefaultSettings = map[string]any{
 	"retention.default":             250,
 	"retention.restore_days":        90,
 	"fetch.user_agent":              "",
+	"fetch.user_agent_mode":         UAModeOnFailure,
 	"fetch.honor_publisher_ttl":     true,
 	"tz":                            "America/New_York",
 	"stats.api_single_read_is_open": false,
@@ -30,8 +31,7 @@ var DefaultSettings = map[string]any{
 	"ui.font_body":           "",
 	"ui.font_ui":             "",
 	"ui.font_size":           18,
-	"ui.line_height":         1.6,
-	"ui.content_width":       680,
+	"ui.reading_density":     "comfortable",
 	"ui.layouts":             map[string]any{},
 	"ui.mark_read_on_scroll": false,
 }
