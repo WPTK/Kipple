@@ -59,6 +59,7 @@ Phase 2 (reading UI backend) so far.
   until its extraction has finished (a result or a stored error) or 30 s have passed since its
   crawl time (capped at 60 s, inside the `ot` slack, so a client that synced meanwhile still gets
   it next time). Decided in SQL, so paging is exact. The web UI is not held. No setting.
+- Cards and item details carry `origin_title` (the feed an archived starred item came from) and `source` (`origin_title`, else the feed title), so unsubscribed starred items show where they came from.
 
 ### Changed
 

@@ -41,6 +41,21 @@ type Card struct {
 	WordCount      int64   `json:"word_count"`
 	ReadingMinutes *int64  `json:"reading_minutes"`
 	Snippet        string  `json:"snippet,omitempty"`
+	// OriginTitle is the title of the feed an item was subscribed under when that
+	// feed was deleted (starred items live on in the archive feed); Source is what
+	// to show as the item's source: COALESCE(origin_title, its feed's title).
+	OriginTitle *string `json:"origin_title"`
+	Source      string  `json:"source"`
+}
+
+// setSource fills Source from the raw origin_title and feed title columns.
+func (c *Card) setSource(origin sql.NullString, feedTitle sql.NullString) {
+	if origin.Valid && origin.String != "" {
+		c.OriginTitle = &origin.String
+		c.Source = origin.String
+		return
+	}
+	c.Source = feedTitle.String
 }
 
 // readingMinutes is ceil(words/230), nil under 100 words.
@@ -122,16 +137,18 @@ func ParseCursor(s string) (Cursor, error) {
 }
 
 const cardCols = `i.id, i.feed_id, i.title, i.url, i.author, substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url,
-	i.published_at, i.sort_at, i.read, i.starred, i.word_count`
+	i.published_at, i.sort_at, i.read, i.starred, i.word_count,
+	i.origin_title, (SELECT COALESCE(NULLIF(custom_title, ''), NULLIF(title, ''), url) FROM feeds WHERE id = i.feed_id)`
 
 func scanCard(rows interface{ Scan(...any) error }) (Card, error) {
 	var c Card
 	var text string
-	var img sql.NullString
+	var img, origin, feedTitle sql.NullString
 	var read, starred int
-	if err := rows.Scan(&c.ID, &c.FeedID, &c.Title, &c.URL, &c.Author, &text, &img, &c.PublishedAt, &c.SortAt, &read, &starred, &c.WordCount); err != nil {
+	if err := rows.Scan(&c.ID, &c.FeedID, &c.Title, &c.URL, &c.Author, &text, &img, &c.PublishedAt, &c.SortAt, &read, &starred, &c.WordCount, &origin, &feedTitle); err != nil {
 		return c, err
 	}
+	c.setSource(origin, feedTitle)
 	c.Excerpt = excerpt(text)
 	if img.Valid && img.String != "" {
 		c.Image = &img.String // raw here; internal/api rewrites it through the image proxy at serve time (design §7.4)
@@ -249,7 +266,7 @@ type ItemDetail struct {
 // ok is false when neither exists.
 func (d *DB) GetItem(ctx context.Context, id, now int64) (det ItemDetail, ok bool, err error) {
 	var text string
-	var img, enc, ftHTML, ftErr sql.NullString
+	var img, enc, ftHTML, ftErr, origin, feedTitle sql.NullString
 	var read, starred int
 	var mode sql.NullInt64
 	var ftEff int
@@ -259,10 +276,11 @@ func (d *DB) GetItem(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 			i.fulltext_mode, COALESCE(i.fulltext_mode, f.fulltext), ft.item_id, ft.content_html, ft.error
 		FROM items i LEFT JOIN item_content c ON c.item_id = i.id JOIN feeds f ON f.id = i.feed_id
 		LEFT JOIN item_fulltext ft ON ft.item_id = i.id WHERE i.id = ?`, id).
-		Scan(&det.ID, &det.FeedID, &det.Title, &det.URL, &det.Author, &text, &img, &det.PublishedAt, &det.SortAt, &read, &starred, &det.WordCount,
+		Scan(&det.ID, &det.FeedID, &det.Title, &det.URL, &det.Author, &text, &img, &det.PublishedAt, &det.SortAt, &read, &starred, &det.WordCount, &origin, &feedTitle,
 			&det.ContentHTML, &enc, &det.Feed.ID, &det.Feed.Title, &det.Feed.SiteURL, &mode, &ftEff, &ftRow, &ftHTML, &ftErr)
 	switch {
 	case err == nil:
+		det.setSource(origin, feedTitle)
 		det.Read, det.Starred = read == 1, starred == 1
 		det.Fulltext.Effective = ftEff
 		if mode.Valid {
@@ -300,15 +318,15 @@ func (det *ItemDetail) finish(text string, img, enc sql.NullString) {
 func (d *DB) getStub(ctx context.Context, id, now int64) (det ItemDetail, ok bool, err error) {
 	cutoff := now - int64(LoadFetchSettings(ctx, d.reader).RestoreDays)*86400
 	var text string
-	var img, enc sql.NullString
+	var img, enc, origin sql.NullString
 	var read int
 	var mode sql.NullInt64
 	err = d.reader.QueryRowContext(ctx, `SELECT t.id, t.feed_id, c.title, c.url, c.author, substr(c.content_text, 1, 1200), c.image_url,
-			c.published_at, c.sort_at, t.read, c.word_count, c.content_html, c.enclosures_json,
+			c.published_at, c.sort_at, t.read, c.word_count, c.origin_title, c.content_html, c.enclosures_json,
 			f.id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url, c.fulltext_mode
 		FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id JOIN feeds f ON f.id = t.feed_id
 		WHERE t.id = ? AND t.trimmed_at >= ?`, id, cutoff).
-		Scan(&det.ID, &det.FeedID, &det.Title, &det.URL, &det.Author, &text, &img, &det.PublishedAt, &det.SortAt, &read, &det.WordCount,
+		Scan(&det.ID, &det.FeedID, &det.Title, &det.URL, &det.Author, &text, &img, &det.PublishedAt, &det.SortAt, &read, &det.WordCount, &origin,
 			&det.ContentHTML, &enc, &det.Feed.ID, &det.Feed.Title, &det.Feed.SiteURL, &mode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return det, false, nil
@@ -316,6 +334,7 @@ func (d *DB) getStub(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 	if err != nil {
 		return det, false, err
 	}
+	det.setSource(origin, sql.NullString{String: det.Feed.Title, Valid: true})
 	det.Read, det.Trimmed = read == 1, true
 	if mode.Valid {
 		m := int(mode.Int64)

@@ -109,10 +109,10 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 			args = append(args, q.Cursor.SortAt, q.Cursor.ID)
 		}
 	}
-	sqlText := `SELECT id, feed_id, title, url, author, txt, image_url, published_at, sort_at, read, starred, word_count, snip, r FROM (
+	sqlText := `SELECT id, feed_id, title, url, author, txt, image_url, published_at, sort_at, read, starred, word_count, origin, ftitle, snip, r FROM (
 		SELECT i.id AS id, i.feed_id AS feed_id, i.title AS title, i.url AS url, i.author AS author,
 			substr(COALESCE(c.content_text, ''), 1, 1200) AS txt, i.image_url AS image_url, i.published_at AS published_at,
-			i.sort_at AS sort_at, i.read AS read, i.starred AS starred, i.word_count AS word_count,
+			i.sort_at AS sort_at, i.read AS read, i.starred AS starred, i.word_count AS word_count, i.origin_title AS origin, (SELECT COALESCE(NULLIF(custom_title, ''), NULLIF(title, ''), url) FROM feeds WHERE id = i.feed_id) AS ftitle,
 			snippet(items_fts, 2, '` + snipOpen + `', '` + snipClose + `', '…', 24) AS snip, items_fts.rank AS r
 		FROM items_fts JOIN items i ON i.id = items_fts.rowid LEFT JOIN item_content c ON c.item_id = i.id
 		WHERE ` + strings.Join(where, " AND ") + `)` + outer + ` ORDER BY ` + order + ` LIMIT ?`
@@ -128,12 +128,13 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 	for rows.Next() {
 		var c Card
 		var text, snip string
-		var img sql.NullString
+		var img, origin, ftitle sql.NullString
 		var read, starred int
 		var rank float64
-		if err := rows.Scan(&c.ID, &c.FeedID, &c.Title, &c.URL, &c.Author, &text, &img, &c.PublishedAt, &c.SortAt, &read, &starred, &c.WordCount, &snip, &rank); err != nil {
+		if err := rows.Scan(&c.ID, &c.FeedID, &c.Title, &c.URL, &c.Author, &text, &img, &c.PublishedAt, &c.SortAt, &read, &starred, &c.WordCount, &origin, &ftitle, &snip, &rank); err != nil {
 			return nil, nil, err
 		}
+		c.setSource(origin, ftitle)
 		c.Excerpt = excerpt(text)
 		if img.Valid && img.String != "" {
 			c.Image = &img.String
