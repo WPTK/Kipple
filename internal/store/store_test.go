@@ -463,3 +463,58 @@ func TestMigrateNonFreshPendingTakesSnapshot(t *testing.T) {
 	require.Equal(t, n+1, v)
 	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM sqlite_master WHERE name='extra_t'"))
 }
+
+func TestOpenNoMigrateRefusesOlderOrMissingSchema(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kipple.db")
+
+	_, err := Open(ctx, Options{Path: path, NoMigrate: true})
+	require.ErrorContains(t, err, "does not exist")
+	_, statErr := os.Stat(path)
+	require.True(t, os.IsNotExist(statErr), "a refused open creates nothing")
+
+	db, err := Open(ctx, Options{Path: path})
+	require.NoError(t, err)
+	latest, err := db.Version(ctx)
+	require.NoError(t, err)
+	require.Equal(t, LatestVersion(), latest)
+	require.NoError(t, db.Close())
+
+	// current schema: opens, and does not touch the backup dir or the version
+	cli, err := Open(ctx, Options{Path: path, NoMigrate: true, NoCheckpoint: true})
+	require.NoError(t, err)
+	v, err := cli.Version(ctx)
+	require.NoError(t, err)
+	require.Equal(t, latest, v)
+	require.NoError(t, cli.Close())
+
+	// an older schema is refused, not migrated
+	db, err = Open(ctx, Options{Path: path})
+	require.NoError(t, err)
+	_, err = db.writer.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", latest-1))
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	_, err = Open(ctx, Options{Path: path, NoMigrate: true})
+	require.ErrorContains(t, err, "older than this binary")
+	_, statErr = os.Stat(filepath.Join(filepath.Dir(path), "backup"))
+	require.True(t, os.IsNotExist(statErr), "no pre-migration snapshot was taken")
+}
+
+func TestCloseNoCheckpointLeavesTheWALAlone(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kipple.db")
+	server, err := Open(ctx, Options{Path: path})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = server.Close() })
+
+	cli, err := Open(ctx, Options{Path: path, NoMigrate: true, NoCheckpoint: true})
+	require.NoError(t, err)
+	require.NoError(t, cli.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "INSERT INTO folders (name, position) VALUES ('X', 99)")
+		return err
+	}))
+	require.NoError(t, cli.Close())
+	st, err := os.Stat(path + "-wal")
+	require.NoError(t, err, "the server's WAL is still there")
+	require.Positive(t, st.Size(), "and was not truncated by the CLI's close")
+}

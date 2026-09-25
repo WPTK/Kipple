@@ -56,7 +56,7 @@ func runImport(args []string) error {
 		return fmt.Errorf("data dir: %w", err)
 	}
 	ctx := context.Background()
-	db, err := store.Open(ctx, store.Options{Path: filepath.Join(cfg.DataDir, "kipple.db"), Logger: logger})
+	db, err := store.Open(ctx, store.Options{Path: filepath.Join(cfg.DataDir, "kipple.db"), Logger: logger, NoMigrate: true, NoCheckpoint: true})
 	if err != nil {
 		return fmt.Errorf("store: %w", err)
 	}

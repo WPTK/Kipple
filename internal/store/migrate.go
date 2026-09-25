@@ -108,6 +108,16 @@ func (d *DB) migrate(ctx context.Context) error {
 		return fmt.Errorf("store: database schema version %d is newer than this binary (%d); refusing to start", cur, latest)
 	}
 
+	if d.noMigrate {
+		switch {
+		case fresh:
+			return errors.New("store: database is not initialised; start `kipple serve` once first")
+		case cur < latest:
+			return fmt.Errorf("store: database schema version %d is older than this binary (%d); start `kipple serve` to migrate it first", cur, latest)
+		}
+		return nil
+	}
+
 	if cur < latest && !fresh {
 		if err := d.preMigrationSnapshot(ctx, cur, latest); err != nil {
 			return err

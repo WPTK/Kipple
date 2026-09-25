@@ -51,6 +51,9 @@ type DB struct {
 	// migrations overrides the embedded set (tests only).
 	migrations []migration
 
+	noMigrate    bool
+	noCheckpoint bool
+
 	holder atomic.Pointer[holder]
 
 	closeOnce sync.Once
@@ -67,6 +70,16 @@ type Options struct {
 	Logger *slog.Logger
 	// Clock defaults to the wall clock; tests inject a fake.
 	Clock clock.Clock
+	// NoMigrate opens the database as it is: an older schema (or a database that
+	// was never initialised) is refused instead of migrated, and no
+	// pre-migration snapshot or optimize runs. For the `import` and
+	// `api-password` subcommands, which must never change the schema under a
+	// running server.
+	NoMigrate bool
+	// NoCheckpoint makes Close skip the WAL_TRUNCATE checkpoint. A short-lived
+	// CLI opened next to a running server must not stall or truncate the
+	// server's WAL; SQLite's automatic checkpointing takes care of it.
+	NoCheckpoint bool
 }
 
 var ofdOnce sync.Once
@@ -154,6 +167,14 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 		backup = filepath.Join(filepath.Dir(opts.Path), "backup")
 	}
 
+	if opts.NoMigrate {
+		// Refuse before anything is created: opening a missing file would leave a
+		// stray, empty database behind.
+		if st, err := os.Stat(opts.Path); err != nil || st.Size() == 0 {
+			return nil, errors.New("store: database does not exist yet; start `kipple serve` once first")
+		}
+	}
+
 	// Design 2.1: before the first open. Only effective on Linux; elsewhere it errors,
 	// which is expected and harmless.
 	ofdOnce.Do(func() {
@@ -166,7 +187,8 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	if clk == nil {
 		clk = clock.Real{}
 	}
-	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1), clock: clk}
+	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1), clock: clk,
+		noMigrate: opts.NoMigrate, noCheckpoint: opts.NoCheckpoint}
 
 	if err := checkForeign(ctx, opts.Path); err != nil {
 		return nil, err
@@ -266,7 +288,8 @@ func (d *DB) AcquireGate(ctx context.Context) (release func(), err error) {
 	}
 }
 
-// Close closes the readers, checkpoints the WAL (TRUNCATE) and closes the writer. It is idempotent.
+// Close closes the readers, checkpoints the WAL (TRUNCATE, unless opened with
+// NoCheckpoint) and closes the writer. It is idempotent.
 func (d *DB) Close() error {
 	d.closeOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -277,11 +300,13 @@ func (d *DB) Close() error {
 				errs = append(errs, err)
 			}
 		}
-		var busy, logFrames, checkpointed int
-		if err := d.writer.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &logFrames, &checkpointed); err != nil {
-			errs = append(errs, fmt.Errorf("checkpoint: %w", err))
-		} else if busy != 0 {
-			errs = append(errs, fmt.Errorf("checkpoint: busy (log=%d checkpointed=%d)", logFrames, checkpointed))
+		if !d.noCheckpoint {
+			var busy, logFrames, checkpointed int
+			if err := d.writer.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &logFrames, &checkpointed); err != nil {
+				errs = append(errs, fmt.Errorf("checkpoint: %w", err))
+			} else if busy != 0 {
+				errs = append(errs, fmt.Errorf("checkpoint: busy (log=%d checkpointed=%d)", logFrames, checkpointed))
+			}
 		}
 		if err := d.writer.Close(); err != nil {
 			errs = append(errs, err)
