@@ -32,7 +32,7 @@ To look inside the volume (there is no shell in the Kipple image):
 
 ## Export a backup (the button)
 
-Settings, Export backup. The app calls `POST /api/backup`, shows the `warning` text and the size,
+Settings, Export backup. The app calls `POST /api/backup`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
 then starts the download of `GET /api/backup/<token>`, which saves as
 `kipple-backup-YYYYMMDD-HHMMSS.zip`. Save it off Host-A, for example on Host-B in
 `<backup-dir>\kipple\`.

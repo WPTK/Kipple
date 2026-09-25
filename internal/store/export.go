@@ -44,15 +44,24 @@ func (d *DB) TrySnapshot() (release func(), err error) {
 // commit gate are never blocked (fetch commits carry on). The caller must hold
 // the slot from TrySnapshot; path must not exist.
 func (d *DB) SnapshotTo(ctx context.Context, path string) error {
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("store: snapshot target %s already exists", path)
+	// Create the target 0600 first (SQLite fills an empty file), so the copy is
+	// never readable by others, not even while it is being written.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("store: snapshot target %s already exists", path)
+		}
+		return fmt.Errorf("store: create snapshot target: %w", err)
 	}
+	_ = f.Close()
 	snap, err := d.openSnapshot()
 	if err != nil {
+		_ = os.Remove(path)
 		return fmt.Errorf("store: open snapshot pool: %w", err)
 	}
 	defer snap.Close()
 	if _, err := snap.ExecContext(ctx, "VACUUM INTO '"+strings.ReplaceAll(filepath.ToSlash(path), "'", "''")+"'"); err != nil {
+		_ = os.Remove(path)
 		return fmt.Errorf("store: vacuum into %s: %w", path, err)
 	}
 	return nil

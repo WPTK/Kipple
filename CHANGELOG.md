@@ -147,6 +147,16 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- `POST /api/backup` is now an asynchronous job: it answers 200 with the token as before when the build
+  finishes within about 5 s, otherwise `202 {job_id, status:"building"}`, and `GET /api/backup/jobs/{id}`
+  reports `building`, `ready` (the token payload) or `failed`. The build no longer dies with the client
+  connection or a Cloudflare 524 on a big database. Still one export at a time (409 busy).
+- Backup exports: the download token now lives 5 minutes from when the export is ready; a build near
+  the 10-minute allowance used to hand out a token that had already expired.
+- `HEAD /api/backup/{token}` no longer spends the single-use token (405) and HEAD on the download
+  routes gets the same-origin rule.
+- Export snapshot files are owner-only: the `export/` directory is 0700 and the database copy 0600 from
+  the moment it is created.
 - `GET /api/items` now returns `as_of` (the committed max id, a string) on every response; clients send it as
   mark-read `max_id`. The highest id on the first page was wrong for oldest-first lists and for
   backdated new-feed items, so mark-all could miss items or sweep ones the list never showed.

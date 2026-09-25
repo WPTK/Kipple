@@ -193,6 +193,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/account/password", s.authed(s.accountPassword))
 	handle("POST /api/account/api-password", s.authed(s.accountAPIPassword))
 	handle("POST /api/backup", s.authed(s.backupCreate))
+	handle("GET /api/backup/jobs/{id}", s.authed(s.backupJob))
 	handle("GET /api/backup/{token}", s.authed(s.backupDownload))
 	handle("POST /api/opml", s.authed(s.opmlImport))
 	handle("GET /api/opml", s.authed(s.opmlExport))
@@ -243,14 +244,21 @@ func needsOriginCheck(r *http.Request) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		return true
 	}
-	return isDownload(r)
+	// The job poll returns the download token, so it gets the whole rule (session,
+	// same-origin, X-Kipple-Client) though it is a GET.
+	return isDownload(r) || strings.HasPrefix(r.URL.Path, "/api/backup/jobs/")
 }
 
 // isDownload is the GET downloads reached by a plain link (design §7, §6 of the
 // backend additions): they get the Sec-Fetch-Site/Origin rule alone, because a
 // navigation cannot carry X-Kipple-Client.
 func isDownload(r *http.Request) bool {
-	return r.Method == http.MethodGet && (r.URL.Path == "/api/opml" || r.URL.Path == "/api/stats/export.csv" || strings.HasPrefix(r.URL.Path, "/api/backup/"))
+	// HEAD is routed to the GET handlers, so it gets the same rule.
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	return r.URL.Path == "/api/opml" || r.URL.Path == "/api/stats/export.csv" ||
+		(strings.HasPrefix(r.URL.Path, "/api/backup/") && !strings.HasPrefix(r.URL.Path, "/api/backup/jobs/"))
 }
 
 // sameOrigin is design §7's same-origin enforcement.

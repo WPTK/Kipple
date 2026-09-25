@@ -94,6 +94,9 @@ type Options struct {
 	// FreeBytes reports the free space on the volume of a directory
 	// (tests inject; default the OS call).
 	FreeBytes func(dir string) (uint64, error)
+	// SyncWait is how long the API holds a POST for a build to finish before it
+	// answers 202 and lets the client poll (default 5 s).
+	SyncWait time.Duration
 	// Now defaults to time.Now.
 	Now func() time.Time
 }
@@ -103,8 +106,14 @@ type Manager struct {
 	o   Options
 	log *slog.Logger
 
-	mu  sync.Mutex
-	cur *pending
+	mu     sync.Mutex
+	cur    *pending
+	jobs   []*Job
+	closed bool
+
+	base   context.Context // ends at Close; background builds run under it
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 type pending struct {
@@ -137,6 +146,9 @@ func New(o Options) *Manager {
 	if o.BuildTimeout <= 0 {
 		o.BuildTimeout = DefaultBuildTimeout
 	}
+	if o.SyncWait <= 0 {
+		o.SyncWait = 5 * time.Second
+	}
 	if o.Now == nil {
 		o.Now = time.Now
 	}
@@ -147,6 +159,7 @@ func New(o Options) *Manager {
 		o.Dir = filepath.Join(o.DB.BackupDir(), dirName)
 	}
 	m := &Manager{o: o, log: o.Logger}
+	m.base, m.cancel = context.WithCancel(context.Background())
 	if m.log == nil {
 		m.log = slog.Default()
 	}
@@ -156,6 +169,9 @@ func New(o Options) *Manager {
 
 // BuildTimeout is how long one Create may take.
 func (m *Manager) BuildTimeout() time.Duration { return m.o.BuildTimeout }
+
+// SyncWait is how long a caller should wait for a job before polling.
+func (m *Manager) SyncWait() time.Duration { return m.o.SyncWait }
 
 // TTL is how long an export stays downloadable.
 func (m *Manager) TTL() time.Duration { return m.o.TTL }
@@ -174,6 +190,11 @@ func (m *Manager) cleanDir() {
 // Close drops the pending export (and its file) and stops its expiry timer.
 func (m *Manager) Close() {
 	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
+	m.cancel() // a background build stops and cleans up its files
+	m.wg.Wait()
+	m.mu.Lock()
 	m.discardLocked()
 	m.mu.Unlock()
 }
@@ -187,15 +208,21 @@ func (m *Manager) discardLocked() {
 	m.cur = nil
 }
 
-// Create builds one export. It refuses (ErrBusy) while another snapshot or
-// export runs, when the volume lacks the space (*NoSpaceError), or when the
-// database is over the size limit (ErrTooLarge). A previous unclaimed export is
-// discarded first. The returned token is valid once, for Options.TTL.
+// Create builds one export and waits for it. It refuses (ErrBusy) while another
+// snapshot or export runs, when the volume lacks the space (*NoSpaceError), or
+// when the database is over the size limit (ErrTooLarge). A previous unclaimed
+// export is discarded first. The returned token is valid once, for Options.TTL
+// counted from the moment the build finished.
 func (m *Manager) Create(ctx context.Context) (Export, error) {
 	release, err := m.o.DB.TrySnapshot()
 	if err != nil {
 		return Export{}, ErrBusy
 	}
+	return m.build(ctx, release)
+}
+
+// build runs one export holding the snapshot slot, which it releases.
+func (m *Manager) build(ctx context.Context, release func()) (Export, error) {
 	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, m.o.BuildTimeout)
@@ -210,9 +237,12 @@ func (m *Manager) Create(ctx context.Context) (Export, error) {
 	if size > m.o.MaxDBBytes {
 		return Export{}, ErrTooLarge
 	}
-	if err := os.MkdirAll(m.o.Dir, 0o755); err != nil {
+	// The directory holds a full database copy: owner only, even when an older
+	// version created it 0755.
+	if err := os.MkdirAll(m.o.Dir, 0o700); err != nil {
 		return Export{}, fmt.Errorf("backup: export dir: %w", err)
 	}
+	_ = os.Chmod(m.o.Dir, 0o700)
 	m.cleanDir()
 	need := size*spaceNum/spaceDen + spaceSlack
 	freeU, err := m.o.FreeBytes(m.o.Dir)
@@ -257,7 +287,10 @@ func (m *Manager) Create(ctx context.Context) (Export, error) {
 		return Export{}, err
 	}
 	name := "kipple-backup-" + now.Format("20060102-150405") + ".zip"
-	p := &pending{token: tok, path: final, filename: name, bytes: st.Size(), expires: now.Add(m.o.TTL)}
+	// The link is good for TTL from the moment it exists, not from the start of a
+	// build that may have taken most of BuildTimeout.
+	ready := m.o.Now()
+	p := &pending{token: tok, path: final, filename: name, bytes: st.Size(), expires: ready.Add(m.o.TTL)}
 	m.mu.Lock()
 	m.discardLocked()
 	m.cur = p
