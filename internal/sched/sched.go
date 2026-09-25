@@ -331,21 +331,54 @@ type RunStatus struct {
 	Errors   int    `json:"errors"`
 }
 
+// statusWait bounds how long Status waits for the dispatcher. A variable so a
+// test can shorten it.
+var statusWait = 2 * time.Second
+
 // Status snapshots the active runs and the number of fetches in flight. It
-// reads dispatcher-owned state on the dispatcher goroutine. After shutdown it
-// returns empty.
+// reads dispatcher-owned state on the dispatcher goroutine, but never blocks
+// past shutdown or statusWait: an HTTP handler stuck here would hold up
+// srv.Shutdown and SIGTERM. When the dispatcher cannot answer (stopped, stopping
+// or busy) it returns empty.
 func (s *Scheduler) Status() (runs []RunStatus, inflight int) {
+	type snap struct {
+		runs     []RunStatus
+		inflight int
+	}
 	runs = []RunStatus{}
-	s.inDispatcher(func() {
+	out := make(chan snap, 1) // buffered: the dispatcher never blocks on a caller that gave up
+	fn := func() {
+		var sn snap
 		for _, r := range s.runs {
-			runs = append(runs, RunStatus{ID: r.ID, Kind: r.Kind, Done: r.Done, Total: r.Total, NewItems: r.NewItems, Errors: r.Errors})
+			sn.runs = append(sn.runs, RunStatus{ID: r.ID, Kind: r.Kind, Done: r.Done, Total: r.Total, NewItems: r.NewItems, Errors: r.Errors})
 		}
 		for _, f := range s.flights {
 			if f.started {
-				inflight++
+				sn.inflight++
 			}
 		}
-	})
+		out <- sn
+	}
+	timer := time.NewTimer(statusWait)
+	defer timer.Stop()
+	select {
+	case s.syncCh <- fn:
+	case <-s.shutdownCh:
+		return runs, 0
+	case <-s.stopped:
+		return runs, 0
+	case <-timer.C:
+		return runs, 0
+	}
+	select {
+	case sn := <-out:
+		runs = append(runs, sn.runs...)
+		inflight = sn.inflight
+	case <-s.shutdownCh:
+		return runs, 0
+	case <-timer.C:
+		return runs, 0
+	}
 	sort.Slice(runs, func(i, j int) bool { return runs[i].ID < runs[j].ID })
 	return runs, inflight
 }

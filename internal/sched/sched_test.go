@@ -881,3 +881,42 @@ func TestPartialChunkedCommitStillReportsCommittedItems(t *testing.T) {
 	require.Len(t, ids, maxEventIDs)
 	require.EqualValues(t, 250, r.num("SELECT count(*) FROM items WHERE feed_id = ?", id))
 }
+
+func TestStatusNeverBlocksShutdown(t *testing.T) {
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	db, err := store.Open(context.Background(), store.Options{Path: t.TempDir() + "/kipple.db", Logger: quiet})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	// A scheduler whose dispatcher never runs cannot answer. With the old
+	// unconditional wait this Status call would hang forever and hold up
+	// srv.Shutdown; now Stop releases it at once.
+	s := New(db, fetch.NewClient(fetch.ClientOptions{}), events.New(), nil, quiet, Options{})
+	done := make(chan struct{})
+	var runs []RunStatus
+	go func() { defer close(done); runs, _ = s.Status() }()
+	select {
+	case <-done:
+		t.Fatal("Status returned before Stop with no dispatcher; it should wait")
+	case <-time.After(50 * time.Millisecond):
+	}
+	s.Stop()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Status still blocked after Stop")
+	}
+	require.NotNil(t, runs)
+	require.Empty(t, runs)
+
+	// and it gives up by itself if the dispatcher is wedged
+	old := statusWait
+	statusWait = 30 * time.Millisecond
+	t.Cleanup(func() { statusWait = old })
+	s2 := New(db, fetch.NewClient(fetch.ClientOptions{}), events.New(), nil, quiet, Options{})
+	start := time.Now()
+	runs, inflight := s2.Status()
+	require.Less(t, time.Since(start), 2*time.Second)
+	require.Empty(t, runs)
+	require.Zero(t, inflight)
+}
