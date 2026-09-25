@@ -4,6 +4,23 @@
    Atkinson Hyperlegible Next is offered as "Easy to read". */
 @import "@fontsource-variable/literata/wght.css";
 @import "@fontsource-variable/literata/wght-italic.css";
+@import "@fontsource-variable/vollkorn/wght.css";
+@import "@fontsource-variable/vollkorn/wght-italic.css";
+@import "@fontsource-variable/source-serif-4/wght.css";
+@import "@fontsource-variable/source-serif-4/wght-italic.css";
+@import "@fontsource-variable/inter/wght.css";
+@import "@fontsource-variable/manrope/wght.css";
+@import "@fontsource-variable/source-sans-3/wght.css";
+@import "@fontsource-variable/source-sans-3/wght-italic.css";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+@import "@fontsource/gentium-book-plus/latin-400.css";
+@import "@fontsource/gentium-book-plus/latin-400-italic.css";
+@import "@fontsource/gentium-book-plus/latin-700.css";
+@import "@fontsource/arvo/latin-400.css";
+@import "@fontsource/arvo/latin-400-italic.css";
+@import "@fontsource/arvo/latin-700.css";
+@import "@fontsource/source-code-pro/latin-400.css";
+@import "@fontsource/source-code-pro/latin-700.css";
 @import "@fontsource/atkinson-hyperlegible-next/latin-400.css";
 @import "@fontsource/atkinson-hyperlegible-next/latin-400-italic.css";
 @import "@fontsource/atkinson-hyperlegible-next/latin-700.css";
@@ -157,8 +174,9 @@ body {
   to { grid-template-rows: 0fr; opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .kp-row[data-leaving="true"] { animation: none; }
+  :root:not([data-motion="off"]) .kp-row[data-leaving="true"] { animation: none; }
 }
+:root[data-motion="on"] .kp-row[data-leaving="true"] { animation: none; }
 
 /* ---------- Article body ---------- */
 
@@ -212,18 +230,68 @@ body {
   overflow: hidden;
 }
 
-/* Contrast preference: strengthen borders for anyone who asks the OS. */
+/* Contrast preference (automatic, no setting): real borders, full-strength secondary text, a thicker
+   focus ring, and underlined links everywhere. */
 @media (prefers-contrast: more) {
-  :root[data-theme] { --kp-border: var(--kp-text2); }
+  :root[data-theme] { --kp-border: var(--kp-text); --kp-text2: var(--kp-text); }
+  :focus-visible { outline-width: 3px; outline-offset: 3px; }
+  a { text-decoration: underline; }
+  .clamp-snippet { color: var(--kp-text); }
 }
 
+/* Forced colors (Windows High Contrast): system colors for focus, borders and state. Nothing carries
+   meaning through a background image or color alone (unread and starred also have shape and text). */
+@media (forced-colors: active) {
+  :focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }
+  .kp-unread-dot[data-unread="true"] { forced-color-adjust: none; background: CanvasText; }
+  [aria-current="page"], [aria-checked="true"], label:has(input:checked) { outline: 2px solid Highlight; }
+  label:has(input:checked) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  button, select, input, textarea { border: 1px solid ButtonText; }
+  .swipe-panel { border: 1px solid CanvasText; }
+}
+
+/* Reading spacing: Snug and Roomy override the Density step's line, paragraph and letter spacing.
+   Normal leaves the Density step in charge. Text boxes never have a fixed height, so a user stylesheet
+   that raises line height to 1.5, paragraph spacing to 2x, letter spacing to 0.12em and word spacing to
+   0.16em still shows everything (WCAG 1.4.12). */
+:root[data-spacing="snug"] .article-body { --kp-lh: 1.5; --kp-pgap: 0.75em; --kp-ls: 0em; }
+:root[data-spacing="roomy"] .article-body { --kp-lh: 1.85; --kp-pgap: 1.5em; --kp-hgap: 2em; --kp-ls: 0.02em; word-spacing: 0.06em; }
+
+/* Large targets: 56 px controls instead of 44 px, and more room between them. Article text links are
+   left alone (they are inline text, not controls). */
+:root[data-targets="large"] {
+  --tabbar-h: 4.25rem;
+  --toolbar-h: 3.9rem;
+}
+:root[data-targets="large"] #root :is(button, select, summary, [role="menuitem"], [role="tab"], input:not([type="radio"]):not([type="checkbox"])):not(.article-body *) {
+  min-height: 3.5rem;
+}
+:root[data-targets="large"] #root :is(button, [role="menuitem"]):not(.article-body *):not(.kp-row *) { min-width: 3.5rem; }
+:root[data-targets="large"] #root :is(nav a, a.row-link, label.min-h-11, .hit, .hit-row) { min-height: 3.5rem; min-width: 3.5rem; }
+:root[data-targets="large"] .row-host { --row-min: 4.25rem; }
+
+/* Read-aloud: the paragraph being spoken. Not color alone: it also gets a start bar. */
+.article-body .kp-speaking {
+  background: var(--kp-selection);
+  border-inline-start: 4px solid var(--kp-accent);
+  padding-inline-start: 0.6em;
+  margin-inline-start: -0.6em;
+}
+
+/* Reduce motion: follows the OS unless the in-app setting says On (always) or Off (never). */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  :root:not([data-motion="off"]) *, :root:not([data-motion="off"]) *::before, :root:not([data-motion="off"]) *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+:root[data-motion="on"] *, :root[data-motion="on"] *::before, :root[data-motion="on"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
 
 /* Headings that receive programmatic focus on navigation do not need a ring. */
@@ -271,8 +339,9 @@ body {
 /* The swipe layer: rows pan vertically by the browser and horizontally by us. */
 .swipe-content { touch-action: pan-y; -webkit-touch-callout: none; }
 @media (prefers-reduced-motion: reduce) {
-  .swipe-content, .swipe-panel { transition: none !important; }
+  :root:not([data-motion="off"]) .swipe-content, :root:not([data-motion="off"]) .swipe-panel { transition: none !important; }
 }
+:root[data-motion="on"] .swipe-content, :root[data-motion="on"] .swipe-panel { transition: none !important; }
 
 /* ---------- Article embeds (click to load) ---------- */
 

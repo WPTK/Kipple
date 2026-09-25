@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import type { RowMenuActions } from "./types";
 
 export function UnreadDot({ unread, className }: { unread: boolean; className?: string }) {
-  return <span aria-hidden="true" className={cn("size-2 shrink-0 rounded-full", unread ? "bg-unread" : "bg-transparent", className)} />;
+  return <span aria-hidden="true" data-unread={unread} className={cn("kp-unread-dot size-2 shrink-0 rounded-full", unread ? "bg-unread" : "bg-transparent", className)} />;
 }
 
 export function SourceIcon({ src, className }: { src: string | null | undefined; className?: string }) {
