@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	// minPasswordLen is the shortest password the UI accepts (the design sets no
+	// minPasswordLen is the shortest password accepted (the owner chose 5; the design sets no
 	// number). maxPasswordLen bounds the hashing input.
-	minPasswordLen = 12
+	minPasswordLen = 5
 	maxPasswordLen = 256
 	apiPasswordLen = 24 // design §1: the UI generates 24 characters
 )
