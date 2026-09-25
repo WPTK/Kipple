@@ -5,6 +5,15 @@ on:
     branches: [main, phase-1, phase-2]
   pull_request:
 
+permissions:
+  contents: read
+
+env:
+  GOVULNCHECK_VERSION: v1.8.0
+  STATICCHECK_VERSION: v0.8.1
+  GOSEC_VERSION: v2.29.0
+  GITLEAKS_VERSION: 8.30.1
+
 jobs:
   go:
     runs-on: ubuntu-latest
@@ -15,10 +24,49 @@ jobs:
         with:
           go-version: "1.27"
 
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "gofmt needed on:"; echo "$out"; exit 1
+          fi
+
       # web/dist only has the committed .gitkeep placeholder here; the Go
       # build and tests must succeed against that (see web/embed.go).
       - run: go vet ./...
-      - run: go test -race ./...
+      - run: go test -race -shuffle=on -timeout 15m ./...
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # gitleaks scans history
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27"
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
+
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION} ./...
+
+      # Advisory pass: everything stays visible in the log, never fails.
+      - name: gosec (all findings, advisory)
+        run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet ./... || true
+
+      # Gate: only HIGH severity with HIGH confidence fails the job.
+      - name: gosec (gate)
+        run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet -severity high -confidence high ./...
+
+      # Binary, not gitleaks-action: the action needs a paid license key for
+      # organization repos.
+      - name: gitleaks
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
+          ./gitleaks detect --source . --config .gitleaks.toml --redact --verbose
 
   web:
     runs-on: ubuntu-latest
@@ -39,7 +87,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [go, web]
+    needs: [go, web, security]
     steps:
       - uses: actions/checkout@v5
 
@@ -49,4 +97,13 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: kipple:ci
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: kipple:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

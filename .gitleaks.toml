@@ -1,0 +1,12 @@
+title = "kipple gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documented placeholders, not real secrets"
+paths = [
+  '''^\.env\.example$''',
+  '''^docker-compose\.example\.yml$''',
+  '''^docs/.*\.md$''',
+]
