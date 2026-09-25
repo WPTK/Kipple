@@ -1,10 +1,14 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -47,7 +51,7 @@ func TestMigrateFromEmptyAndReopen(t *testing.T) {
 
 	// Seed rows survive a reopen and the migration is not re-applied.
 	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM folders WHERE is_default = 1"))
-	require.NoError(t, db.WithWrite(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, "INSERT INTO settings(key, value) VALUES ('tz', '\"UTC\"')")
 		return err
 	}))
@@ -67,7 +71,7 @@ func TestPragmasAndPools(t *testing.T) {
 	ctx := context.Background()
 	db, _ := openTest(t)
 
-	err := db.WithWrite(ctx, func(tx *sql.Tx) error {
+	err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		require.Equal(t, 1, scalar[int](t, tx, "PRAGMA foreign_keys"))
 		require.Equal(t, "wal", scalar[string](t, tx, "PRAGMA journal_mode"))
 		require.Equal(t, 1, scalar[int](t, tx, "PRAGMA synchronous"), "NORMAL = 1")
@@ -86,7 +90,7 @@ func TestPragmasAndPools(t *testing.T) {
 
 	// WithWrite rolls back on error.
 	boom := fmt.Errorf("boom")
-	err = db.WithWrite(ctx, func(tx *sql.Tx) error {
+	err = db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		_, e := tx.ExecContext(ctx, "INSERT INTO settings(key, value) VALUES ('y', '1')")
 		require.NoError(t, e)
 		return boom
@@ -110,7 +114,7 @@ func TestOpenRefusals(t *testing.T) {
 
 	// Downgrade guard: user_version above the newest embedded migration.
 	db, path := openTest(t)
-	require.NoError(t, db.WithWrite(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		_, e := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", LatestVersion()+1))
 		return e
 	}))
@@ -127,7 +131,7 @@ func TestConcurrentReadWrite(t *testing.T) {
 	defer cancel()
 	db, _ := openTest(t)
 
-	require.NoError(t, db.WithWrite(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS t_conc (a INTEGER NOT NULL, b INTEGER NOT NULL)`)
 		return err
 	}))
@@ -151,7 +155,7 @@ func TestConcurrentReadWrite(t *testing.T) {
 						return
 					}
 				}
-				err := db.WithWrite(ctx, func(tx *sql.Tx) error {
+				err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 					// Two rows with equal a and b: a reader must always see an even count
 					// whose sum(a) == sum(b) (atomic commit).
 					_, err := tx.ExecContext(ctx, "INSERT INTO t_conc VALUES (?, ?), (?, ?)", w, i, w, i)
@@ -237,7 +241,7 @@ func TestFTSTriggers(t *testing.T) {
 		return ids
 	}
 	exec := func(q string, args ...any) {
-		require.NoError(t, db.WithWrite(ctx, func(tx *sql.Tx) error {
+		require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, q, args...)
 			return err
 		}))
@@ -279,7 +283,7 @@ func TestFTSDeleteAndCascade(t *testing.T) {
 	ctx := context.Background()
 	db, _ := openTest(t)
 	exec := func(q string, args ...any) {
-		require.NoError(t, db.WithWrite(ctx, func(tx *sql.Tx) error {
+		require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, q, args...)
 			return err
 		}))
@@ -312,7 +316,7 @@ func TestFTSDeleteAndCascade(t *testing.T) {
 func ftsIntegrity(t *testing.T, db *DB) {
 	t.Helper()
 	ctx := context.Background()
-	require.NoError(t, db.WithWrite(ctx, func(tx *sql.Tx) error {
+	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, "INSERT INTO items_fts(items_fts, rank) VALUES('integrity-check', 1)")
 		return err
 	}))
@@ -327,4 +331,135 @@ func TestPreMigrationSnapshotKeepsThree(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-*.db"))
 	require.NoError(t, err)
 	require.Len(t, files, 3)
+}
+
+func TestForeignFileUntouchedOnRefusal(t *testing.T) {
+	ctx := context.Background()
+	foreign := filepath.Join(t.TempDir(), "other.db")
+	raw, err := sql.Open("sqlite", "file:"+filepath.ToSlash(foreign)+"?_pragma=journal_mode(DELETE)")
+	require.NoError(t, err)
+	_, err = raw.Exec("CREATE TABLE t (a)")
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
+
+	before, err := os.ReadFile(foreign)
+	require.NoError(t, err)
+	_, err = Open(ctx, Options{Path: foreign})
+	require.ErrorContains(t, err, "not a Kipple database")
+	after, err := os.ReadFile(foreign)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "foreign file bytes must be untouched")
+	require.Equal(t, byte(1), after[18], "file-format write version still legacy (not WAL)")
+	_, err = os.Stat(foreign + "-wal")
+	require.True(t, os.IsNotExist(err), "no WAL file created")
+}
+
+func TestWithWriteContextBoundsStatements(t *testing.T) {
+	db, _ := openTest(t)
+	err := db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		dl, ok := ctx.Deadline()
+		require.True(t, ok)
+		require.WithinDuration(t, time.Now().Add(writeTimeout), dl, 2*time.Second)
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+func TestWithWriteTimeoutLogsHolder(t *testing.T) {
+	var buf bytes.Buffer
+	var mu sync.Mutex
+	logger := slog.New(slog.NewTextHandler(lockedWriter{&buf, &mu}, nil))
+	path := filepath.Join(t.TempDir(), "kipple.db")
+	db, err := Open(context.Background(), Options{Path: path, Logger: logger})
+	require.NoError(t, err)
+	defer db.Close()
+
+	held, release := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+
+	short, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err = db.WithWrite(short, func(ctx context.Context, tx *sql.Tx) error { return nil })
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	close(release)
+	require.NoError(t, <-done)
+
+	mu.Lock()
+	out := buf.String()
+	mu.Unlock()
+	require.Contains(t, out, "timed out acquiring the writer")
+	require.Contains(t, out, "TestWithWriteTimeoutLogsHolder")
+	require.Contains(t, out, "store_test.go")
+}
+
+type lockedWriter struct {
+	b  *bytes.Buffer
+	mu *sync.Mutex
+}
+
+func (w lockedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.Write(p)
+}
+
+func TestSnapshotRetentionKeepsNewest(t *testing.T) {
+	ctx := context.Background()
+	db, _ := openTest(t)
+	require.NoError(t, ensureDir(db.backupDir))
+	base := time.Now().Add(-10 * time.Hour)
+	// Names deliberately do not sort like mtimes: retention must go by mtime.
+	names := []string{"e", "a", "d", "b", "c"}
+	for i, n := range names {
+		p := filepath.Join(db.backupDir, "pre-migration-old-"+n+".db")
+		require.NoError(t, os.WriteFile(p, []byte("x"), 0o644))
+		require.NoError(t, os.Chtimes(p, base.Add(time.Duration(i)*time.Hour), base.Add(time.Duration(i)*time.Hour)))
+	}
+	require.NoError(t, db.preMigrationSnapshot(ctx, 1, 2)) // newest now, so 3 kept = new + c + b
+	files, err := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-*.db"))
+	require.NoError(t, err)
+	var got []string
+	for _, f := range files {
+		got = append(got, filepath.Base(f))
+	}
+	require.Len(t, got, 3)
+	require.Contains(t, got, "pre-migration-old-c.db")
+	require.Contains(t, got, "pre-migration-old-b.db")
+	require.Condition(t, func() bool {
+		for _, g := range got {
+			if strings.HasPrefix(g, "pre-migration-1-2-") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func TestMigrateNonFreshPendingTakesSnapshot(t *testing.T) {
+	ctx := context.Background()
+	db, _ := openTest(t)
+	ms, err := loadMigrations()
+	require.NoError(t, err)
+	n := len(ms)
+	db.migrations = append(ms, migration{version: n + 1, name: fmt.Sprintf("%04d_extra.sql", n+1), sql: "CREATE TABLE extra_t (a INTEGER);"})
+
+	files, _ := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-*.db"))
+	require.Empty(t, files)
+	require.NoError(t, db.migrate(ctx))
+
+	files, err = filepath.Glob(filepath.Join(db.backupDir, fmt.Sprintf("pre-migration-%d-%d-*.db", n, n+1)))
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	v, err := db.Version(ctx)
+	require.NoError(t, err)
+	require.Equal(t, n+1, v)
+	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM sqlite_master WHERE name='extra_t'"))
 }

@@ -43,6 +43,9 @@ type DB struct {
 	reader *sql.DB
 	gate   chan struct{}
 
+	// migrations overrides the embedded set (tests only).
+	migrations []migration
+
 	holder atomic.Pointer[holder]
 
 	closeOnce sync.Once
@@ -91,9 +94,41 @@ func buildDSN(path, kind string) string {
 	for _, p := range pragmas {
 		q.Add("_pragma", p)
 	}
-	// url.Values.Encode escapes parentheses and commas; the driver decodes them, but keep the
-	// DSN readable and stable by building it by hand.
-	return "file:" + filepath.ToSlash(path) + "?" + q.Encode()
+	// The query is built with url.Values (it percent-encodes the pragma parentheses, which the
+	// driver decodes); the path is escaped separately so '?', '#' and '%' in it stay literal.
+	return "file:" + escapePath(path) + "?" + q.Encode()
+}
+
+// escapePath percent-escapes a filesystem path for use in a SQLite file: URI.
+func escapePath(path string) string {
+	u := url.URL{Path: filepath.ToSlash(path)}
+	return u.EscapedPath()
+}
+
+// checkForeign refuses a database file that is not a Kipple database, using a throwaway
+// read-only connection with no pragmas, so a foreign file is never switched to WAL or
+// otherwise written before the refusal. A missing or empty file is fine (fresh).
+func checkForeign(ctx context.Context, path string) error {
+	if st, err := os.Stat(path); err != nil || st.Size() == 0 {
+		return nil
+	}
+	ro, err := sql.Open("sqlite", "file:"+escapePath(path)+"?mode=ro")
+	if err != nil {
+		return fmt.Errorf("store: open for inspection: %w", err)
+	}
+	defer ro.Close()
+	ro.SetMaxOpenConns(1)
+	var appID, objects int
+	if err := ro.QueryRowContext(ctx, "PRAGMA application_id").Scan(&appID); err != nil {
+		return fmt.Errorf("store: inspect database: %w", err)
+	}
+	if err := ro.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master").Scan(&objects); err != nil {
+		return fmt.Errorf("store: inspect database: %w", err)
+	}
+	if !(appID == 0 && objects == 0) && appID != ApplicationID {
+		return errors.New("store: not a Kipple database")
+	}
+	return nil
 }
 
 // Open opens (creating if needed) the database, migrates it to the latest schema and
@@ -121,6 +156,10 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	})
 
 	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1)}
+
+	if err := checkForeign(ctx, opts.Path); err != nil {
+		return nil, err
+	}
 
 	var err error
 	d.writer, err = sql.Open("sqlite", buildDSN(opts.Path, "writer"))
@@ -205,17 +244,22 @@ func (d *DB) AcquireGate(ctx context.Context) (release func(), err error) {
 	}
 }
 
-// Close checkpoints the WAL (TRUNCATE) and closes all pools. It is idempotent.
+// Close closes the readers, checkpoints the WAL (TRUNCATE) and closes the writer. It is idempotent.
 func (d *DB) Close() error {
 	d.closeOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		var errs []error
-		if _, err := d.writer.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-			errs = append(errs, fmt.Errorf("checkpoint: %w", err))
+		if d.reader != nil {
+			if err := d.reader.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
-		if err := d.reader.Close(); err != nil {
-			errs = append(errs, err)
+		var busy, logFrames, checkpointed int
+		if err := d.writer.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &logFrames, &checkpointed); err != nil {
+			errs = append(errs, fmt.Errorf("checkpoint: %w", err))
+		} else if busy != 0 {
+			errs = append(errs, fmt.Errorf("checkpoint: busy (log=%d checkpointed=%d)", logFrames, checkpointed))
 		}
 		if err := d.writer.Close(); err != nil {
 			errs = append(errs, err)

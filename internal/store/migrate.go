@@ -78,9 +78,12 @@ func pragmaInt(ctx context.Context, q Querier, name string) (int, error) {
 
 // migrate implements design.md 2.5.
 func (d *DB) migrate(ctx context.Context) error {
-	ms, err := loadMigrations()
-	if err != nil {
-		return err
+	ms := d.migrations
+	if ms == nil {
+		var err error
+		if ms, err = loadMigrations(); err != nil {
+			return err
+		}
 	}
 	latest := len(ms)
 
@@ -131,7 +134,7 @@ func (d *DB) preMigrationSnapshot(ctx context.Context, from, to int) error {
 		return fmt.Errorf("store: open snapshot pool: %w", err)
 	}
 	defer snap.Close()
-	target := filepath.Join(d.backupDir, fmt.Sprintf("pre-migration-%d-%d-%d.db", from, to, time.Now().Unix()))
+	target := filepath.Join(d.backupDir, fmt.Sprintf("pre-migration-%d-%d-%d.db", from, to, time.Now().UnixNano()))
 	if _, err := snap.ExecContext(ctx, "VACUUM INTO '"+strings.ReplaceAll(filepath.ToSlash(target), "'", "''")+"'"); err != nil {
 		return fmt.Errorf("store: pre-migration snapshot: %w", err)
 	}
@@ -202,6 +205,9 @@ func (d *DB) applyMigration(ctx context.Context, m migration) (err error) {
 	violations := rows.Next()
 	if err := rows.Close(); err != nil {
 		return err
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("store: %s: foreign_key_check: %w", m.name, err)
 	}
 	if violations {
 		return fmt.Errorf("store: %s: foreign_key_check reported violations", m.name)

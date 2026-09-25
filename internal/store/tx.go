@@ -26,9 +26,9 @@ type Querier interface {
 }
 
 // WithWrite is the only door to the writer pool. It derives a 10 s deadline, begins an
-// immediate transaction, runs fn, and commits on nil or rolls back otherwise. Rows opened
+// immediate transaction, runs fn (handing it the deadline-bound context), and commits on nil or rolls back otherwise. Rows opened
 // inside fn must be closed by fn (or the store method that opened them) before returning.
-func (d *DB) WithWrite(ctx context.Context, fn func(tx *sql.Tx) error) error {
+func (d *DB) WithWrite(ctx context.Context, fn func(ctx context.Context, tx *sql.Tx) error) error {
 	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
 	defer cancel()
 
@@ -52,7 +52,7 @@ func (d *DB) WithWrite(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	d.holder.Store(h)
 	defer d.holder.CompareAndSwap(h, nil)
 
-	if err := fn(tx); err != nil {
+	if err := fn(ctx, tx); err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
 			return errors.Join(err, fmt.Errorf("store: rollback: %w", rbErr))
 		}
