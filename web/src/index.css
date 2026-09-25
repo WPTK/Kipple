@@ -56,7 +56,7 @@
 
   --kp-gutter: 1rem;
   --tabbar-h: 3.5rem;
-  --toolbar-h: 3.5rem; /* article toolbar: 44 px buttons plus padding */
+  --toolbar-h: 3.05rem; /* article toolbar: 44 px buttons plus padding */
 }
 
 :root[data-font="easy"] {
@@ -144,6 +144,7 @@ body {
   height: auto;
   overflow: visible;
   white-space: normal;
+  padding: 0.75rem 1rem;
 }
 
 /* Rows leaving the Unread list collapse to nothing (180 ms, matching lib/collapse.ts). */
