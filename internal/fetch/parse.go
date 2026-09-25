@@ -3,12 +3,14 @@ package fetch
 import (
 	"bytes"
 	stdhtml "html"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mmcdole/gofeed"
 	ext "github.com/mmcdole/gofeed/extensions"
 	gjson "github.com/mmcdole/gofeed/json"
+	grss "github.com/mmcdole/gofeed/rss"
 
 	"github.com/WPTK/kipple/internal/sanitize"
 )
@@ -35,6 +37,7 @@ type Item struct {
 	Published   *time.Time  `json:"published,omitempty"` // PublishedParsed ?? UpdatedParsed; nil = store uses id/1e6
 	Updated     *time.Time  `json:"updated,omitempty"`   // item's own updated date, if any
 	Enclosures  []Enclosure `json:"enclosures,omitempty"`
+	WordCount   int         `json:"-"` // words in ContentText; not in the golden output
 	ContentHash string      `json:"content_hash"`
 	TextHash    string      `json:"text_hash"`
 }
@@ -48,6 +51,7 @@ type Feed struct {
 	Updated     *time.Time `json:"updated,omitempty"`
 	Items       []Item     `json:"items"`
 	Notes       []string   `json:"notes,omitempty"`
+	TTLMinutes  int        `json:"ttl_minutes,omitempty"` // RSS <ttl>, publisher cache hint (design §4.6)
 	Charset     string     `json:"charset"`
 	BodyHash    string     `json:"-"` // varies with nothing here; goldens stay stable without it
 }
@@ -95,6 +99,12 @@ func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	}
 	if t := firstTime(gf.UpdatedParsed, gf.PublishedParsed); t != nil {
 		out.Updated = t
+	}
+
+	if rf, ok := gf.OriginalFeed().(*grss.Feed); ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(rf.TTL)); err == nil && n > 0 {
+			out.TTLMinutes = n
+		}
 	}
 
 	var jsonItems []*gjson.Item
@@ -153,6 +163,7 @@ func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	items, notes := AssignUIDs(items, mode)
 	for i := range items {
 		it := &items[i]
+		it.WordCount = len(strings.Fields(it.ContentText))
 		it.ContentHash = ContentHash(it.Title, it.URL, it.Author, it.ContentHTML)
 		it.TextHash = TextHash(it.Title, it.ContentText)
 	}

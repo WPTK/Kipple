@@ -37,15 +37,16 @@ func textFallbackUID(title, text string) string { return "h:" + H(title+sep+text
 func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 	seenUID := make(map[string]bool, len(items))
 	guidCount := make(map[string]int, len(items))
-	badGUIDs := 0
+	badGUIDs, guided := 0, 0 // duplicated guids among the non-empty ones
 
 	for i := range items {
 		it := &items[i]
 		guid := strings.TrimSpace(it.GUID)
-		if guid == "" {
-			badGUIDs++
-		} else if guidCount[guid] > 0 {
-			badGUIDs++
+		if guid != "" {
+			guided++
+			if guidCount[guid] > 0 {
+				badGUIDs++
+			}
 		}
 
 		var uid string
@@ -93,8 +94,10 @@ func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 		kept = append(kept, *it)
 	}
 
-	if n := len(items); n > 0 && badGUIDs*100 > 5*n {
-		notes = append(notes, fmt.Sprintf("guid_duplicates: %d/%d", badGUIDs, n))
+	// Guid-less feeds (Atom without id, RSS without guid) are normal and key on
+	// the link, so only repeated non-empty guids count, against the non-empty ones.
+	if guided > 0 && badGUIDs*100 > 5*guided {
+		notes = append(notes, fmt.Sprintf("guid_duplicates: %d/%d", badGUIDs, guided))
 	}
 	return kept, notes
 }

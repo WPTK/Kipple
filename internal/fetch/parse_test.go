@@ -125,7 +125,7 @@ func TestParseFeedFixtureFacts(t *testing.T) {
 		require.Equal(t, "g:"+H("same|2"), f.Items[2].UID) // no link: occurrence index
 		require.Equal(t, "l:"+H("https://dup.example.com/d"), f.Items[3].UID)
 		require.Equal(t, "l:"+H("https://dup.example.com/a"), f.Items[4].UID)
-		require.Equal(t, []string{"guid_duplicates: 4/5"}, f.Notes)
+		require.Equal(t, []string{"guid_duplicates: 2/3"}, f.Notes)
 		seen := map[string]bool{}
 		for _, it := range f.Items {
 			require.False(t, seen[it.UID])
@@ -198,7 +198,12 @@ func TestUIDRules(t *testing.T) {
 	require.Equal(t, "g:"+H("g1"), kept[0].UID) // guid is trimmed
 	require.Equal(t, "l:"+H("https://x/b"), kept[1].UID)
 	require.Equal(t, "h:"+H("T\x1fbody"), kept[2].UID)
-	require.Equal(t, []string{"guid_duplicates: 2/3"}, notes)
+	require.Empty(t, notes, "guid-less items must not trip the duplicate note")
+
+	_, notes = AssignUIDs([]Item{
+		{GUID: "a", RawLink: "https://x/1"}, {GUID: "a", RawLink: "https://x/2"}, {RawLink: "https://x/3"}, {RawLink: "https://x/4"},
+	}, DedupAuto)
+	require.Equal(t, []string{"guid_duplicates: 1/2"}, notes, "only non-empty guids count")
 
 	kept, _ = AssignUIDs(append([]Item(nil), items...), DedupLinkTitle)
 	require.Equal(t, "l:"+H("https://x/a\x1fT"), kept[0].UID)
