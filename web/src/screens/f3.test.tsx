@@ -462,22 +462,22 @@ describe("Feed health", () => {
 
 describe("Account and backup", () => {
   it("shows a generated API password once with Copy and the sync app instructions", async () => {
-    const { calls } = base({ "POST /api/account/api-password": () => json({ api_password: "abc123-secret-xyz" }) });
+    const { calls } = base({ "POST /api/account/api-password": () => json({ api_password: "maple river lantern 42" }) });
     go("/settings");
     const user = userEvent.setup();
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     await user.click(await screen.findByRole("button", { name: "Generate API password" }));
     const dlg = await screen.findByRole("dialog", { name: "Generate API password" });
-    await user.type(within(dlg).getByLabelText("Your web password"), "hunter2");
+    await user.type(within(dlg).getByLabelText("Your web password"), "old passphrase");
     await user.click(within(dlg).getByRole("button", { name: "Generate" }));
     const shown = await screen.findByRole("dialog", { name: "Your new API password" });
-    expect(within(shown).getByTestId("api-password")).toHaveTextContent("abc123-secret-xyz");
+    expect(within(shown).getByTestId("api-password")).toHaveTextContent("maple river lantern 42");
     expect(within(shown).getByText(/Server URL/)).toHaveTextContent("/api/greader.php");
     await user.click(within(shown).getByRole("button", { name: "Copy" }));
-    expect(writeText).toHaveBeenCalledWith("abc123-secret-xyz");
-    expect(body(calls.find((c) => c.url.pathname === "/api/account/api-password") as never)).toEqual({ current: "hunter2", generate: true });
+    expect(writeText).toHaveBeenCalledWith("maple river lantern 42");
+    expect(body(calls.find((c) => c.url.pathname === "/api/account/api-password") as never)).toEqual({ current: "old passphrase", generate: true });
     await user.click(within(shown).getByRole("button", { name: "Done" }));
-    expect(screen.queryByText("abc123-secret-xyz")).toBeNull();
+    expect(screen.queryByText("maple river lantern 42")).toBeNull();
   });
 
   it("changes the password with inline validation", async () => {
@@ -521,6 +521,32 @@ describe("Account and backup", () => {
     expect(within(dlg).getByText(/password hashes and secrets/)).toBeInTheDocument();
     expect(within(dlg).getByText(/30000 \(42 starred\)/)).toBeInTheDocument();
     expect(within(dlg).getByRole("link", { name: /kipple-backup-20260925-101500\.zip/ })).toHaveAttribute("href", "/api/backup/t");
+  });
+
+  it("waits for a background export job, then shows the same confirmation", async () => {
+    let polls = 0;
+    base({
+      "POST /api/backup": () => json({ job_id: "j1", status: "building" }, 202),
+      "GET /api/backup/jobs/j1": () => {
+        polls += 1;
+        return polls < 2
+          ? json({ status: "building" })
+          : json({ status: "ready", token: "t2", url: "/api/backup/t2", filename: "kipple-backup-x.zip", bytes: 10, expires_at: 0, expires_in: 300, warning: "Keep it private.", contents: { kipple_version: "1", schema_version: 1, created_at: 1_790_000_000, feeds: 1, items: 2, starred: 0, db_bytes: 5 } });
+      },
+    });
+    const { exportBackup } = await import("@/api/admin");
+    const info = await exportBackup({ intervalMs: 1 });
+    expect(info.url).toBe("/api/backup/t2");
+    expect(polls).toBe(2);
+  });
+
+  it("maps a failed export job to the disk-space message", async () => {
+    base({
+      "POST /api/backup": () => json({ job_id: "j2", status: "building" }, 202),
+      "GET /api/backup/jobs/j2": () => json({ status: "failed", error: "no_space", message: "low" }),
+    });
+    const { exportBackup } = await import("@/api/admin");
+    await expect(exportBackup({ intervalMs: 1 })).rejects.toMatchObject({ status: 507, code: "no_space" });
   });
 
   it.each([

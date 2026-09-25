@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, authStore, errorMessage } from "@/api/client";
-import { applyRetention, changePassword, createBackup, generateApiPassword, type BackupInfo } from "@/api/admin";
+import { applyRetention, changePassword, exportBackup, generateApiPassword, type BackupInfo } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { bytesLabel, fullDate } from "@/lib/format";
 import { buttonVariants } from "@/ui/button";
@@ -22,6 +22,8 @@ export function accountError(e: unknown): string {
       return `Kipple is busy with a database snapshot or another export.${s}`;
     }
     if (e.status === 507) return "The server doesn't have enough free disk space to build a backup. Free some space and try again.";
+    if (e.code === "gone" || e.status === 404) return "The backup is no longer available. Export again.";
+    if (e.code === "timeout") return "The backup is taking too long. Check the server and try again.";
     if (e.status === 413) return "The backup would be larger than 4 GiB, which is more than Kipple will export in one file.";
   }
   return errorMessage(e);
@@ -205,7 +207,7 @@ export function AccountActions() {
     setBusy("backup");
     setBackupError(null);
     try {
-      setBackup(await createBackup());
+      setBackup(await exportBackup());
     } catch (e) {
       setBackupError(accountError(e));
     } finally {

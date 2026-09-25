@@ -270,6 +270,7 @@ export const generateApiPassword = (current: string) =>
 export const applyRetention = () => api<{ run_id: string; total: number }>("/api/retention/apply", { method: "POST" });
 
 export interface BackupInfo {
+  status?: "ready";
   token: string;
   url: string;
   filename: string;
@@ -280,4 +281,30 @@ export interface BackupInfo {
   contents: { kipple_version: string; schema_version: number; created_at: number; feeds: number; items: number; starred: number; db_bytes: number };
 }
 
-export const createBackup = () => api<BackupInfo>("/api/backup", { method: "POST" });
+type BackupAnswer = BackupInfo | { status: "building"; job_id?: string } | { status: "failed"; error: string; message?: string };
+
+const FAILED_STATUS: Record<string, number> = { no_space: 507, too_large: 413, busy: 409 };
+
+/**
+ * Build a backup. POST /api/backup answers 200 with the ready payload when the export finishes within about
+ * five seconds, else 202 {job_id}: then GET /api/backup/jobs/{id} is polled until it is ready or failed. The job
+ * outlives the request, so a slow proxy or a closed tab does not cancel it. Failures throw an ApiError with the
+ * same status the synchronous path uses (507 no_space, 413 too_large, 409 busy).
+ */
+export async function exportBackup(opts: { intervalMs?: number; maxMs?: number; signal?: AbortSignal } = {}): Promise<BackupInfo> {
+  const { intervalMs = 2000, maxMs = 12 * 60_000, signal } = opts;
+  let ans = await api<BackupAnswer>("/api/backup", { method: "POST", signal });
+  const started = Date.now();
+  const jobId = ans.status === "building" && "job_id" in ans ? ans.job_id : undefined;
+  while (jobId && ans.status === "building") {
+    if (Date.now() - started > maxMs) throw new ApiError(504, "timeout");
+    await new Promise((r) => setTimeout(r, intervalMs));
+    ans = await api<BackupAnswer>(`/api/backup/jobs/${jobId}`, { signal });
+  }
+  if (ans.status === "failed") {
+    const body: Record<string, unknown> = { error: ans.error, message: ans.message };
+    throw new ApiError(FAILED_STATUS[ans.error] ?? 500, ans.error, body);
+  }
+  if (ans.status === "building") throw new ApiError(500, "internal");
+  return ans;
+}
