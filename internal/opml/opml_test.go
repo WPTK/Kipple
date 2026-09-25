@@ -192,3 +192,17 @@ func roundTrip(t *testing.T, src []byte, wantFeeds, wantFolders int) {
 	require.Len(t, r3.FeedsExisting, wantFeeds)
 	require.Zero(t, r3.FoldersCreated)
 }
+
+func TestParseURLsNotDoubleUnescaped(t *testing.T) {
+	// Correctly escaped query strings must round-trip unchanged: "&sect" and
+	// "&region" look like legacy no-semicolon entities to html.UnescapeString.
+	d := parseString(t, `<opml><body>
+	<outline text="A" xmlUrl="http://a.test/rss?a=1&amp;section=x&amp;region=us" htmlUrl="http://a.test/?x=1&amp;copy=2&amp;reg=3"/>
+	<outline text="B &amp;amp; C" xmlUrl="http://b.test/rss"/>
+	<outline text="Fish &amp;chips" xmlUrl="http://c.test/rss"/>
+	</body></opml>`)
+	require.Equal(t, "http://a.test/rss?a=1&section=x&region=us", d.Feeds[0].URL)
+	require.Equal(t, "http://a.test/?x=1&copy=2&reg=3", d.Feeds[0].SiteURL)
+	require.Equal(t, "B & C", d.Feeds[1].Title, "NewsBlur double-escaped title still decodes")
+	require.Equal(t, "Fish &chips", d.Feeds[2].Title, "legacy no-semicolon entities are not decoded")
+}

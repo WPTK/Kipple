@@ -4,8 +4,8 @@ package opml
 import (
 	"encoding/xml"
 	"fmt"
-	"html"
 	"io"
+	"regexp"
 	"strings"
 
 	"github.com/WPTK/kipple/internal/feedurl"
@@ -66,17 +66,26 @@ type document struct {
 func (o outline) get(name string) string {
 	for _, a := range o.Attrs {
 		if a.Name.Space == "" && a.Name.Local == name {
+			if name == "xmlUrl" || name == "htmlUrl" {
+				// URLs are already correctly unescaped by the XML decoder; a
+				// second pass would corrupt "?a=1&section=x" style queries.
+				return strings.TrimSpace(a.Value)
+			}
 			return decode(a.Value)
 		}
 	}
 	return ""
 }
 
-// decode undoes double-escaped entities (e.g. NewsBlur's "&amp;amp;") on top of
-// the XML decoder's own unescaping.
+// doubleEscapedAmp matches a literal "&amp;" chain left after XML decoding
+// (NewsBlur writes "&amp;amp;"): only chains with their semicolons are undone.
+var doubleEscapedAmp = regexp.MustCompile(`&(?:amp;)+`)
+
+// decode undoes NewsBlur-style double-escaped ampersands on top of the XML
+// decoder's own unescaping. Legacy no-semicolon entities are left alone.
 func decode(s string) string {
-	if strings.Contains(s, "&") {
-		s = html.UnescapeString(s)
+	if strings.Contains(s, "&amp;") {
+		s = doubleEscapedAmp.ReplaceAllString(s, "&")
 	}
 	return strings.TrimSpace(s)
 }
@@ -160,7 +169,7 @@ func parseAttrs(attrs []xml.Attr) (Attrs, []string) {
 		if at.Name.Space != NS && at.Name.Space != "kipple" {
 			continue
 		}
-		v := strings.TrimSpace(html.UnescapeString(at.Value))
+		v := strings.TrimSpace(at.Value)
 		ok := true
 		switch at.Name.Local {
 		case "interval":
