@@ -28,6 +28,7 @@ import (
 	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/greader"
 	"github.com/WPTK/kipple/internal/httpx"
+	"github.com/WPTK/kipple/internal/lock"
 	"github.com/WPTK/kipple/internal/maint"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/stats"
@@ -72,13 +73,17 @@ func run(args []string) error {
 		return runServe()
 	case "api-password":
 		return runAPIPassword(args[1:])
+	case "password":
+		return runPassword(args[1:])
+	case "restore":
+		return runRestore(args[1:])
 	case "import":
 		return runImport(args[1:])
 	case "version":
 		fmt.Println(version)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (want serve, import, api-password or version)", cmd)
+		return fmt.Errorf("unknown command %q (want serve, import, api-password, password, restore or version)", cmd)
 	}
 }
 
@@ -109,6 +114,16 @@ func runServe() error {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
+	// One server per data directory, and no restore under a live server: the OS
+	// lock goes with the process, so a crash never leaves a stale one.
+	dataLock, err := lock.Acquire(filepath.Join(cfg.DataDir, "kipple.lock"))
+	if errors.Is(err, lock.ErrLocked) {
+		return fmt.Errorf("another kipple is already running on %s (kipple.lock is held)", cfg.DataDir)
+	}
+	if err != nil {
+		return fmt.Errorf("data dir lock: %w", err)
+	}
+	defer func() { _ = dataLock.Release() }()
 	db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(cfg.DataDir, "kipple.db"), Logger: logger})
 	if err != nil {
 		return fmt.Errorf("store: %w", err)
