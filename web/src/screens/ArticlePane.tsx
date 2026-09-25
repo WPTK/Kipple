@@ -16,6 +16,8 @@ import { Button } from "@/ui/button";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { StatusBlock } from "./ListPane";
+import { ReadingMenu } from "./AppearanceControls";
+import { ListenBar } from "./ListenBar";
 
 interface Props {
   id: string;
@@ -217,6 +219,7 @@ export function ArticlePane({ id, pane }: Props) {
               </Button>
             </p>
           ) : null}
+          {a.trimmed ? null : <ListenBar bodyRef={bodyRef} articleId={id} />}
           {a.trimmed ? (
             <StatusBlock role="status" title="This article was removed" body="Kipple keeps only the newest articles for this feed. Open the original to read it." />
           ) : (
@@ -320,6 +323,7 @@ function Toolbar(p: ToolbarProps) {
       <Button variant="ghost" size="icon" onClick={p.onOriginal} aria-label="Open original">
         <ExternalLink aria-hidden="true" />
       </Button>
+      <ReadingMenu />
     </div>
   );
 }

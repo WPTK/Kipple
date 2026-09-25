@@ -18,6 +18,7 @@ import { Button } from "@/ui/button";
 import { cn } from "@/lib/cn";
 import { ArticlePane } from "./ArticlePane";
 import { LayoutMenu } from "./LayoutMenu";
+import { ReadingMenu } from "./AppearanceControls";
 import { ListPane, type ListControls } from "./ListPane";
 
 const VIEWS: { view: View; label: string }[] = [
@@ -85,6 +86,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           {oldest ? <ArrowUpNarrowWide aria-hidden="true" /> : <ArrowDownWideNarrow aria-hidden="true" />}
         </Button>
         <LayoutMenu scope={scope} />
+        <ReadingMenu />
         <Button
           variant="ghost"
           size="icon"

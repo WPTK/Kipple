@@ -1,21 +1,24 @@
-import { useId, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { api, authStore, errorMessage } from "@/api/client";
-import { useBootstrap } from "@/api/queries";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { Link } from "react-router";
+import { useSettings, type SettingGroup, type SettingMeta } from "@/api/admin";
+import { errorMessage } from "@/api/client";
 import { LAYOUT_IDS, LAYOUT_LABELS, updateDevicePrefs, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
-import { STEPS, STEP_LABELS, TEXT_SIZES, TEXT_SIZE_LABELS, prefsStore, updatePrefs, type FontId, type Step } from "@/lib/prefs";
+import { MOTIONS, MOTION_LABELS, RATES, prefsStore, updatePrefs, type Motion } from "@/lib/prefs";
+import { listVoices, speechSupported } from "@/lib/speech";
 import { useStore } from "@/lib/store";
 import { ThemePicker } from "@/theme/ThemePicker";
 import { Segmented } from "@/ui/segmented";
 import { Button } from "@/ui/button";
-import { toast } from "@/shell/toasts";
-
-const stepOptions = STEPS.map((s) => ({ value: s, label: STEP_LABELS[s] }));
+import { Disclosure, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
+import { DensityControl, FontSelect, SpacingControl, TextSizeControl } from "./AppearanceControls";
+import { AccountActions } from "./AccountSection";
+import { SettingField } from "./SettingField";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
+  const id = useId();
   return (
-    <section aria-labelledby={`sec-${title}`} className="border-b border-line px-4 py-5">
-      <h2 id={`sec-${title}`} className="mb-3 text-lg font-bold">
+    <section aria-labelledby={id} className="border-b border-line px-4 py-5">
+      <h2 id={id} className="mb-3 text-lg font-bold">
         {title}
       </h2>
       <div className="flex flex-col gap-5">{children}</div>
@@ -23,45 +26,144 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** Live sample of the chosen steps: a list row and a paragraph, scoped by data attributes. */
-function DensityPreview({ list, reading }: { list: Step; reading: Step }) {
+/** Keys the screen draws itself (or does not honor yet), so the generic renderer skips them. */
+const SPECIAL = new Set(["ui.mark_read_on_scroll", "ui.font_ui"]);
+
+const GROUPS: { id: SettingGroup; title: string }[] = [
+  { id: "reading", title: "Reading" },
+  { id: "sync", title: "Sync" },
+  { id: "library", title: "Library" },
+  { id: "images", title: "Images" },
+];
+
+/** Settings from the server, grouped by their `group`. Advanced is collapsed. */
+export function ServerSettings({ settings }: { settings: SettingMeta[] }) {
+  const shown = settings.filter((s) => s.surface === "settings" && !SPECIAL.has(s.key) && s.kind !== "json");
+  const by = (g: SettingGroup) => shown.filter((s) => s.group === g);
+  const advanced = by("advanced");
   return (
-    <div aria-hidden="true" className="overflow-hidden rounded-xl border border-line bg-bg" data-testid="density-preview">
-      <div data-list-density={list} className="flex min-h-[var(--row-min)] gap-3 border-b border-line px-4 py-[var(--row-py)]">
-        <div className="flex min-w-0 flex-1 flex-col gap-[var(--row-gap)]">
-          <div className="text-xs text-fg2">Example feed · 2h</div>
-          <div className="clamp-title text-base leading-snug font-bold">A sample headline that may run onto a second or third line</div>
-          <div className="clamp-snippet text-sm leading-snug text-fg2">
-            The excerpt shows the first words of the article, so you can decide whether to open it, and grows with the density step.
-          </div>
-        </div>
-        <div className="size-[var(--thumb)] shrink-0 rounded-lg bg-surface" />
-      </div>
-      <div data-reading-density={reading} className="article-body px-4 py-3 text-base">
-        <p>Reading text uses this spacing between lines and paragraphs.</p>
-        <p>A second paragraph shows the gap between them.</p>
-      </div>
+    <>
+      {GROUPS.map(({ id, title }) =>
+        by(id).length ? (
+          <Section key={id} title={title}>
+            {by(id).map((s) => (
+              <SettingField key={s.key} meta={s} />
+            ))}
+          </Section>
+        ) : null,
+      )}
+      {advanced.length ? (
+        <Section title="Advanced">
+          <Disclosure label="Show advanced settings">
+            {advanced.map((s) => (
+              <SettingField key={s.key} meta={s} />
+            ))}
+          </Disclosure>
+        </Section>
+      ) : null}
+    </>
+  );
+}
+
+function VoicePicker() {
+  const p = useStore(prefsStore);
+  const id = useId();
+  const [voices, setVoices] = useState(() => listVoices());
+  useEffect(() => {
+    const load = () => setVoices(listVoices());
+    load();
+    speechSynthesis.addEventListener?.("voiceschanged", load);
+    return () => speechSynthesis.removeEventListener?.("voiceschanged", load);
+  }, []);
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className="text-sm font-semibold">
+        Voice
+      </label>
+      <select id={id} value={p.voice} onChange={(e) => updatePrefs({ voice: e.target.value })} className={inputCls}>
+        <option value="">Device default</option>
+        {voices.map((v) => (
+          <option key={v.voiceURI} value={v.voiceURI}>
+            {v.name} ({v.lang})
+          </option>
+        ))}
+      </select>
+      <p className="text-xs text-fg2">Voices come from your device. On iPhone, better voices are in Settings, Accessibility, Spoken Content, Voices.</p>
     </div>
+  );
+}
+
+let layoutBeforeTitlesOnly: LayoutId = "magazine";
+
+function AccessibilitySection({ scrollSetting, loading }: { scrollSetting: SettingMeta | undefined; loading: boolean }) {
+  const p = useStore(prefsStore);
+  const dp = useDevicePrefs();
+  const supported = speechSupported();
+  const titlesOnly = dp.layout === "headlines";
+  return (
+    <Section title="Accessibility">
+      <p className="text-sm text-fg2">Kipple follows your device's text, motion and contrast settings. These are extra controls for this device.</p>
+      <TextSizeControl />
+      <Switch
+        label="Easy-to-read font"
+        help="Switches to Atkinson Hyperlegible Next, a font designed for clear letter shapes."
+        checked={p.font === "easy"}
+        onChange={(v) => updatePrefs({ font: v ? "easy" : "default" })}
+      />
+      <SpacingControl />
+      <Segmented<Motion>
+        legend="Reduce motion"
+        hint="Turns off slides and fades. Follow system uses your device setting."
+        value={p.motion}
+        onChange={(motion) => updatePrefs({ motion })}
+        options={MOTIONS.map((m) => ({ value: m, label: MOTION_LABELS[m] }))}
+      />
+      {scrollSetting ? <SettingField meta={scrollSetting} /> : loading ? <Skeleton rows={1} label="Loading setting" /> : null}
+      <Switch
+        label="Listen to articles"
+        help={supported ? "Adds a Listen button to articles. Voices come from your device." : "This browser can't read aloud."}
+        checked={p.listen && supported}
+        disabled={!supported}
+        onChange={(listen) => updatePrefs({ listen })}
+      />
+      {p.listen && supported ? (
+        <>
+          <VoicePicker />
+          <Segmented<number>
+            legend="Reading speed"
+            value={p.rate}
+            onChange={(rate) => updatePrefs({ rate })}
+            options={RATES.map((r) => ({ value: r, label: `${r}x` }))}
+          />
+        </>
+      ) : null}
+      <Switch
+        label="Larger buttons"
+        help="Makes buttons and tap targets bigger and spreads them out."
+        checked={p.largeTargets}
+        onChange={(largeTargets) => updatePrefs({ largeTargets })}
+      />
+      <Switch
+        label="Titles only in lists"
+        help="Hides pictures and excerpts so lists show just headlines."
+        checked={titlesOnly}
+        onChange={(v) => {
+          if (v) {
+            layoutBeforeTitlesOnly = dp.layout;
+            updateDevicePrefs({ layout: "headlines" });
+          } else updateDevicePrefs({ layout: layoutBeforeTitlesOnly === "headlines" ? "magazine" : layoutBeforeTitlesOnly });
+        }}
+      />
+    </Section>
   );
 }
 
 export function SettingsScreen() {
   const p = useStore(prefsStore);
   const dp = useDevicePrefs();
-  const boot = useBootstrap();
-  const qc = useQueryClient();
+  const settings = useSettings();
   const switchId = useId();
-
-  const signOut = async () => {
-    try {
-      await api("/api/auth/logout", { method: "POST" });
-    } catch (e) {
-      toast(errorMessage(e), "error");
-      return;
-    }
-    qc.clear();
-    authStore.set("out");
-  };
+  const scrollSetting = settings.data?.settings.find((s) => s.key === "ui.mark_read_on_scroll");
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -72,47 +174,14 @@ export function SettingsScreen() {
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Section title="Appearance">
+          <p className="text-sm text-fg2">Saved on this device only.</p>
           <ThemePicker />
-          <Segmented<FontId>
-            legend="Reading font"
-            value={p.font}
-            onChange={(font) => updatePrefs({ font })}
-            options={[
-              { value: "default", label: "Default" },
-              { value: "easy", label: "Easy to read" },
-            ]}
-          />
-          <Segmented<number>
-            legend="Text size"
-            value={p.textSize}
-            onChange={(textSize) => updatePrefs({ textSize })}
-            options={TEXT_SIZES.map((v, i) => ({ value: v, label: TEXT_SIZE_LABELS[i] ?? String(v) }))}
-          />
-          {p.adjustSeparately ? (
-            <>
-              <Segmented<Step> legend="Lists" hint="How much fits on screen." value={p.listDensity} onChange={(listDensity) => updatePrefs({ listDensity })} options={stepOptions} />
-              <Segmented<Step> legend="Reading" hint="How much space between lines and paragraphs." value={p.readingDensity} onChange={(readingDensity) => updatePrefs({ readingDensity })} options={stepOptions} />
-            </>
-          ) : (
-            <Segmented<Step>
-              legend="Density"
-              hint="How much fits on screen, and how much space there is in articles."
-              value={p.listDensity}
-              onChange={(v) => updatePrefs({ listDensity: v, readingDensity: v })}
-              options={stepOptions}
-            />
-          )}
-          <DensityPreview list={p.listDensity} reading={p.readingDensity} />
-          <label className="flex min-h-11 items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={p.adjustSeparately}
-              onChange={(e) => updatePrefs({ adjustSeparately: e.target.checked })}
-              className="size-5 accent-[var(--kp-accent)]"
-            />
-            Adjust lists and reading separately
-          </label>
+          <FontSelect />
+          <TextSizeControl />
+          <DensityControl />
         </Section>
+
+        <AccessibilitySection scrollSetting={scrollSetting} loading={settings.isPending} />
 
         <Section title="Lists">
           <Segmented<LayoutId>
@@ -137,6 +206,9 @@ export function SettingsScreen() {
             </Button>
             <p className="mt-1 text-xs text-fg2">Swipe a row right to mark it read or unread, left to star it or see more. Every swipe has a button.</p>
           </div>
+          <Link to="/feeds" className="text-sm text-link underline underline-offset-2">
+            Manage feeds and folders
+          </Link>
         </Section>
 
         <Section title="Keyboard">
@@ -155,14 +227,24 @@ export function SettingsScreen() {
           </label>
         </Section>
 
+        {settings.isPending ? <Skeleton rows={3} label="Loading settings" /> : null}
+        {settings.isError ? (
+          <div className="px-4 py-5">
+            <Notice tone="error">
+              Couldn't load your settings. {errorMessage(settings.error)}{" "}
+              <Button variant="link" onClick={() => void settings.refetch()}>
+                Try again
+              </Button>
+            </Notice>
+          </div>
+        ) : null}
+        {settings.data ? <ServerSettings settings={settings.data.settings} /> : null}
+
         <Section title="Account">
-          <p className="text-sm text-fg2">
-            {boot.data ? `Signed in as ${boot.data.user.username}.` : "Signed in."}
-            {boot.data ? ` Kipple ${boot.data.version}.` : ""}
-          </p>
-          <Button onClick={() => void signOut()} className="self-start">
-            Sign out
-          </Button>
+          {settings.data?.settings
+            .filter((s) => s.group === "account" && s.surface === "settings" && s.kind !== "json")
+            .map((s) => <SettingField key={s.key} meta={s} />)}
+          <AccountActions />
         </Section>
       </div>
     </div>

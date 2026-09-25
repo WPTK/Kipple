@@ -207,7 +207,7 @@ describe("Settings", () => {
     routes();
     const { container } = go("/settings");
     await screen.findByRole("heading", { name: "Settings" });
-    expect(screen.getByRole("radio", { name: /Follow system/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Follow system.*by day/ })).toBeChecked();
     for (const n of ["Paper", "Linen", "Newsprint", "Graphite", "Midnight"]) expect(screen.getByRole("radio", { name: new RegExp("^" + n) })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: /^Fountain/ })).toBeNull();
     expect(screen.queryByRole("radio", { name: /^Carbon/ })).toBeNull();
