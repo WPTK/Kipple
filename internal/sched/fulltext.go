@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/WPTK/kipple/internal/events"
-	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/ftrun"
 )
@@ -29,12 +27,6 @@ const (
 	// ftLookupTimeout bounds the post-commit lookup of the new items' ids.
 	ftLookupTimeout = 5 * time.Second
 )
-
-// Extractor fetches and extracts one article page. *extract.Extractor
-// implements it; tests substitute their own.
-type Extractor interface {
-	Extract(ctx context.Context, t extract.Target) (extract.Result, error)
-}
 
 type ftJob struct {
 	itemID int64
@@ -134,13 +126,6 @@ func (q *ftQueue) close() {
 	q.closed = true
 	q.cond.Broadcast()
 	q.mu.Unlock()
-}
-
-func articleHost(raw string) string {
-	if u, err := url.Parse(raw); err == nil && u.Host != "" {
-		return u.Host
-	}
-	return "?"
 }
 
 // startFulltext launches the extraction pool: FulltextGlobal goroutines, the
@@ -319,7 +304,7 @@ func (s *Scheduler) queueFulltext(feedID int64, cand []fetch.Item, newIDs []int6
 		if !ok || !isNew[id] {
 			continue
 		}
-		switch s.ftq.push(ftJob{itemID: id, url: it.URL, host: articleHost(it.URL)}) {
+		switch s.ftq.push(ftJob{itemID: id, url: it.URL, host: ftrun.HostKey(it.URL)}) {
 		case pushQueued:
 			queued++
 		case pushFull:

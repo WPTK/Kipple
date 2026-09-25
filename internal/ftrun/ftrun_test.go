@@ -259,3 +259,9 @@ func TestOnDemandRunIsDetachedFromItsCaller(t *testing.T) {
 	ok, _ := e.rows(it.ID)
 	require.Equal(t, 1, ok, "the result is stored even though the caller's context ended")
 }
+
+func TestHostKey(t *testing.T) {
+	require.Equal(t, "ex.com:8080", HostKey("https://ex.com:8080/a/b?c=d"))
+	require.Equal(t, "?", HostKey("not a url"))
+	require.Equal(t, "?", HostKey(""))
+}

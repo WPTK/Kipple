@@ -170,7 +170,7 @@ func runServe() error {
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
 		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
-		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, Runner: ftRunner,
+		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount,
 	})
 	defer uiAPI.Close()

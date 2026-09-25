@@ -1149,6 +1149,11 @@ func (c *countingRecorder) Record(*sql.Tx, stats.Event) error {
 	return nil
 }
 
+func (c *countingRecorder) RecordStars(_ *sql.Tx, _, _ string, ids []int64) error {
+	c.n.Add(int64(len(ids)))
+	return nil
+}
+
 // Counts events cannot go out of order: publishCounts takes pubMu around query+publish, so a
 // publish cannot start while another one holds it.
 func TestPublishCountsIsSerialized(t *testing.T) {

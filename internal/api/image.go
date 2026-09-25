@@ -4,18 +4,30 @@ import (
 	"bytes"
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/WPTK/kipple/internal/imgproxy"
 	"github.com/WPTK/kipple/internal/sanitize"
 	"github.com/WPTK/kipple/internal/store"
 )
 
+// imageSecretTTL bounds how stale the cached image secret may be. A list of 50
+// items would otherwise read the account row 50 times; a rotation is still
+// noticed within this long.
+const imageSecretTTL = time.Second
+
 // imageSecret returns the account secret that keys image proxy signatures. It is
-// read on every call (one indexed row) and the proxy handler is rebuilt when it
-// changed: `kipple password` rotates the secret from another process while the
-// server runs, and old signed image URLs must stop verifying at once. A failed
-// read falls back to the last good value.
+// cached for imageSecretTTL and re-read after that, and the proxy handler is
+// rebuilt when it changed: `kipple password` rotates the secret from another
+// process while the server runs, and old signed image URLs must stop verifying
+// within a second. A failed read falls back to the last good value.
 func (s *Server) imageSecret(ctx context.Context) ([]byte, bool) {
+	s.imgMu.Lock()
+	if s.imgSecret != nil && s.now().Sub(s.imgSecretAt) < imageSecretTTL {
+		defer s.imgMu.Unlock()
+		return s.imgSecret, true
+	}
+	s.imgMu.Unlock()
 	secret, ok, err := s.db.AccountSecret(ctx)
 	s.imgMu.Lock()
 	defer s.imgMu.Unlock()
@@ -30,6 +42,7 @@ func (s *Server) imageSecret(ctx context.Context) ([]byte, bool) {
 		s.imgSecret = []byte(secret)
 		s.imgH = nil // keyed by the old secret
 	}
+	s.imgSecretAt = s.now()
 	return s.imgSecret, true
 }
 
@@ -51,13 +64,8 @@ func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 	return s.imgH, true
 }
 
-func (s *Server) outgoingUA() string {
-	ua := "Mozilla/5.0 (compatible; Kipple/" + s.opt.Version
-	if s.opt.PublicURL != "" {
-		ua += "; +" + s.opt.PublicURL
-	}
-	return ua + ")"
-}
+// outgoingUA is Kipple's own User-Agent, the one string shared with the fetcher.
+func (s *Server) outgoingUA() string { return s.opt.UserAgent }
 
 // image is GET /img/{sig}/{flags}/{u}; authed supplies the session check.
 func (s *Server) image(w http.ResponseWriter, r *http.Request) {

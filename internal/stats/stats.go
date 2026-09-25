@@ -51,6 +51,9 @@ type Event struct {
 // Recorder writes one event inside the caller's write transaction.
 type Recorder interface {
 	Record(tx *sql.Tx, ev Event) error
+	// RecordStars records one star or unstar event per id (kind is KindStar or
+	// KindUnstar) for a bulk edit, in one pass; ErrDropped ids are skipped.
+	RecordStars(tx *sql.Tx, kind, client string, ids []int64) error
 }
 
 // SQL is the Recorder over the store's stats_events table.

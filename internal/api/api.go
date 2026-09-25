@@ -79,8 +79,12 @@ type Options struct {
 	Stats stats.Recorder
 	// Version is reported by /api/bootstrap and used in the proxy User-Agent.
 	Version string
-	// PublicURL is the "+url" of the outgoing User-Agent; optional.
+	// PublicURL is the "+url" of the outgoing User-Agent; optional. Only used to
+	// build UserAgent when the caller leaves it empty.
 	PublicURL string
+	// UserAgent is Kipple's own outgoing User-Agent (fetch.Client.DefaultUserAgent);
+	// the image proxy, web feed discovery and article extraction send it.
+	UserAgent string
 	// Guard supplies the SSRF-guarded HTTP transports of the image proxy and
 	// full-text extraction (fetch.Client.Transport); nil builds a private client.
 	Guard func(allowPrivate, insecureTLS, noHTTP2 bool) http.RoundTripper
@@ -110,11 +114,12 @@ type Server struct {
 
 	backups *backup.Manager
 
-	imgMu      sync.Mutex // guards imgSecret and imgH
-	imgSecret  []byte
-	imgHSecret []byte // the secret imgH was built with
-	imgH       *imgproxy.Handler
-	imgMode    atomic.Pointer[string] // cached imgproxy.mode for the CSP; refreshed on PATCH
+	imgMu       sync.Mutex // guards imgSecret and imgH
+	imgSecret   []byte
+	imgSecretAt time.Time // when imgSecret was last read from the account row
+	imgHSecret  []byte    // the secret imgH was built with
+	imgH        *imgproxy.Handler
+	imgMode     atomic.Pointer[string] // cached imgproxy.mode for the CSP; refreshed on PATCH
 
 	pubMu  sync.Mutex // serializes query+publish so counts events never arrive out of order
 	cmu    sync.Mutex // guards the counts coalescer
@@ -138,8 +143,16 @@ func New(opt Options) *Server {
 	if s.verifier == nil {
 		s.verifier = auth.NewVerifier(nil, auth.VerifierOptions{})
 	}
-	if s.opt.Guard == nil {
-		s.opt.Guard = fetch.NewClient(fetch.ClientOptions{Version: opt.Version, PublicURL: opt.PublicURL}).Transport
+	if s.opt.Guard == nil || s.opt.UserAgent == "" {
+		// Tests only: production passes the process's fetch.Client pieces in. The
+		// User-Agent string is built in one place, fetch.NewClient.
+		c := fetch.NewClient(fetch.ClientOptions{Version: opt.Version, PublicURL: opt.PublicURL})
+		if s.opt.Guard == nil {
+			s.opt.Guard = c.Transport
+		}
+		if s.opt.UserAgent == "" {
+			s.opt.UserAgent = c.DefaultUserAgent()
+		}
 	}
 	s.runner = opt.Runner
 	if s.runner == nil {

@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -137,6 +138,11 @@ func TestImageSecretRotationIsSeenByARunningServer(t *testing.T) {
 
 	newSecret := strings.Repeat("f", len(testSecret))
 	h.exec("UPDATE account SET secret = ? WHERE id = 1", newSecret)
+
+	// The secret is cached for a second (a list would otherwise read the account
+	// row once per image); the rotation shows up once that has passed.
+	require.Equal(t, 200, h.do("GET", oldPath, "", withCookie(c)).Code, "still cached within the TTL")
+	h.clk.Advance(imageSecretTTL + time.Millisecond)
 
 	require.Equal(t, 403, h.do("GET", oldPath, "", withCookie(c)).Code, "old signed URLs stop verifying")
 	newPath := imgproxy.Path([]byte(newSecret), imgproxy.FlagPrivateNet, orig)

@@ -45,13 +45,13 @@ type Options struct {
 	CommitTimeout time.Duration // per-commit deadline, 10 s
 
 	// Inline full-text extraction (design §4.3).
-	Extractor           Extractor     // default: the guarded extract.Extractor
-	Runner              *ftrun.Runner // shared with the on-demand endpoint; default: built from Extractor and FulltextPerHost
-	FulltextMaxItems    int           // new items queued per fetch, 20; the rest are left to on-demand
-	FulltextItemTimeout time.Duration // per article, 10 s
-	FulltextPerHost     int           // concurrent articles per article host, 2
-	FulltextGlobal      int           // extraction pool size = concurrent articles overall, 4 (memory guard)
-	FulltextQueue       int           // items waiting for extraction, 500; beyond it items are left to on-demand
+	Extractor           ftrun.Extractor // used to build Runner when Runner is nil (tests); default: the guarded extract.Extractor
+	Runner              *ftrun.Runner   // shared with the on-demand endpoint; default: built from Extractor and FulltextPerHost
+	FulltextMaxItems    int             // new items queued per fetch, 20; the rest are left to on-demand
+	FulltextItemTimeout time.Duration   // per article, 10 s
+	FulltextPerHost     int             // concurrent articles per article host, 2
+	FulltextGlobal      int             // extraction pool size = concurrent articles overall, 4 (memory guard)
+	FulltextQueue       int             // items waiting for extraction, 500; beyond it items are left to on-demand
 }
 
 // RunInfo answers a refresh-all, import or retention request.
@@ -227,11 +227,6 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	if opt.FulltextGlobal <= 0 {
 		opt.FulltextGlobal = defaultFTGlobal
 	}
-	if opt.Extractor == nil {
-		opt.Extractor = extract.New(extract.Options{
-			Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: opt.FulltextItemTimeout,
-		})
-	}
 	if opt.Rand == nil {
 		opt.Rand = rand.Float64
 	}
@@ -242,6 +237,13 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 		log = slog.Default()
 	}
 	if opt.Runner == nil {
+		// Only when the caller supplies no shared Runner (tests): main builds one
+		// Runner, with its own extractor, for the scheduler and the API.
+		if opt.Extractor == nil {
+			opt.Extractor = extract.New(extract.Options{
+				Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: opt.FulltextItemTimeout,
+			})
+		}
 		opt.Runner = ftrun.New(ftrun.Options{DB: db, Extractor: opt.Extractor, PerHost: opt.FulltextPerHost, Log: log})
 	}
 	ctx, cancel := context.WithCancel(context.Background())

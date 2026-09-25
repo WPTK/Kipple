@@ -147,7 +147,7 @@ func (r *Runner) lead(ctx context.Context, req Request) (Outcome, error) {
 	if !req.Background {
 		work = context.WithoutCancel(ctx)
 	}
-	host := hostOf(it.URL)
+	host := HostKey(it.URL)
 	if err := r.acquire(work, host); err != nil {
 		return Outcome{}, ErrAborted // only a background run's ctx can end here
 	}
@@ -209,7 +209,9 @@ func (r *Runner) safeExtract(ctx context.Context, t extract.Target) (res extract
 	return r.ext.Extract(ctx, t)
 }
 
-func hostOf(raw string) string {
+// HostKey is the per-article-host limit key of an article URL. The ingest
+// queue in internal/sched groups by the same key, so the two limits cannot drift.
+func HostKey(raw string) string {
 	if u, err := url.Parse(raw); err == nil && u.Host != "" {
 		return u.Host
 	}
