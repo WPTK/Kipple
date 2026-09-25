@@ -648,3 +648,11 @@ func TestAPIResponsesForbidFraming(t *testing.T) {
 	check(h.do("GET", "/api/opml", "", withCookie(c)), "opml export")
 	check(h.do("GET", "/api/nope", "", withCookie(c)), "404")
 }
+
+// stop closes the Shutdown channel, as sched.Scheduler.Stop does.
+func (f *fakeSched) stop() {
+	f.Shutdown()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	close(f.down)
+}
