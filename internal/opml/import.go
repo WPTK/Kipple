@@ -77,9 +77,13 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			return err
 		}
 
-		// Folders: reuse a NOCASE match, else create in document order.
+		// Folders: reuse a NOCASE match, else create in document order. A folder
+		// that holds a feed but is missing from doc.Folders is created on demand.
 		folderID := map[string]int64{"": 1}
-		for _, name := range doc.Folders {
+		ensureFolder := func(name string) error {
+			if _, ok := folderID[name]; ok {
+				return nil
+			}
 			var id int64
 			err := tx.QueryRowContext(ctx, "SELECT id FROM folders WHERE name = ? COLLATE NOCASE", name).Scan(&id)
 			if err == sql.ErrNoRows {
@@ -96,6 +100,12 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				return err
 			}
 			folderID[name] = id
+			return nil
+		}
+		for _, name := range doc.Folders {
+			if err := ensureFolder(name); err != nil {
+				return err
+			}
 		}
 
 		type firstSeen struct {
@@ -127,6 +137,9 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			} else if found {
 				res.FeedsExisting = append(res.FeedsExisting, Existing{norm, id})
 				continue
+			}
+			if err := ensureFolder(f.Folder); err != nil {
+				return err
 			}
 			host, _ := feedurl.Host(norm)
 			a := f.Attrs

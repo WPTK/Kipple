@@ -206,3 +206,40 @@ func TestParseURLsNotDoubleUnescaped(t *testing.T) {
 	require.Equal(t, "B & C", d.Feeds[1].Title, "NewsBlur double-escaped title still decodes")
 	require.Equal(t, "Fish &chips", d.Feeds[2].Title, "legacy no-semicolon entities are not decoded")
 }
+
+func TestUnnamedWrapperUnderNamedContainerImports(t *testing.T) {
+	db := openDB(t)
+	r := importString(t, db, `<opml><body>
+	<outline text="Tech"><outline><outline text="Wrapped" xmlUrl="http://w.test/rss"/></outline></outline>
+	</body></opml>`, ImportOptions{})
+	require.Equal(t, 1, r.FeedsAdded)
+	require.Equal(t, 1, r.FoldersCreated)
+	var name string
+	require.NoError(t, db.Reader().QueryRowContext(context.Background(),
+		`SELECT f.name FROM feeds x JOIN folders f ON f.id = x.folder_id WHERE x.url = 'http://w.test/rss'`).Scan(&name))
+	require.Equal(t, "Tech", name)
+
+	// A hand-built Doc that forgot to list the folder still imports.
+	db2 := openDB(t)
+	r2, err := Import(context.Background(), db2, &Doc{Feeds: []Feed{{URL: "http://x.test/rss", Folder: "Ghost"}}}, ImportOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 1, r2.FeedsAdded)
+	require.Equal(t, 1, r2.FoldersCreated)
+}
+
+func TestParseNonUTF8Charsets(t *testing.T) {
+	latin := "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><opml><body><outline text=\"Café\" xmlUrl=\"http://l.test/rss\"/></body></opml>"
+	d, err := Parse(strings.NewReader(latin))
+	require.NoError(t, err)
+	require.Equal(t, "Café", d.Feeds[0].Title)
+
+	u16 := "<?xml version=\"1.0\" encoding=\"UTF-16\"?><opml><body><outline text=\"Café\" xmlUrl=\"http://u.test/rss\"/></body></opml>"
+	buf := []byte{0xFF, 0xFE}
+	for _, c := range u16 {
+		buf = append(buf, byte(c), byte(c>>8))
+	}
+	d, err = Parse(bytes.NewReader(buf))
+	require.NoError(t, err)
+	require.Equal(t, "Café", d.Feeds[0].Title)
+	require.Equal(t, "http://u.test/rss", d.Feeds[0].URL)
+}

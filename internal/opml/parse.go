@@ -2,6 +2,7 @@
 package opml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/WPTK/kipple/internal/feedurl"
+	"github.com/WPTK/kipple/internal/fetch"
 )
 
 // NS is the namespace of the kipple:* override attributes.
@@ -100,7 +102,13 @@ func (o outline) name() string {
 // Parse reads an OPML document. Nested outlines flatten to single-level
 // folders named by the nearest ancestor outline with no xmlUrl.
 func Parse(r io.Reader) (*Doc, error) {
-	dec := xml.NewDecoder(r)
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("opml: %w", err)
+	}
+	// Decode to UTF-8 first (BOM, XML declaration, ISO-8859-1, UTF-16...), which
+	// also rewrites the declaration so the XML decoder needs no CharsetReader.
+	dec := xml.NewDecoder(bytes.NewReader(fetch.DecodeBody(raw, "").Body))
 	dec.Strict = false
 	dec.Entity = xml.HTMLEntity
 	dec.CharsetReader = func(label string, in io.Reader) (io.Reader, error) { return in, nil }
@@ -110,12 +118,24 @@ func Parse(r io.Reader) (*Doc, error) {
 	}
 	doc := &Doc{}
 	seen := map[string]int{} // lower(name) -> index in doc.Folders
+	// register records a folder the first time any feed (or empty leaf) lands in it.
+	register := func(name string) {
+		if name == "" {
+			return
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; !ok {
+			seen[key] = len(doc.Folders)
+			doc.Folders = append(doc.Folders, name)
+		}
+	}
 	var walk func(list []outline, folder string)
 	walk = func(list []outline, folder string) {
 		for _, o := range list {
 			if u := o.get("xmlUrl"); u != "" {
 				f := Feed{URL: u, Title: o.name(), SiteURL: o.get("htmlUrl"), Folder: folder}
 				f.Attrs, f.BadAttrs = parseAttrs(o.Attrs)
+				register(folder)
 				doc.Feeds = append(doc.Feeds, f)
 				continue
 			}
@@ -125,7 +145,8 @@ func Parse(r io.Reader) (*Doc, error) {
 				continue
 			}
 			// Only folders that hold feeds directly, or are empty leaves, are kept:
-			// a pure container like "Tech" in Tech > Apple is flattened away.
+			// a pure container like "Tech" in Tech > Apple is flattened away. A feed
+			// under an unnamed wrapper registers the named folder above it (register).
 			direct := len(o.Children) == 0
 			for _, c := range o.Children {
 				if c.get("xmlUrl") != "" {
@@ -140,8 +161,7 @@ func Parse(r io.Reader) (*Doc, error) {
 					doc.FoldersMergedCase = appendMerged(doc.FoldersMergedCase, canon, name)
 				}
 			} else if direct {
-				seen[key] = len(doc.Folders)
-				doc.Folders = append(doc.Folders, name)
+				register(name)
 			}
 			walk(o.Children, canon)
 		}
