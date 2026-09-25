@@ -193,7 +193,7 @@ var settingDefs = []settingDef{
 	{Key: "fetch.user_agent", Label: "Custom user agent", Description: "Optional. Replaces the built-in browser identity when Kipple needs to look like a browser. Leave empty for the default.",
 		Group: groupSync, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
 			s, ok := v.(string)
-			if !ok || len(s) > 200 || strings.ContainsAny(s, "\r\n\x00") {
+			if !ok || len(s) > 200 || hasBadHeaderByte(s) {
 				return nil, "must be a string of at most 200 characters without line breaks"
 			}
 			return strings.TrimSpace(s), ""
@@ -265,3 +265,14 @@ var settingDefByKey = func() map[string]settingDef {
 	}
 	return m
 }()
+
+// hasBadHeaderByte reports a byte that is not valid in an HTTP header value: any
+// control character other than tab, and DEL.
+func hasBadHeaderByte(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < 0x20 && c != '	' || c == 0x7f {
+			return true
+		}
+	}
+	return false
+}

@@ -81,6 +81,8 @@ func TestPatchSettingsValidation(t *testing.T) {
 		{"tz Local", `{"tz":"Local"}`, "tz"},
 		{"tz number", `{"tz":5}`, "tz"},
 		{"user agent newline", `{"fetch.user_agent":"a\nb"}`, "fetch.user_agent"},
+		{"user agent control char", `{"fetch.user_agent":"ab"}`, "fetch.user_agent"},
+		{"user agent DEL", `{"fetch.user_agent":"ab"}`, "fetch.user_agent"},
 		{"theme enum", `{"ui.theme":"neon"}`, "ui.theme"},
 		{"font enum", `{"ui.font_body":"Comic Sans"}`, "ui.font_body"},
 		{"font size range", `{"ui.font_size":40}`, "ui.font_size"},
