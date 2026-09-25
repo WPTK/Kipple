@@ -19,6 +19,13 @@ Phase 2 (reading UI backend) so far.
   `nosniff`, and HSTS with `upgrade-insecure-requests` only when the effective scheme is https.
 - UI API: items list (card lists), item detail, open, star, mark-read by scope, bootstrap read
   and live unread counts over SSE.
+- `GET /api/items?order=oldest` lists oldest first (search too) with an order-tagged keyset cursor;
+  a cursor from another ordering is rejected with 400, and old untagged cursors keep meaning newest first.
+- `min_minutes` / `max_minutes` on `GET /api/items`: reading-time filters ("quick reads").
+- Mark above/below: `POST /api/items/mark-read` scopes take `bound` (side, the list's order, an anchor
+  `sort_at`/`id`, optional `inclusive`), `q` (search results) and reading-time limits; the `max_id`
+  guard still keeps later arrivals out. The response adds `count` and `undoable`; above 10,000 changed
+  ids the list is withheld and there is no undo. Bounded and filtered scopes leave the trimmed ledger alone.
 - Stats API and recorder: validated reading events; star/unstar from the Reader API edit-tag
   are recorded too.
 - FTS5 item search with safe query building, rank keyset cursors and snippets; `kipple
