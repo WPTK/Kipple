@@ -62,11 +62,13 @@ func run(args []string) error {
 	switch cmd {
 	case "serve":
 		return runServe()
+	case "import":
+		return runImport(args[1:])
 	case "version":
 		fmt.Println(version)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (want %q or %q)", cmd, "serve", "version")
+		return fmt.Errorf("unknown command %q (want serve, import or version)", cmd)
 	}
 }
 
