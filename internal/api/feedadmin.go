@@ -226,6 +226,9 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	case errors.As(err, &bad):
 		writeErrorMsg(w, http.StatusBadRequest, "invalid_url", bad.Reason)
 		return
+	case errors.Is(err, store.ErrFolderNotFound): // deleted since the check above
+		writeErrorMsg(w, http.StatusBadRequest, "folder_not_found", "no such folder")
+		return
 	case err != nil:
 		s.serverError(w, "add feed", err)
 		return

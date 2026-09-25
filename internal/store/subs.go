@@ -170,6 +170,15 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 				return err
 			}
 			if strings.TrimSpace(o.Folder) == "" && o.FolderID > 0 {
+				// Checked in this transaction: a folder deleted after the caller's own
+				// check must answer folder_not_found, not a foreign-key failure.
+				var n int
+				if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM folders WHERE id = ?", o.FolderID).Scan(&n); err != nil {
+					return err
+				}
+				if n == 0 {
+					return ErrFolderNotFound
+				}
 				folder = o.FolderID
 			}
 			var pos int64

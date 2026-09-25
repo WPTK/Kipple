@@ -44,3 +44,10 @@ func TestPatchFeedURLToAnotherHostDropsHTTPAuth(t *testing.T) {
 	patch("https://c.example/feed", map[string]any{"http_auth": "x:y"}) // set in the same patch: wins
 	require.Equal(t, "x:y", auth())
 }
+
+func TestSubscribeIntoAMissingFolderIsFolderNotFound(t *testing.T) {
+	e := newEnv(t)
+	_, err := e.db.Subscribe(e.ctx, SubscribeOpts{URL: "http://a.example/feed", FolderID: 9999})
+	require.ErrorIs(t, err, ErrFolderNotFound)
+	require.Equal(t, 0, e.count("SELECT count(*) FROM feeds"))
+}
