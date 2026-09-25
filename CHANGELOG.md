@@ -147,6 +147,12 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- `GET /api/items` now returns `as_of` (the committed max id, a string) on every response; clients send it as
+  mark-read `max_id`. The highest id on the first page was wrong for oldest-first lists and for
+  backdated new-feed items, so mark-all could miss items or sweep ones the list never showed.
+- Bulk mark-read undo now restores the trimmed-ledger rows it read: the response carries `ledger_ids`, and
+  `{ids, ledger_ids, read:false}` flips them back (flag only, no stub resurrected), so the Reader API
+  no longer keeps seeing them read after an undo.
 - A panic while parsing a hostile article page no longer crashes the process: it is stored as a
   permanent extraction error and logged with its stack.
 
