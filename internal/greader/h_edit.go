@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"strconv"
 
+	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -97,6 +98,12 @@ func (c *call) editTag() {
 	}
 	for _, ch := range changes {
 		if len(ch.res.Changed) == 0 {
+			continue
+		}
+		if len(ch.res.Changed) > events.MaxStateIDs {
+			// too big for one event (and for every subscriber's buffer): tell
+			// clients to refetch instead of listing thousands of ids
+			c.a.publish("resync", map[string]any{})
 			continue
 		}
 		ev := map[string]any{"ids": idStrings(ch.res.Changed), "source": c.family}

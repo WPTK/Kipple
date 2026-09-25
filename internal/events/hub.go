@@ -13,6 +13,12 @@ import (
 const (
 	subBuffer = 64
 	ringSize  = 500
+	// ringBytes bounds the replay ring's total payload as well as its count, so
+	// a run of large events cannot pin megabytes in memory.
+	ringBytes = 1 << 20
+	// MaxStateIDs is the most item ids one items.state event may carry. Publishers
+	// send a `resync` event instead of a larger batch (a client refetches anyway).
+	MaxStateIDs = 500
 )
 
 // Event is one SSE message: `event: <Type>`, `id: <ID>`, `data: <Data>`.
@@ -32,11 +38,12 @@ type Sub struct {
 // Hub fans events out to subscribers. All methods are safe for concurrent use
 // and none of them ever blocks on a subscriber.
 type Hub struct {
-	mu     sync.Mutex
-	seq    uint64
-	ring   []Event
-	subs   map[*Sub]struct{}
-	closed bool
+	mu       sync.Mutex
+	seq      uint64
+	ring     []Event
+	ringUsed int // sum of eventSize over ring
+	subs     map[*Sub]struct{}
+	closed   bool
 }
 
 // New returns an empty hub on the wall clock.
@@ -68,8 +75,14 @@ func (h *Hub) Publish(typ string, data any) {
 	h.seq++
 	ev := Event{ID: h.seq, Type: typ, Data: raw}
 	h.ring = append(h.ring, ev)
-	if len(h.ring) > ringSize {
-		h.ring = append(h.ring[:0:0], h.ring[len(h.ring)-ringSize:]...)
+	h.ringUsed += eventSize(ev)
+	drop := 0
+	for len(h.ring)-drop > ringSize || (h.ringUsed > ringBytes && drop < len(h.ring)) {
+		h.ringUsed -= eventSize(h.ring[drop])
+		drop++
+	}
+	if drop > 0 {
+		h.ring = append(h.ring[:0:0], h.ring[drop:]...)
 	}
 	for s := range h.subs {
 		select {
@@ -79,6 +92,10 @@ func (h *Hub) Publish(typ string, data any) {
 		}
 	}
 }
+
+// eventSize is what an event costs in the ring: its payload plus a fixed
+// overhead for the struct and type string.
+func eventSize(ev Event) int { return len(ev.Data) + len(ev.Type) + 48 }
 
 // Subscribe registers a subscriber. With lastID > 0 the events after it are
 // replayed from the ring; when the ring no longer reaches back that far, or the

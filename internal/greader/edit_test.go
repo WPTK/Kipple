@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/WPTK/kipple/internal/events"
 )
 
 // editBody builds an edit-tag body the way Reeder 4 does: T=x plus a valid header.
@@ -302,4 +304,33 @@ func TestNormalizeTS(t *testing.T) {
 			require.Equal(t, tc.want, got, tc.in)
 		}
 	}
+}
+
+func TestEditTagEventCapsIDsAndFallsBackToResync(t *testing.T) {
+	h := newHarness(t)
+	hub := events.New()
+	h.api.opt.Events = hub
+	sub := hub.Subscribe(0)
+	defer sub.Close()
+
+	f := h.addFeed("https://a.example/f", "A", "")
+	var small []string
+	for i := 0; i < 3; i++ {
+		small = append(small, "i="+FormatDecimal(h.addItem(f, itemSeed{})))
+	}
+	w := h.post(rd+"edit-tag", "T="+h.tok+"&a=user/-/state/com.google/read&"+strings.Join(small, "&"))
+	require.Equal(t, 200, w.Code)
+	ev := <-sub.C
+	require.Equal(t, "items.state", ev.Type, "a small batch still lists its ids")
+	require.Contains(t, string(ev.Data), `"ids"`)
+
+	var big []string
+	for i := 0; i < events.MaxStateIDs+1; i++ {
+		big = append(big, "i="+FormatDecimal(h.addItem(f, itemSeed{})))
+	}
+	w = h.post(rd+"edit-tag", "T="+h.tok+"&a=user/-/state/com.google/read&"+strings.Join(big, "&"))
+	require.Equal(t, 200, w.Code)
+	ev = <-sub.C
+	require.Equal(t, "resync", ev.Type, "an oversized batch publishes a resync hint instead of thousands of ids")
+	require.JSONEq(t, `{}`, string(ev.Data))
 }

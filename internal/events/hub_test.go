@@ -124,3 +124,40 @@ func TestSeqSeededFromClockStaysMonotonicAcrossRestart(t *testing.T) {
 	s := h2.Subscribe(last)
 	require.Equal(t, "resync", (<-s.C).Type, "old id is behind the ring's start")
 }
+
+func TestRingBoundedByBytesAsWellAsCount(t *testing.T) {
+	h := newHub()
+	big := make([]byte, 100<<10)
+	for i := range big {
+		big[i] = 'x'
+	}
+	payload := string(big)
+	for i := 0; i < 30; i++ {
+		h.Publish("big", payload)
+	}
+	require.LessOrEqual(t, h.ringUsed, ringBytes)
+	require.Less(t, len(h.ring), 12, "about 1 MiB of 100 KiB events, not 30")
+	require.Equal(t, uint64(30), h.ring[len(h.ring)-1].ID, "the newest event is kept")
+
+	// an old id no longer covered by the byte-bounded ring resyncs
+	s := h.Subscribe(2)
+	require.Equal(t, "resync", (<-s.C).Type)
+
+	// small events are still limited by count, and the byte total stays exact
+	h2 := newHub()
+	for i := 0; i < ringSize+20; i++ {
+		h2.Publish("e", i)
+	}
+	require.Len(t, h2.ring, ringSize)
+	sum := 0
+	for _, ev := range h2.ring {
+		sum += eventSize(ev)
+	}
+	require.Equal(t, sum, h2.ringUsed)
+
+	// one event larger than the whole budget is not retained
+	h3 := newHub()
+	h3.Publish("huge", string(make([]byte, ringBytes+1)))
+	require.Empty(t, h3.ring)
+	require.Zero(t, h3.ringUsed)
+}
