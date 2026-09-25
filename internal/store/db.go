@@ -1,0 +1,228 @@
+// Package store is Kipple's SQLite persistence layer (design.md section 2).
+//
+// Driver: modernc.org/sqlite v1.59.0 (SQLite 3.53.4) with modernc.org/libc v1.75.7,
+// the exact libc version in the driver's own go.mod. Both are pinned by go.mod; do not
+// bump one without the other, and re-run the store tests on every bump.
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"modernc.org/sqlite"
+)
+
+// Pool sizes and page caches (KiB) per design.md 2.1.
+const (
+	readerConns = 4
+
+	writerCacheKiB   = 16000
+	readerCacheKiB   = 4000
+	snapshotCacheKiB = 2000
+
+	writeTimeout = 10 * time.Second
+)
+
+// DB owns the writer pool, the reader pool and the commit gate. The snapshot pool is
+// opened on demand (see openSnapshot) and closed by its user.
+type DB struct {
+	path      string
+	backupDir string
+	log       *slog.Logger
+
+	writer *sql.DB
+	reader *sql.DB
+	gate   chan struct{}
+
+	holder atomic.Pointer[holder]
+
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// Options configures Open.
+type Options struct {
+	// Path is the database file (e.g. /data/kipple.db).
+	Path string
+	// BackupDir receives pre-migration snapshots. Defaults to <dir of Path>/backup.
+	BackupDir string
+	// Logger defaults to slog.Default().
+	Logger *slog.Logger
+}
+
+var ofdOnce sync.Once
+
+// buildDSN returns the DSN for a pool. kind is "writer", "reader" or "snapshot".
+func buildDSN(path, kind string) string {
+	cache := writerCacheKiB
+	switch kind {
+	case "reader":
+		cache = readerCacheKiB
+	case "snapshot":
+		cache = snapshotCacheKiB
+	}
+	q := url.Values{}
+	if kind == "writer" {
+		q.Set("_txlock", "immediate")
+	}
+	pragmas := []string{
+		"busy_timeout(5000)",
+		"journal_mode(WAL)",
+		"synchronous(NORMAL)",
+		"foreign_keys(ON)",
+		"temp_store(MEMORY)",
+		fmt.Sprintf("cache_size(-%d)", cache),
+		"journal_size_limit(67108864)",
+		"mmap_size(0)",
+		"analysis_limit(400)",
+	}
+	if kind == "reader" {
+		pragmas = append(pragmas, "query_only(1)")
+	}
+	for _, p := range pragmas {
+		q.Add("_pragma", p)
+	}
+	// url.Values.Encode escapes parentheses and commas; the driver decodes them, but keep the
+	// DSN readable and stable by building it by hand.
+	return "file:" + filepath.ToSlash(path) + "?" + q.Encode()
+}
+
+// Open opens (creating if needed) the database, migrates it to the latest schema and
+// returns the pools. It refuses a file that is not a Kipple database or is newer than
+// this binary.
+func Open(ctx context.Context, opts Options) (*DB, error) {
+	if opts.Path == "" {
+		return nil, errors.New("store: empty database path")
+	}
+	log := opts.Logger
+	if log == nil {
+		log = slog.Default()
+	}
+	backup := opts.BackupDir
+	if backup == "" {
+		backup = filepath.Join(filepath.Dir(opts.Path), "backup")
+	}
+
+	// Design 2.1: before the first open. Only effective on Linux; elsewhere it errors,
+	// which is expected and harmless.
+	ofdOnce.Do(func() {
+		if _, err := sqlite.OFDLocking(true); err != nil {
+			log.Debug("store: OFD locking unavailable", "err", err)
+		}
+	})
+
+	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1)}
+
+	var err error
+	d.writer, err = sql.Open("sqlite", buildDSN(opts.Path, "writer"))
+	if err != nil {
+		return nil, fmt.Errorf("store: open writer: %w", err)
+	}
+	d.writer.SetMaxOpenConns(1)
+	d.writer.SetMaxIdleConns(1)
+	d.writer.SetConnMaxLifetime(0)
+
+	if err := d.initWriter(ctx); err != nil {
+		d.writer.Close()
+		return nil, err
+	}
+	if err := d.migrate(ctx); err != nil {
+		d.writer.Close()
+		return nil, err
+	}
+
+	d.reader, err = sql.Open("sqlite", buildDSN(opts.Path, "reader"))
+	if err != nil {
+		d.writer.Close()
+		return nil, fmt.Errorf("store: open reader: %w", err)
+	}
+	d.reader.SetMaxOpenConns(readerConns)
+	d.reader.SetMaxIdleConns(readerConns)
+	d.reader.SetConnMaxIdleTime(0)
+	d.reader.SetConnMaxLifetime(0)
+	if err := d.reader.PingContext(ctx); err != nil {
+		d.writer.Close()
+		d.reader.Close()
+		return nil, fmt.Errorf("store: ping reader: %w", err)
+	}
+	return d, nil
+}
+
+// initWriter connects, runs PRAGMA optimize=0x10002 once and verifies foreign keys.
+func (d *DB) initWriter(ctx context.Context) error {
+	if _, err := d.writer.ExecContext(ctx, "PRAGMA optimize=0x10002"); err != nil {
+		return fmt.Errorf("store: initial optimize: %w", err)
+	}
+	return d.checkForeignKeys(ctx)
+}
+
+func (d *DB) checkForeignKeys(ctx context.Context) error {
+	var fk int
+	if err := d.writer.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+		return fmt.Errorf("store: read foreign_keys: %w", err)
+	}
+	if fk != 1 {
+		return errors.New("store: foreign_keys is not enabled on the writer")
+	}
+	return nil
+}
+
+// openSnapshot opens the snapshot pool (one connection, not query_only). The caller closes it.
+func (d *DB) openSnapshot() (*sql.DB, error) {
+	s, err := sql.Open("sqlite", buildDSN(d.path, "snapshot"))
+	if err != nil {
+		return nil, err
+	}
+	s.SetMaxOpenConns(1)
+	return s, nil
+}
+
+// Reader returns the read-only pool. Never hold a read transaction across network writes.
+func (d *DB) Reader() *sql.DB { return d.reader }
+
+// Path returns the database file path.
+func (d *DB) Path() string { return d.path }
+
+// AcquireGate takes the one-slot commit gate. Fetch workers call it before WithWrite so a
+// burst of feed commits cannot starve an API write; API writers skip it. Call the returned
+// function exactly once to release.
+func (d *DB) AcquireGate(ctx context.Context) (release func(), err error) {
+	select {
+	case d.gate <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func() { <-d.gate }) }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// Close checkpoints the WAL (TRUNCATE) and closes all pools. It is idempotent.
+func (d *DB) Close() error {
+	d.closeOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var errs []error
+		if _, err := d.writer.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+			errs = append(errs, fmt.Errorf("checkpoint: %w", err))
+		}
+		if err := d.reader.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		if err := d.writer.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		d.closeErr = errors.Join(errs...)
+	})
+	return d.closeErr
+}
+
+func ensureDir(dir string) error { return os.MkdirAll(dir, 0o755) }
