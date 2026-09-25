@@ -136,7 +136,7 @@ func runServe() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           readerAPI.Front(mux),
+		Handler:           auth.WarnUntrustedProxyHeaders(readerAPI.Front(mux), cfg.TrustedProxyIPs, logger, nil),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
 		// WriteTimeout would kill /api/events; the SSE handler replaces it with a

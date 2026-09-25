@@ -21,6 +21,10 @@ services:
     mem_limit: 256m
     environment:
       - GOMEMLIMIT=64MiB
+      # Address your reverse proxy / tunnel connects from (placeholder value;
+      # see .env.example). Kipple logs a WARN if proxy headers arrive from any
+      # other peer.
+      # - KIPPLE_TRUSTED_PROXY_IPS=192.0.2.10
     logging:
       driver: json-file
       options:

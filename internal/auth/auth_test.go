@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"bytes"
 	"fmt"
+	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"sync"
@@ -156,4 +159,41 @@ func TestTrackersEvictOldestWhenFull(t *testing.T) {
 	}
 	require.Equal(t, 6, f.Count("newcomer"))
 	require.Len(t, f.m, maxTracked)
+}
+
+func TestWarnUntrustedProxyHeaders(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	trusted := []netip.Addr{netip.MustParseAddr("192.0.2.10")}
+	served := 0
+	h := WarnUntrustedProxyHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { served++ }),
+		trusted, log, func() time.Time { return now })
+	send := func(peer string, hdr map[string]string) {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = peer
+		for k, v := range hdr {
+			r.Header.Set(k, v)
+		}
+		h.ServeHTTP(httptest.NewRecorder(), r)
+	}
+
+	send("198.51.100.7:1", nil)
+	send("192.0.2.10:1", map[string]string{"CF-Connecting-IP": "203.0.113.5", "X-Forwarded-Proto": "https"})
+	require.Empty(t, buf.String(), "no headers, or a trusted peer, is silent")
+
+	send("198.51.100.7:1", map[string]string{"CF-Connecting-IP": "203.0.113.5"})
+	require.Contains(t, buf.String(), "level=WARN")
+	require.Contains(t, buf.String(), "KIPPLE_TRUSTED_PROXY_IPS")
+	require.Contains(t, buf.String(), "198.51.100.7:1")
+	require.NotContains(t, buf.String(), "203.0.113.5", "the spoofable value is not logged")
+
+	buf.Reset()
+	now = now.Add(59 * time.Minute)
+	send("198.51.100.7:1", map[string]string{"X-Forwarded-Proto": "https"})
+	require.Empty(t, buf.String(), "rate limited")
+	now = now.Add(2 * time.Minute)
+	send("198.51.100.7:1", map[string]string{"X-Forwarded-Proto": "https"})
+	require.Contains(t, buf.String(), "X-Forwarded-Proto")
+	require.Equal(t, 5, served, "requests always pass through")
 }

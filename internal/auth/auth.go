@@ -13,6 +13,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -440,4 +441,44 @@ func (l *Lockout) Clear(ip string) {
 	l.mu.Lock()
 	delete(l.m, ip)
 	l.mu.Unlock()
+}
+
+// proxyWarnEvery is the minimum gap between untrusted-proxy-header warnings.
+const proxyWarnEvery = time.Hour
+
+// WarnUntrustedProxyHeaders wraps next and logs a WARN, at most once an hour,
+// when CF-Connecting-IP or X-Forwarded-Proto arrives from a TCP peer that is
+// not in trusted (KIPPLE_TRUSTED_PROXY_IPS). Those headers are then ignored, so
+// the client IP is the proxy's address and the lockouts and failure delays of
+// every visitor collapse onto it; the log line is how that misconfiguration
+// becomes visible. now is time.Now when nil.
+func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Addr, log *slog.Logger, now func() time.Time) http.Handler {
+	if now == nil {
+		now = time.Now
+	}
+	var mu sync.Mutex
+	var last time.Time
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var hdrs []string
+		if r.Header.Get("CF-Connecting-IP") != "" {
+			hdrs = append(hdrs, "CF-Connecting-IP")
+		}
+		if r.Header.Get("X-Forwarded-Proto") != "" {
+			hdrs = append(hdrs, "X-Forwarded-Proto")
+		}
+		if len(hdrs) > 0 && !PeerTrusted(r, trusted) {
+			mu.Lock()
+			t := now()
+			warn := last.IsZero() || t.Sub(last) >= proxyWarnEvery
+			if warn {
+				last = t
+			}
+			mu.Unlock()
+			if warn {
+				log.Warn("proxy headers from an untrusted peer are ignored; if this peer is your reverse proxy or tunnel, add its address to KIPPLE_TRUSTED_PROXY_IPS",
+					"peer", r.RemoteAddr, "headers", strings.Join(hdrs, ","))
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
