@@ -212,6 +212,10 @@ func TestUnsubscribeArchivesStarredItems(t *testing.T) {
 	require.NotNil(t, findSub(subsOf(t, h), feedID(arch)))
 	require.NotNil(t, findSub(subsOf(t, h), feedID(other)))
 
+	// The archived starred item is still in the starred stream.
+	sw := h.get(rd + "stream/items/ids?output=json&s=" + starred)
+	require.Contains(t, sw.Body.String(), `"`+FormatDecimal(keep)+`"`)
+
 	// Unsubscribing the archive deletes it and its items.
 	h.post(rd+"subscription/edit", "ac=unsubscribe&s="+feedID(arch))
 	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM items WHERE id = ?", keep))

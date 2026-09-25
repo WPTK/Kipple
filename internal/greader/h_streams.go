@@ -34,7 +34,7 @@ func (c *call) jsonStart() *bufio.Writer {
 // streamItemIDs is GET stream/items/ids: itemRefs as decimal id strings and a
 // string continuation, omitted on the last page. Rows are written as they are read.
 func (c *call) streamItemIDs() {
-	f, err := c.resolveStream(c.p.Get("s"))
+	f, err := c.resolveStream(c.p.Get("s"), firstOrEmpty(c.p.AllRaw("s")))
 	if err != nil {
 		c.serverError("resolve stream", err)
 		return
@@ -101,12 +101,13 @@ func (c *call) streamItemContents() {
 // clients: the ids filter with n capped at 1000, then the contents.
 func (c *call) streamContents() {
 	sid := c.p.Get("s")
+	rawSID := firstOrEmpty(c.p.AllRaw("s"))
 	if rest := strings.TrimPrefix(c.name, "stream/contents"); rest != "" {
 		if path := strings.TrimPrefix(rest, "/"); path != "" && sid == "" {
-			sid = path
+			sid, rawSID = path, path
 		}
 	}
-	f, err := c.resolveStream(sid)
+	f, err := c.resolveStream(sid, rawSID)
 	if err != nil {
 		c.serverError("resolve stream", err)
 		return

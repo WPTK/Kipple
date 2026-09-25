@@ -19,7 +19,7 @@ func stateName(id string) (string, bool) {
 
 // resolveStream turns a stream id into a filter (design §6.4). Unknown streams,
 // unknown labels and unknown feeds are an empty result, never an error.
-func (c *call) resolveStream(id string) (store.StreamFilter, error) {
+func (c *call) resolveStream(id, raw string) (store.StreamFilter, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return store.StreamFilter{}, nil
@@ -42,7 +42,7 @@ func (c *call) resolveStream(id string) (store.StreamFilter, error) {
 	}
 	if strings.HasPrefix(id, "user/") {
 		if _, ok := labelName(id); ok {
-			fid, found, err := c.a.db.FindLabel(c.r.Context(), labelCandidates(id, id))
+			fid, found, err := c.a.db.FindLabel(c.r.Context(), labelCandidates(id, raw))
 			if err != nil {
 				return store.StreamFilter{}, err
 			}

@@ -3,6 +3,7 @@ package greader
 import (
 	"bytes"
 	"errors"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -108,10 +109,29 @@ func (c *call) icon(rest string) {
 		c.text(http.StatusNotFound, "Not Found")
 		return
 	}
+	if !safeIconType(ctype) {
+		c.text(http.StatusNotFound, "Not Found")
+		return
+	}
 	c.w.Header().Set("Content-Type", ctype)
+	c.w.Header().Set("X-Content-Type-Options", "nosniff")
+	c.w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	c.w.Header().Set("Cache-Control", "public, max-age=86400")
 	c.w.WriteHeader(http.StatusOK)
 	_, _ = c.w.Write(data)
+}
+
+// safeIconType allows only raster and icon image types (never svg or html).
+func safeIconType(ct string) bool {
+	mt, _, err := mime.ParseMediaType(ct)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(mt) {
+	case "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/x-icon", "image/vnd.microsoft.icon":
+		return true
+	}
+	return false
 }
 
 // ---- labels ----

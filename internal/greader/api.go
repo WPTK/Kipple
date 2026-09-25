@@ -84,6 +84,7 @@ type call struct {
 	name   string // path below /reader/api/0/
 	p      *Params
 	family string
+	acct   *acctSnap // account snapshot taken once per request
 }
 
 // New builds the API.
@@ -159,12 +160,25 @@ func classify(p string) (rest string, ok bool) {
 	return "", false
 }
 
+// hasMountPrefix reports whether the path (after slash collapse) is under the
+// Reader mount prefix, so a non-Reader path below it is a 404, never the web mux.
+func hasMountPrefix(p string) bool {
+	for strings.Contains(p, "//") {
+		p = strings.ReplaceAll(p, "//", "/")
+	}
+	return p == apiPrefix || strings.HasPrefix(p, apiPrefix+"/")
+}
+
 // Front returns a handler that claims every Reader API path and passes the rest
 // to next. No ServeMux ever sees a Reader path.
 func (a *API) Front(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rest, ok := classify(r.URL.Path)
 		if !ok {
+			if hasMountPrefix(r.URL.Path) {
+				http.NotFound(w, r)
+				return
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -190,18 +204,39 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
 		c.icon(strings.TrimPrefix(rest, "/icon/"))
 		return
 	case rest == "/accounts/ClientLogin":
-		c.p = readParams(r, false)
+		c.p = readParamsLimit(r, false, maxLoginBody)
+		if c.p.tooMany {
+			c.text(http.StatusBadRequest, "Bad Request")
+			return
+		}
 		c.clientLogin()
 		return
 	}
 
 	c.name = strings.TrimPrefix(rest, "/reader/api/0/")
 	rt, found := a.lookup(c.name)
-	c.p = readParams(r, rt.raw)
 	acct, err := a.account(r.Context())
 	if err != nil {
 		a.log.Error("greader: load account", "err", err)
 		c.text(http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	c.acct = acct
+	// Authenticate by header before parsing any body; only a POST that may carry
+	// T in its body is read without it, and then only up to a small cap.
+	hdrOK := c.headerOK(acct)
+	if !acct.enabled || (!hdrOK && (r.Method != http.MethodPost || rt.raw)) {
+		c.p = &Params{}
+		c.unauthorized()
+		return
+	}
+	limit := int64(maxBody)
+	if !hdrOK {
+		limit = maxLoginBody
+	}
+	c.p = readParamsLimit(r, rt.raw, limit)
+	if c.p.tooMany {
+		c.text(http.StatusBadRequest, "Bad Request")
 		return
 	}
 	if !c.authenticate(acct, rt) {
@@ -319,10 +354,7 @@ func (c *call) authenticate(s *acctSnap, rt route) bool {
 	if !s.enabled {
 		return false
 	}
-	hdrOK := false
-	if f := strings.Fields(c.r.Header.Get("Authorization")); len(f) == 2 && strings.HasPrefix(f[1], "auth=") {
-		hdrOK = tokEqual(strings.TrimPrefix(f[1], "auth="), s.token)
-	}
+	hdrOK := c.headerOK(s)
 	if c.r.Method != http.MethodPost || rt.raw {
 		return hdrOK
 	}
@@ -331,6 +363,17 @@ func (c *call) authenticate(s *acctSnap, rt route) bool {
 		return t == "" || t == "x" || tokEqual(t, s.token)
 	}
 	return t != "" && tokEqual(t, s.token)
+}
+
+// headerOK reports whether the Authorization header carries the account token.
+func (c *call) headerOK(s *acctSnap) bool {
+	if !s.enabled {
+		return false
+	}
+	if f := strings.Fields(c.r.Header.Get("Authorization")); len(f) == 2 && strings.HasPrefix(f[1], "auth=") {
+		return tokEqual(strings.TrimPrefix(f[1], "auth="), s.token)
+	}
+	return false
 }
 
 func (c *call) unauthorized() {
@@ -365,7 +408,13 @@ func (c *call) clientLogin() {
 	}
 	email, pass := c.p.Get("Email"), c.p.Get("Passwd")
 	// The password is always verified, even when the email is wrong.
-	ok := a.verifier(s).Verify(ctx, "api", pass, s.hash)
+	ok, busy := a.verifier(s).VerifyBusy(ctx, "api", pass, s.hash)
+	if busy {
+		// Hashing slot unavailable: says nothing about the password, so no failure is recorded.
+		c.w.Header().Set("Retry-After", "5")
+		c.text(http.StatusServiceUnavailable, "Service Unavailable")
+		return
+	}
 	if !ok || !strings.EqualFold(email, s.username) {
 		fail()
 		return
@@ -380,13 +429,13 @@ func (c *call) clientLogin() {
 
 // token is GET token: the same token as plain text.
 func (c *call) token() {
-	s, _ := c.a.account(c.r.Context())
+	s := c.acct
 	c.text(http.StatusOK, s.token+"\n")
 }
 
 // userInfo is GET user-info (Reeder calls it right after ClientLogin).
 func (c *call) userInfo() {
-	s, _ := c.a.account(c.r.Context())
+	s := c.acct
 	c.json(http.StatusOK, map[string]string{
 		"userId": "1", "userName": s.username, "userProfileId": "1", "userEmail": s.username,
 	})

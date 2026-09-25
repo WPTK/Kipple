@@ -133,6 +133,7 @@ func runServe() error {
 		Addr:              cfg.Addr,
 		Handler:           readerAPI.Front(mux),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}

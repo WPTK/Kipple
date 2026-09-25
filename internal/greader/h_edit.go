@@ -3,6 +3,7 @@ package greader
 import (
 	"context"
 	"database/sql"
+	"net/http"
 	"strconv"
 
 	"github.com/WPTK/kipple/internal/store"
@@ -52,6 +53,10 @@ func tagOps(add, remove []string) []tagOp {
 // ids and an empty i all succeed (a non-2xx wedges NetNewsWire's queue).
 func (c *call) editTag() {
 	raw := c.p.All("i")
+	if len(raw) > maxEditIDs {
+		c.text(http.StatusBadRequest, "Bad Request")
+		return
+	}
 	ids := make([]int64, 0, len(raw))
 	for _, v := range raw {
 		if id, ok := ParseItemID(v); ok {
@@ -111,6 +116,9 @@ func (c *call) editTag() {
 	c.ok()
 }
 
+// maxEditIDs caps the item ids in one edit-tag request.
+const maxEditIDs = 10000
+
 func idStrings(ids []int64) []string {
 	out := make([]string, len(ids))
 	for i, id := range ids {
@@ -147,7 +155,7 @@ func normalizeTS(s string) (us int64, ok bool) {
 // always OK; read/unread/broadcast/unknown streams are no-ops.
 func (c *call) markAllAsRead() {
 	ctx := c.r.Context()
-	f, err := c.resolveStream(c.p.Get("s"))
+	f, err := c.resolveStream(c.p.Get("s"), firstOrEmpty(c.p.AllRaw("s")))
 	if err != nil {
 		c.serverError("mark-all-as-read", err)
 		return

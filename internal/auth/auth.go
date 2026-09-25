@@ -117,33 +117,41 @@ func (v *Verifier) mac(kind, phc, pw string) []byte {
 // memos. The memo covers the hash too, so changing the password invalidates it
 // without any explicit clearing.
 func (v *Verifier) Verify(ctx context.Context, kind, pw, phc string) bool {
+	ok, _ := v.VerifyBusy(ctx, kind, pw, phc)
+	return ok
+}
+
+// VerifyBusy is Verify that also reports busy: the hashing slot could not be
+// had (timeout or cancelled context), which says nothing about the password and
+// must not count as a login failure.
+func (v *Verifier) VerifyBusy(ctx context.Context, kind, pw, phc string) (ok, busy bool) {
 	if pw == "" || phc == "" {
-		return false
+		return false, false
 	}
 	want := v.mac(kind, phc, pw)
 	v.mu.Lock()
 	memo := v.memo[kind]
 	v.mu.Unlock()
 	if memo != nil && hmac.Equal(memo, want) {
-		return true
+		return true, false
 	}
 	timer := time.NewTimer(v.wait)
 	defer timer.Stop()
 	select {
 	case v.sem <- struct{}{}:
 	case <-timer.C:
-		return false
+		return false, true
 	case <-ctx.Done():
-		return false
+		return false, true
 	}
-	ok := v.check(pw, phc)
+	ok = v.check(pw, phc)
 	<-v.sem
 	if ok {
 		v.mu.Lock()
 		v.memo[kind] = want
 		v.mu.Unlock()
 	}
-	return ok
+	return ok, false
 }
 
 // ClearMemo forgets every remembered login.
