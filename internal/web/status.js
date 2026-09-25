@@ -44,8 +44,10 @@
           cell(tr, String(f.consecutive_failures), f.consecutive_failures ? "failing" : "");
           cell(tr, f.enabled ? until(f.next_fetch_at) : "-");
           var notes = f.notices.slice();
+          if (f.disabled_reason && f.status !== "archive") notes.unshift("disabled: " + f.disabled_reason);
+          if (f.host_throttled_until) notes.push("host held " + until(f.host_throttled_until));
           if (f.last_error && f.last_error_at && (!f.last_success_at || f.last_error_at >= f.last_success_at)) notes.unshift((f.last_error_class || "error") + ": " + f.last_error);
-          cell(tr, notes.join("; "), f.migrated ? "warn" : "mut");
+          cell(tr, notes.join("; "), f.redirect_pending ? "warn" : "mut");
           tb.appendChild(tr);
         });
         $("summary").textContent = d.feeds.length + " feeds, " + d.unread_total + " unread";
