@@ -24,3 +24,6 @@ web/dist/*
 /kipple.exe
 /bin/
 *.test
+
+# Local-only deployment notes (real LAN IP and hostnames); never commit
+/deploy-local/
