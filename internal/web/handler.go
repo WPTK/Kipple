@@ -46,7 +46,17 @@ func NewHandler() (http.Handler, error) {
 		w.Header().Set("ETag", etag)
 		http.ServeContent(w, r, "index.html", modTime, bytes.NewReader(index))
 	})
-	return mux, nil
+	return noFraming(mux), nil
+}
+
+// noFraming forbids embedding any page or asset in a frame (clickjacking):
+// CSP frame-ancestors is the standard, X-Frame-Options covers older browsers.
+func noFraming(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		w.Header().Set("X-Frame-Options", "DENY")
+		h.ServeHTTP(w, r)
+	})
 }
 
 // readIndex returns the built index.html, or the placeholder page (with a

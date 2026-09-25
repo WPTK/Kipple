@@ -104,3 +104,14 @@ func TestExistingAssetGetsImmutableCacheControl(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Header().Get("Cache-Control"), "immutable")
 }
+
+func TestUIResponsesForbidFraming(t *testing.T) {
+	h, err := NewHandler()
+	require.NoError(t, err)
+	for _, path := range []string{"/", "/_status", "/some/client/route", "/assets/missing.js"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, "frame-ancestors 'none'", rec.Header().Get("Content-Security-Policy"), path)
+		require.Equal(t, "DENY", rec.Header().Get("X-Frame-Options"), path)
+	}
+}

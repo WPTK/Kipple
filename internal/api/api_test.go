@@ -587,3 +587,19 @@ func TestBusyAndMalformedLoginsAreNotCountedAgainstLockout(t *testing.T) {
 	}
 	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
 }
+
+func TestAPIResponsesForbidFraming(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	check := func(rec *httptest.ResponseRecorder, what string) {
+		t.Helper()
+		require.Equal(t, "frame-ancestors 'none'", rec.Header().Get("Content-Security-Policy"), what)
+		require.Equal(t, "DENY", rec.Header().Get("X-Frame-Options"), what)
+	}
+	check(h.do("GET", "/healthz", ""), "healthz")
+	check(h.do("POST", "/api/auth/login", loginBody("wrong")), "failed login")
+	check(h.do("GET", "/api/status", ""), "unauthenticated 401")
+	check(h.do("GET", "/api/status", "", withCookie(c)), "status")
+	check(h.do("GET", "/api/opml", "", withCookie(c)), "opml export")
+	check(h.do("GET", "/api/nope", "", withCookie(c)), "404")
+}

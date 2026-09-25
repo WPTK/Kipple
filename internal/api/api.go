@@ -94,19 +94,31 @@ func New(opt Options) *Server {
 // Register mounts /healthz and /api/ on mux. Everything under /api/ that is not
 // a known route answers here (401 or 404 JSON), never the SPA.
 func (s *Server) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /healthz", s.healthz)
-	mux.HandleFunc("POST /api/auth/login", s.login)
-	mux.HandleFunc("POST /api/auth/logout", s.authed(s.logout))
-	mux.HandleFunc("GET /api/auth/me", s.authed(s.me))
-	mux.HandleFunc("GET /api/status", s.authed(s.status))
-	mux.HandleFunc("GET /api/health/feeds", s.authed(s.healthFeeds))
-	mux.HandleFunc("POST /api/refresh", s.authed(s.refresh))
-	mux.HandleFunc("GET /api/events", s.authed(s.events))
-	mux.HandleFunc("POST /api/opml", s.authed(s.opmlImport))
-	mux.HandleFunc("GET /api/opml", s.authed(s.opmlExport))
-	mux.HandleFunc("/api/", s.authed(func(w http.ResponseWriter, r *http.Request) {
+	handle := func(pattern string, h http.HandlerFunc) { mux.HandleFunc(pattern, noFraming(h)) }
+	handle("GET /healthz", s.healthz)
+	handle("POST /api/auth/login", s.login)
+	handle("POST /api/auth/logout", s.authed(s.logout))
+	handle("GET /api/auth/me", s.authed(s.me))
+	handle("GET /api/status", s.authed(s.status))
+	handle("GET /api/health/feeds", s.authed(s.healthFeeds))
+	handle("POST /api/refresh", s.authed(s.refresh))
+	handle("GET /api/events", s.authed(s.events))
+	handle("POST /api/opml", s.authed(s.opmlImport))
+	handle("GET /api/opml", s.authed(s.opmlExport))
+	handle("/api/", s.authed(func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 	}))
+}
+
+// noFraming forbids embedding a response in a frame (clickjacking). Both
+// headers are sent: CSP frame-ancestors is the standard, X-Frame-Options covers
+// older browsers.
+func noFraming(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		w.Header().Set("X-Frame-Options", "DENY")
+		h(w, r)
+	}
 }
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
