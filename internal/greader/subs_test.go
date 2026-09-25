@@ -1,12 +1,16 @@
 package greader
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/WPTK/kipple/internal/events"
 )
 
 func subsOf(t *testing.T, h *harness) []map[string]any {
@@ -356,4 +360,58 @@ func TestIconEndpoint(t *testing.T) {
 	require.Equal(t, "image/png", w.Header().Get("Content-Type"))
 	require.Equal(t, "\x89PNG", w.Body.String())
 	require.Equal(t, 404, h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-wrong", "", nil).Code)
+}
+
+// Every feed.changed event carries the feed id as a string, like the web API and
+// the scheduler do (a JSON number would lose precision in JS clients).
+func TestFeedChangedEventsCarryStringFeedID(t *testing.T) {
+	h := newHarness(t)
+	hub := events.New()
+	h.api.opt.Events = hub
+	sub := hub.Subscribe(0)
+	defer sub.Close()
+	feedChanged := func() []map[string]any {
+		var out []map[string]any
+		for {
+			select {
+			case ev := <-sub.C:
+				if ev.Type == "feed.changed" {
+					var m map[string]any
+					require.NoError(t, json.Unmarshal(ev.Data, &m))
+					out = append(out, m)
+				}
+			default:
+				return out
+			}
+		}
+	}
+	requireStrings := func(evs []map[string]any, n int, what string) {
+		t.Helper()
+		require.Len(t, evs, n, what)
+		for _, m := range evs {
+			require.IsType(t, "", m["feed_id"], what)
+			require.NotEmpty(t, m["feed_id"], what)
+		}
+	}
+
+	// subscribe (afterSubscribe)
+	require.Equal(t, "OK", h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/"+url.QueryEscape("https://one.example/rss")).Body.String())
+	requireStrings(feedChanged(), 1, "subscribe")
+
+	// edit / unsubscribe (publishFeeds)
+	id := h.addFeed("https://a.example/feed.xml", "Alpha", "Old")
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(id)+"&t=Renamed")
+	evs := feedChanged()
+	require.NotEmpty(t, evs, "edit")
+	requireStrings(evs, len(evs), "edit")
+	require.Equal(t, strconv.FormatInt(id, 10), evs[0]["feed_id"])
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=unsubscribe&s="+feedID(id))
+	evs = feedChanged()
+	requireStrings(evs, len(evs), "unsubscribe")
+
+	// OPML import
+	opmlBody := `<?xml version="1.0"?><opml version="2.0"><head/><body><outline type="rss" text="Z" xmlUrl="https://z.example/rss"/></body></opml>`
+	w := h.do(http.MethodPost, base+rd+"subscription/import", opmlBody, map[string]string{"Content-Type": "text/xml"})
+	require.Equal(t, 200, w.Code)
+	requireStrings(feedChanged(), 1, "import")
 }
