@@ -37,6 +37,50 @@ type fakeSched struct {
 	mu       sync.Mutex
 	refreshN int
 	imported [][]int64
+
+	submits   []sched.Priority
+	reply     sched.Reply // what Submit answers at once, unless hang
+	hang      bool        // Submit's reply channel never fires
+	submitErr error
+	wakes     int
+	down      chan struct{}
+}
+
+func (f *fakeSched) Submit(p sched.Priority) (<-chan sched.Reply, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.submits = append(f.submits, p)
+	if f.submitErr != nil {
+		return nil, f.submitErr
+	}
+	ch := make(chan sched.Reply, 1)
+	if !f.hang {
+		rep := f.reply
+		rep.FeedID = p.FeedID
+		ch <- rep
+	}
+	return ch, nil
+}
+
+func (f *fakeSched) Wake() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.wakes++
+}
+
+func (f *fakeSched) Shutdown() <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.down == nil {
+		f.down = make(chan struct{})
+	}
+	return f.down
+}
+
+func (f *fakeSched) submitted() []sched.Priority {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]sched.Priority(nil), f.submits...)
 }
 
 func (f *fakeSched) RefreshAll() (sched.RunInfo, error) {

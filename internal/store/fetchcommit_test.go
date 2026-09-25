@@ -430,7 +430,7 @@ func TestRedirectMigration(t *testing.T) {
 	res := e.okResult(e.snap(id), rss(numbered(1)...))
 	res.FinalURL = newURL
 	res.Redirect = fetch.RedirectDecision{Action: fetch.RedirectMigrate, To: newURL, Kind: "permanent", Count: 3}
-	e.commit(res)
+	require.True(t, e.commit(res).Migrated)
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE url = ? AND url_original = 'http://a.example/feed' AND url_original_key = 'a.example/feed' AND url_key = 'a.example/feed' AND redirect_to IS NULL", newURL))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM fetch_log WHERE keep = 1 AND note LIKE '%redirect_migrated: http://a.example/feed -> https://a.example/feed%'"))
 	found, ok, err := FindFeedByURL(e.ctx, e.db.Reader(), "http://a.example/feed")
@@ -442,7 +442,7 @@ func TestRedirectMigration(t *testing.T) {
 	other := e.addFeed("http://b.example/feed")
 	res = e.okResult(e.snap(id), rss(numbered(1)...))
 	res.Redirect = fetch.RedirectDecision{Action: fetch.RedirectMigrate, To: "https://b.example/feed", Kind: "permanent", Count: 3}
-	e.commit(res)
+	require.False(t, e.commit(res).Migrated, "a refused migration is not a change")
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND url = ? AND redirect_to = 'https://b.example/feed' AND redirect_kind = 'permanent'", id, newURL))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM fetch_log WHERE note LIKE ?", fmt.Sprintf("%%redirect_target_owned_by_feed %d%%", other)))
 

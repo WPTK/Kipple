@@ -44,6 +44,11 @@ type Scheduler interface {
 	RefreshAll() (sched.RunInfo, error)
 	StartImport(feedIDs []int64) (sched.RunInfo, error)
 	Status() ([]sched.RunStatus, int)
+	// Submit queues a per-feed priority job; Wake nudges a tick; Shutdown closes
+	// when the scheduler stops, so a waiting handler can bail out.
+	Submit(p sched.Priority) (<-chan sched.Reply, error)
+	Wake()
+	Shutdown() <-chan struct{}
 }
 
 // Options configures New.
@@ -156,6 +161,17 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/stats/events", s.authed(s.statsEvents))
 	handle("POST /api/opml", s.authed(s.opmlImport))
 	handle("GET /api/opml", s.authed(s.opmlExport))
+	handle("POST /api/feeds", s.authed(s.addFeed))
+	handle("PATCH /api/feeds/{id}", s.authed(s.patchFeed))
+	handle("DELETE /api/feeds/{id}", s.authed(s.deleteFeed))
+	handle("POST /api/feeds/{id}/refresh", s.authed(s.refreshFeed))
+	handle("POST /api/feeds/{id}/mark-fetch-read", s.authed(s.markFetchRead))
+	handle("POST /api/feeds/{id}/trimmed-unread/reset", s.authed(s.resetTrimmedUnread))
+	handle("POST /api/archive/purge-unstarred", s.authed(s.purgeArchive))
+	handle("POST /api/folders", s.authed(s.createFolder))
+	handle("PATCH /api/folders/{id}", s.authed(s.patchFolder))
+	handle("DELETE /api/folders/{id}", s.authed(s.deleteFolder))
+	handle("GET /api/health/feeds/{id}/log", s.authed(s.feedLog))
 	handle("/api/", s.authed(func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 	}))

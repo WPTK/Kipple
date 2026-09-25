@@ -130,6 +130,9 @@ type SubscribeOpts struct {
 	URL    string
 	Folder string // label name; "" leaves an existing feed where it is (new feeds go to the default folder)
 	Title  string // custom title; "" leaves it unchanged
+	// FolderID places a new feed in that folder (which must exist) when Folder is
+	// empty; the web UI addresses folders by id. 0 = the default folder.
+	FolderID int64
 }
 
 // SubscribeResult is what quickadd and ac=subscribe report.
@@ -145,15 +148,10 @@ type SubscribeResult struct {
 // existing feed is moved or renamed only if a folder or title was given.
 func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, error) {
 	raw := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(o.URL), "feed/"))
-	norm, err := feedurl.Normalize(raw)
+	norm, key, host, err := ValidateFeedURL(raw, false)
 	if err != nil {
-		return SubscribeResult{}, &InvalidURLError{"not an absolute http(s) URL"}
+		return SubscribeResult{}, err
 	}
-	host, _ := feedurl.Host(norm)
-	if ip, perr := netip.ParseAddr(host); perr == nil && fetch.Blocked(ip.Unmap()) {
-		return SubscribeResult{}, &InvalidURLError{"address not allowed"}
-	}
-	key, _ := feedurl.Key(norm)
 	now := d.clock.Now().Unix()
 	var res SubscribeResult
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
@@ -170,6 +168,9 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 			folder, err := ensureFolder(ctx, tx, o.Folder)
 			if err != nil {
 				return err
+			}
+			if strings.TrimSpace(o.Folder) == "" && o.FolderID > 0 {
+				folder = o.FolderID
 			}
 			var pos int64
 			if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(position)+1, 0) FROM feeds").Scan(&pos); err != nil {
@@ -192,6 +193,25 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 		return tx.QueryRowContext(ctx, "SELECT COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&res.Title)
 	})
 	return res, err
+}
+
+// ValidateFeedURL is the one URL check for every way a feed URL enters the
+// database (Reader subscribe, web add, web URL edit): an absolute http(s) URL
+// with a host, normalized, and not a literal blocked address (loopback,
+// private, link-local, ...) unless the feed allows private networks. Hostnames
+// that resolve to blocked addresses are stopped at dial time by the fetch
+// guard. It returns the normalized URL, its key and its host.
+func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err error) {
+	norm, nerr := feedurl.Normalize(raw)
+	if nerr != nil {
+		return "", "", "", &InvalidURLError{"not an absolute http(s) URL"}
+	}
+	host, _ = feedurl.Host(norm)
+	if ip, perr := netip.ParseAddr(host); perr == nil && !allowPrivate && fetch.Blocked(ip.Unmap()) {
+		return "", "", "", &InvalidURLError{"address not allowed"}
+	}
+	key, _ = feedurl.Key(norm)
+	return norm, key, host, nil
 }
 
 // FeedRef identifies a feed by numeric id or by URL (feed/<n> vs feed/<url>).
@@ -295,34 +315,42 @@ func (d *DB) Unsubscribe(ctx context.Context, refs []FeedRef) (feedIDs []int64, 
 				continue
 			}
 			feedIDs = append(feedIDs, id)
-			var reason sql.NullString
-			var title string
-			if err := tx.QueryRowContext(ctx, "SELECT disabled_reason, COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&reason, &title); err != nil {
-				return err
-			}
-			if reason.String != "archive" {
-				var starred int
-				if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", id).Scan(&starred); err != nil {
-					return err
-				}
-				if starred > 0 {
-					arch, err := ensureArchiveFeed(ctx, tx)
-					if err != nil {
-						return err
-					}
-					if _, err := tx.ExecContext(ctx, `UPDATE items SET feed_id = ?1, uid = 'a' || ?2 || ':' || uid,
-						origin_title = COALESCE(origin_title, ?3) WHERE feed_id = ?2 AND starred = 1`, arch, id, title); err != nil {
-						return err
-					}
-				}
-			}
-			if _, err := tx.ExecContext(ctx, "DELETE FROM feeds WHERE id = ?", id); err != nil {
+			if err := removeFeed(ctx, tx, id, true); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
 	return feedIDs, err
+}
+
+// removeFeed deletes a feed. With archiveStarred its starred items are first
+// re-parented to the archive feed (design decision 24); the archive feed itself
+// is always really deleted.
+func removeFeed(ctx context.Context, tx *sql.Tx, id int64, archiveStarred bool) error {
+	var reason sql.NullString
+	var title string
+	if err := tx.QueryRowContext(ctx, "SELECT disabled_reason, COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&reason, &title); err != nil {
+		return err
+	}
+	if archiveStarred && reason.String != "archive" {
+		var starred int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", id).Scan(&starred); err != nil {
+			return err
+		}
+		if starred > 0 {
+			arch, err := ensureArchiveFeed(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE items SET feed_id = ?1, uid = 'a' || ?2 || ':' || uid,
+				origin_title = COALESCE(origin_title, ?3) WHERE feed_id = ?2 AND starred = 1`, arch, id, title); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := tx.ExecContext(ctx, "DELETE FROM feeds WHERE id = ?", id)
+	return err
 }
 
 func ensureArchiveFeed(ctx context.Context, tx *sql.Tx) (int64, error) {
