@@ -235,8 +235,11 @@ After opening, the writer runs `PRAGMA optimize=0x10002` once, then checks that 
 - `wal_autocheckpoint` stays at 1000 pages.
 - The database lives on the named volume `/data`, which is local disk (never NFS or SMB).
 - The temp table `temp.trim_set` is created with `CREATE TEMP TABLE IF NOT EXISTS` at the start of each trim, so a replaced writer connection is harmless.
+- **Startup self-check** (`internal/store/selfcheck.go`, before migrations): on the writer connection, in the temp schema only, the store probes JSON1 (`json_valid`, `json_each`) and FTS5 (a `unicode61 remove_diacritics 2` table, `snippet`, `bm25`, `rank`). Any failure aborts startup with one error naming every missing feature, so a driver swap can never silently lose search. Tested against a stub driver that has neither.
 
 ### 2.2 DDL — `internal/store/migrations/0001_init.sql`
+
+This block is exactly `0001_init.sql`, the schema as first shipped. Later migrations are listed in §2.2a; do not edit this block to match them. Two comments inside it are stale: sessions slide over 90 days (`sessionTTL`), not 30, and the `ui.line_height` and `ui.content_width` settings it names were replaced by `ui.reading_density` (migration 0002).
 
 ```sql
 -- Kipple schema v1. Applied by the migration runner inside BEGIN IMMEDIATE; the runner then sets
@@ -247,9 +250,9 @@ PRAGMA application_id = 1263095884;   -- 'KIPL' = 0x4B49504C
 
 -- Single-user key/value settings. Values are JSON. Defaults live in Go; a row exists only for
 -- overridden keys. User keys (whitelisted for PATCH): refresh.interval_minutes, retention.default,
--- retention.restore_days, fetch.user_agent, fetch.user_agent_mode, fetch.honor_publisher_ttl, greader.icon_urls,
+-- retention.restore_days, fetch.user_agent, fetch.honor_publisher_ttl, greader.icon_urls,
 -- greader.ot_includes_user_changes, greader.subscribe_fetch_now, stats.api_single_read_is_open,
--- imgproxy.mode, tz, ui.* (theme, font_body, font_ui, font_size, reading_density,
+-- imgproxy.mode, tz, ui.* (theme, font_body, font_ui, font_size, line_height, content_width,
 -- layouts, mark_read_on_scroll, ...). System keys (never PATCHable): sys.id_high_water (JSON
 -- integer, allocator high-water mark), sys.last_snapshot_at, sys.last_snapshot_error.
 CREATE TABLE settings (
@@ -274,7 +277,7 @@ CREATE TABLE account (
 ) STRICT;
 
 -- Web UI sessions only (Reader tokens are stateless). id = hex sha256 of the cookie value; the
--- cookie itself is never stored. 90-day sliding expiry, purged nightly.
+-- cookie itself is never stored. 30-day sliding expiry, purged nightly.
 CREATE TABLE sessions (
   id           TEXT PRIMARY KEY,
   created_at   INTEGER NOT NULL,
@@ -474,9 +477,8 @@ CREATE TABLE item_fulltext (
   word_count   INTEGER NOT NULL DEFAULT 0,
   image_url    TEXT,
   source_url   TEXT,
-  extracted_at INTEGER NOT NULL,   -- time of the last attempt
+  extracted_at INTEGER NOT NULL,
   error        TEXT,
-  error_class  TEXT CHECK (error_class IN ('transient','permanent')),  -- migration 0003; NULL = unknown = permanent
   CHECK (content_html IS NOT NULL OR error IS NOT NULL)
 ) STRICT;
 
@@ -523,8 +525,7 @@ CREATE TABLE trimmed_content (
 -- error_class: timeout|dns|connect|tls|http|cloudflare|too_large|empty|parse|ssrf|redirect_loop|gone
 -- note: 'redirect_migrated: <old> -> <new>', 'redirect_target_owned_by_feed <id>',
 --       'retry_after=<s>s', 'guid_churn_suspected', 'guid_duplicates: <k>/<n>', 'rekeyed: <k>',
---       'skipped: host retry-after until <ts>', 'fulltext_picked: <n>', 'fulltext_deferred: <n>',
---       'fulltext: skipped (...)', 'initial_read: <k>'.
+--       'skipped: host retry-after until <ts>', 'fulltext: <ok>/<tried>', 'initial_read: <k>'.
 CREATE TABLE fetch_log (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   feed_id       INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
@@ -575,6 +576,25 @@ CREATE INDEX idx_stats_kind_ts ON stats_events(kind, ts);
 CREATE INDEX idx_stats_feed    ON stats_events(feed_id, kind, ts);
 CREATE INDEX idx_stats_session ON stats_events(session_key, kind) WHERE session_key IS NOT NULL;
 ```
+
+### 2.2a Migrations after 0001
+
+Built (applied in order by the runner; each one is a line here so the block above stays the v1 schema):
+
+| Migration | Change | Why |
+|---|---|---|
+| `0002_ua_fallback.sql` | `feeds.ua_fallback INTEGER NOT NULL DEFAULT 0 CHECK (ua_fallback IN (0,1))`; deletes the `ui.line_height` and `ui.content_width` settings rows | A feed that only loads with a browser User-Agent remembers it (§4.4); the two reading settings became the single `ui.reading_density` preset |
+| `0003_fulltext_error_class.sql` | `item_fulltext.error_class TEXT CHECK (error_class IN ('transient','permanent'))`; NULL means an error stored before the column existed, treated as permanent | `POST /api/items/{id}/fulltext` retries a transient failure after an hour (§7.5) |
+
+Pending (designed in `docs/research/backend-additions-round2.md`, not built; the block above and this table stay true until they land):
+
+| Migration | Change |
+|---|---|
+| `0004_filters_devices.sql` | `filters`; `items.muted_by` and `idx_items_muted`; `categories_json` on `item_content` and `trimmed_content`; `feeds.auto_read_days`; `devices` |
+| `0005_fts_porter.sql` | Drop and recreate `items_fts` with the porter tokenizer and a persistent `bm25` rank, then `rebuild` |
+
+Theme, density and similar UI changes need no migration: `ui.*` values are settings rows validated in Go.
+
 
 Validated on SQLite 3.50.4 (revision 1 or 2 as marked):
 
@@ -655,7 +675,7 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 - **Implementation (as built).** `internal/maint` owns the schedule (a 1-minute `clock.Clock` ticker; hourly and nightly are due-checks against the injected clock, so a coalesced tick never loses a job) and `internal/store/maint.go` owns the SQL. Each job logs one summary line (rows, batches, duration) and calls the optional `OnJob` hook.
 - **Batching.** Every purge below is a loop of bounded batches: 1000 rows per `WithWrite`, each behind the commit gate, with a 25 ms pause between batches (cancellable) so fetch commits and edit-tags interleave. A batch shorter than 1000 ends the loop.
 - **Hourly:** `PRAGMA wal_checkpoint(PASSIVE)` on the writer's single connection. It cannot run inside the `WithWrite` transaction (SQLite answers "database table is locked"), so it takes the writer connection directly, which is the same exclusion `WithWrite` uses.
-- **Nightly at 04:10 in `settings.tz`:**
+- **Nightly at 04:10 in `settings.tz`.** The `tz` setting is the only time zone source for the nightly job and the statistics (`store.LoadLocation`, default `America/New_York`). The maintenance loop reads it at every minute check, so a changed `tz` moves the pending run to the next 04:10 in the new zone (the Sunday FTS check follows the same zone). The container `TZ` only sets `time.Local`, which affects log timestamps; the UI shows times in the device zone. The steps:
   1. Through `WithWrite`, batched as above (a restore also refuses ledger rows older than `restore_days`, so it never depends on when this ran):
      - `DELETE FROM trimmed_content WHERE id IN (SELECT id FROM trimmed_items WHERE trimmed_at < now − restore_days·86400)`
      - `DELETE FROM trimmed_items WHERE last_seen_at < now − 180 d`
@@ -667,7 +687,7 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
      - On Sundays, the FTS `integrity-check` against the tmp file, through a throwaway connection.
      - `fsync`, then an atomic rename to `kipple-snapshot.db`.
      - Record `sys.last_snapshot_at`, or `sys.last_snapshot_error` on failure. The health view shows the age of the last good snapshot and turns it red after 48 h.
-  3. Host-A's host backup copies only `kipple-snapshot.db`, never the live db/wal pair.
+  3. Off-box copies use only `kipple-snapshot.db`, never the live db/wal pair. As built, nothing on Host-A copies it: Host-B's backup job pulls it with `ssh host-a docker cp kipple:/data/backup/kipple-snapshot.db …` (`docker cp` needs no shell in the image). The in-app backup export (`docs/research/backend-additions-round2.md` §6) is planned and will complement the pull.
 
 ---
 
@@ -815,7 +835,7 @@ doneCh <- workerExit
   - **Pool.** `FulltextGlobal` (4) goroutines drain one bounded queue (500 items, `FulltextQueue`). A job is handed to a goroutine only when its article host has fewer than 2 running (`FulltextPerHost`), so one slow site cannot block the others. Each extraction has a 10 s timeout, the guarded client and the feed's network flags, read fresh from the database when the job starts.
   - **One runner for the process (`internal/ftrun`).** The pool and the on-demand endpoint (§7.5) both extract through one shared `ftrun.Runner`. It is a single-flight keyed by item id: opening an item while the pool is extracting it joins that run instead of fetching the page twice (and the reverse). It also holds the per-article-host limit of 2, so the two paths together never exceed it. The runner saves the outcome inside the run, before it is published to joiners, so nobody is told about a result that is not stored yet, and it is written once. A joined caller whose run was refused by the pool's guard, or cut off by shutdown, runs its own.
   - **A hostile page cannot crash the process.** Each extraction runs under `recover()`: a panic in the parser or sanitizer becomes a stored **permanent** error ("the page could not be processed") and an error log with the panic value and stack.
-  - **Duplicate uids in a document.** `AssignUIDs` keeps the first occurrence and drops later ones (or keys a repeated guid by its link), before both the pick and the commit, so the URL the pool extracts is the URL that is stored.
+  - **Duplicate uids in a document.** `AssignUIDs` runs before both the pick and the commit, so the URL the pool extracts is the URL that is stored. In auto mode it keys every occurrence of a repeated guid by its link (or its position when there is no link) and never drops an item; in `link` and `link_title` modes a later item whose uid repeats an earlier one is dropped, because `(feed_id, uid)` is unique.
   - **Bounds are never silent.** At most 20 (`FulltextMaxItems`) newest new items per fetch are queued, and no more than the queue has room for. The fetch_log note records `fulltext_picked: n` (chosen before the commit, so an upper bound on what was queued) and `fulltext_deferred: m`. Anything picked but not queued (a stale commit, a filled queue, shutdown, a failed id lookup) is logged with the real counts at warn or info level and left to on-demand. The lookup of the new items' ids after the commit has its own 5 s deadline, so a slow commit cannot starve it. Deferred items are extracted on demand when opened. Outcomes are logged as they finish (failures at info level). There is no per-run `ok/tried` note any more, since the fetch is already committed and logged by then.
   - **Stored with a small write.** Each result is one `SaveFulltextIfURL` write (one `WithWrite`, not the bulk commit), applied only if the item still exists with the queued URL and its effective full-text mode (`COALESCE(items.fulltext_mode, feeds.fulltext)`) is still 1, checked inside the write transaction. A result for an item whose full text was switched off meanwhile is dropped and not announced. Work for an item that was trimmed or deleted, whose URL changed, that already has a row, or whose full-text setting was turned off is skipped, so editing or deleting the feed meanwhile is safe. Finished items (text or error) are announced with one coalesced `fulltext.ready` event (§7.3). Until then the Reader API and the UI serve the feed's own content, because there is no `item_fulltext` row.
   - **Shutdown and restarts.** Stop cancels the fetch context: running extractions end, queued ones are dropped (logged), the pool goroutines are joined before the scheduler reports stopped, and a cut-off extraction is not stored as a failure. The queue is in memory only: items queued at a crash or restart get no extraction at ingest and are extracted on demand when opened (§7.5).
@@ -883,7 +903,7 @@ Every attempt appends a fetch_log row and applies the fetch_log cap (§4.8).
 | 404, other 4xx, 500/502/504 | `http`, backoff |
 | 410 | `gone`: `enabled=0`, `disabled_reason='gone'`. The health view lists it as dead. Re-enabling resets failures and sets `next_fetch_at = now` |
 | 401/403 | `http`, backoff. If 403 with header `cf-mitigated: challenge` and an HTML body: `cloudflare`, message "blocked by a Cloudflare challenge (TLS fingerprint); try 'disable HTTP/2' or a browser User-Agent" |
-| 429 or 503 | Counted as a failure. `retry_after` comes from `Retry-After` (seconds or HTTP-date); if absent it is 1500 s; it is clamped to [60 s, 24 h]. `next_fetch_at = max(now + backoff, now + retry_after)`. The dispatcher sets `hostUntil[host]`. Note `retry_after=<s>s` |
+| 429 or 503 | Counted as a failure. `retry_after` comes from `Retry-After` (seconds, or an HTTP-date measured against the response's own `Date` header, falling back to our clock when that is missing, so a publisher clock that is off still gets the wait it meant); if absent it is 1500 s; it is clamped to [60 s, 24 h]. `next_fetch_at = max(now + backoff, now + retry_after)`. The dispatcher sets `hostUntil[host]`. Note `retry_after=<s>s` |
 | Timeout | `timeout`, backoff |
 | `*net.DNSError` | `dns`, backoff |
 | Other `*net.OpError`, `io.ErrUnexpectedEOF`, `*url.Error` | `connect`, backoff |
@@ -927,19 +947,21 @@ WHERE interval_minutes IS NULL AND consecutive_failures = 0
 
 The same statement, keyed on the feed id, runs when a per-feed interval changes.
 
-Health statuses, computed at read time:
+Health statuses, computed at read time by one function, `store.FeedStatus(row, hostUntil, now)`, used by `/api/bootstrap` and `/api/health/feeds`. The first matching row wins:
 
 | Status | Condition |
 |---|---|
 | `archive` | `disabled_reason='archive'` (shown separately, never as an error) |
 | `dead` | `disabled_reason='gone'` |
-| `disabled` | `disabled_reason='user'` |
+| `disabled` | any other `disabled_reason` (`user`), or `enabled=0` without a reason |
 | `failing` | `consecutive_failures ≥ 14` |
 | `erroring` | 1–13 consecutive failures |
-| `throttled` | `hostUntil` in the future |
-| `redirecting` | `redirect_to` set |
-| `silent` | healthy, but `last_new_items_at < now − 90 d` |
+| `throttled` | the scheduler's host deadline (`hostUntil`) for the feed's `host` is in the future |
+| `redirecting` | a **permanent** redirect is pending (`redirect_kind='permanent'` and `redirect_to` set). A temporary redirect is only a notice on a feed whose status stays `ok` |
+| `silent` | healthy, but `COALESCE(last_new_items_at, created_at) < now − 90 d` |
 | `ok` | none of the above. A resolved `last_error` is shown greyed with its time |
+
+The scheduler exposes its live host deadlines through `Scheduler.HostHolds()`, answered on the dispatcher goroutine like `Status()` (bounded wait, empty at shutdown).
 
 ### 4.7 Redirect policy
 
@@ -1521,11 +1543,11 @@ Everything under `/api/` except the Reader paths requires the `kipple_session` c
 - It is `Secure` when the effective scheme is https: `X-Forwarded-Proto: https` from a trusted proxy IP, or real TLS.
 - It is persistent, not a session cookie, because WebKit bug 272325 drops session cookies in Home Screen apps.
 
-**Same-origin enforcement** (`internal/httpx/csrf.go`, every cookie-authenticated request whose method is not GET/HEAD, plus `GET /api/opml` and `GET /api/stats/export.csv`):
+**Same-origin enforcement** (`internal/httpx/csrf.go`, every cookie-authenticated request whose method is not GET/HEAD, plus `GET /api/opml` and `GET /api/stats/export.csv`, which get rules 1 and 2 only):
 
 1. If `Sec-Fetch-Site` is present, it must be `same-origin`.
 2. Else `Origin` must be present and equal `scheme://host` of the request, using the effective scheme.
-3. The request must also carry `X-Kipple-Client: web|pwa`, which makes a cross-origin `fetch` non-simple and forces a CORS preflight that Kipple never answers. `POST /api/stats/events` is exempt from this header only, because `sendBeacon` cannot set headers; it still needs rule 1 or 2.
+3. The request must also carry `X-Kipple-Client: web|pwa`, except on the two GET downloads (a plain link cannot set a header, and rules 1 and 2 already refuse cross-site requests), which makes a cross-origin `fetch` non-simple and forces a CORS preflight that Kipple never answers. `POST /api/stats/events` is exempt from this header only, because `sendBeacon` cannot set headers; it still needs rule 1 or 2.
 4. Any failure returns `403 {"error":"origin"}`.
 
 Other conventions:
@@ -1543,8 +1565,8 @@ Other conventions:
 | `POST /api/auth/login` | `{username, password}` (same Verifier and failure delay as ClientLogin) | `204` + cookie |
 | `POST /api/auth/logout` | — | `204` |
 | `GET /api/auth/me` | — | `{username, api_enabled}` |
-| `GET /api/bootstrap` | — | `{user, settings:{…merged defaults…}, folders:[{id,name,position,is_default,unread}], feeds:[{id,folder_id,title,site_url,icon:"/api/feeds/<id>/icon?h=<hash>",unread,status,fulltext,retention,interval_minutes,is_archive}], counts:{unread,starred}, runs:[{…}], warnings:[…], server_time, version}`. `warnings` carries the clock banner, a stale snapshot, and "unread total above 10,000: Reeder only syncs the newest 10,000 unread ids" |
-| `GET /api/items` | `view=unread\|all\|starred`, `feed=<id>` \| `folder=<id>`, `q=<search>`, `order=date\|rank`, `cursor=<opaque>`, `limit≤100`, or `ids=a,b,c` (SSE catch-up) | `{items:[Card], next_cursor\|null}`. Card = `{id, feed_id, title, url, author, excerpt(≤280 chars of content_text), image(proxied or null), published_at, sort_at, read, starred, word_count, reading_minutes(ceil(words/230), null under 100 words), snippet?}`. The cursor is base64 of `sort_at.id`; keyset `(sort_at,id) < (?,?)` |
+| `GET /api/bootstrap` | — | `{user, settings:{…merged defaults…}, folders:[{id,name,position,is_default,unread}], feeds:[{id,folder_id,title,site_url,icon:"/api/feeds/<id>/icon?h=<hash>",unread,status(§4.6),fulltext,retention,interval_minutes,is_archive,starred_count}], counts:{unread,starred}, runs:[{…}], warnings:[…], server_time, version}`. `warnings` carries the clock banner, a stale snapshot, and "unread total above 10,000: Reeder only syncs the newest 10,000 unread ids" |
+| `GET /api/items` | `view=unread\|all\|starred`, `feed=<id>` \| `folder=<id>`, `q=<search>`, `order=date\|rank`, `cursor=<opaque>`, `limit≤100`, or `ids=a,b,c` (SSE catch-up) | `{items:[Card], next_cursor\|null}`. Card = `{id, feed_id, title, url, author, excerpt(≤280 chars of content_text), image(proxied or null), published_at, sort_at, read, starred, word_count, reading_minutes(ceil(words/230), null under 100 words), origin_title(the feed an archived starred item came from, else null), source(`COALESCE(origin_title, feed title)`), snippet?}`. The cursor is base64 of `sort_at.id`; keyset `(sort_at,id) < (?,?)` |
 | `GET /api/items/{id}` | — (prefetch-safe, never a stat) | `{…Card, content_html(image-proxied), fulltext:{mode, effective, available, error\|null}, enclosures:[…], feed:{id,title,site_url}}`. For a ledger id with a stub: the stub content with `trimmed:true` (star and mark-unread restore it). Otherwise 404 |
 | `POST /api/items/{id}/open` | `{via:"tap"\|"key"\|"nav"}` | In one `WithWrite`: `store.SetRead` (no stats side effect), then `Recorder.Record(tx, open)`. Returns `{session_key, item:<as GET>}` |
 | `PUT /api/items/{id}/star` | `{starred: bool}` | `{starred, restored}`. A star on a ledger id restores it (§5). Records `star`/`unstar` in the same transaction only when `RETURNING` shows a change |
@@ -1562,7 +1584,7 @@ Other conventions:
 | `POST /api/refresh` | — | `202 {run_id, total, joined}` |
 | `GET /api/status` | — | `{runs:[{id,kind,done,total,new_items,errors}], inflight, unread_total}`. The SSE fallback |
 | `GET /api/events` | `Last-Event-ID` | SSE (§7.3) |
-| `GET /api/health/feeds` | — | `{feeds:[{id,title,url,url_original,status,enabled,disabled_reason,last_success_at,last_fetch_at,last_error_at,last_error_class,last_error,last_status,consecutive_failures,current_delay_s,next_fetch_at,redirect_to,redirect_kind,redirect_count,last_new_items_at,trimmed_unread_count,trimmed_unread_since,host_throttled_until}], clients:[{family,last_seen_at}], snapshot:{last_at,last_error}, clock:{ahead_s}, unread_total}` |
+| `GET /api/health/feeds` | — | `{feeds:[{id,title,url,url_original,status(§4.6),redirect_pending,notices,enabled,disabled_reason,last_success_at,last_fetch_at,last_error_at,last_error_class,last_error,last_status,consecutive_failures,current_delay_s,next_fetch_at,redirect_to,redirect_kind,redirect_count,last_new_items_at,trimmed_unread_count,trimmed_unread_since,host_throttled_until}], clients:[{family,last_seen_at}], snapshot:{last_at,last_error}, clock:{ahead_s}, db:{db_bytes,wal_bytes,backup_bytes,imgcache_bytes}, unread_total}`. `redirect_pending` is true while a permanent redirect is seen but not yet migrated (the migration itself is a kept `fetch_log` note). `host_throttled_until` is the host deadline in unix seconds, or null. `db` sizes the database, its WAL and the backup directory (`imgcache_bytes` is 0 until the image cache exists) |
 | `GET /api/health/feeds/{id}/log` | — | The feed's fetch_log rows (14 days, plus kept rows) |
 | `GET /api/settings`, `PATCH /api/settings` | `{key: value, …}` (whitelisted user keys, validated) | `{settings: [{key, value, default, label, description, group, kind, options, min, max, step, unit, surface}, …], values: {key: value, …}}`. `surface` is `reader_menu`, `settings` or `hidden`; option `css` carries the `ui.reading_density` line height and column width. A `retention.default` change starts a `retention` run |
 | `POST /api/account/password`, `POST /api/account/api-password` | `{current, new}` or `{current, generate:true}` | `204`, or `{api_password}` once when generated. Changing the API password revokes the Reader token and clears the login memo |
@@ -1570,13 +1592,15 @@ Other conventions:
 | `GET /api/opml` | — | OPML attachment (§7.6) |
 | `POST /api/retention/apply` | — | `202 {run_id, total}` |
 | `POST /api/stats/events` | `{events:[{kind:"read_time"\|"scroll"\|"open_original"\|"share", item_id, session_key?, value?}]}`. Accepted via `fetch` or `navigator.sendBeacon` (a JSON Blob) | `204`. Invalid events are dropped silently (§8) |
-| `GET /api/stats/export.csv` | `?from=&to=` | RFC 4180 CSV of `stats_events`, paged by keyset (§8) |
+| `GET /api/stats/export.csv` (phase 4, not mounted yet) | `?from=&to=` | RFC 4180 CSV of `stats_events`, paged by keyset (§8) |
 | `GET /api/stats/summary` (phase 4) | `?from=&to=&include_inferred=0\|1` (default 0) | Aggregates (§8) |
 | `POST /api/maintenance/fts-rebuild` | — | Runs `'rebuild'` on the writer. `204` |
 | `GET /img/{sig}/{flags}/{b64url}` | — | Proxied image (§7.4) |
 | `GET /` and SPA paths | — | Embedded `index.html` (`no-cache`, ETag). `/assets/*` is immutable. MIME types are registered for woff2, woff, ttf and webmanifest |
 
 ### 7.2 Read/star write rules in the UI API
+
+**Read later is starred.** Reader clients know only starred, so "read later" is a star; there is no separate state. Highlights and annotations are a non-goal.
 
 Only two entry points can produce stats: `POST /api/items/{id}/open` and `PUT /api/items/{id}/star`. Swipe, keyboard `m`, mark-read-on-scroll, "mark above", mark-all, and folder or feed mark-all all go through `POST /api/items/mark-read`. That handler has no reference to the Recorder.
 
@@ -1616,7 +1640,7 @@ The React app reconciles by item id. For `new_item_ids` inside the current view 
   - When sniffing is inconclusive, the upstream `Content-Type` is accepted only if it is on the allowed list.
 - **Response headers.** Upstream `ETag` and `Last-Modified` are passed through; `If-None-Match` and `If-Modified-Since` are forwarded. `Cache-Control: private, max-age=2592000, immutable`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'`.
 - **Concurrency.** At most 8 upstream image fetches run at once (a semaphore); the rest wait up to 10 s.
-- **No disk cache in phase 2.**
+- **No disk cache as built.** `imgproxy.mode` defaults to `http_only`. A bounded disk cache and a default of `all` are planned (`docs/research/backend-additions-round2.md` §2) and replace this line when built.
 
 ### 7.5 Full-text rules
 
@@ -2073,7 +2097,8 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 | **Per-host limits key on the exact hostname** | About 15 rounds of 1–2 s in a manual run at 138 feeds |
 | **The uid, content_hash, text_hash and `url_key` rules** are embedded in stored data | Frozen before the first real import, with versioned prefixes. Any change needs a re-keying migration |
 | **Extracted full text is not searchable**, and restores lose extracted full text | Accepted for phase 2. Re-extraction is on demand |
-| **Inline full-text extraction** can hold a worker up to 60 s | 8 workers and few full-text feeds. Anything over budget falls back to on-demand extraction |
+| **The in-memory full-text queue** (500 items) is lost on a restart, and the Reader full-text hold can delay a new item by up to 30 s | Extraction runs after the commit in the `ftrun` pool, so it never holds a fetch worker (§4.3). Items queued at a restart are extracted on demand when opened. The hold is capped at 60 s inside the `ot` slack, and open question 55 keeps a Reeder check on the release checklist |
+| **The Reader `summary.direction` is hard-coded `ltr`**, so right-to-left feeds render wrong in Reeder and NNW | Deferred. The web UI sets `dir="auto"` on the article container. Deriving `rtl` from the feed or item `xml:lang` is a later fix |
 | **Memory: SQLite heap is outside GOMEMLIMIT** | GOMEMLIMIT 64 MiB + 34 MB of caches + runtime < 100 MB, streaming contents, capped `i=`, keyset exports, a streaming image proxy, and a `mem_limit: 256m` backstop. RSS under load is on the release checklist |
 | **The iOS Home Screen app** has its own cookie jar and WebKit bug 272325 | A persistent (Max-Age) cookie and a cheap re-login. A long Access session duration (about 1 month) |
 | **The nightly snapshot is Kipple's only backup artifact**, and nothing watches it | `sys.last_snapshot_at` and `last_snapshot_error` shown in the health view (red after 48 h), plus a release-checklist item |
@@ -2125,43 +2150,24 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 
 ---
 
-## 13. Deltas from lemon24/reader (applied after the red-team revision)
+## 13. Deltas from lemon24/reader (status)
 
-`docs/research/lemon24-reader.md` compared this design with a mature SQLite feed-reader library.
-Most of its ADOPT items were already here (per-connection pragmas in the DSN, `application_id`,
-`foreign_key_check` after migrations, `PRAGMA optimize`, a date-free `content_hash`, validators and
-body hash, per-feed resync, keeping stats rows without a cascade from `items`). These are the ones
-that were not, now part of the design:
+`docs/research/lemon24-reader.md` compared this design with a mature SQLite feed-reader library. Most of its ADOPT items were already here (per-connection pragmas in the DSN, `application_id`, `foreign_key_check` after migrations, `PRAGMA optimize`, a date-free `content_hash`, validators and body hash, per-feed resync, keeping stats rows without a cascade from `items`). This section was first written as "applied after the red team"; it is now a status table, one line per delta, so it never contradicts the body.
 
-1. **`synchronous=NORMAL` and `busy_timeout=5000` in every DSN**, stated explicitly. SQLite's
-   default is `FULL`; WAL with `NORMAL` loses at most the last commits on power loss, which the next
-   poll refetches.
-2. **Startup self-check.** Probe `json_valid('1')` and `CREATE VIRTUAL TABLE temp.k USING fts5(a)`;
-   fail fast naming every missing feature, so a driver swap can never silently lose search.
-3. **`feeds.last_new_item_at`** beside `last_success_at`, written only when a fetch inserts an item.
-   The health view shows "checked 5 min ago, nothing new for 94 days", the most useful dead-feed signal.
-4. **Reading time.** `items.image_count` is stored at ingest next to `word_count`.
-   `read_seconds = ceil(word_count / 265 × 60) + image bonus` (12 s for the first image, one second
-   less for each next image down to a 3 s floor). It is computed at serve time for cards and
-   recomputed from the full text when extraction runs. This is the "only if trivial" feature, and it is.
-5. **FTS5 tokenizer** `porter unicode61 remove_diacritics 2`, with ranking `bm25(items_fts, 4.0, 1.0)`
-   (title weighted 4×). HTML stripping for the index (drop script/style/noscript, fold in `alt` and
-   `title` text) happens in Go before the write transaction; the split triggers in §2 stay.
-6. **403 browser-UA fallback.** On a 403 without `cf-mitigated`, retry once with a browser User-Agent.
-   On success, persist `feeds.ua_mode = 'browser'` so later fetches use it directly, and log the 403's
-   `Server` header. A later 403 in browser mode is an ordinary failure.
-7. **`Retry-After` as an HTTP-date is interpreted relative to the response `Date` header**, which
-   tolerates publisher clock skew.
-8. **URL migration resets fetch state.** When a redirect migration or a manual URL edit changes
-   `feeds.url`, clear `etag`, `last_modified`, `body_hash`, the error counters and `next_fetch_at`,
-   and keep the items.
-9. **A malformed item is skipped, not fatal.** One unparseable entry is dropped with a `fetch_log`
-   note; the rest of the document commits. This applies to RSS, Atom and JSON Feed.
-10. **Enclosures are deduplicated by normalized URL at ingest.**
-11. **Normalized links for dedup.** The `l:` uid and `link_hash` hash reader's normalized form
-    (lowercase scheme and host, `http`→`https`, no trailing slash, query and fragment kept), so the
-    common https migration does not look like a new item.
-12. **Slow-stage warning.** A fetch, parse or commit stage taking ≥ 1 s logs a WARN with the feed id.
+| # | Delta | Status |
+|---|---|---|
+| 1 | `synchronous=NORMAL` and `busy_timeout=5000` in every DSN | **Built** (`buildDSN`). WAL with `NORMAL` loses at most the last commits on power loss, which the next poll refetches |
+| 2 | Startup self-check for JSON1 and FTS5 | **Built** (§2.1, `internal/store/selfcheck.go`) |
+| 3 | Last-new-item time on the feed | **Built** as `feeds.last_new_items_at` (§2.2), written when a fetch inserts an item. Drives the `silent` status (§4.6) |
+| 4 | Reading time with `image_count` and 265 wpm | **Dropped.** Reading time is `ceil(word_count / 230)`, null under 100 words, computed at serve time (§7.1). No `image_count` column |
+| 5 | `porter` tokenizer with `bm25(items_fts, 4.0, 1.0)` | **Superseded** by `docs/research/backend-additions-round2.md` §7: porter with `bm25(4,2,1)`, in pending migration 0005. Until then the table uses `unicode61 remove_diacritics 2` and plain `rank` |
+| 6 | 403 browser-UA fallback persisted as `feeds.ua_mode` | **Superseded** by `feeds.ua_fallback` (migration 0002) and the `fetch.user_agent_mode` setting (§4.4) |
+| 7 | `Retry-After` HTTP-date relative to the response `Date` | **Built** (§4.4, `fetch.ParseRetryAfter`) |
+| 8 | URL migration resets fetch state | **Dropped for redirects**: a redirect migration keeps validators and the items (§4.7). **Kept for manual URL edits**, which already clear them (`feedadmin.go`) |
+| 9 | A malformed item is skipped, not fatal | **Built** (§4.3): an empty entry or one whose conversion fails is dropped and counted in the `skipped_malformed_items: n/total` fetch_log note. A document that does not parse at all is still a failed fetch, because the XML parser cannot resume after a syntax error |
+| 10 | Enclosures deduplicated by URL at ingest | **Built** (`fetch.ParseFeed`), by resolved URL |
+| 11 | Normalized links for dedup (`l:` uid and `link_hash`) | **Dropped.** The uid rules are frozen (§4.8, §11): they hash the raw link, and re-normalizing would change the uid of every live item, so the next fetch would re-insert a wall of duplicates. The common http to https migration is handled by the redirect policy (§4.7) instead |
+| 12 | Slow-stage WARN (a stage of 1 s or more) | **Dropped.** It is log noise, and monitoring is a non-goal; `fetch_log` already records durations |
 
 Rejected from reader, with reasons in the report: grid-snapped scheduling, dropping exponential
 backoff, non-atomic entries-then-feed writes, `A-IM: feed` deltas, post-hoc delete-and-merge dedup
