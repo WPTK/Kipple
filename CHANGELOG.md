@@ -76,6 +76,27 @@ Phase 2 (reading UI backend) so far.
 - Cards and item details carry `origin_title` (the feed an archived starred item came from) and `source` (`origin_title`, else the feed title), so unsubscribed starred items show where they came from.
 - Startup self-check: the store probes JSON1 and FTS5 (unicode61, `snippet`, `bm25`) in the temp schema before migrating and refuses to start, naming every missing feature, so a driver swap cannot silently lose search.
 
+- Backup export: `POST /api/backup` builds `kipple-backup-YYYYMMDD-HHMMSS.zip` (a consistent
+  snapshot of the database, `feeds.opml`, `settings.json`, `manifest.json` with SHA-256 checksums,
+  `RESTORE.txt`) and returns a single-use, 5-minute token; `GET /api/backup/{token}` streams it
+  as an attachment (session and same-origin rule too), then deletes it. One export at a time and
+  never alongside the nightly snapshot (`409 busy` with a retry hint); refused with `507` when the
+  volume has under 2.2 times the database size free and with `413` above 4 GiB; temporary files
+  are removed on completion, failure, expiry and startup. The response carries a `warning` about
+  what the file contains (password hashes, the account secret, hashed session ids, feed logins).
+  Fetch commits are not blocked: the snapshot only holds a read view.
+- `kipple restore <backup.zip|kipple.db|-> [--yes]`: verifies the checksums, integrity and schema
+  version (a newer schema is refused), keeps the current database under
+  `backup/pre-restore-<timestamp>/` (newest 3), swaps in the backup, and signs every web session
+  out. Without `--yes` it only verifies. It refuses while the server runs.
+- `kipple password [--stdin]`: resets the web password (no-echo prompt, or one line on standard
+  input; 5 to 256 characters), signs out every web session and revokes every Reader API token.
+  Safe while the server runs.
+- `kipple serve` holds an exclusive lock on `<data>/kipple.lock`; a second server on the same data
+  directory refuses to start. The lock goes with the process, so there is no stale lock file.
+- `docs/deploy.md`: where backups live, the export, password reset and restore runbooks, the
+  extra steps for the phase 2 deploy (an off-box copy first) and how to roll back to phase 1.
+
 ### Changed
 
 - Article HTML served to the web UI goes through one serve-time pass (`sanitize.ServeHTML`): links open in a
