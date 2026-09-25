@@ -32,3 +32,11 @@ func TestLeadImage(t *testing.T) {
 	require.Equal(t, "", LeadImage(`<img src="http://feeds.feedburner.com/~r/x/~4/1">`, base))
 	require.Equal(t, "", LeadImage(`<p>no images</p>`, base))
 }
+
+func TestContentKeepsFragmentHrefs(t *testing.T) {
+	out, _ := Content(`<p>note<a href="#fn1" id="r1">1</a> <a href="#user-content-fn:2">2</a></p><a href="#x y">bad</a><a href="javascript:alert(1)">js</a>`, "https://a.com/post")
+	require.Contains(t, out, `href="#fn1"`)
+	require.Contains(t, out, `href="#user-content-fn:2"`)
+	require.NotContains(t, out, `href="#x y"`)
+	require.NotContains(t, out, "javascript:")
+}
