@@ -234,7 +234,7 @@ func (c *call) afterSubscribe(res store.SubscribeResult) {
 	if !res.Existed {
 		c.a.wake()
 	}
-	c.a.publish("feed.changed", map[string]any{"feed_id": res.FeedID})
+	c.a.publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(res.FeedID, 10)})
 }
 
 // subscriptionEdit is POST subscription/edit (ac=subscribe|edit|unsubscribe).
@@ -309,7 +309,7 @@ func (c *call) subscriptionEdit() {
 
 func (c *call) publishFeeds(ids []int64) {
 	for _, id := range ids {
-		c.a.publish("feed.changed", map[string]any{"feed_id": id})
+		c.a.publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(id, 10)})
 	}
 }
 
@@ -331,7 +331,7 @@ func (c *call) subscriptionImport() {
 		c.a.wake()
 	}
 	for _, id := range res.NewFeedIDs {
-		c.a.publish("feed.changed", map[string]any{"feed_id": id})
+		c.a.publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(id, 10)})
 	}
 	c.ok()
 }

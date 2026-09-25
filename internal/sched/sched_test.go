@@ -398,12 +398,12 @@ func TestManualRunAttachesToInFlightFetches(t *testing.T) {
 	// the 3 attached feeds fetched once (not twice); the 4th only by the manual run
 	r.waitEvents("fetch.done", 4)
 	require.Equal(t, 4, srv.total())
-	byFeed := map[float64][]any{}
+	byFeed := map[string][]any{}
 	for _, ev := range r.events("fetch.done") {
-		byFeed[ev["feed_id"].(float64)] = ev["run_ids"].([]any)
+		byFeed[ev["feed_id"].(string)] = ev["run_ids"].([]any)
 	}
 	for _, id := range ids {
-		require.Contains(t, byFeed[float64(id)], float64(info.RunID))
+		require.Contains(t, byFeed[fmt.Sprint(id)], float64(info.RunID))
 	}
 	start := r.events("run.start")
 	require.Len(t, start, 1)
@@ -548,6 +548,9 @@ func TestPriorityRepliesSurviveAbandonedHandlers(t *testing.T) {
 	r.sql("UPDATE feeds SET enabled = 0, disabled_reason = 'user' WHERE id = ?", a)
 	ch, _ = r.s.Submit(Priority{FeedID: a})
 	require.ErrorIs(t, (<-ch).Err, ErrDisabled)
+	// ...but a trim needs no network and still runs on a disabled feed
+	ch, _ = r.s.Submit(Priority{FeedID: a, Kind: PriorityTrim})
+	require.NoError(t, (<-ch).Err)
 }
 
 func TestGoneDisablesAndStopsFetching(t *testing.T) {
@@ -558,7 +561,7 @@ func TestGoneDisablesAndStopsFetching(t *testing.T) {
 	r.waitEvents("fetch.done", 1)
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM feeds WHERE id=? AND enabled=0 AND disabled_reason='gone'", id))
 	r.waitEvents("feed.changed", 1)
-	require.Equal(t, fmt.Sprint(id), fmt.Sprint(int64(r.events("feed.changed")[0]["feed_id"].(float64))))
+	require.Equal(t, fmt.Sprint(id), r.events("feed.changed")[0]["feed_id"])
 	r.clk.Advance(72 * time.Hour)
 	r.barrier()
 	require.Equal(t, 1, srv.count("/g"))

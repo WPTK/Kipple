@@ -2,6 +2,7 @@ package sched
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/WPTK/kipple/internal/fetch"
@@ -247,7 +248,7 @@ func (s *Scheduler) handleDone(r result) {
 		ids = ids[:maxEventIDs]
 	}
 	ev := map[string]any{
-		"feed_id": r.feedID, "run_ids": runIDs, "trigger": r.trigger, "outcome": r.outcome,
+		"feed_id": strconv.FormatInt(r.feedID, 10), "run_ids": runIDs, "trigger": r.trigger, "outcome": r.outcome,
 		"new_items": r.newItems, "new_item_ids": ids, "updated_items": r.updated, "trimmed_items": r.trimmed,
 		"error_class": r.errClass, "error": r.errMsg,
 	}
@@ -256,7 +257,7 @@ func (s *Scheduler) handleDone(r result) {
 	}
 	s.hub.Publish("fetch.done", ev)
 	if r.migrated || r.gone {
-		s.hub.Publish("feed.changed", map[string]any{"feed_id": r.feedID})
+		s.hub.Publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(r.feedID, 10)})
 	}
 	for _, run := range f.runs {
 		if s.runs[run.Kind] == run && now.Sub(run.lastProgress) >= progressEvery {
@@ -391,7 +392,7 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 	case !ok:
 		answer(Reply{FeedID: req.p.FeedID, Err: ErrNotFound})
 		return
-	case !snap.Enabled:
+	case !snap.Enabled && req.p.Kind != PriorityTrim: // a trim touches no network, so a disabled feed still honors a lowered cap
 		answer(Reply{FeedID: req.p.FeedID, Err: ErrDisabled})
 		return
 	}
