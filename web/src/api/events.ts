@@ -176,11 +176,19 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
 
 // ---- Hook ---------------------------------------------------------------------
 
+/** Reconnect delay after the browser gave up on the stream: 1 s doubling to 30 s, with jitter. */
+export function reconnectDelay(attempt: number, rand: () => number = Math.random): number {
+  const base = Math.min(30_000, 1_000 * 2 ** Math.max(0, attempt));
+  return Math.round(base * (0.75 + rand() * 0.5));
+}
+
 /**
  * Subscribes to /api/events. If EventSource errors twice without delivering a
  * message it falls back to polling /api/status (2 s during a run, 60 s
- * otherwise) while EventSource keeps retrying on its own; a message ends the
- * fallback.
+ * otherwise); a message or a reopened stream ends the fallback. A browser
+ * EventSource only retries by itself while the connection dropped; after a
+ * non-200 answer (a proxy 502 during a deploy) it is CLOSED for good, so the
+ * hook recreates it with capped exponential backoff and resyncs on reconnect.
  */
 export function useServerEvents(enabled: boolean): void {
   const qc = useQueryClient();
@@ -188,7 +196,11 @@ export function useServerEvents(enabled: boolean): void {
     if (!enabled || typeof EventSource === "undefined") return;
     let stopped = false;
     let errors = 0;
+    let attempt = 0;
+    let lost = false;
+    let es: EventSource | null = null;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     const stopPolling = () => {
       if (pollTimer) clearTimeout(pollTimer);
@@ -205,31 +217,55 @@ export function useServerEvents(enabled: boolean): void {
       }
       if (!stopped && liveStore.get().transport === "fallback") pollTimer = setTimeout(poll, pollInterval(active));
     };
-
-    const es = new EventSource("/api/events");
-    const onMessage = (type: string) => (m: MessageEvent<string>) => {
+    const connected = () => {
       errors = 0;
-      if (liveStore.get().transport !== "open") liveStore.set((s) => ({ ...s, transport: "open" }));
+      attempt = 0;
       stopPolling();
-      const ev = parseServerEvent(type, m.data);
-      if (ev) handleServerEvent(qc, ev);
-    };
-    for (const t of SERVER_EVENT_TYPES) es.addEventListener(t, onMessage(t) as EventListener);
-    es.onopen = () => {
-      if (liveStore.get().transport === "connecting") liveStore.set((s) => ({ ...s, transport: "open" }));
-    };
-    es.onerror = () => {
-      errors += 1;
-      if (authStore.get() === "out") return;
-      if (errors >= 2 && liveStore.get().transport !== "fallback") {
-        liveStore.set((s) => ({ ...s, transport: "fallback" }));
-        void poll();
+      if (liveStore.get().transport !== "open") liveStore.set((s) => ({ ...s, transport: "open" }));
+      if (lost) {
+        // Events were missed while disconnected: refetch counts, feeds and the visible lists.
+        lost = false;
+        handleServerEvent(qc, { type: "resync", data: {} } as ServerEvent);
       }
     };
+
+    const connect = () => {
+      retryTimer = undefined;
+      const src = new EventSource("/api/events");
+      es = src;
+      const onMessage = (type: string) => (m: MessageEvent<string>) => {
+        connected();
+        const ev = parseServerEvent(type, m.data);
+        if (ev) handleServerEvent(qc, ev);
+      };
+      for (const t of SERVER_EVENT_TYPES) src.addEventListener(t, onMessage(t) as EventListener);
+      src.onopen = () => connected();
+      src.onerror = () => {
+        errors += 1;
+        if (authStore.get() === "out") return;
+        lost = true;
+        if (errors >= 2 && liveStore.get().transport !== "fallback") {
+          liveStore.set((s) => ({ ...s, transport: "fallback" }));
+          void poll();
+        }
+        if (src.readyState === EventSource.CLOSED) {
+          src.close();
+          if (!retryTimer && !stopped) retryTimer = setTimeout(connect, reconnectDelay(attempt++));
+          // A stream that closed before ever erroring twice still needs the fallback.
+          if (liveStore.get().transport !== "fallback") {
+            liveStore.set((s) => ({ ...s, transport: "fallback" }));
+            void poll();
+          }
+        }
+      };
+    };
+    connect();
+
     return () => {
       stopped = true;
       stopPolling();
-      es.close();
+      if (retryTimer) clearTimeout(retryTimer);
+      es?.close();
       liveStore.set((s) => ({ ...s, transport: "connecting" }));
     };
   }, [enabled, qc]);
