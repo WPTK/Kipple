@@ -31,11 +31,17 @@ func textFallbackUID(title, text string) string { return "h:" + H(title+sep+text
 // "guid_duplicates: k/n") and the items to keep: in link and link_title modes
 // an item whose uid repeats an earlier one in the same document is dropped,
 // because (feed_id, uid) is unique in the store. Auto mode never drops: a
-// repeated guid is re-keyed as design §4.8 says (Miniflux behaviour).
+// repeated guid is keyed by guid and link for every occurrence (design §4.8).
 //
 // Items must already carry RawLink, GUID, Title and ContentText.
 func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 	seenUID := make(map[string]bool, len(items))
+	guidTotal := make(map[string]int, len(items)) // occurrences per guid in the whole document
+	for i := range items {
+		if g := strings.TrimSpace(items[i].GUID); g != "" {
+			guidTotal[g]++
+		}
+	}
 	guidCount := make(map[string]int, len(items))
 	badGUIDs, guided := 0, 0 // duplicated guids among the non-empty ones
 
@@ -64,7 +70,9 @@ func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 			case guid != "":
 				n := guidCount[guid]
 				uid = "g:" + H(guid)
-				if n > 0 {
+				if guidTotal[guid] > 1 {
+					// Every occurrence of a repeated guid is keyed by its link, so
+					// a uid never depends on where the item sits in the document.
 					if it.RawLink != "" {
 						uid = "g:" + H(guid+"|"+it.RawLink)
 					} else {

@@ -5,7 +5,7 @@
   "description": "Same guid on every item, plus empties",
   "items": [
     {
-      "uid": "g:0967115f2813a3541eaef77de9d9d577",
+      "uid": "g:ee2290d96771b2eada158b6881c551cb",
       "guid": "same",
       "raw_link": "https://dup.example.com/a",
       "url": "https://dup.example.com/a",

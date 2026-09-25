@@ -120,7 +120,7 @@ func TestParseFeedFixtureFacts(t *testing.T) {
 	t.Run("duplicate guids", func(t *testing.T) {
 		f := load(t, "dup-guids.xml", ParseOptions{FeedURL: "https://dup.example.com/rss"})
 		require.Len(t, f.Items, 5)
-		require.Equal(t, "g:"+H("same"), f.Items[0].UID)
+		require.Equal(t, "g:"+H("same|https://dup.example.com/a"), f.Items[0].UID, "every occurrence of a repeated guid is link-keyed")
 		require.Equal(t, "g:"+H("same|https://dup.example.com/b"), f.Items[1].UID)
 		require.Equal(t, "g:"+H("same|2"), f.Items[2].UID) // no link: occurrence index
 		require.Equal(t, "l:"+H("https://dup.example.com/d"), f.Items[3].UID)
@@ -223,4 +223,15 @@ func TestHashesIgnoreDates(t *testing.T) {
 	require.Equal(t, ContentHash("t", "u", "a", "<p>x</p>"), ContentHash("t", "u", "a", "<p>x</p>"))
 	require.NotEqual(t, ContentHash("t", "u", "a", "<p>x</p>"), ContentHash("t", "u", "a", "<p>y</p>"))
 	require.NotEqual(t, TextHash("ab", "c"), TextHash("a", "bc")) // separator prevents field bleed
+}
+
+func TestAssignUIDsSharedGUIDStableAcrossFetches(t *testing.T) {
+	mk := func(link string) Item { return Item{GUID: "shared", RawLink: link, Title: link} }
+	first, _ := AssignUIDs([]Item{mk("https://x.test/a"), mk("https://x.test/b")}, DedupAuto)
+	second, _ := AssignUIDs([]Item{mk("https://x.test/c"), mk("https://x.test/a"), mk("https://x.test/b")}, DedupAuto)
+	require.Len(t, first, 2)
+	require.Len(t, second, 3)
+	require.Equal(t, first[0].UID, second[1].UID, "a keeps its uid when c is prepended")
+	require.Equal(t, first[1].UID, second[2].UID, "b keeps its uid when c is prepended")
+	require.NotEqual(t, second[0].UID, second[1].UID)
 }

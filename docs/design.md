@@ -965,7 +965,7 @@ Then add the fetch_log note `redirect_migrated: <old> -> <new>` with `keep = 1`.
   - `'g:'+h(trimmed guid)` when the RSS `guid`, Atom `id` or JSON `id` is non-empty.
   - Else `'l:'+h(raw link)`, using the link as written in the document, before absolutization or tracking-param cleanup.
   - Else `'h:'+h(title+"\x1f"+text)`.
-  - A guid repeated within one document follows Miniflux: the first occurrence keeps its uid; later ones get `h(guid|rawLink)`, else `h(guid|n)`.
+  - A guid repeated within one document is keyed on **every** occurrence, first included, as `g:h(guid|rawLink)`, so a uid never depends on the item's position. When an occurrence has no link, or the same guid and link repeat, it falls back to `h(guid|n)` with `n` the occurrence index.
 - `link`: `'l:'+h(raw link)`, falling back to the `h:` rule.
 - `link_title`: `'l:'+h(raw link + "\x1f" + title)`.
 - If more than 5% of the guids in a document are empty or duplicated, the fetch adds the note `guid_duplicates: k/n`. Nothing switches automatically.
