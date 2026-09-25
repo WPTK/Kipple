@@ -26,6 +26,9 @@ type CommitInfo struct {
 	NewIDs  []int64 // ascending
 	// Migrated is set when the commit rewrote feeds.url (design §4.7).
 	Migrated bool
+	// Stale is set when the feed's URL changed under the fetch and nothing was
+	// written.
+	Stale bool
 }
 
 type commitState struct {
@@ -83,7 +86,7 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 
 	st := &commitState{firstNewID: maxInt64}
 	info := func() CommitInfo {
-		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated}
+		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale}
 	}
 	for i, ch := range chunks {
 		last := i == len(chunks)-1

@@ -604,3 +604,27 @@ func TestStaleFetchErrorAfterURLEditIsIgnored(t *testing.T) {
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND enabled = 1 AND consecutive_failures = 0", id))
 	require.Equal(t, 0, e.count("SELECT count(*) FROM fetch_log WHERE feed_id = ? AND outcome = 'error'", id))
 }
+
+func TestPatchFeedResetsLearnedUAFallback(t *testing.T) {
+	learn := func(e *env, id int64) {
+		require.NoError(t, e.db.SetFeedUAFallback(e.ctx, id))
+		require.Equal(t, 1, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id))
+	}
+	e := newEnv(t)
+	id := e.addFeed("http://example.test/a.xml")
+
+	learn(e, id)
+	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{Cols: map[string]any{"custom_title": "x"}})
+	require.NoError(t, err)
+	require.Equal(t, 1, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "unrelated patch keeps it")
+
+	_, err = e.db.PatchFeed(e.ctx, id, FeedPatch{Cols: map[string]any{"user_agent": "Custom/1"}})
+	require.NoError(t, err)
+	require.Equal(t, 0, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "changed per-feed UA resets it")
+
+	learn(e, id)
+	nu := "http://example.test/b.xml"
+	_, err = e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &nu, Cols: map[string]any{}})
+	require.NoError(t, err)
+	require.Equal(t, 0, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "changed URL resets it")
+}

@@ -122,10 +122,10 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 		var url, urlKey, dedup string
 		var reason sql.NullString
 		var retention, folder sql.NullInt64
-		var custom sql.NullString
+		var custom, curUA sql.NullString
 		var enabled, private int64
-		err := tx.QueryRowContext(ctx, `SELECT url, url_key, dedup_mode, disabled_reason, retention, folder_id, custom_title, enabled, allow_private_net
-			FROM feeds WHERE id = ?`, id).Scan(&url, &urlKey, &dedup, &reason, &retention, &folder, &custom, &enabled, &private)
+		err := tx.QueryRowContext(ctx, `SELECT url, url_key, dedup_mode, disabled_reason, retention, folder_id, custom_title, enabled, allow_private_net, user_agent
+			FROM feeds WHERE id = ?`, id).Scan(&url, &urlKey, &dedup, &reason, &retention, &folder, &custom, &enabled, &private, &curUA)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrFeedNotFound
 		}
@@ -164,6 +164,11 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 				if n == 0 {
 					return ErrFolderNotFound
 				}
+			case "user_agent":
+				// The learned browser-UA flag belongs to the old identity.
+				if str, isStr := v.(string); v == nil && curUA.Valid || isStr && (!curUA.Valid || str != curUA.String) {
+					sets = append(sets, "ua_fallback = 0")
+				}
 			case "custom_title":
 				if str, isStr := v.(string); v == nil && custom.Valid || isStr && (!custom.Valid || str != custom.String) {
 					res.Notify = true
@@ -196,7 +201,7 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 				sets = append(sets, "url_original = COALESCE(url_original, url)", "url_original_key = COALESCE(url_original_key, url_key)",
 					"etag = NULL", "last_modified = NULL", "body_hash = NULL", "ttl_hint_s = NULL",
 					"redirect_to = NULL", "redirect_kind = NULL", "redirect_count = 0",
-					"consecutive_failures = 0", "current_delay_s = 0")
+					"consecutive_failures = 0", "current_delay_s = 0", "ua_fallback = 0")
 				set("next_fetch_at", now)
 				res.Changed, res.NeedsFetch, res.Notify = true, true, true
 			}

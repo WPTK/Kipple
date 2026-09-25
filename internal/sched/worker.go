@@ -82,7 +82,7 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			err = cerr
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
 			out.migrated = ci.Migrated
-			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil {
+			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil && !ci.Stale {
 				if uerr := s.db.SetFeedUAFallback(cctx, f.snap.ID); uerr != nil {
 					s.log.Warn("sched: remember browser user agent", "feed", f.snap.ID, "err", uerr)
 				}

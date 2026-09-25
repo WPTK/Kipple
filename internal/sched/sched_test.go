@@ -1049,3 +1049,33 @@ func TestUAModeDefaultNeverRetries(t *testing.T) {
 	require.Equal(t, "error", r.events("fetch.done")[0]["outcome"])
 	require.Zero(t, r.num("SELECT ua_fallback FROM feeds WHERE id = ?", id))
 }
+
+// A fetch whose feed URL is edited while the browser-UA retry is in flight is
+// stale: nothing is committed, so the browser UA must not be learned for the
+// new URL either.
+func TestStaleFetchDoesNotLearnBrowserUA(t *testing.T) {
+	r := newRig(t, Options{})
+	var id atomic.Int64
+	var srv *feedSrv
+	var once sync.Once
+	srv = newSrv(t, func(path string, w http.ResponseWriter, req *http.Request) {
+		if path != "/f" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if !strings.Contains(req.UserAgent(), "Chrome") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		once.Do(func() {
+			nu := srv.URL + "/other"
+			_, err := r.db.PatchFeed(context.Background(), id.Load(), store.FeedPatch{URL: &nu, Cols: map[string]any{}})
+			require.NoError(t, err)
+		})
+		serveOK("", w, req)
+	})
+	id.Store(r.add(srv.URL+"/f", nil))
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	require.Zero(t, r.num("SELECT ua_fallback FROM feeds WHERE id = ?", id.Load()))
+}
