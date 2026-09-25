@@ -159,3 +159,31 @@ func TestExtractUserAgent(t *testing.T) {
 	_, _ = ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, UserAgent: "Feed/2"})
 	require.Equal(t, "Feed/2", ua.Load())
 }
+
+func TestFailuresAreClassifiedTransientOrPermanent(t *testing.T) {
+	var status atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if status.Load() == 200 {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte("<html><body><p>hi</p></body></html>")) // too little to read
+			return
+		}
+		w.WriteHeader(int(status.Load()))
+	}))
+	t.Cleanup(srv.Close)
+	ex := newExtractor(func(o *Options) { o.Transport = fetch.NewClient(fetch.ClientOptions{}).Transport })
+	cases := map[int32]bool{500: true, 502: true, 503: true, 429: true, 404: false, 410: false, 403: false, 401: false}
+	for code, transient := range cases {
+		status.Store(code)
+		_, err := ex.Extract(context.Background(), Target{URL: srv.URL + "/a", AllowPrivate: true})
+		var ee *Error
+		require.ErrorAs(t, err, &ee, code)
+		require.Equal(t, transient, ee.Transient, "HTTP %d", code)
+	}
+	// A refused connection is transient.
+	srv.Close()
+	_, err := ex.Extract(context.Background(), Target{URL: srv.URL + "/a", AllowPrivate: true})
+	var ee *Error
+	require.ErrorAs(t, err, &ee)
+	require.True(t, ee.Transient)
+}

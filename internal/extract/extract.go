@@ -77,16 +77,27 @@ type Result struct {
 }
 
 // Error is an extraction failure with a message safe to show the user.
-type Error struct{ Msg string }
+type Error struct {
+	Msg string
+	// Transient marks a failure worth retrying later (timeout, connection
+	// error, HTTP 5xx or 429). Everything else (404, 403, not readable) is
+	// permanent for the page as it stands.
+	Transient bool
+}
 
 func (e *Error) Error() string { return e.Msg }
 
-func fail(format string, a ...any) error {
+func fail(format string, a ...any) error { return failClass(false, format, a...) }
+
+// failTransient is fail for an error that a later attempt may not repeat.
+func failTransient(format string, a ...any) error { return failClass(true, format, a...) }
+
+func failClass(transient bool, format string, a ...any) error {
 	m := fmt.Sprintf(format, a...)
 	if len(m) > maxErrLen {
 		m = m[:maxErrLen]
 	}
-	return &Error{Msg: m}
+	return &Error{Msg: m, Transient: transient}
 }
 
 // Extract fetches t.URL and returns its readable content.
@@ -119,10 +130,13 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return Result{}, fail("could not fetch the page: %s", cleanErr(err))
+		return Result{}, failTransient("could not fetch the page: %s", cleanErr(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			return Result{}, failTransient("the page answered HTTP %d", resp.StatusCode)
+		}
 		return Result{}, fail("the page answered HTTP %d", resp.StatusCode)
 	}
 	ct := resp.Header.Get("Content-Type")
@@ -131,7 +145,7 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, e.opt.MaxBody+1))
 	if err != nil {
-		return Result{}, fail("could not read the page: %s", cleanErr(err))
+		return Result{}, failTransient("could not read the page: %s", cleanErr(err))
 	}
 	if int64(len(raw)) > e.opt.MaxBody {
 		return Result{}, fail("the page is larger than %d MiB", e.opt.MaxBody>>20)

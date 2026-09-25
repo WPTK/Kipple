@@ -17,6 +17,10 @@ import (
 // extractBudget is the whole synchronous extraction (design §7.1).
 const extractBudget = 15 * time.Second
 
+// transientRetryAfter is how long a stored transient extraction failure is
+// reported as is before opening the article tries again (design §7.5).
+const transientRetryAfter = time.Hour
+
 // ftCall is one in-flight extraction; concurrent requests for the same item
 // share it instead of fetching the page twice.
 type ftCall struct {
@@ -75,6 +79,10 @@ type fulltextResponse struct {
 // extraction it extracts synchronously; ?refresh=1 forces a new attempt, which
 // is also how a failed extraction is retried (a stored failure is reported as
 // is, so opening the article does not refetch a page that already failed).
+// The exception is a transient failure (timeout, connection error, 5xx, 429)
+// last attempted over an hour ago, which the endpoint retries by itself;
+// permanent ones (404, 403, not readable) and failures stored without a class
+// stay sticky.
 func (s *Server) itemFulltext(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathItemID(r)
 	if !ok {
@@ -132,21 +140,23 @@ func (s *Server) itemFulltext(w http.ResponseWriter, r *http.Request) {
 	case it.Effective != 1:
 	case hasGood && !refresh:
 		resp.Status, html, resp.WordCount = "ok", it.HTML, it.Words
-	case it.HasRow && !hasGood && it.Error != "" && !refresh:
+	case it.HasRow && !hasGood && it.Error != "" && !refresh &&
+		!(it.ErrorTransient && s.now().Unix()-it.AttemptedAt > int64(transientRetryAfter/time.Second)):
 		resp.Status, resp.Error = "error", &it.Error
 	default:
 		res, err := s.ftFlights.do(id, func() (extract.Result, error) { return s.extractItem(ctx, it) })
 		var msg string
+		transient := false
 		if err != nil {
 			var ee *extract.Error
 			if errors.As(err, &ee) {
-				msg = ee.Msg
+				msg, transient = ee.Msg, ee.Transient
 			} else {
-				msg = "extraction failed"
+				msg, transient = "extraction failed", true // unexpected: worth another try later
 				s.log.Error("api: fulltext", "err", err)
 			}
 		}
-		save := store.FulltextSave{Error: msg}
+		save := store.FulltextSave{Error: msg, ErrorTransient: transient}
 		if err == nil {
 			save = store.FulltextSave{HTML: res.HTML, Text: res.Text, WordCount: res.WordCount, ImageURL: res.ImageURL, SourceURL: res.SourceURL}
 		}
