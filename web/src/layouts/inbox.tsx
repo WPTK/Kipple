@@ -53,7 +53,7 @@ function InboxRow({ item, selected, checked, to, onOpen, onToggleStar, actions, 
             alt=""
             loading="lazy"
             decoding="async"
-            className={cn("size-14 rounded-lg bg-surface object-cover @max-[22.5rem]:hidden", item.read && "opacity-60")}
+            className={cn("size-14 rounded-lg bg-surface object-cover @max-[20rem]:hidden", item.read && "opacity-60")}
             onError={(e) => {
               e.currentTarget.style.display = "none";
             }}

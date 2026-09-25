@@ -480,28 +480,28 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
   return (
     <section aria-label="Articles" className="flex h-full min-h-0 flex-col">
       {headerNode}
+      {caption ? (
+        <div role="status" className="mx-3 mb-1 flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg">
+          <span className="flex-1">Swipe a row right to mark it read or unread, left to star it or see more.</span>
+          <button
+            type="button"
+            aria-label="Dismiss tip"
+            className="hit inline-flex items-center justify-center rounded-md"
+            onClick={() => {
+              setCaption(false);
+              if (peekOn) endPeek();
+            }}
+          >
+            <X className="size-5" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
       <div className="relative min-h-0 flex-1">
         {showPill ? (
           <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
             <Button variant="solid" className="pointer-events-auto rounded-full shadow-lg" onClick={loadNew}>
               {live.pendingNew} new article{live.pendingNew === 1 ? "" : "s"}
             </Button>
-          </div>
-        ) : null}
-        {caption ? (
-          <div role="status" className="absolute inset-x-3 top-2 z-20 flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg shadow-lg">
-            <span className="flex-1">Swipe a row right to mark it read or unread, left to star it or see more.</span>
-            <button
-              type="button"
-              aria-label="Dismiss tip"
-              className="hit inline-flex items-center justify-center rounded-md"
-              onClick={() => {
-                setCaption(false);
-                if (peekOn) endPeek();
-              }}
-            >
-              <X className="size-5" aria-hidden="true" />
-            </button>
           </div>
         ) : null}
         <div
