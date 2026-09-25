@@ -16,8 +16,11 @@ var (
 
 var youtubeEmbed = regexp.MustCompile(`^https://(www\.)?(youtube\.com|youtube-nocookie\.com)/embed/[A-Za-z0-9_-]+([?&/#][^\s"'<>]*)?$`)
 
+// embedSrc is every iframe source the policy keeps: YouTube and Vimeo players.
+var embedSrc = regexp.MustCompile("(?:" + youtubeEmbed.String() + ")|(?:" + vimeoEmbed.String() + ")")
+
 // FeedPolicy is the bluemonday policy for feed content (design §4.4 step 3):
-// UGCPolicy plus media elements and YouTube embeds, absolute URLs only.
+// UGCPolicy plus media elements and YouTube and Vimeo embeds, absolute URLs only.
 func FeedPolicy() *bluemonday.Policy {
 	policyOnce.Do(func() {
 		p := bluemonday.UGCPolicy()
@@ -34,7 +37,7 @@ func FeedPolicy() *bluemonday.Policy {
 		p.AllowAttrs("src", "controls", "preload", "loop").OnElements("audio")
 		p.AllowURLSchemes("http", "https", "mailto", "tel")
 
-		p.AllowAttrs("src").Matching(youtubeEmbed).OnElements("iframe")
+		p.AllowAttrs("src").Matching(embedSrc).OnElements("iframe")
 		p.AllowAttrs("width", "height", "allowfullscreen", "frameborder").OnElements("iframe")
 		p.RequireSandboxOnIFrame(bluemonday.SandboxAllowScripts, bluemonday.SandboxAllowSameOrigin, bluemonday.SandboxAllowPresentation)
 		policy = p
@@ -45,7 +48,7 @@ func FeedPolicy() *bluemonday.Policy {
 // Content is the per-item content pipeline (design §4.4): resolve URLs against
 // the base chain, sanitize, then derive plain text. It matches fetch.ContentFunc.
 func Content(rawHTML string, bases ...string) (htmlOut, text string) {
-	htmlOut = FeedPolicy().Sanitize(shieldFragments(Absolutize(rawHTML, bases...)))
+	htmlOut = FeedPolicy().Sanitize(shieldFragments(IframesToLinks(Absolutize(rawHTML, bases...))))
 	htmlOut = strings.TrimSpace(unshieldFragments(htmlOut))
 	return htmlOut, PlainText(htmlOut)
 }
