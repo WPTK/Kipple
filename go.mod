@@ -6,6 +6,7 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/mmcdole/gofeed v1.4.2
 	github.com/stretchr/testify v1.12.1
+	golang.org/x/crypto v0.57.0
 	golang.org/x/net v0.59.0
 	golang.org/x/text v0.42.0
 	modernc.org/sqlite v1.59.0
