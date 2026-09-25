@@ -22,19 +22,51 @@ func serve(t *testing.T, ct, body string) string {
 	return srv.URL
 }
 
+func find(t *testing.T, ct, body string) (Result, error) {
+	t.Helper()
+	return Find(context.Background(), http.DefaultTransport, "ua", serve(t, ct, body))
+}
+
+// sized returns a valid feed padded (inside a comment) to exactly n bytes.
+func sized(n int) string {
+	const open, closer = "<!--", "-->"
+	pad := n - len(atom) - len(open) - len(closer)
+	return strings.Replace(atom, "<title>T</title>", "<title>T</title>"+open+strings.Repeat("x", pad)+closer, 1)
+}
+
 func TestFeedServedAsTextHTML(t *testing.T) {
-	res, err := Find(context.Background(), http.DefaultTransport, "ua", serve(t, "text/html; charset=utf-8", atom))
+	res, err := find(t, "text/html; charset=utf-8", atom)
 	require.NoError(t, err)
 	require.True(t, res.IsFeed)
 }
 
-func TestLargeFeedAndOverflow(t *testing.T) {
-	pad := "<!-- " + strings.Repeat("x", 5<<20) + " -->"
-	res, err := Find(context.Background(), http.DefaultTransport, "ua", serve(t, "application/atom+xml", strings.Replace(atom, "<title>T</title>", "<title>T</title>"+pad, 1)))
+// The label is ignored, but a real page is still recognised as a page whatever
+// it is called, and its advertised feeds are still found.
+func TestHTMLPageStillListsCandidatesWhateverItsContentType(t *testing.T) {
+	page := `<!doctype html><html><head><link rel="alternate" type="application/atom+xml" href="https://blog.example.com/feed.xml"></head><body>hi</body></html>`
+	for _, ct := range []string{"text/html", "text/plain", "application/octet-stream"} {
+		res, err := find(t, ct, page)
+		require.NoError(t, err, ct)
+		require.False(t, res.IsFeed, ct)
+		require.NotEmpty(t, res.Candidates, ct)
+	}
+}
+
+func TestFeedBeyondOldTwoMiBLimit(t *testing.T) {
+	res, err := find(t, "application/atom+xml", sized(5<<20))
 	require.NoError(t, err)
 	require.True(t, res.IsFeed)
+}
 
-	huge := atom + strings.Repeat(" ", maxBody)
-	_, err = Find(context.Background(), http.DefaultTransport, "ua", serve(t, "application/atom+xml", huge))
+func TestFeedExactlyAtLimitIsAccepted(t *testing.T) {
+	res, err := find(t, "application/atom+xml", sized(maxBody))
+	require.NoError(t, err)
+	require.True(t, res.IsFeed)
+}
+
+func TestOneByteOverLimitIsTooLarge(t *testing.T) {
+	_, err := find(t, "application/atom+xml", sized(maxBody+1))
 	require.ErrorIs(t, err, ErrTooLarge)
+	_, err = find(t, "text/html", sized(maxBody+1000))
+	require.ErrorIs(t, err, ErrTooLarge, "the label does not matter")
 }

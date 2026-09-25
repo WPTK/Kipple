@@ -1147,3 +1147,22 @@ func (c *countingRecorder) Record(*sql.Tx, stats.Event) error {
 	c.n.Add(1)
 	return nil
 }
+
+// Counts events cannot go out of order: publishCounts takes pubMu around query+publish, so a
+// publish cannot start while another one holds it.
+func TestPublishCountsIsSerialized(t *testing.T) {
+	h := newHarness(t)
+	sub := h.hub.Subscribe(0)
+	defer sub.Close()
+	h.srv.pubMu.Lock()
+	done := make(chan struct{})
+	go func() { h.srv.publishCounts(); close(done) }()
+	require.Empty(t, drain(sub, "counts", 100*time.Millisecond), "blocked while another publish is in progress")
+	h.srv.pubMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("publishCounts never finished")
+	}
+	require.Len(t, drain(sub, "counts", 100*time.Millisecond), 1)
+}
