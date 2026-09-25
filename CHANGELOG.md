@@ -68,6 +68,13 @@ Phase 2 (reading UI backend) so far.
 
 ### Changed
 
+- Article HTML served to the web UI goes through one serve-time pass (`sanitize.ServeHTML`): links open in a
+  new tab with `rel="noopener noreferrer"` and lose tracking parameters (new setting `links.strip_tracking`,
+  default on; card and detail `url` too), ids and in-page anchors get a `kp-` prefix, YouTube and Vimeo iframes become
+  click-to-load placeholders with a proxied thumbnail, and audio and video get controls, `preload="none"` and no autoplay.
+  Stored HTML and Reader API output are unchanged.
+- At ingest, an iframe that is not YouTube or Vimeo becomes a link ("Embedded content from host") instead of
+  vanishing; Vimeo player iframes are now kept. New items only.
 - The status page script moved to `/_status.js` so the page runs under the strict CSP.
 - Full-text extraction runs through one shared runner (`internal/ftrun`) for the ingest pool and
   `POST /api/items/{id}/fulltext`: opening an item the pool is extracting joins that run instead of

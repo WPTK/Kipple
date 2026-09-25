@@ -867,7 +867,8 @@ doneCh <- workerExit
 - **Content pipeline per item** (`internal/sanitize`):
   1. Resolve the item link against the final feed URL.
   2. Parse the content HTML with `x/net/html` and resolve every URL attribute (`a[href]`, `img[src]`, `img[srcset]` and `source[srcset]` candidate by candidate, `video[poster]`, `video[src]`, `audio[src]`, `source[src]`) against the base chain `xml:base` → item link → `site_url` → final feed URL.
-  3. bluemonday feed policy with `RequireParseableURLs(true)` and `AllowRelativeURLs(false)`.
+  2a. **Iframe pre-pass** (`IframesToLinks`, before bluemonday). A YouTube or Vimeo (`player.vimeo.com/video/ID`) iframe is kept for the policy. Any other iframe with an absolute http(s) source becomes `<p><a href="src">Embedded content from host</a></p>` (its content is dropped); an iframe without a usable source is dropped. Markup with no iframe is unchanged byte for byte, so only new items with a foreign iframe differ from before.
+  3. bluemonday feed policy with `RequireParseableURLs(true)` and `AllowRelativeURLs(false)`. Iframes survive only for YouTube and Vimeo sources.
   4. Plain text via `StrictPolicy`, word count, and the lead image (absolute).
   5. `content_hash` and `text_hash`.
 
@@ -1631,7 +1632,7 @@ The React app reconciles by item id. For `new_item_ids` inside the current view 
 
   The proxy checks `sig` with `hmac.Equal` **and** requires a web session. It uses the transport variant that `flags` selects.
 - **Which images.** With `imgproxy.mode`: `http_only` (the default: `http://` sources only) or `all`. Stored URLs are always absolute (decision 31), so every image can be signed. Kipple's own `/img/` route can no longer collide with a relative `/img/foo.png`.
-- **Rewrite.** At serve time only (`GET /api/items/{id}`, cards, the fulltext response), in `internal/sanitize`. It covers `img[src]`, every `srcset` candidate, `video[poster]`, the card `image`, and `picture > source[srcset]`. Stored HTML and Reader API output are never rewritten.
+- **Rewrite.** At serve time only (`GET /api/items/{id}`, cards, the fulltext response), in `internal/sanitize` (`ServeHTML` for article HTML, §7.8; the card `image` and `url` directly). It covers `img[src]`, every `srcset` candidate, `video[poster]`, the card `image`, and `picture > source[srcset]`. Stored HTML and Reader API output are never rewritten.
 - **Fetch.** Through the SSRF-guarded client variant, with `Accept: image/*`, no cookies, no `Referer`, and a 15 s timeout.
 - **Size.** If the upstream `Content-Length` is over 15 MiB, the proxy returns 502 before writing anything. Otherwise it streams through a `MaxBytesReader` of 15 MiB. On overflow mid-stream it aborts the response (`panic(http.ErrAbortHandler)`), so the browser sees a broken image and nothing is buffered. Only the first 512 bytes are held for sniffing.
 - **Type check.** Allowed types are `image/jpeg`, `png`, `gif`, `webp` and `avif`. SVG is refused.
@@ -1703,6 +1704,25 @@ are chosen when the response starts, from its `Content-Type`, so there is no rou
 - The frontend must therefore: ship no inline `<script>`, no `eval`/`new Function`, no inline event handlers (`onclick=`);
   keep fonts as files (no `data:` font URLs); use `fetch`/`EventSource` against its own origin only; create
   embed iframes only for the two hosts above; set `referrerpolicy="strict-origin-when-cross-origin"` on those iframes.
+
+### 7.8 Serve-time HTML transform (`sanitize.ServeHTML`)
+
+One tokenizer pass over stored article HTML for the detail, open and fulltext responses. Stored HTML, the Reader API and
+item ids never see it; it is idempotent (its output passes through unchanged). Untouched markup is emitted byte for byte.
+
+| Element | Transform |
+|---|---|
+| `a[href]` http(s) | `target="_blank" rel="noopener noreferrer"`; with `links.strip_tracking` (default on) the parameters `utm_*`, `fbclid`, `gclid`, `dclid`, `yclid`, `mc_cid`, `mc_eid`, `igshid`, `_hsenc`, `_hsmi`, `mkt_tok`, `oly_anon_id`, `oly_enc_id`, `vero_id`, `ref_src` are removed, the rest keep their order and spelling. The card and detail `url` are stripped the same way. `items.url` and uids are never touched |
+| `a[href]` other | `mailto:` and `tel:` stay; any other scheme (`javascript:`, `data:`, relative) loses its `href` |
+| `[id]`, `[name]`, `a[href="#x"]` | prefixed `kp-` / `#kp-x` (no DOM clobbering; footnotes keep working). The client handles clicks on `a[href^="#kp-"]` by scrolling inside the article container |
+| YouTube `iframe` | `<figure class="kp-embed" data-provider="youtube" data-id="ID"><img src="/img/… of i.ytimg.com/vi/ID/hqdefault.jpg" alt=""><a href="https://www.youtube.com/watch?v=ID" target="_blank" rel="noopener noreferrer">Watch on YouTube</a></figure>`. The thumbnail is always proxied, even in `http_only` mode, so nothing contacts YouTube before the tap. On tap the client inserts an iframe at `https://www.youtube-nocookie.com/embed/ID?autoplay=1` with `sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"`, `allow="autoplay; fullscreen; picture-in-picture"` and `referrerpolicy="strict-origin-when-cross-origin"` (YouTube refuses embeds without a Referer, player error 153; this sends the origin only, only on the tap) |
+| Vimeo `iframe` | the same figure with `data-provider="vimeo"`, no thumbnail, link `https://vimeo.com/ID`; on tap `https://player.vimeo.com/video/ID?dnt=1&autoplay=1` with the same sandbox and referrer policy |
+| other `iframe` | removed with its content (new items never have one: the ingest pre-pass turned it into a link) |
+| `video`, `audio` | `preload="none"`, `controls` added, `autoplay` removed. An `http://` `src` replaces the element with `<p><a>Open video</a></p>`; `http://` `<source>` children are dropped, and if none is left the same link follows the element (mixed content otherwise) |
+| images | as §7.4 (`img[src]`, `srcset`, `video[poster]`, `picture > source`) |
+| defense in depth | `script`, `style`, `template`, `object`, `applet`, `frameset` (with content), `embed`, `base`, `meta`, `link`, `frame`, `param`, and the attributes `on*`, `style`, `srcdoc`, `action`, `formaction` are dropped even though bluemonday already removed them at ingest |
+
+`links.strip_tracking` is an account setting (group reading, Settings screen): "Remove tracking from links".
 
 ---
 
@@ -1801,7 +1821,7 @@ internal/fetch          client.go (transports, ssrf.go guard, UA, timeouts, hop 
                         text_hash, in-document duplicates, churn/dup detection), errors.go (classification),
                         backoff.go (pure NextOnSuccess/NextOnFailure; injected clock + rand), redirect.go
                         (policy decision), discover.go (autodiscovery, favicon finder; UI path only by default)
-internal/sanitize       absolutize.go (URL attribute resolution, base chain), bluemonday feed policy
+internal/sanitize       absolutize.go (URL attribute resolution, base chain), bluemonday feed policy, iframes.go (ingest pre-pass), serve.go (ServeHTML, StripTracking)
                         (RequireParseableURLs, no relative URLs), plain text + word count, lead-image pick,
                         serve-time proxy rewrite
 internal/readability    go-readabilityV2 pipeline (guarded fetch, charset, absolutize, sanitize, text, image)

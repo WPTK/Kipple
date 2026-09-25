@@ -81,10 +81,22 @@ func (s *Server) imageRewriters(ctx context.Context, feedIDs []int64) func(feedI
 	}
 }
 
-// proxyCards rewrites each card's lead image through the proxy.
+// stripLinks reports whether serve-time link tracking removal is on
+// (links.strip_tracking, default on).
+func (s *Server) stripLinks(ctx context.Context) bool {
+	return s.db.BoolSetting(ctx, "links.strip_tracking", true)
+}
+
+// proxyCards rewrites each card's lead image through the proxy and strips
+// tracking parameters from its link. Stored URLs are never touched.
 func (s *Server) proxyCards(ctx context.Context, cards []store.Card) {
 	if len(cards) == 0 {
 		return
+	}
+	if s.stripLinks(ctx) {
+		for i := range cards {
+			cards[i].URL = sanitize.StripTracking(cards[i].URL)
+		}
 	}
 	ids := make([]int64, 0, len(cards))
 	for _, c := range cards {
@@ -104,18 +116,35 @@ func (s *Server) proxyCards(ctx context.Context, cards []store.Card) {
 	}
 }
 
-// proxyDetail rewrites an item's lead image and content HTML.
-func (s *Server) proxyDetail(ctx context.Context, det *store.ItemDetail) {
-	rw := s.imageRewriters(ctx, []int64{det.FeedID})
-	if rw == nil {
-		return
+// serveOptions builds the sanitize.ServeHTML options for one feed's article.
+func (s *Server) serveOptions(ctx context.Context, feedID int64) sanitize.ServeOptions {
+	opt := sanitize.ServeOptions{StripTracking: s.stripLinks(ctx)}
+	if secret, ok := s.imageSecret(ctx); ok {
+		if flags, err := s.db.FeedImageFlags(ctx, []int64{feedID}); err != nil {
+			s.log.Error("api: image flags", "err", err)
+		} else {
+			all := s.db.StringSetting(ctx, "imgproxy.mode", "http_only") == "all"
+			opt.Image = imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: all}.Rewrite
+			// Embed thumbnails always go through the proxy, whatever the mode:
+			// the point of click-to-load is that nothing contacts YouTube first.
+			opt.Thumb = imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: true}.Rewrite
+		}
 	}
-	fn := rw(det.FeedID)
-	if det.Image != nil {
-		img := fn(*det.Image)
+	return opt
+}
+
+// proxyDetail applies the serve-time transform (design 7.8) to an item's lead
+// image, link and content HTML.
+func (s *Server) proxyDetail(ctx context.Context, det *store.ItemDetail) {
+	opt := s.serveOptions(ctx, det.FeedID)
+	if det.Image != nil && opt.Image != nil {
+		img := opt.Image(*det.Image)
 		det.Image = &img
 	}
-	det.ContentHTML = sanitize.RewriteImages(det.ContentHTML, fn)
+	if opt.StripTracking {
+		det.URL = sanitize.StripTracking(det.URL)
+	}
+	det.ContentHTML = sanitize.ServeHTML(det.ContentHTML, opt)
 }
 
 // ImgMode is the current imgproxy.mode ("all" or "http_only"), served from an

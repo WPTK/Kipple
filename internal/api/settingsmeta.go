@@ -185,6 +185,9 @@ var settingDefs = []settingDef{
 	{Key: "ui.mark_read_on_scroll", Label: "Mark articles read as I scroll", Description: "Articles you scroll past in the list are marked read automatically.",
 		Group: groupReading, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
+	{Key: "links.strip_tracking", Label: "Remove tracking from links", Description: "Take tracking parameters such as utm_source and fbclid out of the links in articles, so opening one tells the site less about where you came from. The stored article and what sync apps see are not changed.",
+		Group: groupReading, Kind: "bool", Surface: surfaceSettings, check: boolVal},
+
 	// Sync.
 	{Key: "refresh.interval_minutes", Label: "How often to check feeds", Description: "Kipple looks for new articles this often, unless a feed sets its own schedule.",
 		Group: groupSync, Kind: "int", Min: ip(5), Max: ip(1440), Step: ip(5), Unit: "minutes", Surface: surfaceSettings, check: intIn(5, 1440)},

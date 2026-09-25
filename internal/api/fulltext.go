@@ -132,9 +132,7 @@ func (s *Server) itemFulltext(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if html != "" {
-		if rw := s.imageRewriters(ctx, []int64{it.FeedID}); rw != nil {
-			html = sanitize.RewriteImages(html, rw(it.FeedID))
-		}
+		html = sanitize.ServeHTML(html, s.serveOptions(ctx, it.FeedID))
 		resp.ContentHTML = &html
 	}
 	writeJSON(w, http.StatusOK, resp)

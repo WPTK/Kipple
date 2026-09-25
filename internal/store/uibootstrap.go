@@ -21,6 +21,7 @@ var DefaultSettings = map[string]any{
 	"stats.api_single_read_is_open": false,
 	"imgproxy.mode":                 "http_only",
 	"greader.icon_urls":             false,
+	"links.strip_tracking":          true,
 
 	// Named by design §2.2 but not yet read by any code (greader/ui phases).
 	"greader.ot_includes_user_changes": false,
