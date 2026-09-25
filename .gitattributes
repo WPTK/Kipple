@@ -11,3 +11,4 @@
 *.gif binary
 *.webp binary
 *.avif binary
+internal/fetch/testdata/charset-*.xml binary
