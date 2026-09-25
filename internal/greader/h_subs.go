@@ -447,7 +447,7 @@ type unreadCountJSON struct {
 
 // unreadCount is GET unread-count (FeedMe-class clients).
 func (c *call) unreadCount() {
-	rows, err := c.a.db.UnreadCounts(c.r.Context())
+	rows, err := c.a.db.UnreadCounts(c.r.Context(), c.a.holdCut())
 	if err != nil {
 		c.serverError("unread-count", err)
 		return

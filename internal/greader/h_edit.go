@@ -193,7 +193,7 @@ func (c *call) markAllAsRead() {
 		c.ok()
 		return
 	}
-	scope := store.MarkScope{FeedID: f.FeedID, FolderID: f.FolderID, Starred: len(f.Starred) > 0}
+	scope := store.MarkScope{FeedID: f.FeedID, FolderID: f.FolderID, Starred: len(f.Starred) > 0, HoldCut: c.a.holdCut()}
 	ts, ok := normalizeTS(c.p.Get("ts"))
 	if !ok {
 		if ts, err = c.a.db.MaxCommittedID(ctx); err != nil {

@@ -46,9 +46,37 @@ type Options struct {
 	PublicURL string
 	// LogForms (KIPPLE_LOG_GREADER_FORMS) adds redacted, truncated form values to the debug log.
 	LogForms bool
+	// FulltextHold is how long a new item of a full-text feed is held back from
+	// the Reader API while its extraction is pending (design §6.5). Zero means
+	// DefaultFulltextHold, negative disables the hold; it is capped at
+	// MaxFulltextHold so it stays inside the ot slack.
+	FulltextHold time.Duration
 	// Now and Sleep default to the wall clock (tests).
 	Now   func() time.Time
 	Sleep func(ctx context.Context, d time.Duration)
+}
+
+const (
+	// DefaultFulltextHold is the default hold window, measured from the item's crawl time.
+	DefaultFulltextHold = 30 * time.Second
+	// MaxFulltextHold caps the hold at half the 120 s ot slack (design §3), so an
+	// ot taken while an item was held still reaches it on the next sync.
+	MaxFulltextHold = 60 * time.Second
+)
+
+// holdCut is the id (crawl time in microseconds) above which a pending full-text
+// item is held; 0 disables the hold. Read once per request.
+func (a *API) holdCut() int64 {
+	w := a.opt.FulltextHold
+	switch {
+	case w < 0:
+		return 0
+	case w == 0:
+		w = DefaultFulltextHold
+	case w > MaxFulltextHold:
+		w = MaxFulltextHold
+	}
+	return a.now().Add(-w).UnixMicro()
 }
 
 // API is the Reader API handler set.

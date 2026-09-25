@@ -415,12 +415,21 @@ type UnreadRow struct {
 }
 
 // UnreadCounts returns per-feed unread counts (never counting ledger rows).
-func (d *DB) UnreadCounts(ctx context.Context) ([]UnreadRow, error) {
+//
+// holdCut > 0 leaves out items held back from the Reader API (HeldSQL), so the
+// counts match what the listings return.
+func (d *DB) UnreadCounts(ctx context.Context, holdCut int64) ([]UnreadRow, error) {
+	held := ""
+	var args []any
+	if holdCut > 0 {
+		held = " AND NOT " + HeldSQL
+		args = append(args, sql.Named("hold_cut", holdCut))
+	}
 	rows, err := d.reader.QueryContext(ctx, `
 		SELECT u.feed_id, fo.name, u.n, u.newest
-		FROM (SELECT feed_id, count(*) AS n, max(id) AS newest FROM items WHERE read = 0 GROUP BY feed_id) u
+		FROM (SELECT feed_id, count(*) AS n, max(id) AS newest FROM items WHERE read = 0`+held+` GROUP BY feed_id) u
 		JOIN feeds f ON f.id = u.feed_id JOIN folders fo ON fo.id = f.folder_id
-		ORDER BY fo.position, fo.name, f.position, u.feed_id`)
+		ORDER BY fo.position, fo.name, f.position, u.feed_id`, args...)
 	if err != nil {
 		return nil, err
 	}

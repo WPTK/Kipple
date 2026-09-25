@@ -190,6 +190,9 @@ type MarkScope struct {
 	FeedID   int64
 	FolderID int64
 	Starred  bool // starred items only; the ledger is skipped (starred items are never in it)
+	// HoldCut > 0 leaves out items held back from the Reader API (HeldSQL): a client
+	// cannot have seen them, so its mark-all must not read them.
+	HoldCut int64
 }
 
 // MarkAllRead marks unread items with id <= maxID read inside scope, and the
@@ -207,7 +210,12 @@ func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now in
 	case scope.Starred:
 		where = " AND starred = 1"
 	}
-	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere, args...)
+	itemArgs, held := args, ""
+	if scope.HoldCut > 0 {
+		held = " AND NOT " + HeldSQL
+		itemArgs = append(append([]any{}, args...), sql.Named("hold_cut", scope.HoldCut))
+	}
+	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere+held, itemArgs...)
 	if err != nil {
 		return 0, err
 	}
