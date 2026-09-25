@@ -147,6 +147,10 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- Nightly job after a time zone change: the last run is recorded as an absolute instant and read in the
+  new zone's calendar, so moving `tz` to a zone further behind no longer skips about a day (the old zone's
+  date string compared as "tomorrow"). A night missed while the server was down now runs 5 minutes after
+  startup instead of on the first tick, so it no longer overlaps the startup fetch burst.
 - `kipple restore` from a bare `.db` now applies a `-wal` beside it, so undoing a restore from a
   `pre-restore-*` copy no longer drops the transactions that were only in the WAL after an unclean stop.
 - Two `kipple restore` runs within one second no longer share a `pre-restore-*` directory (`-2`, `-3`

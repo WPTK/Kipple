@@ -27,6 +27,9 @@ const (
 	// DefaultNightlyAt is the time of day of the nightly job (04:10 in the
 	// `tz` setting, design §2.6), as an offset from midnight.
 	DefaultNightlyAt = 4*time.Hour + 10*time.Minute
+	// DefaultCatchUpDelay holds back a nightly run that was due while the server
+	// was down, so it does not overlap the startup fetch burst.
+	DefaultCatchUpDelay = 5 * time.Minute
 
 	hourly   = time.Hour
 	tickEach = time.Minute
@@ -50,6 +53,9 @@ type Options struct {
 	BatchSize int           // default DefaultBatchSize
 	Pause     time.Duration // between batches; default DefaultPause
 	NightlyAt time.Duration // time of day in the tz setting; default DefaultNightlyAt
+	// CatchUpDelay is how long after Start a run that was already due before
+	// Start waits; default DefaultCatchUpDelay, negative for none.
+	CatchUpDelay time.Duration
 
 	// OnJob, if set, is called after every job (tests).
 	OnJob func(Job)
@@ -79,6 +85,9 @@ func New(o Options) *Maint {
 	}
 	if o.NightlyAt <= 0 {
 		o.NightlyAt = DefaultNightlyAt
+	}
+	if o.CatchUpDelay == 0 {
+		o.CatchUpDelay = DefaultCatchUpDelay
 	}
 	m := &Maint{o: o, clk: o.Clock, log: o.Logger}
 	if m.clk == nil {
@@ -129,15 +138,32 @@ func nightlyPassed(now time.Time, at time.Duration, loc *time.Location) bool {
 	return !now.Before(time.Date(y, mo, d, int(at/time.Hour), int(at%time.Hour/time.Minute), 0, 0, loc))
 }
 
-// baseline is the "already covered" date for a Maint that has never run: the
-// local date of start when the nightly time is already behind it (the run is
-// tomorrow's), else the day before (the run is today's).
-func baseline(start time.Time, at time.Duration, loc *time.Location) string {
-	l := start.In(loc)
+// baseline is the instant of the run "already covered" for a Maint that has never
+// run: start itself when the nightly time is already behind it (the run is
+// tomorrow's), else the same time yesterday (the run is today's). Being an
+// instant, it reads as the right local date in whatever zone is asked.
+func baseline(start time.Time, at time.Duration, loc *time.Location) time.Time {
 	if nightlyPassed(start, at, loc) {
-		return l.Format(dateFmt)
+		return start
 	}
-	return l.AddDate(0, 0, -1).Format(dateFmt)
+	return start.AddDate(0, 0, -1)
+}
+
+// lastRun is the instant of the last nightly run: the recorded one, else (a
+// database from before the instant was stored) the nightly time on the recorded
+// local date, else the baseline.
+func (m *Maint) lastRun(ctx context.Context, start time.Time, loc *time.Location) time.Time {
+	q := m.o.DB.Reader()
+	if t, ok := store.NightlyAt(ctx, q); ok {
+		return t
+	}
+	if d := store.NightlyDate(ctx, q); d != "" {
+		if day, err := time.ParseInLocation(dateFmt, d, loc); err == nil {
+			y, mo, dd := day.Date()
+			return time.Date(y, mo, dd, int(m.o.NightlyAt/time.Hour), int(m.o.NightlyAt%time.Hour/time.Minute), 0, 0, loc)
+		}
+	}
+	return baseline(start, m.o.NightlyAt, loc)
 }
 
 // zone resolves the `tz` setting (design 2.6). An unknown name keeps prev (the
@@ -162,14 +188,16 @@ func (m *Maint) run(ctx context.Context, done chan struct{}, tick <-chan time.Ti
 	defer stopTick()
 	var badTZ string
 	loc := store.LoadLocation(ctx, m.o.DB.Reader()) // an unknown name is warned about on the first tick
-	// last is the local date (in the zone it ran under) of the last nightly run.
-	// The nightly job runs when the local date is later than last and the time
-	// of day has passed, so it runs once per local date, and a zone change can
-	// neither repeat a date nor skip one. It survives restarts.
-	last := baseline(start, m.o.NightlyAt, loc)
-	if p := store.NightlyDate(ctx, m.o.DB.Reader()); p != "" {
-		last = p // an older date means downtime over a run time: catch up on the first tick
-	}
+	// last is the instant of the last nightly run. The job runs when the local
+	// date now is later than the date of that instant IN THE ZONE NOW IN USE and the
+	// time of day has passed, so it runs once per local date, and a zone change
+	// (even to one further behind, where the old zone's date would read as
+	// "tomorrow") neither repeats a date nor skips one. It survives restarts.
+	last := m.lastRun(ctx, start, loc)
+	// catchUp: a run was already due when the process started (it was down over a
+	// run time). Only that one waits (CatchUpDelay); a run that falls due later,
+	// a zone change included, does not.
+	catchUp := m.o.CatchUpDelay > 0 && start.In(loc).Format(dateFmt) > last.In(loc).Format(dateFmt) && nightlyPassed(start, m.o.NightlyAt, loc)
 	lastCheckpoint := start
 	for {
 		select {
@@ -183,8 +211,15 @@ func (m *Maint) run(ctx context.Context, done chan struct{}, tick <-chan time.Ti
 			m.checkpoint(ctx)
 		}
 		loc = m.zone(ctx, loc, &badTZ)
-		if today := now.In(loc).Format(dateFmt); today > last && nightlyPassed(now, m.o.NightlyAt, loc) {
-			last = today
+		today := now.In(loc).Format(dateFmt)
+		if today > last.In(loc).Format(dateFmt) && nightlyPassed(now, m.o.NightlyAt, loc) {
+			// A run that was already due before this process started waits a few
+			// minutes so it does not overlap the startup fetch burst.
+			if catchUp && now.Sub(start) < m.o.CatchUpDelay {
+				continue
+			}
+			catchUp = false
+			last = now
 			// Recorded before the run: a crash mid-run is not retried in a loop.
 			if err := m.o.DB.RecordNightlyDate(ctx, today, now.Unix()); err != nil && ctx.Err() == nil {
 				m.log.Error("maint: record nightly date", "err", err)

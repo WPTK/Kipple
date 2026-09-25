@@ -262,13 +262,14 @@ func TestNightlyPassedAndBaseline(t *testing.T) {
 	at := DefaultNightlyAt
 	require.False(t, nightlyPassed(local(23, 4, 9), at, newYork))
 	require.True(t, nightlyPassed(local(23, 4, 10), at, newYork))
-	require.Equal(t, "2026-09-22", baseline(local(23, 3, 59), at, newYork), "today's run is still ahead")
-	require.Equal(t, "2026-09-23", baseline(local(23, 4, 10), at, newYork), "today's time has passed: the run is tomorrow's")
+	day := func(t time.Time, loc *time.Location) string { return t.In(loc).Format(dateFmt) }
+	require.Equal(t, "2026-09-22", day(baseline(local(23, 3, 59), at, newYork), newYork), "today's run is still ahead")
+	require.Equal(t, "2026-09-23", day(baseline(local(23, 4, 10), at, newYork), newYork), "today's time has passed: the run is tomorrow's")
 	tokyo, err := time.LoadLocation("Asia/Tokyo")
 	require.NoError(t, err)
 	// 03:59 in New York is 16:59 in Tokyo the same date.
 	require.True(t, nightlyPassed(local(23, 3, 59), at, tokyo))
-	require.Equal(t, "2026-09-23", baseline(local(23, 3, 59), at, tokyo))
+	require.Equal(t, "2026-09-23", day(baseline(local(23, 3, 59), at, tokyo), tokyo))
 }
 
 func (e *env) setTZ(name string) {
@@ -292,8 +293,8 @@ func TestTzChangeAfterTheRunDoesNotRunTwiceOrSkip(t *testing.T) {
 		// minutes from 04:20 NY on the 23rd to the next expected run
 		wait time.Duration
 	}{
-		{"Asia/Tokyo", 10*time.Hour + 50*time.Minute},       // Tokyo 04:10 on the 24th is 15:10 NY on the 23rd
-		{"Pacific/Honolulu", 29*time.Hour + 50*time.Minute}, // HST 04:10 on the 24th is 10:10 NY on the 24th
+		{"Asia/Tokyo", 10*time.Hour + 50*time.Minute}, // Tokyo 04:10 on the 24th is 15:10 NY on the 23rd
+		// Honolulu is behind: see TestTzChangeToAZoneBehindDoesNotSkipALocalDate.
 		{"America/Los_Angeles", 26*time.Hour + 50*time.Minute},
 	} {
 		t.Run(tc.zone, func(t *testing.T) {
@@ -311,6 +312,57 @@ func TestTzChangeAfterTheRunDoesNotRunTwiceOrSkip(t *testing.T) {
 			e.nightlyOnce(200 * time.Millisecond)
 		})
 	}
+}
+
+// The last run was recorded as an instant, so a zone further behind reads it in
+// ITS calendar: the run at 04:11 NY on the 23rd is 22:11 on the 22nd in Honolulu, and
+// Honolulu's own 23rd has not run. Comparing the old zone's date string (the 23rd)
+// used to skip that date and wait about a day longer.
+func TestTzChangeToAZoneBehindDoesNotSkipALocalDate(t *testing.T) {
+	e := newEnv(t, local(23, 3, 59))
+	e.start(Options{})
+	e.clk.Advance(12 * time.Minute) // 04:11 NY: the run for the 23rd
+	e.nightlyOnce(200 * time.Millisecond)
+
+	e.setTZ("Pacific/Honolulu")
+	e.clk.Advance(9 * time.Minute) // 04:20 NY = 22:20 on the 22nd in Honolulu
+	e.noNightly(300 * time.Millisecond)
+	e.clk.Advance(5*time.Hour + 49*time.Minute) // 10:09 NY = 04:09 on the 23rd in Honolulu
+	e.noNightly(300 * time.Millisecond)
+	e.clk.Advance(time.Minute) // Honolulu 04:10 on the 23rd
+	e.nightlyOnce(200 * time.Millisecond)
+	e.clk.Advance(24 * time.Hour) // and the 24th
+	e.nightlyOnce(200 * time.Millisecond)
+}
+
+// A night missed while the server was down runs a few minutes after startup, not
+// on the first tick, so it does not overlap the startup fetch burst.
+func TestCatchUpRunWaitsAfterStartup(t *testing.T) {
+	e := newEnv(t, local(23, 3, 59))
+	m := e.start(Options{})
+	e.clk.Advance(12 * time.Minute)
+	e.nightlyOnce(200 * time.Millisecond)
+	m.Stop()
+
+	e.clk.Advance(48 * time.Hour) // down across two run times: 04:11 on the 25th
+	e.start(Options{})
+	e.clk.Advance(time.Minute)
+	e.noNightly(300 * time.Millisecond)
+	e.clk.Advance(3 * time.Minute) // 4 minutes after start
+	e.noNightly(300 * time.Millisecond)
+	e.clk.Advance(time.Minute) // 5 minutes
+	e.nightlyOnce(200 * time.Millisecond)
+}
+
+// The delay is only for the catch-up: an on-schedule run is not held back, and a
+// database that recorded only the local date (before the instant existed) still works.
+func TestOnScheduleRunHasNoDelayAndOldDateSettingStillWorks(t *testing.T) {
+	e := newEnv(t, local(23, 3, 59))
+	e.exec(`INSERT INTO settings(key, value, updated_at) VALUES('sys.last_nightly_date', '"2026-09-22"', 1)`)
+	e.start(Options{})
+	e.clk.Advance(12 * time.Minute) // 04:11: due, and the server was up over the run time
+	e.nightlyOnce(200 * time.Millisecond)
+	require.Equal(t, 1, e.count(`SELECT count(*) FROM settings WHERE key = 'sys.last_nightly_at'`))
 }
 
 // Moving the zone earlier before the night's run must not skip that date: the

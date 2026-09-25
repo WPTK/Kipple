@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // The functions here are the SQL half of the maintenance goroutine (design
@@ -245,11 +246,30 @@ func NightlyDate(ctx context.Context, q Querier) string {
 	return settingString(ctx, q, "sys.last_nightly_date", "")
 }
 
-// RecordNightlyDate stores the local date of a nightly run that has started.
+// NightlyAt is the absolute instant of the last nightly run that started
+// (sys.last_nightly_at, RFC 3339 UTC). It is what a time zone change is judged
+// against: the run's local date depends on the zone asking. ok is false when
+// none is recorded (a database from before it existed has only NightlyDate).
+func NightlyAt(ctx context.Context, q Querier) (t time.Time, ok bool) {
+	s := settingString(ctx, q, "sys.last_nightly_at", "")
+	if s == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	return t, err == nil
+}
+
+// RecordNightlyDate stores a nightly run that has started: its local date (in
+// the zone then current) and the absolute instant.
 func (d *DB) RecordNightlyDate(ctx context.Context, date string, now int64) error {
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES('sys.last_nightly_date', ?1, ?2)
-			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, jsonString(date), now)
-		return err
+		at := time.Unix(now, 0).UTC().Format(time.RFC3339)
+		for _, kv := range [][2]string{{"sys.last_nightly_date", date}, {"sys.last_nightly_at", at}} {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
+				ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, kv[0], jsonString(kv[1]), now); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
