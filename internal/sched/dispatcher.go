@@ -358,6 +358,10 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 		answer(Reply{FeedID: req.p.FeedID, Err: ErrStopped})
 		return
 	}
+	// Known and latent (review #18, deliberately not changed): a request for a
+	// feed that is already in flight only borrows that job's reply. Its intent
+	// (Full refetch, a trim, a different trigger) is not applied, so it gets the
+	// outcome of whatever is running. No caller depends on more today.
 	if f, busy := s.flights[req.p.FeedID]; busy {
 		f.replies = append(f.replies, req.reply) // it answers when the running job does
 		return
