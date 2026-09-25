@@ -30,8 +30,6 @@ type Config struct {
 	FetchPerHost    int           // KIPPLE_FETCH_PER_HOST, default 2
 	LogLevel        slog.Level    // KIPPLE_LOG_LEVEL, default info
 	LogGreaderForms bool          // KIPPLE_LOG_GREADER_FORMS, default false
-	CFAccessTeam    string        // KIPPLE_CF_ACCESS_TEAM, optional
-	CFAccessAUD     string        // KIPPLE_CF_ACCESS_AUD, optional
 }
 
 const (
@@ -53,15 +51,13 @@ func Load() (Config, error) {
 // environment.
 func load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Addr:         orDefault(getenv("KIPPLE_ADDR"), defaultAddr),
-		DataDir:      orDefault(getenv("KIPPLE_DATA"), defaultDataDir),
-		Username:     getenv("KIPPLE_USERNAME"),
-		Password:     getenv("KIPPLE_PASSWORD"),
-		APIPassword:  getenv("KIPPLE_API_PASSWORD"),
-		PublicURL:    getenv("KIPPLE_PUBLIC_URL"),
-		TZ:           orDefault(getenv("TZ"), defaultTZ),
-		CFAccessTeam: getenv("KIPPLE_CF_ACCESS_TEAM"),
-		CFAccessAUD:  getenv("KIPPLE_CF_ACCESS_AUD"),
+		Addr:        orDefault(getenv("KIPPLE_ADDR"), defaultAddr),
+		DataDir:     orDefault(getenv("KIPPLE_DATA"), defaultDataDir),
+		Username:    getenv("KIPPLE_USERNAME"),
+		Password:    getenv("KIPPLE_PASSWORD"),
+		APIPassword: getenv("KIPPLE_API_PASSWORD"),
+		PublicURL:   getenv("KIPPLE_PUBLIC_URL"),
+		TZ:          orDefault(getenv("TZ"), defaultTZ),
 	}
 
 	var err error

@@ -30,8 +30,6 @@ func TestLoadDefaults(t *testing.T) {
 	require.Equal(t, 2, cfg.FetchPerHost)
 	require.Equal(t, slog.LevelInfo, cfg.LogLevel)
 	require.False(t, cfg.LogGreaderForms)
-	require.Equal(t, "", cfg.CFAccessTeam)
-	require.Equal(t, "", cfg.CFAccessAUD)
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -49,8 +47,6 @@ func TestLoadOverrides(t *testing.T) {
 		"KIPPLE_FETCH_PER_HOST":    "1",
 		"KIPPLE_LOG_LEVEL":         "debug",
 		"KIPPLE_LOG_GREADER_FORMS": "1",
-		"KIPPLE_CF_ACCESS_TEAM":    "wptk",
-		"KIPPLE_CF_ACCESS_AUD":     "aud-value",
 	}))
 	require.NoError(t, err)
 
@@ -70,8 +66,6 @@ func TestLoadOverrides(t *testing.T) {
 	require.Equal(t, 1, cfg.FetchPerHost)
 	require.Equal(t, slog.LevelDebug, cfg.LogLevel)
 	require.True(t, cfg.LogGreaderForms)
-	require.Equal(t, "wptk", cfg.CFAccessTeam)
-	require.Equal(t, "aud-value", cfg.CFAccessAUD)
 }
 
 func TestLoadInvalid(t *testing.T) {

@@ -77,10 +77,25 @@ func run(args []string) error {
 	}
 }
 
+// applyTZ makes tz (an IANA name, resolved from the embedded tzdata) the
+// process's local time zone.
+func applyTZ(tz string) error {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return fmt.Errorf("TZ %q: %w", tz, err)
+	}
+	time.Local = loc
+	return nil
+}
+
 func runServe() error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
+	}
+
+	if err := applyTZ(cfg.TZ); err != nil {
+		return err
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))

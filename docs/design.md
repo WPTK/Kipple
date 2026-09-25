@@ -1709,7 +1709,7 @@ cmd/kipple/main.go      config → store.Open (migrations) → fetch/sched/hub/h
 web/embed.go            package web: //go:embed all:dist (web/dist from the Vite build)
 internal/config         KIPPLE_* env only: ADDR(:7080), DATA(/data), USERNAME, PASSWORD, API_PASSWORD
                         (optional initial), PUBLIC_URL, TRUSTED_PROXY_IPS, TZ, SCHED_TICK,
-                        FETCH_WORKERS(8), FETCH_PER_HOST(2), CF_ACCESS_TEAM/AUD (optional),
+                        FETCH_WORKERS(8), FETCH_PER_HOST(2),
                         LOG_LEVEL, LOG_GREADER_FORMS. Documented in .env.example. Nothing else reads os.Getenv.
 internal/store          db.go (three pools, DSNs), tx.go (WithWrite, holder tracking, deadline), migrate.go +
                         migrations/*.sql, idalloc.go (seed, high-water, clock check), feeds.go (FindFeedByURL,
