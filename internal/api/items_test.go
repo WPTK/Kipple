@@ -371,10 +371,10 @@ func TestListItems(t *testing.T) {
 		require.Equal(t, 400, code, bad)
 		require.Equal(t, "bad_request", body["error"], bad)
 	}
-	for _, later := range []string{"?q=hello", "?order=rank"} {
-		code, _, _ := h.api(c, "GET", "/api/items"+later, "")
-		require.Equal(t, 501, code, later+" is step 2")
-	}
+	code0, _, _ := h.api(c, "GET", "/api/items?q=hello", "")
+	require.Equal(t, 200, code0)
+	code0, _, _ = h.api(c, "GET", "/api/items?order=rank", "")
+	require.Equal(t, 400, code0, "rank needs a query")
 	tooMany := make([]string, 101)
 	for i := range tooMany {
 		tooMany[i] = "1"
