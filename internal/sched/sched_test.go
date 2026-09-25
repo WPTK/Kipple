@@ -624,6 +624,7 @@ func TestShutdownDuringLargeRun(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 139, info.Total)
 	waitFor(t, "some fetches committed", func() bool { return len(r.events("fetch.done")) >= 20 })
+	waitFor(t, "the stall fetch in flight", func() bool { return srv.count("/stall") == 1 })
 
 	// a waiting handler returns at once when Stop is called
 	waiting := make(chan error, 1)
@@ -657,12 +658,17 @@ func TestShutdownDuringLargeRun(t *testing.T) {
 	}
 
 	// every fetch that completed was committed with its fetch_log row; the aborted one wrote nothing
-	done := 0
-	for _, ev := range r.events("fetch.done") {
-		if ev["outcome"] != "" {
-			done++
+	rows := r.num("SELECT count(*) FROM fetch_log WHERE outcome IN ('ok','unchanged','not_modified','error')")
+	countDone := func() (n int) { // the rig's collector goroutine may lag the hub briefly
+		for _, ev := range r.events("fetch.done") {
+			if ev["outcome"] != "" {
+				n++
+			}
 		}
+		return n
 	}
+	waitFor(t, "every published result collected", func() bool { return int64(countDone()) >= rows })
+	done := countDone()
 	require.EqualValues(t, done, r.num("SELECT count(*) FROM fetch_log WHERE outcome IN ('ok','unchanged','not_modified','error')"),
 		"one committed row per reported result")
 	require.EqualValues(t, 0, r.num("SELECT count(*) FROM fetch_log WHERE feed_id = ?", stall), "an aborted fetch writes nothing")
@@ -705,4 +711,145 @@ func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
 	require.LessOrEqual(t, p99, 250*time.Millisecond, "API write p99 during a 138-feed run (%d writes)", len(lat))
 	r.waitEvents("run.done", 1)
 	require.EqualValues(t, 138*2, r.num("SELECT count(*) FROM items WHERE feed_id IN (SELECT id FROM feeds WHERE url LIKE 'http%')"))
+}
+
+func TestSlowFetchStillCommits(t *testing.T) {
+	// the commit deadline must start after the fetch, not before it
+	r := newRig(t, Options{CommitTimeout: 150 * time.Millisecond})
+	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
+		time.Sleep(400 * time.Millisecond) // longer than the commit timeout
+		serveOK(p, w, req)
+	})
+	id := r.add(srv.URL+"/slow", nil)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	require.Equal(t, "ok", r.events("fetch.done")[0]["outcome"])
+	require.EqualValues(t, 2, r.num("SELECT count(*) FROM items WHERE feed_id=?", id))
+	require.EqualValues(t, 1, r.num("SELECT count(*) FROM fetch_log WHERE feed_id=? AND outcome='ok'", id))
+}
+
+func TestOverlappingImportRunsKeepTheNewerRegistered(t *testing.T) {
+	r := newRig(t, Options{})
+	rel := map[string]chan struct{}{"/a": make(chan struct{}), "/b": make(chan struct{})}
+	var onceA, onceB sync.Once
+	release := func(p string) {
+		if p == "/a" {
+			onceA.Do(func() { close(rel["/a"]) })
+		} else {
+			onceB.Do(func() { close(rel["/b"]) })
+		}
+	}
+	t.Cleanup(func() { release("/a"); release("/b") })
+	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
+		select {
+		case <-rel[p]:
+			serveOK(p, w, req)
+		case <-req.Context().Done():
+		}
+	})
+	far := func(f *store.NewFeed) { f.NextFetchAt = base.Add(9 * time.Hour).Unix() }
+	a := r.add(srv.URL+"/a", far)
+	b := r.add(srv.URL+"/b", far)
+	r.setHost(b, "other.test")
+
+	first, err := r.s.StartImport([]int64{a})
+	require.NoError(t, err)
+	waitFor(t, "a in flight", func() bool { return srv.count("/a") == 1 })
+	second, err := r.s.StartImport([]int64{b})
+	require.NoError(t, err)
+	require.NotEqual(t, first.RunID, second.RunID)
+	waitFor(t, "b in flight", func() bool { return srv.count("/b") == 1 })
+
+	release("/a") // the older run finishes first
+	r.waitEvents("run.done", 1)
+	var live int64
+	r.s.inDispatcher(func() {
+		if run := r.s.runs[RunImport]; run != nil {
+			live = run.ID
+		}
+	})
+	require.Equal(t, second.RunID, live, "finishing the older run must not unregister the newer one")
+
+	release("/b")
+	r.waitEvents("run.done", 2)
+	r.s.inDispatcher(func() { require.Empty(t, r.s.runs) })
+}
+
+func TestPriorityOnHeldHost(t *testing.T) {
+	r := newRig(t, Options{})
+	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
+		if p == "/a" {
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(429)
+			return
+		}
+		serveOK(p, w, req)
+	})
+	far := func(f *store.NewFeed) { f.NextFetchAt = base.Add(9 * time.Hour).Unix() }
+	r.add(srv.URL+"/a", nil)
+	b := r.add(srv.URL+"/b", far)
+	c := r.add(srv.URL+"/c", far)
+	d := r.add(srv.URL+"/d", far)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+
+	reply := func(p Priority) Reply {
+		ch, err := r.s.Submit(p)
+		require.NoError(t, err)
+		select {
+		case rep := <-ch:
+			return rep
+		case <-time.After(10 * time.Second):
+			t.Fatal("no reply")
+			return Reply{}
+		}
+	}
+	rep := reply(Priority{FeedID: b})
+	require.Equal(t, fetch.OutcomeSkipped, rep.Outcome, "a plain refresh skips on a held host, idle queue or not")
+	require.Zero(t, srv.count("/b"))
+
+	rep = reply(Priority{FeedID: c, Full: true})
+	require.Equal(t, fetch.OutcomeOK, rep.Outcome, "a full refresh is not skipped")
+	rep = reply(Priority{FeedID: d, Trigger: fetch.TriggerSubscribe})
+	require.Equal(t, fetch.OutcomeOK, rep.Outcome, "subscribe is not skipped")
+	require.Equal(t, 1, srv.count("/c"))
+	require.Equal(t, 1, srv.count("/d"))
+}
+
+func TestCommitFailureBacksOffInMemory(t *testing.T) {
+	r := newRig(t, Options{})
+	var fail atomic.Bool
+	fail.Store(true)
+	r.s.inDispatcher(func() {
+		r.s.failCommit = func(int64) error {
+			if fail.Load() {
+				return fmt.Errorf("injected commit failure")
+			}
+			return nil
+		}
+	})
+	srv := newSrv(t, serveOK)
+	id := r.add(srv.URL+"/f", nil)
+
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	require.Equal(t, "error", r.events("fetch.done")[0]["outcome"])
+	require.Equal(t, 1, srv.count("/f"))
+	var nb time.Time
+	r.s.inDispatcher(func() { nb = r.s.notBefore[id] })
+	require.True(t, nb.After(r.clk.Now()), "backoff recorded")
+
+	// the row is still due (nothing was written), but the next tick leaves it alone
+	r.clk.Advance(time.Minute)
+	r.s.Wake()
+	r.barrier()
+	require.Zero(t, r.flights())
+	require.Equal(t, 1, srv.count("/f"), "not redispatched before notBefore")
+
+	fail.Store(false)
+	r.clk.Set(nb.Add(time.Second))
+	r.s.Wake()
+	r.waitEvents("fetch.done", 2)
+	require.Equal(t, 2, srv.count("/f"))
+	r.s.inDispatcher(func() { require.Empty(t, r.s.notBefore, "cleared by the next successful commit") })
 }

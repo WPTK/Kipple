@@ -67,6 +67,11 @@ func (s *Scheduler) tick() {
 			delete(s.hostUntil, h)
 		}
 	}
+	for id, t := range s.notBefore {
+		if !t.After(now) {
+			delete(s.notBefore, id)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), tickQueryTimeout)
 	defer cancel()
 	set := s.db.FetchSettings(ctx)
@@ -78,6 +83,9 @@ func (s *Scheduler) tick() {
 	for _, snap := range due {
 		if _, busy := s.flights[snap.ID]; busy {
 			continue
+		}
+		if _, waiting := s.notBefore[snap.ID]; waiting {
+			continue // its last commit failed; retry after the backoff
 		}
 		if _, held := s.hostUntil[snap.Host]; held {
 			continue // stays due; retried on the first tick after the deadline
@@ -134,7 +142,7 @@ func (s *Scheduler) drainPending() {
 	kept := s.pending[:0:0]
 	for _, f := range s.pending {
 		if f.kind == kindFetch {
-			if t, ok := s.hostUntil[f.snap.Host]; ok && t.After(now) {
+			if t, ok := s.hostUntil[f.snap.Host]; ok && t.After(now) && !forcesFetch(f) {
 				if len(f.runs) == 0 && len(f.replies) == 0 && f.snap.Trigger == fetch.TriggerScheduled {
 					delete(s.flights, f.snap.ID)
 					continue
@@ -148,6 +156,13 @@ func (s *Scheduler) drainPending() {
 		}
 	}
 	s.pending = kept
+}
+
+// forcesFetch reports whether a job goes ahead despite a host Retry-After: a
+// full refetch or a subscribe-time fetch, which the caller needs a real answer
+// for.
+func forcesFetch(f *flight) bool {
+	return f.snap.Full || f.snap.Trigger == fetch.TriggerSubscribe
 }
 
 // handleDone processes one worker result (design §4.2 steps 1-6).
@@ -170,10 +185,26 @@ func (s *Scheduler) handleDone(r result) {
 	}
 
 	now := s.clk.Now()
+	// hostUntil is fed by every completed fetch, but each fetch's own
+	// next_fetch_at was computed at fetch time from the deadline it started
+	// with: a Retry-After learned mid-flight from a sibling is intentionally not
+	// applied to an in-flight fetch's schedule (tick skips held hosts anyway).
 	if r.retry > 0 {
 		if until := now.Add(r.retry); until.After(s.hostUntil[r.host]) {
 			s.hostUntil[r.host] = until
 		}
+	}
+
+	if r.commitFailed {
+		// Nothing was written, so next_fetch_at is still in the past and the feed
+		// would be redispatched every tick. Back it off in memory instead.
+		nb, _ := fetch.NextOnFailure(now, f.snap.IntervalS, f.snap.ConsecutiveFailures+1, 0, time.Time{}, s.opt.Rand)
+		if r.nextFetch.After(nb) {
+			nb = r.nextFetch
+		}
+		s.notBefore[r.feedID] = nb
+	} else if f.kind == kindFetch {
+		delete(s.notBefore, r.feedID)
 	}
 
 	var runIDs []int64
@@ -186,7 +217,9 @@ func (s *Scheduler) handleDone(r result) {
 		}
 		run.Outstanding--
 		if run.Outstanding <= 0 {
-			delete(s.runs, run.Kind)
+			if s.runs[run.Kind] == run {
+				delete(s.runs, run.Kind)
+			}
 			s.hub.Publish("run.done", map[string]any{"run_id": run.ID, "new_items": run.NewItems, "errors": run.Errors})
 		}
 	}
@@ -214,7 +247,7 @@ func (s *Scheduler) handleDone(r result) {
 	}
 	s.hub.Publish("fetch.done", ev)
 	for _, run := range f.runs {
-		if _, live := s.runs[run.Kind]; live && now.Sub(run.lastProgress) >= progressEvery {
+		if s.runs[run.Kind] == run && now.Sub(run.lastProgress) >= progressEvery {
 			run.lastProgress = now
 			s.hub.Publish("run.progress", map[string]any{"run_id": run.ID, "done": run.Done, "total": run.Total,
 				"new_items": run.NewItems, "errors": run.Errors})
@@ -357,6 +390,12 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 	}
 	if f.kind == kindFetch && f.snap.RekeyPending {
 		f.snap.Full = true
+	}
+	if f.kind == kindFetch && !forcesFetch(f) {
+		// same as drainPending: a held host turns a person's refresh into a skip
+		if t, held := s.hostUntil[snap.Host]; held && t.After(s.clk.Now()) {
+			f.kind, f.snap.HostUntil = kindSkip, t
+		}
 	}
 	s.flights[snap.ID] = f
 	if !s.tryStart(f) {

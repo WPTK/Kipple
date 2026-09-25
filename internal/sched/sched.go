@@ -38,6 +38,8 @@ type Options struct {
 	PerHost int           // KIPPLE_FETCH_PER_HOST, 2
 	Tick    time.Duration // KIPPLE_SCHED_TICK, 30 s
 	Rand    fetch.Rand    // jitter source, default math/rand/v2
+
+	CommitTimeout time.Duration // per-commit deadline, 10 s
 }
 
 // RunInfo answers a refresh-all, import or retention request.
@@ -112,6 +114,8 @@ type result struct {
 	retry     time.Duration
 	nextFetch time.Time
 	cancelled bool
+
+	commitFailed bool // the fetch completed but its commit did not
 }
 
 type runReq struct {
@@ -150,6 +154,8 @@ type Scheduler struct {
 	stopped    chan struct{}
 	syncCh     chan func()
 
+	failCommit func(feedID int64) error // test hook: replaces the fetch commit
+
 	fetchCtx    context.Context
 	cancelFetch context.CancelFunc
 	stopOnce    sync.Once
@@ -159,6 +165,7 @@ type Scheduler struct {
 	flights   map[int64]*flight
 	perHost   map[string]int
 	hostUntil map[string]time.Time
+	notBefore map[int64]time.Time // feeds whose commit failed: not redispatched before this
 	pending   []*flight
 	runs      map[string]*Run
 	running   int
@@ -177,6 +184,9 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	}
 	if opt.Tick <= 0 {
 		opt.Tick = 30 * time.Second
+	}
+	if opt.CommitTimeout <= 0 {
+		opt.CommitTimeout = commitTimeout
 	}
 	if opt.Rand == nil {
 		opt.Rand = rand.Float64
@@ -203,6 +213,7 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 		flights:   map[int64]*flight{},
 		perHost:   map[string]int{},
 		hostUntil: map[string]time.Time{},
+		notBefore: map[int64]time.Time{},
 		runs:      map[string]*Run{},
 	}
 }
