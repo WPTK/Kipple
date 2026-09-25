@@ -185,3 +185,8 @@ func TestServeHTMLPrefixesIDReferences(t *testing.T) {
 	}
 	require.Equal(t, out, ServeHTML(out, ServeOptions{}))
 }
+
+func TestServeHTMLKeepsDetailsOpenButStripsHandlers(t *testing.T) {
+	got := ServeHTML(`<details open onclick="x()"><summary onmouseover="y()">s</summary>t</details>`, testOpts)
+	require.Equal(t, `<details open=""><summary>s</summary>t</details>`, got)
+}

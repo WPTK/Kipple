@@ -189,7 +189,7 @@ func serveTag(t *html.Token, opt ServeOptions) bool {
 	for _, a := range t.Attr {
 		key := a.Key
 		switch {
-		case strings.HasPrefix(key, "on"), key == "style", key == "srcdoc", key == "formaction", key == "action":
+		case isEventHandlerAttr(key), key == "style", key == "srcdoc", key == "formaction", key == "action":
 			changed = true
 			continue
 		case key == "id" || key == "name":
@@ -403,4 +403,20 @@ func StripTracking(raw string) string {
 		out += "?" + rest
 	}
 	return out + frag
+}
+
+// isEventHandlerAttr reports whether an (already lower-cased) attribute name is
+// an inline event handler: "on" followed by at least two letters (onclick,
+// onerror, onpointerdown). Attributes that merely look similar, like <details
+// open>, are not.
+func isEventHandlerAttr(key string) bool {
+	if len(key) < 4 || !strings.HasPrefix(key, "on") {
+		return false
+	}
+	for _, c := range key[2:] {
+		if c < 'a' || c > 'z' {
+			return false
+		}
+	}
+	return true
 }
