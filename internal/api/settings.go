@@ -73,6 +73,9 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	after := s.db.FetchSettings(ctx)
+	if _, ok := set["imgproxy.mode"]; ok {
+		s.refreshImgMode(ctx) // the CSP img-src follows it
+	}
 	if before.IntervalMinutes != after.IntervalMinutes {
 		// Reads are uncached, so new schedules already use it; pull due times in
 		// for a lowered interval and nudge the dispatcher.

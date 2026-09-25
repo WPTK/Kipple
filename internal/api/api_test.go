@@ -23,6 +23,7 @@ import (
 	"github.com/WPTK/kipple/internal/clock"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/greader"
+	"github.com/WPTK/kipple/internal/httpx"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -650,20 +651,38 @@ func TestBusyAndMalformedLoginsAreNotCountedAgainstLockout(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
 }
 
-func TestAPIResponsesForbidFraming(t *testing.T) {
+// The API routes under httpx.Secure: every answer, errors included, forbids
+// framing and carries a JSON-only policy; the image proxy keeps its own.
+func TestAPIResponsesUnderSecure(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
+	secure := httpx.Secure(h.mux, httpx.Options{})
+	get := func(method, path, body string, withC bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Sec-Fetch-Site", "same-origin")
+		r.Header.Set("X-Kipple-Client", "web")
+		if withC {
+			r.AddCookie(c)
+		}
+		rec := httptest.NewRecorder()
+		secure.ServeHTTP(rec, r)
+		return rec
+	}
 	check := func(rec *httptest.ResponseRecorder, what string) {
 		t.Helper()
-		require.Equal(t, "frame-ancestors 'none'", rec.Header().Get("Content-Security-Policy"), what)
+		require.Equal(t, "default-src 'none'; frame-ancestors 'none'", rec.Header().Get("Content-Security-Policy"), what)
 		require.Equal(t, "DENY", rec.Header().Get("X-Frame-Options"), what)
+		require.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"), what)
+		require.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"), what)
 	}
-	check(h.do("GET", "/healthz", ""), "healthz")
-	check(h.do("POST", "/api/auth/login", loginBody("wrong")), "failed login")
-	check(h.do("GET", "/api/status", ""), "unauthenticated 401")
-	check(h.do("GET", "/api/status", "", withCookie(c)), "status")
-	check(h.do("GET", "/api/opml", "", withCookie(c)), "opml export")
-	check(h.do("GET", "/api/nope", "", withCookie(c)), "404")
+	check(get("GET", "/healthz", "", false), "healthz")
+	check(get("POST", "/api/auth/login", loginBody("wrong"), false), "failed login")
+	check(get("GET", "/api/status", "", false), "unauthenticated 401")
+	check(get("GET", "/api/status", "", true), "status")
+	check(get("GET", "/api/opml", "", true), "opml export")
+	check(get("GET", "/api/nope", "", true), "404")
+	require.Equal(t, "same-origin", get("GET", "/api/status", "", true).Header().Get("Cross-Origin-Resource-Policy"))
+	require.Empty(t, get("GET", "/healthz", "", false).Header().Get("Cross-Origin-Resource-Policy"))
 }
 
 // stop closes the Shutdown channel, as sched.Scheduler.Stop does.

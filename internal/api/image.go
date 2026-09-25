@@ -117,3 +117,19 @@ func (s *Server) proxyDetail(ctx context.Context, det *store.ItemDetail) {
 	}
 	det.ContentHTML = sanitize.RewriteImages(det.ContentHTML, fn)
 }
+
+// ImgMode is the current imgproxy.mode ("all" or "http_only"), served from an
+// atomic cache so the CSP middleware can read it on every HTML response. The
+// cache fills on first use and is refreshed whenever the setting is patched.
+func (s *Server) ImgMode() string {
+	if p := s.imgMode.Load(); p != nil {
+		return *p
+	}
+	return s.refreshImgMode(context.Background())
+}
+
+func (s *Server) refreshImgMode(ctx context.Context) string {
+	m := s.db.StringSetting(ctx, "imgproxy.mode", "http_only")
+	s.imgMode.Store(&m)
+	return m
+}

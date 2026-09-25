@@ -10,6 +10,10 @@ Phase 2 (reading UI backend) so far.
 
 ### Added
 
+- Security headers on every response (`internal/httpx`): a strict Content-Security-Policy for pages (no
+  inline script; `img-src` follows `imgproxy.mode`), `default-src 'none'` for API responses, plus
+  `Referrer-Policy: no-referrer`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`,
+  `nosniff`, and HSTS with `upgrade-insecure-requests` only when the effective scheme is https.
 - UI API: items list (card lists), item detail, open, star, mark-read by scope, bootstrap read
   and live unread counts over SSE.
 - Stats API and recorder: validated reading events; star/unstar from the Reader API edit-tag
@@ -64,6 +68,7 @@ Phase 2 (reading UI backend) so far.
 
 ### Changed
 
+- The status page script moved to `/_status.js` so the page runs under the strict CSP.
 - Full-text extraction runs through one shared runner (`internal/ftrun`) for the ingest pool and
   `POST /api/items/{id}/fulltext`: opening an item the pool is extracting joins that run instead of
   fetching twice, and the per-article-host limit of 2 covers both. The outcome is saved inside the

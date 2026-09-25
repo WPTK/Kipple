@@ -24,6 +24,12 @@ import (
 //go:embed status.html
 var statusPage []byte
 
+// statusScript is the status page's script, served at /_status.js so the page
+// carries no inline script and the strict CSP (script-src 'self') holds.
+//
+//go:embed status.js
+var statusScript []byte
+
 // placeholderApp is true until the real single-page app exists: "/" then
 // redirects to /_status instead of serving web/dist/index.html (which is only
 // the Vite scaffold). Flip it to false when phase 2 lands. Every other path,
@@ -47,6 +53,12 @@ func NewHandler() (http.Handler, error) {
 		w.Header().Set("ETag", etagOf(statusPage))
 		http.ServeContent(w, r, "status.html", time.Time{}, bytes.NewReader(statusPage))
 	})
+	mux.HandleFunc("GET /_status.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("ETag", etagOf(statusScript))
+		http.ServeContent(w, r, "status.js", time.Time{}, bytes.NewReader(statusScript))
+	})
 	if placeholderApp {
 		// "/{$}" matches the root only (GET also covers HEAD).
 		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -58,17 +70,7 @@ func NewHandler() (http.Handler, error) {
 		w.Header().Set("ETag", etag)
 		http.ServeContent(w, r, "index.html", modTime, bytes.NewReader(index))
 	})
-	return noFraming(mux), nil
-}
-
-// noFraming forbids embedding any page or asset in a frame (clickjacking):
-// CSP frame-ancestors is the standard, X-Frame-Options covers older browsers.
-func noFraming(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
-		w.Header().Set("X-Frame-Options", "DENY")
-		h.ServeHTTP(w, r)
-	})
+	return mux, nil
 }
 
 // readIndex returns the built index.html, or the placeholder page (with a

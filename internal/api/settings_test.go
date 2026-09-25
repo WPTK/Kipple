@@ -469,3 +469,16 @@ func TestPasswordLengthBounds(t *testing.T) {
 		})
 	}
 }
+
+// The CSP reads imgproxy.mode from an atomic cache that a PATCH refreshes.
+func TestImgModeCacheFollowsPatch(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	require.Equal(t, "http_only", h.srv.ImgMode())
+	code, _, _ := h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":"all"}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, "all", h.srv.ImgMode())
+	code, _, _ = h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":null}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, "http_only", h.srv.ImgMode())
+}

@@ -1676,6 +1676,34 @@ The React app reconciles by item id. For `new_item_ids` inside the current view 
 
 A golden test checks that import → export → import is a fixed point for names, titles, order and overrides.
 
+### 7.7 Security headers (`internal/httpx`)
+
+One middleware, `httpx.Secure`, wraps the root handler in `cmd/kipple` (outside `greader.Front`), so every response
+carries the headers, the Reader API's included. It replaces the two `noFraming` copies. The content-dependent headers
+are chosen when the response starts, from its `Content-Type`, so there is no route list to keep in step:
+
+| Response | `Content-Security-Policy` |
+|---|---|
+| `text/html` (SPA, `/_status`) | `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:[ https:]; font-src 'self'; connect-src 'self'; media-src 'self' https:; frame-src https://www.youtube-nocookie.com https://player.vimeo.com; manifest-src 'self'; worker-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'[; upgrade-insecure-requests]` |
+| JSON, other text, XML, SVG, no type | `default-src 'none'; frame-ancestors 'none'` |
+| scripts, styles, fonts, images, other | `frame-ancestors 'none'` (a stricter `default-src` would only bind a worker that inherits it) |
+| a handler that sets its own (`/img/`, feed icons) | kept as the handler set it |
+| 304 | no policy header, so a revalidation cannot replace the stored page policy |
+
+- `https:` is added to `img-src` only while `imgproxy.mode` is `http_only` (https images then load from their host).
+  The mode is read from an atomic cache (`api.Server.ImgMode`) that `PATCH /api/settings` refreshes.
+- `upgrade-insecure-requests` and `Strict-Transport-Security: max-age=31536000` are sent only when the effective scheme
+  is https (TLS, or a trusted proxy's `X-Forwarded-Proto`). Over plain http (a LAN visit) the upgrade would break the page.
+- All responses: `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`. HTML also
+  gets `Permissions-Policy` (camera, microphone, geolocation and others off; `fullscreen` and picture-in-picture only for the
+  embed hosts) and `Cross-Origin-Opener-Policy: same-origin`. `/api/*` and `/img/*` get `Cross-Origin-Resource-Policy: same-origin`.
+- `script-src 'self'` is the control that matters: no inline script anywhere. `/_status` loads its script from
+  `/_status.js`; the SPA's theme boot script is an emitted file under `/assets/`. `style-src 'unsafe-inline'` stays for
+  Radix, shadcn and `react-remove-scroll`, which inject styles.
+- The frontend must therefore: ship no inline `<script>`, no `eval`/`new Function`, no inline event handlers (`onclick=`);
+  keep fonts as files (no `data:` font URLs); use `fetch`/`EventSource` against its own origin only; create
+  embed iframes only for the two hosts above; set `referrerpolicy="strict-origin-when-cross-origin"` on those iframes.
+
 ---
 
 ## 8. Stats model and write-path rules

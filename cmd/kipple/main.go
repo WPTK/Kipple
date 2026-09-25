@@ -27,6 +27,7 @@ import (
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/greader"
+	"github.com/WPTK/kipple/internal/httpx"
 	"github.com/WPTK/kipple/internal/maint"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/stats"
@@ -167,8 +168,10 @@ func runServe() error {
 	mux.Handle("/", webHandler)
 
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           auth.WarnUntrustedProxyHeaders(readerAPI.Front(mux), cfg.TrustedProxyIPs, logger, nil),
+		Addr: cfg.Addr,
+		Handler: httpx.Secure(
+			auth.WarnUntrustedProxyHeaders(readerAPI.Front(mux), cfg.TrustedProxyIPs, logger, nil),
+			httpx.Options{ImgMode: uiAPI.ImgMode, TrustedProxies: cfg.TrustedProxyIPs}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
 		// WriteTimeout would kill /api/events; the SSE handler replaces it with a

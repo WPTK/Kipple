@@ -15,6 +15,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
@@ -107,6 +108,7 @@ type Server struct {
 	imgMu     sync.Mutex // guards imgSecret and imgH
 	imgSecret []byte
 	imgH      *imgproxy.Handler
+	imgMode   atomic.Pointer[string] // cached imgproxy.mode for the CSP; refreshed on PATCH
 
 	pubMu  sync.Mutex // serializes query+publish so counts events never arrive out of order
 	cmu    sync.Mutex // guards the counts coalescer
@@ -156,7 +158,7 @@ func New(opt Options) *Server {
 // Register mounts /healthz and /api/ on mux. Everything under /api/ that is not
 // a known route answers here (401 or 404 JSON), never the SPA.
 func (s *Server) Register(mux *http.ServeMux) {
-	handle := func(pattern string, h http.HandlerFunc) { mux.HandleFunc(pattern, noFraming(h)) }
+	handle := mux.HandleFunc // security headers come from httpx.Secure around the root handler
 	handle("GET /healthz", s.healthz)
 	handle("POST /api/auth/login", s.login)
 	handle("POST /api/auth/logout", s.authed(s.logout))
@@ -197,17 +199,6 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("/api/", s.authed(func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 	}))
-}
-
-// noFraming forbids embedding a response in a frame (clickjacking). Both
-// headers are sent: CSP frame-ancestors is the standard, X-Frame-Options covers
-// older browsers.
-func noFraming(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
-		w.Header().Set("X-Frame-Options", "DENY")
-		h(w, r)
-	}
 }
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
