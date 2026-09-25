@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	maxBody       = 2 << 20
+	maxBody       = 10 << 20 // the fetcher's own response limit
 	maxRedirects  = 5
 	maxCandidates = 20
 )
@@ -42,6 +42,9 @@ type Result struct {
 
 // ErrNoFeed means the page is reachable but advertises no feed.
 var ErrNoFeed = errors.New("no feed found at that address")
+
+// ErrTooLarge means the response exceeded the fetcher's size limit.
+var ErrTooLarge = fmt.Errorf("the response is larger than %d MiB", maxBody>>20)
 
 // Find fetches raw through rt and reports whether it is a feed or which feeds
 // it links to. ctx bounds the whole attempt.
@@ -66,15 +69,18 @@ func Find(ctx context.Context, rt http.RoundTripper, userAgent, raw string) (Res
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return Result{}, fmt.Errorf("the server answered HTTP %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return Result{}, err
+	}
+	if len(body) > maxBody {
+		return Result{}, ErrTooLarge
 	}
 	ct := resp.Header.Get("Content-Type")
 	final := resp.Request.URL.String()
 
-	isHTML := strings.Contains(strings.ToLower(ct), "html") || looksHTML(body)
-	if !isHTML {
+	// Decide by the body, not the Content-Type: plenty of servers label a feed text/html.
+	if !looksHTML(body) {
 		if _, perr := fetch.ParseFeed(body, fetch.ParseOptions{FeedURL: final, HTTPCharset: charsetOf(ct)}); perr == nil {
 			return Result{IsFeed: true, Candidates: []Candidate{{URL: raw, Type: kindOf(ct, body)}}}, nil
 		}
