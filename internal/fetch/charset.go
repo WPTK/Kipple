@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
+	"strings"
 	"unicode/utf8"
 
 	"golang.org/x/net/html/charset"
@@ -33,9 +34,10 @@ var xmlDeclRe = regexp.MustCompile(`(?is)\A\s*<\?xml\b[^>]*?\bencoding\s*=\s*(["
 //  4. Decode, rewrite encoding= to utf-8, sha256 the decoded bytes.
 //
 // One addition to the design (reported in the step notes): a declared
-// windows-1252/ISO-8859-1/ASCII body that is in fact valid UTF-8 with
-// multi-byte sequences is decoded as UTF-8. That is the common "declares
-// latin1, sends UTF-8" lie, and honouring the label would produce mojibake.
+// single-byte-labelled body (windows-125x, ISO-8859-x, ...) that is in fact
+// valid UTF-8 with multi-byte sequences is decoded as UTF-8. That is the
+// common "declares latin1, sends UTF-8" lie, and honouring the label would
+// produce mojibake. utf-16/utf-32 labels without a BOM are ignored.
 func DecodeBody(body []byte, httpCharset string) Decoded {
 	var (
 		enc      encoding.Encoding
@@ -43,6 +45,7 @@ func DecodeBody(body []byte, httpCharset string) Decoded {
 		repaired bool
 	)
 
+	bom := false
 	switch {
 	case bytes.HasPrefix(body, []byte{0xEF, 0xBB, 0xBF}):
 		body = body[3:]
@@ -50,9 +53,11 @@ func DecodeBody(body []byte, httpCharset string) Decoded {
 	case bytes.HasPrefix(body, []byte{0xFF, 0xFE}):
 		enc, name = unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM), "utf-16le"
 		body = body[2:]
+		bom = true
 	case bytes.HasPrefix(body, []byte{0xFE, 0xFF}):
 		enc, name = unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM), "utf-16be"
 		body = body[2:]
+		bom = true
 	}
 
 	if enc == nil {
@@ -71,8 +76,11 @@ func DecodeBody(body []byte, httpCharset string) Decoded {
 		if enc == nil {
 			enc, name = encoding.Nop, "utf-8"
 		}
+	}
 
+	if !bom {
 		if name == "utf-8" {
+			// Also reached after a UTF-8 BOM: the BOM does not vouch for the bytes.
 			if !utf8.Valid(body) {
 				repaired = true
 				if e, n := lookup(httpCharset); e != nil && n != "utf-8" {
@@ -81,7 +89,8 @@ func DecodeBody(body []byte, httpCharset string) Decoded {
 					enc, name = lookup("windows-1252")
 				}
 			}
-		} else if name == "windows-1252" && utf8.Valid(body) && hasMultiByte(body) {
+		} else if isSingleByte(name) && utf8.Valid(body) && hasMultiByte(body) {
+			// Any single-byte label that is really valid multi-byte UTF-8 lied.
 			enc, name, repaired = encoding.Nop, "utf-8", true
 		}
 	}
@@ -108,10 +117,26 @@ func lookup(label string) (encoding.Encoding, string) {
 	if e == nil {
 		return nil, ""
 	}
+	// UTF-16/32 without a BOM is a wrong label for an XML feed (the XML
+	// declaration itself would be unreadable); ignore it and fall through.
+	if strings.HasPrefix(n, "utf-16") || strings.HasPrefix(n, "utf-32") {
+		return nil, ""
+	}
 	if n == "utf-8" {
 		return encoding.Nop, n
 	}
 	return e, n
+}
+
+// isSingleByte reports whether a canonical WHATWG encoding name is one of the
+// single-byte code pages (the multi-byte CJK and UTF-16 names never match).
+func isSingleByte(name string) bool {
+	for _, p := range []string{"windows-125", "iso-8859-", "koi8-", "ibm866", "macintosh", "x-mac-cyrillic"} {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasMultiByte(b []byte) bool {

@@ -235,3 +235,38 @@ func TestAssignUIDsSharedGUIDStableAcrossFetches(t *testing.T) {
 	require.Equal(t, first[1].UID, second[2].UID, "b keeps its uid when c is prepended")
 	require.NotEqual(t, second[0].UID, second[1].UID)
 }
+
+func TestDecodeBodyCharsetEdgeCases(t *testing.T) {
+	t.Run("utf-16 label without BOM is ignored", func(t *testing.T) {
+		b := []byte(`<?xml version="1.0" encoding="UTF-16"?><rss><t>café</t></rss>`)
+		d := DecodeBody(b, "")
+		require.Equal(t, "utf-8", d.Source)
+		require.Contains(t, string(d.Body), "café")
+		d = DecodeBody([]byte(`<rss><t>café</t></rss>`), "utf-16")
+		require.Equal(t, "utf-8", d.Source)
+		require.Contains(t, string(d.Body), "café")
+	})
+
+	t.Run("invalid UTF-8 after a UTF-8 BOM falls back to windows-1252", func(t *testing.T) {
+		b := append([]byte{0xEF, 0xBB, 0xBF}, []byte("<rss><t>caf\xe9</t></rss>")...)
+		d := DecodeBody(b, "")
+		require.True(t, d.Repaired)
+		require.Equal(t, "windows-1252", d.Source)
+		require.Contains(t, string(d.Body), "café")
+		require.NotEqual(t, byte(0xEF), d.Body[0], "BOM stripped")
+	})
+
+	t.Run("any single-byte label carrying valid multibyte UTF-8 is treated as UTF-8", func(t *testing.T) {
+		for _, label := range []string{"iso-8859-2", "windows-1251", "koi8-r", "iso-8859-15"} {
+			b := []byte(`<?xml version="1.0" encoding="` + label + `"?><rss><t>Zażółć</t></rss>`)
+			d := DecodeBody(b, "")
+			require.Equal(t, "utf-8", d.Source, label)
+			require.True(t, d.Repaired, label)
+			require.Contains(t, string(d.Body), "Zażółć", label)
+		}
+		// A genuine single-byte body is still decoded with its label.
+		d := DecodeBody([]byte("<?xml version=\"1.0\" encoding=\"iso-8859-2\"?><rss><t>\xb1</t></rss>"), "")
+		require.Equal(t, "iso-8859-2", d.Source)
+		require.Contains(t, string(d.Body), "ą")
+	})
+}

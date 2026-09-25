@@ -229,7 +229,7 @@ func TestUnnamedWrapperUnderNamedContainerImports(t *testing.T) {
 }
 
 func TestParseNonUTF8Charsets(t *testing.T) {
-	latin := "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><opml><body><outline text=\"Café\" xmlUrl=\"http://l.test/rss\"/></body></opml>"
+	latin := "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><opml><body><outline text=\"Caf\xe9\" xmlUrl=\"http://l.test/rss\"/></body></opml>"
 	d, err := Parse(strings.NewReader(latin))
 	require.NoError(t, err)
 	require.Equal(t, "Café", d.Feeds[0].Title)
