@@ -481,7 +481,10 @@ func (s *Server) deleteFeed(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusBadRequest, "bad_request", "delete_starred must be 0 or 1")
 		return
 	}
-	err := s.db.DeleteFeed(r.Context(), id, r.URL.Query().Get("delete_starred") == "1")
+	// A large feed is emptied in many short batches (store.DeleteFeed); a client
+	// that goes away mid-delete must not leave it half emptied, so the delete
+	// runs to the end (each batch still has the writer's own deadline).
+	err := s.db.DeleteFeed(context.WithoutCancel(r.Context()), id, r.URL.Query().Get("delete_starred") == "1")
 	if errors.Is(err, store.ErrFeedNotFound) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
@@ -491,6 +494,9 @@ func (s *Server) deleteFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		// Some batches may have committed: the counts changed either way.
+		s.publishFeedChanged(id)
+		s.noteCounts()
 		s.serverError(w, "delete feed", err)
 		return
 	}

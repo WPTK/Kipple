@@ -3,17 +3,44 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
-// trimFeed applies design §5 to one feed inside a write transaction: keep the newest
+// trimBatch bounds the items one transaction trims (or deletes with a feed): at
+// roughly 100 µs per item (the FTS delete trigger dominates) 2000 rows is about
+// 0.2 s, far inside the writer's 10 s deadline however large the feed is. The
+// rest is left for the next batch. A variable so tests can shrink it.
+var trimBatch = 2000
+
+// trimFeed is trimFeedBatch with the standard bound; it returns the number of
+// items removed. A fetch commit calls it once in its last chunk, so a trim larger
+// than trimBatch leaves the remainder for a later trim (see trimFeedBatch).
+func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (int64, error) {
+	n, _, err := trimFeedBatch(ctx, tx, feedID, now, firstNewID, trimBatch)
+	return n, err
+}
+
+// trimFeedBatch applies design §5 to one feed inside a write transaction: keep the newest
 // (sort_at DESC, id DESC) real items and the newest muted ones under the muted allowance
 // (see mutedAllowance), tombstone everything else into trimmed_items (plus restore stubs when
 // restore_days > 0) and delete it. N comes from the feed override or retention.default; N = 0 skips.
 // firstNewID is the first id allocated by the surrounding fetch (MaxInt64 when
 // none): unread items trimmed at or past it are not counted in
-// trimmed_unread_count. It returns the number of items removed.
-func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (int64, error) {
+// trimmed_unread_count.
+//
+// At most limit items go per call, the oldest (sort_at ASC, id ASC) of the trim
+// set first, so the transaction stays short on a feed with a huge backlog.
+// Repeating the call converges on exactly the one-shot result: the kept items
+// never enter the trim set, so the muted allowance recomputed from the smaller
+// counts does not change. more reports a full batch, so another call may find
+// more to trim (TrimOnly loops on it; a fetch commit can queue a TrimOnly).
+func trimFeedBatch(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64, limit int) (n int64, more bool, err error) {
+	n, err = trimFeedLimit(ctx, tx, feedID, now, firstNewID, limit)
+	return n, err == nil && n >= int64(limit), err
+}
+
+func trimFeedLimit(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64, limit int) (int64, error) {
 	var override sql.NullInt64
 	if err := tx.QueryRowContext(ctx, "SELECT retention FROM feeds WHERE id = ?", feedID).Scan(&override); err != nil {
 		return 0, fmt.Errorf("retention: read feed: %w", err)
@@ -45,11 +72,12 @@ func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (i
 		{`DELETE FROM temp.trim_set`, nil},
 		{`INSERT INTO temp.trim_set(id)
 		    SELECT id FROM (
-		      SELECT id, muted_by IS NOT NULL AS m,
+		      SELECT id, sort_at, muted_by IS NOT NULL AS m,
 		             row_number() OVER (PARTITION BY muted_by IS NOT NULL ORDER BY sort_at DESC, id DESC) AS rn
 		      FROM items
 		      WHERE feed_id = ?1 AND starred = 0 AND (retain_until IS NULL OR retain_until <= ?2))
-		    WHERE rn > CASE WHEN m THEN ?3 ELSE ?4 END`, []any{feedID, now, keepMuted, n - keepMuted}},
+		    WHERE rn > CASE WHEN m THEN ?3 ELSE ?4 END
+		    ORDER BY sort_at ASC, id ASC LIMIT ?5`, []any{feedID, now, keepMuted, n - keepMuted, limit}},
 	}
 	for _, s := range stmts {
 		if _, err := tx.ExecContext(ctx, s.sql, s.args...); err != nil {
@@ -111,24 +139,113 @@ func mutedAllowance(n, real, muted int) int {
 	return min(muted, max(n/5, n-real))
 }
 
-// TrimOnly runs the retention transaction for one feed and logs a trim_only
-// fetch_log row. It takes the commit gate like a fetch commit.
+// TrimOnly runs the retention trim for one feed and logs one trim_only
+// fetch_log row. It trims in batches of at most trimBatch items, each its own
+// transaction behind the commit gate (like a fetch commit chunk), so fetch
+// commits and edit-tags interleave and no single write nears the writer's
+// deadline. The first batch writes the log row and each later one adds to it, so
+// the row always matches what committed. Every batch is durable: when ctx ends
+// between batches TrimOnly returns the items trimmed so far with ctx's error,
+// and the next trim resumes where it stopped.
 func (d *DB) TrimOnly(ctx context.Context, feedID int64, trigger string) (int64, error) {
 	started := d.clock.Now()
-	return d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
-		trimmed, err := trimFeed(ctx, tx, feedID, started.Unix(), maxInt64)
+	var total, logID int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+		var more bool
+		var newLogID int64
+		trimmed, err := d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
+			trimmed, m, err := trimFeedBatch(ctx, tx, feedID, started.Unix(), maxInt64, trimBatch)
+			if err != nil {
+				return 0, err
+			}
+			more = m
+			dur := d.clock.Now().Sub(started).Milliseconds()
+			if logID != 0 {
+				_, err := tx.ExecContext(ctx, `UPDATE fetch_log SET trimmed_items = trimmed_items + ?2, duration_ms = ?3
+					WHERE id = ?1`, logID, trimmed, dur)
+				return trimmed, err
+			}
+			res, err := tx.ExecContext(ctx, `INSERT INTO fetch_log (feed_id, trigger, started_at, duration_ms, outcome, trimmed_items)
+				VALUES (?, ?, ?, ?, 'trim_only', ?)`, feedID, trigger, started.Unix(), dur, trimmed)
+			if err != nil {
+				return 0, err
+			}
+			if newLogID, err = res.LastInsertId(); err != nil {
+				return 0, err
+			}
+			return trimmed, capFetchLog(ctx, tx, feedID, started.Unix())
+		})
 		if err != nil {
-			return 0, err
+			return total, err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO fetch_log (feed_id, trigger, started_at, duration_ms, outcome, trimmed_items)
-			VALUES (?, ?, ?, ?, 'trim_only', ?)`, feedID, trigger, started.Unix(), d.clock.Now().Sub(started).Milliseconds(), trimmed); err != nil {
-			return 0, err
+		total += trimmed
+		if logID == 0 {
+			logID = newLogID
 		}
-		return trimmed, capFetchLog(ctx, tx, feedID, started.Unix())
-	})
+		if afterTrimBatch != nil {
+			afterTrimBatch()
+		}
+		if !more {
+			return total, nil
+		}
+	}
 }
 
 const maxInt64 = int64(^uint64(0) >> 1)
+
+// purgeFeedItems empties a feed that is about to be removed (removeFeed), in
+// transactions of at most trimBatch rows each behind the commit gate: first its
+// items (the FTS delete trigger makes these the expensive rows), then its
+// trimmed ledger rows (their stubs cascade). What is left for removeFeed's own
+// transaction is then small however large the feed was. With archiveStarred
+// starred items are left alone for removeFeed to re-parent, and the archive feed
+// itself is not touched (removeFeed decides whether it may go, and refuses with
+// nothing changed while it holds starred items). Each batch is durable and a
+// feed that is gone ends the purge, so an interrupted delete simply resumes on
+// retry.
+// afterPurgeBatch and afterTrimBatch, when set (tests only), run after each
+// committed purge or TrimOnly batch.
+var afterPurgeBatch, afterTrimBatch func()
+
+func (d *DB) purgeFeedItems(ctx context.Context, id int64, archiveStarred bool) error {
+	for _, q := range []string{
+		`DELETE FROM items WHERE id IN (SELECT id FROM items WHERE feed_id = ?1 AND (starred = 0 OR NOT ?2) LIMIT ?3)`,
+		`DELETE FROM trimmed_items WHERE id IN (SELECT id FROM trimmed_items WHERE feed_id = ?1 LIMIT ?3)`,
+	} {
+		for {
+			n, err := d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
+				var reason sql.NullString
+				switch err := tx.QueryRowContext(ctx, "SELECT disabled_reason FROM feeds WHERE id = ?", id).Scan(&reason); {
+				case errors.Is(err, sql.ErrNoRows):
+					return 0, nil
+				case err != nil:
+					return 0, err
+				}
+				if archiveStarred && reason.String == "archive" {
+					return 0, nil
+				}
+				res, err := tx.ExecContext(ctx, q, id, archiveStarred, trimBatch)
+				if err != nil {
+					return 0, fmt.Errorf("store: purge feed %d: %w", id, err)
+				}
+				return res.RowsAffected()
+			})
+			if err != nil {
+				return err
+			}
+			if afterPurgeBatch != nil {
+				afterPurgeBatch()
+			}
+			if n < int64(trimBatch) {
+				break
+			}
+		}
+	}
+	return nil
+}
 
 // capFetchLog applies the fetch_log retention: 14 days with a 50-row floor,
 // keeping the last 10 error rows and every keep = 1 row.
