@@ -25,6 +25,7 @@ import (
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/extract"
+	"github.com/WPTK/kipple/internal/favicon"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/greader"
@@ -179,6 +180,13 @@ func runServe() error {
 	scheduler.Start()
 	maintenance := maint.New(maint.Options{DB: db, Logger: logger, ImgCache: imgc})
 	maintenance.Start()
+	// The favicon finder (design §4.11): one lookup at a time, off the fetch path,
+	// through the same guarded transport, and never while a scheduler run is active.
+	icons := favicon.New(favicon.Options{
+		DB: db, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Logger: logger,
+		Busy: func() bool { runs, _ := scheduler.Status(); return len(runs) > 0 },
+	})
+	icons.Start()
 
 	// The Reader API claims /api/greader.php and its root aliases ahead of the
 	// mux, so no ServeMux ever sees a Reader path (design §6.1).
@@ -229,10 +237,11 @@ func runServe() error {
 		serveErr <- nil
 	}()
 
-	// Shutdown order (design §4.10): stop the scheduler, close SSE, drain HTTP,
+	// Shutdown order (design §4.10): stop the scheduler and the favicon finder, close SSE, drain HTTP,
 	// wait for the workers, stop maintenance, then (deferred) checkpoint and close the store.
 	stopAll := func() error {
 		scheduler.Stop()
+		icons.Stop() // cancels a lookup in progress; it writes nothing
 		hub.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
