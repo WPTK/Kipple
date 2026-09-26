@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -40,6 +41,10 @@ const (
 	defaultFetchWorkers = 8
 	defaultFetchPerHost = 2
 	defaultLogLevel     = slog.LevelInfo
+
+	// minSchedTick is the shortest scheduler tick: a smaller one only burns CPU
+	// on due-feed queries (feeds are polled every few minutes at the most).
+	minSchedTick = time.Second
 )
 
 // Load reads configuration from the process environment.
@@ -61,11 +66,17 @@ func load(getenv func(string) string) (Config, error) {
 	}
 
 	var err error
+	if err = checkPublicURL(cfg.PublicURL); err != nil {
+		return Config{}, fmt.Errorf("KIPPLE_PUBLIC_URL: %w", err)
+	}
 	if cfg.TrustedProxyIPs, err = parseIPList(getenv("KIPPLE_TRUSTED_PROXY_IPS")); err != nil {
 		return Config{}, fmt.Errorf("KIPPLE_TRUSTED_PROXY_IPS: %w", err)
 	}
 	if cfg.SchedTick, err = parseDuration(getenv("KIPPLE_SCHED_TICK"), defaultSchedTick); err != nil {
 		return Config{}, fmt.Errorf("KIPPLE_SCHED_TICK: %w", err)
+	}
+	if cfg.SchedTick < minSchedTick {
+		return Config{}, fmt.Errorf("KIPPLE_SCHED_TICK: must be at least %s, got %s", minSchedTick, cfg.SchedTick)
 	}
 	if cfg.FetchWorkers, err = parsePositiveInt(getenv("KIPPLE_FETCH_WORKERS"), defaultFetchWorkers); err != nil {
 		return Config{}, fmt.Errorf("KIPPLE_FETCH_WORKERS: %w", err)
@@ -81,6 +92,35 @@ func load(getenv func(string) string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// checkPublicURL accepts an empty value or an absolute http(s) URL with a host
+// and nothing that cannot be a base for other URLs: no user info, query or
+// fragment, and no spaces or control characters.
+func checkPublicURL(v string) error {
+	if v == "" {
+		return nil
+	}
+	if strings.TrimSpace(v) != v || strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return fmt.Errorf("%q has spaces or control characters", v)
+	}
+	u, err := url.Parse(v)
+	if err != nil {
+		return err
+	}
+	switch {
+	case u.Scheme != "http" && u.Scheme != "https":
+		return fmt.Errorf("%q must start with http:// or https://", v)
+	case u.Host == "" || u.Hostname() == "":
+		return fmt.Errorf("%q has no host", v)
+	case u.User != nil:
+		return fmt.Errorf("%q must not contain user info", v)
+	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(v, "?#"):
+		return fmt.Errorf("%q must not have a query or fragment", v)
+	case u.Opaque != "":
+		return fmt.Errorf("%q is not an absolute URL", v)
+	}
+	return nil
 }
 
 func orDefault(v, def string) string {
@@ -104,7 +144,9 @@ func parseIPList(v string) ([]netip.Addr, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid IP %q: %w", part, err)
 		}
-		ips = append(ips, addr)
+		// Unmapped, like the peer address it is compared with (auth.ClientIP):
+		// ::ffff:192.0.2.10 must trust the peer 192.0.2.10.
+		ips = append(ips, addr.Unmap())
 	}
 	return ips, nil
 }
