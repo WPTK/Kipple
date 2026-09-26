@@ -9,6 +9,7 @@ All notable changes to Kipple are documented here. The format follows
 ### Fixed
 
 - `kipple restore` refuses a backup zip that contains any entry with a directory part (`../x`, `/x`, `a\b`, `C:x`), listed in the manifest or not. Such an entry was never written anywhere, but a Kipple backup is flat, so a zip like that was not made by Kipple and is no longer restored from.
+- The pre-migration snapshots (`backup/pre-migration-*.db`) and the nightly `backup/kipple-snapshot.db` are now created `0600`, like the export. They were `0644`, readable by any other user or container that can see the volume, and they hold the password hashes and the account secret. Existing files keep their mode; the nightly one is replaced with `0600` on its next run.
 - `kipple restore` into an empty data directory no longer ends with "To undo, restore the file in that pre-restore directory" when it had just said there was no previous database to keep.
 
 ## [0.2.0] - 2026-09-26
