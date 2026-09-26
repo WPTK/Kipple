@@ -123,7 +123,7 @@ func BenchmarkEvaluate25RegexWorstCase(b *testing.B) {
 	for i := 0; i < MaxRegexRules; i++ {
 		x := NewRule(ScopeGlobal, KindRegex, ActionMute, `(?:sponsored|giveaway|coupon)\s+\w+`, `\b`+vocab[i]+`\d{3}\b`, `[a-z]+@[a-z]+\.com`, `(.*b){3}zzz`, `(?:foo|bar|baz|qux)+\d`)
 		x.ID = int64(i + 1)
-		x.Fields = []Field{FieldTitle, FieldContent}
+		x.Fields = []Field{FieldContent} // adding the title would pass MaxRegexCost
 		rs = append(rs, x)
 	}
 	s, err := NewSet(rs)
@@ -169,7 +169,7 @@ func TestRegexWorstCaseCeiling(t *testing.T) {
 	for i := 0; i < MaxRegexRules; i++ {
 		x := NewRule(ScopeGlobal, KindRegex, ActionMute, `(?:sponsored|giveaway|coupon)\s+\w+`, `\b`+vocab[i]+`\d{3}\b`, `[a-z]+@[a-z]+\.com`, `(.*b){3}zzz`, `(?:foo|bar|baz|qux)+\d`)
 		x.ID = int64(i + 1)
-		x.Fields = []Field{FieldTitle, FieldContent}
+		x.Fields = []Field{FieldContent} // adding the title would pass MaxRegexCost
 		rs = append(rs, x)
 	}
 	s, err := NewSet(rs)

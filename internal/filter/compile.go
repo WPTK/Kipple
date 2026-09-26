@@ -18,6 +18,9 @@ type Compiled struct {
 	hasCategory bool
 	text        *textMatcher
 	res         []cre
+	// cost is a regex rule's worst-case evaluation cost: program instructions times KiB scanned
+	// (see MaxRegexCost). 0 for a text rule.
+	cost int
 }
 
 type textTerm struct {
@@ -121,12 +124,26 @@ func compileRule(r Rule) (*Compiled, *Error) {
 	c.rule.Fields = fs
 	c.hasCategory = slices.Contains(fs, FieldCategory)
 	if r.Kind == KindRegex {
+		insts := 0
 		for i, p := range r.Terms {
 			re, e := compileRegex(fieldIdx("terms", i), p, r.CaseSensitive)
 			if e != nil {
 				return nil, e
 			}
 			c.res = append(c.res, re)
+			insts += re.insts
+		}
+		kib := 0
+		for _, f := range fs {
+			if f == FieldContent {
+				kib += MaxRegexContentScan >> 10
+			} else {
+				kib += MaxFieldScan >> 10
+			}
+		}
+		c.cost = insts * kib
+		if c.cost > MaxRegexCost {
+			return nil, bad("terms", "is too expensive to run on every article (cost %d, the limit is %d): use fewer or simpler patterns, or fewer fields", c.cost, MaxRegexCost)
 		}
 		return c, nil
 	}
@@ -192,6 +209,9 @@ func compileRegex(field, p string, caseSensitive bool) (cre, *Error) {
 	if err != nil {
 		return cre{}, bad(field, "%s", regexReason(err))
 	}
+	if n := maxRepeat(parsed); n > MaxRegexRepeat {
+		return cre{}, bad(field, "repeats something %d times (the limit is %d, nested repeats multiplied): use + or * instead of a large {n,m}", n, MaxRegexRepeat)
+	}
 	prog, err := syntax.Compile(parsed.Simplify())
 	if err != nil {
 		return cre{}, bad(field, "%s", regexReason(err))
@@ -206,7 +226,32 @@ func compileRegex(field, p string, caseSensitive bool) (cre, *Error) {
 	if re.MatchString("") {
 		return cre{}, bad(field, "matches the empty string, so it would match every article")
 	}
-	return newCre(re, parsed), nil
+	c := newCre(re, parsed)
+	c.insts = len(prog.Inst)
+	return c, nil
+}
+
+// maxRepeat is the largest number of copies a counted repeat ({n}, {n,m}, {n,}) makes of its
+// operand, nested repeats multiplied. Go's regexp expands a counted repeat into that many copies of
+// its program, and every copy can be a live NFA thread at each byte, so this bounds the cost of a
+// pattern better than its length does. * + and ? are loops, not copies: they count as 1.
+func maxRepeat(re *syntax.Regexp) int {
+	inner := 1
+	for _, s := range re.Sub {
+		inner = max(inner, maxRepeat(s))
+	}
+	if re.Op != syntax.OpRepeat {
+		return inner
+	}
+	n := re.Max
+	if n < 0 {
+		n = re.Min
+	}
+	n = max(n, 1)
+	if inner > 1<<20/n { // saturate rather than overflow
+		return 1 << 20
+	}
+	return n * inner
 }
 
 func regexReason(err error) string {
@@ -241,7 +286,7 @@ func NewSet(rules []Rule) (*Set, error) {
 	}
 	ids := map[int64]int{}
 	s := &Set{}
-	regexN, termN := 0, 0
+	regexN, termN, cost := 0, 0, 0
 	for i, r := range rules {
 		c, err := compileRule(r)
 		if err != nil {
@@ -256,6 +301,10 @@ func NewSet(rules []Rule) (*Set, error) {
 				regexN++
 				if regexN > MaxRegexRules {
 					return nil, &SetError{Index: i, RuleID: r.ID, Err: bad("kind", "more than %d enabled regex filters", MaxRegexRules)}
+				}
+				cost += c.cost
+				if cost > MaxRegexCost {
+					return nil, &SetError{Index: i, RuleID: r.ID, Err: bad("terms", "the enabled regex filters together are too expensive to run on every article (cost %d, the limit is %d): use fewer or simpler patterns, fewer fields, or fewer regex filters", cost, MaxRegexCost)}
 				}
 			} else {
 				termN += len(r.Terms)

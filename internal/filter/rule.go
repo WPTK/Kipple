@@ -24,8 +24,10 @@
 //
 // Limits (all enforced by Validate and NewSet, all constants below): at most 200 rules, 25 enabled
 // regex rules and 2000 enabled text terms in a set; 1 to 50 terms per rule; a text term is 1 to 100
-// runes; a regex rule has 1 to 5 patterns of at most 256 bytes and at most 5000 program
-// instructions, and must not match the empty string. Scanned text is truncated (at a rune
+// runes; a regex rule has 1 to 5 patterns of at most 256 bytes and at most 500 program
+// instructions, with no counted repeat above 50 copies (nested repeats multiplied), and must not
+// match the empty string; the enabled regex rules of a set stay under MaxRegexCost, so their
+// worst-case evaluation time per item is bounded. Scanned text is truncated (at a rune
 // boundary) before it is normalized or matched, so a giant item costs the same as a large one:
 // content 32 KiB for text rules and 8 KiB for regex rules, every other field 4 KiB.
 //
@@ -50,7 +52,16 @@ const (
 	MaxTermRunes        = 100 // text terms
 	MaxRegexPatterns    = 5
 	MaxRegexBytes       = 256
-	MaxRegexProgInsts   = 5000
+	MaxRegexProgInsts   = 500 // compiled program size of one pattern
+	MaxRegexRepeat      = 50  // copies a counted repeat makes, nested repeats multiplied
+	// MaxRegexCost bounds the worst-case evaluation time of the enabled regex rules of a set, which is
+	// linear in program size times text scanned (Go's regexp has no DFA: up to one live thread per
+	// instruction per byte). A rule costs the sum of its patterns' instructions times the KiB it scans
+	// (8 for content, 4 for each other field); a set sums its enabled regex rules. At the limit the
+	// worst case (TestRegexWorstCaseAtTheCostCap) measured about 180 ms per item on the development
+	// machine, against 2 s for 25 rules before these limits; a typical rule costs well under a
+	// thousand (the 25 rules x 5 patterns on content of the benchmarks cost 17,600 and take 16 ms).
+	MaxRegexCost = 20000
 	MaxNameBytes        = 200
 	MaxTextContentScan  = 32 << 10 // content bytes scanned by text rules
 	MaxRegexContentScan = 8 << 10  // content bytes scanned by regex rules
