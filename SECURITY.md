@@ -4,13 +4,15 @@ Kipple is a private, single-user project and is not offered as a supported publi
 
 ## Reporting a vulnerability
 
-Do not open a public issue. Report privately to the repository owner (WPTK) by email or
-GitHub private security advisory. Include affected version or commit, reproduction steps,
-and impact.
+Do not open a public issue. Report privately through GitHub's private vulnerability reporting:
+on the repository (github.com/WPTK/Kipple), open the **Security** tab and choose **Report a vulnerability**
+(or go straight to https://github.com/WPTK/Kipple/security/advisories/new). Include the affected version
+or commit, reproduction steps, and impact. If that button is not offered, open an issue that only asks for a
+private contact, with no details of the problem.
 
 ## Supported versions
 
-Only the latest tag deployed to Host-A (currently a `phase-2` prerelease) or the active development branch receives fixes.
+Only the latest release tag and the `main` branch receive fixes. Kipple is prerelease software (see CHANGELOG.md for the current version).
 
 ## Automated checks
 
