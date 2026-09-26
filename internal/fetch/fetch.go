@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -157,7 +158,7 @@ func (c *Client) get(ctx context.Context, hc *http.Client, snap Snapshot, ua str
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", acceptHeader)
-	if snap.HTTPAuth != "" {
+	if snap.HTTPAuth != "" { // the first request goes to the feed's own URL; redirects: httpClient
 		user, pass, _ := strings.Cut(snap.HTTPAuth, ":")
 		req.SetBasicAuth(user, pass)
 	}
@@ -184,7 +185,8 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	if ua == "" {
 		ua = c.ua
 	}
-	hc := c.httpClient(variant{noHTTP2: snap.DisableHTTP2, insecureTLS: snap.AllowInsecureTLS, allowPrivate: snap.AllowPrivateNet}, &res.Hops)
+	feedU, _ := url.Parse(snap.URL) // nil on error: then no hop carries credentials
+	hc := c.httpClient(variant{noHTTP2: snap.DisableHTTP2, insecureTLS: snap.AllowInsecureTLS, allowPrivate: snap.AllowPrivateNet}, &res.Hops, feedU)
 	resp, err := c.get(ctx, hc, snap, ua)
 	if err == nil && snap.RetryUserAgent != "" && snap.RetryUserAgent != ua && UARefused(resp) {
 		// The feed refused Kipple's User-Agent: retry once as a browser. The
