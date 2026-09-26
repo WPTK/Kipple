@@ -27,6 +27,9 @@ const retention = (value: number): SettingMeta =>
     surface: "settings",
   }) as SettingMeta;
 
+const restoreDays = (value: number): SettingMeta =>
+  ({ key: "retention.restore_days", label: "Days you can restore removed articles", description: "", kind: "int", value, default: 90, min: 0, max: 365, step: 1, unit: "days", group: "library", surface: "settings" }) as SettingMeta;
+
 function mount(meta: SettingMeta, presets?: (typeof PRESETS)[string]) {
   const api = mockFetch({ "PATCH /api/settings": (_u, init) => json({ settings: [meta], values: JSON.parse(String(init?.body)) }) });
   render(
@@ -50,6 +53,13 @@ describe("settingWarning", () => {
     expect(settingWarning("retention.default", 0, 1000)).not.toBeNull();
     expect(settingWarning("retention.default", 250, 500)).toBeNull();
     expect(settingWarning("retention.default", 250, 0)).toBeNull();
+  });
+  it("asks when restore days are lowered, not when raised", () => {
+    const w = settingWarning("retention.restore_days", 90, 30);
+    expect(w?.body).toBe("Restore stubs older than 30 days are removed tonight and can't come back.");
+    expect(settingWarning("retention.restore_days", 90, 0)?.body).toMatch(/Every restore stub/);
+    expect(settingWarning("retention.restore_days", 30, 90)).toBeNull();
+    expect(settingWarning("retention.restore_days", 0, 30)).toBeNull();
   });
   it("has nothing to say about other settings", () => {
     expect(settingWarning("imgproxy.mode", "all", "http_only")).toBeNull();
@@ -136,5 +146,16 @@ describe("ImageCachePanel", () => {
     expect(calls.filter((c) => c.url.pathname === "/api/imgcache")).toHaveLength(1);
     rerender(wrap("512|all"));
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/imgcache")).toHaveLength(2), { timeout: 3000 });
+  });
+});
+
+describe("restore days guard", () => {
+  it("asks on Reset when the default is lower, and does nothing until confirmed", async () => {
+    const calls = mount({ ...restoreDays(180), default: 90 } as SettingMeta);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Reset .* to default/ }));
+    const dlg = await screen.findByRole("dialog", { name: "Keep restore stubs for fewer days?" });
+    expect(dlg).toHaveTextContent("older than 90 days are removed tonight");
+    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
   });
 });

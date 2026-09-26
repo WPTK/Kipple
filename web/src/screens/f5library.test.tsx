@@ -385,7 +385,7 @@ describe("Auto-read (Settings > Library)", () => {
     expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(false); // nothing is marked before the confirm
     await user.click(within(dlg).getByRole("button", { name: "Mark 250 as read" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(true));
-    expect(body(calls.find((c) => c.url.pathname.endsWith("/run")))).toEqual({ confirm: true });
+    expect(body(calls.find((c) => c.url.pathname.endsWith("/run")))).toEqual({ confirm: true, expect_total: 250 });
   });
 
   it("marks up to 100 without a dialog and shows the run's progress from run.* events", async () => {
@@ -399,7 +399,7 @@ describe("Auto-read (Settings > Library)", () => {
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(true));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(body(calls.find((c) => c.url.pathname.endsWith("/run")))).toEqual({});
+    expect(body(calls.find((c) => c.url.pathname.endsWith("/run")))).toEqual({ expect_total: 40 });
     act(() => {
       liveStore.set((s) => ({ ...s, runs: { "78": { id: "78", kind: "auto_read", done: 20, total: 40, changed: 12, new_items: 0, errors: 0 } } }));
     });
@@ -430,6 +430,30 @@ describe("Auto-read (Settings > Library)", () => {
     await user.click(within(dlg).getByRole("button", { name: "Mark 130 as read" }));
     expect(await screen.findByText(/Another catch-up is already running/)).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("handles 409 total_changed by showing the recount and sending it as expect_total on the next confirm", async () => {
+    let call = 0;
+    const { calls } = base({
+      "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: 60, feeds: [] }),
+      "POST /api/library/auto-read/run": () => {
+        call++;
+        return call === 1
+          ? json({ error: "total_changed", total: 400, expect_total: 60, message: "m" }, 409)
+          : json({ id: "79", kind: "auto_read", done: 0, total: 400, changed: 0, new_items: 0, errors: 0 }, 202);
+      },
+    });
+    go("/settings");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Mark 60 older articles as read now" }));
+    const dlg = await screen.findByRole("dialog", { name: "Mark 400 older articles as read?" });
+    expect(dlg).toHaveTextContent("The count grew from 60 to 400");
+    await user.click(within(dlg).getByRole("button", { name: "Mark 400 as read" }));
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname.endsWith("/run"))).toHaveLength(2));
+    const runs = calls.filter((c) => c.url.pathname.endsWith("/run")).map((c) => body(c));
+    expect(runs[0]).toEqual({ expect_total: 60 });
+    expect(runs[1]).toEqual({ confirm: true, expect_total: 400 });
   });
 
   it("previews a what-if number of days without saving it", async () => {
@@ -801,7 +825,7 @@ describe("Auto-read catch-up (review 3)", () => {
       expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(false);
       await user.click(within(dlg).getByRole("button", { name: "Mark 200 as read" }));
       await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(true));
-      expect(body(calls.find((c) => c.url.pathname.endsWith("/run")))).toEqual({ confirm: true });
+      expect(body(calls.find((c) => c.url.pathname.endsWith("/run")))).toEqual({ confirm: true, expect_total: 200 });
     });
 
     it("that barely changed is counted again and then runs without asking", async () => {

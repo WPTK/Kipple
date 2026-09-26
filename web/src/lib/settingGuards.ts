@@ -33,5 +33,15 @@ export function settingWarning(key: string, current: unknown, next: unknown): Wa
     }
     return null;
   }
+  if (key === "retention.restore_days") {
+    if (b < a) {
+      return {
+        title: "Keep restore stubs for fewer days?",
+        body: b === 0 ? "Every restore stub is removed tonight and can't come back." : `Restore stubs older than ${b} day${b === 1 ? "" : "s"} are removed tonight and can't come back.`,
+        action: "Keep fewer days",
+      };
+    }
+    return null;
+  }
   return null;
 }

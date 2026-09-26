@@ -20,7 +20,7 @@ export interface AutoReadRequest {
 
 export const previewAutoRead = (body: AutoReadRequest = {}) => api<AutoReadPreview>("/api/library/auto-read/preview", { method: "POST", body });
 
-export const runAutoRead = (body: AutoReadRequest & { confirm?: boolean }) =>
+export const runAutoRead = (body: AutoReadRequest & { confirm?: boolean; expect_total?: number }) =>
   api<{ id: string; kind: "auto_read"; done: number; total: number; changed: number; new_items: number; errors: number }>("/api/library/auto-read/run", {
     method: "POST",
     body,

@@ -155,6 +155,10 @@ Phase 2 (reading UI backend) so far.
 
 ### Changed
 
+- Web UI, Settings: a choice in a segmented control applies on Enter, Space or click, not on each arrow key. Lowering the image cache, turning it off, lowering the days restore stubs are kept (they are removed that night for good) and keeping fewer articles per feed each ask first, and Reset asks too when it lowers.
+- Web UI, auto-read: the catch-up sends the total its preview showed as `expect_total` (Settings and the feed editor); a `409 total_changed` refreshes the number and asks again, on top of the existing client-side recount of a preview older than a minute.
+- Web UI, search: highlighting follows the server's parser exactly; opening a saved search never uses the search-as-you-type match; "Mark all" while typing a search explains why it waits.
+- Web UI, saved searches: counts no longer show a dash while loading; a failed count retries, then offers Try again.
 - Search prefixes: the unfinished last word is a prefix only when the request says `typing=1` (`GET /api/items`, sent by the search box while the user types), or as an explicit `word*`. FTS5's porter tokenizer stems a prefix query too (measured on the real library: `"running"*` and `"run"*` both return 988 rows), so the old rendering `("w" OR "w"*)` meant `stem*` and widened every search (`apple` 518 items became 851, `police` 36 became 173). Saved-search unread counts and mark-read `scope.q` were inflated by it; both, and any request without `typing`, now use the plain stemmed words. Prefixes need at least 3 runes (2 for CJK), at most 3 per query, at most 12 terms; the partial-match fallback drops words under 3 runes.
 - Search cost: `snippet()` and bm25 are computed for the returned page only (ids first, then the page is decorated), and a search has a 500 ms budget; past it `GET /api/items` answers `422 {"error":"search_too_broad"}`. Pathological queries (`a b c … p`, a typo plus one-letter words, `a* b* … p*`) took 1.6 to 3.3 s per page on the 5,600-item real library and now take about 1 ms.
 - Mark-read `scope` accepts `fallback` (bool): the list's own `fallback` flag echoed back, so "mark all results read" marks the set the list showed even when an exact match arrived after the list was fetched. Without it the server probes again, as before.
@@ -217,6 +221,10 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- Reordering saved searches quickly no longer loses moves.
+- The search box no longer undoes a scope or sort change made while you type.
+- The auto-read catch-up reports the true number marked, shows a run immediately, recounts a stale preview and refuses to mark more than the preview showed; the what-if number can no longer be used to mark articles.
+- Settings changed while this browser is unregistered are kept and sent once it registers.
 - Device settings changed in another tab or browser are no longer overwritten by a stale value on the next save; the Unread badge (Dot/Off) and "Highlight keywords" now sync with the device profile and survive a reload; the first-run migration no longer turns the account's "mark read on scroll" into a per-device override; settings the server refused clear once you change them and can be discarded.
 - Filter names are limited by bytes (CJK), "Mute similar…" splits spaceless titles, delete and apply dialogs handle stale counts and a busy apply, and keyword highlights match the rule engine (accent folding, retry after a whole-word miss, scan window).
 - The article toolbar fits 375 px: Open original and Mute similar… moved into a More menu (the `o` shortcut still opens the original); auto-read runs show a quiet status line.

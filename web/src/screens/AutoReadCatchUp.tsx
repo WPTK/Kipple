@@ -96,19 +96,25 @@ export function AutoReadCatchUp({
     }
   };
 
-  const doRun = async (confirmed: boolean) => {
+  const doRun = async (confirmed: boolean, shown: AutoReadPreview) => {
     if (!preview) return;
     setBusy(true);
     setError(null);
     try {
-      const r = await runAutoRead({ ...body, ...(confirmed ? { confirm: true } : {}) });
+      const r = await runAutoRead({ ...body, expect_total: shown.total, ...(confirmed ? { confirm: true } : {}) });
       // Show it running now: the stream's run.start may be far away (or the stream down).
       seedRun({ id: String(r.id), kind: "auto_read", done: r.done, total: r.total, changed: r.changed, new_items: r.new_items, errors: r.errors });
       setConfirm(false);
       setGrew(null);
       announce("Marking old articles as read");
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409 && e.code === "confirm_required") {
+      if (e instanceof ApiError && e.status === 409 && e.code === "total_changed") {
+        // The server's recount is much higher than the number the person was shown: show the new one and ask again.
+        const total = typeof e.body?.total === "number" ? e.body.total : shown.total;
+        setGrew({ from: shown.total });
+        setPreview({ p: { ...shown, total }, days, key, at: Date.now() });
+        setConfirm(true);
+      } else if (e instanceof ApiError && e.status === 409 && e.code === "confirm_required") {
         // More than the threshold to mark, or the count moved since the preview: ask again with the server's number.
         const total = typeof e.body?.total === "number" ? e.body.total : preview.p.total;
         setPreview({ ...preview, p: { ...preview.p, total } });
@@ -157,7 +163,7 @@ export function AutoReadCatchUp({
     if (!p) return;
     // The recount may have moved the total across the confirm threshold.
     if (!confirmed && p.total > p.confirm_above) return void setConfirm(true);
-    await doRun(confirmed);
+    await doRun(confirmed, p);
   };
   const askFirst = async () => {
     if (await stillValid()) setConfirm(true);
