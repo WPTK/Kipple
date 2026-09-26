@@ -210,7 +210,7 @@ export function SettingsScreen() {
           />
           <Segmented<LinkTarget>
             legend="Open links in"
-            hint="Same tab lets a link that an installed app claims (ESPN, YouTube) open in the app cleanly, and Back returns here. It is the default on iPhone and iPad."
+            hint="Same tab lets a link that an installed app claims (ESPN, YouTube) open in the app cleanly, and Back returns here. It is the default on iPhone and iPad. Undo is not available after you leave Kipple."
             value={resolveLinkTarget(dp.linkTarget)}
             onChange={(linkTarget) => updateDevicePrefs({ linkTarget })}
             options={[

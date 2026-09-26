@@ -164,6 +164,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
   const selected = activeId ?? selectedId;
 
+  // The list's measured width and root font size, for layouts whose rows change shape with width (Editorial).
+  const sizeCtx = useRef({ width: 0, rem: 16 });
+  sizeCtx.current.width = width;
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -171,8 +174,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     estimateSize: (i) => {
       const r = rows[i];
       if (!r || r.kind === "header") return 40;
-      if (r.kind === "group") return layout.estimateRow(r.items[0] as Card) + 16;
-      return layout.estimateRow(r.item);
+      if (r.kind === "group") return layout.estimateRow(r.items[0] as Card, sizeCtx.current) + 16;
+      return layout.estimateRow(r.item, sizeCtx.current);
     },
     getItemKey: (i) => rows[i]?.key ?? i,
     overscan: 8,
@@ -180,9 +183,17 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   });
 
   // A different layout has different row heights: drop the sizes measured for the old one.
+  // The same goes for a width that moves a row across a breakpoint or changes its image height: re-measure per
+  // 48 px of width rather than per pixel, so dragging the list wider does not thrash the cache.
+  const widthBucket = Math.round(width / 48);
   useEffect(() => {
+    try {
+      sizeCtx.current.rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    } catch {
+      /* keep the last */
+    }
     virtualizer.measure();
-  }, [layout.id, cols, virtualizer]);
+  }, [layout.id, cols, widthBucket, virtualizer]);
 
   const rowIndexOf = useCallback(
     (id: string) => rows.findIndex((r) => (r.kind === "item" ? r.item.id === id : r.kind === "group" && r.items.some((i) => i.id === id))),

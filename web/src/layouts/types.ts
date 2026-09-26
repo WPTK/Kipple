@@ -38,8 +38,11 @@ export interface ListLayout {
   id: LayoutId;
   label: string;
   Row: ComponentType<RowProps>;
-  /** Initial size guess in px for the virtualizer; rows are measured after render. */
-  estimateRow: (item: Card) => number;
+  /**
+   * Initial size guess in px for the virtualizer; rows are measured after render. `ctx` is the list's measured
+   * width and root font size (0 width before it is measured), for layouts whose rows change shape with width.
+   */
+  estimateRow: (item: Card, ctx?: { width: number; rem: number }) => number;
   /** A grid of cards: several items per virtual row, and the article opens full width (no reader pane). */
   grid?: boolean;
   /** Width of the list column beside the reader pane, rem. */

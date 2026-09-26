@@ -71,10 +71,25 @@ function EditorialRow({ item, feed, selected, checked, to, onOpen, onToggleStar,
   );
 }
 
+/** Editorial's row is two columns (image beside the text) once the row is this wide: the @[34rem] container query. */
+export const EDITORIAL_SIDE_REM = 34;
+
+/**
+ * Row height guess from the list width. Stacked: a 16:9 image across the row plus the text (about 400 px at phone
+ * width). Side by side: the image is 2/5 of the row and the text is the taller of the two, about 200 to 260 px.
+ */
+export function editorialRowHeight(hasImage: boolean, width: number, rem = 16): number {
+  if (!hasImage) return 190;
+  const w = width > 0 ? width : 375;
+  const inner = Math.max(w - 32, 0);
+  if (w >= EDITORIAL_SIDE_REM * rem) return Math.round(Math.max((inner * 0.4 * 9) / 16, 150) + 70);
+  return Math.round((inner * 9) / 16 + 207);
+}
+
 export const magazine: ListLayout = {
   id: "magazine",
   label: "Editorial",
   Row: EditorialRow,
-  estimateRow: (item) => (item.image ? 400 : 190),
+  estimateRow: (item, ctx) => editorialRowHeight(!!item.image, ctx?.width ?? 0, ctx?.rem ?? 16),
   paneRem: 28,
 };

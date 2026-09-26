@@ -42,3 +42,17 @@ describe("sanitizeArticleHtml links", () => {
     scroller.remove();
   });
 });
+
+describe("Same tab links", () => {
+  it("leaves external links without a target but keeps in-page and footnote anchors as they are", () => {
+    const root = document.createElement("div");
+    root.innerHTML = sanitizeArticleHtml('<p><a href="https://e.com/x">out</a> <a href="#kp-fn1" target="_blank">1</a> <a href="#section">jump</a></p>', "same");
+    const [out, fn, jump] = [...root.querySelectorAll("a")];
+    expect(out?.hasAttribute("target")).toBe(false);
+    expect(out?.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(fn?.hasAttribute("target")).toBe(false);
+    expect(fn?.getAttribute("href")).toBe("#kp-fn1");
+    expect(jump?.getAttribute("href")).toBe("#section");
+    expect(jump?.hasAttribute("target")).toBe(false);
+  });
+});
