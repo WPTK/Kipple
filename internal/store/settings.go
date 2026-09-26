@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 )
 
 // MaxRestoreDays caps retention.restore_days. The nightly ledger purge removes a
@@ -43,15 +44,56 @@ func LoadFetchSettings(ctx context.Context, q Querier) FetchSettings {
 	}
 }
 
-func settingRaw(ctx context.Context, q Querier, key string) (json.RawMessage, bool) {
+// settingRawErr reads one settings row. A missing row is (nil, false, nil); any
+// other failure (a cancelled context, a busy database) is a non-nil error, so a
+// caller that caches the result can tell "not set" from "could not read".
+func settingRawErr(ctx context.Context, q Querier, key string) (json.RawMessage, bool, error) {
 	var v string
 	if err := q.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", key).Scan(&v); err != nil {
-		if err != sql.ErrNoRows {
-			return nil, false
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
 		}
-		return nil, false
+		return nil, false, err
 	}
-	return json.RawMessage(v), true
+	return json.RawMessage(v), true, nil
+}
+
+func settingRaw(ctx context.Context, q Querier, key string) (json.RawMessage, bool) {
+	raw, ok, err := settingRawErr(ctx, q, key)
+	return raw, ok && err == nil
+}
+
+// settingBoolErr is settingBool that reports a read failure instead of
+// returning the default for it.
+func settingBoolErr(ctx context.Context, q Querier, key string, def bool) (bool, error) {
+	raw, ok, err := settingRawErr(ctx, q, key)
+	if err != nil {
+		return def, err
+	}
+	if !ok {
+		return def, nil
+	}
+	var b bool
+	if json.Unmarshal(raw, &b) != nil {
+		return def, nil
+	}
+	return b, nil
+}
+
+// settingStringErr is the string counterpart of settingBoolErr.
+func settingStringErr(ctx context.Context, q Querier, key, def string) (string, error) {
+	raw, ok, err := settingRawErr(ctx, q, key)
+	if err != nil {
+		return def, err
+	}
+	if !ok {
+		return def, nil
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return def, nil
+	}
+	return s, nil
 }
 
 func settingInt(ctx context.Context, q Querier, key string, def int) int {

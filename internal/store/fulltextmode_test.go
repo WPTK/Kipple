@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"testing"
@@ -206,6 +207,7 @@ func TestFulltextAllHold(t *testing.T) {
 		}
 		return n
 	}
+	e.db.MarkFulltextPending(a, b) // both were queued by the ingest pool
 	// Hold cut of 1: every item counts as younger than the hold window, so only
 	// items that are not full text are visible.
 	require.Equal(t, map[int64]bool{a: true, b: true}, list())
@@ -219,7 +221,7 @@ func TestFulltextAllHold(t *testing.T) {
 
 	// Mark-all-as-read skips the held item too.
 	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := MarkAllRead(ctx, tx, MarkScope{FeedID: feed, HoldCut: 1}, 1<<62, e.clk.Now().Unix())
+		_, err := MarkAllRead(ctx, tx, MarkScope{FeedID: feed, HoldCut: 1, HoldPending: e.db.HoldPending()}, 1<<62, e.clk.Now().Unix())
 		return err
 	}))
 	require.Equal(t, 1, e.count("SELECT read FROM items WHERE id = ?", b))
@@ -262,4 +264,118 @@ func TestFavoritesDroppedWithFolderAndFeed(t *testing.T) {
 	f3 := e.addFeed("https://ex.com/three")
 	require.NoError(t, e.db.DeleteFeed(e.ctx, f3, false))
 	require.Equal(t, 0, e.count("SELECT count(*) FROM settings WHERE key = ?", SettingFavorites))
+}
+
+func TestFulltextAllCancelledContextDoesNotPoisonCache(t *testing.T) {
+	e := newEnv(t)
+	e.setAll(true) // invalidates: the next read is a cache miss
+	cctx, cancel := context.WithCancel(e.ctx)
+	cancel()
+	// The miss loads under a context that survives the caller's cancellation, so
+	// even a dead request gets the real value...
+	require.True(t, e.db.FulltextAll(cctx))
+	// ...and whatever it cached is the truth for the next, healthy caller.
+	require.True(t, e.db.FulltextAll(e.ctx))
+}
+
+func TestBoolCacheSkipsFailedLoads(t *testing.T) {
+	var c boolCache
+	calls := 0
+	fail := func() (bool, error) { calls++; return false, errors.New("boom") }
+	require.False(t, c.get(fail))
+	require.False(t, c.get(fail))
+	require.Equal(t, 2, calls, "a failed load is retried, never cached")
+	require.True(t, c.get(func() (bool, error) { return true, nil }))
+	require.True(t, c.get(fail), "a good value is cached")
+}
+
+func TestNormalizeFavoriteID(t *testing.T) {
+	for in, want := range map[string]string{"7": "7", "007": "7", "9223372036854775807": "9223372036854775807"} {
+		got, ok := NormalizeFavoriteID(in)
+		require.True(t, ok, in)
+		require.Equal(t, want, got)
+	}
+	for _, in := range []string{"", "0", "000", "-1", "+5", "1a", "9223372036854775808", "9999999999999999999"} {
+		_, ok := NormalizeFavoriteID(in)
+		require.False(t, ok, in)
+	}
+}
+
+// Every path that deletes a folder or feed cleans its favorite in the same
+// transaction: the Reader API label rename-merge and disable-tag, too.
+func TestFavoritesDroppedByReaderLabelPaths(t *testing.T) {
+	e := newEnv(t)
+	a, err := e.db.CreateFolder(e.ctx, "A", 5)
+	require.NoError(t, err)
+	b, err := e.db.CreateFolder(e.ctx, "B", 6)
+	require.NoError(t, err)
+	c, err := e.db.CreateFolder(e.ctx, "C", 7)
+	require.NoError(t, err)
+	s := func(n int64) string { return strconv.FormatInt(n, 10) }
+	// "0" + s(id) is a legacy spelling written before ids were normalised.
+	favs := []any{
+		map[string]any{"t": "folder", "id": "0" + s(a.ID)}, map[string]any{"t": "folder", "id": s(b.ID)},
+		map[string]any{"t": "folder", "id": s(c.ID)}, map[string]any{"t": "feed", "id": s(a.ID)},
+	}
+	require.NoError(t, e.db.SetSettings(e.ctx, map[string]any{SettingFavorites: favs}))
+	get := func() string {
+		return scalar[string](t, e.db.Reader(), "SELECT value FROM settings WHERE key = ?", SettingFavorites)
+	}
+
+	// Merge A into B: A is deleted, so its favorite (legacy spelling) goes.
+	require.NoError(t, e.db.RenameLabel(e.ctx, a.ID, "B"))
+	require.JSONEq(t, fmt.Sprintf(`[{"t":"folder","id":"%d"},{"t":"folder","id":"%d"},{"t":"feed","id":"%d"}]`, b.ID, c.ID, a.ID), get())
+
+	// A plain rename deletes nothing.
+	require.NoError(t, e.db.RenameLabel(e.ctx, b.ID, "B2"))
+	require.Contains(t, get(), fmt.Sprintf(`"id":"%d"`, b.ID))
+
+	require.NoError(t, e.db.DisableLabel(e.ctx, c.ID))
+	require.JSONEq(t, fmt.Sprintf(`[{"t":"folder","id":"%d"},{"t":"feed","id":"%d"}]`, b.ID, a.ID), get())
+
+	// The default folder is never deleted, so its favorite stays.
+	require.NoError(t, e.db.SetSettings(e.ctx, map[string]any{SettingFavorites: []any{map[string]any{"t": "folder", "id": "1"}}}))
+	require.NoError(t, e.db.DisableLabel(e.ctx, 1))
+	require.JSONEq(t, `[{"t":"folder","id":"1"}]`, get())
+}
+
+func TestMergedSettingsNormalizesFavorites(t *testing.T) {
+	e := newEnv(t)
+	e.exec(`INSERT INTO settings (key, value) VALUES (?, ?)`, SettingFavorites,
+		`[{"t":"feed","id":"007"},{"t":"feed","id":"7"},{"t":"feed","id":"0"},{"t":"tag","id":"3"}]`)
+	m, err := e.db.MergedSettings(e.ctx)
+	require.NoError(t, err)
+	require.Equal(t, []any{map[string]any{"t": "feed", "id": "7"}}, m[SettingFavorites])
+}
+
+func TestHoldIgnoresItemsTheQueueNeverAccepted(t *testing.T) {
+	e := newEnv(t)
+	feed, a, b := ftFixture(t, e, true) // a follows the feed (full text); b is forced off
+	require.NotZero(t, b)
+	held := func() bool {
+		got := false
+		require.NoError(t, e.db.StreamItems(e.ctx, []int64{a}, true, 1, func(r *ContentRow) error { got = true; return nil }))
+		return !got
+	}
+	_ = feed
+	require.False(t, held(), "never queued: not held")
+	e.db.MarkFulltextPending(a)
+	require.True(t, held())
+	e.db.ClearFulltextPending(a)
+	require.False(t, held())
+}
+
+func TestFeedFulltextNowUsesCurrentState(t *testing.T) {
+	e := newEnv(t)
+	feed := e.addFeed("https://ex.com/feed")
+	on, err := e.db.FeedFulltextNow(e.ctx, feed)
+	require.NoError(t, err)
+	require.False(t, on)
+	e.exec("UPDATE feeds SET fulltext = 1 WHERE id = ?", feed)
+	on, _ = e.db.FeedFulltextNow(e.ctx, feed)
+	require.True(t, on)
+	e.exec("UPDATE feeds SET fulltext = 0 WHERE id = ?", feed)
+	e.setAll(true)
+	on, _ = e.db.FeedFulltextNow(e.ctx, feed)
+	require.True(t, on)
 }

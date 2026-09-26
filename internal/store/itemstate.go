@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -197,6 +198,8 @@ type MarkScope struct {
 	// HoldCut > 0 leaves out items held back from the Reader API (HeldSQL): a client
 	// cannot have seen them, so its mark-all must not read them.
 	HoldCut int64
+	// HoldPending is DB.HoldPending() taken when HoldCut is set; empty means nothing is pending.
+	HoldPending string
 }
 
 // MarkAllRead marks unread items with id <= maxID read inside scope, and the
@@ -217,7 +220,7 @@ func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now in
 	itemArgs, held := args, ""
 	if scope.HoldCut > 0 {
 		held = " AND NOT " + HeldSQL(txFulltextAll(ctx, tx))
-		itemArgs = append(append([]any{}, args...), sql.Named("hold_cut", scope.HoldCut))
+		itemArgs = append(append([]any{}, args...), sql.Named("hold_cut", scope.HoldCut), sql.Named("pending", cmp.Or(scope.HoldPending, "[]")))
 	}
 	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere+held, itemArgs...)
 	if err != nil {

@@ -2,6 +2,7 @@ package sched
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/extract"
+	"github.com/WPTK/kipple/internal/fetch"
 )
 
 // ftFeed builds an RSS document with items whose links are base+"/a/<i>"; a
@@ -173,7 +175,16 @@ type fakeExt struct {
 	block   bool          // wait for ctx to end
 	panics  string        // when set, Extract panics with it for URLs containing it
 	gate    chan struct{} // when set, wait for it to close
+
+	// rendezvous, when > 0, makes each call wait (up to ftRendezvousTimeout) until
+	// that many calls are in flight at once, so a test can assert a concurrency
+	// limit is reached without depending on sleep timing. Once reached, later
+	// calls do not wait.
+	rendezvous int
+	reached    chan struct{}
 }
+
+const ftRendezvousTimeout = 10 * time.Second
 
 func (f *fakeExt) Extract(ctx context.Context, t extract.Target) (extract.Result, error) {
 	host := strings.SplitN(strings.TrimPrefix(t.URL, "https://"), "/", 2)[0]
@@ -186,6 +197,19 @@ func (f *fakeExt) Extract(ctx context.Context, t extract.Target) (extract.Result
 	}
 	f.perHost[host]++
 	f.maxHost = max(f.maxHost, f.perHost[host])
+	if f.rendezvous > 0 {
+		if f.reached == nil {
+			f.reached = make(chan struct{})
+		}
+		if f.cur >= f.rendezvous {
+			select {
+			case <-f.reached:
+			default:
+				close(f.reached)
+			}
+		}
+	}
+	reached := f.reached
 	f.mu.Unlock()
 	defer func() {
 		f.mu.Lock()
@@ -195,6 +219,15 @@ func (f *fakeExt) Extract(ctx context.Context, t extract.Target) (extract.Result
 	}()
 	if f.panics != "" && strings.Contains(t.URL, f.panics) {
 		panic("hostile page")
+	}
+	if reached != nil {
+		select {
+		case <-reached:
+		case <-ctx.Done():
+			return extract.Result{}, ctx.Err()
+		case <-time.After(ftRendezvousTimeout):
+			return extract.Result{}, errors.New("rendezvous never reached")
+		}
 	}
 	if f.block {
 		<-ctx.Done()
@@ -299,7 +332,7 @@ func TestQueueBoundDefersWithANote(t *testing.T) {
 }
 
 func TestPoolConcurrencyAndPerHostLimits(t *testing.T) {
-	fx := &fakeExt{hold: 60 * time.Millisecond}
+	fx := &fakeExt{rendezvous: 2, hold: 20 * time.Millisecond}
 	r := newRig(t, Options{Extractor: fx, FulltextPerHost: 2, FulltextGlobal: 4})
 	srv := newFTServer(t, nil)
 	srv.body.Store(ftFeed("https://one.test", 1, 2, 3, 4, 5, 6))
@@ -311,7 +344,7 @@ func TestPoolConcurrencyAndPerHostLimits(t *testing.T) {
 	require.Equal(t, 2, maxHost, "at most 2 at once against one article host, and the limit is used")
 
 	// Spread over hosts, the global pool size is the bound.
-	fx2 := &fakeExt{hold: 100 * time.Millisecond}
+	fx2 := &fakeExt{rendezvous: 3, hold: 20 * time.Millisecond}
 	r2 := newRig(t, Options{Extractor: fx2, FulltextPerHost: 2, FulltextGlobal: 3})
 	srv2 := newFTServer(t, nil)
 	srv2.body.Store(spreadFeed(0, 6))
@@ -458,7 +491,7 @@ func TestQueueDedupesBoundsAndSpreadsHosts(t *testing.T) {
 	q.push(ftJob{itemID: 2, url: "https://a/2", host: "a"})
 	q.push(ftJob{itemID: 3, url: "https://b/3", host: "b"})
 	require.Equal(t, pushFull, q.push(ftJob{itemID: 4, url: "https://b/4", host: "b"}), "beyond the bound nothing is queued")
-	require.Zero(t, q.free())
+	require.Zero(t, q.free(0))
 
 	j1, done1, ok := q.take()
 	require.True(t, ok)
@@ -540,4 +573,140 @@ func TestFulltextAllSwitchAppliesToNewItemsOnly(t *testing.T) {
 	r.waitEvents("fetch.done", 3)
 	require.Equal(t, 0, srv.count("/a/4"))
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM item_fulltext"))
+}
+
+// ftItems builds parsed feed items g<i> (url base/a/<i>, newer for a higher i).
+func ftItems(base string, idx ...int) (items []fetch.Item) {
+	for _, i := range idx {
+		pub := time.Date(2026, 9, 1, i, 0, 0, 0, time.UTC)
+		items = append(items, fetch.Item{UID: fmt.Sprintf("g%d", i), URL: fmt.Sprintf("%s/a/%d", base, i), Published: &pub})
+	}
+	return items
+}
+
+// commitFTItems inserts items with content rows, standing in for the fetch
+// commit that follows the pick, and returns their ids.
+func (r *rig) commitFTItems(feed int64, items []fetch.Item) (ids []int64) {
+	r.t.Helper()
+	for n, it := range items {
+		id := int64(1_000_000*(n+1)) + feed
+		r.sql(`INSERT INTO items (id, feed_id, uid, url, title, published_at, sort_at, content_hash, text_hash)
+		       VALUES (?, ?, ?, ?, 't', ?, ?, 'c', 't')`, id, feed, it.UID, it.URL, it.Published.Unix(), it.Published.Unix())
+		r.sql(`INSERT INTO item_content (item_id, content_html) VALUES (?, '<p>x</p>')`, id)
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func (r *rig) okResult(feed int64, snapFT bool, items []fetch.Item) *fetch.Result {
+	return &fetch.Result{Snap: fetch.Snapshot{ID: feed, Fulltext: snapFT}, Outcome: fetch.OutcomeOK, Feed: &fetch.Feed{Items: items}}
+}
+
+// Mode changes between the fetch's snapshot and its commit apply to the new items:
+// queue-time evaluation uses the current switch and feed flag, not the snapshot.
+func TestQueueTimeUsesCurrentModeSwitchTurnedOn(t *testing.T) {
+	fx := &fakeExt{gate: make(chan struct{})}
+	r := newRig(t, Options{Extractor: fx})
+	feed := r.add("https://ex.test/f", nil) // feed flag off, switch off: the snapshot says no
+	items := ftItems("https://art.test", 1, 2)
+	res := r.okResult(feed, false, items)
+	require.Empty(t, r.s.pickFulltext(context.Background(), res), "still off: nothing picked")
+
+	require.NoError(t, r.db.SetSettings(context.Background(), map[string]any{"fetch.fulltext_all": true}))
+	cand := r.s.pickFulltext(context.Background(), res)
+	require.Len(t, cand, 2, "the switch went on after the snapshot: the new items are picked")
+	r.s.queueFulltext(feed, cand, r.commitFTItems(feed, items))
+	fx.waitCalls(t, 2)
+	require.Equal(t, 1, strings.Count(r.db.HoldPending(), ","), "the queued items are the ones the Reader API holds")
+	close(fx.gate)
+}
+
+func TestQueueTimeUsesCurrentModeFeedFlagTurnedOn(t *testing.T) {
+	fx := &fakeExt{}
+	r := newRig(t, Options{Extractor: fx})
+	feed := r.add("https://ex.test/f", nil)
+	items := ftItems("https://art.test", 1)
+	r.sql("UPDATE feeds SET fulltext = 1 WHERE id = ?", feed)
+	cand := r.s.pickFulltext(context.Background(), r.okResult(feed, false, items))
+	require.Len(t, cand, 1)
+	r.s.queueFulltext(feed, cand, r.commitFTItems(feed, items))
+	fx.waitCalls(t, 1)
+}
+
+func TestQueueTimeUsesCurrentModeTurnedOff(t *testing.T) {
+	fx := &fakeExt{}
+	r := newRig(t, Options{Extractor: fx})
+	feed := r.ftFeed("https://ex.test/f")
+	items := ftItems("https://art.test", 1, 2)
+	res := r.okResult(feed, true, items)
+
+	// Off before the pick: nothing picked although the snapshot said on.
+	r.sql("UPDATE feeds SET fulltext = 0 WHERE id = ?", feed)
+	require.Empty(t, r.s.pickFulltext(context.Background(), res))
+
+	// Off between the pick and the queueing: nothing queued, so nothing held.
+	r.sql("UPDATE feeds SET fulltext = 1 WHERE id = ?", feed)
+	cand := r.s.pickFulltext(context.Background(), res)
+	require.Len(t, cand, 2)
+	r.sql("UPDATE feeds SET fulltext = 0 WHERE id = ?", feed)
+	r.s.queueFulltext(feed, cand, r.commitFTItems(feed, items))
+	require.Equal(t, "[]", r.db.HoldPending())
+	time.Sleep(50 * time.Millisecond)
+	calls, _, _ := fx.snapshot()
+	require.Empty(t, calls)
+}
+
+// While the switch is on the per-fetch cap and the queue bound are the larger
+// "all" limits; concurrency is untouched.
+func TestSwitchOnScalesPerFetchCapAndQueue(t *testing.T) {
+	r := newRig(t, Options{Extractor: &fakeExt{block: true}, FulltextMaxItems: 2, FulltextQueue: 3, FulltextMaxItemsAll: 5, FulltextQueueAll: 4, FulltextGlobal: 1})
+	feed := r.add("https://ex.test/f", nil)
+	items := ftItems("https://art.test", 1, 2, 3, 4, 5, 6, 7)
+	r.sql("UPDATE feeds SET fulltext = 1 WHERE id = ?", feed)
+	res := r.okResult(feed, true, items)
+	require.Len(t, r.s.pickFulltext(context.Background(), res), 2, "switch off: the plain cap")
+	require.NoError(t, r.db.SetSettings(context.Background(), map[string]any{"fetch.fulltext_all": true}))
+	res = r.okResult(feed, true, items)
+	require.Len(t, r.s.pickFulltext(context.Background(), res), 4, "switch on: min(all cap 5, all queue 4)")
+	require.Equal(t, 4, r.s.ftq.free(r.s.opt.FulltextQueueAll))
+	require.Equal(t, 3, r.s.ftq.free(r.s.opt.FulltextQueue), "the plain bound still applies while the switch is off")
+}
+
+// The Reader API holds only items that were really queued: deferred ones are
+// served at once, and a finished one is released with its row.
+func TestOnlyQueuedItemsArePending(t *testing.T) {
+	fx := &fakeExt{block: true}
+	r := newRig(t, Options{Extractor: fx, FulltextQueue: 2, FulltextGlobal: 1})
+	srv := newFTServer(t, nil)
+	srv.body.Store(ftFeed("https://art.test", 1, 2, 3, 4, 5))
+	id := r.ftFeed(srv.URL + "/f")
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	require.EqualValues(t, 5, r.num("SELECT count(*) FROM items WHERE feed_id = ?", id))
+
+	var pending []int64
+	require.NoError(t, json.Unmarshal([]byte(r.db.HoldPending()), &pending))
+	require.Len(t, pending, 2, "the 3 deferred items are not pending")
+	for _, p := range pending {
+		u := scalarStr(t, r, "SELECT url FROM items WHERE id = ?", p)
+		require.Contains(t, []string{"https://art.test/a/5", "https://art.test/a/4"}, u)
+	}
+}
+
+func scalarStr(t *testing.T, r *rig, q string, args ...any) string {
+	t.Helper()
+	var s string
+	require.NoError(t, r.db.Reader().QueryRow(q, args...).Scan(&s))
+	return s
+}
+
+func TestPendingClearsWhenExtractionFinishes(t *testing.T) {
+	r := newRig(t, Options{})
+	srv := newFTServer(t, nil)
+	srv.body.Store(ftFeed(srv.URL, 1, 2))
+	id := r.ftFeed(srv.URL + "/f")
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	r.waitRows(id, 2, 0)
+	waitFor(t, "pending cleared", func() bool { return r.db.HoldPending() == "[]" })
 }

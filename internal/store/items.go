@@ -21,20 +21,23 @@ type StreamFilter struct {
 	// (see HeldSQL): id > HoldCut, no item_fulltext row yet, effective full-text mode 1.
 	// It is (now - hold window) in microseconds, the same unit as ids.
 	HoldCut int64
-	// FulltextAll is fetch.fulltext_all, for HeldSQL; StreamIDs fills it in.
+	// FulltextAll is fetch.fulltext_all and HoldPending the pending set (DB.HoldPending), both for
+	// HeldSQL; StreamIDs fills them in.
 	FulltextAll bool
+	HoldPending string
 }
 
 // HeldSQL is the predicate for an items row that the Reader API holds back
 // (design §6.5): a full-text item whose extraction has not finished (neither a
 // result nor a stored error) and that is younger than the hold window. Its id
 // is its crawl time in microseconds, so "younger" is id > :hold_cut. Bind
-// :hold_cut with sql.Named. Evaluated in SQL so paging and LIMIT stay correct.
+// :hold_cut and :pending (see DB.HoldPending) with sql.Named. Evaluated in SQL so paging and LIMIT stay correct.
 //
 // all is fetch.fulltext_all (see FulltextModeSQL).
 func HeldSQL(all bool) string {
 	return `(items.id > :hold_cut
   AND NOT EXISTS (SELECT 1 FROM item_fulltext WHERE item_fulltext.item_id = items.id)
+  AND items.id IN (SELECT value FROM json_each(:pending))
   AND ` + FulltextModeSQL("items.fulltext_mode", "(SELECT feeds.fulltext FROM feeds WHERE feeds.id = items.feed_id)", all) + ` = 1)`
 }
 
@@ -64,7 +67,7 @@ func (f StreamFilter) where() (string, []any) {
 	w += intPreds("read", f.Read) + intPreds("starred", f.Starred)
 	if f.HoldCut > 0 {
 		w += " AND NOT " + HeldSQL(f.FulltextAll)
-		args = append(args, sql.Named("hold_cut", f.HoldCut))
+		args = append(args, sql.Named("hold_cut", f.HoldCut), sql.Named("pending", f.HoldPending))
 	}
 	return w, args
 }
@@ -136,6 +139,7 @@ func (d *DB) StreamIDs(ctx context.Context, f StreamFilter, p IDPage, fn func(id
 		return 0, false, nil
 	}
 	f.FulltextAll = d.FulltextAll(ctx)
+	f.HoldPending = d.HoldPending()
 	q, args := streamIDsSQL(f, p)
 	rows, err := d.reader.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -197,17 +201,18 @@ func (d *DB) StreamItems(ctx context.Context, ids []int64, asc bool, holdCut int
 		order = "ASC"
 	}
 	// Held items (holdCut > 0) are absent here too, so a client cannot fetch one by id early.
+	all := d.FulltextAll(ctx) // once per request: the hold and the content mode must agree
 	held := ""
 	args := []any{string(js)}
 	if holdCut > 0 {
-		held = " AND NOT " + strings.ReplaceAll(HeldSQL(d.FulltextAll(ctx)), "items.", "i.")
-		args = append(args, sql.Named("hold_cut", holdCut))
+		held = " AND NOT " + strings.ReplaceAll(HeldSQL(all), "items.", "i.")
+		args = append(args, d.holdArgs(holdCut)...)
 	}
 	rows, err := d.reader.QueryContext(ctx, `
 SELECT i.id, i.feed_id, i.url, i.title, i.author, c.content_html, i.published_at, i.updated_at,
        i.read, i.starred, c.enclosures_json, i.origin_title,
        COALESCE(f.custom_title, f.title), f.site_url, fo.name,
-       `+FulltextModeSQL("i.fulltext_mode", "f.fulltext", d.FulltextAll(ctx))+`, ft.content_html
+       `+FulltextModeSQL("i.fulltext_mode", "f.fulltext", all)+`, ft.content_html
 FROM items i JOIN item_content c ON c.item_id = i.id
 JOIN feeds f ON f.id = i.feed_id JOIN folders fo ON fo.id = f.folder_id
 LEFT JOIN item_fulltext ft ON ft.item_id = i.id

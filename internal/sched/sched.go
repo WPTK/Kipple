@@ -52,6 +52,10 @@ type Options struct {
 	FulltextPerHost     int             // concurrent articles per article host, 2
 	FulltextGlobal      int             // extraction pool size = concurrent articles overall, 4 (memory guard)
 	FulltextQueue       int             // items waiting for extraction, 500; beyond it items are left to on-demand
+	// The same two limits while fetch.fulltext_all is on, when every feed feeds the pool: 50 and 2000
+	// (never below the plain limits). Concurrency stays FulltextGlobal and FulltextPerHost.
+	FulltextMaxItemsAll int
+	FulltextQueueAll    int
 }
 
 // RunInfo answers a refresh-all, import or retention request.
@@ -221,6 +225,14 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	if opt.FulltextQueue <= 0 {
 		opt.FulltextQueue = defaultFTQueue
 	}
+	if opt.FulltextMaxItemsAll <= 0 {
+		opt.FulltextMaxItemsAll = defaultFTMaxItemsAll
+	}
+	opt.FulltextMaxItemsAll = max(opt.FulltextMaxItemsAll, opt.FulltextMaxItems)
+	if opt.FulltextQueueAll <= 0 {
+		opt.FulltextQueueAll = defaultFTQueueAll
+	}
+	opt.FulltextQueueAll = max(opt.FulltextQueueAll, opt.FulltextQueue)
 	if opt.FulltextPerHost <= 0 {
 		opt.FulltextPerHost = defaultFTPerHost
 	}
@@ -248,7 +260,7 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
-		runner: opt.Runner, ftq: newFTQueue(opt.FulltextQueue, opt.FulltextPerHost),
+		runner: opt.Runner, ftq: newFTQueue(opt.FulltextQueueAll, opt.FulltextPerHost),
 		db: db, client: client, hub: hub, clk: clk, log: log, opt: opt,
 		jobs:       make(chan *flight, opt.Workers),
 		doneCh:     make(chan result, opt.Workers),

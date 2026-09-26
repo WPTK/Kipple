@@ -61,6 +61,8 @@ type DB struct {
 
 	// ftAll caches fetch.fulltext_all; SetSettings invalidates it.
 	ftAll boolCache
+	// ftPend is the set of items queued for ingest extraction (the Reader hold).
+	ftPend ftPending
 
 	closeOnce sync.Once
 	closeErr  error

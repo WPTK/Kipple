@@ -398,8 +398,14 @@ func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) error
 			if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ? WHERE folder_id = ?", target, oldID); err != nil {
 				return err
 			}
-			_, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", oldID)
-			return err
+			res, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", oldID)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				return dropFavorite(ctx, tx, FavFolder, oldID)
+			}
+			return nil
 		}
 		_, err = tx.ExecContext(ctx, "UPDATE folders SET name = ? WHERE id = ?", newName, oldID)
 		return err
@@ -412,8 +418,14 @@ func (d *DB) DisableLabel(ctx context.Context, id int64) error {
 		if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = 1 WHERE folder_id = ?", id); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", id)
-		return err
+		res, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			return dropFavorite(ctx, tx, FavFolder, id)
+		}
+		return nil
 	})
 }
 
@@ -434,7 +446,7 @@ func (d *DB) UnreadCounts(ctx context.Context, holdCut int64) ([]UnreadRow, erro
 	var args []any
 	if holdCut > 0 {
 		held = " AND NOT " + HeldSQL(d.FulltextAll(ctx))
-		args = append(args, sql.Named("hold_cut", holdCut))
+		args = append(args, d.holdArgs(holdCut)...)
 	}
 	rows, err := d.reader.QueryContext(ctx, `
 		SELECT u.feed_id, fo.name, u.n, u.newest
@@ -473,6 +485,12 @@ func (d *DB) FeedIconAny(ctx context.Context, feedID int64) (data []byte, conten
 		return nil, "", false, nil
 	}
 	return data, contentType, err == nil, err
+}
+
+// StringSettingErr is StringSetting that reports a read failure (as opposed to
+// an unset key, which is the default with a nil error), for callers that cache.
+func (d *DB) StringSettingErr(ctx context.Context, key, def string) (string, error) {
+	return settingStringErr(ctx, d.reader, key, def)
 }
 
 // StringSetting reads a string setting through the reader pool.

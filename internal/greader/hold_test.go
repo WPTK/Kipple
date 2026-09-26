@@ -24,7 +24,9 @@ func (h *harness) fulltextFeed(url string) int64 {
 func (h *harness) crawledAgo(feed int64, d time.Duration, s itemSeed) int64 {
 	h.t.Helper()
 	s.ID = h.clk.Now().Add(-d).UnixMicro()
-	return h.addItem(feed, s)
+	id := h.addItem(feed, s)
+	h.db.MarkFulltextPending(id) // as if the ingest pool had queued it; h.db.ClearFulltextPending makes it a never-queued item
+	return id
 }
 
 func (h *harness) listIDs(extra string) []int64 {
@@ -286,4 +288,24 @@ func TestFulltextAllHoldAndContent(t *testing.T) {
 	w = h.post(rd+"stream/items/contents", contentsBody(FormatDecimal(a)))
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	require.Contains(t, env.Items[0].Summary.Content, "feed body of a", "back to feed content at once")
+}
+
+// Only items the ingest pool actually queued are held: one that was deferred
+// (over the per-fetch cap, queue full) or that the pool finished with is served
+// at once instead of waiting out the window for text that is not coming.
+func TestHoldOnlyAppliesToQueuedItems(t *testing.T) {
+	h := newHarness(t)
+	ft := h.fulltextFeed("https://ft.example/f")
+	queued := h.crawledAgo(ft, time.Second, itemSeed{Title: "queued"})
+	deferred := h.crawledAgo(ft, 2*time.Second, itemSeed{Title: "deferred"})
+	h.db.ClearFulltextPending(deferred)
+
+	require.Equal(t, []int64{deferred}, h.listIDs(""))
+	require.EqualValues(t, 1, h.unreadTotal())
+	require.Empty(t, h.contentIDs(queued))
+	require.Len(t, h.contentIDs(deferred), 1)
+
+	// The pool finishing (or abandoning) the job releases it, no row needed.
+	h.db.ClearFulltextPending(queued)
+	require.Equal(t, []int64{queued, deferred}, h.listIDs(""))
 }

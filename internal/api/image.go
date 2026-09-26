@@ -172,7 +172,14 @@ func (s *Server) ImgMode() string {
 }
 
 func (s *Server) refreshImgMode(ctx context.Context) string {
-	m := s.db.StringSetting(ctx, "imgproxy.mode", "http_only")
+	lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	m, err := s.db.StringSettingErr(lctx, "imgproxy.mode", "http_only")
+	if err != nil {
+		// Not cached: a failed read must not pin the default until the next PATCH.
+		s.log.Error("api: imgproxy mode", "err", err)
+		return m
+	}
 	s.imgMode.Store(&m)
 	return m
 }

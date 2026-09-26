@@ -61,6 +61,9 @@ func (d *DB) MergedSettings(ctx context.Context) (map[string]any, error) {
 		}
 		var val any
 		if json.Unmarshal([]byte(v), &val) == nil {
+			if k == SettingFavorites {
+				val = readFavorites(val) // legacy spellings ("007") and repeats never reach the UI
+			}
 			out[k] = val
 		}
 	}

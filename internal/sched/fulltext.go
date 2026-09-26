@@ -22,6 +22,10 @@ const (
 	defaultFTPerHost     = 2
 	defaultFTGlobal      = 4
 	defaultFTQueue       = 500
+	// While fetch.fulltext_all is on every feed feeds the pool, so a refresh-all would
+	// overflow the plain limits: these are the limits then. Concurrency is unchanged.
+	defaultFTMaxItemsAll = 50
+	defaultFTQueueAll    = 2000
 	// ftFlushDelay coalesces "text is ready" notifications into one event.
 	ftFlushDelay = 300 * time.Millisecond
 	// ftLookupTimeout bounds the post-commit lookup of the new items' ids.
@@ -57,11 +61,14 @@ func newFTQueue(limit, perHost int) *ftQueue {
 	return q
 }
 
-// free is how many more jobs fit.
-func (q *ftQueue) free() int {
+// free is how many more jobs fit under limit (the queue's own bound when limit <= 0).
+func (q *ftQueue) free(limit int) int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return max(q.limit-len(q.jobs), 0)
+	if limit <= 0 {
+		limit = q.limit
+	}
+	return max(min(limit, q.limit)-len(q.jobs), 0)
 }
 
 // pushResult is what push did with a job.
@@ -74,8 +81,15 @@ const (
 	pushClosed            // the queue is shut (shutdown)
 )
 
-// push adds a job.
-func (q *ftQueue) push(j ftJob) pushResult {
+// push adds a job within the queue's own bound.
+func (q *ftQueue) push(j ftJob) pushResult { return q.pushWithin(j, 0) }
+
+// pushWithin adds a job when fewer than limit are waiting (the queue's own bound when limit <= 0).
+func (q *ftQueue) pushWithin(j ftJob, limit int) pushResult {
+	if limit <= 0 {
+		limit = q.limit
+	}
+	limit = min(limit, q.limit)
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	switch {
@@ -83,7 +97,7 @@ func (q *ftQueue) push(j ftJob) pushResult {
 		return pushClosed
 	case q.queued[j.itemID]:
 		return pushDup
-	case len(q.jobs) >= q.limit:
+	case len(q.jobs) >= limit:
 		return pushFull
 	}
 	q.queued[j.itemID] = true
@@ -143,6 +157,7 @@ func (s *Scheduler) startFulltext() {
 					return
 				}
 				s.runFulltext(s.fetchCtx, j)
+				s.db.ClearFulltextPending(j.itemID) // after the row is written: the item is never unheld-and-unserved
 				done()
 			}
 		}()
@@ -168,6 +183,15 @@ func (s *Scheduler) stopFulltext() {
 	if dropped > 0 {
 		s.log.Info("sched: fulltext queue dropped at shutdown; items extract on demand", "items", dropped)
 	}
+}
+
+// ftLimits are the per-fetch cap and queue bound in force now: the larger ones
+// while fetch.fulltext_all is on.
+func (s *Scheduler) ftLimits(ctx context.Context) (maxItems, queue int) {
+	if s.db.FulltextAll(ctx) {
+		return s.opt.FulltextMaxItemsAll, s.opt.FulltextQueueAll
+	}
+	return s.opt.FulltextMaxItems, s.opt.FulltextQueue
 }
 
 // noteReady batches finished items into one fulltext.ready event.
@@ -209,11 +233,20 @@ func (s *Scheduler) publishReady(ids []int64) {
 // work: the extraction itself happens after the commit, in the pool (design
 // §4.3), so a slow article host never holds a fetch worker.
 //
-// At most FulltextMaxItems newest items are picked, and no more than the queue
+// At most FulltextMaxItems (FulltextMaxItemsAll while fetch.fulltext_all is on) newest items are picked, and no more than the queue
 // has room for. Everything not picked is left to the on-demand endpoint and
 // counted in `fulltext_deferred`.
 func (s *Scheduler) pickFulltext(ctx context.Context, res *fetch.Result) []fetch.Item {
-	if !res.Snap.Fulltext || res.Outcome != fetch.OutcomeOK || res.Feed == nil || len(res.Feed.Items) == 0 {
+	if res.Outcome != fetch.OutcomeOK || res.Feed == nil || len(res.Feed.Items) == 0 {
+		return nil
+	}
+	// The current mode, not the one the fetch snapshotted before its (slow)
+	// download: a switch or feed flag turned on meanwhile applies to these items.
+	on, err := s.db.FeedFulltextNow(ctx, res.Snap.ID)
+	if err != nil {
+		on = res.Snap.Fulltext
+	}
+	if !on {
 		return nil
 	}
 	if res.Snap.RekeyPending {
@@ -259,7 +292,8 @@ func (s *Scheduler) pickFulltext(ctx context.Context, res *fetch.Result) []fetch
 		}
 		return pa.After(*pb)
 	})
-	keep := min(len(cand), s.opt.FulltextMaxItems, s.ftq.free())
+	maxItems, queueLimit := s.ftLimits(ctx)
+	keep := min(len(cand), maxItems, s.ftq.free(queueLimit))
 	deferred := len(cand) - keep
 	cand = cand[:keep]
 	if keep > 0 {
@@ -285,6 +319,12 @@ func (s *Scheduler) queueFulltext(feedID int64, cand []fetch.Item, newIDs []int6
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.fetchCtx), ftLookupTimeout)
 	defer cancel()
+	// Re-evaluated at queue time: the feed flag or the switch may have been turned
+	// off since the pick (the new items then never get a hold or a job).
+	if on, err := s.db.FeedFulltextNow(ctx, feedID); err == nil && !on {
+		return
+	}
+	_, queueLimit := s.ftLimits(ctx)
 	uids := make([]string, len(cand))
 	for i, it := range cand {
 		uids[i] = it.UID
@@ -304,13 +344,20 @@ func (s *Scheduler) queueFulltext(feedID int64, cand []fetch.Item, newIDs []int6
 		if !ok || !isNew[id] {
 			continue
 		}
-		switch s.ftq.push(ftJob{itemID: id, url: it.URL, host: ftrun.HostKey(it.URL)}) {
+		// Marked pending before the push (a worker may finish the job at once) and
+		// cleared again when the queue refuses it, so the Reader API holds only
+		// items that are really waiting for text.
+		s.db.MarkFulltextPending(id)
+		switch s.ftq.pushWithin(ftJob{itemID: id, url: it.URL, host: ftrun.HostKey(it.URL)}, queueLimit) {
 		case pushQueued:
 			queued++
 		case pushFull:
 			full++
+			s.db.ClearFulltextPending(id)
 		case pushClosed:
 			closed++
+			s.db.ClearFulltextPending(id)
+		default: // pushDup: another job already owns the pending mark
 		}
 	}
 	if full > 0 {

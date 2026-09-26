@@ -213,7 +213,7 @@ var settingDefs = []settingDef{
 	{Key: "retention.restore_days", Label: "Days you can restore removed articles", Description: "How long a removed article can be brought back. Zero turns this off.",
 		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(store.MaxRestoreDays), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, store.MaxRestoreDays)},
 
-	{Key: "fetch.fulltext_all", Label: "Fetch the full article for every feed", Description: "Download the page of each new article and show its full text, whatever a feed's own setting says. This uses a little more bandwidth and time on each refresh. Feeds that block extraction fall back to the feed's own content. Articles already saved are not changed; you can still turn full text on or off for a single article.",
+	{Key: "fetch.fulltext_all", Label: "Fetch the full article for every feed", Description: "Download the page of each new article and show its full text, whatever a feed's own setting says. This uses a little more bandwidth and time on each refresh. Feeds that block extraction fall back to the feed's own content. A big refresh can take a while to extract every article; sync apps show the feed's own text for any that are not ready yet. Articles already saved are not changed; you can still turn full text on or off for a single article.",
 		Group: groupLibrary, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: "library.favorites", Label: "Sidebar favorites", Description: "The folders and feeds you pinned to the top of the sidebar.",
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkFavorites},
@@ -294,8 +294,9 @@ func checkFavorites(v any) (any, string) {
 			return nil, msg
 		}
 		t, ok1 := m["t"].(string)
-		id, ok2 := m["id"].(string)
-		if !ok1 || !ok2 || (t != store.FavFolder && t != store.FavFeed) || !allDigits(id) || len(id) > 19 {
+		rawID, ok2 := m["id"].(string)
+		id, idOK := store.NormalizeFavoriteID(rawID)
+		if !ok1 || !ok2 || (t != store.FavFolder && t != store.FavFeed) || !idOK {
 			return nil, msg
 		}
 		k := [2]string{t, id}
@@ -306,16 +307,4 @@ func checkFavorites(v any) (any, string) {
 		out = append(out, map[string]any{"t": t, "id": id})
 	}
 	return out, ""
-}
-
-func allDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
-	}
-	return true
 }
