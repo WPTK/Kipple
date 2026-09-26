@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -456,20 +457,81 @@ func TestDeviceCookieAloneGrantsNothing(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
-func TestDeviceCapEvictionThroughAPI(t *testing.T) {
+// A session that never sends the device cookie registers at most maxNewDevicesPerSessionDay
+// devices a day, then keeps getting its last one: a buggy or cookieless client cannot fill the
+// table or evict real profiles.
+func TestCookielessSessionRegistrationIsCapped(t *testing.T) {
 	h := newHarness(t)
 	sess := h.login()
-	var first string
-	for i := 0; i < store.MaxDevices+3; i++ {
-		_, out, _ := h.api(sess, "GET", "/api/device", "")
-		if i == 0 {
-			first = out["id"].(string)
-		}
+	var ids []string
+	for i := 0; i < 20; i++ {
+		code, out, _ := h.api(sess, "GET", "/api/device", "")
+		require.Equal(t, 200, code)
+		ids = append(ids, out["id"].(string))
 		h.clk.Advance(time.Minute)
+	}
+	distinct := map[string]bool{}
+	for _, id := range ids {
+		distinct[id] = true
+	}
+	require.Len(t, distinct, maxNewDevicesPerSessionDay)
+	require.Equal(t, ids[maxNewDevicesPerSessionDay-1], ids[19], "beyond the cap the session keeps its last device")
+	list, err := h.db.ListDevices(t.Context())
+	require.NoError(t, err)
+	require.Len(t, list, maxNewDevicesPerSessionDay)
+	// A new day starts a new allowance.
+	h.clk.Advance(25 * time.Hour)
+	_, out, _ := h.api(sess, "GET", "/api/device", "")
+	require.False(t, distinct[out["id"].(string)])
+}
+
+// Concurrent first loads (two tabs, bootstrap plus device) share one device.
+func TestConcurrentFirstLoadsRegisterOneDevice(t *testing.T) {
+	h := newHarness(t)
+	sess := h.login()
+	var wg sync.WaitGroup
+	ids := make([]string, 8)
+	for i := range ids {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, out, _ := h.api(sess, "GET", "/api/device", "")
+			ids[i], _ = out["id"].(string)
+		}()
+	}
+	wg.Wait()
+	for _, id := range ids {
+		require.Equal(t, ids[0], id)
+		require.NotEmpty(t, id)
 	}
 	list, err := h.db.ListDevices(t.Context())
 	require.NoError(t, err)
+	require.Len(t, list, 1)
+}
+
+// At the cap with every device recently seen, a new client is served defaults, nothing is
+// evicted, and writes to the unsaved device are refused.
+func TestDeviceCapNeverEvictsRecentDevices(t *testing.T) {
+	h := newHarness(t)
+	sess := h.login()
+	now := h.clk.Now().Unix()
+	for i := 0; i < store.MaxDevices; i++ {
+		_, err := h.db.RegisterDevice(t.Context(), fmt.Sprintf("seed-device-%016d", i), "ua", "web", now-int64(i)-60)
+		require.NoError(t, err)
+	}
+	code, out, _ := h.api(sess, "GET", "/api/device", "")
+	require.Equal(t, 200, code)
+	require.Equal(t, "", out["id"], "an unsaved default device")
+	code, _, _ = h.api(sess, "PATCH", "/api/device", `{"ui.theme":"dark"}`)
+	require.Equal(t, 404, code)
+	list, err := h.db.ListDevices(t.Context())
+	require.NoError(t, err)
 	require.Len(t, list, store.MaxDevices)
-	_, ok, _ := h.db.GetDevice(t.Context(), first)
-	require.False(t, ok, "the least recently seen device was evicted")
+	// Once devices age past 30 days the cap makes room again.
+	h.clk.Advance(31 * 24 * time.Hour)
+	_, out, _ = h.api(sess, "GET", "/api/device", "")
+	require.NotEmpty(t, out["id"])
+	list, err = h.db.ListDevices(t.Context())
+	require.NoError(t, err)
+	require.Len(t, list, store.MaxDevices)
 }

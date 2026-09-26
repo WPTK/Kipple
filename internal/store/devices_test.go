@@ -1,9 +1,12 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -71,27 +74,87 @@ func TestDeviceProfileSizeLimit(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestDeviceEvictionKeepsNewestAndTheNewcomer(t *testing.T) {
-	e := newEnv(t)
+// fillDevices registers MaxDevices devices: the first nOld unseen for 60 days, the rest seen
+// within the last day.
+func fillDevices(t *testing.T, e *env, now int64, nOld int) {
+	t.Helper()
 	for i := 0; i < MaxDevices; i++ {
-		_, err := e.db.RegisterDevice(e.ctx, devID(i), "", "web", int64(1000+i))
+		ts := now - 3600 - int64(i)
+		if i < nOld {
+			ts = now - 60*86400 - int64(nOld-i) // id 0 is the oldest
+		}
+		_, err := e.db.RegisterDevice(e.ctx, devID(i), "", "web", ts)
 		require.NoError(t, err)
 	}
 	require.Equal(t, MaxDevices, e.count("SELECT count(*) FROM devices"))
-	// The oldest seen (id 0) is touched a day+ later, so id 1 is now the least recent.
-	_, _, touched, err := e.db.TouchDevice(e.ctx, devID(0), "", "web", 1000+DeviceTouchInterval)
-	require.NoError(t, err)
-	require.True(t, touched)
-	// A newcomer with the oldest possible time still survives its own eviction pass.
-	_, err = e.db.RegisterDevice(e.ctx, devID(999), "", "web", 1)
+}
+
+func TestDeviceEvictionTakesOnlyOldDevicesAndKeepsTheNewcomer(t *testing.T) {
+	e := newEnv(t)
+	now := int64(1_800_000_000)
+	fillDevices(t, e, now, 3)
+	// The oldest (id 0) goes; the newcomer and every recent device stay.
+	_, err := e.db.RegisterDevice(e.ctx, devID(999), "", "web", now)
 	require.NoError(t, err)
 	require.Equal(t, MaxDevices, e.count("SELECT count(*) FROM devices"))
+	for id, want := range map[int]bool{999: true, 0: false, 1: true, 2: true, 3: true, MaxDevices - 1: true} {
+		_, ok, _ := e.db.GetDevice(e.ctx, devID(id))
+		require.Equal(t, want, ok, "device %d", id)
+	}
+	// A protected old device (the caller's own) is skipped: the next oldest goes instead.
+	_, err = e.db.RegisterDevice(e.ctx, devID(998), "", "web", now, devID(1))
+	require.NoError(t, err)
+	_, ok, _ := e.db.GetDevice(e.ctx, devID(1))
+	require.True(t, ok, "protected")
+	_, ok, _ = e.db.GetDevice(e.ctx, devID(2))
+	require.False(t, ok)
+}
+
+// With no device unseen for 30 days the cap refuses the newcomer and evicts nobody.
+func TestDeviceRegistrationRefusedWhenEveryDeviceIsRecent(t *testing.T) {
+	e := newEnv(t)
+	now := int64(1_800_000_000)
+	fillDevices(t, e, now, 0)
+	_, err := e.db.RegisterDevice(e.ctx, devID(999), "", "web", now)
+	require.ErrorIs(t, err, ErrDeviceLimit)
+	require.Equal(t, MaxDevices, e.count("SELECT count(*) FROM devices"))
 	_, ok, _ := e.db.GetDevice(e.ctx, devID(999))
-	require.True(t, ok)
-	_, ok, _ = e.db.GetDevice(e.ctx, devID(0))
-	require.True(t, ok, "recently seen device kept")
-	_, ok, _ = e.db.GetDevice(e.ctx, devID(1))
-	require.False(t, ok, "least recently seen device evicted")
+	require.False(t, ok, "the insert was rolled back")
+	for i := 0; i < MaxDevices; i++ {
+		_, ok, _ = e.db.GetDevice(e.ctx, devID(i))
+		require.True(t, ok, "device %d", i)
+	}
+	// Two old devices but a burst of three: the third is refused, the first two evicted nobody recent.
+	e2 := newEnv(t)
+	fillDevices(t, e2, now, 2)
+	for i := 0; i < 2; i++ {
+		_, err = e2.db.RegisterDevice(e2.ctx, devID(900+i), "", "web", now)
+		require.NoError(t, err)
+	}
+	_, err = e2.db.RegisterDevice(e2.ctx, devID(902), "", "web", now)
+	require.ErrorIs(t, err, ErrDeviceLimit)
+	require.Equal(t, MaxDevices, e2.count("SELECT count(*) FROM devices"))
+}
+
+// Touching a device seen today is a read: it must not need the writer.
+func TestTouchDeviceRecentDeviceDoesNotTakeTheWriter(t *testing.T) {
+	e := newEnv(t)
+	now := int64(1_800_000_000)
+	_, err := e.db.RegisterDevice(e.ctx, devID(1), "ua", "web", now)
+	require.NoError(t, err)
+	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
+		short, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		dv, found, touched, err := e.db.TouchDevice(short, devID(1), "ua", "web", now+60)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.False(t, touched)
+		require.Equal(t, devID(1), dv.ID)
+		_, found, _, err = e.db.TouchDevice(short, devID(2), "ua", "web", now+60)
+		require.NoError(t, err)
+		require.False(t, found, "an unknown id is answered from the reader too")
+		return nil
+	}))
 }
 
 func TestPurgeDevicesAndDelete(t *testing.T) {

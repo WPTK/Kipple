@@ -50,7 +50,8 @@ func TestNightlyAutoReadWindowAcrossDSTAndManualUnreadSticks(t *testing.T) {
 	require.NoError(t, j.Err)
 	require.Zero(t, j.Rows, "no recorded run: an empty window, nothing marked behind the reader's back")
 	require.False(t, e.isRead(before) || e.isRead(x) || e.isRead(z))
-	last, ok := store.AutoReadLastRun(context.Background(), e.db.Reader())
+	last, ok, err := store.AutoReadLastRun(context.Background(), e.db.Reader())
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, r1.Add(time.Minute).Unix(), last.Unix())
 
@@ -113,4 +114,26 @@ func TestNightlyAutoReadIsOffByDefault(t *testing.T) {
 	require.NoError(t, j.Err)
 	require.Zero(t, j.Rows)
 	require.False(t, e.isRead(old))
+}
+
+// A settings read that fails must fail the step and leave the recorded run alone: reading the
+// failure as "never ran" would give an empty window and then record the run over it.
+func TestNightlyAutoReadSettingsFailureDoesNotRecordTheRun(t *testing.T) {
+	e := newEnv(t, time.Date(2026, 9, 20, 12, 0, 0, 0, newYork))
+	require.NoError(t, e.db.SetSettings(context.Background(), map[string]any{store.SettingAutoReadDays: 7}))
+	lastRun := time.Date(2026, 9, 20, 4, 10, 0, 0, newYork)
+	require.NoError(t, e.db.RecordAutoReadRun(context.Background(), lastRun))
+	crossed := e.crawled(lastRun.Add(-7*24*time.Hour + time.Hour))
+	now := time.Date(2026, 9, 21, 4, 11, 0, 0, newYork)
+	var got Job
+	m := New(Options{DB: e.db, Clock: e.clk, OnJob: func(j Job) { got = j }})
+	e.exec("ALTER TABLE settings RENAME TO settings_away")
+	m.autoRead(context.Background(), now)
+	require.Error(t, got.Err)
+	e.exec("ALTER TABLE settings_away RENAME TO settings")
+	last, ok, err := store.AutoReadLastRun(context.Background(), e.db.Reader())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, lastRun.Unix(), last.Unix(), "the failed step did not advance the recorded run")
+	require.False(t, e.isRead(crossed), "and its window is still to be processed")
 }

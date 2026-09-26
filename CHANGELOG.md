@@ -148,6 +148,12 @@ Phase 2 (reading UI backend) so far.
 
 ### Changed
 
+- Search prefixes: the unfinished last word is a prefix only when the request says `typing=1` (`GET /api/items`, sent by the search box while the user types), or as an explicit `word*`. FTS5's porter tokenizer stems a prefix query too (measured on the real library: `"running"*` and `"run"*` both return 988 rows), so the old rendering `("w" OR "w"*)` meant `stem*` and widened every search (`apple` 518 items became 851, `police` 36 became 173). Saved-search unread counts and mark-read `scope.q` were inflated by it; both, and any request without `typing`, now use the plain stemmed words. Prefixes need at least 3 runes (2 for CJK), at most 3 per query, at most 12 terms; the partial-match fallback drops words under 3 runes.
+- Search cost: `snippet()` and bm25 are computed for the returned page only (ids first, then the page is decorated), and a search has a 500 ms budget; past it `GET /api/items` answers `422 {"error":"search_too_broad"}`. Pathological queries (`a b c … p`, a typo plus one-letter words, `a* b* … p*`) took 1.6 to 3.3 s per page on the 5,600-item real library and now take about 1 ms.
+- Mark-read `scope` accepts `fallback` (bool): the list's own `fallback` flag echoed back, so "mark all results read" marks the set the list showed even when an exact match arrived after the list was fetched. Without it the server probes again, as before.
+- Device registration is guarded: at most 5 new devices per login session per day (then the session keeps its last device), concurrent first loads share one device, the 50-device cap only evicts devices unseen for 30 days and never the session's own, and when it cannot make room the client is served defaults as an unsaved device (empty `id`, no cookie) instead of evicting recent profiles. `TouchDevice` decides on the reader pool and takes the writer only when the daily update is due.
+- `store.GlobalAutoReadDays` and `store.AutoReadLastRun` return an error (`AutoReadLastRun` gains a third result).
+
 - Relevance cursors (`order=rank`) changed form with the new rank basis: cursors issued before this version are a 400 (start the search again). Date cursors are unchanged and every cursor now also records the fallback mode. `GET /api/items` always returns `fallback`.
 - Search text is no longer trimmed of trailing spaces before it is parsed (a trailing space means "finished word": no prefix on the last word).
 - `imgproxy.mode` now defaults to `all`: every image goes through Kipple, so the page policy needs no `https:` in `img-src`. A stored `imgproxy.mode` value (an existing deployment that chose `http_only`) is kept. The image proxy also takes at most 4 concurrent fetches per host, and with the cache on it no longer forwards a browser's conditional request headers to the source.
@@ -203,6 +209,10 @@ Phase 2 (reading UI backend) so far.
   deleted by migration 0002.
 
 ### Fixed
+
+- The nightly auto-read step read a failed settings lookup as "off" or "never ran", so a transient read error produced an empty window that the recorded run then closed for good. It now fails the step and records nothing; the next night repeats the window.
+- `feedurl.KeyAndNormalize` did not equal `Key(Normalize(x))` for a query ending in whitespace before a fragment (`http://h/p?a=b #x`) or an IPv6 zone that does not survive a re-parse; the key is now taken from the normalized string, and a differential fuzz test (seeds committed, 60 s run) keeps them equal.
+- `TestRestoreRefusesBadInput` failed about one run in five: it flipped a raw byte of the zip, which can land in a compressed stream and leave the decompressed bytes unchanged. It now rewrites the `kipple.db` entry with one changed byte and the manifest's checksum stale (200 runs clean).
 
 - `DB.HoldPending` encoded the pending full-text ids in map order, so its JSON array was not deterministic (the CI flake `TestHoldPendingEncoding` saw `[42,7]`). The ids are sorted before encoding.
 - A failed settings read (cancelled context, disk I/O error) was taken for "not set". Inside a write transaction it now fails the transaction (`LoadFetchSettingsErr`): retention trimming, restore of trimmed items, the stub and ledger purges, the full-text guard in saves and mark-all-as-read, and `PullInSchedule` no longer act on a compiled-in default (a wrong retention cap or restore window) and the batch retries. Outside a transaction the loaders log a warning and use defaults for that pass only; nothing caches them. A JSON value that cannot be encoded now fails with its own error instead of tripping the `json_valid` CHECK.

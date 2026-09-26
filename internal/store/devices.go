@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strings"
 )
 
 // Per-device appearance profiles (backend-additions-round2 section 4): one row per
@@ -13,8 +14,12 @@ import (
 // settings column holds overrides only. The cookie grants nothing; it selects a profile.
 
 const (
-	// MaxDevices is the row cap; the least recently seen device is evicted above it.
+	// MaxDevices is the row cap. Above it the least recently seen device is evicted, but only one
+	// unseen for DeviceEvictAfterDays; when every device is more recent, a new one is refused
+	// (ErrDeviceLimit) instead.
 	MaxDevices = 50
+	// DeviceEvictAfterDays is how long a device must be unseen before the cap may evict it.
+	DeviceEvictAfterDays = 30
 	// DeviceMaxAgeDays is how long an unseen device is kept (the cookie's Max-Age).
 	DeviceMaxAgeDays = 400
 	// MaxDeviceProfileBytes is the size limit of the stored overrides (also a CHECK in 0004).
@@ -25,6 +30,9 @@ const (
 
 // ErrDeviceProfileTooLarge is returned when a profile would exceed MaxDeviceProfileBytes.
 var ErrDeviceProfileTooLarge = errors.New("store: device profile too large")
+
+// ErrDeviceLimit is returned by RegisterDevice at the cap when no device is old enough to evict.
+var ErrDeviceLimit = errors.New("store: device limit reached")
 
 // ErrDeviceNotFound is returned for an unknown device id.
 var ErrDeviceNotFound = errors.New("store: no such device")
@@ -90,21 +98,32 @@ func (d *DB) ListDevices(ctx context.Context) ([]Device, error) {
 
 // TouchDevice loads a registered device, bumping last_seen_at (and the user agent and
 // client) when the stored value is a day old. found is false for an unknown id.
-// touched is true when the row was bumped (the caller slides the cookie).
+// touched is true when the row was bumped (the caller slides the cookie). The common case, a
+// device seen within the day, is answered on the reader pool and never takes the writer.
 func (d *DB) TouchDevice(ctx context.Context, id, userAgent, client string, now int64) (dv Device, found, touched bool, err error) {
+	dv, err = scanDevice(d.reader.QueryRowContext(ctx, "SELECT "+deviceCols+" FROM devices WHERE id = ?", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Device{}, false, false, nil
+	}
+	if err != nil {
+		return Device{}, false, false, err
+	}
+	if now-dv.LastSeenAt < DeviceTouchInterval {
+		return dv, true, false, nil
+	}
 	client = deviceClient(client)
 	ua := truncate(userAgent, 300)
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		found, touched = false, false
 		row, e := scanDevice(tx.QueryRowContext(ctx, "SELECT "+deviceCols+" FROM devices WHERE id = ?", id))
 		if errors.Is(e, sql.ErrNoRows) {
-			return nil
+			return nil // evicted between the read and the write
 		} else if e != nil {
 			return e
 		}
 		dv, found = row, true
 		if now-dv.LastSeenAt < DeviceTouchInterval {
-			return nil
+			return nil // another request bumped it first
 		}
 		if _, e = tx.ExecContext(ctx, "UPDATE devices SET last_seen_at = ?, user_agent = ?, client = ? WHERE id = ?",
 			now, ua, client, id); e != nil {
@@ -123,21 +142,48 @@ func deviceClient(c string) string {
 	return "web"
 }
 
-// RegisterDevice creates a device with an empty profile and evicts the least recently
-// seen ones above MaxDevices (never the new one). The id must come from the server.
-func (d *DB) RegisterDevice(ctx context.Context, id, userAgent, client string, now int64) (Device, error) {
+// RegisterDevice creates a device with an empty profile. Above MaxDevices it evicts the least
+// recently seen ones, but only those unseen for DeviceEvictAfterDays and never the new device or
+// one in protect (the caller's own session devices); when that does not make room the insert is
+// rolled back and ErrDeviceLimit is returned, so a burst of registrations can never push out
+// profiles that are in use. The id must come from the server.
+func (d *DB) RegisterDevice(ctx context.Context, id, userAgent, client string, now int64, protect ...string) (Device, error) {
 	dv := Device{ID: id, Profile: map[string]any{}, UserAgent: truncate(userAgent, 300), Client: deviceClient(client), CreatedAt: now, LastSeenAt: now}
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		if _, e := tx.ExecContext(ctx, `INSERT INTO devices (id, name, settings, user_agent, client, created_at, last_seen_at)
 			VALUES (?, '', '{}', ?, ?, ?, ?)`, id, dv.UserAgent, dv.Client, now, now); e != nil {
 			return e
 		}
-		_, e := tx.ExecContext(ctx, `DELETE FROM devices WHERE id IN (
-			SELECT id FROM devices WHERE id != ?1 ORDER BY last_seen_at DESC, created_at DESC, id
-			LIMIT -1 OFFSET ?2)`, id, MaxDevices-1)
-		return e
+		var n int
+		if e := tx.QueryRowContext(ctx, "SELECT count(*) FROM devices").Scan(&n); e != nil {
+			return e
+		}
+		excess := n - MaxDevices
+		if excess <= 0 {
+			return nil
+		}
+		keep := append([]string{id}, protect...)
+		marks := strings.TrimSuffix(strings.Repeat("?,", len(keep)), ",")
+		args := []any{now - int64(DeviceEvictAfterDays)*86400}
+		for _, k := range keep {
+			args = append(args, k)
+		}
+		args = append(args, excess)
+		res, e := tx.ExecContext(ctx, `DELETE FROM devices WHERE id IN (
+			SELECT id FROM devices WHERE last_seen_at < ? AND id NOT IN (`+marks+`)
+			ORDER BY last_seen_at, created_at, id LIMIT ?)`, args...)
+		if e != nil {
+			return e
+		}
+		if gone, _ := res.RowsAffected(); int(gone) < excess {
+			return ErrDeviceLimit // rolls the insert back
+		}
+		return nil
 	})
-	return dv, err
+	if err != nil {
+		return Device{}, err
+	}
+	return dv, nil
 }
 
 func marshalProfile(p map[string]any) (string, error) {

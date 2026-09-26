@@ -235,3 +235,36 @@ func TestSearchOldRankCursorIs400(t *testing.T) {
 	code, _, _ = h.api(c, "GET", searchURL("kiwi", "order=date", "limit=2", "cursor="+url.QueryEscape(cur)), "")
 	require.Equal(t, 400, code)
 }
+
+// typing=1 makes the unfinished last word a prefix; without it a finished-looking word never widens.
+func TestSearchTypingParam(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("One", 0)
+	a := h.addItem(f, seedItem{Title: "Apple pie", Text: "an apple a day", SortAt: 100})
+	b := h.addItem(f, seedItem{Title: "Application form", Text: "please fill in the application", SortAt: 200})
+	_, body, _ := h.api(c, "GET", searchURL("apple"), "")
+	require.Equal(t, strs(a), itemIDs(t, body))
+	_, body, _ = h.api(c, "GET", searchURL("apple", "typing=1"), "")
+	require.Equal(t, strs(b, a), itemIDs(t, body))
+	_, body, _ = h.api(c, "GET", searchURL("apple ", "typing=1"), "")
+	require.Equal(t, strs(a), itemIDs(t, body))
+}
+
+// mark-read honors scope.fallback: the list's own flag decides the expression.
+func TestMarkReadScopeFallbackFlag(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("One", 0)
+	h.addItem(f, seedItem{Title: "Orchards", Text: "apples grow", SortAt: 100})
+	h.addItem(f, seedItem{Title: "Pastry", Text: "a pie needs pastry", SortAt: 200})
+	_, body, _ := h.api(c, "GET", searchURL("orchards pastry "), "")
+	require.Equal(t, true, body["fallback"])
+	asOf := body["as_of"].(string)
+	// an exact match arrives after the list
+	h.addItem(f, seedItem{Title: "Both", Text: "orchards and pastry", SortAt: 300})
+	code, out, rec := h.api(c, "POST", "/api/items/mark-read", `{"scope":{"all":true,"view":"all","q":"orchards pastry ","fallback":true},"max_id":"`+asOf+`","read":true}`)
+	require.Equal(t, 200, code, rec.Body.String())
+	require.EqualValues(t, 2, out["count"])
+	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE read = 0")) // the late exact match stays unread
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"database/sql"
@@ -183,6 +184,39 @@ func TestServeRefusesWhenTheLockIsHeld(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "a refused serve never touched the database")
 }
 
+// corruptDBEntry copies the zip with one byte of kipple.db's uncompressed content flipped and
+// everything else (manifest, sizes, checksums) untouched.
+func corruptDBEntry(t *testing.T, zipPath string) string {
+	t.Helper()
+	zr, err := zip.OpenReader(zipPath)
+	require.NoError(t, err)
+	defer zr.Close()
+	out := filepath.Join(t.TempDir(), "bad.zip")
+	f, err := os.Create(out)
+	require.NoError(t, err)
+	defer f.Close()
+	zw := zip.NewWriter(f)
+	flipped := false
+	for _, e := range zr.File {
+		rc, err := e.Open()
+		require.NoError(t, err)
+		body, err := io.ReadAll(rc)
+		require.NoError(t, err)
+		require.NoError(t, rc.Close())
+		if e.Name == backup.DBFile {
+			body[len(body)/2] ^= 0xFF
+			flipped = true
+		}
+		w, err := zw.Create(e.Name)
+		require.NoError(t, err)
+		_, err = w.Write(body)
+		require.NoError(t, err)
+	}
+	require.True(t, flipped, "the backup has a kipple.db entry")
+	require.NoError(t, zw.Close())
+	return out
+}
+
 func TestRestoreRefusesBadInput(t *testing.T) {
 	dir := newData(t, 5)
 	zipPath := export(t, dir)
@@ -204,13 +238,18 @@ func TestRestoreRefusesBadInput(t *testing.T) {
 	_, err = doRestore(dir, newer, true)
 	require.ErrorContains(t, err, "newer than this Kipple binary")
 
-	// A damaged zip (a flipped byte deep inside).
+	// A damaged backup: kipple.db rewritten with one byte of its decompressed content changed and
+	// the manifest's checksum left stale. (Flipping a raw byte of the zip is not deterministic: it
+	// can land in a compressed stream without changing what it decompresses to.)
+	bad := corruptDBEntry(t, zipPath)
+	_, err = doRestore(dir, bad, true)
+	require.ErrorContains(t, err, "checksum")
+	// A truncated zip is refused too.
 	b, err := os.ReadFile(zipPath)
 	require.NoError(t, err)
-	b[len(b)/2] ^= 0xFF
-	bad := filepath.Join(t.TempDir(), "bad.zip")
-	require.NoError(t, os.WriteFile(bad, b, 0o600))
-	_, err = doRestore(dir, bad, true)
+	trunc := filepath.Join(t.TempDir(), "trunc.zip")
+	require.NoError(t, os.WriteFile(trunc, b[:len(b)/2], 0o600))
+	_, err = doRestore(dir, trunc, true)
 	require.Error(t, err)
 
 	// Not a backup at all, and the live database itself.

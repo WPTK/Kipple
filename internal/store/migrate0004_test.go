@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -319,6 +320,7 @@ func TestRehearsalOnRealDatabase(t *testing.T) {
 		_, err := tx.ExecContext(ctx, `INSERT INTO items_fts(items_fts, rank) VALUES ('integrity-check', 1)`)
 		return err
 	}))
+	rehearsalSearchTimings(t, db)
 	require.NoError(t, db.Close())
 	after := rawCounts(t, path)
 	require.Equal(t, before["items"], after["items"])
@@ -355,4 +357,42 @@ func ftsHits(t *testing.T, q Querier, term string) map[int64]bool {
 	}
 	require.NoError(t, rows.Err())
 	return out
+}
+
+// rehearsalSearchTimings runs the pathological searches of the review (many one-letter words,
+// typo plus short words, short explicit prefixes) and the stem-widening words against the real
+// library, asserts every page is served under 300 ms and logs the timings (best of 3 runs).
+func rehearsalSearchTimings(t *testing.T, db *DB) {
+	t.Helper()
+	queries := []string{
+		"a b c d e f g h i j k l m n o p ",
+		"zzqx a e i o u s t ",
+		"a* b* c* d* e* f* g* h* i* j* k* l* m* n* o* p* ",
+		"apple", "apple ", "police ", "apple pie ", "zzqx apple ",
+	}
+	var sb strings.Builder
+	for _, q := range queries {
+		for _, typing := range []bool{false, true} {
+			var best time.Duration
+			var n int
+			var fb bool
+			for run := 0; run < 3; run++ {
+				t0 := time.Now()
+				cards, _, f, err := db.ListCardsFB(context.Background(), CardQuery{View: "all", Query: q, Limit: 50, Typing: typing})
+				d := time.Since(t0)
+				if errors.Is(err, ErrSearchTooBroad) {
+					n, fb = -1, false
+				} else {
+					require.NoError(t, err, q)
+					n, fb = len(cards), f
+				}
+				if run == 0 || d < best {
+					best = d
+				}
+			}
+			fmt.Fprintf(&sb, "\n  %-52q typing=%-5v page=%3d fallback=%-5v %v", q, typing, n, fb, best.Round(time.Millisecond))
+			require.Less(t, best, 300*time.Millisecond, "search %q typing=%v", q, typing)
+		}
+	}
+	t.Log("search page timings:" + sb.String())
 }

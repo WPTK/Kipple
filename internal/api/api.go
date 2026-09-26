@@ -130,6 +130,7 @@ type Server struct {
 
 	apply    applyState    // the retroactive filter apply run
 	autoRead autoReadState // the auto-read catch-up run
+	devRegs  deviceRegs    // per-session device registrations (currentDevice)
 
 	pubMu  sync.Mutex // serializes query+publish so counts events never arrive out of order
 	cmu    sync.Mutex // guards the counts coalescer

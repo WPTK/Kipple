@@ -8,6 +8,7 @@ import (
 	"html"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Full-text search over items_fts (design §2.4, §7.1). The query builder is in searchquery.go.
@@ -52,13 +53,36 @@ func searchScope(q CardQuery) (where []string, args []any) {
 	return where, args
 }
 
+// searchBudget bounds one search (probe, ranking pass and page decoration together). A search
+// that needs longer is too broad for a reader UI: it answers ErrSearchTooBroad instead of holding
+// a reader connection. A variable so tests can shrink it.
+var searchBudget = 500 * time.Millisecond
+
+// ErrSearchTooBroad is returned by a search that ran out of searchBudget.
+var ErrSearchTooBroad = errors.New("store: search too broad")
+
 // searchCards runs a Query card list and reports whether it ran in partial-match (fallback) mode.
 // Rank order keys on (rank, id) ascending (bm25: lower is better); date order on (sort_at, id)
 // descending. The first page runs the exact expression and, when that finds nothing in scope,
 // retries once with SearchQuery.FallbackMatch; the cursor remembers the mode so later pages stay
 // in it.
+//
+// The work is in two passes so its cost does not grow with the number of matches: the first
+// selects only the page's ids (and, for relevance order, their rank, which needs bm25 for every
+// match); the second computes snippet() and reads the text for those ids alone.
 func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *Cursor, bool, error) {
-	sq := ParseSearch(q.Query)
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, searchBudget)
+	defer cancel()
+	cards, cur, fb, err := d.searchCardsRun(ctx, q, limit)
+	if err != nil && parent.Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return nil, nil, false, ErrSearchTooBroad
+	}
+	return cards, cur, fb, err
+}
+
+func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card, *Cursor, bool, error) {
+	sq := ParseSearch(q.Query, q.Typing)
 	match, ok := sq.Match()
 	if !ok {
 		return []Card{}, nil, false, nil
@@ -81,46 +105,82 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 	}
 	where := append([]string{"items_fts MATCH ?"}, scope...)
 	args := append([]any{match}, scopeArgs...)
-	var outer, order string
+	var outer, order, rankCol string
 	var outerArgs []any
 	if q.Rank {
+		rankCol = "items_fts.rank"
 		order = "r, id"
 		if q.Cursor != nil {
 			outer = " WHERE (r > ? OR (r = ? AND id > ?))"
 			outerArgs = []any{q.Cursor.Rank, q.Cursor.Rank, q.Cursor.ID}
 		}
 	} else {
+		rankCol = "0.0" // date order never needs bm25
 		order = dateOrder("", q.Oldest)
 		if q.Cursor != nil {
 			where = append(where, "(i.sort_at, i.id) "+keysetOp(q.Oldest)+" (?, ?)")
 			args = append(args, q.Cursor.SortAt, q.Cursor.ID)
 		}
 	}
-	sqlText := `SELECT id, feed_id, title, url, author, txt, image_url, published_at, sort_at, read, starred, word_count, origin, ftitle, muted_by, muted_name, snip, r FROM (
-		SELECT i.id AS id, i.feed_id AS feed_id, i.title AS title, i.url AS url, i.author AS author,
-			substr(COALESCE(c.content_text, ''), 1, 1200) AS txt, i.image_url AS image_url, i.published_at AS published_at,
-			i.sort_at AS sort_at, i.read AS read, i.starred AS starred, i.word_count AS word_count, i.origin_title AS origin, (SELECT COALESCE(NULLIF(custom_title, ''), NULLIF(title, ''), url) FROM feeds WHERE id = i.feed_id) AS ftitle,
-			i.muted_by AS muted_by, (SELECT name FROM filters WHERE id = i.muted_by) AS muted_name,
-			snippet(items_fts, 2, '` + snipOpen + `', '` + snipClose + `', '…', 24) AS snip, items_fts.rank AS r
-		FROM items_fts JOIN items i ON i.id = items_fts.rowid LEFT JOIN item_content c ON c.item_id = i.id
+	// Pass 1: the ids of the page (one extra row says whether a next page exists).
+	idSQL := `SELECT id, r FROM (SELECT i.id AS id, i.sort_at AS sort_at, ` + rankCol + ` AS r
+		FROM items_fts JOIN items i ON i.id = items_fts.rowid
 		WHERE ` + strings.Join(where, " AND ") + `)` + outer + ` ORDER BY ` + order + ` LIMIT ?`
 	args = append(append(args, outerArgs...), limit+1)
+	idRows, err := d.reader.QueryContext(ctx, idSQL, args...)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("store: search: %w", err)
+	}
+	var ids []int64
+	var ranks []float64
+	for idRows.Next() {
+		var id int64
+		var r float64
+		if err := idRows.Scan(&id, &r); err != nil {
+			idRows.Close()
+			return nil, nil, false, err
+		}
+		ids, ranks = append(ids, id), append(ranks, r)
+	}
+	if err := idRows.Err(); err != nil {
+		idRows.Close()
+		return nil, nil, false, fmt.Errorf("store: search: %w", err)
+	}
+	idRows.Close()
+	if len(ids) == 0 {
+		return []Card{}, nil, false, nil
+	}
+	more := len(ids) > limit
+	if more {
+		ids, ranks = ids[:limit], ranks[:limit]
+	}
 
-	rows, err := d.reader.QueryContext(ctx, sqlText, args...)
+	// Pass 2: the page's rows, with snippets, in pass 1's order.
+	marks := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args2 := []any{match}
+	for _, id := range ids {
+		args2 = append(args2, id)
+	}
+	sqlText := `SELECT i.id, i.feed_id, i.title, i.url, i.author,
+			substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url, i.published_at, i.sort_at, i.read, i.starred, i.word_count, i.origin_title,
+			(SELECT COALESCE(NULLIF(custom_title, ''), NULLIF(title, ''), url) FROM feeds WHERE id = i.feed_id),
+			i.muted_by, (SELECT name FROM filters WHERE id = i.muted_by),
+			snippet(items_fts, 2, '` + snipOpen + `', '` + snipClose + `', '…', 24)
+		FROM items_fts JOIN items i ON i.id = items_fts.rowid LEFT JOIN item_content c ON c.item_id = i.id
+		WHERE items_fts MATCH ? AND i.id IN (` + marks + `)`
+	rows, err := d.reader.QueryContext(ctx, sqlText, args2...)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("store: search: %w", err)
 	}
 	defer rows.Close()
-	cards := []Card{}
-	var lastRank float64
+	byID := make(map[int64]Card, len(ids))
 	for rows.Next() {
 		var c Card
 		var text, snip string
 		var img, origin, ftitle, mutedName sql.NullString
 		var mutedBy sql.NullInt64
 		var read, starred int
-		var rank float64
-		if err := rows.Scan(&c.ID, &c.FeedID, &c.Title, &c.URL, &c.Author, &text, &img, &c.PublishedAt, &c.SortAt, &read, &starred, &c.WordCount, &origin, &ftitle, &mutedBy, &mutedName, &snip, &rank); err != nil {
+		if err := rows.Scan(&c.ID, &c.FeedID, &c.Title, &c.URL, &c.Author, &text, &img, &c.PublishedAt, &c.SortAt, &read, &starred, &c.WordCount, &origin, &ftitle, &mutedBy, &mutedName, &snip); err != nil {
 			return nil, nil, false, err
 		}
 		c.setSource(origin, ftitle)
@@ -132,16 +192,20 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 		c.Read, c.Starred = read == 1, starred == 1
 		c.ReadingMinutes = readingMinutes(c.WordCount)
 		c.Snippet = snippetHTML(snip)
-		if len(cards) < limit {
-			lastRank = rank
-		}
-		cards = append(cards, c)
+		byID[c.ID] = c
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, false, err
+		return nil, nil, false, fmt.Errorf("store: search: %w", err)
 	}
-	if len(cards) > limit {
-		cards = cards[:limit]
+	cards := make([]Card, 0, len(ids))
+	lastRank := 0.0
+	for i, id := range ids {
+		if c, ok := byID[id]; ok { // a row trimmed between the passes just drops out
+			cards = append(cards, c)
+			lastRank = ranks[i]
+		}
+	}
+	if more && len(cards) > 0 {
 		last := cards[len(cards)-1]
 		return cards, &Cursor{SortAt: last.SortAt, ID: last.ID, Rank: lastRank, ByRank: q.Rank, Asc: q.Oldest, Fallback: fallback}, fallback, nil
 	}

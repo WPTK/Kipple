@@ -21,19 +21,33 @@ import (
 //	author:"j doe"  filters combine with quotes and exclusion (-title:word)
 //	word*           prefix search
 //
-// The last bare word (at least 3 runes, 2 for CJK) is a prefix when the text does not end in a space
-// (search-as-you-type). A prefix is rendered ("w" OR "w"*): FTS5 does not stem a prefix, so
-// "running*" alone would miss the indexed stem "run".
+// A prefix is rendered "w"*. FTS5's porter tokenizer also stems the prefix query (measured on the
+// real library: "running"* and "run"* both return the same 988 rows), so "w"* means stem-of-w
+// followed by anything: "apple"* is "appl"* and reaches application and apply. That is wider than
+// the plain word ("apple" 518 rows, "apple"* 851), so a prefix is only ever used where the user
+// asked for it:
+//
+//   - an explicit word* (at least 3 runes, 2 for CJK; shorter is a literal word);
+//   - with typing set (search-as-you-type), the last bare word when the text does not end in a
+//     space and the word is long enough;
+//   - the partial-match fallback (FallbackMatch), and only for words of that length.
+//
+// Saved searches, mark-read scopes and unread counts never set typing, so they count exactly the
+// stemmed words. A query has at most maxPrefixTerms prefixes and maxSearchTerms terms: each prefix
+// scans every term that shares the stem, and a one- or two-letter prefix matches almost the whole
+// library.
 //
 // CJK: the unicode61 tokenizer does not segment Han/Kana/Hangul text, so a run of such characters
 // is one token and only matches the same whole run or a prefix of it. Documented limit; there is
 // no trigram index.
 const (
-	maxSearchTerms    = 16
+	maxSearchTerms    = 12
 	maxSearchTokens   = maxSearchTerms // kept for the old name
 	maxSearchTokenLen = 64             // runes
 	maxSearchInput    = 512            // bytes
-	minImplicitPrefix = 3              // runes
+	minPrefixRunes    = 3              // shortest word that may be a prefix
+	minPrefixCJK      = 2              // ... for Han, Kana and Hangul
+	maxPrefixTerms    = 3              // prefixes per query
 )
 
 // searchTerm is one parsed unit of user text.
@@ -62,6 +76,12 @@ func hasCJK(s string) bool {
 
 func hasWordRune(s string) bool { return strings.ContainsFunc(s, isWordRune) }
 
+// prefixOK reports whether w is long enough to be searched as a prefix.
+func prefixOK(w string) bool {
+	n := utf8.RuneCountInString(w)
+	return n >= minPrefixRunes || (n >= minPrefixCJK && hasCJK(w))
+}
+
 func cleanWord(w string) string {
 	if r := []rune(w); len(r) > maxSearchTokenLen {
 		w = string(r[:maxSearchTokenLen])
@@ -69,8 +89,10 @@ func cleanWord(w string) string {
 	return w
 }
 
-// ParseSearch parses raw user text. It never fails: whatever is not searchable is dropped.
-func ParseSearch(raw string) SearchQuery {
+// ParseSearch parses raw user text. It never fails: whatever is not searchable is dropped. typing
+// makes an unfinished last word (the text does not end in a space) a prefix, for
+// search-as-you-type; everything else, saved searches and counts included, passes false.
+func ParseSearch(raw string, typing bool) SearchQuery {
 	if len(raw) > maxSearchInput {
 		raw = raw[:maxSearchInput]
 	}
@@ -84,6 +106,7 @@ func ParseSearch(raw string) SearchQuery {
 
 	var sq SearchQuery
 	pendingNot := false
+	prefixes := 0
 	lastWasBare := false // the most recent lexed term is a positive bare word
 	for i := 0; i < len(src) && len(sq.terms) < maxSearchTerms; {
 		if unicode.IsSpace(src[i]) {
@@ -122,7 +145,10 @@ func ParseSearch(raw string) SearchQuery {
 			tok = strings.TrimRight(tok, "*")
 			if hasWordRune(tok) {
 				t.words = []string{cleanWord(tok)}
-				t.prefix = stars > 0
+				if stars > 0 && prefixOK(t.words[0]) && prefixes < maxPrefixTerms {
+					t.prefix = true // a shorter or surplus "w*" is just the word
+					prefixes++
+				}
 			}
 		}
 		if len(t.words) == 0 {
@@ -141,9 +167,8 @@ func ParseSearch(raw string) SearchQuery {
 		sq.terms = append(sq.terms, t)
 	}
 	// A trailing NOT with nothing after it was dropped above; search-as-you-type prefix:
-	if lastWasBare && endsOpen && len(sq.terms) > 0 {
-		last := &sq.terms[len(sq.terms)-1]
-		if n := utf8.RuneCountInString(last.words[0]); n >= minImplicitPrefix || (n >= 2 && hasCJK(last.words[0])) {
+	if typing && lastWasBare && endsOpen && len(sq.terms) > 0 && prefixes < maxPrefixTerms {
+		if last := &sq.terms[len(sq.terms)-1]; prefixOK(last.words[0]) {
 			last.prefix = true
 		}
 	}
@@ -171,19 +196,19 @@ func (t searchTerm) phraseText() string {
 }
 
 // expr renders the term without its column filter or exclusion.
-func (t searchTerm) expr(forcePrefix bool) string {
+func (t searchTerm) expr() string {
 	if t.phrase {
 		return t.phraseText()
 	}
 	w := quote(t.words[0])
-	if t.prefix || forcePrefix {
-		return "(" + w + " OR " + w + "*)"
+	if t.prefix {
+		return w + "*"
 	}
 	return w
 }
 
-func (t searchTerm) render(forcePrefix bool) string {
-	e := t.expr(forcePrefix)
+func (t searchTerm) render() string {
+	e := t.expr()
 	if t.col != "" {
 		e = t.col + " : " + e
 	}
@@ -207,7 +232,7 @@ func joinNeg(base string, neg []searchTerm) string {
 	}
 	parts := make([]string, len(neg))
 	for i, t := range neg {
-		parts[i] = t.render(false)
+		parts[i] = t.render()
 	}
 	return "(" + base + ") NOT (" + strings.Join(parts, " OR ") + ")"
 }
@@ -221,23 +246,34 @@ func (sq SearchQuery) Match() (match string, ok bool) {
 	}
 	parts := make([]string, len(pos))
 	for i, t := range pos {
-		parts[i] = t.render(false)
+		parts[i] = t.render()
 	}
 	return joinNeg(strings.Join(parts, " AND "), neg), true
 }
 
-// FallbackMatch is the partial-match expression used when the exact one finds nothing: every
-// positive word, phrases split into their words, becomes a prefix and they are ORed; exclusions
-// and column filters are kept. Empty when there is nothing positive.
+// FallbackMatch is the partial-match expression used when the exact one finds nothing: the
+// positive words, phrases split into their words, are ORed and the first maxPrefixTerms of them
+// become prefixes; exclusions and column filters are kept. Words too short to be a prefix
+// (under 3 runes, 2 for CJK) are dropped: ORed in, a one-letter word matches most of the library
+// on every keystroke. Empty when no such word remains.
 func (sq SearchQuery) FallbackMatch() string {
 	pos, neg := sq.parts()
 	var parts []string
+	prefixes := 0
 	for _, t := range pos {
 		for _, w := range t.words {
 			if len(parts) == maxSearchTerms {
 				break
 			}
-			parts = append(parts, searchTerm{col: t.col, words: []string{w}}.render(true))
+			if !prefixOK(w) {
+				continue
+			}
+			ft := searchTerm{col: t.col, words: []string{w}}
+			if prefixes < maxPrefixTerms {
+				ft.prefix = true
+				prefixes++
+			}
+			parts = append(parts, ft.render())
 		}
 	}
 	if len(parts) == 0 {
@@ -247,4 +283,6 @@ func (sq SearchQuery) FallbackMatch() string {
 }
 
 // BuildFTSQuery is the exact-mode expression for raw user text (see SearchQuery.Match).
-func BuildFTSQuery(raw string) (match string, ok bool) { return ParseSearch(raw).Match() }
+func BuildFTSQuery(raw string, typing bool) (match string, ok bool) {
+	return ParseSearch(raw, typing).Match()
+}

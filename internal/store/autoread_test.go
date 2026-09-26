@@ -255,10 +255,12 @@ func TestAutoReadNeverTouchesTheArchiveFeed(t *testing.T) {
 func TestAutoReadLastRunRoundTrips(t *testing.T) {
 	e := newAREnv(t)
 	ctx := context.Background()
-	_, ok := AutoReadLastRun(ctx, e.db.Reader())
+	_, ok, err := AutoReadLastRun(ctx, e.db.Reader())
+	require.NoError(t, err)
 	require.False(t, ok)
 	require.NoError(t, e.db.RecordAutoReadRun(ctx, arNow))
-	got, ok := AutoReadLastRun(ctx, e.db.Reader())
+	got, ok, err := AutoReadLastRun(ctx, e.db.Reader())
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, arNow.Unix(), got.Unix())
 	m, err := e.db.MergedSettings(ctx)
@@ -274,4 +276,35 @@ func TestAutoReadCancelledContextStops(t *testing.T) {
 	cancel()
 	_, err := e.db.RunAutoRead(ctx, AutoReadOptions{Now: arNow})
 	require.Error(t, err)
+}
+
+// A failed settings read is an error, never "off" or "never ran": read as 0 it would give the
+// nightly step an empty window that recording the run then closes for good.
+func TestAutoReadSettingsReadFailureIsAnError(t *testing.T) {
+	e := newAREnv(t)
+	ctx := context.Background()
+	require.NoError(t, e.db.SetSettings(ctx, map[string]any{SettingAutoReadDays: 7}))
+	require.NoError(t, e.db.RecordAutoReadRun(ctx, arNow))
+
+	rename := func(q string) {
+		require.NoError(t, e.db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, q)
+			return err
+		}))
+	}
+	rename("ALTER TABLE settings RENAME TO settings_away") // every settings read now fails with a real SQL error
+	repair := func() { rename("ALTER TABLE settings_away RENAME TO settings") }
+	_, err := e.db.GlobalAutoReadDays(ctx)
+	require.Error(t, err)
+	_, _, err = AutoReadLastRun(ctx, e.db.Reader())
+	require.Error(t, err)
+	_, err = e.db.RunAutoRead(ctx, AutoReadOptions{Now: arNow, Since: arNow.Add(-time.Hour)})
+	require.Error(t, err, "no targets can be chosen without the global days")
+	_, err = e.db.PreviewAutoRead(ctx, arNow, 0, nil)
+	require.Error(t, err)
+	repair()
+
+	days, err := e.db.GlobalAutoReadDays(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 7, days)
 }

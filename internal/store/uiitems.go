@@ -107,6 +107,9 @@ type CardQuery struct {
 	// BuildFTSQuery); Rank orders results by relevance instead of date.
 	Query string
 	Rank  bool
+	// Typing marks a search-as-you-type request: the unfinished last word (text not ending in a
+	// space) is also a prefix. Everything else, saved-search counts included, leaves it false.
+	Typing bool
 	// Oldest lists ascending (sort_at ASC, id ASC) instead of newest first.
 	Oldest bool
 	// MinMinutes and MaxMinutes (0 = unset) keep items whose reading time
@@ -503,7 +506,12 @@ type MarkFilter struct {
 	Query string
 	// Unread is true when the list behind the scope showed the unread view: the search fallback
 	// probe then only counts unread rows, exactly as that list did.
-	Unread     bool
+	Unread bool
+	// Fallback is the list's own answer (its response's fallback flag, echoed by the client as
+	// scope.fallback): true marks by the partial-match expression, false by the exact one, with
+	// no probe. nil (a client that does not echo it) decides again with a probe inside the
+	// mark-read transaction, which can disagree with the list if an exact match arrived in between.
+	Fallback   *bool
 	MinMinutes int
 	MaxMinutes int
 	Bound      *Bound
@@ -610,13 +618,19 @@ func markMatch(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilter) (
 	if f.Query == "" {
 		return "", true, nil
 	}
-	sq := ParseSearch(f.Query)
+	sq := ParseSearch(f.Query, false) // a mark-read scope is never a typing request
 	match, ok = sq.Match()
 	if !ok {
 		return "", false, nil
 	}
 	fb := sq.FallbackMatch()
 	if fb == "" || fb == match {
+		return match, true, nil
+	}
+	if f.Fallback != nil {
+		if *f.Fallback {
+			return fb, true, nil
+		}
 		return match, true, nil
 	}
 	sel, args, _, _ := markSelectSQL(scope, f, 0, match, true)

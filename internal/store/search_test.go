@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -20,10 +21,10 @@ func TestBuildFTSQuery(t *testing.T) {
 		ok       bool
 	}{
 		{"hello world ", `"hello" AND "world"`, true},
-		{"hello world", `"hello" AND ("world" OR "world"*)`, true}, // search-as-you-type on the last word
+		{"hello world", `"hello" AND "world"`, true}, // no implicit prefix without typing
 		{"  hello   ", `"hello"`, true},
-		{"foo* ", `("foo" OR "foo"*)`, true},
-		{"foo** ", `("foo" OR "foo"*)`, true},
+		{"foo* ", `"foo"*`, true},
+		{"foo** ", `"foo"*`, true},
 		{`say "hi there" `, `"say" AND "hi there"`, true},
 		{`"exact phrase"`, `"exact phrase"`, true},
 		{`"unterminated phrase`, `"unterminated phrase"`, true},
@@ -50,37 +51,65 @@ func TestBuildFTSQuery(t *testing.T) {
 		{"", "", false},
 		{"   ", "", false},
 		{"naïve café ", `"naïve" AND "café"`, true},
-		{"run", `("run" OR "run"*)`, true},
-		{"ru", `"ru"`, true}, // too short for the implicit prefix
-		{"ru*", `("ru" OR "ru"*)`, true},
+		{"run", `"run"`, true},
+		{"ru", `"ru"`, true},
+		{"ru*", `"ru"`, true}, // an explicit prefix needs 3 runes: shorter is the literal word
+		{"a* b* ", `"a" AND "b"`, true},
+		{"aaa* bbb* ccc* ddd* ", `"aaa"* AND "bbb"* AND "ccc"* AND "ddd"`, true}, // at most 3 prefixes
+		{"机* 机器* ", `"机" AND "机器"*`, true},
 		{"cats -dogs", `("cats") NOT ("dogs")`, true}, // the last term is an exclusion: no prefix
-		{"机器学习", `("机器学习" OR "机器学习"*)`, true},
+		{"机器学习", `"机器学习"`, true},
 	}
 	for _, c := range cases {
-		got, ok := BuildFTSQuery(c.in)
+		got, ok := BuildFTSQuery(c.in, false)
 		require.Equal(t, c.ok, ok, c.in)
 		require.Equal(t, c.want, got, c.in)
 	}
-	long, _ := BuildFTSQuery(strings.Repeat("word ", 100))
+	long, _ := BuildFTSQuery(strings.Repeat("word ", 100), false)
 	require.Equal(t, maxSearchTerms, strings.Count(long, `"word"`))
-	tok, _ := BuildFTSQuery(strings.Repeat("x", 500) + " ")
+	tok, _ := BuildFTSQuery(strings.Repeat("x", 500)+" ", false)
 	require.Equal(t, `"`+strings.Repeat("x", maxSearchTokenLen)+`"`, tok)
+}
+
+// Search-as-you-type: the unfinished last word is a prefix only with typing set, and only when
+// it is long enough and the text does not end in a space.
+func TestBuildFTSQueryTyping(t *testing.T) {
+	cases := map[string]string{
+		"hello world":        `"hello" AND "world"*`,
+		"hello world ":       `"hello" AND "world"`,
+		"run":                `"run"*`,
+		"ru":                 `"ru"`,
+		"cats -dogs":         `("cats") NOT ("dogs")`,
+		"机器":                 `"机器"*`,
+		"机":                  `"机"`,
+		"aaa* bbb* ccc* ddd": `"aaa"* AND "bbb"* AND "ccc"* AND "ddd"`, // the prefix cap holds while typing
+	}
+	for in, want := range cases {
+		got, ok := BuildFTSQuery(in, true)
+		require.True(t, ok, in)
+		require.Equal(t, want, got, in)
+	}
 }
 
 func TestFallbackMatch(t *testing.T) {
 	cases := map[string]string{
-		"apple pie ":       `("apple" OR "apple"*) OR ("pie" OR "pie"*)`,
-		`"big dogs" cats `: `("big" OR "big"*) OR ("dogs" OR "dogs"*) OR ("cats" OR "cats"*)`,
-		"title:apple pie ": `title : ("apple" OR "apple"*) OR ("pie" OR "pie"*)`,
-		"apple -mice ":     `(("apple" OR "apple"*)) NOT ("mice")`,
+		"apple pie ":       `"apple"* OR "pie"*`,
+		`"big dogs" cats `: `"big"* OR "dogs"* OR "cats"*`,
+		"title:apple pie ": `title : "apple"* OR "pie"*`,
+		"apple -mice ":     `("apple"*) NOT ("mice")`,
+		"a apple e ":       `"apple"*`, // words under 3 runes are dropped, not ORed in
+		"a b c ":           "",
+		"aaa bbb ccc ddd ": `"aaa"* OR "bbb"* OR "ccc"* OR "ddd"`, // three prefixes at most
+		"机 机器 ":            `"机器"*`,
 		"-mice ":           "",
 		"":                 "",
 	}
 	for in, want := range cases {
-		require.Equal(t, want, ParseSearch(in).FallbackMatch(), in)
+		require.Equal(t, want, ParseSearch(in, false).FallbackMatch(), in)
 	}
-	capped := ParseSearch(strings.Repeat("a ", 40)).FallbackMatch()
-	require.Equal(t, maxSearchTerms, strings.Count(capped, `"a"*`))
+	capped := ParseSearch(strings.Repeat("abc ", 40), false).FallbackMatch()
+	require.Equal(t, maxSearchTerms, strings.Count(capped, `"abc"`))
+	require.Equal(t, maxPrefixTerms, strings.Count(capped, `"abc"*`))
 }
 
 func TestSnippetHTMLEscapes(t *testing.T) {
@@ -136,9 +165,10 @@ func FuzzBuildFTSQuery(f *testing.F) {
 	}
 	f.Cleanup(func() { _ = db.Close() })
 	f.Fuzz(func(t *testing.T, raw string) {
-		sq := ParseSearch(raw)
+		sq, sqt := ParseSearch(raw, false), ParseSearch(raw, true)
 		m, _ := sq.Match()
-		for _, expr := range []string{m, sq.FallbackMatch()} {
+		mt, _ := sqt.Match()
+		for _, expr := range []string{m, mt, sq.FallbackMatch(), sqt.FallbackMatch()} {
 			if expr == "" {
 				continue
 			}
@@ -198,8 +228,8 @@ func TestSearchV2(t *testing.T) {
 		sitem{"机器学习入门", "Gu", "我们讨论机器学习和深度学习"},
 	)
 	run, pasta, comp, cafe, dogs, cats, cjk := ids[0], ids[1], ids[2], ids[3], ids[4], ids[5], ids[6]
-	set := func(q string) map[int64]bool {
-		got, fb := searchIDs(t, e, q)
+	setWith := func(q string, typing bool) map[int64]bool {
+		got, fb := searchIDs(t, e, q, func(c *CardQuery) { c.Typing = typing })
 		m := map[int64]bool{}
 		if fb {
 			return m // only exact matches are compared here; the fallback has its own test
@@ -209,6 +239,7 @@ func TestSearchV2(t *testing.T) {
 		}
 		return m
 	}
+	set := func(q string) map[int64]bool { return setWith(q, false) }
 	// stemming: running, runs and run share the stem "run"
 	require.Equal(t, map[int64]bool{run: true, pasta: true}, set("running "))
 	require.Equal(t, map[int64]bool{run: true, pasta: true}, set("run "))
@@ -232,14 +263,17 @@ func TestSearchV2(t *testing.T) {
 	require.Equal(t, map[int64]bool{cats: true}, set(`author:"fay jones" `))
 	require.Empty(t, set("title:smith "))
 	// as-you-type prefix on the last word only
-	require.Equal(t, map[int64]bool{comp: true}, set("comput"))
-	require.Equal(t, map[int64]bool{run: true, pasta: true}, set("running")) // full word: stemmed alternative of the OR pair
-	require.Empty(t, set("runni"))                                           // known limit: a prefix is matched against stems ("run"), so a mid-word prefix of an inflected form finds nothing
+	require.Equal(t, map[int64]bool{comp: true}, setWith("comput", true))
+	require.Equal(t, map[int64]bool{comp: true}, setWith("compu", true))
+	require.Empty(t, set("compu")) // no typing: "compu" is a whole word, not a prefix
+	require.Equal(t, map[int64]bool{run: true, pasta: true}, setWith("running", true))
+	require.Empty(t, setWith("runni", true)) // known limit: a prefix is matched against stems ("run"), so a mid-word prefix of an inflected form finds nothing
 	// an unknown column is literal text, not a filter
 	require.Empty(t, set("body:cats "))
 	// CJK: a run is one token; the whole run and a prefix match, a middle substring does not
 	require.Equal(t, map[int64]bool{cjk: true}, set("机器学习入门 "))
-	require.Equal(t, map[int64]bool{cjk: true}, set("机器"))
+	require.Equal(t, map[int64]bool{cjk: true}, setWith("机器", true))
+	require.Equal(t, map[int64]bool{cjk: true}, set("机器*"))
 	// injection never errors and never filters
 	for _, q := range []string{"title:", `"`, "NEAR(a b)", "a OR", "((", "*", "content_text:cats", `x" OR "y`, "-", "NOT"} {
 		_, _ = searchIDs(t, e, q)
@@ -347,4 +381,100 @@ func TestMarkScopeUsesSameFallback(t *testing.T) {
 	// unsearchable text marks nothing
 	require.Empty(t, mark("- ", false))
 	require.Empty(t, mark("-pie ", false))
+}
+
+// FTS5's porter tokenizer stems a prefix query too ("running"* is "run"*), so a finished word never
+// widens into its stem's prefix: "apple" does not find "application" (stem "applic" starts with
+// the stem "appl"), while "apple*" and search-as-you-type do, by design (design §2.4).
+func TestSearchPrefixIsStemPrefix(t *testing.T) {
+	e := newEnv(t)
+	ids := seedSearch(t, e,
+		sitem{"Apple pie", "Ann", "an apple a day"},
+		sitem{"Application form", "Bob", "please fill in the application"},
+		sitem{"Police report", "Cy", "the police arrived"},
+		sitem{"Policy paper", "Di", "a new policy on policies"},
+		sitem{"Running late", "Ed", "he runs and ran"},
+	)
+	apple, application, police, policy, running := ids[0], ids[1], ids[2], ids[3], ids[4]
+	list := func(q string, typing bool) []int64 {
+		got, fb := searchIDs(t, e, q, func(c *CardQuery) { c.Typing = typing })
+		require.False(t, fb, q)
+		return got
+	}
+	require.ElementsMatch(t, []int64{apple}, list("apple ", false))
+	require.ElementsMatch(t, []int64{apple}, list("apple", false), "no typing: a finished word never widens")
+	require.ElementsMatch(t, []int64{police}, list("police", false))
+	require.ElementsMatch(t, []int64{apple, application}, list("apple*", false), "an explicit prefix is stem*")
+	require.ElementsMatch(t, []int64{apple, application}, list("apple", true), "typing: the last word is stem*")
+	require.ElementsMatch(t, []int64{apple}, list("apple ", true), "a trailing space finishes the word")
+	require.ElementsMatch(t, []int64{police, policy}, list("police*", false))
+	// the prefix of an inflection and of its stem are the same query
+	require.Equal(t, list("running*", false), list("run*", false))
+	require.ElementsMatch(t, []int64{running}, list("running*", false))
+}
+
+// A saved search or mark-read scope is never a typing request, so they count the stemmed words
+// only, even when the text does not end in a space.
+func TestMarkScopeIsNeverPrefix(t *testing.T) {
+	e := newEnv(t)
+	ids := seedSearch(t, e,
+		sitem{"Apple pie", "Ann", "an apple a day"},
+		sitem{"Application form", "Bob", "please fill in the application"},
+	)
+	var res StateResult
+	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
+		var err error
+		res, err = MarkScopeRead(ctx, tx, MarkScope{}, MarkFilter{Query: "apple", Unread: true}, 1<<62, 1)
+		return err
+	}))
+	require.Equal(t, []int64{ids[0]}, res.Changed)
+}
+
+// The list decides exact-vs-fallback at one moment and mark-read decides again in its own
+// transaction. When an exact match arrives in between, a client that echoes the list's fallback
+// flag still marks exactly what the list showed; one that does not gets the new decision.
+func TestMarkScopeHonorsListFallback(t *testing.T) {
+	e := newEnv(t)
+	ids := seedSearch(t, e,
+		sitem{"Apple orchards", "Ann", "apples grow"},
+		sitem{"Pie recipes", "Bob", "a pie needs pastry"},
+	)
+	listed, listedFB := searchIDs(t, e, "orchards pastry ")
+	require.True(t, listedFB)
+	require.ElementsMatch(t, []int64{ids[0], ids[1]}, listed)
+	asOf := ids[1] // the list's as_of: later arrivals are above it
+
+	// The race window: an exact match for both words is committed after the list, before mark-read.
+	var fid int64
+	require.NoError(t, e.db.Reader().QueryRow("SELECT id FROM feeds LIMIT 1").Scan(&fid))
+	late := asOf + 99_000
+	e.exec(`INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, word_count, uid, content_hash, text_hash, url, title, author)
+		VALUES (?,?,0,0,5000,5000,10,'gl','c','t','https://x/late','Late','Di')`, late, fid)
+	e.exec(`INSERT INTO item_content (item_id, content_html, content_text) VALUES (?,?,?)`, late, "<p>x</p>", "orchards and pastry together")
+
+	mark := func(fb *bool) []int64 {
+		e.exec("UPDATE items SET read = 0")
+		var res StateResult
+		require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
+			var err error
+			res, err = MarkScopeRead(ctx, tx, MarkScope{}, MarkFilter{Query: "orchards pastry ", Unread: true, Fallback: fb}, asOf, 1)
+			return err
+		}))
+		return res.Changed
+	}
+	yes, no := true, false
+	require.ElementsMatch(t, []int64{ids[0], ids[1]}, mark(&yes), "the echoed fallback flag marks what the list showed")
+	require.Empty(t, mark(&no), "an echoed exact list marks exact matches only (none at or below as_of)")
+	require.Empty(t, mark(nil), "without the flag the fresh decision is exact and marks little or nothing: the old behavior")
+}
+
+// A search that outruns its budget answers ErrSearchTooBroad instead of holding a reader.
+func TestSearchTooBroad(t *testing.T) {
+	e := newEnv(t)
+	seedSearch(t, e, sitem{"Apple", "Ann", "apple pie"})
+	old := searchBudget
+	searchBudget = time.Nanosecond
+	t.Cleanup(func() { searchBudget = old })
+	_, _, _, err := e.db.ListCardsFB(e.ctx, CardQuery{View: "all", Query: "apple ", Limit: 10})
+	require.ErrorIs(t, err, ErrSearchTooBroad)
 }

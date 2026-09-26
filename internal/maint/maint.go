@@ -8,6 +8,7 @@ package maint
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -358,7 +359,13 @@ func (m *Maint) autoRead(ctx context.Context, now time.Time) {
 	began := time.Now()
 	db := m.o.DB
 	since := now
-	last, ok := store.AutoReadLastRun(ctx, db.Reader())
+	// A failed settings read must end the step without recording a run: read as "never ran" it
+	// would give an empty window that recording the run then closes for good.
+	last, ok, err := store.AutoReadLastRun(ctx, db.Reader())
+	if err != nil {
+		m.finish(Job{Name: "auto_read", Err: fmt.Errorf("read last run: %w", err)}, began)
+		return
+	}
 	if ok && last.Before(now) {
 		since = last
 	}

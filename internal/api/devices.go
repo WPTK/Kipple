@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -32,7 +33,52 @@ const (
 	deviceCookieTTL  = time.Duration(store.DeviceMaxAgeDays) * 24 * time.Hour
 	maxDeviceName    = 64
 	clientPrefix     = "client."
+
+	// maxNewDevicesPerSessionDay caps the devices one login session may register in a day. A
+	// client that lost or never keeps its device cookie would otherwise register one per request.
+	maxNewDevicesPerSessionDay = 5
+	// deviceReuseWindow is how long after a registration a cookieless request of the same session
+	// gets that same device back (concurrent first loads, or a Set-Cookie not yet applied).
+	deviceReuseWindow = 30 // seconds
 )
+
+// deviceRegs is the in-memory record of what each login session registered. It is a guard rail,
+// not state: a restart forgets it, which only lets a session register a few more devices.
+type deviceRegs struct {
+	mu sync.Mutex
+	m  map[string]*sessionRegs
+}
+
+type sessionRegs struct {
+	mu     sync.Mutex // held across a registration, so concurrent first loads register one device
+	day    int64      // unix day of the count
+	n      int        // registrations on day
+	last   string     // the device registered last (the overflow device)
+	lastAt int64
+	seen   int64 // last use, for pruning
+}
+
+func (dr *deviceRegs) forSession(key string, now int64) *sessionRegs {
+	dr.mu.Lock()
+	defer dr.mu.Unlock()
+	if dr.m == nil {
+		dr.m = map[string]*sessionRegs{}
+	}
+	if len(dr.m) > 1000 {
+		for k, v := range dr.m {
+			if now-v.seen > 2*86400 {
+				delete(dr.m, k)
+			}
+		}
+	}
+	sr := dr.m[key]
+	if sr == nil {
+		sr = &sessionRegs{}
+		dr.m[key] = sr
+	}
+	sr.seen = now
+	return sr
+}
 
 // clientDef is one client-only profile key: its validator and its built-in default
 // (nil when the key has none and the client decides, for example from the device).
@@ -293,16 +339,75 @@ func (s *Server) currentDevice(w http.ResponseWriter, r *http.Request) (store.De
 	}
 	// No cookie, a malformed one or an id nobody registered (evicted, deleted, or made
 	// up): a new device under a server-made id. A client never chooses its own id.
+	//
+	// Registration is guarded per login session: one at a time (concurrent first loads share one
+	// device), a recent one is reused, at most maxNewDevicesPerSessionDay a day (beyond that the
+	// session keeps its last device), and the store never evicts a device seen in the last
+	// DeviceEvictAfterDays nor this session's own. When nothing can be registered the caller gets
+	// an unsaved default device (empty ID, no cookie) and writes to it answer 404.
+	var key string
+	if c, err := r.Cookie(cookieName); err == nil {
+		key = sessionID(c.Value)
+	}
+	sr := s.devRegs.forSession(key, now)
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	reuse := func() (store.Device, bool, error) {
+		if sr.last == "" {
+			return store.Device{}, false, nil
+		}
+		dv, found, err := s.db.GetDevice(ctx, sr.last)
+		return dv, found, err
+	}
+	day := now / 86400
+	if sr.last != "" && now-sr.lastAt <= deviceReuseWindow {
+		if dv, found, err := reuse(); err != nil || found {
+			if err == nil {
+				s.setDeviceCookie(w, r, dv.ID)
+			}
+			return dv, err
+		}
+	}
+	if sr.day == day && sr.n >= maxNewDevicesPerSessionDay {
+		dv, found, err := reuse()
+		if err != nil {
+			return store.Device{}, err
+		}
+		if found {
+			s.setDeviceCookie(w, r, dv.ID)
+			return dv, nil
+		}
+		return unsavedDevice(cl, now), nil
+	}
 	id, err := newDeviceID()
 	if err != nil {
 		return store.Device{}, err
 	}
-	dv, err := s.db.RegisterDevice(ctx, id, ua, cl, now)
+	var protect []string
+	if sr.last != "" {
+		protect = append(protect, sr.last)
+	}
+	dv, err := s.db.RegisterDevice(ctx, id, ua, cl, now, protect...)
+	if errors.Is(err, store.ErrDeviceLimit) {
+		s.log.Warn("api: device limit reached; serving default settings", "max", store.MaxDevices)
+		return unsavedDevice(cl, now), nil
+	}
 	if err != nil {
 		return store.Device{}, err
 	}
+	if sr.day != day {
+		sr.day, sr.n = day, 0
+	}
+	sr.n++
+	sr.last, sr.lastAt = id, now
 	s.setDeviceCookie(w, r, id)
 	return dv, nil
+}
+
+// unsavedDevice is the stand-in for a client that could not be registered: defaults only, an
+// empty ID, so every write to it is a not-found and nothing is stored.
+func unsavedDevice(client string, now int64) store.Device {
+	return store.Device{Profile: map[string]any{}, Client: client, CreatedAt: now, LastSeenAt: now}
 }
 
 func (s *Server) writeDevice(w http.ResponseWriter, r *http.Request, dv store.Device) {

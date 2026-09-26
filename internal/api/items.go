@@ -88,6 +88,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q.Query = searchText(search)
+	q.Typing = qv.Get("typing") == "1"
 	if v := qv.Get("ids"); v != "" {
 		for _, p := range strings.Split(v, ",") {
 			id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
@@ -156,6 +157,10 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cards, next, fallback, err := s.db.ListCardsFB(r.Context(), q)
+	if errors.Is(err, store.ErrSearchTooBroad) {
+		writeErrorMsg(w, http.StatusUnprocessableEntity, "search_too_broad", "That search matches too much. Add a longer or more specific word.")
+		return
+	}
 	if err != nil {
 		s.log.Error("api: list items", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal")
@@ -169,8 +174,8 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": cards, "next_cursor": cur, "as_of": strconv.FormatInt(asOf, 10), "fallback": fallback})
 }
 
-// searchText is the search text as sent, or "" when it is blank. Trailing spaces are kept: a text
-// that does not end in a space makes its last word a prefix (search-as-you-type, design §2.4).
+// searchText is the search text as sent, or "" when it is blank. Trailing spaces are kept: with
+// typing=1 a text that does not end in a space makes its last word a prefix (design §2.4).
 func searchText(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return ""
@@ -322,6 +327,7 @@ type markReadRequest struct {
 		All      bool            `json:"all"`
 		View     string          `json:"view"`
 		Q        string          `json:"q"`
+		Fallback *bool           `json:"fallback"`
 		MinMin   int             `json:"min_minutes"`
 		MaxMin   int             `json:"max_minutes"`
 	} `json:"scope"`
@@ -399,6 +405,7 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.Query = searchText(sc.Q)
 		filter.Unread = sc.View == "unread"
+		filter.Fallback = sc.Fallback
 		filter.MinMinutes, filter.MaxMinutes = sc.MinMin, sc.MaxMin
 		if len(sc.Q) > maxSearchQuery || !validMinutes(sc.MinMin, sc.MaxMin) {
 			bad()

@@ -147,3 +147,21 @@ mind.
 4. Check out phase 1 on Host-A (`cd /home/user/kipple && git checkout v0.1.0`), then
    `docker compose build kipple && docker compose up -d kipple`.
 5. Sign in again (restore signed every session out).
+
+## Phase 2 alpha 3 deploy notes
+
+- **Images now go through Kipple by default.** The default of the setting `imgproxy.mode` is
+  `all` (it was "only insecure images"). A database that has no stored `imgproxy.mode` row, which
+  is every existing one, therefore starts proxying and caching **all** article images on the first
+  start, into `<data>/imgcache/` with a 1 GiB cap (`imgproxy.cache_mb`, default 1024). The cache is
+  never part of a backup or snapshot, so the volume needs the room. To go back to the old
+  behavior: Settings > Images > "Load images through Kipple" = "Only insecure (http) images", or
+  `PATCH /api/settings {"imgproxy.mode":"http_only"}`. Setting the cache size to 0 keeps proxying but
+  turns the disk cache off.
+- **Search behavior changed.** An unfinished last word is no longer a prefix unless the UI sends
+  `typing=1`; saved-search unread counts and "mark all results read" now count the plain stemmed
+  words (they were widened by an accidental `word*`: `apple` counted 851 items where 518 match).
+  Expect saved-search counts to drop after this deploy. A search that matches too much (over a
+  500 ms budget) answers `422 search_too_broad` instead of stalling.
+- **Device profiles are protected from a runaway client.** At most 5 new devices per login session
+  per day, and the 50-device cap only evicts devices unseen for 30 days.

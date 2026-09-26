@@ -21,13 +21,20 @@ func Normalize(raw string) (string, error) {
 	return u.String(), nil
 }
 
-// KeyAndNormalize parses raw once and returns both Normalize(raw) and Key(raw).
+// KeyAndNormalize returns Normalize(raw) and Key(Normalize(raw)): the key is taken from the
+// normalized string, not from the first parse, because the two can differ (a query that ends in
+// whitespace before a fragment, or an IPv6 zone that only survives the first parse) and the stored
+// key must be the one a lookup of the stored URL computes. It errors when either step does.
 func KeyAndNormalize(raw string) (key, norm string, err error) {
-	u, err := parse(raw)
+	norm, err = Normalize(raw)
 	if err != nil {
 		return "", "", err
 	}
-	return keyOf(u), u.String(), nil
+	key, err = Key(norm)
+	if err != nil {
+		return "", "", err
+	}
+	return key, norm, nil
 }
 
 func keyOf(u *url.URL) string {

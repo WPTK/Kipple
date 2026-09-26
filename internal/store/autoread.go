@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -56,9 +58,11 @@ type autoReadTarget struct {
 	days  int
 }
 
-// GlobalAutoReadDays is library.auto_read_days (0 = off).
-func (d *DB) GlobalAutoReadDays(ctx context.Context) int {
-	return settingInt(ctx, d.reader, SettingAutoReadDays, 0)
+// GlobalAutoReadDays is library.auto_read_days (0 = off). A failed read is an error, never 0:
+// taken for "off" it would give the nightly step an empty window that RecordAutoReadRun then
+// closes for good.
+func (d *DB) GlobalAutoReadDays(ctx context.Context) (int, error) {
+	return settingIntErr(ctx, d.reader, SettingAutoReadDays, 0)
 }
 
 // autoReadTargets lists the feeds with auto-read on and their effective days. feedID != 0 limits it
@@ -66,7 +70,10 @@ func (d *DB) GlobalAutoReadDays(ctx context.Context) int {
 // when feedID != 0, else of the global default (feeds with their own value keep it), so a preview can
 // answer "what if I set this?" before anything is saved.
 func (d *DB) autoReadTargets(ctx context.Context, feedID int64, days *int) ([]autoReadTarget, error) {
-	global := d.GlobalAutoReadDays(ctx)
+	global, err := d.GlobalAutoReadDays(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: auto-read days: %w", err)
+	}
 	if days != nil && feedID == 0 {
 		global = *days
 	}
@@ -265,13 +272,17 @@ func (d *DB) RunAutoRead(ctx context.Context, o AutoReadOptions) (AutoReadResult
 	return res, nil
 }
 
-// AutoReadLastRun is when the nightly auto-read step last ran; ok is false when it never has.
-func AutoReadLastRun(ctx context.Context, q Querier) (time.Time, bool) {
-	n := settingInt64(ctx, q, settingAutoReadLastRun)
-	if n <= 0 {
-		return time.Time{}, false
+// AutoReadLastRun is when the nightly auto-read step last ran; ok is false when it never has. A
+// failed read is an error, not "never": the caller must not record a run on it.
+func AutoReadLastRun(ctx context.Context, q Querier) (t time.Time, ok bool, err error) {
+	n, err := settingInt64Err(ctx, q, settingAutoReadLastRun)
+	if err != nil {
+		return time.Time{}, false, err
 	}
-	return time.Unix(n, 0), true
+	if n <= 0 {
+		return time.Time{}, false, nil
+	}
+	return time.Unix(n, 0), true, nil
 }
 
 // RecordAutoReadRun stores the instant the nightly auto-read step ran.
@@ -284,14 +295,16 @@ func (d *DB) RecordAutoReadRun(ctx context.Context, now time.Time) error {
 	})
 }
 
-func settingInt64(ctx context.Context, q Querier, key string) int64 {
-	var s string
-	if err := q.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", key).Scan(&s); err != nil {
-		return 0
+// settingInt64Err reads an integer setting: 0 when it is missing or not a number, an error when
+// the read itself failed.
+func settingInt64Err(ctx context.Context, q Querier, key string) (int64, error) {
+	raw, ok, err := settingRawErr(ctx, q, key)
+	if err != nil || !ok {
+		return 0, err
 	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0
+	n, perr := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+	if perr != nil {
+		return 0, nil
 	}
-	return n
+	return n, nil
 }

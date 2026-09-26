@@ -128,8 +128,13 @@ func (s *Server) previewAutoRead(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "auto-read preview", err)
 		return
 	}
+	globalDays, err := s.db.GlobalAutoReadDays(r.Context())
+	if err != nil {
+		s.serverError(w, "auto-read preview", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"total": pv.Total, "feeds": pv.Feeds, "global_days": s.db.GlobalAutoReadDays(r.Context()),
+		"total": pv.Total, "feeds": pv.Feeds, "global_days": globalDays,
 		"confirm_above": autoReadConfirmAbove,
 	})
 }
