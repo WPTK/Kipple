@@ -131,7 +131,20 @@ async function shellIndex() {
   return undefined;
 }
 
+// Must match SIGN_IN_RELOAD in src/lib/reload.ts.
+const SIGN_IN_RELOAD = "kipple-signin";
+
 async function navigation(req) {
+  // "Reload to sign in again": the stored shell would only load the app into the expired sign-in again, so this
+  // navigation waits for the network however slow it is (and so reaches the access proxy's login page). Only a
+  // network that is really down still gets the shell.
+  if (new URL(req.url).searchParams.has(SIGN_IN_RELOAD)) {
+    try {
+      return await fetch(req);
+    } catch {
+      return (await shellIndex()) || Response.error();
+    }
+  }
   try {
     const res = await withTimeout(fetch(req), NET_WAIT_MS);
     if (res.status < 500) return res;

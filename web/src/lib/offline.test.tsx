@@ -9,8 +9,11 @@ import { OfflineNotice } from "@/shell/OfflineNotice";
 import App, { makeQueryClient } from "@/App";
 import { card, detail, json, mockFetch } from "@/test/mockApi";
 import {
+  FLUSH_REQUEST_MS,
   flushQueue,
   isOffline,
+  memoryBackendForTests,
+  SUPERSEDE_WAIT_MS,
   prefetchUnread,
   QueueWriteError,
   queueRead,
@@ -122,7 +125,7 @@ describe("the offline queue", () => {
   });
 
   it("an online change made while a flush runs is not overwritten by the flush's older copy of the queue", async () => {
-    await queueRead(["9"], true);
+    await queueRead(["9", "3"], true);
     await queueStar("1", true);
     await queueRead(["2", "3"], true);
     let release!: () => void;
@@ -136,20 +139,72 @@ describe("the offline queue", () => {
       "PUT /api/items/1/star": () => json({ starred: true, restored: false }),
     });
     const flush = flushQueue();
-    await waitFor(() => expect(calls).toHaveLength(1)); // the first row is on its way
+    await waitFor(() => expect(calls).toHaveLength(1)); // the first row (9 and 3) is on its way
     // Online writes to article 1 and article 3 happen now, while the flush waits on the first request.
-    let superseded = false;
-    const both = Promise.all([supersede({ star: "1" }), supersede({ read: ["3"] })]).then(() => (superseded = true));
+    let starDone = false;
+    let readDone = false;
+    const star = supersede({ star: "1" }).then(() => (starDone = true));
+    const read = supersede({ read: ["3"] }).then(() => (readDone = true));
     await new Promise((r) => setTimeout(r, 20));
-    // The online write must land after the request already in flight, so supersede waits for it.
-    expect(superseded).toBe(false);
+    // Article 3 is in the request already in flight: the online write must land after it, so supersede waits.
+    expect(readDone).toBe(false);
+    // Article 1 is not: its online write has nothing to wait for.
+    expect(starDone).toBe(true);
     release();
-    await Promise.all([flush, both]);
+    await Promise.all([flush, star, read]);
     expect(calls.map((c) => `${c.method} ${c.url.pathname} ${JSON.parse(String(c.init?.body)).ids ?? ""}`)).toEqual([
-      "POST /api/items/mark-read 9",
+      "POST /api/items/mark-read 9,3",
       "POST /api/items/mark-read 2",
     ]);
     expect(offlineStore.get().pending).toBe(0);
+  });
+
+  it("a stalled flush request holds an online change to the same article only briefly, and is given up later", async () => {
+    vi.useFakeTimers();
+    try {
+      await queueRead(["3"], true);
+      const { calls } = mockFetch({
+        // Never answers until its signal gives up, like a request lost in a network switch.
+        "POST /api/items/mark-read": (_u, init) =>
+          new Promise<Response>((_res, rej) => init?.signal?.addEventListener("abort", () => rej(init.signal?.reason))),
+      });
+      const flush = flushQueue();
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      let done = false;
+      const online = supersede({ read: ["3"] }).then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(SUPERSEDE_WAIT_MS - 100);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(done).toBe(true); // the online write goes ahead; before, it waited as long as the stalled request
+      await online;
+      await vi.advanceTimersByTimeAsync(FLUSH_REQUEST_MS);
+      await flush; // the stalled run ends, so later flushes are not stuck behind it
+      expect(calls[0]?.init?.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("supersede never brings back a row the flush sent and removed meanwhile", async () => {
+    // A store whose listing is taken just before a flush removes the row: supersede works from a stale copy.
+    const inner = memoryBackendForTests();
+    await inner.put({ kind: "read", ids: ["2", "3"], read: true, seq: 1 });
+    let raced = false;
+    const racing = {
+      ...inner,
+      all: async () => {
+        const rows = await inner.all();
+        if (!raced) {
+          raced = true;
+          await inner.del(1); // the flush sent it and removed it just after this listing
+        }
+        return rows;
+      },
+    };
+    setOfflineBackendForTests(racing);
+    setPending(1);
+    await supersede({ read: ["3"] });
+    expect(await inner.all()).toEqual([]); // before: the narrowed copy { ids: ["2"] } was written back and sent again
   });
 
   it("a change queued while a flush runs is sent in the same run", async () => {
@@ -225,6 +280,7 @@ describe("changes made offline", () => {
         throw new DOMException("quota", "QuotaExceededError");
       },
       del: async () => {},
+      update: async () => {},
       clear: async () => {},
     };
     setOfflineBackendForTests(broken);

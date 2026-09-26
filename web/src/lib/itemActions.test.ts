@@ -6,6 +6,7 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { keys } from "@/api/queries";
 import type { ItemsPage } from "@/api/types";
 import { card, json, mockFetch, pageOf } from "@/test/mockApi";
+import * as toasts from "@/shell/toasts";
 
 beforeEach(() => resetUndo());
 
@@ -53,14 +54,48 @@ describe("bulk marks reconcile the optimistic rows", () => {
     expect(unhide).toHaveBeenCalledWith(["1003"]);
   });
 
+  /** GET /api/items?ids=: the server's current state of those rows. */
+  const byIds = (read: (id: string) => boolean) => (u: URL) =>
+    json(pageOf((u.searchParams.get("ids") ?? "").split(",").map((id) => card(Number(id) - 1000, { read: read(id) }))));
+
   it("keeps read and hidden a row the server skipped because it was already read elsewhere (at or below as_of)", async () => {
     // 1002 was read on another device after the list loaded: the server has nothing to change for it.
-    mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }) });
+    const { calls } = mockFetch({
+      "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }),
+      "GET /api/items": byIds(() => true),
+    });
     const qc = seeded();
     const unhide = vi.fn();
     await itemActions(qc).markAll(scope, "1002", ["1001", "1002", "1003"], undefined, unhide);
     expect(rows(qc).map((r) => r.read)).toEqual([true, true, false]);
+    expect(unhide).toHaveBeenCalledTimes(1);
     expect(unhide).toHaveBeenCalledWith(["1003"]);
+    expect(calls[1]?.url.searchParams.get("ids")).toBe("1002"); // asked, not guessed
+  });
+
+  it("brings back a row at or below as_of that the server left unread (its scope differed from the list)", async () => {
+    // Full text replaced 1002's content, so the search scope no longer matched it: the server did not mark it.
+    mockFetch({
+      "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }),
+      "GET /api/items": byIds(() => false),
+    });
+    const qc = seeded();
+    const unhide = vi.fn();
+    await itemActions(qc).markAll(scope, "1003", ["1001", "1002", "1003"], undefined, unhide);
+    expect(rows(qc).map((r) => r.read)).toEqual([true, false, false]);
+    expect(unhide).toHaveBeenCalledWith(["1002", "1003"]);
+  });
+
+  it("when the rows cannot be rechecked, reloads the lists and puts the rows back instead of guessing", async () => {
+    mockFetch({
+      "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }),
+      "GET /api/items": () => json({ error: "internal" }, 500),
+    });
+    const qc = seeded();
+    const unhide = vi.fn();
+    await itemActions(qc).markAll(scope, "1003", ["1001", "1002", "1003"], undefined, unhide);
+    expect(qc.getQueryState(keys.items(scope))?.isInvalidated).toBe(true);
+    expect(unhide).toHaveBeenCalledWith(["1002", "1003"]);
   });
 
   it("arrivedAfter compares ids as numbers, and an unparsable id counts as late", () => {
@@ -72,12 +107,19 @@ describe("bulk marks reconcile the optimistic rows", () => {
   });
 
   it("Nothing to mark reverts every optimistic row", async () => {
-    mockFetch({ "POST /api/items/mark-read": () => json({ changed: [], restored: [], count: 0, undoable: true }) });
+    // A realistic bound: every row is at or below as_of, and the server changed none of them (its scope matched
+    // nothing). They are still unread, so none may vanish while the app says "Nothing to mark".
+    const announce = vi.spyOn(toasts, "announce");
+    mockFetch({
+      "POST /api/items/mark-read": () => json({ changed: [], restored: [], count: 0, undoable: true }),
+      "GET /api/items": byIds(() => false),
+    });
     const qc = seeded();
     const unhide = vi.fn();
-    await itemActions(qc).markAll(scope, "1", ["1001", "1002", "1003"], undefined, unhide);
+    await itemActions(qc).markAll(scope, "1003", ["1001", "1002", "1003"], undefined, unhide);
     expect(rows(qc).every((r) => !r.read)).toBe(true);
     expect(unhide).toHaveBeenCalledWith(["1001", "1002", "1003"]);
+    expect(announce).toHaveBeenCalledWith("Nothing to mark");
   });
 
   it("over the server cap (no ids listed) refetches the lists instead of guessing", async () => {
@@ -99,8 +141,11 @@ describe("bulk marks reconcile the optimistic rows", () => {
     expect(rows(qc).map((r) => r.read)).toEqual([true, false, false]);
   });
 
-  it("markSide keeps a skipped row at or below as_of read", async () => {
-    mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }) });
+  it("markSide keeps a skipped row at or below as_of read when the server says it is read", async () => {
+    mockFetch({
+      "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }),
+      "GET /api/items": byIds(() => true),
+    });
     const qc = seeded();
     const unhide = vi.fn();
     await itemActions(qc).markSide({ scope, order: "date", side: "below", anchor: card(1), maxId: "1500" }, ["1001", "1002", "1003"], undefined, unhide);

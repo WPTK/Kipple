@@ -37,6 +37,12 @@ export interface Backend {
   all(): Promise<Row[]>;
   put(row: Row): Promise<void>;
   del(seq: number): Promise<void>;
+  /**
+   * Read-modify-write of one row as a single step: `f` gets the row as stored now and returns its new version, or
+   * null to delete it. A row that is no longer there (sent and removed by a flush meanwhile) is left gone: writing
+   * it back would queue it again and send it twice.
+   */
+  update(seq: number, f: (row: Row) => Row | null): Promise<void>;
   clear(): Promise<void>;
 }
 
@@ -46,6 +52,13 @@ function memoryBackend(): Backend {
     all: async () => [...rows],
     put: async (r) => void (rows = [...rows.filter((x) => x.seq !== r.seq), r].sort((a, b) => a.seq - b.seq)),
     del: async (seq) => void (rows = rows.filter((x) => x.seq !== seq)),
+    // Synchronous from the lookup to the write: nothing else can run in between.
+    update: async (seq, f) => {
+      const cur = rows.find((x) => x.seq === seq);
+      if (!cur) return;
+      const next = f(cur);
+      rows = next ? rows.map((x) => (x.seq === seq ? next : x)) : rows.filter((x) => x.seq !== seq);
+    },
     clear: async () => void (rows = []),
   };
 }
@@ -78,6 +91,19 @@ function idbBackend(): Backend {
     all: async () => ((await run("readonly", (s) => s.getAll())) as Row[]).sort((a, b) => a.seq - b.seq),
     put: async (r) => void (await run("readwrite", (s) => s.put(r))),
     del: async (seq) => void (await run("readwrite", (s) => s.delete(seq))),
+    // The get and the put or delete share one readwrite transaction, so a flush cannot delete the row in between.
+    update: async (seq, f) =>
+      void (await run("readwrite", (s) => {
+        const req = s.get(seq);
+        req.onsuccess = () => {
+          const cur = req.result as Row | undefined;
+          if (!cur) return;
+          const next = f(cur);
+          if (next) s.put(next);
+          else s.delete(seq);
+        };
+        return req;
+      })),
     clear: async () => void (await run("readwrite", (s) => s.clear())),
   };
 }
@@ -107,6 +133,11 @@ export function resetOfflineForTests(): void {
   seq = 0;
   sending = undefined;
   setPending(0);
+}
+
+/** Tests: a fresh in-memory store to wrap (for example to stage a race). */
+export function memoryBackendForTests(): Backend {
+  return memoryBackend();
 }
 
 /** Tests: use this storage for the queue (for example one whose writes fail). */
@@ -189,23 +220,47 @@ export async function supersede(change: { star?: string; read?: string[] }): Pro
   if (offlineStore.get().pending === 0) return;
   const rows = await safe((b) => b.all(), []);
   const ids = new Set(change.read ?? []);
+  const touches = (r: Queued) => (r.kind === "star" ? r.id === change.star : r.ids.some((i) => ids.has(i)));
   for (const r of rows) {
-    if (r.kind === "star" && r.id === change.star) {
-      await safe((b) => b.del(r.seq), undefined);
-    } else if (r.kind === "read" && r.ids.some((i) => ids.has(i))) {
-      const rest = r.ids.filter((i) => !ids.has(i));
-      await safe((b) => (rest.length ? b.put({ ...r, ids: rest }) : b.del(r.seq)), undefined);
-    }
+    if (!touches(r)) continue;
+    // Narrowed against the row as stored at the moment of the write, never the copy read above: a flush may have
+    // sent and removed it meanwhile, and writing that copy back would queue it again.
+    await safe(
+      (b) =>
+        b.update(r.seq, (cur) => {
+          if (cur.kind === "star") return null;
+          const rest = cur.ids.filter((i) => !ids.has(i));
+          return rest.length ? { ...cur, ids: rest } : null;
+        }),
+      undefined,
+    );
   }
   await refreshCount();
-  // A running flush may already have picked up one of those rows and sent it: let that request finish first, so
-  // the online write that follows lands after it and has the last word.
-  if (sending) await sending.catch(() => {});
+  // A running flush may already have sent one of those rows: let that request finish first, so the online write
+  // that follows lands after it and has the last word. Only a request for the same articles is waited for, and
+  // never for long: a stalled request (a network switch) must not hold up every online change behind it.
+  const inFlight = sending;
+  if (inFlight && touches(inFlight.row)) await waitAtMost(inFlight.done, SUPERSEDE_WAIT_MS);
+}
+
+/** How long an online change waits for a queued request to the same articles that is already on its way. */
+export const SUPERSEDE_WAIT_MS = 3000;
+/** A queued change being sent is given up (and kept for the next run) after this long without an answer. */
+export const FLUSH_REQUEST_MS = 20_000;
+
+function waitAtMost(p: Promise<unknown>, ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms);
+    p.then(
+      () => (clearTimeout(t), resolve()),
+      () => (clearTimeout(t), resolve()),
+    );
+  });
 }
 
 let flushing: Promise<void> | undefined;
-/** The request of the queued change being sent right now, if any (supersede waits for it). */
-let sending: Promise<unknown> | undefined;
+/** The queued change being sent right now and its request, if any (supersede waits for it). */
+let sending: { row: Queued; done: Promise<unknown> } | undefined;
 
 /**
  * Send the queued changes in the order they were made. Stops, keeping the rest, at the first request that
@@ -233,21 +288,28 @@ async function doFlush(qc?: QueryClient): Promise<void> {
     const r = (await safe((b) => b.all(), [])).find((x) => x.seq > after);
     if (!r) break;
     after = r.seq;
+    // A request that never answers (a stalled connection) is given up after a while, like a network failure: the
+    // row stays for the next run, and the run ends instead of holding every later flush behind it.
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(new DOMException("the queued change got no answer", "TimeoutError")), FLUSH_REQUEST_MS);
     try {
-      sending =
+      const done =
         r.kind === "star"
-          ? api(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at } })
-          : api("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key" } });
-      await sending;
+          ? api(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at }, signal: ctl.signal })
+          : api("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key" }, signal: ctl.signal });
+      sending = { row: r, done };
+      await done;
     } catch (e) {
-      if (isOffline(e) || (e instanceof ApiError && (e.status === 401 || e.status === 429 || e.status >= 500))) break;
+      if (ctl.signal.aborted || isOffline(e) || (e instanceof ApiError && (e.status === 401 || e.status === 429 || e.status >= 500))) break;
       // Any other refusal is final: drop the change, and say so below.
       dropped++;
+    } finally {
+      clearTimeout(timer);
+      sending = undefined;
     }
     await safe((b) => b.del(r.seq), undefined);
     sent++;
   }
-  sending = undefined;
   await refreshCount();
   if (sent > 0 && qc) void qc.invalidateQueries({ queryKey: keys.bootstrap });
   if (dropped > 0) {
