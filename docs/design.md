@@ -588,12 +588,12 @@ Built (applied in order by the runner; each one is a line here so the block abov
 |---|---|---|
 | `0002_ua_fallback.sql` | `feeds.ua_fallback INTEGER NOT NULL DEFAULT 0 CHECK (ua_fallback IN (0,1))`; deletes the `ui.line_height` and `ui.content_width` settings rows | A feed that only loads with a browser User-Agent remembers it (§4.4); the two reading settings became the single `ui.reading_density` preset |
 | `0003_fulltext_error_class.sql` | `item_fulltext.error_class TEXT CHECK (error_class IN ('transient','permanent'))`; NULL means an error stored before the column existed, treated as permanent | `POST /api/items/{id}/fulltext` retries a transient failure after an hour (§7.5) |
+| `0004_filters_devices.sql` | Schema only, spec §1.8, §1.13 and §4 of `docs/research/backend-additions-round2.md`: table `filters` (scope, kind and action CHECKs, `terms` and `fields` JSON arrays, the scope-to-id CHECK, highlight only for text, cascade from folders and feeds, partial indexes on `folder_id` and `feed_id`); `items.muted_by INTEGER` (no FK) with the partial index `idx_items_muted(sort_at, id)`; `categories_json` on `item_content` (JSON-checked) and `trimmed_content`; `feeds.auto_read_days` (NULL inherits, 0 is off, at most 365); table `devices` (`id` 16 to 32 chars, `settings` a JSON object of at most 8 KB, `idx_devices_seen`). The trim (`retention.go`) and restore (`itemstate.go`) SQL copy `categories_json` both ways | Keyword filters, the mute marker, item categories, auto-mark-read and per-device appearance profiles. Nothing reads or writes the new tables and columns yet, except that trim and restore copy `categories_json`; the API and the ingest hook are later steps. Additive and O(1): no table is rebuilt and the indexes start empty. Rehearsed on a copy of the real phase 1 database (schema 1 to 4, 5,600 items, about 0.3 s) |
 
 Pending (designed in `docs/research/backend-additions-round2.md`, not built; the block above and this table stay true until they land):
 
 | Migration | Change |
 |---|---|
-| `0004_filters_devices.sql` | `filters`; `items.muted_by` and `idx_items_muted`; `categories_json` on `item_content` and `trimmed_content`; `feeds.auto_read_days`; `devices` |
 | `0005_fts_porter.sql` | Drop and recreate `items_fts` with the porter tokenizer and a persistent `bm25` rank, then `rebuild` |
 
 Theme, density and similar UI changes need no migration: `ui.*` values are settings rows validated in Go.
@@ -670,6 +670,8 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 5. It applies each pending file N on the writer connection, inside a function that has `defer`: `PRAGMA foreign_keys=ON`, followed by a check that `PRAGMA foreign_keys` returns 1. That check runs on success, on error and on panic, and startup aborts if it fails.
    - If the file's first line is `-- kipple:foreign-keys-off`, the runner executes `PRAGMA foreign_keys=OFF` before `BEGIN`. This is required for the 12-step table-rebuild procedure.
    - Then `BEGIN IMMEDIATE; <file>; PRAGMA foreign_key_check;`, which must return no rows or the migration rolls back. Then `PRAGMA user_version = N; COMMIT;`.
+   - **Idempotence.** The runner is the guard: a file runs once, gated by `user_version`, inside one transaction, so a failure rolls the whole file back (a test appends a failing statement to 0004 and checks nothing is left behind). Plain `ALTER TABLE ... ADD COLUMN` is therefore fine; `CREATE ... IF NOT EXISTS` is used only where a file needs to tolerate a table that may exist.
+   - **Tests.** `migrate0004_test.go` migrates a fresh database, a populated schema-3 database and (when present) a copy of a real export (`TestRehearsalOnRealDatabase`, path from `KIPPLE_REHEARSAL_DB`, skipped in CI), runs `integrity_check` and `foreign_key_check` after each, and checks that a binary with only three migrations refuses a schema-4 file.
 6. After all migrations, it runs `PRAGMA optimize` (`analysis_limit=400` is already set).
 7. There are no down migrations. Rollback means restoring the pre-migration snapshot: `kipple restore /data/backup/pre-migration-<from>-<to>-<ns>.db --yes` (§2.6; the runbook is `docs/deploy.md`).
 
@@ -1160,10 +1162,10 @@ ON CONFLICT (feed_id, uid) DO UPDATE SET
 
 INSERT INTO trimmed_content (id, published_at, updated_at, sort_at, word_count, content_hash, text_hash,
                              url, title, author, image_url, origin_title, fulltext_mode,
-                             content_html, content_text, enclosures_json)
+                             content_html, content_text, enclosures_json, categories_json)
   SELECT i.id, i.published_at, i.updated_at, i.sort_at, i.word_count, i.content_hash, i.text_hash,
          i.url, i.title, i.author, i.image_url, i.origin_title, i.fulltext_mode,
-         c.content_html, c.content_text, c.enclosures_json
+         c.content_html, c.content_text, c.enclosures_json, c.categories_json
   FROM temp.trim_set t JOIN items i ON i.id = t.id JOIN item_content c ON c.item_id = i.id
   WHERE :restore_days > 0
 ON CONFLICT (id) DO NOTHING;
@@ -1205,8 +1207,8 @@ INSERT INTO items (id, feed_id, uid, read, starred, read_at, starred_at, retain_
   FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
   WHERE t.id IN (SELECT value FROM json_each(:ids))
 ON CONFLICT DO NOTHING;
-INSERT INTO item_content (item_id, content_html, content_text, enclosures_json)
-  SELECT c.id, c.content_html, c.content_text, c.enclosures_json FROM trimmed_content c
+INSERT INTO item_content (item_id, content_html, content_text, enclosures_json, categories_json)
+  SELECT c.id, c.content_html, c.content_text, c.enclosures_json, c.categories_json FROM trimmed_content c
   WHERE c.id IN (SELECT value FROM json_each(:ids)) AND EXISTS (SELECT 1 FROM items i WHERE i.id = c.id)
 ON CONFLICT DO NOTHING;                                        -- FTS row comes back via the trigger
 DELETE FROM trimmed_items WHERE id IN (SELECT value FROM json_each(:ids)) AND id IN (SELECT id FROM items);
@@ -1240,6 +1242,8 @@ DELETE FROM trimmed_items WHERE id IN (SELECT value FROM json_each(:ids)) AND id
 | `mark-all-as-read` | Updates in-scope ledger rows (not for starred). `OK` |
 | `unread-count` | Never counts ledger rows |
 | Health view | Shows `trimmed_unread_count` since `trimmed_unread_since`, with a reset button. This counter is immutable at trim time: mark-all never zeroes it, and first-fetch trims never inflate it |
+
+**Since migration 0004** the stub and the restore also carry `categories_json` (both statements above list it; the restore SQL in the last block does too). `items.muted_by` is not carried: a restore always brings an item back with `muted_by = NULL`. Trimming muted items first is a later step (round-2 spec §1.6).
 
 ---
 
@@ -1855,6 +1859,16 @@ internal/sanitize       absolutize.go (URL attribute resolution, base chain), bl
                         (RequireParseableURLs, no relative URLs), plain text + word count, lead-image pick,
                         serve-time proxy rewrite
 internal/readability    go-readabilityV2 pipeline (guarded fetch, charset, absolutize, sanitize, text, image)
+internal/filter         The keyword rules engine (round-2 spec §1), pure: no I/O, no DB, no clock. rule.go (Rule,
+                        Item, Error, the limits and the package comment that states the matching semantics),
+                        compile.go (CompileRule, NewSet: validation, regex safety, set-wide caps), text.go
+                        (normalize, word runes, containsTerm), prefilter.go (required-literal prefilter for regexes),
+                        eval.go (Set.Evaluate, precedence: star beats mute, mute implies read, lowest mute id
+                        wins). Regexes are RE2 only, compiled with (?i) unless case-sensitive, rejected when they
+                        match the empty string or exceed 5000 instructions; scanned text is truncated (content 32 KiB
+                        for text, 8 KiB for regex, other fields 4 KiB). Single-word terms are answered from a
+                        per-field word set. Reference numbers: 10,000 items x 50 rules in about 1.7 s (170 us per
+                        item); 25 regex rules x 5 patterns on a full 8 KiB scan in about 8 ms per item.
 internal/sched          dispatcher.go, worker.go, run.go (attach/outstanding)
 internal/maint          maint.go: the one maintenance goroutine (hourly/nightly/Sunday, cancellable);
                         its SQL is store/maint.go
