@@ -8,7 +8,7 @@ import { cleanFavorites, updateDevicePrefs, useDevicePrefs, type Favorite } from
 
 // Sidebar favorites: folders and feeds pinned at the top. They are a library setting, so they follow you
 // to every device: the server keeps them in `library.favorites` (PATCH /api/settings, at most 500 items).
-// If a server does not know that setting (an older build answers 400), they are kept on this device instead
+// If a server does not know that setting (an older build answers 400 "unknown setting"), they are kept on this device instead
 // and the UI still works; `mode` says which one is in use.
 
 export const FAVORITES_KEY = "library.favorites";
@@ -41,8 +41,24 @@ export interface FavoritesApi {
 
 /** Where the server answered "not a setting I know": remembered for the session so we stop asking. */
 let serverRejects = false;
+/** Numbers the saves, so a slow older reply cannot overwrite a newer one. */
+let sent = 0;
 export function resetFavoritesMode(): void {
   serverRejects = false;
+  sent = 0;
+}
+
+/**
+ * The server saying it has no such setting (an older build): a 404, or a 400 whose issue for this key is "unknown
+ * setting". Any other failure (a bad value, a busy server, being offline) is an error to show, not a reason to give
+ * up on syncing for the rest of the session.
+ */
+export function isUnknownSetting(e: unknown): boolean {
+  if (!(e instanceof ApiError)) return false;
+  if (e.status === 404) return true;
+  if (e.status !== 400) return false;
+  const issues = e.body?.issues;
+  return Array.isArray(issues) && issues.some((i) => i && i.key === FAVORITES_KEY && /unknown setting/i.test(String(i.message)));
 }
 
 export function useFavorites(): FavoritesApi {
@@ -71,18 +87,24 @@ export function useFavorites(): FavoritesApi {
         updateDevicePrefs({ favoritesLocal: list });
         return true;
       }
-      const prev = qc.getQueryData<Bootstrap>(keys.bootstrap);
+      const readFavs = () => qc.getQueryData<Bootstrap>(keys.bootstrap)?.settings?.[FAVORITES_KEY];
       const patchBoot = (value: unknown) =>
         qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, settings: { ...old.settings, [FAVORITES_KEY]: value } } : old));
+      const before = readFavs();
+      const mine = ++sent;
       patchBoot(list);
       try {
         const res = await api<{ values: Record<string, unknown> }>("/api/settings", { method: "PATCH", body: { [FAVORITES_KEY]: list } });
-        patchBoot(res.values?.[FAVORITES_KEY] ?? list);
+        // Replies can arrive out of order: only the newest request may write what the server says.
+        if (mine === sent) patchBoot(res.values?.[FAVORITES_KEY] ?? list);
         return true;
       } catch (e) {
-        if (prev) qc.setQueryData(keys.bootstrap, prev);
-        if (e instanceof ApiError && (e.status === 400 || e.status === 404)) {
-          // This server does not accept favorites: keep them on this device from now on.
+        // Undo only the favorites slice, and only if nothing newer has been applied since: the rest of the
+        // bootstrap (counts, feeds) may have changed while this was in flight.
+        const unknown = isUnknownSetting(e);
+        if (mine === sent) patchBoot(before);
+        if (unknown) {
+          // An older server that has no such setting: keep them on this device from now on.
           serverRejects = true;
           updateDevicePrefs({ favoritesLocal: list });
           return true;
