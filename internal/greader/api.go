@@ -453,41 +453,36 @@ func (c *call) clientLogin() {
 	email, pass := c.p.Get("Email"), c.p.Get("Passwd")
 	emailOK := strings.EqualFold(email, s.username)
 	a.ver.SetSecret([]byte(s.secret))
-	// A remembered success costs no hashing, so it is not rate budgeted: a
-	// signed-in client keeps working while its address is over budget.
+	// A remembered success costs no hashing, so it is not paced: a signed-in
+	// client keeps working while its address is over budget. It leaves the
+	// failure count alone (another client may share the address).
 	if emailOK && a.ver.Remembered("api", pass, s.hash) {
-		a.fails.Clear(ip)
 		c.loginOK(s)
 		return
 	}
-	// The attempt is reserved before any hashing (design §6.3): one attempt per
-	// client in flight, then a rate budget. Over budget is the ordinary 401.
-	if !a.fails.Reserve(ip) {
+	// Admission before any hashing (design §6.3): one attempt per client hashes
+	// at a time and, over budget, one per 2 s; later ones wait (bounded) rather
+	// than fail. Only an attempt that could not start is refused unchecked.
+	if !a.fails.Acquire(ctx, ip) {
 		bad()
 		return
 	}
-	settled := false
-	defer func() {
-		if !settled {
-			a.fails.Release(ip)
-		}
-	}()
+	failed := false
+	defer func() { a.fails.Finish(ip, failed) }()
 	// The password is always verified, even when the email is wrong.
 	ok, busy := a.ver.VerifyBusy(ctx, "api", pass, s.hash)
 	if busy {
 		// Hashing slot unavailable (design §6.3: a 401 after the 5 s wait). It says
-		// nothing about the password, so the attempt is given back and there is no
+		// nothing about the password, so nothing is counted and there is no
 		// Retry-After.
 		bad()
 		return
 	}
-	settled = true
 	if !ok || !emailOK {
-		a.fails.Done(ip)
+		failed = true
 		bad()
 		return
 	}
-	a.fails.Clear(ip)
 	c.loginOK(s)
 }
 

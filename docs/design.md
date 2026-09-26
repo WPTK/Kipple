@@ -69,7 +69,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
     - Password verification is argon2id with **m=19 MiB, t=2, p=1** (the OWASP minimum), for both the web and the API password.
     - A **global semaphore of 1** serializes every verification. The wait is bounded at 5 s, after which the request gets a 401.
     - A successful verification is remembered in memory, per kind (`api` or `web`), as `HMAC(secret, "login|" + kind + "|" + hash + "|" + password)` and compared in constant time, so the owner's clients re-running ClientLogin cost no hashing. The stored hash is part of the MAC, so a changed password never matches an old memo; a changed account secret drops every memo.
-    - The password is **always** verified. A correct one succeeds and clears that IP's failure count. Only failures are delayed (§6.3).
+    - The password is **always** verified: ClientLogin never answers 401 for a password it did not check, except when a bounded wait runs out. Only failures are counted, and over budget attempts are paced (they wait), not refused (§6.3).
     - The UI generates a 24-character random API password by default.
     - *Rejected:* API session rows. *Rejected:* reusing the web password on the public path. *Rejected:* a global failure lockout on ClientLogin, because an attacker could then lock the owner out; the semaphore already caps the global hash rate and memory. The web login is different: it keeps a per-IP lockout of 10 failures per 15 minutes (§7), which never affects other addresses.
 
@@ -1386,10 +1386,13 @@ Reader routes never call `r.ParseForm`.
     3. The stored hash is part of the MAC, so a changed password never matches an old memo and nothing is cleared. A changed account secret (`SetSecret`) drops every memo.
     4. A **busy** verifier (the 5 s wait expired, or the request context was cancelled) answers 401 but records no failure and adds no delay: it says nothing about the password.
   - **Per-client attempt budget** (`auth.FailureTracker`). The client IP is `CF-Connecting-IP` when `RemoteAddr` is in `KIPPLE_TRUSTED_PROXY_IPS`, else `RemoteAddr`; the budget (like the web login lockout) keys an IPv6 client by its /64, so rotating addresses inside one subscriber prefix buys nothing.
-    - A password that matches the success memo succeeds without hashing and is not budgeted, so a signed-in device keeps working while its address is over budget.
-    - Otherwise the attempt is reserved **before** hashing: at most one attempt per client is in flight, attempts are counted in a fixed 10-minute window, and once the window holds 5 a further attempt is granted only 2 s after the previous granted one. A refused attempt is the ordinary failure 401 below, without hashing. Every granted attempt verifies the password, even when the email is wrong.
-    - A success clears the client's count; a busy verifier gives its attempt back.
-    - A stale device retrying an old password therefore never blocks the correct password for more than 2 s.
+    - A password that matches the success memo succeeds without hashing and is not paced, so a signed-in device keeps working while its address is over budget. It leaves the failure count alone.
+    - Otherwise the attempt is **admitted before hashing**. Only **failures** (a wrong password or email) are counted, in a fixed 10-minute window started by the first one.
+      - At most one attempt per client hashes at a time. A second concurrent attempt (a client retrying a slow login) **waits** for the first instead of failing.
+      - Once the window holds 5 failures, an attempt starts only 2 s after the client's previous attempt started or failed; it **waits** for that instead of being refused.
+      - Waiting is bounded: at most 4 attempts per client wait, each for at most 10 s or until the request is cancelled. An attempt that cannot start is the ordinary failure 401 below, without hashing, and counts nothing.
+      - Every admitted attempt verifies the password, even when the email is wrong. A success counts nothing and clears nothing (another client may share the address, such as a carrier NAT); a busy verifier counts nothing.
+    - So the correct password is always checked, at worst after about 2 s, even right after a restart (empty memo) and from an address someone else is guessing from. The hashing cost stays bounded: one client never runs two hashes at once or, over budget, more than one per 2 s, holds at most 5 requests open, and all clients share the global semaphore.
     - Never 429.
   - A chosen Reader API password (`POST /api/account/api-password` with `new`, or `KIPPLE_API_PASSWORD`) must be 16 to 256 characters; the UI and `kipple api-password` generate 24.
   - **Failure:** `401 text/plain "Error=BadAuthentication\n"` with both `Google-Bad-Token: true` and `X-Reader-Google-Bad-Token: true`.
@@ -2360,7 +2363,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
   - a GET with a cookie but no token → 401;
   - the API disabled (NULL hash) → ClientLogin 401;
   - the attempt budget never returns 429;
-  - **after 20 wrong-password attempts from one IP, the correct password from the same IP succeeds at once and clears the count**;
+  - **after 10 wrong-password attempts from one IP, the correct password from the same IP is verified and succeeds after at most the 2 s pace, even with nothing remembered, and leaves the failure count alone**; a concurrent second attempt from one client waits for the first and is then verified;
   - a memoized login does not call argon2 (counted through a fake);
   - 50 concurrent wrong ClientLogins never run more than one argon2 at a time (fake with a concurrency gauge).
 - *`ot` semantics:*
@@ -2469,7 +2472,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
 | **Unpadded bare-hex ids made only of digits** would be parsed as decimal | No target client sends them. A test documents the limitation |
 | **SSE through cloudflared and Access** is unverified on this named tunnel | Pings every 15 s, `no-transform`, the `/api/status` polling fallback, and `curl -N` on the release checklist |
 | **Access path precedence** for the `/api/greader.php` Bypass app has community reports of inconsistency | The external `curl` checks are mandatory. The root Reader routes never get a bypass |
-| **Password exposure on the public ClientLogin** | A separate, generated API password, argon2id (m=19 MiB) behind a global semaphore of 1, a success memo, a per-client attempt budget checked before hashing (one in flight, IPv6 per /64, never 429), and redaction in logs. A distributed attacker gets at most ~20 guesses per second against a 24-character random password |
+| **Password exposure on the public ClientLogin** | A separate, generated API password, argon2id (m=19 MiB) behind a global semaphore of 1, a success memo, a per-client failure budget enforced before hashing by pacing, not refusal (one hash in flight per client, over budget one per 2 s, bounded waiting, IPv6 per /64, never 429), and redaction in logs. A distributed attacker gets at most ~20 guesses per second against a 24-character random password |
 | **The stateless Reader token** can only be revoked by changing the API password | Accepted for a single user. The settings UI says so |
 | **Cloudflare-challenged feeds** fail on TLS fingerprint | `error_class='cloudflare'` with actionable text; `disable_http2` and a UA override |
 | **Per-host limits key on the exact hostname** | About 15 rounds of 1–2 s in a manual run at 138 feeds |

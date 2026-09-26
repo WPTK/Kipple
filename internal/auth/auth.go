@@ -165,8 +165,11 @@ func (v *Verifier) VerifyBusy(ctx context.Context, kind, pw, phc string) (ok, bu
 	case <-ctx.Done():
 		return false, true
 	}
-	ok = v.check(pw, phc)
-	<-v.sem
+	// Deferred, so a panic in check cannot hold the only hashing slot forever.
+	ok = func() bool {
+		defer func() { <-v.sem }()
+		return v.check(pw, phc)
+	}()
 	if ok {
 		v.mu.Lock()
 		if bytes.Equal(v.secret, secret) { // not rotated while hashing
@@ -197,52 +200,174 @@ func (v *Verifier) ClearMemo() {
 	v.mu.Unlock()
 }
 
-// FailureTracker budgets ClientLogin password checks per client (design §6.3).
-// An attempt is reserved *before* its password is hashed: at most one attempt
-// per client is in flight, attempts are counted in a fixed window, and once the
-// window holds Threshold attempts a further one is granted only when Delay has
-// passed since the previous granted one. A refused attempt is answered with the
-// ordinary 401 without hashing (never a 429). A success clears the client.
-// Clients are keyed by RateKey, so an IPv6 /64 is one client.
+// FailureTracker paces ClientLogin password checks per client (design §6.3).
+// Only failures are counted, in a fixed Window started by the first one. Every
+// admitted attempt has its password verified, so the right password is never
+// refused unchecked; the budget only slows a client down:
+//
+//   - At most one attempt per client hashes at a time. A second concurrent one
+//     (a client retrying a slow login) waits for the first instead of failing.
+//   - Once the window holds Threshold failures, an attempt starts only when
+//     Delay has passed since the client's previous attempt; it waits for that
+//     instead of being refused.
+//   - Waiting is bounded: at most MaxWaiters attempts per client wait, for at
+//     most MaxWait (or until the request is cancelled). An attempt that cannot
+//     start is answered with the ordinary 401 and counts nothing (never a 429).
+//
+// So one client never runs more than one hash at a time, nor more than one per
+// Delay once over budget, and holds at most 1+MaxWaiters requests open. A
+// success changes nothing: it neither counts nor clears the failures, so a
+// client sharing the owner's address (carrier NAT) gains nothing from the
+// owner's logins. Clients are keyed by RateKey, so an IPv6 /64 is one client.
 type FailureTracker struct {
-	Window    time.Duration
-	Threshold int
-	Delay     time.Duration
-	Now       func() time.Time
+	Window     time.Duration
+	Threshold  int
+	Delay      time.Duration
+	MaxWait    time.Duration
+	MaxWaiters int
+	Now        func() time.Time
+	// After is time.After; tests with a fake Now replace it (the pacing wait).
+	After func(time.Duration) <-chan time.Time
 
-	mu       sync.Mutex
-	m        map[string]*failure
-	inflight map[string]bool
+	mu   sync.Mutex
+	m    map[string]*failure
+	live map[string]*attempt
 }
 
 type failure struct {
 	start time.Time
 	n     int
-	last  time.Time // FailureTracker: when the last attempt was granted
+	last  time.Time // FailureTracker: when the client's last attempt started or failed
 }
 
-// NewFailureTracker returns the design defaults: 10 minute window, 5 attempts,
-// then one attempt per 2 s.
+// attempt is the in-flight state of one client.
+type attempt struct {
+	busy    bool          // an attempt is admitted and not finished
+	waiters int           // attempts waiting to start
+	done    chan struct{} // closed (and replaced) when an admitted attempt finishes
+}
+
+// NewFailureTracker returns the design defaults: 10 minute window, 5 failures,
+// then one attempt per 2 s; at most 4 waiting attempts per client, each waiting
+// at most 10 s.
 func NewFailureTracker() *FailureTracker {
-	return &FailureTracker{Window: 10 * time.Minute, Threshold: 5, Delay: 2 * time.Second, Now: time.Now,
-		m: map[string]*failure{}, inflight: map[string]bool{}}
+	return &FailureTracker{Window: 10 * time.Minute, Threshold: 5, Delay: 2 * time.Second,
+		MaxWait: 10 * time.Second, MaxWaiters: 4, Now: time.Now,
+		m: map[string]*failure{}, live: map[string]*attempt{}}
 }
 
-// Reserve counts one attempt for ip before its password is checked. It returns
-// false, counting nothing, when ip already has an attempt in flight or is over
-// its budget; the caller then answers 401 without hashing. After a true result
-// the caller must call exactly one of Clear (success), Done (wrong password:
-// the attempt stays counted) or Release (the attempt said nothing about the
-// password, such as a busy verifier).
-func (f *FailureTracker) Reserve(ip string) bool {
+// Acquire admits one attempt for ip before its password is checked, waiting
+// (bounded) while ip has an attempt in flight or is inside its over-budget
+// Delay. It returns false when the attempt could not start: too many attempts
+// already waiting, MaxWait passed, or ctx ended; nothing is counted and the
+// caller answers 401 without hashing. After true the caller must call Finish
+// exactly once.
+func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
+	k := RateKey(ip)
+	maxWait := f.MaxWait
+	if maxWait <= 0 {
+		maxWait = 10 * time.Second
+	}
+	after := f.After
+	if after == nil {
+		after = time.After
+	}
+	deadline := time.NewTimer(maxWait)
+	defer deadline.Stop()
+
+	f.mu.Lock()
+	if f.live == nil {
+		f.live = map[string]*attempt{}
+	}
+	if f.m == nil {
+		f.m = map[string]*failure{}
+	}
+	a := f.live[k]
+	if a == nil {
+		a = &attempt{done: make(chan struct{})}
+		f.live[k] = a
+	}
+	waiting := false
+	for {
+		var wake <-chan time.Time
+		var done <-chan struct{}
+		if a.busy {
+			done = a.done
+		} else {
+			now := f.Now()
+			e := f.m[k]
+			if e != nil && now.Sub(e.start) > f.Window {
+				delete(f.m, k)
+				e = nil
+			}
+			var pace time.Duration
+			if e != nil && e.n >= f.Threshold {
+				pace = e.last.Add(f.Delay).Sub(now)
+			}
+			if pace <= 0 {
+				a.busy = true
+				if waiting {
+					a.waiters--
+				}
+				if e != nil {
+					e.last = now
+				}
+				f.mu.Unlock()
+				return true
+			}
+			wake = after(pace)
+		}
+		if !waiting {
+			if a.waiters >= f.MaxWaiters {
+				f.dropIdle(k, a)
+				f.mu.Unlock()
+				return false
+			}
+			a.waiters++
+			waiting = true
+		}
+		f.mu.Unlock()
+		gaveUp := false
+		select {
+		case <-done:
+		case <-wake:
+		case <-deadline.C:
+			gaveUp = true
+		case <-ctx.Done():
+			gaveUp = true
+		}
+		f.mu.Lock()
+		if gaveUp {
+			a.waiters--
+			f.dropIdle(k, a)
+			f.mu.Unlock()
+			return false
+		}
+	}
+}
+
+// dropIdle forgets a's entry once nothing is in flight or waiting. f.mu is held.
+func (f *FailureTracker) dropIdle(k string, a *attempt) {
+	if !a.busy && a.waiters == 0 && f.live[k] == a {
+		delete(f.live, k)
+	}
+}
+
+// Finish ends an attempt admitted by Acquire. failed is true only for a wrong
+// password (or email): that is the one outcome counted. A success, or a busy
+// verifier that said nothing about the password, counts nothing.
+func (f *FailureTracker) Finish(ip string, failed bool) {
 	k := RateKey(ip)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.inflight == nil {
-		f.inflight = map[string]bool{}
+	if a := f.live[k]; a != nil && a.busy {
+		a.busy = false
+		close(a.done)
+		a.done = make(chan struct{})
+		f.dropIdle(k, a)
 	}
-	if f.inflight[k] {
-		return false
+	if !failed {
+		return
 	}
 	now := f.Now()
 	e := f.m[k]
@@ -251,46 +376,11 @@ func (f *FailureTracker) Reserve(ip string) bool {
 		e = &failure{start: now}
 		f.m[k] = e
 	}
-	if e.n >= f.Threshold && now.Sub(e.last) < f.Delay {
-		return false
-	}
 	e.n++
 	e.last = now
-	f.inflight[k] = true
-	return true
 }
 
-// Done ends a reserved attempt that failed; it stays counted.
-func (f *FailureTracker) Done(ip string) {
-	k := RateKey(ip)
-	f.mu.Lock()
-	delete(f.inflight, k)
-	f.mu.Unlock()
-}
-
-// Release ends a reserved attempt and gives its count back.
-func (f *FailureTracker) Release(ip string) {
-	k := RateKey(ip)
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	delete(f.inflight, k)
-	if e := f.m[k]; e != nil {
-		if e.n--; e.n <= 0 {
-			delete(f.m, k)
-		}
-	}
-}
-
-// Clear forgets ip's attempts (after a successful login) and ends its attempt.
-func (f *FailureTracker) Clear(ip string) {
-	k := RateKey(ip)
-	f.mu.Lock()
-	delete(f.m, k)
-	delete(f.inflight, k)
-	f.mu.Unlock()
-}
-
-// Count returns the attempts currently recorded for ip.
+// Count returns the failures currently recorded for ip.
 func (f *FailureTracker) Count(ip string) int {
 	k := RateKey(ip)
 	f.mu.Lock()

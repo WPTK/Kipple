@@ -118,74 +118,94 @@ func TestWriteTokenRules(t *testing.T) {
 	require.Equal(t, 200, w.Code)
 }
 
-// The budget is spent before hashing: after 5 attempts in the window only one
-// attempt per 2 s is hashed; the rest are the ordinary 401 (never 429) without
-// hashing. The correct password still gets through on the next granted slot.
-func TestClientLoginBudgetIsCheckedBeforeHashing(t *testing.T) {
+// Over budget, attempts are paced, not refused: after 5 failures each further
+// attempt waits 2 s (here the fake clock advances instead) and is then verified,
+// so the right password is never answered 401 unchecked. Never a 429.
+func TestClientLoginOverBudgetPacesButVerifies(t *testing.T) {
 	h := newHarness(t)
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 5; i++ {
 		code, body := login(h, "owner", "wrong")
 		require.Equal(t, 401, code)
 		require.Equal(t, "Error=BadAuthentication\n", body)
 	}
-	require.Equal(t, int32(5), h.checks.Load(), "attempts 6..20 inside 2 s are refused without hashing")
-
-	code, _ := login(h, "owner", testPass)
-	require.Equal(t, 401, code, "over budget: even the right password is not hashed yet")
+	require.Zero(t, h.paced.Load(), "inside the budget nothing waits")
 	require.Equal(t, int32(5), h.checks.Load())
-
-	h.clk.Advance(2 * time.Second)
-	code, _ = login(h, "owner", testPass)
-	require.Equal(t, 200, code, "the next granted attempt verifies the correct password")
-	require.Equal(t, int32(6), h.checks.Load())
-
-	// Cleared: five more attempts are hashed straight away.
 	for i := 0; i < 5; i++ {
-		login(h, "owner", "wrong")
+		code, _ := login(h, "owner", "wrong")
+		require.Equal(t, 401, code)
 	}
-	require.Equal(t, int32(11), h.checks.Load())
+	require.Equal(t, int32(5), h.paced.Load(), "each over-budget attempt waited out the delay")
+	require.Equal(t, int32(10), h.checks.Load(), "and was verified")
 
-	// The remembered password needs no hashing, so it is not budgeted: a
-	// signed-in device keeps working while a stale one burns the budget.
-	for i := 0; i < 10; i++ {
-		login(h, "owner", "wrong")
-	}
+	// The right password after a restart (nothing remembered) while over budget.
+	h.api.ver.ClearMemo()
+	code, _ := login(h, "owner", testPass)
+	require.Equal(t, 200, code, "the correct password is verified, not refused")
+	require.Equal(t, int32(11), h.checks.Load())
+	require.Equal(t, 10, h.api.fails.Count("192.0.2.10"), "a success is not counted and clears nothing")
+
+	// The remembered password needs no hashing and no pacing.
+	paced := h.paced.Load()
 	code, _ = login(h, "owner", testPass)
 	require.Equal(t, 200, code, "memo hit succeeds over budget")
+	require.Equal(t, paced, h.paced.Load())
+	require.Equal(t, int32(11), h.checks.Load())
 }
 
-// One attempt per client is in flight; a second one from the same client (or
-// the same IPv6 /64) is refused without waiting for or taking the hash slot.
-func TestClientLoginOneAttemptInFlightPerClient(t *testing.T) {
-	release := make(chan struct{})
-	started := make(chan struct{}, 1)
-	var checks atomic.Int32
+// A remembered success must not reset the budget of an address it shares with
+// someone guessing (carrier NAT).
+func TestClientLoginRememberedSuccessKeepsFailureCount(t *testing.T) {
 	h := newHarness(t)
-	h.api.ver = auth.NewVerifier([]byte(testSecret), auth.VerifierOptions{Wait: 50 * time.Millisecond, Check: func(pw, phc string) bool {
-		checks.Add(1)
-		started <- struct{}{}
-		<-release
-		return false
-	}})
-	send := func(remote string) int {
-		return h.doFrom(remote, http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd=x", map[string]string{"Authorization": ""}).Code
+	code, _ := login(h, "owner", testPass)
+	require.Equal(t, 200, code)
+	for i := 0; i < 5; i++ {
+		login(h, "owner", "guess")
 	}
-	done := make(chan struct{})
-	go func() { defer close(done); send("[2001:db8:1:2::1]:1000") }()
-	<-started
+	require.Equal(t, 5, h.api.fails.Count("192.0.2.10"))
+	code, _ = login(h, "owner", testPass) // remembered
+	require.Equal(t, 200, code)
+	require.Equal(t, 5, h.api.fails.Count("192.0.2.10"), "the guesser's failures still count")
+}
 
-	start := time.Now()
-	require.Equal(t, 401, send("[2001:db8:1:2::1]:1001"), "same address")
-	require.Equal(t, 401, send("[2001:db8:1:2:ffff::9]:1002"), "same /64")
-	require.Less(t, time.Since(start), 40*time.Millisecond, "refused at once, not after the semaphore wait")
-	require.Equal(t, int32(1), checks.Load())
-	require.Equal(t, 1, h.api.fails.Count("2001:db8:1:2::1"), "a refused attempt is not counted")
+// One attempt per client hashes at a time; a second one from the same client
+// (or the same IPv6 /64), such as a retry of a slow login, waits for the first
+// and is then verified instead of failing.
+func TestClientLoginConcurrentAttemptWaitsForTheFirst(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan string, 4)
+	var cur, peak atomic.Int32
+	h := newHarness(t)
+	h.api.ver = auth.NewVerifier([]byte(testSecret), auth.VerifierOptions{Wait: 5 * time.Second, Check: func(pw, phc string) bool {
+		n := cur.Add(1)
+		if n > peak.Load() {
+			peak.Store(n)
+		}
+		started <- pw
+		<-release
+		cur.Add(-1)
+		return pw == testPass
+	}})
+	send := func(remote, pass string) int {
+		return h.doFrom(remote, http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd="+pass, map[string]string{"Authorization": ""}).Code
+	}
+	first := make(chan int, 1)
+	go func() { first <- send("[2001:db8:1:2::1]:1000", "slow") }()
+	require.Equal(t, "slow", <-started)
 
-	// Another /64 is another client: it waits for the slot (busy, not counted).
-	require.Equal(t, 401, send("[2001:db8:1:3::1]:1003"))
-	require.Zero(t, h.api.fails.Count("2001:db8:1:3::1"))
-	close(release)
-	<-done
+	second := make(chan int, 1)
+	go func() { second <- send("[2001:db8:1:2:ffff::9]:1001", testPass) }() // same /64
+	select {
+	case c := <-second:
+		t.Fatalf("second attempt answered %d while the first was in flight; it must wait", c)
+	case <-time.After(50 * time.Millisecond):
+	}
+	release <- struct{}{} // finish the first
+	require.Equal(t, 401, <-first)
+	require.Equal(t, testPass, <-started, "the waiting attempt then runs")
+	release <- struct{}{}
+	require.Equal(t, 200, <-second, "and its correct password is accepted")
+	require.EqualValues(t, 1, peak.Load(), "never two hashes for one client")
+	require.Equal(t, 1, h.api.fails.Count("2001:db8:1:2::1"), "only the wrong password counted")
 }
 
 func TestClientLoginIPv6BudgetIsPer64(t *testing.T) {
@@ -194,7 +214,8 @@ func TestClientLoginIPv6BudgetIsPer64(t *testing.T) {
 		remote := "[2001:db8:0:7:" + strconv.Itoa(i+1) + "::1]:443"
 		require.Equal(t, 401, h.doFrom(remote, http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd=wrong", map[string]string{"Authorization": ""}).Code)
 	}
-	require.Equal(t, int32(5), h.checks.Load(), "rotating addresses inside one /64 shares one budget")
+	require.Equal(t, 20, h.api.fails.Count("2001:db8:0:7::1"), "rotating addresses inside one /64 shares one budget")
+	require.Equal(t, int32(15), h.paced.Load(), "so attempts 6..20 were paced")
 }
 
 func TestMemoizedLoginSkipsHashing(t *testing.T) {
