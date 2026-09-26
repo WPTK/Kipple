@@ -10,6 +10,11 @@ Phase 2 (reading UI backend) so far.
 
 ### Added
 
+- Web UI, search: results mark the words you searched for (in fallback mode, the words it fell back to) and show "No exact matches: showing partial matches" when only partial matches exist; sort by relevance, newest or oldest (kept per browser); a search that matches too much shows the server's message; "Mark all results as read" for a submitted search; a syntax help popover.
+- Web UI, saved searches: save the current search from the Search screen; they appear in the sidebar with unread counts, and Settings > Saved searches edits, deletes and reorders them.
+- Web UI, auto-read: Settings > Library has "Mark old articles as read after…" with presets and each feed can set its own; a preview and a confirmed "Mark N older articles as read now" handle what is already older. Changing a setting never marks anything.
+- Web UI, images: Settings > Images has a cache size preset row, a stats card and Clear image cache; feed health shows the image cache size. A browser the server could not register keeps its settings locally and no longer retries failing saves.
+
 - Web UI: appearance settings sync per device to the server profile (with Retry on failure and a one-time migration of old local values); Settings > Devices (name, list, copy, make default, forget, reset).
 - Web UI: Settings > Filters (create and edit with a live preview, apply to existing articles with progress, delete with a restore choice), the Muted view with Restore and Edit rule, "Mute similar…" from rows and articles, and keyword highlighting in lists and articles with a reading-menu toggle.
 
