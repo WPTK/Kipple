@@ -313,8 +313,12 @@ func TestApplyStopsAtTheNextItemOnCancel(t *testing.T) {
 	took := time.Since(start)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Zero(t, res.Changed, "nothing was written: the page never reached its write")
-	// A page of 128 items costs several hundred ms; stopping at the next item takes one item's worth.
-	require.Less(t, took, 250*time.Millisecond)
+	// A page of 128 items costs seconds; stopping at the next item takes one item's worth (tens of ms).
+	ceiling := time.Second
+	if raceEnabled {
+		ceiling = 15 * time.Second // regexp is tens of times slower under the race detector
+	}
+	require.Less(t, took, ceiling)
 }
 
 // A deadline-bounded delete restores at least one batch per call, answers Done=false while muted

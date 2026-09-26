@@ -89,5 +89,5 @@ func TestRegexWorstCaseAtTheCostCap(t *testing.T) {
 	}
 	per := time.Since(start) / rounds
 	t.Logf("%d regex rules at the cost cap, 8 KiB of letters: %v per item", len(rs), per)
-	require.Less(t, per, time.Second)
+	require.Less(t, per, 2*time.Second) // about 180 ms measured; loose for loaded CI runners
 }

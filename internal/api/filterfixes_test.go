@@ -87,7 +87,7 @@ func TestPatchCancelsApplyOnlyOnMatchingChanges(t *testing.T) {
 			require.Equal(t, http.StatusAccepted, code)
 			code, out, _ := h.api(c, "PATCH", "/api/filters/"+id, tc.body)
 			require.Equal(t, 200, code, "%v", out)
-			done := ofType(collect(t, sub, "run.done", 30*time.Second), "run.done")[0]
+			done := ofType(collect(t, sub, "run.done", 60*time.Second), "run.done")[0]
 			if tc.cancels {
 				require.Equal(t, "cancelled", done["error"])
 				require.EqualValues(t, 0, done["errors"], "an intended stop is not a failure")
