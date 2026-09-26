@@ -4,6 +4,7 @@ import { api, ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { toast } from "@/shell/toasts";
+import { arrayMove } from "./dnd";
 import { cleanFavorites, updateDevicePrefs, useDevicePrefs, type Favorite } from "./devicePrefs";
 
 // Sidebar favorites: folders and feeds pinned at the top. They are a library setting, so they follow you
@@ -23,11 +24,7 @@ export function toggleFavorite(list: readonly Favorite[], t: Favorite["t"], id: 
 
 /** Move one favorite to a new position (drag, or the up and down buttons). */
 export function moveFavorite(list: readonly Favorite[], from: number, to: number): Favorite[] {
-  if (from < 0 || from >= list.length) return [...list];
-  const out = [...list];
-  const [x] = out.splice(from, 1);
-  out.splice(Math.min(Math.max(to, 0), out.length), 0, x as Favorite);
-  return out;
+  return arrayMove(list, from, to);
 }
 
 export interface FavoritesApi {
@@ -78,11 +75,12 @@ export function useFavorites(): FavoritesApi {
 
   const set = useCallback(
     async (next: Favorite[]): Promise<boolean> => {
-      const list = cleanFavorites(next);
-      if (list.length > MAX_FAVORITES) {
+      // Count before cleaning: cleanFavorites truncates at 500, which would hide the 501st.
+      if (cleanFavorites(next, Infinity).length > MAX_FAVORITES) {
         toast(`You can pin up to ${MAX_FAVORITES} favorites.`, "error");
         return false;
       }
+      const list = cleanFavorites(next);
       if (mode === "device") {
         updateDevicePrefs({ favoritesLocal: list });
         return true;

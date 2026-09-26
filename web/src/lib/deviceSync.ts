@@ -3,10 +3,11 @@ import type { DeviceView } from "@/api/types";
 import { announce } from "@/shell/toasts";
 import { isSchemeId } from "@/theme/schemes";
 import { themeStore } from "@/theme/theme";
-import { THEME_STORAGE_KEY, parseThemeSettings } from "@/theme/settings";
+import { DEFAULT_THEME_SETTINGS, THEME_STORAGE_KEY, parseThemeSettings } from "@/theme/settings";
 import type { ThemeSettings } from "@/theme/settings";
 import { FONTS } from "./fonts";
 import {
+  DEFAULT_DEVICE_PREFS,
   DEVICE_PREFS_KEY,
   devicePrefsStore,
   parseDevicePrefs,
@@ -15,7 +16,7 @@ import {
   searchOrderFromServer,
   type DevicePrefs,
 } from "./devicePrefs";
-import { PREFS_KEY, STEPS, parsePrefs, prefsStore, touchFirst, type Prefs, type Step } from "./prefs";
+import { DEFAULT_PREFS, PREFS_KEY, STEPS, parsePrefs, prefsStore, touchFirst, type Prefs, type Step } from "./prefs";
 import { createStore } from "./store";
 
 // The server's device profile (docs/design.md 7.1c) is the truth for everything per device: the
@@ -393,7 +394,11 @@ function ensureSubscribed(): void {
   }
 }
 
-/** Which profile keys the pre-sync localStorage caches actually held (a key they never stored is not a choice). */
+/**
+ * Which profile keys the pre-sync localStorage caches hold as a real choice. A key they never stored is not one,
+ * and neither is a value equal to the client default: the stores write their whole object on any change, so an
+ * untouched field is present but was never chosen (and must not overwrite a different server-side default).
+ */
 function legacyProfileKeys(): Set<string> {
   const out = new Set<string>();
   const read = (key: string): Record<string, unknown> | null => {
@@ -405,16 +410,17 @@ function legacyProfileKeys(): Set<string> {
       return null;
     }
   };
-  const add = (o: Record<string, unknown> | null, map: Record<string, string[]>) => {
-    if (o) for (const f of Object.keys(o)) for (const k of map[f] ?? []) out.add(k);
+  const add = (o: Record<string, unknown> | null, map: Record<string, string[]>, defaults: object) => {
+    const d = defaults as Record<string, unknown>;
+    if (o) for (const f of Object.keys(o)) if (!(f in d) || JSON.stringify(o[f]) !== JSON.stringify(d[f])) for (const k of map[f] ?? []) out.add(k);
   };
-  add(read("kipple.theme.v1"), { mode: ["ui.theme"], fixed: ["ui.theme"], day: ["ui.theme_day"], night: ["ui.theme_night"] });
+  add(read("kipple.theme.v1"), { mode: ["ui.theme"], fixed: ["ui.theme"], day: ["ui.theme_day"], night: ["ui.theme_night"] }, DEFAULT_THEME_SETTINGS);
   const p = read(PREFS_KEY);
   add(p, {
     font: ["ui.font_body"], textSize: ["client.text_size"], listDensity: ["ui.list_density"], readingDensity: ["ui.reading_density"],
     adjustSeparately: ["client.adjust_separately"], spacing: ["client.spacing"], motion: ["client.motion"],
     largeTargets: ["client.large_targets"], listen: ["client.listen"], voice: ["client.voice"], rate: ["client.rate"],
-  });
+  }, DEFAULT_PREFS);
   // Never held before F4, so only a true value is a choice; false is just the field's default.
   if (p?.markReadOnScroll === true) out.add("ui.mark_read_on_scroll");
   if (p && parsePrefs(JSON.stringify(p)).shortcutsChosen) out.add("client.shortcuts");
@@ -423,7 +429,7 @@ function legacyProfileKeys(): Set<string> {
     peekSeen: ["client.peek_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
     sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
     unreadBadge: ["client.unread_badge"], highlightKeywords: ["client.highlight_keywords"],
-  });
+  }, DEFAULT_DEVICE_PREFS);
   return out;
 }
 

@@ -456,6 +456,18 @@ describe("migration only carries what the old caches held (review finding 3)", (
   });
 });
 
+describe("migration ignores untouched defaults in a fully written store", () => {
+  it("does not push a default value over a different server default", async () => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...prefsStore.get(), font: "literata" })); // textSize etc. are the defaults
+    prefsStore.set({ ...prefsStore.get(), font: "literata" });
+    const s = server({}, { "client.text_size": 1.25 });
+    hydrateDevice(s.view());
+    await flush();
+    expect(s.patches).toEqual([{ "ui.font_body": "Literata" }]);
+    expect(prefsStore.get().textSize).toBe(1.25);
+  });
+});
+
 describe("refused settings (review finding 4)", () => {
   function refusing() {
     localStorage.setItem(SYNC_FLAG_KEY, "1");

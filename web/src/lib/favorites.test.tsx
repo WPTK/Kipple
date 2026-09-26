@@ -68,6 +68,17 @@ describe("favorites sync", () => {
     await waitFor(() => expect(hook.result.current.mode).toBe("device"));
   });
 
+  it("refuses the 501st favorite instead of silently dropping it", async () => {
+    const { hook, calls } = setup({ "PATCH /api/settings": () => json({ values: {} }) });
+    const many = Array.from({ length: 501 }, (_, i) => ({ t: "feed" as const, id: String(i + 1) }));
+    let ok = true;
+    await act(async () => void (ok = await hook.result.current.set(many)));
+    expect(ok).toBe(false);
+    expect(patches(calls)).toHaveLength(0);
+    await act(async () => void (ok = await hook.result.current.set(many.slice(0, 500))));
+    expect(ok).toBe(true);
+  });
+
   it("the newest save wins when replies arrive out of order", async () => {
     const releases: (() => void)[] = [];
     const { hook, qc } = setup({

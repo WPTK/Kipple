@@ -8,6 +8,10 @@ All notable changes to Kipple are documented here. The format follows
 
 ### Fixed
 
+- Live updates: a stream that opens and immediately drops (a proxy that accepts then resets) now reaches the polling fallback after two failures instead of resetting the count on every open.
+- Live updates: no misleading "No new articles" toast when a refresh finishes whose start event was missed.
+- Sync: the first-run migration of old device settings only sends values that differ from the defaults, so untouched settings no longer override a different server default.
+- Favorites: pinning a 501st item now shows the limit message instead of silently dropping it.
 - Filters: an inverted highlight rule is now rejected with a clear message instead of being saved and never showing.
 - Sanitizer: a self-closing `<video src="http://...">` or `<audio>` no longer keeps its insecure source; it becomes an "Open video" link like the non-self-closing form.
 - Thumbnails: a lossy WebP is priced only when its VP8 key frame is exactly the size `DecodeConfig` reported (the VP8X canvas); a frame of another size, or no key frame, is refused and the original served, instead of relying on the decoder's own check.
@@ -66,6 +70,10 @@ Phase 2 (reading UI: backend and web app) so far. Schema 4 and 5 (migrations 000
 
 ### Fixed
 
+- Live updates: a stream that opens and immediately drops (a proxy that accepts then resets) now reaches the polling fallback after two failures instead of resetting the count on every open.
+- Live updates: no misleading "No new articles" toast when a refresh finishes whose start event was missed.
+- Sync: the first-run migration of old device settings only sends values that differ from the defaults, so untouched settings no longer override a different server default.
+- Favorites: pinning a 501st item now shows the limit message instead of silently dropping it.
 - Image proxy: every image response (cold miss, first view, cache disabled) now carries `Cross-Origin-Resource-Policy: same-origin`, not only cache hits.
 - Image proxy: rotating the account secret closes the old image handler and its thumbnail workers instead of leaking them; the stale-revalidation bound now covers the whole hotlink retry ladder; learned host hints are evicted one at a time instead of all at once; card image flags are looked up once per feed.
 - Image cache: evictions are cancelled by shutdown, and long stored URLs are cut on a character boundary so they stay valid UTF-8.
@@ -144,6 +152,10 @@ Phase 2 alpha 2: real-device testing fixes and the second review round. Schema 3
 
 ### Fixed
 
+- Live updates: a stream that opens and immediately drops (a proxy that accepts then resets) now reaches the polling fallback after two failures instead of resetting the count on every open.
+- Live updates: no misleading "No new articles" toast when a refresh finishes whose start event was missed.
+- Sync: the first-run migration of old device settings only sends values that differ from the defaults, so untouched settings no longer override a different server default.
+- Favorites: pinning a 501st item now shows the limit message instead of silently dropping it.
 - Undo of a mark-read after opening an article on a phone now brings the row back; a saved "shortcuts off" from a touch device no longer blocks the hardware-keyboard auto-enable.
 - Press-and-hold drag on feed rows works on touch (needs real-device confirmation); keyboard and button reorder keep focus; a focused Settings switch stays in view.
 - Favorites keep syncing after a rejected save (latest save wins; a failure reverts only favorites); column resizing is smooth, saves on release, and can't squeeze the article below 320 px; Editorial's row-height estimate follows the list width.
@@ -310,6 +322,10 @@ Phase 2 alpha 1: web UI, review fixes, backup export and migrations 0002-0003 (s
 
 ### Fixed
 
+- Live updates: a stream that opens and immediately drops (a proxy that accepts then resets) now reaches the polling fallback after two failures instead of resetting the count on every open.
+- Live updates: no misleading "No new articles" toast when a refresh finishes whose start event was missed.
+- Sync: the first-run migration of old device settings only sends values that differ from the defaults, so untouched settings no longer override a different server default.
+- Favorites: pinning a 501st item now shows the limit message instead of silently dropping it.
 - Bulk mark (mark all, above/below) now uses the server's `as_of`, so it covers every unread item in oldest-first lists and with backdated new items; undo only touches what the server changed and restores ledger rows.
 - Undo of merged swipe-stars reverts all of them; a failed undo no longer says "Undone".
 - Unread badge no longer drops twice when opening an article; failed next-page loads keep the list; the skip link is visible on focus; toasts are announced to screen readers; pinch-zoom works from a list row.

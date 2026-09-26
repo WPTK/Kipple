@@ -114,8 +114,8 @@ export const isLayoutId = (v: unknown): v is LayoutId => LAYOUT_IDS.includes(v a
 
 export const clampNum = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, Math.round(n)));
 
-/** A well-formed favorites list: known kinds, digit ids, no repeats, at most 500. */
-export function cleanFavorites(v: unknown): Favorite[] {
+/** A well-formed favorites list: known kinds, digit ids, no repeats, at most `max` (500). */
+export function cleanFavorites(v: unknown, max = 500): Favorite[] {
   if (!Array.isArray(v)) return [];
   const seen = new Set<string>();
   const out: Favorite[] = [];
@@ -126,7 +126,7 @@ export function cleanFavorites(v: unknown): Favorite[] {
     if (seen.has(k)) continue;
     seen.add(k);
     out.push({ t: o.t, id: o.id });
-    if (out.length >= 500) break;
+    if (out.length >= max) break;
   }
   return out;
 }

@@ -70,7 +70,7 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
     if (lead) {
       lead.style.width = `${Math.max(off, 0)}px`;
       lead.style.visibility = off > 0 ? "visible" : "hidden";
-      lead.style.opacity = String(Math.min(1, Math.max(0, (off - 24) / 24 + 0.01)));
+      lead.style.opacity = String(Math.min(1, Math.max(0, (off - ROW.iconFadePx) / ROW.iconFadePx + 0.01)));
       lead.dataset.armed = String(off > 0 && armed);
     }
     if (trail) {
