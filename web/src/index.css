@@ -241,14 +241,16 @@ a.sr-only-live:focus {
 .article-body > * + * { margin-block-start: 0; }
 .article-body p, .article-body ul, .article-body ol, .article-body blockquote, .article-body pre,
 .article-body figure, .article-body table { margin-block: 0 var(--kp-pgap); }
-.article-body h1, .article-body h2, .article-body h3, .article-body h4 {
+.article-body h1, .article-body h2, .article-body h3, .article-body h4, .article-body h5, .article-body h6 {
   line-height: 1.25;
   margin-block: var(--kp-hgap) 0.5em;
-  font-size: 0; /* the label is the aria-label; the glyph is drawn below */
 }
 .article-body h1 { font-size: 1.5em; }
 .article-body h2 { font-size: 1.3em; }
 .article-body h3 { font-size: 1.15em; }
+.article-body h4 { font-size: 1.05em; }
+.article-body h5 { font-size: 1em; }
+.article-body h6 { font-size: 0.9em; }
 .article-body a { color: var(--kp-link); text-decoration: underline; text-underline-offset: 0.15em; }
 .article-body img, .article-body video, .article-body svg { max-width: 100%; height: auto; border-radius: 0.5rem; }
 .article-body figure { margin-inline: 0; }
