@@ -100,7 +100,8 @@ type DiskUsage struct {
 	DBBytes     int64 `json:"db_bytes"`
 	WALBytes    int64 `json:"wal_bytes"`
 	BackupBytes int64 `json:"backup_bytes"`
-	// ImgcacheBytes is 0 until the image cache exists (backend plan step 13).
+	// ImgcacheBytes is the size of the image cache directory (files, temp files and
+	// its index), 0 when there is none. It is never part of a backup.
 	ImgcacheBytes int64 `json:"imgcache_bytes"`
 }
 
@@ -124,6 +125,16 @@ func (d *DB) DiskUsage() DiskUsage {
 		}
 		if info, ierr := e.Info(); ierr == nil && info.Mode().IsRegular() {
 			u.BackupBytes += info.Size()
+		}
+		return nil
+	})
+	// The image cache lives next to the database (main wires <data>/imgcache).
+	_ = filepath.WalkDir(filepath.Join(filepath.Dir(d.path), "imgcache"), func(_ string, e fs.DirEntry, err error) error {
+		if err != nil || e.IsDir() {
+			return nil
+		}
+		if info, ierr := e.Info(); ierr == nil && info.Mode().IsRegular() {
+			u.ImgcacheBytes += info.Size()
 		}
 		return nil
 	})

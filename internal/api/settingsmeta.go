@@ -80,6 +80,20 @@ func intIn(lo, hi int) func(any) (any, string) {
 	}
 }
 
+const (
+	imgCacheMinMB = 64
+	imgCacheMaxMB = 20480
+)
+
+// checkImgCacheMB accepts 0 (cache off) or a size from 64 MB to 20 GB.
+func checkImgCacheMB(v any) (any, string) {
+	f, ok := v.(float64)
+	if !ok || f != math.Trunc(f) || (f != 0 && (f < imgCacheMinMB || f > imgCacheMaxMB)) {
+		return nil, fmt.Sprintf("must be 0 (off) or a whole number from %d to %d", imgCacheMinMB, imgCacheMaxMB)
+	}
+	return int(f), ""
+}
+
 func boolVal(v any) (any, string) {
 	b, ok := v.(bool)
 	if !ok {
@@ -231,7 +245,7 @@ var (
 		store.UAModeOnFailure, "Only when a feed refuses to load",
 		store.UAModeDefault, "Always identify as Kipple",
 		store.UAModeAlways, "Always look like a browser")
-	imgModeOptions = opts("http_only", "Only insecure images", "all", "All images")
+	imgModeOptions = opts("http_only", "Only insecure (http) images", "all", "All images (more private)")
 )
 
 // settingDefs lists every user-writable setting in display order. Defaults come
@@ -287,6 +301,11 @@ var settingDefs = withScopes([]settingDef{
 	{Key: "retention.restore_days", Label: "Days you can restore removed articles", Description: "How long a removed article can be brought back. Zero turns this off.",
 		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(store.MaxRestoreDays), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, store.MaxRestoreDays)},
 
+	{Key: "imgproxy.mode", Label: "Load images through Kipple", Description: "Kipple fetches each image and serves it from its own address, so the sites that host images never see you and cannot track what you read. Choose \"Only insecure images\" to let your device load secure (https) images straight from their sites.",
+		Group: groupImages, Kind: "enum", Options: imgModeOptions, Surface: surfaceSettings, check: oneOf(optValues(imgModeOptions)...)},
+	{Key: "imgproxy.cache_mb", Label: "Image cache size", Description: "Images are stored on the server so they load fast and sites can't track you. The oldest are removed when the cache is full. Zero turns the cache off.",
+		Group: groupImages, Kind: "int", Min: ip(0), Max: ip(imgCacheMaxMB), Step: ip(64), Unit: "MB", Surface: surfaceSettings, check: checkImgCacheMB},
+
 	{Key: "fetch.fulltext_all", Label: "Fetch the full article for every feed", Description: "Download the page of each new article and show its full text, whatever a feed's own setting says. This uses a little more bandwidth and time on each refresh. Feeds that block extraction fall back to the feed's own content. A big refresh can take a while to extract every article; sync apps show the feed's own text for any that are not ready yet. Articles already saved are not changed; you can still turn full text on or off for a single article.",
 		Group: groupLibrary, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: "library.favorites", Label: "Sidebar favorites", Description: "The folders and feeds you pinned to the top of the sidebar.",
@@ -312,8 +331,6 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Hidden plumbing: validated and PATCH-able, never shown by default.
-	{Key: "imgproxy.mode", Label: "Images to load through Kipple", Description: "Which article images are fetched by Kipple instead of your device.",
-		Group: groupImages, Kind: "enum", Options: imgModeOptions, Surface: surfaceHidden, check: oneOf(optValues(imgModeOptions)...)},
 	{Key: "greader.ot_includes_user_changes", Label: "Include your own changes in sync", Description: "Whether changes made in Kipple also appear as new activity to sync apps.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "greader.subscribe_fetch_now", Label: "Fetch new feeds at once from sync apps", Description: "Fetch a feed immediately when a sync app subscribes to it.",

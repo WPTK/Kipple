@@ -366,6 +366,22 @@ func (c *Cache) Lookup(ctx context.Context, key string) (Entry, bool, error) {
 	return e, true, nil
 }
 
+// Peek is Lookup without the hit/miss counters and without refreshing the LRU
+// position (a leader re-checking the index after it won the flight).
+func (c *Cache) Peek(ctx context.Context, key string) (Entry, bool) {
+	if c.closed.Load() || !validKey(key) {
+		return Entry{}, false
+	}
+	e, err := scanEntry(c.rd.QueryRowContext(ctx, "SELECT "+entryCols+" FROM entries WHERE key = ?", key))
+	if err != nil || (!e.OK && !e.Fresh(c.now())) {
+		return Entry{}, false
+	}
+	return e, true
+}
+
+// Now is the cache's clock, so freshness decisions use the same time as the index.
+func (c *Cache) Now() time.Time { return c.now() }
+
 func (c *Cache) touch(key string, now time.Time) {
 	c.amu.Lock()
 	r := c.access[key]

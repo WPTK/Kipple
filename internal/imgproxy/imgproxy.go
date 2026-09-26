@@ -9,6 +9,7 @@ package imgproxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -22,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/WPTK/kipple/internal/imgcache"
 )
 
 // Flag bits, taken from the item's feed when the URL is signed.
@@ -32,15 +35,17 @@ const (
 )
 
 const (
-	sigLen         = 22 // base64url chars of the HMAC kept
-	maxURLLen      = 4096
-	sniffLen       = 512
-	defaultMax     = 15 << 20
-	defaultTimeout = 15 * time.Second
-	defaultWait    = 10 * time.Second
-	defaultConc    = 8
-	maxHops        = 5
-	cacheControl   = "private, max-age=2592000, immutable"
+	sigLen            = 22 // base64url chars of the HMAC kept
+	maxURLLen         = 4096
+	sniffLen          = 512
+	defaultMax        = 15 << 20
+	defaultTimeout    = 15 * time.Second
+	defaultWait       = 10 * time.Second
+	defaultRevalidate = 3 * time.Second
+	defaultConc       = 8
+	defaultPerHost    = 4
+	maxHops           = 5
+	cacheControl      = "private, max-age=2592000, immutable"
 )
 
 // Sign returns the signature of (flags, originalURL): the first 22 base64url
@@ -89,20 +94,33 @@ type Options struct {
 	// (fetch.Client.Transport).
 	Transport func(allowPrivate, insecureTLS bool) http.RoundTripper
 	UserAgent string
+	// BrowserUA is the plain browser User-Agent of the hotlink retries; it never
+	// names Kipple. The default is a current desktop Chrome string.
+	BrowserUA string
 	Logger    *slog.Logger
+
+	// Cache is the on-disk cache under the proxy. Nil, or a cache with a cap of
+	// zero, streams every image straight from the source as before.
+	Cache *imgcache.Cache
 
 	MaxBytes    int64         // 15 MiB
 	Timeout     time.Duration // 15 s, the whole upstream exchange
 	Concurrency int           // 8 simultaneous upstream fetches
+	PerHost     int           // 4 of them to one host
 	Wait        time.Duration // 10 s queueing for a slot
+	// RevalidateWithin bounds how long a stale cached image may wait for its
+	// source to answer a conditional request before the stale copy is served (3 s).
+	RevalidateWithin time.Duration
 }
 
 // Handler serves GET /img/{sig}/{flags}/{u} (path values). The caller enforces
 // the web session before it gets here.
 type Handler struct {
-	opt Options
-	sem chan struct{}
-	log *slog.Logger
+	opt   Options
+	sem   chan struct{}
+	hosts *hostLimiter
+	hints hintStore
+	log   *slog.Logger
 }
 
 // New builds the handler.
@@ -116,17 +134,29 @@ func New(opt Options) *Handler {
 	if opt.Concurrency <= 0 {
 		opt.Concurrency = defaultConc
 	}
+	if opt.PerHost <= 0 {
+		opt.PerHost = defaultPerHost
+	}
 	if opt.Wait <= 0 {
 		opt.Wait = defaultWait
 	}
+	if opt.RevalidateWithin <= 0 {
+		opt.RevalidateWithin = defaultRevalidate
+	}
 	if opt.UserAgent == "" {
 		opt.UserAgent = "Mozilla/5.0 (compatible; Kipple)"
+	}
+	if opt.BrowserUA == "" {
+		opt.BrowserUA = defaultBrowserUA
 	}
 	log := opt.Logger
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{opt: opt, sem: make(chan struct{}, opt.Concurrency), log: log}
+	return &Handler{
+		opt: opt, sem: make(chan struct{}, opt.Concurrency), hosts: newHostLimiter(opt.PerHost),
+		hints: hintStore{cache: opt.Cache}, log: log,
+	}
 }
 
 // ServeHTTP implements http.Handler.
@@ -156,21 +186,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest)
 		return
 	}
-
-	// At most Concurrency upstream fetches; the rest queue for up to Wait.
-	wait := time.NewTimer(h.opt.Wait)
-	defer wait.Stop()
-	select {
-	case h.sem <- struct{}{}:
-		defer func() { <-h.sem }()
-	case <-wait.C:
-		w.Header().Set("Retry-After", "5")
-		fail(w, http.StatusServiceUnavailable)
-		return
-	case <-r.Context().Done():
+	if h.opt.Cache.Enabled() {
+		h.serveCached(w, r, u, flags, orig)
 		return
 	}
-	h.fetch(w, r, u, flags)
+	h.serveDirect(w, r, u, flags)
 }
 
 func fail(w http.ResponseWriter, code int) {
@@ -178,50 +198,96 @@ func fail(w http.ResponseWriter, code int) {
 	w.WriteHeader(code)
 }
 
-func (h *Handler) fetch(w http.ResponseWriter, r *http.Request, u *url.URL, flags int) {
-	// #nosec G704 -- URL is HMAC-signed by us; the transport dial guard blocks private ranges
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u.String(), nil)
-	if err != nil {
-		fail(w, http.StatusBadRequest)
+// slotOutcome is how an attempt to take the upstream slots ended.
+type slotOutcome int
+
+const (
+	slotOK slotOutcome = iota
+	slotBusy
+	slotGone // the client went away
+)
+
+// acquire takes a per-host slot and then a global one (in that order, so a
+// crowded host never holds global slots while it waits), queueing up to Wait
+// for both together. release must be called once when the outcome is slotOK.
+func (h *Handler) acquire(ctx context.Context, host string) (release func(), out slotOutcome) {
+	wait := time.NewTimer(h.opt.Wait)
+	defer wait.Stop()
+	relHost, ok := h.hosts.acquire(ctx, host, wait.C)
+	if !ok {
+		if ctx.Err() != nil {
+			return nil, slotGone
+		}
+		return nil, slotBusy
+	}
+	select {
+	case h.sem <- struct{}{}:
+		return func() { <-h.sem; relHost() }, slotOK
+	case <-wait.C:
+		relHost()
+		return nil, slotBusy
+	case <-ctx.Done():
+		relHost()
+		return nil, slotGone
+	}
+}
+
+func busy(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "5")
+	fail(w, http.StatusServiceUnavailable)
+}
+
+// serveDirect streams from the source with no cache: the client's own
+// conditional headers go upstream and a 304 comes straight back.
+func (h *Handler) serveDirect(w http.ResponseWriter, r *http.Request, u *url.URL, flags int) {
+	release, out := h.acquire(r.Context(), u.Hostname())
+	switch out {
+	case slotBusy:
+		busy(w)
+		return
+	case slotGone:
 		return
 	}
-	req.Header.Set("Accept", "image/*")
-	req.Header.Set("User-Agent", h.opt.UserAgent)
-	if v := r.Header.Get("If-None-Match"); v != "" {
-		req.Header.Set("If-None-Match", v)
-	}
-	if v := r.Header.Get("If-Modified-Since"); v != "" {
-		req.Header.Set("If-Modified-Since", v)
-	}
-	client := &http.Client{
-		Transport: h.opt.Transport(flags&FlagPrivateNet != 0, flags&FlagInsecureTLS != 0),
-		Timeout:   h.opt.Timeout, // covers reading the body too
-		// No cookie jar. Go adds a Referer on redirects; strip it.
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) > maxHops {
-				return errors.New("imgproxy: too many redirects")
-			}
-			req.Header.Del("Referer")
-			return nil
-		},
-	}
-	// #nosec G704 -- same as above: signed URL, SSRF-guarded transport, capped redirects
-	resp, err := client.Do(req)
+	defer release()
+	cd := cond{inm: r.Header.Get("If-None-Match"), ims: r.Header.Get("If-Modified-Since")}
+	resp, done, err := h.fetchUpstream(r.Context(), u, flags, cd, 0)
 	if err != nil {
 		h.log.Debug("imgproxy: upstream", "host", u.Host, "err", err)
 		fail(w, http.StatusBadGateway)
 		return
 	}
+	defer done()
 	defer resp.Body.Close()
-
-	hdr := w.Header()
 	if resp.StatusCode == http.StatusNotModified {
-		passValidators(hdr, resp)
-		hdr.Set("Cache-Control", cacheControl)
+		passValidators(w.Header(), resp)
+		w.Header().Set("Cache-Control", cacheControl)
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
-	if resp.StatusCode != http.StatusOK || resp.ContentLength > h.opt.MaxBytes {
+	h.relay(w, resp, nil)
+}
+
+func passValidators(hdr http.Header, resp *http.Response) {
+	if v := resp.Header.Get("ETag"); v != "" {
+		hdr.Set("ETag", v)
+	}
+	if v := resp.Header.Get("Last-Modified"); v != "" {
+		hdr.Set("Last-Modified", v)
+	}
+}
+
+// relay checks a 200 response, streams it to the client and, with a sink,
+// tees it into the cache. Failures are remembered through the sink. Only a body
+// that arrives complete and passes every check is committed to the cache.
+func (h *Handler) relay(w http.ResponseWriter, resp *http.Response, sk *sink) {
+	hdr := w.Header()
+	if resp.StatusCode != http.StatusOK {
+		sk.fail(negKindFor(resp.StatusCode), resp.StatusCode, "source answered "+strconv.Itoa(resp.StatusCode))
+		fail(w, http.StatusBadGateway)
+		return
+	}
+	if resp.ContentLength > h.opt.MaxBytes {
+		sk.fail(imgcache.NegPermanent, http.StatusBadGateway, "over the size limit")
 		fail(w, http.StatusBadGateway) // over the cap: nothing was written
 		return
 	}
@@ -230,19 +296,23 @@ func (h *Handler) fetch(w http.ResponseWriter, r *http.Request, u *url.URL, flag
 	head := make([]byte, sniffLen)
 	n, err := io.ReadFull(body, head)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		sk.fail(negKindForErr(err), 0, "reading the image failed")
 		fail(w, http.StatusBadGateway)
 		return
 	}
 	head = head[:n]
 	if n == 0 {
+		sk.fail(imgcache.NegTransient, 0, "empty body")
 		fail(w, http.StatusBadGateway)
 		return
 	}
 	ct, ok := detectType(head, resp.Header.Get("Content-Type"))
 	if !ok {
+		sk.fail(imgcache.NegPermanent, http.StatusUnsupportedMediaType, "not a supported image type")
 		fail(w, http.StatusUnsupportedMediaType)
 		return
 	}
+	cw := sk.begin(resp.ContentLength, h.log)
 
 	passValidators(hdr, resp)
 	hdr.Set("Content-Type", ct)
@@ -254,33 +324,60 @@ func (h *Handler) fetch(w http.ResponseWriter, r *http.Request, u *url.URL, flag
 	}
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(head); err != nil {
+		abort(cw)
 		return
 	}
+	teeErr := func(err error) {
+		if err != nil {
+			abort(cw)
+			cw = nil
+		}
+	}
+	if cw != nil {
+		_, err := cw.Write(head)
+		teeErr(err)
+	}
+	total := int64(n)
 	buf := make([]byte, 32<<10)
 	for {
 		m, rerr := body.Read(buf)
 		if m > 0 {
 			if _, werr := w.Write(buf[:m]); werr != nil {
-				return // the browser went away
+				abort(cw) // the browser went away: a partial body is never cached
+				return
+			}
+			total += int64(m)
+			if cw != nil {
+				_, err := cw.Write(buf[:m])
+				teeErr(err)
 			}
 		}
 		if rerr == io.EOF {
+			if cw != nil {
+				if resp.ContentLength >= 0 && total != resp.ContentLength {
+					abort(cw)
+					return
+				}
+				sk.commit(cw, ct, resp, h.log)
+			}
 			return
 		}
 		if rerr != nil {
 			// Over the cap mid-stream, or upstream died: the status is already
 			// sent, so cut the connection and the browser shows a broken image.
+			abort(cw)
+			var mbe *http.MaxBytesError
+			if errors.As(rerr, &mbe) {
+				sk.fail(imgcache.NegPermanent, http.StatusBadGateway, "over the size limit")
+			}
 			panic(http.ErrAbortHandler)
 		}
 	}
 }
 
-func passValidators(hdr http.Header, resp *http.Response) {
-	if v := resp.Header.Get("ETag"); v != "" {
-		hdr.Set("ETag", v)
-	}
-	if v := resp.Header.Get("Last-Modified"); v != "" {
-		hdr.Set("Last-Modified", v)
+func abort(cw *imgcache.Writer) {
+	if cw != nil {
+		cw.Abort()
 	}
 }
 

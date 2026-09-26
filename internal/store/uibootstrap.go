@@ -7,6 +7,19 @@ import (
 	"strconv"
 )
 
+// Image proxy defaults. The mode is "all" (every image loads through Kipple, like
+// other RSS readers); a stored imgproxy.mode row always wins, so a deployment
+// that chose "http_only" keeps it. The cache cap is in MiB; 0 turns the cache off.
+const (
+	DefaultImgMode    = "all"
+	DefaultImgCacheMB = 1024
+)
+
+// IntSetting reads an integer setting through the reader pool.
+func (d *DB) IntSetting(ctx context.Context, key string, def int) int {
+	return settingInt(ctx, d.reader, key, def)
+}
+
 // DefaultSettings are the user-visible settings with their defaults (design
 // §2.2: a row exists only for an overridden key). System keys (sys.*) are never
 // listed.
@@ -19,7 +32,8 @@ var DefaultSettings = map[string]any{
 	"fetch.honor_publisher_ttl":     true,
 	"tz":                            "America/New_York",
 	"stats.api_single_read_is_open": false,
-	"imgproxy.mode":                 "http_only",
+	"imgproxy.mode":                 DefaultImgMode,
+	"imgproxy.cache_mb":             DefaultImgCacheMB,
 	"greader.icon_urls":             true,
 	"fetch.fulltext_all":            false,
 	"library.favorites":             []any{},

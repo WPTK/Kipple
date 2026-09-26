@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/imgproxy"
 	"github.com/WPTK/kipple/internal/stats"
 )
 
@@ -405,7 +406,7 @@ func TestCardShape(t *testing.T) {
 	require.Equal(t, sid(f), lc["feed_id"])
 	require.Equal(t, "Ann", lc["author"])
 	require.Equal(t, fmt.Sprintf("https://x.example/%d", id), lc["url"])
-	require.Equal(t, "https://x.example/i.jpg", lc["image"])
+	require.Equal(t, imgproxy.Path([]byte(testSecret), 0, "https://x.example/i.jpg"), lc["image"], "the default mode proxies every image")
 	require.EqualValues(t, 1234, lc["published_at"])
 	require.EqualValues(t, 1234, lc["sort_at"])
 	require.Equal(t, false, lc["read"])
@@ -1022,7 +1023,7 @@ func TestBootstrap(t *testing.T) {
 	require.EqualValues(t, 30, set["refresh.interval_minutes"], "default fills in")
 	require.EqualValues(t, 90, set["retention.restore_days"])
 	require.Equal(t, "America/New_York", set["tz"])
-	require.Equal(t, "http_only", set["imgproxy.mode"])
+	require.Equal(t, "all", set["imgproxy.mode"])
 	require.Equal(t, false, set["stats.api_single_read_is_open"])
 	require.NotContains(t, set, "sys.id_high_water")
 	require.NotContains(t, set, "bogus.key")

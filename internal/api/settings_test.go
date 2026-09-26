@@ -53,7 +53,7 @@ func TestGetSettingsDefaults(t *testing.T) {
 	require.EqualValues(t, 250, out["retention.default"])
 	require.EqualValues(t, 90, out["retention.restore_days"])
 	require.Equal(t, "America/New_York", out["tz"])
-	require.Equal(t, "http_only", out["imgproxy.mode"])
+	require.Equal(t, "all", out["imgproxy.mode"])
 	require.Equal(t, "system", out["ui.theme"])
 	require.NotContains(t, out, "sys.id_high_water")
 }
@@ -192,10 +192,10 @@ func TestPatchSettingsAccepted(t *testing.T) {
 func TestPatchSettingsNullResetsToDefault(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
-	h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":"all"}`)
+	h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":"http_only"}`)
 	code, out, _ := h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":null}`)
 	require.Equal(t, http.StatusOK, code)
-	require.Equal(t, "http_only", vals(out)["imgproxy.mode"])
+	require.Equal(t, "all", vals(out)["imgproxy.mode"])
 	var n int
 	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx, "SELECT count(*) FROM settings WHERE key = 'imgproxy.mode'").Scan(&n)
@@ -496,13 +496,13 @@ func TestPasswordLengthBounds(t *testing.T) {
 func TestImgModeCacheFollowsPatch(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
-	require.Equal(t, "http_only", h.srv.ImgMode())
-	code, _, _ := h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":"all"}`)
+	require.Equal(t, "all", h.srv.ImgMode(), "the default sends every image through Kipple")
+	code, _, _ := h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":"http_only"}`)
 	require.Equal(t, 200, code)
-	require.Equal(t, "all", h.srv.ImgMode())
+	require.Equal(t, "http_only", h.srv.ImgMode())
 	code, _, _ = h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":null}`)
 	require.Equal(t, 200, code)
-	require.Equal(t, "http_only", h.srv.ImgMode())
+	require.Equal(t, "all", h.srv.ImgMode())
 }
 
 func TestFavoritesLimit(t *testing.T) {

@@ -28,6 +28,7 @@ import (
 	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/greader"
 	"github.com/WPTK/kipple/internal/httpx"
+	"github.com/WPTK/kipple/internal/imgcache"
 	"github.com/WPTK/kipple/internal/lock"
 	"github.com/WPTK/kipple/internal/maint"
 	"github.com/WPTK/kipple/internal/sched"
@@ -139,6 +140,25 @@ func runServe() error {
 		return fmt.Errorf("account: %w", err)
 	}
 
+	// The image cache is optional: if it cannot open (a read-only volume, say), the
+	// proxy still works and streams every image straight from its source.
+	imgc, err := imgcache.Open(imgcache.Options{
+		Dir:      filepath.Join(cfg.DataDir, "imgcache"),
+		MaxBytes: int64(db.IntSetting(context.Background(), "imgproxy.cache_mb", store.DefaultImgCacheMB)) << 20,
+		Logger:   logger,
+	})
+	if err != nil {
+		logger.Error("image cache unavailable; images stream uncached", "err", err)
+		imgc = nil
+	} else {
+		// Runs before db.Close (defers unwind last-in first) and after the HTTP drain.
+		defer func() {
+			if err := imgc.Close(); err != nil {
+				logger.Error("closing image cache", "err", err)
+			}
+		}()
+	}
+
 	hub := events.New()
 	// One verifier for the whole process: the web login and ClientLogin share its
 	// single argon2id slot, so they can never hash at the same time.
@@ -154,7 +174,7 @@ func runServe() error {
 		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick, Runner: ftRunner,
 	})
 	scheduler.Start()
-	maintenance := maint.New(maint.Options{DB: db, Logger: logger})
+	maintenance := maint.New(maint.Options{DB: db, Logger: logger, ImgCache: imgc})
 	maintenance.Start()
 
 	// The Reader API claims /api/greader.php and its root aliases ahead of the
@@ -170,7 +190,7 @@ func runServe() error {
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
 		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
-		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner,
+		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount,
 	})
 	defer uiAPI.Close()

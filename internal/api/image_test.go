@@ -17,6 +17,8 @@ var testPNG = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...)
 func TestImageRewriteAtServeTimeOnly(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
+	// A deployment that chose http_only keeps it: a stored row beats the new default.
+	h.exec(`INSERT INTO settings (key, value) VALUES ('imgproxy.mode', '"http_only"')`)
 	f := h.addFeed("A", 0)
 	h.exec("UPDATE feeds SET allow_private_net = 1, allow_insecure_tls = 1 WHERE id = ?", f)
 	plain := h.addFeed("B", 0)
@@ -57,8 +59,8 @@ func TestImageRewriteAtServeTimeOnly(t *testing.T) {
 	require.NoError(t, h.db.Reader().QueryRow("SELECT image_url FROM items WHERE id = ?", id).Scan(&storedImg))
 	require.Equal(t, "http://a.example/lead.jpg", storedImg)
 
-	// imgproxy.mode = all proxies https too.
-	h.exec(`INSERT INTO settings (key, value) VALUES ('imgproxy.mode', '"all"')`)
+	// imgproxy.mode = all (the default, so no row) proxies https too.
+	h.exec(`DELETE FROM settings WHERE key = 'imgproxy.mode'`)
 	_, det, _ = h.api(c, "GET", "/api/items/"+sid(id), "")
 	require.Contains(t, det["content_html"], `src="`+pathFor(3, "https://s.example/secure.png")+`"`)
 	require.NotContains(t, det["content_html"], `"https://s.example`)

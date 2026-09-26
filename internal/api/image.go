@@ -57,7 +57,7 @@ func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 	if s.imgH == nil || !bytes.Equal(s.imgHSecret, secret) {
 		s.imgHSecret = secret
 		s.imgH = imgproxy.New(imgproxy.Options{
-			Secret: secret, UserAgent: s.outgoingUA(), Logger: s.log,
+			Secret: secret, UserAgent: s.outgoingUA(), Logger: s.log, Cache: s.opt.ImgCache,
 			Transport: func(allowPrivate, insecure bool) http.RoundTripper { return s.opt.Guard(allowPrivate, insecure, false) },
 		})
 	}
@@ -89,7 +89,7 @@ func (s *Server) imageRewriters(ctx context.Context, feedIDs []int64) func(feedI
 		s.log.Error("api: image flags", "err", err)
 		return nil
 	}
-	all := s.db.StringSetting(ctx, "imgproxy.mode", "http_only") == "all"
+	all := s.db.StringSetting(ctx, "imgproxy.mode", store.DefaultImgMode) == "all"
 	return func(feedID int64) func(string) string {
 		return imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: all}.Rewrite
 	}
@@ -137,7 +137,7 @@ func (s *Server) serveOptions(ctx context.Context, feedID int64) sanitize.ServeO
 		if flags, err := s.db.FeedImageFlags(ctx, []int64{feedID}); err != nil {
 			s.log.Error("api: image flags", "err", err)
 		} else {
-			all := s.db.StringSetting(ctx, "imgproxy.mode", "http_only") == "all"
+			all := s.db.StringSetting(ctx, "imgproxy.mode", store.DefaultImgMode) == "all"
 			opt.Image = imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: all}.Rewrite
 			// Embed thumbnails always go through the proxy, whatever the mode:
 			// the point of click-to-load is that nothing contacts YouTube first.
@@ -174,7 +174,7 @@ func (s *Server) ImgMode() string {
 func (s *Server) refreshImgMode(ctx context.Context) string {
 	lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	m, err := s.db.StringSettingErr(lctx, "imgproxy.mode", "http_only")
+	m, err := s.db.StringSettingErr(lctx, "imgproxy.mode", store.DefaultImgMode)
 	if err != nil {
 		// Not cached: a failed read must not pin the default until the next PATCH.
 		s.log.Error("api: imgproxy mode", "err", err)

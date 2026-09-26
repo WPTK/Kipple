@@ -25,6 +25,7 @@ import (
 	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/ftrun"
+	"github.com/WPTK/kipple/internal/imgcache"
 	"github.com/WPTK/kipple/internal/imgproxy"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/stats"
@@ -93,6 +94,9 @@ type Options struct {
 	// and the on-demand endpoint join each other's runs and share the per-host
 	// limit; nil builds a private one.
 	Runner *ftrun.Runner
+	// ImgCache is the on-disk cache under the image proxy; nil serves every image
+	// straight from its source (tests).
+	ImgCache *imgcache.Cache
 	// CountsInterval is the minimum gap between `counts` events (default 1 s).
 	CountsInterval time.Duration
 	// PreviewBudget bounds one filter preview scan (default 5 s); tests shorten it.
@@ -199,6 +203,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("GET /api/bootstrap", s.authed(s.bootstrap))
 	handle("GET /img/{sig}/{flags}/{u}", s.authed(s.image))
 	handle("GET /api/feeds/{id}/icon", s.authed(s.feedIcon))
+	handle("GET /api/imgcache", s.authed(s.imgcacheStats))
+	handle("POST /api/imgcache/clear", s.authed(s.imgcacheClear))
 	handle("GET /api/items", s.authed(s.listItems))
 	handle("POST /api/items/mark-read", s.authed(s.markRead))
 	handle("GET /api/items/{id}", s.authed(s.getItem))

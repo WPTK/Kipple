@@ -76,6 +76,9 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := set["imgproxy.mode"]; ok {
 		s.refreshImgMode(ctx) // the CSP img-src follows it
 	}
+	if _, ok := set["imgproxy.cache_mb"]; ok {
+		s.applyImgCacheCap(ctx) // a lower cap evicts, 0 turns the cache off and purges it
+	}
 	if before.IntervalMinutes != after.IntervalMinutes {
 		// Reads are uncached, so new schedules already use it; pull due times in
 		// for a lowered interval and nudge the dispatcher.

@@ -436,7 +436,7 @@ func TestNightlySweepsTheImageCache(t *testing.T) {
 	var skew atomic.Int64 // seconds the cache's clock runs ahead of the fake clock
 	ic, err := imgcache.Open(imgcache.Options{
 		Dir: filepath.Join(t.TempDir(), "imgcache"), MaxBytes: 1 << 20, NoBackgound: true,
-		Now: func() time.Time { return e.clk.Now().Add(time.Duration(skew.Load()) * time.Second) },
+		Now:       func() time.Time { return e.clk.Now().Add(time.Duration(skew.Load()) * time.Second) },
 		DiskSpace: func(string) (uint64, uint64, error) { return 500 << 30, 800 << 30, nil },
 	})
 	require.NoError(t, err)
