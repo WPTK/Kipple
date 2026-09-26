@@ -17,6 +17,8 @@ import { useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
 import { shareLink } from "@/lib/share";
 import { openFilterEditor, similarSeed } from "@/lib/similar";
+import { clearMarks, wrapMarks } from "@/lib/highlight";
+import { Hl, useGroups } from "@/lib/useHighlights";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { StatusBlock, focusListRow } from "./ListPane";
@@ -173,6 +175,17 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     if (bodyRef.current) enhanceEmbeds(bodyRef.current);
   }, [html, item.data?.trimmed]);
 
+  // Highlight filters: after the article was sanitized and put in the DOM, split its text nodes around the words
+  // (never HTML built from a term). The cleanup puts the text back, so turning the setting off or editing a rule
+  // never leaves stale marks.
+  const bodyGroups = useGroups("content", item.data?.feed_id);
+  useEffect(() => {
+    const root = bodyRef.current;
+    if (!root || bodyGroups.length === 0) return;
+    wrapMarks(root, bodyGroups);
+    return () => clearMarks(root);
+  }, [html, bodyGroups, item.data?.trimmed]);
+
   if (item.isPending) {
     return (
       <div className="p-6" aria-busy="true" role="status">
@@ -237,12 +250,16 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
               </a>
             </p>
             <h1 id="article-title" ref={headingRef} tabIndex={-1} className="mt-1 text-2xl leading-tight font-bold outline-none [font-family:var(--kp-reading-font)]">
-              {a.title || "Untitled"}
+              <Hl text={a.title || "Untitled"} field="title" feedId={a.feed_id} />
             </h1>
             <p className="mt-2 text-sm text-fg2">
-              {[a.author, fullDate(a.published_at), a.reading_minutes ? `${a.reading_minutes} min read` : null]
-                .filter(Boolean)
-                .join(" · ")}
+              {a.author ? (
+                <>
+                  <Hl text={a.author} field="author" feedId={a.feed_id} />
+                  {" · "}
+                </>
+              ) : null}
+              {[fullDate(a.published_at), a.reading_minutes ? `${a.reading_minutes} min read` : null].filter(Boolean).join(" · ")}
             </p>
           </header>
           {a.muted_by !== null && a.muted_by !== undefined ? (

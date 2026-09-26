@@ -19,7 +19,8 @@ import { useStore } from "@/lib/store";
 import { useAllowedSchemes } from "@/theme/serverThemes";
 import { themeStore, updateTheme } from "@/theme/theme";
 import { Segmented } from "@/ui/segmented";
-import { Disclosure, inputCls } from "@/ui/kit";
+import { Disclosure, Switch, inputCls } from "@/ui/kit";
+import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { cn } from "@/lib/cn";
 
 const stepOptions = STEPS.map((s) => ({ value: s, label: STEP_LABELS[s] }));
@@ -209,6 +210,19 @@ export function SpacingControl() {
   );
 }
 
+/** "Highlight keywords": draw the words of Highlight filters in lists and articles. */
+export function HighlightToggle() {
+  const on = useDevicePrefs().highlightKeywords;
+  return (
+    <Switch
+      label="Highlight keywords"
+      help="Marks the words your Highlight filters look for, in lists and in articles."
+      checked={on}
+      onChange={(highlightKeywords) => updateDevicePrefs({ highlightKeywords })}
+    />
+  );
+}
+
 /**
  * The Kindle-style "Aa" panel: theme, font, text size and density. Everything applies at once (the page behind is
  * the live preview), is stored per device, and has no sliders. The font chosen here is THE font: it applies to
@@ -235,6 +249,7 @@ export function ReadingMenu({ className }: { className?: string }) {
           <FontSelect />
           <TextSizeControl />
           <DensityControl preview={false} />
+          <HighlightToggle />
           <p className="text-xs text-fg2">Saved for this device.</p>
         </Popover.Content>
       </Popover.Portal>

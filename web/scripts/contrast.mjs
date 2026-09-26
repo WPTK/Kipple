@@ -49,6 +49,12 @@ for (const s of schemes) {
   if (toast.text < TEXT_MIN) failures.push(`${s.name}: toast text ${toast.text.toFixed(2)} < ${TEXT_MIN}`);
   if (toast.border < UI_MIN) failures.push(`${s.name}: toast border ${toast.border.toFixed(2)} < ${UI_MIN}`);
   if (toast.errBorder < UI_MIN) failures.push(`${s.name}: error toast border ${toast.errBorder.toFixed(2)} < ${UI_MIN}`);
+  // Highlighted keywords (--kp-hl-bg in index.css: 20% star into the page background): the scheme's text on that
+  // tint, and the star underline against the page.
+  const hlBg = mixHex(t.star, t.bg, 20);
+  const hl = { text: contrast(t.text, hlBg), underline: contrast(t.star, t.bg) };
+  if (hl.text < TEXT_MIN) failures.push(`${s.name}: highlight text ${hl.text.toFixed(2)} < ${TEXT_MIN}`);
+  if (hl.underline < UI_MIN) failures.push(`${s.name}: highlight underline ${hl.underline.toFixed(2)} < ${UI_MIN}`);
   rows.push([s.name, ...["text", "text2", "text2s", "link", "links", "danger", "accent", "star", "sel"].map((k) => r[k].toFixed(2))]);
 
   const cvd = {};

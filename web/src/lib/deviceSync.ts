@@ -147,7 +147,8 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     collapsedFolders: g("client.collapsed_folders"),
     linkTarget: g("client.link_target"),
   };
-  const dp = { ...parseDevicePrefs(JSON.stringify(dpRaw)), favoritesLocal: cur.dp.favoritesLocal };
+  // Two device values have no profile key (yet): the local favorites fallback and "Highlight keywords".
+  const dp = { ...parseDevicePrefs(JSON.stringify(dpRaw)), favoritesLocal: cur.dp.favoritesLocal, highlightKeywords: cur.dp.highlightKeywords };
   return { theme, prefs, dp };
 }
 

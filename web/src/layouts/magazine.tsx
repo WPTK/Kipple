@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/format";
 import { CheckBadge, RowMenu, SourceIcon, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
+import { Hl } from "@/lib/useHighlights";
 
 /**
  * Editorial: image-forward. A large 16:9 lead image over the source line, a big title and a longer excerpt,
@@ -57,10 +58,10 @@ function EditorialRow({ item, feed, selected, checked, to, onOpen, onToggleStar,
               className="after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:outline-accent"
               aria-label={rowLabel(item)}
             >
-              {item.title || "Untitled"}
+              <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
             </Link>
           </h3>
-          {item.excerpt ? <p className="clamp-snippet text-base leading-normal text-fg2">{item.excerpt}</p> : null}
+          {item.excerpt ? <p className="clamp-snippet text-base leading-normal text-fg2"><Hl text={item.excerpt} field="content" feedId={item.feed_id} /></p> : null}
         </div>
       </div>
       <div className="relative z-10 -mr-2 -mb-2 flex items-center justify-end">

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, beforeEach } from "vitest";
 import { contrast, deltaE, mixHex } from "./contrast";
 import { SCHEMES, schemeById } from "./schemes";
@@ -79,6 +80,20 @@ describe("scheme roster", () => {
       expect(bg, `${s.name} toast surface`).not.toBe(t.surface);
     }
     expect(mixHex("#000000", "#ffffff", 50)).toBe("#808080");
+  });
+
+  it("highlighted keywords: the scheme's text on the star tint is AA in every scheme, and the underline is visible", () => {
+    // The percentage is read from index.css so the test cannot drift from the stylesheet.
+    const css = readFileSync("src/index.css", "utf8") // vitest runs from web/;
+    const pct = Number(/--kp-hl-bg:\s*color-mix\(in srgb,\s*var\(--kp-star\)\s*(\d+)%,\s*var\(--kp-bg\)\)/.exec(css)?.[1]);
+    expect(pct).toBeGreaterThan(0);
+    for (const s of SCHEMES) {
+      const t = s.tokens;
+      const bg = mixHex(t.star, t.bg, pct);
+      expect(contrast(t.text, bg), `${s.name} highlight text`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(t.star, t.bg), `${s.name} highlight underline`).toBeGreaterThanOrEqual(3);
+      expect(bg, `${s.name} highlight tint`).not.toBe(t.bg);
+    }
   });
 
   it("Signal's danger is no longer confusable with star under deuteranopia", () => {

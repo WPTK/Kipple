@@ -71,6 +71,8 @@ export interface DevicePrefs {
   unreadBadge: UnreadBadge;
   /** Favorites kept on this device when the server does not accept them. */
   favoritesLocal: Favorite[];
+  /** Draw the words of Highlight filters in lists and articles (the reading menu's "Highlight keywords"). */
+  highlightKeywords: boolean;
 }
 
 export const SIDEBAR_WIDTH_MIN = 200;
@@ -89,6 +91,7 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   linkTarget: null,
   unreadBadge: "count",
   favoritesLocal: [],
+  highlightKeywords: true,
 };
 
 export const DEVICE_PREFS_KEY = "kipple.device.v1";
@@ -141,6 +144,7 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       linkTarget: v?.linkTarget === "new" || v?.linkTarget === "same" ? v.linkTarget : null,
       unreadBadge: UNREAD_BADGES.includes(v?.unreadBadge as UnreadBadge) ? (v?.unreadBadge as UnreadBadge) : d.unreadBadge,
       favoritesLocal: cleanFavorites(v?.favoritesLocal),
+      highlightKeywords: v?.highlightKeywords !== false,
     };
   } catch {
     return { ...d, overrides: { feed: {}, folder: {} } };

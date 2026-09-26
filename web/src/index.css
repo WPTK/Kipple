@@ -75,6 +75,11 @@
      text color; scripts/contrast.mjs checks 4.5:1 for it and 3:1 for the accent and danger borders, per theme. */
   --kp-toast-bg: color-mix(in srgb, var(--kp-accent) 18%, var(--kp-surface));
 
+  /* Highlighted keywords (Highlight filters): the scheme's text color on a tint of its star color (20% star into
+     the page background), with a solid star underline so the mark is not color alone. scripts/contrast.mjs checks
+     4.5:1 for the text on the tint and 3:1 for the underline, per theme. */
+  --kp-hl-bg: color-mix(in srgb, var(--kp-star) 20%, var(--kp-bg));
+
   --kp-gutter: 1rem;
   --tabbar-h: 3.5rem;
   --toolbar-h: 3.05rem; /* article toolbar: 44 px buttons plus padding */
@@ -100,6 +105,16 @@
 [data-list-density="airy"] { --row-py: 1.25rem; --row-gap: 0.375rem; --thumb: 7rem; --title-lines: 3; --snippet-lines: 3; --row-min: 4.5rem; }
 
 /* ---------- Base ---------- */
+
+mark.kp-hl {
+  background: var(--kp-hl-bg);
+  color: var(--kp-text);
+  border-bottom: 2px solid var(--kp-star);
+  border-radius: 2px;
+  padding-inline: 0.1em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
 
 html {
   font-size: calc(100% * var(--kp-scale));
@@ -281,6 +296,7 @@ a.sr-only-live:focus {
   label:has(input:checked) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
   button, select, input, textarea { border: 1px solid ButtonText; }
   .swipe-panel { border: 1px solid CanvasText; }
+  mark.kp-hl { forced-color-adjust: none; background: Mark; color: MarkText; border-bottom-color: MarkText; }
 }
 
 /* Reading spacing: Snug and Roomy override the Density step's line, paragraph and letter spacing.

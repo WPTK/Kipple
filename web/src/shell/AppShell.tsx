@@ -5,6 +5,7 @@ import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
 import { useRefreshAll } from "@/api/refresh";
 import { useHotkeys } from "@/lib/keys";
+import { useSyncHighlights } from "@/lib/useHighlights";
 import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, DEFAULT_DEVICE_PREFS, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
@@ -188,6 +189,7 @@ export function AppShell() {
   const { pathname } = useLocation();
   const prefs = useStore(prefsStore);
   useServerEvents(true);
+  useSyncHighlights();
   const refresh = useRefreshAll();
 
   useHotkeys(

@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/format";
 import { CheckBadge, RowMenu, SourceIcon, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
+import { Hl } from "@/lib/useHighlights";
 
 /**
  * Email - Compact (layout id "headlines"): one line per article, title only, like a compact mail list. Phone: dot, favicon, title, time.
@@ -31,7 +32,7 @@ function HeadlineRow({ item, feed, selected, checked, to, onOpen, onToggleStar, 
           className="after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:outline-accent"
           aria-label={rowLabel(item)}
         >
-          {item.title || "Untitled"}
+          <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
         </Link>
       </h3>
       <time dateTime={new Date(item.published_at * 1000).toISOString()} className="w-10 shrink-0 text-right text-xs text-fg2 tabular-nums">

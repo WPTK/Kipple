@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/format";
 import { CheckBadge, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
+import { Hl } from "@/lib/useHighlights";
 
 /**
  * Inbox (email style): the feed is the sender (bold while unread), the title
@@ -41,10 +42,10 @@ function InboxRow({ item, selected, checked, to, onOpen, onToggleStar, actions, 
             className="after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:outline-accent"
             aria-label={rowLabel(item)}
           >
-            {item.title || "Untitled"}
+            <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
           </Link>
         </h3>
-        {item.excerpt ? <p className="clamp-snippet text-sm leading-snug text-fg2">{item.excerpt}</p> : null}
+        {item.excerpt ? <p className="clamp-snippet text-sm leading-snug text-fg2"><Hl text={item.excerpt} field="content" feedId={item.feed_id} /></p> : null}
       </div>
       <div className="pointer-events-none relative z-10 flex shrink-0 flex-col items-end justify-between gap-1">
         {thumb ? (
