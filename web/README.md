@@ -59,13 +59,17 @@ all, `c` Compact, `u` or `Esc` back to the list, `G`/`Home` bottom and top, `/` 
 `s`, `f` or `,` to jump to Unread, All, Starred, Feeds or Settings. Ctrl, Cmd and Alt are never bound.
 
 **Undo.** Every read, unread, star and bulk mark pushes an undo entry. The toast (one slot, merged text such as
-"4 articles marked read", 15 s, paused while hovered or focused) has a real Undo button; `z` and the header menu do
+"4 articles marked read", 15 s, paused while hovered or focused) has a real Undo button; every toast uses one themed
+surface (`--kp-toast-bg`: 18% accent into the scheme's surface, accent border, real shadow; `npm run contrast`
+checks it in every theme). Info and help toasts stay 8 s, an error until dismissed, and hovering or focusing any
+toast holds it; `z` and the header menu do
 the same. Undoing a bulk mark sends the by-id `{ids, read:false}` call. Rows leaving the Unread list collapse over
 180 ms and the first still-visible row stays put on screen (`src/lib/collapse.ts`).
 
 **Live updates.** The list is a snapshot (SSE never refetches it). New arrivals show an "n new articles" pill,
 counted only for feeds in the current list (a feed, a folder's feeds, or everything; never on Starred, search or an
-oldest-first list). If the event stream is closed for good (a proxy 502 during a deploy) the app recreates it with
+oldest-first list); the pill is always mounted and moves on transform and opacity only, so it never reflows the list.
+If the event stream is closed for good (a proxy 502 during a deploy) the app recreates it with
 1 s to 30 s backoff, polls `/api/status` meanwhile, and resyncs when it is back.
 
 **Bulk read API.** `POST /api/items/mark-read` with `{scope:{view, feed_id|folder_id|all:true, q?}, bound?:{order,
@@ -79,21 +83,63 @@ undoable}` (docs/design.md 7.1). Toasts and announcements go through the shell's
 `int` (no sliders), a text box for `text`; `json` is never shown. Changes are a `PATCH /api/settings` with an
 optimistic update that rolls back on error; a 400's `keys` and `issues` show under the control; "Reset to default"
 sends `null`. Groups: Reading, Sync, Library, Images, Account, and Advanced (collapsed). Keys the screen draws itself
-or cannot honor yet (`ui.mark_read_on_scroll` sits in Accessibility; `ui.font_ui` is skipped until the interface
-font is wired) are left out of the generic list.
+or cannot honor yet (`ui.mark_read_on_scroll` sits in Accessibility; `ui.font_ui` is never shown: there is one font
+choice, in the Aa menu) are left out of the generic list. `fetch.fulltext_all` (fetch the full article for every
+feed, with its note about bandwidth and refresh time) appears under Library like any other bool; while it is on, the
+feed editor shows that feed's own switch as "On for all feeds". The screen is capped at 720 px wide.
 
 **Reading appearance** (the "Aa" button in the list header and the article toolbar, and Settings > Appearance):
-theme (including "Match my device" with any day and night pair), font, text size, one Density choice with an "Adjust
-separately" disclosure, and reading spacing. Everything is stored per device (`prefs.ts`, `theme/`); the server's
-`ui.*` reader-menu keys are global, so today they only supply labels.
+theme (including "Match my device" with any day and night pair), font, text size and one Density choice with an
+"Adjust separately" disclosure. The font is THE font: it applies at once to lists, the reader and the sidebar
+(`--kp-app-font`, and `--kp-reading-font` for articles); Settings, Manage feeds, Health and every menu, popover and
+dialog keep the system UI font (`.ui-font` and the role selectors in `index.css`). "Default" leaves lists and chrome in
+the system font and articles in the reading serif. Segmented controls are pressed-style buttons over hidden native
+radios (arrow keys work); choosing one holds the control where it was on screen even when the page above reflows
+(text size scales every rem), which is what used to fling Settings around. Everything is stored per device
+(`prefs.ts`, `devicePrefs.ts`, `theme/`); the server's `ui.*` reader-menu keys are global, so today they only supply
+labels.
+
+**Device settings** (Settings > Lists and reading, all per device): Layout (default; Editorial, Cards, Compact, Inbox,
+Email - Compact; the stored ids are still `magazine` and `headlines`), Article width (Narrow, Medium, Wide, Full;
+`--kp-col`), Open links in (New tab or Same tab; the default is Same tab on iPhone and iPad, where a link an installed
+app claims otherwise leaves an about:blank tab, New tab elsewhere; `lib/links.ts`), and Unread badge (Count capped at
+99+, Dot only, Off; tab bar and sidebar). The sidebar and the list column of the reader pane are resizable (drag the
+edge, arrow keys, double-click to reset) and remember their widths. Single-key shortcuts default to off on a touch-first
+device (coarse pointer and no fine pointer; a hardware key press switches the default on) and stay a choice you can
+change. Text spacing (WCAG 1.4.12: Less, Default, More) is in Accessibility, not in the Aa menu.
+
+**Layouts.** Editorial is image-forward (a large lead image, a big title and excerpt, more whitespace; in a wide list
+the image sits beside the text). Inbox is text-first (sender, subject, snippet, time, small optional thumbnail).
+The layout menu is one list: the radio is the choice (a feed or folder's own override on those lists, the device default
+elsewhere) and the star beside each layout makes it the device default. On a wide screen an open article always keeps
+its list beside it, so switching layouts (Cards included, as a single column) never drops either; a grid list with
+nothing open fills the width. The list header's controls are capped at 25rem and left-aligned in every layout, and
+Settings has a gear beside them.
+
+**Read state in Unread.** A row marked read on purpose (menu, key, the article toolbar; not by opening it, and not by a
+swipe, which already removes its row) leaves the Unread list after 1.5 s with the undo toast still up; the article
+that is open leaves when you move off it. Undo, or marking it unread again, cancels that. Marking an article unread
+marks the cached Unread lists stale so it is there the next time one is shown. Menu items and toolbar buttons are named
+by their action ("Mark as read", "Mark as unread") and the article header shows the state.
 
 **Feeds** (`FeedsScreen`, `screens/feeds/`): add (address, optional title and folder; the exists, choose and ok
 flows, then the first-fetch result), edit (title, address, folder, layout on this device, interval, retention, full
 text, enabled; Advanced: duplicate detection, user agent, login, ignore HTTP cache, no HTTP/2; "Unsafe options" for
 insecure TLS and private network, with warnings), delete with the starred count and "delete starred too", refresh
-now, folders (create, rename, delete, layout override) and reordering with Move up and Move down buttons, OPML import
+now, folders (create, rename, delete, layout override), OPML import
 (with `mark_read_older_than_days` and a result summary) and export (a plain download link). **Changing the feed URL**
 is the address field: `PATCH /api/feeds/{id}` with `url`.
+
+**Reordering, favorites and bulk actions.** Grab a feed or folder anywhere on its row and drag (mouse: past 6 px; touch:
+press and hold, or touch the grip at once; `lib/dnd.ts`); the grip also moves with the arrow keys, and "Show move
+buttons" in the menu adds Move up and Move down buttons. A drop is one `POST /api/reorder` (a feed dropped in another
+folder moves there), painted at once and confirmed with "Saved". The star on a folder or feed pins it to Favorites at the
+top of the sidebar and Manage feeds (drag those to order them). Favorites live in the server setting
+`library.favorites` (at most 500 `{t, id}` items); a server that rejects the setting gets them kept on this device
+instead. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move to folder (one
+reorder call) and Delete (a confirm with the count, the total starred articles, "delete starred too", progress, and a
+per-feed error list). The sidebar's folders collapse (remembered per device). Feed health is reached from the Feeds
+menu (it is no longer in the sidebar).
 
 **Feed health** (`/health`): a sortable, filterable table on wide screens and cards on phones, plain-English
 statuses (`lib/feedStatus.ts`), the one-tap "Update to new URL" for a pending permanent redirect, the 14-day fetch
@@ -112,8 +158,8 @@ that stayed open 10 s. Tests: `api/events.hook.test.tsx`.
 
 ## Accessibility
 
-`ACCESSIBILITY.md` is the checklist. Settings > Accessibility holds Text size, Easy-to-read font, Reading spacing,
-Reduce motion (follow system, on, off), Mark as read while scrolling (off by default), Listen to articles (voice and
+`ACCESSIBILITY.md` is the checklist. Settings > Accessibility holds Text spacing (the WCAG 1.4.12 control: "Adds
+extra space between letters, words and lines"), a pointer to the Easy to read font in the Aa menu, Reduce motion (follow system, on, off), Mark as read while scrolling (off by default), Listen to articles (voice and
 speed), plus Larger buttons and Titles only in lists. The OS settings for contrast, forced colors, text size and
 motion are followed without any setting.
 
