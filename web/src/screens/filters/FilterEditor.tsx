@@ -164,7 +164,7 @@ function Chips({ terms, mono, onRemove }: { terms: string[]; mono: boolean; onRe
       {terms.map((t, i) => (
         <li key={`${i}:${t}`} className={cn("flex min-h-9 max-w-full items-center gap-1 rounded-full border border-line bg-surface py-0.5 pr-1 pl-3 text-sm", mono && "font-mono")}>
           <span className="truncate">{t}</span>
-          <button type="button" aria-label={`Remove ${t}`} onClick={() => onRemove(i)} className="inline-flex size-8 shrink-0 items-center justify-center rounded-full hover:bg-selection">
+          <button type="button" aria-label={`Remove ${t}`} onClick={() => onRemove(i)} className="hit-row inline-flex size-8 shrink-0 items-center justify-center rounded-full hover:bg-selection">
             <X aria-hidden="true" className="size-4" />
           </button>
         </li>

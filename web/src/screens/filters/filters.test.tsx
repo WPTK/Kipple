@@ -148,6 +148,7 @@ describe("filter editor", () => {
     const chips = w.getByRole("list", { name: "Terms in this filter" });
     expect(within(chips).getAllByRole("listitem")).toHaveLength(2);
     expect(w.getByText(/2 of 50 used/)).toBeInTheDocument();
+    expect(w.getByRole("button", { name: "Remove sponsored post" })).toHaveClass("hit-row"); // 44 px on coarse pointers
     await user.click(w.getByRole("button", { name: "Remove sponsored post" }));
     expect(within(chips).getAllByRole("listitem")).toHaveLength(1);
 
