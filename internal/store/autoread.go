@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -31,6 +32,10 @@ const (
 	// settingAutoReadLastRun is the unix time the nightly job last ran, written even when nothing
 	// is enabled, so turning the feature on later never reaches back before that instant.
 	settingAutoReadLastRun = "sys.auto_read_last_run"
+	// settingAutoReadFeedMarks is {"<feed id>": unix time}: each feed's last completed nightly
+	// window end. It exists only while a run is unfinished (a run that completes clears it and
+	// advances settingAutoReadLastRun), so a rerun repeats no window a feed already finished.
+	settingAutoReadFeedMarks = "sys.auto_read_feed_marks"
 	// AutoReadBatch is the ids marked per write transaction, behind the commit gate.
 	AutoReadBatch = 500
 	// autoReadDay is a day in seconds.
@@ -84,7 +89,7 @@ func (d *DB) autoReadTargets(ctx context.Context, feedID int64, days *int) ([]au
 		q += " AND f.id = ?"
 		args = append(args, feedID)
 	}
-	rows, err := d.reader.QueryContext(ctx, q, args...)
+	rows, err := d.reader.QueryContext(ctx, q+" ORDER BY f.id", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +166,8 @@ type AutoReadOptions struct {
 	OnBatch func(StateResult)
 	// Progress is called after each batch with the items marked so far.
 	Progress func(done int)
+	// PerFeedMarks (the nightly step) keeps a per-feed high-water mark; see RunAutoRead.
+	PerFeedMarks bool
 }
 
 // AutoReadResult is the outcome of a run.
@@ -175,6 +182,15 @@ type AutoReadResult struct {
 // gated write transaction, no stats), and the matching rows of the trimmed ledger. Each batch is one
 // UPDATE that selects its own rows inside the write transaction, so an item starred, muted or
 // marked read between batches is simply not selected. It stops at the first error or when ctx ends.
+//
+// A feed with nothing to mark costs two reader-pool EXISTS probes and no gate: the write
+// transactions (and the gate) are only taken for a feed, and for its ledger, with candidates.
+//
+// With o.PerFeedMarks (the nightly step) each feed keeps its own high-water mark, the instant of its
+// last completed window (settingAutoReadFeedMarks): its window starts at the later of o.Since and
+// its mark, and the mark moves to o.Now as the feed completes. A run that fails or is cancelled at
+// feed k therefore leaves feeds 1 to k-1 behind their finished windows, and the rerun does not mark
+// again what a reader has marked unread since.
 func (d *DB) RunAutoRead(ctx context.Context, o AutoReadOptions) (AutoReadResult, error) {
 	var res AutoReadResult
 	if o.Batch <= 0 {
@@ -182,6 +198,35 @@ func (d *DB) RunAutoRead(ctx context.Context, o AutoReadOptions) (AutoReadResult
 	}
 	targets, err := d.autoReadTargets(ctx, o.FeedID, o.Days)
 	if err != nil {
+		return res, err
+	}
+	var marks map[int64]int64
+	if o.PerFeedMarks {
+		if marks, err = loadAutoReadMarks(ctx, d.reader); err != nil {
+			return res, err
+		}
+	}
+	// dirty: marks moved in memory but not stored. They are stored after each feed that marked
+	// something, and when the run ends early (best effort, the caller's context may be the reason).
+	dirty := false
+	flush := func(ctx context.Context) error {
+		if !dirty {
+			return nil
+		}
+		if err := d.saveAutoReadMarks(ctx, marks); err != nil {
+			return err
+		}
+		dirty = false
+		return nil
+	}
+	fail := func(err error) (AutoReadResult, error) {
+		if dirty {
+			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			if ferr := flush(fctx); ferr != nil {
+				err = fmt.Errorf("%w (and the per-feed marks: %v)", err, ferr)
+			}
+		}
 		return res, err
 	}
 	pause := func() error {
@@ -196,14 +241,30 @@ func (d *DB) RunAutoRead(ctx context.Context, o AutoReadOptions) (AutoReadResult
 		}
 	}
 	for _, t := range targets {
-		lo, hi := autoReadBounds(o.Now, o.Since, t.days)
+		since := o.Since
+		if m, ok := marks[t.id]; ok && !since.IsZero() && time.Unix(m, 0).After(since) {
+			since = time.Unix(m, 0)
+		}
+		lo, hi := autoReadBounds(o.Now, since, t.days)
 		if hi <= lo {
 			continue
 		}
+		if err := ctx.Err(); err != nil {
+			return fail(err)
+		}
+		var hasItems, hasLedger bool
+		if err := d.reader.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM items WHERE "+autoReadWhere+")",
+			t.id, o.Now.Unix(), lo, hi).Scan(&hasItems); err != nil {
+			return fail(err)
+		}
+		if err := d.reader.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM trimmed_items
+			WHERE feed_id = ?1 AND read = 0 AND id > ?2 AND id <= ?3)`, t.id, lo, hi).Scan(&hasLedger); err != nil {
+			return fail(err)
+		}
 		marked := 0
-		for {
+		for hasItems {
 			if err := ctx.Err(); err != nil {
-				return res, err
+				return fail(err)
 			}
 			var changed []int64
 			_, err := d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
@@ -219,7 +280,7 @@ func (d *DB) RunAutoRead(ctx context.Context, o AutoReadOptions) (AutoReadResult
 				return int64(len(changed)), nil
 			})
 			if err != nil {
-				return res, err
+				return fail(err)
 			}
 			res.Batches++
 			res.Items += len(changed)
@@ -236,13 +297,13 @@ func (d *DB) RunAutoRead(ctx context.Context, o AutoReadOptions) (AutoReadResult
 				break
 			}
 			if err := pause(); err != nil {
-				return res, err
+				return fail(err)
 			}
 		}
 		// The ledger: rows of items trimmed earlier. Read state only, so they are not events.
-		for {
+		for hasLedger {
 			if err := ctx.Err(); err != nil {
-				return res, err
+				return fail(err)
 			}
 			n, err := d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
 				r, err := tx.ExecContext(ctx, `UPDATE trimmed_items SET read = 1 WHERE id IN (
@@ -254,22 +315,82 @@ func (d *DB) RunAutoRead(ctx context.Context, o AutoReadOptions) (AutoReadResult
 				return r.RowsAffected()
 			})
 			if err != nil {
-				return res, err
+				return fail(err)
 			}
+			res.Batches++
 			res.Ledger += int(n)
 			marked += int(n)
 			if n < int64(o.Batch) {
 				break
 			}
 			if err := pause(); err != nil {
-				return res, err
+				return fail(err)
 			}
 		}
 		if marked > 0 {
 			res.Feeds++
 		}
+		if o.PerFeedMarks {
+			marks[t.id] = o.Now.Unix()
+			dirty = true
+			if marked > 0 {
+				if err := flush(ctx); err != nil {
+					return fail(err)
+				}
+			}
+		}
 	}
 	return res, nil
+}
+
+// loadAutoReadMarks reads the per-feed high-water marks: feed id to the unix time its last
+// completed window ended. A missing or unreadable value is no marks (each feed then starts at the
+// run's Since); a failed read is an error.
+func loadAutoReadMarks(ctx context.Context, q Querier) (map[int64]int64, error) {
+	out := map[int64]int64{}
+	raw, ok, err := settingRawErr(ctx, q, settingAutoReadFeedMarks)
+	if err != nil {
+		return nil, fmt.Errorf("store: auto-read marks: %w", err)
+	}
+	if !ok {
+		return out, nil
+	}
+	var m map[string]int64
+	if json.Unmarshal(raw, &m) != nil {
+		return out, nil
+	}
+	for k, v := range m {
+		if id, err := strconv.ParseInt(k, 10, 64); err == nil && v > 0 {
+			out[id] = v
+		}
+	}
+	return out, nil
+}
+
+// saveAutoReadMarks stores the marks (an empty map deletes the setting).
+func (d *DB) saveAutoReadMarks(ctx context.Context, marks map[int64]int64) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		return putAutoReadMarks(ctx, tx, marks, time.Now().Unix())
+	})
+}
+
+func putAutoReadMarks(ctx context.Context, tx *sql.Tx, marks map[int64]int64, at int64) error {
+	if len(marks) == 0 {
+		_, err := tx.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", settingAutoReadFeedMarks)
+		return err
+	}
+	m := make(map[string]int64, len(marks))
+	for id, v := range marks {
+		m[strconv.FormatInt(id, 10)] = v
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		settingAutoReadFeedMarks, string(raw), at)
+	return err
 }
 
 // AutoReadLastRun is when the nightly auto-read step last ran; ok is false when it never has. A
@@ -285,9 +406,13 @@ func AutoReadLastRun(ctx context.Context, q Querier) (t time.Time, ok bool, err 
 	return time.Unix(n, 0), true, nil
 }
 
-// RecordAutoReadRun stores the instant the nightly auto-read step ran.
+// RecordAutoReadRun stores the instant the nightly auto-read step ran and clears the per-feed
+// marks (every feed has completed the window that ends at now).
 func (d *DB) RecordAutoReadRun(ctx context.Context, now time.Time) error {
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if err := putAutoReadMarks(ctx, tx, nil, now.Unix()); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
 			settingAutoReadLastRun, strconv.FormatInt(now.Unix(), 10), now.Unix())

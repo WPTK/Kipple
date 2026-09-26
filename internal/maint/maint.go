@@ -350,8 +350,10 @@ func (m *Maint) onAutoRead() func(store.StateResult) {
 // autoRead is the nightly auto-read step (design 5.4a): it marks read the unread, unstarred,
 // unmuted articles whose crawl time crossed each feed's threshold since the last run, the window
 // (lastRun - N days, now - N days]. A run that was missed while the server was down is covered
-// because the window starts at the last run that completed; a step that fails or is interrupted
-// does not advance it, and the next night repeats the window (marking is idempotent). With no
+// because the window starts at the last run that completed. A step that fails or is interrupted
+// does not advance that, but each feed keeps its own high-water mark (sys.auto_read_feed_marks, see
+// store.RunAutoRead): feeds that already finished their window are not repeated, so a manual
+// mark-unread in one of them still sticks, and the feeds that did not finish are. With no
 // recorded run (first night after the upgrade) the window is empty and only the instant is
 // recorded, so enabling the feature never marks history behind the reader's back: the explicit
 // "catch up" (POST /api/library/auto-read/run) does that, after a preview.
@@ -370,7 +372,7 @@ func (m *Maint) autoRead(ctx context.Context, now time.Time) {
 		since = last
 	}
 	res, err := db.RunAutoRead(ctx, store.AutoReadOptions{
-		Now: now, Since: since, Pause: m.o.Pause, OnBatch: func(r store.StateResult) {
+		Now: now, Since: since, Pause: m.o.Pause, PerFeedMarks: true, OnBatch: func(r store.StateResult) {
 			if fn := m.onAutoRead(); fn != nil {
 				fn(r)
 			}

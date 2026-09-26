@@ -61,13 +61,16 @@ type autoReadReq struct {
 	feedID  int64
 	days    *int
 	confirm bool
+	// expectTotal is the total the client's preview showed (run only). A run whose recount is
+	// well above it marks nothing (409 total_changed).
+	expectTotal *int
 }
 
 func (s *Server) readAutoReadReq(w http.ResponseWriter, r *http.Request, allowConfirm bool) (autoReadReq, bool) {
 	var req autoReadReq
 	keys := []string{"feed_id", "days"}
 	if allowConfirm {
-		keys = append(keys, "confirm")
+		keys = append(keys, "confirm", "expect_total")
 	}
 	var m map[string]json.RawMessage
 	if !decodeBody(w, r, &m, true) {
@@ -104,6 +107,14 @@ func (s *Server) readAutoReadReq(w http.ResponseWriter, r *http.Request, allowCo
 			return bad("confirm must be true or false")
 		}
 		req.confirm = b
+	}
+	if raw, ok := m["expect_total"]; ok && !isNull(raw) {
+		n, ok := rawInt(raw)
+		if !ok || n < 0 || n > 1<<31 {
+			return bad("expect_total must be null or a count of 0 or more")
+		}
+		v := int(n)
+		req.expectTotal = &v
 	}
 	return req, true
 }
@@ -162,7 +173,8 @@ var errAutoReadBusy = errors.New("api: an auto-read run is already running")
 // runAutoReadRoute starts the catch-up: it marks read every unread, unstarred, unmuted article
 // older than the feed's threshold, no matter when it crossed it. Over 100 articles it needs
 // `confirm:true` (409 confirm_required with the count), so switching the feature on never marks a
-// backlog silently. One run at a time (409 busy); progress goes out as run.* events.
+// backlog silently. An optional `expect_total` (the count the user saw in the preview) guards the
+// run: when the recount is above it by more than max(100, 10%), 409 total_changed and nothing is marked. One run at a time (409 busy); progress goes out as run.* events.
 func (s *Server) runAutoReadRoute(w http.ResponseWriter, r *http.Request) {
 	req, ok := s.readAutoReadReq(w, r, true)
 	if !ok {
@@ -174,6 +186,12 @@ func (s *Server) runAutoReadRoute(w http.ResponseWriter, r *http.Request) {
 	pv, err := s.autoReadPreview(r.Context(), req)
 	if err != nil {
 		s.serverError(w, "auto-read run", err)
+		return
+	}
+	if e := req.expectTotal; e != nil && pv.Total > *e+max(autoReadConfirmAbove, *e/10) {
+		// The library moved on since the preview the user confirmed: not the run they agreed to.
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "total_changed", "total": pv.Total, "expect_total": *e,
+			"message": "more articles qualify now than the preview showed; review it again"})
 		return
 	}
 	if pv.Total > autoReadConfirmAbove && !req.confirm {

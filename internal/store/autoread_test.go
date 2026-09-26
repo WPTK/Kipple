@@ -308,3 +308,92 @@ func TestAutoReadSettingsReadFailureIsAnError(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 7, days)
 }
+
+// A run that stops at feed 2 leaves feed 1 with its own finished window: a reader's mark-unread in
+// feed 1 is not undone by the rerun, which still does feed 2.
+func TestAutoReadPerFeedMarksMakeAFailedRunIdempotent(t *testing.T) {
+	e := newAREnv(t)
+	f2 := e.addFeed("https://b/f")
+	e.setDays(e.feed, 10)
+	e.setDays(f2, 10)
+	since := arNow.Add(-24 * h)
+	ten := 10 * 24 * h
+	x := e.item(e.feed, ten+12*h) // crossed 10 days 12 h ago, inside (since, now]
+	y := e.item(f2, ten+6*h)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	o := AutoReadOptions{Now: arNow, Since: since, PerFeedMarks: true}
+	o.OnBatch = func(StateResult) { cancel() } // the run is cut right after feed 1's batch
+	res, err := e.db.RunAutoRead(ctx, o)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 1, res.Items)
+	require.True(t, e.read(x))
+	require.False(t, e.read(y))
+
+	e.exec("UPDATE items SET read = 0, read_at = NULL WHERE id = ?", x) // the reader marks it unread
+	res, err = e.db.RunAutoRead(context.Background(), AutoReadOptions{Now: arNow.Add(time.Hour), Since: since, PerFeedMarks: true})
+	require.NoError(t, err)
+	require.Equal(t, 1, res.Items, "only feed 2 is redone")
+	require.False(t, e.read(x), "feed 1's finished window is not repeated")
+	require.True(t, e.read(y))
+
+	// Completing the run clears the marks.
+	require.NoError(t, e.db.RecordAutoReadRun(context.Background(), arNow.Add(time.Hour)))
+	m, err := loadAutoReadMarks(context.Background(), e.db.Reader())
+	require.NoError(t, err)
+	require.Empty(t, m)
+}
+
+// Feeds that finished with nothing to mark are remembered too (stored when the run ends early).
+func TestAutoReadPerFeedMarksCoverFeedsWithNothingToMark(t *testing.T) {
+	e := newAREnv(t)
+	f2 := e.addFeed("https://b/f")
+	e.setDays(e.feed, 10)
+	e.setDays(f2, 10)
+	since := arNow.Add(-24 * h)
+	y := e.item(f2, 10*24*h+6*h)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	o := AutoReadOptions{Now: arNow, Since: since, PerFeedMarks: true}
+	cancel() // cut before anything completes
+	_, err := e.db.RunAutoRead(ctx, o)
+	require.ErrorIs(t, err, context.Canceled)
+	m, err := loadAutoReadMarks(context.Background(), e.db.Reader())
+	require.NoError(t, err)
+	require.Empty(t, m, "nothing completed before the cut")
+
+	// Feed 1 completes with nothing to mark; a write error in feed 2 stops the run.
+	e.exec(`CREATE TRIGGER boom BEFORE UPDATE ON items WHEN NEW.feed_id = ` + fmt.Sprint(f2) + ` BEGIN SELECT RAISE(ABORT, 'boom'); END`)
+	_, err = e.db.RunAutoRead(context.Background(), AutoReadOptions{Now: arNow, Since: since, PerFeedMarks: true})
+	require.Error(t, err)
+	m, err = loadAutoReadMarks(context.Background(), e.db.Reader())
+	require.NoError(t, err)
+	require.Equal(t, map[int64]int64{e.feed: arNow.Unix()}, m)
+	require.False(t, e.read(y))
+}
+
+// A night with nothing to mark takes the commit gate never; a night with candidates does.
+func TestAutoReadNothingToMarkTakesNoGate(t *testing.T) {
+	e := newAREnv(t)
+	for i := 0; i < 5; i++ {
+		e.setDays(e.addFeed(fmt.Sprint("https://n", i, "/f")), 10)
+	}
+	e.setDays(e.feed, 10)
+	e.item(e.feed, 3*24*h) // far too young
+	release, err := e.db.AcquireGate(context.Background())
+	require.NoError(t, err)
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	o := AutoReadOptions{Now: arNow, Since: arNow.Add(-24 * h), PerFeedMarks: true}
+	res, err := e.db.RunAutoRead(ctx, o)
+	require.NoError(t, err, "no candidate, so no gate wait")
+	require.Zero(t, res.Batches)
+
+	old := e.item(e.feed, 10*24*h+6*h)
+	short, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel2()
+	_, err = e.db.RunAutoRead(short, o)
+	require.ErrorIs(t, err, context.DeadlineExceeded, "a candidate needs the gate, which is held")
+	require.False(t, e.read(old))
+}

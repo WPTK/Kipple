@@ -2,6 +2,7 @@ package maint
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -136,4 +137,47 @@ func TestNightlyAutoReadSettingsFailureDoesNotRecordTheRun(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, lastRun.Unix(), last.Unix(), "the failed step did not advance the recorded run")
 	require.False(t, e.isRead(crossed), "and its window is still to be processed")
+}
+
+// A night that fails at the second feed leaves the first feed's finished window alone: a manual
+// mark-unread there sticks when the next night redoes the run, and the failed feed is redone.
+func TestNightlyAutoReadFailedFeedDoesNotRepeatFinishedFeeds(t *testing.T) {
+	e := newEnv(t, time.Date(2026, 9, 20, 12, 0, 0, 0, newYork))
+	require.NoError(t, e.db.SetSettings(context.Background(), map[string]any{store.SettingAutoReadDays: 7}))
+	lastRun := time.Date(2026, 9, 20, 4, 10, 0, 0, newYork)
+	require.NoError(t, e.db.RecordAutoReadRun(context.Background(), lastRun))
+	feed1 := e.feed
+	e.exec(`INSERT INTO feeds (url, url_key, host) VALUES ('https://b/f','b/f','b')`)
+	feed2 := int64(e.count("SELECT id FROM feeds WHERE url = 'https://b/f'"))
+	night1 := time.Date(2026, 9, 21, 4, 11, 0, 0, newYork)
+	week := 7 * 24 * time.Hour
+	x := e.crawled(night1.Add(-week - 10*time.Hour)) // feed 1: crosses between the runs
+	e.exec("UPDATE items SET feed_id = ? WHERE id = ?", feed1, x)
+	y := e.crawled(night1.Add(-week - 5*time.Hour))
+	e.exec("UPDATE items SET feed_id = ? WHERE id = ?", feed2, y)
+	require.NoError(t, e.db.RecordNightlyDate(context.Background(), "2026-09-20", lastRun.Unix()))
+	e.exec(`CREATE TRIGGER boom BEFORE UPDATE ON items WHEN NEW.feed_id = ` + strconv.FormatInt(feed2, 10) +
+		` BEGIN SELECT RAISE(ABORT, 'boom'); END`)
+	e.clk.Advance(night1.Sub(e.clk.Now()))
+	e.start(Options{CatchUpDelay: -1})
+	e.clk.Advance(time.Minute)
+
+	j := e.waitJob("auto_read")
+	require.Error(t, j.Err, "the write for feed 2 fails")
+	require.True(t, e.isRead(x), "feed 1 finished and committed")
+	require.False(t, e.isRead(y))
+	last, _, err := store.AutoReadLastRun(context.Background(), e.db.Reader())
+	require.NoError(t, err)
+	require.Equal(t, lastRun.Unix(), last.Unix(), "a failed run does not advance the last run")
+
+	e.exec("UPDATE items SET read = 0, read_at = NULL WHERE id = ?", x) // the reader marks x unread
+	e.exec("DROP TRIGGER boom")
+	e.clk.Advance(24 * time.Hour)
+	j = e.waitJob("auto_read")
+	require.NoError(t, j.Err)
+	require.True(t, e.isRead(y), "the unfinished feed is redone")
+	require.False(t, e.isRead(x), "a manual mark-unread in a finished feed sticks")
+	last, _, err = store.AutoReadLastRun(context.Background(), e.db.Reader())
+	require.NoError(t, err)
+	require.True(t, last.After(lastRun), "the completed run advances the last run")
 }

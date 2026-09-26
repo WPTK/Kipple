@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -209,4 +210,47 @@ func TestAutoReadRunIsOneAtATime(t *testing.T) {
 	code, _, _ = h.api(c, "POST", "/api/library/auto-read/run", `{}`)
 	require.Equal(t, 202, code)
 	h.waitAutoReadIdle()
+}
+
+// expect_total guards a run against a library that moved on since the preview.
+func TestAutoReadRunExpectTotal(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	feed := h.addFeed("A", 0)
+	h.exec("UPDATE feeds SET auto_read_days = 1 WHERE id = ?", feed)
+	for i := 0; i < 130; i++ {
+		h.arItem(feed, 5*arDay)
+	}
+	body := func(expect any) string {
+		b, _ := json.Marshal(map[string]any{"confirm": true, "expect_total": expect})
+		return string(b)
+	}
+	// 130 recounted against 0 expected: over by more than max(100, 10%): nothing is marked.
+	code, out, _ := h.api(c, "POST", "/api/library/auto-read/run", body(0))
+	require.Equal(t, 409, code, out)
+	require.Equal(t, "total_changed", out["error"])
+	require.EqualValues(t, 130, out["total"])
+	require.EqualValues(t, 0, out["expect_total"])
+	require.NotEmpty(t, out["message"])
+	require.Zero(t, h.count("SELECT count(*) FROM items WHERE read = 1"))
+	// 130 against 30: exactly 100 over is allowed; against 29 it is 101 over.
+	code, out, _ = h.api(c, "POST", "/api/library/auto-read/run", body(29))
+	require.Equal(t, 409, code, out)
+	require.Equal(t, "total_changed", out["error"])
+	// Bad values.
+	for _, bad := range []string{`{"expect_total":-1}`, `{"expect_total":"x"}`} {
+		code, _, _ = h.api(c, "POST", "/api/library/auto-read/run", bad)
+		require.Equal(t, 400, code, bad)
+	}
+	code, _, _ = h.api(c, "POST", "/api/library/auto-read/preview", `{"expect_total":1}`)
+	require.Equal(t, 400, code, "preview has no expect_total")
+	// The confirm rule stays: 130 is over 100, so an unconfirmed run still needs it.
+	code, out, _ = h.api(c, "POST", "/api/library/auto-read/run", `{"expect_total":130}`)
+	require.Equal(t, 409, code)
+	require.Equal(t, "confirm_required", out["error"])
+	// Within the tolerance (and confirmed) it runs; null expects nothing.
+	code, out, _ = h.api(c, "POST", "/api/library/auto-read/run", body(30))
+	require.Equal(t, 202, code, out)
+	h.waitAutoReadIdle()
+	require.Equal(t, 130, h.count("SELECT count(*) FROM items WHERE read = 1"))
 }
