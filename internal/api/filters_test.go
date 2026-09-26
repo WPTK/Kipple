@@ -461,7 +461,8 @@ func TestFilterDeleteUnmute(t *testing.T) {
 		{"", 700, 0, 0, nil},
 		{"?unmute=read", 700, 0, 0, nil},
 		{"?unmute=unread", 700, 700, 0, false},
-		{"?unmute=1", 700, 700, 0, false},
+		{"?unmute=1", 700, 0, 0, nil},    // the alias means the safe mode: unread must be spelled out
+		{"?unmute=true", 700, 0, 0, nil}, //
 		{"?unmute=keep", 0, 0, 700, nil},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
@@ -487,13 +488,23 @@ func TestFilterDeleteUnmute(t *testing.T) {
 
 			evs := drain(sub, "", 400*time.Millisecond)
 			states := ofType(evs, "items.state")
-			total := 0
+			total, unreadEvents := 0, 0
 			for _, s := range states {
-				total += len(s["ids"].([]any))
-				require.Equal(t, false, s["muted"])
-				require.Equal(t, tc.read, s["read"])
+				if s["muted"] != nil { // the un-mute batch; a separate event marks the items that went back to unread
+					total += len(s["ids"].([]any))
+					require.Equal(t, false, s["muted"])
+					require.Nil(t, s["read"])
+				} else {
+					unreadEvents += len(s["ids"].([]any))
+					require.Equal(t, tc.read, s["read"])
+				}
 			}
 			require.Equal(t, tc.wantChanged, total)
+			if tc.read == false {
+				require.Equal(t, tc.wantUnread, unreadEvents)
+			} else {
+				require.Zero(t, unreadEvents)
+			}
 			require.NotEmpty(t, ofType(evs, "filters.changed"))
 			if tc.wantChanged > 0 {
 				require.NotEmpty(t, ofType(evs, "counts"))

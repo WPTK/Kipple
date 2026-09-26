@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +29,10 @@ const (
 	// unsavedFilterID is the id an unsaved preview rule gets in its set: above every real id.
 	unsavedFilterID = int64(1) << 40
 )
+
+// ErrFilterChanged is returned by ApplyFilter when the rule it is applying was deleted, disabled or
+// edited after the run started: the batch that noticed it writes nothing and the run stops.
+var ErrFilterChanged = errors.New("store: filter changed or removed during apply")
 
 var errRetroBudget = errors.New("store: filter scan budget exhausted")
 
@@ -320,6 +325,7 @@ func (d *DB) ApplyFilter(ctx context.Context, id int64, includeRead bool, total 
 	if !ok {
 		return ApplyResult{}, ErrFilterNotFound
 	}
+	applied := f
 	r := f.Rule()
 	set, r, err := d.retroSet(ctx, r)
 	if err != nil {
@@ -335,7 +341,7 @@ func (d *DB) ApplyFilter(ctx context.Context, id int64, includeRead bool, total 
 		}
 		for len(ids) > 0 {
 			n := min(len(ids), retroBatch)
-			res, err := d.applyBatch(ctx, r, ids[:n])
+			res, err := d.applyBatch(ctx, applied, r, ids[:n])
 			if err != nil {
 				return err
 			}
@@ -355,19 +361,45 @@ func (d *DB) ApplyFilter(ctx context.Context, id int64, includeRead bool, total 
 	return out, err
 }
 
+// sameRule reports whether two stored filters are the same rule for matching and acting
+// (name, position, hits and timestamps do not matter).
+func sameRule(a, b Filter) bool {
+	return a.Enabled == b.Enabled && a.Scope == b.Scope && a.Kind == b.Kind && a.Action == b.Action &&
+		a.CaseSensitive == b.CaseSensitive && a.WholeWord == b.WholeWord && a.FoldDiacritics == b.FoldDiacritics &&
+		a.Invert == b.Invert && slices.Equal(a.Terms, b.Terms) && slices.Equal(a.Fields, b.Fields) &&
+		slices.Equal(deref(a.FolderID), deref(b.FolderID)) && slices.Equal(deref(a.FeedID), deref(b.FeedID))
+}
+
+func deref(p *int64) []int64 {
+	if p == nil {
+		return nil
+	}
+	return []int64{*p}
+}
+
 // applyBatch writes one batch. Every UPDATE re-checks the state it expects, so a change made
-// between the scan and the write is respected.
-func (d *DB) applyBatch(ctx context.Context, r filter.Rule, ids []int64) (StateResult, error) {
+// between the scan and the write is respected, and the batch first checks, inside its own write
+// transaction, that the rule is still stored, enabled and unchanged (ErrFilterChanged otherwise):
+// a delete, disable or edit takes the writer like any batch, so nothing is written on behalf of a
+// rule after it went away.
+func (d *DB) applyBatch(ctx context.Context, applied Filter, r filter.Rule, ids []int64) (StateResult, error) {
 	var res StateResult
 	now := d.clock.Now().Unix()
 	_, err := d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
+		cur, err := scanFilter(tx.QueryRowContext(ctx, "SELECT "+filterCols+" FROM filters WHERE id = ?", applied.ID))
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && (!cur.Enabled || !sameRule(applied, cur))) {
+			return 0, ErrFilterChanged
+		}
+		if err != nil {
+			return 0, err
+		}
 		js, err := idsJSON(ids)
 		if err != nil {
 			return 0, err
 		}
 		switch r.Action {
 		case filter.ActionMute:
-			rows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = ?1, read_at = CASE WHEN read = 0 THEN ?2 ELSE read_at END, read = 1
+			rows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = ?1, muted_was_read = read, read_at = CASE WHEN read = 0 THEN ?2 ELSE read_at END, read = 1
 				WHERE id IN (SELECT value FROM json_each(?3)) AND starred = 0 AND muted_by IS NULL RETURNING id, feed_id`, r.ID, now, js)
 			if err != nil {
 				return 0, err

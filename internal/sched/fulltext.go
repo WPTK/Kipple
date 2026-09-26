@@ -280,7 +280,7 @@ func (s *Scheduler) pickFulltext(ctx context.Context, res *fetch.Result) []fetch
 	}
 	// Items a mute rule will mute are never extracted: drop them here so they do not take the
 	// per-fetch cap from real items (the commit's MutedIDs are what the queue finally skips).
-	if muted, err := s.db.MutedUIDs(ctx, res.Snap.ID, cand); err != nil {
+	if muted, err := s.db.MutedUIDs(ctx, res.Snap.ID, res.Feed.Title, cand); err != nil {
 		s.log.Warn("sched: fulltext muted check", "feed", res.Snap.ID, "err", err)
 	} else if len(muted) > 0 {
 		kept := cand[:0]

@@ -130,11 +130,12 @@ type filterSet struct {
 }
 
 // filterCache holds the compiled set for the generation it was built at. Every
-// filter write bumps DB.filterGen after its transaction commits; the ingest path
-// recompiles only when the generation moved. Only this process writes filters
-// (design 1.5), so a counter is enough. The set is only ever loaded inside a write
-// transaction (the ingest path), and write transactions are serialized, so a bump made
-// inside a transaction is seen by every later load, committed or not.
+// filter write bumps DB.filterGen inside its own transaction, before it commits; the ingest
+// path recompiles only when the generation moved. Only this process writes filters (design
+// 1.5), so a counter is enough. The set is only ever loaded inside a write transaction (the
+// ingest path), and write transactions are serialized, so a load either ran before the filter
+// write's transaction began (old rows, old generation) or after it committed (new generation):
+// a fetch commit that takes the writer right after a filter write can never use the stale set.
 type filterCache struct {
 	mu  sync.Mutex
 	gen uint64
@@ -142,9 +143,16 @@ type filterCache struct {
 	ok  bool
 }
 
-// bumpFilters invalidates the compiled set. Call it after a transaction that
-// changed filters (or cascaded them away) has committed.
+// bumpFilters invalidates the compiled set. Call it inside the write transaction that changes
+// filters (or cascades them away), before the transaction returns, as Unsubscribe does.
 func (d *DB) bumpFilters() { d.filterGen.Add(1) }
+
+// filterTxDone runs the test hook, if any, at the end of a filter write's transaction.
+func (d *DB) filterTxDone() {
+	if h := d.testFilterTxHook; h != nil {
+		h()
+	}
+}
 
 // filters returns the current compiled set, nil when it could not be loaded
 // (ingest then runs without filters: a rule problem must never block a fetch).
@@ -272,11 +280,13 @@ func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
 			return err
 		}
 		out, err = scanFilter(tx.QueryRowContext(ctx, "SELECT "+filterCols+" FROM filters WHERE id = ?", id))
-		return err
-	})
-	if err == nil {
+		if err != nil {
+			return err
+		}
 		d.bumpFilters()
-	}
+		d.filterTxDone()
+		return nil
+	})
 	return out, err
 }
 
@@ -325,11 +335,13 @@ func (d *DB) UpdateFilter(ctx context.Context, id int64, mutate func(*Filter) er
 			return err
 		}
 		out, err = scanFilter(tx.QueryRowContext(ctx, "SELECT "+filterCols+" FROM filters WHERE id = ?", id))
-		return err
-	})
-	if err == nil && ok {
+		if err != nil {
+			return err
+		}
 		d.bumpFilters()
-	}
+		d.filterTxDone()
+		return nil
+	})
 	return out, ok, err
 }
 
@@ -343,10 +355,17 @@ const (
 // unmuteBatch is how many items one restore transaction touches.
 const unmuteBatch = 500
 
-// DeleteFilter removes the rule and then, per unmute, restores the items it
-// muted in batches of unmuteBatch behind the commit gate. onBatch (optional)
-// receives each batch so the caller can publish it. changed counts restored
-// items; ok is false when no such filter exists.
+// DeleteFilter deletes filter id and, per unmute, restores the items it muted.
+//
+// The order makes it resumable: the rule is first disabled (so ingest and a running apply stop
+// muting with it; one transaction, generation bumped), the items are then restored in batches
+// of unmuteBatch behind the commit gate, and the rule row is deleted last. A cancelled or
+// crashed run therefore leaves a disabled rule and some still-muted items, and running the same
+// delete again finishes the job. For an id whose row is already gone, unmute=read|unread still
+// restores any orphans that carry that muted_by (a retry after a run that was cut off after the
+// row went, or an orphan left by ?unmute=keep), and ok reports whether there was a row or an
+// orphan. unmute=keep just deletes the row. onBatch (optional) receives each restored batch so the
+// caller can publish it. changed counts restored items.
 func (d *DB) DeleteFilter(ctx context.Context, id int64, unmute string, onBatch func(StateResult)) (changed int64, ok bool, err error) {
 	if unmute == "" {
 		unmute = UnmuteRead
@@ -354,33 +373,54 @@ func (d *DB) DeleteFilter(ctx context.Context, id int64, unmute string, onBatch 
 	if unmute != UnmuteKeep && unmute != UnmuteRead && unmute != UnmuteUnread {
 		return 0, false, fmt.Errorf("store: unmute mode %q", unmute)
 	}
+	if unmute == UnmuteKeep {
+		err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			res, err := tx.ExecContext(ctx, "DELETE FROM filters WHERE id = ?", id)
+			if err != nil {
+				return err
+			}
+			n, err := res.RowsAffected()
+			ok = n > 0
+			if err == nil && ok {
+				d.bumpFilters()
+				d.filterTxDone()
+			}
+			return err
+		})
+		return 0, ok, err
+	}
+
+	// 1. Stop the rule from muting anything further.
+	hadRow := false
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, "DELETE FROM filters WHERE id = ?", id)
+		res, err := tx.ExecContext(ctx, "UPDATE filters SET enabled = 0 WHERE id = ?", id)
 		if err != nil {
 			return err
 		}
 		n, err := res.RowsAffected()
-		ok = n > 0
+		hadRow = n > 0
+		if err == nil && hadRow {
+			d.bumpFilters()
+			d.filterTxDone()
+		}
 		return err
 	})
-	if err != nil || !ok {
-		return 0, ok, err
+	if err != nil {
+		return 0, false, err
 	}
-	d.bumpFilters()
-	if unmute == UnmuteKeep {
-		return 0, true, nil
-	}
-	after := int64(0)
+
+	// 2. Restore its items, batch by batch. Each batch takes the lowest ids still muted by it, so a
+	// re-run picks up exactly where a cut-off one stopped.
+	orphans := false
 	for {
 		var res StateResult
-		var last int64
 		var n int
 		_, err := d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
-			rows, err := tx.QueryContext(ctx, "SELECT id FROM items WHERE muted_by = ?1 AND id > ?2 ORDER BY id LIMIT ?3", id, after, unmuteBatch)
+			var ids []int64
+			rows, err := tx.QueryContext(ctx, "SELECT id FROM items WHERE muted_by = ?1 ORDER BY id LIMIT ?2", id, unmuteBatch)
 			if err != nil {
 				return 0, err
 			}
-			var ids []int64
 			for rows.Next() {
 				var x int64
 				if err := rows.Scan(&x); err != nil {
@@ -396,31 +436,79 @@ func (d *DB) DeleteFilter(ctx context.Context, id int64, unmute string, onBatch 
 			if n == 0 {
 				return 0, nil
 			}
-			last = ids[n-1]
 			js, _ := idsJSON(ids)
-			q := "UPDATE items SET muted_by = NULL WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by = ?2 RETURNING id, feed_id"
 			if unmute == UnmuteUnread {
-				q = "UPDATE items SET muted_by = NULL, read = 0, read_at = NULL WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by = ?2 RETURNING id, feed_id"
+				// Only what was unread before the mute goes back to unread; an item the user had already read
+				// (or one muted from the initial-read window) keeps its read state and read_at.
+				urows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = NULL, muted_was_read = NULL,
+					read = CASE WHEN COALESCE(muted_was_read, 1) = 1 THEN read ELSE 0 END,
+					read_at = CASE WHEN COALESCE(muted_was_read, 1) = 1 THEN read_at ELSE NULL END
+					WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by = ?2 RETURNING id, feed_id, read`, js, id)
+				if err != nil {
+					return 0, err
+				}
+				if res, err = scanUnmuted(urows); err != nil {
+					return 0, err
+				}
+			} else {
+				urows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = NULL, muted_was_read = NULL
+					WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by = ?2 RETURNING id, feed_id`, js, id)
+				if err != nil {
+					return 0, err
+				}
+				if res.Changed, err = scanIDs(urows); err != nil {
+					return 0, err
+				}
 			}
-			urows, err := tx.QueryContext(ctx, q, js, id)
-			if err != nil {
-				return 0, err
-			}
-			res.Changed, err = scanIDs(urows)
-			return int64(len(res.Changed)), err
+			return int64(len(res.Changed)), nil
 		})
 		if err != nil {
-			return changed, true, err
+			return changed, hadRow || orphans, err
 		}
 		if n == 0 {
-			return changed, true, nil
+			break
 		}
+		orphans = true
 		changed += int64(len(res.Changed))
-		after = last
 		if onBatch != nil && len(res.Changed) > 0 {
 			onBatch(res)
 		}
 	}
+
+	// 3. Delete the row last.
+	if hadRow {
+		err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM filters WHERE id = ?", id); err != nil {
+				return err
+			}
+			d.bumpFilters()
+			d.filterTxDone()
+			return nil
+		})
+		if err != nil {
+			return changed, true, err
+		}
+	}
+	return changed, hadRow || orphans, nil
+}
+
+// scanUnmuted reads RETURNING id, feed_id, read of an un-mute UPDATE: every id is Changed, and
+// those now unread are MadeUnread.
+func scanUnmuted(rows *sql.Rows) (StateResult, error) {
+	defer rows.Close()
+	var res StateResult
+	for rows.Next() {
+		var id, feed int64
+		var read int
+		if err := rows.Scan(&id, &feed, &read); err != nil {
+			return res, err
+		}
+		res.Changed = append(res.Changed, id)
+		if read == 0 {
+			res.MadeUnread = append(res.MadeUnread, id)
+		}
+	}
+	return res, rows.Err()
 }
 
 // MutedCount is the number of muted items (the partial index answers it).
@@ -480,9 +568,19 @@ func (d *DB) newIngestEval(ctx context.Context, tx *sql.Tx, feedID int64, docTit
 		return nil, nil
 	}
 	e := &ingestEval{fs: fs, feedID: feedID}
-	var custom, title sql.NullString
-	if err := tx.QueryRowContext(ctx, "SELECT folder_id, custom_title, title FROM feeds WHERE id = ?", feedID).Scan(&e.folderID, &custom, &title); err != nil {
+	if err := e.loadFeed(ctx, tx, docTitle); err != nil {
 		return nil, err
+	}
+	return e, nil
+}
+
+// loadFeed fills the folder and the title a rule's `feed` field sees: the custom title, else the
+// stored title, else the fetched document's title (a brand-new subscription has none stored yet).
+// The commit and the full-text prediction (MutedUIDs) both use it, so they cannot disagree.
+func (e *ingestEval) loadFeed(ctx context.Context, q Querier, docTitle string) error {
+	var custom, title sql.NullString
+	if err := q.QueryRowContext(ctx, "SELECT folder_id, custom_title, title FROM feeds WHERE id = ?", e.feedID).Scan(&e.folderID, &custom, &title); err != nil {
+		return err
 	}
 	e.feedTitle = strings.TrimSpace(custom.String)
 	if e.feedTitle == "" {
@@ -491,7 +589,7 @@ func (d *DB) newIngestEval(ctx context.Context, tx *sql.Tx, feedID int64, docTit
 	if e.feedTitle == "" {
 		e.feedTitle = docTitle
 	}
-	return e, nil
+	return nil
 }
 
 // ingestVerdict is what the rules decided for one fresh item.
@@ -561,7 +659,7 @@ func categoriesJSON(c []string) any {
 // estimate: the commit re-evaluates, and its MutedIDs are what the queue finally skips. The set is
 // compiled from the reader pool here, never stored in the ingest cache (a reader can see rows
 // from before a filter write that already bumped the generation).
-func (d *DB) MutedUIDs(ctx context.Context, feedID int64, items []fetch.Item) (map[string]bool, error) {
+func (d *DB) MutedUIDs(ctx context.Context, feedID int64, docTitle string, items []fetch.Item) (map[string]bool, error) {
 	var n int
 	if err := d.reader.QueryRowContext(ctx, "SELECT count(*) FROM filters WHERE enabled = 1 AND action = 'mute'").Scan(&n); err != nil || n == 0 {
 		return nil, err
@@ -579,13 +677,8 @@ func (d *DB) MutedUIDs(ctx context.Context, feedID int64, items []fetch.Item) (m
 		return nil, nil
 	}
 	e := &ingestEval{fs: cs, feedID: feedID}
-	var custom, title sql.NullString
-	if err := d.reader.QueryRowContext(ctx, "SELECT folder_id, custom_title, title FROM feeds WHERE id = ?", feedID).Scan(&e.folderID, &custom, &title); err != nil {
+	if err := e.loadFeed(ctx, d.reader, docTitle); err != nil {
 		return nil, err
-	}
-	e.feedTitle = strings.TrimSpace(custom.String)
-	if e.feedTitle == "" {
-		e.feedTitle = strings.TrimSpace(title.String)
 	}
 	out := map[string]bool{}
 	for _, it := range items {

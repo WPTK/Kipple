@@ -17,7 +17,10 @@
 //   - regex rules are Go RE2 patterns (linear time, no backreferences), compiled with (?i) unless
 //     CaseSensitive, and searched on the raw (capped) text of each field.
 //   - Invert makes a rule fire when the item does NOT match, on any of its fields. An inverted
-//     rule therefore also fires on an item whose scanned fields are all empty.
+//     rule therefore also fires on an item whose scanned fields are all empty. The exception is the
+//     category field: items fetched before categories were stored (and feeds that carry none) have
+//     no categories, which means unknown, not "does not match", so an inverted rule that scans
+//     category never fires on an item without categories (a plain rule cannot fire on it either).
 //
 // Limits (all enforced by Validate and NewSet, all constants below): at most 200 rules, 25 enabled
 // regex rules and 2000 enabled text terms in a set; 1 to 50 terms per rule; a text term is 1 to 100

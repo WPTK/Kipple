@@ -249,7 +249,13 @@ func (c *Compiled) fires(sc *scratch) bool {
 	} else {
 		m = c.regexFires(sc)
 	}
-	return m != c.rule.Invert
+	if c.rule.Invert {
+		if c.hasCategory && len(sc.item.Categories) == 0 {
+			return false // no stored categories: unknown, not "absent" (package comment)
+		}
+		return !m
+	}
+	return m
 }
 
 // Fires reports whether the rule fires on the item, ignoring its scope and Enabled flag

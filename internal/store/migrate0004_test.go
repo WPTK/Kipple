@@ -97,7 +97,7 @@ func downgradeTo3(t *testing.T, e *env) {
 	t.Helper()
 	for _, s := range []string{
 		`DROP TABLE filters`, `DROP TABLE devices`, `DROP INDEX idx_items_muted`,
-		`ALTER TABLE items DROP COLUMN muted_by`,
+		`ALTER TABLE items DROP COLUMN muted_was_read`, `ALTER TABLE items DROP COLUMN muted_by`,
 		`ALTER TABLE item_content DROP COLUMN categories_json`,
 		`ALTER TABLE trimmed_content DROP COLUMN categories_json`,
 		`ALTER TABLE feeds DROP COLUMN auto_read_days`,

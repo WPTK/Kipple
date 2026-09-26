@@ -22,6 +22,9 @@ type StateResult struct {
 	// items, so they are not in Changed; a client keeps them for undo
 	// (UnreadLedger), since the Reader API still reports the ledger.
 	LedgerRead []int64
+	// MadeUnread are the ids among Changed that an un-mute (DeleteFilter, unmute=unread) turned
+	// back to unread; the rest keep the read state they had before the mute.
+	MadeUnread []int64
 }
 
 func idsJSON(ids []int64) (string, error) {
@@ -70,7 +73,7 @@ func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64)
 		return res, err
 	}
 	// Marking unread is also the un-mute: muted_by is cleared in the same UPDATE (design 5.2a).
-	rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 0, read_at = NULL, muted_by = NULL
+	rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 0, read_at = NULL, muted_by = NULL, muted_was_read = NULL
 		WHERE id IN (SELECT value FROM json_each(?1)) AND (read = 1 OR muted_by IS NOT NULL) RETURNING id, feed_id`, js)
 	if err != nil {
 		return res, err
@@ -111,7 +114,7 @@ func SetStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, now 
 		return res, err
 	}
 	// A manual star also un-mutes (star beats mute); the item stays read.
-	rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 1, starred_at = ?1, muted_by = NULL
+	rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 1, starred_at = ?1, muted_by = NULL, muted_was_read = NULL
 		WHERE id IN (SELECT value FROM json_each(?2)) AND (starred = 0 OR muted_by IS NOT NULL) RETURNING id, feed_id`, now, js)
 	if err != nil {
 		return res, err

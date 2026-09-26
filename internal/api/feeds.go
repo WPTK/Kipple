@@ -15,14 +15,28 @@ import (
 
 // status is GET /api/status: the SSE fallback.
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
-	runs, inflight := s.opt.Sched.Status()
+	schedRuns, inflight := s.opt.Sched.Status()
 	unread, err := s.db.UnreadTotal(r.Context())
 	if err != nil {
 		s.log.Error("api: unread total", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "inflight": inflight, "unread_total": unread})
+	muted, err := s.db.MutedCount(r.Context())
+	if err != nil {
+		s.log.Error("api: muted count", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	// Like bootstrap `runs`: the scheduler's runs plus the active filter apply run.
+	runs := make([]any, 0, len(schedRuns)+1)
+	for _, run := range schedRuns {
+		runs = append(runs, run)
+	}
+	if ar := s.applyStatus(); ar != nil {
+		runs = append(runs, ar)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "inflight": inflight, "unread_total": unread, "muted": muted})
 }
 
 // healthFeed is store.FeedHealth plus derived fields.

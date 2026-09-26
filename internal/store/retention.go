@@ -6,10 +6,10 @@ import (
 	"fmt"
 )
 
-// trimFeed applies design §5 to one feed inside a write transaction: rank the
-// non-starred, non-held items with real (not muted) items first, then by sort_at DESC, id DESC, tombstone everything
-// past N into trimmed_items (plus restore stubs when restore_days > 0) and
-// delete them. N comes from the feed override or retention.default; N = 0 skips.
+// trimFeed applies design §5 to one feed inside a write transaction: keep the newest
+// (sort_at DESC, id DESC) real items and the newest muted ones under the muted allowance
+// (see mutedAllowance), tombstone everything else into trimmed_items (plus restore stubs when
+// restore_days > 0) and delete it. N comes from the feed override or retention.default; N = 0 skips.
 // firstNewID is the first id allocated by the surrounding fetch (MaxInt64 when
 // none): unread items trimmed at or past it are not counted in
 // trimmed_unread_count. It returns the number of items removed.
@@ -27,6 +27,13 @@ func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (i
 		return 0, nil
 	}
 
+	var real, muted int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FILTER (WHERE muted_by IS NULL), count(*) FILTER (WHERE muted_by IS NOT NULL)
+		FROM items WHERE feed_id = ?1 AND starred = 0 AND (retain_until IS NULL OR retain_until <= ?2)`, feedID, now).Scan(&real, &muted); err != nil {
+		return 0, fmt.Errorf("retention: count: %w", err)
+	}
+	keepMuted := mutedAllowance(n, real, muted)
+
 	stmts := []struct {
 		sql  string
 		args []any
@@ -34,10 +41,12 @@ func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (i
 		{`CREATE TEMP TABLE IF NOT EXISTS trim_set (id INTEGER PRIMARY KEY) STRICT`, nil},
 		{`DELETE FROM temp.trim_set`, nil},
 		{`INSERT INTO temp.trim_set(id)
-		    SELECT id FROM items
-		    WHERE feed_id = ?1 AND starred = 0 AND (retain_until IS NULL OR retain_until <= ?2)
-		    ORDER BY (muted_by IS NULL) DESC, sort_at DESC, id DESC
-		    LIMIT -1 OFFSET ?3`, []any{feedID, now, n}},
+		    SELECT id FROM (
+		      SELECT id, muted_by IS NOT NULL AS m,
+		             row_number() OVER (PARTITION BY muted_by IS NOT NULL ORDER BY sort_at DESC, id DESC) AS rn
+		      FROM items
+		      WHERE feed_id = ?1 AND starred = 0 AND (retain_until IS NULL OR retain_until <= ?2))
+		    WHERE rn > CASE WHEN m THEN ?3 ELSE ?4 END`, []any{feedID, now, keepMuted, n - keepMuted}},
 	}
 	for _, s := range stmts {
 		if _, err := tx.ExecContext(ctx, s.sql, s.args...); err != nil {
@@ -88,6 +97,15 @@ func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (i
 		return 0, fmt.Errorf("retention: delete: %w", err)
 	}
 	return res.RowsAffected()
+}
+
+// mutedAllowance is how many muted items a feed keeps under cap n, given its real and muted
+// counts (starred and held items excluded). Muted items count against n, but they are kept
+// separately from the real ones so noise cannot displace real items nor be trimmed the moment it
+// arrives: the newest n/5 muted items are always kept, and more while the real items leave room
+// (n - real). Real items get the rest, so a feed never keeps more than n of them together.
+func mutedAllowance(n, real, muted int) int {
+	return min(muted, max(n/5, n-real))
 }
 
 // TrimOnly runs the retention transaction for one feed and logs a trim_only

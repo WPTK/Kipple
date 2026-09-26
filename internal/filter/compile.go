@@ -3,6 +3,7 @@ package filter
 import (
 	"regexp"
 	"regexp/syntax"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,8 +14,10 @@ import (
 type Compiled struct {
 	rule   Rule
 	fields []Field
-	text   *textMatcher
-	res    []cre
+	// hasCategory: the rule scans the category field (an inverted one never fires on an item without categories).
+	hasCategory bool
+	text        *textMatcher
+	res         []cre
 }
 
 type textTerm struct {
@@ -112,6 +115,7 @@ func compileRule(r Rule) (*Compiled, *Error) {
 	c := &Compiled{rule: r, fields: fs}
 	c.rule.Terms = append([]string(nil), r.Terms...)
 	c.rule.Fields = fs
+	c.hasCategory = slices.Contains(fs, FieldCategory)
 	if r.Kind == KindRegex {
 		for i, p := range r.Terms {
 			re, e := compileRegex(fieldIdx("terms", i), p, r.CaseSensitive)

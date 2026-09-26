@@ -64,6 +64,8 @@ type DB struct {
 	// filterGen counts filter writes; fcache holds the rule set compiled at one generation.
 	filterGen atomic.Uint64
 	fcache    filterCache
+	// testFilterTxHook, when set by a test, runs at the end of every filter write's transaction.
+	testFilterTxHook func()
 
 	// ftPend is the set of items queued for ingest extraction (the Reader hold).
 	ftPend ftPending

@@ -372,8 +372,8 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		hits := map[int64]int{}
 		insItem, err := tx.PrepareContext(ctx, `INSERT INTO items
 			(id, feed_id, uid, url, title, author, image_url, word_count, content_hash, text_hash,
-			 published_at, updated_at, sort_at, read, read_at, starred, starred_at, muted_by)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			 published_at, updated_at, sort_at, read, read_at, starred, starred_at, muted_by, muted_was_read)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 		if err != nil {
 			return err
 		}
@@ -400,7 +400,8 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				read = 1
 				st.initRead++
 			}
-			var starred, mutedBy, starredAt any
+			var starred, mutedBy, mutedWasRead, starredAt any
+			baseRead := read
 			if fe != nil {
 				v := fe.eval(it, read == 1, hits)
 				if v.read {
@@ -413,7 +414,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 					starred = 0
 				}
 				if v.mutedBy != 0 {
-					mutedBy = v.mutedBy
+					mutedBy, mutedWasRead = v.mutedBy, baseRead
 					st.mutedIDs = append(st.mutedIDs, id)
 				}
 				if v.marked {
@@ -430,7 +431,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				updatedAt = it.Updated.Unix()
 			}
 			if _, err := insItem.ExecContext(ctx, id, feedID, it.UID, it.URL, it.Title, it.Author, nullStr(it.ImageURL),
-				it.WordCount, it.ContentHash, it.TextHash, pub, updatedAt, sortAt, read, readAt, starred, starredAt, mutedBy); err != nil {
+				it.WordCount, it.ContentHash, it.TextHash, pub, updatedAt, sortAt, read, readAt, starred, starredAt, mutedBy, mutedWasRead); err != nil {
 				return err
 			}
 			var enc any

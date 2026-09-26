@@ -1,7 +1,7 @@
 -- Kipple schema v4 (backend-additions-round2 sections 1.8, 1.13 and 4): the tables and columns
 -- for keyword filters, the muted marker, item categories, per-feed auto-read and per-device
--- profiles. Schema only: nothing reads or writes these yet except the trim and restore copies of
--- categories_json. Additive: no table is rebuilt, ADD COLUMN with a NULL default is O(1) with no
+-- profiles. Read and written by the filter engine, the ingest hook, the filters API and the trim
+-- and restore copies of categories_json. Additive: no table is rebuilt, ADD COLUMN with a NULL default is O(1) with no
 -- row rewrite, the new indexes start empty. Runs once, in BEGIN IMMEDIATE, gated by user_version
 -- (a failure rolls back the whole file), so the plain ALTERs need no IF NOT EXISTS guard.
 
@@ -42,6 +42,9 @@ CREATE INDEX idx_filters_feed   ON filters(feed_id)   WHERE feed_id IS NOT NULL;
 -- on purpose (?unmute=keep). Invariant muted_by IS NOT NULL => read = 1 is kept in Go, not by a
 -- CHECK (a missed path must never turn a Reader edit-tag into a 500).
 ALTER TABLE items ADD COLUMN muted_by INTEGER;
+-- Whether the item was already read when a filter muted it (1) or unread (0); NULL while not muted.
+-- Deleting the filter with ?unmute=unread restores only the items that were unread before the mute.
+ALTER TABLE items ADD COLUMN muted_was_read INTEGER CHECK (muted_was_read IS NULL OR muted_was_read IN (0,1));
 CREATE INDEX idx_items_muted ON items(sort_at, id) WHERE muted_by IS NOT NULL;
 
 -- Item categories (gofeed Categories, at most 20 of 100 runes), filled for new items only.

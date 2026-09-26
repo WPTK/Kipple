@@ -90,9 +90,12 @@ func splitPairsLimit(s string, repair bool) (out []pair, ok bool) {
 		e := pair{key: unescape(k), val: unescape(v), rawKey: k, rawVal: v}
 		if repair && labelKeys[e.key] {
 			if hasLabelPrefix(e.val) {
+				// A value with a valid %XX escape was form-encoded by its client, so an empty part after it is
+				// a stray '&' (or the end of the body), not the tail of the name; raw names keep "R&" and "A&&B".
+				encoded := hasEscape(v)
 				// Collect the whole run of tail parts, then join and decode once.
 				j := i + 1
-				for j < len(parts) && j-i <= maxGlueParts && isNameTail(parts[j]) {
+				for j < len(parts) && j-i <= maxGlueParts && isNameTail(parts[j]) && !(encoded && parts[j] == "") {
 					j++
 				}
 				if j > i+1 {
@@ -105,6 +108,16 @@ func splitPairsLimit(s string, repair bool) (out []pair, ok bool) {
 		out = append(out, e)
 	}
 	return out, true
+}
+
+// hasEscape reports whether s holds a valid %XX escape.
+func hasEscape(s string) bool {
+	for i := 0; i+2 < len(s); i++ {
+		if s[i] == '%' && isHex(s[i+1]) && isHex(s[i+2]) {
+			return true
+		}
+	}
+	return false
 }
 
 // maxGlueParts caps how many '&'-split parts one label name may absorb.

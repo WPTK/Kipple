@@ -346,14 +346,14 @@ func fetchCats(t *testing.T, cats []string) []string {
 func TestPredictedMutesAreSkippedByFulltextPick(t *testing.T) {
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
-	empty, err := e.db.MutedUIDs(e.ctx, id, nil)
+	empty, err := e.db.MutedUIDs(e.ctx, id, "", nil)
 	require.NoError(t, err)
 	require.Empty(t, empty)
 	e.mkFilter(newFilter("mute", "spam"))
 	star := newFilter("star", "vip")
 	e.mkFilter(star)
 	items := []fetch.Item{{UID: "a", Title: "spam here"}, {UID: "b", Title: "fine"}, {UID: "c", Title: "vip spam"}}
-	got, err := e.db.MutedUIDs(e.ctx, id, items)
+	got, err := e.db.MutedUIDs(e.ctx, id, "", items)
 	require.NoError(t, err)
 	require.Equal(t, map[string]bool{"a": true}, got, "a starred item is not muted, so it is still extracted")
 }
