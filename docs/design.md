@@ -718,6 +718,9 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 - **Data lock.** `serve` holds an exclusive OS lock (`flock`, or `LockFileEx` on Windows dev) on `<data>/kipple.lock` for its whole life, taken before the database opens; a second `serve` on the same directory refuses to start. The lock belongs to the process, so a crash leaves no stale lock. `import`, `api-password` and `password` do not take it (they are safe next to a running server); `restore` takes it and so refuses while `serve` runs.
 - **`kipple restore <backup.zip|kipple.db|-> [--yes]`.** `-` spools standard input into `<data>/restore-upload.tmp` (the distroless user cannot read a bind-mounted directory, and a zip needs random access). Order: take the data lock; write the candidate to `<data>/restore-tmp.db` (a zip is verified while extracting: manifest format and app, every listed file's size and SHA-256, `db_sha256`; a bare `.db` has only its own checks); run `PRAGMA integrity_check`, `foreign_key_check`, the FTS `integrity-check`, and require `application_id` and `user_version` ≤ the binary's (a newer schema is refused); print the summary; **without `--yes` stop here, changing nothing**; delete the candidate's sessions; move `kipple.db`, `-wal` and `-shm` into `backup/pre-restore-<YYYYMMDD-HHMMSS>[-N]/` (newest 3 kept; a name taken in the same second gets `-2`, `-3`, never overwritten); a bare `.db` source with a non-empty `-wal` beside it (an undo from a pre-restore copy after an unclean stop) has that WAL copied next to the candidate, so opening it replays and checkpoints the transactions, and the output says so; run as root on Unix, restore warns and chowns the candidate and the pre-restore directory to the data directory's owner (serve runs nonroot and cannot open a root-owned 0600 file); rename the candidate to `kipple.db` (any failure moves the old files back); print the next steps. The next `serve` migrates an older schema after its own pre-migration snapshot. Restore signs every session out, so a stolen old backup's sessions never come back to life.
 - **`kipple password [--stdin]`.** Reads the new web password without echo (twice) on a terminal, or one line from standard input; 5 to 256 bytes. In one transaction (`store.ResetPassword`) it stores the argon2id hash, rotates `account.secret` (so every Reader token, an HMAC keyed by it, stops verifying within the Reader API's 5 s account cache) and deletes every session. The Reader API password is unchanged. It opens the store with `NoMigrate` and `NoCheckpoint`, so it is safe while `serve` runs. The web login lockout is in memory and clears on the next restart or when its window ends.
+- **`kipple import [-mark-read-older-than-days N] <file.opml|->`.** Imports an OPML file (or standard input) through `opml.Import`; N is 0 or 1 to 365 and marks items older than N days read on each new feed's first fetch. It opens the store with `NoMigrate` and `NoCheckpoint`, so it is safe next to a running server, which fetches the new feeds on its next tick. The JSON report goes to standard output and a one-line summary to standard error.
+- **`kipple api-password`.** Takes no arguments. Generates a fresh Reader API password, prints it once and signs the Reader clients out (a running server notices within its 5 s account cache). Same store options as `import`.
+- **`kipple version`** prints the version. **No argument runs `serve`.** `restore` accepts `--yes` or `-yes`.
 
 ---
 
@@ -2135,44 +2138,37 @@ No goroutine holds a transaction across a channel send, an HTTP call or an SSE w
 
 ## 10. Test plan
 
-All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a SQLite file in `t.TempDir()` on the **pinned modernc driver**. Golden files use an `-update` flag.
+CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off` build-tagged test files stretch timing ceilings under the race detector; the Windows dev box has no C compiler, so it runs without `-race`). Every store and API test gets a SQLite file in `t.TempDir()` on the **pinned modernc driver**. Golden files with an `-update` flag are used only by the `internal/fetch` parser tests; the Reader contract tests assert inline. Items marked **TODO** below are planned but not yet written.
 
 **`internal/store`**
 
 - **Migrations:**
-  - A fresh database gets `user_version=1` and `application_id=1263095884`. Re-opening is idempotent.
+  - A fresh database gets `user_version` = the latest migration (5) and `application_id=1263095884`. Re-opening is idempotent.
   - A foreign `application_id` is refused. A `user_version` above the maximum is refused.
   - A pre-migration snapshot is created for a non-empty database. **A failed migration followed by a retry succeeds**: the unique timestamped name means no "output file already exists".
-  - `PRAGMA foreign_keys` is 1 after a failed `foreign-keys-off` migration.
+  - `PRAGMA foreign_keys` is 1 after a failed `foreign-keys-off` migration (**TODO**: the restore mechanism in `migrate.go` exists, but no test drives it; the failed-then-retry path is covered by `migrate0004_test.go`).
 - **Constraints:**
-  - the username CHECK;
-  - the default folder cannot be deleted;
-  - deleting a folder moves its feeds to the default;
-  - the retention CHECK rejects 75;
-  - a second archive feed is refused;
-  - `url_key` uniqueness.
+  - the username CHECK, the default-folder rules and the retention CHECK (75 rejected) are tested at the CLI and API level (`cmd/kipple/account_test.go`, `internal/api/feedops_test.go`, `internal/api/settings_test.go`), not in the store package;
+  - **TODO** in the store package: a second archive feed is refused; `url_key` uniqueness.
 - **WithWrite:**
   - a nested writer-DB call is impossible by type (compile-time: store write methods accept only `Querier`);
-  - a deliberately leaked `Rows` is caught by a test helper that asserts the pool is free after each handler test;
+  - **TODO**: a deliberately leaked `Rows` caught by a test helper that asserts the pool is free after each handler test (the helper does not exist yet);
   - an acquisition timeout logs the holder.
 - **Allocator:**
-  - strictly increasing under 8 goroutines × 10k calls;
-  - seeding from high-water plus items plus ledger;
-  - the high-water mark survives an unsubscribe cascade of the newest items;
-  - a backward clock step still gives increasing ids;
-  - a seed 2 h ahead logs ERROR and sets the health warning.
-- **Query-plan regression:** a seeded database of 150k items. `EXPLAIN QUERY PLAN` is asserted against §2.3 for every hot query, **twice**: fresh, and after `ANALYZE` (STAT4). The queries are ids unread/starred/feed/label, both `ot` legs with and without `c`, contents, mark-all, keyset views, the trim-set selection, the dedup lookup, the due selection, `FindFeedByURL` and the stats session lookups. `INDEXED BY` never errors.
-- **WAL bound:** 1000-id edit-tag `a=read` on articles of 20 KB writes < 1 MB of WAL (measured with `wal_autocheckpoint=0` and the `-wal` file size).
+  - seeding from high-water plus items plus ledger, and ids that stay increasing across a restart and a backward clock step (`TestIDAllocMonotonicAcrossRestart`);
+  - **TODO**: strictly increasing under 8 goroutines × 10k calls; the high-water mark surviving an unsubscribe cascade of the newest items; a seed 2 h ahead logging ERROR and setting the health warning.
+- **Query-plan regression:** `EXPLAIN QUERY PLAN` is asserted against §2.3, **twice**: fresh, and after `ANALYZE`. Built: `TestStreamIDsQueryPlans` (300 seeded items: the ids legs, unread and starred), `TestOrderQueryPlans` (900 items: the list order and keyset queries) and `TestSearchPlan`. **TODO**: plan tests for contents, mark-all, the trim-set selection, the dedup lookup, the due selection, `FindFeedByURL` and the stats session lookups, and a larger seeded database (the design target was 150k items). `INDEXED BY` never errors.
+- **WAL bound (TODO, not yet written):** 1000-id edit-tag `a=read` on articles of 20 KB should write < 1 MB of WAL (measured with `wal_autocheckpoint=0` and the `-wal` file size). No test sets `wal_autocheckpoint=0` or measures the `-wal` file today.
 - **FTS:**
   - insert, update, delete, trim, restore and cascade stay consistent, and `integrity-check` is clean after each;
-  - a markup-only update leaves `SELECT count(*) FROM items_fts_data` unchanged;
+  - **TODO**: a markup-only update leaves `SELECT count(*) FROM items_fts_data` unchanged, and `integrity-check` after trim and restore;
   - title-only and text-only changes re-index correctly;
   - the query sanitizer handles `"`, `-`, `:`, `*` and empty input.
 - **Maintenance:**
   - a pre-existing `kipple-snapshot.tmp` does not stop the nightly snapshot;
-  - a missing `/data/backup` is created;
+  - **TODO**: a missing `/data/backup` is created (the test pre-creates it);
   - `sys.last_snapshot_at` is updated;
-  - cancelling the context interrupts `VACUUM INTO`.
+  - cancelling the context stops the snapshot (tested with a context that is already cancelled).
 
 **`internal/fetch` and `internal/sanitize`**
 
@@ -2192,16 +2188,16 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
   - no date in any key;
   - `text_hash` ignores markup;
   - the churn and duplicate-guid notes and their thresholds.
-- **`absolutize`** (golden):
+- **`absolutize`** (inline tests, `internal/sanitize/absolutize_test.go`):
   - relative `src`, `srcset` (several candidates), `href`, `poster` and `source[src]`;
-  - `xml:base`;
+  - `xml:base` (**not built**: nothing resolves `xml:base` and there is no test);
   - a relative item link;
   - protocol-relative `//cdn/x.png`;
   - a `data:` URI;
   - an unresolvable value is dropped;
   - readability output resolved against the article URL.
 
-  An end-to-end fixture with `<img src="/wp-content/x.jpg">` must come out absolute in `stream/items/contents` **and** in `GET /api/items/{id}`, proxied in the latter only when it is http.
+  **TODO**: an end-to-end fixture with `<img src="/wp-content/x.jpg">` that must come out absolute in `stream/items/contents` **and** in `GET /api/items/{id}`, proxied in the latter only when it is http.
 - **`errors`** with httptest servers: 200, 304 (with and without Last-Modified), ETag with `W/`, an `Expires: 0` quirk, 404, 410, 403 with `cf-mitigated`, 429 with a seconds or date Retry-After, 503 with none, 500, oversize, empty, HTML instead of a feed, a windows-1252 body with a UTF-8 declaration, a BOM, gzip, a redirect loop, a timeout, and a guard rejection of `127.0.0.1` and `10.x`.
 
 **`internal/sched`** (fake clock, injected random source, httptest feed servers)
@@ -2219,12 +2215,9 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 - Chunked commits over 500 items.
 - **Trim on every success:** a `not_modified` fetch after lowering N trims.
 - **Shutdown:**
-  - SIGTERM during a 138-feed run exits in under 15 s;
-  - a completed fetch commits its fetch_log row;
-  - no worker blocks on `doneCh`;
-  - SSE subscribers return before `Shutdown` completes;
-  - waiting handlers return 503;
-  - `wal_checkpoint` runs.
+  - `TestShutdownDuringLargeRun` covers shutdown during a large run in under 15 s, a completed fetch committing its fetch_log row, no worker blocking on `doneCh`, and waiting handlers returning (`ErrStopped`, which the API maps to 503 `shutting_down`);
+  - SSE subscribers returning before `Shutdown` completes is covered in part by `internal/api/api_test.go`;
+  - **TODO**: an assertion that `wal_checkpoint` runs.
 
 **Retention**
 
@@ -2257,7 +2250,7 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 - **`ts` normalization:** 10, 13, 14, 15, 16 and 19 digits, 0, absent (committed `max(id)`, not the allocator), and non-digit.
 - **No-null rule:** every golden Reader response is walked and asserted to contain no JSON `null` except `LSID`. Fixtures include a feed with no `site_url`, an item with no link, and `greader.icon_urls` off.
 
-**`internal/greader` contract tests.** Each test replays a full request sequence against a seeded database and compares the responses with golden files.
+**`internal/greader` contract tests.** Each test replays a full request sequence against a seeded database and asserts the responses inline (`contract_test.go`; there are no golden files).
 
 - *NetNewsWire 7.1.4 sequence* (from its source):
   1. `POST ClientLogin` (the body parses on `=` into exactly two parts, and `Auth` has no `=`)
@@ -2289,8 +2282,8 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
   6. `ids s=read ot=now-30d n=10000`
   7. `token`
   8. `POST contents` with 100 bare-hex ids in two batches
-  9. `edit-tag a=read` with a single id **under the default settings → 0 `open` rows**; with the setting on → 1 inferred `open`
-  10. several scroll-style single-id `a=read` requests under the default → 0 `open` rows
+  9. `edit-tag a=read` with a single id → 0 `open` rows (API `open` inference is not built; the `stats.api_single_read_is_open` key is reserved, so this holds for every setting value)
+  10. several scroll-style single-id `a=read` requests → 0 `open` rows
   11. `edit-tag r=starred`
   12. `edit-tag` with `T=x` plus a valid header (accepted)
   13. `mark-all-as-read s=feed/N ts=` with 10, 13 and 16 digits (items and ledger updated up to the cutoff; nothing newer)
@@ -2307,10 +2300,10 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
   - 50 concurrent wrong ClientLogins never run more than one argon2 at a time (fake with a concurrency gauge).
 - *`ot` semantics:*
   - an item crawled before `ot` whose content changed after `ot` is returned, including on a first page without `c`;
-  - an item crawled before `ot` and read after `ot` is **not** returned (unless the setting is on);
+  - an item crawled before `ot` and read after `ot` is **not** returned;
   - the 120 s slack boundary on both legs;
   - a property test on randomized data, **with and without `c`**, in both directions, shows the two-leg form equals the reference OR query.
-- **Phase-1 gate.** On day 1, the owner's real Reeder and NNW traffic is captured with `KIPPLE_LOG_GREADER_FORMS=1` and turned into additional golden sequences. Any mismatch with the reconstructed sequences becomes a failing test before phase 2 starts. The capture was meant to decide `stats.api_single_read_is_open` (§8), which is reserved and not yet read by any code.
+- **Phase-1 gate.** On day 1, the owner's real Reeder and NNW traffic is captured with `KIPPLE_LOG_GREADER_FORMS=1` and turned into additional sequences. Any mismatch with the reconstructed sequences becomes a failing test before phase 2 starts. Status: no captured-traffic sequences exist under `internal/greader`; the only captured evidence is `docs/HF/evidence/reeder-alpha2-2026-09-26.log`. The capture was also meant to decide `stats.api_single_read_is_open` (§8), which is reserved and not read by any code.
 
 **`internal/stats` and `internal/api`**
 
@@ -2318,21 +2311,21 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
   - `POST /api/items/mark-read` with 1 id, 500 ids, a scope, and `reason=scroll` → 0 calls.
   - greader `mark-all-as-read` → 0.
   - `edit-tag` with 2 ids and `a=read` → 0.
-  - `edit-tag` with 1 id and `a=read`: 0 with the default settings; exactly 1 `open` (inferred, family by UA) with the setting on and an unread item; 0 on an already-read item.
+  - `edit-tag` with 1 id and `a=read` → 0 (API `open` inference is not built; the `stats.api_single_read_is_open` key is reserved and read by nothing).
   - `r=read` → 0.
   - `a=starred` with 5 ids → 5 `star`.
-- **Atomicity:** a Recorder that returns an error rolls back the state change in the same transaction.
+- **Atomicity (TODO):** a Recorder that returns an error rolls back the state change in the same transaction.
 - **Web:** `POST /open` gives 1 `open` plus a read state; `GET /api/items/{id}` gives 0.
 - **Validation:**
   - `read_time` without an open is dropped;
   - a cumulative time above elapsed is dropped;
   - more than 3600 is dropped;
-  - **two concurrent batches whose sum exceeds the cap insert at most the cap**;
+  - **two concurrent batches whose sum exceeds the cap insert at most the cap** (**TODO**: no concurrent-batch test yet);
   - scroll 150 is clamped to 100;
   - a `session_key` from another item is dropped.
-- **Views:** with default parameters, inferred rows are excluded from streaks and feeds-never-opened.
-- **Local-time fields** across the DST boundaries (2026-03-08 and 2026-11-01, America/New_York).
-- **CSV** round-trip (commas, quotes, newlines in titles), and a 20k-row export that runs as ≥ 4 separate reader queries.
+- **Views (phase 4, not built):** with default parameters, inferred rows are excluded from streaks and feeds-never-opened.
+- **Local-time fields** across the DST boundaries (2026-03-08 and 2026-11-01, America/New_York): **TODO** (`TestRecordSnapshotAndLocalTime` covers the fields, not the DST dates).
+- **CSV (phase 4, not built):** round-trip (commas, quotes, newlines in titles), and a 20k-row export that runs as ≥ 4 separate reader queries.
 - **CSRF:**
   - a POST with `Sec-Fetch-Site: same-site` → 403;
   - no `Sec-Fetch-Site` with a mismatched `Origin` → 403;
@@ -2360,6 +2353,15 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 
 **`internal/imgcache`:** LRU order and the 90% target, cap changes and 0, idle expiry, failure TTLs and backoff, revalidation bookkeeping, single flight, startup repair (temp files, missing, truncated and orphan files), a corrupt or old-schema index, the disk floor, `Clear`, host hints, concurrent use with consistent counters and no leaked goroutines, and exclusion from exports and snapshots.
 
+**Shipped suites the plan above predates** (each lives beside its package):
+
+- **Filters:** the pure engine (`internal/filter`: matching semantics, precedence, regex safety limits, fuzz corpora, benchmarks) and the store, API, sched and greader `filters_test.go` files (ingest, retroactive apply, unmute paths, Reader agreement with muted items).
+- **Backup, restore and the CLI:** `internal/backup` (export, expiry, image-cache exclusion), `cmd/kipple/restore_test.go`, `restore_wal_test.go`, `restore_owner_unix_test.go`, `password_test.go`, `account_test.go` (`password` and `api-password`), and the data lock in `internal/lock/lock_test.go`.
+- **Full text:** `internal/ftrun`, `internal/extract`, `internal/sched/fulltext_test.go`, `internal/greader/hold_test.go` (the Reader hold), and the store and API full-text tests.
+- **Devices, saved searches, auto-read, search v2, discovery:** the store and API test files of those names, `internal/maint/autoread_test.go` and `internal/discover`.
+- **Thumbnails:** `internal/imgproxy/thumb*_test.go`.
+- **Web (Vitest):** the suite under `web/` (`npm test`).
+
 **Release checklist** (manual, on Host-A, before each deploy, after `/code-review high`):
 
 - The image is under 50 MB (`docker image inspect`).
@@ -2380,7 +2382,7 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 
 | Risk | Mitigation |
 |---|---|
-| **Reeder Classic is closed source.** The `mark-all-as-read` `ts` unit, continuation behaviour, `T=x` use, its Content-Type, its field-type strictness and its scroll-mark batching are inferred, not observed | Tolerant parsing (`ts` by digit count, any non-multipart POST body parsed as a form), `n` up to 100000, `T` `""`/`x` accepted, no JSON nulls anywhere, inference off by default. The day-1 capture turns real traffic into golden tests (§10) |
+| **Reeder Classic is closed source.** The `mark-all-as-read` `ts` unit, continuation behaviour, `T=x` use, its Content-Type, its field-type strictness and its scroll-mark batching are inferred, not observed | Tolerant parsing (`ts` by digit count, any non-multipart POST body parsed as a form), `n` up to 100000, `T` `""`/`x` accepted, no JSON nulls anywhere. The day-1 capture was meant to turn real traffic into contract tests (§10; not yet done) |
 | **Reeder does not follow continuation** (`n=10000`). If more than 10,000 items are unread, the oldest never reach Reeder and counts differ from NNW and the web UI | Warned in the bootstrap `warnings` and the health view. The UI OPML import offers "mark items older than N days read" on first fetch as an explicit choice. The default N=250 × 138 feeds can reach 34,500, so the migration import should use that option |
 | **`ot` excludes user state changes** (a deliberate departure from the brief's wording) | Both target clients pull full unread and starred lists without `ot`; FreshRSS behaves this way. `greader.ot_includes_user_changes` was meant to restore it without a schema change, but it is reserved (stored and validated, not yet read by any code) |
 | **The `ot` slack of 120 s on both legs** returns up to 2 minutes of already-known ids | Harmless: clients de-duplicate by id |
@@ -2389,15 +2391,15 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 | **Stars and mark-unread on items older than `restore_days`** (stub purged) are still ignored, and the client undoes them | 90 days matches NNW's article window. The window is a setting (≤ 180) if the owner stars very old items from app caches |
 | **Restore stubs cost disk** (about 270 MB at 90 days for busy feeds) | `retention.restore_days` can be lowered; the nightly snapshot size shows the cost |
 | **The archive feed is a visible pseudo-feed** in both clients ("Unsubscribed (starred)") | It is listed only while it holds items. "Purge unstarred" and a real unsubscribe of the archive are explicit actions |
-| **The API `open` inference is approximate** | Off by default. When enabled it is stored with `inferred=1` and excluded from every view unless the toggle is on |
-| **API subscribe without a synchronous fetch** (the default, decision 33) shows the host as title and no items until the next sync | The synchronous path is not built: `greader.subscribe_fetch_now` is reserved (stored and validated, not yet read by any code) |
+| **API `open` inference is not built.** No API read ever becomes an `open` (a Reeder read counts only as read state) | The key `stats.api_single_read_is_open` is reserved (stored and validated, not yet read by any code). The `inferred` column exists, but nothing writes `inferred=1` |
+| **API subscribe without a synchronous fetch** (the default, decision 33) shows the host as title and no items until the next sync | Pending the owner's decision. The key `greader.subscribe_fetch_now` is reserved (stored and validated, not yet read by any code); there is no synchronous path yet |
 | **GUID churn** produces a wall of unread | The fetch_log note (kept), a health-view flag, and one-click "mark this fetch read". No automatic judgement |
 | **A dedup-mode change** needs a rekey; unmatched items are inserted read | An explicit user action with a confirm dialog; `rekey_pending` persists across restarts |
-| **The ledger purge** (180 days after last seen) re-opens the tombstone for uids the publisher drops and later re-adds | Rare; shows as one unread item |
+| **The ledger purge** (after max(180 days, `restore_days` + 7) since last seen) re-opens the tombstone for uids the publisher drops and later re-adds | Rare; shows as one unread item |
 | **The `modernc.org/sqlite` and `libc` pin is fragile** | Pin both exactly. The plan-regression suite (fresh and `ANALYZE`d) and FTS integrity tests run on every bump. `ncruces/go-sqlite3` is the fallback |
 | **FTS over a view** relies on FTS5 reading external content through a join | Validated on 3.50.4 (MATCH, snippet, integrity-check); re-validated on the pinned driver in the migration test. `'rebuild'` repairs from the view |
 | **Write-lock latency** during a manual run or a huge first fetch | The commit gate plus 250-item chunking, and narrow rows for state writes. The fairness test asserts p99 ≤ 250 ms |
-| **A writer-pool deadlock or leaked Rows** would silently stop ingestion (there is no monitoring, by design) | `WithWrite` is the only door, with a 10 s deadline and holder logging; store writes take `Querier`; a pool-free assertion after every handler test |
+| **A writer-pool deadlock or leaked Rows** would silently stop ingestion (there is no monitoring, by design) | `WithWrite` is the only door, with a 10 s deadline and holder logging; store writes take `Querier`; the pool-free test helper is planned but not written (§10) |
 | **The allocator can be seeded ahead of the clock** (bad RTC, manual error). Every id minted until real time catches up is "in the future": NNW's `ot` matches those items on every refresh, and Reeder's `mark-all-as-read ts=<now>` never covers them, so they come back unread | Startup ERROR plus a health banner above 1 h ahead; NTP on Host-A. Kipple does not rewrite ids |
 | **Unpadded bare-hex ids made only of digits** would be parsed as decimal | No target client sends them. A test documents the limitation |
 | **SSE through cloudflared and Access** is unverified on this named tunnel | Pings every 15 s, `no-transform`, the `/api/status` polling fallback, and `curl -N` on the release checklist |
@@ -2409,7 +2411,7 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 | **The uid, content_hash, text_hash and `url_key` rules** are embedded in stored data | Frozen before the first real import, with versioned prefixes. Any change needs a re-keying migration |
 | **Extracted full text is not searchable**, and restores lose extracted full text | Accepted for phase 2. Re-extraction is on demand |
 | **The in-memory full-text queue** (500 items) is lost on a restart, and the Reader full-text hold can delay a new item by up to 30 s | Extraction runs after the commit in the `ftrun` pool, so it never holds a fetch worker (§4.3). Items queued at a restart are extracted on demand when opened. The hold is capped at 60 s inside the `ot` slack, and open question 55 keeps a Reeder check on the release checklist |
-| **The Reader `summary.direction` is hard-coded `ltr`**, so right-to-left feeds render wrong in Reeder and NNW | Deferred. The web UI sets `dir="auto"` on the article container. Deriving `rtl` from the feed or item `xml:lang` is a later fix |
+| **The Reader `summary.direction` is hard-coded `ltr`**, so right-to-left feeds render wrong in Reeder and NNW | Deferred in both the Reader API and the web UI (neither sets a text direction today). Deriving `rtl` from the feed or item `xml:lang` is a later fix |
 | **Image cache growth and disk use** | Bounded by `imgproxy.cache_mb` (default 1 GiB, LRU to 90%, 60 day idle expiry) plus a free-space floor of max(2 GiB, 5%) below which nothing is written; the size shows in the health view and Settings; excluded from every backup. The index is a second SQLite file with its own 2 MB page cache (about 2 MB more than the §2.1 figure) |
 | **Hotlink retries look like a browser** | Only after a 401/403/429 with no `Retry-After` or Cloudflare challenge, at most two extra requests per image, remembered per host; never sends Kipple's address or a cookie, and goes through the same SSRF-guarded transport |
 | **Memory: SQLite heap is outside GOMEMLIMIT** | GOMEMLIMIT 64 MiB + 34 MB of caches + runtime < 100 MB, streaming contents, capped `i=`, keyset exports, a streaming image proxy, and a `mem_limit: 256m` backstop. RSS under load is on the release checklist |
@@ -2434,19 +2436,19 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 | 9 | [minor] Reeder never follows continuation, so unread beyond 10,000 is missing | **FIX** (residual **DEFER**) | Warning when unread > 10,000; an explicit UI import option marks old first-fetch items read. The client limit itself cannot be fixed server-side (§11) |
 | 10 | [minor] Login lockout never checks the password and slides forever | **FIX** | The password is always verified; success clears the IP's count; only failures are delayed, in a fixed window (§6.3). Test: 20 bad then 1 good from the same IP succeeds |
 | 11 | [minor] An allocator seeded ahead of the clock breaks ot and mark-all | **FIX** (residual **DEFER**) | Startup ERROR plus a health banner above 1 h ahead; the §11 row now names the ot/mark-all impact. Rewriting ids is not attempted |
-| 12 | [major] Read/star state in the wide items row rewrites overflow pages | **FIX** | `items` split into a narrow row plus `item_content`; FTS over a join view; triggers moved and validated (decision 30). WAL-bound test added. The alternative (column reorder plus `idx_items_read`) is rejected |
+| 12 | [major] Read/star state in the wide items row rewrites overflow pages | **FIX** | `items` split into a narrow row plus `item_content`; FTS over a join view; triggers moved and validated (decision 30). The WAL-bound test is designed but **not yet written** (§10). The alternative (column reorder plus `idx_items_read`) is rejected |
 | 13 | [major] The one-connection writer deadlocks on nested acquisition or leaked Rows; maintenance can't run under `query_only` | **FIX** | `WithWrite` is the only door with a 10 s deadline and holder logging; store writes take a tx; `Recorder.Record(tx, …)`; a snapshot pool for `VACUUM INTO`; FTS integrity-check on the snapshot; weekly optimize dropped for automerge (decision 2, §2.1, §2.6) |
 | 14 | [major] Reply channels and shutdown order can wedge the dispatcher or hang workers | **FIX** | Buffered reply channels, non-blocking dispatcher sends, handlers select on reply, timer and `shutdownCh`, a dispatcher draining until workers exit, commits under `WithoutCancel` with 10 s, a revised 7-step order, client-seen moved out of the dispatcher (§4.1, §4.10) |
 | 15 | [major] VACUUM INTO refuses existing targets; foreign_keys may stay off | **FIX** | `MkdirAll` plus `Remove` before every VACUUM INTO; timestamped pre-migration names (newest 3 kept); foreign_keys restored in a defer and verified; last-snapshot time in the health view (§2.5, §2.6) |
 | 16 | [minor] ot leg-2 NULL `c`, and no visibility slack on leg 2 | **FIX** | Same binding fix as #8; leg 2 uses `content_changed_at >= ot − 120`; the legs stay disjoint (validated) |
 | 17 | [minor] FTS `AFTER UPDATE OF` fires on markup-only changes | **FIX** | `WHEN old IS NOT new` guards on every update trigger, SET lists built from changed columns, and `text_hash` gating; validated (`items_fts_data` 21 → 21) |
 | 18 | [minor] GOMEMLIMIT doesn't bound SQLite; contents built unbounded | **FIX** | GOMEMLIMIT 64 MiB + 34 MB of caches budget, a streaming contents encoder, `i=` capped at 1000, `mem_limit: 256m`, an RSS-under-load checklist item (decision 35) |
-| 19 | [minor] Long-lived read cursors in exports pin checkpoints | **FIX** | The CSV export pages by keyset, 5000 rows per short query, fully read before writing; the OPML export is built before writing (§8) |
+| 19 | [minor] Long-lived read cursors in exports pin checkpoints | **FIX** (CSV part designed, phase 4, not built) | The CSV export would page by keyset, 5000 rows per short query, fully read before writing; the OPML export is built before writing (§8) |
 | 20 | [minor] Reader pool keeps only 2 idle connections | **FIX** | `SetMaxIdleConns(4)`, `SetConnMaxIdleTime(0)` (§2.1) |
 | 21 | [minor] Stats ingest caps are check-then-insert across pools | **FIX** | Validation and inserts in one `WithWrite` transaction, counting earlier events in the same batch; concurrency test (§8) |
-| 22 | [minor] Plans verified without ANALYZE on 3.50.4; production is 3.53.4/STAT4 | **FIX** | The plan suite runs on the pinned driver, fresh and after `ANALYZE`; `analysis_limit=400`; `optimize=0x10002` at open. `INDEXED BY` is kept: the leg always constrains the leading column, so it cannot become unsatisfiable (§2.3) |
+| 22 | [minor] Plans verified without ANALYZE on 3.50.4; production is 3.53.4/STAT4 | **FIX** | The plan suite (partly written, §10) runs on the pinned driver, fresh and after `ANALYZE`; `analysis_limit=400`; `optimize=0x10002` at open. `INDEXED BY` is kept: the leg always constrains the leading column, so it cannot become unsatisfiable (§2.3) |
 | 23 | [minor] Mark-all cutoff and allocator seed include uncommitted or deleted ids | **FIX** | A missing `ts` → committed `max(id)` on a reader snapshot; `sys.id_high_water` persisted in CommitFetch; the stats scan dropped from the seed (§3) |
-| 24 | [blocker] API open inference is on by default, so Reeder scroll marks count as reads | **FIX** | Default off; turned on only after the day-1 capture; views default to `inferred=0`; streaks and never-opened exclude inferred rows unless toggled; contract test with scroll-style marks (decision 21, §8) |
+| 24 | [blocker] API open inference is on by default, so Reeder scroll marks count as reads | **FIX** | The inference is **not built**, so a Reeder scroll-style read never counts as an `open`; the default is effectively permanent until inference is built. The designed views (`inferred=0` by default, streaks and never-opened excluding inferred rows) are phase 4, not built; the contract test with scroll-style marks asserts 0 `open` rows (decision 21, §8) |
 | 25 | [major] Relative image/link URLs never made absolute (product-rules) | **FIX** | Same as #6, plus golden tests through both the Reader API and the web API; `/img/` collision removed |
 | 26 | [major] A manual run can stay open forever; refresh joins import/retention runs | **FIX** | In-flight feeds are attached to the run; `total = outstanding` at creation; the run ends when `outstanding` hits 0; only manual runs are joined; runs are per kind (§4.9). Scheduler test added. A watchdog is unnecessary because completion is structural |
 | 27 | [major] Starring an item trimmed while a client still shows it is lost | **FIX** | Same restore mechanism as #1, also applied to the web star and mark-unread endpoints. The proposed crawl-age grace window is **REJECTED**: it breaks "newest N" on busy feeds and doesn't cover NNW's 90-day window |
@@ -2473,7 +2475,7 @@ All tests use `go test -race -timeout 5m ./...`. Every store and API test gets a
 | 2 | Startup self-check for JSON1 and FTS5 | **Built** (§2.1, `internal/store/selfcheck.go`) |
 | 3 | Last-new-item time on the feed | **Built** as `feeds.last_new_items_at` (§2.2), written when a fetch inserts an item. Drives the `silent` status (§4.6) |
 | 4 | Reading time with `image_count` and 265 wpm | **Dropped.** Reading time is `ceil(word_count / 230)`, null under 100 words, computed at serve time (§7.1). No `image_count` column |
-| 5 | `porter` tokenizer with `bm25(items_fts, 4.0, 1.0)` | **Superseded** by `docs/research/backend-additions-round2.md` §7: porter with `bm25(4,2,1)`, in pending migration 0005. Until then the table uses `unicode61 remove_diacritics 2` and plain `rank` |
+| 5 | `porter` tokenizer with `bm25(items_fts, 4.0, 1.0)` | **Superseded and built** by `docs/research/backend-additions-round2.md` §7: porter over unicode61 (diacritics folded) with a persistent `bm25(4,2,1)` rank, migration 0005 |
 | 6 | 403 browser-UA fallback persisted as `feeds.ua_mode` | **Superseded** by `feeds.ua_fallback` (migration 0002) and the `fetch.user_agent_mode` setting (§4.4) |
 | 7 | `Retry-After` HTTP-date relative to the response `Date` | **Built** (§4.4, `fetch.ParseRetryAfter`) |
 | 8 | URL migration resets fetch state | **Dropped for redirects**: a redirect migration keeps validators and the items (§4.7). **Kept for manual URL edits**, which already clear them (`feedadmin.go`) |
