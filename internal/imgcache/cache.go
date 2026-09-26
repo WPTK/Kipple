@@ -397,6 +397,21 @@ func (c *Cache) Peek(ctx context.Context, key string) (Entry, bool) {
 // Now is the cache's clock, so freshness decisions use the same time as the index.
 func (c *Cache) Now() time.Time { return c.now() }
 
+// Touch refreshes key's LRU position without a lookup (the original behind a
+// thumbnail that was just served, so the original is not evicted long before
+// the thumbnail that needs it to be remade). It does not count as a hit.
+func (c *Cache) Touch(key string) {
+	if c.closed.Load() || !validKey(key) {
+		return
+	}
+	now := c.now()
+	c.amu.Lock()
+	r := c.access[key]
+	r.at = now.Unix()
+	c.access[key] = r
+	c.amu.Unlock()
+}
+
 func (c *Cache) touch(key string, now time.Time) {
 	c.amu.Lock()
 	r := c.access[key]

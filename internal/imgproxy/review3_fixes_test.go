@@ -154,6 +154,69 @@ func TestCutBodyIsRemembered(t *testing.T) {
 	require.EqualValues(t, 1, n.Load())
 }
 
+// failingThumbRig is a thumbRig whose source starts answering 500 once failing is set.
+func failingThumbRig(t *testing.T) (*thumbRig, *atomic.Bool) {
+	t.Helper()
+	var failing atomic.Bool
+	src := sampleJPEG(t)
+	tr := &thumbRig{cacheRig: newCacheRig(t, func(o *Options) { o.ThumbWait = 60 * time.Second }), src: src}
+	t.Cleanup(tr.h.Close)
+	tr.up = &countingUpstream{}
+	tr.up.Server = upstream(t, func(w http.ResponseWriter, r *http.Request) {
+		tr.up.n.Add(1)
+		if failing.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("ETag", `"src"`)
+		_, _ = w.Write(src)
+	})
+	return tr, &failing
+}
+
+// TestStaleThumbnailServedWhenOriginalFails: a stale thumbnail whose original
+// is gone (evicted) and whose source now fails is served, and its next
+// revalidation put off, instead of the source's failure being replayed.
+func TestStaleThumbnailServedWhenOriginalFails(t *testing.T) {
+	tr, failing := failingThumbRig(t)
+	first := read(t, tr.thumb("s.jpg"))
+	cfg, _ := decodeCfg(t, first)
+	require.Equal(t, 800, cfg.Width)
+	tr.clk.Advance(40 * 24 * time.Hour) // both entries are stale
+	tr.cache.Delete(imgcache.KeyOrig(FlagPrivateNet, tr.up.URL+"/s.jpg"))
+	failing.Store(true)
+
+	resp := tr.thumb("s.jpg")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, first, read(t, resp), "the stale thumbnail, not a 502")
+	te, ok := tr.thumbEntry("s.jpg")
+	require.True(t, ok)
+	require.True(t, te.OK)
+	require.Equal(t, 1, te.NegCount, "its revalidation is put off")
+	require.True(t, te.Fresh(tr.cache.Now()))
+	n := tr.up.n.Load()
+
+	require.Equal(t, first, read(t, tr.thumb("s.jpg")))
+	require.Equal(t, n, tr.up.n.Load(), "the failing source is not asked again meanwhile")
+}
+
+// TestServedThumbnailTouchesItsOriginal: serving a thumbnail refreshes its
+// original's LRU position, so the original is not evicted long before it.
+func TestServedThumbnailTouchesItsOriginal(t *testing.T) {
+	tr, _ := failingThumbRig(t)
+	_ = read(t, tr.thumb("a.jpg"))
+	oe, ok := tr.origEntry("a.jpg")
+	require.True(t, ok)
+	tr.clk.Advance(time.Hour)
+	_ = read(t, tr.thumb("a.jpg")) // a hit
+	require.NoError(t, tr.cache.Flush())
+	oe2, ok := tr.origEntry("a.jpg")
+	require.True(t, ok)
+	require.Equal(t, oe.LastAccess.Add(time.Hour).Unix(), oe2.LastAccess.Unix())
+	require.Equal(t, oe.Hits, oe2.Hits, "a touch is not a hit")
+}
+
 // TestThumbURLWithoutCacheIsNotImmutable: with the cache off a thumbnail URL
 // streams the original, and that answer must not be cached as immutable (it
 // would pin the original under the thumbnail URL for 30 days); the plain
