@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -214,9 +215,7 @@ func TestSavedSearchScopeIsDroppedWhenItsFeedOrFolderIsDeleted(t *testing.T) {
 }
 
 func TestSavedSearchCountIsCappedAt999(t *testing.T) {
-	b, tb := savedSearchBudget, savedSearchTotalBudget
-	savedSearchBudget, savedSearchTotalBudget = time.Minute, time.Minute // the race detector is slow
-	t.Cleanup(func() { savedSearchBudget, savedSearchTotalBudget = b, tb })
+	noBudget(t) // no real-time limit: the race detector is slow
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -237,19 +236,55 @@ func TestSavedSearchCountIsCappedAt999(t *testing.T) {
 	require.Equal(t, false, l[0]["unread_capped"])
 }
 
+// noBudget removes the count time limits (a cancel-only context, a frozen clock).
+func noBudget(t *testing.T) {
+	t.Helper()
+	cc, now := savedSearchCountCtx, savedSearchNow
+	t.Cleanup(func() { savedSearchCountCtx, savedSearchNow = cc, now })
+	savedSearchCountCtx = func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+		return context.WithCancel(ctx)
+	}
+	frozen := time.Unix(1_700_000_000, 0)
+	savedSearchNow = func() time.Time { return frozen }
+}
+
 func TestSavedSearchCountThatRunsOutOfBudgetIsNull(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
 	h.addItem(feed, seedItem{Title: "budget word"})
-	b, tb := savedSearchBudget, savedSearchTotalBudget
-	t.Cleanup(func() { savedSearchBudget, savedSearchTotalBudget = b, tb })
-	savedSearchBudget = time.Nanosecond
+	noBudget(t)
+	// Per-search budget: the context is already past its deadline, so the count cannot finish.
+	var seen []time.Duration
+	savedSearchCountCtx = func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+		seen = append(seen, d)
+		return context.WithDeadline(ctx, time.Unix(0, 0))
+	}
 	out := h.saved(c, `{"name":"n","q":"budget"}`)
 	require.Contains(t, out, "unread")
 	require.Nil(t, out["unread"], "no count is better than a slow one")
-	savedSearchBudget, savedSearchTotalBudget = time.Minute, 0
+	require.Equal(t, []time.Duration{savedSearchBudget}, seen, "the count ran under the per-search budget")
+	require.Equal(t, false, out["unread_capped"])
+
+	// Whole-list budget: the clock jumps past the deadline after it is set, so no count starts.
+	noBudget(t)
+	var calls int
+	savedSearchCountCtx = func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+		calls++
+		return context.WithCancel(ctx)
+	}
+	base := time.Unix(1_700_000_000, 0)
+	var reads int
+	savedSearchNow = func() time.Time {
+		reads++
+		if reads == 1 {
+			return base // sets the deadline
+		}
+		return base.Add(savedSearchTotalBudget + time.Nanosecond)
+	}
 	require.Nil(t, savedList(t, h, c, "")[0]["unread"], "the whole-list budget is spent")
-	savedSearchTotalBudget = time.Minute
+	require.Zero(t, calls, "no count may start after the list budget is spent")
+
+	noBudget(t)
 	require.EqualValues(t, 1, savedList(t, h, c, "")[0]["unread"])
 }

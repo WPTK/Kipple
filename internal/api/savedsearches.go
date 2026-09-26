@@ -26,6 +26,14 @@ const (
 var (
 	savedSearchBudget      = 200 * time.Millisecond
 	savedSearchTotalBudget = 2 * time.Second
+
+	// savedSearchCountCtx derives the context one count runs under, and savedSearchNow is the clock
+	// the whole-list budget reads. Tests replace them to make "budget exhausted" (or "unlimited")
+	// deterministic instead of depending on elapsed wall-clock time.
+	savedSearchCountCtx = func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+		return context.WithTimeout(ctx, d)
+	}
+	savedSearchNow = time.Now
 )
 
 // savedSearchView is a saved search with its live unread count. Unread is null when the count was
@@ -41,7 +49,7 @@ type savedSearchView struct {
 // GET /api/items uses (so it can never disagree with the list the user opens), page by page until
 // savedSearchCap or the end. A search that found nothing exact (the prefix/OR fallback) counts 0.
 func (s *Server) countSavedSearch(ctx context.Context, ss store.SavedSearch) (n int, capped, ok bool) {
-	ctx, cancel := context.WithTimeout(ctx, savedSearchBudget)
+	ctx, cancel := savedSearchCountCtx(ctx, savedSearchBudget)
 	defer cancel()
 	q := store.CardQuery{Query: searchText(ss.Q), View: "unread", Limit: store.CardMaxLimit}
 	starred := false
@@ -83,10 +91,10 @@ func (s *Server) countSavedSearch(ctx context.Context, ss store.SavedSearch) (n 
 
 func (s *Server) savedSearchViews(ctx context.Context, list []store.SavedSearch, counts bool) []savedSearchView {
 	out := make([]savedSearchView, 0, len(list))
-	deadline := time.Now().Add(savedSearchTotalBudget)
+	deadline := savedSearchNow().Add(savedSearchTotalBudget)
 	for _, ss := range list {
 		v := savedSearchView{SavedSearch: ss}
-		if counts && time.Now().Before(deadline) {
+		if counts && savedSearchNow().Before(deadline) {
 			if n, capped, ok := s.countSavedSearch(ctx, ss); ok {
 				v.Unread, v.Capped = &n, capped
 			}
