@@ -119,7 +119,7 @@ func restore(ctx context.Context, o restoreOptions) error {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	if err := os.MkdirAll(o.DataDir, 0o755); err != nil {
+	if err := ensureDataDir(o.DataDir); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
 	lk, err := lock.Acquire(filepath.Join(o.DataDir, "kipple.lock"))

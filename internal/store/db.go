@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
@@ -206,6 +207,14 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 
 	if err := checkForeign(ctx, opts.Path); err != nil {
 		return nil, err
+	}
+
+	// A new database is created 0600 before SQLite opens it: SQLite keeps an
+	// existing file's mode and gives the -wal and -shm files the same one, so the
+	// live database (password hashes, the account secret) is never world-readable.
+	// Left to SQLite it would be 0644 under the usual umask.
+	if err := createPrivate(opts.Path); err != nil && !errors.Is(err, fs.ErrExist) {
+		return nil, fmt.Errorf("store: create database: %w", err)
 	}
 
 	var err error

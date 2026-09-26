@@ -115,7 +115,7 @@ func runServe() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	slog.SetDefault(logger)
 
-	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+	if err := ensureDataDir(cfg.DataDir); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
 	// One server per data directory, and no restore under a live server: the OS

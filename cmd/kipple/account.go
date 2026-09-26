@@ -133,7 +133,7 @@ func runAPIPassword(args []string) error {
 		return fmt.Errorf("config: %w", err)
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+	if err := ensureDataDir(cfg.DataDir); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
 	ctx := context.Background()
