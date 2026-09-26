@@ -74,6 +74,9 @@ export function emptyCopy(scope: Scope): { title: string; body: string } {
 }
 
 /** What the header can ask the list to do (mark all needs the list's own loaded ids). */
+/** Why Mark all is off while a search is still being typed. */
+export const FINISH_SEARCH = "Finish your search first (press Enter)";
+
 export interface ListControls {
   markAllRead: () => void;
   /** How many rows are loaded (0 while loading or empty). */
@@ -489,7 +492,12 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   );
 
   const markAllRead = useCallback(() => {
-    if (scope.view === "muted" || scope.typing) return;
+    if (scope.view === "muted") return;
+    if (scope.typing) {
+      // The key and the button must not do nothing in silence.
+      announce(FINISH_SEARCH);
+      return;
+    }
     const local = items.filter((i) => !i.read).map((i) => i.id);
     const restore = unreadView && local.length ? hide(local) : undefined;
     void act.markAll(markScope, asOf.current, local, restore, unhide);

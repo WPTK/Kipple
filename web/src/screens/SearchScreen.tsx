@@ -31,7 +31,12 @@ export function SearchScreen() {
   const urlQ = sp.get("q") ?? "";
   const ssId = sp.get("ss");
   const [text, setText] = useState(urlQ);
-  const [typing, setTyping] = useState(false);
+  // The texts the user typed in the box since the last Enter or saved search. Results are "typing" (wider prefix
+  // match) only for a URL `q` that came from the box, so a saved search or an unrelated `q` is never one, whatever
+  // was typed before. Derived during render: no effect that lags a frame behind the list's own query.
+  const [typed, setTyped] = useState<ReadonlySet<string>>(() => new Set());
+  if (typed.size && ssId !== null) setTyped(new Set());
+  const typing = typed.has(urlQ) && ssId === null;
   const [saving, setSaving] = useState(false);
   const [controls, setControls] = useState<ListControls | null>(null);
   const inputId = useId();
@@ -45,9 +50,16 @@ export function SearchScreen() {
   const { scope: where, order } = scopeFromSearchParams(sp, pref);
   const whereKey = `${where.view}|${where.feed ?? ""}|${where.folder ?? ""}`;
 
+  // The debounce timer fires after the render that scheduled it: it must build the URL from the params as they are
+  // then, or a scope chip or Sort change made inside the window would be put back.
+  const latest = useRef(sp);
+  useEffect(() => {
+    latest.current = sp;
+  });
+
   /** Change the URL, keeping the scope and saved-search params unless told otherwise. */
   const setQuery = (q: string, drop: string[] = []) => {
-    const next = new URLSearchParams(sp);
+    const next = new URLSearchParams(latest.current);
     if (q) next.set("q", q);
     else next.delete("q");
     for (const k of drop) next.delete(k);
@@ -61,7 +73,6 @@ export function SearchScreen() {
     if (urlQ === pushed.current) return;
     pushed.current = urlQ;
     setText(urlQ);
-    setTyping(false);
   }, [urlQ]);
 
   // Debounce: typing updates the URL (and so the query) SEARCH_DEBOUNCE_MS after the last keystroke.
@@ -83,7 +94,7 @@ export function SearchScreen() {
 
   const submit = () => {
     pushed.current = text;
-    setTyping(false);
+    setTyped(new Set());
     if (text !== urlQ) setQuery(text, ["ss"]);
   };
 
@@ -140,8 +151,9 @@ export function SearchScreen() {
             placeholder="Search articles"
             value={text}
             onChange={(e) => {
-              setText(e.target.value);
-              setTyping(true);
+              const v = e.target.value;
+              setText(v);
+              setTyped((prev) => new Set(prev).add(v));
             }}
             onKeyDown={(e) => {
               if (e.key === "Escape") inputRef.current?.blur();

@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, useMatch, useNavigate, useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
@@ -23,7 +23,7 @@ import { cn } from "@/lib/cn";
 import { ArticlePane } from "./ArticlePane";
 import { LayoutMenu } from "./LayoutMenu";
 import { ReadingMenu } from "./AppearanceControls";
-import { ListPane, type ListControls } from "./ListPane";
+import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
 
 const VIEWS: { view: View; label: string }[] = [
   { view: "unread", label: "Unread" },
@@ -119,9 +119,12 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
-              <DropdownMenu.Item className={menuItem} disabled={!controls || scope.view === "muted"} onSelect={() => controls?.markAllRead()}>
+              <DropdownMenu.Item className={menuItem} disabled={!controls || scope.view === "muted" || !!scope.typing} onSelect={() => controls?.markAllRead()}>
                 <CheckCheck className="size-5" aria-hidden="true" />
-                Mark all as read
+                <span className="flex flex-col">
+                  Mark all as read
+                  {scope.typing ? <span className="text-xs text-fg2">{FINISH_SEARCH}</span> : null}
+                </span>
               </DropdownMenu.Item>
               <DropdownMenu.Item className={menuItem} disabled={!canUndo} onSelect={() => void undoLast()}>
                 <Undo2 className="size-5" aria-hidden="true" />
@@ -219,7 +222,15 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
   const listKey = scopeKey(scope);
   // An article opened from a search draws the words of that search (on a phone no list is mounted to do it).
   const qc = useQueryClient();
-  const fallback = scope.q ? qc.getQueryData<InfiniteData<ItemsPage>>(keys.items(scope))?.pages[0]?.fallback === true : false;
+  // Reactive (the list's page may load after this renders) and remembered: once the list's cache entry is collected
+  // (a phone shows no list) the last known answer stays, so the words drawn do not change under the reader.
+  const cachedFallback = useSyncExternalStore(
+    (cb) => qc.getQueryCache().subscribe(cb),
+    () => (scope.q ? (qc.getQueryData<InfiniteData<ItemsPage>>(keys.items(scope))?.pages[0]?.fallback ?? null) : null),
+  );
+  const [kept, setKept] = useState<{ key: string; v: boolean } | null>(null);
+  if (cachedFallback !== null && (kept?.key !== listKey || kept.v !== cachedFallback)) setKept({ key: listKey, v: cachedFallback });
+  const fallback = scope.q ? (cachedFallback ?? (kept?.key === listKey ? kept.v : false)) : false;
   useSearchHighlight(scope.q, { fallback, typing: scope.typing });
   const onKeyMove = useMemo(
     () =>
