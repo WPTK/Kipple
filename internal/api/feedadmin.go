@@ -29,9 +29,6 @@ const (
 	maxUAAuthLen  = 500
 )
 
-// retentionChoices are the values feeds.retention accepts (0 = unlimited).
-var retentionChoices = map[int64]bool{0: true, 50: true, 100: true, 250: true, 500: true, 1000: true}
-
 func writeErrorMsg(w http.ResponseWriter, code int, kind, msg string) {
 	writeJSON(w, code, map[string]string{"error": kind, "message": msg})
 }
@@ -346,8 +343,8 @@ func parsePatch(m map[string]json.RawMessage) (p store.FeedPatch, msg string) {
 				continue
 			}
 			n, ok := rawInt(raw)
-			if !ok || !retentionChoices[n] {
-				return p, "retention must be null, 0, 50, 100, 250, 500 or 1000"
+			if !ok || !isRetentionChoice(n) {
+				return p, "retention must be null, 0 (unlimited), " + retentionChoicesText()
 			}
 			p.Cols[k] = n
 		case "dedup_mode":
