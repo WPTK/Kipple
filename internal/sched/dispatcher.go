@@ -317,9 +317,16 @@ func (s *Scheduler) handleRun(req runReq) {
 	var snaps []fetch.Snapshot
 	switch req.kind {
 	case RunImport:
-		for _, id := range req.feedIDs {
-			snap, ok, err := s.db.FeedSnapshot(ctx, set, id)
-			if err == nil && ok && snap.Enabled {
+		// One query for every new feed: a lookup per feed would share this one
+		// short deadline, hold up the dispatcher and drop feeds silently once it ran out.
+		all, err := s.db.FeedSnapshotsByID(ctx, set, req.feedIDs)
+		if err != nil {
+			s.log.Error("sched: load imported feeds", "feeds", len(req.feedIDs), "err", err)
+			reply(runReply{err: err})
+			return
+		}
+		for _, snap := range all {
+			if snap.Enabled {
 				snaps = append(snaps, snap)
 			}
 		}

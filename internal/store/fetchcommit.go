@@ -621,6 +621,35 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 	}
 }
 
+// FeedSnapshotsByID loads the snapshots of the given feeds (enabled or not) in
+// one query, in the order of ids; unknown ids are left out. An import run uses it
+// for its new feeds.
+func (d *DB) FeedSnapshotsByID(ctx context.Context, set FetchSettings, ids []int64) ([]fetch.Snapshot, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	b, err := jsonText(ids)
+	if err != nil {
+		return nil, err
+	}
+	snaps, err := d.feedSnapshots(ctx, set, "WHERE id IN (SELECT value FROM json_each(?))", b)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]fetch.Snapshot, len(snaps))
+	for _, s := range snaps {
+		byID[s.ID] = s
+	}
+	out := make([]fetch.Snapshot, 0, len(snaps))
+	for _, id := range ids {
+		if s, ok := byID[id]; ok {
+			out = append(out, s)
+			delete(byID, id) // a repeated id is loaded once
+		}
+	}
+	return out, nil
+}
+
 func (d *DB) saveHighWater(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value) VALUES('sys.id_high_water', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()
