@@ -41,8 +41,11 @@ type Item struct {
 	Updated     *time.Time  `json:"updated,omitempty"`   // item's own updated date, if any
 	Enclosures  []Enclosure `json:"enclosures,omitempty"`
 	WordCount   int         `json:"-"` // words in ContentText; not in the golden output
-	ContentHash string      `json:"content_hash"`
-	TextHash    string      `json:"text_hash"`
+	// Categories are the entry's category/tag labels (at most MaxCategories of MaxCategoryRunes),
+	// stored at ingest so category filter rules can match. Not in the golden output.
+	Categories  []string `json:"-"`
+	ContentHash string   `json:"content_hash"`
+	TextHash    string   `json:"text_hash"`
 }
 
 // Feed is the normalized parse result.
@@ -188,6 +191,7 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 	it.ContentHTML, it.ContentText = content(raw, bases...)
 
 	it.ImageURL = pickImage(gi, raw, bases)
+	it.Categories = itemCategories(gi.Categories)
 	it.Published = firstTime(gi.PublishedParsed, gi.UpdatedParsed)
 	it.Updated = validTime(gi.UpdatedParsed)
 	// One entry per resolved URL: feeds that list the same file twice (an RSS
@@ -339,4 +343,35 @@ func pickImage(gi *gofeed.Item, rawHTML string, bases []string) string {
 		}
 	}
 	return sanitize.LeadImage(rawHTML, bases...)
+}
+
+// Category limits (backend additions 1.8): a feed can list dozens of tags.
+const (
+	MaxCategories    = 20
+	MaxCategoryRunes = 100
+)
+
+// itemCategories trims, drops blanks and repeats (case-insensitively) and caps the list.
+func itemCategories(in []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range in {
+		c = strings.Join(strings.Fields(c), " ")
+		if c == "" {
+			continue
+		}
+		if r := []rune(c); len(r) > MaxCategoryRunes {
+			c = string(r[:MaxCategoryRunes])
+		}
+		k := strings.ToLower(c)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, c)
+		if len(out) == MaxCategories {
+			break
+		}
+	}
+	return out
 }

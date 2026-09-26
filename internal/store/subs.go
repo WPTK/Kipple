@@ -327,6 +327,7 @@ func (d *DB) Unsubscribe(ctx context.Context, refs []FeedRef) (feedIDs []int64, 
 			if err := removeFeed(ctx, tx, id, true); err != nil {
 				return err
 			}
+			d.bumpFilters() // its filters cascade away
 		}
 		return nil
 	})
@@ -403,6 +404,7 @@ func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) error
 				return err
 			}
 			if n, _ := res.RowsAffected(); n > 0 {
+				d.bumpFilters() // the folder's filters cascade away
 				return dropFavorite(ctx, tx, FavFolder, oldID)
 			}
 			return nil
@@ -423,6 +425,7 @@ func (d *DB) DisableLabel(ctx context.Context, id int64) error {
 			return err
 		}
 		if n, _ := res.RowsAffected(); n > 0 {
+			d.bumpFilters() // the folder's filters cascade away
 			return dropFavorite(ctx, tx, FavFolder, id)
 		}
 		return nil

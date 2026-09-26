@@ -7,7 +7,7 @@ import (
 )
 
 // trimFeed applies design §5 to one feed inside a write transaction: rank the
-// non-starred, non-held items by sort_at DESC, id DESC, tombstone everything
+// non-starred, non-held items with real (not muted) items first, then by sort_at DESC, id DESC, tombstone everything
 // past N into trimmed_items (plus restore stubs when restore_days > 0) and
 // delete them. N comes from the feed override or retention.default; N = 0 skips.
 // firstNewID is the first id allocated by the surrounding fetch (MaxInt64 when
@@ -36,7 +36,7 @@ func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (i
 		{`INSERT INTO temp.trim_set(id)
 		    SELECT id FROM items
 		    WHERE feed_id = ?1 AND starred = 0 AND (retain_until IS NULL OR retain_until <= ?2)
-		    ORDER BY sort_at DESC, id DESC
+		    ORDER BY (muted_by IS NULL) DESC, sort_at DESC, id DESC
 		    LIMIT -1 OFFSET ?3`, []any{feedID, now, n}},
 	}
 	for _, s := range stmts {

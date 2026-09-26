@@ -69,8 +69,9 @@ func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64)
 			WHERE id IN (SELECT value FROM json_each(?1)) AND read = 0`, js)
 		return res, err
 	}
-	rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 0, read_at = NULL
-		WHERE id IN (SELECT value FROM json_each(?1)) AND read = 1 RETURNING id, feed_id`, js)
+	// Marking unread is also the un-mute: muted_by is cleared in the same UPDATE (design 5.2a).
+	rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 0, read_at = NULL, muted_by = NULL
+		WHERE id IN (SELECT value FROM json_each(?1)) AND (read = 1 OR muted_by IS NOT NULL) RETURNING id, feed_id`, js)
 	if err != nil {
 		return res, err
 	}
@@ -109,8 +110,9 @@ func SetStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, now 
 		res.Changed, err = scanIDs(rows)
 		return res, err
 	}
-	rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 1, starred_at = ?1
-		WHERE id IN (SELECT value FROM json_each(?2)) AND starred = 0 RETURNING id, feed_id`, now, js)
+	// A manual star also un-mutes (star beats mute); the item stays read.
+	rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 1, starred_at = ?1, muted_by = NULL
+		WHERE id IN (SELECT value FROM json_each(?2)) AND (starred = 0 OR muted_by IS NOT NULL) RETURNING id, feed_id`, now, js)
 	if err != nil {
 		return res, err
 	}
@@ -195,6 +197,7 @@ type MarkScope struct {
 	FeedID   int64
 	FolderID int64
 	Starred  bool // starred items only; the ledger is skipped (starred items are never in it)
+	Muted    bool // muted items only (view=muted); the ledger is skipped
 	// HoldCut > 0 leaves out items held back from the Reader API (HeldSQL): a client
 	// cannot have seen them, so its mark-all must not read them.
 	HoldCut int64

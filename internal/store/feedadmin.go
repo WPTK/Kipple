@@ -266,7 +266,7 @@ func sameNullInt(v any, cur sql.NullInt64) bool {
 // DeleteFeed removes a feed. Unless deleteStarred is set, its starred items
 // move to the archive feed first (design §6.9).
 func (d *DB) DeleteFeed(ctx context.Context, id int64, deleteStarred bool) error {
-	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var n int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ?", id).Scan(&n); err != nil {
 			return err
@@ -276,6 +276,10 @@ func (d *DB) DeleteFeed(ctx context.Context, id int64, deleteStarred bool) error
 		}
 		return removeFeed(ctx, tx, id, !deleteStarred)
 	})
+	if err == nil {
+		d.bumpFilters() // the feed's own filters cascade away with it
+	}
+	return err
 }
 
 // PurgeArchiveUnstarred deletes the archive feed's unstarred items and returns
@@ -514,6 +518,9 @@ func (d *DB) DeleteFolder(ctx context.Context, id int64) (moved []int64, err err
 		}
 		return dropFavorite(ctx, tx, FavFolder, id)
 	})
+	if err == nil {
+		d.bumpFilters() // the folder's own filters cascade away with it
+	}
 	return moved, err
 }
 

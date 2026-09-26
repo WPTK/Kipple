@@ -262,13 +262,16 @@ func (s *Scheduler) handleDone(r result) {
 		}
 	}
 
-	ids := make([]string, 0, min(len(r.newIDs), maxEventIDs))
-	for _, id := range r.newIDs[:min(len(r.newIDs), maxEventIDs)] {
+	// Muted items are read already and hidden from every list but the Muted view, so a client
+	// catching up on new items never needs their ids.
+	shown := withoutIDs(r.newIDs, r.mutedIDs)
+	ids := make([]string, 0, min(len(shown), maxEventIDs))
+	for _, id := range shown[:min(len(shown), maxEventIDs)] {
 		ids = append(ids, idStr(id))
 	}
 	ev := map[string]any{
 		"feed_id": idStr(r.feedID), "run_ids": runIDs, "trigger": r.trigger, "outcome": r.outcome,
-		"new_items": r.newItems, "new_item_ids": ids, "updated_items": r.updated, "trimmed_items": r.trimmed,
+		"new_items": r.newItems, "new_item_ids": ids, "muted_items": r.muted, "updated_items": r.updated, "trimmed_items": r.trimmed,
 		"error_class": r.errClass, "error": r.errMsg,
 	}
 	if !r.nextFetch.IsZero() {

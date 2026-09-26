@@ -278,6 +278,21 @@ func (s *Scheduler) pickFulltext(ctx context.Context, res *fetch.Result) []fetch
 	if len(cand) == 0 {
 		return nil
 	}
+	// Items a mute rule will mute are never extracted: drop them here so they do not take the
+	// per-fetch cap from real items (the commit's MutedIDs are what the queue finally skips).
+	if muted, err := s.db.MutedUIDs(ctx, res.Snap.ID, cand); err != nil {
+		s.log.Warn("sched: fulltext muted check", "feed", res.Snap.ID, "err", err)
+	} else if len(muted) > 0 {
+		kept := cand[:0]
+		for _, it := range cand {
+			if !muted[it.UID] {
+				kept = append(kept, it)
+			}
+		}
+		if cand = kept; len(cand) == 0 {
+			return nil
+		}
+	}
 	// Newest first; an item without a date is stamped with crawl time, so it is
 	// the newest. Ties keep document order.
 	sort.SliceStable(cand, func(a, b int) bool {

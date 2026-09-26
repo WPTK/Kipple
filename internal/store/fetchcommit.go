@@ -23,7 +23,15 @@ type CommitInfo struct {
 	New     int
 	Updated int
 	Trimmed int64
-	NewIDs  []int64 // ascending
+	NewIDs  []int64 // ascending; every new item, muted ones included
+	// MutedIDs are the new items a mute rule muted (already read, never queued for
+	// full text, left out of the fetch.done new_item_ids). Muted, MarkedRead and Starred
+	// count what the filters did to this fetch's new items (a match counts only when its
+	// action took effect).
+	MutedIDs   []int64
+	Muted      int
+	MarkedRead int
+	Starred    int
 	// Migrated is set when the commit rewrote feeds.url (design §4.7).
 	Migrated bool
 	// Stale is set when the feed's URL changed under the fetch and nothing (or,
@@ -45,6 +53,9 @@ type commitState struct {
 	seenTomb   int
 	trimmed    int64
 	notes      []string
+	mutedIDs   []int64
+	fMarked    int
+	fStarred   int
 	keep       bool
 	begun      bool
 	stale      bool // the feed's URL changed under the fetch; nothing was written
@@ -87,7 +98,8 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 
 	st := &commitState{firstNewID: maxInt64}
 	info := func() CommitInfo {
-		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale}
+		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale,
+			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred}
 	}
 	for i, ch := range chunks {
 		last := i == len(chunks)-1
@@ -216,6 +228,9 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	}
 	if st.initRead > 0 {
 		st.note(fmt.Sprintf("initial_read: %d", st.initRead), false)
+	}
+	if len(st.mutedIDs)+st.fMarked+st.fStarred > 0 {
+		st.note(fmt.Sprintf("filters: muted %d, marked_read %d, starred %d", len(st.mutedIDs), st.fMarked, st.fStarred), false)
 	}
 	if st.rekeyed > 0 || (res.Snap.RekeyPending && res.Outcome == fetch.OutcomeOK) {
 		st.note(fmt.Sprintf("rekeyed: %d", st.rekeyed), true)
@@ -346,16 +361,25 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 	}
 
 	if len(fresh) > 0 {
+		docTitle := ""
+		if res.Feed != nil {
+			docTitle = res.Feed.Title
+		}
+		fe, err := d.newIngestEval(ctx, tx, feedID, docTitle)
+		if err != nil {
+			return err
+		}
+		hits := map[int64]int{}
 		insItem, err := tx.PrepareContext(ctx, `INSERT INTO items
 			(id, feed_id, uid, url, title, author, image_url, word_count, content_hash, text_hash,
-			 published_at, updated_at, sort_at, read, read_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			 published_at, updated_at, sort_at, read, read_at, starred, starred_at, muted_by)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 		if err != nil {
 			return err
 		}
 		defer insItem.Close()
 		insContent, err := tx.PrepareContext(ctx,
-			`INSERT INTO item_content (item_id, content_html, content_text, enclosures_json) VALUES (?,?,?,?)`)
+			`INSERT INTO item_content (item_id, content_html, content_text, enclosures_json, categories_json) VALUES (?,?,?,?,?)`)
 		if err != nil {
 			return err
 		}
@@ -376,6 +400,28 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				read = 1
 				st.initRead++
 			}
+			var starred, mutedBy, starredAt any
+			if fe != nil {
+				v := fe.eval(it, read == 1, hits)
+				if v.read {
+					read = 1
+				}
+				if v.starred {
+					starred, starredAt = 1, now
+					st.fStarred++
+				} else {
+					starred = 0
+				}
+				if v.mutedBy != 0 {
+					mutedBy = v.mutedBy
+					st.mutedIDs = append(st.mutedIDs, id)
+				}
+				if v.marked {
+					st.fMarked++
+				}
+			} else {
+				starred = 0
+			}
 			var readAt, updatedAt any
 			if read == 1 {
 				readAt = now
@@ -384,7 +430,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				updatedAt = it.Updated.Unix()
 			}
 			if _, err := insItem.ExecContext(ctx, id, feedID, it.UID, it.URL, it.Title, it.Author, nullStr(it.ImageURL),
-				it.WordCount, it.ContentHash, it.TextHash, pub, updatedAt, sortAt, read, readAt); err != nil {
+				it.WordCount, it.ContentHash, it.TextHash, pub, updatedAt, sortAt, read, readAt, starred, starredAt, mutedBy); err != nil {
 				return err
 			}
 			var enc any
@@ -392,7 +438,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				b, _ := json.Marshal(it.Enclosures)
 				enc = string(b)
 			}
-			if _, err := insContent.ExecContext(ctx, id, it.ContentHTML, it.ContentText, enc); err != nil {
+			if _, err := insContent.ExecContext(ctx, id, it.ContentHTML, it.ContentText, enc, categoriesJSON(it.Categories)); err != nil {
 				return err
 			}
 			if st.firstNewID == maxInt64 {
@@ -403,6 +449,9 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 			}
 			st.lastID = id
 			st.newIDs = append(st.newIDs, id)
+		}
+		if err := writeHits(ctx, tx, hits, now); err != nil {
+			return err
 		}
 	}
 

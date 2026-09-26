@@ -61,6 +61,10 @@ type DB struct {
 
 	// ftAll caches fetch.fulltext_all; SetSettings invalidates it.
 	ftAll boolCache
+	// filterGen counts filter writes; fcache holds the rule set compiled at one generation.
+	filterGen atomic.Uint64
+	fcache    filterCache
+
 	// ftPend is the set of items queued for ingest extraction (the Reader hold).
 	ftPend ftPending
 

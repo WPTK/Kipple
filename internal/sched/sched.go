@@ -130,6 +130,8 @@ type result struct {
 	errClass  string
 	errMsg    string
 	newIDs    []int64
+	mutedIDs  []int64 // new items a filter muted (left out of the fetch.done ids)
+	muted     int
 	updated   int
 	trimmed   int64
 	newItems  int

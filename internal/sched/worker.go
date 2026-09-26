@@ -92,10 +92,11 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			err = cerr
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
 			out.migrated = ci.Migrated
+			out.mutedIDs, out.muted = ci.MutedIDs, ci.Muted
 			if cerr == nil {
 				// ci.NewIDs is what really committed: empty for a stale fetch, the
 				// early chunks for a large one cut short by a URL edit.
-				s.queueFulltext(f.snap.ID, cand, ci.NewIDs)
+				s.queueFulltext(f.snap.ID, cand, withoutIDs(ci.NewIDs, ci.MutedIDs))
 			}
 			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil && !ci.Stale {
 				cctx, cancel := s.commitCtx()
@@ -118,6 +119,24 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			out.commitFailed = true
 			s.log.Error("sched: commit", "feed", f.snap.ID, "err", err)
 			out.outcome, out.errClass, out.errMsg = fetch.OutcomeError, "internal", err.Error()
+		}
+	}
+	return out
+}
+
+// withoutIDs returns ids minus drop, keeping order. With nothing to drop it returns ids itself.
+func withoutIDs(ids, drop []int64) []int64 {
+	if len(drop) == 0 {
+		return ids
+	}
+	skip := make(map[int64]struct{}, len(drop))
+	for _, id := range drop {
+		skip[id] = struct{}{}
+	}
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := skip[id]; !ok {
+			out = append(out, id)
 		}
 	}
 	return out
