@@ -97,6 +97,7 @@ func TestMigration0004Constraints(t *testing.T) {
 func downgradeTo3(t *testing.T, e *env) {
 	t.Helper()
 	for _, s := range []string{
+		undo0007,
 		undo0006,
 		`DROP TABLE filters`, `DROP TABLE devices`, `DROP INDEX idx_items_muted`,
 		`ALTER TABLE items DROP COLUMN muted_was_read`, `ALTER TABLE items DROP COLUMN muted_by`,

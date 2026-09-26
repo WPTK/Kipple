@@ -77,7 +77,7 @@ func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64)
 		return res, err
 	}
 	if read {
-		rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 1, read_at = ?1
+		rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 1, read_at = ?1, state_changed_at = ?1
 			WHERE id IN (SELECT value FROM json_each(?2)) AND read = 0 RETURNING id, feed_id`, now, js)
 		if err != nil {
 			return res, err
@@ -90,15 +90,15 @@ func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64)
 		return res, err
 	}
 	// Marking unread is also the un-mute: muted_by is cleared in the same UPDATE (design 5.2a).
-	rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 0, read_at = NULL, muted_by = NULL, muted_was_read = NULL
-		WHERE id IN (SELECT value FROM json_each(?1)) AND (read = 1 OR muted_by IS NOT NULL) RETURNING id, feed_id`, js)
+	rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 0, read_at = NULL, muted_by = NULL, muted_was_read = NULL, state_changed_at = ?2
+		WHERE id IN (SELECT value FROM json_each(?1)) AND (read = 1 OR muted_by IS NOT NULL) RETURNING id, feed_id`, js, now)
 	if err != nil {
 		return res, err
 	}
 	if res.Changed, err = scanIDs(rows); err != nil {
 		return res, err
 	}
-	restored, err := restoreTrimmed(ctx, tx, ids, "unread", now)
+	restored, err := restoreTrimmed(ctx, tx, ids, "unread", now, now)
 	if err != nil {
 		return res, err
 	}
@@ -113,6 +113,13 @@ func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64)
 // SetStarred stars or unstars ids. Starring a trimmed id restores it from its
 // stub (a ledger id without a stub cannot be starred and is ignored).
 func SetStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, now int64) (StateResult, error) {
+	return SetStarredAt(ctx, tx, ids, starred, now, now)
+}
+
+// SetStarredAt is SetStarred with the star time (starred_at, and the restore time of a restored
+// item) given apart from now, for a client queue that replays a star made offline. state_changed_at
+// is always now, when the server applied the change: that is what a sync app passing ot has missed.
+func SetStarredAt(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, at, now int64) (StateResult, error) {
 	var res StateResult
 	if len(ids) == 0 {
 		return res, nil
@@ -122,8 +129,8 @@ func SetStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, now 
 		return res, err
 	}
 	if !starred {
-		rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 0, starred_at = NULL
-			WHERE id IN (SELECT value FROM json_each(?1)) AND starred = 1 RETURNING id, feed_id`, js)
+		rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 0, starred_at = NULL, state_changed_at = ?2
+			WHERE id IN (SELECT value FROM json_each(?1)) AND starred = 1 RETURNING id, feed_id`, js, now)
 		if err != nil {
 			return res, err
 		}
@@ -131,15 +138,15 @@ func SetStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, now 
 		return res, err
 	}
 	// A manual star also un-mutes (star beats mute); the item stays read.
-	rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 1, starred_at = ?1, muted_by = NULL, muted_was_read = NULL
-		WHERE id IN (SELECT value FROM json_each(?2)) AND (starred = 0 OR muted_by IS NOT NULL) RETURNING id, feed_id`, now, js)
+	rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 1, starred_at = ?1, state_changed_at = ?3, muted_by = NULL, muted_was_read = NULL
+		WHERE id IN (SELECT value FROM json_each(?2)) AND (starred = 0 OR muted_by IS NOT NULL) RETURNING id, feed_id`, at, js, now)
 	if err != nil {
 		return res, err
 	}
 	if res.Changed, err = scanIDs(rows); err != nil {
 		return res, err
 	}
-	restored, err := restoreTrimmed(ctx, tx, ids, "star", now)
+	restored, err := restoreTrimmed(ctx, tx, ids, "star", at, now)
 	if err != nil {
 		return res, err
 	}
@@ -153,8 +160,10 @@ func SetStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, now 
 // Only ledger rows trimmed within retention.restore_days qualify: the nightly
 // purge deletes older stubs, but until it runs a stub can outlive the window,
 // and a restore must not depend on when the purge last ran. mode is "star" or
-// "unread". It returns the ids actually restored (inserted into items).
-func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, now int64) ([]int64, error) {
+// "unread". now stamps starred_at (a replayed star passes the time it was made); changedAt is the real
+// time of the change: it decides the restore window, so a star replayed late cannot reach a stub the
+// window has already closed on, and it is the state_changed_at and read_at of the restored rows. It returns the ids actually restored (inserted into items).
+func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, now, changedAt int64) ([]int64, error) {
 	if mode != "star" && mode != "unread" {
 		return nil, fmt.Errorf("store: restore mode %q", mode)
 	}
@@ -166,7 +175,7 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 	if err != nil {
 		return nil, fmt.Errorf("restore: settings: %w", err)
 	}
-	cutoff := now - int64(set.RestoreDays)*86400
+	cutoff := changedAt - int64(set.RestoreDays)*86400
 	rows, err := tx.QueryContext(ctx, `SELECT t.id, t.feed_id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
 		WHERE t.id IN (SELECT value FROM json_each(?1)) AND t.trimmed_at >= ?2`, js, cutoff)
 	if err != nil {
@@ -180,20 +189,21 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 	if err != nil {
 		return nil, err
 	}
-	rows, err = tx.QueryContext(ctx, `INSERT INTO items (id, feed_id, uid, read, starred, read_at, starred_at, retain_until, fulltext_mode,
+	rows, err = tx.QueryContext(ctx, `INSERT INTO items (id, feed_id, uid, read, starred, read_at, starred_at, state_changed_at, retain_until, fulltext_mode,
 		                   published_at, updated_at, sort_at, word_count, content_hash, text_hash,
 		                   url, title, author, image_url, origin_title)
 		  SELECT t.id, t.feed_id, t.uid,
 		         CASE WHEN ?1 = 'unread' THEN 0 ELSE t.read END,
 		         CASE WHEN ?1 = 'star' THEN 1 ELSE 0 END,
-		         CASE WHEN ?1 = 'unread' THEN NULL WHEN t.read = 1 THEN ?2 END,
+		         CASE WHEN ?1 = 'unread' THEN NULL WHEN t.read = 1 THEN ?4 END,
 		         CASE WHEN ?1 = 'star' THEN ?2 END,
+		         ?4,
 		         CASE WHEN ?1 = 'unread' THEN ?2 + 7*86400 END,
 		         c.fulltext_mode, c.published_at, c.updated_at, c.sort_at, c.word_count, c.content_hash, c.text_hash,
 		         c.url, c.title, c.author, c.image_url, c.origin_title
 		  FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
 		  WHERE t.id IN (SELECT value FROM json_each(?3))
-		ON CONFLICT DO NOTHING RETURNING id, feed_id`, mode, now, rjs)
+		ON CONFLICT DO NOTHING RETURNING id, feed_id`, mode, now, rjs, changedAt)
 	if err != nil {
 		return nil, fmt.Errorf("store: restore trimmed: %w", err)
 	}
@@ -253,7 +263,7 @@ func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now in
 		held = " AND NOT " + HeldSQL(all)
 		itemArgs = append(append([]any{}, args...), sql.Named("hold_cut", scope.HoldCut), sql.Named("pending", cmp.Or(scope.HoldPending, "[]")))
 	}
-	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere+held, itemArgs...)
+	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now, state_changed_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere+held, itemArgs...)
 	if err != nil {
 		return 0, err
 	}

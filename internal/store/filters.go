@@ -731,8 +731,9 @@ func (d *DB) DeleteFilterWithin(ctx context.Context, id int64, unmute string, de
 				// (or one muted from the initial-read window) keeps its read state and read_at.
 				urows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = NULL, muted_was_read = NULL,
 					read = CASE WHEN COALESCE(muted_was_read, 1) = 1 THEN read ELSE 0 END,
-					read_at = CASE WHEN COALESCE(muted_was_read, 1) = 1 THEN read_at ELSE NULL END
-					WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by = ?2 RETURNING id, feed_id, read`, js, id)
+					read_at = CASE WHEN COALESCE(muted_was_read, 1) = 1 THEN read_at ELSE NULL END,
+					state_changed_at = CASE WHEN COALESCE(muted_was_read, 1) = 1 OR read = 0 THEN state_changed_at ELSE ?3 END
+					WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by = ?2 RETURNING id, feed_id, read`, js, id, d.clock.Now().Unix())
 				if err != nil {
 					return 0, err
 				}

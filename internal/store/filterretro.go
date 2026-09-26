@@ -447,7 +447,8 @@ func (d *DB) applyBatch(ctx context.Context, applied Filter, r filter.Rule, ids 
 		}
 		switch r.Action {
 		case filter.ActionMute:
-			rows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = ?1, muted_was_read = read, read_at = CASE WHEN read = 0 THEN ?2 ELSE read_at END, read = 1
+			rows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = ?1, muted_was_read = read, read_at = CASE WHEN read = 0 THEN ?2 ELSE read_at END,
+				state_changed_at = CASE WHEN read = 0 THEN ?2 ELSE state_changed_at END, read = 1
 				WHERE id IN (SELECT value FROM json_each(?3)) AND starred = 0 AND muted_by IS NULL RETURNING id, feed_id`, r.ID, now, js)
 			if err != nil {
 				return 0, err

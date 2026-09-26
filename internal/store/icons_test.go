@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// undo0006 is the first step of every downgrade helper: a schema-5 database has no feed_icon_checks.
+// undo0006 follows undo0007 in every downgrade helper: a schema-5 database has no feed_icon_checks.
 const undo0006 = `DROP TABLE feed_icon_checks`
 
 func TestMigration0006FeedIconChecks(t *testing.T) {

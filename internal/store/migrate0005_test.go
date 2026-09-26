@@ -15,6 +15,7 @@ import (
 func downgradeTo4(t *testing.T, e *env) {
 	t.Helper()
 	for _, s := range []string{
+		undo0007,
 		undo0006,
 		`DROP TABLE items_fts`,
 		`CREATE VIRTUAL TABLE items_fts USING fts5(title, author, content_text, content='item_search', content_rowid='id', tokenize='unicode61 remove_diacritics 2')`,

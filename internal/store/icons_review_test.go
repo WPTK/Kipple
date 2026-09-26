@@ -158,6 +158,7 @@ func TestMigration0006OnPopulatedSchema5(t *testing.T) {
 	require.NoError(t, err)
 	e.exec("UPDATE feeds SET last_success_at = ?, site_url = 'https://b.example.com/' WHERE id IN (?, ?)", now, a, b)
 	e.exec(`INSERT INTO feed_icons (feed_id, data, content_type, source_url, hash, fetched_at) VALUES (?, x'01', 'image/png', '', 'old', ?)`, a, now)
+	e.exec(undo0007)
 	e.exec(undo0006)
 	e.exec(`PRAGMA user_version = 5`)
 	path := scalar[string](t, e.db.Reader(), "SELECT file FROM pragma_database_list WHERE name = 'main'")
@@ -169,7 +170,7 @@ func TestMigration0006OnPopulatedSchema5(t *testing.T) {
 	e.db = db
 	v, err := db.Version(e.ctx)
 	require.NoError(t, err)
-	require.Equal(t, 6, v)
+	require.Equal(t, LatestVersion(), v)
 	snaps, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "backup", "pre-migration-5-*.db"))
 	require.Len(t, snaps, 1)
 	requireCleanIntegrity(t, db.Reader())

@@ -269,7 +269,7 @@ func (d *DB) RunAutoRead(ctx context.Context, o AutoReadOptions) (AutoReadResult
 			}
 			var changed []int64
 			_, err := d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
-				rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 1, read_at = ?5 WHERE id IN (
+				rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 1, read_at = ?5, state_changed_at = ?5 WHERE id IN (
 					SELECT id FROM items WHERE `+autoReadWhere+` ORDER BY id LIMIT ?6) RETURNING id, feed_id`,
 					t.id, o.Now.Unix(), lo, hi, o.Now.Unix(), o.Batch)
 				if err != nil {
