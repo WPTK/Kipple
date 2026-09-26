@@ -6,6 +6,10 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Developer tooling: native Go fuzz targets for the feed parser and charset repair, sanitizer (ingest and serve), OPML import, feed discovery, Reader API parameter reader, image proxy path and WebP cost model, backup extraction and settings validators, run by hand before a release with `scripts/fuzz.ps1` (not in CI); `docs/RELEASING.md` is the release checklist.
+
 ## [0.2.0] - 2026-09-26
 
 Everything since 0.2.0-alpha.2, including the alpha.3 and alpha.4 builds (both deployed to Host-A).
