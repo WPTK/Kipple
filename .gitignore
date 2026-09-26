@@ -27,3 +27,7 @@ web/dist/*
 
 # Local-only deployment notes (real LAN IP and hostnames); never commit
 /deploy-local/
+
+# Internal session notes, kept outside the public repository
+docs/HANDOFF-PHASE3.md
+docs/plan.md

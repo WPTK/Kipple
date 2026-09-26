@@ -6,6 +6,16 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-alpha.1] - 2026-09-26
+
+First public build. Adds the Blue Oak license and third-party notices, the container health check and hardened
+compose options, fuzz targets and a release checklist, restore and snapshot fixes, and local CI.
+
+## [0.3.0-alpha.1] - 2026-09-26
+
+First public build. Adds the Blue Oak license and third-party notices, the container health check and hardened
+compose options, fuzz targets and a release checklist, restore and snapshot fixes, and local CI.
+
 ### Added
 
 - The project is now licensed under the Blue Oak Model License 1.0.0 (`LICENSE`), with a generated `THIRD_PARTY_NOTICES.md` (bundled fonts, Go and npm dependencies; `scripts/gen-notices.mjs`). Both files ship in the image under `/licenses/`.
@@ -439,7 +449,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.1...HEAD
+[0.3.0-alpha.1]: https://github.com/WPTK/Kipple/compare/v0.2.0...v0.3.0-alpha.1
 [0.2.0]: https://github.com/WPTK/Kipple/compare/v0.2.0-alpha.2...v0.2.0
 [0.2.0-alpha.2]: https://github.com/WPTK/Kipple/compare/v0.2.0-alpha.1...v0.2.0-alpha.2
 [0.2.0-alpha.1]: https://github.com/WPTK/Kipple/compare/v0.1.0...v0.2.0-alpha.1

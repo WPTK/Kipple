@@ -1,5 +1,8 @@
 # Kipple: backups, recovery and phase 2 deploy
 
+Naming in these docs: **Host-A** is the machine that runs Kipple (the app host) and **Host-B** is the machine you run
+admin commands and backups from. Hostnames, addresses and paths are placeholders; substitute your own.
+
 For the owner to merge into the local `deploy-local/RUNBOOK.md` (that file is gitignored, so this one
 travels with the repo). Commands run from Host-B as `ssh host-a '...'`, in the compose project
 `host-a` at `/home/user/stack`. Never a bare `docker compose up` or `down`: always name `kipple`.

@@ -50,7 +50,7 @@ not localhost, name compose services explicitly).
 
 ## Deploy
 
-GitHub is the source of truth (private repo `Kipple`). Nothing deploys from an unpushed tree.
+GitHub is the source of truth (repo `WPTK/Kipple`). Nothing deploys from an unpushed tree.
 On Host-A: `ssh host-a 'cd /home/user/kipple && git pull && docker compose -f /home/user/stack/docker-compose.yml build kipple && docker compose -f /home/user/stack/docker-compose.yml up -d kipple'`.
 Service `kipple` in compose project `host-a`, named volume for `/data`, 10m x 3 log rotation.
 Public URL `https://rss.example.com` via Host-B's cloudflared; the Access bypass covers exactly the
