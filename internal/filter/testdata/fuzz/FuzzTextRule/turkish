@@ -1,0 +1,6 @@
+go test fuzz v1
+string("İstanbul")
+string("i̇stanbul ISTANBUL")
+bool(true)
+bool(true)
+bool(false)
