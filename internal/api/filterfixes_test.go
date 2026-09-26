@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -152,20 +153,35 @@ func TestStartApplyCountsOutsideTheLock(t *testing.T) {
 		t.Fatal("applyStatus waited on the candidate count")
 	}
 
-	// An edit of the rule cancels the starting run; the count finishes, and the start reports it.
-	patched := make(chan int, 1)
-	go func() {
-		code, _, _ := h.api(c, "PATCH", "/api/filters/"+id, `{"terms":["ham"]}`)
-		patched <- code
-	}()
-	time.Sleep(50 * time.Millisecond)
+	// A cancel from an edit (what cancelApply does first) lands during the count: once the count
+	// returns, the start reports it, and a waiting cancelApply is released.
+	h.srv.apply.mu.Lock()
+	cancel := h.srv.apply.cancelRun
+	h.srv.apply.mu.Unlock()
+	require.NotNil(t, cancel)
+	cancel(errApplyCancelled)
+	waited := make(chan struct{})
+	go func() { h.srv.cancelApply(mustID(t, id)); close(waited) }()
 	close(release)
 	res := <-started
 	require.Equal(t, http.StatusConflict, res.code, "%v", res.out)
 	require.Equal(t, "cancelled", res.out["error"])
-	require.Equal(t, 200, <-patched)
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelApply still waiting after the start ended")
+	}
 	require.Nil(t, h.srv.applyStatus())
 	require.Zero(t, h.count("SELECT count(*) FROM items WHERE muted_by IS NOT NULL"))
+	code, _, _ := h.api(c, "PATCH", "/api/filters/"+id, `{"terms":["ham"]}`)
+	require.Equal(t, 200, code)
+}
+
+func mustID(t *testing.T, s string) int64 {
+	t.Helper()
+	n, err := strconv.ParseInt(s, 10, 64)
+	require.NoError(t, err)
+	return n
 }
 
 // An empty field list is title only: stored and served as ["title"], so the client draws the highlight.
