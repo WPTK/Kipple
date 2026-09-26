@@ -35,9 +35,10 @@ const (
 )
 
 type fakeSched struct {
-	mu       sync.Mutex
-	refreshN int
-	imported [][]int64
+	mu         sync.Mutex
+	refreshN   int
+	refreshErr error // what RefreshAll fails with, when set
+	imported   [][]int64
 
 	submits      []sched.Priority
 	reply        sched.Reply // what Submit answers at once, unless hang
@@ -90,6 +91,9 @@ func (f *fakeSched) RefreshAll() (sched.RunInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.refreshN++
+	if f.refreshErr != nil {
+		return sched.RunInfo{}, f.refreshErr
+	}
 	return sched.RunInfo{RunID: 42, Kind: "manual", Total: 3}, nil
 }
 
