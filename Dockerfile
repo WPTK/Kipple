@@ -32,10 +32,21 @@ RUN mkdir -p /data && chown 65532:65532 /data
 
 # --- runtime ----------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot
+ARG VERSION=dev
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="Kipple" \
+      org.opencontainers.image.description="Self-hosted RSS reader with a Google Reader API" \
+      org.opencontainers.image.source="https://github.com/WPTK/Kipple" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.licenses="NOASSERTION"
 COPY --from=build /kipple /kipple
 COPY --from=build --chown=65532:65532 /data /data
 COPY --chown=65532:65532 LICENSE THIRD_PARTY_NOTICES.md /licenses/
 EXPOSE 7080
 VOLUME /data
+# Runs the binary's own probe (no shell or curl in distroless).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 CMD ["/kipple","healthcheck"]
+STOPSIGNAL SIGTERM
 ENTRYPOINT ["/kipple"]
 CMD ["serve"]

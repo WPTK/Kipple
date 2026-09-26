@@ -81,11 +81,13 @@ func run(args []string) error {
 		return runRestore(args[1:])
 	case "import":
 		return runImport(args[1:])
+	case "healthcheck":
+		return runHealthcheck(args[1:])
 	case "version":
 		fmt.Println(version)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (want serve, import, api-password, password, restore or version)", cmd)
+		return fmt.Errorf("unknown command %q (want serve, healthcheck, import, api-password, password, restore or version)", cmd)
 	}
 }
 
