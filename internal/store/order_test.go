@@ -68,8 +68,8 @@ func TestOrderQueryPlans(t *testing.T) {
 			}
 		}
 		for i := 0; i < 900; i++ {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, word_count, uid, content_hash, text_hash)
-				VALUES (?,?,?,?,?,?,?,?,'c','t')`, 1_700_000_000_000_000+int64(i)*1000, 1+i%3, i%4/3, b2i(i%50 == 0), i, i/2, i*10, fmt.Sprintf("u%d", i)); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, word_count, uid, content_hash, text_hash, muted_by)
+				VALUES (?,?,?,?,?,?,?,?,'c','t',CASE WHEN ?9 THEN 5 END)`, 1_700_000_000_000_000+int64(i)*1000, 1+i%3, i%4/3, b2i(i%50 == 0), i, i/2, i*10, fmt.Sprintf("u%d", i), i%37 == 0 && i%50 != 0); err != nil {
 				return err
 			}
 		}
@@ -104,6 +104,8 @@ func TestOrderQueryPlans(t *testing.T) {
 				{"all", CardQuery{View: "all"}, "idx_items_sort"},
 				{"feed", CardQuery{View: "all", FeedID: 2}, "idx_items_feed_sort"},
 				{"starred", CardQuery{View: "starred"}, "idx_items_"},
+				{"muted", CardQuery{View: "muted"}, "idx_items_muted"},
+				{"muted in a feed", CardQuery{View: "muted", FeedID: 2}, "idx_items_"},
 				{"reading time", CardQuery{View: "unread", MinMinutes: 2, MaxMinutes: 9}, "idx_items_unread_sort"},
 			} {
 				q := tc.q
@@ -121,7 +123,7 @@ func TestOrderQueryPlans(t *testing.T) {
 		for _, oldest := range []bool{false, true} {
 			for _, above := range []bool{false, true} {
 				b := &Bound{Oldest: oldest, Above: above, SortAt: 100, ID: 1_700_000_000_100_000}
-				for _, sc := range []MarkScope{{}, {FeedID: 2}, {FolderID: 7}, {Starred: true}} {
+				for _, sc := range []MarkScope{{}, {FeedID: 2}, {FolderID: 7}, {Starred: true}, {Muted: true}} {
 					sel, args, _, _, ok := markSelectSQL(sc, MarkFilter{Bound: b}, 1_700_000_000_900_000)
 					require.True(t, ok)
 					p := plan(sel, args)

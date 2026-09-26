@@ -5,6 +5,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -94,6 +95,8 @@ type Options struct {
 	Runner *ftrun.Runner
 	// CountsInterval is the minimum gap between `counts` events (default 1 s).
 	CountsInterval time.Duration
+	// PreviewBudget bounds one filter preview scan (default 5 s); tests shorten it.
+	PreviewBudget time.Duration
 	// Now defaults to the wall clock. Heartbeat defaults to 15 s.
 	Now       func() time.Time
 	Heartbeat time.Duration
@@ -120,6 +123,8 @@ type Server struct {
 	imgHSecret  []byte    // the secret imgH was built with
 	imgH        *imgproxy.Handler
 	imgMode     atomic.Pointer[string] // cached imgproxy.mode for the CSP; refreshed on PATCH
+
+	apply applyState // the retroactive filter apply run
 
 	pubMu  sync.Mutex // serializes query+publish so counts events never arrive out of order
 	cmu    sync.Mutex // guards the counts coalescer
@@ -169,6 +174,7 @@ func New(opt Options) *Server {
 	if s.rec == nil {
 		s.rec = stats.New(s.now)
 	}
+	s.apply.ctx, s.apply.stop = context.WithCancel(context.Background())
 	if s.opt.CountsInterval <= 0 {
 		s.opt.CountsInterval = time.Second
 	}
@@ -224,6 +230,12 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("PATCH /api/folders/{id}", s.authed(s.patchFolder))
 	handle("DELETE /api/folders/{id}", s.authed(s.deleteFolder))
 	handle("GET /api/health/feeds/{id}/log", s.authed(s.feedLog))
+	handle("GET /api/filters", s.authed(s.listFilters))
+	handle("POST /api/filters", s.authed(s.createFilter))
+	handle("POST /api/filters/preview", s.authed(s.previewFilter))
+	handle("PATCH /api/filters/{id}", s.authed(s.patchFilter))
+	handle("DELETE /api/filters/{id}", s.authed(s.deleteFilter))
+	handle("POST /api/filters/{id}/apply", s.authed(s.applyFilterRoute))
 	handle("/api/", s.authed(func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 	}))

@@ -300,7 +300,7 @@ func TestMarkReadBoundValidation(t *testing.T) {
 		{"anchor sort_at missing", map[string]any{"scope": all, "read": true, "bound": with("anchor", map[string]any{"id": sid(id)})}},
 		{"anchor bad id", map[string]any{"scope": all, "read": true, "bound": with("anchor", map[string]any{"sort_at": 1, "id": "x"})}},
 		{"unread with bound", map[string]any{"scope": all, "read": false, "bound": ok}},
-		{"muted view", map[string]any{"scope": map[string]any{"all": true, "view": "muted"}, "read": true}},
+		{"unknown view", map[string]any{"scope": map[string]any{"all": true, "view": "archived"}, "read": true}},
 		{"bad minutes", map[string]any{"scope": map[string]any{"all": true, "min_minutes": 9, "max_minutes": 2}, "read": true}},
 		{"negative minutes", map[string]any{"scope": map[string]any{"all": true, "min_minutes": -1}, "read": true}},
 	} {

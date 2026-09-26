@@ -1013,7 +1013,8 @@ func TestBootstrap(t *testing.T) {
 	require.Equal(t, map[string]any{"username": testUser, "api_enabled": false}, body["user"])
 	require.EqualValues(t, h.clk.Now().Unix(), body["server_time"])
 	require.Equal(t, "", body["version"])
-	require.Equal(t, map[string]any{"unread": float64(3), "starred": float64(1)}, body["counts"])
+	require.Equal(t, map[string]any{"unread": float64(3), "starred": float64(1), "muted": float64(0)}, body["counts"])
+	require.Equal(t, []any{}, body["highlights"])
 	require.Equal(t, []any{}, body["warnings"])
 
 	set := body["settings"].(map[string]any)

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-
-	"github.com/WPTK/kipple/internal/sched"
 )
 
 const (
@@ -51,6 +49,16 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
+	muted, err := s.db.MutedCount(ctx)
+	if err != nil {
+		fail(err)
+		return
+	}
+	highlights, err := s.db.Highlights(ctx)
+	if err != nil {
+		fail(err)
+		return
+	}
 	now := s.now()
 	warnings := []warning{}
 	if skew := s.db.IDs().Skew(); skew > clockWarnAfter {
@@ -65,16 +73,21 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	if unread > unreadWarnAt {
 		warnings = append(warnings, warning{"unread_cap", "Unread total is above 10,000: Reeder only syncs the newest 10,000 unread ids."})
 	}
-	runs, _ := s.opt.Sched.Status()
-	if runs == nil {
-		runs = []sched.RunStatus{}
+	schedRuns, _ := s.opt.Sched.Status()
+	runs := make([]any, 0, len(schedRuns)+1)
+	for _, run := range schedRuns {
+		runs = append(runs, run)
+	}
+	if ar := s.applyStatus(); ar != nil {
+		runs = append(runs, ar)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":        map[string]any{"username": acct.Username, "api_enabled": acct.APIPasswordHash != ""},
 		"settings":    settings,
 		"folders":     folders,
 		"feeds":       feeds,
-		"counts":      map[string]int64{"unread": unread, "starred": starred},
+		"counts":      map[string]int64{"unread": unread, "starred": starred, "muted": muted},
+		"highlights":  highlights,
 		"runs":        runs,
 		"warnings":    warnings,
 		"server_time": now.Unix(),

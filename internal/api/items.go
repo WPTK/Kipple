@@ -104,7 +104,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 			if q.Query != "" {
 				q.View = "all" // a search spans read items unless the client narrows it
 			}
-		case "unread", "all", "starred":
+		case "unread", "all", "starred", "muted":
 		default:
 			writeError(w, http.StatusBadRequest, "bad_request")
 			return
@@ -381,7 +381,9 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 		case "", "unread", "all":
 		case "starred":
 			scope.Starred = true
-		default: // "muted" arrives with the filters engine
+		case "muted":
+			scope.Muted = true
+		default:
 			bad()
 			return
 		}
@@ -563,7 +565,12 @@ func (s *Server) publishCounts() {
 	for id, n := range perFeed {
 		feeds[strconv.FormatInt(id, 10)] = n
 	}
-	s.opt.Hub.Publish("counts", map[string]any{"unread_total": unread, "feeds": feeds})
+	muted, err := s.db.MutedCount(ctx)
+	if err != nil {
+		s.log.Error("api: counts", "err", err)
+		return
+	}
+	s.opt.Hub.Publish("counts", map[string]any{"unread_total": unread, "muted": muted, "feeds": feeds})
 }
 
 // ---- POST /api/stats/events ----
@@ -620,6 +627,8 @@ func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 
 // Close cancels a pending trailing `counts` event.
 func (s *Server) Close() {
+	s.apply.stop()
+	s.apply.wg.Wait()
 	s.backups.Close()
 	s.cmu.Lock()
 	defer s.cmu.Unlock()

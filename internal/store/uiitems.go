@@ -46,6 +46,23 @@ type Card struct {
 	// to show as the item's source: COALESCE(origin_title, its feed's title).
 	OriginTitle *string `json:"origin_title"`
 	Source      string  `json:"source"`
+	// MutedBy is the id (a string) of the filter that muted the item, null when it is
+	// not muted. MutedByName is that filter's name, null when the filter no longer exists
+	// (the item is then "muted by a deleted filter").
+	MutedBy     *string `json:"muted_by"`
+	MutedByName *string `json:"muted_by_name"`
+}
+
+// setMuted fills the muted fields from the raw columns.
+func (c *Card) setMuted(by sql.NullInt64, name sql.NullString) {
+	if !by.Valid {
+		return
+	}
+	s := strconv.FormatInt(by.Int64, 10)
+	c.MutedBy = &s
+	if name.Valid {
+		c.MutedByName = &name.String
+	}
 }
 
 // setSource fills Source from the raw origin_title and feed title columns.
@@ -76,7 +93,8 @@ func excerpt(text string) string {
 	return s
 }
 
-// CardQuery selects a page of cards. View is "unread", "all" or "starred".
+// CardQuery selects a page of cards. View is "unread", "all" (muted items excluded),
+// "starred" or "muted" (only muted items).
 // IDs, when non-empty, overrides everything else (SSE catch-up).
 type CardQuery struct {
 	View     string
@@ -185,17 +203,20 @@ func ParseCursor(s string) (Cursor, error) {
 
 const cardCols = `i.id, i.feed_id, i.title, i.url, i.author, substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url,
 	i.published_at, i.sort_at, i.read, i.starred, i.word_count,
-	i.origin_title, (SELECT COALESCE(NULLIF(custom_title, ''), NULLIF(title, ''), url) FROM feeds WHERE id = i.feed_id)`
+	i.origin_title, (SELECT COALESCE(NULLIF(custom_title, ''), NULLIF(title, ''), url) FROM feeds WHERE id = i.feed_id),
+	i.muted_by, (SELECT name FROM filters WHERE id = i.muted_by)`
 
 func scanCard(rows interface{ Scan(...any) error }) (Card, error) {
 	var c Card
 	var text string
-	var img, origin, feedTitle sql.NullString
+	var img, origin, feedTitle, mutedName sql.NullString
+	var mutedBy sql.NullInt64
 	var read, starred int
-	if err := rows.Scan(&c.ID, &c.FeedID, &c.Title, &c.URL, &c.Author, &text, &img, &c.PublishedAt, &c.SortAt, &read, &starred, &c.WordCount, &origin, &feedTitle); err != nil {
+	if err := rows.Scan(&c.ID, &c.FeedID, &c.Title, &c.URL, &c.Author, &text, &img, &c.PublishedAt, &c.SortAt, &read, &starred, &c.WordCount, &origin, &feedTitle, &mutedBy, &mutedName); err != nil {
 		return c, err
 	}
 	c.setSource(origin, feedTitle)
+	c.setMuted(mutedBy, mutedName)
 	c.Excerpt = excerpt(text)
 	if img.Valid && img.String != "" {
 		c.Image = &img.String // raw here; internal/api rewrites it through the image proxy at serve time (design §7.4)
@@ -269,6 +290,10 @@ func listCardsSQL(q CardQuery) (string, []any, int, error) {
 			where = append(where, "i.read = 0") // literal, so the partial indexes are usable
 		case "starred":
 			where = append(where, "i.starred = 1")
+		case "all":
+			where = append(where, "i.muted_by IS NULL") // muted items live in the Muted view
+		case "muted":
+			where = append(where, "i.muted_by IS NOT NULL") // idx_items_muted
 		}
 		if q.FeedID != 0 {
 			where = append(where, "i.feed_id = ?")
@@ -326,7 +351,8 @@ type ItemDetail struct {
 // ok is false when neither exists.
 func (d *DB) GetItem(ctx context.Context, id, now int64) (det ItemDetail, ok bool, err error) {
 	var text string
-	var img, enc, ftHTML, ftErr, origin, feedTitle sql.NullString
+	var img, enc, ftHTML, ftErr, origin, feedTitle, mutedName sql.NullString
+	var mutedBy sql.NullInt64
 	var read, starred int
 	var mode sql.NullInt64
 	var ftEff int
@@ -336,11 +362,12 @@ func (d *DB) GetItem(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 			i.fulltext_mode, `+FulltextModeSQL("i.fulltext_mode", "f.fulltext", d.FulltextAll(ctx))+`, ft.item_id, ft.content_html, ft.error
 		FROM items i LEFT JOIN item_content c ON c.item_id = i.id JOIN feeds f ON f.id = i.feed_id
 		LEFT JOIN item_fulltext ft ON ft.item_id = i.id WHERE i.id = ?`, id).
-		Scan(&det.ID, &det.FeedID, &det.Title, &det.URL, &det.Author, &text, &img, &det.PublishedAt, &det.SortAt, &read, &starred, &det.WordCount, &origin, &feedTitle,
+		Scan(&det.ID, &det.FeedID, &det.Title, &det.URL, &det.Author, &text, &img, &det.PublishedAt, &det.SortAt, &read, &starred, &det.WordCount, &origin, &feedTitle, &mutedBy, &mutedName,
 			&det.ContentHTML, &enc, &det.Feed.ID, &det.Feed.Title, &det.Feed.SiteURL, &mode, &ftEff, &ftRow, &ftHTML, &ftErr)
 	switch {
 	case err == nil:
 		det.setSource(origin, feedTitle)
+		det.setMuted(mutedBy, mutedName)
 		det.Read, det.Starred = read == 1, starred == 1
 		det.Fulltext.Effective = ftEff
 		if mode.Valid {
@@ -480,7 +507,7 @@ func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilte
 	if err != nil {
 		return res, err
 	}
-	if !scope.Starred && !f.any() {
+	if !scope.Starred && !scope.Muted && !f.any() {
 		lrows, err := tx.QueryContext(ctx, "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :max"+feedWhere+" RETURNING id, feed_id", base...)
 		if err != nil {
 			return res, fmt.Errorf("store: mark scope ledger: %w", err)
@@ -499,6 +526,9 @@ func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64) (sel string, args
 	args = []any{sql.Named("max", maxID)}
 	if scope.Starred {
 		where = " AND starred = 1"
+	}
+	if scope.Muted {
+		where += " AND muted_by IS NOT NULL" // muted items are read already: this marks nothing, by invariant
 	}
 	switch {
 	case scope.FeedID != 0:
