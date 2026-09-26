@@ -16,7 +16,7 @@ import {
   type Step,
 } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
-import { SCHEMES } from "@/theme/schemes";
+import { useAllowedSchemes } from "@/theme/serverThemes";
 import { themeStore, updateTheme } from "@/theme/theme";
 import { Segmented } from "@/ui/segmented";
 import { Disclosure, inputCls } from "@/ui/kit";
@@ -77,6 +77,7 @@ export function DensityPreview({ list, reading }: { list: Step; reading: Step })
 export function ThemeSelect() {
   const t = useStore(themeStore);
   const id = useId();
+  const schemes = useAllowedSchemes();
   const meta = useMeta("ui.theme", "Theme");
   const value = t.mode === "follow" ? "__follow" : t.fixed;
   const groups = [
@@ -99,7 +100,7 @@ export function ThemeSelect() {
         <option value="__follow">Match my device</option>
         {groups.map(([g, label]) => (
           <optgroup key={g} label={label}>
-            {SCHEMES.filter((s) => s.group === g).map((s) => (
+            {schemes.filter((s) => s.group === g).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
@@ -234,7 +235,7 @@ export function ReadingMenu({ className }: { className?: string }) {
           <FontSelect />
           <TextSizeControl />
           <DensityControl preview={false} />
-          <p className="text-xs text-fg2">Saved on this device only.</p>
+          <p className="text-xs text-fg2">Saved for this device.</p>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

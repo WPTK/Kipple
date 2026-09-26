@@ -1,9 +1,8 @@
 import { createStore, useStore } from "./store";
 
 // Per-device layout, ordering and first-run flags. Everything device-scoped that is
-// not appearance lives here, behind ONE storage seam (`storage` below). Today it is
-// localStorage; when the server-side per-device profile API lands (design 7.x
-// `devices`), only `storage.load/save` change.
+// not appearance lives here, behind ONE storage seam (`storage` below): localStorage is the
+// instant-paint cache of the server's device profile, which lib/deviceSync.ts keeps in step.
 
 export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines"] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
@@ -178,6 +177,12 @@ export function updateDevicePrefs(patch: Partial<DevicePrefs>): void {
     storage.save(next);
     return next;
   });
+}
+
+/** Replace everything (the server profile was applied), keeping what is only ever local. */
+export function replaceDevicePrefs(next: DevicePrefs): void {
+  devicePrefsStore.set(next);
+  storage.save(next);
 }
 
 /** Test helper: back to factory defaults. */

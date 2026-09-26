@@ -44,7 +44,7 @@ export function parseScopeKey(key: string | null | undefined): Scope {
   if (!key) return scope;
   for (const [i, part] of key.split("|").entries()) {
     if (i === 0) {
-      if (part === "unread" || part === "all" || part === "starred") scope.view = part;
+      if (part === "unread" || part === "all" || part === "starred" || part === "muted") scope.view = part;
       continue;
     }
     const idx = part.indexOf(":");
@@ -111,10 +111,24 @@ export function flattenItems(data: InfiniteData<ItemsPage> | undefined): Card[] 
   return data?.pages.flatMap((p) => p.items) ?? [];
 }
 
-type Patch = Partial<Pick<Card, "read" | "starred">>;
+export type ItemPatch = Partial<Pick<Card, "read" | "starred" | "muted_by" | "muted_by_name">>;
+
+/** Take these ids out of the cached lists whose scope key passes `match` (a Muted list after a restore, All after a mute). */
+export function dropFromLists(qc: QueryClient, ids: string[], match: (scopeKey: string) => boolean): void {
+  const set = new Set(ids);
+  qc.setQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll, predicate: (q) => match(String(q.queryKey[1])) }, (old) => {
+    if (!old || !old.pages.some((p) => p.items.some((i) => set.has(i.id)))) return old;
+    return { ...old, pages: old.pages.map((p) => ({ ...p, items: p.items.filter((i) => !set.has(i.id)) })) };
+  });
+}
+
+/** Mark the cached lists whose scope key passes `match` stale without refetching: they reload when next shown. */
+export function invalidateLists(qc: QueryClient, match: (scopeKey: string) => boolean): void {
+  void qc.invalidateQueries({ queryKey: keys.itemsAll, predicate: (q) => match(String(q.queryKey[1])), refetchType: "none" });
+}
 
 /** Apply a state patch to every cached list and detail that holds these ids. */
-export function patchItems(qc: QueryClient, ids: string[], patch: Patch): void {
+export function patchItems(qc: QueryClient, ids: string[], patch: ItemPatch): void {
   const set = new Set(ids);
   qc.setQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll }, (old) => {
     if (!old) return old;

@@ -85,6 +85,8 @@ function base(extra: Parameters<typeof mockFetch>[0] = {}) {
     "GET /api/bootstrap": () => json(bootstrap),
     "GET /api/items": () => json(pageOf([card(1)])),
     "GET /api/settings": () => json(settingsBody()),
+    "GET /api/filters": () => json({ filters: [] }),
+    "GET /api/devices": () => json({ devices: [] }),
     ...extra,
   });
 }

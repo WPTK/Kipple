@@ -3,7 +3,8 @@ import { Collapsible } from "radix-ui";
 import { ChevronDown } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/cn";
-import { SCHEMES, schemeById, type Scheme } from "./schemes";
+import { schemeById, type Scheme } from "./schemes";
+import { useAllowedSchemes } from "./serverThemes";
 import { themeStore, updateTheme } from "./theme";
 
 const GROUP_LABEL: Record<Scheme["group"], string> = {
@@ -56,7 +57,7 @@ function Fold({ label, open, onOpenChange, children }: { label: string; open: bo
   );
 }
 
-function SchemeSelect({ label, value, onChange }: { label: string; value: string; onChange: (id: string) => void }) {
+function SchemeSelect({ label, value, onChange, schemes }: { label: string; value: string; onChange: (id: string) => void; schemes: Scheme[] }) {
   const id = useId();
   const groups = ["light", "color", "dark", "accessibility"] as const;
   return (
@@ -72,7 +73,7 @@ function SchemeSelect({ label, value, onChange }: { label: string; value: string
       >
         {groups.map((g) => (
           <optgroup key={g} label={GROUP_LABEL[g]}>
-            {SCHEMES.filter((s) => s.group === g).map((s) => (
+            {schemes.filter((s) => s.group === g).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
@@ -91,9 +92,10 @@ function SchemeSelect({ label, value, onChange }: { label: string; value: string
  */
 export function ThemePicker() {
   const t = useStore(themeStore);
-  const featured = SCHEMES.filter((s) => s.featured);
-  const more = SCHEMES.filter((s) => !s.featured && s.group !== "accessibility");
-  const access = SCHEMES.filter((s) => s.group === "accessibility");
+  const schemes = useAllowedSchemes();
+  const featured = schemes.filter((s) => s.featured);
+  const more = schemes.filter((s) => !s.featured && s.group !== "accessibility");
+  const access = schemes.filter((s) => s.group === "accessibility");
   const inMore = t.mode === "fixed" && more.some((s) => s.id === t.fixed);
   const inAccess = t.mode === "fixed" && access.some((s) => s.id === t.fixed);
   const [moreOpen, setMoreOpen] = useState(inMore);
@@ -129,8 +131,8 @@ export function ThemePicker() {
 
       {t.mode === "follow" ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <SchemeSelect label="Day theme" value={t.day} onChange={(id) => updateTheme({ day: id })} />
-          <SchemeSelect label="Night theme" value={t.night} onChange={(id) => updateTheme({ night: id })} />
+          <SchemeSelect label="Day theme" value={t.day} onChange={(id) => updateTheme({ day: id })} schemes={schemes} />
+          <SchemeSelect label="Night theme" value={t.night} onChange={(id) => updateTheme({ night: id })} schemes={schemes} />
         </div>
       ) : null}
 

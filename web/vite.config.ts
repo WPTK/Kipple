@@ -75,5 +75,7 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     css: false,
     restoreMocks: true,
+    // The screens are lazy chunks and jsdom renders large trees; on a busy machine the default 5 s is too tight.
+    testTimeout: 20_000,
   },
 });

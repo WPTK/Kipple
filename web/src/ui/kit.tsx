@@ -13,6 +13,7 @@ export function Modal({
   description,
   children,
   footer,
+  size = "md",
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -20,13 +21,18 @@ export function Modal({
   description?: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
+  /** lg: room for a form with a preview beside its fields (still a bottom sheet on a phone). */
+  size?: "md" | "lg";
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
         <Dialog.Content
-          className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-lg flex-col rounded-t-2xl border border-line bg-bg text-fg shadow-xl min-[640px]:inset-y-auto min-[640px]:top-[6vh] min-[640px]:bottom-auto min-[640px]:rounded-2xl"
+          className={cn(
+            "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full flex-col rounded-t-2xl border border-line bg-bg text-fg shadow-xl min-[640px]:inset-y-auto min-[640px]:top-[6vh] min-[640px]:bottom-auto min-[640px]:rounded-2xl",
+            size === "lg" ? "max-w-2xl min-[640px]:top-[3vh]" : "max-w-lg",
+          )}
         >
           <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-3">
             <Dialog.Title className="text-lg font-bold">{title}</Dialog.Title>

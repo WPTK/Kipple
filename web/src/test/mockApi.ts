@@ -18,6 +18,8 @@ export function card(n: number, over: Partial<Card> = {}): Card {
     reading_minutes: 3,
     origin_title: null,
     source: "Example Feed",
+    muted_by: null,
+    muted_by_name: null,
     ...over,
   };
 }

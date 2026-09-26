@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { ApiError, authStore } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
+import { hydrateDevice } from "@/lib/deviceSync";
 import { useStore } from "@/lib/store";
 import { LoginScreen } from "@/screens/LoginScreen";
 import { ReaderRoute } from "@/screens/ReaderRoute";
@@ -41,6 +42,12 @@ function Gate() {
   useEffect(() => {
     if (auth === "out") qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
   }, [auth, qc]);
+
+  // The device profile is the truth for per-device settings; the local cache is reconciled with it once.
+  const device = boot.data?.device;
+  useEffect(() => {
+    hydrateDevice(device);
+  }, [device]);
 
   if (auth === "out") return <LoginScreen />;
   if (boot.isPending) {

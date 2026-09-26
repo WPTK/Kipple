@@ -258,7 +258,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   // "Mark as read while scrolling" (Accessibility, off by default): rows that have scrolled past the top of
   // the list are marked read once scrolling settles. Goes through mark-read with reason "scroll": no stats,
   // no undo toast, and never on Starred or search.
-  const markOnScroll = boot.data?.settings?.["ui.mark_read_on_scroll"] === true && scope.view !== "starred" && !scope.q;
+  const markOnScroll = prefs.markReadOnScroll && scope.view !== "starred" && !scope.q;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const sentByScroll = useRef(memoryFor(key).sentByScroll);

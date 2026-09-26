@@ -2,7 +2,8 @@ import { useEffect } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, authStore } from "./client";
-import { countsGuardLeft, keys, patchItems } from "./queries";
+import { filtersKey } from "./filters";
+import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type ItemPatch } from "./queries";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
 import {
@@ -40,12 +41,15 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
   switch (ev.type) {
     case "run.start": {
       const id = String(ev.data.run_id);
-      return { ...s, runs: { ...s.runs, [id]: { id, kind: ev.data.kind, done: 0, total: ev.data.total, new_items: 0, errors: 0 } } };
+      const filter = ev.data.filter_id !== undefined ? { filter_id: String(ev.data.filter_id) } : {};
+      return { ...s, runs: { ...s.runs, [id]: { id, kind: ev.data.kind, done: 0, total: ev.data.total, new_items: 0, errors: 0, ...filter } } };
     }
     case "run.progress": {
       const id = String(ev.data.run_id);
       const cur = s.runs[id];
-      return { ...s, runs: { ...s.runs, [id]: { ...ev.data, id, kind: cur?.kind ?? "manual" } } };
+      // Only a filter apply reports `changed`: a progress event for a run we never saw start is still not a refresh.
+      const kind = cur?.kind ?? (ev.data.changed !== undefined ? "filter_apply" : "manual");
+      return { ...s, runs: { ...s.runs, [id]: { ...(cur?.filter_id ? { filter_id: cur.filter_id } : {}), ...ev.data, id, kind } } };
     }
     case "run.done": {
       const { [String(ev.data.run_id)]: _done, ...rest } = s.runs;
@@ -66,6 +70,7 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
       return { ...s, pendingByFeed: {}, pendingIds: {} };
     case "fulltext.ready":
     case "feed.changed":
+    case "filters.changed":
     case "items.state":
     case "counts":
       return s; // cache-only events
@@ -74,8 +79,8 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
 
 const PENDING_IDS_CAP = 500;
 
-/** Only refresh-like runs (manual, import) are "refreshing"; the retention sweep is housekeeping. */
-export const isRefreshKind = (kind: string): boolean => kind !== "retention";
+/** Only refresh-like runs (manual, import) are "refreshing"; the retention sweep and a filter apply are not. */
+export const isRefreshKind = (kind: string): boolean => kind !== "retention" && kind !== "filter_apply";
 
 /**
  * New items that would appear in this list: the feeds the scope includes (a feed, a folder's feeds,
@@ -123,8 +128,14 @@ const omit = <T,>(o: Record<string, T>, ids: string[]) => Object.fromEntries(Obj
 export function announcementFor(ev: ServerEvent, runKind?: string): string | null {
   const plural = (n: number) => `${n} new article${n === 1 ? "" : "s"}`;
   if (ev.type === "run.done") {
+    const kind = runKind ?? ev.data.kind;
+    if (kind === "filter_apply") {
+      if (ev.data.error || ev.data.errors > 0) return "Couldn't finish applying the filter";
+      const n = ev.data.changed ?? 0;
+      return n > 0 ? `Filter applied: ${n} article${n === 1 ? "" : "s"} changed` : "Filter applied: no articles changed";
+    }
     // The retention sweep is housekeeping, not a refresh: nothing to announce.
-    if (runKind !== undefined && !isRefreshKind(runKind)) return null;
+    if (kind !== undefined && !isRefreshKind(kind)) return null;
     if (ev.data.errors > 0) return `Couldn't refresh ${ev.data.errors} feed${ev.data.errors === 1 ? "" : "s"}. The rest updated.`;
     return ev.data.new_items > 0 ? plural(ev.data.new_items) : "No new articles";
   }
@@ -144,7 +155,7 @@ export function applyCounts(qc: QueryClient, c: CountsEvent): void {
     for (const f of feeds) folderUnread.set(f.folder_id, (folderUnread.get(f.folder_id) ?? 0) + f.unread);
     return {
       ...old,
-      counts: { ...old.counts, unread: c.unread_total },
+      counts: { ...old.counts, unread: c.unread_total, ...(typeof c.muted === "number" ? { muted: c.muted } : {}) },
       feeds,
       folders: old.folders.map((fo) => ({ ...fo, unread: folderUnread.get(fo.id) ?? 0 })),
     };
@@ -159,13 +170,30 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
   liveStore.set((s) => reduceEvent(s, ev));
   switch (ev.type) {
     case "items.state": {
-      const { ids, read, starred } = ev.data;
-      const patch: { read?: boolean; starred?: boolean } = {};
+      const { ids, read, starred, muted } = ev.data;
+      const patch: ItemPatch = {};
       if (read !== undefined) patch.read = read;
       if (starred !== undefined) patch.starred = starred;
+      if (muted === false) {
+        patch.muted_by = null;
+        patch.muted_by_name = null;
+      }
       if (Object.keys(patch).length) patchItems(qc, ids, patch);
+      if (muted === true) {
+        // A mute leaves All and search (the item is read now); the Muted list loads it next time it is shown.
+        dropFromLists(qc, ids, (k) => k.startsWith("all") || k.includes("|q:"));
+        invalidateLists(qc, (k) => k.startsWith("muted"));
+      } else if (muted === false) {
+        // Un-muted: gone from Muted, and back in All, Unread and search the next time those are shown.
+        dropFromLists(qc, ids, (k) => k.startsWith("muted"));
+        invalidateLists(qc, (k) => !k.startsWith("muted"));
+      }
       break;
     }
+    case "filters.changed":
+      void qc.invalidateQueries({ queryKey: filtersKey });
+      void qc.invalidateQueries({ queryKey: keys.bootstrap });
+      break;
     case "counts": {
       // An event already in flight when the user opened an item carries the old numbers and would undo the
       // optimistic bump. Inside the window, skip it and refetch the truth once the window is over.

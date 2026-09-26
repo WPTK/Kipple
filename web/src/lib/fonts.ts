@@ -20,7 +20,7 @@ const mono = ", ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
 
 export const FONTS: readonly FontDef[] = [
   { id: "default", label: "Default", group: "Default", stack: null, server: "" },
-  { id: "easy", label: "Atkinson Hyperlegible Next (easy to read)", group: "Easy to read", stack: `"Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif` },
+  { id: "easy", label: "Atkinson Hyperlegible Next (easy to read)", group: "Easy to read", stack: `"Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif`, server: "Atkinson Hyperlegible Next" },
   { id: "literata", label: "Literata", group: "Serif", stack: `"Literata Variable"${serif}`, server: "Literata" },
   { id: "vollkorn", label: "Vollkorn", group: "Serif", stack: `"Vollkorn Variable"${serif}`, server: "Vollkorn" },
   { id: "gentium", label: "Gentium Book Plus", group: "Serif", stack: `"Gentium Book Plus"${serif}`, server: "Gentium Book Plus" },

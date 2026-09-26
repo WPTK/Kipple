@@ -1,7 +1,7 @@
 // Types for the UI JSON API (docs/design.md section 7). Ids are strings in
 // every JSON body; times are unix seconds.
 
-export type View = "unread" | "all" | "starred";
+export type View = "unread" | "all" | "starred" | "muted";
 
 export interface Card {
   id: string;
@@ -21,6 +21,10 @@ export interface Card {
   origin_title: string | null;
   /** Source name to show: the feed title, or the origin title for archived items. */
   source: string;
+  /** The muting filter's id, or null. Set on every muted item (they are always read). */
+  muted_by: string | null;
+  /** The muting filter's name; null when the filter was deleted (the item stays muted, orphaned). */
+  muted_by_name: string | null;
 }
 
 export interface Fulltext {
@@ -76,6 +80,9 @@ export interface RunStatus {
   /** A string on the wire (design 7); String() at the boundary tolerates a number from an older server. */
   id: string;
   kind: string;
+  /** A filter apply run names its rule and reports how many articles it changed. */
+  filter_id?: string;
+  changed?: number;
   done: number;
   total: number;
   new_items: number;
@@ -87,12 +94,39 @@ export interface Warning {
   message: string;
 }
 
+/** A device profile (docs/design.md 7.1c): overrides only, plus the built-in defaults and the effective values. */
+export interface DeviceView {
+  id: string;
+  name: string;
+  created_at?: number;
+  last_seen_at?: number;
+  profile: Record<string, unknown>;
+  defaults?: Record<string, unknown>;
+  merged: Record<string, unknown>;
+}
+
+/** An enabled, non-inverted highlight rule, for drawing in titles and articles (docs/design.md 7.1b). */
+export interface Highlight {
+  id: string;
+  scope: "global" | "folder" | "feed";
+  folder_id: string | null;
+  feed_id: string | null;
+  terms: string[];
+  fields: string[];
+  case_sensitive: boolean;
+  whole_word: boolean;
+  fold_diacritics: boolean;
+}
+
 export interface Bootstrap {
   user: { username: string; api_enabled: boolean };
   settings: Record<string, unknown>;
+  /** Absent only from a server older than device profiles: the per-device settings then stay local. */
+  device?: DeviceView;
+  highlights?: Highlight[];
   folders: Folder[];
   feeds: Feed[];
-  counts: { unread: number; starred: number };
+  counts: { unread: number; starred: number; muted?: number };
   runs: RunStatus[];
   warnings: Warning[];
   server_time: number;
@@ -143,12 +177,15 @@ export interface ItemsStateEvent {
   ids: string[];
   read?: boolean;
   starred?: boolean;
+  /** true: a mute was applied (leave All); false: a filter was deleted with un-muting (visible again). */
+  muted?: boolean;
   restored?: string[];
   source: string;
 }
 
 export interface CountsEvent {
   unread_total: number;
+  muted?: number;
   feeds: Record<string, number>;
 }
 
@@ -166,14 +203,15 @@ export interface FetchDoneEvent {
 }
 
 export type ServerEvent =
-  | { type: "run.start"; data: { run_id: RunId; kind: string; total: number } }
-  | { type: "run.progress"; data: { run_id: RunId; done: number; total: number; new_items: number; errors: number } }
-  | { type: "run.done"; data: { run_id: RunId; new_items: number; errors: number } }
+  | { type: "run.start"; data: { run_id: RunId; kind: string; total: number; filter_id?: string } }
+  | { type: "run.progress"; data: { run_id: RunId; done: number; total: number; new_items: number; errors: number; changed?: number } }
+  | { type: "run.done"; data: { run_id: RunId; new_items: number; errors: number; kind?: string; filter_id?: string; changed?: number; scanned?: number; error?: string } }
   | { type: "fetch.done"; data: FetchDoneEvent }
   | { type: "items.state"; data: ItemsStateEvent }
   | { type: "fulltext.ready"; data: { ids: string[]; source: string } }
   | { type: "counts"; data: CountsEvent }
   | { type: "feed.changed"; data: { feed_id: string } }
+  | { type: "filters.changed"; data: Record<string, never> }
   | { type: "resync"; data: Record<string, never> };
 
 export const SERVER_EVENT_TYPES: ServerEvent["type"][] = [
@@ -185,6 +223,7 @@ export const SERVER_EVENT_TYPES: ServerEvent["type"][] = [
   "fulltext.ready",
   "counts",
   "feed.changed",
+  "filters.changed",
   "resync",
 ];
 

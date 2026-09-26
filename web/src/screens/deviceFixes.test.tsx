@@ -62,6 +62,8 @@ function routes(extra: Parameters<typeof mockFetch>[0] = {}, boot: Bootstrap = b
     "POST /api/items/1001/open": () => json({ session_key: "k", item: detail(1, { read: true }) }),
     "POST /api/items/mark-read": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids, restored: [] }),
     "GET /api/settings": () => json({ settings: [], values: {} }),
+    "GET /api/filters": () => json({ filters: [] }),
+    "GET /api/devices": () => json({ devices: [] }),
     ...extra,
   });
 }

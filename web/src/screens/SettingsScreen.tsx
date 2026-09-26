@@ -24,6 +24,8 @@ import { Segmented } from "@/ui/segmented";
 import { Button } from "@/ui/button";
 import { Disclosure, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { DensityControl, SpacingControl, TextSizeControl } from "./AppearanceControls";
+import { DevicesSection } from "./DevicesSection";
+import { FiltersSection } from "./filters/FiltersSection";
 import { AccountActions } from "./AccountSection";
 import { SettingField } from "./SettingField";
 
@@ -108,7 +110,7 @@ function VoicePicker() {
 
 let layoutBeforeTitlesOnly: LayoutId = "magazine";
 
-function AccessibilitySection({ scrollSetting, loading }: { scrollSetting: SettingMeta | undefined; loading: boolean }) {
+function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }) {
   const p = useStore(prefsStore);
   const dp = useDevicePrefs();
   const supported = speechSupported();
@@ -127,7 +129,12 @@ function AccessibilitySection({ scrollSetting, loading }: { scrollSetting: Setti
         onChange={(motion) => updatePrefs({ motion })}
         options={MOTIONS.map((m) => ({ value: m, label: MOTION_LABELS[m] }))}
       />
-      {scrollSetting ? <SettingField meta={scrollSetting} /> : loading ? <Skeleton rows={1} label="Loading setting" /> : null}
+      <Switch
+        label="Mark articles read as I scroll"
+        help={scrollHelp ?? "Articles you scroll past in the list are marked read automatically."}
+        checked={p.markReadOnScroll}
+        onChange={(markReadOnScroll) => updatePrefs({ markReadOnScroll })}
+      />
       <Switch
         label="Listen to articles"
         help={supported ? "Adds a Listen button to articles. Voices come from your device." : "This browser can't read aloud."}
@@ -172,7 +179,7 @@ export function SettingsScreen() {
   const dp = useDevicePrefs();
   const settings = useSettings();
   const switchId = useId();
-  const scrollSetting = settings.data?.settings.find((s) => s.key === "ui.mark_read_on_scroll");
+  const scrollHelp = settings.data?.settings.find((s) => s.key === "ui.mark_read_on_scroll")?.description;
 
   return (
     <div className="ui-font flex h-full min-h-0 flex-col">
@@ -184,13 +191,13 @@ export function SettingsScreen() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[720px] px-4 pb-10">
         <Section title="Appearance">
-          <p className="text-sm text-fg2">Saved on this device only. Change the font from the Aa button in any list or article.</p>
+          <p className="text-sm text-fg2">Saved for this device. Change the font from the Aa button in any list or article.</p>
           <ThemePicker />
           <TextSizeControl />
           <DensityControl />
         </Section>
 
-        <AccessibilitySection scrollSetting={scrollSetting} loading={settings.isPending} />
+        <AccessibilitySection scrollHelp={scrollHelp} />
 
         <Section title="Lists and reading">
           <Segmented<LayoutId>
@@ -274,6 +281,14 @@ export function SettingsScreen() {
           </div>
         ) : null}
         {settings.data ? <ServerSettings settings={settings.data.settings} /> : null}
+
+        <Section title="Filters">
+          <FiltersSection />
+        </Section>
+
+        <Section title="Devices">
+          <DevicesSection />
+        </Section>
 
         <Section title="Account">
           {settings.data?.settings

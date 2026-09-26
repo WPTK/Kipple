@@ -3,8 +3,8 @@ import { fontById, isFontId, type FontId } from "./fonts";
 
 export type { FontId };
 
-// Per-device appearance and behavior. Stored in localStorage only: the owner's
-// decision is that appearance settings are per device, never synced.
+// Per-device appearance and behavior. The server's device profile is the truth (lib/deviceSync.ts);
+// localStorage is the instant-paint cache of it.
 
 export const STEPS = ["dense", "snug", "standard", "relaxed", "airy"] as const;
 export type Step = (typeof STEPS)[number];
@@ -51,6 +51,8 @@ export interface Prefs {
   /** SpeechSynthesisVoice.voiceURI, or "" for the device default. */
   voice: string;
   rate: number;
+  /** Mark articles read as the list scrolls past them (off by default). A device setting. */
+  markReadOnScroll: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -67,6 +69,7 @@ export const DEFAULT_PREFS: Prefs = {
   listen: false,
   voice: "",
   rate: 1,
+  markReadOnScroll: false,
 };
 
 export const PREFS_KEY = "kipple.prefs.v1";
@@ -109,6 +112,7 @@ export function parsePrefs(raw: string | null): Prefs {
       listen: v?.listen === true,
       voice: typeof v?.voice === "string" ? v.voice : d.voice,
       rate: (RATES as readonly number[]).includes(v?.rate as number) ? (v?.rate as number) : d.rate,
+      markReadOnScroll: v?.markReadOnScroll === true,
     };
   } catch {
     return { ...d };
