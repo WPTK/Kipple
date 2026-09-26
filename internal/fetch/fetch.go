@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -259,7 +260,7 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		return res.fail(class, msg)
 	}
 	res.Bytes = len(body)
-	if len(strings.TrimSpace(string(body))) == 0 {
+	if len(bytes.TrimSpace(body)) == 0 {
 		return res.fail(ClassEmpty, "empty response body")
 	}
 
@@ -276,7 +277,7 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		}
 	}
 
-	dec := DecodeBody(body, httpCharset)
+	dec := decodeBody(body, httpCharset)
 	res.BodyHash = dec.BodyHash
 	if !snap.Full && snap.BodyHash != "" && dec.BodyHash == snap.BodyHash {
 		res.Outcome = OutcomeUnchanged
@@ -284,11 +285,10 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		return res
 	}
 
-	feed, err := ParseFeed(body, ParseOptions{
-		FeedURL:     res.FinalURL,
-		HTTPCharset: httpCharset,
-		DedupMode:   snap.DedupMode,
-		Content:     sanitize.Content,
+	feed, err := ParseDecoded(dec, ParseOptions{
+		FeedURL:   res.FinalURL,
+		DedupMode: snap.DedupMode,
+		Content:   sanitize.Content,
 	})
 	if err != nil {
 		res.BodyHash = ""
