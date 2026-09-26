@@ -39,7 +39,7 @@ LABEL org.opencontainers.image.title="Kipple" \
       org.opencontainers.image.source="https://github.com/WPTK/Kipple" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.licenses="NOASSERTION"
+      org.opencontainers.image.licenses="BlueOak-1.0.0"
 COPY --from=build /kipple /kipple
 COPY --from=build --chown=65532:65532 /data /data
 COPY --chown=65532:65532 LICENSE THIRD_PARTY_NOTICES.md /licenses/
