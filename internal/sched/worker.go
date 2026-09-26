@@ -3,6 +3,7 @@ package sched
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/WPTK/kipple/internal/fetch"
@@ -35,6 +36,15 @@ func (s *Scheduler) worker() {
 
 func (s *Scheduler) exec(f *flight) (out result) {
 	out = result{feedID: f.snap.ID, host: f.snap.Host, trigger: f.snap.Trigger}
+	// A panic anywhere in the job (a parser bug on a hostile feed, a store bug)
+	// must not take the server down: it becomes an error result, so the worker
+	// still reports on doneCh and the dispatcher's counters stay balanced.
+	committing := false
+	defer func() {
+		if v := recover(); v != nil {
+			out = s.recovered(f, v, debug.Stack(), committing)
+		}
+	}()
 	if s.fetchCtx.Err() != nil {
 		out.cancelled = true
 		return out
@@ -61,7 +71,11 @@ func (s *Scheduler) exec(f *flight) (out result) {
 		}
 		out.trimmed = n
 	default:
-		res := s.client.Fetch(s.fetchCtx, f.snap, s.clk.Now())
+		fetchFn := s.client.Fetch
+		if s.fetchFn != nil {
+			fetchFn = s.fetchFn
+		}
+		res := fetchFn(s.fetchCtx, f.snap, s.clk.Now())
 		if res.Cancelled {
 			out.cancelled = true
 			return out
@@ -85,6 +99,7 @@ func (s *Scheduler) exec(f *flight) (out result) {
 		// than one shared window. The small follow-up writes get their own
 		// bounded context, started after the item commit.
 		var err error
+		committing = true
 		if s.failCommit != nil {
 			err = s.failCommit(f.snap.ID)
 		} else if res.Success() {
@@ -121,6 +136,40 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			out.outcome, out.errClass, out.errMsg = fetch.OutcomeError, "internal", err.Error()
 		}
 	}
+	return out
+}
+
+// panicMsg is the fetch_log error of a job that panicked; the stack is logged.
+const panicMsg = "internal error while processing the feed (see the server log)"
+
+// recovered turns a job's panic into its result. The stack is logged. A panic
+// before the commit started (the fetch or the parse) is recorded as a parse
+// error through the normal error bookkeeping, so the feed backs off like any
+// failing feed and the user sees it in the fetch log; if that write fails too,
+// or the panic came during or after the commit (whose state is unknown), the
+// result is a failed commit, which the dispatcher backs off in memory.
+func (s *Scheduler) recovered(f *flight, v any, stack []byte, committing bool) (out result) {
+	s.log.Error("sched: job panicked", "feed", f.snap.ID, "kind", int(f.kind), "panic", fmt.Sprint(v), "stack", string(stack))
+	out = result{feedID: f.snap.ID, host: f.snap.Host, trigger: f.snap.Trigger,
+		outcome: fetch.OutcomeError, errClass: "internal", errMsg: panicMsg, commitFailed: true}
+	if f.kind != kindFetch || committing {
+		return out
+	}
+	defer func() {
+		if v2 := recover(); v2 != nil {
+			s.log.Error("sched: recording a panicked job panicked too", "feed", f.snap.ID, "panic", fmt.Sprint(v2))
+		}
+	}()
+	now := s.clk.Now()
+	res := &fetch.Result{Snap: f.snap, StartedAt: now, Outcome: fetch.OutcomeError, ErrClass: fetch.ClassParse, ErrMsg: panicMsg}
+	res.Schedule(now, s.opt.Rand)
+	cctx, cancel := s.commitCtx()
+	defer cancel()
+	if err := s.db.CommitFetchError(cctx, res); err != nil {
+		s.log.Error("sched: record panicked job", "feed", f.snap.ID, "err", err)
+		return out
+	}
+	out.errClass, out.nextFetch, out.commitFailed = fetch.ClassParse, res.NextFetchAt, false
 	return out
 }
 
