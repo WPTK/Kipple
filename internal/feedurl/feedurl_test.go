@@ -30,3 +30,18 @@ func TestNormalizeKeyHost(t *testing.T) {
 	_, err = Key("/relative")
 	require.Error(t, err)
 }
+
+func TestKeyAndNormalize(t *testing.T) {
+	for _, raw := range []string{"HTTP://Example.COM:80/Feed.xml?a=1#frag", " https://x.org:443/a b ", "https://[::1]:8080/p"} {
+		key, norm, err := KeyAndNormalize(raw)
+		require.NoError(t, err)
+		wn, _ := Normalize(raw)
+		wk, _ := Key(raw)
+		require.Equal(t, wn, norm)
+		require.Equal(t, wk, key)
+	}
+	for _, bad := range []string{"", "ftp://x/y", "/relative", "http://"} {
+		_, _, err := KeyAndNormalize(bad)
+		require.Error(t, err, bad)
+	}
+}

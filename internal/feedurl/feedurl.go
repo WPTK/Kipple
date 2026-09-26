@@ -21,6 +21,23 @@ func Normalize(raw string) (string, error) {
 	return u.String(), nil
 }
 
+// KeyAndNormalize parses raw once and returns both Normalize(raw) and Key(raw).
+func KeyAndNormalize(raw string) (key, norm string, err error) {
+	u, err := parse(raw)
+	if err != nil {
+		return "", "", err
+	}
+	return keyOf(u), u.String(), nil
+}
+
+func keyOf(u *url.URL) string {
+	k := u.Host + u.EscapedPath()
+	if u.RawQuery != "" {
+		k += "?" + u.RawQuery
+	}
+	return k
+}
+
 // Key is host[:port] + path + ("?" + query). The scheme is dropped so http and
 // https variants collide by design.
 func Key(raw string) (string, error) {
@@ -28,11 +45,7 @@ func Key(raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	k := u.Host + u.EscapedPath()
-	if u.RawQuery != "" {
-		k += "?" + u.RawQuery
-	}
-	return k, nil
+	return keyOf(u), nil
 }
 
 // Host returns the lowercase hostname (no port) of a URL.

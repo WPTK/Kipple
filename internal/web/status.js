@@ -2,7 +2,7 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var H = { "X-Kipple-Client": "web" };
-  var es = null, refreshTimer = null;
+  var es = null, refreshTimer = null, retryTimer = null, retryMs = 1000, lastBeat = 0, beatTimer = null;
   var titles = {}, runs = {};
 
   function api(method, path, body, raw) {
@@ -99,24 +99,57 @@
         return ["items changed (" + (d.ids ? d.ids.length : 0) + ")", ""];
       case "feed.changed":
         return ["feed changed" + (d.feed_id ? "  " + feedName(d.feed_id) : ""), ""];
+      case "counts":
+        return ["counts  " + (d.unread_total || 0) + " unread, " + (d.muted || 0) + " muted", ""];
+      case "fulltext.ready":
+        return ["full text ready (" + (d.ids ? d.ids.length : 0) + ")", ""];
+      case "filters.changed":
+        return ["filters changed", ""];
       case "resync":
         return ["resync requested", "warn"];
     }
     return [type, ""];
   }
+  function conn(text) { $("conn").textContent = text; }
+  // The server sends a named heartbeat every 15 s; a long silence means the
+  // stream is stuck even though the browser still thinks it is open.
+  function checkBeat() {
+    if (es && es.readyState === 1 && lastBeat && Date.now() - lastBeat > 45000) conn("events: stalled");
+  }
   function start() {
     stop();
     es = new EventSource("/api/events");
-    es.onopen = function () { $("conn").textContent = "events: live"; };
-    es.onerror = function () { $("conn").textContent = "events: reconnecting"; };
-    ["run.start", "run.progress", "run.done", "fetch.done", "items.state", "counts", "feed.changed", "resync"].forEach(function (t) {
+    var mine = es;
+    es.onopen = function () { retryMs = 1000; lastBeat = Date.now(); conn("events: live"); };
+    es.onerror = function () {
+      if (mine !== es) return;
+      if (es.readyState !== 2) { conn("events: reconnecting"); return; } // the browser retries by itself
+      // CLOSED: the browser will not retry (non-200, e.g. 401 once the session expired).
+      es = null;
+      api("GET", "/api/auth/me").then(function (r) {
+        if (r.status === 401) { conn("events: signed out"); show(false); return; }
+        conn("events: stopped, retrying in " + Math.round(retryMs / 1000) + "s");
+        retryTimer = setTimeout(function () { retryTimer = null; start(); }, retryMs);
+        retryMs = Math.min(retryMs * 2, 60000);
+      }).catch(function () {
+        conn("events: stopped, retrying in " + Math.round(retryMs / 1000) + "s");
+        retryTimer = setTimeout(function () { retryTimer = null; start(); }, retryMs);
+        retryMs = Math.min(retryMs * 2, 60000);
+      });
+    };
+    es.addEventListener("heartbeat", function () { lastBeat = Date.now(); conn("events: live"); });
+    if (!beatTimer) beatTimer = setInterval(checkBeat, 10000);
+    ["run.start", "run.progress", "run.done", "fetch.done", "items.state", "counts", "feed.changed", "fulltext.ready", "filters.changed", "resync"].forEach(function (t) {
       es.addEventListener(t, function (e) {
         var l = describe(t, e.data); log(l[0], l[1], e.data);
         if (t !== "items.state") scheduleReload();
       });
     });
   }
-  function stop() { if (es) { es.close(); es = null; } }
+  function stop() {
+    if (es) { es.close(); es = null; }
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+  }
 
   function boot() {
     api("GET", "/api/auth/me").then(function (r) {
