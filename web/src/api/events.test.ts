@@ -3,6 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent } from "./events";
 import { keys, scopeKey } from "./queries";
+import { savedSearchesKey } from "./savedSearches";
 import { noteFilterTouched, resetFilterTouched } from "./filterEdits";
 import type { ItemsPage, ServerEvent } from "./types";
 import { bootstrap, card, detail, pageOf } from "@/test/mockApi";
@@ -108,6 +109,17 @@ describe("cache reconciliation", () => {
     handleServerEvent(qc, { type: "resync", data: {} });
     expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(true);
     expect(qc.getQueryState(keys.bootstrap)?.isInvalidated).toBe(true);
+  });
+
+  it("folder.changed refetches the bootstrap and saved searches, not the item lists", () => {
+    const qc = seeded();
+    qc.setQueryData(savedSearchesKey, []);
+    handleServerEvent(qc, { type: "folder.changed", data: { folder_id: "10" } });
+    handleServerEvent(qc, { type: "folder.changed", data: {} });
+    expect(qc.getQueryState(keys.bootstrap)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(savedSearchesKey)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(false);
+    expect(parseServerEvent("folder.changed", "{\"folder_id\":\"3\"}")).toEqual({ type: "folder.changed", data: { folder_id: "3" } });
   });
 
   it("fulltext.ready invalidates just those items", () => {

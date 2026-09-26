@@ -2,7 +2,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, clientKind } from "./client";
 import { keys } from "./queries";
-import { invalidateSavedSearches } from "./savedSearches";
 import type { Bootstrap, Feed, Folder } from "./types";
 
 // ---- Settings -----------------------------------------------------------------
@@ -154,8 +153,8 @@ export const deleteFolder = (id: string) => api(`/api/folders/${id}`, { method: 
 
 export const invalidateFeeds = (qc: QueryClient) => {
   void qc.invalidateQueries({ queryKey: keys.bootstrap });
-  // Deleting a feed or folder silently drops it as the scope of a saved search.
-  invalidateSavedSearches(qc);
+  // Saved searches that lost a deleted feed or folder as their scope are refetched on the server's
+  // feed.changed / folder.changed events (api/events.ts), not here.
   void qc.invalidateQueries({ queryKey: ["health"] });
 };
 

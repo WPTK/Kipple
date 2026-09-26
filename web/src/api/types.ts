@@ -243,6 +243,7 @@ export type ServerEvent =
   | { type: "feed.changed"; data: { feed_id: string } }
   | { type: "filters.changed"; data: Record<string, never> }
   | { type: "saved_searches.changed"; data: Record<string, never> }
+  | { type: "folder.changed"; data: { folder_id?: string } }
   | { type: "resync"; data: Record<string, never> };
 
 export const SERVER_EVENT_TYPES: ServerEvent["type"][] = [
@@ -256,6 +257,7 @@ export const SERVER_EVENT_TYPES: ServerEvent["type"][] = [
   "feed.changed",
   "filters.changed",
   "saved_searches.changed",
+  "folder.changed",
   "resync",
 ];
 

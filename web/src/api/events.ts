@@ -75,6 +75,7 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
     case "feed.changed":
     case "filters.changed":
     case "saved_searches.changed":
+    case "folder.changed":
     case "items.state":
     case "counts":
       return s; // cache-only events
@@ -247,6 +248,12 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
       } else applyCounts(qc, ev.data);
       break;
     }
+    case "folder.changed":
+      // A folder was created, renamed, reordered or deleted (here or elsewhere). Deleting one drops it as the scope of
+      // saved searches on the server, so those are refetched too; item lists are not (no full list invalidation).
+      void qc.invalidateQueries({ queryKey: keys.bootstrap });
+      invalidateSavedSearches(qc);
+      break;
     case "feed.changed":
       void qc.invalidateQueries({ queryKey: keys.bootstrap });
       // Deleting a feed drops it as the scope of a saved search on the server, silently.
