@@ -145,6 +145,11 @@ function FilterRow({ f, folders, feeds, onDelete }: { f: Filter; folders: { id: 
           {f.invert ? " when it does not match" : ""} · {scopeText(f, folders, feeds)} · {f.kind === "regex" ? "Regular expression" : "Words"} in {f.fields.map(fieldLabel).join(", ").toLowerCase()}
         </p>
         <p className="truncate text-xs text-fg2">{terms}</p>
+        {f.disabled_reason ? (
+          <p role="note" className="text-xs text-danger">
+            Turned off: {f.disabled_reason}
+          </p>
+        ) : null}
         <p className="text-xs text-fg2">
           {f.hits === 0 ? "Hasn't matched anything yet" : `Matched ${f.hits.toLocaleString()} article${f.hits === 1 ? "" : "s"}, last ${whenLabel(f.last_hit_at).toLowerCase()}`}
           {f.action === "mute" && f.muted_items > 0 ? ` · ${f.muted_items.toLocaleString()} muted now` : ""}

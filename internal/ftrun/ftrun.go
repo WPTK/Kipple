@@ -158,7 +158,7 @@ func (r *Runner) lead(ctx context.Context, req Request) (Outcome, error) {
 	res, err := r.safeExtract(ictx, extract.Target{
 		URL: it.URL, UserAgent: it.UserAgent, RetryUserAgent: it.RetryUserAgent,
 		AllowPrivate: it.AllowPrivateNet, InsecureTLS: it.AllowInsecureTLS, NoHTTP2: it.NoHTTP2,
-		FeedHost: r.feedHost(ictx, it),
+		FeedHost: r.feedHost(ictx, it), FeedID: it.FeedID,
 	})
 	save := store.FulltextSave{HTML: res.HTML, Text: res.Text, WordCount: res.WordCount, ImageURL: res.ImageURL, SourceURL: res.SourceURL}
 	if err != nil {

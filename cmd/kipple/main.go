@@ -137,6 +137,12 @@ func runServe() error {
 	}
 	// db.Close (WAL checkpoint, pools) runs last, after the scheduler has drained.
 	defer closeWithin(&budget, logger, "closing store", 0, db.Close)
+	// A feed delete the last run did not finish (it was marked first, then purged in batches): finish it now.
+	if ids, err := db.ResumeFeedDeletes(context.Background()); err != nil {
+		logger.Warn("resuming interrupted feed deletes", "err", err)
+	} else if len(ids) > 0 {
+		logger.Info("finished interrupted feed deletes", "feeds", len(ids))
+	}
 
 	if err := ensureAccount(context.Background(), db, cfg, logger); err != nil {
 		return fmt.Errorf("account: %w", err)

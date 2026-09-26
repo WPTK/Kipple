@@ -15,6 +15,8 @@ export interface Filter {
   id: string;
   name: string;
   enabled: boolean;
+  /** Why Kipple switched the rule off itself (it no longer meets the current limits), else null. */
+  disabled_reason?: string | null;
   scope: FilterScope;
   folder_id: string | null;
   feed_id: string | null;
