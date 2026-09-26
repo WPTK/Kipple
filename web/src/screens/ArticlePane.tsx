@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, Share2, Star } from "lucide-react";
+import { DropdownMenu } from "radix-ui";
+import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Share2, Star } from "lucide-react";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
@@ -350,6 +351,8 @@ interface ToolbarProps {
   onMuteSimilar: () => void;
 }
 
+const moreItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
+
 function Toolbar(p: ToolbarProps) {
   return (
     <div
@@ -399,12 +402,26 @@ function Toolbar(p: ToolbarProps) {
       <Button variant="ghost" size="icon" onClick={p.onShare} aria-label="Share" title="Share">
         <Share2 aria-hidden="true" />
       </Button>
-      <Button variant="ghost" size="icon" onClick={p.onOriginal} aria-label="Open original">
-        <ExternalLink aria-hidden="true" />
-      </Button>
-      <Button variant="ghost" size="icon" onClick={p.onMuteSimilar} aria-label="Mute similar…" title="Mute similar…">
-        <BellOff aria-hidden="true" />
-      </Button>
+      {/* The rarely used actions share one 44 px target, so eight targets (352 px) still fit a 375 px phone with Aa. */}
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <Button variant="ghost" size="icon" aria-label="More actions" title="More actions">
+            <MoreHorizontal aria-hidden="true" />
+          </Button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+            <DropdownMenu.Item className={moreItem} onSelect={p.onOriginal}>
+              <ExternalLink className="size-5" aria-hidden="true" />
+              Open original
+            </DropdownMenu.Item>
+            <DropdownMenu.Item className={moreItem} onSelect={p.onMuteSimilar}>
+              <BellOff className="size-5" aria-hidden="true" />
+              Mute similar…
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
       <ReadingMenu />
     </div>
   );

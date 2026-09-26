@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
 import { initPrefs, updatePrefs } from "@/lib/prefs";
+import { closeFilterEditor, filterEditorStore } from "@/lib/similar";
 import { initTheme } from "@/theme/theme";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
@@ -157,6 +158,21 @@ describe("Article view", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Article number 1" })).toBeInTheDocument();
     expect(screen.getByRole("toolbar", { name: "Article actions" })).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("keeps the toolbar to eight 44 px targets: rarely used actions live in More (review finding 11)", async () => {
+    routes({ "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }) });
+    go("/i/1001?from=unread");
+    const bar = await screen.findByRole("toolbar", { name: "Article actions" });
+    // 8 x 44 px = 352 px, which fits a 375 px phone together with the padding.
+    expect(within(bar).getAllByRole("button")).toHaveLength(8);
+    const user = userEvent.setup();
+    await user.click(within(bar).getByRole("button", { name: "More actions" }));
+    expect(await screen.findByRole("menuitem", { name: "Open original" })).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Mute similar…" }));
+    // The editor is opened through the shared store (its dialog is covered in filters.test.tsx).
+    expect(filterEditorStore.get()).toMatchObject({ mode: "create" });
+    closeFilterEditor();
   });
 
   it("moves to the next article with the button, replacing history", async () => {
