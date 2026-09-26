@@ -99,7 +99,7 @@ it). Use it for `docker ps`, monitoring and `depends_on: condition: service_heal
 | Option | What it does |
 |---|---|
 | `restart: unless-stopped` | Restarts after a crash or reboot, but not after you stopped it on purpose. |
-| `stop_grace_period: 30s` | Time Docker waits after SIGTERM before killing. Kipple drains HTTP for up to 10 s then closes the database, so 30 s is ample. |
+| `stop_grace_period: 30s` | Time Docker waits after SIGTERM before killing. Kipple's whole shutdown (HTTP drain, scheduler drain, maintenance, closing the database) fits one 25 s budget, so it always finishes inside the 30 s. |
 | no `init: true` | Not needed: Kipple is PID 1 and handles SIGTERM/Ctrl-C itself. |
 | `mem_limit: 256m` + `GOMEMLIMIT=64MiB` | Hard cap plus a Go soft limit so the GC works harder before the cap is hit. |
 | `pids_limit: 200` | Caps processes and threads. |

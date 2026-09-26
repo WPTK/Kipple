@@ -37,7 +37,7 @@ func TestSuperviseServeExitCodes(t *testing.T) {
 	serveErr := make(chan error, 1)
 	stopped := false
 	cancel()
-	err := superviseServe(ctx, serveErr, func() error { stopped = true; serveErr <- nil; return nil }, quietLog)
+	err := superviseServe(ctx, serveErr, func() error { stopped = true; serveErr <- nil; return nil }, nil, quietLog)
 	require.NoError(t, err)
 	require.True(t, stopped)
 
@@ -47,7 +47,7 @@ func TestSuperviseServeExitCodes(t *testing.T) {
 	err = superviseServe(ctx, serveErr, func() error {
 		serveErr <- nil
 		return context.DeadlineExceeded
-	}, quietLog)
+	}, nil, quietLog)
 	require.NoError(t, err)
 	require.Empty(t, serveErr, "serveErr was read")
 
@@ -55,18 +55,18 @@ func TestSuperviseServeExitCodes(t *testing.T) {
 	old := serveDrainWait
 	serveDrainWait = 20 * time.Millisecond
 	t.Cleanup(func() { serveDrainWait = old })
-	require.NoError(t, superviseServe(ctx, make(chan error), noStop, quietLog))
+	require.NoError(t, superviseServe(ctx, make(chan error), noStop, nil, quietLog))
 
 	// a listener that failed on its own is returned, after stopAll ran
 	serveErr = make(chan error, 1)
 	serveErr <- errors.New("listen tcp :7080: address already in use")
 	stopped = false
-	err = superviseServe(context.Background(), serveErr, func() error { stopped = true; return nil }, quietLog)
+	err = superviseServe(context.Background(), serveErr, func() error { stopped = true; return nil }, nil, quietLog)
 	require.ErrorContains(t, err, "address already in use")
 	require.True(t, stopped)
 
 	// a real serve error that arrives after the signal is still surfaced
 	serveErr = make(chan error, 1)
-	err = superviseServe(ctx, serveErr, func() error { serveErr <- errors.New("serve failed"); return nil }, quietLog)
+	err = superviseServe(ctx, serveErr, func() error { serveErr <- errors.New("serve failed"); return nil }, nil, quietLog)
 	require.ErrorContains(t, err, "serve failed")
 }

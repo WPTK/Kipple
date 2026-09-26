@@ -1183,12 +1183,12 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and nothing e
 
      Workers finish the job in hand: a completed fetch commits under `WithoutCancel` (the context carries no deadline; each chunk of a large feed gets its own 10 s budget), and an aborted one writes nothing. Each worker then sends `workerExit`.
   2. `hub.Close()` closes every subscriber channel, so SSE handlers return immediately.
-  3. `http.Server.Shutdown` with a 10 s context; when it errors, `srv.Close()` cuts the requests that outlived the grace period. No handler waits on the scheduler any more.
+  3. `http.Server.Shutdown` with a context of at most 10 s; when it errors, `srv.Close()` cuts the requests that outlived the grace period. No handler waits on the scheduler any more.
   4. `<-sched.Stopped()`, bounded at 15 s (it logs "scheduler did not drain in time" and goes on). The dispatcher keeps receiving on `doneCh` until `live == 0`, so no worker can block on its final send.
   5. `maint.Stop()` cancels the maintenance context. An in-progress `VACUUM INTO` is interrupted and its tmp file is removed at once; a leftover is removed again at the start of the next run.
   6. The deferred closes run, last in first out: the API server's `Close`, then the image cache's `Close`, then `db.Close()`. `db.Close()` closes the reader pool, runs `PRAGMA wal_checkpoint(TRUNCATE)` on the writer with a 5 s timeout, and closes the writer.
 
-  Compose sets `stop_grace_period: 30s`. The shutdown test asserts exit in under 15 s during a 138-feed run.
+  All of it shares one 25 s budget (`cmd/kipple/shutdown.go`), started by the signal: each stage is capped by its own maximum and by what is left, steps 3 to 5 stop 5 s before the deadline so the closes of step 6 always keep that reserve, and each close is abandoned (logged) at the deadline. The scheduler and maintenance start only after every handler is built, so a setup error leaves nothing running. Compose sets `stop_grace_period: 30s`. The shutdown test asserts exit in under 15 s during a 138-feed run.
 - **Startup.** Feeds that are already past due are simply due on the first tick. A full catch-up of 138 feeds takes about 30 s.
 
 ---
