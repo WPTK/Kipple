@@ -49,7 +49,7 @@ func LoadLocation(ctx context.Context, q Querier) *time.Location {
 }
 
 // statFeedTitle is the feed name a stats row snapshots: feedTitleSQL (custom title, else title,
-// else URL), and '' when the feed row is gone (the LEFT JOINs below).
+// else URL), and an empty string when the feed row is gone (the LEFT JOINs below).
 var statFeedTitle = "COALESCE(" + feedTitleSQL("f") + ", '')"
 
 // StatItemSnapshot reads the identity of an item, or of a ledger id (title and
