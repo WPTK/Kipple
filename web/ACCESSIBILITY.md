@@ -59,6 +59,17 @@ Status is what the code does today. Anything not verified on a real device is li
 - [x] Web Speech API with paragraph chunking (long paragraphs split by sentence), the current paragraph highlighted, play, pause, stop, previous and next paragraph, speed 0.8x to 1.5x and a device voice picker. Hidden when the browser has no speech synthesis or "Listen to articles" is off.
 - [x] iOS caveats are shown in the Listen bar: reading stops if the screen locks or the app closes; better voices are in Settings, Accessibility, Spoken Content, Voices; pause is best effort (resume restarts the current paragraph if the engine ignored it); no word highlighting.
 
+## Search, saved searches, auto-read, image cache (step F5)
+
+- [x] The search box is a `role="search"` form with a visible-to-AT label; the sort control is a native select with a visible label; the syntax help is a labelled popover button ("Search tips") that opens with Enter or Space and closes with Esc.
+- [x] Fallback ("No exact matches: showing partial matches") and the 422 "search too broad" message are polite `role="status"` text, not colour; a restarted search is announced ("Search restarted").
+- [x] Query words are marked with the same `<mark class="kp-hl">` as keyword highlights (theme-checked contrast, star underline, so never colour alone). Relevance order has one "Best matches first" h2 in place of the day headers, so heading levels stay in sequence.
+- [x] Mark above and below are disabled (`aria-disabled`) in a relevance-sorted search; "Mark all results as read" is disabled while the box is still being typed, with a title saying why.
+- [x] Saved searches in the sidebar: a disclosure button (`aria-expanded`, `aria-controls`), a list of links, `aria-current="page"` on the one being run; an uncounted entry shows a dash with the hidden text "Unread count unavailable". Settings > Saved searches reorders by drag, by arrow keys on the grip, or with Move up / Move down buttons; the move is announced.
+- [x] The auto-read catch-up shows its preview as text and a list, asks before more than 100 articles in a dialog that says there is no Undo, and reports progress in a polite status line.
+- [x] The image cache bar is a `progressbar` with `aria-valuetext` ("312 MB of 1.00 GB"); the low-disk warning is text with an icon.
+- [x] The devices notice for a browser that cannot save its settings is a status message.
+
 ## Not verified here
 
 - VoiceOver, Larger Text and Increase Contrast on a real iPhone; Windows High Contrast; a real speech engine (jsdom has none, so the narrator is tested against a fake).

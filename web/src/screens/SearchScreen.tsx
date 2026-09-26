@@ -151,7 +151,7 @@ export function SearchScreen() {
         </form>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="flex items-center gap-2">
-            <label htmlFor={sortId} className="text-sm text-fg2">
+            <label htmlFor={sortId} className="text-sm whitespace-nowrap text-fg2">
               Sort by
             </label>
             <select

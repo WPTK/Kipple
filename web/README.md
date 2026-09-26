@@ -203,6 +203,35 @@ links, code, pre, buttons, embeds and existing marks are skipped, and at most 30
 markup is not marked. "Highlight keywords" in the Aa menu turns it off. Colors: `--kp-hl-bg` (20% star into the page
 background) with the theme's text and a star underline, checked in every theme by `npm run contrast`.
 
+## Search, saved searches, auto-read, image cache (step F5)
+
+**Search** (`SearchScreen`, `lib/searchTerms.ts`, `lib/searchPrefs.ts`). `q` goes to the server untrimmed. `typing=1` is sent only while the
+user is typing (250 ms debounce); Enter, a saved-search run and a URL load are submitted searches without it (`Scope.typing`, part of the scope key,
+never sent otherwise). `fallback:true` shows the quiet banner "No exact matches: showing partial matches" and is echoed as `scope.fallback` in
+"Mark all results as read" (`Scope.fallback` is not part of the key; off while typing). `422 search_too_broad` shows the server message inline (no
+retry); a `400` on a later page restarts the search (at most twice). The ordering (Relevance, Newest, Oldest) is per device in localStorage
+(`kipple.searchOrder.v1`; the device profile has no key for it). Relevance shows one "Best matches first" header instead of day headers and disables
+mark above/below. Query words are drawn with the highlight module: a client copy of the server parser (phrases, `-x`, `NOT x`, `title:`, `author:`,
+`x*`) with a rough stem (`approxStem`), marks from the start of a word to its end; in fallback mode the words the fallback used.
+
+**Saved searches** (`api/savedSearches.ts`, `SavedSearchesNav`, `SavedSearchesSection`). Sidebar and Feeds screen list them (collapsible, remembered
+on the device; hidden when none) from `GET /api/saved-searches?counts=0`, with the counts from a second request; `999+` when capped, a dash when
+`unread` is null. A run navigates to `/search?q=&feed|folder|view=&order=&ss=<id>`. "Save this search" creates (or updates the run one). Settings >
+Saved searches: edit, delete (confirm), reorder (drag, grip arrows, buttons). `saved_searches.changed` and `feed.changed` refetch; `counts` events
+refresh the counts at most every 10 s.
+
+**Auto-read** (`api/autoRead.ts`, `AutoReadCatchUp`). The global control is drawn from the settings metadata with presets (Off, 30, 60, 90, 180, 365,
+Custom); the feed editor has "Mark as read after" (global / Off / N days). Changing either marks nothing. Preview (optionally a what-if `days`) lists
+the total and feeds; "Mark N older articles as read now" asks first above 100 (`confirm:true`), handles 409 `confirm_required` and `busy`, and says
+there is no Undo. Progress comes from the `auto_read` run in `liveStore`.
+
+**Images**. `imgproxy.mode` and `imgproxy.cache_mb` (presets 256 MB, 512 MB, 1 GB, 2 GB, Off, Custom) come from the metadata; `ImageCachePanel`
+shows `GET /api/imgcache` (bar, files, hit rate since restart, low-disk warning; refetched each time Settings opens and after a change) and Clear
+(confirm, `POST /api/imgcache/clear`). Health shows `imgcache_bytes`.
+
+**Devices**. `GET /api/device` with `id: ""` (the unsaved default device) sets sync status `unsaved`: local prefs are kept, nothing is PATCHed, and
+Settings > Devices explains it and hides the actions that would 404.
+
 ## Accessibility
 
 `ACCESSIBILITY.md` is the checklist. Settings > Accessibility holds Text spacing (the WCAG 1.4.12 control: "Adds
