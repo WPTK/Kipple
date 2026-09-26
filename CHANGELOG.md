@@ -6,6 +6,40 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- A feed's HTTP credentials are no longer sent on a redirect to plain http or to another host (including subdomains). A permanent-redirect migration to a different host clears the feed's HTTP credentials and resets "allow insecure TLS" and "allow private network", with a note in the fetch log.
+- A feed's "allow private network" and "allow insecure TLS" now apply only to the feed's own host: during full-text extraction, and for images (cards, articles and extracted pages). Third-party links and images go through the guarded transport.
+- The SSRF guard also blocks IPv6 site-local (`fec0::/10`), IPv4-compatible IPv6 (`::/96`) and the 6to4 relay range (`192.88.99.0/24`).
+- ClientLogin counts each attempt before hashing the password: one attempt per client in flight, five per 10 minutes, then one every 2 s. An attempt over budget gets the usual 401 without hashing, never a 429. A password that matches the last successful sign-in is not budgeted, so a new correct sign-in from an address over budget can wait up to 2 s. An IPv6 client's whole /64 counts as one client, for ClientLogin and the web login lockout.
+- A chosen Reader API password must be at least 16 characters. Generated passwords stay 24.
+- A new data directory is created 0700, and a new database, with its -wal and -shm files, 0600.
+- OPML import applies the feed URL check every other path uses (a literal private or loopback address is skipped) and the per-feed User-Agent rule (up to 500 characters, no control characters).
+- Feed URLs with a user name or password in them are refused; use the feed's HTTP authentication setting.
+
+### Changed
+
+- Regex filters are limited so they cannot stall fetching: a counted repeat can be at most 50 (nested repeats multiplied), one pattern at most 500 instructions (was 5000), and all enabled regex filters together must stay under a cost limit. A stored rule over the new limits is dropped at ingest with a log warning.
+- Deleting a filter with a large restore finishes in rounds of about 40 s (HTTP 202 `done:false` until done); the app repeats it automatically. The answer now includes `made_unread`.
+- Retention trims at most 2000 items per transaction, oldest first, and a feed delete removes its items in short batches, so a feed with a huge backlog can no longer make every commit or delete time out. `POST /api/maintenance/fts-rebuild` has its own 45 s limit.
+- The image cache cap counts each file as whole 4 KiB blocks plus its URL, and downloads in progress; saved hotlink hints are capped at 10,000 hosts.
+- Each feed body is decoded once instead of twice.
+- Docker images report the real version (`KIPPLE_VERSION` / `KIPPLE_VCS_REF` build args; CI passes `git describe`). Base images and the local CI's gitleaks and Trivy images are pinned by digest; deploys check out the release tag; rollback goes through `kipple restore` and never a copy over `kipple.db`.
+- `.dockerignore` keeps `.env` files in subdirectories out of the build context. `npm run seed` only deletes a data directory it created unless `--force` is given. SECURITY.md points to GitHub private vulnerability reporting.
+
+### Fixed
+
+- A panic while fetching a feed no longer crashes the server; it is logged and recorded as an error for that feed.
+- Reader API clients can no longer see a full-text item before its hold starts. A feed disabled, deleted or edited while its fetch waited in the queue is no longer fetched with stale settings. An import run no longer silently drops feeds when loading them fails. The publisher Expires hint is measured against the response's Date header.
+- `KIPPLE_PASSWORD` and `KIPPLE_API_PASSWORD` are checked against the account length limits when used, and `change-me` is refused; `.env.example` ships an empty password. `KIPPLE_PUBLIC_URL` must be an absolute http(s) URL and `KIPPLE_SCHED_TICK` at least 1s. A trusted proxy written as `::ffff:a.b.c.d` now matches.
+- A folder named like `x/state/com.google/read` is a folder, never a state stream. Folder names from the Reader API and OPML import are limited to 100 characters. A multipart form value over 1 MiB is refused with 413 instead of being silently cut.
+- `kipple restore` as root also gives `kipple.lock` and a new `backup/` directory to the data directory's owner; pre-restore directories are named in UTC and pruned by time and numeric suffix. The whole shutdown fits one 25 s budget inside the 30 s `stop_grace_period`, and a startup error no longer leaves the scheduler running.
+- Integer settings that are not whole numbers or out of range read as their default. Restore refuses a backup declared larger than 4 GiB or than the free disk space. The nightly snapshot fsyncs its directory. Stored user agents are shortened on a character boundary.
+- An image source that stalls or drops after its first bytes is remembered as a failure (10 minutes, doubling); a stale card thumbnail is served when its original can no longer be fetched; rotating the secret no longer starts a second image handler; a JPEG with a malformed EXIF length no longer panics; with the cache off, a thumbnail URL is not cached as immutable.
+- Filter preview and "apply to existing articles" see every field the other rules read (star rules on content or categories, inverted rules, text beside regex). The preview stops at its budget; an apply stops on cancel; renaming or reordering a filter no longer cancels its apply, and a cancelled apply is reported as `cancelled`. A highlight filter saved with no fields highlights titles. Stats snapshots the feed's display title, and `POST /api/stats/events` accepts `client` in the body.
+- YouTube playlist embeds and Vimeo unlisted videos keep their parameters; image-map `<area>` links follow the link rules; the page CSP no longer keeps a stale image mode after a race; an auto-read run cannot start after shutdown began waiting; "Make default" is held to the 8 KB cap.
+- The offline queue: an online change made while queued changes are being sent is not overwritten; a change that could not be stored on the device is undone and reported; sign-out waits for offline copies to be deleted; an expired access-proxy sign-in asks to reload instead of saying offline. Marking a list read no longer turns articles read elsewhere back to unread; a malformed article address no longer blanks the app; highlights no longer redraw on every counts update; device settings are not reverted by a stored bootstrap; article and site links open only http and https; the offline notice is announced by screen readers.
+
 ## [0.3.0-alpha.2] - 2026-09-26
 
 Phase 3: installable app, offline reading and queued changes, plus the two reserved Reader API settings.

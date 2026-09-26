@@ -18,13 +18,6 @@ export function scopeText(f: Pick<Filter, "scope" | "folder_id" | "feed_id">, fo
   return "Everywhere";
 }
 
-/** What one DELETE /api/filters/{id} answers: `made_unread` and `done` come from newer servers. */
-interface DeleteAnswer {
-  changed: number;
-  made_unread?: number;
-  done?: boolean;
-}
-
 /** Most DELETE calls one deletion makes: each restores at least 500 articles, so this covers any library. */
 const MAX_DELETE_ROUNDS = 1000;
 
@@ -36,9 +29,9 @@ export async function deleteUntilDone(id: string, mode: Unmute): Promise<{ resto
   let restored = 0;
   let madeUnread = 0;
   for (let i = 0; i < MAX_DELETE_ROUNDS; i++) {
-    const res = (await deleteFilter(id, mode)) as DeleteAnswer;
+    const res = await deleteFilter(id, mode);
     restored += res.changed;
-    madeUnread += res.made_unread ?? 0;
+    madeUnread += res.made_unread;
     if (res.done !== false || res.changed === 0) break;
   }
   return { restored, madeUnread };

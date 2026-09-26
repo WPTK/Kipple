@@ -544,15 +544,14 @@ func (s *Server) startApply(id int64, includeRead bool) (*applyRun, error) {
 		s.apply.mu.Unlock()
 		return nil, errApplyBusy
 	}
-	if s.apply.ctx == nil || s.apply.ctx.Err() != nil {
+	if !s.bgStart() { // registers the run with the shutdown wait group, or refuses once shutting down
 		s.apply.mu.Unlock()
-		return nil, errApplyBusy // shutting down
+		return nil, errApplyBusy
 	}
 	run := &applyRun{ID: s.now().UnixMicro(), Kind: runKindFilterApply, FilterID: id}
 	ctx, cancel := context.WithCancelCause(s.apply.ctx)
 	done := make(chan struct{})
 	s.apply.run, s.apply.cancelRun, s.apply.done = run, cancel, done
-	s.apply.wg.Add(1)
 	s.apply.mu.Unlock()
 
 	if h := testApplyCountHook; h != nil {

@@ -190,7 +190,7 @@ export const setFilterEnabled = (id: string, enabled: boolean) => {
 export type Unmute = "keep" | "read" | "unread";
 export const deleteFilter = (id: string, unmute: Unmute) => {
   noteFilterTouched(id);
-  return api<{ changed: number }>(`/api/filters/${id}`, { method: "DELETE", params: { unmute } });
+  return api<{ changed: number; made_unread: number; done: boolean }>(`/api/filters/${id}`, { method: "DELETE", params: { unmute } });
 };
 
 export const applyFilter = (id: string, includeRead: boolean) => api<ApplyRun>(`/api/filters/${id}/apply`, { method: "POST", body: { include_read: includeRead } });

@@ -698,7 +698,8 @@ func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			ev := stats.Event{Kind: e.Kind, Client: cl, ItemID: id, SessionKey: e.SessionKey}
 			if e.Value != nil {
-				ev.Value, ev.HasValue = int64(*e.Value), true
+				// Clamp before converting: a float beyond int64 converts to an implementation-defined value.
+				ev.Value, ev.HasValue = int64(max(-1e15, min(1e15, *e.Value))), true
 			}
 			if err := s.rec.Record(tx, ev); err != nil && !errors.Is(err, stats.ErrDropped) {
 				return err

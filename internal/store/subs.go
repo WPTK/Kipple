@@ -240,6 +240,9 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 // guard. It returns the normalized URL, its key and its host.
 func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err error) {
 	key, norm, nerr := feedurl.KeyAndNormalize(raw)
+	if errors.Is(nerr, feedurl.ErrUserinfo) {
+		return "", "", "", &InvalidURLError{"the URL contains a user name or password; use the feed's HTTP authentication instead"}
+	}
 	if nerr != nil {
 		return "", "", "", &InvalidURLError{"not an absolute http(s) URL"}
 	}

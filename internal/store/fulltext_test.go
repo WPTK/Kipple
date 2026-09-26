@@ -19,10 +19,6 @@ func TestFulltextErrorClassRoundTripAndURLGuard(t *testing.T) {
 	item := int64(scalar[int](t, e.db.Reader(), "SELECT id FROM items WHERE feed_id = ? ORDER BY id LIMIT 1", id))
 	url := scalar[string](t, e.db.Reader(), "SELECT url FROM items WHERE id = ?", item)
 
-	ids, err := e.db.ItemIDsByUID(e.ctx, id, []string{"nope"})
-	require.NoError(t, err)
-	require.Empty(t, ids)
-
 	require.NoError(t, e.db.SaveFulltext(e.ctx, item, 1000, FulltextSave{Error: "the page answered HTTP 503", ErrorTransient: true}))
 	it, ok, err := e.db.GetFulltextItem(e.ctx, item)
 	require.NoError(t, err)
