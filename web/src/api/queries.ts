@@ -17,69 +17,32 @@ import type {
   OpenResponse,
   Scope,
 } from "./types";
-import { isOffline, queueRead, queueStar, supersede } from "@/lib/offline";
+import { isOffline, queueRead, queueStar, QueueWriteError, supersede } from "@/lib/offline";
 import { toast } from "@/shell/toasts";
+import { itemsParams, keys } from "./queryKeys";
 
-export const PAGE_SIZE = 50;
+export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams } from "./queryKeys";
 
-export const keys = {
-  bootstrap: ["bootstrap"] as const,
-  items: (scope: Scope) => ["items", scopeKey(scope)] as const,
-  itemsAll: ["items"] as const,
-  item: (id: string) => ["item", id] as const,
-};
-
-/** Stable string for a scope; also used in the article route's `from` param. */
-export function scopeKey(s: Scope): string {
-  const parts: string[] = [s.view];
-  if (s.feed) parts.push(`feed:${s.feed}`);
-  if (s.folder) parts.push(`folder:${s.folder}`);
-  if (s.q) parts.push(`q:${encodeURIComponent(s.q)}`);
-  if (s.order === "oldest" || s.order === "rank") parts.push(`order:${s.order}`);
-  if (s.typing) parts.push("typing:1");
-  return parts.join("|");
+/** The toast for a failed change: one made offline that could not be stored says so, not "the server". */
+function changeError(e: unknown): string {
+  return e instanceof QueueWriteError ? "Kipple couldn't save that change on this device." : errorMessage(e);
 }
 
-export function parseScopeKey(key: string | null | undefined): Scope {
-  const scope: Scope = { view: "unread" };
-  if (!key) return scope;
-  for (const [i, part] of key.split("|").entries()) {
-    if (i === 0) {
-      if (part === "unread" || part === "all" || part === "starred" || part === "muted") scope.view = part;
-      continue;
-    }
-    const idx = part.indexOf(":");
-    const k = part.slice(0, idx);
-    const v = part.slice(idx + 1);
-    if (k === "feed") scope.feed = v;
-    else if (k === "folder") scope.folder = v;
-    else if (k === "q") scope.q = decodeURIComponent(v);
-    else if (k === "order" && (v === "oldest" || v === "rank")) scope.order = v;
-    else if (k === "typing" && v === "1") scope.typing = true;
-  }
-  return scope;
-}
-
-export function itemsParams(scope: Scope, cursor?: string, limit = PAGE_SIZE) {
-  return {
-    view: scope.view,
-    feed: scope.feed,
-    folder: scope.folder,
-    q: scope.q,
-    // Newest first is the server default, so it is not sent. The UI is embedded in the server binary,
-    // so `order=oldest` is always understood (docs/design.md 7.1: cursor `a<sort_at>.<id>`).
-    order: scope.order,
-    // Only while the user is typing (docs/design.md 7.1): a submitted or saved search never sends it.
-    typing: scope.typing && scope.q ? 1 : undefined,
-    cursor,
-    limit,
-  };
-}
+/**
+ * The bootstrap as the app holds it. `fromCache`: the service worker answered with its stored copy (offline, or the
+ * network too slow), so it may be older than what this device already changed; the device settings are not taken
+ * from it (App.tsx).
+ */
+export type BootstrapAnswer = Bootstrap & { fromCache?: true };
 
 export function useBootstrap(enabled = true) {
   return useQuery({
     queryKey: keys.bootstrap,
-    queryFn: ({ signal }) => api<Bootstrap>("/api/bootstrap", { signal }),
+    queryFn: async ({ signal }): Promise<BootstrapAnswer> => {
+      const meta: { cached?: boolean } = {};
+      const b = await api<Bootstrap>("/api/bootstrap", { signal, meta });
+      return meta.cached ? { ...b, fromCache: true } : b;
+    },
     enabled,
     retry: (n, e) => (e as { status?: number }).status !== 401 && n < 2,
     staleTime: 60_000,
@@ -224,7 +187,9 @@ export function useOpenItem() {
       bumpUnread(qc, cached.feed_id, -1);
       return { bumped: cached.feed_id as string | null };
     },
-    onError: (_e, { id }, ctx) => {
+    onError: (e, { id }, ctx) => {
+      // The article itself is still on screen (it is held on the device); only the read could not be kept.
+      if (e instanceof QueueWriteError) toast(changeError(e), "error");
       if (!ctx?.bumped) return;
       patchItems(qc, [id], { read: false });
       bumpUnread(qc, ctx.bumped, 1);
@@ -256,7 +221,7 @@ export function useToggleStar() {
     },
     onError: (e, { id }, ctx) => {
       if (ctx?.prev !== undefined) patchItems(qc, [id], { starred: ctx.prev });
-      toast(errorMessage(e), "error");
+      toast(changeError(e), "error");
     },
   });
 }
@@ -300,12 +265,17 @@ export async function applyRead(
   patchItems(qc, ids, { read });
   await supersede({ read: ids });
   try {
-    return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason } });
+    try {
+      return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason } });
+    } catch (e) {
+      // No network: keep the change on screen and send it when the connection returns (lib/offline.ts). A
+      // change that could not be stored for later is a failure like any other.
+      if (isOffline(e)) return await queueRead(ids, read);
+      throw e;
+    }
   } catch (e) {
-    // No network: keep the change on screen and send it when the connection returns (lib/offline.ts).
-    if (isOffline(e)) return await queueRead(ids, read);
     patchItems(qc, ids, { read: !read });
-    toast(errorMessage(e), "error");
+    toast(changeError(e), "error");
     return undefined;
   }
 }
@@ -315,15 +285,16 @@ export async function applyStar(qc: QueryClient, id: string, starred: boolean): 
   patchItems(qc, [id], { starred: starred });
   await supersede({ star: id });
   try {
-    await api(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
+    try {
+      await api(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
+    } catch (e) {
+      if (!isOffline(e)) throw e;
+      await queueStar(id, starred);
+    }
     return true;
   } catch (e) {
-    if (isOffline(e)) {
-      await queueStar(id, starred);
-      return true;
-    }
     patchItems(qc, [id], { starred: !starred });
-    toast(errorMessage(e), "error");
+    toast(changeError(e), "error");
     return false;
   }
 }

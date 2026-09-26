@@ -10,11 +10,20 @@ export function useSyncHighlights(): void {
   const boot = useBootstrap();
   const on = useDevicePrefs().highlightKeywords;
   const rules = boot.data?.highlights;
-  const feedList = boot.data?.feeds;
+  // Only which folder each feed is in matters here. A `counts` event replaces the feeds array (new unread numbers)
+  // every few seconds; keying on ids and folder ids keeps the store, and so every <mark> in the article and the
+  // list, untouched by it (a rebuild would strip and redraw them and collapse the reader's text selection).
+  const feedKey = (boot.data?.feeds ?? []).map((f) => `${f.id}:${f.folder_id}`).join(",");
+  const feeds = useMemo(
+    () => new Map<string, string>(feedKey ? feedKey.split(",").map((p) => p.split(":") as [string, string]) : []),
+    [feedKey],
+  );
   const compiled = useMemo(() => (on ? compileHighlights(rules) : []), [on, rules]);
   useEffect(() => {
-    highlightStore.set({ groups: compiled, feeds: new Map((feedList ?? []).map((f) => [f.id, f.folder_id])) });
-  }, [compiled, feedList]);
+    const cur = highlightStore.get();
+    if (cur.groups === compiled && cur.feeds === feeds) return;
+    highlightStore.set({ groups: compiled, feeds });
+  }, [compiled, feeds]);
 }
 
 const NONE: Group[] = [];

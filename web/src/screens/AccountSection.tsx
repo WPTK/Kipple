@@ -234,7 +234,9 @@ export function AccountActions() {
       return;
     }
     qc.clear();
-    void wipeOfflineData();
+    // Wait for the copies to be gone before the sign-in screen: the next person at this browser must not be able
+    // to read them offline, and a request answered meanwhile must not find them still there.
+    await wipeOfflineData();
     authStore.set("out");
   };
 

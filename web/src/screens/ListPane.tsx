@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { remeasureMounted } from "@/lib/remeasure";
 import { useNavigate } from "react-router";
@@ -28,9 +28,30 @@ import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
 import { announce } from "@/shell/toasts";
 import { openExternal } from "@/lib/links";
+import { safeHttpUrl } from "@/lib/safeUrl";
 import { copyLink, shareLink } from "@/lib/share";
 import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { useWidth } from "@/lib/useWidth";
+import type { LinkTarget } from "@/lib/devicePrefs";
+
+/** Open an article's original page, only when its address is plain http or https (it comes from the feed). */
+function openOriginalUrl(url: string, target?: LinkTarget): void {
+  const safe = safeHttpUrl(url);
+  if (safe) openExternal(safe, target);
+}
+
+/**
+ * Mark-read-on-scroll: send the unread rows that scrolled past, each once. `sent` remembers them while the request
+ * is out (so the next settle does not send them twice); a request that fails forgets them again, so the next
+ * scroll retries instead of leaving them unread for good.
+ */
+export async function markScrolledPast(qc: QueryClient, passed: Card[], sent: Set<string>): Promise<void> {
+  const ids = passed.filter((i) => !i.read && !sent.has(i.id)).map((i) => i.id);
+  if (ids.length === 0) return;
+  ids.forEach((id) => sent.add(id));
+  const res = await applyRead(qc, ids, true, "scroll");
+  if (!res) ids.forEach((id) => sent.delete(id));
+}
 
 // Scroll and selection memory per list, so "back" lands where you were
 // (design 3.4: one restore path). Module scope: survives route changes.
@@ -322,14 +343,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     let timer: ReturnType<typeof setTimeout> | undefined;
     const flush = () => {
       const start = virtualizer.range?.startIndex ?? 0;
-      const ids: string[] = [];
-      for (const r of rowsRef.current.slice(0, start)) {
-        const list = r.kind === "item" ? [r.item] : r.kind === "group" ? r.items : [];
-        for (const i of list) if (!i.read && !sentByScroll.current.has(i.id)) ids.push(i.id);
-      }
-      if (ids.length === 0) return;
-      ids.forEach((id) => sentByScroll.current.add(id));
-      void applyRead(qc, ids, true, "scroll");
+      const passed = rowsRef.current.slice(0, start).flatMap((r) => (r.kind === "item" ? [r.item] : r.kind === "group" ? r.items : []));
+      void markScrolledPast(qc, passed, sentByScroll.current);
     };
     const onScroll = () => {
       if (timer) clearTimeout(timer);
@@ -526,7 +541,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       toggleStar: (item) => void act.toggleStar(item),
       markAbove: (item) => range(item, "above"),
       markBelow: (item) => range(item, "below"),
-      openOriginal: (item) => openExternal(item.url),
+      openOriginal: (item) => openOriginalUrl(item.url),
       copyLink: (item) => void copyLink(item.url),
       share: (item) => void shareLink(item),
       muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedById.get(item.feed_id)?.title) }),
@@ -557,9 +572,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         openItem(selectedItem);
         navigate(articleTo(selectedItem.id, scope), { state: { via: "key" } });
       },
-      original: () => selectedItem && openExternal(selectedItem.url),
+      original: () => selectedItem && openOriginalUrl(selectedItem.url),
       // A background tab is a browser decision; window.open is the best a page can do.
-      background: () => selectedItem && openExternal(selectedItem.url, "new"),
+      background: () => selectedItem && openOriginalUrl(selectedItem.url, "new"),
       star: () => {
         const t = targets();
         if (t.length === 0) return;

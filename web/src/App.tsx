@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
-import { ApiError, authStore } from "@/api/client";
+import { ApiError, authStore, SESSION_EXPIRED } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
-import { hydrateDevice } from "@/lib/deviceSync";
+import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
 import { prefetchUnread } from "@/lib/offline";
 import { offlineStore } from "@/lib/offlineState";
 import { useStore } from "@/lib/store";
@@ -11,6 +11,7 @@ import { LoginScreen } from "@/screens/LoginScreen";
 import { ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { AppShell } from "@/shell/AppShell";
+import { ErrorBoundary } from "@/shell/ErrorBoundary";
 import { StatusBlock } from "@/screens/ListPane";
 import { Button } from "@/ui/button";
 import { Skeleton } from "@/ui/kit";
@@ -46,11 +47,15 @@ function Gate() {
     if (auth === "out") qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
   }, [auth, qc]);
 
-  // The device profile is the truth for per-device settings; the local cache is reconciled with it once.
+  // The device profile is the truth for per-device settings; the local cache is reconciled with it once, from a live
+  // answer only: the worker's stored copy can predate changes made on this device since, and taking it as the truth
+  // would put them back. Changes made before that are kept as unsent (lib/deviceSync.ts) and win over the profile.
+  useEffect(() => startDeviceSync(), []);
   const device = boot.data?.device;
+  const fromCache = boot.data?.fromCache === true;
   useEffect(() => {
-    hydrateDevice(device);
-  }, [device]);
+    if (!fromCache) hydrateDevice(device);
+  }, [device, fromCache]);
 
   // Keep the first page of Unread on the device for offline reading (the service worker stores it).
   const ready = boot.isSuccess && auth === "in";
@@ -64,6 +69,13 @@ function Gate() {
       <div className="flex h-full items-center justify-center" role="status">
         <span className="text-fg2">Loading Kipple</span>
       </div>
+    );
+  }
+  if (boot.isError && boot.error instanceof ApiError && boot.error.code === SESSION_EXPIRED) {
+    return (
+      <StatusBlock role="alert" title="Your sign-in has expired" body="The sign-in in front of Kipple timed out. Reload to sign in again.">
+        <Button onClick={() => window.location.reload()}>Reload</Button>
+      </StatusBlock>
     );
   }
   if (boot.isError && !online) {
@@ -105,7 +117,9 @@ export default function App({ client }: { client?: QueryClient }) {
   return (
     <QueryClientProvider client={qc}>
       <BrowserRouter>
-        <Gate />
+        <ErrorBoundary>
+          <Gate />
+        </ErrorBoundary>
       </BrowserRouter>
     </QueryClientProvider>
   );

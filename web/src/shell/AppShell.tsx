@@ -238,7 +238,7 @@ export function AppShell() {
         Skip to content
       </a>
       {wide ? <Sidebar /> : null}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="kp-stack flex min-w-0 flex-1 flex-col">
         <OfflineNotice />
         <WarningsBanner />
         <ApplyProgress />

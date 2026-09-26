@@ -36,16 +36,35 @@ function fakeCache() {
   };
 }
 
-function setup(precache: string[] = [], build = "0000000000001-aaaa") {
+/**
+ * `attached`: a deleted cache's open handles still write under its name (as if the worker opened it again by name
+ * after the delete). The spec orphans such handles, but a request that opens the cache after a clear, or an engine
+ * that does not orphan, lands in the same place, so the worker must not rely on orphaning.
+ */
+function setup(precache: string[] = [], build = "0000000000001-aaaa", opts: { attached?: boolean } = {}) {
   const stores = new Map<string, ReturnType<typeof fakeCache>>();
+  const handles = new Map<string, ReturnType<typeof fakeCache>>();
   const open = (name: string) => {
-    if (!stores.has(name)) stores.set(name, fakeCache());
+    if (!stores.has(name)) stores.set(name, (opts.attached && handles.get(name)) || fakeCache());
+    handles.set(name, stores.get(name)!);
     return stores.get(name)!;
   };
   const caches = {
     open: async (n: string) => open(n),
     keys: async () => [...stores.keys()],
-    delete: async (n: string) => stores.delete(n),
+    delete: async (n: string) => {
+      const c = stores.get(n);
+      if (opts.attached && c) {
+        for (const k of await c.keys()) await c.delete(k.url);
+        const put = c.put.bind(c);
+        // A put through the old handle files the entry under the name again.
+        c.put = async (req, res) => {
+          stores.set(n, c);
+          await put(req, res);
+        };
+      }
+      return stores.delete(n);
+    },
     match: async (req: { url: string }) => {
       for (const c of stores.values()) {
         const hit = await c.match(req);
@@ -286,6 +305,43 @@ describe("read-only API answers", () => {
     w.stores.set("kipple-shell-0000000000001-aaaa", fakeCache());
     await w.message({ type: "clear-data" });
     expect([...w.stores.keys()]).toEqual(["kipple-shell-0000000000001-aaaa"]);
+  });
+});
+
+describe("clear-data while requests are still out", () => {
+  async function lateAnswer(path: string, body: () => Response) {
+    const w = setup([], undefined, { attached: true });
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    w.setNetwork(async () => {
+      await held;
+      return body();
+    });
+    const pending = w.fetch(path);
+    await w.message({ type: "clear-data" }); // sign-out lands while the answer is on its way
+    release();
+    const res = (await pending)!;
+    return { w, res };
+  }
+  const entries = async (w: ReturnType<typeof setup>, name: string) => ((await w.stores.get(name)?.keys()) ?? []).map((k) => k.url);
+
+  it("an API answer from before the clear is returned but not kept", async () => {
+    const { w, res } = await lateAnswer("/api/bootstrap", () => json({ user: "old session" }));
+    expect(res.status).toBe(200);
+    expect(await entries(w, "kipple-data")).toEqual([]);
+  });
+
+  it("a prefetched list with content from before the clear keeps no article", async () => {
+    const { w } = await lateAnswer("/api/items?view=unread&include=content", () => json({ items: [{ id: "1", content_html: "<p>x</p>" }], next_cursor: null }));
+    expect(await entries(w, "kipple-data")).toEqual([]);
+  });
+
+  it("an image from before the clear is not kept; one requested after it is", async () => {
+    const { w } = await lateAnswer("/img/late", () => new Response("png"));
+    expect(await entries(w, "kipple-images")).toEqual([]);
+    w.setNetwork(() => new Response("png"));
+    await w.fetch("/img/fresh");
+    expect(await entries(w, "kipple-images")).toEqual([`${ORIGIN}/img/fresh`]);
   });
 });
 

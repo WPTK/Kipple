@@ -59,6 +59,11 @@ describe("scope keys", () => {
     expect(parseScopeKey(scopeKey(s))).toEqual(s);
     expect(parseScopeKey(null)).toEqual({ view: "unread" });
   });
+
+  it("a malformed search part falls back to the default scope instead of throwing", () => {
+    expect(() => parseScopeKey("all|feed:3|q:%E0%A4")).not.toThrow();
+    expect(parseScopeKey("all|feed:3|q:%")).toEqual({ view: "unread" });
+  });
 });
 
 describe("useItems cursor paging", () => {

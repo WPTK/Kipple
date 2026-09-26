@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { itemActions } from "./itemActions";
+import { arrivedAfter, itemActions } from "./itemActions";
 import { resetUndo, undoLast, undoStore } from "./undo";
 import type { InfiniteData } from "@tanstack/react-query";
 import { keys } from "@/api/queries";
@@ -48,9 +48,27 @@ describe("bulk marks reconcile the optimistic rows", () => {
     mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001", "1002"], restored: [], count: 2, undoable: true }) });
     const qc = seeded();
     const unhide = vi.fn();
-    await itemActions(qc).markAll(scope, "1500", ["1001", "1002", "1003"], undefined, unhide);
+    await itemActions(qc).markAll(scope, "1002", ["1001", "1002", "1003"], undefined, unhide);
     expect(rows(qc).map((r) => r.read)).toEqual([true, true, false]);
     expect(unhide).toHaveBeenCalledWith(["1003"]);
+  });
+
+  it("keeps read and hidden a row the server skipped because it was already read elsewhere (at or below as_of)", async () => {
+    // 1002 was read on another device after the list loaded: the server has nothing to change for it.
+    mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }) });
+    const qc = seeded();
+    const unhide = vi.fn();
+    await itemActions(qc).markAll(scope, "1002", ["1001", "1002", "1003"], undefined, unhide);
+    expect(rows(qc).map((r) => r.read)).toEqual([true, true, false]);
+    expect(unhide).toHaveBeenCalledWith(["1003"]);
+  });
+
+  it("arrivedAfter compares ids as numbers, and an unparsable id counts as late", () => {
+    expect(arrivedAfter("1000", "999")).toBe(true);
+    expect(arrivedAfter("999", "1000")).toBe(false);
+    expect(arrivedAfter("1000", "1000")).toBe(false);
+    expect(arrivedAfter("1000", undefined)).toBe(false);
+    expect(arrivedAfter("x", "1")).toBe(true);
   });
 
   it("Nothing to mark reverts every optimistic row", async () => {
@@ -75,9 +93,18 @@ describe("bulk marks reconcile the optimistic rows", () => {
     mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }) });
     const qc = seeded();
     await itemActions(qc).markSide(
-      { scope, order: "date", side: "below", anchor: card(1), maxId: "1500" },
+      { scope, order: "date", side: "below", anchor: card(1), maxId: "1001" },
       ["1002", "1003"].concat(["1001"]),
     );
     expect(rows(qc).map((r) => r.read)).toEqual([true, false, false]);
+  });
+
+  it("markSide keeps a skipped row at or below as_of read", async () => {
+    mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }) });
+    const qc = seeded();
+    const unhide = vi.fn();
+    await itemActions(qc).markSide({ scope, order: "date", side: "below", anchor: card(1), maxId: "1500" }, ["1001", "1002", "1003"], undefined, unhide);
+    expect(rows(qc).map((r) => r.read)).toEqual([true, true, true]);
+    expect(unhide).not.toHaveBeenCalled();
   });
 });

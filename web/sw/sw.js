@@ -12,7 +12,9 @@
  *    stored as one entry per item, so each article opens offline;
  *  - images (/img/*, feed icons): cache first, bounded;
  *  - every other request, and every write, goes straight to the network.
- * Sign-out sends {type:"clear-data"} and everything read from the API is dropped.
+ * Sign-out sends {type:"clear-data"} and everything read from the API is dropped. Each clear starts a new
+ * generation: a copy that a request from before it was still going to store (an answer landing late, an image
+ * still downloading) is dropped instead of filling the caches again with the signed-out session's data.
  */
 "use strict";
 
@@ -31,6 +33,9 @@ const NET_WAIT_MS = 5000;
 
 const API_READS = /^\/api\/(bootstrap|items|items\/\d+)$/;
 const ICONS = /^\/api\/feeds\/\d+\/icon$/;
+
+/** Bumped by every clear-data; a copy whose request started in an older generation is not stored. */
+let generation = 0;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(precache().then(() => self.skipWaiting()));
@@ -70,6 +75,7 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "clear-data") {
+    generation++;
     event.waitUntil(Promise.all([caches.delete(DATA), caches.delete(IMAGES)]));
   }
 });
@@ -156,6 +162,7 @@ async function assetFirst(event, req) {
 }
 
 async function imageFirst(event, req) {
+  const gen = generation;
   const cache = await caches.open(IMAGES);
   const hit = await cache.match(req);
   if (hit) return hit;
@@ -164,7 +171,7 @@ async function imageFirst(event, req) {
   // must not break an image that loaded fine.
   if (res.status === 200) {
     const copy = res.clone();
-    event.waitUntil(cache.put(req, copy).then(() => trim(cache, IMAGES_MAX)).catch(() => {}));
+    if (gen === generation) event.waitUntil(cache.put(req, copy).then(() => trim(cache, IMAGES_MAX)).catch(() => {}));
   }
   return res;
 }
@@ -185,6 +192,7 @@ function keyOf(url) {
 }
 
 async function dataFirst(event, req, url) {
+  const gen = generation;
   const cache = await caches.open(DATA);
   const fallback = async () => {
     const hit = await cache.match(keyOf(url));
@@ -200,7 +208,7 @@ async function dataFirst(event, req, url) {
     const hit = await fallback();
     if (hit) {
       // Slow rather than down: let the answer still arrive and refresh the copy for next time.
-      if (keep) event.waitUntil(network.then((r) => (r.ok ? storeData(cache, url, r.clone()) : undefined)).catch(() => {}));
+      if (keep) event.waitUntil(network.then((r) => (r.ok ? storeData(cache, url, r.clone(), gen) : undefined)).catch(() => {}));
       return hit;
     }
     // Nothing kept: wait for the real answer however long it takes; only a genuine failure is an error.
@@ -208,7 +216,7 @@ async function dataFirst(event, req, url) {
     else throw e;
   }
   if (res.ok) {
-    if (keep) event.waitUntil(storeData(cache, url, res.clone()).catch(() => {}));
+    if (keep) event.waitUntil(storeData(cache, url, res.clone(), gen).catch(() => {}));
     return res;
   }
   // A 5xx (the origin is down behind a proxy) is treated like no network; a 4xx, 401 above all, is the answer.
@@ -226,7 +234,9 @@ function jsonResponse(v) {
   return new Response(JSON.stringify(v), { headers: { "Content-Type": "application/json" } });
 }
 
-async function storeData(cache, url, res) {
+// `gen` is the generation the request started in. Every put checks it, since a clear can land between two puts.
+async function storeData(cache, url, res, gen) {
+  const stale = () => gen !== generation;
   if (url.pathname === "/api/items" && url.searchParams.get("include") === "content") {
     let body;
     try {
@@ -235,15 +245,19 @@ async function storeData(cache, url, res) {
       return;
     }
     for (const it of (body && body.items) || []) {
+      if (stale()) return;
       if (it && it.id && typeof it.content_html === "string") await cache.put("/api/items/" + it.id, jsonResponse(it));
     }
     // The list is stored where the app asks for it (same query, no include), so it opens offline too.
     const plain = new URL(url.href);
     plain.searchParams.delete("include");
+    if (stale()) return;
     await cache.put(keyOf(plain), jsonResponse(body));
   } else {
+    if (stale()) return;
     await cache.put(keyOf(url), res);
   }
+  if (stale()) return;
   await trim(cache, DATA_MAX);
 }
 

@@ -1,13 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { ApiError, api, authStore } from "@/api/client";
-import { applyRead, applyStar, keys, useOpenItem } from "@/api/queries";
+import { applyRead, applyStar, keys, useOpenItem, useToggleStar } from "@/api/queries";
 import { OfflineNotice } from "@/shell/OfflineNotice";
+import App, { makeQueryClient } from "@/App";
 import { card, detail, json, mockFetch } from "@/test/mockApi";
-import { flushQueue, isOffline, prefetchUnread, queueRead, queueStar, resetOfflineForTests, resetPrefetchForTests, supersede, wipeOfflineData } from "./offline";
+import {
+  flushQueue,
+  isOffline,
+  prefetchUnread,
+  QueueWriteError,
+  queueRead,
+  queueStar,
+  resetOfflineForTests,
+  resetPrefetchForTests,
+  setOfflineBackendForTests,
+  supersede,
+  watchForUpdates,
+  wipeOfflineData,
+} from "./offline";
 import { devicePrefsStore } from "./devicePrefs";
 import * as toasts from "@/shell/toasts";
 import { offlineStore, setOnline, setPending } from "./offlineState";
@@ -16,7 +30,7 @@ function fresh() {
   resetOfflineForTests();
   resetPrefetchForTests();
   authStore.set("in");
-  offlineStore.set({ online: true, pending: 0, updateReady: false });
+  offlineStore.set({ online: true, pending: 0, updateReady: false, sessionExpired: false });
 }
 beforeEach(fresh);
 
@@ -107,6 +121,54 @@ describe("the offline queue", () => {
     expect(JSON.parse(String(calls[0]?.init?.body)).ids).toEqual(["2"]);
   });
 
+  it("an online change made while a flush runs is not overwritten by the flush's older copy of the queue", async () => {
+    await queueRead(["9"], true);
+    await queueStar("1", true);
+    await queueRead(["2", "3"], true);
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const { calls } = mockFetch({
+      "POST /api/items/mark-read": async (_u, init) => {
+        const ids = JSON.parse(String(init?.body)).ids as string[];
+        if (ids.includes("9")) await held;
+        return json({ changed: ids, restored: [] });
+      },
+      "PUT /api/items/1/star": () => json({ starred: true, restored: false }),
+    });
+    const flush = flushQueue();
+    await waitFor(() => expect(calls).toHaveLength(1)); // the first row is on its way
+    // Online writes to article 1 and article 3 happen now, while the flush waits on the first request.
+    let superseded = false;
+    const both = Promise.all([supersede({ star: "1" }), supersede({ read: ["3"] })]).then(() => (superseded = true));
+    await new Promise((r) => setTimeout(r, 20));
+    // The online write must land after the request already in flight, so supersede waits for it.
+    expect(superseded).toBe(false);
+    release();
+    await Promise.all([flush, both]);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname} ${JSON.parse(String(c.init?.body)).ids ?? ""}`)).toEqual([
+      "POST /api/items/mark-read 9",
+      "POST /api/items/mark-read 2",
+    ]);
+    expect(offlineStore.get().pending).toBe(0);
+  });
+
+  it("a change queued while a flush runs is sent in the same run", async () => {
+    await queueRead(["1"], true);
+    let queuedLate = false;
+    const { calls } = mockFetch({
+      "POST /api/items/mark-read": async (_u, init) => {
+        if (!queuedLate) {
+          queuedLate = true;
+          await queueRead(["2"], false);
+        }
+        return json({ changed: JSON.parse(String(init?.body)).ids, restored: [] });
+      },
+    });
+    await flushQueue();
+    expect(calls.map((c) => JSON.parse(String(c.init?.body)).ids)).toEqual([["1"], ["2"]]);
+    expect(offlineStore.get().pending).toBe(0);
+  });
+
   it("concurrent flushes share one run", async () => {
     await queueStar("1", true);
     const { calls } = mockFetch({ "PUT /api/items/1/star": () => json({ starred: true, restored: false }) });
@@ -155,10 +217,102 @@ describe("changes made offline", () => {
     expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(true);
   });
 
+  it("a change that could not be stored on the device is reverted and said, not reported as queued", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    const broken = {
+      all: async () => [],
+      put: async () => {
+        throw new DOMException("quota", "QuotaExceededError");
+      },
+      del: async () => {},
+      clear: async () => {},
+    };
+    setOfflineBackendForTests(broken);
+    netFail();
+    const c = qc();
+    await expect(queueRead(["1"], true)).rejects.toBeInstanceOf(QueueWriteError);
+    await expect(queueStar("1", true)).rejects.toBeInstanceOf(QueueWriteError);
+
+    await expect(applyRead(c, ["1001"], true, "key")).resolves.toBeUndefined();
+    expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
+    await expect(applyStar(c, "1001", true)).resolves.toBe(false);
+    expect(c.getQueryData<{ starred: boolean }>(keys.item("1001"))?.starred).toBe(false);
+    expect(toast).toHaveBeenCalledWith("Kipple couldn't save that change on this device.", "error");
+
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={c}>{children}</QueryClientProvider>;
+    const star = renderHook(() => useToggleStar(), { wrapper });
+    star.result.current.mutate({ id: "1001", starred: true });
+    await waitFor(() => expect(star.result.current.isError).toBe(true));
+    expect(c.getQueryData<{ starred: boolean }>(keys.item("1001"))?.starred).toBe(false);
+
+    const open = renderHook(() => useOpenItem(), { wrapper });
+    open.result.current.mutate({ id: "1001", via: "tap" });
+    await waitFor(() => expect(open.result.current.isError).toBe(true));
+    expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
+    expect(toast).toHaveBeenCalledTimes(4);
+    expect(offlineStore.get().pending).toBe(0);
+  });
+
   it("isOffline is only the request that never arrived", () => {
     expect(isOffline(new ApiError(0, "network"))).toBe(true);
     expect(isOffline(new ApiError(503, "x"))).toBe(false);
     expect(isOffline(new Error("x"))).toBe(false);
+  });
+});
+
+describe("an expired access-proxy session", () => {
+  /** What fetch gives for `redirect: "manual"` when the proxy sends the request to its login page. */
+  const opaqueRedirect = () => ({ type: "opaqueredirect", status: 0, ok: false, headers: new Headers() }) as unknown as Response;
+
+  it("asks for no redirects to be followed, and a redirect is a session problem, not offline", async () => {
+    const { calls } = mockFetch({ "GET /api/a": opaqueRedirect });
+    const err = await api("/api/a").catch((e: unknown) => e);
+    expect(calls[0]?.init?.redirect).toBe("manual");
+    expect(err).toBeInstanceOf(ApiError);
+    expect(isOffline(err)).toBe(false);
+    expect(offlineStore.get()).toMatchObject({ online: true, sessionExpired: true });
+    expect(authStore.get()).toBe("in"); // Kipple's own sign-in screen cannot help; a reload can
+  });
+
+  it("a change made meanwhile is reverted and explained, not queued; the queue waits", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    await queueStar("7", true);
+    mockFetch({ "POST /api/items/mark-read": opaqueRedirect, "PUT /api/items/7/star": opaqueRedirect });
+    const c = new QueryClient();
+    c.setQueryData(keys.item("1001"), detail(1));
+    await expect(applyRead(c, ["1001"], true, "key")).resolves.toBeUndefined();
+    expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
+    expect(toast).toHaveBeenCalledWith("Your sign-in has expired. Reload Kipple to sign in again.", "error");
+    await flushQueue();
+    expect(offlineStore.get().pending).toBe(1);
+  });
+
+  it("a real network failure is still offline, and a live answer clears the expired state", async () => {
+    offlineStore.set((s) => ({ ...s, sessionExpired: true }));
+    netFail();
+    const err = await api("/api/a").catch((e: unknown) => e);
+    expect(isOffline(err)).toBe(true);
+    expect(offlineStore.get().sessionExpired).toBe(true);
+    mockFetch({ "GET /api/a": () => json({}, 200, { "X-Kipple-Cache": "1" }), "GET /api/b": () => json({}) });
+    await api("/api/a");
+    expect(offlineStore.get().sessionExpired).toBe(true); // the worker's copy proves nothing
+    await api("/api/b");
+    expect(offlineStore.get().sessionExpired).toBe(false);
+  });
+
+  it("at launch, says the sign-in expired instead of offline or a server error", async () => {
+    mockFetch({ "GET /api/bootstrap": opaqueRedirect });
+    render(<App client={makeQueryClient({ retry: false })} />);
+    expect(await screen.findByRole("heading", { name: "Your sign-in has expired" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
+    expect(screen.queryByText(/offline/i)).toBeNull();
+  });
+
+  it("the notice offers a reload", () => {
+    offlineStore.set((s) => ({ ...s, sessionExpired: true }));
+    render(<OfflineNotice />);
+    expect(screen.getByText(/Your sign-in has expired/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
   });
 });
 
@@ -231,9 +385,28 @@ describe("prefetch for offline reading", () => {
 });
 
 describe("<OfflineNotice />", () => {
-  it("says nothing while online with nothing waiting", () => {
-    const { container } = render(<OfflineNotice />);
-    expect(container).toBeEmptyDOMElement();
+  it("says nothing while online with nothing waiting, but its live region is already there", () => {
+    render(<OfflineNotice />);
+    const region = screen.getByRole("status");
+    expect(region).toHaveAttribute("aria-live", "polite");
+    expect(region).toBeEmptyDOMElement();
+    expect(screen.getByTestId("offline-notice")).toHaveClass("sr-only-live");
+    expect(screen.getByTestId("offline-notice")).not.toHaveClass("pt-safe");
+  });
+
+  it("puts the text into the region that was mounted before it, and keeps the button out of it", () => {
+    const { rerender } = render(<OfflineNotice />);
+    const region = screen.getByRole("status");
+    act(() => setOnline(false));
+    rerender(<OfflineNotice />);
+    expect(screen.getByRole("status")).toBe(region); // the same node: an announcement, not a new region
+    expect(region).toHaveTextContent("You're offline.");
+    expect(screen.getByTestId("offline-notice")).toHaveClass("pt-safe");
+    act(() => offlineStore.set((s) => ({ ...s, updateReady: true })));
+    expect(screen.getByRole("status")).toBe(region);
+    expect(region).toHaveTextContent("A newer version of Kipple is ready.");
+    expect(within(region).queryByRole("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
   });
 
   it("explains offline, with and without waiting changes, and while sending", () => {
@@ -252,5 +425,38 @@ describe("<OfflineNotice />", () => {
     offlineStore.set((s) => ({ ...s, updateReady: true }));
     render(<OfflineNotice />);
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
+  });
+});
+
+describe("new builds", () => {
+  function fakeContainer(controller: object | null) {
+    const listeners = new Set<() => void>();
+    const sw = {
+      controller,
+      addEventListener: (_t: string, f: () => void) => listeners.add(f),
+      removeEventListener: (_t: string, f: () => void) => listeners.delete(f),
+      change(next: object | null) {
+        sw.controller = next;
+        listeners.forEach((f) => f());
+      },
+    };
+    return sw;
+  }
+
+  it("a page that was controlled offers a reload when the controller changes", () => {
+    const sw = fakeContainer({});
+    watchForUpdates(sw as unknown as ServiceWorkerContainer);
+    sw.change({});
+    expect(offlineStore.get().updateReady).toBe(true);
+  });
+
+  it("a tab opened before any worker: the first controller is the install, the next change is an update", () => {
+    const sw = fakeContainer(null);
+    const stop = watchForUpdates(sw as unknown as ServiceWorkerContainer);
+    sw.change({}); // the first worker claims the page
+    expect(offlineStore.get().updateReady).toBe(false);
+    sw.change({}); // a new build takes over later
+    expect(offlineStore.get().updateReady).toBe(true);
+    stop();
   });
 });
