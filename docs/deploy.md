@@ -21,6 +21,8 @@ Everything is on the `kipple_data` volume (`host-a_kipple_data`), mounted at `/d
 | `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration | newest 3 |
 | `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>/` | The database that `kipple restore` replaced | newest 3 |
 | `/data/backup/export/` | Temporary files of an export in progress. Emptied at startup | transient |
+| `/data/imgcache/` | Image cache (`imgproxy.cache_mb`, default 1024 MiB, least recently used evicted; never in backups or snapshots) | capped |
+| `/data/restore-tmp.db*`, `/data/restore-upload.tmp` | Only while a `kipple restore` runs | transient |
 
 These are all on the same disk as the database. They protect against a bad migration or a bad
 restore, not against losing Host-A. An off-box copy is the export (below) or a `docker cp` of the
@@ -55,6 +57,16 @@ snapshot with `docker cp`:
 
 That copies the snapshot only, never the live database or WAL.
 
+## Import OPML
+
+`kipple import [-mark-read-older-than-days N] <file.opml | ->` is safe while the server runs and prints JSON on standard output. The flag must come before the file. Pipe the file in, because the container user cannot read a bind-mounted `/import`:
+
+    ssh host-a 'docker exec -i kipple /kipple import -' < feeds.opml
+
+New feeds are fetched on the scheduler's next tick. `docker exec kipple /kipple version` prints the running build.
+
+Health: `ssh host-a 'curl -s http://127.0.0.1:7080/healthz'` answers `ok`. The image has no `HEALTHCHECK` (distroless has no `curl`).
+
 ## Reset the web password
 
 Works while the server runs. At a terminal, without echo, asked twice:
@@ -72,20 +84,22 @@ it too, `docker exec kipple /kipple api-password` sets a new one). The failed-lo
 memory: it clears when its 15-minute window ends or on a restart. If `KIPPLE_PASSWORD` is still in
 `/home/user/stack/.env`, remove it: it is read only when the account is first created.
 
+When you can still sign in, change either password in Settings > Account instead; the CLI is the recovery path.
+
 ## Restore a backup
 
 `kipple restore` replaces the database with a backup zip (or a bare `.db` such as a snapshot). It
 refuses while the server runs (the lock), verifies checksums and integrity, refuses a database
 from a newer Kipple than this binary, keeps the current database under
 `/data/backup/pre-restore-<timestamp>/`, and signs every web session out. Without `--yes` it only
-verifies and reports.
+verifies and reports (and then exits with status 1 and "nothing was changed", which is expected).
 
 Runbook, with the backup on Host-B (it is piped in; the container user cannot read `/import`):
 
     # 1. Stop the server (named service only).
     ssh host-a 'cd /home/user/stack && docker compose stop kipple'
 
-    # 2. Verify without changing anything. Read the counts and the date it prints.
+    # 2. Verify without changing anything. Read the counts and the date it prints. It ends with "nothing was changed ..." and exit status 1; that is expected.
     ssh host-a 'cd /home/user/stack && docker compose run --rm -T --no-deps kipple restore -' < kipple-backup-YYYYMMDD-HHMMSS.zip
 
     # 3. Restore for real.
@@ -109,9 +123,9 @@ A bare `.db` restore also applies a `-wal` file sitting beside it (a pre-restore
 If the refusal says "kipple is running": the service is still up (`docker compose stop kipple`), or
 a second `run` is open. Do not delete `kipple.lock`; it is not a file marker, the OS drops it.
 
-## Phase 2 deploy: extra steps
+## Phase 1 to phase 2 (done 2026-09-25, v0.2.0-alpha.1)
 
-Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migrates the schema
+Historical: this applies to a schema-1 database. With a build after alpha 2 the snapshot is `pre-migration-1-<latest>-*` (schema 5 is the latest at the time of writing), not `pre-migration-1-3-*`. Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migrates the schema
 (0002, 0003) on its first start. So:
 
 1. **Take an off-box copy of the phase 1 data before building phase 2.** Stop the service so the
@@ -130,6 +144,8 @@ Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migr
    contains phase 2 data.
 
 ### Roll back to phase 1
+
+(Historical, with the numbers of the alpha 1 deploy; substitute `pre-migration-1-<latest>-*` for a newer build.)
 
 There are no down migrations and the phase 1 binary refuses a newer schema, so a rollback restores
 a schema-1 database. Everything read or starred since the snapshot is lost, so decide with that in
@@ -150,6 +166,25 @@ mind.
 
 ## Phase 2 alpha 3 deploy notes
 
+- **Schema 3 -> 5: this is a one-way migration.** Alpha 2 runs schema 3. The alpha 3 binary has two
+  more migrations. The first start writes `/data/backup/pre-migration-3-5-<ns>.db`, then applies
+  0004 (additive: filters, muted items, devices, auto-read) and **0005, which drops and rebuilds the
+  whole search index (`items_fts`, porter tokenizer) and re-tokenizes every item**, so the first
+  start takes longer in proportion to the size of the library (about 0.6 s for 5,600 items on the
+  rehearsal; watch `docker logs kipple` for `store: applied migration`). An alpha 2 binary refuses
+  a schema-5 database, so **there is no rollback path back to alpha 2 except restoring the
+  pre-migration snapshot**, and anything read or starred since the migration is lost. Before
+  deploying, take an Export backup from alpha 2 and save it off-box. Rollback: stop kipple, restore
+  the snapshot with the alpha 3 image (before rebuilding), check out the old tag, rebuild, start:
+
+      ssh host-a 'cd /home/user/stack && docker compose stop kipple'
+      ssh host-a 'cd /home/user/stack && docker compose run --rm -T --no-deps kipple restore /data/backup/pre-migration-3-5-<ns>.db --yes'
+      ssh host-a 'cd /home/user/kipple && git checkout v0.2.0-alpha.2'
+      ssh host-a 'cd /home/user/stack && docker compose build kipple && docker compose up -d kipple'
+
+  Do not start the alpha 3 image on the restored database (it would migrate again). Until the new
+  server has started once, `kipple password`, `api-password` and `import` refuse the old schema
+  (they never migrate).
 - **Images now go through Kipple by default.** The default of the setting `imgproxy.mode` is
   `all` (it was "only insecure images"). A database that has no stored `imgproxy.mode` row, which
   is every existing one, therefore starts proxying and caching **all** article images on the first
