@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_DEVICE_PREFS, parseDevicePrefs, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { Segmented } from "./segmented";
 import { Switch } from "./kit";
+import { maxFor } from "@/lib/useWidth";
 import { ResizeHandle, dragWidth, keyWidth } from "./ResizeHandle";
 import { UnreadCount, badgeKind, badgeText } from "./UnreadCount";
 
@@ -84,6 +85,62 @@ describe("ResizeHandle", () => {
     expect(onChange).toHaveBeenCalledWith(200);
     fireEvent.doubleClick(s);
     expect(onReset).toHaveBeenCalled();
+  });
+});
+
+describe("ResizeHandle drag", () => {
+  const p = (type: "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel", el: Element, x: number) =>
+    fireEvent[type](el, { pointerId: 1, clientX: x, button: 0 });
+
+  it("previews while dragging, shows the live value, and reports once on release", () => {
+    const onChange = vi.fn();
+    const onPreview = vi.fn();
+    render(<ResizeHandle label="Resize x" value={300} min={200} max={400} onChange={onChange} onPreview={onPreview} />);
+    const s = screen.getByRole("separator", { name: "Resize x" });
+    p("pointerDown", s, 100);
+    p("pointerMove", s, 130);
+    p("pointerMove", s, 150);
+    expect(onPreview.mock.calls).toEqual([[330], [350]]);
+    expect(s).toHaveAttribute("aria-valuenow", "350");
+    expect(onChange).not.toHaveBeenCalled();
+    p("pointerUp", s, 150);
+    expect(onChange.mock.calls).toEqual([[350]]);
+  });
+
+  it("a cancelled drag puts the saved width back and saves nothing", () => {
+    const onChange = vi.fn();
+    const onPreview = vi.fn();
+    render(<ResizeHandle label="Resize x" value={300} min={200} max={400} onChange={onChange} onPreview={onPreview} />);
+    const s = screen.getByRole("separator", { name: "Resize x" });
+    p("pointerDown", s, 100);
+    p("pointerMove", s, 160);
+    p("pointerCancel", s, 160);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onPreview).toHaveBeenLastCalledWith(null);
+    expect(s).toHaveAttribute("aria-valuenow", "300");
+  });
+
+  it("dragging the sidebar writes the device preference once, on release, and never past what the window allows", () => {
+    const onChange = vi.fn();
+    render(<ResizeHandle label="Resize x" value={300} min={200} max={320} onChange={onChange} />);
+    const s = screen.getByRole("separator", { name: "Resize x" });
+    p("pointerDown", s, 0);
+    p("pointerMove", s, 500);
+    expect(s).toHaveAttribute("aria-valuenow", "320");
+    p("pointerUp", s, 500);
+    expect(onChange).toHaveBeenCalledOnce();
+    expect(onChange).toHaveBeenCalledWith(320);
+  });
+});
+
+describe("column limits", () => {
+  it("leaves the rest of the row its minimum, keeps the fixed limits when nothing is measured, and floors at min", () => {
+    expect(maxFor(0, 320, 260, 720)).toBe(720);
+    expect(maxFor(1000, 320, 260, 720)).toBe(680);
+    expect(maxFor(2000, 320, 260, 720)).toBe(720);
+    expect(maxFor(400, 320, 260, 720)).toBe(260);
+    // At the 900 px breakpoint the sidebar leaves 260 + 320 for the list and the article.
+    expect(maxFor(900, 580, 200, 420)).toBe(320);
   });
 });
 

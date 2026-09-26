@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Link, useMatch, useNavigate, useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, Keyboard, MoreVertical, RefreshCw, Settings, Undo2 } from "lucide-react";
@@ -9,6 +9,7 @@ import { useResolvedLayout } from "@/layouts";
 import { DEFAULT_DEVICE_PREFS, LIST_WIDTH_MAX, LIST_WIDTH_MIN, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { useWide } from "@/lib/useMedia";
+import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
 import { articleTo, listTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { useHotkeys } from "@/lib/keys";
 import { prefsStore } from "@/lib/prefs";
@@ -232,36 +233,71 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
   if (!wide) return articleId ? <ArticlePane key={articleId} id={articleId} scope={scope} hasFrom={hasFrom} pane={false} /> : list;
 
   // The list column's width is the device's choice (drag the handle or use the arrow keys); until then the
-  // layout's own width.
-  const remPx = typeof document === "undefined" ? 16 : parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-  const shown = dp.listWidth ?? Math.round(layout.paneRem * remPx);
+  // layout's own width. It never takes more than leaves the article ARTICLE_MIN px, and the handle reports the
+  // width that is really on screen.
   return (
-    <div className="flex h-full min-h-0">
+    <WidePane
+      listOnly={listOnly}
+      layoutRem={layout.paneRem}
+      listWidth={dp.listWidth}
+      list={list}
+      article={
+        articleId ? (
+          <ArticlePane id={articleId} scope={scope} hasFrom={hasFrom} pane />
+        ) : (
+          <div className="flex h-full items-center justify-center p-6 text-center text-fg2">
+            <p>Select an article to read it here.</p>
+          </div>
+        )
+      }
+    />
+  );
+}
+
+function WidePane({
+  listOnly,
+  layoutRem,
+  listWidth,
+  list,
+  article,
+}: {
+  listOnly: boolean | undefined;
+  layoutRem: number;
+  listWidth: number | null;
+  list: React.ReactNode;
+  article: React.ReactNode;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const col = useRef<HTMLDivElement>(null);
+  const total = useWidth(box);
+  // The root font size only changes with the text-size preference, so it is read then, not on every render.
+  const textSize = useStore(prefsStore).textSize;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const remPx = useMemo(() => (typeof document === "undefined" ? 16 : parseFloat(getComputedStyle(document.documentElement).fontSize) || 16), [textSize]);
+  const limit = maxFor(total, ARTICLE_MIN, LIST_WIDTH_MIN, LIST_WIDTH_MAX);
+  const wanted = listWidth ?? Math.round(layoutRem * remPx);
+  const shown = Math.min(limit, Math.max(LIST_WIDTH_MIN, wanted));
+  return (
+    <div ref={box} className="flex h-full min-h-0">
       {/* The list is always the first child here, so it is never remounted when an article opens or closes. */}
-      <div className={listOnly ? "relative min-w-0 flex-1" : "relative shrink-0 border-r border-line"} style={listOnly ? undefined : { width: shown, maxWidth: "60%" }}>
+      <div ref={col} className={listOnly ? "relative min-w-0 flex-1" : "relative shrink-0 border-r border-line"} style={listOnly ? undefined : { width: shown }}>
         {list}
         {listOnly ? null : (
           <ResizeHandle
             label="Resize article list"
             value={shown}
             min={LIST_WIDTH_MIN}
-            max={LIST_WIDTH_MAX}
+            max={limit}
+            // The column follows the pointer directly; the device preference is written once, on release.
+            onPreview={(px) => {
+              if (col.current) col.current.style.width = `${px ?? shown}px`;
+            }}
             onChange={(listWidth) => updateDevicePrefs({ listWidth })}
             onReset={() => updateDevicePrefs({ listWidth: DEFAULT_DEVICE_PREFS.listWidth })}
           />
         )}
       </div>
-      {listOnly ? null : (
-        <div className="min-w-0 flex-1">
-          {articleId ? (
-            <ArticlePane id={articleId} scope={scope} hasFrom={hasFrom} pane />
-          ) : (
-            <div className="flex h-full items-center justify-center p-6 text-center text-fg2">
-              <p>Select an article to read it here.</p>
-            </div>
-          )}
-        </div>
-      )}
+      {listOnly ? null : <div className="min-w-0 flex-1">{article}</div>}
     </div>
   );
 }

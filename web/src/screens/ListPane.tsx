@@ -26,6 +26,7 @@ import { FirstRun } from "./FirstRun";
 import { announce } from "@/shell/toasts";
 import { openExternal } from "@/lib/links";
 import { copyLink, shareLink } from "@/lib/share";
+import { useWidth } from "@/lib/useWidth";
 
 // Scroll and selection memory per list, so "back" lands where you were
 // (design 3.4: one restore path). Module scope: survives route changes.
@@ -112,21 +113,6 @@ export function chunkRows(rows: Row<Card>[], cols: number): VRow[] {
 /** Card columns from the list's own width: 1 under 600 px, 2 under 900, else 3. */
 export function columnsFor(width: number): number {
   return width < 600 ? 1 : width < 900 ? 2 : 3;
-}
-
-function useWidth(ref: React.RefObject<HTMLElement | null>): number {
-  const [w, setW] = useState(0);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const e = entries[0];
-      if (e) setW(Math.round(e.contentRect.width));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ref]);
-  return w;
 }
 
 const isTouch = (): boolean => {

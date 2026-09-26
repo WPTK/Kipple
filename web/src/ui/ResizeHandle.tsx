@@ -27,6 +27,7 @@ export function ResizeHandle({
   min,
   max,
   onChange,
+  onPreview,
   onReset,
   className,
 }: {
@@ -34,12 +35,29 @@ export function ResizeHandle({
   value: number;
   min: number;
   max: number;
+  /** A finished resize: keys act at once, a pointer drag reports once, on release. */
   onChange: (px: number) => void;
+  /**
+   * While a pointer drag is under way: the width to show right now, and null when the drag ends or is cancelled
+   * (put the saved width back). The parent applies it to its own element, with no store write and no re-render.
+   */
+  onPreview?: (px: number | null) => void;
   onReset?: () => void;
   className?: string;
 }) {
   const start = useRef<{ x: number; w: number } | null>(null);
   const [active, setActive] = useState(false);
+  // The width while dragging. Nothing is written or re-rendered above this handle until the pointer is released.
+  const [drag, setDrag] = useState<number | null>(null);
+  const shown = drag ?? value;
+  const end = (commit: boolean) => {
+    const d = drag;
+    start.current = null;
+    setActive(false);
+    setDrag(null);
+    if (commit && d !== null && d !== value) onChange(d);
+    else onPreview?.(null);
+  };
   return (
     <div
       role="separator"
@@ -47,7 +65,7 @@ export function ResizeHandle({
       aria-label={label}
       aria-valuemin={min}
       aria-valuemax={max}
-      aria-valuenow={Math.round(value)}
+      aria-valuenow={Math.round(shown)}
       tabIndex={0}
       title="Drag to resize. Double-click to reset."
       data-active={active || undefined}
@@ -66,19 +84,16 @@ export function ResizeHandle({
         }
       }}
       onPointerMove={(e) => {
-        if (start.current) onChange(dragWidth(start.current.w, e.clientX - start.current.x, min, max));
+        if (!start.current) return;
+        const w = dragWidth(start.current.w, e.clientX - start.current.x, min, max);
+        setDrag(w);
+        onPreview?.(w);
       }}
-      onPointerUp={() => {
-        start.current = null;
-        setActive(false);
-      }}
-      onPointerCancel={() => {
-        start.current = null;
-        setActive(false);
-      }}
+      onPointerUp={() => end(true)}
+      onPointerCancel={() => end(false)}
       onDoubleClick={() => onReset?.()}
       onKeyDown={(e) => {
-        const w = keyWidth(e.key, e.shiftKey, value, min, max);
+        const w = keyWidth(e.key, e.shiftKey, shown, min, max);
         if (w === null) return;
         e.preventDefault();
         onChange(w);

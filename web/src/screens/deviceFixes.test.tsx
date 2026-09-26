@@ -372,9 +372,52 @@ describe("sidebar", () => {
     expect(within(tabs).queryByTestId("unread-count")).toBeNull();
   });
 
+  it("at the 900 px breakpoint a wide saved sidebar is capped so the list and article keep their room, and the handle says so", async () => {
+    routes();
+    media(WIDE);
+    vi.stubGlobal("innerWidth", 900);
+    updateDevicePrefs({ sidebarWidth: 420 });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const side = screen.getByRole("separator", { name: "Resize sidebar" });
+    expect(side).toHaveAttribute("aria-valuemax", "320");
+    expect(side).toHaveAttribute("aria-valuenow", "320");
+    expect((side.parentElement as HTMLElement).style.width).toBe("320px");
+  });
+
+  it("the list handle never offers more than leaves the article 320 px, and its value is the width on screen", async () => {
+    routes();
+    media(WIDE);
+    boxWidth(700);
+    updateDevicePrefs({ listWidth: 600 });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const list = screen.getByRole("separator", { name: "Resize article list" });
+    expect(list).toHaveAttribute("aria-valuemax", "380");
+    expect(list).toHaveAttribute("aria-valuenow", "380");
+    expect((list.parentElement as HTMLElement).style.width).toBe("380px");
+  });
+
+  it("dragging the article list does not write the preference until release", async () => {
+    routes();
+    media(WIDE);
+    boxWidth(1400);
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const list = screen.getByRole("separator", { name: "Resize article list" });
+    const before = devicePrefsStore.get().listWidth;
+    fireEvent.pointerDown(list, { pointerId: 1, clientX: 300, button: 0 });
+    fireEvent.pointerMove(list, { pointerId: 1, clientX: 340 });
+    fireEvent.pointerMove(list, { pointerId: 1, clientX: 380 });
+    expect(devicePrefsStore.get().listWidth).toBe(before);
+    fireEvent.pointerUp(list, { pointerId: 1, clientX: 380 });
+    expect(devicePrefsStore.get().listWidth).not.toBe(before);
+  });
+
   it("the sidebar and the article list are resizable and remember their widths", async () => {
     routes();
     media(WIDE);
+    boxWidth(1400);
     go("/l/unread");
     await screen.findByText("Article number 1");
     const side = screen.getByRole("separator", { name: "Resize sidebar" });
@@ -387,6 +430,10 @@ describe("sidebar", () => {
     expect(devicePrefsStore.get().listWidth).toBeNull();
   });
 });
+
+/** The test setup reports every element as 375 px wide; a wide layout needs a wide box. */
+const boxWidth = (w: number) =>
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, top: 0, left: 0, right: w, bottom: 800, width: w, height: 800, toJSON() {} } as DOMRect);
 
 describe("manage feeds", () => {
   const reorderCalls = (calls: { method: string; url: URL; init?: RequestInit }[]) =>

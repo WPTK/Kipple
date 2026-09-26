@@ -15,6 +15,7 @@ import { FeedTree } from "@/screens/FeedTree";
 import { undoLast } from "@/lib/undo";
 import { HelpDialog, openHelp } from "./HelpDialog";
 import { ResizeHandle } from "@/ui/ResizeHandle";
+import { ARTICLE_MIN, LIST_MIN_FOR_SIDEBAR, maxFor, useViewportWidth } from "@/lib/useWidth";
 import { UnreadCount } from "@/ui/UnreadCount";
 import { UndoToast } from "./UndoToast";
 import { LiveRegion, Toasts } from "./toasts";
@@ -64,10 +65,14 @@ function Sidebar() {
   const boot = useBootstrap();
   const dp = useDevicePrefs();
   const c = boot.data?.counts;
+  // The sidebar leaves the list and the article their minimums, so at the 900 px breakpoint it cannot squeeze them.
+  const limit = maxFor(useViewportWidth(), LIST_MIN_FOR_SIDEBAR + ARTICLE_MIN, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
+  const width = Math.min(limit, dp.sidebarWidth);
+  const box = useRef<HTMLDivElement>(null);
   const item = ({ isActive }: { isActive: boolean }) =>
     cn("flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-selection", isActive && "bg-selection");
   return (
-    <div className="relative h-full shrink-0" style={{ width: dp.sidebarWidth }}>
+    <div ref={box} className="relative h-full shrink-0" style={{ width }}>
       <nav aria-label="Primary" className="pt-safe pl-safe flex h-full flex-col border-r border-line bg-surface px-2">
         <div className="flex shrink-0 flex-col gap-1">
           <p className="px-3 py-3 text-lg font-bold">Kipple</p>
@@ -106,9 +111,12 @@ function Sidebar() {
       </nav>
       <ResizeHandle
         label="Resize sidebar"
-        value={dp.sidebarWidth}
+        value={width}
         min={SIDEBAR_WIDTH_MIN}
-        max={SIDEBAR_WIDTH_MAX}
+        max={limit}
+        onPreview={(px) => {
+          if (box.current) box.current.style.width = `${px ?? width}px`;
+        }}
         onChange={(sidebarWidth) => updateDevicePrefs({ sidebarWidth })}
         onReset={() => updateDevicePrefs({ sidebarWidth: DEFAULT_DEVICE_PREFS.sidebarWidth })}
       />
