@@ -429,7 +429,7 @@ func TestListItemsEmptyIsArray(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
 	_, body, rec := h.api(c, "GET", "/api/items", "")
-	require.JSONEq(t, `{"items":[],"next_cursor":null,"as_of":"0"}`, rec.Body.String())
+	require.JSONEq(t, `{"items":[],"next_cursor":null,"as_of":"0","fallback":false}`, rec.Body.String())
 	require.NotNil(t, body)
 }
 

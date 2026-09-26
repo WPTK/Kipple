@@ -3,65 +3,18 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"html"
 	"strconv"
 	"strings"
-	"unicode"
 )
 
-// Full-text search over items_fts (design §2.4, §7.1).
+// Full-text search over items_fts (design §2.4, §7.1). The query builder is in searchquery.go.
 
-const (
-	maxSearchTokens   = 16
-	maxSearchTokenLen = 64 // runes
-	maxSearchInput    = 512
-	// snippet markers: control characters (stripped from user input and absent
-	// from plain text) stand in for <mark> until the text has been escaped.
-	snipOpen, snipClose = "\x02", "\x03"
-)
-
-// BuildFTSQuery turns user text into an FTS5 MATCH expression that can never
-// contain FTS syntax: every token is a double-quoted phrase (embedded quotes
-// doubled), a trailing '*' stays outside the quotes for prefix search, tokens
-// are ANDed by juxtaposition. Column filters ("title:x"), NEAR, NOT, '^' and
-// parentheses are all inert inside a quoted phrase. Tokens with no letter or
-// digit are dropped (the tokenizer would turn them into an empty phrase).
-// ok is false when nothing searchable remains.
-func BuildFTSQuery(raw string) (match string, ok bool) {
-	if len(raw) > maxSearchInput {
-		raw = raw[:maxSearchInput]
-	}
-	clean := strings.Map(func(r rune) rune {
-		if r == unicode.ReplacementChar || unicode.IsControl(r) {
-			return ' '
-		}
-		return r
-	}, raw)
-	var out []string
-	for _, tok := range strings.Fields(clean) {
-		prefix := strings.HasSuffix(tok, "*")
-		tok = strings.TrimRight(tok, "*")
-		if !strings.ContainsFunc(tok, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
-			continue
-		}
-		if r := []rune(tok); len(r) > maxSearchTokenLen {
-			tok = string(r[:maxSearchTokenLen])
-		}
-		q := `"` + strings.ReplaceAll(tok, `"`, `""`) + `"`
-		if prefix {
-			q += "*"
-		}
-		out = append(out, q)
-		if len(out) == maxSearchTokens {
-			break
-		}
-	}
-	if len(out) == 0 {
-		return "", false
-	}
-	return strings.Join(out, " "), true
-}
+// snippet markers: control characters (stripped from user input and absent
+// from plain text) stand in for <mark> until the text has been escaped.
+const snipOpen, snipClose = "\x02", "\x03"
 
 // snippetHTML escapes the plain-text snippet and turns the marker characters
 // into <mark> tags, so the result is safe to render as HTML.
@@ -71,15 +24,9 @@ func snippetHTML(s string) string {
 	return strings.ReplaceAll(s, snipClose, "</mark>")
 }
 
-// searchCards runs a Query card list. Rank order keys on (rank, id) ascending
-// (bm25: lower is better); date order on (sort_at, id) descending.
-func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *Cursor, error) {
-	match, ok := BuildFTSQuery(q.Query)
-	if !ok {
-		return []Card{}, nil, nil
-	}
-	where := []string{"items_fts MATCH ?"}
-	args := []any{match}
+// searchScope holds the WHERE parts of a search that do not depend on the cursor or the match
+// mode, so the zero-result probe and the page query see exactly the same rows.
+func searchScope(q CardQuery) (where []string, args []any) {
 	switch q.View {
 	case "unread":
 		where = append(where, "i.read = 0")
@@ -102,6 +49,38 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 		where = append(where, w)
 		args = append(args, a...)
 	}
+	return where, args
+}
+
+// searchCards runs a Query card list and reports whether it ran in partial-match (fallback) mode.
+// Rank order keys on (rank, id) ascending (bm25: lower is better); date order on (sort_at, id)
+// descending. The first page runs the exact expression and, when that finds nothing in scope,
+// retries once with SearchQuery.FallbackMatch; the cursor remembers the mode so later pages stay
+// in it.
+func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *Cursor, bool, error) {
+	sq := ParseSearch(q.Query)
+	match, ok := sq.Match()
+	if !ok {
+		return []Card{}, nil, false, nil
+	}
+	scope, scopeArgs := searchScope(q)
+	fallback := false
+	if fb := sq.FallbackMatch(); q.Cursor != nil && q.Cursor.Fallback && fb != "" {
+		match, fallback = fb, true
+	} else if q.Cursor == nil && fb != "" && fb != match {
+		probe := `SELECT 1 FROM items_fts JOIN items i ON i.id = items_fts.rowid WHERE ` +
+			strings.Join(append([]string{"items_fts MATCH ?"}, scope...), " AND ") + ` LIMIT 1`
+		var one int
+		err := d.reader.QueryRowContext(ctx, probe, append([]any{match}, scopeArgs...)...).Scan(&one)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			match, fallback = fb, true
+		case err != nil:
+			return nil, nil, false, fmt.Errorf("store: search probe: %w", err)
+		}
+	}
+	where := append([]string{"items_fts MATCH ?"}, scope...)
+	args := append([]any{match}, scopeArgs...)
 	var outer, order string
 	var outerArgs []any
 	if q.Rank {
@@ -129,7 +108,7 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 
 	rows, err := d.reader.QueryContext(ctx, sqlText, args...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("store: search: %w", err)
+		return nil, nil, false, fmt.Errorf("store: search: %w", err)
 	}
 	defer rows.Close()
 	cards := []Card{}
@@ -142,7 +121,7 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 		var read, starred int
 		var rank float64
 		if err := rows.Scan(&c.ID, &c.FeedID, &c.Title, &c.URL, &c.Author, &text, &img, &c.PublishedAt, &c.SortAt, &read, &starred, &c.WordCount, &origin, &ftitle, &mutedBy, &mutedName, &snip, &rank); err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		c.setSource(origin, ftitle)
 		c.setMuted(mutedBy, mutedName)
@@ -159,14 +138,14 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 		cards = append(cards, c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	if len(cards) > limit {
 		cards = cards[:limit]
 		last := cards[len(cards)-1]
-		return cards, &Cursor{SortAt: last.SortAt, ID: last.ID, Rank: lastRank, ByRank: q.Rank, Asc: q.Oldest}, nil
+		return cards, &Cursor{SortAt: last.SortAt, ID: last.ID, Rank: lastRank, ByRank: q.Rank, Asc: q.Oldest, Fallback: fallback}, fallback, nil
 	}
-	return cards, nil, nil
+	return cards, nil, fallback && len(cards) > 0, nil
 }
 
 // RebuildFTS repairs the search index from its content view (design §2.4).

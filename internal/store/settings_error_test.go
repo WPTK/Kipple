@@ -134,7 +134,7 @@ func TestHoldPendingEncoding(t *testing.T) {
 	e.db.ftPend.mu.Lock()
 	e.db.ftPend.ids[42] = struct{}{}
 	e.db.ftPend.mu.Unlock()
-	require.JSONEq(t, "[7,42]", e.db.HoldPending())
+	require.Equal(t, "[7,42]", e.db.HoldPending())
 }
 
 // The bookkeeping commits and TrimOnly go through the commit gate: they wait for

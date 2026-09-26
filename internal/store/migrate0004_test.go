@@ -270,6 +270,14 @@ func TestRehearsalOnRealDatabase(t *testing.T) {
 	require.NoError(t, err)
 	var fromVersion int
 	require.NoError(t, raw.QueryRow("PRAGMA user_version").Scan(&fromVersion))
+	// Search results on the old unicode61 index, for the before/after comparison below.
+	terms := []string{"apple", "google", "security", "news", "climate", "video", "review", "market"}
+	oldHits := map[string]map[int64]bool{}
+	if fromVersion < 5 {
+		for _, term := range terms {
+			oldHits[term] = ftsHits(t, raw, term)
+		}
+	}
 	require.NoError(t, raw.Close())
 
 	h := &recordingHandler{}
@@ -293,6 +301,24 @@ func TestRehearsalOnRealDatabase(t *testing.T) {
 		_, err := tx.ExecContext(ctx, `INSERT INTO items_fts(items_fts) VALUES ('integrity-check')`)
 		return err
 	}))
+	// Every exact-token hit of the old index is still a hit (porter stems both sides), and stemming
+	// only adds rows.
+	var sbSearch strings.Builder
+	for _, term := range terms {
+		newHits := ftsHits(t, db.Reader(), term)
+		for id := range oldHits[term] {
+			require.True(t, newHits[id], "term %q lost item %d in the porter index", term, id)
+		}
+		if fromVersion < 5 {
+			fmt.Fprintf(&sbSearch, " %s:%d->%d", term, len(oldHits[term]), len(newHits))
+		}
+	}
+	t.Log("search hits old->new:" + sbSearch.String())
+	// Strong integrity check: the index against its content view (rank = 1).
+	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO items_fts(items_fts, rank) VALUES ('integrity-check', 1)`)
+		return err
+	}))
 	require.NoError(t, db.Close())
 	after := rawCounts(t, path)
 	require.Equal(t, before["items"], after["items"])
@@ -313,4 +339,20 @@ func TestRehearsalOnRealDatabase(t *testing.T) {
 		}
 	}
 	t.Log("\n" + sb.String())
+}
+
+// ftsHits is the set of item ids the raw term matches in items_fts.
+func ftsHits(t *testing.T, q Querier, term string) map[int64]bool {
+	t.Helper()
+	rows, err := q.QueryContext(context.Background(), `SELECT rowid FROM items_fts WHERE items_fts MATCH ?`, `"`+term+`"`)
+	require.NoError(t, err)
+	defer rows.Close()
+	out := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		require.NoError(t, rows.Scan(&id))
+		out[id] = true
+	}
+	require.NoError(t, rows.Err())
+	return out
 }

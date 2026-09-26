@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -144,10 +145,16 @@ func (d *DB) HoldPending() string {
 	if len(d.ftPend.ids) == 0 {
 		return "[]"
 	}
-	// Built by hand: a []int64 cannot fail to encode, so there is no error to drop.
-	b := append(make([]byte, 0, len(d.ftPend.ids)*8), '[')
+	// Sorted, so the encoding is deterministic (map order is not). Built by hand: a []int64
+	// cannot fail to encode, so there is no error to drop.
+	ids := make([]int64, 0, len(d.ftPend.ids))
 	for id := range d.ftPend.ids {
-		if len(b) > 1 {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	b := append(make([]byte, 0, len(ids)*8), '[')
+	for i, id := range ids {
+		if i > 0 {
 			b = append(b, ',')
 		}
 		b = strconv.AppendInt(b, id, 10)

@@ -153,24 +153,34 @@ func dateOrder(prefix string, oldest bool) string {
 // Cursor is the keyset position (sort_at, id) of the last card served.
 // A relevance cursor (ByRank) keys on (Rank, ID) instead.
 type Cursor struct {
-	SortAt int64
-	ID     int64
-	Rank   float64
-	ByRank bool
-	Asc    bool // an oldest-first cursor: (sort_at, id) ascending
+	SortAt   int64
+	ID       int64
+	Rank     float64
+	ByRank   bool
+	Asc      bool // an oldest-first cursor: (sort_at, id) ascending
+	Fallback bool // a search page series that runs in partial-match mode (SearchQuery.FallbackMatch)
 }
 
-// Encode renders the opaque cursor: base64url of "sort_at.id", or "r<rank>|id"
-// for a relevance cursor.
+// rankCursorTag versions the relevance cursor. Schema 5 changed the rank basis (porter stemming,
+// title-weighted bm25), so cursors of the old "r<rank>|id" form no longer parse (a 400): their
+// numbers would order against the wrong scale.
+const rankCursorTag = "s2"
+
+// Encode renders the opaque cursor: base64url of "[a][f]sort_at.id", or
+// "s2[f]|<rank>|id" for a relevance cursor ("a" oldest first, "f" fallback mode).
 func (c Cursor) Encode() string {
+	f := ""
+	if c.Fallback {
+		f = "f"
+	}
 	if c.ByRank {
-		return base64.RawURLEncoding.EncodeToString([]byte("r" + formatRank(c.Rank) + "|" + strconv.FormatInt(c.ID, 10)))
+		return base64.RawURLEncoding.EncodeToString([]byte(rankCursorTag + f + "|" + formatRank(c.Rank) + "|" + strconv.FormatInt(c.ID, 10)))
 	}
 	tag := ""
 	if c.Asc {
 		tag = "a"
 	}
-	return base64.RawURLEncoding.EncodeToString([]byte(tag + strconv.FormatInt(c.SortAt, 10) + "." + strconv.FormatInt(c.ID, 10)))
+	return base64.RawURLEncoding.EncodeToString([]byte(tag + f + strconv.FormatInt(c.SortAt, 10) + "." + strconv.FormatInt(c.ID, 10)))
 }
 
 // ParseCursor is the inverse of Encode.
@@ -179,16 +189,19 @@ func ParseCursor(s string) (Cursor, error) {
 	if err != nil {
 		return Cursor{}, errors.New("store: bad cursor")
 	}
-	if rest, isRank := strings.CutPrefix(string(raw), "r"); isRank {
+	if rest, isRank := strings.CutPrefix(string(raw), rankCursorTag); isRank {
+		rest, fb := strings.CutPrefix(rest, "f")
+		rest, ok0 := strings.CutPrefix(rest, "|")
 		a, b, ok := strings.Cut(rest, "|")
 		rank, err1 := strconv.ParseFloat(a, 64)
 		id, err2 := strconv.ParseInt(b, 10, 64)
-		if !ok || err1 != nil || err2 != nil || math.IsNaN(rank) || math.IsInf(rank, 0) {
+		if !ok0 || !ok || err1 != nil || err2 != nil || math.IsNaN(rank) || math.IsInf(rank, 0) {
 			return Cursor{}, errors.New("store: bad cursor")
 		}
-		return Cursor{ID: id, Rank: rank, ByRank: true}, nil
+		return Cursor{ID: id, Rank: rank, ByRank: true, Fallback: fb}, nil
 	}
 	body, asc := strings.CutPrefix(string(raw), "a")
+	body, fb := strings.CutPrefix(body, "f")
 	a, b, ok := strings.Cut(body, ".")
 	if !ok {
 		return Cursor{}, errors.New("store: bad cursor")
@@ -198,7 +211,7 @@ func ParseCursor(s string) (Cursor, error) {
 	if err1 != nil || err2 != nil {
 		return Cursor{}, errors.New("store: bad cursor")
 	}
-	return Cursor{SortAt: sortAt, ID: id, Asc: asc}, nil
+	return Cursor{SortAt: sortAt, ID: id, Asc: asc, Fallback: fb}, nil
 }
 
 const cardCols = `i.id, i.feed_id, i.title, i.url, i.author, substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url,
@@ -230,6 +243,13 @@ func scanCard(rows interface{ Scan(...any) error }) (Card, error) {
 // the next page, or nil when there is none. An ids query returns those cards
 // that still exist in items, with no cursor.
 func (d *DB) ListCards(ctx context.Context, q CardQuery) ([]Card, *Cursor, error) {
+	cards, cur, _, err := d.ListCardsFB(ctx, q)
+	return cards, cur, err
+}
+
+// ListCardsFB is ListCards plus the search fallback flag: true when a text search found no exact
+// match and the cards are partial (prefix/OR) matches instead (design §7.1).
+func (d *DB) ListCardsFB(ctx context.Context, q CardQuery) ([]Card, *Cursor, bool, error) {
 	if q.Query != "" && len(q.IDs) == 0 {
 		limit := q.Limit
 		if limit <= 0 {
@@ -237,6 +257,11 @@ func (d *DB) ListCards(ctx context.Context, q CardQuery) ([]Card, *Cursor, error
 		}
 		return d.searchCards(ctx, q, min(limit, CardMaxLimit))
 	}
+	cards, cur, err := d.listCardsPlain(ctx, q)
+	return cards, cur, false, err
+}
+
+func (d *DB) listCardsPlain(ctx context.Context, q CardQuery) ([]Card, *Cursor, error) {
 	sqlText, args, limit, err := listCardsSQL(q)
 	if err != nil {
 		return nil, nil, err
@@ -475,7 +500,10 @@ func (b Bound) op() string {
 // MarkFilter narrows a scope to what the list behind it showed: search text,
 // reading-time limits and an anchor bound. The zero value adds nothing.
 type MarkFilter struct {
-	Query      string
+	Query string
+	// Unread is true when the list behind the scope showed the unread view: the search fallback
+	// probe then only counts unread rows, exactly as that list did.
+	Unread     bool
 	MinMinutes int
 	MaxMinutes int
 	Bound      *Bound
@@ -491,10 +519,14 @@ func (f MarkFilter) any() bool {
 // which has no sort_at, text or word count to test. Like the other read-state
 // functions it has no stats side effect.
 func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilter, maxID, now int64) (StateResult, error) {
-	sel, args, feedWhere, base, ok := markSelectSQL(scope, f, maxID)
+	match, ok, err := markMatch(ctx, tx, scope, f)
+	if err != nil {
+		return StateResult{}, err
+	}
 	if !ok {
 		return StateResult{}, nil // a search with no usable terms matches nothing
 	}
+	sel, args, feedWhere, base := markSelectSQL(scope, f, maxID, match, false)
 	rows, err := tx.QueryContext(ctx, sel, args...)
 	if err != nil {
 		return StateResult{}, err
@@ -521,7 +553,10 @@ func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilte
 
 // markSelectSQL builds the query that picks the unread ids to mark. base holds
 // the arguments the ledger statement shares (max and the feed/folder target).
-func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64) (sel string, args []any, feedWhere string, base []any, ok bool) {
+//
+// probe builds the fallback probe instead: the same scope, muted and reading filters and, for an
+// unread list, the read = 0 test, but no id bound and no anchor, so it sees what the list saw.
+func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64, match string, probe bool) (sel string, args []any, feedWhere string, base []any) {
 	where := ""
 	args = []any{sql.Named("max", maxID)}
 	if scope.Starred {
@@ -540,11 +575,7 @@ func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64) (sel string, args
 	}
 	base = append([]any(nil), args...)
 	extra := ""
-	if f.Query != "" {
-		match, ok := BuildFTSQuery(f.Query)
-		if !ok {
-			return "", nil, "", nil, false
-		}
+	if match != "" {
 		extra += " AND id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH :match)"
 		args = append(args, sql.Named("match", match))
 	}
@@ -555,9 +586,46 @@ func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64) (sel string, args
 		}
 		extra += " AND " + w
 	}
+	if probe {
+		cond := "1 = 1"
+		if f.Unread {
+			cond = "read = 0"
+		}
+		if !scope.Muted {
+			where += " AND muted_by IS NULL" // the list skips muted items unless it is the muted view
+		}
+		return "SELECT 1 FROM items WHERE " + cond + where + feedWhere + extra + " LIMIT 1", args, feedWhere, base
+	}
 	if b := f.Bound; b != nil {
 		extra += " AND (sort_at, id) " + b.op() + " (:bsort, :bid)"
 		args = append(args, sql.Named("bsort", b.SortAt), sql.Named("bid", b.ID))
 	}
-	return "SELECT id, feed_id FROM items WHERE read = 0 AND id <= :max" + where + feedWhere + extra, args, feedWhere, base, true
+	return "SELECT id, feed_id FROM items WHERE read = 0 AND id <= :max" + where + feedWhere + extra, args, feedWhere, base
+}
+
+// markMatch is the MATCH expression a search scope marks by, chosen exactly as the list behind it
+// chose: the exact expression, or the partial-match one when nothing in scope matches exactly.
+// match is "" (with ok true) when there is no search text.
+func markMatch(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilter) (match string, ok bool, err error) {
+	if f.Query == "" {
+		return "", true, nil
+	}
+	sq := ParseSearch(f.Query)
+	match, ok = sq.Match()
+	if !ok {
+		return "", false, nil
+	}
+	fb := sq.FallbackMatch()
+	if fb == "" || fb == match {
+		return match, true, nil
+	}
+	sel, args, _, _ := markSelectSQL(scope, f, 0, match, true)
+	var one int
+	switch err := tx.QueryRowContext(ctx, sel, args...).Scan(&one); {
+	case errors.Is(err, sql.ErrNoRows):
+		return fb, true, nil
+	case err != nil:
+		return "", false, fmt.Errorf("store: mark scope probe: %w", err)
+	}
+	return match, true, nil
 }

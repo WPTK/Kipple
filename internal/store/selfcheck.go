@@ -22,8 +22,8 @@ var requiredFeatures = []feature{
 	{"json1 (json_valid, json_each)", []string{
 		`SELECT json_valid('1') + (SELECT count(*) FROM json_each('[1,2]'))`,
 	}},
-	{"fts5 (unicode61, snippet, bm25)", []string{
-		`CREATE VIRTUAL TABLE temp.kipple_selfcheck USING fts5(a, tokenize='unicode61 remove_diacritics 2')`,
+	{"fts5 (porter unicode61, snippet, bm25)", []string{
+		`CREATE VIRTUAL TABLE temp.kipple_selfcheck USING fts5(a, tokenize='porter unicode61 remove_diacritics 2')`,
 		`INSERT INTO temp.kipple_selfcheck(rowid, a) VALUES (1, 'probe')`,
 		`SELECT snippet(kipple_selfcheck, 0, '', '', '', 1), bm25(kipple_selfcheck), rank FROM temp.kipple_selfcheck WHERE kipple_selfcheck MATCH 'probe'`,
 		`DROP TABLE temp.kipple_selfcheck`,

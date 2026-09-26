@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"net/http"
 	"net/url"
 	"strings"
@@ -69,10 +70,14 @@ func TestSearchMaliciousInputNeverErrors(t *testing.T) {
 			require.Contains(t, []int{200, 400}, code, "q=%q %s: %s", q, extra, rec.Body.String())
 		}
 	}
-	_, body, _ := h.api(c, "GET", searchURL("title:plain"), "")
-	require.Empty(t, itemIDs(t, body)) // a column filter is a plain phrase, not a filter
-	_, body, _ = h.api(c, "GET", searchURL("plain -nope"), "")
-	require.Empty(t, itemIDs(t, body)) // '-nope' is a required literal token
+	_, body, _ := h.api(c, "GET", searchURL("title:plain "), "")
+	require.Equal(t, strs(id), itemIDs(t, body)) // title: is a column filter
+	_, body, _ = h.api(c, "GET", searchURL("body:plain "), "")
+	require.Empty(t, itemIDs(t, body)) // any other "x:" is literal text, never a filter
+	_, body, _ = h.api(c, "GET", searchURL("plain -nope "), "")
+	require.Equal(t, strs(id), itemIDs(t, body)) // exclusion of a word that is absent
+	_, body, _ = h.api(c, "GET", searchURL("plain -body "), "")
+	require.Empty(t, itemIDs(t, body))
 	_, body, _ = h.api(c, "GET", searchURL("plain"), "")
 	require.Equal(t, strs(id), itemIDs(t, body))
 	code, body, _ := h.api(c, "GET", searchURL("- + ( )"), "")
@@ -180,4 +185,53 @@ func TestFTSRebuild(t *testing.T) {
 	require.Equal(t, 401, h.do("POST", "/api/maintenance/fts-rebuild", "").Code)
 	code, _, _ = h.api(c, "POST", "/api/maintenance/fts-rebuild", "", func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") })
 	require.Equal(t, 403, code)
+}
+
+func TestSearchStemmingPhraseAndFallbackFlag(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("One", 0)
+	a := h.addItem(f, seedItem{Title: "Morning run", Text: "she runs every day", SortAt: 10})
+	b := h.addItem(f, seedItem{Title: "Pastry", Text: "a pie needs pastry", SortAt: 20})
+	h.addItem(f, seedItem{Title: "Other", Text: "nothing here", SortAt: 30})
+
+	_, body, _ := h.api(c, "GET", searchURL("running "), "")
+	require.Equal(t, strs(a), itemIDs(t, body)) // running finds run and runs
+	require.Equal(t, false, body["fallback"])
+	_, body, _ = h.api(c, "GET", searchURL(`"pie needs" `), "")
+	require.Equal(t, strs(b), itemIDs(t, body))
+
+	// nothing matches both: partial matches and the flag
+	_, body, _ = h.api(c, "GET", searchURL("runs pastry "), "")
+	require.ElementsMatch(t, strs(a, b), itemIDs(t, body))
+	require.Equal(t, true, body["fallback"])
+	// no match at all: no flag
+	_, body, _ = h.api(c, "GET", searchURL("zzzz "), "")
+	require.Empty(t, itemIDs(t, body))
+	require.Equal(t, false, body["fallback"])
+
+	// scope.q for mark-read picks the same partial matches the list showed
+	code, out, rec := h.api(c, "POST", "/api/items/mark-read", `{"scope":{"all":true,"view":"all","q":"runs pastry "},"max_id":"9223372036854775000","read":true}`)
+	require.Equal(t, 200, code, rec.Body.String())
+	require.EqualValues(t, 2, out["count"])
+	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE read = 0"))
+}
+
+// Relevance cursors from before schema 5 and cursors from another ordering are refused, not misread.
+func TestSearchOldRankCursorIs400(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("One", 0)
+	for i := 0; i < 4; i++ {
+		h.addItem(f, seedItem{Title: "t", Text: "kiwi", SortAt: int64(10 + i)})
+	}
+	old := base64.RawURLEncoding.EncodeToString([]byte("r-1.5|123"))
+	code, _, _ := h.api(c, "GET", searchURL("kiwi", "order=rank", "cursor="+url.QueryEscape(old)), "")
+	require.Equal(t, 400, code)
+	_, body, _ := h.api(c, "GET", searchURL("kiwi", "order=rank", "limit=2"), "")
+	cur := body["next_cursor"].(string)
+	code, _, _ = h.api(c, "GET", searchURL("kiwi", "order=rank", "limit=2", "cursor="+url.QueryEscape(cur)), "")
+	require.Equal(t, 200, code)
+	code, _, _ = h.api(c, "GET", searchURL("kiwi", "order=date", "limit=2", "cursor="+url.QueryEscape(cur)), "")
+	require.Equal(t, 400, code)
 }

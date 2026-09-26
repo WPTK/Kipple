@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/stats"
@@ -86,7 +87,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
-	q.Query = strings.TrimSpace(search)
+	q.Query = searchText(search)
 	if v := qv.Get("ids"); v != "" {
 		for _, p := range strings.Split(v, ",") {
 			id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
@@ -154,7 +155,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "list items", err)
 		return
 	}
-	cards, next, err := s.db.ListCards(r.Context(), q)
+	cards, next, fallback, err := s.db.ListCardsFB(r.Context(), q)
 	if err != nil {
 		s.log.Error("api: list items", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal")
@@ -165,7 +166,16 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	if next != nil {
 		cur = next.Encode()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": cards, "next_cursor": cur, "as_of": strconv.FormatInt(asOf, 10)})
+	writeJSON(w, http.StatusOK, map[string]any{"items": cards, "next_cursor": cur, "as_of": strconv.FormatInt(asOf, 10), "fallback": fallback})
+}
+
+// searchText is the search text as sent, or "" when it is blank. Trailing spaces are kept: a text
+// that does not end in a space makes its last word a prefix (search-as-you-type, design §2.4).
+func searchText(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return strings.TrimLeftFunc(s, unicode.IsSpace)
 }
 
 // ---- GET /api/items/{id} ----
@@ -387,7 +397,8 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 			bad()
 			return
 		}
-		filter.Query = strings.TrimSpace(sc.Q)
+		filter.Query = searchText(sc.Q)
+		filter.Unread = sc.View == "unread"
 		filter.MinMinutes, filter.MaxMinutes = sc.MinMin, sc.MaxMin
 		if len(sc.Q) > maxSearchQuery || !validMinutes(sc.MinMin, sc.MaxMin) {
 			bad()
