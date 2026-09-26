@@ -37,7 +37,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
    - **Writer pool.** `SetMaxOpenConns(1)` and `_txlock=immediate`. Only `store.WithWrite(ctx, fn func(ctx context.Context, tx *sql.Tx) error)` can reach it. Every store write method takes a `*sql.Tx` (or a `Querier`) and never the `*sql.DB`, so nothing inside a write transaction can ask the pool for a second connection. Each write transaction (acquisition, `fn` and commit) has a 10 s context deadline. On timeout it logs an ERROR naming the current holder (the helper records its caller's file:line and function).
    - **Reader pool.** `SetMaxOpenConns(4)`, `SetMaxIdleConns(4)`, `SetConnMaxIdleTime(0)`, `query_only`.
    - **Snapshot pool.** `SetMaxOpenConns(1)`, not `query_only`. It is opened only for `VACUUM INTO` (the nightly snapshot, the pre-migration snapshot and the backup export), because `query_only` rejects that statement.
-   - **Commit gate.** Fetch workers take a `chan struct{}` of capacity 1 before they `BEGIN`. API writers skip the gate and queue on the pool. `database/sql` does not hand a freed connection to waiters in FIFO order, so without the gate 8 queued fetch commits could keep winning over a Reeder `edit-tag`. With the gate, an API write waits for at most one feed commit.
+   - **Commit gate.** `store.DB` owns a `chan struct{}` of capacity 1, taken inside the store before the `BEGIN` of every fetch-path write (each commit chunk, the error and skip rows, `trim_only`) and of every maintenance batch; the workers never touch it. API writers skip the gate and queue on the pool. `database/sql` does not hand a freed connection to waiters in FIFO order, so without the gate 8 queued fetch commits could keep winning over a Reeder `edit-tag`. With the gate, an API write waits for at most one feed commit.
    - *Rejected:* "pool alone" (no ordering guarantee), and a dedicated writer goroutine fed with closures (more code, same effect).
 
 3. **Driver: `modernc.org/sqlite` v1.59.x (SQLite 3.53.4, STAT4), with `modernc.org/libc` pinned to exactly the version in its go.mod** (v1.75.7 today).
@@ -239,7 +239,7 @@ After opening, the writer runs `PRAGMA optimize=0x10002` once, then checks that 
 
 ### 2.2 DDL — `internal/store/migrations/0001_init.sql`
 
-This block is exactly `0001_init.sql`, the schema as first shipped. Later migrations are listed in §2.2a; do not edit this block to match them. Three comments inside it are stale: sessions slide over 90 days (`sessionTTL`), not 30; the `ui.line_height` and `ui.content_width` settings it names were replaced by `ui.reading_density` (migration 0002); and its settings key list is incomplete (see the paragraph after the block).
+This block is exactly `0001_init.sql`, the schema as first shipped. Later migrations are listed in §2.2a; do not edit this block to match them. Three comments inside it are stale: sessions slide over 90 days (`sessionTTL`), not 30; the `ui.line_height` and `ui.content_width` settings it names were replaced by `ui.reading_density` (migration 0002); and its settings key list is incomplete (see the paragraph after the block). Two further comments are out of date. The `trimmed_items` comment says `last_seen_at` gates the 180-day purge; the horizon is `max(180, restore_days + 7)` days (§5). The `fetch_log.note` list names a `fulltext: <ok>/<tried>` note that no longer exists; the notes written today are `redirect_migrated: <old> -> <new>`, `redirect_target_owned_by_feed <id>`, `retry_after=<s>s`, `guid_churn_suspected`, `guid_duplicates: <k>/<n>`, `rekeyed: <k>`, `initial_read: <k>`, `filters: muted <k>, marked_read <k>, starred <k>`, `skipped: host retry-after until <RFC3339 UTC>`, `skipped_malformed_items: <k>/<n>`, `fulltext_picked: <n>`, `fulltext_deferred: <m>`, `fulltext: skipped (re-key pending)` and `fulltext: skipped (could not check existing items)` (joined with `; `).
 
 ```sql
 -- Kipple schema v1. Applied by the migration runner inside BEGIN IMMEDIATE; the runner then sets
@@ -793,36 +793,46 @@ The remaining ambiguity is an *unpadded* bare-hex value made only of digits. No 
 `internal/sched.Scheduler` owns one **dispatcher goroutine** and 8 **worker goroutines** (`KIPPLE_FETCH_WORKERS`). The dispatcher owns these, touched only by itself:
 
 ```
-inflight  map[feedID]*flight       // flight.runs: runs this attempt counts toward
-perHost   map[host]int             // cap 2 in flight per host (KIPPLE_FETCH_PER_HOST)
-hostUntil map[host]time.Time       // Retry-After deadlines (in memory, decision 11)
-pending   FIFO of jobs waiting for a host slot or a worker
-runs      map[runKind]*Run         // at most one active run per kind: manual, import, retention
-live      int                      // workers not yet exited
+flights     map[feedID]*flight     // every queued or running job; flight.started marks the running ones; flight.runs: runs it counts toward
+perHost     map[host]int           // cap 2 running per host (KIPPLE_FETCH_PER_HOST)
+hostUntil   map[host]time.Time     // Retry-After deadlines (in memory, decision 11)
+notBefore   map[feedID]time.Time   // feeds whose last commit failed: not redispatched before this (in memory, §4.6)
+commitFails map[feedID]int         // consecutive commit failures per feed (in memory, §4.6)
+pending     []*flight              // jobs waiting for a host slot or a worker; FIFO except that a priority job is put at the head
+runs        map[runKind]*Run       // the latest run per kind: manual, import, retention
+running     int                    // jobs handed to workers
+live        int                    // workers not yet exited
+stopping    bool                   // set once Stop has been called
+lastRunID   int64                  // run ids are unix ms, bumped so two never share one
 ```
 
-`Run` holds `{id, kind, total, done, new_items, errors, outstanding}`. `outstanding` counts the jobs queued or in flight that belong to the run.
+A `flight` also carries the reply channels waiting on it, the priority requests it cannot satisfy (`followups`) and the runs' jobs it cannot stand in for (`runFollows`; §4.2).
+
+`Run` holds `{id, kind, total, done, new_items, errors, outstanding}`. `outstanding` counts the jobs queued or in flight that belong to the run. `runs` holds the latest run per kind. A second refresh-all joins the active manual run. A new import or retention run starts alongside an older one of the same kind: both finish and publish `run.done`, but only the newest shows in `GET /api/status`.
 
 Channels (all reply channels are `make(chan T, 1)`, and every dispatcher send uses `select { case ch <- v: default: }`):
 
 - `jobs`: capacity = number of workers
 - `doneCh`: capacity = number of workers; carries results and `workerExit`
-- `manualCh`: refresh-all requests with reply channels
-- `priorityCh`: per-feed refresh, rekey, trim-only, UI subscribe; each job carries a reply channel
-- `wake`
-- `stopCh`
+- `manualCh`: refresh-all, import and retention run requests with reply channels (capacity 8)
+- `priorityCh`: per-feed refresh, rekey, trim-only, UI subscribe; each job carries a reply channel (capacity 32)
+- `wake`: capacity 1
+- `stopCh`: closed by `Stop` to end the dispatcher
+- `shutdownCh`: closed by `Stop` so every handler waiting on a reply returns at once (§4.10)
+- `stopped`: closed when the dispatcher has returned (`Stopped()`)
+- `syncCh`: a barrier used by tests and `Status()`/`HostHolds()`: the dispatcher runs the function it receives
 
-`commitGate chan struct{}` (capacity 1) is shared by the workers.
+The one-slot commit gate is not a scheduler object. It belongs to `store.DB` (`AcquireGate`) and is taken inside the store: see §4.3.
 
 ### 4.2 Tick loop
 
-A `time.Ticker` fires every 30 s (`KIPPLE_SCHED_TICK`). A `wake` signal or a priority job also triggers a tick. The tick query runs on the reader pool with a 5 s context:
+A `time.Ticker` fires every 30 s (`KIPPLE_SCHED_TICK`). A `wake` signal also triggers a tick. Priority jobs bypass the tick: `handlePriority` takes a fresh snapshot of the feed and puts the job at the head of `pending`. The fetch settings are loaded on every tick, and the tick query runs on the reader pool with a 5 s context:
 
 ```sql
-SELECT id, url, host, etag, last_modified, body_hash, user_agent, http_auth, ignore_http_cache,
+SELECT id, url, host, enabled, etag, last_modified, body_hash, user_agent, http_auth, ignore_http_cache,
        disable_http2, allow_insecure_tls, allow_private_net, dedup_mode, rekey_pending,
        interval_minutes, retention, fulltext, redirect_to, redirect_kind, redirect_count,
-       consecutive_failures, initial_read_before, last_success_at
+       consecutive_failures, initial_read_before, last_success_at, ua_fallback
 FROM feeds WHERE enabled = 1 AND next_fetch_at <= :now
 ORDER BY next_fetch_at LIMIT 500;            -- idx_feeds_due
 ```
@@ -830,10 +840,11 @@ ORDER BY next_fetch_at LIMIT 500;            -- idx_feeds_due
 Selection rules:
 
 - Feeds already in flight are skipped.
+- A feed whose last commit failed is skipped until its in-memory `notBefore` (§4.6).
 - A feed whose `hostUntil[host]` is in the future is skipped and stays due.
 - Nothing is written at selection time. If the process dies mid-fetch, the feed is simply due again.
 
-`enqueue(job)`: if `perHost[job.host] >= 2` or `jobs` is full, the job is pushed to `pending`. Otherwise the dispatcher marks it in flight (`inflight[feed] = &flight{runs: job.runs}`), increments `perHost`, and sends it to `jobs`. That send is non-blocking; the dispatcher never blocks.
+`enqueue(job)` registers the flight (`flights[feed]`). If `perHost[job.host] >= 2` or every worker is busy (`running` equals the worker count, so `jobs` cannot be full), the flight is pushed to `pending`. Otherwise the dispatcher marks it started, increments `running` and `perHost`, and sends it to `jobs`. That send is non-blocking; the dispatcher never blocks. A job whose feed has `rekey_pending` set is forced `Full` here (a `not_modified` would never re-key).
 
 On a result from `doneCh`, the dispatcher:
 
@@ -852,38 +863,41 @@ A priority request for a feed that already has a flight is handled by what that 
 for job := range jobs:                            // exits when jobs is closed
   res := fetcher.Fetch(fetchCtx, snap)            // HTTP, redirects, charset, hash, parse, uid/content_hash/text_hash,
                                                   // absolutize, sanitize, text, word count, lead image; no DB held
-  if res.OK && snap.fulltext:
-      known := store.KnownUIDs(readerCtx, snap.id, res.UIDs)   // reader pool: items ∪ trimmed_items
-      cand := newest-first new items, max 20, no more than the queue has room for   // picking only, no network
-  if fetchCtx cancelled and res is not complete: send result{cancelled}; continue   // nothing written
-  cctx := context.WithTimeout(context.WithoutCancel(fetchCtx), 10*time.Second)
-  commitGate <- struct{}{}
-      store.CommitFetch(cctx, res)  or  store.CommitFetchError(cctx, res)   // WithWrite, one BEGIN IMMEDIATE
-  <-commitGate
-  if committed and not stale: ftQueue.push(the items of cand this commit inserted)   // never blocks
+  if res.Cancelled: send result{cancelled}; continue          // nothing written
+  cand := pickFulltext(res)                       // outcome ok only; reader pool (items ∪ trimmed_items), no network
+  res.Schedule(now)                               // next_fetch_at, backoff or success schedule (§4.6)
+  if res.Success():
+      ci, err := store.CommitFetch(WithoutCancel(fetchCtx), res)  // each chunk: 10 s budget, gate taken inside the store
+  else:
+      err := store.CommitFetchError(cctx, res)                     // cctx: WithoutCancel, 10 s
+  if err == nil: queueFulltext(cand, ci.NewIDs - ci.MutedIDs)     // NewIDs is only what really committed (empty for a stale fetch)
   doneCh <- result{feed, host, outcome, newIDs, retryAfter}
 doneCh <- workerExit
 ```
 
 - No transaction is held across a network call, a channel send or an SSE write.
-- **Full-text extraction runs after the commit, off the worker.** The worker only picks candidates before the commit and queues the inserted ones after it, so a slow article host never ties up a fetch worker and `POST /api/feeds/{id}/refresh` returns when the fetch is committed. Why: extracting inline meant up to 60 s of extra worker time per feed behind a 15 s refresh wait, so refreshes of full-text feeds usually answered 202 pending, and a few hanging hosts could starve the whole pool.
+- **The commit gate lives in `store.DB`, not in the worker.** `store.DB` owns a one-slot commit gate (`AcquireGate`). Every fetch-path write takes it inside the store: each commit chunk (`commitChunk`), the error and skip rows (`CommitFetchError`, `CommitSkip`) and `TrimOnly`. So does every maintenance batch (the nightly purges, auto-read, the filter retro-apply, `CheckpointPassive`). Workers never touch it. `SetFeedUAFallback` and `SaveFulltextIfURL` use a plain `WithWrite` without the gate.
+- **Full-text extraction runs after the commit, off the worker.** The worker only picks candidates before the commit (`pickFulltext`) and queues the inserted ones after it (`queueFulltext`), so a slow article host never ties up a fetch worker and `POST /api/feeds/{id}/refresh` returns when the fetch is committed. Why: extracting inline meant up to 60 s of extra worker time per feed behind a 15 s refresh wait, so refreshes of full-text feeds usually answered 202 pending, and a few hanging hosts could starve the whole pool.
   - **Pool.** `FulltextGlobal` (4) goroutines drain one bounded queue (500 items, `FulltextQueue`). A job is handed to a goroutine only when its article host has fewer than 2 running (`FulltextPerHost`), so one slow site cannot block the others. Each extraction has a 10 s timeout, the guarded client and the feed's network flags, read fresh from the database when the job starts.
   - **One runner for the process (`internal/ftrun`).** The pool and the on-demand endpoint (§7.5) both extract through one shared `ftrun.Runner`. It is a single-flight keyed by item id: opening an item while the pool is extracting it joins that run instead of fetching the page twice (and the reverse). It also holds the per-article-host limit of 2, so the two paths together never exceed it. The runner saves the outcome inside the run, before it is published to joiners, so nobody is told about a result that is not stored yet, and it is written once. A joined caller whose run was refused by the pool's guard, or cut off by shutdown, runs its own.
   - **A hostile page cannot crash the process.** Each extraction runs under `recover()`: a panic in the parser or sanitizer becomes a stored **permanent** error ("the page could not be processed") and an error log with the panic value and stack.
   - **Duplicate uids in a document.** `AssignUIDs` runs before both the pick and the commit, so the URL the pool extracts is the URL that is stored. In auto mode it keys every occurrence of a repeated guid by its link (or its position when there is no link) and never drops an item; in `link` and `link_title` modes a later item whose uid repeats an earlier one is dropped, because `(feed_id, uid)` is unique.
-  - **Bounds are never silent.** At most 20 (`FulltextMaxItems`) newest new items per fetch are queued, and no more than the queue has room for. While `fetch.fulltext_all` is on every feed feeds the pool, so a refresh-all would overflow those limits; then the per-fetch cap is 50 (`FulltextMaxItemsAll`) and the queue bound 2000 (`FulltextQueueAll`), never below the plain ones. Concurrency does not scale: still 4 overall and 2 per host, so a big refresh just takes longer to extract (the setting's help text says so), and what is beyond the limits is left to on-demand. The fetch_log note records `fulltext_picked: n` (chosen before the commit, so an upper bound on what was queued) and `fulltext_deferred: m`. Anything picked but not queued (a stale commit, a filled queue, shutdown, a failed id lookup) is logged with the real counts at warn or info level and left to on-demand. The lookup of the new items' ids after the commit has its own 5 s deadline, so a slow commit cannot starve it. Deferred items are extracted on demand when opened. Outcomes are logged as they finish (failures at info level). There is no per-run `ok/tried` note any more, since the fetch is already committed and logged by then.
+  - **Bounds.** At most 20 (`FulltextMaxItems`) newest new items per fetch are queued, and no more than the queue has room for. While `fetch.fulltext_all` is on every feed feeds the pool, so a refresh-all would overflow those limits; then the per-fetch cap is 50 (`FulltextMaxItemsAll`) and the queue bound 2000 (`FulltextQueueAll`), never below the plain ones. Concurrency does not scale: still 4 overall and 2 per host, so a big refresh just takes longer to extract (the setting's help text says so), and what is beyond the limits is left to on-demand. The fetch_log note records `fulltext_picked: n` (chosen before the commit, so an upper bound on what was queued) and `fulltext_deferred: m`. Anything picked but not queued because the queue filled, shutdown began or the id lookup failed is logged with the real counts at warn or info level and left to on-demand. A stale commit (nothing committed, so no new ids) and a full-text mode switched off between the pick and the queueing drop the candidates silently: no log line and no note. The lookup of the new items' ids after the commit has its own 5 s deadline, so a slow commit cannot starve it. Deferred items are extracted on demand when opened. Outcomes are logged as they finish (failures at info level). There is no per-run `ok/tried` note any more, since the fetch is already committed and logged by then.
+  - **Picking and queueing details.** `pickFulltext` rereads the feed's current mode (`FeedFulltextNow`) rather than the snapshot's, skips items without a URL and items already known (`KnownUIDs`), and leaves out the items a mute rule is predicted to mute. With a re-key pending it picks nothing and adds the note `fulltext: skipped (re-key pending)`, because unmatched items are inserted read; when the known-uid lookup fails it picks nothing and adds `fulltext: skipped (could not check existing items)`. `queueFulltext` rechecks the mode, resolves the picked uids to item ids and queues only ids that this commit inserted and no mute rule muted. Each queued item is added to the Reader pending set (`MarkFulltextPending`) before the push and cleared when the push is refused or the job ends (`ClearFulltextPending`); that set drives the Reader hold (§6.5). The queue dedupes by item id. `fulltext.ready` events carry `"source":"ingest"`, are coalesced over 300 ms and hold at most 500 ids each.
   - **Stored with a small write.** Each result is one `SaveFulltextIfURL` write (one `WithWrite`, not the bulk commit), applied only if the item still exists with the queued URL and its effective full-text mode (§7.5: `COALESCE(items.fulltext_mode, CASE WHEN fetch.fulltext_all THEN 1 ELSE feeds.fulltext END)`) is still 1, checked inside the write transaction. A result for an item whose full text was switched off meanwhile is dropped and not announced. Work for an item that was trimmed or deleted, whose URL changed, that already has a row, or whose full-text setting was turned off is skipped, so editing or deleting the feed meanwhile is safe. Finished items (text or error) are announced with one coalesced `fulltext.ready` event (§7.3). Until then the Reader API and the UI serve the feed's own content, because there is no `item_fulltext` row.
   - **Shutdown and restarts.** Stop cancels the fetch context: running extractions end, queued ones are dropped (logged), the pool goroutines are joined before the scheduler reports stopped, and a cut-off extraction is not stored as a failure. The queue is in memory only: items queued at a crash or restart get no extraction at ingest and are extracted on demand when opened (§7.5).
 - A fetch that completed before shutdown still commits, under `WithoutCancel`, each commit chunk with its own 10 s budget, so the fetch_log row is not lost.
-- Fetches of more than 500 new items (only realistic on a first fetch) are committed in chunks of 250. The gate is taken and released for each chunk. The trim and the feed bookkeeping run in the last chunk. A crash between chunks is safe. The stale-URL check (a URL PATCH that landed while the fetch was in flight) runs per chunk: if it fires after earlier chunks committed, the remaining chunks, the trim, the bookkeeping and the log row are dropped, the earlier chunks' items stay, and `CommitInfo` reports `Stale` with exactly the items that did commit, so the scheduler still queues full text for them. The remembered browser-UA flag (`SetFeedUAFallback`) is bound to the URL the fetch used (or the permanent-redirect target that same commit migrated to), so a URL PATCH cannot mark a URL that was never tried.
-- Job kinds that skip HTTP are `skip` (writes a `skipped` fetch_log row) and `trim_only` (the retention transaction only). Both go through the same gate.
+- A fetch whose document has more than 500 items (only realistic on a first fetch) is committed in chunks of 250, counting every parsed item, not only the new ones. It is never chunked while `rekey_pending` is set: the re-key runs in a single transaction. The gate is taken and released for each chunk. The trim and the feed bookkeeping run in the last chunk. A crash between chunks is safe. The stale-URL check (a URL PATCH that landed while the fetch was in flight) runs per chunk: if it fires after earlier chunks committed, the remaining chunks, the trim, the bookkeeping and the log row are dropped, the earlier chunks' items stay, and `CommitInfo` reports `Stale` with exactly the items that did commit, so the scheduler still queues full text for them. The remembered browser-UA flag (`SetFeedUAFallback`) is bound to the URL the fetch used (or the permanent-redirect target that same commit migrated to), so a URL PATCH cannot mark a URL that was never tried.
+- The stale-URL check covers the error path too: `CommitFetchError` updates `WHERE id = ? AND url = ?`, and when the feed's URL was edited while the fetch ran it writes nothing (no failure count, no fetch_log row).
+- Job kinds that skip HTTP are `skip` (writes a `skipped` fetch_log row) and `trim_only` (the retention transaction only). Both take the same gate, inside the store.
 
 ### 4.4 HTTP client (`internal/fetch/client.go`)
 
 - **Transport.** One shared `http.Transport`:
-  - `DialContext` is a `net.Dialer{Timeout: 10s, Control: ssrfGuard}`. `ssrfGuard` runs after DNS on the concrete IP. It rejects loopback, private, link-local, multicast, unspecified, CGNAT `100.64/10`, NAT64, 6to4 and unique-local ranges (via `netip`), unless `allow_private_net=1`.
+  - `DialContext` is a `net.Dialer{Timeout: 10s, Control: ssrfGuard}`. `ssrfGuard` runs after DNS on the concrete IP. It rejects loopback, private (including unique-local), link-local, multicast and unspecified addresses (via `netip`), plus these prefixes: `0.0.0.0/8`, CGNAT `100.64.0.0/10`, `192.0.0.0/24`, `198.18.0.0/15`, `240.0.0.0/4`, NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, 6to4 `2002::/16`, Teredo `2001::/32` and `100::/64`. `allow_private_net=1` turns the guard off for that feed.
   - `TLSHandshakeTimeout` 10 s, `ResponseHeaderTimeout` 15 s, `MaxResponseHeaderBytes` 64 KiB.
   - `ForceAttemptHTTP2` on, `DisableKeepAlives` on.
+  - No `Proxy`: an environment proxy would bypass the dial guard.
 - **Variants.** Built lazily and cached: `disable_http2`, `allow_insecure_tls`, and their private-net versions. The image proxy uses the same variants, keyed by its signed flags.
 - **Client.** `http.Client{Timeout: 20s, CheckRedirect: recordHop}`. `recordHop` records every hop's status and allows at most 5 hops.
 - **Request headers:**
@@ -895,9 +909,9 @@ doneCh <- workerExit
 - **Body.** `http.MaxBytesReader(nil, body, 10 MiB)` caps the decoded size.
 - **Charset** (gofeed only honours the XML declaration):
   1. A BOM wins: UTF-8, UTF-32 (LE `FF FE 00 00`, BE `00 00 FE FF`, checked before UTF-16 because the LE one begins with the UTF-16LE BOM), UTF-16.
-  2. Else the XML declaration's encoding, else the HTTP charset, else UTF-8.
-  3. If UTF-8 was chosen but the bytes are not valid UTF-8, retry with the HTTP charset, then `windows-1252`.
-  4. Decode with `charset.NewReaderLabel`, rewrite the `encoding=` attribute to `utf-8`, and compute `sha256` of the decoded bytes: this is `body_hash`.
+  2. Else the XML declaration's encoding, else the HTTP charset, else UTF-8. A UTF-16 or UTF-32 label without a BOM is ignored (the declaration itself would be unreadable), as is an unknown label.
+  3. If UTF-8 was chosen but the bytes are not valid UTF-8, retry with the HTTP charset, then `windows-1252`. Conversely, a single-byte label (`windows-125x`, `ISO-8859-x`, `koi8-`, and so on) on a body that is valid multi-byte UTF-8 is decoded as UTF-8: the "declares latin1, sends UTF-8" case.
+  4. Look the label up with `charset.Lookup` and decode with `transform.Bytes`, rewrite the `encoding=` attribute to `utf-8`, and compute `sha256` of the decoded bytes: this is `body_hash`.
   5. `gofeed.Parser.Parse`.
 - **Content pipeline per item** (`internal/sanitize`):
   1. Resolve the item link against the final feed URL.
@@ -916,7 +930,7 @@ doneCh <- workerExit
 - `next_fetch_at` from the success schedule (§4.6)
 - **`last_error*` is kept**. The UI shows it as resolved when `last_error_at < last_success_at`.
 - The retention trim (§5) runs.
-- On the feed's first success (`last_success_at IS NULL` before the commit), `custom_title` is cleared if it equals the document title, and `initial_read_before` is cleared.
+- On the feed's first `ok` success (`last_success_at IS NULL` before the commit), `custom_title` is cleared if it equals the document title. Every successful commit clears `initial_read_before`.
 
 "Error bookkeeping" means:
 
@@ -924,21 +938,21 @@ doneCh <- workerExit
 - `last_error`, `last_error_class`, `last_error_at`, `last_status` and `last_fetch_at` set
 - `next_fetch_at` from the backoff (§4.6)
 
-Every attempt appends a fetch_log row and applies the fetch_log cap (§4.8).
+Every attempt appends a fetch_log row and applies the fetch_log cap (§4.8), except when the feed's URL was edited while the fetch ran: then neither the success nor the error path writes bookkeeping or a log row (§4.3).
 
 | Outcome | Handling |
 |---|---|
-| 200, parsed | Commit items (§4.8). Store validators from the response: empty when absent, and both dropped when `Expires: 0`. Store `body_hash`. Success bookkeeping. Outcome `ok` |
+| 200, parsed | Commit items (§4.8). Store validators from the response: empty when absent, and both dropped when `Expires` is present but not a valid HTTP date (such as `0`; a parseable date in the past does not drop them). Store `body_hash`. Success bookkeeping. Outcome `ok` |
 | 200, `body_hash` equals the stored hash | No parse. Update validators. Success bookkeeping. Outcome `unchanged` |
 | 304 | Keep the ETag. Overwrite `last_modified` if the 304 carries one. Success bookkeeping. Outcome `not_modified` |
 | 301/308 chain | Followed. The final response is handled by its own status. Redirect policy in §4.7 |
 | 302/303/307 in the chain | Followed and never persisted. `redirect_to` is set with `redirect_kind='temporary'` (health notice only) |
-| 200 with empty body | `empty`, backoff. Validators are **not** stored |
+| 200 with an empty or whitespace-only body | `empty`, backoff. Validators are **not** stored |
 | Body over 10 MiB | `too_large`, backoff |
 | Unparseable / not a feed | `parse`, backoff. Validators not stored |
 | 404, other 4xx, 500/502/504 | `http`, backoff |
 | 410 | `gone`: `enabled=0`, `disabled_reason='gone'`. The health view lists it as dead. Re-enabling resets failures and sets `next_fetch_at = now` |
-| 401/403 | `http`, backoff. If 403 with header `cf-mitigated: challenge` and an HTML body: `cloudflare`, message "blocked by a Cloudflare challenge (TLS fingerprint); try 'disable HTTP/2' or a browser User-Agent" |
+| 401/403 | `http`, backoff. If 403 with header `cf-mitigated: challenge` and an HTML `Content-Type`: `cloudflare`, message "blocked by a Cloudflare challenge (TLS fingerprint); try 'disable HTTP/2' or a browser User-Agent" |
 | 429 or 503 | Counted as a failure. `retry_after` comes from `Retry-After` (seconds, or an HTTP-date measured against the response's own `Date` header, falling back to our clock when that is missing, so a publisher clock that is off still gets the wait it meant); if absent it is 1500 s; it is clamped to [60 s, 24 h]. `next_fetch_at = max(now + backoff, now + retry_after)`. The dispatcher sets `hostUntil[host]`. Note `retry_after=<s>s` |
 | Timeout | `timeout`, backoff |
 | `*net.DNSError` | `dns`, backoff |
@@ -946,7 +960,7 @@ Every attempt appends a fetch_log row and applies the fetch_log cap (§4.8).
 | x509 unknown authority, hostname error, `tls.RecordHeaderError` | `tls`, backoff. The health view offers `allow_insecure_tls` |
 | Guard rejection | `ssrf`. The message includes the resolved IP. The health view offers `allow_private_net` |
 | More than 5 hops | `redirect_loop`, backoff |
-| Host deadline active during a manual run | fetch_log `skipped`, note `skipped: host retry-after until <ts>`. The schedule is untouched |
+| Host deadline active | A scheduled job is left due (or dropped from `pending`). A manual, import or plain per-feed refresh writes fetch_log `skipped` (note `skipped: host retry-after until <RFC3339 UTC>`), and the schedule is untouched. A job that becomes held while it waits in `pending` is dropped silently when it is a plain scheduled fetch with nobody waiting, else it becomes a skip. A `full=1` refresh and the subscribe fetch ignore the deadline |
 | Fetch cancelled by shutdown before completion | Nothing is written. The feed is due again at the next start |
 
 ### 4.6 Backoff and success schedule (exact)
@@ -970,20 +984,23 @@ current_delay_s = d
 On success:
 
 ```
-hint_s        = fetch.honor_publisher_ttl ? max(RSS <ttl>×60, Cache-Control max-age − Age, Expires − now, 0) : 0
+hint_s        = fetch.honor_publisher_ttl ? max(RSS <ttl>×60, Cache-Control s-maxage (else max-age) − Age, Expires − now, 0) : 0
+              (an unparseable Expires contributes nothing)
               (a response with Cache-Control no-cache, no-store or private contributes only the RSS <ttl>)
 d             = round(max(interval_s, min(hint_s, 86400)) × U(0.95, 1.05))
 next_fetch_at = now + d;  ttl_hint_s = hint_s;  current_delay_s = d
 ```
 
-Changing the global interval runs:
+Changing `refresh.interval_minutes` runs `store.PullInSchedule`, followed by a scheduler `Wake`:
 
 ```sql
-UPDATE feeds SET next_fetch_at = min(next_fetch_at, COALESCE(last_fetch_at, :now) + :new_interval_s)
-WHERE interval_minutes IS NULL AND consecutive_failures = 0
+UPDATE feeds SET next_fetch_at = last_fetch_at + max(:new_interval_s, CASE WHEN :honor_ttl THEN min(coalesce(ttl_hint_s, 0), 86400) ELSE 0 END)
+WHERE enabled = 1 AND interval_minutes IS NULL AND consecutive_failures = 0
+  AND last_fetch_at IS NOT NULL
+  AND next_fetch_at > last_fetch_at + max(:new_interval_s, CASE WHEN :honor_ttl THEN min(coalesce(ttl_hint_s, 0), 86400) ELSE 0 END)
 ```
 
-The same statement, keyed on the feed id, runs when a per-feed interval changes.
+`:honor_ttl` is `fetch.honor_publisher_ttl`. The statement never postpones a feed (a raised interval applies from each feed's next fetch) and leaves never-fetched feeds alone. A per-feed interval change takes effect from the feed's next fetch (no reschedule, no wake).
 
 Health statuses, computed at read time by one function, `store.FeedStatus(row, hostUntil, now)`, used by `/api/bootstrap` and `/api/health/feeds`. The first matching row wins:
 
@@ -1038,12 +1055,15 @@ Then add the fetch_log note `redirect_migrated: <old> -> <new>` with `keep = 1`.
   - `'g:'+h(trimmed guid)` when the RSS `guid`, Atom `id` or JSON `id` is non-empty.
   - Else `'l:'+h(raw link)`, using the link as written in the document, before absolutization or tracking-param cleanup.
   - Else `'h:'+h(title+"\x1f"+text)`.
-  - A guid repeated within one document is keyed on **every** occurrence, first included, as `g:h(guid|rawLink)`, so a uid never depends on the item's position. When an occurrence has no link, or the same guid and link repeat, it falls back to `h(guid|n)` with `n` the occurrence index.
-- `link`: `'l:'+h(raw link)`, falling back to the `h:` rule.
-- `link_title`: `'l:'+h(raw link + "\x1f" + title)`.
-- If more than 5% of the guids in a document are empty or duplicated, the fetch adds the note `guid_duplicates: k/n`. Nothing switches automatically.
+  - A guid repeated within one document is keyed on **every** occurrence, first included, as `'g:'+h(guid + "|" + rawLink)`, so a uid never depends on the item's position. An occurrence with no link is keyed `'g:'+h(guid + "|" + n)` with `n` the occurrence index. If the same guid and the same link repeat, the key becomes `'g:'+h(guid + "|" + rawLink + "|" + k)` with `k` bumped until it is free.
+- `link`: `'l:'+h(raw link)`, falling back to the `h:` rule when there is no link.
+- `link_title`: `'l:'+h(raw link + "\x1f" + title)`, falling back to the `h:` rule when there is no link.
+- In `link` and `link_title` modes a later item whose uid repeats an earlier one in the same document is dropped, because `(feed_id, uid)` is unique.
+- If more than 5% of the items that carry a non-empty guid repeat an earlier guid in the same document, the fetch adds the note `guid_duplicates: k/n` (k repeats, n items with a guid). Empty guids are not counted. Nothing switches automatically.
 
 **Hashes.** `content_hash` = `h(title | url | author | sanitized content_html)`. `text_hash` = `h(title | content_text)`. Dates are excluded from both.
+
+**Parse-time behavior** (`internal/fetch/parse.go`). An entry that cannot be converted (malformed, or with nothing usable) is dropped and the fetch adds the note `skipped_malformed_items: k/n`. An enclosure-only entry (no guid, link, title or text) is kept: its first media URL (else its image) becomes the guid and its title is the file name. `feedburner:origLink`, when present, wins over the link for the item's `url` (the raw link still feeds the uid). When the initial-read window marks new items read, the fetch adds the note `initial_read: k`.
 
 **The transaction** (inside `WithWrite`; `first_new_id` = the first id allocated in this transaction, or MaxInt64 when none):
 
@@ -1064,8 +1084,10 @@ for each parsed item, oldest-first:
                      WHERE item_id = :id;
                      updated++
   else           → new
-if rekey_pending: for each new item whose absolutized url uniquely matches an existing row of this
-                  feed not in the document by uid: UPDATE items SET uid = :new_uid (state kept); rekeyed++.
+if rekey_pending and outcome ok and this is a single-chunk commit:
+                  for each new item whose absolutized url uniquely matches an existing row of this
+                  feed not in the document by uid, and no other new item in the document has that URL:
+                  UPDATE items SET uid = :new_uid (state kept); rekeyed++.
                   Remaining new items are inserted with read = 1. rekey_pending = 0. Note 'rekeyed: k' (keep = 1).
 for each new item (oldest-first):
   id = alloc.Next()
@@ -1073,22 +1095,29 @@ for each new item (oldest-first):
   verdict = filters.Evaluate(item)        -- Go, on the parsed item; the compiled set is cached (below); no I/O
   read = 1 if verdict.read; starred = verdict.star; muted_by = verdict.muted_by (the lowest matching mute rule id, else NULL)
   INSERT INTO items(id, feed_id, uid, url, title, author, image_url, word_count, content_hash, text_hash,
-                    published_at, updated_at, sort_at, read, read_at, starred, starred_at, muted_by)
-    -- published_at = PublishedParsed ?? UpdatedParsed ?? id/1e6; sort_at = min(published_at, id/1e6 + 86400)
+                    published_at, updated_at, sort_at, read, read_at, starred, starred_at, muted_by, muted_was_read)
+    -- published_at = PublishedParsed ?? UpdatedParsed ?? id/1e6 (the feed's value is kept even when bogus)
+    -- sort_at = min(published_at, id/1e6 + 86400)
   INSERT INTO item_content(item_id, content_html, content_text, enclosures_json, categories_json)     -- FTS insert fires here
 UPDATE filters SET hits = hits + :n, last_hit_at = :now WHERE id = :rule     -- per matched rule whose action took effect, per chunk
 UPDATE trimmed_items SET last_seen_at = :now WHERE feed_id = :f AND uid IN (SELECT value FROM json_each(:seen_tomb))
 retention trim (§5), with :first_new_id
 churn check: IF new ≥ 10 AND new ≥ 0.8 × document size AND the feed had ≥ 20 items before
              → note 'guid_churn_suspected' (keep = 1; items stay unread; the health view offers "mark this fetch read")
-UPDATE feeds SET etag, last_modified, body_hash, title = :doc_title, site_url = COALESCE(:site,''),
-       description = COALESCE(:desc,''),
+apply the §4.7 redirect decision (its own UPDATE of redirect_*, or the migration UPDATE)
+UPDATE feeds SET title = CASE WHEN :doc_title != '' THEN :doc_title ELSE title END,     -- outcome ok only
+       site_url = CASE WHEN :site != '' THEN :site ELSE site_url END,
+       description = :desc,
        custom_title = CASE WHEN last_success_at IS NULL AND custom_title = :doc_title THEN NULL ELSE custom_title END,
+       rekey_pending = 0 WHERE id = :f
+UPDATE feeds SET etag = CASE WHEN :set_validators THEN NULLIF(:etag,'') ELSE etag END,  -- every success outcome
+       last_modified = CASE WHEN :set_validators THEN NULLIF(:lm,'') ELSE last_modified END,
+       body_hash = CASE WHEN :hash != '' THEN :hash ELSE body_hash END,
        initial_read_before = NULL,
        last_fetch_at, last_success_at, last_status, consecutive_failures = 0,
        next_fetch_at, current_delay_s, ttl_hint_s,
        last_new_items_at = CASE WHEN :new > 0 THEN :now ELSE last_new_items_at END,
-       redirect_* per §4.7, updated_at = :now WHERE id = :f
+       updated_at = :now WHERE id = :f
 INSERT INTO settings('sys.id_high_water', :alloc_last) ON CONFLICT … (monotonic, §3)   -- when ids were allocated
 INSERT INTO fetch_log(... first_item_id, last_item_id, keep ...);
 DELETE FROM fetch_log WHERE feed_id = :f AND keep = 0
@@ -1098,7 +1127,7 @@ DELETE FROM fetch_log WHERE feed_id = :f AND keep = 0
 COMMIT
 ```
 
-The `unchanged` and `not_modified` outcomes run the same transaction without the item section: the trim, the feed bookkeeping, and the fetch_log row and cap.
+The `unchanged` and `not_modified` outcomes run the same transaction without the item section and without the `ok`-only feed UPDATE (title, site URL, description, `custom_title`, `rekey_pending`): the trim, the every-success feed UPDATE (validators, `body_hash` when non-empty, the schedule), and the fetch_log row and cap. The title and site URL keep their old values when the document's own is empty.
 
 **Filters at ingest** (`internal/store/filters.go`, engine in `internal/filter`). Only *new* items are evaluated: an item that already exists is never re-evaluated, so a later edit cannot flip its state, and a tombstoned uid is never re-inserted. `DB.filters` returns the compiled rule set of the current generation: `DB.filterGen` is bumped by every filter write (create, patch, delete, and the cascade of a feed or folder delete) inside that write's own transaction, before it returns, so a fetch commit that takes the writer right after it cannot read a stale set, and the set is rebuilt only when the generation moved, so an ingest with unchanged rules does one atomic load and no query. The set is loaded only inside a write transaction (the ingest path), and write transactions are serialized, so it can never be rebuilt from stale rows; the full-text pre-pick (`DB.MutedUIDs`) compiles its own set from the reader pool and never touches the cache; it takes the fetched document's title and resolves a rule's `feed` field exactly as the commit does (custom title, else stored title, else the document title), so prediction and commit cannot disagree on a new subscription. A stored rule that no longer validates is logged and skipped, and a load failure ingests without rules: a filter problem never fails a fetch. With no rules the hook is skipped entirely, so ingest behaves exactly as before.
 
@@ -1112,7 +1141,7 @@ The `unchanged` and `not_modified` outcomes run the same transaction without the
 
 On the **first fetch** of a new subscription, every item is inserted unread (or read, per `initial_read_before`), and the trim then applies N. Items trimmed in this same transaction are not added to `trimmed_unread_count`, because their ids are ≥ `first_new_id`.
 
-A dedup-mode change through the UI or API sets `rekey_pending = 1` and enqueues a priority fetch. The UI confirm dialog says: "items that cannot be matched will be marked read".
+A dedup-mode change through the UI or API sets `rekey_pending = 1` and nothing else. The re-key runs on the feed's next fetch (scheduled, refresh-all or per-feed), which is forced `Full` while `rekey_pending` is set. The editor shows "Duplicate detection is being re-applied to this feed." while it is pending. There is no confirm dialog.
 
 `CommitFetchError` is one short transaction: error bookkeeping, then the fetch_log row and cap.
 
@@ -1127,11 +1156,12 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and enqueues 
   - Each attached or enqueued feed adds 1 to `outstanding`, and `total = outstanding` at creation. If `total = 0`, `run.done` is published at once.
   - The run ends when `outstanding` reaches 0, which is guaranteed because every attached flight and every job returns through `doneCh`. The next press then starts a new run.
   - Validators are still sent. A failure increments the failure count and reschedules normally.
-- **Per-feed refresh** (health view, `POST /api/feeds/{id}/refresh[?full=1]`) is a priority job. `full=1` drops validators and the body-hash short-circuit for that attempt. The handler waits on its buffered reply channel, a 15 s timer, and the scheduler's `shutdownCh`, whichever fires first. After the timer it returns `202 {pending:true}`, and the late reply is dropped harmlessly. A `gone` feed must be re-enabled first.
-- **Add feed in the web UI** (`POST /api/feeds`): synchronous discovery through the guarded client, insert with `next_fetch_at = now`, then a priority job (`trigger='subscribe'`). The handler waits up to 8 s the same way.
+- **Per-feed refresh** (health view, `POST /api/feeds/{id}/refresh[?full=1]`) is a priority job. `full=1` drops validators and the body-hash short-circuit for that attempt. The handler waits on its buffered reply channel, a 15 s timer, and the scheduler's `shutdownCh`, whichever fires first. After the timer it returns `202 {pending:true}`, and the late reply is dropped harmlessly. A disabled feed (including `gone`) answers `409 disabled` and must be re-enabled first.
+- **Add feed in the web UI** (`POST /api/feeds`): synchronous discovery through the guarded client (10 s timeout), insert with `next_fetch_at = now`, then a `Full` priority job (`trigger='subscribe'`) that ignores a host Retry-After deadline. The handler waits up to 8 s the same way; if the submit fails it falls back to a `wake`.
 - **Add feed through the Reader API** (`quickadd`, `subscription/edit ac=subscribe`): see decision 33. By default there is no outbound HTTP. The feed is inserted with `next_fetch_at = now`, the dispatcher gets a non-blocking `wake`, and the call returns at once. `greader.subscribe_fetch_now` is reserved (stored and validated, not yet read by any code), so the Reader API never behaves like the web UI path.
 - **OPML import in the web UI** (`POST /api/opml`) creates an `import` run over the new feeds. **`subscription/import` through the Reader API** inserts the feeds with `next_fetch_at = now` and only sends `wake`; the scheduler fetches them as ordinary due feeds. Existing feeds are untouched in both cases.
-- **Retention changes.** `PATCH /api/feeds/{id}` with a new `retention` enqueues a priority `trim_only` job for that feed. `PATCH /api/settings` with a new `retention.default` creates a `retention` run of `trim_only` jobs over the inheriting feeds. "Apply retention now" (`POST /api/retention/apply`) does the same over every feed. These are user actions, never page loads.
+- **Retention changes.** `PATCH /api/feeds/{id}` with a new `retention` enqueues a priority `trim_only` job for that feed, which trims it even when the feed is disabled (a trim touches no network). `PATCH /api/settings` with a new `retention.default` creates a `retention` run of `trim_only` jobs over the enabled feeds that inherit the default. "Apply retention now" (`POST /api/retention/apply`) does the same over every enabled feed. These are user actions, never page loads.
+- **Other `PATCH /api/feeds/{id}` effects.** A URL change or a re-enable submits a `Full` priority fetch (falling back to a `wake` when the submit fails). A `dedup_mode` change only sets `rekey_pending` (§4.8). A change of `user_agent`, or of the URL, resets `ua_fallback`. Moving the feed to another host clears `http_auth` unless the same request sets it. A per-feed `interval_minutes` change only writes the column (§4.6).
 - **API clients never reach any of this**, except for the inserts with `next_fetch_at = now` described above (decision 33). No Reader endpoint touches `next_fetch_at` of an existing feed or the queues.
 
 ### 4.10 SSE streaming and shutdown
@@ -1140,7 +1170,9 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and enqueues 
   - Headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`, no `Content-Length`. The handler calls `http.Flusher` after every event.
   - Every 15 s a `: ping` comment goes out, well under Cloudflare's 125 s proxy read timeout, followed by a named `heartbeat` event (`data: {"t":<unix>}`, no `id`), which `EventSource` can observe (§7.3).
   - Each subscriber has a buffered channel of 64. When it overflows, the hub drops the channel and sends one `resync` event.
-  - The handler holds no database connection while waiting. Event ids are monotonic, and `Last-Event-ID` replays from a 500-event ring buffer.
+  - The stream opens with `retry: 3000` and a `: connected` comment. Each write has its own 10 s deadline (the server-wide `WriteTimeout` would kill the stream).
+  - Every heartbeat re-checks the client's session and closes the stream when it was revoked (sign out other sessions).
+  - The handler holds no database connection while waiting. Event ids are monotonic across restarts (the hub seeds its counter from the clock in microseconds). `Last-Event-ID` replays from a ring buffer capped at 500 events and 1 MiB of payload. The cursor is also accepted as `?last_event_id=` (the header wins). The subscriber gets a single `resync` event instead of a replay when the ring no longer reaches back to the cursor, when 64 or more events would be replayed, or when the cursor is ahead of the hub.
   - Event list in §7.3.
 - **Graceful shutdown.** `signal.NotifyContext(SIGINT, SIGTERM)`, then:
   1. `sched.Stop()`:
@@ -1151,11 +1183,10 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and enqueues 
 
      Workers finish the job in hand: a completed fetch commits under `WithoutCancel` (the context carries no deadline; each chunk of a large feed gets its own 10 s budget), and an aborted one writes nothing. Each worker then sends `workerExit`.
   2. `hub.Close()` closes every subscriber channel, so SSE handlers return immediately.
-  3. `http.Server.Shutdown` with a 10 s context. No handler waits on the scheduler any more.
-  4. `<-sched.Stopped()`. The dispatcher keeps receiving on `doneCh` until `live == 0`, so no worker can block on its final send.
-  5. `maint.Stop()` cancels the maintenance context. An in-progress `VACUUM INTO` is interrupted, and its tmp file is removed on the next run.
-  6. `PRAGMA wal_checkpoint(TRUNCATE)` through `WithWrite`.
-  7. Close all pools.
+  3. `http.Server.Shutdown` with a 10 s context; when it errors, `srv.Close()` cuts the requests that outlived the grace period. No handler waits on the scheduler any more.
+  4. `<-sched.Stopped()`, bounded at 15 s (it logs "scheduler did not drain in time" and goes on). The dispatcher keeps receiving on `doneCh` until `live == 0`, so no worker can block on its final send.
+  5. `maint.Stop()` cancels the maintenance context. An in-progress `VACUUM INTO` is interrupted and its tmp file is removed at once; a leftover is removed again at the start of the next run.
+  6. The deferred closes run, last in first out: the API server's `Close`, then the image cache's `Close`, then `db.Close()`. `db.Close()` closes the reader pool, runs `PRAGMA wal_checkpoint(TRUNCATE)` on the writer with a 5 s timeout, and closes the writer.
 
   Compose sets `stop_grace_period: 30s`. The shutdown test asserts exit in under 15 s during a 138-feed run.
 - **Startup.** Feeds that are already past due are simply due on the first tick. A full catch-up of 138 feeds takes about 30 s.
@@ -1171,7 +1202,7 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and enqueues 
 - `N = COALESCE(feeds.retention, default)`. When `N = 0` the trim is skipped.
 - Muted items (`muted_by IS NOT NULL`) count against N like any item but are ranked in their own list, newest first, so noise cannot displace real items and a fetch cannot trim the muted items it just added. With `real` and `muted` the counts of non-starred, non-held items, the feed keeps the newest `min(muted, max(N/5, N - real))` muted items and the newest `N - that` real ones: muted items are always allowed a fifth of the cap, and more while real items leave room. With a cap of 50, 40 real and 30 muted items keep all 40 real and the 10 newest muted ones; with 50 real and a fetch that brings 2 muted and 1 real, the 3 oldest real items go and both muted ones stay (the Muted view and delete-with-unmute keep working on a busy feed). The per-feed set is at most a few thousand rows, so the temporary sort is trivial. A restore brings an item back with `muted_by = NULL`.
 - N counts **non-starred, non-held** items only. "Keep newest N" means the N newest unstarred items, plus every starred item, plus items whose `retain_until` is still in the future.
-- `settings.retention.restore_days` (0–180, default **90**; capped at 180 because the nightly purge drops ledger rows and their stubs 180 days after the uid was last seen) is how long a restore stub is kept.
+- `settings.retention.restore_days` (0–180, default **90**; `MaxRestoreDays` caps it at 180, the base of the nightly ledger purge horizon `max(180, restore_days + 7)`, so a stub never goes before its window ends) is how long a restore stub is kept.
 - **Settings reads never guess.** A missing row or an unparseable value is the default; a *failed* read (cancelled context, I/O error) is an error, not "not set". Inside a write transaction (retention trim, restore, the stub and ledger purges, the full-text guard) it fails the transaction so the batch retries; outside one (`store.LoadFetchSettings`) it is logged at warn and the defaults apply to that pass only. Nothing caches a value that came from a failed read.
 
 **When.**
@@ -1212,12 +1243,15 @@ INSERT INTO trimmed_content (id, published_at, updated_at, sort_at, word_count, 
 ON CONFLICT (id) DO NOTHING;
 
 UPDATE feeds SET trimmed_unread_count = trimmed_unread_count +
-  (SELECT count(*) FROM temp.trim_set t JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :first_new_id)
-WHERE id = :feed;
+  (SELECT count(*) FROM temp.trim_set t JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :first_new_id),
+  trimmed_unread_since = COALESCE(trimmed_unread_since, :now)
+WHERE id = :feed
+  AND EXISTS (SELECT 1 FROM temp.trim_set t JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :first_new_id);
 
 DELETE FROM items WHERE id IN (SELECT id FROM temp.trim_set);
 ```
 
+- The trim returns early, before any INSERT, when `trim_set` is empty.
 - `changes()` from the DELETE goes to `fetch_log.trimmed_items`.
 - The FTS rows go via `items_fts_bd`. `item_content` and `item_fulltext` go by cascade.
 - `stats_events` is never touched.
@@ -1229,11 +1263,14 @@ Validated with 300 items in one feed, 5 of them starred, and N=50: 245 trimmed, 
 **Ranking.** `sort_at` DESC, then `id` DESC: the same order as the UI.
 
 - A backfilled or republished old-dated post can be trimmed in the same transaction that inserted it. It goes to the ledger (and a stub) but is not counted in `trimmed_unread_count`.
-- A bogus future date is clamped to crawl + 24 h.
+- A bogus future date is clamped to crawl + 24 h in `sort_at` (the ranking key). `published_at` keeps the feed's value.
 
-**Restore** (`store.restoreTrimmed(tx, ids, mode)`, where `mode` is `star` or `unread`; validated):
+**Restore** (`store.restoreTrimmed(tx, ids, mode)`, where `mode` is `star` or `unread`; validated). It first selects the restorable ids: those trimmed within `restore_days` that also still have a stub. A stub the nightly purge has not yet removed but that is older than the window cannot be restored, so a restore never depends on when the purge last ran. The statements below then run over `:rids`, that selection:
 
 ```sql
+SELECT t.id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
+  WHERE t.id IN (SELECT value FROM json_each(:ids)) AND t.trimmed_at >= :now - :restore_days*86400;   -- :rids
+
 INSERT INTO items (id, feed_id, uid, read, starred, read_at, starred_at, retain_until, fulltext_mode,
                    published_at, updated_at, sort_at, word_count, content_hash, text_hash,
                    url, title, author, image_url, origin_title)
@@ -1246,20 +1283,20 @@ INSERT INTO items (id, feed_id, uid, read, starred, read_at, starred_at, retain_
          c.fulltext_mode, c.published_at, c.updated_at, c.sort_at, c.word_count, c.content_hash, c.text_hash,
          c.url, c.title, c.author, c.image_url, c.origin_title
   FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
-  WHERE t.id IN (SELECT value FROM json_each(:ids))
-ON CONFLICT DO NOTHING;
+  WHERE t.id IN (SELECT value FROM json_each(:rids))
+ON CONFLICT DO NOTHING RETURNING id;                           -- the ids actually restored
 INSERT INTO item_content (item_id, content_html, content_text, enclosures_json, categories_json)
   SELECT c.id, c.content_html, c.content_text, c.enclosures_json, c.categories_json FROM trimmed_content c
-  WHERE c.id IN (SELECT value FROM json_each(:ids)) AND EXISTS (SELECT 1 FROM items i WHERE i.id = c.id)
+  WHERE c.id IN (SELECT value FROM json_each(:rids)) AND EXISTS (SELECT 1 FROM items i WHERE i.id = c.id)
 ON CONFLICT DO NOTHING;                                        -- FTS row comes back via the trigger
-DELETE FROM trimmed_items WHERE id IN (SELECT value FROM json_each(:ids)) AND id IN (SELECT id FROM items);
+DELETE FROM trimmed_items WHERE id IN (SELECT value FROM json_each(:rids)) AND id IN (SELECT id FROM items);
                                                                -- cascades the stub
 ```
 
 - A restored item keeps its original id, uid and `sort_at`. It re-enters every list it qualifies for.
 - A restored starred item is exempt from trimming as long as it stays starred. A mark-unread restore is held for 7 days.
 - Restores publish `items.state` over SSE.
-- Ledger ids without a stub (older than `restore_days`) cannot be restored: a star is ignored, and a mark-unread only updates the ledger `read` flag (§11).
+- Ledger ids trimmed more than `restore_days` ago (with or without a stub still on disk) cannot be restored: a star is ignored, and a mark-unread falls through to the plain ledger `read = 0` flip (§11).
 
 **Ledger writes elsewhere.**
 
@@ -1267,9 +1304,11 @@ DELETE FROM trimmed_items WHERE id IN (SELECT value FROM json_each(:ids)) AND id
 - **`edit-tag`, and web `mark-read` with `read:true`.** `UPDATE trimmed_items SET read = 1 WHERE id IN (…) AND read = 0` (silent).
 - **`edit-tag r=read`, and web mark-unread.** Restore with `mode='unread'` where a stub exists. Otherwise `UPDATE trimmed_items SET read = 0 …`.
 - **`edit-tag a=starred`, and web star.** Restore with `mode='star'` where a stub exists. Otherwise ignored.
-- **`mark-all-as-read`.** `UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :ts_us [AND feed_id = :f | AND feed_id IN (folder feeds)]`. It is **skipped entirely for the starred scope**, because starred items are never in the ledger.
+- **`mark-all-as-read`.** `UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :ts_us [AND feed_id = :f | AND feed_id IN (folder feeds)]`. It is **skipped for the starred and muted scopes and for any filtered or search scope** (web); the Reader API skips it only for starred. Starred items are never in the ledger.
+- **Nightly auto-read** (`RunAutoRead`, §7.1d) marks matching ledger rows read, in gated batches, along with the items.
+- **"Mark this fetch read"** (the guid-churn action) flips the unread ledger rows in that fetch's id range along with the items.
 - **Unsubscribe.** FK cascade (the ledger and stubs of the deleted feed go with it; starred items were moved to the archive first, §6.9).
-- **Nightly purge.** Stubs after `restore_days`. Ledger rows 180 days after their uid was last seen in the feed document.
+- **Nightly purge.** Stubs after `restore_days` (measured from `trimmed_at`). Ledger rows (and, by cascade, any stub) `max(180, restore_days + 7)` days after their uid was last seen in the feed document.
 
 **Size.** About 60 bytes per ledger row. A stub is about the article size. At roughly 500 trims a day × ~6 KB × 90 days, stubs take about 270 MB, which is acceptable on Host-A. `restore_days` can be lowered.
 
@@ -2112,7 +2151,7 @@ internal/httpx          headers.go: Secure (security headers, CSP via PageCSP). 
 
 1. `http.Server`: per-connection goroutines. SSE handlers select on the subscriber channel and `r.Context()`. The `ListenAndServe` call runs in its own goroutine.
 2. The sched dispatcher (1). It is the only owner of in-flight, per-host, host-deadline, pending and run state.
-3. Fetch workers (8), ranging over `jobs`, sharing the commit gate.
+3. Fetch workers (8), ranging over `jobs`.
 4. The full-text extraction pool (`FulltextGlobal`, default 4), running through `ftrun`.
 5. Maintenance (1).
 6. The imgcache sweep loop (1), plus a short goroutine per cap change.
@@ -2394,7 +2433,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
 | **API `open` inference is not built.** No API read ever becomes an `open` (a Reeder read counts only as read state) | The key `stats.api_single_read_is_open` is reserved (stored and validated, not yet read by any code). The `inferred` column exists, but nothing writes `inferred=1` |
 | **API subscribe without a synchronous fetch** (the default, decision 33) shows the host as title and no items until the next sync | Pending the owner's decision. The key `greader.subscribe_fetch_now` is reserved (stored and validated, not yet read by any code); there is no synchronous path yet |
 | **GUID churn** produces a wall of unread | The fetch_log note (kept), a health-view flag, and one-click "mark this fetch read". No automatic judgement |
-| **A dedup-mode change** needs a rekey; unmatched items are inserted read | An explicit user action with a confirm dialog; `rekey_pending` persists across restarts |
+| **A dedup-mode change** needs a rekey; unmatched items are inserted read | An explicit user action; `rekey_pending` persists across restarts and the re-key runs on the feed's next fetch |
 | **The ledger purge** (after max(180 days, `restore_days` + 7) since last seen) re-opens the tombstone for uids the publisher drops and later re-adds | Rare; shows as one unread item |
 | **The `modernc.org/sqlite` and `libc` pin is fragile** | Pin both exactly. The plan-regression suite (fresh and `ANALYZE`d) and FTS integrity tests run on every bump. `ncruces/go-sqlite3` is the fallback |
 | **FTS over a view** relies on FTS5 reading external content through a join | Validated on 3.50.4 (MATCH, snippet, integrity-check); re-validated on the pinned driver in the migration test. `'rebuild'` repairs from the view |
