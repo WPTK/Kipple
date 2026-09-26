@@ -10,6 +10,12 @@ Phase 2 (reading UI backend) so far.
 
 ### Added
 
+- Web UI, from real-device testing: one font choice in the Aa menu that applies everywhere except Settings and menus; pressed-style segmented controls that hold their place; "Text spacing" (was "Reading spacing"); a smooth new-articles pill; themed, longer-lasting toasts (info 8 s, undo 15 s, errors stay).
+- Web UI: layouts renamed Editorial and Email - Compact (saved choices keep working), a star to set the device default layout, and an open article always keeps its list beside it on wide screens.
+- Web UI: collapsible folders, a Favorites section (folders and feeds), a resizable sidebar and list column, an Article width setting, a Settings gear next to the list controls.
+- Web UI, Manage Feeds: drag to reorder (with a Saved note), favorites, multi-select with bulk move and delete.
+- Web UI: rows marked read leave the Unread list after 1.5 s (undo cancels), a Share button, and device settings for Open links in (same tab on iPhone, so app handoff leaves no blank page), the Unread badge (count, dot or off, capped at 99+), and single-key shortcuts (off by default on touch-first devices).
+
 - Setting `fetch.fulltext_all` ("Fetch the full article for every feed", group Library, Settings screen, default off): every new article of every feed is extracted, whatever the feed's own full-text flag says. It needs no schema change: an item's effective full-text mode is now `COALESCE(items.fulltext_mode, CASE WHEN fetch.fulltext_all THEN 1 ELSE feeds.fulltext END)`, computed in one place (`store.EffectiveFulltext` / `store.FulltextModeSQL`) for the ingest pick, the guarded save, `POST /api/items/{id}/fulltext`, item detail, the Reader API hold and content, and bootstrap. Flipping it takes effect at once, without a restart, and never backfills old items (they extract on demand when opened). A per-article mode of on or off still wins, and a feed's own flag being off does not opt it out. Bootstrap feeds gain `fulltext_effective` (the feed flag, or true while the switch is on); `fulltext` stays the feed's own flag.
 - Setting `library.favorites` (hidden, group Library, default `[]`): the sidebar favorites, stored server-side as an array of at most 500 `{"t":"folder"|"feed","id":"<digits>"}` objects, strictly validated (shape, kind, digit ids, no duplicates). Returned by `GET /api/settings` and bootstrap; a deleted folder or feed is dropped from it in the same transaction.
 
@@ -165,6 +171,8 @@ Phase 2 (reading UI backend) so far.
   deleted by migration 0002.
 
 ### Fixed
+
+- A right swipe from an open trailing panel now closes it and commits Read/Unread instead of snapping back.
 
 - Bulk mark (mark all, above/below) now uses the server's `as_of`, so it covers every unread item in oldest-first lists and with backdated new items; undo only touches what the server changed and restores ledger rows.
 - Undo of merged swipe-stars reverts all of them; a failed undo no longer says "Undone".
