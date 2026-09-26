@@ -6,6 +6,10 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The project is now licensed under the PolyForm Noncommercial License 1.0.0 (`LICENSE`), with a generated `THIRD_PARTY_NOTICES.md` (bundled fonts, Go and npm dependencies; `scripts/gen-notices.mjs`). Both files ship in the image under `/licenses/`.
+
 ## [0.2.0] - 2026-09-26
 
 Everything since 0.2.0-alpha.2, including the alpha.3 and alpha.4 builds (both deployed to Host-A).

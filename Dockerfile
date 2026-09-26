@@ -34,6 +34,7 @@ RUN mkdir -p /data && chown 65532:65532 /data
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /kipple /kipple
 COPY --from=build --chown=65532:65532 /data /data
+COPY --chown=65532:65532 LICENSE THIRD_PARTY_NOTICES.md /licenses/
 EXPOSE 7080
 VOLUME /data
 ENTRYPOINT ["/kipple"]
