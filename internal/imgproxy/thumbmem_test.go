@@ -1,6 +1,7 @@
 package imgproxy
 
 import (
+	"bufio"
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
@@ -8,6 +9,7 @@ import (
 	"hash/crc32"
 	"image"
 	"image/color"
+	"math/rand"
 	"runtime"
 	"strings"
 	"sync"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/image/vp8l"
 )
 
 // ---- synthetic worst-case images ----
@@ -360,7 +363,8 @@ type vp8lSpec struct {
 	subGreen   bool
 	cacheBits  int  // the main image's color cache (0: none)
 	fullTrees  bool // the main group's codes cover their whole alphabets (the most tree memory)
-	groups     int  // above 1: meta prefix codes with this many groups (priced by the tiles bound, capped at 2,600)
+	groups     int  // above 1: meta prefix codes with this many groups
+	sparse     bool // with groups: every tile uses the last group, so the others are decoded and dropped
 }
 
 // synthVP8L is a valid VP8L stream of transparent black pixels, with the
@@ -427,6 +431,9 @@ func synthVP8L(s vp8lSpec, header bool) []byte {
 		bw.simpleTree(0)
 		for t := 0; t < tiles(iw, hBits)*tiles(s.h, hBits); t++ {
 			idx := t % groups // every group referenced
+			if s.sparse {
+				idx = groups - 1
+			}
 			bw.emit(g, idx&0xff)
 			bw.emit(red, idx>>8)
 		}
@@ -904,6 +911,150 @@ func FuzzVP8LWalk(f *testing.F) {
 			t.Fatal("an accepted stream has a cost")
 		}
 	})
+}
+
+// ---- review round 2, item 2: what a prefix code group costs ----
+
+// TestVP8LWalkBoundsTheDecoderOnGroupHeavyFiles checks the walk's price
+// against what golang.org/x/image/vp8l really allocates (TotalAlloc, garbage
+// and allocator size classes included) for files whose memory is almost all
+// prefix code groups, where the per-symbol constant decides the result. It
+// is the walk alone, without the transcode's 5/4 factor and fixed 3 MiB, so
+// only the decoder's own few kilobytes (its bufio reader, state and the image
+// header) are allowed on top.
+func TestVP8LWalkBoundsTheDecoderOnGroupHeavyFiles(t *testing.T) {
+	skipMemoryTests(t)
+	for _, tc := range []struct {
+		name string
+		s    vp8lSpec
+	}{
+		{"256 groups of full trees, 11-bit cache", vp8lSpec{w: 256, h: 256, cacheBits: 11, groups: 256}},
+		{"256 groups of full trees, 10-bit cache", vp8lSpec{w: 256, h: 256, cacheBits: 10, groups: 256}},
+		{"256 groups of full trees, no cache", vp8lSpec{w: 256, h: 256, groups: 256}},
+		{"one full group, 11-bit cache", vp8lSpec{w: 16, h: 16, cacheBits: 11, fullTrees: true}},
+		// Groups no tile uses are still read; with an index of 1,000 or more,
+		// or past the tile count, the decoder keeps only the used ones.
+		{"2,600 groups decoded, 1 kept, 16 tiles, 11-bit cache", vp8lSpec{w: 64, h: 64, cacheBits: 11, groups: 2600, sparse: true}},
+		{"2,600 groups decoded, 1 kept, 16 tiles, no cache", vp8lSpec{w: 64, h: 64, groups: 2600, sparse: true}},
+		// Below both limits every group up to the largest index is kept.
+		{"1,000 groups kept, 1 used, 1,024 tiles", vp8lSpec{w: 512, h: 512, cacheBits: 11, groups: 1000, sparse: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := synthVP8L(tc.s, true)
+			walk, ok := vp8lStreamCost(bytes.NewReader(data[5:]), tc.s.w, tc.s.h)
+			require.True(t, ok)
+			var derr error
+			dec := allocOf(func() { _, derr = vp8l.Decode(bytes.NewReader(data)) })
+			require.NoError(t, derr, "the synthetic file must decode")
+			t.Logf("walk %.2f MiB, decoder allocated %.2f MiB (%.2fx)", mib(walk), mib(dec), float64(walk)/float64(dec))
+			require.LessOrEqual(t, dec, walk+16<<10, "the walk is an upper bound of the decoder's allocation")
+		})
+	}
+}
+
+// TestVP8LSubImageKeepsWhatTheDecoderDecodes checks the entropy-image decode
+// the group count relies on: random streams of literals, back-references
+// (plain and mapped distances, overlapping copies) and color cache hits are
+// walked with keep and decoded by golang.org/x/image/vp8l as a whole image,
+// and the ARGB values must agree pixel for pixel.
+func TestVP8LSubImageKeepsWhatTheDecoderDecodes(t *testing.T) {
+	const w, h = 37, 23
+	for seed := int64(1); seed <= 60; seed++ {
+		ccBits := []int{0, 1, 3, 11}[seed%4]
+		// The same pixel data twice: as a whole VP8L image (header, no
+		// transform, cache, no meta codes) and as a bare sub-image.
+		gen := func(image bool) []byte {
+			rng := rand.New(rand.NewSource(seed))
+			var bw bitWriter
+			if image {
+				bw.put(0x2f, 8)
+				bw.put(w-1, 14)
+				bw.put(h-1, 14)
+				bw.put(0, 4)
+				bw.put(0, 1) // no transform
+			}
+			if ccBits > 0 {
+				bw.put(1, 1)
+				bw.put(uint32(ccBits), 4)
+			} else {
+				bw.put(0, 1)
+			}
+			if image {
+				bw.put(0, 1) // no meta prefix codes
+			}
+			green := vp8lLiterals + vp8lLengths
+			if ccBits > 0 {
+				green += 1 << ccBits
+			}
+			var codes [5]prefixCode
+			for j, n := range [5]int{green, vp8lLiterals, vp8lLiterals, vp8lLiterals, vp8lDists} {
+				codes[j] = bw.normalTree(completeLengths(n))
+			}
+			for p := 0; p < w*h; {
+				switch k := rng.Intn(10); {
+				case p > 0 && k < 3: // a back-reference
+					length := min(1+rng.Intn(3*w), w*h-p)
+					code := 1 + rng.Intn(120+p)
+					if int64(p)-vp8lDistance(w, uint32(code)) < 0 {
+						code = 120 + 1 + rng.Intn(p) // a plain distance of 1 to p
+					}
+					sym, extra, bits := lz77Code(length)
+					bw.emit(codes[0], vp8lLiterals+sym)
+					bw.put(bits, extra)
+					sym, extra, bits = lz77Code(code)
+					bw.emit(codes[4], sym)
+					bw.put(bits, extra)
+					p += length
+				case ccBits > 0 && k < 6: // a color cache hit
+					bw.emit(codes[0], vp8lLiterals+vp8lLengths+rng.Intn(1<<ccBits))
+					p++
+				default: // a literal, from few values so the cache fills with repeats
+					bw.emit(codes[0], rng.Intn(4))
+					for j := 1; j < 4; j++ {
+						bw.emit(codes[j], rng.Intn(3)*100)
+					}
+					p++
+				}
+			}
+			return bw.bytes()
+		}
+		m, err := vp8l.Decode(bytes.NewReader(gen(true)))
+		require.NoError(t, err, "seed %d", seed)
+		pix := m.(*image.NRGBA).Pix
+		keep := make([]uint32, w*h)
+		b := &vp8lBits{r: bufio.NewReader(bytes.NewReader(gen(false)))}
+		_, ok := vp8lSubImage(b, w, h, 0, keep)
+		require.True(t, ok, "seed %d", seed)
+		for i, v := range keep {
+			want := uint32(pix[4*i+3])<<24 | uint32(pix[4*i])<<16 | uint32(pix[4*i+1])<<8 | uint32(pix[4*i+2])
+			require.Equal(t, want, v, "seed %d, cache %d bits, pixel %d", seed, ccBits, i)
+		}
+	}
+}
+
+func TestVP8LGroupsAreCountedTheWayTheDecoderCounts(t *testing.T) {
+	g, d := vp8lGroupCost(11), vp8lDroppedGroupCost(11)
+	require.EqualValues(t, 3136, vp8lSymbols(11))
+	require.EqualValues(t, 5*536+24*3136+5*1024+4*2048, g, "24 bytes per symbol: code lengths, canonical codes, nodes")
+	require.EqualValues(t, 4*3136+5*1024, d)
+	// Below index 1,000 and the tile count, every group up to the largest index is kept.
+	require.Equal(t, 5*g, vp8lGroupsCost(4, 1, 100, 11))
+	// From index 1,000, or at the tile count, only the used ones.
+	require.Equal(t, 2*g+2598*d+2*2600, vp8lGroupsCost(2599, 2, 4000, 11))
+	require.Equal(t, g+9*d+2*10, vp8lGroupsCost(9, 1, 9, 11))
+
+	// An entropy image naming group 2,600 is refused (the decoder refuses it too).
+	s := vp8lSpec{w: 64, h: 64, groups: 2601, sparse: true}
+	data := synthVP8L(s, true)
+	_, ok := vp8lStreamCost(bytes.NewReader(data[5:]), s.w, s.h)
+	require.False(t, ok)
+	_, err := vp8l.Decode(bytes.NewReader(data))
+	require.Error(t, err)
+	// A legitimate few-group file is still priced and admitted.
+	few := riffWebP(webpChunk("VP8L", synthVP8L(vp8lSpec{w: 1600, h: 1000, cacheBits: 10, groups: 12}, true)))
+	p, err := planThumb(bytes.NewReader(few), int64(len(few))+thumbMinSource, "image/webp", ThumbWidth, defaultThumbPixels)
+	require.NoError(t, err)
+	require.Greater(t, p.need, 12*vp8lGroupCost(10))
 }
 
 // ---- review round 2, item 1: the lossy frame inside a VP8X container ----

@@ -8,20 +8,23 @@ import (
 
 // The WebP side of the decode-memory model (design §7.4, Limits).
 //
-// Lossy (VP8) frames are sized by their dimensions alone. A lossless (VP8L)
-// stream is not: golang.org/x/image/vp8l keeps one set of five Huffman trees
-// per "prefix code group", a file with meta prefix codes may have up to 2,600
-// of them, and with an 11-bit color cache a group holds about 50 KB of trees
+// Lossy (VP8) frames are sized by their dimensions alone (the key frame's own
+// size must be the one DecodeConfig reported). A lossless (VP8L) stream is
+// not: golang.org/x/image/vp8l keeps one set of five Huffman trees per
+// "prefix code group", a file with meta prefix codes may read up to 2,600 of
+// them, and with an 11-bit color cache a kept group holds about 50 KB of trees
 // and leaves about 25 KB of garbage, whatever the pixel count (about 200 MB
-// for an 801x1000 picture with 650 KB of tree data). The walk below reads a
-// VP8L stream (the image, or a compressed ALPH plane, which is one too) as far
-// as the decoder's allocations are decided by it: the transforms and their
-// sub-images, which are decoded symbol by symbol (their values are not kept),
-// then the main image's color cache and meta flag. Meta prefix codes are
-// priced with an upper bound: the entropy image is walked, and the decoder
-// keeps at most one group per tile of it, capped at 2,600, so the bound is
-// that many groups of trees; the file is refused when the total is over the
-// decode ceiling, so many-group files are refused and a few groups are not.
+// for an 801x1000 picture with 650 KB of tree data); a group read and dropped
+// still leaves about 12 KB. The walk below reads a VP8L stream (the image, or
+// a compressed ALPH plane, which is one too) as far as the decoder's
+// allocations are decided by it: the transforms and their sub-images, which
+// are decoded symbol by symbol (their values are not kept), then the main
+// image's color cache and meta flag. For meta prefix codes the entropy image
+// is walked and, up to 65,536 tiles, decoded, so the groups read, kept and
+// dropped are counted exactly as the decoder counts them; a larger entropy
+// image is priced as 2,600 kept groups. The file is refused when the total is
+// over the decode ceiling, so many-group files are refused and a few groups
+// are not.
 // Anything the walk cannot follow exactly is refused too: an incomplete or
 // over-full Huffman code, a repeated transform, an invalid back-reference, a
 // short stream. With complete codes every bit has one meaning, so the walk
@@ -358,21 +361,65 @@ const (
 	// vp8lMaxGroups is the most prefix code groups libwebp writes and the
 	// decoder accepts (an index of 2,600 or more is refused).
 	vp8lMaxGroups = 2600
+	// vp8lRemapFrom is the group index from which the decoder keeps only the
+	// groups a tile uses (it does too when the index reaches the tile count).
+	vp8lRemapFrom = 1000
+	// vp8lTrackTiles is the largest entropy image whose values the walk keeps
+	// (4 bytes per tile) to count the groups exactly; a larger one is priced
+	// at vp8lMaxGroups kept groups.
+	vp8lTrackTiles = 1 << 16
 )
 
-// vp8lGroupCost bounds what the decoder allocates for one prefix code group
-// with a color cache of ccBits: the group itself (five trees, each a 512-byte
-// look-up table), and per tree, when it is a normal code over its whole
-// alphabet of n symbols, the code lengths and canonical codes (4 bytes per
-// symbol each, garbage) and the nodes (8 bytes each, 2n-1 of them), plus the
-// code-length code and the color cache.
+// vp8lSymbols is the number of symbols in a group's five alphabets.
+func vp8lSymbols(ccBits uint32) int64 {
+	n := int64(vp8lLiterals + vp8lLengths + 3*vp8lLiterals + vp8lDists)
+	if ccBits > 0 {
+		n += 1 << ccBits
+	}
+	return n
+}
+
+// vp8lGroupCost bounds what golang.org/x/image/vp8l allocates for one prefix
+// code group it keeps, with a color cache of ccBits. The group itself is five
+// hTrees (a 24-byte slice header and a 512-byte look-up table each). Per tree
+// of an alphabet of n symbols, a normal code allocates the code lengths
+// (decodeHuffmanTree, 4 bytes per symbol, garbage), the canonical codes
+// (codeLengthsToCodes, 4 bytes per symbol, garbage) and the nodes (8 bytes
+// each, 2k-1 of them for k used symbols, at most 16 bytes per symbol, kept):
+// 24 bytes per symbol. The code-length code adds its own nodes and codes
+// (about 400 bytes; its tree is on the stack), counted as 1 KiB per tree,
+// and the color cache (allocated once per image, not per group) is counted
+// again per group; those two over-counts absorb the allocator's size-class
+// rounding (a 2,328-symbol node array rounds up by 3.7 KB), which
+// TestVP8LWalkBoundsTheDecoderOnGroupHeavyFiles measures. A simple code
+// allocates less.
 func vp8lGroupCost(ccBits uint32) int64 {
 	cc := int64(0)
 	if ccBits > 0 {
 		cc = 1 << ccBits
 	}
-	symbols := vp8lLiterals + vp8lLengths + cc + 3*vp8lLiterals + vp8lDists
-	return 5*(24+512) + 16*symbols + 5*1024 + 4*cc
+	return 5*(24+512) + 24*vp8lSymbols(ccBits) + 5*1024 + 4*cc
+}
+
+// vp8lDroppedGroupCost bounds a group the decoder reads and drops (an index
+// no tile uses, when it keeps only the used ones): the code lengths of each
+// normal code (4 bytes per symbol, garbage) and the code-length code, but no
+// tree.
+func vp8lDroppedGroupCost(ccBits uint32) int64 {
+	return 4*vp8lSymbols(ccBits) + 5*1024
+}
+
+// vp8lGroupsCost prices the groups the main image reads, given the largest
+// group index its entropy image uses, how many distinct indexes it uses and
+// its tile count, the way decodeHuffmanGroups decides: every group up to the
+// largest index is read; below vp8lRemapFrom and the tile count all of them
+// are kept, otherwise only the used ones (plus a 2-byte index map per group).
+func vp8lGroupsCost(maxIdx, distinct, tiles int64, ccBits uint32) int64 {
+	read := maxIdx + 1
+	if maxIdx < vp8lRemapFrom && maxIdx < tiles {
+		return read * vp8lGroupCost(ccBits)
+	}
+	return distinct*vp8lGroupCost(ccBits) + (read-distinct)*vp8lDroppedGroupCost(ccBits) + 2*read
 }
 
 // vp8lStreamCost walks a VP8L stream after its 5-byte header (w x h pixels):
@@ -392,14 +439,14 @@ func vp8lStreamCost(r io.Reader, w, h int) (int64, bool) {
 		switch t {
 		case 0, 1: // predictor, cross-color: a sub-image of tiles
 			bits := b.read(3) + 2
-			c, ok := vp8lSubImage(b, nTiles(iw, bits), nTiles(ih, bits), 0)
+			c, ok := vp8lSubImage(b, nTiles(iw, bits), nTiles(ih, bits), 0, nil)
 			if !ok {
 				return 0, false
 			}
 			cost += c
 		case 3: // color indexing: the palette, and pixels bundled 2, 4 or 8 to a word when it is small
 			colors := int64(b.read(8)) + 1
-			c, ok := vp8lSubImage(b, colors, 1, 4*256)
+			c, ok := vp8lSubImage(b, colors, 1, 4*256, nil)
 			if !ok {
 				return 0, false
 			}
@@ -428,33 +475,60 @@ func vp8lStreamCost(r io.Reader, w, h int) (int64, bool) {
 			return 0, false
 		}
 	}
-	groups := int64(1)
+	groups := vp8lGroupCost(ccBits)
 	if b.read(1) != 0 {
-		// Meta prefix codes: an entropy image maps tiles to groups. The decoder
-		// keeps at most one group per tile (it renumbers a sparse or large index
-		// range down to the referenced groups) and refuses an index of 2,600 or
-		// more, so that many groups is an upper bound whatever the image says.
-		// The entropy image is a sub-image, walked like the others.
+		// Meta prefix codes: an entropy image maps tiles to groups (its red and
+		// green are the index). The decoder reads every group up to the largest
+		// index, refuses an index of 2,600 or more, and keeps either all of
+		// them or only the used ones (vp8lGroupsCost). The entropy image is a
+		// sub-image, walked like the others; when it is small enough its
+		// values are kept and the groups counted exactly. Otherwise 2,600 kept
+		// groups bound it: read groups never exceed 2,600, and a kept group
+		// costs more than a dropped one.
 		bits := b.read(3) + 2
 		tw, th := nTiles(iw, bits), nTiles(ih, bits)
-		c, ok := vp8lSubImage(b, tw, th, 0)
+		tiles := tw * th
+		var keep []uint32
+		if tiles <= vp8lTrackTiles {
+			keep = make([]uint32, tiles)
+		}
+		c, ok := vp8lSubImage(b, tw, th, 0, keep)
 		if !ok {
 			return 0, false
 		}
 		cost += c
-		groups = min(tw*th, vp8lMaxGroups)
+		if keep == nil {
+			groups = vp8lMaxGroups*vp8lGroupCost(ccBits) + 2*vp8lMaxGroups
+		} else {
+			var used [vp8lMaxGroups]bool
+			maxIdx, distinct := int64(0), int64(0)
+			for _, argb := range keep {
+				i := int64(argb >> 8 & 0xffff)
+				if i >= vp8lMaxGroups {
+					return 0, false // the decoder refuses it too
+				}
+				if !used[i] {
+					used[i] = true
+					distinct++
+				}
+				maxIdx = max(maxIdx, i)
+			}
+			groups = vp8lGroupsCost(maxIdx, distinct, tiles, ccBits)
+		}
 	}
 	if b.bad {
 		return 0, false
 	}
-	return cost + 4*iw*ih + groups*vp8lGroupCost(ccBits), true
+	return cost + 4*iw*ih + groups, true
 }
 
 func nTiles(size int64, bits uint32) int64 { return (size + 1<<bits - 1) >> bits }
 
 // vp8lSubImage walks an entropy-coded sub-image (no meta codes) of w x h
-// pixels symbol by symbol and returns what the decoder allocates for it.
-func vp8lSubImage(b *vp8lBits, w, h, minCap int64) (int64, bool) {
+// pixels symbol by symbol and returns what the decoder allocates for it. With
+// keep (w*h long) it also decodes the pixels into it as ARGB, the way
+// decodePix does: literals, back-references and color cache lookups.
+func vp8lSubImage(b *vp8lBits, w, h, minCap int64, keep []uint32) (int64, bool) {
 	ccBits := uint32(0)
 	if b.read(1) != 0 {
 		if ccBits = b.read(4); ccBits < 1 || ccBits > 11 {
@@ -473,6 +547,14 @@ func vp8lSubImage(b *vp8lBits, w, h, minCap int64) (int64, bool) {
 		}
 	}
 	total := w * h
+	if keep != nil && int64(len(keep)) != total {
+		return 0, false
+	}
+	var cache []uint32
+	cached := int64(0)
+	if keep != nil && ccBits > 0 {
+		cache = make([]uint32, 1<<ccBits)
+	}
 	for p := int64(0); p < total; {
 		s, ok := g[0].next(b)
 		if !ok {
@@ -480,10 +562,14 @@ func vp8lSubImage(b *vp8lBits, w, h, minCap int64) (int64, bool) {
 		}
 		switch {
 		case s < vp8lLiterals:
-			for _, t := range g[1:4] {
-				if _, ok := t.next(b); !ok {
+			var c [3]uint32 // red, blue, alpha
+			for i, t := range g[1:4] {
+				if c[i], ok = t.next(b); !ok {
 					return 0, false
 				}
+			}
+			if keep != nil {
+				keep[p] = c[2]<<24 | c[0]<<16 | s<<8 | c[1]
 			}
 			p++
 		case s < vp8lLiterals+vp8lLengths:
@@ -496,9 +582,22 @@ func vp8lSubImage(b *vp8lBits, w, h, minCap int64) (int64, bool) {
 			if b.bad || p-dist < 0 || p+length > total {
 				return 0, false // the decoder refuses it too
 			}
+			if keep != nil {
+				for i := p; i < p+length; i++ { // forward, so an overlapping copy repeats
+					keep[i] = keep[i-dist]
+				}
+			}
 			p += length
 		default:
-			p++ // a color cache index (always in range: the alphabet is sized by the cache)
+			// A color cache index (always in range: the alphabet is sized by
+			// the cache). The decoder inserts every earlier pixel first.
+			if keep != nil {
+				for ; cached < p; cached++ {
+					cache[keep[cached]*0x1e35a7bd>>(32-ccBits)] = keep[cached]
+				}
+				keep[p] = cache[s-vp8lLiterals-vp8lLengths]
+			}
+			p++
 		}
 	}
 	pix := max(4*total, minCap)
