@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"image"
+	"image/color"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -29,6 +31,12 @@ type jpegSpec struct {
 	jfif        bool
 	rgbIDs      bool // component ids 'R', 'G', 'B'
 	pad         int  // bytes of COM padding (to clear the 150 KB floor)
+	// adobeAfterScan puts the Adobe segment after the scan data instead of in
+	// front of the frame (image/jpeg still honors it there).
+	adobeAfterScan bool
+	// restart adds a DRI segment (one MCU row per interval) and an RSTn
+	// marker after every row of scan data.
+	restart bool
 }
 
 // synthJPEG is a valid JPEG whose every 8x8 block is flat: one Huffman code
@@ -41,12 +49,13 @@ func synthJPEG(s jpegSpec) []byte {
 		b.Write([]byte{0xFF, m, byte((len(p) + 2) >> 8), byte(len(p) + 2)})
 		b.Write(p)
 	}
+	adobe := func() { seg(0xEE, append([]byte("Adobe"), 0, 100, 0, 0, 0, 0, byte(s.adobe))) }
 	b.Write([]byte{0xFF, 0xD8})
 	if s.jfif {
 		seg(0xE0, []byte("JFIF\x00\x01\x02\x00\x00\x01\x00\x01\x00\x00"))
 	}
-	if s.adobe >= 0 {
-		seg(0xEE, append([]byte("Adobe"), 0, 100, 0, 0, 0, 0, byte(s.adobe)))
+	if s.adobe >= 0 && !s.adobeAfterScan {
+		adobe()
 	}
 	for pad := s.pad; pad > 0; {
 		n := min(pad, 65000)
@@ -82,6 +91,18 @@ func synthJPEG(s jpegSpec) []byte {
 	}
 	seg(0xC4, dht(0))
 	seg(0xC4, dht(1))
+	var mxx, myy, per int
+	if n == 1 {
+		mxx, myy, per = (s.w+7)/8, (s.h+7)/8, 1
+	} else {
+		mxx, myy = (s.w+8*maxH-1)/(8*maxH), (s.h+8*maxV-1)/(8*maxV)
+		for _, hv := range s.samp {
+			per += hv[0] * hv[1]
+		}
+	}
+	if s.restart {
+		seg(0xDD, []byte{byte(mxx >> 8), byte(mxx)})
+	}
 	sos := []byte{byte(n)}
 	for i := range s.samp {
 		sos = append(sos, sof[6+3*i], 0x00)
@@ -94,18 +115,21 @@ func synthJPEG(s jpegSpec) []byte {
 		sos = append(sos, 0, 63, 0)
 	}
 	seg(0xDA, sos)
-	var blocks int
-	if n == 1 {
-		blocks = ((s.w + 7) / 8) * ((s.h + 7) / 8)
-	} else {
-		mxx, myy := (s.w+8*maxH-1)/(8*maxH), (s.h+8*maxV-1)/(8*maxV)
-		per := 0
-		for _, hv := range s.samp {
-			per += hv[0] * hv[1]
+	if s.restart {
+		row := (mxx*per*bits + 7) / 8
+		for y := 0; y < myy; y++ {
+			b.Write(make([]byte, row+2))
+			if y < myy-1 {
+				b.Write([]byte{0xFF, 0xD0 + byte(y%8)})
+			}
 		}
-		blocks = mxx * myy * per
+		b.Write(make([]byte, 64))
+	} else {
+		b.Write(make([]byte, mxx*myy*per*bits/8+64))
 	}
-	b.Write(make([]byte, blocks*bits/8+64))
+	if s.adobe >= 0 && s.adobeAfterScan {
+		adobe()
+	}
 	b.Write([]byte{0xFF, 0xD9})
 	return b.Bytes()
 }
@@ -126,7 +150,6 @@ func pngChunk(kind string, data []byte) []byte {
 // optionally Adam7-interlaced and with a tRNS chunk).
 func synthPNG(t testing.TB, w, h int, depth, ct byte, interlaced, trns bool, pad int) []byte {
 	channels := map[byte]int{0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ct]
-	bpp := (channels*int(depth) + 7) / 8
 	ihdr := make([]byte, 13)
 	binary.BigEndian.PutUint32(ihdr[0:], uint32(w))
 	binary.BigEndian.PutUint32(ihdr[4:], uint32(h))
@@ -146,7 +169,6 @@ func synthPNG(t testing.TB, w, h int, depth, ct byte, interlaced, trns bool, pad
 			_, _ = zw.Write(row)
 		}
 	}
-	_ = bpp
 	if interlaced {
 		for _, p := range [][4]int{{0, 0, 8, 8}, {4, 0, 8, 8}, {0, 4, 4, 8}, {2, 0, 4, 4}, {0, 2, 2, 4}, {1, 0, 2, 2}, {0, 1, 1, 2}} {
 			rows((w-p[0]+p[2]-1)/p[2], (h-p[1]+p[3]-1)/p[3])
@@ -175,6 +197,8 @@ func synthPNG(t testing.TB, w, h int, depth, ct byte, interlaced, trns bool, pad
 	return append(out, pngChunk("IEND", nil)...)
 }
 
+// ---- VP8L (lossless WebP) encoder for tests ----
+
 // bitWriter writes a VP8L (LSB-first) bit stream.
 type bitWriter struct {
 	b   []byte
@@ -199,47 +223,299 @@ func (w *bitWriter) bytes() []byte {
 	return append(w.b, make([]byte, 16)...)
 }
 
-// synthWebPLossless is a valid VP8L WebP of transparent black pixels: every
-// prefix code has a single symbol (zero bits per pixel). With a two-color
-// palette (a color-indexing transform that bundles 8 pixels per byte) the
-// decoder also allocates the unpacked copy: the lossless worst case.
-func synthWebPLossless(w, h int, palette bool) []byte {
-	var bw bitWriter
-	trees := func() {
-		for i := 0; i < 5; i++ {
-			bw.put(1, 1) // simple code
-			bw.put(0, 1) // one symbol
-			bw.put(0, 1) // 1-bit symbol
-			bw.put(0, 1) // symbol 0
+// prefixCode is a canonical prefix code: the code and its length per symbol.
+type prefixCode struct{ code, len []uint32 }
+
+func canonicalCode(lengths []uint8) prefixCode {
+	var count, next [17]uint32
+	for _, l := range lengths {
+		if l > 0 {
+			count[l]++
 		}
 	}
-	bw.put(0x2f, 8)
-	bw.put(uint32(w-1), 14)
-	bw.put(uint32(h-1), 14)
-	bw.put(0, 1)
-	bw.put(0, 3)
-	if palette {
-		bw.put(1, 1) // a transform
-		bw.put(3, 2) // color indexing
+	for l := 1; l < 16; l++ {
+		next[l+1] = (next[l] + count[l]) << 1
+	}
+	c := prefixCode{code: make([]uint32, len(lengths)), len: make([]uint32, len(lengths))}
+	for s, l := range lengths {
+		if l > 0 {
+			c.code[s], c.len[s] = next[l], uint32(l)
+			next[l]++
+		}
+	}
+	return c
+}
+
+// emit writes the code of sym, its most significant bit first.
+func (w *bitWriter) emit(c prefixCode, sym int) {
+	for i := int(c.len[sym]) - 1; i >= 0; i-- {
+		w.put(c.code[sym]>>uint(i)&1, 1)
+	}
+}
+
+// completeLengths is a complete code over n >= 2 symbols: lengths L-1 and L.
+func completeLengths(n int) []uint8 {
+	l := 1
+	for 1<<l < n {
+		l++
+	}
+	short := 1<<l - n
+	out := make([]uint8, n)
+	for i := range out {
+		out[i] = uint8(l)
+		if i < short {
+			out[i] = uint8(l - 1)
+		}
+	}
+	return out
+}
+
+// simpleTree is a one-symbol code: zero bits per use.
+func (w *bitWriter) simpleTree(sym uint32) {
+	w.put(1, 1) // simple
+	w.put(0, 1) // one symbol
+	if sym < 2 {
+		w.put(0, 1)
+		w.put(sym, 1)
+	} else {
+		w.put(1, 1)
+		w.put(sym, 8)
+	}
+}
+
+var codeLengthOrder = [19]int{17, 18, 0, 1, 2, 3, 4, 5, 16, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+
+// normalTree writes a normal prefix code with the given lengths (which use
+// at most two distinct non-zero values, as completeLengths makes), the runs
+// coded with symbol 16 (repeat the previous length 3 to 6 times).
+func (w *bitWriter) normalTree(lengths []uint8) prefixCode {
+	w.put(0, 1)
+	lo, hi := lengths[0], lengths[len(lengths)-1]
+	var cl [19]uint8
+	cl[16] = 1
+	if lo == hi {
+		cl[lo] = 1
+	} else {
+		cl[lo], cl[hi] = 2, 2
+	}
+	clc := canonicalCode(cl[:])
+	nc := 4
+	for i, s := range codeLengthOrder {
+		if cl[s] > 0 {
+			nc = max(nc, i+1)
+		}
+	}
+	w.put(uint32(nc-4), 4)
+	for i := 0; i < nc; i++ {
+		w.put(uint32(cl[codeLengthOrder[i]]), 3)
+	}
+	w.put(0, 1) // the lengths run to the end of the alphabet
+	for i := 0; i < len(lengths); {
+		v := lengths[i]
+		j := i
+		for j < len(lengths) && lengths[j] == v {
+			j++
+		}
+		w.emit(clc, int(v))
+		for run := j - i - 1; run > 0; {
+			if run < 3 {
+				w.emit(clc, int(v))
+				run--
+				continue
+			}
+			c := min(6, run)
+			if r := run - c; r == 1 || r == 2 {
+				c = run - 3
+			}
+			w.emit(clc, 16)
+			w.put(uint32(c-3), 2)
+			run -= c
+		}
+		i = j
+	}
+	return canonicalCode(lengths)
+}
+
+// lz77Code is the prefix symbol and extra bits of a length or distance value.
+func lz77Code(v int) (sym int, extra uint, bits uint32) {
+	if v <= 4 {
+		return v - 1, 0, 0
+	}
+	for s := 4; s < 40; s++ {
+		e := uint(s-2) >> 1
+		off := (2 + s&1) << e
+		if v-1 >= off && v-1 < off+1<<e {
+			return s, e, uint32(v - 1 - off)
+		}
+	}
+	panic("lz77Code: value too large")
+}
+
+type vp8lSpec struct {
+	w, h       int
+	palette    bool // a two-color color-indexing transform: 8 pixels bundled to a word, unpacked by the decoder
+	predictor  bool // a predictor transform with 4x4 tiles (the largest sub-image)
+	crossColor bool // a cross-color transform with 4x4 tiles
+	subGreen   bool
+	cacheBits  int  // the main image's color cache (0: none)
+	fullTrees  bool // the main group's codes cover their whole alphabets (the most tree memory)
+	groups     int  // above 1: meta prefix codes with this many groups (the model refuses them)
+}
+
+// synthVP8L is a valid VP8L stream of transparent black pixels, with the
+// 5-byte header when header is set (an ALPH plane has none). Sub-images use
+// one-symbol codes (zero bits per pixel); with full trees the main image is
+// one literal pixel and back-references of up to 4,096 pixels.
+func synthVP8L(s vp8lSpec, header bool) []byte {
+	var bw bitWriter
+	if header {
+		bw.put(0x2f, 8)
+		bw.put(uint32(s.w-1), 14)
+		bw.put(uint32(s.h-1), 14)
+		bw.put(0, 1)
+		bw.put(0, 3)
+	}
+	tiles := func(n, bits int) int { return (n + 1<<bits - 1) >> bits }
+	zeroSub := func() {
+		bw.put(0, 1) // no color cache
+		for i := 0; i < 5; i++ {
+			bw.simpleTree(0)
+		}
+	}
+	iw := s.w
+	if s.predictor {
+		bw.put(1, 1)
+		bw.put(0, 2)
+		bw.put(0, 3) // 4x4 tiles
+		zeroSub()
+	}
+	if s.crossColor {
+		bw.put(1, 1)
+		bw.put(1, 2)
+		bw.put(0, 3)
+		zeroSub()
+	}
+	if s.subGreen {
+		bw.put(1, 1)
+		bw.put(2, 2)
+	}
+	if s.palette {
+		bw.put(1, 1)
+		bw.put(3, 2)
 		bw.put(1, 8) // two colors
-		bw.put(0, 1) // the palette image: no color cache
-		trees()
+		zeroSub()
+		iw = tiles(iw, 3)
 	}
 	bw.put(0, 1) // no more transforms
-	bw.put(0, 1) // no color cache
-	bw.put(0, 1) // no meta prefix codes
-	trees()
-	payload := bw.bytes()
-	if len(payload)%2 == 1 {
-		payload = append(payload, 0)
+	if s.cacheBits > 0 {
+		bw.put(1, 1)
+		bw.put(uint32(s.cacheBits), 4)
+	} else {
+		bw.put(0, 1)
 	}
-	var b bytes.Buffer
-	b.WriteString("RIFF")
-	_ = binary.Write(&b, binary.LittleEndian, uint32(4+8+len(payload)))
-	b.WriteString("WEBPVP8L")
-	_ = binary.Write(&b, binary.LittleEndian, uint32(len(payload)))
-	b.Write(payload)
-	return b.Bytes()
+	groups := max(1, s.groups)
+	if groups > 1 {
+		const hBits = 4
+		bw.put(1, 1)
+		bw.put(hBits-2, 3)
+		bw.put(0, 1) // the meta image: no color cache
+		g := bw.normalTree(completeLengths(vp8lLiterals + vp8lLengths))
+		red := bw.normalTree(completeLengths(vp8lLiterals))
+		bw.simpleTree(0)
+		bw.simpleTree(0)
+		bw.simpleTree(0)
+		for t := 0; t < tiles(iw, hBits)*tiles(s.h, hBits); t++ {
+			idx := t % groups // every group referenced
+			bw.emit(g, idx&0xff)
+			bw.emit(red, idx>>8)
+		}
+	} else {
+		bw.put(0, 1)
+	}
+	green := vp8lLiterals + vp8lLengths
+	if s.cacheBits > 0 {
+		green += 1 << s.cacheBits
+	}
+	full := s.fullTrees || groups > 1
+	var codes [5]prefixCode
+	for i := 0; i < groups; i++ { // identical groups: the pixels read the same whichever group a tile uses
+		if !full {
+			for j := 0; j < 5; j++ {
+				bw.simpleTree(0)
+			}
+			continue
+		}
+		for j, n := range [5]int{green, vp8lLiterals, vp8lLiterals, vp8lLiterals, vp8lDists} {
+			codes[j] = bw.normalTree(completeLengths(n))
+		}
+	}
+	if full {
+		for j := 0; j < 4; j++ {
+			bw.emit(codes[j], 0) // one literal pixel
+		}
+		for left := iw*s.h - 1; left > 0; {
+			n := min(left, 4096)
+			sym, extra, bits := lz77Code(n)
+			bw.emit(codes[0], vp8lLiterals+sym)
+			bw.put(bits, extra)
+			bw.emit(codes[4], 1) // distance code 2: the pixel to the left
+			left -= n
+		}
+	}
+	return bw.bytes()
+}
+
+func webpChunk(id string, data []byte) []byte {
+	out := append([]byte(id), 0, 0, 0, 0)
+	binary.LittleEndian.PutUint32(out[4:], uint32(len(data)))
+	out = append(out, data...)
+	if len(data)%2 == 1 {
+		out = append(out, 0)
+	}
+	return out
+}
+
+func riffWebP(chunks ...[]byte) []byte {
+	body := []byte("WEBP")
+	for _, c := range chunks {
+		body = append(body, c...)
+	}
+	out := []byte("RIFF\x00\x00\x00\x00")
+	binary.LittleEndian.PutUint32(out[4:], uint32(len(body)))
+	return append(out, body...)
+}
+
+// synthWebPLossless is a VP8L WebP of transparent black pixels. With a
+// two-color palette the decoder also allocates the unpacked copy.
+func synthWebPLossless(w, h int, palette bool) []byte {
+	return riffWebP(webpChunk("VP8L", synthVP8L(vp8lSpec{w: w, h: h, palette: palette}, true)))
+}
+
+// synthVP8 is a lossy key frame whose partitions are all zero: every
+// macroblock decodes (as B_PRED with DC sub-blocks and no coefficients).
+func synthVP8(w, h int) []byte {
+	mbs := ((w + 15) / 16) * ((h + 15) / 16)
+	first := 2*mbs + 1024
+	b := []byte{byte(0x10 | (first&7)<<5), byte(first >> 3), byte(first >> 11), 0x9d, 0x01, 0x2a,
+		byte(w), byte(w>>8) & 0x3f, byte(h), byte(h>>8) & 0x3f}
+	b = append(b, make([]byte, first)...)
+	return append(b, make([]byte, 4*mbs+1024)...)
+}
+
+// synthWebPAlpha is a VP8X WebP: an ALPH plane (compressed as VP8L when
+// alpha is set, raw otherwise) and a lossy frame.
+func synthWebPAlpha(w, h int, alpha *vp8lSpec) []byte {
+	x := make([]byte, 10)
+	x[0] = 0x10
+	x[4], x[5], x[6] = byte(w-1), byte((w-1)>>8), byte((w-1)>>16)
+	x[7], x[8], x[9] = byte(h-1), byte((h-1)>>8), byte((h-1)>>16)
+	var a []byte
+	if alpha != nil {
+		a = append([]byte{1}, synthVP8L(*alpha, false)...)
+	} else {
+		a = append([]byte{0}, make([]byte, w*h)...)
+	}
+	return riffWebP(webpChunk("VP8X", x), webpChunk("ALPH", a), webpChunk("VP8 ", synthVP8(w, h)))
 }
 
 // ---- measuring ----
@@ -280,6 +556,15 @@ func allocDuring(f func()) (total, peak int64) {
 	return int64(end.TotalAlloc - base.TotalAlloc), int64(hi.Load()) - int64(base.HeapAlloc)
 }
 
+// allocOf is every byte f allocates, without the sampler (small decodes).
+func allocOf(f func()) int64 {
+	var a, b runtime.MemStats
+	runtime.ReadMemStats(&a)
+	f()
+	runtime.ReadMemStats(&b)
+	return int64(b.TotalAlloc - a.TotalAlloc)
+}
+
 func skipMemoryTests(t *testing.T) {
 	t.Helper()
 	if raceEnabled {
@@ -298,17 +583,23 @@ type memCase struct {
 
 func memCases(t *testing.T) []memCase {
 	rgb := [][2]int{{1, 1}, {1, 1}, {1, 1}}
+	cmyk := [][2]int{{1, 1}, {1, 1}, {1, 1}, {1, 1}}
+	allTransforms := &vp8lSpec{w: 4000, h: 4000, predictor: true, crossColor: true, subGreen: true, palette: true, cacheBits: 11, fullTrees: true}
 	return []memCase{
 		{"jpeg baseline 4:2:0 12 MP", "image/jpeg", synthJPEG(jpegSpec{w: 4240, h: 2832, samp: [][2]int{{2, 2}, {1, 1}, {1, 1}}, adobe: -1, jfif: true})},
 		{"jpeg baseline 4:4:4 24 MP", "image/jpeg", synthJPEG(jpegSpec{w: 6000, h: 4000, samp: rgb, adobe: -1, jfif: true})},
 		{"jpeg baseline 4:1:1 24 MP", "image/jpeg", synthJPEG(jpegSpec{w: 6000, h: 4000, samp: [][2]int{{4, 1}, {1, 1}, {1, 1}}, adobe: -1, jfif: true})},
 		{"jpeg baseline flex 4:2:2/4:4:0 24 MP", "image/jpeg", synthJPEG(jpegSpec{w: 6000, h: 4000, samp: [][2]int{{2, 2}, {2, 1}, {1, 2}}, adobe: -1, jfif: true})},
-		{"jpeg baseline CMYK 24 MP", "image/jpeg", synthJPEG(jpegSpec{w: 6000, h: 4000, samp: [][2]int{{1, 1}, {1, 1}, {1, 1}, {1, 1}}, adobe: 0})},
+		{"jpeg baseline CMYK 24 MP", "image/jpeg", synthJPEG(jpegSpec{w: 6000, h: 4000, samp: cmyk, adobe: 0})},
 		{"jpeg baseline YCCK 24 MP", "image/jpeg", synthJPEG(jpegSpec{w: 6000, h: 4000, samp: [][2]int{{2, 2}, {1, 1}, {1, 1}, {2, 2}}, adobe: 2})},
 		{"jpeg baseline Adobe RGB 24 MP", "image/jpeg", synthJPEG(jpegSpec{w: 6000, h: 4000, samp: rgb, adobe: 0})},
 		{"jpeg baseline gray 24 MP", "image/jpeg", synthJPEG(jpegSpec{w: 6000, h: 4000, samp: [][2]int{{1, 1}}, adobe: -1, jfif: true})},
+		{"jpeg baseline 4:2:0 restart intervals 12 MP", "image/jpeg", synthJPEG(jpegSpec{w: 4240, h: 2832, samp: [][2]int{{2, 2}, {1, 1}, {1, 1}}, adobe: -1, jfif: true, restart: true})},
+		// Review item 2: an Adobe APP14 after the scan still makes the decoder convert to RGB.
+		{"jpeg baseline 4:4:4 Adobe RGB after the scan 12 MP", "image/jpeg", synthJPEG(jpegSpec{w: 4000, h: 3000, samp: rgb, adobe: 0, adobeAfterScan: true})},
+		{"jpeg progressive 4:4:4 Adobe RGB after the scan 12 MP", "image/jpeg", synthJPEG(jpegSpec{w: 4000, h: 3000, samp: rgb, progressive: true, adobe: 0, adobeAfterScan: true})},
 		{"jpeg progressive 4:4:4 12 MP", "image/jpeg", synthJPEG(jpegSpec{w: 4240, h: 2832, samp: rgb, progressive: true, adobe: -1, jfif: true})},
-		{"jpeg progressive CMYK 12 MP", "image/jpeg", synthJPEG(jpegSpec{w: 4240, h: 2832, samp: [][2]int{{1, 1}, {1, 1}, {1, 1}, {1, 1}}, progressive: true, adobe: 0})},
+		{"jpeg progressive CMYK 12 MP", "image/jpeg", synthJPEG(jpegSpec{w: 4240, h: 2832, samp: cmyk, progressive: true, adobe: 0})},
 		{"jpeg progressive 4:2:0 24 MP", "image/jpeg", synthJPEG(jpegSpec{w: 6000, h: 4000, samp: [][2]int{{2, 2}, {1, 1}, {1, 1}}, progressive: true, adobe: -1, jfif: true})},
 		{"png 16-bit RGBA Adam7 12 MP", "image/png", synthPNG(t, 4240, 2832, 16, 6, true, false, 0)},
 		{"png 16-bit gray+tRNS Adam7 8 MP", "image/png", synthPNG(t, 3464, 2310, 16, 0, true, true, 0)},
@@ -316,6 +607,12 @@ func memCases(t *testing.T) []memCase {
 		{"png paletted 24 MP", "image/png", synthPNG(t, 6000, 4000, 4, 3, false, false, 0)},
 		{"webp lossless 16 MP", "image/webp", synthWebPLossless(4900, 3266, false)},
 		{"webp lossless palette 16 MP", "image/webp", synthWebPLossless(4900, 3266, true)},
+		{"webp lossless all transforms, 11-bit cache, full trees 16 MP", "image/webp", riffWebP(webpChunk("VP8L", synthVP8L(*allTransforms, true)))},
+		{"webp lossless predictor+cross-color, 11-bit cache, full trees 16 MP", "image/webp", riffWebP(webpChunk("VP8L",
+			synthVP8L(vp8lSpec{w: 4000, h: 4000, predictor: true, crossColor: true, cacheBits: 11, fullTrees: true}, true)))},
+		{"webp lossy 24 MP", "image/webp", riffWebP(webpChunk("VP8 ", synthVP8(6000, 4000)))},
+		{"webp lossy + raw alpha 16 MP", "image/webp", synthWebPAlpha(4000, 4000, nil)},
+		{"webp lossy + VP8L alpha (all transforms, full trees) 16 MP", "image/webp", synthWebPAlpha(4000, 4000, allTransforms)},
 	}
 }
 
@@ -434,12 +731,159 @@ func TestParseJPEGReadsFrameAndMarkers(t *testing.T) {
 	require.True(t, ok, "found past a 70 KB segment")
 	require.True(t, f.progressive)
 	require.Equal(t, 4, f.n)
-	require.Equal(t, [4]int{2, 1, 1, 2}, f.h)
+	require.Equal(t, [4]int{2, 1, 1, 2}, f.hs)
+	require.Equal(t, 100, f.w)
+	require.Equal(t, 60, f.h)
 	require.True(t, f.adobe)
 	require.EqualValues(t, 2, f.transform)
 	require.False(t, f.jfif)
 
 	_, ok = parseJPEG(bytes.NewReader([]byte("\xff\xd8\xff\xe0\x00\x10JFIF")), 12)
-	require.False(t, ok, "no frame header: the caller assumes the worst")
-	require.Equal(t, int64(100*60*25), jpegDecodeCost(bytes.NewReader([]byte("nope")), 4, 100, 60))
+	require.False(t, ok, "no frame header: refused, not guessed")
+	_, ok = parseJPEG(bytes.NewReader(data[:len(data)-2]), int64(len(data)-2))
+	require.False(t, ok, "no EOI: refused")
+
+	// Restart markers inside scan data are part of it; a trailer after EOI is never read.
+	rst := synthJPEG(jpegSpec{w: 200, h: 120, samp: [][2]int{{2, 2}, {1, 1}, {1, 1}}, adobe: -1, jfif: true, restart: true})
+	rst = append(rst, "trailing bytes the decoder never reads"...)
+	f, ok = parseJPEG(bytes.NewReader(rst), int64(len(rst)))
+	require.True(t, ok)
+	require.Equal(t, 200, f.w)
+}
+
+// ---- review item 1: the "FF 00" frame substitution ----
+
+// craftedFF00JPEG is the reviewer's file: SOI, a stray "FF 00 00 06" (the old
+// header walk took it for a segment of length 6 and landed inside the next
+// comment), a COM segment whose payload is a fake one-component SOF0 and an
+// SOS, then the real file after its SOI. image/jpeg skips "FF 00" as junk,
+// skips the comment and decodes the real frame.
+//
+// With fakeEOI the comment also ends in "FF D9", so a walk that took the
+// stray "FF 00" for a segment would stop at the fake end of image and never
+// see the real frame header.
+func craftedFF00JPEG(real []byte, w, h int, fakeEOI ...bool) []byte {
+	payload := []byte{0xFF, 0xC0, 0, 11, 8, byte(h >> 8), byte(h), byte(w >> 8), byte(w), 1, 1, 0x11, 0,
+		0xFF, 0xDA, 0, 8, 1, 1, 0, 0, 63, 0}
+	if len(fakeEOI) > 0 && fakeEOI[0] {
+		payload = append(payload, 0, 0, 0xFF, 0xD9)
+	}
+	out := []byte{0xFF, 0xD8, 0xFF, 0x00, 0x00, 0x06, 0xFF, 0xFE, byte((len(payload) + 2) >> 8), byte(len(payload) + 2)}
+	out = append(out, payload...)
+	return append(out, real[2:]...)
+}
+
+func TestThumbRefusesTheFF00FrameSubstitution(t *testing.T) {
+	const w, h = 4000, 2666
+	real := synthJPEG(jpegSpec{w: w, h: h, samp: [][2]int{{1, 1}, {1, 1}, {1, 1}, {1, 1}}, progressive: true, adobe: 0, pad: thumbMinSource})
+	crafted := craftedFF00JPEG(real, w, h)
+	cfg, format := decodeCfg(t, crafted)
+	require.Equal(t, "jpeg", format)
+	require.Equal(t, w, cfg.Width, "the decoder reads the real frame")
+	require.Equal(t, color.CMYKModel, cfg.ColorModel, "the real frame is 4-component")
+
+	_, ok := parseJPEG(bytes.NewReader(crafted), int64(len(crafted)))
+	require.False(t, ok, "a stray FF 00 is not a marker: the file is refused, not guessed")
+	withEOI := craftedFF00JPEG(real, w, h, true)
+	cfg, _ = decodeCfg(t, withEOI)
+	require.Equal(t, w, cfg.Width)
+	_, ok = parseJPEG(bytes.NewReader(withEOI), int64(len(withEOI)))
+	require.False(t, ok, "nor with a fake end of image in the comment")
+	var pe *passError
+	var err error
+	total, _ := allocDuring(func() {
+		_, _, err = transcode(bytes.NewReader(crafted), int64(len(crafted)), "image/jpeg", testLimits())
+	})
+	require.ErrorAs(t, err, &pe)
+	require.Contains(t, pe.reason, "unusual")
+	if !raceEnabled {
+		require.Less(t, total, int64(4<<20), "refused from the stream walk, before any decode")
+	}
+	// The real file is priced honestly (and refused over the ceiling).
+	p, err := planThumb(bytes.NewReader(real), int64(len(real)), "image/jpeg", ThumbWidth, defaultThumbPixels)
+	require.NoError(t, err)
+	require.Greater(t, p.need, int64(300<<20))
+	if raceEnabled || testing.Short() {
+		return
+	}
+	// What the decoder would have allocated had the old estimate admitted it.
+	dec := allocOf(func() { _, _, _ = image.Decode(bytes.NewReader(crafted)) })
+	t.Logf("crafted %dx%d FF 00 file: refused; the decode alone allocates %.1f MiB (honest estimate of the real frame %.1f MiB)", w, h, mib(dec), mib(p.need))
+}
+
+// ---- review item 3: lossless WebP prefix code groups ----
+
+func TestThumbRefusesLosslessWebPWithMetaPrefixCodes(t *testing.T) {
+	// The reviewer's shape: 801x1000 with 2,600 groups of full trees and an
+	// 11-bit color cache, about 600 KB of tree data.
+	spec := vp8lSpec{w: 801, h: 1000, cacheBits: 11, groups: 2600}
+	data := riffWebP(webpChunk("VP8L", synthVP8L(spec, true)))
+	p, err := planThumb(bytes.NewReader(data), int64(len(data)), "image/webp", ThumbWidth, defaultThumbPixels)
+	var pe *passError
+	require.ErrorAs(t, err, &pe, "meta prefix codes are refused, whatever the pixel count")
+	require.Contains(t, pe.reason, "unusual")
+	require.Zero(t, p.need)
+
+	// The same image in a VP8X container's compressed alpha plane.
+	alpha := synthWebPAlpha(801, 1000, &spec)
+	_, err = planThumb(bytes.NewReader(alpha), int64(len(alpha)), "image/webp", ThumbWidth, defaultThumbPixels)
+	require.ErrorAs(t, err, &pe)
+
+	// Two groups are refused too: the count is only known after decoding the meta image.
+	two := riffWebP(webpChunk("VP8L", synthVP8L(vp8lSpec{w: 1600, h: 1000, groups: 2}, true)))
+	_, err = planThumb(bytes.NewReader(two), int64(len(two))+thumbMinSource, "image/webp", ThumbWidth, defaultThumbPixels)
+	require.ErrorAs(t, err, &pe)
+
+	// Without meta codes the same trees and cache are admitted and priced.
+	one := riffWebP(webpChunk("VP8L", synthVP8L(vp8lSpec{w: 1600, h: 1000, cacheBits: 11, fullTrees: true, predictor: true}, true)))
+	p, err = planThumb(bytes.NewReader(one), int64(len(one))+thumbMinSource, "image/webp", ThumbWidth, defaultThumbPixels)
+	require.NoError(t, err)
+	require.Positive(t, p.need)
+
+	if raceEnabled || testing.Short() {
+		return
+	}
+	var derr error
+	dec := allocOf(func() { _, _, derr = image.Decode(bytes.NewReader(data)) })
+	require.NoError(t, derr, "the crafted file is a valid WebP")
+	t.Logf("801x1000 VP8L with %d groups (%d KB): refused; the decode alone allocates %.1f MiB", spec.groups, len(data)>>10, mib(dec))
+}
+
+func TestVP8LWalkRefusesWhatItCannotFollow(t *testing.T) {
+	ok := func(s vp8lSpec) bool {
+		_, ok := vp8lStreamCost(bytes.NewReader(synthVP8L(s, false)), s.w, s.h)
+		return ok
+	}
+	require.True(t, ok(vp8lSpec{w: 300, h: 200, predictor: true, crossColor: true, subGreen: true, palette: true, cacheBits: 11, fullTrees: true}))
+	require.False(t, ok(vp8lSpec{w: 300, h: 200, groups: 3}))
+	// A short stream.
+	s := synthVP8L(vp8lSpec{w: 300, h: 200, predictor: true}, false)
+	_, good := vp8lStreamCost(bytes.NewReader(s[:3]), 300, 200)
+	require.False(t, good)
+	// An incomplete code (lengths 1 and 2 over two symbols) is refused.
+	_, good = buildHuff([]uint8{1, 2})
+	require.False(t, good)
+	_, good = buildHuff([]uint8{1, 1})
+	require.True(t, good)
+	h, good := buildHuff([]uint8{0, 0, 5, 0})
+	require.True(t, good, "one used symbol: zero bits, whatever its length")
+	require.True(t, h.single)
+}
+
+// FuzzVP8LWalk: the walk never panics or runs away, whatever the bit stream
+// (go test runs the seeds; go test -fuzz explores).
+func FuzzVP8LWalk(f *testing.F) {
+	for _, s := range []vp8lSpec{
+		{w: 40, h: 30},
+		{w: 40, h: 30, predictor: true, crossColor: true, subGreen: true, palette: true, cacheBits: 5, fullTrees: true},
+		{w: 40, h: 30, cacheBits: 11, fullTrees: true},
+		{w: 40, h: 30, groups: 3},
+	} {
+		f.Add(synthVP8L(s, false))
+	}
+	f.Fuzz(func(t *testing.T, stream []byte) {
+		if n, ok := vp8lStreamCost(bytes.NewReader(stream), 40, 30); ok && n <= 0 {
+			t.Fatal("an accepted stream has a cost")
+		}
+	})
 }

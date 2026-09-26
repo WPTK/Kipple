@@ -157,7 +157,13 @@ func planThumb(r io.ReaderAt, size int64, ct string, width, maxPixels int) (thum
 	if p.orient >= 5 {
 		p.rw, p.rh = newH, newW
 	}
-	p.need = thumbCost(r, size, format, p.w, p.h, p.rw, p.rh, p.orient != 1)
+	dec, ok := decodeCost(r, size, format, p.w, p.h)
+	if !ok {
+		// Not a file the memory model can account for (a JPEG that is not
+		// well-formed, lossless WebP with meta prefix codes, ...): never guess.
+		return p, pass("unusual %s structure", format)
+	}
+	p.need = thumbCost(dec, p.w, p.h, p.rw, p.rh, p.orient != 1)
 	return p, nil
 }
 
