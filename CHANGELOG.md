@@ -11,6 +11,7 @@ All notable changes to Kipple are documented here. The format follows
 - The project is now licensed under the Blue Oak Model License 1.0.0 (`LICENSE`), with a generated `THIRD_PARTY_NOTICES.md` (bundled fonts, Go and npm dependencies; `scripts/gen-notices.mjs`). Both files ship in the image under `/licenses/`.
 - `kipple healthcheck` subcommand: probes `/healthz` on the loopback address of `KIPPLE_ADDR` (3 s timeout, exit 0 only on HTTP 200), for the container `HEALTHCHECK` and for scripts.
 - The image declares a `HEALTHCHECK` and OCI labels; `docker-compose.example.yml` shows hardened runtime options.
+- Developer tooling: native Go fuzz targets for the feed parser and charset repair, sanitizer (ingest and serve), OPML import, feed discovery, Reader API parameter reader, image proxy path and WebP cost model, backup extraction and settings validators, run by hand before a release with `scripts/fuzz.ps1` (not in CI); `docs/RELEASING.md` is the release checklist.
 
 ## [0.2.0] - 2026-09-26
 
