@@ -26,6 +26,17 @@ type Writer struct {
 	n    int64
 	err  error
 	done bool
+	// settled: the bytes written have been taken off the in-progress count
+	// (at Commit or Abort).
+	settled bool
+}
+
+// settle takes this download's bytes off the cache's in-progress count, once.
+func (w *Writer) settle() {
+	if !w.settled {
+		w.settled = true
+		w.c.tmpBytes.Add(-w.n)
+	}
 }
 
 // Begin opens a temp file for key. It refuses (ErrDisabled, ErrDiskLow) when
@@ -74,7 +85,7 @@ func (c *Cache) checkDisk(incoming int64) error {
 			"free_bytes", free, "floor_bytes", floor)
 	}
 	if last := c.lastLowEvict.Load(); now-last >= int64(lowDiskEvictEvery/time.Second) && c.lastLowEvict.CompareAndSwap(last, now) {
-		if cp := c.maxBytes.Load(); cp > 0 && c.used.Load() > cp*lowDiskTargetPct/100 {
+		if cp := c.maxBytes.Load(); cp > 0 && c.load() > cp*lowDiskTargetPct/100 {
 			c.mu.Lock()
 			c.noteEvict(c.evictLocked(c.ctx, cp*lowDiskTargetPct/100), "imgcache: low-disk eviction")
 			c.mu.Unlock()
@@ -99,6 +110,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 	n, err := w.f.Write(p)
 	w.h.Write(p[:n])
 	w.n += int64(n)
+	w.c.tmpBytes.Add(int64(n)) // in-progress bytes count against the cap until Commit or Abort
 	if err != nil {
 		w.err = err
 	}
@@ -128,6 +140,7 @@ func (w *Writer) Abort() {
 		return
 	}
 	w.done = true
+	w.settle()
 	name := w.f.Name()
 	_ = w.f.Close()
 	_ = os.Remove(name)
@@ -147,6 +160,7 @@ func (w *Writer) Commit(m Meta) error {
 		return errors.New("imgcache: empty body")
 	}
 	name := w.f.Name()
+	w.settle() // from here the bytes are either an entry (charged) or gone
 	if err := w.f.Close(); err != nil {
 		w.done = true
 		_ = os.Remove(name)
@@ -174,7 +188,8 @@ func (w *Writer) Commit(m Meta) error {
 	}
 	var oldStatus, oldReason string
 	var oldSize int64
-	err := c.wr.QueryRow("SELECT status, size, neg_reason FROM entries WHERE key = ?", w.key).Scan(&oldStatus, &oldSize, &oldReason)
+	var oldURLLen int
+	err := c.wr.QueryRow("SELECT status, size, neg_reason, length(CAST(url AS BLOB)) FROM entries WHERE key = ?", w.key).Scan(&oldStatus, &oldSize, &oldReason, &oldURLLen)
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		_ = os.Remove(name)
@@ -202,6 +217,7 @@ func (w *Writer) Commit(m Meta) error {
 	switch {
 	case exists && oldStatus == statusOK:
 		c.used.Add(w.n - oldSize)
+		c.charged.Add(-c.cost(oldSize, oldURLLen))
 	case exists:
 		c.negN.Add(-1)
 		if oldReason == InProgress {
@@ -213,7 +229,8 @@ func (w *Writer) Commit(m Meta) error {
 		c.used.Add(w.n)
 		c.files.Add(1)
 	}
-	if cp := c.maxBytes.Load(); cp > 0 && c.used.Load() > cp {
+	c.charged.Add(c.cost(w.n, len(w.url)))
+	if cp := c.maxBytes.Load(); cp > 0 && c.load() > cp {
 		c.noteEvict(c.evictLocked(c.ctx, cp*evictTargetPct/100), "imgcache: eviction")
 	}
 	return nil
