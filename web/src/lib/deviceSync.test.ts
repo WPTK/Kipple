@@ -14,6 +14,7 @@ import {
   pendingChanges,
   profileOf,
   resetDeviceSync,
+  discardRefused,
   retrySave,
   syncStore,
   type LocalState,
@@ -40,6 +41,7 @@ const DEFAULTS: Record<string, unknown> = {
   "client.article_width": "medium",
   "client.sidebar_width": 240,
   "client.unread_badge": "count",
+  "client.highlight_keywords": true,
   "client.text_size": 1,
   "client.adjust_separately": false,
   "client.spacing": "normal",
@@ -54,11 +56,11 @@ const DEFAULTS: Record<string, unknown> = {
 const device = (over: Partial<DeviceView> = {}): DeviceView => ({ id: "dev1", name: "", profile: {}, merged: { ...DEFAULTS }, ...over });
 
 /** A server that stores overrides and answers with the merged view. */
-function server(initial: Record<string, unknown> = {}) {
+function server(initial: Record<string, unknown> = {}, account: Record<string, unknown> = {}) {
   const profile: Record<string, unknown> = { ...initial };
   const patches: Record<string, unknown>[] = [];
   const view = (): DeviceView => {
-    const merged = { ...DEFAULTS, ...profile };
+    const merged = { ...DEFAULTS, ...account, ...profile };
     return { id: "dev1", name: "", profile: { ...profile }, merged };
   };
   const m = mockFetch({
@@ -336,5 +338,171 @@ describe("saving", () => {
     expect(devicePrefsStore.get().layout).toBe("magazine");
     await vi.advanceTimersByTimeAsync(2000);
     expect(s.patches).toHaveLength(0); // adopting the answer is not a change to send
+  });
+});
+
+// Every key the server accepts (internal/api/devices.go clientDefs plus the device-scoped ui.* keys this client mirrors).
+const SERVER_CLIENT_KEYS = [
+  "client.layout", "client.layout_overrides", "client.order", "client.inbox_thumbs", "client.peek_seen", "client.article_width",
+  "client.list_width", "client.sidebar_width", "client.link_target", "client.unread_badge", "client.text_size",
+  "client.adjust_separately", "client.shortcuts", "client.spacing", "client.motion", "client.large_targets",
+  "client.listen", "client.voice", "client.rate", "client.collapsed_folders", "client.highlight_keywords",
+];
+
+describe("every device pref is carried both ways (review finding 2)", () => {
+  it("profileOf has a key for every server client.* key", () => {
+    const keys = Object.keys(profileOf(local()));
+    for (const k of SERVER_CLIENT_KEYS) expect(keys, k).toContain(k);
+  });
+
+  it("round-trips a non-default value of every mapped key through the profile and back", () => {
+    const changed: Record<string, unknown> = {
+      "ui.theme": "graphite", "ui.theme_day": "linen", "ui.theme_night": "carbon", "ui.font_body": "Inter",
+      "ui.list_density": "airy", "ui.reading_density": "airy", "ui.mark_read_on_scroll": true,
+      "client.layout": "cards", "client.layout_overrides": { feed: { "5": "compact" }, folder: { "7": "inbox" } },
+      "client.order": "oldest", "client.inbox_thumbs": "off", "client.peek_seen": true, "client.article_width": "wide",
+      "client.list_width": 400, "client.sidebar_width": 300, "client.link_target": "same", "client.unread_badge": "dot",
+      "client.text_size": 1.25, "client.adjust_separately": true, "client.shortcuts": false, "client.spacing": "roomy",
+      "client.motion": "off", "client.large_targets": true, "client.listen": true, "client.voice": "Samantha",
+      "client.rate": 1.2, "client.collapsed_folders": ["3", "9"], "client.highlight_keywords": false,
+    };
+    const back = profileOf(deriveLocal({ ...DEFAULTS, ...changed }, local()));
+    for (const [k, v] of Object.entries(changed)) expect(back[k], k).toEqual(v);
+  });
+
+  it("hydrating keeps a Dot unread badge and turned-off highlights the server holds, and sends them back untouched", async () => {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    const s = server({ "client.unread_badge": "dot", "client.highlight_keywords": false });
+    hydrateDevice(s.view());
+    expect(devicePrefsStore.get().unreadBadge).toBe("dot");
+    expect(devicePrefsStore.get().highlightKeywords).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(s.patches).toHaveLength(0);
+    updateDevicePrefs({ unreadBadge: "off", highlightKeywords: true });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(s.patches).toEqual([{ "client.unread_badge": "off", "client.highlight_keywords": true }]);
+  });
+});
+
+describe("another tab or device changed a different key (review finding 1)", () => {
+  const ready = () => {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    const s = server();
+    hydrateDevice(s.view());
+    return s;
+  };
+
+  it("does not send this tab's stale value back over it; the server value is applied locally", async () => {
+    const s = ready();
+    s.profile["ui.theme"] = "graphite"; // tab A / another browser, unseen by this tab
+    updatePrefs({ textSize: 1.25 });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(s.patches).toEqual([{ "client.text_size": 1.25 }]);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(s.patches).toHaveLength(1); // no {ui.theme:"system"} undoing the other change
+    expect(s.profile["ui.theme"]).toBe("graphite");
+    expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "graphite" });
+    expect(localStorage.getItem(SYNC_DIRTY_KEY)).toBeNull();
+    expect(pendingChanges()).toEqual({});
+  });
+
+  it("keeps a local change made after the patch was computed", async () => {
+    const s = ready();
+    s.profile["ui.theme"] = "graphite";
+    updatePrefs({ textSize: 1.25 });
+    const p = flush();
+    updateTheme({ mode: "fixed", fixed: "linen" }); // the user changes the same key while the request is out
+    await p;
+    await vi.advanceTimersByTimeAsync(600);
+    expect(themeStore.get()).toMatchObject({ fixed: "linen" });
+    expect(s.profile["ui.theme"]).toBe("linen");
+  });
+
+  it("follows the local cache when another tab writes it (storage event)", () => {
+    ready();
+    const next = { ...themeStore.get(), mode: "fixed", fixed: "graphite" };
+    window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify(next) }));
+    expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "graphite" });
+    const prefs = { ...prefsStore.get(), textSize: 1.5 };
+    window.dispatchEvent(new StorageEvent("storage", { key: PREFS_KEY, newValue: JSON.stringify(prefs) }));
+    expect(prefsStore.get().textSize).toBe(1.5);
+    const dp = { ...devicePrefsStore.get(), order: "oldest" };
+    window.dispatchEvent(new StorageEvent("storage", { key: DEVICE_PREFS_KEY, newValue: JSON.stringify(dp) }));
+    expect(devicePrefsStore.get().order).toBe("oldest");
+  });
+});
+
+describe("migration only carries what the old caches held (review finding 3)", () => {
+  it("does not send untouched keys as device overrides: the account-wide mark-read-on-scroll survives", async () => {
+    updatePrefs({ font: "literata" });
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...prefsStore.get(), markReadOnScroll: false })); // F4 wrote the whole object
+    const s = server({}, { "ui.mark_read_on_scroll": true });
+    hydrateDevice(s.view());
+    await flush();
+    expect(s.patches).toEqual([{ "ui.font_body": "Literata" }]);
+    expect(prefsStore.get().markReadOnScroll).toBe(true);
+  });
+
+  it("does not send keys the legacy stores never held, even if the local default differs from the server's", async () => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ font: "literata" }));
+    prefsStore.set({ ...prefsStore.get(), font: "literata" });
+    const s = server({}, { "client.sidebar_width": 300, "client.unread_badge": "dot" });
+    hydrateDevice(s.view());
+    await flush();
+    expect(s.patches).toEqual([{ "ui.font_body": "Literata" }]);
+    expect(devicePrefsStore.get().sidebarWidth).toBe(300);
+    expect(devicePrefsStore.get().unreadBadge).toBe("dot");
+  });
+});
+
+describe("refused settings (review finding 4)", () => {
+  function refusing() {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    const patches: Record<string, unknown>[] = [];
+    mockFetch({
+      "PATCH /api/device": (_u, init) => {
+        const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        patches.push(b);
+        if (b["client.voice"] === "bad") return json({ error: "invalid_settings", keys: ["client.voice"] }, 400);
+        return json(device({ merged: { ...DEFAULTS, ...b } }));
+      },
+    });
+    hydrateDevice(device());
+    return patches;
+  }
+
+  it("a later successful save of a new value clears the notice", async () => {
+    const patches = refusing();
+    updatePrefs({ voice: "bad" });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(syncStore.get().refused).toBe(1);
+    updatePrefs({ voice: "good" });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(patches.at(-1)).toEqual({ "client.voice": "good" });
+    expect(syncStore.get()).toMatchObject({ refused: 0, status: "idle" });
+  });
+
+  it("changing the value back to the confirmed one also clears it", async () => {
+    refusing();
+    updatePrefs({ voice: "bad" });
+    await vi.advanceTimersByTimeAsync(600);
+    updatePrefs({ voice: "" });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(syncStore.get().refused).toBe(0);
+  });
+
+  it("Retry does not re-send the known-bad value; Discard puts the server's value back", async () => {
+    const patches = refusing();
+    updatePrefs({ voice: "bad" });
+    await vi.advanceTimersByTimeAsync(600);
+    const n = patches.length;
+    await retrySave();
+    expect(patches).toHaveLength(n);
+    expect(syncStore.get().refused).toBe(1);
+    discardRefused();
+    expect(prefsStore.get().voice).toBe("");
+    expect(syncStore.get()).toMatchObject({ refused: 0 });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(patches).toHaveLength(n);
   });
 });

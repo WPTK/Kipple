@@ -3,6 +3,7 @@ import type { DeviceView } from "@/api/types";
 import { announce } from "@/shell/toasts";
 import { isSchemeId } from "@/theme/schemes";
 import { themeStore } from "@/theme/theme";
+import { THEME_STORAGE_KEY, parseThemeSettings } from "@/theme/settings";
 import type { ThemeSettings } from "@/theme/settings";
 import { FONTS } from "./fonts";
 import {
@@ -93,6 +94,8 @@ export function profileOf(l: LocalState): Profile {
     "client.sidebar_width": dp.sidebarWidth,
     "client.collapsed_folders": dp.collapsedFolders.filter((id) => /^[0-9]{1,19}$/.test(id)).slice(0, 200),
     "client.link_target": dp.linkTarget,
+    "client.unread_badge": dp.unreadBadge,
+    "client.highlight_keywords": dp.highlightKeywords,
   };
 }
 
@@ -146,9 +149,11 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     sidebarWidth: g("client.sidebar_width"),
     collapsedFolders: g("client.collapsed_folders"),
     linkTarget: g("client.link_target"),
+    unreadBadge: g("client.unread_badge"),
+    highlightKeywords: g("client.highlight_keywords"),
   };
-  // Two device values have no profile key (yet): the local favorites fallback and "Highlight keywords".
-  const dp = { ...parseDevicePrefs(JSON.stringify(dpRaw)), favoritesLocal: cur.dp.favoritesLocal, highlightKeywords: cur.dp.highlightKeywords };
+  // Only the favorites fallback (kept when the server does not accept favorites) has no profile key.
+  const dp = { ...parseDevicePrefs(JSON.stringify(dpRaw)), favoritesLocal: cur.dp.favoritesLocal };
   return { theme, prefs, dp };
 }
 
@@ -188,7 +193,16 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let inflight: Promise<void> | null = null;
 let again = false;
 
+/** Refused values the user has since changed are no longer refused: only a value still refused counts. */
+function pruneRefused(): void {
+  const keys = Object.keys(refused);
+  if (!keys.length) return;
+  const want = profileOf(store());
+  for (const k of keys) if (stable(want[k] ?? null) !== refused[k]) delete refused[k];
+}
+
 function setStatus(status: SyncState["status"]): void {
+  pruneRefused();
   syncStore.set((s) => (s.status === status && s.refused === Object.keys(refused).length ? s : { status, refused: Object.keys(refused).length }));
 }
 
@@ -225,6 +239,7 @@ function readDirty(): Profile {
 
 function onLocalChange(): void {
   if (!enabled || applying) return;
+  pruneRefused();
   persistDirty(pendingChanges());
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => void flush(), DEBOUNCE_MS);
@@ -242,7 +257,7 @@ export function flush(): Promise<void> {
   const patch = pendingChanges();
   if (Object.keys(patch).length === 0) {
     persistDirty({});
-    if (syncStore.get().status !== "error") setStatus("idle");
+    setStatus("idle");
     return Promise.resolve();
   }
   setStatus("saving");
@@ -250,7 +265,7 @@ export function flush(): Promise<void> {
     let retryRest = false;
     try {
       const res = await api<DeviceView>("/api/device", { method: "PATCH", body: patch });
-      synced = normalize(res.merged, store());
+      reconcile(patch, res.merged);
       setStatus("idle");
     } catch (e) {
       const keys = e instanceof ApiError && e.status === 400 && Array.isArray(e.body?.keys) ? (e.body.keys as string[]) : null;
@@ -258,7 +273,6 @@ export function flush(): Promise<void> {
         // The server refused these values: they stay as they are on this device, and the rest is sent again.
         for (const k of keys) if (k in patch) refused[k] = stable(patch[k]);
         retryRest = true;
-        setStatus("error");
       } else {
         if (syncStore.get().status !== "error") announce("Couldn't save your settings");
         setStatus("error");
@@ -280,10 +294,65 @@ export function flush(): Promise<void> {
   return run;
 }
 
-/** The Retry button. */
+/**
+ * After a PATCH: the sent keys are confirmed. Every other key the server now holds differently was changed
+ * elsewhere (another tab or device): the server wins there, unless the user changed that key here since it was
+ * last confirmed. Never send a value this tab merely never saw back to the server.
+ */
+function reconcile(patch: Profile, merged: Profile): void {
+  const cur = store();
+  const local = profileOf(cur);
+  const m = normalize(merged, cur);
+  const next: Profile = { ...synced };
+  const take: Profile = {};
+  for (const k of Object.keys(m)) {
+    if (k in patch) {
+      next[k] = m[k];
+      continue;
+    }
+    if (eq(m[k], synced[k])) continue;
+    if (eq(local[k], synced[k])) {
+      take[k] = m[k];
+      next[k] = m[k];
+    }
+    // else: changed here meanwhile; it stays pending against the old confirmed value
+  }
+  synced = next;
+  if (Object.keys(take).length) applyLocal(deriveLocal({ ...local, ...take }, cur));
+}
+
+/** The Retry button: send what is still pending. Refused values are not sent again (Discard drops them). */
 export function retrySave(): Promise<void> {
-  refused = {};
   return flush();
+}
+
+/** The Discard button: put the server's value back for every refused setting. */
+export function discardRefused(): void {
+  const keys = Object.keys(refused);
+  if (!keys.length) return;
+  const cur = store();
+  const back = profileOf(cur);
+  for (const k of keys) back[k] = synced[k] ?? null;
+  refused = {};
+  applyLocal(deriveLocal(back, cur));
+  const left = pendingChanges();
+  persistDirty(left);
+  setStatus(Object.keys(left).length === 0 ? "idle" : syncStore.get().status);
+}
+
+/** Another tab wrote the local cache: follow it (the stores have no other cross-tab link). */
+function onStorage(e: StorageEvent): void {
+  if (e.newValue === null) return;
+  if (e.key === PREFS_KEY) {
+    const n = parsePrefs(e.newValue);
+    if (stable(n) !== stable(prefsStore.get())) prefsStore.set(n);
+  } else if (e.key === DEVICE_PREFS_KEY) {
+    const n = parseDevicePrefs(e.newValue);
+    if (stable(n) !== stable(devicePrefsStore.get())) replaceDevicePrefs(n);
+  } else if (e.key === THEME_STORAGE_KEY) {
+    const n = parseThemeSettings(e.newValue);
+    if (stable(n) !== stable(themeStore.get())) themeStore.set(n);
+  }
 }
 
 function ensureSubscribed(): void {
@@ -293,12 +362,47 @@ function ensureSubscribed(): void {
   prefsStore.subscribe(onLocalChange);
   devicePrefsStore.subscribe(onLocalChange);
   try {
+    window.addEventListener("storage", onStorage);
     window.addEventListener("online", () => {
       if (syncStore.get().status === "error") void flush();
     });
   } catch {
     /* no window */
   }
+}
+
+/** Which profile keys the pre-sync localStorage caches actually held (a key they never stored is not a choice). */
+function legacyProfileKeys(): Set<string> {
+  const out = new Set<string>();
+  const read = (key: string): Record<string, unknown> | null => {
+    try {
+      const raw = localStorage.getItem(key);
+      const v = raw === null ? null : (JSON.parse(raw) as unknown);
+      return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  };
+  const add = (o: Record<string, unknown> | null, map: Record<string, string[]>) => {
+    if (o) for (const f of Object.keys(o)) for (const k of map[f] ?? []) out.add(k);
+  };
+  add(read("kipple.theme.v1"), { mode: ["ui.theme"], fixed: ["ui.theme"], day: ["ui.theme_day"], night: ["ui.theme_night"] });
+  const p = read(PREFS_KEY);
+  add(p, {
+    font: ["ui.font_body"], textSize: ["client.text_size"], listDensity: ["ui.list_density"], readingDensity: ["ui.reading_density"],
+    adjustSeparately: ["client.adjust_separately"], spacing: ["client.spacing"], motion: ["client.motion"],
+    largeTargets: ["client.large_targets"], listen: ["client.listen"], voice: ["client.voice"], rate: ["client.rate"],
+  });
+  // Never held before F4, so only a true value is a choice; false is just the field's default.
+  if (p?.markReadOnScroll === true) out.add("ui.mark_read_on_scroll");
+  if (p && parsePrefs(JSON.stringify(p)).shortcutsChosen) out.add("client.shortcuts");
+  add(read(DEVICE_PREFS_KEY), {
+    layout: ["client.layout"], overrides: ["client.layout_overrides"], order: ["client.order"], inboxThumbs: ["client.inbox_thumbs"],
+    peekSeen: ["client.peek_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
+    sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
+    unreadBadge: ["client.unread_badge"], highlightKeywords: ["client.highlight_keywords"],
+  });
+  return out;
 }
 
 const hasLegacy = (): boolean => {
@@ -331,7 +435,12 @@ export function hydrateDevice(device: DeviceView | undefined): void {
   synced = normalize(device.merged, cur);
   refused = {};
   if (!done && emptyProfile && hasLegacy()) {
-    // Migrate: this device's own values become the profile. Local stays exactly as it is.
+    // Migrate: the values the old caches held become the profile. Every other key takes the server's
+    // effective value (an account-wide setting such as mark-read-on-scroll must not become a device override).
+    const held = legacyProfileKeys();
+    const want = profileOf(cur);
+    for (const k of Object.keys(want)) if (!held.has(k)) want[k] = synced[k] ?? null;
+    applyLocal(deriveLocal(want, cur));
     enabled = true;
     setStatus("idle");
     try {
