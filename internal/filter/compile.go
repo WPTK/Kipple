@@ -86,6 +86,10 @@ func compileRule(r Rule) (*Compiled, *Error) {
 		return nil, bad("action", "highlight works with text rules only (the client's regex engine is not RE2)")
 	}
 
+	if r.Action == ActionHighlight && r.Invert {
+		return nil, bad("action", "highlight can't be inverted: there is no text to mark in items that don't match")
+	}
+
 	fields := r.Fields
 	if len(fields) == 0 {
 		fields = []Field{FieldTitle}

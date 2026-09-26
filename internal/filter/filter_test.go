@@ -134,6 +134,7 @@ func TestValidateRejections(t *testing.T) {
 		{"bad kind", NewRule(ScopeGlobal, "glob", ActionMute, "a"), "kind"},
 		{"bad action", NewRule(ScopeGlobal, KindText, "delete", "a"), "action"},
 		{"highlight regex", NewRule(ScopeGlobal, KindRegex, ActionHighlight, "a"), "action"},
+		{"inverted highlight", NewRule(ScopeGlobal, KindText, ActionHighlight, "a").with(func(r *Rule) { r.Invert = true }), "action"},
 		{"bad field", text("a").with(func(r *Rule) { r.Fields = []Field{FieldTitle, "body"} }), "fields[1]"},
 		{"regex syntax", NewRule(ScopeGlobal, KindRegex, ActionMute, "a("), "terms[0]"},
 		{"regex backreference", NewRule(ScopeGlobal, KindRegex, ActionMute, `(a)\1`), "terms[0]"},

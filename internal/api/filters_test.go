@@ -635,7 +635,10 @@ func TestBootstrapHighlights(t *testing.T) {
 	on := h.mustFilter(c, map[string]any{"action": "highlight", "terms": []string{"kernel", "release notes"}, "fields": []string{"title", "content"},
 		"case_sensitive": true, "whole_word": false, "scope": "feed", "feed_id": sid(feed)})
 	h.mustFilter(c, map[string]any{"action": "highlight", "terms": []string{"off"}, "enabled": false})
-	h.mustFilter(c, map[string]any{"action": "highlight", "terms": []string{"absent"}, "invert": true})
+	badCode, bad := h.postFilter(c, map[string]any{"action": "highlight", "terms": []string{"absent"}, "invert": true})
+	require.Equal(t, 400, badCode, "an inverted highlight can never show, so it is refused")
+	require.Equal(t, "bad_filter", bad["error"])
+	require.Equal(t, "action", bad["field"])
 	h.mustFilter(c, map[string]any{"action": "mute", "terms": []string{"muteme"}})
 	code, out, _ := h.api(c, "GET", "/api/bootstrap", "")
 	require.Equal(t, 200, code)

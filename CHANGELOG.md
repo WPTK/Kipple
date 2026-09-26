@@ -6,6 +6,11 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Filters: an inverted highlight rule is now rejected with a clear message instead of being saved and never showing.
+- Sanitizer: a self-closing `<video src="http://...">` or `<audio>` no longer keeps its insecure source; it becomes an "Open video" link like the non-self-closing form.
+
 Phase 2 (reading UI: backend and web app) so far. Schema 4 and 5 (migrations 0004, 0005) are here, not in the alpha tags.
 
 ### Added

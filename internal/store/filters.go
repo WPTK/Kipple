@@ -257,7 +257,7 @@ func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
 		for _, c := range cur {
 			rules = append(rules, c.Rule())
 		}
-		f.ID = 1 << 40 // above any real id, so the set treats it as new
+		f.ID = unsavedFilterID // above any real id, so the set treats it as new
 		rules = append(rules, f.Rule())
 		if err := validateSet(rules); err != nil {
 			return err
