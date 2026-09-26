@@ -11,6 +11,16 @@ Status is what the code does today. Anything not verified on a real device is li
 - [x] Live regions: one polite region for announcements ("n new articles", "Reading aloud", "Saved"), never per item; toasts pause on hover and focus, info toasts last 8 s and errors stay until dismissed. Toast colors are checked in every theme by `npm run contrast`.
 - [x] Form errors are `role="alert"` next to the field and linked with `aria-describedby`.
 
+## Filters, devices, muted and highlights
+
+- [x] The filter editor is a labelled dialog (focus trapped and restored); every control has a visible label, help linked with `aria-describedby`, and a server or limit error shown next to its field as `role="alert"`. Terms are a list of chips, each with a "Remove <term>" button; Enter adds.
+- [x] The live preview count is a polite live region that changes only after the 600 ms debounce; the footer copy of it is `aria-hidden` so it is not read twice. Warnings are status notices.
+- [x] Apply progress is a `progressbar` (value, max, text); its visible counts are hidden from assistive technology and a polite status changes only every quarter, so it is not read twice a second. The finish is announced once ("Filter applied: n articles changed").
+- [x] Filter and device rows are named by their rule or device (the switch is the name; Edit, Delete, Copy and Forget carry it in their labels). Replacing and destructive actions are confirm dialogs; deleting a filter that muted articles asks what should happen to them and defaults to the safe choice.
+- [x] "Couldn't save your settings" is announced politely and has a Retry button.
+- [x] Muted: each row says "Muted by <rule>" in text, with Restore and Edit rule as real buttons (also in the row menu and on the article); Restore is announced.
+- [x] Highlights use the semantic `<mark>` plus a solid underline, so they are never color alone; text on the tint is 4.5:1 and the underline 3:1 in every theme (`npm run contrast`); forced colors use `Mark`. The setting can be turned off in the Aa menu.
+
 ## Color and contrast
 
 - [x] Every theme checked by `npm run contrast` (text 4.5:1, UI 3:1, color-blind separation).

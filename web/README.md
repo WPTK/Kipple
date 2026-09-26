@@ -42,9 +42,11 @@ article opens full width), **Compact** (one dense line per article), **Inbox** (
 optional trailing thumbnail) and **Headlines** (titles only). The choice is per device, with a per-feed and
 per-folder override (feed beats folder beats device default). `c` toggles Compact for the session only.
 
-**Device prefs** (`src/lib/devicePrefs.ts`, `localStorage` key `kipple.device.v1`, behind one storage seam):
-layout, overrides, order (newest or oldest first), Inbox thumbnails (auto or off) and whether the first-run
-swipe peek has played. Density, font, text size and theme live in `src/lib/prefs.ts` and `src/theme/`.
+**Device prefs** (`src/lib/devicePrefs.ts`, `src/lib/prefs.ts`, `src/theme/`): layout, overrides, order, Inbox
+thumbnails, the swipe peek, widths, density, font, text size, theme, motion, spacing, listen and the rest are
+the server's **device profile** (docs/design.md 7.1c). `localStorage` (`kipple.device.v1`, `kipple.prefs.v1`,
+`kipple.theme.v1`) is only the instant-paint cache, so the theme boot script still avoids a flash. See
+"Device profile sync" below.
 
 **Gestures (touch).** Swipe a row right to toggle read or unread; swipe left to star, or open its menu;
 long-press (or the More button) for the row menu (read, star, mark above, mark below, open original, copy
@@ -156,6 +158,51 @@ browser's own retry (every `retry: 3000` ms with no backoff, forever) never runs
 per backoff step (1 s doubling to 30 s with jitter). The backoff restarts only after a delivered message or a stream
 that stayed open 10 s. Tests: `api/events.hook.test.tsx`.
 
+## Device profile sync, Devices, Filters, Muted, Highlights (step F4)
+
+**Device profile sync** (`lib/deviceSync.ts`). The bootstrap carries `device:{id,name,profile,merged}`. On load the
+effective values (`merged`) replace the local cache (the server wins); unsent changes from a reload or a failed save
+are put back on top. The first run on a browser with an empty profile and old `kipple.*` values sends them up once
+(`kipple.deviceSync.v1` remembers it). Every write goes through one `PATCH /api/device`, debounced 500 ms: the patch is
+recomputed from the local state against what the server last confirmed, so a burst is batched and the latest value of
+each key wins, and values equal to the confirmed ones are never sent. A failure keeps the local value and shows
+"Couldn't save your settings" with Retry (`shell/SaveStatus.tsx`; also retried when the network returns and on the next
+change). A 400 names the refused keys: they keep their local value, are not sent again until they change, and the rest
+is resent. Mapping: `ui.theme` is `system` for follow-system (with `ui.theme_day` and `ui.theme_night`) or a scheme id;
+`ui.font_body` is the font's server name; `ui.list_density` and `ui.reading_density` take the step names (the server's
+`compact`, `comfortable` and `relaxed` read as Snug, Standard and Relaxed); everything else is `client.*`. Theme ids are
+the server's, names and colors come from `schemes.json` (`theme/serverThemes.ts`). "Highlight keywords" and the local
+favorites fallback have no profile key and stay on the device.
+
+**Settings > Devices** (`screens/DevicesSection.tsx`): this device's name (`PUT /api/device/name`), every device with
+when it was last seen and how many settings it has of its own, Copy its settings here, Forget, "Use this device's
+settings as the default for new devices" (`make-default`) and Reset this device to defaults (`copy-from/defaults`),
+each behind a confirm.
+
+**Settings > Filters** (`screens/filters/`, `api/filters.ts`): every rule with scope, action, hits, last hit, muted
+count and an on/off switch (PATCH). The editor (one instance, mounted in the shell, opened from Settings, a row menu or a
+muted article) has name, scope (everywhere, a folder, a feed), words or a regular expression, terms as chips (limits from
+`internal/filter`), the parts to look in, options with the inverted labels (Ignore capitalization is `case_sensitive`
+false, Ignore accents is `fold_diacritics`, Match whole words only), "Act when it does NOT match", the four actions with
+plain descriptions, and a live preview (`POST /api/filters/preview`, 600 ms after the last change, count, warnings, up to
+20 sample cards, "Include already-read articles"). Save can also apply the rule to stored articles; the run shows as a
+progress bar under the top of the screen from `run.*` events. Deleting offers restore as read (the default), restore as
+unread (explicit) or leave muted (`DELETE ?unmute=`). `400 bad_filter` shows next to the field it names. Rule order is
+cosmetic on the server (precedence is set-based), so there is no drag ordering.
+
+**Muted** (sidebar, Feeds screen, a pill in list headers): `view=muted`, "Muted by <rule>" on each row with Restore
+(mark unread, which un-mutes; no undo, because a mark-read cannot put it back under its rule) and Edit rule, the same in
+the row menu and on an opened article. `Mute similar...` in the row menu and the article toolbar starts a rule from the
+article: its feed, the title's keywords and the author as one-tap suggestions. Events: `items.state` muted, `counts.muted`,
+`filters.changed`.
+
+**Highlights** (`lib/highlight.ts`, `lib/useHighlights.tsx`): bootstrap `highlights` are matched with the engine's rules
+(whole words, case, accents, phrases, unspaced scripts) in list titles and excerpts, the article title, author and body.
+The body is marked by splitting sanitized text nodes into `<mark class="kp-hl">`, never from HTML built from a term;
+links, code, pre, buttons, embeds and existing marks are skipped, and at most 300 marks are made. A phrase split by inline
+markup is not marked. "Highlight keywords" in the Aa menu turns it off. Colors: `--kp-hl-bg` (20% star into the page
+background) with the theme's text and a star underline, checked in every theme by `npm run contrast`.
+
 ## Accessibility
 
 `ACCESSIBILITY.md` is the checklist. Settings > Accessibility holds Text spacing (the WCAG 1.4.12 control: "Adds
@@ -211,7 +258,7 @@ To try the production bundle through Go: `npm run build`, then `go run ./cmd/kip
 
 ## Tests
 
-`npm test` runs the fix and gesture suites (`src/screens/f2a.test.tsx`, `fixes.test.tsx`), theme resolution (follow-system pair, custom pair, boot-script parity), the API client (401,
+`vite.config.ts` reads `KIPPLE_DEV_BACKEND` to point the dev proxy at another local server. `npm test` runs the fix and gesture suites (`src/screens/f2a.test.tsx`, `fixes.test.tsx`), theme resolution (follow-system pair, custom pair, boot-script parity), the API client (401,
 cursor paging, pwa header), the SSE reducer and fallback polling, keyboard rules, and axe on the login, list,
 article, settings, feeds and search screens. jsdom has no layout, so `src/test/setup.ts` stubs sizes for the
 virtualizer. Colour contrast is checked by `npm run contrast` and `theme.test.ts` (axe cannot in jsdom).
