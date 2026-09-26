@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
+import { wasFilterTouched } from "./filterEdits";
 import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type ItemPatch } from "./queries";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
@@ -47,8 +48,9 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
     case "run.progress": {
       const id = String(ev.data.run_id);
       const cur = s.runs[id];
-      // Only a filter apply reports `changed`: a progress event for a run we never saw start is still not a refresh.
-      const kind = cur?.kind ?? (ev.data.changed !== undefined ? "filter_apply" : "manual");
+      // The kind comes from run.start (or bootstrap and /api/status) and nothing else: no field of a progress event
+      // says what a run is. One we never saw start is "unknown", which is quiet (not a refresh spinner).
+      const kind = cur?.kind ?? "unknown";
       return { ...s, runs: { ...s.runs, [id]: { ...(cur?.filter_id ? { filter_id: cur.filter_id } : {}), ...ev.data, id, kind } } };
     }
     case "run.done": {
@@ -79,8 +81,11 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
 
 const PENDING_IDS_CAP = 500;
 
-/** Only refresh-like runs (manual, import) are "refreshing"; the retention sweep and a filter apply are not. */
-export const isRefreshKind = (kind: string): boolean => kind !== "retention" && kind !== "filter_apply";
+/** Run kinds that are housekeeping or a rule at work, not a refresh; "unknown" is a run whose start was never seen. */
+const QUIET_KINDS: readonly string[] = ["retention", "filter_apply", "auto_read", "unknown"];
+
+/** Only refresh-like runs (manual, import) are "refreshing"; the retention sweep, a filter apply and auto-read are not. */
+export const isRefreshKind = (kind: string): boolean => !QUIET_KINDS.includes(kind);
 
 /**
  * New items that would appear in this list: the feeds the scope includes (a feed, a folder's feeds,
@@ -130,10 +135,13 @@ export function announcementFor(ev: ServerEvent, runKind?: string): string | nul
   if (ev.type === "run.done") {
     const kind = runKind ?? ev.data.kind;
     if (kind === "filter_apply") {
+      // Editing or deleting a rule mid-apply makes the server cancel it and report an error: that was intended.
+      if (ev.data.error && wasFilterTouched(ev.data.filter_id)) return "Stopped because the rule changed";
       if (ev.data.error || ev.data.errors > 0) return "Couldn't finish applying the filter";
       const n = ev.data.changed ?? 0;
       return n > 0 ? `Filter applied: ${n} article${n === 1 ? "" : "s"} changed` : "Filter applied: no articles changed";
     }
+    if (kind === "auto_read") return ev.data.error ? "Couldn't finish marking old articles as read" : null;
     // The retention sweep is housekeeping, not a refresh: nothing to announce.
     if (kind !== undefined && !isRefreshKind(kind)) return null;
     if (ev.data.errors > 0) return `Couldn't refresh ${ev.data.errors} feed${ev.data.errors === 1 ? "" : "s"}. The rest updated.`;
@@ -254,7 +262,7 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
   const finished = Object.keys(before).filter((id) => !runs[id]);
   liveStore.set((s) => ({ ...s, runs }));
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) =>
-    old ? { ...old, counts: { ...old.counts, unread: st.unread_total } } : old,
+    old ? { ...old, counts: { ...old.counts, unread: st.unread_total, ...(typeof st.muted === "number" ? { muted: st.muted } : {}) } } : old,
   );
   if (finished.length) void qc.invalidateQueries({ queryKey: keys.bootstrap });
   return { ...st, runs: st.runs ?? [] };

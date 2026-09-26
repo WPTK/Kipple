@@ -3,6 +3,7 @@ import { liveStore } from "@/api/events";
 import { useFilters } from "@/api/filters";
 import { filterEditorStore } from "@/lib/similar";
 import { useStore, useStoreSelector } from "@/lib/store";
+import type { RunStatus } from "@/api/types";
 
 // The editor is loaded the first time it is opened, so the main chunk does not carry it.
 const FilterEditor = lazy(() => import("@/screens/filters/FilterEditor").then((m) => ({ default: m.FilterEditor })));
@@ -26,9 +27,23 @@ export function FilterEditorHost() {
  */
 export function ApplyProgress() {
   const runs = useStoreSelector(liveStore, (s) => s.runs);
-  const filters = useFilters();
   const run = Object.values(runs).find((r) => r.kind === "filter_apply");
-  if (!run) return null;
+  const autoRead = Object.values(runs).some((r) => r.kind === "auto_read");
+  if (run) return <ApplyBar run={run} />;
+  // The server is marking old articles read (Settings, Reading): a quiet line, no count or progress bar.
+  if (autoRead) {
+    return (
+      <div data-testid="auto-read-status" role="status" className="pt-safe shrink-0 border-b border-line bg-surface px-4 py-2 text-sm text-fg2">
+        Marking old articles as read
+      </div>
+    );
+  }
+  return null;
+}
+
+/** Mounted only while a filter apply runs, so the rules are fetched only then (for the rule's name). */
+function ApplyBar({ run }: { run: RunStatus }) {
+  const filters = useFilters();
   const name = filters.data?.find((f) => f.id === run.filter_id)?.name;
   const total = Math.max(run.total, 0);
   const done = Math.min(run.done, total);

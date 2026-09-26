@@ -137,6 +137,8 @@ export interface StatusResponse {
   runs: RunStatus[];
   inflight: number;
   unread_total: number;
+  /** How many articles are muted right now (absent on an older server). */
+  muted?: number;
 }
 
 export interface OpenResponse {

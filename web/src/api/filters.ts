@@ -1,5 +1,6 @@
 import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
+import { noteFilterTouched } from "./filterEdits";
 import { keys } from "./queries";
 import type { Card } from "./types";
 
@@ -155,12 +156,21 @@ export interface CreateResult {
 export const createFilter = (d: FilterDraft, applyExisting?: { include_read: boolean }) =>
   api<CreateResult>("/api/filters", { method: "POST", body: { ...bodyOf(d), ...(applyExisting ? { apply_existing: applyExisting } : {}) } });
 
-export const updateFilter = (id: string, d: FilterDraft) => api<{ filter: Filter }>(`/api/filters/${id}`, { method: "PATCH", body: bodyOf(d) });
+export const updateFilter = (id: string, d: FilterDraft) => {
+  noteFilterTouched(id);
+  return api<{ filter: Filter }>(`/api/filters/${id}`, { method: "PATCH", body: bodyOf(d) });
+};
 
-export const setFilterEnabled = (id: string, enabled: boolean) => api<{ filter: Filter }>(`/api/filters/${id}`, { method: "PATCH", body: { enabled } });
+export const setFilterEnabled = (id: string, enabled: boolean) => {
+  noteFilterTouched(id);
+  return api<{ filter: Filter }>(`/api/filters/${id}`, { method: "PATCH", body: { enabled } });
+};
 
 export type Unmute = "keep" | "read" | "unread";
-export const deleteFilter = (id: string, unmute: Unmute) => api<{ changed: number }>(`/api/filters/${id}`, { method: "DELETE", params: { unmute } });
+export const deleteFilter = (id: string, unmute: Unmute) => {
+  noteFilterTouched(id);
+  return api<{ changed: number }>(`/api/filters/${id}`, { method: "DELETE", params: { unmute } });
+};
 
 export const applyFilter = (id: string, includeRead: boolean) => api<ApplyRun>(`/api/filters/${id}/apply`, { method: "POST", body: { include_read: includeRead } });
 

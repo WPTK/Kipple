@@ -350,3 +350,20 @@ describe("deleting a filter", () => {
     expect(w.queryByRole("radio")).toBeNull();
   });
 });
+
+describe("background runs in the app shell (review findings 8 and 12)", () => {
+  it("does not fetch the filters until a filter apply runs, and shows auto-read quietly", async () => {
+    const { calls } = routes({ "GET /api/filters": () => json({ filters: [filter(5)] }) });
+    go("/");
+    await screen.findByRole("main", {}, { timeout: 3000 }).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(calls.some((c) => c.url.pathname === "/api/filters")).toBe(false);
+    act(() => handleServerEvent(qc, { type: "run.start", data: { run_id: "40", kind: "auto_read", total: 10 } }));
+    expect(await screen.findByTestId("auto-read-status")).toHaveTextContent("Marking old articles as read");
+    expect(screen.queryByTestId("apply-progress")).toBeNull();
+    expect(calls.some((c) => c.url.pathname === "/api/filters")).toBe(false);
+    act(() => handleServerEvent(qc, { type: "run.start", data: { run_id: "41", kind: "filter_apply", total: 10, filter_id: "5" } }));
+    expect(await screen.findByTestId("apply-progress")).toBeInTheDocument();
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/filters")).toBe(true));
+  }, 20000);
+});

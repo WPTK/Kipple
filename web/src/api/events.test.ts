@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent } from "./events";
 import { keys, scopeKey } from "./queries";
+import { noteFilterTouched, resetFilterTouched } from "./filterEdits";
 import type { ItemsPage, ServerEvent } from "./types";
 import { bootstrap, card, detail, pageOf } from "@/test/mockApi";
 
@@ -173,5 +174,42 @@ describe('pendingFor (the "n new" pill)', () => {
     expect(clearPending(pending, { view: "unread", folder: "a" }, feeds)).toEqual({ "3": 4 });
     expect(clearPending(pending, { view: "unread", feed: "3" }, feeds)).toEqual({ "1": 3, "2": 2 });
     expect(clearPending(pending, { view: "unread" }, feeds)).toEqual({});
+  });
+});
+
+describe("run kinds (review findings 7 and 8)", () => {
+  it("classifies a run by its kind only: a progress event with `changed` for an unseen run is not a filter apply", () => {
+    const st = reduceEvent(initialLive, { type: "run.progress", data: { run_id: "8", done: 1, total: 5, new_items: 0, errors: 0, changed: 1 } });
+    expect(st.runs["8"]?.kind).toBe("unknown");
+    expect(Object.values(st.runs).some((r) => isRefreshKind(r.kind))).toBe(false);
+  });
+
+  it("auto_read is not a refresh, and finishing it is quiet", () => {
+    let st = reduceEvent(initialLive, { type: "run.start", data: { run_id: "9", kind: "auto_read", total: 40 } });
+    expect(Object.values(st.runs).some((r) => isRefreshKind(r.kind))).toBe(false);
+    st = reduceEvent(st, { type: "run.progress", data: { run_id: "9", done: 10, total: 40, new_items: 0, errors: 0, changed: 10 } });
+    expect(st.runs["9"]?.kind).toBe("auto_read");
+    expect(announcementFor({ type: "run.done", data: { run_id: "9", kind: "auto_read", new_items: 0, errors: 0, changed: 40 } })).toBeNull();
+    expect(announcementFor({ type: "run.done", data: { run_id: "9", kind: "auto_read", new_items: 0, errors: 1, error: "auto_read_failed" } })).toMatch(/Couldn't finish marking/);
+  });
+
+  it("a filter apply cancelled by the user's own edit or delete is announced neutrally", () => {
+    resetFilterTouched();
+    const done = { type: "run.done", data: { run_id: "3", kind: "filter_apply", filter_id: "5", new_items: 0, errors: 1, error: "apply_failed", changed: 2 } } as const;
+    expect(announcementFor(done)).toBe("Couldn't finish applying the filter");
+    noteFilterTouched("5");
+    expect(announcementFor(done)).toBe("Stopped because the rule changed");
+    expect(announcementFor({ type: "run.done", data: { ...done.data, filter_id: "6" } })).toBe("Couldn't finish applying the filter");
+    resetFilterTouched();
+  });
+
+  it("pollStatus reconciles the muted count", async () => {
+    const { pollStatus } = await import("./events");
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, { ...bootstrap, counts: { ...bootstrap.counts, muted: 1 } });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ runs: [], inflight: 0, unread_total: 4, muted: 12 }), { status: 200, headers: { "content-type": "application/json" } })));
+    await pollStatus(qc);
+    vi.unstubAllGlobals();
+    expect(qc.getQueryData<typeof bootstrap>(keys.bootstrap)?.counts).toMatchObject({ unread: 4, muted: 12 });
   });
 });
