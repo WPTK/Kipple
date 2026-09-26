@@ -69,9 +69,39 @@ type Target struct {
 	// RetryUserAgent, when set, is tried once after a 403/406 or a Cloudflare
 	// challenge served as a 503 (fetch.user_agent_mode = browser_on_failure).
 	RetryUserAgent string
-	AllowPrivate   bool
-	InsecureTLS    bool
-	NoHTTP2        bool
+	// AllowPrivate and InsecureTLS are the feed's network exceptions. They apply
+	// only to requests (each redirect hop checked on its own) whose host is
+	// FeedHost, the feed's own host: an article link or a redirect elsewhere gets
+	// the guarded default transport. With FeedHost empty they apply nowhere.
+	AllowPrivate bool
+	InsecureTLS  bool
+	FeedHost     string
+	NoHTTP2      bool
+}
+
+// transport picks the round tripper for a target (see Target.AllowPrivate).
+func (e *Extractor) transport(t Target) http.RoundTripper {
+	guarded := e.opt.Transport(false, false, t.NoHTTP2)
+	if (!t.AllowPrivate && !t.InsecureTLS) || t.FeedHost == "" {
+		return guarded
+	}
+	return &hostScoped{host: t.FeedHost, feed: e.opt.Transport(t.AllowPrivate, t.InsecureTLS, t.NoHTTP2), other: guarded}
+}
+
+// hostScoped sends requests for one host through feed and all others through
+// other. http.Client calls RoundTrip once per hop, redirects included, and
+// neither transport uses a proxy, so each hop dials the host it names through
+// the transport chosen for that host.
+type hostScoped struct {
+	host        string
+	feed, other http.RoundTripper
+}
+
+func (h *hostScoped) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.EqualFold(req.URL.Hostname(), h.host) {
+		return h.feed.RoundTrip(req)
+	}
+	return h.other.RoundTrip(req)
 }
 
 // Result is a successful extraction.
@@ -121,7 +151,7 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 		ua = e.opt.UserAgent
 	}
 	client := &http.Client{
-		Transport: e.opt.Transport(t.AllowPrivate, t.InsecureTLS, t.NoHTTP2),
+		Transport: e.transport(t),
 		Timeout:   e.opt.Timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > maxHops {

@@ -77,7 +77,7 @@ func NextOnSuccess(now time.Time, intervalS, hintS int64, rnd Rand) (time.Time, 
 }
 
 // PublisherHintSeconds is max(RSS ttl x 60, Cache-Control max-age - Age,
-// Expires - now, 0). It is 0 when honor is false. no-cache/no-store/private
+// Expires - Date (Expires - now when the response has no valid Date), 0). It is 0 when honor is false. no-cache/no-store/private
 // responses and an unparseable Expires (such as "0") contribute nothing.
 func PublisherHintSeconds(honor bool, ttlMinutes int, h http.Header, now time.Time) int64 {
 	if !honor {
@@ -101,7 +101,14 @@ func PublisherHintSeconds(honor bool, ttlMinutes int, h http.Header, now time.Ti
 	}
 	if e := h.Get("Expires"); e != "" {
 		if t, err := http.ParseTime(e); err == nil {
-			hint = max(hint, int64(t.Sub(now).Seconds()))
+			// Measured against the response's own Date when it has one, as
+			// ParseRetryAfter does, so a publisher whose clock is off does not
+			// stretch (or cancel) the hint.
+			ref := now
+			if d := responseDate(h); !d.IsZero() {
+				ref = d
+			}
+			hint = max(hint, int64(t.Sub(ref).Seconds()))
 		}
 	}
 	return hint

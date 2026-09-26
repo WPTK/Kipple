@@ -106,6 +106,7 @@ func (s *Scheduler) enqueue(f *flight) {
 	}
 	s.flights[f.snap.ID] = f
 	if !s.tryStart(f) {
+		f.waited = true
 		s.pending = append(s.pending, f)
 	}
 }
@@ -114,9 +115,20 @@ func (s *Scheduler) canStart(f *flight) bool {
 	return !s.stopping && s.running < s.opt.Workers && s.perHost[f.snap.Host] < s.opt.PerHost
 }
 
+// tryStart hands f to a worker when a worker and a host slot are free. It
+// reports whether f has left the queue: started, or dropped because it waited
+// and its feed has since been disabled or deleted.
 func (s *Scheduler) tryStart(f *flight) bool {
 	if !s.canStart(f) {
 		return false
+	}
+	if f.waited {
+		if !s.reload(f) {
+			return true
+		}
+		if !s.canStart(f) {
+			return false // the reload moved it to a host whose slots are taken
+		}
 	}
 	if t, ok := s.hostUntil[f.snap.Host]; ok && t.After(s.clk.Now()) {
 		f.snap.HostUntil = t
@@ -130,6 +142,69 @@ func (s *Scheduler) tryStart(f *flight) bool {
 	s.running++
 	s.perHost[f.snap.Host]++
 	return true
+}
+
+// reload refreshes a job's snapshot from the database just before it starts,
+// keeping what the dispatcher decided for it (trigger, full, host deadline). A
+// fetch or skip for a feed that is now disabled, or a job for a feed that is
+// gone, is dropped: it reports false and the job's waiters are answered. When
+// the lookup itself fails the job runs on the snapshot it has.
+func (s *Scheduler) reload(f *flight) bool {
+	f.waited = false
+	ctx, cancel := context.WithTimeout(context.Background(), tickQueryTimeout)
+	defer cancel()
+	snap, ok, err := s.db.FeedSnapshot(ctx, s.db.FetchSettings(ctx), f.snap.ID)
+	switch {
+	case err != nil:
+		s.log.Warn("sched: reload queued feed; using the queued snapshot", "feed", f.snap.ID, "err", err)
+		return true
+	case !ok:
+		s.drop(f, ErrNotFound)
+		return false
+	case !snap.Enabled && f.kind != kindTrim: // a trim still runs for a disabled feed (handlePriority)
+		s.drop(f, ErrDisabled)
+		return false
+	}
+	snap.Trigger, snap.Full, snap.HostUntil = f.snap.Trigger, f.snap.Full, f.snap.HostUntil
+	if f.kind == kindFetch && snap.RekeyPending {
+		snap.Full = true // as enqueue: a not_modified would never re-key
+	}
+	f.snap = snap
+	return true
+}
+
+// drop removes a job that never started: its callers are answered with err,
+// each run it belongs to counts the feed as done with an error, and its
+// follow-ups are replayed (replayDropped) on fresh snapshots.
+func (s *Scheduler) drop(f *flight, err error) {
+	delete(s.flights, f.snap.ID)
+	for _, ch := range f.replies {
+		select {
+		case ch <- Reply{FeedID: f.snap.ID, Err: err}:
+		default:
+		}
+	}
+	for _, run := range f.runs {
+		s.settleRunFeed(run, true)
+	}
+	if len(f.followups) > 0 || len(f.runFollows) > 0 {
+		s.replays = append(s.replays, f)
+	}
+}
+
+// replayDropped replays the follow-ups of dropped jobs. It runs after
+// drainPending has rebuilt the pending list, which a replay may add to.
+func (s *Scheduler) replayDropped() {
+	for len(s.replays) > 0 {
+		f := s.replays[0]
+		s.replays = s.replays[1:]
+		for _, req := range f.followups {
+			s.handlePriority(req)
+		}
+		for _, rf := range f.runFollows {
+			s.runFollowup(rf)
+		}
+	}
 }
 
 // drainPending starts waiting jobs whose host slot has freed. A job that
@@ -161,6 +236,7 @@ func (s *Scheduler) drainPending() {
 		}
 	}
 	s.pending = kept
+	s.replayDropped()
 }
 
 // forcesFetch reports whether a job goes ahead despite a host Retry-After: a
@@ -317,9 +393,16 @@ func (s *Scheduler) handleRun(req runReq) {
 	var snaps []fetch.Snapshot
 	switch req.kind {
 	case RunImport:
-		for _, id := range req.feedIDs {
-			snap, ok, err := s.db.FeedSnapshot(ctx, set, id)
-			if err == nil && ok && snap.Enabled {
+		// One query for every new feed: a lookup per feed would share this one
+		// short deadline, hold up the dispatcher and drop feeds silently once it ran out.
+		all, err := s.db.FeedSnapshotsByID(ctx, set, req.feedIDs)
+		if err != nil {
+			s.log.Error("sched: load imported feeds", "feeds", len(req.feedIDs), "err", err)
+			reply(runReply{err: err})
+			return
+		}
+		for _, snap := range all {
+			if snap.Enabled {
 				snaps = append(snaps, snap)
 			}
 		}
@@ -439,6 +522,7 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 	}
 	s.flights[snap.ID] = f
 	if !s.tryStart(f) {
+		f.waited = true
 		s.pending = append([]*flight{f}, s.pending...)
 	}
 }

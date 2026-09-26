@@ -55,7 +55,9 @@ func newFTSite(t *testing.T) *ftSite {
 func (h *harness) ftItem(site *ftSite, feedFulltext bool, private bool) (feed, item int64) {
 	h.t.Helper()
 	feed = h.addFeed("FT", 0)
-	h.exec("UPDATE feeds SET fulltext = ?, allow_private_net = ? WHERE id = ?", b2i(feedFulltext), b2i(private), feed)
+	// The article server is on 127.0.0.1: the feed's private-net exception covers
+	// only the feed's own host, so the feed is put there too.
+	h.exec("UPDATE feeds SET fulltext = ?, allow_private_net = ?, host = '127.0.0.1' WHERE id = ?", b2i(feedFulltext), b2i(private), feed)
 	item = h.addItem(feed, seedItem{Text: "teaser"})
 	h.exec("UPDATE items SET url = ? WHERE id = ?", site.URL+"/posts/a.html", item)
 	return feed, item

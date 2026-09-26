@@ -585,17 +585,20 @@ func ftItems(base string, idx ...int) (items []fetch.Item) {
 }
 
 // commitFTItems inserts items with content rows, standing in for the fetch
-// commit that follows the pick, and returns their ids.
-func (r *rig) commitFTItems(feed int64, items []fetch.Item) (ids []int64) {
+// commit that follows the pick: like it, it marks each one pending and returns
+// them as CommitInfo.Held (uid -> id).
+func (r *rig) commitFTItems(feed int64, items []fetch.Item) map[string]int64 {
 	r.t.Helper()
+	held := map[string]int64{}
 	for n, it := range items {
 		id := int64(1_000_000*(n+1)) + feed
 		r.sql(`INSERT INTO items (id, feed_id, uid, url, title, published_at, sort_at, content_hash, text_hash)
 		       VALUES (?, ?, ?, ?, 't', ?, ?, 'c', 't')`, id, feed, it.UID, it.URL, it.Published.Unix(), it.Published.Unix())
 		r.sql(`INSERT INTO item_content (item_id, content_html) VALUES (?, '<p>x</p>')`, id)
-		ids = append(ids, id)
+		r.db.MarkFulltextPending(id)
+		held[it.UID] = id
 	}
-	return ids
+	return held
 }
 
 func (r *rig) okResult(feed int64, snapFT bool, items []fetch.Item) *fetch.Result {

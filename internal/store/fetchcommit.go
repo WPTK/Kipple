@@ -31,6 +31,11 @@ type CommitInfo struct {
 	Muted      int
 	MarkedRead int
 	Starred    int
+	// Held maps the uid to the id of every inserted item that was in
+	// res.HoldUIDs and not muted: each is marked pending (MarkFulltextPending)
+	// from before its transaction committed. The caller owns the marks: it queues
+	// the items for extraction or clears them. Only chunks that committed count.
+	Held map[string]int64
 	// Migrated is set when the commit rewrote feeds.url (design §4.7).
 	Migrated bool
 	// Stale is set when the feed's URL changed under the fetch and nothing (or,
@@ -53,11 +58,17 @@ type commitState struct {
 	trimmed    int64
 	notes      []string
 	mutedIDs   []int64
+	held       []heldItem // marked pending, in insert order
 	fMarked    int
 	fStarred   int
 	keep       bool
 	begun      bool
 	stale      bool // the feed's URL changed under the fetch; nothing was written
+}
+
+type heldItem struct {
+	uid string
+	id  int64
 }
 
 func (st *commitState) note(s string, keep bool) {
@@ -97,8 +108,15 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 
 	st := &commitState{firstNewID: maxInt64}
 	info := func() CommitInfo {
+		var held map[string]int64
+		if len(st.held) > 0 {
+			held = make(map[string]int64, len(st.held))
+			for _, h := range st.held {
+				held[h.uid] = h.id
+			}
+		}
 		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale,
-			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred}
+			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred, Held: held}
 	}
 	for i, ch := range chunks {
 		last := i == len(chunks)-1
@@ -126,7 +144,12 @@ func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item
 		return d.commitTx(ctx, tx, res, ch, last, st)
 	})
 	if err != nil {
-		*st = saved // the transaction rolled back: forget what it collected
+		// The transaction rolled back: its items never became visible, so drop
+		// their pending marks, and forget what it collected.
+		for _, h := range st.held[len(saved.held):] {
+			d.ClearFulltextPending(h.id)
+		}
+		*st = saved
 	}
 	return err
 }
@@ -442,6 +465,12 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 			if _, err := insContent.ExecContext(ctx, id, it.ContentHTML, it.ContentText, enc, cats); err != nil {
 				return err
 			}
+			if res.HoldUIDs[it.UID] && mutedBy == nil {
+				// Marked inside the transaction: the item is held from the moment it
+				// becomes visible. commitChunk clears the mark if this rolls back.
+				d.MarkFulltextPending(id)
+				st.held = append(st.held, heldItem{uid: it.UID, id: id})
+			}
 			if st.firstNewID == maxInt64 {
 				st.firstNewID = id
 			}
@@ -586,13 +615,32 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 		if kerr != nil || herr != nil {
 			return nil
 		}
+		// The credentials and the network exceptions were granted for the old host
+		// (as with a URL edit, api PATCH): a move to another host drops them, so a
+		// publisher's redirect cannot collect the password or reach a private
+		// address. The note says what was reset.
+		oldHost, oerr := feedurl.Host(res.Snap.URL)
+		moved := oerr != nil || !strings.EqualFold(oldHost, host)
+		reset := false
+		if moved {
+			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(http_auth, '') != '' OR allow_insecure_tls = 1 OR allow_private_net = 1
+				FROM feeds WHERE id = ?`, feedID).Scan(&reset); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE feeds SET url_original = COALESCE(url_original, url),
 			url_original_key = COALESCE(url_original_key, url_key),
-			url = ?, url_key = ?, host = ?, redirect_to = NULL, redirect_kind = NULL, redirect_count = 0
-			WHERE id = ?`, dec.To, key, host, feedID); err != nil {
+			url = ?2, url_key = ?3, host = ?4, redirect_to = NULL, redirect_kind = NULL, redirect_count = 0,
+			http_auth = CASE WHEN ?5 THEN NULL ELSE http_auth END,
+			allow_insecure_tls = CASE WHEN ?5 THEN 0 ELSE allow_insecure_tls END,
+			allow_private_net = CASE WHEN ?5 THEN 0 ELSE allow_private_net END
+			WHERE id = ?1`, feedID, dec.To, key, host, moved); err != nil {
 			return err
 		}
 		st.note(fmt.Sprintf("redirect_migrated: %s -> %s", res.Snap.URL, dec.To), true)
+		if reset {
+			st.note("redirect_new_host: http_auth, allow_insecure_tls and allow_private_net reset", true)
+		}
 		st.migrated = true
 		return nil
 	default: // clear
@@ -600,6 +648,35 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 			WHERE id = ? AND redirect_to IS NOT NULL`, feedID)
 		return err
 	}
+}
+
+// FeedSnapshotsByID loads the snapshots of the given feeds (enabled or not) in
+// one query, in the order of ids; unknown ids are left out. An import run uses it
+// for its new feeds.
+func (d *DB) FeedSnapshotsByID(ctx context.Context, set FetchSettings, ids []int64) ([]fetch.Snapshot, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	b, err := jsonText(ids)
+	if err != nil {
+		return nil, err
+	}
+	snaps, err := d.feedSnapshots(ctx, set, "WHERE id IN (SELECT value FROM json_each(?))", b)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]fetch.Snapshot, len(snaps))
+	for _, s := range snaps {
+		byID[s.ID] = s
+	}
+	out := make([]fetch.Snapshot, 0, len(snaps))
+	for _, id := range ids {
+		if s, ok := byID[id]; ok {
+			out = append(out, s)
+			delete(byID, id) // a repeated id is loaded once
+		}
+	}
+	return out, nil
 }
 
 func (d *DB) saveHighWater(ctx context.Context, tx *sql.Tx) error {
