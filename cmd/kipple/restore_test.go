@@ -120,6 +120,7 @@ func TestRestoreRoundTripKeepsThePreRestoreCopy(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out, "checksums verified")
 	require.Contains(t, out, "start Kipple")
+	require.Contains(t, out, "To undo")
 	require.Equal(t, 40, countItems(t, dir), "the backup's data is back")
 	require.Equal(t, 0, countSessions(t, dir), "restore signs every session out")
 
@@ -152,6 +153,7 @@ func TestRestoreIntoAnEmptyDataDir(t *testing.T) {
 	out, err := doRestore(empty, zipPath, true)
 	require.NoError(t, err)
 	require.Contains(t, out, "no previous database")
+	require.NotContains(t, out, "To undo", "there is no pre-restore directory to undo from")
 	require.Equal(t, 12, countItems(t, empty))
 }
 

@@ -44,6 +44,7 @@ not localhost, name compose services explicitly).
   `KIPPLE_ADDR=127.0.0.1:7080` and `KIPPLE_DATA=%TEMP%\kipple-dev` and run `go run ./cmd/kipple serve`; then
   `cd web && npm run dev` (Vite on 127.0.0.1:5173 proxies to 7080).
 - Test: `go test ./...` and `cd web && npm test`.
+- Local CI: `pwsh scripts/ci-local.ps1` (add `-Docker` for the image build and Trivy). It mirrors the CI workflow with the same pinned tools; while GitHub Actions minutes are unavailable, a green run is what "CI green" means. Fuzz targets: `scripts/fuzz.ps1` before each release (see `docs/RELEASING.md`).
 - Build image locally: `docker build -t kipple:dev .`
 - Run `/code-review high` before every deploy.
 

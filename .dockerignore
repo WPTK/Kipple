@@ -2,6 +2,7 @@
 .github
 docs
 *.md
+!THIRD_PARTY_NOTICES.md
 
 # Frontend: built fresh by the "web" stage, node_modules never needed in-image
 web/node_modules

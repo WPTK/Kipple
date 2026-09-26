@@ -106,6 +106,12 @@ func ExtractDB(src, dst string) (mf Manifest, err error) {
 	defer zr.Close()
 	byName := map[string]*zip.File{}
 	for _, f := range zr.File {
+		// A Kipple backup is flat. Restore never writes an entry by its own name,
+		// so a path is harmless here, but it means the zip was not made by Kipple
+		// (or was tampered with): refuse it rather than restore from it.
+		if !flatName(f.Name) {
+			return Manifest{}, fmt.Errorf("the zip contains the entry %q, which is not a plain file name: it is not a Kipple backup", f.Name)
+		}
 		if _, dup := byName[f.Name]; dup {
 			return Manifest{}, fmt.Errorf("the zip lists %s twice", f.Name)
 		}
@@ -157,6 +163,12 @@ func ExtractDB(src, dst string) (mf Manifest, err error) {
 		return Manifest{}, errors.New("the manifest does not list kipple.db")
 	}
 	return mf, nil
+}
+
+// flatName reports whether a zip entry name is a plain file name: not empty,
+// no directory part (either slash), not "." or "..", no drive letter.
+func flatName(n string) bool {
+	return n != "" && n != "." && n != ".." && !strings.ContainsAny(n, `/\:`)
 }
 
 func extract(f *zip.File, e FileEntry, dst string) error {

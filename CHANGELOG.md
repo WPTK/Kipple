@@ -6,6 +6,20 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The project is now licensed under the Blue Oak Model License 1.0.0 (`LICENSE`), with a generated `THIRD_PARTY_NOTICES.md` (bundled fonts, Go and npm dependencies; `scripts/gen-notices.mjs`). Both files ship in the image under `/licenses/`.
+- `kipple healthcheck` subcommand: probes `/healthz` on the loopback address of `KIPPLE_ADDR` (3 s timeout, exit 0 only on HTTP 200), for the container `HEALTHCHECK` and for scripts.
+- The image declares a `HEALTHCHECK` and OCI labels; `docker-compose.example.yml` shows hardened runtime options.
+- `scripts/ci-local.ps1`: runs the CI steps locally (same pinned tools) for when GitHub Actions minutes are unavailable; a green run is what "CI green" means until they return.
+- Developer tooling: native Go fuzz targets for the feed parser and charset repair, sanitizer (ingest and serve), OPML import, feed discovery, Reader API parameter reader, image proxy path and WebP cost model, backup extraction and settings validators, run by hand before a release with `scripts/fuzz.ps1` (not in CI); `docs/RELEASING.md` is the release checklist.
+
+### Fixed
+
+- `kipple restore` refuses a backup zip that contains any entry with a directory part (`../x`, `/x`, `a\b`, `C:x`), listed in the manifest or not. Such an entry was never written anywhere, but a Kipple backup is flat, so a zip like that was not made by Kipple and is no longer restored from.
+- The pre-migration snapshots (`backup/pre-migration-*.db`) and the nightly `backup/kipple-snapshot.db` are now created `0600`, like the export. They were `0644`, readable by any other user or container that can see the volume, and they hold the password hashes and the account secret. Existing files keep their mode; the nightly one is replaced with `0600` on its next run.
+- `kipple restore` into an empty data directory no longer ends with "To undo, restore the file in that pre-restore directory" when it had just said there was no previous database to keep.
+
 ## [0.2.0] - 2026-09-26
 
 Everything since 0.2.0-alpha.2, including the alpha.3 and alpha.4 builds (both deployed to Host-A).
