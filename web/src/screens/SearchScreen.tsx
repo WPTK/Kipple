@@ -31,12 +31,13 @@ export function SearchScreen() {
   const urlQ = sp.get("q") ?? "";
   const ssId = sp.get("ss");
   const [text, setText] = useState(urlQ);
-  // The texts the user typed in the box since the last Enter or saved search. Results are "typing" (wider prefix
-  // match) only for a URL `q` that came from the box, so a saved search or an unrelated `q` is never one, whatever
-  // was typed before. Derived during render: no effect that lags a frame behind the list's own query.
-  const [typed, setTyped] = useState<ReadonlySet<string>>(() => new Set());
-  if (typed.size && ssId !== null) setTyped(new Set());
-  const typing = typed.has(urlQ) && ssId === null;
+  // What the box last held from typing, and the query last submitted (Enter). Results are "typing" (wider prefix
+  // match) only for a URL `q` that came from the box and differs from the submitted query, so a saved search, an
+  // unrelated `q`, or typing back to the submitted text is never one. Two strings, so nothing grows while the screen
+  // is open. Derived during render: no effect that lags a frame behind the list's own query.
+  const [entry, setEntry] = useState<{ typed: string | null; submitted: string | null }>(() => ({ typed: null, submitted: urlQ }));
+  if ((entry.typed !== null || entry.submitted !== null) && ssId !== null) setEntry({ typed: null, submitted: null });
+  const typing = entry.typed === urlQ && entry.submitted !== urlQ && ssId === null;
   const [saving, setSaving] = useState(false);
   const [controls, setControls] = useState<ListControls | null>(null);
   const inputId = useId();
@@ -94,7 +95,7 @@ export function SearchScreen() {
 
   const submit = () => {
     pushed.current = text;
-    setTyped(new Set());
+    setEntry({ typed: null, submitted: text });
     if (text !== urlQ) setQuery(text, ["ss"]);
   };
 
@@ -153,7 +154,7 @@ export function SearchScreen() {
             onChange={(e) => {
               const v = e.target.value;
               setText(v);
-              setTyped((prev) => new Set(prev).add(v));
+              setEntry((prev) => ({ ...prev, typed: v }));
             }}
             onKeyDown={(e) => {
               if (e.key === "Escape") inputRef.current?.blur();

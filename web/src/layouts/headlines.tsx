@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { relativeTime } from "@/lib/format";
-import { CheckBadge, RowMenu, SourceIcon, StarButton, UnreadDot, rowLabel } from "./parts";
+import { CheckBadge, PublishedTime, RowMenu, SourceIcon, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 
@@ -35,9 +34,7 @@ function HeadlineRow({ item, feed, selected, checked, to, onOpen, onToggleStar, 
           <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
         </Link>
       </h3>
-      <time dateTime={new Date(item.published_at * 1000).toISOString()} className="w-10 shrink-0 text-right text-xs text-fg2 tabular-nums">
-        {relativeTime(item.published_at)}
-      </time>
+      <PublishedTime item={item} className="w-10 shrink-0 text-right text-xs text-fg2 tabular-nums" />
       <div className="-mr-2 flex shrink-0 items-center">
         {item.starred ? <StarButton item={item} onToggleStar={onToggleStar} /> : null}
         <RowMenu item={item} actions={actions} revealOnHover />

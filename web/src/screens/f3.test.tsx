@@ -8,6 +8,7 @@ import { initialLive, liveStore } from "@/api/events";
 import type { HealthResponse, SettingMeta } from "@/api/admin";
 import { DEFAULT_PREFS, applyPrefs, parsePrefs, prefsStore } from "@/lib/prefs";
 import { FONTS } from "@/lib/fonts";
+import { devicePrefsStore, parseDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { healthFilter, healthSort } from "./HealthScreen";
 import { diffForm } from "./feeds/FeedEditor";
@@ -188,6 +189,11 @@ describe("Accessibility section", () => {
     expect(root.dataset.targets).toBe("large");
     await user.click(w.getByRole("switch", { name: /Titles only in lists/ }));
     expect(JSON.parse(localStorage.getItem("kipple.device.v1") ?? "{}").layout).toBe("headlines");
+    // The layout to return to survives a reload (it is in the device prefs, not a module variable).
+    updateDevicePrefs({ layout: "headlines", layoutBeforeTitlesOnly: "cards" });
+    devicePrefsStore.set(parseDevicePrefs(localStorage.getItem("kipple.device.v1")));
+    await user.click(w.getByRole("switch", { name: /Titles only in lists/ }));
+    expect(devicePrefsStore.get().layout).toBe("cards");
   });
 });
 
@@ -423,6 +429,33 @@ describe("Folders and OPML", () => {
     expect(within(done).getByText(/more than one folder/)).toBeInTheDocument();
     const post = calls.find((c) => c.url.pathname === "/api/opml");
     expect(post?.url.searchParams.get("mark_read_older_than_days")).toBe("7");
+  });
+
+  it("the import summary lists skipped feeds and settings that were not applied", async () => {
+    base({
+      "POST /api/opml": () =>
+        json({
+          folders_created: 0, feeds_added: 1, feeds_existing: [], memberships_dropped: [],
+          folders_merged_case: [{ kept: "News", merged: "news" }],
+          skipped: [{ url: "ftp://bad", reason: "not a valid http(s) URL" }],
+          invalid_attrs: ["https://x/feed: kipple:interval must be a number"],
+          ignored_attrs: ["https://x/feed: kipple:allow_private_net", "https://y/feed: kipple:allow_insecure_tls"],
+        }),
+    });
+    go("/feeds");
+    const user = userEvent.setup({ applyAccept: false });
+    await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Import OPML" }));
+    const dlg = await screen.findByRole("dialog", { name: "Import OPML" });
+    await user.upload(within(dlg).getByLabelText("OPML file"), new File(["<opml/>"], "feeds.opml", { type: "text/xml" }));
+    await user.click(within(dlg).getByRole("button", { name: "Import" }));
+    const done = await screen.findByRole("dialog", { name: "Import finished" });
+    expect(within(done).getByText(/1 feed was skipped/)).toBeInTheDocument();
+    expect(within(done).getByText(/ftp:\/\/bad: not a valid/)).toBeInTheDocument();
+    expect(within(done).getByText(/https:\/\/x\/feed: allowing private-network addresses was ignored/)).toBeInTheDocument();
+    expect(within(done).getByText(/https:\/\/y\/feed: skipping certificate checks was ignored/)).toBeInTheDocument();
+    expect(within(done).getByText(/kipple:interval must be a number/)).toBeInTheDocument();
+    expect(within(done).getByText(/news into News/)).toBeInTheDocument();
   });
 
   it("does not restrict the picker to types iOS may not know, and checks the file itself", async () => {

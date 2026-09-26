@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Suspense, lazy, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
 import { ArrowDown, ArrowUp, MoreVertical } from "lucide-react";
@@ -10,7 +10,7 @@ import {
   useHealth,
   type HealthFeed,
 } from "@/api/admin";
-import { api, errorMessage } from "@/api/client";
+import { ApiError, api, errorMessage } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import { STATUS_RANK, statusInfo } from "@/lib/feedStatus";
 import { bytesLabel, fullDate, whenLabel } from "@/lib/format";
@@ -18,8 +18,9 @@ import { useWide } from "@/lib/useMedia";
 import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
-import { FeedEditor } from "./feeds/FeedEditor";
 import { StatusChip } from "./StatusChip";
+
+const FeedEditor = lazy(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
 
 const menuItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
 
@@ -170,7 +171,7 @@ function RedirectNotice({ f }: { f: HealthFeed }) {
       invalidateFeeds(qc);
       toast("Feed address updated. Kipple is fetching it now.");
     } catch (e) {
-      const code = (e as { code?: string }).code;
+      const code = e instanceof ApiError ? e.code : undefined;
       toast(code === "url_exists" ? "Another feed already uses the new address." : errorMessage(e), "error");
     } finally {
       setBusy(false);
@@ -367,7 +368,11 @@ export function HealthScreen() {
         ) : null}
       </div>
       {log ? <LogDialog feed={log} onClose={() => setLog(null)} /> : null}
-      {editing ? <FeedEditor feed={editing} onClose={() => setEdit(null)} /> : null}
+      {editing ? (
+        <Suspense fallback={null}>
+          <FeedEditor feed={editing} onClose={() => setEdit(null)} />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

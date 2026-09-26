@@ -157,8 +157,9 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     unreadBadge: g("client.unread_badge"),
     highlightKeywords: g("client.highlight_keywords"),
   };
-  // Only the favorites fallback (kept when the server does not accept favorites) has no profile key.
-  const dp = { ...parseDevicePrefs(JSON.stringify(dpRaw)), favoritesLocal: cur.dp.favoritesLocal };
+  // Only the favorites fallback (kept when the server does not accept favorites) and the layout to return to from
+  // "Titles only" have no profile key.
+  const dp = { ...parseDevicePrefs(JSON.stringify(dpRaw)), favoritesLocal: cur.dp.favoritesLocal, layoutBeforeTitlesOnly: cur.dp.layoutBeforeTitlesOnly };
   return { theme, prefs, dp };
 }
 

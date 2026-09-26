@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { relativeTime } from "@/lib/format";
-import { CheckBadge, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
+import { CheckBadge, PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 
@@ -31,9 +30,7 @@ function InboxRow({ item, selected, checked, to, onOpen, onToggleStar, actions, 
       <div className="flex min-w-0 flex-1 flex-col gap-[var(--row-gap)]">
         <div className="flex items-baseline gap-2">
           <span className={cn("min-w-0 flex-1 truncate text-sm", unread ? "font-bold text-fg" : "font-medium text-fg2")}>{item.source}</span>
-          <time dateTime={new Date(item.published_at * 1000).toISOString()} className="shrink-0 text-xs text-fg2 tabular-nums">
-            {relativeTime(item.published_at)}
-          </time>
+          <PublishedTime item={item} className="shrink-0 text-xs text-fg2 tabular-nums" />
         </div>
         <h3 className={cn("truncate text-sm", unread ? "font-semibold text-fg" : "font-normal text-fg2")}>
           <Link

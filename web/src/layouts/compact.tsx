@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { relativeTime } from "@/lib/format";
-import { CheckBadge, RowMenu, SourceIcon, StarButton, UnreadDot, rowLabel } from "./parts";
+import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 
@@ -24,14 +23,7 @@ function CompactRow({ item, feed, selected, checked, to, onOpen, onToggleStar, a
       <CheckBadge checked={checked} />
       <UnreadDot unread={unread} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-1">
-        <div className="flex items-center gap-1.5 text-xs text-fg2">
-          <SourceIcon src={feed?.icon} />
-          <span className="truncate">{item.source}</span>
-          <span aria-hidden="true">·</span>
-          <time dateTime={new Date(item.published_at * 1000).toISOString()} className="shrink-0">
-            {relativeTime(item.published_at)}
-          </time>
-        </div>
+        <SourceTimeMeta item={item} icon={feed?.icon} />
         <h3 className={cn("line-clamp-2 text-sm leading-snug", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
           <Link
             to={to}

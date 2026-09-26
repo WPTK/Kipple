@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { relativeTime } from "@/lib/format";
-import { CheckBadge, RowMenu, SourceIcon, StarButton, UnreadDot, rowLabel } from "./parts";
+import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 
@@ -35,15 +34,7 @@ function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, acti
         />
       ) : null}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-3">
-        <div className="flex items-center gap-1.5 text-xs text-fg2">
-          <UnreadDot unread={unread} />
-          <SourceIcon src={feed?.icon} />
-          <span className="truncate">{item.source}</span>
-          <span aria-hidden="true">·</span>
-          <time dateTime={new Date(item.published_at * 1000).toISOString()} className="shrink-0">
-            {relativeTime(item.published_at)}
-          </time>
-        </div>
+        <SourceTimeMeta item={item} icon={feed?.icon} dot={<UnreadDot unread={unread} />} />
         <h3 className={cn("clamp-title text-base leading-snug", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
           <Link
             to={to}

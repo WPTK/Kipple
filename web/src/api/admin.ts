@@ -162,9 +162,14 @@ export interface OpmlResult {
   folders_created: number;
   feeds_added: number;
   feeds_existing: { url: string; feed_id: string }[];
-  folders_merged_case: string[];
+  folders_merged_case: { kept: string; merged: string }[];
   memberships_dropped: { url: string; kept: string; dropped: string[] }[];
-  ignored_attrs?: unknown[];
+  /** Outlines that could not be imported (a bad URL). */
+  skipped?: { url: string; reason: string }[];
+  /** "<feed url>: <what was wrong>" for kipple:* attributes with bad values. */
+  invalid_attrs?: string[];
+  /** "<feed url>: kipple:allow_private_net | kipple:allow_insecure_tls": valid but never applied by an import. */
+  ignored_attrs?: string[];
   run_id?: string;
 }
 

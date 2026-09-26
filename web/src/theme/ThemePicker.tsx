@@ -3,7 +3,7 @@ import { Collapsible } from "radix-ui";
 import { ChevronDown } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/cn";
-import { schemeById, type Scheme } from "./schemes";
+import { DEFAULT_DAY, DEFAULT_NIGHT, schemeById, type Scheme } from "./schemes";
 import { useAllowedSchemes } from "./serverThemes";
 import { themeStore, updateTheme } from "./theme";
 
@@ -91,8 +91,21 @@ function SchemeSelect({ label, value, onChange, schemes }: { label: string; valu
  * the rest under "More themes", and the accessibility group is collapsed.
  */
 export function ThemePicker() {
-  const t = useStore(themeStore);
+  const stored = useStore(themeStore);
   const schemes = useAllowedSchemes();
+  // The server may narrow the allowed schemes below what this device stored. A stored id that is not offered is
+  // shown as the default scheme (never a picker with nothing selected, or a select showing a different option
+  // than the one in force).
+  const offered = (id: string) => schemes.some((s) => s.id === id);
+  const first = schemes[0]?.id ?? DEFAULT_DAY;
+  const fallbackOf = (want: string) => (offered(want) ? want : first);
+  const t = {
+    ...stored,
+    fixed: offered(stored.fixed) ? stored.fixed : fallbackOf(DEFAULT_DAY),
+    day: offered(stored.day) ? stored.day : fallbackOf(DEFAULT_DAY),
+    night: offered(stored.night) ? stored.night : fallbackOf(DEFAULT_NIGHT),
+  };
+  const fellBack = stored.mode === "fixed" ? !offered(stored.fixed) : !offered(stored.day) || !offered(stored.night);
   const featured = schemes.filter((s) => s.featured);
   const more = schemes.filter((s) => !s.featured && s.group !== "accessibility");
   const access = schemes.filter((s) => s.group === "accessibility");
@@ -105,6 +118,7 @@ export function ThemePicker() {
   return (
     <fieldset className="min-w-0">
       <legend className="mb-2 text-sm font-semibold">Theme</legend>
+      {fellBack ? <p className="mb-2 text-xs text-fg2">The theme this device had is no longer offered, so the default is shown.</p> : null}
       <div className="grid grid-cols-2 gap-2">
         <label
           className={cn(

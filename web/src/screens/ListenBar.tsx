@@ -27,6 +27,11 @@ export function ListenBar({ bodyRef, articleId }: { bodyRef: RefObject<HTMLEleme
 
   useEffect(() => () => n.stop(), [articleId, n]);
 
+  // Turning "Listen to articles" off mid-playback hides the bar: the speech must stop with it.
+  useEffect(() => {
+    if (!prefs.listen) n.stop();
+  }, [prefs.listen, n]);
+
   if (!prefs.listen || !speechSupported()) return null;
   const idle = st.status === "idle";
 

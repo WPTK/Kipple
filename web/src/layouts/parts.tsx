@@ -3,6 +3,7 @@ import { BellOff, Check, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, Mov
 import type { Card } from "@/api/types";
 import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
+import { relativeTime } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { canNativeShare } from "@/lib/share";
 import type { RowMenuActions } from "./types";
@@ -147,4 +148,26 @@ export function RowMenu({
 /** Accessible name of a row's link: "Unread, <title>, <source>". */
 export function rowLabel(item: Card): string {
   return `${item.read ? "" : "Unread, "}${item.title || "Untitled"}, ${item.source}`;
+}
+
+/** The publish time as a machine-readable <time> (ISO date) with the relative text. One place for every layout. */
+export function PublishedTime({ item, className }: { item: Card; className?: string }) {
+  return (
+    <time dateTime={new Date(item.published_at * 1000).toISOString()} className={className}>
+      {relativeTime(item.published_at)}
+    </time>
+  );
+}
+
+/** The "[dot] [icon] source · time" meta row shared by the cards, compact and magazine layouts. */
+export function SourceTimeMeta({ item, icon, dot }: { item: Card; icon: string | null | undefined; dot?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-fg2">
+      {dot}
+      <SourceIcon src={icon} />
+      <span className="truncate">{item.source}</span>
+      <span aria-hidden="true">·</span>
+      <PublishedTime item={item} className="shrink-0" />
+    </div>
+  );
 }
