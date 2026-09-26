@@ -130,6 +130,14 @@ type Server struct {
 	imgModeMu   sync.Mutex             // serializes refreshImgMode's read and store
 	imgModeRead func(string)           // tests: runs between refreshImgMode's read and its store
 
+	// bgMu and bgClosed admit background runs onto apply.wg (bgStart). The
+	// apply.stop that Close calls before apply.wg.Wait sets bgClosed under bgMu,
+	// so every wg.Add either happens before that Wait or is refused.
+	bgMu     sync.Mutex
+	bgClosed bool
+
+	autoReadAdmitted func() // tests: runs once startAutoRead has admitted a run, before its goroutine starts
+
 	apply    applyState    // the retroactive filter apply run
 	autoRead autoReadState // the auto-read catch-up run
 	devRegs  deviceRegs    // per-session device registrations (currentDevice)
@@ -182,7 +190,14 @@ func New(opt Options) *Server {
 	if s.rec == nil {
 		s.rec = stats.New(s.now)
 	}
-	s.apply.ctx, s.apply.stop = context.WithCancel(context.Background())
+	bgCtx, cancel := context.WithCancel(context.Background())
+	s.apply.ctx = bgCtx
+	s.apply.stop = func() {
+		s.bgMu.Lock()
+		s.bgClosed = true
+		s.bgMu.Unlock()
+		cancel()
+	}
 	if s.opt.CountsInterval <= 0 {
 		s.opt.CountsInterval = time.Second
 	}
@@ -190,6 +205,19 @@ func New(opt Options) *Server {
 		s.opt.Heartbeat = heartbeatDefault
 	}
 	return s
+}
+
+// bgStart registers one background run (a filter apply or an auto-read
+// catch-up) on s.apply.wg, or reports false once Close has begun. The run's
+// goroutine must call s.apply.wg.Done when it ends.
+func (s *Server) bgStart() bool {
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	if s.bgClosed || s.apply.ctx == nil {
+		return false
+	}
+	s.apply.wg.Add(1)
+	return true
 }
 
 // Register mounts /healthz and /api/ on mux. Everything under /api/ that is not

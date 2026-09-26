@@ -217,7 +217,7 @@ func (s *Server) startAutoRead(req autoReadReq, total int) (*autoReadRun, error)
 	if s.autoRead.run != nil {
 		return nil, errAutoReadBusy
 	}
-	if s.apply.ctx == nil || s.apply.ctx.Err() != nil {
+	if !s.bgStart() {
 		return nil, errAutoReadBusy // shutting down
 	}
 	run := &autoReadRun{ID: s.now().UnixMicro(), Kind: runKindAutoRead, Total: total}
@@ -226,7 +226,9 @@ func (s *Server) startAutoRead(req autoReadReq, total int) (*autoReadRun, error)
 	if s.opt.Hub != nil {
 		s.opt.Hub.Publish("run.start", map[string]any{"run_id": idStr(run.ID), "kind": run.Kind, "total": total})
 	}
-	s.apply.wg.Add(1)
+	if s.autoReadAdmitted != nil {
+		s.autoReadAdmitted()
+	}
 	go s.runAutoRead(s.apply.ctx, run, req, s.now())
 	return &snapshot, nil
 }
