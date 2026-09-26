@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -562,8 +563,16 @@ func (c *call) jsonETag(v any) {
 // ok is the text/plain OK every write endpoint answers.
 func (c *call) ok() { c.text(http.StatusOK, "OK") }
 
-// serverError answers a genuine database failure (the only 5xx).
+// serverError answers a genuine database failure (the only 5xx). A folder name
+// the store refuses (too long, control characters) is client data, never a 5xx:
+// it is logged and answered OK with nothing changed, like any other ignored
+// value (a non-2xx wedges NetNewsWire's queue).
 func (c *call) serverError(what string, err error) {
+	if errors.Is(err, store.ErrBadFolderName) {
+		c.a.log.Warn("greader: "+what+": folder name refused", "err", err, "path", c.path, "ua", c.r.UserAgent())
+		c.ok()
+		return
+	}
 	c.a.log.Error("greader: "+what, "err", err, "path", c.path)
 	c.text(http.StatusInternalServerError, "Internal Server Error")
 }
