@@ -311,10 +311,21 @@ func (d *DB) EditSubscription(ctx context.Context, refs []FeedRef, o EditOpts) (
 
 // Unsubscribe removes feeds (design decision 24): starred items are re-parented
 // to the archive feed first, then the feed is deleted (cascading its items,
-// ledger, stubs, log and icon). Unsubscribing the archive feed deletes it.
-// Unknown feeds are ignored; the ids that existed are returned.
+// ledger, stubs, log and icon). Unknown feeds are ignored; the ids that were
+// removed are returned. The archive feed is processed last and only deleted
+// when it holds no starred items; otherwise it is skipped (see
+// UnsubscribeSkipped), so starred items are never lost.
 func (d *DB) Unsubscribe(ctx context.Context, refs []FeedRef) (feedIDs []int64, err error) {
+	feedIDs, _, err = d.UnsubscribeSkipped(ctx, refs)
+	return feedIDs, err
+}
+
+// UnsubscribeSkipped is Unsubscribe that also returns the ids it refused to
+// delete (the archive feed while it still holds starred items).
+func (d *DB) UnsubscribeSkipped(ctx context.Context, refs []FeedRef) (feedIDs, skipped []int64, err error) {
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		feedIDs, skipped = nil, nil
+		var archiveID int64
 		for _, ref := range refs {
 			id, err := resolveFeed(ctx, tx, ref)
 			if err != nil {
@@ -323,25 +334,58 @@ func (d *DB) Unsubscribe(ctx context.Context, refs []FeedRef) (feedIDs []int64, 
 			if id == 0 {
 				continue
 			}
+			var reason sql.NullString
+			if err := tx.QueryRowContext(ctx, "SELECT disabled_reason FROM feeds WHERE id = ?", id).Scan(&reason); err != nil {
+				return err
+			}
+			if reason.String == "archive" {
+				archiveID = id
+				continue
+			}
 			feedIDs = append(feedIDs, id)
 			if err := removeFeed(ctx, tx, id, true); err != nil {
 				return err
 			}
 			d.bumpFilters() // its filters cascade away
 		}
+		if archiveID != 0 {
+			// Last, after the others have moved their starred items into it.
+			switch err := removeFeed(ctx, tx, archiveID, true); {
+			case errors.Is(err, ErrArchiveHasStarred):
+				skipped = append(skipped, archiveID)
+			case err != nil:
+				return err
+			default:
+				feedIDs = append(feedIDs, archiveID)
+			}
+		}
 		return nil
 	})
-	return feedIDs, err
+	return feedIDs, skipped, err
 }
 
+// ErrArchiveHasStarred is returned when the archive feed would be deleted
+// while it still holds starred items and delete_starred was not requested.
+var ErrArchiveHasStarred = errors.New("store: the archive feed holds starred items")
+
 // removeFeed deletes a feed. With archiveStarred its starred items are first
-// re-parented to the archive feed (design decision 24); the archive feed itself
-// is always really deleted.
+// re-parented to the archive feed (design decision 24). The archive feed itself
+// is only deleted when it holds no starred items or archiveStarred is false
+// (explicit delete_starred); otherwise ErrArchiveHasStarred, nothing changed.
 func removeFeed(ctx context.Context, tx *sql.Tx, id int64, archiveStarred bool) error {
 	var reason sql.NullString
 	var title string
 	if err := tx.QueryRowContext(ctx, "SELECT disabled_reason, COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&reason, &title); err != nil {
 		return err
+	}
+	if archiveStarred && reason.String == "archive" {
+		var starred int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", id).Scan(&starred); err != nil {
+			return err
+		}
+		if starred > 0 {
+			return ErrArchiveHasStarred
+		}
 	}
 	if archiveStarred && reason.String != "archive" {
 		var starred int

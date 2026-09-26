@@ -18,10 +18,18 @@ import (
 // the commit gate, then one short WithWrite, so a night's purge is many small
 // writes that fetch commits and edit-tags interleave with, never one long one.
 
+// Compile-time guard: raising MaxRestoreDays past LedgerDays fails the build
+// (the purge horizon also follows restore_days at runtime).
+const _ = uint(LedgerDays - MaxRestoreDays)
+
 const (
 	// LedgerDays is how long a trimmed ledger row (tombstone) outlives the last
 	// time its uid was seen in the feed document (design §5).
 	LedgerDays = 180
+
+	// LedgerMarginDays is the slack added past retention.restore_days before a
+	// ledger row (and its cascading stub) may be purged.
+	LedgerMarginDays = 7
 
 	// SnapshotName is the nightly snapshot a host backup copies (design §2.6).
 	SnapshotName = "kipple-snapshot.db"
@@ -64,11 +72,14 @@ func (d *DB) PurgeStubs(ctx context.Context, now int64, limit int) (int64, error
 }
 
 // PurgeLedger deletes up to limit ledger rows (and, by cascade, any stub) whose
-// uid was last seen in the feed document more than LedgerDays before now.
+// uid was last seen in the feed document more than the ledger horizon before
+// now: max(LedgerDays, retention.restore_days + LedgerMarginDays), so a restore
+// stub (which cascades from its ledger row) never vanishes inside its window.
 func (d *DB) PurgeLedger(ctx context.Context, now int64, limit int) (int64, error) {
 	return d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
+		horizon := max(LedgerDays, LoadFetchSettings(ctx, tx).RestoreDays+LedgerMarginDays)
 		res, err := tx.ExecContext(ctx, `DELETE FROM trimmed_items WHERE id IN (
-			SELECT id FROM trimmed_items WHERE last_seen_at < ?1 LIMIT ?2)`, now-LedgerDays*86400, limit)
+			SELECT id FROM trimmed_items WHERE last_seen_at < ?1 LIMIT ?2)`, now-int64(horizon)*86400, limit)
 		if err != nil {
 			return 0, err
 		}

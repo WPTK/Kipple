@@ -98,7 +98,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
     - `a=starred` on a ledger id that still has a stub, a web star on a trimmed card, or `r=read` / mark-unread on one **restores** the row into `items` with the same id and the new state, and deletes the ledger row. The id then appears in the next starred or unread list, so the client's reconcile keeps the change instead of undoing it.
     - A mark-unread restore sets `retain_until = now + 7 d`, so the item is not trimmed straight away.
     - After the stub window a ledger id is a tombstone only: a star is ignored and OK is returned (§11).
-    - The ledger insert uses `ON CONFLICT (feed_id, uid) DO UPDATE`. Rows are deleted with the feed. A ledger row is purged 180 days after its uid was **last seen** in the feed document.
+    - The ledger insert uses `ON CONFLICT (feed_id, uid) DO UPDATE`. Rows are deleted with the feed. A ledger row is purged 180 days after its uid was **last seen** in the feed document. The purge horizon is `max(180, restore_days + 7)` days, so a restore stub (it cascades from its ledger row) can never be purged inside its `restore_days` window; `MaxRestoreDays <= LedgerDays` is asserted at compile time and in a test.
     - *Rejected:* "ignore stars on ledger ids" (revision 1; the red team showed both clients silently undo it). *Rejected:* a crawl-age grace window (7 days untrimmed). It breaks "newest N" on busy feeds and still misses NNW's 90-day window. *Rejected:* soft-deleting inside `items`, which would add `AND trimmed_at IS NULL` to every partial index and query.
 
 18. **Trim runs in every successful fetch commit** (`ok`, `unchanged`, `not_modified`). Changing a feed's `retention`, or `retention.default`, also enqueues a `trim_only` job for the affected feeds. So does "Apply retention now". Trim never runs on page load or on API traffic. On a quiet feed it costs one indexed statement over ≤ N+starred narrow rows. *Rejected:* "only when the fetch inserted items" (revision 1). Lowering N on a quiet feed then did nothing for days.
@@ -131,7 +131,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
     - The starred items are re-parented to a single hidden **archive feed** ("Unsubscribed (starred)", `disabled_reason='archive'`, never fetched, retention unlimited). It is created lazily and listed in `subscription/list` only while it holds items, so NNW's `origin.streamId` still resolves and the starred lists stay intact on every client.
     - Everything else cascades.
     - The web UI dialog shows the starred count and offers "also delete N starred items".
-    - Unsubscribing the archive feed itself is a real delete.
+    - Unsubscribing the archive feed is a real delete only when it holds no starred items. In a batch it is processed last (after the other feeds have moved their starred items in) and skipped while it still holds starred items; the web `DELETE /api/feeds/{id}` on it is refused with `ErrArchiveHasStarred` unless `delete_starred=1`, which is the only way starred items are ever destroyed.
     - Stats rows keep their snapshots either way.
     - *Rejected:* a pure hard delete (revision 1: one swipe destroyed saved articles). *Rejected:* soft-deleting every feed.
 

@@ -180,6 +180,9 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- Unsubscribing a batch that included the hidden archive feed could delete it (and cascade away every archived starred item, including ones just moved into it). The archive feed is now processed last and skipped while it holds starred items (`UnsubscribeSkipped` reports it); `DeleteFeed` on it without `delete_starred` returns `ErrArchiveHasStarred`. Tests cover both batch orders, the archive alone and the `delete_starred` path.
+- The nightly ledger purge used a fixed 180 days regardless of `retention.restore_days`, so a stub could vanish before its restore window ended if the setting grew. The horizon is now `max(180, restore_days + 7)` days, and `MaxRestoreDays <= LedgerDays` is a compile-time assertion.
+
 - Sanitizer (review of phase 1): in-page links whose fragment held `&`, `'`, `(`, `)`, `*`, `+`, `,`, `;`, `=`, `@`, `/`, `?` (for example `#footnote's-1`) lost their href, because only a narrow set of fragments was shielded from the no-relative-URL policy. Every `#...` href is now kept, restored exactly. The shield placeholder carries a per-call random nonce, so a literal `https://fragment.kipple.invalid/#...` link in feed HTML is no longer rewritten to a bare fragment.
 - Status page (`/_status.js`): when the event stream closes for good (a 401 after the session expires) it now says "events: signed out" and shows the sign-in form, or retries with backoff, instead of "reconnecting" forever; it shows liveness from the `heartbeat` event ("events: stalled" after 45 s of silence) and describes `counts`, `fulltext.ready`, `feed.changed` and `filters.changed` events.
 - OPML import parsed every outline URL twice; `feedurl.KeyAndNormalize` parses once (`Key` and `Normalize` stay as wrappers).
