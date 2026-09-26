@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -359,7 +360,7 @@ type vp8lSpec struct {
 	subGreen   bool
 	cacheBits  int  // the main image's color cache (0: none)
 	fullTrees  bool // the main group's codes cover their whole alphabets (the most tree memory)
-	groups     int  // above 1: meta prefix codes with this many groups (the model refuses them)
+	groups     int  // above 1: meta prefix codes with this many groups (priced by the tiles bound, capped at 2,600)
 }
 
 // synthVP8L is a valid VP8L stream of transparent black pixels, with the
@@ -610,6 +611,10 @@ func memCases(t *testing.T) []memCase {
 		{"webp lossless all transforms, 11-bit cache, full trees 16 MP", "image/webp", riffWebP(webpChunk("VP8L", synthVP8L(*allTransforms, true)))},
 		{"webp lossless predictor+cross-color, 11-bit cache, full trees 16 MP", "image/webp", riffWebP(webpChunk("VP8L",
 			synthVP8L(vp8lSpec{w: 4000, h: 4000, predictor: true, crossColor: true, cacheBits: 11, fullTrees: true}, true)))},
+		{"webp lossless meta codes 40 groups, 11-bit cache 16 MP", "image/webp", riffWebP(webpChunk("VP8L", synthVP8L(vp8lSpec{w: 4000, h: 4000, cacheBits: 11, groups: 40}, true)))},
+		{"webp lossless meta codes 3 groups + palette 16 MP", "image/webp", riffWebP(webpChunk("VP8L", synthVP8L(vp8lSpec{w: 4000, h: 4000, palette: true, groups: 3}, true)))},
+		{"webp lossless meta codes 300 groups 1200x900", "image/webp", riffWebP(webpChunk("VP8L", synthVP8L(vp8lSpec{w: 1200, h: 900, cacheBits: 11, groups: 300}, true)))},
+		{"webp lossy + VP8L alpha with 8 groups 16 MP", "image/webp", synthWebPAlpha(4000, 4000, &vp8lSpec{w: 4000, h: 4000, palette: true, groups: 8})},
 		{"webp lossy 24 MP", "image/webp", riffWebP(webpChunk("VP8 ", synthVP8(6000, 4000)))},
 		{"webp lossy + raw alpha 16 MP", "image/webp", synthWebPAlpha(4000, 4000, nil)},
 		{"webp lossy + VP8L alpha (all transforms, full trees) 16 MP", "image/webp", synthWebPAlpha(4000, 4000, allTransforms)},
@@ -637,7 +642,11 @@ func TestThumbCostBoundsRealAllocation(t *testing.T) {
 			t.Logf("%dx%d: allocated %.1f MiB (heap peak sample +%.1f MiB), estimate %.1f MiB (%.2fx), ceiling %d MiB",
 				p.w, p.h, mib(total), mib(peak), mib(p.need), float64(p.need)/float64(total), defaultDecodeCeiling>>20)
 			require.LessOrEqual(t, total, p.need, "the estimate is an upper bound of the real allocation")
-			require.Less(t, p.need, 3*total, "and not so loose that it refuses what would fit")
+			// Meta prefix codes are priced by the tile bound (the entropy image is not
+			// decoded), so those estimates may exceed the real allocation by more.
+			if !strings.Contains(tc.name, "meta codes") && !strings.Contains(tc.name, "alpha with 8 groups") {
+				require.Less(t, p.need, 3*total, "and not so loose that it refuses what would fit")
+			}
 		})
 	}
 }
@@ -813,26 +822,34 @@ func TestThumbRefusesTheFF00FrameSubstitution(t *testing.T) {
 
 // ---- review item 3: lossless WebP prefix code groups ----
 
-func TestThumbRefusesLosslessWebPWithMetaPrefixCodes(t *testing.T) {
+func TestThumbPricesLosslessWebPWithMetaPrefixCodes(t *testing.T) {
 	// The reviewer's shape: 801x1000 with 2,600 groups of full trees and an
 	// 11-bit color cache, about 600 KB of tree data.
 	spec := vp8lSpec{w: 801, h: 1000, cacheBits: 11, groups: 2600}
 	data := riffWebP(webpChunk("VP8L", synthVP8L(spec, true)))
-	p, err := planThumb(bytes.NewReader(data), int64(len(data)), "image/webp", ThumbWidth, defaultThumbPixels)
+	_, _, err := transcode(bytes.NewReader(data), int64(len(data)), "image/webp", testLimits())
 	var pe *passError
-	require.ErrorAs(t, err, &pe, "meta prefix codes are refused, whatever the pixel count")
-	require.Contains(t, pe.reason, "unusual")
-	require.Zero(t, p.need)
+	require.ErrorAs(t, err, &pe, "2,600 groups of full trees are over the ceiling, whatever the pixel count")
+	require.Contains(t, pe.reason, "decoding needs about")
+	p, err := planThumb(bytes.NewReader(data), int64(len(data)), "image/webp", ThumbWidth, defaultThumbPixels)
+	require.NoError(t, err)
+	require.Greater(t, p.need, int64(defaultDecodeCeiling))
 
 	// The same image in a VP8X container's compressed alpha plane.
 	alpha := synthWebPAlpha(801, 1000, &spec)
-	_, err = planThumb(bytes.NewReader(alpha), int64(len(alpha)), "image/webp", ThumbWidth, defaultThumbPixels)
+	_, _, err = transcode(bytes.NewReader(alpha), int64(len(alpha)), "image/webp", testLimits())
 	require.ErrorAs(t, err, &pe)
+	require.Contains(t, pe.reason, "decoding needs about")
 
-	// Two groups are refused too: the count is only known after decoding the meta image.
-	two := riffWebP(webpChunk("VP8L", synthVP8L(vp8lSpec{w: 1600, h: 1000, groups: 2}, true)))
-	_, err = planThumb(bytes.NewReader(two), int64(len(two))+thumbMinSource, "image/webp", ThumbWidth, defaultThumbPixels)
-	require.ErrorAs(t, err, &pe)
+	// A few groups are priced, not refused (libwebp writes them in the alpha
+	// plane of most lossy+alpha files): 1600x1000 has 100x63 tiles of 16 px.
+	few := riffWebP(webpChunk("VP8L", synthVP8L(vp8lSpec{w: 1600, h: 1000, groups: 5}, true)))
+	p, err = planThumb(bytes.NewReader(few), int64(len(few))+thumbMinSource, "image/webp", ThumbWidth, defaultThumbPixels)
+	require.NoError(t, err)
+	require.Greater(t, p.need, 5*vp8lGroupCost(0))
+	tiny := synthWebPAlpha(900, 40, &vp8lSpec{w: 900, h: 40, groups: 3})
+	_, err = planThumb(bytes.NewReader(tiny), int64(len(tiny))+thumbMinSource, "image/webp", ThumbWidth, defaultThumbPixels)
+	require.NoError(t, err, "a small alpha plane with a few groups is admitted")
 
 	// Without meta codes the same trees and cache are admitted and priced.
 	one := riffWebP(webpChunk("VP8L", synthVP8L(vp8lSpec{w: 1600, h: 1000, cacheBits: 11, fullTrees: true, predictor: true}, true)))
@@ -855,7 +872,8 @@ func TestVP8LWalkRefusesWhatItCannotFollow(t *testing.T) {
 		return ok
 	}
 	require.True(t, ok(vp8lSpec{w: 300, h: 200, predictor: true, crossColor: true, subGreen: true, palette: true, cacheBits: 11, fullTrees: true}))
-	require.False(t, ok(vp8lSpec{w: 300, h: 200, groups: 3}))
+	require.True(t, ok(vp8lSpec{w: 300, h: 200, groups: 3}), "meta prefix codes are priced")
+	require.True(t, ok(vp8lSpec{w: 300, h: 200, groups: 3, predictor: true, palette: true, cacheBits: 4}))
 	// A short stream.
 	s := synthVP8L(vp8lSpec{w: 300, h: 200, predictor: true}, false)
 	_, good := vp8lStreamCost(bytes.NewReader(s[:3]), 300, 200)

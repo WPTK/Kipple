@@ -17,12 +17,15 @@ import (
 // VP8L stream (the image, or a compressed ALPH plane, which is one too) as far
 // as the decoder's allocations are decided by it: the transforms and their
 // sub-images, which are decoded symbol by symbol (their values are not kept),
-// then the main image's color cache and meta flag. A stream with meta prefix
-// codes is refused (the original is served); so is anything the walk cannot
-// follow exactly: an incomplete or over-full Huffman code, a repeated
-// transform, an invalid back-reference, a short stream. With complete codes
-// every bit has one meaning, so the walk reads the stream the way the
-// decoder does.
+// then the main image's color cache and meta flag. Meta prefix codes are
+// priced with an upper bound: the entropy image is walked, and the decoder
+// keeps at most one group per tile of it, capped at 2,600, so the bound is
+// that many groups of trees; the file is refused when the total is over the
+// decode ceiling, so many-group files are refused and a few groups are not.
+// Anything the walk cannot follow exactly is refused too: an incomplete or
+// over-full Huffman code, a repeated transform, an invalid back-reference, a
+// short stream. With complete codes every bit has one meaning, so the walk
+// reads the stream the way the decoder does.
 
 // webpDecodeCost is what golang.org/x/image/webp allocates to decode the w x h
 // file in r, or false when the file is not one the model can account for.
@@ -326,6 +329,9 @@ const (
 	vp8lLiterals = 256
 	vp8lLengths  = 24
 	vp8lDists    = 40
+	// vp8lMaxGroups is the most prefix code groups libwebp writes and the
+	// decoder accepts (an index of 2,600 or more is refused).
+	vp8lMaxGroups = 2600
 )
 
 // vp8lGroupCost bounds what the decoder allocates for one prefix code group
@@ -345,7 +351,7 @@ func vp8lGroupCost(ccBits uint32) int64 {
 
 // vp8lStreamCost walks a VP8L stream after its 5-byte header (w x h pixels):
 // the transforms and their sub-images, then the main image's color cache and
-// meta flag. It returns the bytes the decoder allocates, or false.
+// meta prefix codes. It returns the bytes the decoder allocates, or false.
 func vp8lStreamCost(r io.Reader, w, h int) (int64, bool) {
 	b := &vp8lBits{r: bufio.NewReaderSize(r, 4096)}
 	var cost int64
@@ -396,10 +402,26 @@ func vp8lStreamCost(r io.Reader, w, h int) (int64, bool) {
 			return 0, false
 		}
 	}
-	if meta := b.read(1); b.bad || meta != 0 {
-		return 0, false // meta prefix codes: up to 2,600 groups of trees; refused
+	groups := int64(1)
+	if b.read(1) != 0 {
+		// Meta prefix codes: an entropy image maps tiles to groups. The decoder
+		// keeps at most one group per tile (it renumbers a sparse or large index
+		// range down to the referenced groups) and refuses an index of 2,600 or
+		// more, so that many groups is an upper bound whatever the image says.
+		// The entropy image is a sub-image, walked like the others.
+		bits := b.read(3) + 2
+		tw, th := nTiles(iw, bits), nTiles(ih, bits)
+		c, ok := vp8lSubImage(b, tw, th, 0)
+		if !ok {
+			return 0, false
+		}
+		cost += c
+		groups = min(tw*th, vp8lMaxGroups)
 	}
-	return cost + 4*iw*ih + vp8lGroupCost(ccBits), true
+	if b.bad {
+		return 0, false
+	}
+	return cost + 4*iw*ih + groups*vp8lGroupCost(ccBits), true
 }
 
 func nTiles(size int64, bits uint32) int64 { return (size + 1<<bits - 1) >> bits }
