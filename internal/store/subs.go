@@ -322,6 +322,20 @@ func (d *DB) Unsubscribe(ctx context.Context, refs []FeedRef) (feedIDs []int64, 
 // UnsubscribeSkipped is Unsubscribe that also returns the ids it refused to
 // delete (the archive feed while it still holds starred items).
 func (d *DB) UnsubscribeSkipped(ctx context.Context, refs []FeedRef) (feedIDs, skipped []int64, err error) {
+	// Empty each feed in bounded batches first (purgeFeedItems leaves starred
+	// items and the archive feed alone), so the transaction below only moves
+	// starred items and removes feed rows.
+	for _, ref := range refs {
+		id, err := resolveFeed(ctx, d.Reader(), ref)
+		if err != nil {
+			return nil, nil, err
+		}
+		if id != 0 {
+			if err := d.purgeFeedItems(ctx, id, true); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		feedIDs, skipped = nil, nil
 		var archiveID int64

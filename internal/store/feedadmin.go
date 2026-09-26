@@ -264,8 +264,13 @@ func sameNullInt(v any, cur sql.NullInt64) bool {
 }
 
 // DeleteFeed removes a feed. Unless deleteStarred is set, its starred items
-// move to the archive feed first (design §6.9).
+// move to the archive feed first (design §6.9). The feed's items and ledger are
+// deleted in bounded batches first (purgeFeedItems), so the final transaction
+// stays short however large the feed; an interrupted delete resumes on retry.
 func (d *DB) DeleteFeed(ctx context.Context, id int64, deleteStarred bool) error {
+	if err := d.purgeFeedItems(ctx, id, !deleteStarred); err != nil {
+		return err
+	}
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var n int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ?", id).Scan(&n); err != nil {

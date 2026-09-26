@@ -1200,7 +1200,7 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and nothing e
 - `settings.retention.default` is one of {50, 100, 250, 500, 1000, 0}, where 0 means unlimited. The default is **250**.
 - `feeds.retention` uses the same values; NULL means inherit. The archive feed is fixed at 0.
 - `N = COALESCE(feeds.retention, default)`. When `N = 0` the trim is skipped.
-- Muted items (`muted_by IS NOT NULL`) count against N like any item but are ranked in their own list, newest first, so noise cannot displace real items and a fetch cannot trim the muted items it just added. With `real` and `muted` the counts of non-starred, non-held items, the feed keeps the newest `min(muted, max(N/5, N - real))` muted items and the newest `N - that` real ones: muted items are always allowed a fifth of the cap, and more while real items leave room. With a cap of 50, 40 real and 30 muted items keep all 40 real and the 10 newest muted ones; with 50 real and a fetch that brings 2 muted and 1 real, the 3 oldest real items go and both muted ones stay (the Muted view and delete-with-unmute keep working on a busy feed). The per-feed set is at most a few thousand rows, so the temporary sort is trivial. A restore brings an item back with `muted_by = NULL`.
+- Muted items (`muted_by IS NOT NULL`) count against N like any item but are ranked in their own list, newest first, so noise cannot displace real items and a fetch cannot trim the muted items it just added. With `real` and `muted` the counts of non-starred, non-held items, the feed keeps the newest `min(muted, max(N/5, N - real))` muted items and the newest `N - that` real ones: muted items are always allowed a fifth of the cap, and more while real items leave room. With a cap of 50, 40 real and 30 muted items keep all 40 real and the 10 newest muted ones; with 50 real and a fetch that brings 2 muted and 1 real, the 3 oldest real items go and both muted ones stay (the Muted view and delete-with-unmute keep working on a busy feed). The per-feed sort is cheap; the batch bound below keeps each trim transaction short however large the backlog. A restore brings an item back with `muted_by = NULL`.
 - N counts **non-starred, non-held** items only. "Keep newest N" means the N newest unstarred items, plus every starred item, plus items whose `retain_until` is still in the future.
 - `settings.retention.restore_days` (0–180, default **90**; `MaxRestoreDays` caps it at 180, the base of the nightly ledger purge horizon `max(180, restore_days + 7)`, so a stub never goes before its window ends) is how long a restore stub is kept.
 - **Settings reads never guess.** A missing row or an unparseable value is the default; a *failed* read (cancelled context, I/O error) is an error, not "not set". Inside a write transaction (retention trim, restore, the stub and ledger purges, the full-text guard) it fails the transaction so the batch retries; outside one (`store.LoadFetchSettings`) it is logged at warn and the defaults apply to that pass only. Nothing caches a value that came from a failed read.
@@ -1219,11 +1219,12 @@ DELETE FROM temp.trim_set;
 -- :keep_muted = min(muted, max(N/5, N - real)); real and muted are counted first, over the same WHERE
 INSERT INTO temp.trim_set(id)
   SELECT id FROM (
-    SELECT id, muted_by IS NOT NULL AS m,
+    SELECT id, sort_at, muted_by IS NOT NULL AS m,
            row_number() OVER (PARTITION BY muted_by IS NOT NULL ORDER BY sort_at DESC, id DESC) AS rn
     FROM items
     WHERE feed_id = :feed AND starred = 0 AND (retain_until IS NULL OR retain_until <= :now))
-  WHERE rn > CASE WHEN m THEN :keep_muted ELSE :N - :keep_muted END;   -- real and muted items are ranked apart
+  WHERE rn > CASE WHEN m THEN :keep_muted ELSE :N - :keep_muted END    -- real and muted items are ranked apart
+  ORDER BY sort_at ASC, id ASC LIMIT :batch;                            -- oldest first, bounded (see below)
 
 INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at)
   SELECT i.id, i.feed_id, i.uid, i.read, :now, :now
@@ -1251,6 +1252,7 @@ WHERE id = :feed
 DELETE FROM items WHERE id IN (SELECT id FROM temp.trim_set);
 ```
 
+- **Bounded per transaction.** The `trim_set` INSERT ends with `ORDER BY sort_at ASC, id ASC LIMIT :batch` (2000): one transaction trims at most that many items, the oldest first, so a feed with a huge backlog under a newly lowered cap never pushes a write past the writer's 10 s deadline (about 100 µs per item, mostly the FTS delete trigger). Repeating it converges on exactly the unbounded result, since kept items never enter the set and the muted allowance recomputed from the smaller counts is unchanged. A fetch commit trims one batch and leaves the rest; a `trim_only` job loops in batches, each its own gated transaction, with one `fetch_log` row the first batch writes and later ones add to. Deleting or unsubscribing a feed likewise deletes its items and then its ledger rows in gated batches of the same size before the final transaction removes the feed row; an interrupted delete resumes on retry.
 - The trim returns early, before any INSERT, when `trim_set` is empty.
 - `changes()` from the DELETE goes to `fetch_log.trimmed_items`.
 - The FTS rows go via `items_fts_bd`. `item_content` and `item_fulltext` go by cascade.
