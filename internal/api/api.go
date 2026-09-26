@@ -127,6 +127,8 @@ type Server struct {
 	imgHSecret  []byte    // the secret imgH was built with
 	imgH        *imgproxy.Handler
 	imgMode     atomic.Pointer[string] // cached imgproxy.mode for the CSP; refreshed on PATCH
+	imgModeMu   sync.Mutex             // serializes refreshImgMode's read and store
+	imgModeRead func(string)           // tests: runs between refreshImgMode's read and its store
 
 	apply    applyState    // the retroactive filter apply run
 	autoRead autoReadState // the auto-read catch-up run

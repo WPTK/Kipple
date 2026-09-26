@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -503,6 +504,46 @@ func TestImgModeCacheFollowsPatch(t *testing.T) {
 	code, _, _ = h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":null}`)
 	require.Equal(t, 200, code)
 	require.Equal(t, "all", h.srv.ImgMode())
+}
+
+// A first-use fill that read the old mode must not store it after a PATCH has
+// stored the new one: the CSP would keep the wrong img-src until a restart.
+func TestImgModeCacheFillRacingPatch(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	readOld := make(chan struct{})
+	release := make(chan struct{})
+	var paused atomic.Bool
+	h.srv.imgMode.Store(nil) // start with an empty cache
+	h.srv.imgModeRead = func(string) {
+		if paused.CompareAndSwap(false, true) { // only the fill pauses between its read and its store
+			close(readOld)
+			<-release
+		}
+	}
+	fillDone := make(chan string)
+	go func() { fillDone <- h.srv.ImgMode() }()
+	<-readOld
+
+	patchDone := make(chan int)
+	go func() {
+		code, _, _ := h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":"http_only"}`)
+		patchDone <- code
+	}()
+	// Unfixed, the PATCH finishes while the fill is parked; fixed, it waits for
+	// the fill's store. Either way the fill is released after this.
+	var code int
+	select {
+	case code = <-patchDone:
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(release)
+	require.Equal(t, "all", <-fillDone, "the fill returns what it read")
+	if code == 0 {
+		code = <-patchDone
+	}
+	require.Equal(t, 200, code)
+	require.Equal(t, "http_only", h.srv.ImgMode(), "the PATCHed value is what the CSP sees")
 }
 
 func TestFavoritesLimit(t *testing.T) {
