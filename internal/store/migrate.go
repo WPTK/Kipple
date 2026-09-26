@@ -145,7 +145,11 @@ func (d *DB) preMigrationSnapshot(ctx context.Context, from, to int) error {
 	}
 	defer snap.Close()
 	target := filepath.Join(d.backupDir, fmt.Sprintf("pre-migration-%d-%d-%d.db", from, to, time.Now().UnixNano()))
+	if err := createPrivate(target); err != nil {
+		return fmt.Errorf("store: pre-migration snapshot: %w", err)
+	}
 	if _, err := snap.ExecContext(ctx, "VACUUM INTO '"+strings.ReplaceAll(filepath.ToSlash(target), "'", "''")+"'"); err != nil {
+		_ = os.Remove(target)
 		return fmt.Errorf("store: pre-migration snapshot: %w", err)
 	}
 	// Keep the newest 3 by mtime.

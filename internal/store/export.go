@@ -44,16 +44,12 @@ func (d *DB) TrySnapshot() (release func(), err error) {
 // commit gate are never blocked (fetch commits carry on). The caller must hold
 // the slot from TrySnapshot; path must not exist.
 func (d *DB) SnapshotTo(ctx context.Context, path string) error {
-	// Create the target 0600 first (SQLite fills an empty file), so the copy is
-	// never readable by others, not even while it is being written.
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
+	if err := createPrivate(path); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("store: snapshot target %s already exists", path)
 		}
 		return fmt.Errorf("store: create snapshot target: %w", err)
 	}
-	_ = f.Close()
 	snap, err := d.openSnapshot()
 	if err != nil {
 		_ = os.Remove(path)
@@ -65,6 +61,19 @@ func (d *DB) SnapshotTo(ctx context.Context, path string) error {
 		return fmt.Errorf("store: vacuum into %s: %w", path, err)
 	}
 	return nil
+}
+
+// createPrivate creates path as an empty 0600 file (it must not exist) for a
+// VACUUM INTO target. SQLite fills an empty file and keeps its mode, so a copy of
+// the database (password hashes, the account secret) is never readable by
+// others, not even while it is being written. Left to SQLite, the file would get
+// 0644 under the usual umask.
+func createPrivate(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // DiskSize is the size in bytes of the database file plus its WAL, which is

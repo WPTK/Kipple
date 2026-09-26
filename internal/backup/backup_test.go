@@ -237,6 +237,38 @@ func TestExtractRefusesDamage(t *testing.T) {
 	require.NoError(t, zw2.Close())
 	_, err = ExtractDB(write("other.zip", buf2.Bytes()), filepath.Join(t.TempDir(), "o4.db"))
 	require.ErrorContains(t, err, "no manifest.json")
+
+	// The good backup plus one entry with a path, listed in the manifest with a
+	// correct checksum or not listed at all: refused either way (a Kipple backup
+	// is flat), and nothing is extracted.
+	for _, name := range []string{"../../evil.txt", "/abs.txt", `..\evil.txt`, "sub/kipple.db", "C:evil.txt"} {
+		for _, listed := range []bool{true, false} {
+			var buf3 bytes.Buffer
+			zw3 := zip.NewWriter(&buf3)
+			for _, f := range zr.File {
+				rc, _ := f.Open()
+				b, _ := io.ReadAll(rc)
+				rc.Close()
+				if f.Name == ManifestFile && listed {
+					var mf Manifest
+					require.NoError(t, json.Unmarshal(b, &mf))
+					sum := sha256.Sum256([]byte("owned"))
+					mf.Files = append(mf.Files, FileEntry{Name: name, Bytes: 5, SHA256: hex.EncodeToString(sum[:])})
+					b, _ = json.Marshal(mf)
+				}
+				w, _ := zw3.Create(f.Name)
+				_, _ = w.Write(b)
+			}
+			w, _ := zw3.Create(name)
+			_, _ = w.Write([]byte("owned"))
+			require.NoError(t, zw3.Close())
+			out := filepath.Join(t.TempDir(), "o5.db")
+			_, err = ExtractDB(write("path.zip", buf3.Bytes()), out)
+			require.ErrorContains(t, err, "not a plain file name", "%s listed=%v", name, listed)
+			_, statErr := os.Stat(out)
+			require.True(t, os.IsNotExist(statErr))
+		}
+	}
 }
 
 func TestExportConsistentUnderConcurrentWrites(t *testing.T) {

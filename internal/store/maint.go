@@ -188,6 +188,9 @@ func (d *DB) writeSnapshot(ctx context.Context, final string, integrity bool) (e
 		}
 	}()
 
+	if err := createPrivate(tmp); err != nil {
+		return fmt.Errorf("store: create snapshot: %w", err)
+	}
 	snap, err := d.openSnapshot()
 	if err != nil {
 		return fmt.Errorf("store: open snapshot pool: %w", err)
