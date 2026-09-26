@@ -228,7 +228,7 @@ func readParamsLimit(r *http.Request, raw bool, limit int64, repair bool) *Param
 		mt = ""
 	}
 	body := &capReader{r: r.Body, left: limit}
-	defer func() { p.truncated = body.hit }()
+	defer func() { p.truncated = p.truncated || body.hit }()
 	if raw {
 		b, _ := io.ReadAll(body)
 		p.rawBody = string(b)
@@ -248,6 +248,9 @@ func readParamsLimit(r *http.Request, raw bool, limit int64, repair bool) *Param
 	return p
 }
 
+// maxPartValue caps one multipart form value; a longer one marks the parse truncated.
+const maxPartValue = 1 << 20
+
 func (p *Params) readMultipart(mr *multipart.Reader) {
 	for {
 		part, err := mr.NextPart()
@@ -259,8 +262,13 @@ func (p *Params) readMultipart(mr *multipart.Reader) {
 			_ = part.Close()
 			continue
 		}
-		v, _ := io.ReadAll(io.LimitReader(part, 1<<20))
+		v, _ := io.ReadAll(io.LimitReader(part, maxPartValue+1))
 		_ = part.Close()
+		if len(v) > maxPartValue {
+			// Never act on a cut value (rejectParams answers 413).
+			p.truncated = true
+			return
+		}
 		if len(p.body) >= maxPairs {
 			p.tooMany = true
 			return
