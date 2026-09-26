@@ -56,7 +56,12 @@ export function enhanceEmbeds(root: ParentNode): void {
 /** Element a `#kp-...` footnote link points at, inside `root`. */
 export function footnoteTarget(root: ParentNode, href: string): HTMLElement | null {
   if (!href.startsWith("#kp-") || href.length < 5) return null;
-  const id = decodeURIComponent(href.slice(1));
+  let id = href.slice(1);
+  try {
+    id = decodeURIComponent(id);
+  } catch {
+    // A malformed escape (a stray %): match the raw id instead of throwing before preventDefault runs.
+  }
   for (const el of root.querySelectorAll<HTMLElement>("[id]")) if (el.id === id) return el;
   return null;
 }

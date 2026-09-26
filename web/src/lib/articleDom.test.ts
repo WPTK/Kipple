@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { embedSrc, footnoteTarget, loadEmbed } from "./articleDom";
+import { embedSrc, footnoteTarget, handleArticleClick, loadEmbed } from "./articleDom";
 
 describe("embedSrc", () => {
   it("allows only YouTube (nocookie) and Vimeo with sane ids", () => {
@@ -37,5 +37,27 @@ describe("footnoteTarget", () => {
     expect(footnoteTarget(root, "#other")).toBeNull();
     expect(footnoteTarget(root, "#kp-missing")).toBeNull();
     expect(footnoteTarget(root, "https://x")).toBeNull();
+  });
+});
+
+describe("malformed footnote hrefs", () => {
+  it("does not throw on a bad percent escape and still resolves a raw id", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<p id="kp-100%">note</p>';
+    expect(() => footnoteTarget(root, "#kp-100%")).not.toThrow();
+    expect(footnoteTarget(root, "#kp-100%")?.id).toBe("kp-100%");
+    expect(footnoteTarget(root, "#kp-%E0%A4%A")).toBeNull();
+  });
+
+  it("still calls preventDefault for a click on such a link", () => {
+    const body = document.createElement("div");
+    body.innerHTML = '<a id="l" href="#kp-%zz">x</a>';
+    document.body.append(body);
+    const ev = new MouseEvent("click", { bubbles: true, cancelable: true });
+    const link = body.querySelector("a") as HTMLAnchorElement;
+    Object.defineProperty(ev, "target", { value: link });
+    expect(() => handleArticleClick(ev, body, null, false)).not.toThrow();
+    expect(ev.defaultPrevented).toBe(true);
+    body.remove();
   });
 });

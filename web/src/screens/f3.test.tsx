@@ -421,6 +421,29 @@ describe("Folders and OPML", () => {
     expect(post?.url.searchParams.get("mark_read_older_than_days")).toBe("7");
   });
 
+  it("does not restrict the picker to types iOS may not know, and checks the file itself", async () => {
+    const { calls } = base({ "POST /api/opml": () => json({ folders_created: 0, feeds_added: 1, feeds_existing: [], folders_merged_case: [], memberships_dropped: [] }) });
+    go("/feeds");
+    // A real browser treats */* as anything; user-event does not, so it is told not to filter.
+    const user = userEvent.setup({ applyAccept: false });
+    await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Import OPML" }));
+    const dlg = await screen.findByRole("dialog", { name: "Import OPML" });
+    const pick = within(dlg).getByLabelText("OPML file");
+    expect(pick.getAttribute("accept")).toContain("*/*");
+    // Not OPML at all: a clear message, and Import stays off.
+    await user.upload(pick, new File(["just some notes"], "notes.txt", { type: "text/plain" }));
+    expect(await within(dlg).findByText(/doesn.t look like an OPML file/)).toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: "Import" })).toBeDisabled();
+    // No extension but XML inside (iOS Files can hand over such a name): accepted.
+    await user.upload(pick, new File(['<?xml version="1.0"?><opml version="2.0"/>'], "subscriptions", { type: "" }));
+    await waitFor(() => expect(within(dlg).getByRole("button", { name: "Import" })).toBeEnabled());
+    expect(within(dlg).queryByText(/doesn.t look like an OPML file/)).toBeNull();
+    await user.click(within(dlg).getByRole("button", { name: "Import" }));
+    await screen.findByRole("dialog", { name: "Import finished" });
+    expect(calls.some((c) => c.url.pathname === "/api/opml")).toBe(true);
+  });
+
   it("links OPML export as a plain download", async () => {
     base();
     go("/feeds");

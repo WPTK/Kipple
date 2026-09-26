@@ -15,6 +15,23 @@ export function opmlError(e: unknown): string {
   return errorMessage(e);
 }
 
+/**
+ * iOS greys out files whose type it cannot map from `accept` (an `.opml` export often has no registered
+ * type), so the picker accepts everything and the file is checked here instead: by extension, else by
+ * whether it opens like XML. Returns an error message, or null when it looks like OPML.
+ */
+export async function opmlFileProblem(file: File): Promise<string | null> {
+  if (/\.(opml|xml)$/i.test(file.name)) return null;
+  let head = "";
+  try {
+    head = await file.slice(0, 512).text();
+  } catch {
+    /* unreadable: fall through to the message */
+  }
+  if (/^[\s﻿]*<(\?xml|opml)/i.test(head)) return null;
+  return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
+}
+
 /** Import an OPML file: file picker, the mark-older-as-read option, then the result summary. */
 export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -95,8 +112,18 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
             {...a}
             ref={input}
             type="file"
-            accept=".opml,.xml,text/xml,application/xml,text/x-opml"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            accept=".opml,.xml,text/xml,application/xml,text/x-opml,*/*"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              setResult(null);
+              setError(null);
+              setFile(null);
+              if (!f) return;
+              void opmlFileProblem(f).then((problem) => {
+                if (problem) setError(problem);
+                else setFile(f);
+              });
+            }}
             className={`${inputCls} py-2`}
           />
         )}
