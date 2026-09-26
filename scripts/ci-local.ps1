@@ -35,13 +35,17 @@ function Step([string]$Group, [string]$Name, [scriptblock]$Body) {
 
 # ---- go ----
 Step 'go' 'gofmt (LF-normalized)' {
-  $bad = @()
+  # CRLF working copies hide gofmt failures, so check LF copies. Bytes, not text, so nothing else changes.
+  $tmp = Join-Path $env:TEMP 'kipple-gofmt-check'
+  Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
   foreach ($f in (git ls-files '*.go')) {
-    $txt = (Get-Content -LiteralPath $f -Raw) -replace "`r`n", "`n"
-    $out = $txt | gofmt -l 2>&1
-    if ($out) { $bad += $f }
+    $dest = Join-Path $tmp $f
+    New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+    $text = [System.IO.File]::ReadAllText((Join-Path $root $f)).Replace("`r`n", "`n")
+    [System.IO.File]::WriteAllText($dest, $text, (New-Object System.Text.UTF8Encoding($false)))
   }
-  if ($bad) { Write-Host "gofmt needed on:`n$($bad -join "`n")"; $global:LASTEXITCODE = 1 }
+  $bad = gofmt -l $tmp
+  if ($bad) { Write-Host "gofmt needed on:`n$($bad -join "`n")"; $global:LASTEXITCODE = 1 } else { $global:LASTEXITCODE = 0 }
 }
 Step 'go' 'go vet' { go vet ./... }
 Step 'go' 'go test (shuffled, no -race)' { go test -shuffle=on -timeout 15m ./... }
@@ -51,8 +55,15 @@ Step 'security' 'govulncheck' { go run "golang.org/x/vuln/cmd/govulncheck@$Govul
 Step 'security' 'staticcheck' { go run "honnef.co/go/tools/cmd/staticcheck@$StaticcheckVersion" ./... }
 Step 'security' 'gosec (gate: high severity, high confidence)' { go run "github.com/securego/gosec/v2/cmd/gosec@$GosecVersion" -quiet -severity high -confidence high ./... }
 Step 'security' 'gitleaks (git history)' {
-  # The workflow runs the release binary; here the official image reads the repo read-only.
-  docker run --rm -v "${root}:/repo:ro" "zricethezav/gitleaks:v$GitleaksVersion" git /repo --no-banner --redact
+  # The workflow runs the release binary on a checkout. Here the official image scans a fresh local clone of the
+  # whole history (a git worktree's .git is a pointer file the container cannot follow, which scans nothing).
+  $clone = Join-Path $env:TEMP 'kipple-gitleaks-clone'
+  Remove-Item -Recurse -Force $clone -ErrorAction SilentlyContinue
+  git clone --quiet --no-hardlinks --mirror $root $clone
+  docker run --rm -v "${clone}:/repo:ro" "zricethezav/gitleaks:v$GitleaksVersion" git /repo --no-banner --redact
+  $code = $LASTEXITCODE
+  Remove-Item -Recurse -Force $clone -ErrorAction SilentlyContinue
+  $global:LASTEXITCODE = $code
 }
 
 # ---- web ----

@@ -46,11 +46,11 @@ func probeHealth(addr string, timeout time.Duration) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil) // #nosec G704 -- loopback probe of this process's own listener; the host is forced to 127.0.0.1 and only the port comes from KIPPLE_ADDR
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req)
+	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req) // #nosec G704 -- same loopback probe, see above
 	if err != nil {
 		return fmt.Errorf("unhealthy: %w", err)
 	}
