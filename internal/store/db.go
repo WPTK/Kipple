@@ -67,6 +67,12 @@ type DB struct {
 	fcache    filterCache
 	// testFilterTxHook, when set by a test, runs at the end of every filter write's transaction.
 	testFilterTxHook func()
+	// Ingest test hooks (tests only, set before use): testAfterPreEval runs between a chunk's
+	// pre-transaction filter evaluation and its transaction; testTxMatch runs whenever the rules
+	// are evaluated inside the transaction; testNoPreEval skips the pre-transaction evaluation.
+	testAfterPreEval func()
+	testTxMatch      func()
+	testNoPreEval    bool
 
 	// ftPend is the set of items queued for ingest extraction (the Reader hold).
 	ftPend ftPending

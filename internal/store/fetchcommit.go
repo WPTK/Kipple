@@ -38,6 +38,9 @@ type CommitInfo struct {
 	Held map[string]int64
 	// Migrated is set when the commit rewrote feeds.url (design §4.7).
 	Migrated bool
+	// TrimPending is set when the retention trim filled its bounded batch, so the
+	// feed may still hold more than its cap; the scheduler queues a trim job for it.
+	TrimPending bool
 	// Stale is set when the feed's URL changed under the fetch and nothing (or,
 	// for a chunked commit, only the chunks before the change) was
 	// written.
@@ -56,6 +59,7 @@ type commitState struct {
 	initRead   int
 	seenTomb   int
 	trimmed    int64
+	trimMore   bool // the trim filled its batch: more may be left to trim
 	notes      []string
 	mutedIDs   []int64
 	held       []heldItem // marked pending, in insert order
@@ -115,7 +119,7 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 				held[h.uid] = h.id
 			}
 		}
-		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale,
+		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale, TrimPending: st.trimMore,
 			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred, Held: held}
 	}
 	for i, ch := range chunks {
@@ -131,7 +135,17 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 }
 
 // commitChunk runs one chunk under its own bounded context.
+//
+// The filter rules are evaluated for the chunk's new items first, on the reader and
+// outside the gate (preEvaluate); the transaction only applies those results.
 func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item, last bool, st *commitState, perChunk time.Duration) error {
+	var pre *preEval
+	if !d.testNoPreEval {
+		pre = d.preEvaluate(ctx, res, ch)
+	}
+	if h := d.testAfterPreEval; h != nil {
+		h()
+	}
 	cctx, cancel := context.WithTimeout(ctx, perChunk)
 	defer cancel()
 	release, err := d.AcquireGate(cctx)
@@ -141,7 +155,7 @@ func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item
 	defer release()
 	saved := *st
 	err = d.WithWrite(cctx, func(ctx context.Context, tx *sql.Tx) error {
-		return d.commitTx(ctx, tx, res, ch, last, st)
+		return d.commitTx(ctx, tx, res, ch, last, st, pre)
 	})
 	if err != nil {
 		// The transaction rolled back: its items never became visible, so drop
@@ -194,7 +208,7 @@ type existingRow struct {
 	wordCount             int
 }
 
-func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, last bool, st *commitState) error {
+func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, last bool, st *commitState, pre *preEval) error {
 	feedID := res.Snap.ID
 	now := d.clock.Now().Unix()
 	// A URL edit that landed while this fetch was in flight makes its result
@@ -223,7 +237,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	}
 
 	if len(items) > 0 {
-		if err := d.applyItems(ctx, tx, res, items, first && last, now, st); err != nil {
+		if err := d.applyItems(ctx, tx, res, items, first && last, now, st, pre); err != nil {
 			return err
 		}
 	}
@@ -236,8 +250,10 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	}
 
 	// --- last chunk: trim, bookkeeping, log ---
+	// One bounded batch; a larger backlog is reported (CommitInfo.TrimPending) for the
+	// scheduler to finish with trim jobs rather than holding the writer here.
 	var err error
-	if st.trimmed, err = trimFeed(ctx, tx, feedID, now, st.firstNewID); err != nil {
+	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, st.firstNewID, trimBatch); err != nil {
 		return err
 	}
 
@@ -312,7 +328,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 }
 
 // applyItems classifies, updates and inserts one chunk of items.
-func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, single bool, now int64, st *commitState) error {
+func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, single bool, now int64, st *commitState, pre *preEval) error {
 	feedID := res.Snap.ID
 	uids := make([]string, len(items))
 	for i, it := range items {
@@ -389,6 +405,9 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		if err != nil {
 			return err
 		}
+		// The rules' results were computed before this transaction when they still hold
+		// (preEval.usable); only an item they do not cover is matched here.
+		preRes := pre.usable(fe)
 		hits := map[int64]int{}
 		insItem, err := tx.PrepareContext(ctx, `INSERT INTO items
 			(id, feed_id, uid, url, title, author, image_url, word_count, content_hash, text_hash,
@@ -423,7 +442,14 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 			var starred, mutedBy, mutedWasRead, starredAt any
 			baseRead := read
 			if fe != nil {
-				v := fe.eval(it, read == 1, hits)
+				r, ok := preRes[it.UID]
+				if !ok {
+					if h := d.testTxMatch; h != nil {
+						h()
+					}
+					r = fe.match(it)
+				}
+				v := fe.apply(r, read == 1, hits)
 				if v.read {
 					read = 1
 				}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -156,6 +157,10 @@ func (d *DB) GetFilter(ctx context.Context, id int64) (Filter, bool, error) {
 type filterSet struct {
 	set     *filter.Set
 	actions map[int64]filter.Action
+	// src is the rule list the set was compiled from (invalid rules included). Two sets
+	// compiled from equal lists decide every item alike, which is how the ingest path tells
+	// whether verdicts computed before its write transaction still hold (preEval.usable).
+	src []filter.Rule
 }
 
 // filterCache holds the compiled set for the generation it was built at. Every
@@ -165,6 +170,7 @@ type filterSet struct {
 // ingest path), and write transactions are serialized, so a load either ran before the filter
 // write's transaction began (old rows, old generation) or after it committed (new generation):
 // a fetch commit that takes the writer right after a filter write can never use the stale set.
+// The pre-transaction evaluation (preEvaluate) may read the cached set but never stores one.
 type filterCache struct {
 	mu  sync.Mutex
 	gen uint64
@@ -209,6 +215,7 @@ func (d *DB) filters(ctx context.Context, q Querier) *filterSet {
 // compileSkippingBad builds the set; a rule that no longer validates (a stored
 // row from another version) is logged and dropped rather than failing every fetch.
 func (d *DB) compileSkippingBad(rules []filter.Rule) *filterSet {
+	src := rules // the removal below always copies (capped slice), so src stays whole
 	for {
 		set, err := filter.NewSet(rules)
 		if err == nil {
@@ -216,12 +223,12 @@ func (d *DB) compileSkippingBad(rules []filter.Rule) *filterSet {
 			for _, r := range rules {
 				acts[r.ID] = r.Action
 			}
-			return &filterSet{set: set, actions: acts}
+			return &filterSet{set: set, actions: acts, src: src}
 		}
 		var se *filter.SetError
 		if !errors.As(err, &se) || se.Index < 0 || se.Index >= len(rules) {
 			d.log.Warn("store: compile filters; ingesting without them", "err", err)
-			return &filterSet{set: nil, actions: nil}
+			return &filterSet{set: nil, actions: nil, src: src}
 		}
 		d.log.Warn("store: skipping an invalid stored filter", "filter", se.RuleID, "err", err)
 		rules = append(rules[:se.Index:se.Index], rules[se.Index+1:]...)
@@ -621,6 +628,7 @@ func (d *DB) Highlights(ctx context.Context) ([]Highlight, error) {
 // ingestEval evaluates the fresh items of one feed commit.
 type ingestEval struct {
 	fs        *filterSet
+	gen       uint64 // the filter generation fs belongs to
 	feedID    int64
 	folderID  int64
 	feedTitle string
@@ -628,17 +636,159 @@ type ingestEval struct {
 
 // newIngestEval loads what the rules need to know about the feed. It returns nil
 // when there is nothing to evaluate (no rules), which is the common case and costs
-// an atomic load.
+// an atomic load. It runs inside the write transaction, where the generation cannot
+// move (filter writes bump it inside their own write transactions).
 func (d *DB) newIngestEval(ctx context.Context, tx *sql.Tx, feedID int64, docTitle string) (*ingestEval, error) {
+	g := d.filterGen.Load()
 	fs := d.filters(ctx, tx)
 	if fs == nil || fs.set.Len() == 0 {
 		return nil, nil
 	}
-	e := &ingestEval{fs: fs, feedID: feedID}
+	e := &ingestEval{fs: fs, gen: g, feedID: feedID}
 	if err := e.loadFeed(ctx, tx, docTitle); err != nil {
 		return nil, err
 	}
 	return e, nil
+}
+
+// ---- evaluation before the write transaction ----
+
+// preEval holds the rule results of a chunk's fresh candidates, computed on the reader
+// before the chunk's write transaction, so the regex work (up to ~180 ms an item in the
+// worst case) never runs while the single writer is held. The transaction applies them
+// only when they provably match what it would compute itself (usable); otherwise it
+// evaluates as before.
+type preEval struct {
+	gen       uint64 // the filter generation read before the rules were loaded
+	fs        *filterSet
+	folderID  int64
+	feedTitle string
+	results   map[string]filter.Result // by uid
+}
+
+// preEvaluate evaluates the rules for the items of one chunk that the reader does not know
+// yet (neither live nor in the ledger). It returns nil when there are no rules or anything
+// fails: the transaction then evaluates on its own, exactly as without this step.
+//
+// The set is the ingest cache's when that is current (built inside a write transaction, so
+// it is exact for its generation), else one compiled from the reader and never cached (a
+// reader can see the rows from before a filter write that already bumped the generation;
+// usable catches that by comparing the rule lists).
+func (d *DB) preEvaluate(ctx context.Context, res *fetch.Result, items []fetch.Item) *preEval {
+	if len(items) == 0 {
+		return nil
+	}
+	g := d.filterGen.Load()
+	fs := d.cachedFilters(g)
+	if fs == nil {
+		var err error
+		if fs, err = d.readerFilters(ctx); err != nil {
+			d.log.Debug("store: pre-evaluate filters; evaluating in the transaction", "feed", res.Snap.ID, "err", err)
+			return nil
+		}
+	}
+	if fs.set.Len() == 0 {
+		return nil
+	}
+	docTitle := ""
+	if res.Feed != nil {
+		docTitle = res.Feed.Title
+	}
+	e := &ingestEval{fs: fs, gen: g, feedID: res.Snap.ID}
+	if err := e.loadFeed(ctx, d.reader, docTitle); err != nil {
+		d.log.Debug("store: pre-evaluate filters; evaluating in the transaction", "feed", res.Snap.ID, "err", err)
+		return nil
+	}
+	known, err := d.knownUIDs(ctx, res.Snap.ID, items)
+	if err != nil {
+		d.log.Debug("store: pre-evaluate filters; evaluating in the transaction", "feed", res.Snap.ID, "err", err)
+		return nil
+	}
+	p := &preEval{gen: g, fs: fs, folderID: e.folderID, feedTitle: e.feedTitle, results: map[string]filter.Result{}}
+	seen := make(map[string]bool, len(items))
+	for _, it := range items {
+		if known[it.UID] {
+			continue
+		}
+		if seen[it.UID] {
+			delete(p.results, it.UID) // a uid repeated in the chunk is left to the transaction
+			continue
+		}
+		seen[it.UID] = true
+		if ctx.Err() != nil {
+			return nil
+		}
+		p.results[it.UID] = e.match(it)
+	}
+	return p
+}
+
+// cachedFilters returns the ingest cache's set when it is current at generation g, else nil.
+func (d *DB) cachedFilters(g uint64) *filterSet {
+	d.fcache.mu.Lock()
+	defer d.fcache.mu.Unlock()
+	if d.fcache.ok && d.fcache.gen == g {
+		return d.fcache.set
+	}
+	return nil
+}
+
+// readerFilters compiles the current rules from the reader pool (never cached).
+func (d *DB) readerFilters(ctx context.Context) (*filterSet, error) {
+	all, err := loadFilters(ctx, d.reader)
+	if err != nil {
+		return nil, err
+	}
+	rules := make([]filter.Rule, len(all))
+	for i, f := range all {
+		rules[i] = f.Rule()
+	}
+	return d.compileSkippingBad(rules), nil
+}
+
+// knownUIDs returns the uids of items this feed already has, live or trimmed, as the reader
+// sees them. A stale answer only moves work: an item missed here is evaluated in the
+// transaction, a result for an item that turns out to exist is never used.
+func (d *DB) knownUIDs(ctx context.Context, feedID int64, items []fetch.Item) (map[string]bool, error) {
+	uids := make([]string, len(items))
+	for i, it := range items {
+		uids[i] = it.UID
+	}
+	b, err := jsonText(uids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := d.reader.QueryContext(ctx, `WITH u(uid) AS MATERIALIZED (SELECT value FROM json_each(?2))
+		SELECT uid FROM items WHERE feed_id = ?1 AND uid IN (SELECT uid FROM u)
+		UNION ALL
+		SELECT uid FROM trimmed_items WHERE feed_id = ?1 AND uid IN (SELECT uid FROM u)`, feedID, b)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		out[uid] = true
+	}
+	return out, rows.Err()
+}
+
+// usable returns the pre-computed results when the transaction's evaluator e would decide
+// every item exactly as they say: same filter generation, the same rules (the very cached set,
+// or a set compiled from an equal rule list) and the same folder and feed title. Otherwise nil,
+// and the transaction evaluates itself, as it always did.
+func (p *preEval) usable(e *ingestEval) map[string]filter.Result {
+	if p == nil || e == nil || p.gen != e.gen || p.folderID != e.folderID || p.feedTitle != e.feedTitle {
+		return nil
+	}
+	if p.fs != e.fs && !reflect.DeepEqual(p.fs.src, e.fs.src) {
+		return nil
+	}
+	return p.results
 }
 
 // loadFeed fills the folder and the title a rule's `feed` field sees: feedTitleSQL, except that a
@@ -672,9 +822,20 @@ type ingestVerdict struct {
 // eval decides one fresh item. baseRead is its read state before any rule (initial-read window,
 // rekey leftover). hits accumulates the per-rule counts of matches whose action took effect.
 func (e *ingestEval) eval(it fetch.Item, baseRead bool, hits map[int64]int) ingestVerdict {
-	v := ingestVerdict{read: baseRead}
-	res := e.fs.set.Evaluate(filter.Item{FeedID: e.feedID, FolderID: e.folderID, FeedTitle: e.feedTitle,
+	return e.apply(e.match(it), baseRead, hits)
+}
+
+// match runs the rules over one item: the expensive part (the regex and text matching),
+// which depends on nothing but the item, the rules, the folder and the feed title.
+func (e *ingestEval) match(it fetch.Item) filter.Result {
+	return e.fs.set.Evaluate(filter.Item{FeedID: e.feedID, FolderID: e.folderID, FeedTitle: e.feedTitle,
 		Title: it.Title, Author: it.Author, URL: it.URL, Content: it.ContentText, Categories: it.Categories})
+}
+
+// apply turns a match result into the item's verdict and hit counts: the cheap part, which
+// depends on the item's read state before the rules (known only inside the transaction).
+func (e *ingestEval) apply(res filter.Result, baseRead bool, hits map[int64]int) ingestVerdict {
+	v := ingestVerdict{read: baseRead}
 	if !res.Any() {
 		return v
 	}
@@ -728,15 +889,10 @@ func (d *DB) MutedUIDs(ctx context.Context, feedID int64, docTitle string, items
 	if err := d.reader.QueryRowContext(ctx, "SELECT count(*) FROM filters WHERE enabled = 1 AND action = 'mute'").Scan(&n); err != nil || n == 0 {
 		return nil, err
 	}
-	all, err := loadFilters(ctx, d.reader)
+	cs, err := d.readerFilters(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rules := make([]filter.Rule, len(all))
-	for i, f := range all {
-		rules[i] = f.Rule()
-	}
-	cs := d.compileSkippingBad(rules)
 	if cs.set == nil || cs.set.Len() == 0 {
 		return nil, nil
 	}
