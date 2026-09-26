@@ -82,21 +82,39 @@ func TestStateChangedAtIngestAndItemState(t *testing.T) {
 	step := func() int64 { e.clk.Advance(time.Minute); return e.clk.Now().Unix() }
 
 	t1 := step()
-	e.write(func(ctx context.Context, tx *sql.Tx) error { _, err := SetRead(ctx, tx, []int64{p(2)}, true, t1); return err })
+	e.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := SetRead(ctx, tx, []int64{p(2)}, true, t1)
+		return err
+	})
 	require.Equal(t, t1, e.sca(p(2)), "read")
 	t2 := step()
-	e.write(func(ctx context.Context, tx *sql.Tx) error { _, err := SetRead(ctx, tx, []int64{p(2)}, true, t2); return err })
+	e.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := SetRead(ctx, tx, []int64{p(2)}, true, t2)
+		return err
+	})
 	require.Equal(t, t1, e.sca(p(2)), "a replayed read is a no-op")
-	e.write(func(ctx context.Context, tx *sql.Tx) error { _, err := SetRead(ctx, tx, []int64{p(2)}, false, t2); return err })
+	e.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := SetRead(ctx, tx, []int64{p(2)}, false, t2)
+		return err
+	})
 	require.Equal(t, t2, e.sca(p(2)), "unread")
 
 	t3 := step()
-	e.write(func(ctx context.Context, tx *sql.Tx) error { _, err := SetStarred(ctx, tx, []int64{p(3)}, true, t3); return err })
+	e.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := SetStarred(ctx, tx, []int64{p(3)}, true, t3)
+		return err
+	})
 	require.Equal(t, t3, e.sca(p(3)), "star")
 	t4 := step()
-	e.write(func(ctx context.Context, tx *sql.Tx) error { _, err := SetStarred(ctx, tx, []int64{p(3)}, false, t4); return err })
+	e.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := SetStarred(ctx, tx, []int64{p(3)}, false, t4)
+		return err
+	})
 	require.Equal(t, t4, e.sca(p(3)), "unstar")
-	e.write(func(ctx context.Context, tx *sql.Tx) error { _, err := SetStarred(ctx, tx, []int64{p(3)}, false, step()); return err })
+	e.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := SetStarred(ctx, tx, []int64{p(3)}, false, step())
+		return err
+	})
 	require.Equal(t, t4, e.sca(p(3)), "a replayed unstar is a no-op")
 
 	// A replayed offline star keeps its own time in starred_at; the change time is now.
@@ -119,7 +137,10 @@ func TestStateChangedAtIngestAndItemState(t *testing.T) {
 	require.Zero(t, e.sca(e.idByTitle("readme 1")), "already read: untouched")
 
 	// The UI's scoped mark goes through SetRead.
-	e.write(func(ctx context.Context, tx *sql.Tx) error { _, err := SetRead(ctx, tx, []int64{p(5), p(6)}, false, t6); return err })
+	e.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := SetRead(ctx, tx, []int64{p(5), p(6)}, false, t6)
+		return err
+	})
 	t7 := step()
 	e.write(func(ctx context.Context, tx *sql.Tx) error {
 		_, err := MarkScopeRead(ctx, tx, MarkScope{FeedID: fid}, MarkFilter{}, math.MaxInt64, t7)
@@ -134,7 +155,10 @@ func TestStateChangedAtIngestAndItemState(t *testing.T) {
 	e.trimWithStub(id6)
 	var res StateResult
 	t8 := step()
-	e.write(func(ctx context.Context, tx *sql.Tx) (err error) { res, err = SetRead(ctx, tx, []int64{id5}, false, t8); return err })
+	e.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		res, err = SetRead(ctx, tx, []int64{id5}, false, t8)
+		return err
+	})
 	require.Equal(t, []int64{id5}, res.Restored)
 	require.Equal(t, t8, e.sca(id5))
 	t9 := step()
@@ -154,7 +178,10 @@ func TestStateChangedAtFilterMuteAndUnmute(t *testing.T) {
 	e.seedRetro(10) // spam 0,2,4,6,8; ham 1,3,5,7,9
 	t0 := e.clk.Now().Unix()
 	pre := e.idByTitle("spam 0")
-	e.write(func(ctx context.Context, tx *sql.Tx) error { _, err := SetRead(ctx, tx, []int64{pre}, true, t0); return err })
+	e.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := SetRead(ctx, tx, []int64{pre}, true, t0)
+		return err
+	})
 
 	e.clk.Advance(time.Minute)
 	t1 := e.clk.Now().Unix()
@@ -269,7 +296,10 @@ func TestMigration0007OnPopulatedSchema6(t *testing.T) {
 
 	// The new code paths and the FTS triggers work on the migrated file.
 	id := int64(e.count("SELECT min(id) FROM items WHERE read = 0"))
-	e.write(func(ctx context.Context, tx *sql.Tx) error { _, err := SetRead(ctx, tx, []int64{id}, true, 999); return err })
+	e.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := SetRead(ctx, tx, []int64{id}, true, 999)
+		return err
+	})
 	require.EqualValues(t, 999, e.sca(id))
 	e.exec("UPDATE items SET title = 'zebra crossing' WHERE id = ?", id)
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items_fts WHERE items_fts MATCH 'zebra'"))
