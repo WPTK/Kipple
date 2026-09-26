@@ -984,8 +984,9 @@ current_delay_s = d
 On success:
 
 ```
-hint_s        = fetch.honor_publisher_ttl ? max(RSS <ttl>×60, Cache-Control s-maxage (else max-age) − Age, Expires − now, 0) : 0
-              (an unparseable Expires contributes nothing)
+hint_s        = fetch.honor_publisher_ttl ? max(RSS <ttl>×60, Cache-Control s-maxage (else max-age) − Age, Expires − Date, 0) : 0
+              (Date is the response's own Date header, so a publisher clock that is off cancels out;
+               without a valid Date it is now. An unparseable Expires contributes nothing)
               (a response with Cache-Control no-cache, no-store or private contributes only the RSS <ttl>)
 d             = round(max(interval_s, min(hint_s, 86400)) × U(0.95, 1.05))
 next_fetch_at = now + d;  ttl_hint_s = hint_s;  current_delay_s = d
