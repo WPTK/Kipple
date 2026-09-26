@@ -58,6 +58,12 @@ func TestHTMLGetsThePageCSPModeDependent(t *testing.T) {
 	require.NotContains(t, csp, "upgrade-insecure-requests", "plain-http LAN visits must keep working")
 	require.Contains(t, rec.Header().Get("Permissions-Policy"), "camera=()")
 	require.Contains(t, rec.Header().Get("Permissions-Policy"), `fullscreen=(self "https://www.youtube-nocookie.com"`)
+	pp := rec.Header().Get("Permissions-Policy")
+	embeds := `self "https://www.youtube-nocookie.com" "https://player.vimeo.com"`
+	for _, f := range []string{"autoplay", "fullscreen", "picture-in-picture"} {
+		require.Contains(t, pp, f+"=("+embeds+")", f+" must reach the tap-to-load embeds")
+	}
+	require.NotContains(t, pp, "autoplay=()")
 	require.Equal(t, "same-origin", rec.Header().Get("Cross-Origin-Opener-Policy"))
 
 	mode = "all" // read per response: a settings change applies at once

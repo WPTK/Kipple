@@ -1904,9 +1904,9 @@ are chosen when the response starts, from its `Content-Type`, so there is no rou
 - `upgrade-insecure-requests` and `Strict-Transport-Security: max-age=31536000` are sent only when the effective scheme
   is https (TLS, or a trusted proxy's `X-Forwarded-Proto`). Over plain http (a LAN visit) the upgrade would break the page.
 - All responses: `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`. HTML also
-  gets `Permissions-Policy` (camera, microphone, geolocation and others off; `autoplay=()`;
-  `fullscreen=(self "https://www.youtube-nocookie.com" "https://player.vimeo.com")`;
-  `picture-in-picture=(self "https://www.youtube-nocookie.com")`, never Vimeo) and `Cross-Origin-Opener-Policy: same-origin`. `/api/*` and `/img/*` responses (every one, not only cache hits) get `Cross-Origin-Resource-Policy: same-origin`.
+  gets `Permissions-Policy` (camera, microphone, geolocation and others off; `autoplay`, `fullscreen` and
+  `picture-in-picture` allowed only for self and the two embed origins, `https://www.youtube-nocookie.com` and
+  `https://player.vimeo.com`) and `Cross-Origin-Opener-Policy: same-origin`. `/api/*` and `/img/*` responses (every one, not only cache hits) get `Cross-Origin-Resource-Policy: same-origin`.
 - `script-src 'self'` is the control that matters: no inline script anywhere. `/_status` loads its script from
   `/_status.js`; the SPA's theme boot script is an emitted file under `/assets/`. `style-src 'unsafe-inline'` stays for
   Radix, shadcn and `react-remove-scroll`, which inject styles.

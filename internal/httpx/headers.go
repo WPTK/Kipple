@@ -31,9 +31,10 @@ const (
 	cspFrameOnly = "frame-ancestors 'none'"
 
 	permissionsPolicy = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), serial=(), hid=(), " +
-		"browsing-topics=(), interest-cohort=(), autoplay=(), " +
+		"browsing-topics=(), interest-cohort=(), " +
+		`autoplay=(self "` + youtubeHost + `" "` + vimeoHost + `"), ` +
 		`fullscreen=(self "` + youtubeHost + `" "` + vimeoHost + `"), ` +
-		`picture-in-picture=(self "` + youtubeHost + `")`
+		`picture-in-picture=(self "` + youtubeHost + `" "` + vimeoHost + `")`
 )
 
 // PageCSP is the policy for HTML (the SPA and /_status). imgMode is the
