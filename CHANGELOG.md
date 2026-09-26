@@ -172,6 +172,10 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- Undo of a mark-read after opening an article on a phone now brings the row back; a saved "shortcuts off" from a touch device no longer blocks the hardware-keyboard auto-enable.
+- Press-and-hold drag on feed rows works on touch (needs real-device confirmation); keyboard and button reorder keep focus; a focused Settings switch stays in view.
+- Favorites keep syncing after a rejected save (latest save wins; a failure reverts only favorites); column resizing is smooth, saves on release, and can't squeeze the article below 320 px; Editorial's row-height estimate follows the list width.
+
 - Review fixes for the full-text and favorites backend: `fetch.fulltext_all` (and the image mode) can no longer be pinned to the wrong value by one cancelled request (a failed load is never cached and loads on a detached 5 s context); merging a label into another and deleting a label from a Reader client now drop its favorite like every other delete path; favorite ids must be positive int64s and are stored canonically (`"007"` is `"7"`, `"0"` is refused, repeats in either spelling are refused), and stored lists are normalised on read; an article whose fetch snapshotted the mode before the switch or feed flag changed is now queued (and left alone when turned off) according to the current mode; the Reader API now holds only articles that are really pending in the extraction pool, so deferred ones are served at once instead of waiting 30 s for text that never comes; with the switch on the per-fetch cap is 50 and the queue 2000 (still 4 at a time, 2 per host); `stream/items/contents` reads the switch once per request; the pool concurrency test no longer depends on sleep timing.
 - A right swipe from an open trailing panel now closes it and commits Read/Unread instead of snapping back.
 
