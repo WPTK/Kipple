@@ -1,11 +1,12 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { remeasureMounted } from "@/lib/remeasure";
 import { useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
-import { ApiError } from "@/api/client";
-import { applyRead, flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
+import { ApiError, SESSION_EXPIRED } from "@/api/client";
+import { offlineStore } from "@/lib/offlineState";
+import { applyRead, changeError, flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
 import { clearPending, liveStore, pendingFor } from "@/api/events";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, Feed, Scope } from "@/api/types";
@@ -26,11 +27,56 @@ import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
-import { announce } from "@/shell/toasts";
+import { announce, toast } from "@/shell/toasts";
 import { openExternal } from "@/lib/links";
+import { safeHttpUrl } from "@/lib/safeUrl";
 import { copyLink, shareLink } from "@/lib/share";
 import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { useWidth } from "@/lib/useWidth";
+import type { LinkTarget } from "@/lib/devicePrefs";
+
+/** Open an article's original page, only when its address is plain http or https (it comes from the feed). */
+function openOriginalUrl(url: string, target?: LinkTarget): void {
+  const safe = safeHttpUrl(url);
+  if (safe) openExternal(safe, target);
+}
+
+/** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
+export const SCROLL_RETRY_MS = 30_000;
+/** A failure streak of mark-read-on-scroll: told once, and retried only after a pause. */
+const scrollFailure = { streak: false, until: 0 };
+/** Tests: forget an earlier failure. */
+export function resetScrollReadForTests(): void {
+  scrollFailure.streak = false;
+  scrollFailure.until = 0;
+}
+
+/**
+ * Mark-read-on-scroll: send the unread rows that scrolled past, each once. `sent` remembers them while the request
+ * is out (so the next settle does not send them twice). A request that fails forgets them again, so a later scroll
+ * retries instead of leaving them unread for good, but not at once: every scroll pause would send and fail again,
+ * flipping the rows between read and unread. Scrolling sends nothing for SCROLL_RETRY_MS after a failure, and a
+ * streak of failures is told once. An expired sign-in is not retried at all: only a reload helps, and the notice at
+ * the top says so.
+ */
+export async function markScrolledPast(qc: QueryClient, passed: Card[], sent: Set<string>, now = Date.now()): Promise<void> {
+  if (offlineStore.get().sessionExpired || now < scrollFailure.until) return;
+  const ids = passed.filter((i) => !i.read && !sent.has(i.id)).map((i) => i.id);
+  if (ids.length === 0) return;
+  ids.forEach((id) => sent.add(id));
+  let failure: unknown;
+  const res = await applyRead(qc, ids, true, "scroll", { onError: (e) => (failure = e) });
+  if (res) {
+    scrollFailure.streak = false;
+    scrollFailure.until = 0;
+    return;
+  }
+  const expired = failure instanceof ApiError && (failure.code === SESSION_EXPIRED || failure.status === 401);
+  if (!expired) ids.forEach((id) => sent.delete(id));
+  scrollFailure.until = now + SCROLL_RETRY_MS;
+  if (!scrollFailure.streak) toast(changeError(failure), "error");
+  scrollFailure.streak = true;
+}
 
 // Scroll and selection memory per list, so "back" lands where you were
 // (design 3.4: one restore path). Module scope: survives route changes.
@@ -322,14 +368,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     let timer: ReturnType<typeof setTimeout> | undefined;
     const flush = () => {
       const start = virtualizer.range?.startIndex ?? 0;
-      const ids: string[] = [];
-      for (const r of rowsRef.current.slice(0, start)) {
-        const list = r.kind === "item" ? [r.item] : r.kind === "group" ? r.items : [];
-        for (const i of list) if (!i.read && !sentByScroll.current.has(i.id)) ids.push(i.id);
-      }
-      if (ids.length === 0) return;
-      ids.forEach((id) => sentByScroll.current.add(id));
-      void applyRead(qc, ids, true, "scroll");
+      const passed = rowsRef.current.slice(0, start).flatMap((r) => (r.kind === "item" ? [r.item] : r.kind === "group" ? r.items : []));
+      void markScrolledPast(qc, passed, sentByScroll.current);
     };
     const onScroll = () => {
       if (timer) clearTimeout(timer);
@@ -526,7 +566,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       toggleStar: (item) => void act.toggleStar(item),
       markAbove: (item) => range(item, "above"),
       markBelow: (item) => range(item, "below"),
-      openOriginal: (item) => openExternal(item.url),
+      openOriginal: (item) => openOriginalUrl(item.url),
       copyLink: (item) => void copyLink(item.url),
       share: (item) => void shareLink(item),
       muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedById.get(item.feed_id)?.title) }),
@@ -557,9 +597,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         openItem(selectedItem);
         navigate(articleTo(selectedItem.id, scope), { state: { via: "key" } });
       },
-      original: () => selectedItem && openExternal(selectedItem.url),
+      original: () => selectedItem && openOriginalUrl(selectedItem.url),
       // A background tab is a browser decision; window.open is the best a page can do.
-      background: () => selectedItem && openExternal(selectedItem.url, "new"),
+      background: () => selectedItem && openOriginalUrl(selectedItem.url, "new"),
       star: () => {
         const t = targets();
         if (t.length === 0) return;

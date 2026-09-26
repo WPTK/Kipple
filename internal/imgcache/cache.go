@@ -68,6 +68,8 @@ const (
 	filesSubdir        = "v1"
 	maxHintHostLen     = 253
 	maxStoredURLLength = 4096
+	blockSize          = 4096  // the least a cached file costs on disk
+	maxHostHints       = 10000 // hotlink hint rows; past that the least recently updated go
 )
 
 // Errors.
@@ -93,6 +95,11 @@ type Options struct {
 	Now         func() time.Time
 	DiskSpace   func(dir string) (free, total uint64, err error) // tests inject; default is the OS call
 	NoBackgound bool                                             // tests: no background goroutine (flush and sweep by hand)
+	// ByteAccounting charges each entry its file size alone against the cap
+	// (tests of the eviction arithmetic). By default an entry costs its size
+	// rounded up to whole 4 KiB blocks plus its URL (the index row), and the
+	// downloads in progress in tmp/ count too.
+	ByteAccounting bool
 }
 
 // Meta describes a fetched image for Commit.
@@ -132,7 +139,8 @@ func (e Entry) Fresh(now time.Time) bool { return now.Before(e.FreshUntil) }
 type Stats struct {
 	Enabled      bool
 	MaxBytes     int64
-	UsedBytes    int64
+	UsedBytes    int64 // the cached files' bytes
+	ChargedBytes int64 // what counts against MaxBytes: whole 4 KiB blocks plus URLs, and the downloads in progress
 	Files        int64
 	NegEntries   int64
 	Hits         int64
@@ -161,8 +169,11 @@ type Cache struct {
 	mu sync.Mutex // serializes every index mutation and the used/files counters
 
 	used, files, negN  atomic.Int64 // negN counts failure rows and in-progress markers
+	charged            atomic.Int64 // what the ok entries cost against the cap (cost)
+	tmpBytes           atomic.Int64 // bytes written to downloads in progress (tmp/)
 	markN              atomic.Int64 // of negN, the in-progress markers (failures are negN - markN)
 	maxNeg, maxMarkers int64        // the caps of each (maxNegEntries, maxMarkerEntries; tests lower them)
+	maxHosts           int          // the cap of the hosts table (maxHostHints; tests lower it)
 	maxBytes           atomic.Int64
 	hits, misses       atomic.Int64
 	evictions, fails   atomic.Int64
@@ -239,7 +250,7 @@ func Open(o Options) (*Cache, error) {
 		o: o, log: o.Logger, now: o.Now, dir: o.Dir,
 		filesDir: filepath.Join(o.Dir, filesSubdir), tmpDir: filepath.Join(o.Dir, tmpSubdir),
 		access: map[string]accessRec{}, flights: map[string]chan struct{}{}, since: o.Now(),
-		maxNeg: maxNegEntries, maxMarkers: maxMarkerEntries,
+		maxNeg: maxNegEntries, maxMarkers: maxMarkerEntries, maxHosts: maxHostHints,
 	}
 	if c.log == nil {
 		c.log = slog.Default()
@@ -322,6 +333,28 @@ func (c *Cache) MaxBytes() int64 { return c.maxBytes.Load() }
 
 func (c *Cache) path(key string) string { return filepath.Join(c.filesDir, key[:2], key) }
 
+// cost is what one cached file counts against the cap: its size in whole 4
+// KiB blocks (a 100-byte file still takes a block on disk) plus its URL (the
+// bulk of its index row). With ByteAccounting it is the size alone.
+func (c *Cache) cost(size int64, urlLen int) int64 {
+	if c.o.ByteAccounting {
+		return size
+	}
+	return (size+blockSize-1)/blockSize*blockSize + int64(urlLen)
+}
+
+// costSQL is cost as an SQL expression over an entries row.
+func (c *Cache) costSQL() string {
+	if c.o.ByteAccounting {
+		return "size"
+	}
+	return "((size + 4095) / 4096) * 4096 + length(CAST(url AS BLOB))"
+}
+
+// load is what counts against the cap: the cached files' cost plus the bytes
+// of the downloads in progress.
+func (c *Cache) load() int64 { return c.charged.Load() + c.tmpBytes.Load() }
+
 func validKey(k string) bool {
 	if len(k) != keyHexLen {
 		return false
@@ -396,6 +429,21 @@ func (c *Cache) Peek(ctx context.Context, key string) (Entry, bool) {
 
 // Now is the cache's clock, so freshness decisions use the same time as the index.
 func (c *Cache) Now() time.Time { return c.now() }
+
+// Touch refreshes key's LRU position without a lookup (the original behind a
+// thumbnail that was just served, so the original is not evicted long before
+// the thumbnail that needs it to be remade). It does not count as a hit.
+func (c *Cache) Touch(key string) {
+	if c.closed.Load() || !validKey(key) {
+		return
+	}
+	now := c.now()
+	c.amu.Lock()
+	r := c.access[key]
+	r.at = now.Unix()
+	c.access[key] = r
+	c.amu.Unlock()
+}
 
 func (c *Cache) touch(key string, now time.Time) {
 	c.amu.Lock()
@@ -490,7 +538,8 @@ func (c *Cache) Delete(key string) {
 func (c *Cache) dropLocked(key string, evicted bool) error {
 	var status, reason string
 	var size int64
-	err := c.wr.QueryRow("SELECT status, size, neg_reason FROM entries WHERE key = ?", key).Scan(&status, &size, &reason)
+	var urlLen int
+	err := c.wr.QueryRow("SELECT status, size, neg_reason, length(CAST(url AS BLOB)) FROM entries WHERE key = ?", key).Scan(&status, &size, &reason, &urlLen)
 	if errors.Is(err, sql.ErrNoRows) {
 		c.forgetAccess(key)
 		return nil
@@ -505,6 +554,7 @@ func (c *Cache) dropLocked(key string, evicted bool) error {
 	if status == statusOK {
 		_ = os.Remove(c.path(key)) // a failure (an open file on Windows) leaves an orphan the next start removes
 		c.used.Add(-size)
+		c.charged.Add(-c.cost(size, urlLen))
 		c.files.Add(-1)
 		if evicted {
 			c.evictions.Add(1)
@@ -624,7 +674,7 @@ func (c *Cache) SetCap(bytes int64) {
 		}
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		if c.used.Load() > bytes {
+		if c.load() > bytes {
 			c.noteEvict(c.evictLocked(c.ctx, bytes*evictTargetPct/100), "imgcache: evict after cap change")
 		}
 	}()
@@ -677,14 +727,21 @@ func (g *warnGate) reset() {
 	g.mu.Unlock()
 }
 
-// evictLocked deletes least-recently-used files until used <= target. mu is held.
-// It stops at the first index error (a full or failing disk) and on a batch
-// that frees nothing, so it can never spin while holding mu.
+// evictLocked deletes least-recently-used files until the load (their cost
+// plus the downloads in progress) is at most target. mu is held. It stops at
+// the first index error (a full or failing disk) and on a batch that frees
+// nothing, so it can never spin while holding mu.
 func (c *Cache) evictLocked(ctx context.Context, target int64) error {
 	if err := c.flushLocked(); err != nil {
 		return err
 	}
-	for c.used.Load() > target {
+	// The downloads in progress are not evictable: make room for them, but never
+	// below half the target. At a small cap a few large downloads in flight would
+	// otherwise drive the target to 0 and one eviction would empty the cache for
+	// files that may still fail or be refused; the cap is enforced again when
+	// they are committed.
+	target = max(target-c.tmpBytes.Load(), target/2)
+	for c.charged.Load() > target {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -696,10 +753,10 @@ func (c *Cache) evictLocked(ctx context.Context, target int64) error {
 			// Counters drifted (nothing left to evict): resync from the index.
 			return c.recountLocked()
 		}
-		before := c.used.Load()
+		before := c.charged.Load()
 		dropped := 0
 		for _, k := range keys {
-			if c.used.Load() <= target {
+			if c.charged.Load() <= target {
 				break
 			}
 			if err := c.dropLocked(k, true); err != nil {
@@ -707,12 +764,12 @@ func (c *Cache) evictLocked(ctx context.Context, target int64) error {
 			}
 			dropped++
 		}
-		if dropped == 0 || (c.used.Load() >= before && c.used.Load() > target) {
+		if dropped == 0 || (c.charged.Load() >= before && c.charged.Load() > target) {
 			// Rows that do not go away or free nothing: resync and stop rather than re-select them forever.
 			if err := c.recountLocked(); err != nil {
 				return err
 			}
-			if c.used.Load() > target {
+			if c.charged.Load() > target {
 				return errNoProgress
 			}
 		}
@@ -739,14 +796,15 @@ func (c *Cache) keysLocked(ctx context.Context, q string, args ...any) ([]string
 }
 
 func (c *Cache) recountLocked() error {
-	var used, files, neg int64
-	if err := c.wr.QueryRow("SELECT COALESCE(SUM(size),0), count(*) FROM entries WHERE status = 'ok'").Scan(&used, &files); err != nil {
+	var used, charged, files, neg int64
+	if err := c.wr.QueryRow("SELECT COALESCE(SUM(size),0), COALESCE(SUM("+c.costSQL()+"),0), count(*) FROM entries WHERE status = 'ok'").Scan(&used, &charged, &files); err != nil {
 		return err
 	}
 	if err := c.wr.QueryRow("SELECT count(*) FROM entries WHERE status = 'neg'").Scan(&neg); err != nil {
 		return err
 	}
 	c.used.Store(used)
+	c.charged.Store(charged)
 	c.files.Store(files)
 	c.negN.Store(neg)
 	return c.recountMarkersLocked()
@@ -796,6 +854,7 @@ func (c *Cache) Clear() (int64, error) {
 		}
 	}
 	c.used.Store(0)
+	c.charged.Store(0)
 	c.files.Store(0)
 	c.negN.Store(0)
 	c.markN.Store(0)
@@ -805,7 +864,7 @@ func (c *Cache) Clear() (int64, error) {
 // Stats returns a snapshot.
 func (c *Cache) Stats() Stats {
 	s := Stats{
-		Enabled: c.Enabled(), MaxBytes: c.maxBytes.Load(), UsedBytes: c.used.Load(), Files: c.files.Load(),
+		Enabled: c.Enabled(), MaxBytes: c.maxBytes.Load(), UsedBytes: c.used.Load(), ChargedBytes: c.load(), Files: c.files.Load(),
 		NegEntries: c.negN.Load(), Hits: c.hits.Load(), Misses: c.misses.Load(), Evictions: c.evictions.Load(),
 		Failures: c.fails.Load(), Since: c.since, LowDisk: c.lowDisk.Load(),
 	}
@@ -823,12 +882,12 @@ func (c *Cache) Stats() Stats {
 	return s
 }
 
-// DiskBytes is the cache's footprint on disk without walking it: the bytes of
-// the cached files (the same counter as Stats().UsedBytes) plus the index file,
-// its WAL and shared-memory file. Half-written downloads in tmp/ are not
-// counted (each is at most one image, and they are gone when it completes).
+// DiskBytes is the cache's footprint on disk without walking it: what the
+// cached files and the downloads in progress count against the cap
+// (Stats().ChargedBytes: whole 4 KiB blocks plus URLs) plus the index file,
+// its WAL and shared-memory file.
 func (c *Cache) DiskBytes() int64 {
-	n := c.used.Load()
+	n := c.load()
 	base := filepath.Join(c.dir, "index.db")
 	for _, p := range []string{base, base + "-wal", base + "-shm"} {
 		if fi, err := os.Stat(p); err == nil {
@@ -898,8 +957,8 @@ func (c *Cache) putNeg(key, url string, flags int, variant string, kind NegKind,
 	defer c.mu.Unlock()
 	var oldStatus, oldReason string
 	var oldSize int64
-	var oldNeg int
-	err := c.wr.QueryRow("SELECT status, size, neg_count, neg_reason FROM entries WHERE key = ?", key).Scan(&oldStatus, &oldSize, &oldNeg, &oldReason)
+	var oldNeg, oldURLLen int
+	err := c.wr.QueryRow("SELECT status, size, neg_count, neg_reason, length(CAST(url AS BLOB)) FROM entries WHERE key = ?", key).Scan(&oldStatus, &oldSize, &oldNeg, &oldReason, &oldURLLen)
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
@@ -927,6 +986,7 @@ func (c *Cache) putNeg(key, url string, flags int, variant string, kind NegKind,
 	case exists && oldStatus == statusOK:
 		_ = os.Remove(c.path(key))
 		c.used.Add(-oldSize)
+		c.charged.Add(-c.cost(oldSize, oldURLLen))
 		c.files.Add(-1)
 		c.negN.Add(1)
 	case !exists:
@@ -1084,7 +1144,7 @@ func (c *Cache) Sweep(ctx context.Context, vacuum bool) (SweepResult, error) {
 		if n, err := res.RowsAffected(); err == nil {
 			r.Hosts = n
 		}
-		if cp := c.maxBytes.Load(); cp > 0 && c.used.Load() > cp {
+		if cp := c.maxBytes.Load(); cp > 0 && c.load() > cp {
 			before := c.evictions.Load()
 			if err := c.evictLocked(ctx, cp*evictTargetPct/100); err != nil {
 				return err
@@ -1138,7 +1198,14 @@ func (c *Cache) SetHostHint(host string, h HostHint) error {
 		_, err := c.wr.Exec("DELETE FROM hosts WHERE host = ?", host)
 		return err
 	}
-	_, err := c.wr.Exec("INSERT OR REPLACE INTO hosts (host, referer, ua, updated_at) VALUES (?, ?, ?, ?)", host, h.Referer, h.UA, c.now().Unix())
+	if _, err := c.wr.Exec("INSERT OR REPLACE INTO hosts (host, referer, ua, updated_at) VALUES (?, ?, ?, ?)", host, h.Referer, h.UA, c.now().Unix()); err != nil {
+		return err
+	}
+	// The table is bounded (the 90-day expiry alone would let a feed of
+	// ever-new hosts grow it without limit): past the cap the least recently
+	// updated hints go, never the one just written.
+	_, err := c.wr.Exec(`DELETE FROM hosts WHERE host <> ?1 AND host IN
+		(SELECT host FROM hosts WHERE host <> ?1 ORDER BY updated_at DESC, host LIMIT -1 OFFSET ?2)`, host, max(c.maxHosts-1, 0))
 	return err
 }
 

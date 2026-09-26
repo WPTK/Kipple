@@ -212,13 +212,54 @@ func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card
 	return cards, nil, fallback && len(cards) > 0, nil
 }
 
-// RebuildFTS repairs the search index from its content view (design §2.4).
-// It runs on the writer, so it is bounded by the 10 s write deadline.
+// FTSRebuildTimeout bounds RebuildFTS: the gate wait plus the rebuild. FTS5's
+// 'rebuild' is one statement and cannot be split into batches, and at the
+// ordinary 10 s write deadline it could never finish on a large library. The
+// bound stays under the HTTP server's 60 s WriteTimeout so the synchronous
+// maintenance handler can still answer.
+const FTSRebuildTimeout = 45 * time.Second
+
+// rebuildFTSHook, when set (tests only), runs inside the rebuild transaction.
+var rebuildFTSHook func(ctx context.Context)
+
+// RebuildFTS repairs the search index from its content view (design §2.4). It
+// takes the commit gate (fetch commits and maintenance batches wait for it
+// rather than time out on the writer) and runs on the writer with its own
+// FTSRebuildTimeout deadline instead of WithWrite's 10 s one. While it runs,
+// every other write (WithWrite: edit-tag, mark-read, sessions, settings, ...)
+// fails at once with ErrMaintenance, which the HTTP layers turn into 503 with
+// Retry-After, instead of each waiting 10 s for the writer and failing with a
+// 500.
 func (d *DB) RebuildFTS(ctx context.Context) error {
-	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "INSERT INTO items_fts(items_fts) VALUES('rebuild')")
+	ctx, cancel := context.WithTimeout(ctx, FTSRebuildTimeout)
+	defer cancel()
+	release, err := d.AcquireGate(ctx)
+	if err != nil {
 		return err
-	})
+	}
+	defer release()
+	d.maintGen.Add(1)
+	d.maintActive.Store(true)
+	defer d.maintActive.Store(false)
+
+	tx, err := d.writer.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: fts rebuild: begin: %w", err)
+	}
+	h := &holder{fn: "store.RebuildFTS", start: time.Now()}
+	d.holder.Store(h)
+	defer d.holder.CompareAndSwap(h, nil)
+	if rebuildFTSHook != nil {
+		rebuildFTSHook(ctx)
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO items_fts(items_fts) VALUES('rebuild')"); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("store: fts rebuild: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: fts rebuild: commit: %w", err)
+	}
+	return nil
 }
 
 func formatRank(r float64) string { return strconv.FormatFloat(r, 'g', -1, 64) }

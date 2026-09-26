@@ -43,6 +43,9 @@ func newCache(t *testing.T, tune ...func(*Options)) (*Cache, *fakeClock) {
 	o := Options{
 		Dir: filepath.Join(t.TempDir(), "imgcache"), MaxBytes: 1 << 20, Now: clk.Now, NoBackgound: true,
 		DiskSpace: func(string) (uint64, uint64, error) { return 500 << 30, 800 << 30, nil },
+		// The eviction tests use small files and exact byte counts; the block
+		// and URL charge has its own tests.
+		ByteAccounting: true,
 	}
 	for _, f := range tune {
 		f(&o)

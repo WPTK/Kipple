@@ -55,7 +55,7 @@ func TestExtractAbsolutizesAndSanitizes(t *testing.T) {
 		_, _ = w.Write([]byte(article(`<p><img src="/img/one.png" onerror="alert(1)"> <a href="more/page.html">more</a> <a href="javascript:alert(1)">bad</a></p>` +
 			`<script>evil()</script><iframe src="http://evil.example/"></iframe>` + longBody())))
 	})
-	res, err := newExtractor().Extract(context.Background(), Target{URL: srv.URL + "/posts/story.html", AllowPrivate: true})
+	res, err := newExtractor().Extract(context.Background(), Target{URL: srv.URL + "/posts/story.html", AllowPrivate: true, FeedHost: "127.0.0.1"})
 	require.NoError(t, err)
 	require.Contains(t, res.HTML, `src="`+srv.URL+`/img/one.png"`)
 	require.Contains(t, res.HTML, `href="`+srv.URL+`/posts/more/page.html"`)
@@ -79,7 +79,7 @@ func TestExtractResolvesAgainstFinalURLAfterRedirect(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = w.Write([]byte(article(`<p><img src="pic.jpg"></p>` + longBody())))
 	})
-	res, err := newExtractor().Extract(context.Background(), Target{URL: srv.URL + "/short", AllowPrivate: true})
+	res, err := newExtractor().Extract(context.Background(), Target{URL: srv.URL + "/short", AllowPrivate: true, FeedHost: "127.0.0.1"})
 	require.NoError(t, err)
 	require.Equal(t, srv.URL+"/deep/er/article.html", res.SourceURL)
 	// Extraction (readability) resolves against the final page; the pipeline keeps it absolute.
@@ -92,7 +92,7 @@ func TestExtractCharsetDecoded(t *testing.T) {
 		body := strings.Replace(article(longBody()+"<p>caf\xe9 cr\xe8me br\xfbl\xe9e "+strings.Repeat(para, 2)+"</p>"), `<meta charset="utf-8">`, "", 1)
 		_, _ = w.Write([]byte(body))
 	})
-	res, err := newExtractor().Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true})
+	res, err := newExtractor().Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
 	require.NoError(t, err)
 	require.Contains(t, res.Text, "café crème brûlée")
 }
@@ -120,7 +120,7 @@ func TestExtractFailures(t *testing.T) {
 	}
 	for name, c := range cases {
 		srv := page(t, c.h)
-		_, err := ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true})
+		_, err := ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
 		var ee *Error
 		require.ErrorAs(t, err, &ee, name)
 		require.Contains(t, ee.Msg, c.want, name)
@@ -132,7 +132,7 @@ func TestExtractRefusesBadURLsAndPrivateNets(t *testing.T) {
 	srv := page(t, func(w http.ResponseWriter, r *http.Request) { hits.Add(1) })
 	ex := newExtractor()
 	for _, u := range []string{"", "ftp://example.com/a", "file:///etc/passwd", "javascript:alert(1)", "/relative", "http://"} {
-		_, err := ex.Extract(context.Background(), Target{URL: u, AllowPrivate: true})
+		_, err := ex.Extract(context.Background(), Target{URL: u, AllowPrivate: true, FeedHost: "127.0.0.1"})
 		require.Error(t, err, u)
 	}
 	// Loopback, metadata and RFC 1918 are refused at dial time unless the feed allows private nets.
@@ -147,7 +147,7 @@ func TestExtractTimeout(t *testing.T) {
 	srv := page(t, func(w http.ResponseWriter, r *http.Request) { time.Sleep(2 * time.Second) })
 	ex := newExtractor(func(o *Options) { o.Timeout = 200 * time.Millisecond })
 	start := time.Now()
-	_, err := ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true})
+	_, err := ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
 	require.Error(t, err)
 	require.Less(t, time.Since(start), time.Second)
 }
@@ -156,9 +156,9 @@ func TestExtractUserAgent(t *testing.T) {
 	var ua atomic.Value
 	srv := page(t, func(w http.ResponseWriter, r *http.Request) { ua.Store(r.Header.Get("User-Agent")); w.WriteHeader(404) })
 	ex := newExtractor(func(o *Options) { o.UserAgent = "Default/1" })
-	_, _ = ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true})
+	_, _ = ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
 	require.Equal(t, "Default/1", ua.Load())
-	_, _ = ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, UserAgent: "Feed/2"})
+	_, _ = ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1", UserAgent: "Feed/2"})
 	require.Equal(t, "Feed/2", ua.Load())
 }
 
@@ -177,14 +177,14 @@ func TestFailuresAreClassifiedTransientOrPermanent(t *testing.T) {
 	cases := map[int32]bool{500: true, 502: true, 503: true, 429: true, 404: false, 410: false, 403: false, 401: false}
 	for code, transient := range cases {
 		status.Store(code)
-		_, err := ex.Extract(context.Background(), Target{URL: srv.URL + "/a", AllowPrivate: true})
+		_, err := ex.Extract(context.Background(), Target{URL: srv.URL + "/a", AllowPrivate: true, FeedHost: "127.0.0.1"})
 		var ee *Error
 		require.ErrorAs(t, err, &ee, code)
 		require.Equal(t, transient, ee.Transient, "HTTP %d", code)
 	}
 	// A refused connection is transient.
 	srv.Close()
-	_, err := ex.Extract(context.Background(), Target{URL: srv.URL + "/a", AllowPrivate: true})
+	_, err := ex.Extract(context.Background(), Target{URL: srv.URL + "/a", AllowPrivate: true, FeedHost: "127.0.0.1"})
 	var ee *Error
 	require.ErrorAs(t, err, &ee)
 	require.True(t, ee.Transient)
@@ -200,20 +200,20 @@ func TestTransportFailuresAreClassedLikeFetch(t *testing.T) {
 	// A certificate that does not verify (httptest's is self-signed).
 	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	t.Cleanup(tlsSrv.Close)
-	_, err = newExtractor().Extract(context.Background(), Target{URL: tlsSrv.URL, AllowPrivate: true})
+	_, err = newExtractor().Extract(context.Background(), Target{URL: tlsSrv.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
 	require.ErrorAs(t, err, &ee)
 	require.False(t, ee.Transient, "untrusted certificate: %s", ee.Msg)
 
 	// A redirect loop.
 	var loop *httptest.Server
 	loop = page(t, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, loop.URL+"/again", http.StatusFound) })
-	_, err = newExtractor().Extract(context.Background(), Target{URL: loop.URL, AllowPrivate: true})
+	_, err = newExtractor().Extract(context.Background(), Target{URL: loop.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
 	require.ErrorAs(t, err, &ee)
 	require.False(t, ee.Transient, "redirect loop: %s", ee.Msg)
 
 	// HTTP 408 is transient, like a timeout.
 	slow := page(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusRequestTimeout) })
-	_, err = newExtractor().Extract(context.Background(), Target{URL: slow.URL, AllowPrivate: true})
+	_, err = newExtractor().Extract(context.Background(), Target{URL: slow.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
 	require.ErrorAs(t, err, &ee)
 	require.True(t, ee.Transient, "HTTP 408")
 }
@@ -237,7 +237,7 @@ func TestExtractRetriesOnceWithRetryUserAgent(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(article(longBody())))
 	})
-	tgt := Target{URL: srv.URL + "/a", AllowPrivate: true}
+	tgt := Target{URL: srv.URL + "/a", AllowPrivate: true, FeedHost: "127.0.0.1"}
 
 	_, err := newExtractor().Extract(context.Background(), tgt)
 	require.Error(t, err, "no retry UA: a 403 stays a failure")

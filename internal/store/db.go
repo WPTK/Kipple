@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
@@ -59,6 +60,12 @@ type DB struct {
 
 	holder atomic.Pointer[holder]
 
+	// maintActive is set while a long maintenance job (the FTS rebuild) owns the
+	// writer; maintGen counts such jobs. WithWrite answers ErrMaintenance instead
+	// of waiting out its deadline behind one.
+	maintActive atomic.Bool
+	maintGen    atomic.Uint64
+
 	// ftAll caches fetch.fulltext_all; SetSettings invalidates it.
 	ftAll boolCache
 	// filterGen counts filter writes; fcache holds the rule set compiled at one generation.
@@ -66,6 +73,12 @@ type DB struct {
 	fcache    filterCache
 	// testFilterTxHook, when set by a test, runs at the end of every filter write's transaction.
 	testFilterTxHook func()
+	// Ingest test hooks (tests only, set before use): testAfterPreEval runs between a chunk's
+	// pre-transaction filter evaluation and its transaction; testTxMatch runs whenever the rules
+	// are evaluated inside the transaction; testNoPreEval skips the pre-transaction evaluation.
+	testAfterPreEval func()
+	testTxMatch      func()
+	testNoPreEval    bool
 
 	// ftPend is the set of items queued for ingest extraction (the Reader hold).
 	ftPend ftPending
@@ -206,6 +219,14 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 
 	if err := checkForeign(ctx, opts.Path); err != nil {
 		return nil, err
+	}
+
+	// A new database is created 0600 before SQLite opens it: SQLite keeps an
+	// existing file's mode and gives the -wal and -shm files the same one, so the
+	// live database (password hashes, the account secret) is never world-readable.
+	// Left to SQLite it would be 0644 under the usual umask.
+	if err := createPrivate(opts.Path); err != nil && !errors.Is(err, fs.ErrExist) {
+		return nil, fmt.Errorf("store: create database: %w", err)
 	}
 
 	var err error

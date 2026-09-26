@@ -135,6 +135,9 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 		if reason.String == "archive" {
 			return ErrArchiveFeed
 		}
+		if isDeleting(url) {
+			return ErrFeedNotFound // being deleted: only finishing the delete is left
+		}
 
 		var sets []string
 		var args []any
@@ -264,8 +267,28 @@ func sameNullInt(v any, cur sql.NullInt64) bool {
 }
 
 // DeleteFeed removes a feed. Unless deleteStarred is set, its starred items
-// move to the archive feed first (design §6.9).
+// move to the archive feed first (design §6.9). The feed is first marked for
+// deletion in one short transaction (never fetched again, see deletingURLPrefix),
+// then its items and ledger are deleted in bounded batches (purgeFeedItems), so
+// the final transaction stays short however large the feed; an interrupted
+// delete resumes on retry, and the feed is not refetched in between.
 func (d *DB) DeleteFeed(ctx context.Context, id int64, deleteStarred bool) error {
+	now := d.clock.Now().Unix()
+	if err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		var n int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ?", id).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrFeedNotFound
+		}
+		return markFeedsDeleting(ctx, tx, []int64{id}, now)
+	}); err != nil {
+		return err
+	}
+	if err := d.purgeFeedItems(ctx, id, !deleteStarred); err != nil {
+		return err
+	}
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var n int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ?", id).Scan(&n); err != nil {

@@ -54,6 +54,20 @@ func FuzzProxyPath(f *testing.F) {
 	})
 }
 
+// FuzzExifOrientation: the EXIF walk never panics on arbitrary bytes and only
+// returns an orientation from 1 to 8. Seeded with a short APP1 length (the
+// declared length 2 once sliced past the segment's own end).
+func FuzzExifOrientation(f *testing.F) {
+	f.Add([]byte("\xFF\xD8\xFF\xE1\x00\x02Exif\x00\x00MM\x00\x2a\x00\x00\x00\x08"))
+	f.Add([]byte("\xFF\xD8\xFF\xE1\x00\x07Exif\x00\x00"))
+	f.Add([]byte("\xFF\xD8\xFF\xE0\x00\x00\xFF\xE1"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if o := exifOrientation(data); o < 1 || o > 8 {
+			t.Fatalf("orientation %d", o)
+		}
+	})
+}
+
 // FuzzWebPCost: the WebP allocation model never panics on arbitrary bytes and
 // an accepted file has a positive price.
 func FuzzWebPCost(f *testing.F) {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 )
 
 // MaxRestoreDays caps retention.restore_days. The nightly ledger purge removes a
@@ -111,11 +112,22 @@ func settingIntErr(ctx context.Context, q Querier, key string, def int) (int, er
 	if !ok {
 		return def, nil
 	}
-	var n float64
-	if json.Unmarshal(raw, &n) != nil {
+	n, ok := jsonInt(raw)
+	if !ok {
 		return def, nil
 	}
-	return int(n), nil
+	return n, nil
+}
+
+// jsonInt decodes a JSON number that is an exact integer within int's range.
+// Anything else (a fraction, 1e300, a string) is not an int: the caller uses
+// the default rather than a truncated or overflowed conversion.
+func jsonInt(raw json.RawMessage) (int, bool) {
+	var n float64
+	if json.Unmarshal(raw, &n) != nil || n != math.Trunc(n) || n < math.MinInt || n >= -float64(math.MinInt) {
+		return 0, false
+	}
+	return int(n), true
 }
 
 // settingBoolErr is settingBool that reports a read failure instead of
@@ -156,11 +168,11 @@ func settingInt(ctx context.Context, q Querier, key string, def int) int {
 	if !ok {
 		return def
 	}
-	var n float64
-	if err := json.Unmarshal(raw, &n); err != nil {
+	n, ok := jsonInt(raw)
+	if !ok {
 		return def
 	}
-	return int(n)
+	return n
 }
 
 func settingBool(ctx context.Context, q Querier, key string, def bool) bool {

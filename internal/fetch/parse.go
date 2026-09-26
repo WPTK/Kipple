@@ -78,8 +78,16 @@ type ParseOptions struct {
 // ParseFeed decodes body to UTF-8, parses it with gofeed and returns the
 // normalized feed. gofeed is pinned at v1.4.2 in go.mod.
 func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
-	dec := DecodeBody(body, opt.HTTPCharset)
+	return ParseDecoded(decodeBody(body, opt.HTTPCharset), opt)
+}
 
+// decodeBody is DecodeBody; a variable so a test can count the decodes.
+var decodeBody = DecodeBody
+
+// ParseDecoded is ParseFeed for a body DecodeBody has already converted: the
+// fetcher decodes once for the body-hash check and parses the same bytes
+// (opt.HTTPCharset is not used).
+func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 	fp := gofeed.NewParser()
 	fp.KeepOriginalFeed = true
 	// The default RSS translator runs a full HTML parse per item to find an

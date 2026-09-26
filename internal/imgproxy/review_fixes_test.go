@@ -279,8 +279,15 @@ func TestTricklingSourceIsStillCut(t *testing.T) {
 			_, err := io.ReadAll(resp.Body)
 			require.Error(t, err, "a source slower than the timeout is cut")
 			require.Less(t, time.Since(start), 1500*time.Millisecond)
-			_, ok := cr.entry(orig)
-			require.False(t, ok)
+			e, ok := cr.entry(orig)
+			if cached {
+				// Remembered as a transient failure ("timed out"), never cached.
+				require.Eventually(t, func() bool { e, ok = cr.entry(orig); return ok }, 2*time.Second, 10*time.Millisecond)
+				require.False(t, e.OK)
+				require.Equal(t, "timed out", e.NegReason)
+			} else {
+				require.False(t, ok)
+			}
 		})
 	}
 }

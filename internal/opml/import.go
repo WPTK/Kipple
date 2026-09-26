@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strings"
 
-	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -48,7 +48,8 @@ type Result struct {
 	Skipped            []Skipped    `json:"skipped"`
 	InvalidAttrs       []string     `json:"invalid_attrs"`
 	// IgnoredAttrs are valid but security-sensitive kipple:* attributes that an
-	// import never applies (allow_private_net, allow_insecure_tls).
+	// import never applies (allow_private_net, allow_insecure_tls), and feeds
+	// on a literal private address, imported with allow_private_net off.
 	IgnoredAttrs []string `json:"ignored_attrs"`
 	// NewFeedIDs are the inserted feeds in document order (for sched.StartImport).
 	NewFeedIDs []int64 `json:"-"`
@@ -85,30 +86,40 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		// Folders: reuse a NOCASE match, else create in document order. A folder
 		// that holds a feed but is missing from doc.Folders is created on demand.
 		folderID := map[string]int64{"": 1}
-		ensureFolder := func(name string) error {
+		badFolder := map[string]bool{}
+		// ensureFolder reports false for a new name that store.CheckFolderName
+		// refuses (too long, control characters): it is not created.
+		ensureFolder := func(name string) (bool, error) {
 			if _, ok := folderID[name]; ok {
-				return nil
+				return true, nil
+			}
+			if badFolder[name] {
+				return false, nil
 			}
 			var id int64
 			err := tx.QueryRowContext(ctx, "SELECT id FROM folders WHERE name = ? COLLATE NOCASE", name).Scan(&id)
 			if err == sql.ErrNoRows {
+				if store.CheckFolderName(name) != nil {
+					badFolder[name] = true
+					return false, nil
+				}
 				r, err := tx.ExecContext(ctx, "INSERT INTO folders (name, position) VALUES (?,?)", name, nextFolderPos)
 				if err != nil {
-					return fmt.Errorf("opml: create folder %q: %w", name, err)
+					return false, fmt.Errorf("opml: create folder %q: %w", name, err)
 				}
 				nextFolderPos++
 				res.FoldersCreated++
 				if id, err = r.LastInsertId(); err != nil {
-					return err
+					return false, err
 				}
 			} else if err != nil {
-				return err
+				return false, err
 			}
 			folderID[name] = id
-			return nil
+			return true, nil
 		}
 		for _, name := range doc.Folders {
-			if err := ensureFolder(name); err != nil {
+			if _, err := ensureFolder(name); err != nil {
 				return err
 			}
 		}
@@ -121,9 +132,23 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		seen := map[string]*firstSeen{}
 		var order []*firstSeen
 		for _, f := range doc.Feeds {
-			key, norm, err := feedurl.KeyAndNormalize(f.URL)
+			// The URL syntax check every other way a feed enters the database makes
+			// (userinfo refused). A literal private address is still imported: the
+			// feed gets allow_private_net off like every imported feed, so the
+			// dial-time guard blocks it until the user turns the exception on
+			// (a self-export or migration must not silently drop LAN feeds).
+			norm, key, host, err := store.ValidateFeedURL(f.URL, true)
 			if err != nil {
-				res.Skipped = append(res.Skipped, Skipped{f.URL, "not a valid http(s) URL"})
+				res.Skipped = append(res.Skipped, Skipped{f.URL, err.Error()})
+				continue
+			}
+			privateAddr := false
+			if ip, perr := netip.ParseAddr(host); perr == nil && fetch.Blocked(ip.Unmap()) {
+				privateAddr = true
+			}
+			// Every feed's folder is in doc.Folders, so badFolder is complete here.
+			if badFolder[f.Folder] {
+				res.Skipped = append(res.Skipped, Skipped{norm, "folder name must be 1 to 100 characters without control characters"})
 				continue
 			}
 			if p, ok := seen[key]; ok {
@@ -142,10 +167,12 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				res.FeedsExisting = append(res.FeedsExisting, Existing{norm, id})
 				continue
 			}
-			if err := ensureFolder(f.Folder); err != nil {
+			if ok, err := ensureFolder(f.Folder); err != nil {
 				return err
+			} else if !ok {
+				res.Skipped = append(res.Skipped, Skipped{norm, "folder name must be 1 to 100 characters without control characters"})
+				continue
 			}
-			host, _ := feedurl.Host(norm)
 			a := f.Attrs
 			res.InvalidAttrs = append(res.InvalidAttrs, prefixAll(norm, f.BadAttrs)...)
 			// An imported file must not weaken the SSRF/TLS guards of a feed.
@@ -156,6 +183,9 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			if a.AllowInsecureTLS != nil {
 				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_insecure_tls")
 				a.AllowInsecureTLS = nil
+			}
+			if privateAddr {
+				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": private address, imported with allow_private_net off; turn it on for this feed to fetch it")
 			}
 			enabled, reason := 1, any(nil)
 			if a.Enabled != nil && !*a.Enabled {

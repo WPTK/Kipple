@@ -1,8 +1,10 @@
 package greader
 
 import (
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -79,4 +81,38 @@ func TestFormRawBodyForImport(t *testing.T) {
 	p := readParams(r, true)
 	require.Equal(t, `<opml a="b&c"/>`, p.RawBody())
 	require.False(t, p.Has("a"))
+}
+
+// A multipart value longer than maxPartValue is never cut silently: the parse
+// is marked truncated so every handler refuses it (413), like an over-long body.
+func TestMultipartOverlongValueIsTruncated(t *testing.T) {
+	var b strings.Builder
+	mw := multipart.NewWriter(&b)
+	require.NoError(t, mw.WriteField("T", "tok"))
+	require.NoError(t, mw.WriteField("i", strings.Repeat("1", maxPartValue+1)))
+	require.NoError(t, mw.Close())
+	p := postForm(b.String(), mw.FormDataContentType(), "")
+	require.True(t, p.truncated, "an over-long part marks the parse truncated")
+
+	b.Reset()
+	mw = multipart.NewWriter(&b)
+	require.NoError(t, mw.WriteField("i", strings.Repeat("1", maxPartValue)))
+	require.NoError(t, mw.Close())
+	p = postForm(b.String(), mw.FormDataContentType(), "")
+	require.False(t, p.truncated, "exactly the cap is fine")
+	require.Len(t, p.Get("i"), maxPartValue)
+
+	// End to end: the handler answers 413 and does not act.
+	h := newHarness(t)
+	f := h.addFeed("https://a.example/f", "A", "")
+	id := seedN(h, f, 1, nil)[0]
+	b.Reset()
+	mw = multipart.NewWriter(&b)
+	require.NoError(t, mw.WriteField("i", strconv.FormatInt(id, 10)))
+	require.NoError(t, mw.WriteField("a", readSt))
+	require.NoError(t, mw.WriteField("pad", strings.Repeat("x", maxPartValue+1)))
+	require.NoError(t, mw.Close())
+	w := h.do(http.MethodPost, base+rd+"edit-tag", b.String(), map[string]string{"Content-Type": mw.FormDataContentType()})
+	require.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	require.False(t, isRead(h, id))
 }

@@ -74,8 +74,8 @@ func TestPreRestoreDirectoriesNeverCollide(t *testing.T) {
 	require.NoError(t, err, out)
 	require.Equal(t, 3, countItems(t, dir))
 
-	first := filepath.Join(dir, "backup", "pre-restore-20260925-120000")
-	second := filepath.Join(dir, "backup", "pre-restore-20260925-120000-2")
+	first := filepath.Join(dir, "backup", "pre-restore-20260925-120000Z")
+	second := filepath.Join(dir, "backup", "pre-restore-20260925-120000Z-2")
 	require.Contains(t, out, second)
 	require.Equal(t, 7, scalar(t, first, "SELECT count(*) FROM items"), "the first pre-restore copy was not overwritten")
 	require.Equal(t, 10, scalar(t, second, "SELECT count(*) FROM items"), "the second holds what the second restore replaced")

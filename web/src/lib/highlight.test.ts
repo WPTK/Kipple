@@ -88,6 +88,12 @@ describe("scope and fields", () => {
     expect(ids(groupsFor(all, "content", { id: "1", folder_id: "11" }))).toEqual([]);
     expect(ids(groupsFor(all, "title", undefined))).toEqual(["g"]);
   });
+
+  it("reads an empty field list as title only, as the engine does", () => {
+    const g = compileHighlights([rule(["a"], { id: "e", fields: [] })]);
+    expect(ids(groupsFor(g, "title", undefined))).toEqual(["e"]);
+    expect(ids(groupsFor(g, "content", undefined))).toEqual([]);
+  });
 });
 
 describe("the article body", () => {

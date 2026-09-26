@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,10 +120,14 @@ func restore(ctx context.Context, o restoreOptions) error {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	if err := os.MkdirAll(o.DataDir, 0o755); err != nil {
+	if err := ensureDataDir(o.DataDir); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
-	lk, err := lock.Acquire(filepath.Join(o.DataDir, "kipple.lock"))
+	lockPath := filepath.Join(o.DataDir, "kipple.lock")
+	backupDir := filepath.Join(o.DataDir, "backup")
+	_, statErr := os.Stat(backupDir)
+	backupExisted := statErr == nil
+	lk, err := lock.Acquire(lockPath)
 	if errors.Is(err, lock.ErrLocked) {
 		return fmt.Errorf("kipple is running on %s (it holds kipple.lock): stop it first, then restore (see docs/deploy.md)", o.DataDir)
 	}
@@ -130,6 +135,13 @@ func restore(ctx context.Context, o restoreOptions) error {
 		return err
 	}
 	defer lk.Release()
+	// Run as root, restore hands everything it may have created to the data
+	// directory's owner on the way out, whatever the outcome: kipple.lock (serve
+	// opens it read-write), the backup/ directory if it was created here, the
+	// pre-restore directory and the new database. A root-owned lock or backup/
+	// would stop the nonroot server from starting or taking snapshots.
+	owned := []string{lockPath}
+	defer func() { fixOwnership(out, o.DataDir, owned...) }()
 
 	live := filepath.Join(o.DataDir, "kipple.db")
 	tmp := filepath.Join(o.DataDir, "restore-tmp.db")
@@ -212,16 +224,19 @@ func restore(ctx context.Context, o restoreOptions) error {
 		fmt.Fprintf(out, "  %d web session(s) in the backup were signed out.\n", n)
 	}
 
-	fixOwnership(out, o.DataDir, tmp) // before the swap: it is renamed, ownership kept
+	if !backupExisted {
+		owned = append(owned, backupDir) // a swap creates it; chown ignores a missing path
+	}
 	var pre string
 	moved, err := swap(o.DataDir, tmp, live, o.Now(), &pre)
 	if err != nil {
 		return err
 	}
+	owned = append(owned, live)
 	if moved {
-		fixOwnership(out, o.DataDir, pre)
+		owned = append(owned, pre)
 	}
-	prunePreRestore(filepath.Join(o.DataDir, "backup"))
+	prunePreRestore(backupDir)
 	if moved {
 		fmt.Fprintf(out, "The previous database was moved to %s\n", pre)
 	} else {
@@ -276,14 +291,23 @@ func swap(dataDir, tmp, live string, now time.Time, preOut *string) (moved bool,
 	return len(done) > 0, nil
 }
 
+// preRestoreLayout is the timestamp in a pre-restore directory name. New names
+// are UTC and end in Z (preRestoreUTC), so a daylight saving change can never
+// make a newer name look older; names without the Z were written by older
+// versions in the server's local time and are read as such.
+const (
+	preRestoreLayout = "20060102-150405"
+	preRestoreUTC    = "Z"
+)
+
 // newPreRestoreDir creates backup/pre-restore-<second>, or <second>-2, -3, ...
 // when that name is taken: two restores in one second must never share (and
-// overwrite) a directory. The names still sort oldest to newest as text.
+// overwrite) a directory. prunePreRestore orders them by preRestoreKey.
 func newPreRestoreDir(backupDir string, now time.Time) (string, error) {
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return "", err
 	}
-	base := filepath.Join(backupDir, "pre-restore-"+now.Format("20060102-150405"))
+	base := filepath.Join(backupDir, "pre-restore-"+now.UTC().Format(preRestoreLayout)+preRestoreUTC)
 	dir := base
 	for i := 2; i < 1000; i++ {
 		err := os.Mkdir(dir, 0o755)
@@ -310,9 +334,59 @@ func prunePreRestore(backupDir string) {
 		}
 		dirs = append(dirs, d)
 	}
-	sort.Strings(dirs) // the timestamp sorts as text
-	for len(dirs) > keepPreRestore {
-		_ = os.RemoveAll(dirs[0])
-		dirs = dirs[1:]
+	// Oldest first by the parsed timestamp, then the -N suffix (as a number:
+	// -10 is newer than -2). A name that does not parse is not ours: never pruned.
+	type entry struct {
+		dir string
+		at  time.Time
+		n   int
 	}
+	var list []entry
+	for _, d := range dirs {
+		if at, n, ok := preRestoreKey(filepath.Base(d)); ok {
+			list = append(list, entry{d, at, n})
+		}
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if !list[i].at.Equal(list[j].at) {
+			return list[i].at.Before(list[j].at)
+		}
+		return list[i].n < list[j].n
+	})
+	for len(list) > keepPreRestore {
+		_ = os.RemoveAll(list[0].dir)
+		list = list[1:]
+	}
+}
+
+// preRestoreKey parses pre-restore-<YYYYMMDD-HHMMSS>[Z][-N]: the time, as UTC
+// with the Z and as the server's local time without it (the zone-less names of
+// older versions), normalised to UTC so both kinds sort together; and N (1
+// without a suffix).
+func preRestoreKey(name string) (at time.Time, n int, ok bool) {
+	rest, ok := strings.CutPrefix(name, "pre-restore-")
+	if !ok || len(rest) < len(preRestoreLayout) {
+		return time.Time{}, 0, false
+	}
+	loc := time.Local
+	stamp, suf := rest[:len(preRestoreLayout)], rest[len(preRestoreLayout):]
+	if after, utc := strings.CutPrefix(suf, preRestoreUTC); utc {
+		loc, suf = time.UTC, after
+	}
+	at, err := time.ParseInLocation(preRestoreLayout, stamp, loc)
+	if err != nil {
+		return time.Time{}, 0, false
+	}
+	at = at.UTC()
+	n = 1
+	if suf != "" {
+		digits, ok := strings.CutPrefix(suf, "-")
+		if !ok || digits == "" || strings.TrimLeft(digits, "0123456789") != "" {
+			return time.Time{}, 0, false
+		}
+		if n, err = strconv.Atoi(digits); err != nil {
+			return time.Time{}, 0, false
+		}
+	}
+	return at, n, true
 }

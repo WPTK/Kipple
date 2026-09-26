@@ -11,13 +11,23 @@ export interface OfflineState {
   pending: number;
   /** The server speaks a newer web API than this page was built for, or a new build is waiting: reload. */
   updateReady: boolean;
+  /**
+   * The sign-in in front of Kipple (an access proxy such as Cloudflare Access) expired: API calls are answered with
+   * a redirect to its login page. Only a full reload can sign in again. Not offline: nothing is queued meanwhile.
+   */
+  sessionExpired: boolean;
 }
 
 export const offlineStore = createStore<OfflineState>({
   online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
   pending: 0,
   updateReady: false,
+  sessionExpired: false,
 });
+
+export function setSessionExpired(expired = true): void {
+  offlineStore.set((s) => (s.sessionExpired === expired ? s : { ...s, sessionExpired: expired }));
+}
 
 export function setOnline(online: boolean): void {
   offlineStore.set((s) => (s.online === online ? s : { ...s, online }));

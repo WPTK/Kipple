@@ -31,8 +31,16 @@ type CommitInfo struct {
 	Muted      int
 	MarkedRead int
 	Starred    int
+	// Held maps the uid to the id of every inserted item that was in
+	// res.HoldUIDs and not muted: each is marked pending (MarkFulltextPending)
+	// from before its transaction committed. The caller owns the marks: it queues
+	// the items for extraction or clears them. Only chunks that committed count.
+	Held map[string]int64
 	// Migrated is set when the commit rewrote feeds.url (design §4.7).
 	Migrated bool
+	// TrimPending is set when the retention trim filled its bounded batch, so the
+	// feed may still hold more than its cap; the scheduler queues a trim job for it.
+	TrimPending bool
 	// Stale is set when the feed's URL changed under the fetch and nothing (or,
 	// for a chunked commit, only the chunks before the change) was
 	// written.
@@ -51,13 +59,20 @@ type commitState struct {
 	initRead   int
 	seenTomb   int
 	trimmed    int64
+	trimMore   bool // the trim filled its batch: more may be left to trim
 	notes      []string
 	mutedIDs   []int64
+	held       []heldItem // marked pending, in insert order
 	fMarked    int
 	fStarred   int
 	keep       bool
 	begun      bool
 	stale      bool // the feed's URL changed under the fetch; nothing was written
+}
+
+type heldItem struct {
+	uid string
+	id  int64
 }
 
 func (st *commitState) note(s string, keep bool) {
@@ -96,9 +111,30 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 	}
 
 	st := &commitState{firstNewID: maxInt64}
+	defer func() {
+		if v := recover(); v != nil {
+			// A panic in a chunk skips the error path below (WithWrite has no
+			// recover; its context's cancel rolls the transaction back) and the
+			// caller gets no CommitInfo, so it can neither queue nor clear these
+			// marks: drop every one this commit set, the committed chunks'
+			// included (their items are then left to on-demand extraction, as on
+			// a commit error), and let the panic reach the scheduler's recover.
+			for _, h := range st.held {
+				d.ClearFulltextPending(h.id)
+			}
+			panic(v)
+		}
+	}()
 	info := func() CommitInfo {
-		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale,
-			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred}
+		var held map[string]int64
+		if len(st.held) > 0 {
+			held = make(map[string]int64, len(st.held))
+			for _, h := range st.held {
+				held[h.uid] = h.id
+			}
+		}
+		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale, TrimPending: st.trimMore,
+			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred, Held: held}
 	}
 	for i, ch := range chunks {
 		last := i == len(chunks)-1
@@ -112,8 +148,22 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 	return info(), nil
 }
 
+// commitChunkTestHook, when set (tests only), runs at the end of each chunk's
+// transaction, before it commits.
+var commitChunkTestHook func()
+
 // commitChunk runs one chunk under its own bounded context.
+//
+// The filter rules are evaluated for the chunk's new items first, on the reader and
+// outside the gate (preEvaluate); the transaction only applies those results.
 func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item, last bool, st *commitState, perChunk time.Duration) error {
+	var pre *preEval
+	if !d.testNoPreEval {
+		pre = d.preEvaluate(ctx, res, ch)
+	}
+	if h := d.testAfterPreEval; h != nil {
+		h()
+	}
 	cctx, cancel := context.WithTimeout(ctx, perChunk)
 	defer cancel()
 	release, err := d.AcquireGate(cctx)
@@ -123,10 +173,21 @@ func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item
 	defer release()
 	saved := *st
 	err = d.WithWrite(cctx, func(ctx context.Context, tx *sql.Tx) error {
-		return d.commitTx(ctx, tx, res, ch, last, st)
+		if err := d.commitTx(ctx, tx, res, ch, last, st, pre); err != nil {
+			return err
+		}
+		if commitChunkTestHook != nil {
+			commitChunkTestHook()
+		}
+		return nil
 	})
 	if err != nil {
-		*st = saved // the transaction rolled back: forget what it collected
+		// The transaction rolled back: its items never became visible, so drop
+		// their pending marks, and forget what it collected.
+		for _, h := range st.held[len(saved.held):] {
+			d.ClearFulltextPending(h.id)
+		}
+		*st = saved
 	}
 	return err
 }
@@ -171,7 +232,7 @@ type existingRow struct {
 	wordCount             int
 }
 
-func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, last bool, st *commitState) error {
+func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, last bool, st *commitState, pre *preEval) error {
 	feedID := res.Snap.ID
 	now := d.clock.Now().Unix()
 	// A URL edit that landed while this fetch was in flight makes its result
@@ -200,7 +261,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	}
 
 	if len(items) > 0 {
-		if err := d.applyItems(ctx, tx, res, items, first && last, now, st); err != nil {
+		if err := d.applyItems(ctx, tx, res, items, first && last, now, st, pre); err != nil {
 			return err
 		}
 	}
@@ -213,8 +274,10 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	}
 
 	// --- last chunk: trim, bookkeeping, log ---
+	// One bounded batch; a larger backlog is reported (CommitInfo.TrimPending) for the
+	// scheduler to finish with trim jobs rather than holding the writer here.
 	var err error
-	if st.trimmed, err = trimFeed(ctx, tx, feedID, now, st.firstNewID); err != nil {
+	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, st.firstNewID, trimBatch); err != nil {
 		return err
 	}
 
@@ -289,7 +352,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 }
 
 // applyItems classifies, updates and inserts one chunk of items.
-func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, single bool, now int64, st *commitState) error {
+func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, single bool, now int64, st *commitState, pre *preEval) error {
 	feedID := res.Snap.ID
 	uids := make([]string, len(items))
 	for i, it := range items {
@@ -366,6 +429,9 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		if err != nil {
 			return err
 		}
+		// The rules' results were computed before this transaction when they still hold
+		// (preEval.usable); only an item they do not cover is matched here.
+		preRes := pre.usable(fe)
 		hits := map[int64]int{}
 		insItem, err := tx.PrepareContext(ctx, `INSERT INTO items
 			(id, feed_id, uid, url, title, author, image_url, word_count, content_hash, text_hash,
@@ -400,7 +466,14 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 			var starred, mutedBy, mutedWasRead, starredAt any
 			baseRead := read
 			if fe != nil {
-				v := fe.eval(it, read == 1, hits)
+				r, ok := preRes[it.UID]
+				if !ok {
+					if h := d.testTxMatch; h != nil {
+						h()
+					}
+					r = fe.match(it)
+				}
+				v := fe.apply(r, read == 1, hits)
 				if v.read {
 					read = 1
 				}
@@ -441,6 +514,12 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 			}
 			if _, err := insContent.ExecContext(ctx, id, it.ContentHTML, it.ContentText, enc, cats); err != nil {
 				return err
+			}
+			if res.HoldUIDs[it.UID] && mutedBy == nil {
+				// Marked inside the transaction: the item is held from the moment it
+				// becomes visible. commitChunk clears the mark if this rolls back.
+				d.MarkFulltextPending(id)
+				st.held = append(st.held, heldItem{uid: it.UID, id: id})
 			}
 			if st.firstNewID == maxInt64 {
 				st.firstNewID = id
@@ -586,10 +665,36 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 		if kerr != nil || herr != nil {
 			return nil
 		}
+		// The credentials and the network exceptions were granted for the old
+		// host. A move inside the same site (example.com -> www.example.com, a LAN
+		// name gaining its domain: nas -> nas.lan) keeps them. A move to another
+		// site would have to drop them (so a publisher's redirect cannot collect
+		// the password or reach a private address), which silently breaks the
+		// feed; so while any is set the move is not made automatically: the
+		// redirect stays pending with a note, and the user accepts it by editing
+		// the URL (api PATCH, which drops them the same way).
+		oldHost, oerr := feedurl.Host(res.Snap.URL)
+		moved := oerr != nil || !fetch.SameSite(oldHost, host)
+		if moved {
+			var held bool
+			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(http_auth, '') != '' OR allow_insecure_tls = 1 OR allow_private_net = 1
+				FROM feeds WHERE id = ?`, feedID).Scan(&held); err != nil {
+				return err
+			}
+			if held {
+				st.note(fmt.Sprintf("redirect_held_new_site: %s is on another site; the feed's HTTP credentials or network exceptions apply only to %s, so the move is not automatic: edit the feed URL to accept it (they are then cleared)", dec.To, oldHost), false)
+				_, err := tx.ExecContext(ctx, `UPDATE feeds SET redirect_to = ?, redirect_kind = 'permanent', redirect_count = ? WHERE id = ?`,
+					dec.To, min(dec.Count, 2), feedID)
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE feeds SET url_original = COALESCE(url_original, url),
 			url_original_key = COALESCE(url_original_key, url_key),
-			url = ?, url_key = ?, host = ?, redirect_to = NULL, redirect_kind = NULL, redirect_count = 0
-			WHERE id = ?`, dec.To, key, host, feedID); err != nil {
+			url = ?2, url_key = ?3, host = ?4, redirect_to = NULL, redirect_kind = NULL, redirect_count = 0,
+			http_auth = CASE WHEN ?5 THEN NULL ELSE http_auth END,
+			allow_insecure_tls = CASE WHEN ?5 THEN 0 ELSE allow_insecure_tls END,
+			allow_private_net = CASE WHEN ?5 THEN 0 ELSE allow_private_net END
+			WHERE id = ?1`, feedID, dec.To, key, host, moved); err != nil {
 			return err
 		}
 		st.note(fmt.Sprintf("redirect_migrated: %s -> %s", res.Snap.URL, dec.To), true)
@@ -600,6 +705,35 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 			WHERE id = ? AND redirect_to IS NOT NULL`, feedID)
 		return err
 	}
+}
+
+// FeedSnapshotsByID loads the snapshots of the given feeds (enabled or not) in
+// one query, in the order of ids; unknown ids are left out. An import run uses it
+// for its new feeds.
+func (d *DB) FeedSnapshotsByID(ctx context.Context, set FetchSettings, ids []int64) ([]fetch.Snapshot, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	b, err := jsonText(ids)
+	if err != nil {
+		return nil, err
+	}
+	snaps, err := d.feedSnapshots(ctx, set, "WHERE id IN (SELECT value FROM json_each(?))", b)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]fetch.Snapshot, len(snaps))
+	for _, s := range snaps {
+		byID[s.ID] = s
+	}
+	out := make([]fetch.Snapshot, 0, len(snaps))
+	for _, id := range ids {
+		if s, ok := byID[id]; ok {
+			out = append(out, s)
+			delete(byID, id) // a repeated id is loaded once
+		}
+	}
+	return out, nil
 }
 
 func (d *DB) saveHighWater(ctx context.Context, tx *sql.Tx) error {

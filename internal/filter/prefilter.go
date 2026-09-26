@@ -23,6 +23,8 @@ type reqLit struct {
 type cre struct {
 	re  *regexp.Regexp
 	req []reqLit // nil: no usable prefilter
+	// insts is the size of the compiled program (the cost model's unit, see MaxRegexCost).
+	insts int
 }
 
 const maxReqLits = 16

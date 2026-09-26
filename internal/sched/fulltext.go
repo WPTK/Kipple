@@ -28,7 +28,7 @@ const (
 	defaultFTQueueAll    = 2000
 	// ftFlushDelay coalesces "text is ready" notifications into one event.
 	ftFlushDelay = 300 * time.Millisecond
-	// ftLookupTimeout bounds the post-commit lookup of the new items' ids.
+	// ftLookupTimeout bounds the post-commit re-check of the mode and queue limits.
 	ftLookupTimeout = 5 * time.Second
 )
 
@@ -323,56 +323,50 @@ func (s *Scheduler) pickFulltext(ctx context.Context, res *fetch.Result) []fetch
 	return cand
 }
 
-// queueFulltext hands the picked items of a committed fetch to the pool. Only
-// items this commit actually inserted are queued. The queue may have filled (or
-// shut) since pickFulltext; those items are logged and left to the on-demand
-// path. The id lookup has its own short deadline, so a slow commit cannot
-// starve it, and a failed lookup leaves the items to on-demand too.
-func (s *Scheduler) queueFulltext(feedID int64, cand []fetch.Item, newIDs []int64) {
-	if len(cand) == 0 || len(newIDs) == 0 {
+// queueFulltext hands the picked items of a committed fetch to the pool. held
+// is CommitInfo.Held: the items this commit actually inserted from cand, each
+// already marked pending by the commit (so a Reader client never saw one
+// unheld). Every mark is either handed to a queued job, which clears it when
+// done, or cleared here, so the Reader API holds only items that are really
+// waiting for text. The queue may have filled (or shut) since pickFulltext;
+// those items are logged and left to the on-demand path.
+func (s *Scheduler) queueFulltext(feedID int64, cand []fetch.Item, held map[string]int64) {
+	if len(held) == 0 {
 		return
 	}
+	left := make(map[int64]bool, len(held)) // marks nobody has taken over yet
+	for _, id := range held {
+		left[id] = true
+	}
+	defer func() {
+		for id := range left {
+			s.db.ClearFulltextPending(id)
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.fetchCtx), ftLookupTimeout)
 	defer cancel()
 	// Re-evaluated at queue time: the feed flag or the switch may have been turned
-	// off since the pick (the new items then never get a hold or a job).
+	// off since the pick (the new items then lose their hold and get no job).
 	if on, err := s.db.FeedFulltextNow(ctx, feedID); err == nil && !on {
 		return
 	}
 	_, queueLimit := s.ftLimits(ctx)
-	uids := make([]string, len(cand))
-	for i, it := range cand {
-		uids[i] = it.UID
-	}
-	ids, err := s.db.ItemIDsByUID(ctx, feedID, uids)
-	if err != nil {
-		s.log.Warn("sched: fulltext resolve new items; they extract on demand", "feed", feedID, "items", len(cand), "err", err)
-		return
-	}
-	isNew := make(map[int64]bool, len(newIDs))
-	for _, id := range newIDs {
-		isNew[id] = true
-	}
 	var queued, full, closed int
 	for _, it := range cand {
-		id, ok := ids[it.UID]
-		if !ok || !isNew[id] {
+		id, ok := held[it.UID]
+		if !ok || !left[id] {
 			continue
 		}
-		// Marked pending before the push (a worker may finish the job at once) and
-		// cleared again when the queue refuses it, so the Reader API holds only
-		// items that are really waiting for text.
-		s.db.MarkFulltextPending(id)
 		switch s.ftq.pushWithin(ftJob{itemID: id, url: it.URL, host: ftrun.HostKey(it.URL)}, queueLimit) {
 		case pushQueued:
 			queued++
+			delete(left, id) // the job clears it when it is done
 		case pushFull:
 			full++
-			s.db.ClearFulltextPending(id)
 		case pushClosed:
 			closed++
-			s.db.ClearFulltextPending(id)
 		default: // pushDup: another job already owns the pending mark
+			delete(left, id)
 		}
 	}
 	if full > 0 {

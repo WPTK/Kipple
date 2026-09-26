@@ -183,30 +183,3 @@ func (d *DB) KnownUIDs(ctx context.Context, feedID int64, uids []string) (map[st
 	}
 	return known, rows.Err()
 }
-
-// ItemIDsByUID maps the uids of a feed's live items to their ids. The
-// scheduler uses it after a commit to queue the new items for extraction.
-func (d *DB) ItemIDsByUID(ctx context.Context, feedID int64, uids []string) (map[string]int64, error) {
-	out := map[string]int64{}
-	if len(uids) == 0 {
-		return out, nil
-	}
-	b, err := jsonText(uids)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := d.reader.QueryContext(ctx, `SELECT uid, id FROM items WHERE feed_id = ? AND uid IN (SELECT value FROM json_each(?))`, feedID, b)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var u string
-		var id int64
-		if err := rows.Scan(&u, &id); err != nil {
-			return nil, err
-		}
-		out[u] = id
-	}
-	return out, rows.Err()
-}

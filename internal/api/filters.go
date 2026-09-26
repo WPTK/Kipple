@@ -19,8 +19,20 @@ import (
 // previewBudget bounds one preview scan.
 const previewBudget = 5 * time.Second
 
-// deleteFilterBudget bounds the un-muting of one filter deletion (500 items per batch).
-const deleteFilterBudget = 5 * time.Minute
+// deleteFilterBudget is how long one DELETE restores before it answers 202 with done:false (the
+// client repeats it; the store resumes where it stopped). deleteFilterSlack is the hard backstop on
+// top for the batch in flight. Together they stay under the server's 60 s WriteTimeout, so a
+// response is always written. Variables so tests can shorten them.
+var (
+	deleteFilterBudget = 40 * time.Second
+	deleteFilterSlack  = 15 * time.Second
+)
+
+// applyBudget bounds one apply run (the store checks the context on every item, so it ends promptly).
+var applyBudget = 30 * time.Minute
+
+// testApplyCountHook, when set by a test, runs where startApply counts the candidates.
+var testApplyCountHook func()
 
 // runKindFilterApply is the `kind` of an apply run in run.* events and bootstrap `runs`.
 const runKindFilterApply = "filter_apply"
@@ -239,6 +251,8 @@ func (s *Server) createFilter(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, errApplyBusy):
 			// The filter is created; only the apply could not start. Say so instead of failing the create.
 			resp["applied"] = map[string]any{"error": "busy"}
+		case errors.Is(err, errApplyCancelled):
+			resp["applied"] = map[string]any{"error": "cancelled"}
 		case err != nil:
 			s.filterError(w, "apply filter", err)
 			return
@@ -261,7 +275,27 @@ func (s *Server) patchFilter(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body, false) {
 		return
 	}
-	s.cancelApply(id) // an edit ends a running apply of the old rule
+	// An edit that changes how the rule matches or acts ends a running apply of the old rule; a rename
+	// or a move in the list does not (the store's per-batch check ignores those too). A concurrent edit
+	// between this look and the update is still caught by that check.
+	old, found, err := s.db.GetFilter(r.Context(), id)
+	if err != nil {
+		s.serverError(w, "patch filter", err)
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	next := old
+	next.Terms, next.Fields = append([]string(nil), old.Terms...), append([]string(nil), old.Fields...)
+	if e := body.applyTo(&next); e != nil {
+		writeBadFilter(w, e.Field, e.Message)
+		return
+	}
+	if !store.SameRule(old, next) {
+		s.cancelApply(id)
+	}
 	f, found, err := s.db.UpdateFilter(r.Context(), id, func(f *store.Filter) error {
 		if e := body.applyTo(f); e != nil {
 			return e
@@ -304,13 +338,14 @@ func (s *Server) deleteFilter(w http.ResponseWriter, r *http.Request) {
 		writeBadFilter(w, "unmute", "must be keep, read or unread")
 		return
 	}
-	// A running apply of this rule stops first. The delete itself then runs detached from the request
-	// (bounded), so a client that gives up cannot leave a half-restored rule behind; the store's order
-	// (disable, restore, delete the row) also makes a repeated DELETE finish a cut-off one.
+	// A running apply of this rule stops first. The delete itself then runs detached from the request,
+	// so a client that gives up mid-batch does not roll the batch back. It restores for at most
+	// deleteFilterBudget: a larger restore answers 202 {done:false} with the rule already disabled, and
+	// the client repeats the DELETE, which resumes (the store's order is disable, restore, delete the row).
 	s.cancelApply(id)
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), deleteFilterBudget)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), deleteFilterBudget+deleteFilterSlack)
 	defer cancel()
-	changed, found, err := s.db.DeleteFilter(ctx, id, mode, func(res store.StateResult) {
+	res, found, err := s.db.DeleteFilterWithin(ctx, id, mode, time.Now().Add(deleteFilterBudget), func(res store.StateResult) {
 		s.publishState(res, map[string]any{"muted": false})
 		if len(res.MadeUnread) > 0 { // only the items that were unread before the mute go back to unread
 			s.publishState(store.StateResult{Changed: res.MadeUnread}, map[string]any{"read": false})
@@ -326,7 +361,13 @@ func (s *Server) deleteFilter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.noteCounts()
-	writeJSON(w, http.StatusOK, map[string]any{"changed": changed})
+	status := http.StatusOK
+	if !res.Done {
+		status = http.StatusAccepted
+	}
+	// changed: items restored by this call; made_unread: of those, the ones that went back to unread
+	// (only unmute=unread, and only items that were unread when the rule muted them).
+	writeJSON(w, status, map[string]any{"changed": res.Changed, "made_unread": res.MadeUnread, "done": res.Done})
 }
 
 // ---- POST /api/filters/preview ----
@@ -420,6 +461,8 @@ func (s *Server) applyFilterRoute(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, errApplyBusy):
 		writeError(w, http.StatusConflict, "busy")
+	case errors.Is(err, errApplyCancelled):
+		writeError(w, http.StatusConflict, "cancelled")
 	case errors.Is(err, store.ErrFilterNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
 	case err != nil:
@@ -431,7 +474,13 @@ func (s *Server) applyFilterRoute(w http.ResponseWriter, r *http.Request) {
 
 // ---- the apply run ----
 
-var errApplyBusy = errors.New("api: a filter apply is already running")
+var (
+	errApplyBusy = errors.New("api: a filter apply is already running")
+	// errApplyCancelled is the cancel cause of a run stopped by an edit or delete of its rule.
+	errApplyCancelled = errors.New("api: filter apply cancelled because the rule changed")
+	// errApplyTimedOut is the cause when a run exceeds applyBudget.
+	errApplyTimedOut = errors.New("api: filter apply ran out of time")
+)
 
 // applyRun is the run the API reports and publishes.
 type applyRun struct {
@@ -453,7 +502,7 @@ type applyState struct {
 	ctx  context.Context
 	// cancelRun and done belong to the active run: cancelRun stops it, done is closed when its
 	// goroutine has finished (cancelApply waits on it).
-	cancelRun context.CancelFunc
+	cancelRun context.CancelCauseFunc
 	done      chan struct{}
 }
 
@@ -467,7 +516,7 @@ func (s *Server) cancelApply(id int64) {
 	if run == nil || run.FilterID != id || cancel == nil {
 		return
 	}
-	cancel()
+	cancel(errApplyCancelled)
 	<-done
 }
 
@@ -485,36 +534,85 @@ func (s *Server) applyStatus() *applyRun {
 // startApply validates and starts a retroactive apply of filter id on a background goroutine. Only
 // one runs at a time (errApplyBusy). Progress goes out as run.start, run.progress (at most every
 // 500 ms) and run.done, item changes as items.state per batch, then counts.
+//
+// The run is registered (total 0) before the candidate count, and the count runs outside s.apply.mu,
+// so bootstrap's applyStatus and a cancelApply from an edit or delete never wait behind a count(*)
+// over a large library. A cancel during the count ends the start with errApplyCancelled.
 func (s *Server) startApply(id int64, includeRead bool) (*applyRun, error) {
 	s.apply.mu.Lock()
-	defer s.apply.mu.Unlock()
 	if s.apply.run != nil {
+		s.apply.mu.Unlock()
 		return nil, errApplyBusy
 	}
-	if s.apply.ctx == nil || s.apply.ctx.Err() != nil {
-		return nil, errApplyBusy // shutting down
+	if !s.bgStart() { // registers the run with the shutdown wait group, or refuses once shutting down
+		s.apply.mu.Unlock()
+		return nil, errApplyBusy
 	}
-	_, total, err := s.db.RetroTotal(s.apply.ctx, id, includeRead)
-	if err != nil {
-		return nil, err
-	}
-	run := &applyRun{ID: s.now().UnixMicro(), Kind: runKindFilterApply, FilterID: id, Total: total}
-	ctx, cancel := context.WithCancel(s.apply.ctx)
+	run := &applyRun{ID: s.now().UnixMicro(), Kind: runKindFilterApply, FilterID: id}
+	ctx, cancel := context.WithCancelCause(s.apply.ctx)
 	done := make(chan struct{})
 	s.apply.run, s.apply.cancelRun, s.apply.done = run, cancel, done
+	s.apply.mu.Unlock()
+
+	if h := testApplyCountHook; h != nil {
+		h()
+	}
+	_, total, err := s.db.RetroTotal(ctx, id, includeRead)
+	if err != nil {
+		s.apply.mu.Lock()
+		s.apply.run, s.apply.cancelRun, s.apply.done = nil, nil, nil
+		s.apply.mu.Unlock()
+		cause := context.Cause(ctx)
+		cancel(nil)
+		close(done)
+		s.apply.wg.Done()
+		if errors.Is(cause, errApplyCancelled) {
+			return nil, errApplyCancelled
+		}
+		if s.apply.ctx.Err() != nil {
+			// A shutdown began during the count: the run could not start, like any other refused
+			// start (createFilter answers "created, apply busy" instead of a 500 for a committed rule).
+			return nil, errApplyBusy
+		}
+		return nil, err
+	}
+	s.apply.mu.Lock()
+	run.Total = total
 	snapshot := *run
+	s.apply.mu.Unlock()
 	if s.opt.Hub != nil {
 		s.opt.Hub.Publish("run.start", map[string]any{"run_id": idStr(run.ID), "kind": run.Kind, "total": total, "filter_id": idStr(id)})
 	}
-	s.apply.wg.Add(1)
 	go s.runApply(ctx, cancel, done, run, id, includeRead, total)
 	return &snapshot, nil
 }
 
-func (s *Server) runApply(ctx context.Context, cancel context.CancelFunc, done chan struct{}, run *applyRun, id int64, includeRead bool, total int) {
+// applyEnd names how an apply ended for run.done's `error` ("" = it finished) and whether that counts
+// as a failure (`errors`): an edit or delete of the rule (cancelled, filter_changed) and a shutdown
+// are expected ends; running out of applyBudget and anything else are failures.
+func (s *Server) applyEnd(ctx context.Context, err error) (reason string, failed bool) {
+	cause := context.Cause(ctx)
+	switch {
+	case err == nil:
+		return "", false
+	case errors.Is(err, store.ErrFilterChanged):
+		return "filter_changed", false
+	case errors.Is(cause, errApplyCancelled):
+		return "cancelled", false
+	case errors.Is(cause, errApplyTimedOut):
+		return "timed_out", true
+	case s.apply.ctx.Err() != nil:
+		return "shutdown", false
+	}
+	return "apply_failed", true
+}
+
+func (s *Server) runApply(ctx context.Context, cancel context.CancelCauseFunc, done chan struct{}, run *applyRun, id int64, includeRead bool, total int) {
 	defer s.apply.wg.Done()
 	defer close(done)
-	defer cancel()
+	defer cancel(nil)
+	ctx, stop := context.WithTimeoutCause(ctx, applyBudget, errApplyTimedOut)
+	defer stop()
 	var lastProgress time.Time
 	res, err := s.db.ApplyFilter(ctx, id, includeRead, total,
 		func(p store.ApplyProgress) {
@@ -539,14 +637,11 @@ func (s *Server) runApply(ctx context.Context, cancel context.CancelFunc, done c
 			}
 			s.publishState(b.Res, extra)
 		})
+	reason, failed := s.applyEnd(ctx, err)
 	nErr := 0
-	if err != nil {
+	if failed {
 		nErr = 1
-		// A cancel (shutdown, or the rule was deleted or edited) and a rule that changed under the run
-		// are expected ends, not failures worth an error line.
-		if ctx.Err() == nil && !errors.Is(err, store.ErrFilterChanged) {
-			s.log.Error("api: apply filter", "filter", id, "err", err)
-		}
+		s.log.Error("api: apply filter", "filter", id, "reason", reason, "err", err)
 	}
 	s.apply.mu.Lock()
 	s.apply.run, s.apply.cancelRun, s.apply.done = nil, nil, nil
@@ -555,8 +650,8 @@ func (s *Server) runApply(ctx context.Context, cancel context.CancelFunc, done c
 	if s.opt.Hub != nil {
 		ev := map[string]any{"run_id": idStr(run.ID), "kind": runKindFilterApply, "filter_id": idStr(id), "new_items": 0,
 			"errors": nErr, "changed": res.Changed, "scanned": res.Scanned}
-		if err != nil {
-			ev["error"] = "apply_failed"
+		if reason != "" {
+			ev["error"] = reason
 		}
 		s.opt.Hub.Publish("run.done", ev)
 	}

@@ -1,4 +1,4 @@
-# Local stand-in for .github/workflows/ci.yml, for when GitHub Actions minutes run out.
+# Local mirror of .github/workflows/ci.yml: the fast check before pushing.
 #
 #   pwsh scripts/ci-local.ps1               everything except the Docker build and Trivy
 #   pwsh scripts/ci-local.ps1 -Docker       also build the image and scan it with Trivy
@@ -6,8 +6,8 @@
 #
 # It runs the same commands and pinned tool versions as the workflow. Differences: no `-race` (this
 # machine has no C compiler), gofmt is checked on LF-normalized copies (CRLF working copies hide
-# formatting failures), and gitleaks/Trivy run through Docker images. A green run here is what
-# "CI green" means for a push while Actions is unavailable. Exit code is non-zero on any failure.
+# formatting failures), and gitleaks/Trivy run through pinned Docker images. The GitHub Actions run on the exact
+# commit is what "CI green" means; this is the check before pushing. Exit code is non-zero on any failure.
 param([switch]$Docker, [string[]]$Skip = @())
 
 $ErrorActionPreference = 'Continue'
@@ -19,6 +19,9 @@ $GovulncheckVersion = 'v1.8.0'
 $StaticcheckVersion = 'v0.8.1'
 $GosecVersion       = 'v2.29.0'
 $GitleaksVersion    = '8.30.1'
+# Images are pinned by tag and digest. Trivy matches the default of the workflow's trivy-action (v0.36.0 -> Trivy v0.70.0).
+$GitleaksImage      = "zricethezav/gitleaks:v$GitleaksVersion@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+$TrivyImage         = 'aquasec/trivy:0.70.0@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e'
 $npmCache           = Join-Path $env:TEMP 'kipple-npm-cache'   # the shared npm cache gives EPERM on this box
 
 $results = [System.Collections.Generic.List[object]]::new()
@@ -65,7 +68,7 @@ Step 'security' 'gitleaks (git history)' {
   New-Item -ItemType Directory -Force -Path $cfg | Out-Null
   Copy-Item (Join-Path $root '.gitleaks.toml') $cfg -Force
   Copy-Item (Join-Path $root '.gitleaksignore') $cfg -Force
-  docker run --rm -v "${clone}:/repo:ro" -v "${cfg}:/cfg:ro" "zricethezav/gitleaks:v$GitleaksVersion" git /repo --no-banner --redact -c /cfg/.gitleaks.toml --gitleaks-ignore-path /cfg/.gitleaksignore
+  docker run --rm -v "${clone}:/repo:ro" -v "${cfg}:/cfg:ro" $GitleaksImage git /repo --no-banner --redact -c /cfg/.gitleaks.toml --gitleaks-ignore-path /cfg/.gitleaksignore
   $code = $LASTEXITCODE
   Remove-Item -Recurse -Force $clone -ErrorAction SilentlyContinue
   $global:LASTEXITCODE = $code
@@ -81,9 +84,22 @@ Step 'web' 'npm audit (prod, high)' { Push-Location web; npm audit --omit=dev --
 
 # ---- docker (opt-in: slow) ----
 if ($Docker) {
-  Step 'docker' 'build image' { docker build -t kipple:ci . }
+  Step 'docker' 'build image' {
+    # .git is not in the build context, so pass the version in as the workflow does.
+    docker build --build-arg "VERSION=$(git describe --tags --always --dirty)" --build-arg "VCS_REF=$(git rev-parse HEAD)" -t kipple:ci .
+  }
   Step 'docker' 'trivy (HIGH,CRITICAL, unfixed ignored)' {
-    docker run --rm -v //var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 kipple:ci
+    # Scan a saved tarball rather than mounting the Docker socket into the scanner container.
+    $scan = Join-Path $env:TEMP 'kipple-trivy'
+    New-Item -ItemType Directory -Force -Path $scan | Out-Null
+    $tar = Join-Path $scan 'kipple-ci.tar'
+    docker save -o $tar kipple:ci
+    if ($LASTEXITCODE -eq 0) {
+      docker run --rm -v "${scan}:/scan:ro" $TrivyImage image --input /scan/kipple-ci.tar --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+    }
+    $code = $LASTEXITCODE
+    Remove-Item -Force $tar -ErrorAction SilentlyContinue
+    $global:LASTEXITCODE = $code
   }
 }
 

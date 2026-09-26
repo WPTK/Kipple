@@ -3,6 +3,7 @@ package greader
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -117,30 +118,104 @@ func TestWriteTokenRules(t *testing.T) {
 	require.Equal(t, 200, w.Code)
 }
 
-func TestFailureDelayNeverBlocksCorrectPasswordAndNever429(t *testing.T) {
+// Over budget, attempts are paced, not refused: after 5 failures each further
+// attempt waits 2 s (here the fake clock advances instead) and is then verified,
+// so the right password is never answered 401 unchecked. Never a 429.
+func TestClientLoginOverBudgetPacesButVerifies(t *testing.T) {
 	h := newHarness(t)
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 5; i++ {
+		code, body := login(h, "owner", "wrong")
+		require.Equal(t, 401, code)
+		require.Equal(t, "Error=BadAuthentication\n", body)
+	}
+	require.Zero(t, h.paced.Load(), "inside the budget nothing waits")
+	require.Equal(t, int32(5), h.checks.Load())
+	for i := 0; i < 5; i++ {
 		code, _ := login(h, "owner", "wrong")
 		require.Equal(t, 401, code)
 	}
-	h.mu.Lock()
-	delays := len(h.slept)
-	h.mu.Unlock()
-	require.Equal(t, 20-5, delays, "failures 6..20 are delayed")
-	for _, d := range h.slept {
-		require.Equal(t, 2*time.Second, d)
-	}
+	require.Equal(t, int32(5), h.paced.Load(), "each over-budget attempt waited out the delay")
+	require.Equal(t, int32(10), h.checks.Load(), "and was verified")
+
+	// The right password after a restart (nothing remembered) while over budget.
+	h.api.ver.ClearMemo()
 	code, _ := login(h, "owner", testPass)
-	require.Equal(t, 200, code, "correct password from the same IP succeeds at once")
-	h.mu.Lock()
-	require.Len(t, h.slept, delays, "no delay on success")
-	h.mu.Unlock()
-	// The count was cleared: the next failures are not delayed.
-	code, _ = login(h, "owner", "wrong")
-	require.Equal(t, 401, code)
-	h.mu.Lock()
-	require.Len(t, h.slept, delays)
-	h.mu.Unlock()
+	require.Equal(t, 200, code, "the correct password is verified, not refused")
+	require.Equal(t, int32(11), h.checks.Load())
+	require.Equal(t, 10, h.api.fails.Count("192.0.2.10"), "a success is not counted and clears nothing")
+
+	// The remembered password needs no hashing and no pacing.
+	paced := h.paced.Load()
+	code, _ = login(h, "owner", testPass)
+	require.Equal(t, 200, code, "memo hit succeeds over budget")
+	require.Equal(t, paced, h.paced.Load())
+	require.Equal(t, int32(11), h.checks.Load())
+}
+
+// A remembered success must not reset the budget of an address it shares with
+// someone guessing (carrier NAT).
+func TestClientLoginRememberedSuccessKeepsFailureCount(t *testing.T) {
+	h := newHarness(t)
+	code, _ := login(h, "owner", testPass)
+	require.Equal(t, 200, code)
+	for i := 0; i < 5; i++ {
+		login(h, "owner", "guess")
+	}
+	require.Equal(t, 5, h.api.fails.Count("192.0.2.10"))
+	code, _ = login(h, "owner", testPass) // remembered
+	require.Equal(t, 200, code)
+	require.Equal(t, 5, h.api.fails.Count("192.0.2.10"), "the guesser's failures still count")
+}
+
+// One attempt per client hashes at a time; a second one from the same client
+// (or the same IPv6 /64), such as a retry of a slow login, waits for the first
+// and is then verified instead of failing.
+func TestClientLoginConcurrentAttemptWaitsForTheFirst(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan string, 4)
+	var cur, peak atomic.Int32
+	h := newHarness(t)
+	h.api.ver = auth.NewVerifier([]byte(testSecret), auth.VerifierOptions{Wait: 5 * time.Second, Check: func(pw, phc string) bool {
+		n := cur.Add(1)
+		if n > peak.Load() {
+			peak.Store(n)
+		}
+		started <- pw
+		<-release
+		cur.Add(-1)
+		return pw == testPass
+	}})
+	send := func(remote, pass string) int {
+		return h.doFrom(remote, http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd="+pass, map[string]string{"Authorization": ""}).Code
+	}
+	first := make(chan int, 1)
+	go func() { first <- send("[2001:db8:1:2::1]:1000", "slow") }()
+	require.Equal(t, "slow", <-started)
+
+	second := make(chan int, 1)
+	go func() { second <- send("[2001:db8:1:2:ffff::9]:1001", testPass) }() // same /64
+	select {
+	case c := <-second:
+		t.Fatalf("second attempt answered %d while the first was in flight; it must wait", c)
+	case <-time.After(50 * time.Millisecond):
+	}
+	release <- struct{}{} // finish the first
+	require.Equal(t, 401, <-first)
+	require.Equal(t, testPass, <-started, "the waiting attempt then runs")
+	release <- struct{}{}
+	require.Equal(t, 200, <-second, "and its correct password is accepted")
+	require.EqualValues(t, 1, peak.Load(), "never two hashes for one client")
+	require.Equal(t, 1, h.api.fails.Count("2001:db8:1:2::1"), "only the wrong password counted")
+}
+
+func TestClientLoginIPv6BudgetIsPer64(t *testing.T) {
+	h := newHarness(t)
+	for i := 0; i < 20; i++ {
+		remote := "[2001:db8:0:7:" + strconv.Itoa(i+1) + "::1]:443"
+		require.Equal(t, 401, h.doFrom(remote, http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd=wrong", map[string]string{"Authorization": ""}).Code)
+	}
+	require.Equal(t, 20, h.api.fails.Count("2001:db8:0:7::1"), "rotating addresses inside one /64 shares one budget")
+	require.Equal(t, int32(15), h.paced.Load(), "so attempts 6..20 were paced")
 }
 
 func TestMemoizedLoginSkipsHashing(t *testing.T) {
@@ -174,8 +249,10 @@ func TestConcurrentWrongLoginsRunOneHashAtATime(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			code, _ := login(h, "owner", "wrong")
-			require.Equal(t, 401, code)
+			// distinct clients: one client has only one attempt in flight
+			remote := "198.51.100." + strconv.Itoa(i+1) + ":1"
+			w := h.doFrom(remote, http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd=wrong", map[string]string{"Authorization": ""})
+			require.Equal(t, 401, w.Code)
 		}()
 	}
 	wg.Wait()
@@ -228,15 +305,13 @@ func TestClientLoginBusyHashingSlotIs401WithoutFailureOrRetryAfter(t *testing.T)
 	go func() { defer close(done); login(h, "owner", "first") }()
 	<-started // the only hashing slot is now held
 
-	w := h.do(http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd=second", map[string]string{"Authorization": ""})
+	// another client, so it reaches the (held) hashing slot
+	w := h.doFrom("192.0.2.99:1", http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd=second", map[string]string{"Authorization": ""})
 	require.Equal(t, http.StatusUnauthorized, w.Code, "design 6.3: a busy slot is a 401")
 	require.Equal(t, "Error=BadAuthentication\n", w.Body.String())
 	require.Empty(t, w.Header().Get("Retry-After"))
 	require.Equal(t, "true", w.Header().Get("Google-Bad-Token"))
-	require.Zero(t, h.api.fails.Count("192.0.2.10"), "busy is not a failure")
-	h.mu.Lock()
-	require.Empty(t, h.slept, "and adds no delay")
-	h.mu.Unlock()
+	require.Zero(t, h.api.fails.Count("192.0.2.99"), "busy is not a failure")
 	close(release)
 	<-done
 }

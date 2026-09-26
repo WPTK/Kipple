@@ -3,7 +3,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { applyRead, applyStar, bumpMuted, dropFromLists, keys, patchItems } from "@/api/queries";
 import { api, errorMessage } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
-import type { Card, Scope } from "@/api/types";
+import type { Card, ItemsPage, Scope } from "@/api/types";
 import { announce, toast } from "@/shell/toasts";
 import { createStore } from "./store";
 import { pushUndo } from "./undo";
@@ -66,6 +66,23 @@ export function invalidateUnreadLists(qc: QueryClient): void {
   });
 }
 
+/**
+ * Whether article `id` arrived after a list's `as_of`, so a bulk mark bounded by it left the article alone. Ids are
+ * decimal and rise with arrival. With no bound nothing was left out for arriving late; an id that does not parse
+ * counts as late, since treating a row as untouched only puts it back on screen, which is the safe mistake.
+ */
+export function arrivedAfter(id: string, asOf: string | undefined): boolean {
+  if (!asOf) return false;
+  try {
+    return BigInt(id) > BigInt(asOf);
+  } catch {
+    return true;
+  }
+}
+
+/** The most ids GET /api/items?ids= takes in one request (the server's card limit). */
+const IDS_PER_QUERY = 100;
+
 export function itemActions(qc: QueryClient) {
   /** Set read state for ids and record an undo (mark-read undone = mark-unread through the API). */
   async function setRead(ids: string[], read: boolean, reason: "swipe" | "key", restore?: () => void): Promise<void> {
@@ -122,16 +139,42 @@ export function itemActions(qc: QueryClient) {
   }
 
   /**
-   * After a bulk call: patch the ids the server changed and offer undo through them. `local` are the rows
-   * the caller optimistically marked (and possibly hid); the ones the server did not change (above the
-   * list's `as_of`, or read elsewhere already) go back to unread, and `unhide` brings them back on screen.
+   * The rows a bulk mark left alone at or below the list's `as_of`. That is usually because they were read already
+   * (on another device, say), but the server's scope can also differ from the list on screen (full text replaced
+   * an article's content since, a search's fallback, a query with no usable terms), so whether they are still
+   * unread is asked, not guessed: the unread ones go back to unread and back on screen, the read ones stay hidden.
+   * When the server cannot be asked, the lists are reloaded instead and the rows put back on screen.
    */
-  function finishBulk(
+  async function recheckUnchanged(ids: string[], unhide?: (ids: string[]) => void): Promise<void> {
+    try {
+      const unread: string[] = [];
+      for (let i = 0; i < ids.length; i += IDS_PER_QUERY) {
+        const page = await api<ItemsPage>("/api/items", { params: { ids: ids.slice(i, i + IDS_PER_QUERY).join(",") }, quiet: true });
+        for (const c of page.items) if (!c.read) unread.push(c.id);
+      }
+      if (unread.length) {
+        patchItems(qc, unread, { read: false });
+        unhide?.(unread);
+      }
+    } catch {
+      await qc.invalidateQueries({ queryKey: keys.itemsAll });
+      unhide?.(ids);
+    }
+  }
+
+  /**
+   * After a bulk call: patch the ids the server changed and offer undo through them. `local` are the rows the
+   * caller optimistically marked (and possibly hid). Of the ones the server did not change, those above the list's
+   * `as_of` (`asOf`) were left alone because of the bound: they go back to unread and `unhide` brings them back on
+   * screen. For the rest the server is asked what they are now (recheckUnchanged).
+   */
+  async function finishBulk(
     res: { changed: string[]; count?: number; undoable?: boolean; ledger_ids?: string[] },
     local: string[],
+    asOf: string | undefined,
     restore?: () => void,
     unhide?: (ids: string[]) => void,
-  ): void {
+  ): Promise<void> {
     const overCap = res.undoable === false && res.changed.length === 0 && (res.count ?? 0) > 0;
     // Only what the server says it changed is undoable: local guesses would flip items another client read.
     const changed = res.undoable === false ? [] : res.changed;
@@ -144,11 +187,13 @@ export function itemActions(qc: QueryClient) {
     }
     if (changed.length) patchItems(qc, changed, { read: true });
     const kept = new Set(changed);
-    const skipped = local.filter((id) => !kept.has(id));
+    const skipped = local.filter((id) => !kept.has(id) && arrivedAfter(id, asOf));
     if (skipped.length) {
       patchItems(qc, skipped, { read: false });
       unhide?.(skipped);
     }
+    const unsure = local.filter((id) => !kept.has(id) && !arrivedAfter(id, asOf));
+    if (unsure.length) await recheckUnchanged(unsure, unhide);
     const n = res.count ?? changed.length;
     if (changed.length === 0) {
       announce(n === 0 ? "Nothing to mark" : `Marked ${n} as read`);
@@ -166,7 +211,7 @@ export function itemActions(qc: QueryClient) {
   async function markSide(p: RangeParams, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
     patchItems(qc, local, { read: true });
     try {
-      finishBulk(await markRange(p), local, restore, unhide);
+      await finishBulk(await markRange(p), local, p.maxId, restore, unhide);
     } catch {
       patchItems(qc, local, { read: false });
       restore?.();
@@ -177,7 +222,7 @@ export function itemActions(qc: QueryClient) {
   async function markAll(scope: Scope, maxId: string | undefined, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
     patchItems(qc, local, { read: true });
     try {
-      finishBulk(await markAllRead(scope, maxId), local, restore, unhide);
+      await finishBulk(await markAllRead(scope, maxId), local, maxId, restore, unhide);
     } catch {
       patchItems(qc, local, { read: false });
       restore?.();

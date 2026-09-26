@@ -566,6 +566,13 @@ func nonNil(ids []int64) []int64 {
 }
 
 func (s *Server) serverError(w http.ResponseWriter, what string, err error) {
+	if errors.Is(err, store.ErrMaintenance) {
+		// A search index rebuild owns the writer for up to 45 s: a temporary answer the client retries.
+		s.log.Info("api: "+what+": deferred by maintenance", "err", err)
+		w.Header().Set("Retry-After", strconv.Itoa(int(store.MaintenanceRetryAfter/time.Second)))
+		writeError(w, http.StatusServiceUnavailable, "maintenance")
+		return
+	}
 	s.log.Error("api: "+what, "err", err)
 	writeError(w, http.StatusInternalServerError, "internal")
 }
@@ -669,6 +676,9 @@ type statsEventIn struct {
 func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, statsBodyMax))
 	var in struct {
+		// Client is the attribution for a sendBeacon flush, which cannot set X-Kipple-Client: "web" or
+		// "pwa"; anything else falls back to the header (and then to web).
+		Client string         `json:"client"`
 		Events []statsEventIn `json:"events"`
 	}
 	if err != nil || json.NewDecoder(bytes.NewReader(raw)).Decode(&in) != nil {
@@ -679,6 +689,9 @@ func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 		in.Events = in.Events[:maxStatsBatch]
 	}
 	cl := client(r)
+	if in.Client == "web" || in.Client == "pwa" {
+		cl = in.Client
+	}
 	err = s.db.WithWrite(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
 		for _, e := range in.Events {
 			switch e.Kind {
@@ -692,7 +705,8 @@ func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			ev := stats.Event{Kind: e.Kind, Client: cl, ItemID: id, SessionKey: e.SessionKey}
 			if e.Value != nil {
-				ev.Value, ev.HasValue = int64(*e.Value), true
+				// Clamp before converting: a float beyond int64 converts to an implementation-defined value.
+				ev.Value, ev.HasValue = int64(max(-1e15, min(1e15, *e.Value))), true
 			}
 			if err := s.rec.Record(tx, ev); err != nil && !errors.Is(err, stats.ErrDropped) {
 				return err

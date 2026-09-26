@@ -150,11 +150,15 @@ type Options struct {
 // Handler serves GET /img/{sig}/{flags}/{u} (path values). The caller enforces
 // the web session before it gets here.
 type Handler struct {
-	opt   Options
-	sem   chan struct{}
-	hosts *hostLimiter
-	hints hintStore
-	log   *slog.Logger
+	opt Options
+	// secret keys the signatures. It is swapped in place on a rotation
+	// (SetSecret) so the process keeps one handler, and with it one fetch
+	// semaphore, host limiter, thumbnail pool and decode budget.
+	secret atomic.Pointer[[]byte]
+	sem    chan struct{}
+	hosts  *hostLimiter
+	hints  hintStore
+	log    *slog.Logger
 
 	pool     *pool
 	lim      thumbLimits
@@ -227,7 +231,7 @@ func New(opt Options) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{
+	h := &Handler{
 		opt: opt, sem: make(chan struct{}, opt.Concurrency), hosts: newHostLimiter(opt.PerHost),
 		hints: hintStore{cache: opt.Cache}, log: log,
 		pool: newPool(opt.ThumbWorkers, opt.ThumbQueue),
@@ -235,6 +239,16 @@ func New(opt Options) *Handler {
 			width: opt.ThumbWidth, maxPixels: opt.ThumbMaxPixels, ceiling: opt.DecodeCeiling, budget: newBudget(opt.DecodeBudget),
 		},
 	}
+	h.SetSecret(opt.Secret)
+	return h
+}
+
+// SetSecret replaces the signing secret: URLs signed with the old one stop
+// verifying at once. Requests in flight finish; the fetch slots, thumbnail
+// pool and decode budget are the same ones.
+func (h *Handler) SetSecret(secret []byte) {
+	s := append([]byte(nil), secret...)
+	h.secret.Store(&s)
 }
 
 // ServeHTTP implements http.Handler.
@@ -255,7 +269,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orig := string(raw)
-	if !hmac.Equal([]byte(sig), []byte(Sign(h.opt.Secret, flags, orig))) {
+	if !hmac.Equal([]byte(sig), []byte(Sign(*h.secret.Load(), flags, orig))) {
 		fail(w, http.StatusForbidden)
 		return
 	}
@@ -267,7 +281,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	base := flags &^ FlagThumb // the source is fetched, and cached, by its fetch flags alone
 	switch {
 	case !h.opt.Cache.Enabled():
-		h.serveDirect(w, r, u, base) // no cache, no thumbnails: the original streams through
+		// No cache, no thumbnails: the original streams through. At a thumbnail
+		// URL it is never immutable, or the original would stay pinned under the
+		// thumbnail URL for 30 days once the cache is back.
+		if flags&FlagThumb != 0 {
+			w = &ccWriter{ResponseWriter: w, cc: noCache}
+		}
+		h.serveDirect(w, r, u, base)
 	case flags&FlagThumb != 0:
 		h.serveThumb(w, r, u, base, orig)
 	default:
@@ -458,7 +478,7 @@ func (h *Handler) stream(w http.ResponseWriter, resp *http.Response, sk *sink, h
 		if _, err := w.Write(head); err != nil {
 			return
 		}
-		h.pump(w, body, sk)
+		h.pump(w, body, resp, sk)
 		return
 	}
 	defer rd.Close()
@@ -473,13 +493,13 @@ func (h *Handler) stream(w http.ResponseWriter, resp *http.Response, sk *sink, h
 		}
 		p.forward()
 	}
-	h.follow(w, rd, pr, body, sk)
+	h.follow(w, rd, pr, body, resp, sk)
 }
 
 // pump copies the rest of body to the client. A failure mid-stream (over the
 // cap, the source died, the budget ran out) cuts the connection: the status is
 // already sent, so the browser shows a broken image.
-func (h *Handler) pump(w http.ResponseWriter, body io.Reader, sk *sink) {
+func (h *Handler) pump(w http.ResponseWriter, body io.Reader, resp *http.Response, sk *sink) {
 	buf := make([]byte, 32<<10)
 	for {
 		m, rerr := body.Read(buf)
@@ -492,10 +512,7 @@ func (h *Handler) pump(w http.ResponseWriter, body io.Reader, sk *sink) {
 			return
 		}
 		if rerr != nil {
-			var mbe *http.MaxBytesError
-			if errors.As(rerr, &mbe) {
-				sk.fail(imgcache.NegPermanent, http.StatusBadGateway, "over the size limit")
-			}
+			sk.bodyFailed(resp, rerr)
 			panic(http.ErrAbortHandler)
 		}
 	}
@@ -530,6 +547,8 @@ func (h *Handler) fill(cw *imgcache.Writer, body io.Reader, head []byte, resp *h
 		case rerr == io.EOF:
 			if resp.ContentLength >= 0 && total != resp.ContentLength {
 				cw.Abort()
+				sk.fail(imgcache.NegTransient, 0, "the body was cut")
+				sk.done()
 				pr.finish(fillFailed, false)
 			} else {
 				committed := sk.commit(cw, ct, resp, h.log)
@@ -540,10 +559,7 @@ func (h *Handler) fill(cw *imgcache.Writer, body io.Reader, head []byte, resp *h
 			return
 		case rerr != nil:
 			cw.Abort()
-			var mbe *http.MaxBytesError
-			if errors.As(rerr, &mbe) {
-				sk.fail(imgcache.NegPermanent, http.StatusBadGateway, "over the size limit")
-			}
+			sk.bodyFailed(resp, rerr)
 			sk.done()
 			pr.finish(fillFailed, false)
 			fin()
@@ -553,7 +569,7 @@ func (h *Handler) fill(cw *imgcache.Writer, body io.Reader, head []byte, resp *h
 }
 
 // follow serves the client from the cache file as the fill writes it.
-func (h *Handler) follow(w http.ResponseWriter, rd *os.File, pr *progress, body io.Reader, sk *sink) {
+func (h *Handler) follow(w http.ResponseWriter, rd *os.File, pr *progress, body io.Reader, resp *http.Response, sk *sink) {
 	buf := make([]byte, 32<<10)
 	var off int64
 	for {
@@ -583,7 +599,7 @@ func (h *Handler) follow(w http.ResponseWriter, rd *os.File, pr *progress, body 
 					return
 				}
 			}
-			h.pump(w, body, sk)
+			h.pump(w, body, resp, sk)
 			return
 		}
 	}

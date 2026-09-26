@@ -7,7 +7,7 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// stateName returns the name in user/<x>/state/com.google/<name>.
+// stateName returns the name in user/<x>/state/com.google/<name> (<x> one segment).
 func stateName(id string) (string, bool) { return parseUserPath(id, "/state/com.google/") }
 
 // resolveStream turns a stream id into a filter (design §6.4). Unknown streams,

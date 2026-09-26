@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net"
 	"net/http"
@@ -43,6 +44,9 @@ type Options struct {
 	UserAgent string
 	Timeout   time.Duration // default 15 s, the whole exchange
 	MaxBody   int64         // default 10 MiB of raw page bytes
+	// Logger receives a warning when a feed's network exception is withheld
+	// from a request on another host; default slog.Default().
+	Logger *slog.Logger
 }
 
 // Extractor extracts articles. It is safe for concurrent use.
@@ -59,6 +63,9 @@ func New(opt Options) *Extractor {
 	if opt.UserAgent == "" {
 		opt.UserAgent = "Mozilla/5.0 (compatible; Kipple)"
 	}
+	if opt.Logger == nil {
+		opt.Logger = slog.Default()
+	}
 	return &Extractor{opt: opt}
 }
 
@@ -69,9 +76,70 @@ type Target struct {
 	// RetryUserAgent, when set, is tried once after a 403/406 or a Cloudflare
 	// challenge served as a 503 (fetch.user_agent_mode = browser_on_failure).
 	RetryUserAgent string
-	AllowPrivate   bool
-	InsecureTLS    bool
-	NoHTTP2        bool
+	// AllowPrivate and InsecureTLS are the feed's network exceptions. They apply
+	// only to requests (each redirect hop checked on its own) whose host is
+	// FeedHost, the feed's own host, or a variant of it (a subdomain, or the
+	// bare/www. twin: fetch.FeedHostVariant): an article link or a redirect
+	// elsewhere gets the guarded default transport. With FeedHost empty they
+	// apply nowhere.
+	AllowPrivate bool
+	InsecureTLS  bool
+	FeedHost     string
+	NoHTTP2      bool
+	// FeedID is logged when the scoping refuses a request (optional).
+	FeedID int64
+}
+
+// transport picks the round tripper for a target (see Target.AllowPrivate).
+func (e *Extractor) transport(t Target) http.RoundTripper {
+	guarded := e.opt.Transport(false, false, t.NoHTTP2)
+	if (!t.AllowPrivate && !t.InsecureTLS) || t.FeedHost == "" {
+		return guarded
+	}
+	return &hostScoped{host: t.FeedHost, feed: e.opt.Transport(t.AllowPrivate, t.InsecureTLS, t.NoHTTP2), other: guarded,
+		allowPrivate: t.AllowPrivate, insecureTLS: t.InsecureTLS, feedID: t.FeedID, log: e.opt.Logger}
+}
+
+// hostScoped sends requests for the feed's host (and its variants) through feed
+// and all others through other. http.Client calls RoundTrip once per hop,
+// redirects included, and neither transport uses a proxy, so each hop dials the
+// host it names through the transport chosen for that host.
+type hostScoped struct {
+	host        string
+	feed, other http.RoundTripper
+
+	allowPrivate, insecureTLS bool
+	feedID                    int64
+	log                       *slog.Logger
+}
+
+func (h *hostScoped) RoundTrip(req *http.Request) (*http.Response, error) {
+	if fetch.FeedHostVariant(h.host, req.URL.Hostname()) {
+		return h.feed.RoundTrip(req)
+	}
+	resp, err := h.other.RoundTrip(req)
+	if err != nil {
+		// Say why when the feed's exception would have let this through: the
+		// user enabled it and otherwise sees only a blocked address or a bad
+		// certificate for a page on the "same" server (an IP vs a name, say).
+		class, _ := fetch.Classify(err)
+		var what string
+		switch {
+		case class == fetch.ClassSSRF && h.allowPrivate:
+			what = "private-network"
+		case class == fetch.ClassTLS && h.insecureTLS:
+			what = "insecure-TLS"
+		}
+		if what != "" {
+			if h.log != nil {
+				h.log.Warn("extract: request refused: the feed's network exception covers only the feed's host",
+					"feed", h.feedID, "exception", what, "feed_host", h.host, "host", req.URL.Hostname(), "err", err)
+			}
+			return nil, fmt.Errorf("the feed's %s exception does not cover %s (feed host %s): %w",
+				what, req.URL.Hostname(), h.host, err)
+		}
+	}
+	return resp, err
 }
 
 // Result is a successful extraction.
@@ -121,7 +189,7 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 		ua = e.opt.UserAgent
 	}
 	client := &http.Client{
-		Transport: e.opt.Transport(t.AllowPrivate, t.InsecureTLS, t.NoHTTP2),
+		Transport: e.transport(t),
 		Timeout:   e.opt.Timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > maxHops {

@@ -271,3 +271,57 @@ func TestImportIgnoresDangerousAttrsAndBareNamespace(t *testing.T) {
 		`SELECT site_url FROM feeds WHERE url='http://c.test/rss'`).Scan(&site))
 	require.Equal(t, "https://c.test/", site)
 }
+
+// Import applies the checks every other path applies: ValidateFeedURL's syntax
+// check (a literal private address is imported with allow_private_net off and
+// reported, not skipped), the feed PATCH rule for
+// kipple:user_agent, and the folder name limits.
+func TestImportValidatesURLUserAgentAndFolderNames(t *testing.T) {
+	db := openDB(t)
+	long := strings.Repeat("f", 101)
+	ok100 := strings.Repeat("g", 100)
+	r := importString(t, db, `<opml xmlns:kipple="`+NS+`"><body>
+	<outline text="Root" xmlUrl="http://127.0.0.1/rss"/>
+	<outline text="NAS" xmlUrl="http://192.168.1.5:8080/rss" kipple:allow_private_net="true"/>
+	<outline text="Creds" xmlUrl="http://bob:pw@creds.test/rss"/>
+	<outline text="Good" xmlUrl="http://good.test/rss" kipple:user_agent="MyAgent/1.0"/>
+	<outline text="LongUA" xmlUrl="http://longua.test/rss" kipple:user_agent="`+strings.Repeat("u", 501)+`"/>
+	<outline text="CtlUA" xmlUrl="http://ctlua.test/rss" kipple:user_agent="a&#10;b"/>
+	<outline text="`+long+`"><outline text="L" xmlUrl="http://long.test/rss"/></outline>
+	<outline text="Bad&#127;Name"><outline text="D" xmlUrl="http://del.test/rss"/></outline>
+	<outline text="`+ok100+`"><outline text="H" xmlUrl="http://ok100.test/rss"/></outline>
+	</body></opml>`, ImportOptions{})
+
+	reasons := map[string]string{}
+	for _, s := range r.Skipped {
+		reasons[s.URL] = s.Reason
+	}
+	require.Len(t, r.Skipped, 3, "%v", r.Skipped)
+	require.Contains(t, reasons["http://bob:pw@creds.test/rss"], "user name or password", "userinfo is still refused")
+	require.NotContains(t, reasons, "http://127.0.0.1/rss", "a private address is imported, not skipped")
+	require.Contains(t, r.IgnoredAttrs, "http://127.0.0.1/rss: private address, imported with allow_private_net off; turn it on for this feed to fetch it")
+	require.Contains(t, r.IgnoredAttrs, "http://192.168.1.5:8080/rss: kipple:allow_private_net")
+	var priv int
+	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE url IN ('http://127.0.0.1/rss', 'http://192.168.1.5:8080/rss') AND allow_private_net = 0").Scan(&priv))
+	require.Equal(t, 2, priv, "imported with the exception off")
+	require.Contains(t, reasons["http://long.test/rss"], "folder name")
+	require.Contains(t, reasons["http://del.test/rss"], "folder name")
+	require.Equal(t, 6, r.FeedsAdded)
+	require.Equal(t, 1, r.FoldersCreated, "only the 100-character folder")
+
+	var n int
+	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM folders WHERE length(name) > 100 OR name LIKE '%' || char(127) || '%'").Scan(&n))
+	require.Zero(t, n)
+
+	ua := func(u string) sql.NullString {
+		var v sql.NullString
+		require.NoError(t, db.Reader().QueryRow("SELECT user_agent FROM feeds WHERE url = ?", u).Scan(&v))
+		return v
+	}
+	require.Equal(t, "MyAgent/1.0", ua("http://good.test/rss").String)
+	require.False(t, ua("http://longua.test/rss").Valid, "an over-long UA is not stored")
+	require.False(t, ua("http://ctlua.test/rss").Valid, "a UA with a newline is not stored")
+	joined := strings.Join(r.InvalidAttrs, "\n")
+	require.Contains(t, joined, "http://longua.test/rss: kipple:user_agent=")
+	require.Contains(t, joined, "http://ctlua.test/rss: kipple:user_agent=")
+}

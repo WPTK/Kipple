@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,6 +172,206 @@ func TestApplyRefusesWhatCannotApply(t *testing.T) {
 	require.ErrorIs(t, err, ErrFilterNotFound)
 	_, err = e.db.ApplyFilter(e.ctx, 999, false, 0, nil, nil)
 	require.ErrorIs(t, err, ErrFilterNotFound)
+}
+
+// seedMixed loads four unread items, all titled "spam N": 0 has "keepme" in its body, 1 has the
+// category "vip", 2 has "keepme" about 20 KiB into its body (past the 8 KiB a regex reads, inside the
+// 32 KiB a text rule reads), 3 has none of these.
+func (e *env) seedMixed() int64 {
+	e.t.Helper()
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	filler := strings.Repeat("lorem ipsum ", 20<<10/12)
+	e.fetchBody(id, frss(
+		fspec{guid: "g0", title: "spam 0", body: "<p>please keepme</p>", age: 4 * time.Minute},
+		fspec{guid: "g1", title: "spam 1", cats: []string{"vip"}, age: 3 * time.Minute},
+		fspec{guid: "g2", title: "spam 2", body: "<p>" + filler + "keepme</p>", age: 2 * time.Minute},
+		fspec{guid: "g3", title: "spam 3", age: time.Minute},
+	))
+	return id
+}
+
+// A retroactive run loads every field the rules it evaluates read, not only the applied rule's:
+// a saved star rule on content, on categories, or inverted, must see the same item as at ingest.
+func TestRetroLoadsTheFieldsOfTheStarRules(t *testing.T) {
+	muteSpam := func(e *env) Filter { return newFilter("mute", "spam") } // title only
+	star := func(e *env, mut func(*Filter)) {
+		f := newFilter("star", "keepme")
+		mut(&f)
+		e.mkFilter(f)
+	}
+	muted := func(e *env) []string { return e.titles("muted_by IS NOT NULL") }
+	for _, tc := range []struct {
+		name      string
+		saved     func(*env)
+		wantMuted []string
+	}{
+		{"star on content", func(e *env) { star(e, func(f *Filter) { f.Fields = []string{"content"} }) }, []string{"spam 1", "spam 3"}},
+		{"inverted star on content", func(e *env) {
+			star(e, func(f *Filter) { f.Fields, f.Invert = []string{"content"}, true })
+		}, []string{"spam 0", "spam 2"}},
+		{"star on category", func(e *env) {
+			star(e, func(f *Filter) { f.Terms, f.Fields = []string{"vip"}, []string{"category"} })
+		}, []string{"spam 0", "spam 2", "spam 3"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.seedMixed()
+			tc.saved(e)
+			pre, err := e.db.PreviewFilter(e.ctx, muteSpam(e), false, 5*time.Second)
+			require.NoError(t, err)
+			require.Equal(t, len(tc.wantMuted), pre.Matches, "the preview counts what the apply changes")
+			rule := e.mkFilter(muteSpam(e))
+			res, err := e.db.ApplyFilter(e.ctx, rule.ID, false, 0, nil, nil)
+			require.NoError(t, err)
+			require.Equal(t, len(tc.wantMuted), res.Changed)
+			require.Equal(t, tc.wantMuted, muted(e))
+			e.assertMutedInvariant()
+		})
+	}
+
+	// A regex rule reads 8 KiB of content, but a text star rule evaluated beside it reads 32 KiB: the
+	// scan loads the larger, so the star rule still sees "keepme" 20 KiB in.
+	e := newEnv(t)
+	e.seedMixed()
+	star(e, func(f *Filter) { f.Fields = []string{"content"} })
+	re := newFilter("mute", `^spam \d`)
+	re.Kind, re.Fields = "regex", []string{"title", "content"}
+	pre, err := e.db.PreviewFilter(e.ctx, re, false, 5*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, 2, pre.Matches)
+	rule := e.mkFilter(re)
+	_, err = e.db.ApplyFilter(e.ctx, rule.ID, false, 0, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"spam 1", "spam 3"}, muted(e))
+}
+
+// The `feed` field is the same title at ingest and in a retroactive run: custom title, else stored
+// title, else (both blank) the feed URL.
+func TestFeedFieldAgreesBetweenIngestAndRetro(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://untitled.example/feed")
+	rule := newFilter("mute", "untitled.example")
+	rule.Fields, rule.WholeWord = []string{"feed"}, false
+	e.mkFilter(rule)
+	// A document with no title: nothing stored, nothing from the document, so the URL is the name.
+	e.fetchBody(id, []byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>  </title><link>https://ex.com/</link>`+
+		`<item><guid>u1</guid><title>one</title><link>https://ex.com/u1</link></item></channel></rss>`))
+	require.Equal(t, []string{"one"}, e.titles("muted_by IS NOT NULL"), "ingest matches the URL of an untitled feed")
+
+	// The retroactive preview sees the same name.
+	e.exec("UPDATE items SET muted_by = NULL, read = 0, muted_was_read = NULL")
+	res, err := e.db.PreviewFilter(e.ctx, rule, false, 5*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, 1, res.Matches)
+
+	// Whitespace-only custom and stored titles count as blank on both paths too.
+	e.exec("UPDATE feeds SET custom_title = ' ', title = char(9) WHERE id = ?", id)
+	res, err = e.db.PreviewFilter(e.ctx, rule, false, 5*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, 1, res.Matches)
+}
+
+// seedCostly loads n unread items whose 8 KiB of letters keep a broad bounded regex busy (several ms
+// each), and returns a mute rule that does exactly that.
+func (e *env) seedCostly(n int) Filter {
+	e.t.Helper()
+	id := e.addFeed("http://slow.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	body := "<p>" + strings.Repeat("lorem ipsum dolor sit amet ", 8<<10/27) + "</p>"
+	specs := make([]fspec, n)
+	for i := range specs {
+		specs[i] = fspec{guid: fmt.Sprintf("c%d", i), title: fmt.Sprintf("costly %d", i), body: body, age: time.Duration(n-i) * time.Minute}
+	}
+	e.fetchBody(id, frss(specs...))
+	f := newFilter("mute", `[a-z ]{1,50}[0-9]{3}`, `(?:\pL|\s){1,50}\d{5}`)
+	f.Kind, f.Fields = "regex", []string{"content"}
+	return f
+}
+
+// The preview checks its budget on every item, not every 64: with items that cost milliseconds each,
+// a 64-item page would otherwise run far past the budget (and report an untruncated full scan).
+func TestPreviewBudgetIsCheckedOnEveryItem(t *testing.T) {
+	e := newEnv(t)
+	f := e.seedCostly(64)
+	start := time.Now()
+	res, err := e.db.PreviewFilter(e.ctx, f, false, 20*time.Millisecond)
+	took := time.Since(start)
+	require.NoError(t, err)
+	require.True(t, res.Truncated, "scanned %d in %v", res.Scanned, took)
+	require.Less(t, res.Scanned, 64)
+}
+
+// An apply notices a cancel (or its deadline) at the next item, not after evaluating a whole page.
+func TestApplyStopsAtTheNextItemOnCancel(t *testing.T) {
+	e := newEnv(t)
+	rule := e.mkFilter(e.seedCostly(128))
+	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	res, err := e.db.ApplyFilter(ctx, rule.ID, false, 0, nil, nil)
+	took := time.Since(start)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Zero(t, res.Changed, "nothing was written: the page never reached its write")
+	// A page of 128 items costs seconds; stopping at the next item takes one item's worth (tens of ms).
+	ceiling := time.Second
+	if raceEnabled {
+		ceiling = 15 * time.Second // regexp is tens of times slower under the race detector
+	}
+	require.Less(t, took, ceiling)
+}
+
+// A deadline-bounded delete restores at least one batch per call, answers Done=false while muted
+// items remain, keeps the rule (disabled) until the last call, and counts what went back to unread.
+func TestDeleteFilterWithinIsResumable(t *testing.T) {
+	e := newEnv(t)
+	e.seedRetro(2400)
+	e.exec("UPDATE items SET read = 1 WHERE title IN ('spam 0', 'spam 2', 'spam 4')")
+	rule := e.mkFilter(newFilter("mute", "spam"))
+	_, err := e.db.ApplyFilter(e.ctx, rule.ID, true, 0, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1200, e.count("SELECT count(*) FROM items WHERE muted_by = ?", rule.ID))
+
+	past := time.Now().Add(-time.Second)
+	var got []DeleteResult
+	for i := 0; i < 5; i++ {
+		res, ok, err := e.db.DeleteFilterWithin(e.ctx, rule.ID, UnmuteUnread, past, nil)
+		require.NoError(t, err)
+		require.True(t, ok)
+		got = append(got, res)
+		if res.Done {
+			break
+		}
+		require.Equal(t, 1, e.count("SELECT count(*) FROM filters WHERE id = ? AND enabled = 0", rule.ID), "kept, disabled, until done")
+	}
+	require.Equal(t, []DeleteResult{{500, 497, false}, {500, 500, false}, {200, 200, true}}, got,
+		"the three read before the mute (the oldest, so in the first batch) stay read and are not counted")
+	require.Zero(t, e.count("SELECT count(*) FROM filters"))
+	require.Zero(t, e.count("SELECT count(*) FROM items WHERE muted_by IS NOT NULL"))
+	require.Equal(t, 3, e.count("SELECT count(*) FROM items WHERE title LIKE 'spam%' AND read = 1"))
+}
+
+// An empty field list is stored and read back as ["title"], so the client's highlighter (which only
+// sees the stored list) draws it where the engine matches.
+func TestEmptyFieldsAreTitle(t *testing.T) {
+	e := newEnv(t)
+	f := newFilter("highlight", "go")
+	f.Fields = []string{}
+	got := e.mkFilter(f)
+	require.Equal(t, []string{"title"}, got.Fields)
+	var stored string
+	require.NoError(t, e.db.Reader().QueryRow("SELECT fields FROM filters WHERE id = ?", got.ID).Scan(&stored))
+	require.Equal(t, `["title"]`, stored)
+	upd, ok, err := e.db.UpdateFilter(e.ctx, got.ID, func(f *Filter) error { f.Fields = nil; return nil })
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []string{"title"}, upd.Fields)
+	// A row stored by an older version with [] reads as title too.
+	e.exec(`UPDATE filters SET fields = '[]' WHERE id = ?`, got.ID)
+	hs, err := e.db.Highlights(e.ctx)
+	require.NoError(t, err)
+	require.Len(t, hs, 1)
+	require.Equal(t, []string{"title"}, hs[0].Fields)
 }
 
 func TestDeleteFilterUnmuteModes(t *testing.T) {

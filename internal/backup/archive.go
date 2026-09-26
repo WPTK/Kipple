@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -68,6 +69,11 @@ This file contains your password hashes and any feed logins. Keep it private.
 `
 
 const maxManifestBytes = 1 << 20
+
+// restoreFreeBytes reports the free space where ExtractDB writes (a variable so
+// tests can fake a full disk). When it fails the check is skipped: the write
+// itself still fails cleanly on a full disk and the partial file is removed.
+var restoreFreeBytes = diskFree
 
 // readEntry reads a small entry fully, refusing one that claims to be larger
 // than max.
@@ -130,6 +136,15 @@ func ExtractDB(src, dst string) (mf Manifest, err error) {
 	}
 	if mf.App != "kipple" || mf.Format != ManifestFormat {
 		return Manifest{}, fmt.Errorf("unsupported backup (app %q, format %d)", mf.App, mf.Format)
+	}
+	// The declared size is checked (and later matched against the zip entry and
+	// the bytes actually written) before anything is extracted: a crafted or
+	// damaged zip must not fill the disk under the live database.
+	if mf.DBBytes < 0 || mf.DBBytes > DefaultMaxDBBytes {
+		return Manifest{}, fmt.Errorf("kipple.db is declared as %d bytes, over the %d a restore accepts", mf.DBBytes, int64(DefaultMaxDBBytes))
+	}
+	if free, ferr := restoreFreeBytes(filepath.Dir(dst)); ferr == nil && uint64(mf.DBBytes) > free {
+		return Manifest{}, fmt.Errorf("not enough free space to restore: kipple.db needs %d bytes, %d are free", mf.DBBytes, free)
 	}
 	var sawDB bool
 	for _, e := range mf.Files {

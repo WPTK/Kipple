@@ -22,19 +22,30 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
 
 ## Deploy
 
-7. **Off-box database copy first:** take the in-app backup zip (or copy the volume's `kipple.db` snapshot) and store
-   it somewhere other than Host-A. Note the pre-migration snapshot name the app writes on start.
+7. **Off-box database copy first:** take the in-app backup zip (or `docker cp` the nightly
+   `/data/backup/kipple-snapshot.db`, never the live `kipple.db`; see docs/deploy.md) and store it somewhere other than
+   Host-A. Note the pre-migration snapshot name the app writes on start.
 8. **Tag the deployed commit:** `git tag -a vX.Y.Z -m "Kipple X.Y.Z"` on the exact commit, then `git push origin vX.Y.Z`.
    Never move, delete or reuse a pushed tag; a bad release gets a new version.
-9. **Deploy only the named service** (see CLAUDE.md, Deploy): `git pull`, `docker compose -f /home/user/stack/docker-compose.yml build kipple`,
-   `up -d kipple`. Never a bare `up`/`down`.
-10. **Verify:** container healthy; `docker logs kipple` shows the migrations that were expected and no errors;
+9. **Deploy the tag, only the named service** (see CLAUDE.md, Deploy). The tag, not `main`, is what gets built:
+
+       ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout vX.Y.Z && KIPPLE_VERSION=vX.Y.Z KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose -f /home/user/stack/docker-compose.yml build kipple && docker compose -f /home/user/stack/docker-compose.yml up -d kipple'
+       ssh host-a 'cd /home/user/kipple && git checkout main'
+
+   `git checkout vX.Y.Z` leaves the checkout on a detached HEAD; the second line puts it back on `main` once the image
+   is built (the running container is not affected). `KIPPLE_VERSION` and `KIPPLE_VCS_REF` reach the build through the
+   service's `build.args` (as in `docker-compose.example.yml`); `.git` is not in the build context, so without them
+   the binary reports version `dev`. Never a bare `up`/`down`.
+10. **Verify:** `ssh host-a 'docker exec kipple /kipple version'` prints `vX.Y.Z`; container healthy; `docker logs kipple` shows the migrations that were expected and no errors;
     `/api/greader.php` answers with Reeder; a refresh completes; memory stays flat after a few minutes (`docker stats`).
 11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`-alpha/-beta/-rc` marked pre-release).
     No Releases exist yet; they are required once the repo is public.
 
 ## Rollback
 
-Stop the service, restore the pre-migration snapshot (`kipple restore <snapshot> --yes`, or copy it over the volume's
-`kipple.db`), redeploy the previous tag's image, start it. The database may have moved forward, so a rollback across a
-migration always goes through the snapshot. Record what happened in the CHANGELOG or the diary; ship the fix as the next version.
+Follow docs/deploy.md, "Roll back an upgrade that migrated the schema": stop the service, restore the pre-migration
+snapshot with the still-built new image (`docker compose run --rm -T --no-deps kipple restore /data/backup/pre-migration-<old>-<new>-<ns>.db --yes`),
+then check out the previous tag, rebuild with `KIPPLE_VERSION=<previous tag>`, start it, and `git checkout main` again.
+Never copy a snapshot over the volume's `kipple.db` by hand: the `-wal` and `-shm` files left beside it would be
+replayed onto the copy and corrupt it; `kipple restore` handles them. The database may have moved forward, so a rollback
+across a migration always goes through the snapshot. Record what happened in the CHANGELOG or the diary; ship the fix as the next version.
