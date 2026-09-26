@@ -200,3 +200,8 @@ mind.
   500 ms budget) answers `422 search_too_broad` instead of stalling.
 - **Device profiles are protected from a runaway client.** At most 5 new devices per login session
   per day, and the 50-device cap only evicts devices unseen for 30 days.
+
+## Release checklist: license notices
+
+Before tagging, run `cd web && npm ci` then `node scripts/gen-notices.mjs` from the repo root and commit any change to `THIRD_PARTY_NOTICES.md`. Investigate anything the script prints under FLAGGED. The Dockerfile copies `LICENSE` and `THIRD_PARTY_NOTICES.md` into `/licenses/`.
+

@@ -25,3 +25,11 @@ app, offline use) is next. See [CHANGELOG.md](CHANGELOG.md).
 - Local development with sample feeds is described in `web/README.md`.
 
 This file was added as a short orientation; a fuller README can follow when the project is ready to share.
+
+## License
+
+Kipple is licensed under the [Blue Oak Model License 1.0.0](LICENSE), a short, plain-English
+permissive license: use, modify and share it freely, including commercially, as long as everyone you pass
+it on to also gets the license text.
+Third-party components and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+(regenerate with `node scripts/gen-notices.mjs` after `cd web && npm ci`).
