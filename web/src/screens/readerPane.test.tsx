@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
@@ -90,6 +90,39 @@ describe("reader pane: per-article state", () => {
     await screen.findByRole("heading", { level: 1, name: "Article number 2" });
     expect(ft()).toBeEnabled();
     release();
+  });
+});
+
+describe("addresses from the feed", () => {
+  it("a non-http article or site address is never opened or linked, from the list or the article", async () => {
+    const bad = "javascript:alert(1)";
+    const feed = { id: "1", title: "Example Feed", site_url: bad };
+    routes({
+      "GET /api/items": () => json(pageOf([card(1, { url: bad }), card(2)], null, "2000")),
+      "GET /api/items/1001": () => json(detail(1, { url: bad, feed })),
+      "POST /api/items/1001/open": () => json({ session_key: "k", item: detail(1, { read: true, url: bad, feed }) }),
+    });
+    const open = vi.fn();
+    vi.stubGlobal("open", open);
+    go("/l/unread");
+    await screen.findByText("Article number 2");
+    const user = userEvent.setup();
+    await user.keyboard("j"); // selects and opens row 1 beside the list
+    await screen.findByTestId("article-body");
+    await user.keyboard("o"); // open original (the list drives it in the pane)
+    await user.keyboard("v"); // open in the background
+    await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Open original" }));
+    expect(open).not.toHaveBeenCalled();
+    // The source name is plain text, not a link to a script.
+    const source = screen.getByText("Example Feed", { selector: "header a" });
+    expect(source).not.toHaveAttribute("href");
+
+    // An ordinary address still opens.
+    await user.keyboard("j");
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
+    await user.keyboard("o");
+    expect(open).toHaveBeenCalledWith("https://example.com/a/2", "_blank", "noopener,noreferrer");
   });
 });
 
