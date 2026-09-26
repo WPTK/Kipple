@@ -97,7 +97,7 @@ export function Switch({
   const id = useId();
   return (
     <div>
-      <label htmlFor={id} className="flex min-h-11 cursor-pointer items-start gap-3 text-sm">
+      <label htmlFor={id} className="relative flex min-h-11 cursor-pointer items-start gap-3 text-sm">
         <input
           id={id}
           type="checkbox"

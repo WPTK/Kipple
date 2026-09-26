@@ -4,6 +4,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_DEVICE_PREFS, parseDevicePrefs, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { Segmented } from "./segmented";
+import { Switch } from "./kit";
 import { ResizeHandle, dragWidth, keyWidth } from "./ResizeHandle";
 import { UnreadCount, badgeKind, badgeText } from "./UnreadCount";
 
@@ -126,5 +127,21 @@ describe("device prefs added for this round", () => {
     expect(bad).toMatchObject({ articleWidth: "medium", listWidth: 720, sidebarWidth: 200, linkTarget: null, unreadBadge: "count", collapsedFolders: ["1"] });
     expect(bad.favoritesLocal).toEqual([{ t: "feed", id: "7" }]);
     expect(DEFAULT_DEVICE_PREFS.sidebarWidth).toBe(240);
+  });
+});
+
+describe("visually hidden inputs stay where their control is", () => {
+  it("every sr-only-live input sits in a positioned label, so focusing it scrolls its control into view (WCAG 2.4.11)", () => {
+    // .sr-only-live is absolute at top/left 0: without a positioned ancestor a focused input is pinned to the
+    // viewport corner, scroll-into-view has nothing to scroll to and the focus ring is drawn off screen.
+    const { container } = render(
+      <div>
+        <Switch label="Shortcuts" checked={false} onChange={() => {}} />
+        <Segmented legend="Size" value={1} options={[{ value: 1, label: "One" }, { value: 2, label: "Two" }]} onChange={() => {}} />
+      </div>,
+    );
+    const inputs = container.querySelectorAll("input.sr-only-live");
+    expect(inputs.length).toBe(3);
+    for (const i of inputs) expect(i.closest("label")?.className).toMatch(/(^| )relative( |$)/);
   });
 });
