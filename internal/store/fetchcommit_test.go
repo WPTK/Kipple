@@ -558,9 +558,11 @@ func TestChunkedCommitEachChunkHasItsOwnDeadline(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 620, info.New)
 
-	// an already-expired budget fails the chunk (and reports nothing)
+	// an already-expired budget fails the chunk (and reports nothing). A negative
+	// budget expires synchronously; a 1 ns one only arms a timer, which a fast
+	// commit can beat.
 	id2 := e.addFeed("http://b.example/feed")
-	info, err = e.db.CommitFetchTimeout(e.ctx, e.okResult(e.snap(id2), rss(numbered(5)...)), time.Nanosecond)
+	info, err = e.db.CommitFetchTimeout(e.ctx, e.okResult(e.snap(id2), rss(numbered(5)...)), -time.Second)
 	require.Error(t, err)
 	require.Zero(t, info.New)
 }

@@ -351,9 +351,7 @@ func (s *Scheduler) handleDone(r result) {
 		}
 		run.Outstanding--
 		if run.Outstanding <= 0 {
-			if s.runs[run.Kind] == run {
-				delete(s.runs, run.Kind)
-			}
+			s.endRun(run)
 			s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": run.NewItems, "errors": run.Errors})
 		}
 	}
@@ -477,7 +475,7 @@ func (s *Scheduler) handleRun(req runReq) {
 		reply(runReply{info: RunInfo{RunID: run.ID, Kind: run.Kind}})
 		return
 	}
-	s.runs[run.Kind] = run
+	s.setRun(run)
 	s.hub.Publish("run.start", map[string]any{"run_id": idStr(run.ID), "kind": run.Kind, "total": run.Total})
 	for _, f := range toEnqueue {
 		s.enqueue(f)
@@ -652,11 +650,22 @@ func (s *Scheduler) settleRunFeed(run *Run, isErr bool) {
 	}
 	run.Outstanding--
 	if run.Outstanding <= 0 {
-		if s.runs[run.Kind] == run {
-			delete(s.runs, run.Kind)
-		}
+		s.endRun(run)
 		s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": run.NewItems, "errors": run.Errors})
 	}
+}
+
+// setRun and endRun change the active runs, keeping activeRuns (Busy) in step.
+func (s *Scheduler) setRun(run *Run) {
+	s.runs[run.Kind] = run
+	s.activeRuns.Store(int32(len(s.runs)))
+}
+
+func (s *Scheduler) endRun(run *Run) {
+	if s.runs[run.Kind] == run {
+		delete(s.runs, run.Kind)
+	}
+	s.activeRuns.Store(int32(len(s.runs)))
 }
 
 func idStr(id int64) string { return strconv.FormatInt(id, 10) }

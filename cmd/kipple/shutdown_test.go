@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/WPTK/kipple/internal/favicon"
 	"github.com/WPTK/kipple/internal/maint"
 	"github.com/WPTK/kipple/internal/sched"
 )
@@ -94,11 +96,19 @@ func TestRunServeStartsNothingWhenSetupFails(t *testing.T) {
 	oldH, oldS, oldLocal, oldLog := newWebHandler, startBackground, time.Local, slog.Default()
 	t.Cleanup(func() { newWebHandler, startBackground, time.Local = oldH, oldS, oldLocal; slog.SetDefault(oldLog) })
 	started := false
-	startBackground = func(*sched.Scheduler, *maint.Maint) { started = true }
+	startBackground = func(*sched.Scheduler, *maint.Maint, *favicon.Finder) { started = true }
 	newWebHandler = func(func() string) (http.Handler, error) { return nil, errors.New("no dist") }
 
+	serveEnv(t, "127.0.0.1:0")
+	err := runServe()
+	require.ErrorContains(t, err, "web: no dist")
+	require.False(t, started, "nothing was started, so nothing is left running")
+}
+
+func serveEnv(t *testing.T, addr string) {
+	t.Helper()
 	t.Setenv("KIPPLE_DATA", filepath.Join(t.TempDir(), "data"))
-	t.Setenv("KIPPLE_ADDR", "127.0.0.1:0")
+	t.Setenv("KIPPLE_ADDR", addr)
 	t.Setenv("KIPPLE_LOG_LEVEL", "error")
 	t.Setenv("KIPPLE_USERNAME", "")
 	t.Setenv("KIPPLE_PASSWORD", "")
@@ -107,7 +117,31 @@ func TestRunServeStartsNothingWhenSetupFails(t *testing.T) {
 	t.Setenv("KIPPLE_TRUSTED_PROXY_IPS", "")
 	t.Setenv("KIPPLE_SCHED_TICK", "")
 	t.Setenv("TZ", "UTC")
-	err := runServe()
-	require.ErrorContains(t, err, "web: no dist")
-	require.False(t, started, "nothing was started, so nothing is left running")
+}
+
+// The favicon finder starts with the scheduler and, on any return from
+// runServe after it started (here the listener fails), has stopped before the
+// store closed: the deferred Stop and the budgeted stopAll both join it.
+func TestRunServeStopsTheFaviconFinder(t *testing.T) {
+	oldH, oldS, oldLocal, oldLog := newWebHandler, startBackground, time.Local, slog.Default()
+	t.Cleanup(func() { newWebHandler, startBackground, time.Local = oldH, oldS, oldLocal; slog.SetDefault(oldLog) })
+	newWebHandler = func(func() string) (http.Handler, error) { return http.NotFoundHandler(), nil }
+	var finder *favicon.Finder
+	startBackground = func(s *sched.Scheduler, m *maint.Maint, icons *favicon.Finder) {
+		oldS(s, m, icons)
+		finder = icons
+	}
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = taken.Close() })
+
+	serveEnv(t, taken.Addr().String())
+	err = runServe()
+	require.Error(t, err, "the address is taken")
+	require.NotNil(t, finder, "it was started")
+	select {
+	case <-finder.Done():
+	default:
+		t.Fatal("the favicon finder is still running after runServe returned")
+	}
 }

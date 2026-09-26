@@ -25,6 +25,7 @@ import (
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/extract"
+	"github.com/WPTK/kipple/internal/favicon"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/greader"
@@ -178,6 +179,16 @@ func runServe() error {
 		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick, Runner: ftRunner,
 	})
 	maintenance := maint.New(maint.Options{DB: db, Logger: logger, ImgCache: imgc})
+	// The favicon finder (design §4.11): one lookup at a time, off the fetch path,
+	// through the same guarded transport, and never while a scheduler run is
+	// active (Busy is a lock-free read that also reports busy once stopping).
+	icons := favicon.New(favicon.Options{
+		DB: db, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Logger: logger,
+		Busy: scheduler.Busy,
+	})
+	// Joined before the store closes on every return path (defers unwind last-in
+	// first); idempotent, and immediate when it never started.
+	defer closeWithin(&budget, logger, "stopping the favicon finder", storeCloseReserve, func() error { icons.Stop(); return nil })
 
 	// The Reader API claims /api/greader.php and its root aliases ahead of the
 	// mux, so no ServeMux ever sees a Reader path (design §6.1).
@@ -221,7 +232,7 @@ func runServe() error {
 	// The background work starts only once every handler is built, so a failed
 	// setup returns with nothing running (no fetch or maintenance racing the
 	// deferred store close).
-	startBackground(scheduler, maintenance)
+	startBackground(scheduler, maintenance, icons)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -247,16 +258,17 @@ func runServe() error {
 		serveErr <- nil
 	}()
 
-	// Shutdown order (design §4.10): stop the scheduler, close SSE, drain HTTP,
-	// wait for the workers, stop maintenance, then (deferred) checkpoint and
+	// Shutdown order (design §4.10): stop the scheduler and cancel the favicon
+	// finder's lookup (it then writes nothing), close SSE, drain HTTP, wait for the
+	// workers, join the finder and stop maintenance, then (deferred) checkpoint and
 	// close the store, all inside one budget (shutdown.go).
 	stopAll := func() error {
 		return runShutdown(&budget, shutdownSteps{
-			stopWork:  func() { scheduler.Stop(); hub.Close() },
+			stopWork:  func() { scheduler.Stop(); icons.Cancel(); hub.Close() },
 			drainHTTP: srv.Shutdown,
 			cutHTTP:   func() { _ = srv.Close() },
 			stopped:   scheduler.Stopped(),
-			stopMaint: maintenance.Stop,
+			stopMaint: func() { icons.Stop(); maintenance.Stop() },
 		}, logger)
 	}
 
@@ -268,10 +280,12 @@ var newWebHandler = func(imgMode func() string) (http.Handler, error) {
 	return kweb.NewHandler(kweb.WithImgMode(imgMode))
 }
 
-// startBackground starts the scheduler and maintenance (a seam for tests).
-var startBackground = func(s *sched.Scheduler, m *maint.Maint) {
+// startBackground starts the scheduler, maintenance and the favicon finder (a
+// seam for tests).
+var startBackground = func(s *sched.Scheduler, m *maint.Maint, icons *favicon.Finder) {
 	s.Start()
 	m.Start()
+	icons.Start()
 }
 
 // rootHandler is the server's whole handler chain: the Reader API claims its

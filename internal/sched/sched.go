@@ -11,6 +11,7 @@ import (
 	"math/rand/v2"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/WPTK/kipple/internal/clock"
@@ -214,12 +215,15 @@ type Scheduler struct {
 	pending     []*flight
 	// replays are the follow-ups (priority requests, run jobs) of flights dropped
 	// by tryStart, replayed once drainPending has finished rebuilding pending.
-	replays   []*flight
-	runs      map[string]*Run
-	running   int
-	live      int
-	stopping  bool
-	lastRunID int64
+	replays []*flight
+	runs    map[string]*Run
+	// activeRuns mirrors len(runs) for Busy, which must not wait on the
+	// dispatcher. Written only by the dispatcher (setRun, endRun).
+	activeRuns atomic.Int32
+	running    int
+	live       int
+	stopping   bool
+	lastRunID  int64
 }
 
 // New builds a scheduler. Call Start to run it and Stop to shut it down.
@@ -402,6 +406,20 @@ func (s *Scheduler) inDispatcher(fn func()) {
 		<-done
 	case <-s.stopped:
 	}
+}
+
+// Busy reports whether a run (refresh-all, import, retention) is active or the
+// scheduler is stopping, for background work that yields to them (the favicon
+// finder). It never waits on the dispatcher, so a loaded dispatcher cannot make
+// it answer "idle" (Status does, after statusWait); a state it cannot know, the
+// scheduler stopping, counts as busy.
+func (s *Scheduler) Busy() bool {
+	select {
+	case <-s.shutdownCh:
+		return true
+	default:
+	}
+	return s.activeRuns.Load() > 0
 }
 
 // RunStatus is one active run as GET /api/status reports it.
