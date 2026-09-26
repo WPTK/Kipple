@@ -180,11 +180,15 @@ func runServe() error {
 	})
 	maintenance := maint.New(maint.Options{DB: db, Logger: logger, ImgCache: imgc})
 	// The favicon finder (design §4.11): one lookup at a time, off the fetch path,
-	// through the same guarded transport, and never while a scheduler run is active.
+	// through the same guarded transport, and never while a scheduler run is
+	// active (Busy is a lock-free read that also reports busy once stopping).
 	icons := favicon.New(favicon.Options{
 		DB: db, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Logger: logger,
-		Busy: func() bool { runs, _ := scheduler.Status(); return len(runs) > 0 },
+		Busy: scheduler.Busy,
 	})
+	// Joined before the store closes on every return path (defers unwind last-in
+	// first); idempotent, and immediate when it never started.
+	defer closeWithin(&budget, logger, "stopping the favicon finder", storeCloseReserve, func() error { icons.Stop(); return nil })
 
 	// The Reader API claims /api/greader.php and its root aliases ahead of the
 	// mux, so no ServeMux ever sees a Reader path (design §6.1).
@@ -254,16 +258,17 @@ func runServe() error {
 		serveErr <- nil
 	}()
 
-	// Shutdown order (design §4.10): stop the scheduler and the favicon finder,
-	// close SSE, drain HTTP, wait for the workers, stop maintenance, then
-	// (deferred) checkpoint and close the store, all inside one budget (shutdown.go).
+	// Shutdown order (design §4.10): stop the scheduler and cancel the favicon
+	// finder's lookup (it then writes nothing), close SSE, drain HTTP, wait for the
+	// workers, join the finder and stop maintenance, then (deferred) checkpoint and
+	// close the store, all inside one budget (shutdown.go).
 	stopAll := func() error {
 		return runShutdown(&budget, shutdownSteps{
-			stopWork:  func() { scheduler.Stop(); icons.Stop(); hub.Close() },
+			stopWork:  func() { scheduler.Stop(); icons.Cancel(); hub.Close() },
 			drainHTTP: srv.Shutdown,
 			cutHTTP:   func() { _ = srv.Close() },
 			stopped:   scheduler.Stopped(),
-			stopMaint: maintenance.Stop,
+			stopMaint: func() { icons.Stop(); maintenance.Stop() },
 		}, logger)
 	}
 
