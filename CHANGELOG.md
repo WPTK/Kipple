@@ -10,6 +10,7 @@ Phase 2 (reading UI backend) so far.
 
 ### Added
 
+- API: optional `expect_total` in `POST /api/library/auto-read/run`: when the total recounted at run time exceeds it by more than `max(100, 10%)` the run answers `409 total_changed` `{total, expect_total, message}` and marks nothing (the frontend will send the total its preview showed, so running feed by feed cannot slip a moved library past the confirm rule).
 - API: device-profile key `client.search_order` (`relevance|newest|oldest`, default `relevance`) so the search order syncs per device; an unusable items cursor (unparseable, the old relevance form, or from another ordering) is now `400 {"error":"bad_cursor","message"}` instead of `bad_request` so the client can restart the list; new SSE event `folder.changed {folder_id?}` after every folder mutation (web create, rename, reposition, delete, reorder, feed moves, OPML import, and the Reader API rename-tag, disable-tag, subscription edit and import).
 - Web UI, search: results mark the words you searched for (in fallback mode, the words it fell back to) and show "No exact matches: showing partial matches" when only partial matches exist; sort by relevance, newest or oldest (kept per browser); a search that matches too much shows the server's message; "Mark all results as read" for a submitted search; a syntax help popover.
 - Web UI, saved searches: save the current search from the Search screen; they appear in the sidebar with unread counts, and Settings > Saved searches edits, deletes and reorders them.
@@ -342,6 +343,14 @@ Phase 2 (reading UI backend) so far.
 - A large fetch (over 500 items) cut short by a URL edit now reports exactly the items that committed and still queues full text for them; the remembered browser-User-Agent flag is bound to the URL that was fetched.
 - SSE ids are strings (`run_id`, `run_ids`, `new_item_ids`), as everywhere else in the API.
 - Serve-time HTML: inline event-handler attributes are recognized explicitly (`on` plus letters), so lookalike attributes such as `<details open>` are never touched.
+- Thumbnails: the decode-memory model refused most libwebp lossless files and most lossy+alpha files (the compressed alpha plane is itself a lossless stream that libwebp writes with meta prefix codes): 16 of 179 real WebP files were wrongly refused. Meta prefix codes are now priced with an upper bound (the entropy image walked, at most one group per tile of it, capped at 2,600, times the per-group tree cost) and refused only over the decode ceiling; the 2,600-group 801x1000 crafted file is still refused, a few groups are admitted, and the memory tests gained multi-group cases proving estimate >= real allocation. Now 0 of the same 179 are refused.
+- Auto-read: a nightly run that failed or was cut short at feed k left `sys.auto_read_last_run` alone although feeds 1 to k-1 had committed, so the next night repeated their window and marked read again an article the reader had marked unread in between. Each feed now keeps its own high-water mark (`sys.auto_read_feed_marks`, no schema change), cleared when a run completes.
+- Auto-read: the nightly step took two commit-gate write transactions per enabled feed even when nothing qualified (about 276 for 138 feeds). A feed with nothing to mark now costs two reader-pool probes and no gate.
+- `PATCH /api/settings` replacing or resetting `library.saved_searches` published no `saved_searches.changed`, and stored a scope naming a feed or folder that does not exist; it now publishes and answers `400 invalid_settings` for such a scope.
+- Saved searches: a feed or folder deleted between the endpoint's scope check and the commit could leave a dead scope; new or changed scopes are now checked inside the write transaction.
+- Saved searches: exactly 999 unread showed as "999+"; the cap now applies only when there is more.
+- Saved searches: names and search text now also reject U+0085 and the other C1 control characters, U+2028 and U+2029 (they were the only line-break characters let through).
+- Image cache: pruning ran only when failures plus markers passed 25,000, so `in progress` markers could grow past their 5,000 cap while failures were few, and failures past 20,000 while markers were few; each count is now checked against its own cap.
 
 ### Security
 
