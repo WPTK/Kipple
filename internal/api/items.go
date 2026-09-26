@@ -669,6 +669,9 @@ type statsEventIn struct {
 func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, statsBodyMax))
 	var in struct {
+		// Client is the attribution for a sendBeacon flush, which cannot set X-Kipple-Client: "web" or
+		// "pwa"; anything else falls back to the header (and then to web).
+		Client string         `json:"client"`
 		Events []statsEventIn `json:"events"`
 	}
 	if err != nil || json.NewDecoder(bytes.NewReader(raw)).Decode(&in) != nil {
@@ -679,6 +682,9 @@ func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 		in.Events = in.Events[:maxStatsBatch]
 	}
 	cl := client(r)
+	if in.Client == "web" || in.Client == "pwa" {
+		cl = in.Client
+	}
 	err = s.db.WithWrite(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
 		for _, e := range in.Events {
 			switch e.Kind {
