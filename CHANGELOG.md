@@ -10,6 +10,7 @@ All notable changes to Kipple are documented here. The format follows
 
 - Filters: an inverted highlight rule is now rejected with a clear message instead of being saved and never showing.
 - Sanitizer: a self-closing `<video src="http://...">` or `<audio>` no longer keeps its insecure source; it becomes an "Open video" link like the non-self-closing form.
+- Thumbnails: a lossy WebP is priced only when its VP8 key frame is exactly the size `DecodeConfig` reported (the VP8X canvas); a frame of another size, or no key frame, is refused and the original served, instead of relying on the decoder's own check.
 
 Phase 2 (reading UI: backend and web app) so far. Schema 4 and 5 (migrations 0004, 0005) are here, not in the alpha tags.
 

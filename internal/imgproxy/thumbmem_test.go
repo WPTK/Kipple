@@ -905,3 +905,59 @@ func FuzzVP8LWalk(f *testing.F) {
 		}
 	})
 }
+
+// ---- review round 2, item 1: the lossy frame inside a VP8X container ----
+
+// vp8xWebP is a VP8X WebP with a cw x ch canvas (no alpha) and the given VP8 frame.
+func vp8xWebP(cw, ch int, frame []byte) []byte {
+	x := make([]byte, 10)
+	x[4], x[5], x[6] = byte(cw-1), byte((cw-1)>>8), byte((cw-1)>>16)
+	x[7], x[8], x[9] = byte(ch-1), byte((ch-1)>>8), byte((ch-1)>>16)
+	return riffWebP(webpChunk("VP8X", x), webpChunk("VP8 ", frame))
+}
+
+func TestWebPLossyFrameMustMatchTheCanvas(t *testing.T) {
+	cost := func(data []byte, w, h int) bool {
+		_, ok := webpDecodeCost(bytes.NewReader(data), int64(len(data)), w, h)
+		return ok
+	}
+	// The valid shapes are priced.
+	valid := vp8xWebP(640, 480, synthVP8(640, 480))
+	cfg, format := decodeCfg(t, valid)
+	require.Equal(t, "webp", format)
+	require.Equal(t, 640, cfg.Width)
+	require.True(t, cost(valid, 640, 480), "a VP8X canvas with the frame it names")
+	require.True(t, cost(riffWebP(webpChunk("VP8 ", synthVP8(640, 480))), 640, 480), "a plain lossy file")
+	require.True(t, cost(synthWebPAlpha(640, 480, nil), 640, 480), "a VP8X file with an alpha plane")
+
+	// A small canvas around a 4000x4000 frame: DecodeConfig reports the canvas,
+	// so pricing it from the canvas would be about 1,600x short. Refused.
+	crafted := vp8xWebP(100, 100, synthVP8(4000, 4000))
+	cfg, _ = decodeCfg(t, crafted)
+	require.Equal(t, 100, cfg.Width, "DecodeConfig reads the canvas")
+	require.False(t, cost(crafted, 100, 100), "a frame larger than the canvas")
+	require.False(t, cost(vp8xWebP(4000, 4000, synthVP8(100, 100)), 4000, 4000), "or smaller")
+	x := make([]byte, 10)
+	x[0] = 0x10
+	x[4], x[7] = 99, 99
+	withAlpha := riffWebP(webpChunk("VP8X", x), webpChunk("ALPH", append([]byte{0}, make([]byte, 100*100)...)), webpChunk("VP8 ", synthVP8(4000, 4000)))
+	require.False(t, cost(withAlpha, 100, 100), "behind an alpha plane too")
+
+	// Not a key frame, or no start code: refused.
+	inter := synthVP8(640, 480)
+	inter[0] |= 1
+	require.False(t, cost(riffWebP(webpChunk("VP8 ", inter)), 640, 480))
+	bad := synthVP8(640, 480)
+	bad[3] = 0
+	require.False(t, cost(vp8xWebP(640, 480, bad), 640, 480))
+	require.False(t, cost(vp8xWebP(640, 480, synthVP8(640, 480)[:9]), 640, 480), "a truncated frame header")
+
+	// Through the whole transcode: refused, the original is served.
+	var pe *passError
+	_, _, err := transcode(bytes.NewReader(crafted), int64(len(crafted)), "image/webp", testLimits())
+	require.ErrorAs(t, err, &pe)
+	// golang.org/x/image/webp (v0.46.0) refuses the mismatch too, after the
+	// frame header and before any frame buffer: the walk no longer relies on it.
+	_, _, err = image.Decode(bytes.NewReader(crafted))
+	require.Error(t, err)
+}

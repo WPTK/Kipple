@@ -58,6 +58,9 @@ func webpDecodeCost(r io.ReaderAt, size int64, w, h int) (int64, bool) {
 	}
 	switch id {
 	case "VP8 ":
+		if !vp8FrameIs(r, off+8, l, w, h) {
+			return 0, false
+		}
 		return lossy + l, true // the frame's partitions are read whole
 	case "VP8L":
 		return vp8lChunkCost(r, off+8, l, w, h)
@@ -103,7 +106,7 @@ func webpDecodeCost(r io.ReaderAt, size int64, w, h int) (int64, bool) {
 				return 0, false
 			}
 		case "VP8 ":
-			if wantAlpha {
+			if wantAlpha || !vp8FrameIs(r, off+8, l, w, h) {
 				return 0, false
 			}
 			return lossy + l + alpha, true
@@ -115,6 +118,29 @@ func webpDecodeCost(r io.ReaderAt, size int64, w, h int) (int64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// vp8FrameIs reports whether the VP8 chunk at off (l bytes) starts with a key
+// frame header of exactly w x h (RFC 6386 section 9.1: a 3-byte frame tag with
+// the key frame bit clear, the start code 9d 01 2a, then 14-bit width and
+// height, whose top two bits are scaling and ignored). The lossy cost is priced
+// from w x h, which for a VP8X file is the canvas, not the frame the decoder
+// sizes its buffers from, so a frame of any other size (or no key frame) is
+// refused rather than trusted to the decoder's own check.
+func vp8FrameIs(r io.ReaderAt, off, l int64, w, h int) bool {
+	var b [10]byte
+	if l < int64(len(b)) {
+		return false
+	}
+	if _, err := r.ReadAt(b[:], off); err != nil {
+		return false
+	}
+	if b[0]&1 != 0 || b[3] != 0x9d || b[4] != 0x01 || b[5] != 0x2a {
+		return false
+	}
+	fw := int(b[7]&0x3f)<<8 | int(b[6])
+	fh := int(b[9]&0x3f)<<8 | int(b[8])
+	return fw == w && fh == h
 }
 
 // vp8lChunkCost checks a VP8L chunk's 5-byte header (magic, the size planThumb
