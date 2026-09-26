@@ -160,12 +160,17 @@ func TestNightlyPurgesExactlyTheExpiredRows(t *testing.T) {
 		VALUES (101, ?1, 'h', ?2, 1, 1, 'c', 't', 'https://a/h', 'held', '')`, e.feed, now+day)
 	e.exec(`INSERT INTO sessions (id, created_at, last_seen_at, expires_at) VALUES ('old', 1, 1, ?1), ('live', 1, 1, ?2)`, now-day, now+day)
 
+	e.exec(`INSERT INTO devices (id, created_at, last_seen_at) VALUES ('device-old-000000000', 1, ?1), ('device-new-000000000', 1, ?2)`,
+		now-401*day, now-399*day)
+
 	e.start(Options{})
 	e.clk.Advance(11 * time.Minute)
 
 	require.EqualValues(t, 3+2, e.waitJob("purge_stubs").Rows) // ids 1-3 and 20-21
 	require.EqualValues(t, 2, e.waitJob("purge_ledger").Rows)
 	require.EqualValues(t, 1, e.waitJob("purge_sessions").Rows)
+	require.EqualValues(t, 1, e.waitJob("purge_devices").Rows)
+	require.Equal(t, []int{0, 1}, []int{e.count("SELECT count(*) FROM devices WHERE id = 'device-old-000000000'"), e.count("SELECT count(*) FROM devices WHERE id = 'device-new-000000000'")})
 	require.NoError(t, e.waitJob("optimize").Err)
 	require.NoError(t, e.waitJob("snapshot").Err)
 

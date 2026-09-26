@@ -22,6 +22,14 @@ const (
 	surfaceReader   = "reader_menu" // the Kindle-style reading appearance menu
 	surfaceSettings = "settings"    // the Settings screen
 	surfaceHidden   = "hidden"      // validated and PATCH-able, not shown by default
+
+	// Where a setting lives (design 7.1, per-device appearance). global: one value for the
+	// account. device: the row is the default for devices, and each device may override it
+	// through /api/device. both: the same setting is meaningful account-wide and per device
+	// (reserved; no key uses it yet).
+	scopeGlobal = "global"
+	scopeDevice = "device"
+	scopeBoth   = "both"
 )
 
 // settingOption is one choice of an enum setting. CSS carries values the
@@ -46,6 +54,7 @@ type settingDef struct {
 	Step        *int            `json:"step,omitempty"`
 	Unit        string          `json:"unit,omitempty"`
 	Surface     string          `json:"surface"`
+	Scope       string          `json:"scope"` // global | device | both
 
 	check func(v any) (any, string)
 }
@@ -108,7 +117,7 @@ var (
 	retentionValues = map[int]bool{0: true, 50: true, 100: true, 250: true, 500: true, 1000: true}
 	// uiFonts are the bundled and system faces of CLAUDE.md; "" = the platform default.
 	uiFonts = []string{"", "Literata", "Charter", "Vollkorn", "Gentium Book Plus", "Source Serif 4", "Arvo",
-		"Inter", "Manrope", "Source Sans 3", "JetBrains Mono", "Source Code Pro",
+		"Inter", "Manrope", "Source Sans 3", "JetBrains Mono", "Source Code Pro", "Atkinson Hyperlegible Next",
 		"New York", "SF Pro", "SF Mono", "Georgia", "Menlo"}
 )
 
@@ -140,10 +149,24 @@ func fontOptions() []settingOption {
 	return out
 }
 
+// densitySteps are the round-2 spacing presets shared by the list and the reader.
+var densitySteps = []string{"dense", "snug", "standard", "relaxed", "airy"}
+
+func stepOptions() []settingOption {
+	return opts("dense", "Dense", "snug", "Snug", "standard", "Standard", "relaxed", "Relaxed", "airy", "Airy")
+}
+
+// densityOptions are the three original reading densities (with their CSS) followed by the steps.
+// "relaxed" is in both lists and listed once.
 func densityOptions() []settingOption {
 	out := opts("compact", "Compact", "comfortable", "Comfortable", "relaxed", "Relaxed")
 	for i := range out {
 		out[i].CSS = ReadingDensityCSS[out[i].Value.(string)]
+	}
+	for _, o := range stepOptions() {
+		if o.Value != "relaxed" {
+			out = append(out, o)
+		}
 	}
 	return out
 }
@@ -156,10 +179,55 @@ func retentionOptions() []settingOption {
 	return append(out, settingOption{Value: 0, Label: "Keep everything"})
 }
 
+// Scheme is one colour scheme id and its display name. schemes_test.go compares the
+// list with web/src/theme/schemes.json so the two cannot drift.
+type Scheme struct{ ID, Name string }
+
+// Schemes lists the round-2 colour schemes in display order.
+var Schemes = []Scheme{
+	{"paper", "Paper"}, {"linen", "Linen"}, {"newsprint", "Newsprint"}, {"parchment", "Parchment"},
+	{"directory", "Directory"}, {"cocoa-kraft", "Cocoa Kraft"}, {"airmail", "Airmail"}, {"stationery", "Stationery"},
+	{"tissue", "Tissue"}, {"graphite", "Graphite"}, {"midnight", "Midnight"}, {"cocoa-mid", "Cocoa Mid"},
+	{"fountain", "Fountain"}, {"foolscap", "Foolscap"}, {"tracing", "Tracing"}, {"signal", "Signal"},
+	{"carbon", "Carbon"}, {"lamplight", "Lamplight"}, {"inkwell", "Inkwell"}, {"teletype", "Teletype"},
+}
+
+func schemeOptions(system bool) []settingOption {
+	out := make([]settingOption, 0, len(Schemes)+1)
+	for _, sc := range Schemes {
+		out = append(out, settingOption{Value: sc.ID, Label: sc.Name})
+	}
+	if system {
+		out = append(out, settingOption{Value: "system", Label: "Match my device"})
+	}
+	return out
+}
+
+// checkTheme accepts a scheme id (plus "system" when allowed) or an old alias, and returns the
+// current id.
+func checkTheme(system bool) func(any) (any, string) {
+	ok := map[string]bool{}
+	for _, sc := range Schemes {
+		ok[sc.ID] = true
+	}
+	ok["system"] = system
+	return func(v any) (any, string) {
+		if s, isStr := v.(string); isStr {
+			if c := store.CanonicalTheme(s); ok[c] {
+				return c, ""
+			}
+		}
+		if system {
+			return nil, "must be a colour scheme id or \"system\""
+		}
+		return nil, "must be a colour scheme id"
+	}
+}
+
 var (
-	themeOptions = opts("white", "White", "off-white", "Off-white", "sepia", "Sepia",
-		"soft-green", "Soft green", "brown", "Brown", "dark", "Dark", "oled", "OLED dark", "system", "Match my device")
-	uaModeOptions = opts(
+	themeOptions    = schemeOptions(true)
+	themeAnyOptions = schemeOptions(false)
+	uaModeOptions   = opts(
 		store.UAModeOnFailure, "Only when a feed refuses to load",
 		store.UAModeDefault, "Always identify as Kipple",
 		store.UAModeAlways, "Always look like a browser")
@@ -167,17 +235,23 @@ var (
 )
 
 // settingDefs lists every user-writable setting in display order. Defaults come
-// from store.DefaultSettings (one source of truth).
-var settingDefs = []settingDef{
+// from store.DefaultSettings (one source of truth). Scope is filled by withScopes.
+var settingDefs = withScopes([]settingDef{
 	// Reading appearance menu.
-	{Key: "ui.theme", Label: "Theme", Description: "The color scheme for reading. OLED dark is true black, which saves battery on OLED screens.",
-		Group: groupReading, Kind: "enum", Options: themeOptions, Surface: surfaceReader, check: oneOf(optValues(themeOptions)...)},
+	{Key: "ui.theme", Label: "Theme", Description: "The color scheme. Midnight is true black, which saves battery on OLED screens.",
+		Group: groupReading, Kind: "enum", Options: themeOptions, Surface: surfaceReader, check: checkTheme(true)},
+	{Key: "ui.theme_day", Label: "Day theme", Description: "The color scheme used in daylight when the theme follows your device.",
+		Group: groupReading, Kind: "enum", Options: themeAnyOptions, Surface: surfaceSettings, check: checkTheme(false)},
+	{Key: "ui.theme_night", Label: "Night theme", Description: "The color scheme used at night when the theme follows your device.",
+		Group: groupReading, Kind: "enum", Options: themeAnyOptions, Surface: surfaceSettings, check: checkTheme(false)},
 	{Key: "ui.font_body", Label: "Reading font", Description: "The typeface used for article text.",
 		Group: groupReading, Kind: "enum", Options: fontOptions(), Surface: surfaceReader, check: oneOf(uiFonts...)},
 	{Key: "ui.font_size", Label: "Text size", Description: "How large article text is.",
 		Group: groupReading, Kind: "int", Min: ip(12), Max: ip(32), Step: ip(1), Unit: "px", Surface: surfaceReader, check: intIn(12, 32)},
 	{Key: "ui.reading_density", Label: "Spacing", Description: "How tightly lines are spaced and how wide the text column is.",
-		Group: groupReading, Kind: "enum", Options: densityOptions(), Surface: surfaceReader, check: oneOf("compact", "comfortable", "relaxed")},
+		Group: groupReading, Kind: "enum", Options: densityOptions(), Surface: surfaceReader, check: oneOf(append([]string{"compact", "comfortable"}, densitySteps...)...)},
+	{Key: "ui.list_density", Label: "List spacing", Description: "How tightly the article lists are spaced.",
+		Group: groupReading, Kind: "enum", Options: stepOptions(), Surface: surfaceSettings, check: oneOf(densitySteps...)},
 
 	// Settings screen: reading extras.
 	{Key: "ui.font_ui", Label: "Interface font", Description: "The typeface used for menus, lists and buttons.",
@@ -264,6 +338,26 @@ var settingDefs = []settingDef{
 			}
 			return m, ""
 		}},
+	{Key: "ui.device_defaults", Label: "Defaults for new devices", Description: "The client-side appearance and behavior choices new devices start from.",
+		Group: groupAdvanced, Kind: "json", Surface: surfaceHidden, check: checkDeviceDefaults},
+})
+
+// deviceScoped are the keys a device may override. The setting row is the default for
+// devices that have no override; make-default writes them.
+var deviceScoped = map[string]bool{
+	"ui.theme": true, "ui.theme_day": true, "ui.theme_night": true, "ui.font_body": true, "ui.font_ui": true,
+	"ui.font_size": true, "ui.reading_density": true, "ui.list_density": true, "ui.mark_read_on_scroll": true,
+	"ui.layouts": true,
+}
+
+func withScopes(defs []settingDef) []settingDef {
+	for i := range defs {
+		defs[i].Scope = scopeGlobal
+		if deviceScoped[defs[i].Key] {
+			defs[i].Scope = scopeDevice
+		}
+	}
+	return defs
 }
 
 var settingDefByKey = func() map[string]settingDef {

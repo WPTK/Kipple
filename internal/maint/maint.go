@@ -263,6 +263,7 @@ func (m *Maint) nightly(ctx context.Context, now time.Time, loc *time.Location) 
 	m.purge(ctx, "purge_stubs", func() (int64, error) { return db.PurgeStubs(ctx, unix, m.o.BatchSize) })
 	m.purge(ctx, "purge_ledger", func() (int64, error) { return db.PurgeLedger(ctx, unix, m.o.BatchSize) })
 	m.purge(ctx, "purge_sessions", func() (int64, error) { return db.PurgeSessions(ctx, unix, m.o.BatchSize) })
+	m.purge(ctx, "purge_devices", func() (int64, error) { return db.PurgeDevices(ctx, unix, m.o.BatchSize) })
 	if ctx.Err() != nil {
 		return
 	}

@@ -34,6 +34,16 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
+	dv, err := s.currentDevice(w, r) // issues the kipple_device cookie on the first request
+	if err != nil {
+		fail(err)
+		return
+	}
+	dview, err := s.deviceView(r, dv)
+	if err != nil {
+		fail(err)
+		return
+	}
 	folders, err := s.db.UIFolders(ctx)
 	if err != nil {
 		fail(err)
@@ -84,6 +94,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":        map[string]any{"username": acct.Username, "api_enabled": acct.APIPasswordHash != ""},
 		"settings":    settings,
+		"device":      map[string]any{"id": dv.ID, "name": dv.Name, "profile": dview["profile"], "merged": dview["merged"]},
 		"folders":     folders,
 		"feeds":       feeds,
 		"counts":      map[string]int64{"unread": unread, "starred": starred, "muted": muted},

@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -101,10 +103,13 @@ func TestReadingDensityMapping(t *testing.T) {
 	require.Equal(t, "comfortable", dens["default"])
 	want := map[string][2]any{"compact": {1.45, "620px"}, "comfortable": {1.6, "680px"}, "relaxed": {1.8, "720px"}}
 	labels := map[string]string{"compact": "Compact", "comfortable": "Comfortable", "relaxed": "Relaxed"}
-	require.Len(t, dens["options"], 3)
+	require.Len(t, dens["options"], 7) // the three originals, then the steps that are not repeats
 	for _, o := range dens["options"].([]any) {
 		m := o.(map[string]any)
 		v := m["value"].(string)
+		if _, legacy := want[v]; !legacy {
+			continue // the round-2 steps carry no CSS
+		}
 		css := m["css"].(map[string]any)
 		require.Equal(t, labels[v], m["label"])
 		require.EqualValues(t, want[v][0], css["line_height"], v)
@@ -112,7 +117,7 @@ func TestReadingDensityMapping(t *testing.T) {
 	}
 }
 
-func TestOLEDTheme(t *testing.T) {
+func TestThemeOptionsAndAliases(t *testing.T) {
 	var theme settingDef
 	for _, d := range settingDefs {
 		if d.Key == "ui.theme" {
@@ -122,12 +127,49 @@ func TestOLEDTheme(t *testing.T) {
 	var got []string
 	for _, o := range theme.Options {
 		got = append(got, o.Value.(string))
-		if o.Value == "oled" {
-			require.Equal(t, "OLED dark", o.Label)
-		}
 	}
-	require.Equal(t, []string{"white", "off-white", "sepia", "soft-green", "brown", "dark", "oled", "system"}, got)
+	require.Len(t, got, len(Schemes)+1)
+	require.Equal(t, "system", got[len(got)-1])
 	require.Contains(t, theme.Description, "battery")
+	for old, want := range store.ThemeAliases {
+		v, msg := theme.check(old)
+		require.Empty(t, msg, old)
+		require.Equal(t, want, v, old)
+	}
+	_, msg := theme.check("neon")
+	require.NotEmpty(t, msg)
+	day := settingDefByKey["ui.theme_day"]
+	_, msg = day.check("system")
+	require.NotEmpty(t, msg, "the day theme is always a scheme")
+}
+
+// A stored row with an old theme id reads back as the current id, and is not rewritten.
+func TestStoredOldThemeReadsAsAlias(t *testing.T) {
+	h := newHarness(t)
+	h.exec(`INSERT INTO settings (key, value) VALUES ('ui.theme', '"brown"'), ('ui.theme_night', '"oled"')`)
+	_, out, _ := h.api(h.login(), "GET", "/api/settings", "")
+	require.Equal(t, "cocoa-kraft", vals(out)["ui.theme"])
+	require.Equal(t, "midnight", vals(out)["ui.theme_night"])
+}
+
+// The Go scheme list and the web app's schemes.json must agree (ids and names, in order).
+func TestSchemesMatchWebJSON(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "theme", "schemes.json"))
+	require.NoError(t, err)
+	var web []struct{ ID, Name string }
+	require.NoError(t, json.Unmarshal(raw, &web))
+	require.Len(t, web, len(Schemes))
+	for i, w := range web {
+		require.Equal(t, Schemes[i].ID, w.ID, "scheme %d", i)
+		require.Equal(t, Schemes[i].Name, w.Name, w.ID)
+	}
+	for old, cur := range store.ThemeAliases {
+		found := false
+		for _, sc := range Schemes {
+			found = found || sc.ID == cur
+		}
+		require.True(t, found, "alias %s -> %s is not a scheme", old, cur)
+	}
 }
 
 func TestOldReadingRowsAreIgnored(t *testing.T) {

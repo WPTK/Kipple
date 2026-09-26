@@ -31,12 +31,39 @@ var DefaultSettings = map[string]any{
 
 	// ui.* (design §2.2 names the keys; values and ranges from CLAUDE.md decisions).
 	"ui.theme":               "system",
+	"ui.theme_day":           "paper",
+	"ui.theme_night":         "midnight",
 	"ui.font_body":           "",
 	"ui.font_ui":             "",
 	"ui.font_size":           18,
 	"ui.reading_density":     "comfortable",
+	"ui.list_density":        "standard",
 	"ui.layouts":             map[string]any{},
 	"ui.mark_read_on_scroll": false,
+	// The account defaults of the client-only appearance keys (device profiles,
+	// internal/api/devices.go): an object of "client.*" overrides that make-default fills.
+	"ui.device_defaults": map[string]any{},
+}
+
+// ThemeAliases maps the theme ids of the first UI draft (and the retired Fern and
+// Cocoa names) to the ids of the round-2 colour schemes. Stored rows are never
+// rewritten: the alias is applied when a value is read.
+var ThemeAliases = map[string]string{
+	"white": "paper", "off-white": "linen", "sepia": "parchment", "soft-green": "directory",
+	"brown": "cocoa-kraft", "dark": "graphite", "oled": "midnight",
+	"fern": "directory", "cocoa": "cocoa-kraft",
+}
+
+// CanonicalTheme returns the current id for a theme id or alias; anything else is unchanged.
+func CanonicalTheme(id string) string {
+	if c, ok := ThemeAliases[id]; ok {
+		return c
+	}
+	return id
+}
+
+func isThemeKey(k string) bool {
+	return k == "ui.theme" || k == "ui.theme_day" || k == "ui.theme_night"
 }
 
 // MergedSettings returns DefaultSettings overlaid with the stored rows for
@@ -63,6 +90,9 @@ func (d *DB) MergedSettings(ctx context.Context) (map[string]any, error) {
 		if json.Unmarshal([]byte(v), &val) == nil {
 			if k == SettingFavorites {
 				val = readFavorites(val) // legacy spellings ("007") and repeats never reach the UI
+			}
+			if sv, ok := val.(string); ok && isThemeKey(k) {
+				val = CanonicalTheme(sv)
 			}
 			out[k] = val
 		}
