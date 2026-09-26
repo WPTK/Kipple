@@ -18,7 +18,10 @@ func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (i
 	if err := tx.QueryRowContext(ctx, "SELECT retention FROM feeds WHERE id = ?", feedID).Scan(&override); err != nil {
 		return 0, fmt.Errorf("retention: read feed: %w", err)
 	}
-	set := LoadFetchSettings(ctx, tx)
+	set, err := LoadFetchSettingsErr(ctx, tx)
+	if err != nil {
+		return 0, fmt.Errorf("retention: settings: %w", err)
+	}
 	n := set.RetentionDefault
 	if override.Valid {
 		n = int(override.Int64)
@@ -111,25 +114,18 @@ func mutedAllowance(n, real, muted int) int {
 // TrimOnly runs the retention transaction for one feed and logs a trim_only
 // fetch_log row. It takes the commit gate like a fetch commit.
 func (d *DB) TrimOnly(ctx context.Context, feedID int64, trigger string) (int64, error) {
-	release, err := d.AcquireGate(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer release()
-	var trimmed int64
 	started := d.clock.Now()
-	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		var err error
-		if trimmed, err = trimFeed(ctx, tx, feedID, started.Unix(), maxInt64); err != nil {
-			return err
+	return d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
+		trimmed, err := trimFeed(ctx, tx, feedID, started.Unix(), maxInt64)
+		if err != nil {
+			return 0, err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO fetch_log (feed_id, trigger, started_at, duration_ms, outcome, trimmed_items)
 			VALUES (?, ?, ?, ?, 'trim_only', ?)`, feedID, trigger, started.Unix(), d.clock.Now().Sub(started).Milliseconds(), trimmed); err != nil {
-			return err
+			return 0, err
 		}
-		return capFetchLog(ctx, tx, feedID, started.Unix())
+		return trimmed, capFetchLog(ctx, tx, feedID, started.Unix())
 	})
-	return trimmed, err
 }
 
 const maxInt64 = int64(^uint64(0) >> 1)

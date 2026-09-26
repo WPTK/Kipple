@@ -265,12 +265,18 @@ func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
 		if err := checkScopeRefs(ctx, tx, f); err != nil {
 			return err
 		}
-		terms, _ := json.Marshal(f.Terms)
-		fields, _ := json.Marshal(f.Fields)
+		terms, err := jsonText(f.Terms)
+		if err != nil {
+			return err
+		}
+		fields, err := jsonText(f.Fields)
+		if err != nil {
+			return err
+		}
 		res, err := tx.ExecContext(ctx, `INSERT INTO filters (name, enabled, scope, folder_id, feed_id, kind, terms, fields,
 			case_sensitive, whole_word, fold_diacritics, invert, action, position, created_at, updated_at)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			f.Name, boolInt(f.Enabled), f.Scope, nullableID(f.FolderID), nullableID(f.FeedID), f.Kind, string(terms), string(fields),
+			f.Name, boolInt(f.Enabled), f.Scope, nullableID(f.FolderID), nullableID(f.FeedID), f.Kind, terms, fields,
 			boolInt(f.CaseSensitive), boolInt(f.WholeWord), boolInt(f.FoldDiacritics), boolInt(f.Invert), f.Action, f.Position, now, now)
 		if err != nil {
 			return err
@@ -326,11 +332,17 @@ func (d *DB) UpdateFilter(ctx context.Context, id int64, mutate func(*Filter) er
 		if err := checkScopeRefs(ctx, tx, f); err != nil {
 			return err
 		}
-		terms, _ := json.Marshal(f.Terms)
-		fields, _ := json.Marshal(f.Fields)
+		terms, err := jsonText(f.Terms)
+		if err != nil {
+			return err
+		}
+		fields, err := jsonText(f.Fields)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE filters SET name=?, enabled=?, scope=?, folder_id=?, feed_id=?, kind=?, terms=?, fields=?,
 			case_sensitive=?, whole_word=?, fold_diacritics=?, invert=?, action=?, position=?, updated_at=? WHERE id=?`,
-			f.Name, boolInt(f.Enabled), f.Scope, nullableID(f.FolderID), nullableID(f.FeedID), f.Kind, string(terms), string(fields),
+			f.Name, boolInt(f.Enabled), f.Scope, nullableID(f.FolderID), nullableID(f.FeedID), f.Kind, terms, fields,
 			boolInt(f.CaseSensitive), boolInt(f.WholeWord), boolInt(f.FoldDiacritics), boolInt(f.Invert), f.Action, f.Position, now, id); err != nil {
 			return err
 		}
@@ -436,7 +448,10 @@ func (d *DB) DeleteFilter(ctx context.Context, id int64, unmute string, onBatch 
 			if n == 0 {
 				return 0, nil
 			}
-			js, _ := idsJSON(ids)
+			js, err := idsJSON(ids)
+			if err != nil {
+				return 0, err
+			}
 			if unmute == UnmuteUnread {
 				// Only what was unread before the mute goes back to unread; an item the user had already read
 				// (or one muted from the initial-read window) keeps its read state and read_at.
@@ -646,13 +661,7 @@ func writeHits(ctx context.Context, tx *sql.Tx, hits map[int64]int, now int64) e
 }
 
 // categoriesJSON is the item_content.categories_json value: NULL without categories.
-func categoriesJSON(c []string) any {
-	if len(c) == 0 {
-		return nil
-	}
-	b, _ := json.Marshal(c)
-	return string(b)
-}
+func categoriesJSON(c []string) (any, error) { return optJSON(c, len(c) == 0) }
 
 // MutedUIDs predicts which of items (a feed's fresh candidates, before their commit) the current
 // rules would mute, so the full-text picker does not spend its per-fetch cap on them. It is an

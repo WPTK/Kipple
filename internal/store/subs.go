@@ -211,7 +211,7 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 // that resolve to blocked addresses are stopped at dial time by the fetch
 // guard. It returns the normalized URL, its key and its host.
 func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err error) {
-	norm, nerr := feedurl.Normalize(raw)
+	key, norm, nerr := feedurl.KeyAndNormalize(raw)
 	if nerr != nil {
 		return "", "", "", &InvalidURLError{"not an absolute http(s) URL"}
 	}
@@ -219,7 +219,6 @@ func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err
 	if ip, perr := netip.ParseAddr(host); perr == nil && !allowPrivate && fetch.Blocked(ip.Unmap()) {
 		return "", "", "", &InvalidURLError{"address not allowed"}
 	}
-	key, _ = feedurl.Key(norm)
 	return norm, key, host, nil
 }
 

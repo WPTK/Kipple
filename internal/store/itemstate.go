@@ -27,10 +27,27 @@ type StateResult struct {
 	MadeUnread []int64
 }
 
-func idsJSON(ids []int64) (string, error) {
-	b, err := json.Marshal(ids)
-	return string(b), err
+// jsonText is the one way this package encodes a value for a JSON column or a
+// json_each() argument. It returns the marshal error: a value that cannot be
+// encoded must fail the write with that error, not be stored as "" and trip the
+// json_valid CHECK with a confusing constraint failure.
+func jsonText(v any) (string, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("store: encode json: %w", err)
+	}
+	return string(b), nil
 }
+
+// optJSON is jsonText for a nullable column: NULL (nil) when empty is true.
+func optJSON(v any, empty bool) (any, error) {
+	if empty {
+		return nil, nil
+	}
+	return jsonText(v)
+}
+
+func idsJSON(ids []int64) (string, error) { return jsonText(ids) }
 
 // scanIDs drains and closes rows of (id, feed_id) before the next statement.
 func scanIDs(rows *sql.Rows) ([]int64, error) {
@@ -145,7 +162,11 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 	if err != nil {
 		return nil, err
 	}
-	cutoff := now - int64(LoadFetchSettings(ctx, tx).RestoreDays)*86400
+	set, err := LoadFetchSettingsErr(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("restore: settings: %w", err)
+	}
+	cutoff := now - int64(set.RestoreDays)*86400
 	rows, err := tx.QueryContext(ctx, `SELECT t.id, t.feed_id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
 		WHERE t.id IN (SELECT value FROM json_each(?1)) AND t.trimmed_at >= ?2`, js, cutoff)
 	if err != nil {
@@ -225,7 +246,11 @@ func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now in
 	}
 	itemArgs, held := args, ""
 	if scope.HoldCut > 0 {
-		held = " AND NOT " + HeldSQL(txFulltextAll(ctx, tx))
+		all, err := txFulltextAll(ctx, tx)
+		if err != nil {
+			return 0, err
+		}
+		held = " AND NOT " + HeldSQL(all)
 		itemArgs = append(append([]any{}, args...), sql.Named("hold_cut", scope.HoldCut), sql.Named("pending", cmp.Or(scope.HoldPending, "[]")))
 	}
 	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere+held, itemArgs...)

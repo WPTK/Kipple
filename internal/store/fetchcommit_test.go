@@ -19,7 +19,7 @@ import (
 var base = time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 
 type env struct {
-	t   *testing.T
+	t   testing.TB
 	db  *DB
 	clk *clock.Fake
 	ctx context.Context

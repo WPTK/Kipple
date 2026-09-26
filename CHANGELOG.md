@@ -132,6 +132,8 @@ Phase 2 (reading UI backend) so far.
 
 ### Changed
 
+- Store internals (no behavior change): the gate + write transaction boilerplate of `CommitFetchError`, `CommitSkip` and `TrimOnly` is now the shared `gated`/`batch` helper; every JSON column and `json_each` argument is encoded by one helper (`jsonText`) that returns the marshal error; the two uid lookups of a fetch chunk (live items and ledger tombstones) are one `UNION ALL` query; feed URL normalization and key come from one parse (`feedurl.KeyAndNormalize`) in `AddFeed`, `ValidateFeedURL` and the redirect decision. Benchmarks added (`BenchmarkApplyItemsRefetch`, `BenchmarkUIDLookup`).
+
 - `greader.icon_urls` ("Send feed icons to sync apps") now defaults to ON. Existing databases have no stored row for it, so they pick the new default up at once (sync apps receive `iconUrl` once `KIPPLE_PUBLIC_URL` is set, and the unauthenticated icon endpoint is served); an explicitly stored `false` stays off. No migration.
 - Article HTML served to the web UI goes through one serve-time pass (`sanitize.ServeHTML`): links open in a
   new tab with `rel="noopener noreferrer"` and lose tracking parameters (new setting `links.strip_tracking`,
@@ -182,6 +184,8 @@ Phase 2 (reading UI backend) so far.
   deleted by migration 0002.
 
 ### Fixed
+
+- A failed settings read (cancelled context, disk I/O error) was taken for "not set". Inside a write transaction it now fails the transaction (`LoadFetchSettingsErr`): retention trimming, restore of trimmed items, the stub and ledger purges, the full-text guard in saves and mark-all-as-read, and `PullInSchedule` no longer act on a compiled-in default (a wrong retention cap or restore window) and the batch retries. Outside a transaction the loaders log a warning and use defaults for that pass only; nothing caches them. A JSON value that cannot be encoded now fails with its own error instead of tripping the `json_valid` CHECK.
 
 - Review of keyword filters (migration 0004, `internal/filter`, ingest, filters API):
   - A feed at its retention cap no longer trims the muted items its own fetch just added. Muted items now count against the cap but are kept under their own allowance (the newest `max(N/5, N - real)` of them, real items keep the rest), so the Muted view and delete-with-unmute keep working on busy feeds.

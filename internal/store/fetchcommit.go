@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -296,39 +295,37 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 	for i, it := range items {
 		uids[i] = it.UID
 	}
-	uidJSON, _ := json.Marshal(uids)
+	uidJSON, err := jsonText(uids)
+	if err != nil {
+		return err
+	}
 
+	// One pass over the chunk's uids: live items (kind 0, with the columns updateItem
+	// needs) and ledger tombstones (kind 1) come back together.
 	existing := map[string]existingRow{}
-	rows, err := tx.QueryContext(ctx, `SELECT id, uid, content_hash, text_hash, title, author, url, COALESCE(image_url,''), word_count
-		FROM items WHERE feed_id = ? AND uid IN (SELECT value FROM json_each(?))`, feedID, string(uidJSON))
+	tomb := map[string]bool{}
+	rows, err := tx.QueryContext(ctx, `WITH u(uid) AS MATERIALIZED (SELECT value FROM json_each(?2))
+		SELECT 0, id, uid, content_hash, text_hash, title, author, url, COALESCE(image_url,''), word_count
+		  FROM items WHERE feed_id = ?1 AND uid IN (SELECT uid FROM u)
+		UNION ALL
+		SELECT 1, 0, uid, '', '', '', '', '', '', 0
+		  FROM trimmed_items WHERE feed_id = ?1 AND uid IN (SELECT uid FROM u)`, feedID, uidJSON)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
+		var kind int
 		var uid string
 		var e existingRow
-		if err := rows.Scan(&e.id, &uid, &e.contentHash, &e.textHash, &e.title, &e.author, &e.url, &e.imageURL, &e.wordCount); err != nil {
+		if err := rows.Scan(&kind, &e.id, &uid, &e.contentHash, &e.textHash, &e.title, &e.author, &e.url, &e.imageURL, &e.wordCount); err != nil {
 			rows.Close()
 			return err
 		}
-		existing[uid] = e
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	tomb := map[string]bool{}
-	rows, err = tx.QueryContext(ctx, `SELECT uid FROM trimmed_items WHERE feed_id = ? AND uid IN (SELECT value FROM json_each(?))`,
-		feedID, string(uidJSON))
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var uid string
-		if err := rows.Scan(&uid); err != nil {
-			rows.Close()
-			return err
+		if kind == 1 {
+			tomb[uid] = true
+		} else {
+			existing[uid] = e
 		}
-		tomb[uid] = true
 	}
 	if err := rows.Close(); err != nil {
 		return err
@@ -434,12 +431,15 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				it.WordCount, it.ContentHash, it.TextHash, pub, updatedAt, sortAt, read, readAt, starred, starredAt, mutedBy, mutedWasRead); err != nil {
 				return err
 			}
-			var enc any
-			if len(it.Enclosures) > 0 {
-				b, _ := json.Marshal(it.Enclosures)
-				enc = string(b)
+			enc, err := optJSON(it.Enclosures, len(it.Enclosures) == 0)
+			if err != nil {
+				return err
 			}
-			if _, err := insContent.ExecContext(ctx, id, it.ContentHTML, it.ContentText, enc, categoriesJSON(it.Categories)); err != nil {
+			cats, err := categoriesJSON(it.Categories)
+			if err != nil {
+				return err
+			}
+			if _, err := insContent.ExecContext(ctx, id, it.ContentHTML, it.ContentText, enc, cats); err != nil {
 				return err
 			}
 			if st.firstNewID == maxInt64 {
@@ -457,9 +457,12 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 	}
 
 	if len(seenTomb) > 0 {
-		b, _ := json.Marshal(seenTomb)
+		b, err := jsonText(seenTomb)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE trimmed_items SET last_seen_at = ? WHERE feed_id = ? AND uid IN (SELECT value FROM json_each(?))`,
-			now, feedID, string(b)); err != nil {
+			now, feedID, b); err != nil {
 			return err
 		}
 		st.seenTomb += len(seenTomb)
@@ -496,17 +499,16 @@ func updateItem(ctx context.Context, tx *sql.Tx, e existingRow, it fetch.Item, n
 	if _, err := tx.ExecContext(ctx, "UPDATE items SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...); err != nil {
 		return err
 	}
-	var enc any
-	if len(it.Enclosures) > 0 {
-		b, _ := json.Marshal(it.Enclosures)
-		enc = string(b)
+	enc, err := optJSON(it.Enclosures, len(it.Enclosures) == 0)
+	if err != nil {
+		return err
 	}
 	if textChanged {
-		_, err := tx.ExecContext(ctx, `UPDATE item_content SET content_html = ?, content_text = ?, enclosures_json = ? WHERE item_id = ?`,
+		_, err = tx.ExecContext(ctx, `UPDATE item_content SET content_html = ?, content_text = ?, enclosures_json = ? WHERE item_id = ?`,
 			it.ContentHTML, it.ContentText, enc, e.id)
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE item_content SET content_html = ?, enclosures_json = ? WHERE item_id = ?`,
+	_, err = tx.ExecContext(ctx, `UPDATE item_content SET content_html = ?, enclosures_json = ? WHERE item_id = ?`,
 		it.ContentHTML, enc, e.id)
 	return err
 }
@@ -610,13 +612,8 @@ func (d *DB) saveHighWater(ctx context.Context, tx *sql.Tx) error {
 // CommitFetchError is the error bookkeeping transaction: failure counters,
 // the backoff schedule, the 410 disable, and the fetch_log row.
 func (d *DB) CommitFetchError(ctx context.Context, res *fetch.Result) error {
-	release, err := d.AcquireGate(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
 	now := d.clock.Now().Unix()
-	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	return d.gated(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		feedID := res.Snap.ID
 		upd, err := tx.ExecContext(ctx, `UPDATE feeds SET
 			consecutive_failures = consecutive_failures + 1,
@@ -645,13 +642,8 @@ func (d *DB) CommitFetchError(ctx context.Context, res *fetch.Result) error {
 
 // CommitSkip writes a `skipped` fetch_log row and leaves the schedule alone.
 func (d *DB) CommitSkip(ctx context.Context, snap fetch.Snapshot, note string) error {
-	release, err := d.AcquireGate(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
 	now := d.clock.Now().Unix()
-	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	return d.gated(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO fetch_log (feed_id, trigger, started_at, duration_ms, outcome, note)
 			VALUES (?,?,?,0,'skipped',?)`, snap.ID, snap.Trigger, now, note); err != nil {
 			return err

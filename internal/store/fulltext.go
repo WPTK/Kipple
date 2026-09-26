@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"strings"
 )
@@ -129,9 +128,11 @@ func itemStillWanted(n string, all bool) string {
 
 func (d *DB) saveFulltext(ctx context.Context, id, now int64, s FulltextSave, onlyURL string) (written bool, err error) {
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		all := txFulltextAll(ctx, tx) // read in the same transaction as the guarded write
+		all, err := txFulltextAll(ctx, tx) // read in the same transaction as the guarded write
+		if err != nil {
+			return err
+		}
 		var res sql.Result
-		var err error
 		if s.Error != "" {
 			res, err = tx.ExecContext(ctx, `INSERT INTO item_fulltext (item_id, extracted_at, error, error_class)
 				SELECT ?1, ?2, ?3, ?4 WHERE `+itemStillWanted("?5", all)+`
@@ -163,9 +164,12 @@ func (d *DB) KnownUIDs(ctx context.Context, feedID int64, uids []string) (map[st
 	if len(uids) == 0 {
 		return known, nil
 	}
-	b, _ := json.Marshal(uids)
+	b, err := jsonText(uids)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := d.reader.QueryContext(ctx, `SELECT uid FROM items WHERE feed_id = ?1 AND uid IN (SELECT value FROM json_each(?2))
-		UNION SELECT uid FROM trimmed_items WHERE feed_id = ?1 AND uid IN (SELECT value FROM json_each(?2))`, feedID, string(b))
+		UNION SELECT uid FROM trimmed_items WHERE feed_id = ?1 AND uid IN (SELECT value FROM json_each(?2))`, feedID, b)
 	if err != nil {
 		return nil, err
 	}
@@ -187,8 +191,11 @@ func (d *DB) ItemIDsByUID(ctx context.Context, feedID int64, uids []string) (map
 	if len(uids) == 0 {
 		return out, nil
 	}
-	b, _ := json.Marshal(uids)
-	rows, err := d.reader.QueryContext(ctx, `SELECT uid, id FROM items WHERE feed_id = ? AND uid IN (SELECT value FROM json_each(?))`, feedID, string(b))
+	b, err := jsonText(uids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := d.reader.QueryContext(ctx, `SELECT uid, id FROM items WHERE feed_id = ? AND uid IN (SELECT value FROM json_each(?))`, feedID, b)
 	if err != nil {
 		return nil, err
 	}

@@ -25,7 +25,7 @@ func openTest(t *testing.T) (*DB, string) {
 	return db, path
 }
 
-func scalar[T any](t *testing.T, q Querier, query string, args ...any) T {
+func scalar[T any](t testing.TB, q Querier, query string, args ...any) T {
 	t.Helper()
 	var v T
 	require.NoError(t, q.QueryRowContext(context.Background(), query, args...).Scan(&v))

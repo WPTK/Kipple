@@ -24,11 +24,10 @@ type NewFeed struct {
 
 // AddFeed inserts a feed due immediately (next_fetch_at = now unless set).
 func (d *DB) AddFeed(ctx context.Context, f NewFeed) (int64, error) {
-	norm, err := feedurl.Normalize(f.URL)
+	key, norm, err := feedurl.KeyAndNormalize(f.URL)
 	if err != nil {
 		return 0, fmt.Errorf("store: add feed: %w", err)
 	}
-	key, _ := feedurl.Key(norm)
 	host, _ := feedurl.Host(norm)
 	if f.FolderID == 0 {
 		f.FolderID = 1

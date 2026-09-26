@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -98,8 +98,8 @@ func (d *DB) FulltextAll(ctx context.Context) bool {
 
 // txFulltextAll reads the switch inside a transaction (no cache: it must agree
 // with the rest of that transaction).
-func txFulltextAll(ctx context.Context, tx *sql.Tx) bool {
-	return settingBool(ctx, tx, SettingFulltextAll, false)
+func txFulltextAll(ctx context.Context, tx *sql.Tx) (bool, error) {
+	return settingBoolErr(ctx, tx, SettingFulltextAll, false)
 }
 
 // ftPending is the set of items the ingest extraction pool has queued or is
@@ -144,12 +144,15 @@ func (d *DB) HoldPending() string {
 	if len(d.ftPend.ids) == 0 {
 		return "[]"
 	}
-	ids := make([]int64, 0, len(d.ftPend.ids))
+	// Built by hand: a []int64 cannot fail to encode, so there is no error to drop.
+	b := append(make([]byte, 0, len(d.ftPend.ids)*8), '[')
 	for id := range d.ftPend.ids {
-		ids = append(ids, id)
+		if len(b) > 1 {
+			b = append(b, ',')
+		}
+		b = strconv.AppendInt(b, id, 10)
 	}
-	b, _ := json.Marshal(ids)
-	return string(b)
+	return string(append(b, ']'))
 }
 
 // holdArgs are the named arguments HeldSQL needs.

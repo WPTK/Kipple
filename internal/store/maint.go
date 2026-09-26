@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -39,15 +38,22 @@ const (
 // BackupDir returns the directory for the nightly and pre-migration snapshots.
 func (d *DB) BackupDir() string { return d.backupDir }
 
-// batch runs fn in one write transaction behind the commit gate.
-func (d *DB) batch(ctx context.Context, fn func(ctx context.Context, tx *sql.Tx) (int64, error)) (int64, error) {
+// gated runs fn in one write transaction behind the commit gate: the gate is
+// taken first (ctx bounds the wait), held for the whole transaction, and released
+// after it, whatever its outcome.
+func (d *DB) gated(ctx context.Context, fn func(ctx context.Context, tx *sql.Tx) error) error {
 	release, err := d.AcquireGate(ctx)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer release()
+	return d.WithWrite(ctx, fn)
+}
+
+// batch is gated for a bounded maintenance step that reports a row count.
+func (d *DB) batch(ctx context.Context, fn func(ctx context.Context, tx *sql.Tx) (int64, error)) (int64, error) {
 	var n int64
-	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	err := d.gated(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var err error
 		n, err = fn(ctx, tx)
 		return err
@@ -60,7 +66,11 @@ func (d *DB) batch(ctx context.Context, fn func(ctx context.Context, tx *sql.Tx)
 // tombstone. It returns the rows deleted.
 func (d *DB) PurgeStubs(ctx context.Context, now int64, limit int) (int64, error) {
 	return d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
-		cutoff := now - int64(LoadFetchSettings(ctx, tx).RestoreDays)*86400
+		set, err := LoadFetchSettingsErr(ctx, tx)
+		if err != nil {
+			return 0, err
+		}
+		cutoff := now - int64(set.RestoreDays)*86400
 		res, err := tx.ExecContext(ctx, `DELETE FROM trimmed_content WHERE id IN (
 			SELECT c.id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
 			WHERE t.trimmed_at < ?1 LIMIT ?2)`, cutoff, limit)
@@ -77,7 +87,11 @@ func (d *DB) PurgeStubs(ctx context.Context, now int64, limit int) (int64, error
 // stub (which cascades from its ledger row) never vanishes inside its window.
 func (d *DB) PurgeLedger(ctx context.Context, now int64, limit int) (int64, error) {
 	return d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
-		horizon := max(LedgerDays, LoadFetchSettings(ctx, tx).RestoreDays+LedgerMarginDays)
+		set, err := LoadFetchSettingsErr(ctx, tx)
+		if err != nil {
+			return 0, err
+		}
+		horizon := max(LedgerDays, set.RestoreDays+LedgerMarginDays)
 		res, err := tx.ExecContext(ctx, `DELETE FROM trimmed_items WHERE id IN (
 			SELECT id FROM trimmed_items WHERE last_seen_at < ?1 LIMIT ?2)`, now-int64(horizon)*86400, limit)
 		if err != nil {
@@ -227,7 +241,11 @@ func (d *DB) recordSnapshot(ctx context.Context, now int64, snapErr error) error
 		const upsert = `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
 		if snapErr != nil {
-			_, err := tx.ExecContext(ctx, upsert, "sys.last_snapshot_error", jsonString(snapErr.Error()), now)
+			v, err := jsonString(snapErr.Error())
+			if err != nil {
+				return 0, err
+			}
+			_, err = tx.ExecContext(ctx, upsert, "sys.last_snapshot_error", v, now)
 			return 0, err
 		}
 		if _, err := tx.ExecContext(ctx, upsert, "sys.last_snapshot_at", fmt.Sprint(now), now); err != nil {
@@ -239,10 +257,7 @@ func (d *DB) recordSnapshot(ctx context.Context, now int64, snapErr error) error
 	return err
 }
 
-func jsonString(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
-}
+func jsonString(s string) (string, error) { return jsonText(s) }
 
 // TZName is the `tz` setting as written (default America/New_York), without
 // resolving it: the caller decides what an unknown name means.
@@ -276,8 +291,12 @@ func (d *DB) RecordNightlyDate(ctx context.Context, date string, now int64) erro
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		at := time.Unix(now, 0).UTC().Format(time.RFC3339)
 		for _, kv := range [][2]string{{"sys.last_nightly_date", date}, {"sys.last_nightly_at", at}} {
+			v, err := jsonString(kv[1])
+			if err != nil {
+				return err
+			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
-				ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, kv[0], jsonString(kv[1]), now); err != nil {
+				ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, kv[0], v, now); err != nil {
 				return err
 			}
 		}

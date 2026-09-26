@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 )
 
 // MaxRestoreDays caps retention.restore_days. The nightly ledger purge removes a
@@ -31,17 +32,48 @@ type FetchSettings struct {
 	FulltextAll      bool   // fetch.fulltext_all, default false
 }
 
-// LoadFetchSettings reads the fetch-related settings through q.
-func LoadFetchSettings(ctx context.Context, q Querier) FetchSettings {
-	return FetchSettings{
-		IntervalMinutes:  settingInt(ctx, q, "refresh.interval_minutes", 30),
-		RetentionDefault: settingInt(ctx, q, "retention.default", 250),
-		RestoreDays:      min(max(settingInt(ctx, q, "retention.restore_days", 90), 0), MaxRestoreDays),
-		UserAgent:        settingString(ctx, q, "fetch.user_agent", ""),
-		UAMode:           settingString(ctx, q, "fetch.user_agent_mode", UAModeOnFailure),
-		HonorTTL:         settingBool(ctx, q, "fetch.honor_publisher_ttl", true),
-		FulltextAll:      settingBool(ctx, q, SettingFulltextAll, false),
+// LoadFetchSettingsErr reads the fetch-related settings through q. A missing row
+// or an unparseable value is the default; a failed read (cancelled context, busy
+// or broken database) is a non-nil error, with the settings that could not be
+// read left at their defaults. Callers inside a write transaction must fail it
+// rather than act on those defaults (a trim or purge with the wrong cap or
+// window is not undone by a retry that never happens).
+func LoadFetchSettingsErr(ctx context.Context, q Querier) (FetchSettings, error) {
+	var errs []error
+	keep := func(err error) {
+		if err != nil {
+			errs = append(errs, err)
+		}
 	}
+	var s FetchSettings
+	var err error
+	s.IntervalMinutes, err = settingIntErr(ctx, q, "refresh.interval_minutes", 30)
+	keep(err)
+	s.RetentionDefault, err = settingIntErr(ctx, q, "retention.default", 250)
+	keep(err)
+	s.RestoreDays, err = settingIntErr(ctx, q, "retention.restore_days", 90)
+	keep(err)
+	s.RestoreDays = min(max(s.RestoreDays, 0), MaxRestoreDays)
+	s.UserAgent, err = settingStringErr(ctx, q, "fetch.user_agent", "")
+	keep(err)
+	s.UAMode, err = settingStringErr(ctx, q, "fetch.user_agent_mode", UAModeOnFailure)
+	keep(err)
+	s.HonorTTL, err = settingBoolErr(ctx, q, "fetch.honor_publisher_ttl", true)
+	keep(err)
+	s.FulltextAll, err = settingBoolErr(ctx, q, SettingFulltextAll, false)
+	keep(err)
+	return s, errors.Join(errs...)
+}
+
+// LoadFetchSettings is LoadFetchSettingsErr for callers outside a write
+// transaction that can live with defaults for one pass: a read failure is logged
+// at warn and the defaults are used. The result must not be cached.
+func LoadFetchSettings(ctx context.Context, q Querier) FetchSettings {
+	s, err := LoadFetchSettingsErr(ctx, q)
+	if err != nil {
+		slog.Warn("store: reading fetch settings failed; using defaults for this pass", "err", err)
+	}
+	return s
 }
 
 // settingRawErr reads one settings row. A missing row is (nil, false, nil); any
@@ -58,9 +90,32 @@ func settingRawErr(ctx context.Context, q Querier, key string) (json.RawMessage,
 	return json.RawMessage(v), true, nil
 }
 
+// settingRaw is settingRawErr for callers that fall back to a default: a read
+// failure is logged at warn (never silently taken for "not set") and reported as
+// not found.
 func settingRaw(ctx context.Context, q Querier, key string) (json.RawMessage, bool) {
 	raw, ok, err := settingRawErr(ctx, q, key)
-	return raw, ok && err == nil
+	if err != nil {
+		slog.Warn("store: reading setting failed; using its default", "key", key, "err", err)
+		return nil, false
+	}
+	return raw, ok
+}
+
+// settingIntErr is the integer counterpart of settingBoolErr.
+func settingIntErr(ctx context.Context, q Querier, key string, def int) (int, error) {
+	raw, ok, err := settingRawErr(ctx, q, key)
+	if err != nil {
+		return def, err
+	}
+	if !ok {
+		return def, nil
+	}
+	var n float64
+	if json.Unmarshal(raw, &n) != nil {
+		return def, nil
+	}
+	return int(n), nil
 }
 
 // settingBoolErr is settingBool that reports a read failure instead of
@@ -168,7 +223,9 @@ func (d *DB) SetSettings(ctx context.Context, set map[string]any) error {
 // Returns the feeds moved.
 func (d *DB) PullInSchedule(ctx context.Context, intervalMinutes int) (int64, error) {
 	honor := 0
-	if d.FetchSettings(ctx).HonorTTL {
+	if ttl, err := settingBoolErr(ctx, d.reader, "fetch.honor_publisher_ttl", true); err != nil {
+		return 0, err
+	} else if ttl {
 		honor = 1
 	}
 	var n int64
