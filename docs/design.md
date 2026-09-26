@@ -845,7 +845,7 @@ Selection rules:
 - A feed whose `hostUntil[host]` is in the future is skipped and stays due.
 - Nothing is written at selection time. If the process dies mid-fetch, the feed is simply due again.
 
-`enqueue(job)` registers the flight (`flights[feed]`). If `perHost[job.host] >= 2` or every worker is busy (`running` equals the worker count, so `jobs` cannot be full), the flight is pushed to `pending`. Otherwise the dispatcher marks it started, increments `running` and `perHost`, and sends it to `jobs`. That send is non-blocking; the dispatcher never blocks. A job whose feed has `rekey_pending` set is forced `Full` here (a `not_modified` would never re-key).
+`enqueue(job)` registers the flight (`flights[feed]`). If `perHost[job.host] >= 2` or every worker is busy (`running` equals the worker count, so `jobs` cannot be full), the flight is pushed to `pending`. Otherwise the dispatcher marks it started, increments `running` and `perHost`, and sends it to `jobs`. That send is non-blocking; the dispatcher never blocks. A job whose feed has `rekey_pending` set is forced `Full` here (a `not_modified` would never re-key). A job that had to wait in `pending` reloads its feed's snapshot just before it starts (keeping its trigger, `Full` and host deadline), so a URL or settings change made while it waited applies; a fetch or skip whose feed has meanwhile been disabled, or any job whose feed was deleted, is dropped instead: its callers get `ErrDisabled` or `ErrNotFound`, each run it belongs to counts the feed as done with an error, and its follow-ups are replayed.
 
 On a result from `doneCh`, the dispatcher:
 
