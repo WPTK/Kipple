@@ -1,5 +1,8 @@
-import { noteResponse, setOnline } from "@/lib/offlineState";
+import { noteResponse, setOnline, setSessionExpired } from "@/lib/offlineState";
 import { createStore } from "@/lib/store";
+
+/** ApiError code for a request the access proxy in front of Kipple redirected to its login page. */
+export const SESSION_EXPIRED = "session_expired";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -72,6 +75,10 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
       headers,
       body,
       credentials: "same-origin",
+      // Kipple's API never redirects. A redirect is the access proxy in front of it sending an expired session to
+      // its login page: followed, that cross-origin hop fails like a dropped network and the app would say
+      // "offline" and queue changes. Kept manual, it arrives as an opaque redirect and is said for what it is.
+      redirect: "manual",
       signal: opts.signal,
     });
   } catch (e) {
@@ -79,6 +86,13 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
     if (!opts.quiet) setOnline(false);
     throw new ApiError(0, "network");
   }
+  if (res.type === "opaqueredirect") {
+    setOnline(true); // something answered: the network is fine
+    setSessionExpired();
+    throw new ApiError(401, SESSION_EXPIRED);
+  }
+  // A live answer (not the worker's stored copy) proves the proxy lets requests through again.
+  if (!res.headers.get("X-Kipple-Cache")) setSessionExpired(false);
   noteResponse(res, opts.quiet);
   if (res.status === 401) {
     authStore.set("out");
@@ -105,6 +119,7 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 0) return "Kipple couldn't reach the server.";
+    if (e.code === SESSION_EXPIRED) return "Your sign-in has expired. Reload Kipple to sign in again.";
     if (e.status === 429) return "Too many attempts. Try again in a few minutes.";
     if (e.status >= 500) return "The server returned an error. Try again.";
     if (e.status === 404) return "That item is no longer available.";

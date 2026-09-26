@@ -343,15 +343,24 @@ export function initOffline(qc: QueryClient): () => void {
   cleanups.push(unsubNet);
 
   if (import.meta.env.PROD && "serviceWorker" in navigator) {
-    const had = !!navigator.serviceWorker.controller;
-    // The new worker skips waiting and takes over: a controller change on a page that already had one
-    // means new code is ready. Reloading is the user's call, so a banner offers it.
-    const onChange = () => {
-      if (had) setUpdateReady();
-    };
-    navigator.serviceWorker.addEventListener("controllerchange", onChange);
-    cleanups.push(() => navigator.serviceWorker.removeEventListener("controllerchange", onChange));
+    cleanups.push(watchForUpdates(navigator.serviceWorker));
     void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
   }
   return () => cleanups.forEach((f) => f());
+}
+
+/**
+ * The new worker skips waiting and takes over, so a controller change on a page that was already controlled means
+ * new code is ready; reloading is the user's call, so a banner offers it. Whether the page was controlled is read
+ * when each change happens, not once at launch: a tab opened before any worker existed gets its first controller
+ * (that is the install, not an update), and every change after that is an update.
+ */
+export function watchForUpdates(sw: Pick<ServiceWorkerContainer, "controller" | "addEventListener" | "removeEventListener">): () => void {
+  let controlled = !!sw.controller;
+  const onChange = () => {
+    if (controlled) setUpdateReady();
+    controlled = !!sw.controller || controlled;
+  };
+  sw.addEventListener("controllerchange", onChange);
+  return () => sw.removeEventListener("controllerchange", onChange);
 }

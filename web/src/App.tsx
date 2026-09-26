@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
-import { ApiError, authStore } from "@/api/client";
+import { ApiError, authStore, SESSION_EXPIRED } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import { hydrateDevice } from "@/lib/deviceSync";
 import { prefetchUnread } from "@/lib/offline";
@@ -65,6 +65,13 @@ function Gate() {
       <div className="flex h-full items-center justify-center" role="status">
         <span className="text-fg2">Loading Kipple</span>
       </div>
+    );
+  }
+  if (boot.isError && boot.error instanceof ApiError && boot.error.code === SESSION_EXPIRED) {
+    return (
+      <StatusBlock role="alert" title="Your sign-in has expired" body="The sign-in in front of Kipple timed out. Reload to sign in again.">
+        <Button onClick={() => window.location.reload()}>Reload</Button>
+      </StatusBlock>
     );
   }
   if (boot.isError && !online) {
