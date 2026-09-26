@@ -291,9 +291,14 @@ func swap(dataDir, tmp, live string, now time.Time, preOut *string) (moved bool,
 	return len(done) > 0, nil
 }
 
-// preRestoreLayout is the timestamp in a pre-restore directory name, in UTC so
-// a daylight saving change can never make a newer name look older.
-const preRestoreLayout = "20060102-150405"
+// preRestoreLayout is the timestamp in a pre-restore directory name. New names
+// are UTC and end in Z (preRestoreUTC), so a daylight saving change can never
+// make a newer name look older; names without the Z were written by older
+// versions in the server's local time and are read as such.
+const (
+	preRestoreLayout = "20060102-150405"
+	preRestoreUTC    = "Z"
+)
 
 // newPreRestoreDir creates backup/pre-restore-<second>, or <second>-2, -3, ...
 // when that name is taken: two restores in one second must never share (and
@@ -302,7 +307,7 @@ func newPreRestoreDir(backupDir string, now time.Time) (string, error) {
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return "", err
 	}
-	base := filepath.Join(backupDir, "pre-restore-"+now.UTC().Format(preRestoreLayout))
+	base := filepath.Join(backupDir, "pre-restore-"+now.UTC().Format(preRestoreLayout)+preRestoreUTC)
 	dir := base
 	for i := 2; i < 1000; i++ {
 		err := os.Mkdir(dir, 0o755)
@@ -354,20 +359,27 @@ func prunePreRestore(backupDir string) {
 	}
 }
 
-// preRestoreKey parses pre-restore-<YYYYMMDD-HHMMSS>[-N]: the time (UTC; older
-// versions wrote local time, which only matters across one upgrade) and N
-// (1 without a suffix).
+// preRestoreKey parses pre-restore-<YYYYMMDD-HHMMSS>[Z][-N]: the time, as UTC
+// with the Z and as the server's local time without it (the zone-less names of
+// older versions), normalised to UTC so both kinds sort together; and N (1
+// without a suffix).
 func preRestoreKey(name string) (at time.Time, n int, ok bool) {
 	rest, ok := strings.CutPrefix(name, "pre-restore-")
 	if !ok || len(rest) < len(preRestoreLayout) {
 		return time.Time{}, 0, false
 	}
-	at, err := time.Parse(preRestoreLayout, rest[:len(preRestoreLayout)])
+	loc := time.Local
+	stamp, suf := rest[:len(preRestoreLayout)], rest[len(preRestoreLayout):]
+	if after, utc := strings.CutPrefix(suf, preRestoreUTC); utc {
+		loc, suf = time.UTC, after
+	}
+	at, err := time.ParseInLocation(preRestoreLayout, stamp, loc)
 	if err != nil {
 		return time.Time{}, 0, false
 	}
+	at = at.UTC()
 	n = 1
-	if suf := rest[len(preRestoreLayout):]; suf != "" {
+	if suf != "" {
 		digits, ok := strings.CutPrefix(suf, "-")
 		if !ok || digits == "" || strings.TrimLeft(digits, "0123456789") != "" {
 			return time.Time{}, 0, false

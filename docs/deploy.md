@@ -27,7 +27,7 @@ Everything is on the `kipple_data` volume (`host-a_kipple_data`), mounted at `/d
 | `/data/kipple.lock` | Held by `serve` (an OS lock: it vanishes with the process, no stale lock) | live |
 | `/data/backup/kipple-snapshot.db` | Nightly snapshot at 04:10 (`tz` setting), consistent, safe to copy | 1 |
 | `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration (`0600`; files written by 0.2.0 and earlier are `0644`) | newest 3 |
-| `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>/` (UTC) | The database that `kipple restore` replaced | newest 3 |
+| `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC; older versions wrote local time without the `Z`) | The database that `kipple restore` replaced | newest 3 |
 | `/data/backup/export/` | Temporary files of an export in progress. Emptied at startup | transient |
 | `/data/imgcache/` | Image cache (`imgproxy.cache_mb`, default 1024 MiB, least recently used evicted; never in backups or snapshots) | capped |
 | `/data/restore-tmp.db*`, `/data/restore-upload.tmp` | Only while a `kipple restore` runs | transient |
