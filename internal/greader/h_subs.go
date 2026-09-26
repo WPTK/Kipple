@@ -139,13 +139,20 @@ func safeIconType(ct string) bool {
 // ---- labels ----
 
 // parseUserPath returns the name after user/<x>/<suffix> (suffix such as
-// "/label/" or "/state/com.google/"). An empty or all-space name is not ok.
+// "/label/" or "/state/com.google/"), where <x> is one path segment ("-" or a
+// user id). The suffix must follow that segment directly, so a label named
+// "x/state/com.google/read" is a label, never the read state. An empty or
+// all-space name is not ok.
 func parseUserPath(id, suffix string) (string, bool) {
 	rest, ok := strings.CutPrefix(id, "user/")
 	if !ok {
 		return "", false
 	}
-	_, name, ok := strings.Cut(rest, suffix)
+	i := strings.IndexByte(rest, '/')
+	if i < 0 {
+		return "", false
+	}
+	name, ok := strings.CutPrefix(rest[i:], suffix)
 	if !ok || strings.TrimSpace(name) == "" {
 		return "", false
 	}

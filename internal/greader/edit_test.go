@@ -334,3 +334,38 @@ func TestEditTagEventCapsIDsAndFallsBackToResync(t *testing.T) {
 	require.Equal(t, "resync", ev.Type, "an oversized batch publishes a resync hint instead of thousands of ids")
 	require.JSONEq(t, `{}`, string(ev.Data))
 }
+
+// A label whose name contains "/state/com.google/..." is a label, never a state
+// stream: user/<x>/ must be one segment followed directly by the state path.
+func TestLabelNamedLikeStateIsNotAState(t *testing.T) {
+	for _, id := range []string{"user/-/label/x/state/com.google/read", "user/-/label/a/state/com.google/reading-list", "user/1/2/state/com.google/read"} {
+		_, ok := stateName(id)
+		require.False(t, ok, id)
+	}
+	n, ok := stateName("user/1005921515/state/com.google/read")
+	require.True(t, ok)
+	require.Equal(t, "read", n)
+	n, ok = labelName("user/-/label/x/state/com.google/read")
+	require.True(t, ok)
+	require.Equal(t, "x/state/com.google/read", n)
+	_, ok = labelName("user/-/state/com.google/label/foo")
+	require.False(t, ok, "a state path is not a label")
+
+	h := newHarness(t)
+	odd := "x/state/com.google/reading-list"
+	inOdd := h.addFeed("https://odd.example/f", "Odd", odd)
+	other := h.addFeed("https://other.example/f", "Other", "News")
+	oddIDs := seedN(h, inOdd, 1, nil)
+	otherIDs := seedN(h, other, 1, nil)
+
+	// edit-tag with a label that looks like the read state changes nothing.
+	w := h.post(rd+"edit-tag", editBody("a="+url.QueryEscape("user/-/label/x/state/com.google/read"), FormatLongID(otherIDs[0])))
+	require.Equal(t, 200, w.Code)
+	require.False(t, isRead(h, otherIDs[0]), "a label is not the read state")
+
+	// mark-all-as-read on the odd label marks that folder only, not the reading list.
+	w = h.post(rd+"mark-all-as-read", "T=x&s="+url.QueryEscape("user/-/label/"+odd))
+	require.Equal(t, "OK", w.Body.String())
+	require.True(t, isRead(h, oddIDs[0]), "the label's own items")
+	require.False(t, isRead(h, otherIDs[0]), "not every item")
+}
