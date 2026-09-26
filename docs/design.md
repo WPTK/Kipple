@@ -523,7 +523,7 @@ CREATE TABLE trimmed_content (
 -- error rows and every keep = 1 row (redirect_migrated, guid_churn_suspected, rekeyed) survive.
 -- first_item_id/last_item_id bound the ids this fetch inserted ("mark this fetch read").
 -- error_class: timeout|dns|connect|tls|http|cloudflare|too_large|empty|parse|ssrf|redirect_loop|gone
--- note: 'redirect_migrated: <old> -> <new>', 'redirect_new_host: http_auth, allow_insecure_tls and allow_private_net reset',
+-- note: 'redirect_migrated: <old> -> <new>', 'redirect_held_new_site: <new> is on another site; ...',
 --       'redirect_target_owned_by_feed <id>',
 --       'retry_after=<s>s', 'guid_churn_suspected', 'guid_duplicates: <k>/<n>', 'rekeyed: <k>',
 --       'skipped: host retry-after until <ts>', 'fulltext: <ok>/<tried>', 'initial_read: <k>'.
@@ -1038,14 +1038,14 @@ UPDATE feeds SET url_original = COALESCE(url_original, url),
                  url_original_key = COALESCE(url_original_key, url_key),
                  url = :final, url_key = :final_key, host = :host,
                  redirect_to = NULL, redirect_kind = NULL, redirect_count = 0,
-                 -- :moved = the new host differs from the old one (case-insensitive)
+                 -- :moved = the new host is on another site (fetch.SameSite is false)
                  http_auth = CASE WHEN :moved THEN NULL ELSE http_auth END,
                  allow_insecure_tls = CASE WHEN :moved THEN 0 ELSE allow_insecure_tls END,
                  allow_private_net = CASE WHEN :moved THEN 0 ELSE allow_private_net END
 WHERE id = :f
 ```
 
-Then add the fetch_log note `redirect_migrated: <old> -> <new>` with `keep = 1`, and, when a move to another host reset any of the three (they were granted for the old host, as with a URL edit), `redirect_new_host: http_auth, allow_insecure_tls and allow_private_net reset`, also `keep = 1`. Validators are kept. The `feed/<url>` stream lookup uses `FindFeedByURL`.
+Then add the fetch_log note `redirect_migrated: <old> -> <new>` with `keep = 1`. `http_auth`, `allow_insecure_tls` and `allow_private_net` were granted for the old host. A move inside the same site (`fetch.SameSite`: the same registrable domain, such as `example.com` to `www.example.com`, or a single-label LAN name gaining its domain, `nas` to `nas.lan`) keeps them. A move to another site while any of them is set is **not migrated**: `redirect_to` stays pending (`redirect_count` held at 2) with the note `redirect_held_new_site: <new> is on another site; ...`, and the user accepts the move by editing the URL, which clears them as a URL edit always does. A move to another site with none set migrates (the `:moved` clearing is then a no-op kept as a guard). Validators are kept. The `feed/<url>` stream lookup uses `FindFeedByURL`.
 
 **`FindFeedByURL(u)`** (`internal/feedurl.Key` computes the key):
 

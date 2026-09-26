@@ -615,16 +615,26 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 		if kerr != nil || herr != nil {
 			return nil
 		}
-		// The credentials and the network exceptions were granted for the old host
-		// (as with a URL edit, api PATCH): a move to another host drops them, so a
-		// publisher's redirect cannot collect the password or reach a private
-		// address. The note says what was reset.
+		// The credentials and the network exceptions were granted for the old
+		// host. A move inside the same site (example.com -> www.example.com, a LAN
+		// name gaining its domain: nas -> nas.lan) keeps them. A move to another
+		// site would have to drop them (so a publisher's redirect cannot collect
+		// the password or reach a private address), which silently breaks the
+		// feed; so while any is set the move is not made automatically: the
+		// redirect stays pending with a note, and the user accepts it by editing
+		// the URL (api PATCH, which drops them the same way).
 		oldHost, oerr := feedurl.Host(res.Snap.URL)
-		moved := oerr != nil || !strings.EqualFold(oldHost, host)
-		reset := false
+		moved := oerr != nil || !fetch.SameSite(oldHost, host)
 		if moved {
+			var held bool
 			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(http_auth, '') != '' OR allow_insecure_tls = 1 OR allow_private_net = 1
-				FROM feeds WHERE id = ?`, feedID).Scan(&reset); err != nil {
+				FROM feeds WHERE id = ?`, feedID).Scan(&held); err != nil {
+				return err
+			}
+			if held {
+				st.note(fmt.Sprintf("redirect_held_new_site: %s is on another site; the feed's HTTP credentials or network exceptions apply only to %s, so the move is not automatic: edit the feed URL to accept it (they are then cleared)", dec.To, oldHost), false)
+				_, err := tx.ExecContext(ctx, `UPDATE feeds SET redirect_to = ?, redirect_kind = 'permanent', redirect_count = ? WHERE id = ?`,
+					dec.To, min(dec.Count, 2), feedID)
 				return err
 			}
 		}
@@ -638,9 +648,6 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 			return err
 		}
 		st.note(fmt.Sprintf("redirect_migrated: %s -> %s", res.Snap.URL, dec.To), true)
-		if reset {
-			st.note("redirect_new_host: http_auth, allow_insecure_tls and allow_private_net reset", true)
-		}
 		st.migrated = true
 		return nil
 	default: // clear
