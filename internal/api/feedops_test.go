@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/sched"
 )
 
@@ -411,4 +412,52 @@ func TestFolders(t *testing.T) {
 		code, _, _ = h.api(c, "DELETE", p, "")
 		require.Equal(t, 404, code, p)
 	}
+}
+
+// folderChanged returns the data of every folder.changed event so far.
+func folderChanged(t *testing.T, sub *events.Sub) []string {
+	t.Helper()
+	var out []string
+	for _, ev := range drain(sub, "folder.changed", 50*time.Millisecond) {
+		out = append(out, string(ev.Data))
+	}
+	return out
+}
+
+func TestFolderChangedEvents(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	sub := h.events()
+
+	_, body, _ := h.api(c, "POST", "/api/folders", `{"name":"Comics"}`)
+	id := body["id"].(string)
+	require.Equal(t, []string{`{"folder_id":"` + id + `"}`}, folderChanged(t, sub), "create")
+
+	h.api(c, "PATCH", "/api/folders/"+id, `{"name":"Webcomics"}`)
+	require.Equal(t, []string{`{"folder_id":"` + id + `"}`}, folderChanged(t, sub), "rename")
+
+	h.api(c, "PATCH", "/api/folders/"+id, `{"name":"  "}`)
+	require.Empty(t, folderChanged(t, sub), "a refused patch announces nothing")
+
+	// moving a feed between folders
+	fid := h.storeFeed("https://a.example/f")
+	h.api(c, "PATCH", "/api/feeds/"+sid(fid), `{"folder_id":`+id+`}`)
+	require.Equal(t, []string{`{}`}, folderChanged(t, sub), "feed move")
+	h.api(c, "PATCH", "/api/feeds/"+sid(fid), `{"custom_title":"x"}`)
+	require.Empty(t, folderChanged(t, sub), "a rename of a feed is not a folder change")
+
+	// reorder
+	code, _, _ := h.api(c, "POST", "/api/reorder", `{"folders":[`+id+`,1]}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, []string{`{}`}, folderChanged(t, sub), "reorder")
+	h.api(c, "POST", "/api/reorder", `{"folders":[`+id+`,1]}`)
+	require.Empty(t, folderChanged(t, sub), "a no-op reorder announces nothing")
+
+	// delete
+	code, _, _ = h.api(c, "DELETE", "/api/folders/"+id, "")
+	require.Equal(t, 204, code)
+	require.Equal(t, []string{`{"folder_id":"` + id + `"}`}, folderChanged(t, sub), "delete")
+	code, _, _ = h.api(c, "DELETE", "/api/folders/1", "")
+	require.Equal(t, 409, code)
+	require.Empty(t, folderChanged(t, sub), "the default folder cannot go")
 }

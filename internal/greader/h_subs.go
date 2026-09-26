@@ -250,6 +250,8 @@ func (c *call) quickAdd() {
 	c.json(http.StatusOK, quickAddJSON{NumResults: 1, Query: q, StreamID: feedID(res.FeedID), StreamName: res.Title})
 }
 
+func (c *call) publishFolders() { c.a.publish("folder.changed", map[string]any{}) }
+
 func (c *call) afterSubscribe(res store.SubscribeResult) {
 	if !res.Existed {
 		c.a.wake()
@@ -288,6 +290,9 @@ func (c *call) subscriptionEdit() {
 				return
 			}
 			c.afterSubscribe(res)
+			if folder != "" {
+				c.publishFolders() // may have created the folder
+			}
 		}
 	case "edit":
 		refs := feedRefs(ss)
@@ -314,6 +319,9 @@ func (c *call) subscriptionEdit() {
 					return
 				}
 				c.publishFeeds(ids)
+				if len(ids) > 0 && (o.SetFolder || o.MoveToDefault) {
+					c.publishFolders()
+				}
 			}
 			break
 		}
@@ -323,6 +331,9 @@ func (c *call) subscriptionEdit() {
 			return
 		}
 		c.publishFeeds(ids)
+		if len(ids) > 0 && (opts.SetFolder || opts.MoveToDefault) {
+			c.publishFolders()
+		}
 	case "unsubscribe":
 		ids, skipped, err := c.a.db.UnsubscribeSkipped(ctx, feedRefs(ss))
 		if err != nil {
@@ -362,6 +373,9 @@ func (c *call) subscriptionImport() {
 	}
 	for _, id := range res.NewFeedIDs {
 		c.a.publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(id, 10)})
+	}
+	if res.FoldersCreated > 0 {
+		c.publishFolders()
 	}
 	c.ok()
 }
@@ -405,6 +419,7 @@ func (c *call) renameTag() {
 			return
 		}
 		c.a.publish("feed.changed", map[string]any{})
+		c.publishFolders()
 	}
 	c.ok()
 }
@@ -443,6 +458,7 @@ func (c *call) disableTag() {
 				return
 			}
 			c.a.publish("feed.changed", map[string]any{})
+			c.publishFolders()
 		}
 	}
 	c.ok()

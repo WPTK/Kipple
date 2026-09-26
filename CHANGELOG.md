@@ -10,6 +10,7 @@ Phase 2 (reading UI backend) so far.
 
 ### Added
 
+- API: device-profile key `client.search_order` (`relevance|newest|oldest`, default `relevance`) so the search order syncs per device; an unusable items cursor (unparseable, the old relevance form, or from another ordering) is now `400 {"error":"bad_cursor","message"}` instead of `bad_request` so the client can restart the list; new SSE event `folder.changed {folder_id?}` after every folder mutation (web create, rename, reposition, delete, reorder, feed moves, OPML import, and the Reader API rename-tag, disable-tag, subscription edit and import).
 - Web UI, search: results mark the words you searched for (in fallback mode, the words it fell back to) and show "No exact matches: showing partial matches" when only partial matches exist; sort by relevance, newest or oldest (kept per browser); a search that matches too much shows the server's message; "Mark all results as read" for a submitted search; a syntax help popover.
 - Web UI, saved searches: save the current search from the Search screen; they appear in the sidebar with unread counts, and Settings > Saved searches edits, deletes and reorders them.
 - Web UI, auto-read: Settings > Library has "Mark old articles as read after…" with presets and each feed can set its own; a preview and a confirmed "Mark N older articles as read now" handle what is already older. Changing a setting never marks anything.

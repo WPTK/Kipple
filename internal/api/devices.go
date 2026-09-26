@@ -157,6 +157,7 @@ var clientDefs = map[string]clientDef{
 		return out, ""
 	}, map[string]any{"feed": map[string]any{}, "folder": map[string]any{}}},
 	"client.order":              {oneOf("newest", "oldest"), "newest"},
+	"client.search_order":       {oneOf("relevance", "newest", "oldest"), "relevance"},
 	"client.inbox_thumbs":       {oneOf("auto", "off"), "auto"},
 	"client.peek_seen":          {boolVal, false},
 	"client.article_width":      {oneOf("narrow", "medium", "wide", "full"), "medium"},

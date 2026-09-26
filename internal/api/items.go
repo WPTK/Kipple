@@ -139,11 +139,12 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		if v := qv.Get("cursor"); v != "" {
 			c, err := store.ParseCursor(v)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, "bad_request")
+				writeErrorMsg(w, http.StatusBadRequest, "bad_cursor", "That page marker is not valid any more. Start the list again.")
 				return
 			}
 			if c.ByRank != q.Rank || c.Asc != q.Oldest {
-				writeError(w, http.StatusBadRequest, "bad_request") // cursor from another ordering
+				// cursor from another ordering (or the old relevance form): the client restarts the list
+				writeErrorMsg(w, http.StatusBadRequest, "bad_cursor", "That page marker belongs to another ordering. Start the list again.")
 				return
 			}
 			q.Cursor = &c

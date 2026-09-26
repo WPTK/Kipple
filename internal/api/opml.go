@@ -51,6 +51,9 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
+	if res.FoldersCreated > 0 {
+		s.publishFolderChanged(0)
+	}
 	var runID any
 	if len(res.NewFeedIDs) > 0 {
 		info, err := s.opt.Sched.StartImport(res.NewFeedIDs)

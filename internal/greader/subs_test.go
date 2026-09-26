@@ -517,3 +517,44 @@ func TestParseUserPath(t *testing.T) {
 // nnwEnc encodes a folder name the way NNW does for a=/r=/t=/rename-tag: percent
 // encoding with '&' and '+' encoded too (netnewswire.md section 4).
 func nnwEnc(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") }
+
+// Every folder mutation over the Reader API announces folder.changed.
+func TestFolderChangedEventsFromReaderAPI(t *testing.T) {
+	h := newHarness(t)
+	hub := events.New()
+	h.api.opt.Events = hub
+	sub := hub.Subscribe(0)
+	defer sub.Close()
+	count := func() int {
+		n := 0
+		for {
+			select {
+			case ev := <-sub.C:
+				if ev.Type == "folder.changed" {
+					n++
+				}
+			default:
+				return n
+			}
+		}
+	}
+	id := h.addFeed("https://a.example/feed.xml", "Alpha", "Old")
+	count()
+
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/"+url.QueryEscape("https://one.example/rss")+"&a=user/-/label/Made")
+	require.Equal(t, 1, count(), "subscribe into a new folder")
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(id)+"&t=OnlyATitle")
+	require.Equal(t, 0, count(), "a title edit moves nothing")
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(id)+"&a=user/-/label/Elsewhere")
+	require.Equal(t, 1, count(), "edit into a new folder")
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(id)+"&r=user/-/label/Elsewhere")
+	require.Equal(t, 1, count(), "edit to the default folder")
+	h.post(rd+"rename-tag", "T="+h.tok+"&s=user/-/label/Made&dest=user/-/label/Merged")
+	require.Equal(t, 1, count(), "rename-tag")
+	h.post(rd+"rename-tag", "T="+h.tok+"&s=user/-/label/Nope&dest=user/-/label/Zip")
+	require.Equal(t, 0, count(), "renaming a folder that does not exist changes nothing")
+	h.post(rd+"disable-tag", "T="+h.tok+"&s=user/-/label/Merged")
+	require.Equal(t, 1, count(), "disable-tag")
+	h.post(rd+"subscription/import", `<?xml version="1.0"?><opml version="2.0"><head/><body><outline text="Imp"><outline type="rss" text="B" xmlUrl="https://b.example/f.xml"/></outline></body></opml>`)
+	require.Equal(t, 1, count(), "import creating a folder")
+}

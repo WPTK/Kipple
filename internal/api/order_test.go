@@ -98,7 +98,7 @@ func TestListItemsCursorOrderMismatch(t *testing.T) {
 	} {
 		code, out, _ := h.api(c, "GET", "/api/items?"+tc.query+"&cursor="+tc.cursor, "")
 		require.Equal(t, 400, code, tc.name)
-		require.Equal(t, "bad_request", out["error"], tc.name)
+		require.Equal(t, "bad_cursor", out["error"], tc.name)
 	}
 	// An old untagged cursor still means date order.
 	code, _, _ := h.api(c, "GET", "/api/items?view=all&cursor="+date, "")

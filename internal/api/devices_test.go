@@ -219,7 +219,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	 "ui.font_ui":"Inter","ui.font_size":19,"ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
 	 "ui.layouts":{"all":"cards"},
 	 "client.layout":"headlines","client.layout_overrides":{"feed":{"12":"inbox"},"folder":{"3":"compact"}},
-	 "client.order":"oldest","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
+	 "client.order":"oldest","client.search_order":"relevance","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
 	 "client.text_size":0.875,"client.adjust_separately":true,"client.shortcuts":false,"client.spacing":"roomy",
 	 "client.motion":"on","client.large_targets":true,"client.highlight_keywords":false,"client.listen":true,"client.voice":"Samantha","client.rate":1.2,
@@ -227,7 +227,13 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	code, out, _ := d.call("PATCH", "/api/device", body)
 	require.Equal(t, http.StatusOK, code, out)
 	m := out["merged"].(map[string]any)
+	require.Equal(t, "relevance", m["client.search_order"])
 	require.Equal(t, "headlines", m["client.layout"])
+	for _, bad := range []string{"\"rank\"", "1"} {
+		c2, o2, _ := d.call("PATCH", "/api/device", `{"client.search_order":`+bad+`}`)
+		require.NotEqual(t, http.StatusOK, c2, bad)
+		_ = o2
+	}
 	require.Equal(t, map[string]any{"feed": map[string]any{"12": "inbox"}, "folder": map[string]any{"3": "compact"}}, m["client.layout_overrides"])
 	require.Equal(t, false, m["client.shortcuts"])
 	require.Equal(t, false, m["client.highlight_keywords"])

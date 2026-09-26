@@ -128,6 +128,19 @@ func (s *Server) publishFeedChanged(id int64) {
 	}
 }
 
+// publishFolderChanged announces a folder mutation (create, rename, delete, order,
+// membership); id 0 means "several or unknown", sent without folder_id.
+func (s *Server) publishFolderChanged(id int64) {
+	if s.opt.Hub == nil {
+		return
+	}
+	if id == 0 {
+		s.opt.Hub.Publish("folder.changed", map[string]any{})
+		return
+	}
+	s.opt.Hub.Publish("folder.changed", map[string]any{"folder_id": idStr(id)})
+}
+
 func idStr(id int64) string { return idStrings([]int64{id})[0] }
 
 type fetchOutcome struct {
@@ -445,6 +458,9 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	if res.Notify {
 		s.publishFeedChanged(id)
+		if _, moved := p.Cols["folder_id"]; moved {
+			s.publishFolderChanged(0)
+		}
 	}
 	fd, _, err := s.db.FeedDetail(r.Context(), id, s.statusEnv())
 	if err != nil {
@@ -665,6 +681,7 @@ func (s *Server) createFolder(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "create folder", err)
 		return
 	}
+	s.publishFolderChanged(f.ID)
 	writeJSON(w, http.StatusCreated, f)
 }
 
@@ -708,6 +725,7 @@ func (s *Server) patchFolder(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "patch folder", err)
 		return
 	}
+	s.publishFolderChanged(id)
 	writeJSON(w, http.StatusOK, f)
 }
 
@@ -732,6 +750,7 @@ func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) {
 	for _, fid := range moved {
 		s.publishFeedChanged(fid)
 	}
+	s.publishFolderChanged(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -846,7 +865,8 @@ func (s *Server) reorder(w http.ResponseWriter, r *http.Request) {
 	for _, id := range res.Feeds {
 		s.publishFeedChanged(id)
 	}
-	// There is no folder-level event: the UI re-reads folders with the bootstrap
-	// after feed.changed, and the response below carries the new order.
+	if len(res.Folders) > 0 || len(res.Feeds) > 0 {
+		s.publishFolderChanged(0)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"changed_feeds": idStrings(res.Feeds), "changed_folders": idStrings(res.Folders)})
 }

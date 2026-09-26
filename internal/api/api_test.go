@@ -757,3 +757,17 @@ func TestSSEEndsWhenItsSessionIsGone(t *testing.T) {
 		t.Fatal("the stream outlived its session")
 	}
 }
+
+func TestOPMLImportPublishesFolderChangedOnlyWhenFoldersAreCreated(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	sub := h.hub.Subscribe(h.hub.LastID())
+	defer sub.Close()
+	doc := `<?xml version="1.0"?><opml version="2.0"><head/><body>
+	<outline text="Fresh"><outline type="rss" text="Alpha" xmlUrl="https://a.example/feed.xml"/></outline>
+	</body></opml>`
+	require.Equal(t, http.StatusOK, h.do("POST", "/api/opml", doc, withCookie(c)).Code)
+	require.Len(t, folderChanged(t, sub), 1)
+	require.Equal(t, http.StatusOK, h.do("POST", "/api/opml", doc, withCookie(c)).Code)
+	require.Empty(t, folderChanged(t, sub), "nothing created the second time")
+}

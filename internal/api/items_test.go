@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -366,12 +367,21 @@ func TestListItems(t *testing.T) {
 	})
 
 	for _, bad := range []string{
-		"?view=nope", "?feed=x", "?folder=-", "?feed=1&folder=1", "?limit=abc", "?limit=-1", "?cursor=@@@", "?cursor=" + "bm90LWEtY3Vyc29y",
+		"?view=nope", "?feed=x", "?folder=-", "?feed=1&folder=1", "?limit=abc", "?limit=-1",
 		"?order=asc", "?ids=1,x", "?ids=0",
 	} {
 		code, body, _ := h.api(c, "GET", "/api/items"+bad, "")
 		require.Equal(t, 400, code, bad)
 		require.Equal(t, "bad_request", body["error"], bad)
+	}
+	// a cursor that cannot be used (garbage, old relevance form, another ordering) is bad_cursor
+	old := base64.RawURLEncoding.EncodeToString([]byte("r1.5|42"))
+	other := base64.RawURLEncoding.EncodeToString([]byte("s2|1.5|42"))
+	for _, bad := range []string{"?cursor=@@@", "?cursor=bm90LWEtY3Vyc29y", "?cursor=" + old, "?order=oldest&cursor=" + other, "?q=x&order=rank&cursor=" + base64.RawURLEncoding.EncodeToString([]byte("100.5"))} {
+		code, body, _ := h.api(c, "GET", "/api/items"+bad, "")
+		require.Equal(t, 400, code, bad)
+		require.Equal(t, "bad_cursor", body["error"], bad)
+		require.NotEmpty(t, body["message"], bad)
 	}
 	code0, _, _ := h.api(c, "GET", "/api/items?q=hello", "")
 	require.Equal(t, 200, code0)
