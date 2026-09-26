@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, renderHook, screen, waitFor } from "@testing-library/react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { ApiError, api, authStore } from "@/api/client";
-import { applyRead, applyStar, keys } from "@/api/queries";
+import { applyRead, applyStar, keys, useOpenItem } from "@/api/queries";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import { card, detail, json, mockFetch } from "@/test/mockApi";
 import { clearQueue, flushQueue, isOffline, prefetchUnread, queueRead, queueStar, resetOfflineForTests, resetPrefetchForTests } from "./offline";
@@ -116,6 +118,17 @@ describe("changes made offline", () => {
     await expect(applyRead(c2, ["1001"], true, "key")).resolves.toBeUndefined();
     expect(c2.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
     expect(offlineStore.get().pending).toBe(1);
+  });
+
+  it("opening a held article offline marks it read and queues the read", async () => {
+    netFail();
+    const c = qc();
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={c}>{children}</QueryClientProvider>;
+    const { result } = renderHook(() => useOpenItem(), { wrapper });
+    result.current.mutate({ id: "1001", via: "tap" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(offlineStore.get().pending).toBe(1);
+    expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(true);
   });
 
   it("isOffline is only the request that never arrived", () => {
