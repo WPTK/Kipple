@@ -388,6 +388,8 @@ type thumbRig struct {
 
 func newThumbRig(t *testing.T, ct string, src []byte, tune ...func(*Options)) *thumbRig {
 	t.Helper()
+	// A generous wait by default: the race detector makes a decode several times slower.
+	tune = append([]func(*Options){func(o *Options) { o.ThumbWait = 60 * time.Second }}, tune...)
 	tr := &thumbRig{cacheRig: newCacheRig(t, tune...), src: src}
 	t.Cleanup(tr.h.Close)
 	tr.up = &countingUpstream{}
@@ -466,6 +468,9 @@ func TestThumbEvictionAccounting(t *testing.T) {
 	_ = read(t, tr.thumb("a.jpg"))
 	te, _ := tr.thumbEntry("a.jpg")
 	require.Greater(t, tr.cache.Stats().UsedBytes, te.Size)
+	// The thumbnail is the more recently used of the two (the clock is frozen, so move it on).
+	tr.clk.Advance(time.Minute)
+	_ = read(t, tr.thumb("a.jpg"))
 	// A cap that fits the thumbnail but not the original: the older original goes first.
 	tr.cache.SetCap(te.Size * 2)
 	require.Eventually(t, func() bool { return tr.cache.Stats().UsedBytes <= tr.cache.MaxBytes() }, 2*time.Second, 5*time.Millisecond)
@@ -534,7 +539,7 @@ func TestThumbQueueFullTimeoutAndLateThumbnail(t *testing.T) {
 
 	// Let the workers finish: the late thumbnails are there for the next request.
 	tr.h.lim.budget.release(defaultDecodeBudget)
-	require.Eventually(t, func() bool { e, ok := tr.thumbEntry("1.jpg"); return ok && e.OK }, 15*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { e, ok := tr.thumbEntry("1.jpg"); return ok && e.OK }, 90*time.Second, 10*time.Millisecond)
 	cfg, _ := decodeCfg(t, read(t, tr.thumb("1.jpg")))
 	require.Equal(t, 800, cfg.Width)
 }
