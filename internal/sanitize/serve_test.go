@@ -67,6 +67,9 @@ func TestServeHTMLGolden(t *testing.T) {
 		{"vimeo hash that fails its pattern is dropped", `<iframe src="https://player.vimeo.com/video/5?h=../x"></iframe>`,
 			`<figure class="kp-embed" data-provider="vimeo" data-id="5">` +
 				`<a href="https://vimeo.com/5"` + relNew + `>Watch on Vimeo</a></figure>`},
+		{"area links follow the link rules",
+			`<map name="m"><area href="https://a.example/x?utm_source=z&amp;k=1" shape="rect"><area href="javascript:alert(1)"><area href="#fn1"></map>`,
+			`<map name="kp-m"><area href="https://a.example/x?k=1" shape="rect"` + relNew + `><area><area href="#kp-fn1"></map>`},
 		{"other iframe vanishes with its content", `<p>a</p><iframe src="https://evil.example/x">fallback <b>text</b></iframe><p>b</p>`, `<p>a</p><p>b</p>`},
 		{"video and audio get controls and preload none", `<video src="https://a.example/v.mp4" autoplay poster="http://a.example/p.jpg"></video><audio src="https://a.example/a.mp3" preload="auto" controls></audio>`,
 			`<video src="https://a.example/v.mp4" poster="/img/http_a.example_p.jpg" preload="none" controls=""></video><audio src="https://a.example/a.mp3" preload="none" controls=""></audio>`},
@@ -128,7 +131,7 @@ func TestServeHTMLIsIdempotent(t *testing.T) {
 	in := `<p>Intro <a href="https://a.example/x?utm_source=z&amp;k=1">link</a> and a note<a href="#fn1" id="r1">1</a>.</p>` +
 		`<iframe src="https://www.youtube.com/embed/abc123"></iframe><iframe src="https://player.vimeo.com/video/5"></iframe>` +
 		`<iframe src="https://www.youtube.com/embed/videoseries?list=PL1"></iframe><iframe src="https://www.youtube.com/embed/abc?list=PL1&amp;start=3"></iframe>` +
-		`<iframe src="https://player.vimeo.com/video/5?h=abc"></iframe>` +
+		`<iframe src="https://player.vimeo.com/video/5?h=abc"></iframe><area href="https://a.example/?utm_source=1">` +
 		`<img src="http://a.example/1.png" srcset="http://a.example/1.png 1x"><video autoplay><source src="http://a.example/v.webm"></video>` +
 		`<audio src="http://a.example/a.mp3"></audio><audio src="https://a.example/a.mp3"></audio>` +
 		`<ol><li id="fn1">n <a href="#r1">back</a></li></ol><a name="top"></a><a href="javascript:alert(1)">bad</a>`

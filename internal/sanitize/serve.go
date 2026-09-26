@@ -49,7 +49,7 @@ type mediaState struct {
 
 // ServeHTML is the one serve-time pass over stored article HTML (design 7.8):
 //
-//   - http(s) links open in a new tab with rel="noopener noreferrer", and lose
+//   - http(s) links (a and area) open in a new tab with rel="noopener noreferrer", and lose
 //     tracking parameters when StripTracking is set; links with any other scheme
 //     than http, https, mailto and tel lose their href;
 //   - every id and name gets a "kp-" prefix and in-page links "#x" become "#kp-x"
@@ -285,7 +285,7 @@ func serveTag(t *html.Token, opt ServeOptions) bool {
 	t.Attr = out
 
 	switch t.Data {
-	case "a":
+	case "a", "area":
 		if serveLink(t, opt) {
 			changed = true
 		}

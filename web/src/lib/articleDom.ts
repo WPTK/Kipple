@@ -106,7 +106,7 @@ export function handleArticleClick(e: MouseEvent | React.MouseEvent, body: HTMLE
   const t = e.target;
   if (!(t instanceof Element)) return false;
 
-  const link = t.closest<HTMLAnchorElement>("a[href^='#kp-']");
+  const link = t.closest<HTMLElement>("a[href^='#kp-'], area[href^='#kp-']");
   if (link && body.contains(link)) {
     const target = footnoteTarget(body, link.getAttribute("href") ?? "");
     e.preventDefault();
