@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,4 +206,23 @@ func TestDefaultModeNeedsNoHTTPSInImgSrc(t *testing.T) {
 	// A deployment that keeps http_only still needs https: images from their hosts.
 	h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":"http_only"}`)
 	require.Contains(t, imgSrc(), "https:")
+}
+
+func TestHealthImgcacheBytesComeFromTheCacheNotAWalk(t *testing.T) {
+	h, cache := cacheHarness(t, 64)
+	c := h.login()
+	w, err := cache.Begin(imgcache.KeyOrig(0, "http://img.example/a.png"), "http://img.example/a.png", 0, int64(len(testPNG)))
+	require.NoError(t, err)
+	_, err = w.Write(testPNG)
+	require.NoError(t, err)
+	require.NoError(t, w.Commit(imgcache.Meta{ContentType: "image/png"}))
+	// A file the cache does not know about (a stray in the directory) is not
+	// counted: the size is the cache's own counter plus its index, not a walk.
+	require.NoError(t, os.WriteFile(filepath.Join(cache.Dir(), "stray.bin"), make([]byte, 1<<20), 0o600))
+
+	_, health, _ := h.api(c, "GET", "/api/health/feeds", "")
+	got := int64(health["db"].(map[string]any)["imgcache_bytes"].(float64))
+	require.Equal(t, cache.DiskBytes(), got)
+	require.Greater(t, got, int64(len(testPNG)), "the index counts too")
+	require.Less(t, got, int64(1<<20), "the stray file was not walked into the total")
 }

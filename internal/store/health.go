@@ -100,15 +100,23 @@ type DiskUsage struct {
 	DBBytes     int64 `json:"db_bytes"`
 	WALBytes    int64 `json:"wal_bytes"`
 	BackupBytes int64 `json:"backup_bytes"`
-	// ImgcacheBytes is the size of the image cache directory (files, temp files and
-	// its index), 0 when there is none. It is never part of a backup.
+	// ImgcacheBytes is the image cache's footprint (its files and its index), 0
+	// when there is none. It is never part of a backup.
 	ImgcacheBytes int64 `json:"imgcache_bytes"`
 }
 
 // DiskUsage sizes the database file, its WAL and the backup directory tree
 // (snapshots, pre-migration copies, pre-restore-* copies and the export/
-// scratch files). Missing files count as 0.
+// scratch files), and walks <data>/imgcache for ImgcacheBytes. Missing files
+// count as 0. The API, which holds the open cache, uses DiskUsageWith instead
+// so a health call never walks thousands of cache files.
 func (d *DB) DiskUsage() DiskUsage {
+	return d.DiskUsageWith(d.walkImgcache)
+}
+
+// DiskUsageWith is DiskUsage with ImgcacheBytes taken from imgcacheBytes (the
+// open cache's own byte counter plus its index) instead of a directory walk.
+func (d *DB) DiskUsageWith(imgcacheBytes func() int64) DiskUsage {
 	var u DiskUsage
 	if fi, err := os.Stat(d.path); err == nil {
 		u.DBBytes = fi.Size()
@@ -128,15 +136,24 @@ func (d *DB) DiskUsage() DiskUsage {
 		}
 		return nil
 	})
-	// The image cache lives next to the database (main wires <data>/imgcache).
+	if imgcacheBytes != nil {
+		u.ImgcacheBytes = imgcacheBytes()
+	}
+	return u
+}
+
+// walkImgcache sizes the image cache directory, which lives next to the
+// database (main wires <data>/imgcache): files, temp files and the index.
+func (d *DB) walkImgcache() int64 {
+	var n int64
 	_ = filepath.WalkDir(filepath.Join(filepath.Dir(d.path), "imgcache"), func(_ string, e fs.DirEntry, err error) error {
 		if err != nil || e.IsDir() {
 			return nil
 		}
 		if info, ierr := e.Info(); ierr == nil && info.Mode().IsRegular() {
-			u.ImgcacheBytes += info.Size()
+			n += info.Size()
 		}
 		return nil
 	})
-	return u
+	return n
 }

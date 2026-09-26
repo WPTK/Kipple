@@ -68,6 +68,19 @@ func (s *Server) imgcacheClear(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"cleared": n})
 }
 
+// diskUsage is the health view's disk footprint. The image cache reports its
+// own size (its byte counter plus the index files) rather than the store
+// walking and stat-ing every cached file on each health call.
+func (s *Server) diskUsage() store.DiskUsage {
+	c := s.opt.ImgCache
+	return s.db.DiskUsageWith(func() int64 {
+		if c == nil {
+			return 0
+		}
+		return c.DiskBytes()
+	})
+}
+
 // applyImgCacheCap pushes the imgproxy.cache_mb setting into the cache: a lower
 // cap evicts down to 90% of it, 0 turns the cache off and purges it.
 func (s *Server) applyImgCacheCap(ctx context.Context) {

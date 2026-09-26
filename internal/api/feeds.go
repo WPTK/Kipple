@@ -134,7 +134,7 @@ func (s *Server) healthFeeds(w http.ResponseWriter, r *http.Request) {
 		"feeds": feeds, "clients": clients, "unread_total": unread,
 		"snapshot": sn,
 		"clock":    map[string]int64{"ahead_s": int64(s.db.IDs().Skew() / time.Second)},
-		"db":       s.db.DiskUsage(),
+		"db":       s.diskUsage(),
 	})
 }
 
