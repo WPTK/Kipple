@@ -16,6 +16,7 @@ import {
   planFolderDrop,
   reorderBody,
   useRowDnd,
+  DND_ROW_CLASS,
   type DragKind,
   type DragSource,
   type DropTarget,
@@ -326,7 +327,7 @@ export function FeedsScreen() {
         key={f.id}
         {...(selecting ? {} : dnd.rowProps(src))}
         style={rowStyle("feed", f.id)}
-        className={cn("flex items-center select-none", dragCls("feed", f.id), before && "border-t-2 border-accent", atEnd && "border-b-2 border-accent")}
+        className={cn("flex items-center", DND_ROW_CLASS, dragCls("feed", f.id), before && "border-t-2 border-accent", atEnd && "border-b-2 border-accent")}
       >
         {selecting ? (
           <input
@@ -381,7 +382,7 @@ export function FeedsScreen() {
         key={key}
         {...(selecting ? {} : dnd.rowProps(src))}
         style={rowStyle("fav", key)}
-        className={cn("flex items-center select-none", dragCls("fav", key), before && "border-t-2 border-accent", atEnd && "border-b-2 border-accent")}
+        className={cn("flex items-center", DND_ROW_CLASS, dragCls("fav", key), before && "border-t-2 border-accent", atEnd && "border-b-2 border-accent")}
       >
         {!selecting ? grip(src, `favorite ${name ?? ""}`) : null}
         <Link
@@ -512,7 +513,7 @@ export function FeedsScreen() {
                     style={rowStyle("folder", fo.id)}
                     className={cn(dragCls("folder", fo.id), folderBefore && "border-t-2 border-accent", folderEnd && "border-b-2 border-accent")}
                   >
-                    <div className={cn("flex items-center select-none", intoFolder && "rounded-lg outline-2 outline-accent")} {...(selecting ? {} : dnd.rowProps(fsrc))}>
+                    <div className={cn("flex items-center", DND_ROW_CLASS, intoFolder && "rounded-lg outline-2 outline-accent")} {...(selecting ? {} : dnd.rowProps(fsrc))}>
                       {selecting ? (
                         <input
                           type="checkbox"

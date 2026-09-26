@@ -96,6 +96,8 @@ interface Options {
 }
 
 const HOLD_MS = 280;
+/** Classes for a draggable row: vertical scroll before the hold, no iOS link callout, no text selection. */
+export const DND_ROW_CLASS = "touch-pan-y select-none [-webkit-touch-callout:none]";
 const SLOP = 6;
 const HOLD_SLOP = 8;
 const EDGE = 56;
@@ -156,10 +158,6 @@ interface Live {
   el: HTMLElement;
 }
 
-function blockScroll(e: TouchEvent): void {
-  if (e.cancelable) e.preventDefault();
-}
-
 /** The listeners live on the document for the length of one press, and are always removed with it. */
 const proxy = { move: (_e: PointerEvent) => undefined as void, up: (_e: PointerEvent) => undefined as void };
 const docMove = (e: PointerEvent) => proxy.move(e);
@@ -188,7 +186,6 @@ export function useRowDnd(opts: Options) {
     if (!l) return;
     if (l.timer) clearTimeout(l.timer);
     if (l.raf) cancelAnimationFrame(l.raf);
-    document.removeEventListener("touchmove", blockScroll);
     document.removeEventListener("pointermove", docMove);
     document.removeEventListener("pointerup", docUp);
     document.removeEventListener("pointercancel", docUp);
@@ -268,6 +265,28 @@ export function useRowDnd(opts: Options) {
 
   useEffect(() => () => finish(false), [finish]);
 
+  // A non-passive touchmove listener on the list, there from the start and not added when the hold ends: iOS ignores
+  // a listener added mid-touch, and by the time a late one exists the browser has already chosen to scroll. It only
+  // cancels the scroll while a drag is live, so a swipe that starts before the hold still scrolls normally.
+  const guarded = useRef<HTMLElement | null>(null);
+  const guard = useRef((e: TouchEvent) => {
+    if (live.current?.started && e.cancelable) e.preventDefault();
+  });
+  useEffect(() => {
+    const el = optsRef.current.scroller();
+    if (el === guarded.current) return;
+    guarded.current?.removeEventListener("touchmove", guard.current);
+    el?.addEventListener("touchmove", guard.current, { passive: false });
+    guarded.current = el;
+  });
+  useEffect(() => {
+    const fn = guard.current;
+    return () => {
+      guarded.current?.removeEventListener("touchmove", fn);
+      guarded.current = null;
+    };
+  }, []);
+
   const start = (src: DragSource, e: React.PointerEvent<HTMLElement>, viaGrip: boolean) => {
     if (!optsRef.current.enabled || (e.pointerType === "mouse" && e.button !== 0)) return;
     if (!viaGrip && (e.target as HTMLElement).closest("button, input, select, textarea, [data-no-drag]")) return;
@@ -287,13 +306,11 @@ export function useRowDnd(opts: Options) {
         // The grip has touch-action none: the drag can begin at once.
         capture();
         begin(l);
-        document.addEventListener("touchmove", blockScroll, { passive: false });
       } else {
         l.timer = setTimeout(() => {
           l.timer = undefined;
           capture();
           begin(l);
-          document.addEventListener("touchmove", blockScroll, { passive: false });
         }, HOLD_MS);
       }
     } else {
@@ -316,6 +333,10 @@ export function useRowDnd(opts: Options) {
       }
     },
     onDragStart: (e: React.DragEvent) => e.preventDefault(),
+    // A held touch on the row's link must not raise iOS's link preview or Android's context menu, or select text.
+    onContextMenu: (e: React.MouseEvent) => {
+      if (live.current && (live.current.type === "touch" || live.current.type === "pen")) e.preventDefault();
+    },
   });
 
   const gripProps = (src: DragSource) => ({
