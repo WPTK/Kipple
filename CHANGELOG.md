@@ -6,6 +6,10 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-alpha.2] - 2026-09-26
+
+Phase 3: installable app, offline reading and queued changes, plus the two reserved Reader API settings.
+
 ### Added
 
 - `greader.ot_includes_user_changes` (default off, hidden): with it on, `stream/items/ids` with `ot` also returns items read or starred since `ot`, so sync apps hear about changes made in Kipple.
@@ -466,7 +470,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.1...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.2...HEAD
+[0.3.0-alpha.2]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.1...v0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/WPTK/Kipple/compare/v0.2.0...v0.3.0-alpha.1
 [0.2.0]: https://github.com/WPTK/Kipple/compare/v0.2.0-alpha.2...v0.2.0
 [0.2.0-alpha.2]: https://github.com/WPTK/Kipple/compare/v0.2.0-alpha.1...v0.2.0-alpha.2
