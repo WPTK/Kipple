@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
+import { keys } from "@/api/queries";
 import { handleServerEvent, initialLive, liveStore } from "@/api/events";
 import type { Bootstrap, Highlight } from "@/api/types";
 import { rowMenuStore } from "@/gestures/rowMenu";
@@ -157,6 +158,33 @@ describe("highlights in the article", () => {
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(marks(h1)).toEqual(["Article"]);
     expect(marks(h1.closest("header") as HTMLElement)).toEqual(["Article", "Article"]); // title and author
+  });
+
+  it("a counts update does not rebuild the rules or redraw the article's marks", async () => {
+    routes([hl(["article"])]);
+    go("/i/1001?from=unread");
+    const body = await screen.findByTestId("article-body");
+    await waitFor(() => expect(marks(body)).toEqual(["Article"]));
+    const mark = body.querySelector("mark.kp-hl");
+    const store = highlightStore.get();
+    // What a `counts` event does to the bootstrap: new feed objects with other unread numbers, same feeds and folders.
+    act(() =>
+      qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, feeds: old.feeds.map((f) => ({ ...f, unread: f.unread + 7 })) } : old)),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(highlightStore.get()).toBe(store);
+    expect(body.querySelector("mark.kp-hl")).toBe(mark);
+  });
+
+  it("moving a feed to another folder does update the rules", async () => {
+    routes([hl(["article"])]);
+    go("/i/1001?from=unread");
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(highlightStore.get().feeds.get("2")).toBe("1"));
+    act(() =>
+      qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, feeds: old.feeds.map((f) => (f.id === "2" ? { ...f, folder_id: "9" } : f)) } : old)),
+    );
+    await waitFor(() => expect(highlightStore.get().feeds.get("2")).toBe("9"));
   });
 
   it("turning the setting off takes the marks out of the body again", async () => {
