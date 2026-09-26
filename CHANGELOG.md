@@ -13,6 +13,13 @@ All notable changes to Kipple are documented here. The format follows
 - Thumbnails: a lossy WebP is priced only when its VP8 key frame is exactly the size `DecodeConfig` reported (the VP8X canvas); a frame of another size, or no key frame, is refused and the original served, instead of relying on the decoder's own check.
 - Thumbnails: a lossless WebP's prefix code groups are priced at what `golang.org/x/image/vp8l` really allocates: 24 bytes per symbol instead of 16 (the code lengths and canonical codes were left out, about 20% short on group-heavy files), and groups that no tile uses but the decoder still reads are now counted (a 64x64 file naming group 2,599 allocated 33 MiB against an estimate of 1 MiB). The entropy image is decoded during the header walk (up to 65,536 tiles) so the group count is exact rather than bounded by the tile count, which also prices few-group files lower.
 - Image proxy: a failure to record a revalidated original or thumbnail in the cache index is now logged at debug level instead of dropped silently.
+- Web UI, lists: a relevance search with no hits shows the "No results" message instead of a lone "Best matches first" header; row height estimates follow a change of the text-size setting; remembered scroll positions are capped at 100 lists.
+- Web UI, accessibility: turning off "Listen to articles" while an article is being read aloud now stops the speech.
+- Web UI, settings: turning off "Titles only in lists" returns to the layout you had before, even after a reload (kept in this device's prefs).
+- Web UI, OPML import: the result now lists feeds that were skipped (bad addresses), settings in the file that were not applied (private-network and certificate-check flags are never taken from an import) and settings with unusable values; merged folder names were shown as "[object Object]" and now read "news into News".
+- Web UI, search: typing a character and deleting it again no longer turns an Entered search back into a wider "still typing" search.
+- Web UI, themes: if the server narrows the offered themes and this device's stored theme is no longer among them, the picker shows the default theme selected (with a note) and the Day and Night lists show what is really in force.
+- Web UI: the feed editor is loaded on demand from the Health screen too, and error codes are read through `ApiError`.
 
 Phase 2 (reading UI: backend and web app) so far. Schema 4 and 5 (migrations 0004, 0005) are here, not in the alpha tags.
 
