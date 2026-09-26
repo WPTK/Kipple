@@ -425,11 +425,13 @@ func TestThumbLeaderPanicReleasesTheFlight(t *testing.T) {
 func TestThumbInProgressMarkerDuringTranscode(t *testing.T) {
 	tr := newThumbRig(t, "image/jpeg", sampleJPEG(t))
 	gate := make(chan struct{})
+	open := sync.OnceFunc(func() { close(gate) })
 	entered := make(chan struct{}, 4)
 	setHook(t, &testHookBeforeDecode, func() {
 		entered <- struct{}{}
 		<-gate
 	})
+	t.Cleanup(open) // runs before the handler closes, so a failed assertion cannot leave the worker blocked
 	bodies := make([][]byte, 2)
 	var wg sync.WaitGroup
 	get := func(i int) {
@@ -443,7 +445,11 @@ func TestThumbInProgressMarkerDuringTranscode(t *testing.T) {
 	}
 	wg.Add(1)
 	go get(0)
-	<-entered
+	select {
+	case <-entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the transcode never started")
+	}
 	te, ok := tr.thumbEntry("m.jpg")
 	require.True(t, ok)
 	require.False(t, te.OK)
@@ -452,7 +458,7 @@ func TestThumbInProgressMarkerDuringTranscode(t *testing.T) {
 	wg.Add(1)
 	go get(1) // sees the marker, waits on the running flight
 	time.Sleep(150 * time.Millisecond)
-	close(gate)
+	open()
 	wg.Wait()
 	for _, b := range bodies {
 		cfg, _ := decodeCfg(t, b)

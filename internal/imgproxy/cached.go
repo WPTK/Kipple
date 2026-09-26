@@ -111,6 +111,7 @@ func (h *Handler) fetchAndFill(w http.ResponseWriter, r *http.Request, u *url.UR
 	for attempt := 0; attempt < 2; attempt++ {
 		var cd cond
 		var budget time.Duration
+		sk.stale = stale != nil
 		if stale != nil {
 			cd = cond{inm: stale.ETag, ims: stale.LastModified}
 			budget = h.opt.RevalidateWithin

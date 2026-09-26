@@ -335,11 +335,18 @@ type sink struct {
 	// the entry (or its failure) is in the index, so followers need not wait
 	// for a slow client to finish reading. It is safe to call more than once.
 	release func()
+	// stale is set while a stale good copy is being revalidated: a failure
+	// then puts the next revalidation off and keeps the copy, instead of a
+	// failure entry replacing it.
+	stale bool
 }
 
 func (s *sink) fail(kind imgcache.NegKind, status int, reason string) {
 	if s == nil || s.ctx.Err() != nil {
 		return
+	}
+	if s.stale && s.c.DeferRevalidation(s.key) == nil {
+		return // the good copy stays (only when it is gone does the failure get recorded)
 	}
 	_ = s.c.PutNeg(s.key, s.orig, s.flags, kind, status, reason)
 }

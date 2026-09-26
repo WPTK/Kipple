@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/WPTK/kipple/internal/imgcache"
@@ -50,6 +51,7 @@ const (
 	defaultWait       = 10 * time.Second
 	defaultThumbWait  = 4 * time.Second
 	defaultRevalidate = 3 * time.Second
+	slotHoldGrace     = 30 * time.Second // SlotHold = Timeout + this
 	defaultConc       = 8
 	defaultPerHost    = 4
 	maxHops           = 5
@@ -128,6 +130,12 @@ type Options struct {
 	// RevalidateWithin bounds how long a stale cached image may wait for its
 	// source to answer a conditional request before the stale copy is served (3 s).
 	RevalidateWithin time.Duration
+	// SlotHold is the most one upstream exchange may keep its fetch slots
+	// once its body is streaming (Timeout + 30 s). A client too slow to take
+	// the body in that time (only possible where the body streams straight
+	// through: cache off, low disk, a failed cache write) has its response
+	// cut, so slow readers cannot starve every other image of a slot.
+	SlotHold time.Duration
 
 	// Thumbnails (FlagThumb). Zero values take the defaults.
 	ThumbWidth     int           // 800 px
@@ -148,8 +156,9 @@ type Handler struct {
 	hints hintStore
 	log   *slog.Logger
 
-	pool *pool
-	lim  thumbLimits
+	pool     *pool
+	lim      thumbLimits
+	markWarn atomic.Int64 // unix seconds of the last "cannot record a thumbnail in progress" warning
 }
 
 // Close stops the thumbnail workers after the queued jobs finish. The handler
@@ -175,6 +184,9 @@ func New(opt Options) *Handler {
 	}
 	if opt.RevalidateWithin <= 0 {
 		opt.RevalidateWithin = defaultRevalidate
+	}
+	if opt.SlotHold <= 0 {
+		opt.SlotHold = opt.Timeout + slotHoldGrace
 	}
 	if opt.UserAgent == "" {
 		opt.UserAgent = "Mozilla/5.0 (compatible; Kipple)"
@@ -403,7 +415,15 @@ func (h *Handler) relay(w http.ResponseWriter, resp *http.Response, sk *sink, fi
 // Without one (no cache, or the cache refused: low disk) the body streams
 // straight through, and the upstream time budget (budgetBody) only counts time
 // spent waiting on the source.
+//
+// Either way the exchange gives its fetch slots back after SlotHold: when the
+// body goes straight through, a client that has not taken it by then has its
+// response cut (fin closes the source, so the next read fails) instead of
+// holding a slot every other image needs. A client reading a committed file
+// is not affected (fin has already run).
 func (h *Handler) stream(w http.ResponseWriter, resp *http.Response, sk *sink, head []byte, ct string, body io.Reader, fin func()) {
+	hold := time.AfterFunc(h.opt.SlotHold, fin)
+	defer hold.Stop()
 	cw := sk.begin(resp.ContentLength, h.log)
 	var rd *os.File
 	if cw != nil {
