@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { api, ApiError, authStore, buildPath } from "@/api/client";
-import { itemsParams, keys, PAGE_SIZE } from "@/api/queries";
+import { itemsParams, keys, PAGE_SIZE } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
 import { devicePrefsStore } from "./devicePrefs";
 import type { MarkReadResponse } from "@/api/types";
