@@ -10,7 +10,9 @@ services:
     build: .
     image: kipple:latest
     container_name: kipple
-    restart: always
+    # Come back after a crash or reboot, but stay down if you stopped it on purpose.
+    restart: unless-stopped
+    # The image's own HEALTHCHECK (kipple healthcheck) is used as is; see docs/deploy.md.
     # No /import mount on purpose: the nonroot user cannot read a bind-mounted
     # directory. Import an OPML with `kipple import -` and pipe the file in.
     env_file:
@@ -19,8 +21,24 @@ services:
       - "7080:7080"
     volumes:
       - kipple_data:/data
+    # Kipple handles SIGTERM itself (drains HTTP for up to 10 s, then closes the DB),
+    # so no init process is needed. 30 s leaves room over that drain.
     stop_grace_period: 30s
+    # Hard memory cap; GOMEMLIMIT below makes the Go GC work harder before it is hit.
     mem_limit: 256m
+    # Cap on processes/threads, so a runaway cannot fork-bomb the host.
+    pids_limit: 200
+    # Root filesystem is read-only. Kipple writes only under /data (a volume) and,
+    # for scratch files, /tmp.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    # Drop every Linux capability; the app binds an unprivileged port as uid 65532.
+    cap_drop:
+      - ALL
+    # Forbid gaining privileges through setuid binaries.
+    security_opt:
+      - no-new-privileges:true
     environment:
       - GOMEMLIMIT=64MiB
       # Address your reverse proxy / tunnel connects from (placeholder value;

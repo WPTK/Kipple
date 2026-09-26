@@ -65,7 +65,64 @@ That copies the snapshot only, never the live database or WAL.
 
 New feeds are fetched on the scheduler's next tick. `docker exec kipple /kipple version` prints the running build.
 
-Health: `ssh host-a 'curl -s http://127.0.0.1:7080/healthz'` answers `ok`. The image has no `HEALTHCHECK` (distroless has no `curl`).
+Health: `ssh host-a 'curl -s http://127.0.0.1:7080/healthz'` answers `ok`.
+
+## Health check and container hardening
+
+The image carries a `HEALTHCHECK` (every 30 s, 5 s timeout, 40 s start period, 3 retries) that runs
+`/kipple healthcheck`. That subcommand does a GET on `http://127.0.0.1:<port>/healthz` (the port comes
+from `KIPPLE_ADDR`; a `0.0.0.0`, `::` or empty host becomes `127.0.0.1`), waits at most 3 s and exits 0 only
+on HTTP 200, otherwise printing one line and exiting 1. `/healthz` needs no login and touches no database:
+it answers `ok` as long as the HTTP server is serving. So "healthy" means the process is up and answering,
+not that feeds are fetching.
+
+See it:
+
+    ssh host-a 'docker ps --filter name=kipple'                       # STATUS shows (healthy) / (unhealthy) / (health: starting)
+    ssh host-a "docker inspect -f '{{.State.Health.Status}} {{.State.Health.FailingStreak}}' kipple"
+    ssh host-a "docker inspect -f '{{json .State.Health.Log}}' kipple"  # last 5 probe results and messages
+    ssh host-a 'docker exec kipple /kipple healthcheck; echo $?'      # run the probe by hand
+
+Docker only reports health; it does not restart an unhealthy container by itself (plain compose ignores
+it). Use it for `docker ps`, monitoring and `depends_on: condition: service_healthy`.
+
+`docker-compose.example.yml` also shows these runtime options (all verified by running the image with them):
+
+| Option | What it does |
+|---|---|
+| `restart: unless-stopped` | Restarts after a crash or reboot, but not after you stopped it on purpose. |
+| `stop_grace_period: 30s` | Time Docker waits after SIGTERM before killing. Kipple drains HTTP for up to 10 s then closes the database, so 30 s is ample. |
+| no `init: true` | Not needed: Kipple is PID 1 and handles SIGTERM/Ctrl-C itself. |
+| `mem_limit: 256m` + `GOMEMLIMIT=64MiB` | Hard cap plus a Go soft limit so the GC works harder before the cap is hit. |
+| `pids_limit: 200` | Caps processes and threads. |
+| `read_only: true` + `tmpfs: /tmp` | Root filesystem is read-only; the app writes only to `/data` (the volume). `/tmp` is a small RAM disk in case anything needs scratch space. |
+| `cap_drop: [ALL]` | Removes all Linux capabilities; the app needs none (port 7080 is unprivileged). |
+| `security_opt: no-new-privileges:true` | Blocks privilege escalation through setuid binaries. |
+| logging `json-file` 10m x 3 | Bounded container logs. |
+
+If you run the image with plain `docker run`, the same flags are `--read-only --tmpfs /tmp --cap-drop ALL
+--security-opt no-new-privileges:true --pids-limit 200`.
+
+### Host-A compose diff to apply at the next deploy
+
+Nothing on Host-A has been changed yet. In the `kipple` service of `/home/user/stack/docker-compose.yml`:
+
+    -    restart: always
+    +    restart: unless-stopped
+         stop_grace_period: 30s
+         mem_limit: 256m
+    +    pids_limit: 200
+    +    read_only: true
+    +    tmpfs:
+    +      - /tmp:size=64m,mode=1777
+    +    cap_drop:
+    +      - ALL
+    +    security_opt:
+    +      - no-new-privileges:true
+
+No healthcheck line is needed: it comes from the image, so the rebuild picks it up. Before the deploy,
+`docker compose ... config` shows the merged result; afterwards check `docker ps` reaches `(healthy)`
+within about a minute. To back out, remove the hardening lines and `up -d kipple` again.
 
 ## Reset the web password
 
