@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // registers the WebP decoder (decode only; there is no pure-Go encoder)
@@ -37,11 +38,18 @@ const (
 	exifScan             = 256 << 10
 )
 
-// Test hooks: nil in production.
+// Test hooks: unset in production. Atomic, because a worker of an earlier
+// test may still be reading one while the next test sets it.
 var (
-	testHookBeforeDecode func() // on the worker, after the in-progress marker is written, before the decode
-	testHookThumbLeader  func() // on the request, right after it becomes the thumbnail leader
+	testHookBeforeDecode atomic.Pointer[func()] // on the worker, after the in-progress marker is written, before the decode
+	testHookThumbLeader  atomic.Pointer[func()] // on the request, right after it becomes the thumbnail leader
 )
+
+func callHook(p *atomic.Pointer[func()]) {
+	if f := p.Load(); f != nil {
+		(*f)()
+	}
+}
 
 // passError is a reason the original is served instead of a thumbnail. It is
 // remembered (negative cache) so the attempt is not repeated for a day.
@@ -174,9 +182,7 @@ func transcode(r io.ReaderAt, size int64, ct string, lim thumbLimits) (out []byt
 
 // render decodes, scales, orients and encodes as planned.
 func render(r io.ReaderAt, size int64, p thumbPlan) (out []byte, outType string, err error) {
-	if testHookBeforeDecode != nil {
-		testHookBeforeDecode()
-	}
+	callHook(&testHookBeforeDecode)
 	dst, err := decodeScale(io.NewSectionReader(r, 0, size), p.rw, p.rh)
 	if err != nil {
 		return nil, "", pass("decode failed")

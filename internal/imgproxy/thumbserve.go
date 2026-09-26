@@ -93,9 +93,7 @@ func (h *Handler) leadThumb(w http.ResponseWriter, r *http.Request, u *url.URL, 
 		h.serveCached(w, r, u, flags, orig)
 		return true
 	}
-	if testHookThumbLeader != nil {
-		testHookThumbLeader()
-	}
+	callHook(&testHookThumbLeader)
 	// A previous leader may have finished between our lookup and our Flight.
 	if e2, ok2 := c.Peek(ctx, tkey); ok2 && (!e2.OK || e2.Fresh(c.Now())) {
 		if !e2.OK && e2.NegReason == imgcache.InProgress {

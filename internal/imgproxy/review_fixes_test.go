@@ -395,15 +395,21 @@ func TestThumbNoFetchSlotWaitsOnce(t *testing.T) {
 
 // ---- thumbnails: flight and crash safety (review items 1c, 9) ----
 
+// setHook installs a test hook until the test ends.
+func setHook(t *testing.T, p *atomic.Pointer[func()], f func()) {
+	t.Helper()
+	p.Store(&f)
+	t.Cleanup(func() { p.Store(nil) })
+}
+
 func TestThumbLeaderPanicReleasesTheFlight(t *testing.T) {
 	tr := newThumbRig(t, "image/jpeg", sampleJPEG(t), func(o *Options) { o.ThumbWait = 20 * time.Second })
 	var once atomic.Bool
-	testHookThumbLeader = func() {
+	setHook(t, &testHookThumbLeader, func() {
 		if once.CompareAndSwap(false, true) {
 			panic("injected")
 		}
-	}
-	t.Cleanup(func() { testHookThumbLeader = nil })
+	})
 	req, _ := http.NewRequest("GET", tr.srv.URL+Path(secret, FlagPrivateNet|FlagThumb, tr.up.URL+"/p.jpg"), nil)
 	if resp, err := http.DefaultTransport.RoundTrip(req); err == nil {
 		_ = resp.Body.Close()
@@ -420,11 +426,10 @@ func TestThumbInProgressMarkerDuringTranscode(t *testing.T) {
 	tr := newThumbRig(t, "image/jpeg", sampleJPEG(t))
 	gate := make(chan struct{})
 	entered := make(chan struct{}, 4)
-	testHookBeforeDecode = func() {
+	setHook(t, &testHookBeforeDecode, func() {
 		entered <- struct{}{}
 		<-gate
-	}
-	t.Cleanup(func() { testHookBeforeDecode = nil })
+	})
 	bodies := make([][]byte, 2)
 	var wg sync.WaitGroup
 	get := func(i int) {
@@ -463,8 +468,7 @@ func TestThumbMarkerLeftByACrashIsHonored(t *testing.T) {
 	// What a process killed in the middle of the decode leaves behind.
 	require.NoError(t, tr.cache.PutInProgress(imgcache.KeyThumb(FlagPrivateNet, orig), orig, FlagPrivateNet, imgcache.VariantThumb))
 	var decodes atomic.Int32
-	testHookBeforeDecode = func() { decodes.Add(1) }
-	t.Cleanup(func() { testHookBeforeDecode = nil })
+	setHook(t, &testHookBeforeDecode, func() { decodes.Add(1) })
 
 	require.Equal(t, tr.src, read(t, tr.thumb("c.jpg")), "the original, no decode")
 	require.Equal(t, tr.src, read(t, tr.thumb("c.jpg")))
@@ -481,8 +485,8 @@ func TestThumbMarkerIsWrittenBeforeADecodeThatNeverEnds(t *testing.T) {
 	// next start (a fresh flight table) finds it and serves the original.
 	tr := newThumbRig(t, "image/jpeg", sampleJPEG(t), func(o *Options) { o.ThumbWait = 200 * time.Millisecond })
 	block := make(chan struct{})
-	testHookBeforeDecode = func() { <-block }
-	t.Cleanup(func() { close(block); testHookBeforeDecode = nil })
+	setHook(t, &testHookBeforeDecode, func() { <-block })
+	t.Cleanup(func() { close(block) }) // runs first: the worker finishes before the handler closes
 	require.Equal(t, tr.src, read(t, tr.thumb("k.jpg")), "the wait ends: the original")
 	te, ok := tr.thumbEntry("k.jpg")
 	require.True(t, ok)
