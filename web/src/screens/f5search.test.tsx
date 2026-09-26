@@ -6,7 +6,8 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { setSearchHighlight } from "@/lib/searchTerms";
-import { SEARCH_ORDER_KEY, setSearchOrder } from "@/lib/searchPrefs";
+import { setSearchOrder } from "@/lib/searchPrefs";
+import { devicePrefsStore } from "@/lib/devicePrefs";
 import { bootstrap, card, json, mockFetch } from "@/test/mockApi";
 import type { ItemsPage } from "@/api/types";
 
@@ -72,10 +73,10 @@ describe("Search: what is sent", () => {
     const user = userEvent.setup();
     await user.selectOptions(screen.getByRole("combobox", { name: "Sort by" }), "date");
     await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.has("order")).toBe(false));
-    expect(localStorage.getItem(SEARCH_ORDER_KEY)).toBe("date");
+    expect(devicePrefsStore.get().searchOrder).toBe("date");
     await user.selectOptions(screen.getByRole("combobox", { name: "Sort by" }), "oldest");
     await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("order")).toBe("oldest"));
-    expect(localStorage.getItem(SEARCH_ORDER_KEY)).toBe("oldest");
+    expect(devicePrefsStore.get().searchOrder).toBe("oldest");
   });
 
   it("shows one 'Best matches first' header instead of day headers in relevance order, and day headers by date", async () => {
@@ -136,12 +137,12 @@ describe("Search: what comes back", () => {
     expect(itemCalls(calls)).toHaveLength(1); // it is not retried
   });
 
-  it("restarts the search when a later page's relevance cursor is refused with a 400", async () => {
+  it("restarts the search when a later page's relevance cursor is refused with 400 bad_cursor", async () => {
     let restarted = 0;
     const { calls } = mockFetch({
       "GET /api/bootstrap": () => json(bootstrap),
       "GET /api/items": (url) => {
-        if (url.searchParams.get("cursor")) return json({ error: "bad_request" }, 400);
+        if (url.searchParams.get("cursor")) return json({ error: "bad_cursor" }, 400);
         restarted++;
         return json(items({ next_cursor: restarted === 1 ? "r|old" : null }));
       },
@@ -151,6 +152,21 @@ describe("Search: what comes back", () => {
     await waitFor(() => expect(itemCalls(calls).map((c) => c.url.searchParams.get("cursor"))).toEqual([null, "r|old", null]), { timeout: 4000 });
     expect(await screen.findByText("Cats")).toBeInTheDocument();
     expect(screen.queryByText("Couldn't load more.")).toBeNull();
+  });
+});
+
+describe("Search: other 400s", () => {
+  it("does not restart on a 400 that is not bad_cursor", async () => {
+    const { calls } = mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": (url) => (url.searchParams.get("cursor") ? json({ error: "bad_request" }, 400) : json(items({ next_cursor: "r|x" }))),
+      "GET /api/saved-searches": () => json({ saved_searches: [] }),
+    });
+    go("/search?q=cat");
+    await screen.findByText("Cats");
+    await waitFor(() => expect(itemCalls(calls).length).toBeGreaterThanOrEqual(2), { timeout: 3000 });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(itemCalls(calls).map((c) => c.url.searchParams.get("cursor"))).toEqual([null, "r|x"]);
   });
 });
 

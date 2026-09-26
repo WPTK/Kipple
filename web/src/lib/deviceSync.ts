@@ -11,6 +11,8 @@ import {
   devicePrefsStore,
   parseDevicePrefs,
   replaceDevicePrefs,
+  SEARCH_ORDER_TO_SERVER,
+  searchOrderFromServer,
   type DevicePrefs,
 } from "./devicePrefs";
 import { PREFS_KEY, STEPS, parsePrefs, prefsStore, touchFirst, type Prefs, type Step } from "./prefs";
@@ -87,6 +89,7 @@ export function profileOf(l: LocalState): Profile {
     "client.layout": dp.layout,
     "client.layout_overrides": { feed: { ...dp.overrides.feed }, folder: { ...dp.overrides.folder } },
     "client.order": dp.order,
+    "client.search_order": SEARCH_ORDER_TO_SERVER[dp.searchOrder],
     "client.inbox_thumbs": dp.inboxThumbs,
     "client.peek_seen": dp.peekSeen,
     "client.article_width": dp.articleWidth,
@@ -142,6 +145,7 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     layout: g("client.layout"),
     overrides: g("client.layout_overrides"),
     order: g("client.order"),
+    searchOrder: searchOrderFromServer(g("client.search_order")),
     inboxThumbs: g("client.inbox_thumbs"),
     peekSeen: g("client.peek_seen"),
     articleWidth: g("client.article_width"),
@@ -401,7 +405,7 @@ function legacyProfileKeys(): Set<string> {
   if (p?.markReadOnScroll === true) out.add("ui.mark_read_on_scroll");
   if (p && parsePrefs(JSON.stringify(p)).shortcutsChosen) out.add("client.shortcuts");
   add(read(DEVICE_PREFS_KEY), {
-    layout: ["client.layout"], overrides: ["client.layout_overrides"], order: ["client.order"], inboxThumbs: ["client.inbox_thumbs"],
+    layout: ["client.layout"], overrides: ["client.layout_overrides"], order: ["client.order"], searchOrder: ["client.search_order"], inboxThumbs: ["client.inbox_thumbs"],
     peekSeen: ["client.peek_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
     sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
     unreadBadge: ["client.unread_badge"], highlightKeywords: ["client.highlight_keywords"],

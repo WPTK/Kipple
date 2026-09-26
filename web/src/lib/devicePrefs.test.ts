@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { layoutContext } from "@/layouts";
 import {
   DEVICE_PREFS_KEY,
@@ -21,6 +21,24 @@ const feeds = [
   { id: "2", folder_id: "10" },
   { id: "3", folder_id: "11" },
 ];
+
+describe("search order migration", () => {
+  it("adopts the old localStorage key once, then removes it", async () => {
+    localStorage.setItem("kipple.searchOrder.v1", "oldest");
+    vi.resetModules();
+    const m = await import("./devicePrefs");
+    expect(m.devicePrefsStore.get().searchOrder).toBe("oldest");
+    expect(localStorage.getItem("kipple.searchOrder.v1")).toBeNull();
+    expect(JSON.parse(localStorage.getItem(m.DEVICE_PREFS_KEY) ?? "{}").searchOrder).toBe("oldest");
+  });
+  it("keeps a value already in the device cache over the old key", async () => {
+    localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify({ searchOrder: "date" }));
+    localStorage.setItem("kipple.searchOrder.v1", "oldest");
+    vi.resetModules();
+    const m = await import("./devicePrefs");
+    expect(m.devicePrefsStore.get().searchOrder).toBe("date");
+  });
+});
 
 describe("layout override resolution", () => {
   it("Magazine is the default", () => {

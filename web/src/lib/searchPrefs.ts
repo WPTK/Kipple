@@ -1,37 +1,16 @@
-import { createStore, useStore } from "./store";
+import { SEARCH_ORDERS, devicePrefsStore, updateDevicePrefs, type SearchOrder } from "./devicePrefs";
+import { createStore, useStoreSelector } from "./store";
 
-// The result ordering of the Search screen, kept per device. It has no key in the server's device profile
-// (docs/design.md 7.1c allows `client.order`, newest or oldest, for lists but nothing for search), so it lives in
-// this browser's localStorage only; a device is a browser, so that is the right scope even if it does not sync.
+// The result ordering of the Search screen lives in the device profile (`client.search_order`, docs/design.md 7.1c):
+// devicePrefs holds it and lib/deviceSync.ts syncs it like every other per-device setting.
 
-export const SEARCH_ORDERS = ["rank", "date", "oldest"] as const;
-export type SearchOrder = (typeof SEARCH_ORDERS)[number];
+export { SEARCH_ORDERS };
+export type { SearchOrder };
 export const SEARCH_ORDER_LABELS: Record<SearchOrder, string> = { rank: "Relevance", date: "Newest first", oldest: "Oldest first" };
-export const SEARCH_ORDER_KEY = "kipple.searchOrder.v1";
 
-const isOrder = (v: unknown): v is SearchOrder => (SEARCH_ORDERS as readonly unknown[]).includes(v);
+export const setSearchOrder = (o: SearchOrder): void => updateDevicePrefs({ searchOrder: o });
 
-function read(): SearchOrder {
-  try {
-    const v = localStorage.getItem(SEARCH_ORDER_KEY);
-    return isOrder(v) ? v : "rank";
-  } catch {
-    return "rank";
-  }
-}
-
-export const searchOrderStore = createStore<SearchOrder>(read());
-
-export function setSearchOrder(o: SearchOrder): void {
-  searchOrderStore.set(o);
-  try {
-    localStorage.setItem(SEARCH_ORDER_KEY, o);
-  } catch {
-    /* not remembered */
-  }
-}
-
-export const useSearchOrder = (): SearchOrder => useStore(searchOrderStore);
+export const useSearchOrder = (): SearchOrder => useStoreSelector(devicePrefsStore, (p) => p.searchOrder);
 
 /** The list scope's `order` for a search ordering: newest first is the server default and is not sent. */
 export const scopeOrder = (o: SearchOrder): "rank" | "oldest" | undefined => (o === "rank" ? "rank" : o === "oldest" ? "oldest" : undefined);

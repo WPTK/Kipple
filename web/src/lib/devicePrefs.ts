@@ -47,12 +47,25 @@ export const LIST_WIDTH_MAX = 720;
 
 export type OrderPref = "newest" | "oldest";
 
+/** The Search screen's ordering. The ids are the URL/saved-search ones; the profile key `client.search_order`
+ * (docs/design.md 7.1c) calls them relevance, newest and oldest. */
+export const SEARCH_ORDERS = ["rank", "date", "oldest"] as const;
+export type SearchOrder = (typeof SEARCH_ORDERS)[number];
+export const isSearchOrder = (v: unknown): v is SearchOrder => (SEARCH_ORDERS as readonly unknown[]).includes(v);
+export const SEARCH_ORDER_TO_SERVER: Record<SearchOrder, string> = { rank: "relevance", date: "newest", oldest: "oldest" };
+export const searchOrderFromServer = (v: unknown): SearchOrder | undefined =>
+  v === "relevance" ? "rank" : v === "newest" ? "date" : v === "oldest" ? "oldest" : undefined;
+/** Where this ordering lived before it joined the device profile (one-time migration source). */
+export const LEGACY_SEARCH_ORDER_KEY = "kipple.searchOrder.v1";
+
 export interface DevicePrefs {
   /** Device default layout. Magazine unless changed. */
   layout: LayoutId;
   /** Per-feed and per-folder overrides, resolved feed > folder > device default. */
   overrides: { feed: Record<string, LayoutId>; folder: Record<string, LayoutId> };
   order: OrderPref;
+  /** Result ordering of the Search screen (server key `client.search_order`). */
+  searchOrder: SearchOrder;
   /** Inbox trailing thumbnails: Auto shows them when the item has an image. */
   inboxThumbs: "auto" | "off";
   /** The first-run swipe peek has played (or been dismissed) on this device. */
@@ -82,6 +95,7 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   layout: "magazine",
   overrides: { feed: {}, folder: {} },
   order: "newest",
+  searchOrder: "rank",
   inboxThumbs: "auto",
   peekSeen: false,
   articleWidth: "medium",
@@ -134,6 +148,7 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       layout: isLayoutId(v?.layout) ? v.layout : d.layout,
       overrides: { feed: cleanMap(v?.overrides?.feed), folder: cleanMap(v?.overrides?.folder) },
       order: v?.order === "oldest" ? "oldest" : "newest",
+      searchOrder: isSearchOrder(v?.searchOrder) ? v.searchOrder : d.searchOrder,
       inboxThumbs: v?.inboxThumbs === "off" ? "off" : "auto",
       peekSeen: v?.peekSeen === true,
       articleWidth: ARTICLE_WIDTHS.includes(v?.articleWidth as ArticleWidth) ? (v?.articleWidth as ArticleWidth) : d.articleWidth,
@@ -155,7 +170,25 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
 const storage = {
   load(): DevicePrefs {
     try {
-      return parseDevicePrefs(localStorage.getItem(DEVICE_PREFS_KEY));
+      const raw = localStorage.getItem(DEVICE_PREFS_KEY);
+      const p = parseDevicePrefs(raw);
+      // One-time migration: the search ordering used to be its own localStorage key. Adopt it when the device
+      // cache has no value yet, then drop the old key (deviceSync sends it up like any other held value).
+      const old = localStorage.getItem(LEGACY_SEARCH_ORDER_KEY);
+      if (old !== null) {
+        let has = false;
+        try {
+          has = isSearchOrder((JSON.parse(raw ?? "null") as { searchOrder?: unknown } | null)?.searchOrder);
+        } catch {
+          /* no cache */
+        }
+        if (!has && isSearchOrder(old)) {
+          p.searchOrder = old;
+          localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(p));
+        }
+        localStorage.removeItem(LEGACY_SEARCH_ORDER_KEY);
+      }
+      return p;
     } catch {
       return parseDevicePrefs(null);
     }
