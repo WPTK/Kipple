@@ -21,9 +21,8 @@ import (
 var ErrFilterNotFound = errors.New("store: no such filter")
 
 const (
-	retroPage    = 1000 // rows per keyset page on the reader pool
-	retroBatch   = 500  // ids per write transaction of an apply
-	retroBudgetN = 64   // items evaluated between budget checks
+	retroPage  = 1000 // rows per keyset page on the reader pool
+	retroBatch = 500  // ids per write transaction of an apply
 	// PreviewSample is how many matching items a preview returns as samples.
 	PreviewSample = 20
 	// unsavedFilterID is the id an unsaved preview rule gets in its set: above every real id.
@@ -50,18 +49,41 @@ func (it retroItem) engine() filter.Item {
 		Author: it.author, URL: it.url, Content: it.content, Categories: it.categories}
 }
 
-// retroSQL builds the candidate query for rule r. cols selects the columns it reads.
-func retroSQL(r filter.Rule, includeRead bool) (from, where string, args []any, wantContent, wantCats bool) {
-	for _, f := range r.Fields {
-		switch f {
-		case filter.FieldContent:
-			wantContent = true
-		case filter.FieldCategory:
-			wantCats = true
+// retroCols is what a retroactive scan loads beyond the narrow item columns: the union of what the
+// rules it evaluates read, so no rule sees an empty field it would see filled at ingest.
+type retroCols struct {
+	content    bool
+	contentMax int // bytes of content_text: the largest scan limit among the rules reading it
+	cats       bool
+}
+
+// colsFor is the columns rules read. The engine truncates each field to its own rule's limit, so
+// loading the largest one is exact for every rule.
+func colsFor(rules []filter.Rule) retroCols {
+	var c retroCols
+	for _, r := range rules {
+		for _, f := range r.Fields {
+			switch f {
+			case filter.FieldContent:
+				c.content = true
+				n := filter.MaxTextContentScan
+				if r.Kind == filter.KindRegex {
+					n = filter.MaxRegexContentScan
+				}
+				c.contentMax = max(c.contentMax, n)
+			case filter.FieldCategory:
+				c.cats = true
+			}
 		}
 	}
+	return c
+}
+
+// retroSQL builds the candidate query for rule r (its scope decides the candidates); cols selects
+// the joins it needs.
+func retroSQL(r filter.Rule, includeRead bool, cols retroCols) (from, where string, args []any) {
 	from = "items i JOIN feeds f ON f.id = i.feed_id"
-	if wantContent || wantCats {
+	if cols.content || cols.cats {
 		from += " LEFT JOIN item_content c ON c.item_id = i.id"
 	}
 	where = "f.disabled_reason IS NOT 'archive'" // archived items never reach ingest, so rules skip them
@@ -82,16 +104,14 @@ func retroSQL(r filter.Rule, includeRead bool) (from, where string, args []any, 
 // retroScan walks the candidates newest first in keyset pages of retroPage and hands each page to
 // onPage. deadline (zero = none) ends the walk between pages and, through the page function's own
 // errRetroBudget, inside one.
-func (d *DB) retroScan(ctx context.Context, r filter.Rule, includeRead bool, deadline time.Time, onPage func([]retroItem) error) (scanned int, truncated bool, err error) {
-	from, where, args, wantContent, wantCats := retroSQL(r, includeRead)
-	cols := `i.id, i.feed_id, f.folder_id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url),
+func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, includeRead bool, deadline time.Time, onPage func([]retroItem) error) (scanned int, truncated bool, err error) {
+	from, where, args := retroSQL(r, includeRead, rc)
+	cols := `i.id, i.feed_id, f.folder_id, ` + feedTitleSQL("f") + `,
 		i.title, i.author, i.url, i.read, i.starred, i.muted_by IS NOT NULL`
+	wantContent, wantCats := rc.content, rc.cats
 	if wantContent {
-		n := filter.MaxTextContentScan
-		if r.Kind == filter.KindRegex {
-			n = filter.MaxRegexContentScan
-		}
-		cols += fmt.Sprintf(", COALESCE(substr(c.content_text, 1, %d), '')", n)
+		// substr counts characters, the engine bytes: a character is at least a byte, so this is enough.
+		cols += fmt.Sprintf(", COALESCE(substr(c.content_text, 1, %d), '')", rc.contentMax)
 	}
 	if wantCats {
 		cols += ", c.categories_json"
@@ -151,33 +171,45 @@ func (d *DB) retroScan(ctx context.Context, r filter.Rule, includeRead bool, dea
 	}
 }
 
-// retroSet is the set a retroactive run evaluates: the saved enabled rules with r in place (or
-// added, forced enabled), so precedence (star beats mute) is honoured against the rest.
-func (d *DB) retroSet(ctx context.Context, r filter.Rule) (*filter.Set, filter.Rule, error) {
+// retroSet is the set a retroactive run evaluates, and the columns its scan must load. The saved
+// enabled rules with r in place (or added, forced enabled) are validated as one set, so the set-wide
+// limits hold. Evaluation then needs only r and the enabled star rules: retroEffect looks at r's own
+// match and, for a mute, whether a star rule cancels it (star beats mute); no other rule changes
+// either. Every field those rules read is loaded (a saved star rule on content must see the content
+// even when r reads only titles).
+func (d *DB) retroSet(ctx context.Context, r filter.Rule) (*filter.Set, filter.Rule, retroCols, error) {
 	all, err := loadFilters(ctx, d.reader)
 	if err != nil {
-		return nil, r, err
+		return nil, r, retroCols{}, err
 	}
 	if r.ID == 0 {
 		r.ID = unsavedFilterID
 	}
 	r.Enabled = true
 	rules := make([]filter.Rule, 0, len(all)+1)
+	eval := []filter.Rule{r}
 	for _, f := range all {
 		if f.ID != r.ID && f.Enabled {
-			rules = append(rules, f.Rule())
+			fr := f.Rule()
+			rules = append(rules, fr)
+			if fr.Action == filter.ActionStar {
+				eval = append(eval, fr)
+			}
 		}
 	}
 	rules = append(rules, r)
-	set, err := filter.NewSet(rules)
+	if err := validateSet(rules); err != nil {
+		return nil, r, retroCols{}, err
+	}
+	set, err := filter.NewSet(eval)
 	if err != nil {
 		var se *filter.SetError
 		if errors.As(err, &se) {
-			return nil, r, se.Err
+			return nil, r, retroCols{}, se.Err
 		}
-		return nil, r, err
+		return nil, r, retroCols{}, err
 	}
-	return set, r, nil
+	return set, r, colsFor(eval), nil
 }
 
 // Effects of a retroactive rule on one item.
@@ -241,15 +273,17 @@ func (d *DB) PreviewFilter(ctx context.Context, f Filter, includeRead bool, budg
 	if err := checkScopeRefs(ctx, d.reader, f); err != nil {
 		return PreviewResult{}, err
 	}
-	set, r, err := d.retroSet(ctx, f.Rule())
+	set, r, rc, err := d.retroSet(ctx, f.Rule())
 	if err != nil {
 		return PreviewResult{}, err
 	}
 	var out PreviewResult
 	deadline := time.Now().Add(budget)
-	scanned, truncated, err := d.retroScan(ctx, r, includeRead, deadline, func(page []retroItem) error {
-		for i, it := range page {
-			if i%retroBudgetN == 0 && time.Now().After(deadline) {
+	scanned, truncated, err := d.retroScan(ctx, r, rc, includeRead, deadline, func(page []retroItem) error {
+		for _, it := range page {
+			// Every item: one item can cost up to filter.MaxRegexCost's worst case, so a check every few
+			// dozen items could overrun the budget by seconds.
+			if time.Now().After(deadline) {
 				return errRetroBudget
 			}
 			out.Scanned++
@@ -286,7 +320,7 @@ type ApplyResult struct {
 
 // countRetro is the number of items ApplyFilter will scan (an upper bound on the changes).
 func (d *DB) countRetro(ctx context.Context, r filter.Rule, includeRead bool) (int, error) {
-	from, where, args, _, _ := retroSQL(r, includeRead)
+	from, where, args := retroSQL(r, includeRead, retroCols{})
 	var n int
 	err := d.reader.QueryRowContext(ctx, "SELECT count(*) FROM "+from+" WHERE "+where, args...).Scan(&n)
 	return n, err
@@ -327,14 +361,19 @@ func (d *DB) ApplyFilter(ctx context.Context, id int64, includeRead bool, total 
 	}
 	applied := f
 	r := f.Rule()
-	set, r, err := d.retroSet(ctx, r)
+	set, r, rc, err := d.retroSet(ctx, r)
 	if err != nil {
 		return ApplyResult{}, err
 	}
 	var out ApplyResult
-	scanned, _, err := d.retroScan(ctx, r, includeRead, time.Time{}, func(page []retroItem) error {
+	scanned, _, err := d.retroScan(ctx, r, rc, includeRead, time.Time{}, func(page []retroItem) error {
 		var ids []int64
 		for _, it := range page {
+			// A cancel (edit, delete, shutdown) or the caller's deadline is noticed at the next item,
+			// not after a whole page of evaluations.
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if retroEffect(set, r, it) != effNone {
 				ids = append(ids, it.id)
 			}
@@ -359,6 +398,14 @@ func (d *DB) ApplyFilter(ctx context.Context, id int64, includeRead bool, total 
 	})
 	_ = scanned
 	return out, err
+}
+
+// SameRule reports whether two stored filters match and act alike (sameRule), reading an empty field
+// list as title only, as the engine does. The API uses it to cancel an apply only on a real change.
+func SameRule(a, b Filter) bool {
+	normalizeFields(&a)
+	normalizeFields(&b)
+	return sameRule(a, b)
 }
 
 // sameRule reports whether two stored filters are the same rule for matching and acting

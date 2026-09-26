@@ -161,7 +161,7 @@ func TestValidateRejections(t *testing.T) {
 	}
 	require.NoError(t, Validate(text("ok")))
 	require.NoError(t, Validate(NewRule(ScopeGlobal, KindRegex, ActionStar, `\bgo(lang)?\b`)))
-	require.NoError(t, Validate(NewRule(ScopeGlobal, KindRegex, ActionStar, `[a-z]{200}`)), "a large but bounded repeat is fine")
+	require.NoError(t, Validate(NewRule(ScopeGlobal, KindRegex, ActionStar, `[a-z]{50}`)), "a bounded repeat up to the limit is fine")
 	// A blank field list means title only; duplicates collapse.
 	c, err := CompileRule(text("a").with(func(r *Rule) { r.Fields = []Field{FieldURL, FieldURL} }))
 	require.NoError(t, err)

@@ -271,7 +271,7 @@ func TestFilterGenerationBumpedBeforeCommit(t *testing.T) {
 
 func TestMutedUIDsUsesDocumentTitleLikeTheCommit(t *testing.T) {
 	e := newEnv(t)
-	id := e.addFeed("http://a.example/feed")
+	id := e.addFeed("http://a.example/rss") // no "feed" in the URL, the last fallback of the feed title
 	r := newFilter("mute", "Feed")
 	r.Fields = []string{"feed"}
 	e.mkFilter(r)

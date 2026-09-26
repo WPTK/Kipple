@@ -331,6 +331,37 @@ describe("deleting a filter", () => {
     expect(calls.find((c) => c.method === "DELETE")?.url.search).toBe("?unmute=unread");
   });
 
+  it("repeats the delete while the server is still restoring, and says how many went back to unread", async () => {
+    const answers = [
+      { changed: 500, made_unread: 450, done: false },
+      { changed: 200, made_unread: 150, done: true },
+    ];
+    let i = 0;
+    const { calls } = routes({
+      "GET /api/filters": () => json({ filters: [withMuted({ muted_items: 700 })] }),
+      "DELETE /api/filters/4": () => json(answers[Math.min(i++, answers.length - 1)], i === 1 ? 202 : 200),
+    });
+    go("/settings");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Delete No giveaways" }));
+    const w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
+    expect(w.getByText(/the ones you had already read stay read/)).toBeInTheDocument();
+    await user.click(w.getByRole("radio", { name: /Restore them and mark them unread/ }));
+    await user.click(w.getByRole("button", { name: "Delete filter" }));
+    expect(await screen.findByText("Filter deleted. 700 articles restored, 600 of them marked unread (the rest you had already read).")).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(2);
+  });
+
+  it("the toast only claims unread for what the server made unread", async () => {
+    const { deletedMessage } = await import("./FiltersSection");
+    expect(deletedMessage(0, 0, "read")).toBe("Filter deleted");
+    expect(deletedMessage(7, 0, "read")).toBe("Filter deleted. 7 articles restored.");
+    expect(deletedMessage(7, 7, "unread")).toBe("Filter deleted. 7 articles restored, all marked unread.");
+    expect(deletedMessage(1, 1, "unread")).toBe("Filter deleted. 1 article restored as unread.");
+    expect(deletedMessage(7, 0, "unread")).toBe("Filter deleted. 7 articles restored; none were unread when muted, so they stay read.");
+    expect(deletedMessage(7, 3, "unread")).toBe("Filter deleted. 7 articles restored, 3 of them marked unread (the rest you had already read).");
+  });
+
   it("leaving them muted sends keep, and a filter that muted nothing has no choice to make", async () => {
     const { calls } = routes({
       "GET /api/filters": () => json({ filters: [withMuted(), filter(5, { name: "Plain", muted_items: 0 })] }),
