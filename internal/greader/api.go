@@ -109,6 +109,7 @@ type route struct {
 	h      func(*call)
 	post   bool // writes: POST only, T checked
 	raw    bool // body is not a form (subscription/import): no T, raw body kept
+	repair bool // glue the unencoded tail of a label name in the POST body (design §6.2)
 	prefix bool // matches name + anything after it
 }
 
@@ -244,7 +245,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
 		c.icon(strings.TrimPrefix(rest, "/icon/"))
 		return
 	case rest == "/accounts/ClientLogin":
-		c.p = readParamsLimit(r, false, maxLoginBody)
+		c.p = readParamsLimit(r, false, maxLoginBody, false)
 		if c.rejectParams() {
 			return
 		}
@@ -273,7 +274,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
 	if !hdrOK {
 		limit = maxLoginBody
 	}
-	c.p = readParamsLimit(r, rt.raw, limit)
+	c.p = readParamsLimit(r, rt.raw, limit, rt.repair)
 	if c.rejectParams() {
 		return
 	}

@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -25,7 +26,6 @@ const maxLoginBody = 64 << 10
 type pair struct {
 	key, val       string // QueryUnescape'd (raw text kept on an unescape error)
 	rawKey, rawVal string // exactly as sent
-	noEq           bool   // the pair had no '=' (rawVal is empty)
 }
 
 // Params is a Reader API request's parameters: the body pairs and the query
@@ -68,8 +68,11 @@ func (c *capReader) Read(p []byte) (int, error) {
 }
 
 // splitPairsLimit implements steps 2-3 of §6.2 and refuses (ok false, before
-// allocating the parts) an input with more than maxPairs pairs.
-func splitPairsLimit(s string) (out []pair, ok bool) {
+// allocating the parts) an input with more than maxPairs pairs. With repair
+// false it is exactly the phase 1 parser. With repair true (POST bodies of the
+// endpoints NNW sends raw folder names to) the run of parts that follows a
+// label value and is really the tail of its name is glued back onto it.
+func splitPairsLimit(s string, repair bool) (out []pair, ok bool) {
 	if s == "" {
 		return nil, true
 	}
@@ -78,67 +81,56 @@ func splitPairsLimit(s string) (out []pair, ok bool) {
 	}
 	parts := strings.Split(s, "&")
 	out = make([]pair, 0, len(parts))
-	for _, part := range parts {
+	for i := 0; i < len(parts); i++ {
+		part := parts[i]
 		if part == "" {
 			continue
 		}
-		k, v, hasEq := strings.Cut(part, "=")
-		out = append(out, pair{key: unescape(k), val: unescape(v), rawKey: k, rawVal: v, noEq: !hasEq})
+		k, v, _ := strings.Cut(part, "=")
+		e := pair{key: unescape(k), val: unescape(v), rawKey: k, rawVal: v}
+		if repair && labelKeys[e.key] {
+			if _, isLabel := labelName(e.val); isLabel {
+				// Collect the whole run of tail parts, then join and decode once.
+				j := i + 1
+				for j < len(parts) && j-i <= maxGlueParts && isNameTail(parts[j]) {
+					j++
+				}
+				if j > i+1 {
+					e.rawVal = v + "&" + strings.Join(parts[i+1:j], "&")
+					e.val = pathUnescape(e.rawVal)
+					i = j - 1
+				}
+			}
+		}
+		out = append(out, e)
 	}
-	return mergeLabelPairs(out), true
+	return out, true
 }
 
-// knownParams are the Reader API parameter names a client may send. A pair whose
-// key is none of these, following a label-carrying value, is the tail of that
-// value (see mergeLabelPairs).
-var knownParams = map[string]bool{
-	"T": true, "s": true, "a": true, "r": true, "t": true, "ac": true, "dest": true,
-	"i": true, "n": true, "xt": true, "it": true, "ot": true, "c": true, "output": true,
-	"q": true, "client": true, "ck": true, "AppName": true, "Email": true, "Passwd": true,
-	"url": true, "quickadd": true, "sortby": true, "m": true, "nt": true, "ct": true,
-	"uid": true, "pos": true, "sort": true, "output_format": true,
+// maxGlueParts caps how many '&'-split parts one label name may absorb.
+const maxGlueParts = 64
+
+var identKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// isNameTail reports whether a part following a label value is the tail of that
+// value's name rather than a new parameter (design §6.2). A real parameter
+// always carries '=' with an identifier key; anything else is glued: a part with
+// no '=' (the "T" of "AT&T", the empty parts of "R&" and "A&&B") or one whose
+// key holds a space or other non-identifier character (" Politics+", "a b=c").
+func isNameTail(part string) bool {
+	k, _, hasEq := strings.Cut(part, "=")
+	return !hasEq || !identKey.MatchString(k)
+}
+
+func pathUnescape(s string) string {
+	if u, err := url.PathUnescape(s); err == nil {
+		return u
+	}
+	return s
 }
 
 // labelKeys are the parameters that carry a user/-/label/<name> id.
 var labelKeys = map[string]bool{"s": true, "a": true, "r": true, "dest": true}
-
-// mergeLabelPairs is the one place that repairs a folder name NetNewsWire sends
-// with '&' unencoded (design §6.2). After a label-carrying value
-// (s=, a=, r=, dest= starting user/<x>/label/), every following pair whose key is
-// not a known parameter is glued back on with the '&' that split it, and the
-// value is re-decoded with PathUnescape, which keeps '+' (a client that leaves
-// '&' unencoded is not form-encoding, so '+' is literal). Everything downstream
-// (Get, All, AllRaw) then sees the whole name, so no endpoint can file a feed or
-// create a folder under the truncated prefix. A name containing a literal
-// "&<known key>=" is not recoverable.
-func mergeLabelPairs(in []pair) []pair {
-	out := in[:0:0]
-	last := -1 // index in out of the label pair currently being extended
-	for _, e := range in {
-		if last >= 0 && !knownParams[e.key] && !knownParams[e.rawKey] {
-			tail := e.rawKey
-			if !e.noEq {
-				tail += "=" + e.rawVal
-			}
-			l := &out[last]
-			l.rawVal += "&" + tail
-			if u, err := url.PathUnescape(l.rawVal); err == nil {
-				l.val = u
-			} else {
-				l.val = l.rawVal
-			}
-			continue
-		}
-		out = append(out, e)
-		last = -1
-		if labelKeys[e.key] {
-			if _, ok := labelName(e.val); ok {
-				last = len(out) - 1
-			}
-		}
-	}
-	return out
-}
 
 func unescape(s string) string {
 	if u, err := url.QueryUnescape(s); err == nil {
@@ -150,13 +142,14 @@ func unescape(s string) string {
 // readParams parses the query string and, for a POST, the body. Non-multipart
 // bodies are always treated as urlencoded, whatever the media type. When raw is
 // true the body is kept undecoded and unparsed (subscription/import reads OPML).
-func readParams(r *http.Request, raw bool) *Params { return readParamsLimit(r, raw, maxBody) }
+func readParams(r *http.Request, raw bool) *Params { return readParamsLimit(r, raw, maxBody, false) }
 
-// readParamsLimit is readParams with a body size cap of limit bytes.
-func readParamsLimit(r *http.Request, raw bool, limit int64) *Params {
+// readParamsLimit is readParams with a body size cap of limit bytes. repair
+// enables the raw folder name repair for the body (never the query).
+func readParamsLimit(r *http.Request, raw bool, limit int64, repair bool) *Params {
 	p := &Params{}
 	var ok bool
-	if p.query, ok = splitPairsLimit(r.URL.RawQuery); !ok {
+	if p.query, ok = splitPairsLimit(r.URL.RawQuery, false); !ok {
 		p.tooMany = true
 		return p
 	}
@@ -182,7 +175,7 @@ func readParamsLimit(r *http.Request, raw bool, limit int64) *Params {
 	}
 	b, _ := io.ReadAll(body)
 	p.rawBody = string(b)
-	if p.body, ok = splitPairsLimit(p.rawBody); !ok {
+	if p.body, ok = splitPairsLimit(p.rawBody, repair); !ok {
 		p.tooMany = true
 	}
 	return p

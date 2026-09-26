@@ -484,18 +484,6 @@ func TestRawLabelNamesRenameAndDisable(t *testing.T) {
 	}
 }
 
-func TestRawLabelStreamID(t *testing.T) {
-	h := newHarness(t)
-	f := h.addFeed("https://a.example/f", "A", "News & Politics+")
-	h.addFolder("News")
-	it := h.addItem(f, itemSeed{})
-	w := h.get(rd + "stream/items/ids?output=json&n=10&s=user/-/label/News%20&%20Politics+")
-	require.Equal(t, 200, w.Code)
-	require.Contains(t, w.Body.String(), strconv.FormatInt(it, 10))
-	w = h.get(rd + "stream/items/ids?output=json&n=10&s=" + url.QueryEscape("user/-/label/News & Politics+"))
-	require.Contains(t, w.Body.String(), strconv.FormatInt(it, 10))
-}
-
 func TestParseUserPath(t *testing.T) {
 	n, ok := parseUserPath("user/-/label/Tech", "/label/")
 	require.True(t, ok)
