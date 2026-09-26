@@ -47,7 +47,12 @@ func TestDeleteFeedArchivesStarredByDefault(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, arch)
-	code, _, _ = h.api(c, "DELETE", "/api/feeds/"+arch, "")
+	code, body409, _ := h.api(c, "DELETE", "/api/feeds/"+arch, "")
+	require.Equal(t, 409, code)
+	require.Equal(t, "archive_has_starred", body409["error"])
+	require.Contains(t, body409["message"], "delete_starred=1")
+	require.Equal(t, 2, h.count("SELECT count(*) FROM items i JOIN feeds a ON a.id = i.feed_id WHERE a.disabled_reason = 'archive' AND i.starred = 1 AND i.origin_title = 'Doomed'"), "refused delete keeps the items")
+	code, _, _ = h.api(c, "DELETE", "/api/feeds/"+arch+"?delete_starred=1", "")
 	require.Equal(t, 204, code)
 	require.Zero(t, h.count("SELECT count(*) FROM items WHERE starred = 1 AND feed_id != ?", other))
 }

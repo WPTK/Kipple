@@ -324,10 +324,13 @@ func (c *call) subscriptionEdit() {
 		}
 		c.publishFeeds(ids)
 	case "unsubscribe":
-		ids, err := c.a.db.Unsubscribe(ctx, feedRefs(ss))
+		ids, skipped, err := c.a.db.UnsubscribeSkipped(ctx, feedRefs(ss))
 		if err != nil {
 			c.serverError("unsubscribe", err)
 			return
+		}
+		if len(skipped) > 0 {
+			c.a.log.Info("greader: unsubscribe kept the archive feed: it still holds starred items", "feed_ids", skipped)
 		}
 		c.publishFeeds(ids)
 	}

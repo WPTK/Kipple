@@ -220,10 +220,29 @@ func TestUnsubscribeArchivesStarredItems(t *testing.T) {
 	sw := h.get(rd + "stream/items/ids?output=json&s=" + starred)
 	require.Contains(t, sw.Body.String(), `"`+FormatDecimal(keep)+`"`)
 
-	// Unsubscribing the archive deletes it and its items.
-	h.post(rd+"subscription/edit", "ac=unsubscribe&s="+feedID(arch))
-	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM items WHERE id = ?", keep))
-	require.Nil(t, findSub(subsOf(t, h), feedID(arch)))
+	// Unsubscribing the archive while it holds starred items is skipped: the reply
+	// is still OK and the items survive.
+	w = h.post(rd+"subscription/edit", "T="+h.tok+"&ac=unsubscribe&s="+feedID(arch))
+	require.Equal(t, "OK", w.Body.String())
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM items WHERE id = ?", keep))
+	require.NotNil(t, findSub(subsOf(t, h), feedID(arch)))
+}
+
+func TestUnsubscribeStarredFeedAndArchiveTogether(t *testing.T) {
+	h := newHarness(t)
+	f := h.addFeed("https://a.example/feed.xml", "Alpha", "")
+	keep := h.addItem(f, itemSeed{Title: "starred one", Starred: true})
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=unsubscribe&s="+feedID(f))
+	arch := q[int64](h, "SELECT feed_id FROM items WHERE id = ?", keep)
+	g := h.addFeed("https://b.example/feed.xml", "Beta", "")
+	kept2 := h.addItem(g, itemSeed{Title: "starred two", Starred: true})
+
+	// One request naming the archive feed (first) and a starred feed.
+	w := h.post(rd+"subscription/edit", "T="+h.tok+"&ac=unsubscribe&s="+feedID(arch)+"&s="+feedID(g))
+	require.Equal(t, "OK", w.Body.String())
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM items WHERE id = ?", keep))
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM items WHERE id = ?", kept2))
+	require.Equal(t, 2, q[int](h, "SELECT count(*) FROM items WHERE starred = 1"))
 }
 
 func TestRenameTagAndMerge(t *testing.T) {

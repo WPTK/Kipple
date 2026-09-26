@@ -463,6 +463,10 @@ func (s *Server) deleteFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
+	if errors.Is(err, store.ErrArchiveHasStarred) {
+		writeErrorMsg(w, http.StatusConflict, "archive_has_starred", "the archive feed holds starred items; pass ?delete_starred=1 to really delete them")
+		return
+	}
 	if err != nil {
 		s.serverError(w, "delete feed", err)
 		return

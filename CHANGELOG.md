@@ -180,6 +180,8 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- Deleting the archive feed while it holds starred items (`DELETE /api/feeds/{id}`) now answers 409 `archive_has_starred` (pass `?delete_starred=1` to really delete); a Reader `unsubscribe` of it is skipped, logged and still answers OK. Starred items are only ever destroyed by `delete_starred=1`.
+
 - Unsubscribing a batch that included the hidden archive feed could delete it (and cascade away every archived starred item, including ones just moved into it). The archive feed is now processed last and skipped while it holds starred items (`UnsubscribeSkipped` reports it); `DeleteFeed` on it without `delete_starred` returns `ErrArchiveHasStarred`. Tests cover both batch orders, the archive alone and the `delete_starred` path.
 - The nightly ledger purge used a fixed 180 days regardless of `retention.restore_days`, so a stub could vanish before its restore window ended if the setting grew. The horizon is now `max(180, restore_days + 7)` days, and `MaxRestoreDays <= LedgerDays` is a compile-time assertion.
 
