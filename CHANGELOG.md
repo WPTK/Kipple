@@ -8,7 +8,7 @@ All notable changes to Kipple are documented here. The format follows
 
 ### Added
 
-- The project is now licensed under the PolyForm Noncommercial License 1.0.0 (`LICENSE`), with a generated `THIRD_PARTY_NOTICES.md` (bundled fonts, Go and npm dependencies; `scripts/gen-notices.mjs`). Both files ship in the image under `/licenses/`.
+- The project is now licensed under the Blue Oak Model License 1.0.0 (`LICENSE`), with a generated `THIRD_PARTY_NOTICES.md` (bundled fonts, Go and npm dependencies; `scripts/gen-notices.mjs`). Both files ship in the image under `/licenses/`.
 
 ## [0.2.0] - 2026-09-26
 
