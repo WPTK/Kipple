@@ -278,8 +278,10 @@ func TestClientAbortMidStreamIsNotCached(t *testing.T) {
 	require.NoError(t, err)
 	cancel()
 	_ = resp.Body.Close()
-	close(gate)
+	// The upstream stays open until the proxy lets go of it (its request context ends): if the test ended the body
+	// itself, that cut would race the client's departure, and a cut upstream body is a real failure.
 	require.Never(t, func() bool { _, ok := cr.entry(orig); return ok }, 300*time.Millisecond, 20*time.Millisecond)
+	close(gate)
 	require.Eventually(t, func() bool {
 		ents, _ := os.ReadDir(filepath.Join(cr.cache.Dir(), "tmp"))
 		return len(ents) == 0
