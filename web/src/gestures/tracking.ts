@@ -135,8 +135,17 @@ export class RowSwipe {
     this.phase = "idle";
   }
 
+  /**
+   * Whether releasing now would commit. Leading (right) is measured by where the row is; trailing (left) by how
+   * far the finger has pulled it, so a touch that begins on an OPEN trailing panel (resting 144 px out, nearly
+   * at the 150 px arm point) does not count as armed before it has moved at all.
+   */
   armed(): boolean {
-    return Math.abs(this.offset) >= armDistance(this.width);
+    const off = this.offset;
+    const arm = armDistance(this.width);
+    if (off > 0) return off >= arm;
+    if (off < 0) return -(off - Math.min(this.base, 0)) >= arm;
+    return false;
   }
 
   end(): RowEnd {
@@ -144,13 +153,32 @@ export class RowSwipe {
     this.phase = "idle";
     if (!wasHorizontal) return { action: "close" };
     const off = this.offset;
+    const dx = off - this.base; // how far the finger moved, signed
+    if (dx === 0) return { action: this.base < 0 ? "open" : "close" };
+    const v = this.vt.velocity(); // px/ms, +x is rightward
+    const arm = armDistance(this.width);
+
+    if (this.base < 0) {
+      // The touch began on the open trailing panel (Star and More).
+      if (dx > 0) {
+        // Pushing right closes the panel, in the same gesture. Only a pull clear through to the leading side
+        // (the row past its rest position by the arm distance, or flicked there) commits Read/Unread.
+        if (off >= arm || (v >= ROW.flickVelocity && off >= ROW.flickMinTravel)) return { action: "commit", side: "leading" };
+        return { action: "close" };
+      }
+      // Pulling further left: a full pull or a left flick commits; a reversal closes; otherwise it stays open.
+      if (v >= ROW.reverseVelocity) return { action: "close" };
+      if (-dx >= arm || (v <= -ROW.flickVelocity && -dx >= ROW.flickMinTravel)) return { action: "commit", side: "trailing" };
+      return { action: "open" };
+    }
+
     const side = off > 0 ? "leading" : "trailing";
     const dir = Math.sign(off);
     if (dir === 0) return { action: "close" };
     const travel = Math.abs(off);
-    const outward = this.vt.velocity() * dir; // >0 = still moving away from the origin
+    const outward = v * dir; // >0 = still moving away from the origin
     if (outward <= -ROW.reverseVelocity) return { action: "close" };
-    if (travel >= armDistance(this.width)) return { action: "commit", side };
+    if (travel >= arm) return { action: "commit", side };
     if (outward >= ROW.flickVelocity && travel >= ROW.flickMinTravel) return { action: "commit", side };
     if (side === "trailing" && travel >= ROW.revealSnap) return { action: "open" };
     return { action: "close" };

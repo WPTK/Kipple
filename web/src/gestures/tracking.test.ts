@@ -103,6 +103,69 @@ describe("row swipe", () => {
     expect(t.end()).toEqual({ action: "close" });
   });
 
+  describe("right swipe (read/unread) from rest, from an open panel, and as a flick", () => {
+    const rest = (dx: number, ms: number) => {
+      const t = new RowSwipe();
+      start(t, 100);
+      drag(t, dx, ms, 100);
+      return t;
+    };
+    const open = (dx: number, ms: number) => {
+      const t = new RowSwipe();
+      start(t, 100, 100, -ROW.revealWidth);
+      drag(t, dx, ms, 100);
+      return t;
+    };
+
+    it("from rest, a slow right drag commits exactly at the arm point (150 px at 375)", () => {
+      expect(rest(149, 1200).end()).toEqual({ action: "close" });
+      const t = rest(151, 1200);
+      expect(t.armed()).toBe(true);
+      expect(t.end()).toEqual({ action: "commit", side: "leading" });
+    });
+
+    it("from rest, a right flick commits from 64 px, a slow 64 px does not", () => {
+      expect(rest(70, 80).end()).toEqual({ action: "commit", side: "leading" });
+      expect(rest(70, 1200).end()).toEqual({ action: "close" });
+    });
+
+    it("from an OPEN trailing panel, any rightward drag closes it and needs no second gesture", () => {
+      // The old rule read "moved out to -84, more than 60 px" as a trailing rest and re-opened the panel.
+      expect(open(60, 900).end()).toEqual({ action: "close" });
+      expect(open(20, 900).end()).toEqual({ action: "close" });
+      expect(open(150, 900).end()).toEqual({ action: "close" }); // just past rest, still short of the arm point
+      expect(open(150, 60).end()).toEqual({ action: "close" }); // a flick that stops on the panel
+    });
+
+    it("from an open panel, pulling through to the leading side by the arm distance commits Read/Unread", () => {
+      const t = open(144 + 150, 1200);
+      expect(t.armed()).toBe(true);
+      expect(t.end()).toEqual({ action: "commit", side: "leading" });
+    });
+
+    it("an open panel is not armed by a touch that has not moved, or by a few px of jitter", () => {
+      const t = new RowSwipe();
+      start(t, 200, 100, -ROW.revealWidth);
+      expect(t.armed()).toBe(false); // resting at -144, 6 px short of the 150 px arm point
+      drag(t, -10, 400, 200);
+      expect(t.armed()).toBe(false);
+      expect(t.end()).toEqual({ action: "open" }); // stays open, and never fires Star by accident
+    });
+
+    it("an open panel commits Star only after a full further pull, and a fast reversal still closes", () => {
+      const full = new RowSwipe();
+      start(full, 300, 100, -ROW.revealWidth);
+      drag(full, -160, 900, 300);
+      expect(full.end()).toEqual({ action: "commit", side: "trailing" });
+      const rev = new RowSwipe();
+      start(rev, 300, 100, -ROW.revealWidth);
+      drag(rev, -100, 300, 300);
+      rev.move(300 - 60, 101, 320);
+      rev.move(300 - 20, 101, 330);
+      expect(rev.end()).toEqual({ action: "close" });
+    });
+  });
+
   it("rubber-bands past 60% of the row", () => {
     expect(rubberBand(200, W)).toBe(200);
     expect(rubberBand(325, W)).toBe(225 + 50);
