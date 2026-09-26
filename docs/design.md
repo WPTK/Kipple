@@ -156,7 +156,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
 28. **Form parsing is custom.**
     - The Content-Type is parsed with `mime.ParseMediaType`, ignoring parameters. Any non-multipart POST body is treated as urlencoded; `subscription/import` reads OPML instead.
     - The parser splits on `&` only, then on the **first** `=`, and keeps repeated keys **and the raw undecoded text**.
-    - `disable-tag` falls back to the raw body. NNW sends that folder id unencoded (netnewswire.md §4), so a name containing `&` or `+` would otherwise be lost.
+    - `disable-tag` uses to the raw body. NNW sends that folder id unencoded (netnewswire.md §4), so a name containing `&` or `+` would otherwise be lost.
     - *Rejected:* `r.ParseForm`.
 
 29. **Schema style.** Tables are STRICT, booleans are INTEGER with CHECKs, `*_at` columns are unix seconds, and `items.id`/`trimmed_items.id` are unix microseconds. Text fields served to clients are `NOT NULL DEFAULT ''` where the wire format needs a string.
@@ -1281,7 +1281,7 @@ Reader routes never call `r.ParseForm`.
 2. the raw value (no unescaping);
 3. the raw value through `url.PathUnescape` (which keeps `+`).
 
-**`disable-tag` raw fallback.** NNW sends `T=<token>&s=<raw tag id>`, with no re-encoding and `s` last. If no candidate matches, the handler takes the raw body text from the first `s=` up to the next `&T=`, or to the end of the body, and retries the three forms. So `News & Politics+`, split by `&` into `s=user/-/label/News ` and a stray ` Politics+` key, is still found.
+**Unencoded folder names (one shared repair, `mergeLabelPairs` in `form.go`).** NNW sends a folder id raw, with `&` and `+` unencoded (`T=<token>&s=user/-/label/News & Politics+`). Right after parsing, any pair that follows a label-carrying value (`s=`, `a=`, `r=` or `dest=` whose value starts `user/<x>/label/`) and whose key is not a known Reader API parameter (`T`, `s`, `a`, `r`, `t`, `ac`, `dest`, `i`, `n`, `xt`, `it`, `ot`, `c`, `output`, ...) is glued back onto that value with its `&`. The value is then re-decoded with `PathUnescape`: a client that leaves `&` unencoded is not form-encoding, so `+` stays literal. Because this happens in the parser, `subscription/edit` (subscribe and edit, `a=`/`r=`), `rename-tag` (`s=`, `dest=`), `disable-tag` and label streams (`s=`) all see the whole name and none can file a feed or create a folder under the truncated prefix (`News`). Limits: a name containing a literal `&<known key>=` is not recoverable, and a name with `+` but no `&` is form-decoded (`+` is a space) when it has to be created; an existing folder matching any lookup form still wins.
 
 ### 6.3 Auth and tokens
 

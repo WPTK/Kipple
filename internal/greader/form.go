@@ -25,6 +25,7 @@ const maxLoginBody = 64 << 10
 type pair struct {
 	key, val       string // QueryUnescape'd (raw text kept on an unescape error)
 	rawKey, rawVal string // exactly as sent
+	noEq           bool   // the pair had no '=' (rawVal is empty)
 }
 
 // Params is a Reader API request's parameters: the body pairs and the query
@@ -81,10 +82,62 @@ func splitPairsLimit(s string) (out []pair, ok bool) {
 		if part == "" {
 			continue
 		}
-		k, v, _ := strings.Cut(part, "=")
-		out = append(out, pair{key: unescape(k), val: unescape(v), rawKey: k, rawVal: v})
+		k, v, hasEq := strings.Cut(part, "=")
+		out = append(out, pair{key: unescape(k), val: unescape(v), rawKey: k, rawVal: v, noEq: !hasEq})
 	}
-	return out, true
+	return mergeLabelPairs(out), true
+}
+
+// knownParams are the Reader API parameter names a client may send. A pair whose
+// key is none of these, following a label-carrying value, is the tail of that
+// value (see mergeLabelPairs).
+var knownParams = map[string]bool{
+	"T": true, "s": true, "a": true, "r": true, "t": true, "ac": true, "dest": true,
+	"i": true, "n": true, "xt": true, "it": true, "ot": true, "c": true, "output": true,
+	"q": true, "client": true, "ck": true, "AppName": true, "Email": true, "Passwd": true,
+	"url": true, "quickadd": true, "sortby": true, "m": true, "nt": true, "ct": true,
+	"uid": true, "pos": true, "sort": true, "output_format": true,
+}
+
+// labelKeys are the parameters that carry a user/-/label/<name> id.
+var labelKeys = map[string]bool{"s": true, "a": true, "r": true, "dest": true}
+
+// mergeLabelPairs is the one place that repairs a folder name NetNewsWire sends
+// with '&' unencoded (design §6.2). After a label-carrying value
+// (s=, a=, r=, dest= starting user/<x>/label/), every following pair whose key is
+// not a known parameter is glued back on with the '&' that split it, and the
+// value is re-decoded with PathUnescape, which keeps '+' (a client that leaves
+// '&' unencoded is not form-encoding, so '+' is literal). Everything downstream
+// (Get, All, AllRaw) then sees the whole name, so no endpoint can file a feed or
+// create a folder under the truncated prefix. A name containing a literal
+// "&<known key>=" is not recoverable.
+func mergeLabelPairs(in []pair) []pair {
+	out := in[:0:0]
+	last := -1 // index in out of the label pair currently being extended
+	for _, e := range in {
+		if last >= 0 && !knownParams[e.key] && !knownParams[e.rawKey] {
+			tail := e.rawKey
+			if !e.noEq {
+				tail += "=" + e.rawVal
+			}
+			l := &out[last]
+			l.rawVal += "&" + tail
+			if u, err := url.PathUnescape(l.rawVal); err == nil {
+				l.val = u
+			} else {
+				l.val = l.rawVal
+			}
+			continue
+		}
+		out = append(out, e)
+		last = -1
+		if labelKeys[e.key] {
+			if _, ok := labelName(e.val); ok {
+				last = len(out) - 1
+			}
+		}
+	}
+	return out
 }
 
 func unescape(s string) string {

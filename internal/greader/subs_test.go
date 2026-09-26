@@ -418,3 +418,95 @@ func TestFeedChangedEventsCarryStringFeedID(t *testing.T) {
 	require.Equal(t, 200, w.Code)
 	requireStrings(feedChanged(), 1, "import")
 }
+
+// NNW sends folder names with '&' and '+' unencoded; every label-carrying
+// parameter must see the whole name and never create a truncated folder.
+var rawFolderNames = []string{"News & Politics+", "R&D", "A+B", "Tom & Jerry", "Café & Thé", "日本&ニュース", "Plain Name"}
+
+func folderCount(h *harness) int { return q[int](h, "SELECT count(*) FROM folders") }
+
+func TestRawLabelNamesSubscriptionEdit(t *testing.T) {
+	for _, name := range rawFolderNames {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			f := h.addFeed("https://a.example/f", "A", "")
+			before := folderCount(h)
+			id := "user/-/label/" + name
+			// Without a literal '&' the client is taken to be form-encoding, so '+' is a
+			// space in a name being created (design §6.2).
+			want := name
+			if !strings.Contains(name, "&") {
+				want = strings.ReplaceAll(name, "+", " ")
+			}
+			// edit, a= last and in the middle (before T=), then r= to go back.
+			h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s=feed/"+strconv.FormatInt(f, 10)+"&a="+id)
+			require.Equal(t, before+1, folderCount(h), "exactly one folder created")
+			require.Equal(t, 1, q[int](h, "SELECT count(*) FROM folders WHERE name = ?", want), "whole name")
+			h.post(rd+"subscription/edit", "ac=edit&s=feed/"+strconv.FormatInt(f, 10)+"&a="+id+"&T="+h.tok)
+			require.Equal(t, before+1, folderCount(h))
+			require.Equal(t, []string{want}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+			h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s=feed/"+strconv.FormatInt(f, 10)+"&r="+id)
+			require.Equal(t, []string{"Uncategorized"}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+
+			// subscribe (existing feed URL, no fetch) files it under the whole name too.
+			h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/https://a.example/f&a="+id)
+			require.Equal(t, before+1, folderCount(h))
+			require.Equal(t, []string{want}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+		})
+	}
+}
+
+func TestRawLabelNamesRenameAndDisable(t *testing.T) {
+	for _, name := range rawFolderNames {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			f := h.addFeed("https://a.example/f", "A", name)
+			h.addFolder("News")
+			h.addFolder("R")
+			h.addFolder("A")
+			h.addFolder("Tom ")
+			before := folderCount(h)
+			id := "user/-/label/" + name
+			// rename-tag: s= raw in the middle, dest= raw last (NNW order is T, s, dest).
+			h.post(rd+"rename-tag", "T="+h.tok+"&s="+id+"&dest=user/-/label/Renamed & Co+")
+			require.Equal(t, before, folderCount(h), "rename creates nothing")
+			require.Equal(t, []string{"Renamed & Co+"}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+			// and back, dest carrying the odd name.
+			h.post(rd+"rename-tag", "s=user/-/label/Renamed & Co+&T="+h.tok+"&dest="+url.QueryEscape(id))
+			require.Equal(t, before, folderCount(h))
+			require.Equal(t, []string{name}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+			// disable-tag, raw last and raw in the middle.
+			h.post(rd+"disable-tag", "T="+h.tok+"&s="+id)
+			require.Equal(t, before-1, folderCount(h))
+			require.Equal(t, 4, q[int](h, "SELECT count(*) FROM folders WHERE name IN ('News','R','A','Tom ')"), "look-alikes survive")
+			require.Equal(t, []string{"Uncategorized"}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+		})
+	}
+}
+
+func TestRawLabelStreamID(t *testing.T) {
+	h := newHarness(t)
+	f := h.addFeed("https://a.example/f", "A", "News & Politics+")
+	h.addFolder("News")
+	it := h.addItem(f, itemSeed{})
+	w := h.get(rd + "stream/items/ids?output=json&n=10&s=user/-/label/News%20&%20Politics+")
+	require.Equal(t, 200, w.Code)
+	require.Contains(t, w.Body.String(), strconv.FormatInt(it, 10))
+	w = h.get(rd + "stream/items/ids?output=json&n=10&s=" + url.QueryEscape("user/-/label/News & Politics+"))
+	require.Contains(t, w.Body.String(), strconv.FormatInt(it, 10))
+}
+
+func TestParseUserPath(t *testing.T) {
+	n, ok := parseUserPath("user/-/label/Tech", "/label/")
+	require.True(t, ok)
+	require.Equal(t, "Tech", n)
+	_, ok = parseUserPath("user/-/label/  ", "/label/")
+	require.False(t, ok)
+	_, ok = parseUserPath("user/-/state/com.google/", "/state/com.google/")
+	require.False(t, ok)
+	n, ok = parseUserPath("user/1/state/com.google/read", "/state/com.google/")
+	require.True(t, ok)
+	require.Equal(t, "read", n)
+	_, ok = parseUserPath("feed/1", "/label/")
+	require.False(t, ok)
+}
