@@ -5,18 +5,21 @@ import { createStore } from "./store";
 // `highlights`); the client draws them in titles, excerpts and the article. The matching follows the engine's
 // (internal/filter): a term is literal, a phrase is its words in order with any whitespace between them, terms
 // are lower-cased unless the rule is case sensitive, accents are dropped unless the rule keeps them (NFKD, then
-// combining marks removed), and with "whole words" the characters on each side must not be letters, digits or
-// combining marks (skipped on a side where the term itself starts or ends with a non-word character; scripts
-// written without spaces are never word characters, so a CJK term matches inside a run of text).
+// non-spacing marks (Mn) removed), and with "whole words" the characters on each side must not be letters, digits
+// or marks (skipped on a side where the term itself starts or ends with a non-word character; scripts written
+// without spaces are never word characters, so a CJK term matches inside a run of text). Each term is tried on
+// its own, and a whole-word rejection retries at the next character, exactly like the engine's containsTerm.
+// The engine only reads the first 32 KiB of an article's text and 4 KiB of any other field; so does this, so
+// what is drawn is what the rule muted.
 //
 // Nothing here builds HTML. Lists render the pieces as React text and <mark> elements; the article body is
 // changed by splitting DOM text nodes, after it was sanitized, so a term can never become markup.
 
 /** Most marks drawn in one article, so a common word in a very long piece does not stall the page. */
 export const MAX_MARKS = 300;
-/** Most characters looked at in one text node and in one article body. */
-const NODE_SCAN_CAP = 50_000;
-const BODY_SCAN_CAP = 600_000;
+/** Bytes of text the rule engine reads (internal/filter/rule.go): 32 KiB of an article body, 4 KiB of any other field. */
+export const CONTENT_SCAN_BYTES = 32 << 10;
+export const FIELD_SCAN_BYTES = 4 << 10;
 
 export type HighlightField = "title" | "author" | "content" | "url" | "category" | "feed";
 
@@ -29,7 +32,8 @@ export interface Group {
   caseSensitive: boolean;
   fold: boolean;
   wholeWord: boolean;
-  re: RegExp | null;
+  /** One expression per term: the engine checks every term by itself. */
+  res: RegExp[];
 }
 
 export type Range = readonly [number, number];
@@ -39,7 +43,7 @@ const WORD = /[\p{L}\p{N}\p{M}]/u;
 /** A word character for the whole-word check: a letter, digit or mark, except in scripts written without spaces. */
 export const isWordChar = (ch: string): boolean => WORD.test(ch) && !NO_SPACE_SCRIPT.test(ch);
 
-const MARKS = /\p{M}/gu;
+const MARKS = /\p{Mn}/gu;
 function foldChar(ch: string, caseSensitive: boolean, fold: boolean): string {
   let f = ch;
   if (!caseSensitive) f = f.toLowerCase();
@@ -50,27 +54,52 @@ const foldTerm = (t: string, g: Pick<Group, "caseSensitive" | "fold">): string =
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** One alternation for a rule's terms, longest first; whitespace inside a term matches any run of whitespace. */
-function buildRegex(terms: string[], g: Pick<Group, "caseSensitive" | "fold">): RegExp | null {
-  const parts = terms
-    .map((t) => foldTerm(t.trim(), g))
-    .filter((t) => t.length > 0)
-    .sort((a, b) => b.length - a.length)
-    .map((t) => t.split(/\s+/).map(escapeRe).join("\\s+"));
-  if (parts.length === 0) return null;
-  try {
-    return new RegExp(parts.join("|"), "gu");
-  } catch {
-    return null;
+/** One expression per term; whitespace inside a term matches any run of whitespace. */
+function buildRegexes(terms: string[], g: Pick<Group, "caseSensitive" | "fold">): RegExp[] {
+  const out: RegExp[] = [];
+  const seen = new Set<string>();
+  for (const t of terms) {
+    const f = foldTerm(t.trim(), g);
+    if (f.length === 0 || seen.has(f)) continue;
+    seen.add(f);
+    try {
+      out.push(new RegExp(f.split(/\s+/).map(escapeRe).join("\\s+"), "gu"));
+    } catch {
+      /* an unusable term is skipped */
+    }
   }
+  return out;
 }
+
+/** `text` cut to at most `max` UTF-8 bytes, on a character boundary. */
+export function clipBytes(text: string, max: number): string {
+  if (text.length * 3 <= max) return text;
+  let used = 0;
+  let i = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) as number;
+    const n = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+    if (used + n > max) break;
+    used += n;
+    i += ch.length;
+  }
+  return text.slice(0, i);
+}
+const byteLength = (s: string): number => {
+  let n = 0;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) as number;
+    n += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+  }
+  return n;
+};
 
 export function compileHighlights(rules: readonly Highlight[] | undefined): Group[] {
   const out: Group[] = [];
   for (const r of rules ?? []) {
     const g = { caseSensitive: r.case_sensitive, fold: r.fold_diacritics };
-    const re = buildRegex(r.terms, g);
-    if (!re) continue;
+    const res = buildRegexes(r.terms, g);
+    if (res.length === 0) continue;
     out.push({
       id: r.id,
       scope: r.scope,
@@ -80,7 +109,7 @@ export function compileHighlights(rules: readonly Highlight[] | undefined): Grou
       caseSensitive: r.case_sensitive,
       fold: r.fold_diacritics,
       wholeWord: r.whole_word,
-      re,
+      res,
     });
   }
   return out;
@@ -128,36 +157,41 @@ function codePointBefore(s: string, i: number): string {
 }
 const codePointAt = (s: string, i: number): string => (i < s.length ? String.fromCodePoint(s.codePointAt(i) as number) : "");
 
-/** The ranges of `text` (original offsets) that one rule marks. */
-function rangesOf(text: string, g: Group): Range[] {
-  if (!g.re) return [];
-  const f = fold(text.length > NODE_SCAN_CAP ? text.slice(0, NODE_SCAN_CAP) : text, g);
+/** The ranges of `text` (original offsets) that one rule marks, looking at the first `limit` bytes. */
+function rangesOf(text: string, g: Group, limit: number): Range[] {
+  if (g.res.length === 0) return [];
+  const f = fold(clipBytes(text, limit), g);
   const out: Range[] = [];
-  g.re.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = g.re.exec(f.s))) {
-    const start = m.index;
-    const end = start + m[0].length;
-    if (m[0].length === 0) {
-      g.re.lastIndex++;
-      continue;
+  for (const re of g.res) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(f.s))) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (m[0].length === 0) {
+        re.lastIndex++;
+        continue;
+      }
+      if (g.wholeWord) {
+        const first = codePointAt(f.s, start);
+        const last = codePointBefore(f.s, end);
+        if ((isWordChar(first) && isWordChar(codePointBefore(f.s, start))) || (isWordChar(last) && isWordChar(codePointAt(f.s, end)))) {
+          // Rejected: look again from the next character, as the engine does (not from the end of this match).
+          re.lastIndex = start + Math.max(1, first.length);
+          continue;
+        }
+      }
+      out.push([f.from[start] as number, f.to[end - 1] as number]);
     }
-    if (g.wholeWord) {
-      const first = codePointAt(f.s, start);
-      const last = codePointBefore(f.s, end);
-      if (isWordChar(first) && isWordChar(codePointBefore(f.s, start))) continue;
-      if (isWordChar(last) && isWordChar(codePointAt(f.s, end))) continue;
-    }
-    out.push([f.from[start] as number, f.to[end - 1] as number]);
   }
   return out;
 }
 
-/** All ranges the groups mark in `text`, sorted, overlaps merged. */
-export function highlightRanges(text: string, groups: readonly Group[]): Range[] {
+/** All ranges the groups mark in `text` (its first `limit` bytes), sorted, overlaps merged. */
+export function highlightRanges(text: string, groups: readonly Group[], limit: number = FIELD_SCAN_BYTES): Range[] {
   if (!text || groups.length === 0) return [];
   const all: Range[] = [];
-  for (const g of groups) all.push(...rangesOf(text, g));
+  for (const g of groups) all.push(...rangesOf(text, g, limit));
   if (all.length === 0) return [];
   all.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
   const merged: [number, number][] = [];
@@ -210,19 +244,20 @@ export function wrapMarks(root: HTMLElement, groups: readonly Group[], cap = MAX
   if (groups.length === 0) return 0;
   const doc = root.ownerDocument;
   const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const nodes: Text[] = [];
-  let chars = 0;
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+  // The engine reads the first 32 KiB of the article's text: a running byte budget across the text nodes.
+  const nodes: { t: Text; limit: number }[] = [];
+  let budget = CONTENT_SCAN_BYTES;
+  for (let n = walker.nextNode(); n && budget > 0; n = walker.nextNode()) {
     const t = n as Text;
-    if (!t.data.trim() || skipped(t, root)) continue;
-    chars += t.data.length;
-    nodes.push(t);
-    if (chars > BODY_SCAN_CAP) break;
+    if (!t.data.trim()) continue;
+    // Text in links, code and so on is not drawn, but it is part of the text the engine reads: it uses up the budget.
+    if (!skipped(t, root)) nodes.push({ t, limit: budget });
+    budget -= byteLength(clipBytes(t.data, budget));
   }
   let made = 0;
-  for (const t of nodes) {
+  for (const { t, limit } of nodes) {
     if (made >= cap) break;
-    const ranges = highlightRanges(t.data, groups);
+    const ranges = highlightRanges(t.data, groups, limit);
     if (ranges.length === 0) continue;
     const segs = segments(t.data, ranges, cap - made);
     const frag = doc.createDocumentFragment();

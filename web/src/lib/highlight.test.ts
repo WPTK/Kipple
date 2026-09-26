@@ -160,3 +160,50 @@ describe("segments", () => {
     expect(segments("abc", [])).toEqual([{ text: "abc", mark: false }]);
   });
 });
+
+// Parity with the Go engine (internal/filter/text.go, eval.go): the same text must be marked that the rule muted.
+describe("parity with the rule engine (review finding 10)", () => {
+  it("after a whole-word rejection it retries at the next character, like containsTerm", () => {
+    // 'new york' is rejected (glued to the 'a'), but 'york' on its own is a whole word.
+    expect(marked("anew york", ["new york", "york"])).toEqual(["york"]);
+    // The longer term is rejected on its right edge; the shorter one at the same start still counts.
+    expect(marked("new yorker", ["new york", "new"])).toEqual(["new"]);
+    // A rejected first occurrence does not hide a later good one.
+    expect(marked("catalog cat", ["cat"])).toEqual(["cat"]);
+  });
+
+  it("folds only non-spacing marks (Mn), as the engine does: a spacing mark keeps its letter a whole word", () => {
+    // U+0915 + U+093E (Mc): the 'ka' letter followed by a vowel sign is one word; the bare letter must not match inside it.
+    expect(marked("का", ["क"])).toEqual([]);
+    expect(marked("का", ["क"], { whole_word: false })).toEqual(["क"]);
+    // Mn accents still fold.
+    expect(marked("Un café", ["cafe"])).toEqual(["café"]);
+  });
+
+  it("scans the first 32 KiB of an article body, like the engine does for text rules", () => {
+    const g = compileHighlights([rule(["needle"])]);
+    const body = (words: number) => {
+      const p = document.createElement("div");
+      p.innerHTML = `<p>${"x ".repeat(words)}needle</p>`;
+      return p;
+    };
+    const past = body(16384); // 32768 bytes of filler, then the word
+    expect(wrapMarks(past, g)).toBe(0);
+    const inside = body(16384 - 10);
+    expect(wrapMarks(inside, g)).toBe(1);
+  });
+
+  it("counts the 32 KiB in bytes across text nodes, so CJK filler uses it up three times as fast", () => {
+    const g = compileHighlights([rule(["needle"])]);
+    const div = document.createElement("div");
+    div.innerHTML = `<p>${"中".repeat(11000)}</p><p>needle</p>`; // 33000 bytes before the word
+    expect(wrapMarks(div, g)).toBe(0);
+  });
+
+  it("scans only 4 KiB of a title-like field", () => {
+    const text = "x ".repeat(2100) + "needle"; // 4200 bytes before the word
+    expect(marked(text, ["needle"])).toEqual([]);
+    expect(marked("x ".repeat(2000) + "needle", ["needle"])).toEqual(["needle"]);
+  });
+});
+
