@@ -306,7 +306,7 @@ type ItemFeed struct {
 // Fulltext is an item's extraction state (design §7.5).
 type Fulltext struct {
 	Mode      *int    `json:"mode"`      // items.fulltext_mode: 1, 0 or null (follow the feed)
-	Effective int     `json:"effective"` // COALESCE(mode, feeds.fulltext)
+	Effective int     `json:"effective"` // EffectiveFulltext(mode, feeds.fulltext, fetch.fulltext_all)
 	Available bool    `json:"available"` // a successful extraction is stored
 	Error     *string `json:"error"`
 }
@@ -333,7 +333,7 @@ func (d *DB) GetItem(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 	var ftRow sql.NullInt64
 	err = d.reader.QueryRowContext(ctx, `SELECT `+cardCols+`, COALESCE(c.content_html, ''), c.enclosures_json,
 			f.id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url,
-			i.fulltext_mode, COALESCE(i.fulltext_mode, f.fulltext), ft.item_id, ft.content_html, ft.error
+			i.fulltext_mode, `+FulltextModeSQL("i.fulltext_mode", "f.fulltext", d.FulltextAll(ctx))+`, ft.item_id, ft.content_html, ft.error
 		FROM items i LEFT JOIN item_content c ON c.item_id = i.id JOIN feeds f ON f.id = i.feed_id
 		LEFT JOIN item_fulltext ft ON ft.item_id = i.id WHERE i.id = ?`, id).
 		Scan(&det.ID, &det.FeedID, &det.Title, &det.URL, &det.Author, &text, &img, &det.PublishedAt, &det.SortAt, &read, &starred, &det.WordCount, &origin, &feedTitle,
@@ -380,14 +380,15 @@ func (d *DB) getStub(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 	var text string
 	var img, enc, origin sql.NullString
 	var read int
+	var feedFT int
 	var mode sql.NullInt64
 	err = d.reader.QueryRowContext(ctx, `SELECT t.id, t.feed_id, c.title, c.url, c.author, substr(c.content_text, 1, 1200), c.image_url,
 			c.published_at, c.sort_at, t.read, c.word_count, c.origin_title, c.content_html, c.enclosures_json,
-			f.id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url, c.fulltext_mode
+			f.id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url, c.fulltext_mode, f.fulltext
 		FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id JOIN feeds f ON f.id = t.feed_id
 		WHERE t.id = ? AND t.trimmed_at >= ?`, id, cutoff).
 		Scan(&det.ID, &det.FeedID, &det.Title, &det.URL, &det.Author, &text, &img, &det.PublishedAt, &det.SortAt, &read, &det.WordCount, &origin,
-			&det.ContentHTML, &enc, &det.Feed.ID, &det.Feed.Title, &det.Feed.SiteURL, &mode)
+			&det.ContentHTML, &enc, &det.Feed.ID, &det.Feed.Title, &det.Feed.SiteURL, &mode, &feedFT)
 	if errors.Is(err, sql.ErrNoRows) {
 		return det, false, nil
 	}
@@ -399,8 +400,13 @@ func (d *DB) getStub(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 	if mode.Valid {
 		m := int(mode.Int64)
 		det.Fulltext.Mode = &m
-		det.Fulltext.Effective = int(mode.Int64)
 	}
+	var stubMode *int
+	if mode.Valid {
+		m := int(mode.Int64)
+		stubMode = &m
+	}
+	det.Fulltext.Effective = EffectiveFulltext(stubMode, feedFT == 1, d.FulltextAll(ctx))
 	det.finish(text, img, enc)
 	return det, true, nil
 }

@@ -58,7 +58,7 @@ func (c *call) subscriptionList() {
 		c.serverError("subscription list", err)
 		return
 	}
-	icons := c.a.db.BoolSetting(ctx, "greader.icon_urls", false) && c.a.opt.PublicURL != ""
+	icons := c.a.db.BoolSetting(ctx, "greader.icon_urls", true) && c.a.opt.PublicURL != ""
 	pub := strings.TrimRight(c.a.opt.PublicURL, "/")
 	out := make([]subscriptionJSON, 0, len(subs))
 	for _, s := range subs {
@@ -90,7 +90,7 @@ func (c *call) tagList() {
 
 // icon serves feed icons, unauthenticated, only while greader.icon_urls is on.
 func (c *call) icon(rest string) {
-	if !c.a.db.BoolSetting(c.r.Context(), "greader.icon_urls", false) {
+	if !c.a.db.BoolSetting(c.r.Context(), "greader.icon_urls", true) {
 		c.text(http.StatusNotFound, "Not Found")
 		return
 	}

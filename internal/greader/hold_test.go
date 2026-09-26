@@ -1,6 +1,7 @@
 package greader
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"testing"
@@ -246,4 +247,43 @@ func TestHoldMarkAllAsReadSkipsHeldItems(t *testing.T) {
 	require.EqualValues(t, 1, read(seen), "visible item is marked")
 	require.EqualValues(t, 0, read(held), "a held item the client cannot have seen stays unread")
 	require.EqualValues(t, 1, read(other), "an old full-text item is marked")
+}
+
+// fetch.fulltext_all makes every feed's new items hold-eligible and serves the
+// extracted text for them; a per-item mode of 0 still wins. It flips at once.
+func TestFulltextAllHoldAndContent(t *testing.T) {
+	h := newHarness(t)
+	plain := h.addFeed("https://plain.example/f", "P", "")
+	a := h.crawledAgo(plain, 2*time.Second, itemSeed{Title: "a", HTML: "<p>feed body of a</p>"})
+	off := h.crawledAgo(plain, 3*time.Second, itemSeed{Title: "off"})
+	require.NoError(t, execSQL(h, "UPDATE items SET fulltext_mode = 0 WHERE id = ?", off))
+	set := func(v any) {
+		require.NoError(t, h.api.db.SetSettings(context.Background(), map[string]any{"fetch.fulltext_all": v}))
+	}
+
+	require.Equal(t, []int64{a, off}, h.listIDs(""))
+	require.EqualValues(t, 2, h.unreadTotal())
+
+	set(true)
+	require.Equal(t, []int64{off}, h.listIDs(""), "pending item of a feed that is off is held while the switch is on")
+	require.EqualValues(t, 1, h.unreadTotal())
+	require.Empty(t, h.contentIDs(a), "held items are absent by id too")
+
+	// Once the text is stored the hold ends and the text is served.
+	require.NoError(t, execSQL(h, "INSERT INTO item_fulltext (item_id, content_html, content_text, extracted_at) VALUES (?, '<p>FULL</p>', 'FULL', 1)", a))
+	require.Equal(t, []int64{a, off}, h.listIDs(""))
+	w := h.post(rd+"stream/items/contents", contentsBody(FormatDecimal(a)))
+	var env struct{ Items []itemJSON }
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Equal(t, "<p>FULL</p>", env.Items[0].Summary.Content)
+
+	require.NoError(t, execSQL(h, "INSERT INTO item_fulltext (item_id, content_html, content_text, extracted_at) VALUES (?, '<p>FULLOFF</p>', 'x', 1)", off))
+	w = h.post(rd+"stream/items/contents", contentsBody(FormatDecimal(off)))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.NotEqual(t, "<p>FULLOFF</p>", env.Items[0].Summary.Content, "item override 0 wins over the switch")
+
+	set(false)
+	w = h.post(rd+"stream/items/contents", contentsBody(FormatDecimal(a)))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Contains(t, env.Items[0].Summary.Content, "feed body of a", "back to feed content at once")
 }

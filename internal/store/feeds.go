@@ -114,7 +114,7 @@ func (d *DB) feedSnapshots(ctx context.Context, set FetchSettings, where string,
 		s.Enabled = enabled == 1
 		s.ETag, s.LastModified, s.BodyHash, s.HTTPAuth = etag.String, lm.String, bh.String, auth.String
 		s.IgnoreHTTPCache, s.DisableHTTP2, s.AllowInsecureTLS, s.AllowPrivateNet = ignore == 1, h2 == 1, insecure == 1, private == 1
-		s.RekeyPending, s.Fulltext = rekey == 1, ft == 1
+		s.RekeyPending, s.Fulltext = rekey == 1, EffectiveFulltext(nil, ft == 1, set.FulltextAll) == 1
 		s.Redirect.To, s.Redirect.Kind = rto.String, rkind.String
 		s.IntervalMinutes = int(interval.Int64)
 		s.Retention = -1

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -92,6 +93,16 @@ func TestPatchSettingsValidation(t *testing.T) {
 		{"ua mode enum", `{"fetch.user_agent_mode":"sometimes"}`, "fetch.user_agent_mode"},
 		{"layouts not object", `{"ui.layouts":[1]}`, "ui.layouts"},
 		{"layouts non-string value", `{"ui.layouts":{"all":5}}`, "ui.layouts"},
+		{"fulltext_all string", `{"fetch.fulltext_all":"yes"}`, "fetch.fulltext_all"},
+		{"favorites not a list", `{"library.favorites":{"t":"feed","id":"1"}}`, "library.favorites"},
+		{"favorites bad kind", `{"library.favorites":[{"t":"tag","id":"1"}]}`, "library.favorites"},
+		{"favorites numeric id", `{"library.favorites":[{"t":"feed","id":1}]}`, "library.favorites"},
+		{"favorites non-digit id", `{"library.favorites":[{"t":"feed","id":"1a"}]}`, "library.favorites"},
+		{"favorites empty id", `{"library.favorites":[{"t":"feed","id":""}]}`, "library.favorites"},
+		{"favorites extra key", `{"library.favorites":[{"t":"feed","id":"1","x":1}]}`, "library.favorites"},
+		{"favorites missing key", `{"library.favorites":[{"t":"feed"}]}`, "library.favorites"},
+		{"favorites duplicate", `{"library.favorites":[{"t":"feed","id":"1"},{"t":"feed","id":"1"}]}`, "library.favorites"},
+		{"favorites not objects", `{"library.favorites":["feed:1"]}`, "library.favorites"},
 		{"valid plus invalid is all-or-nothing", `{"ui.theme":"dark","retention.restore_days":999}`, "retention.restore_days"},
 		{"empty object", `{}`, ""},
 		{"not an object", `[1]`, ""},
@@ -154,6 +165,10 @@ func TestPatchSettingsAccepted(t *testing.T) {
 		{"fetch.user_agent_mode", `"browser_always"`, "browser_always"},
 		{"ui.mark_read_on_scroll", `true`, true},
 		{"ui.layouts", `{"all":"cards","feed:3":"list"}`, map[string]any{"all": "cards", "feed:3": "list"}},
+		{"fetch.fulltext_all", `true`, true},
+		{"greader.icon_urls", `false`, false},
+		{"library.favorites", `[]`, []any{}},
+		{"library.favorites", `[{"t":"folder","id":"2"},{"t":"feed","id":"2"},{"t":"feed","id":"17"}]`, []any{map[string]any{"t": "folder", "id": "2"}, map[string]any{"t": "feed", "id": "2"}, map[string]any{"t": "feed", "id": "17"}}},
 	} {
 		t.Run(tc.key+"="+tc.body, func(t *testing.T) {
 			h := newHarness(t)
@@ -481,4 +496,45 @@ func TestImgModeCacheFollowsPatch(t *testing.T) {
 	code, _, _ = h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":null}`)
 	require.Equal(t, 200, code)
 	require.Equal(t, "http_only", h.srv.ImgMode())
+}
+
+func TestFavoritesLimit(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	build := func(n int) string {
+		var b strings.Builder
+		b.WriteString(`{"library.favorites":[`)
+		for i := 0; i < n; i++ {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			fmt.Fprintf(&b, `{"t":"feed","id":"%d"}`, i+1)
+		}
+		b.WriteString(`]}`)
+		return b.String()
+	}
+	code, _, _ := h.api(c, "PATCH", "/api/settings", build(500))
+	require.Equal(t, http.StatusOK, code)
+	code, _, _ = h.api(c, "PATCH", "/api/settings", build(501))
+	require.Equal(t, http.StatusBadRequest, code)
+}
+
+func TestNewSettingDefaultsAndBootstrap(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	_, out, _ := h.api(c, "GET", "/api/settings", "")
+	v := vals(out)
+	require.Equal(t, true, v["greader.icon_urls"], "icons are sent to sync apps unless turned off")
+	require.Equal(t, false, v["fetch.fulltext_all"])
+	require.Equal(t, []any{}, v["library.favorites"])
+	_, boot, _ := h.api(c, "GET", "/api/bootstrap", "")
+	bs := boot["settings"].(map[string]any)
+	require.Equal(t, []any{}, bs["library.favorites"])
+	require.Equal(t, false, bs["fetch.fulltext_all"])
+	require.Equal(t, true, bs["greader.icon_urls"])
+
+	// A stored row (from before the default flipped) still wins.
+	h.exec("INSERT INTO settings (key, value) VALUES ('greader.icon_urls', 'false')")
+	_, out, _ = h.api(c, "GET", "/api/settings", "")
+	require.Equal(t, false, vals(out)["greader.icon_urls"])
 }

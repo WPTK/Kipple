@@ -10,6 +10,9 @@ Phase 2 (reading UI backend) so far.
 
 ### Added
 
+- Setting `fetch.fulltext_all` ("Fetch the full article for every feed", group Library, Settings screen, default off): every new article of every feed is extracted, whatever the feed's own full-text flag says. It needs no schema change: an item's effective full-text mode is now `COALESCE(items.fulltext_mode, CASE WHEN fetch.fulltext_all THEN 1 ELSE feeds.fulltext END)`, computed in one place (`store.EffectiveFulltext` / `store.FulltextModeSQL`) for the ingest pick, the guarded save, `POST /api/items/{id}/fulltext`, item detail, the Reader API hold and content, and bootstrap. Flipping it takes effect at once, without a restart, and never backfills old items (they extract on demand when opened). A per-article mode of on or off still wins, and a feed's own flag being off does not opt it out. Bootstrap feeds gain `fulltext_effective` (the feed flag, or true while the switch is on); `fulltext` stays the feed's own flag.
+- Setting `library.favorites` (hidden, group Library, default `[]`): the sidebar favorites, stored server-side as an array of at most 500 `{"t":"folder"|"feed","id":"<digits>"}` objects, strictly validated (shape, kind, digit ids, no duplicates). Returned by `GET /api/settings` and bootstrap; a deleted folder or feed is dropped from it in the same transaction.
+
 - Web UI: five list layouts (Magazine, Cards, Compact, Inbox, Headlines) with per-device, per-feed and per-folder choice; iOS Mail-style row swipes, long-press menu, swipe back, pull to refresh, a 15-second merging undo toast, and a full keymap with a shortcuts overlay.
 - Web UI: click-to-load YouTube and Vimeo embeds, in-article footnote scrolling, newest/oldest order toggle, previous/next feed buttons.
 - Web UI: settings screen rendered from the API metadata, the "Aa" reading menu (theme, font, size, density), an accessibility section (text size, easy-to-read font, reading spacing, reduce motion, large targets, read aloud, prefers-contrast and forced-colors support), and all bundled fonts.
@@ -112,6 +115,7 @@ Phase 2 (reading UI backend) so far.
 
 ### Changed
 
+- `greader.icon_urls` ("Send feed icons to sync apps") now defaults to ON. Existing databases have no stored row for it, so they pick the new default up at once (sync apps receive `iconUrl` once `KIPPLE_PUBLIC_URL` is set, and the unauthenticated icon endpoint is served); an explicitly stored `false` stays off. No migration.
 - Article HTML served to the web UI goes through one serve-time pass (`sanitize.ServeHTML`): links open in a
   new tab with `rel="noopener noreferrer"` and lose tracking parameters (new setting `links.strip_tracking`,
   default on; card and detail `url` too), ids and in-page anchors get a `kp-` prefix, YouTube and Vimeo iframes become

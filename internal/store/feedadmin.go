@@ -509,8 +509,10 @@ func (d *DB) DeleteFolder(ctx context.Context, id int64) (moved []int64, err err
 			return err
 		}
 		rows.Close()
-		_, err = tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ?", id)
-		return err
+		if _, err = tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ?", id); err != nil {
+			return err
+		}
+		return dropFavorite(ctx, tx, FavFolder, id)
 	})
 	return moved, err
 }

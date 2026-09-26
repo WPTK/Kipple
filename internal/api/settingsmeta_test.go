@@ -149,3 +149,32 @@ func TestSettingHelpTexts(t *testing.T) {
 	require.Equal(t, "Only the newest N articles per feed are kept, read or unread. Starred articles are always kept.", text["retention.default"])
 	require.Equal(t, "Used for daily statistics and the nightly maintenance job.", text["tz"])
 }
+
+func TestNewSettingsMetadata(t *testing.T) {
+	h := newHarness(t)
+	_, out, _ := h.api(h.login(), "GET", "/api/settings", "")
+	by := map[string]map[string]any{}
+	for _, x := range out["settings"].([]any) {
+		m := x.(map[string]any)
+		by[m["key"].(string)] = m
+	}
+	ft := by["fetch.fulltext_all"]
+	require.Equal(t, "Fetch the full article for every feed", ft["label"])
+	require.Equal(t, "library", ft["group"])
+	require.Equal(t, "settings", ft["surface"])
+	require.Equal(t, "bool", ft["kind"])
+	require.Equal(t, false, ft["default"])
+	require.Contains(t, ft["description"], "bandwidth")
+	require.Contains(t, ft["description"], "fall back")
+	fav := by["library.favorites"]
+	require.Equal(t, "library", fav["group"])
+	require.Equal(t, "hidden", fav["surface"])
+	require.Equal(t, "json", fav["kind"])
+	require.Equal(t, []any{}, fav["default"])
+	require.Equal(t, []any{}, fav["value"])
+	require.NotEmpty(t, fav["label"])
+	require.NotEmpty(t, fav["description"])
+	icons := by["greader.icon_urls"]
+	require.Equal(t, true, icons["default"])
+	require.Equal(t, true, icons["value"])
+}

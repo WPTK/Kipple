@@ -27,6 +27,7 @@ type FetchSettings struct {
 	UserAgent        string // fetch.user_agent, default "": optional custom UA that replaces the built-in browser string
 	UAMode           string // fetch.user_agent_mode, default UAModeOnFailure
 	HonorTTL         bool   // fetch.honor_publisher_ttl, default true
+	FulltextAll      bool   // fetch.fulltext_all, default false
 }
 
 // LoadFetchSettings reads the fetch-related settings through q.
@@ -38,6 +39,7 @@ func LoadFetchSettings(ctx context.Context, q Querier) FetchSettings {
 		UserAgent:        settingString(ctx, q, "fetch.user_agent", ""),
 		UAMode:           settingString(ctx, q, "fetch.user_agent_mode", UAModeOnFailure),
 		HonorTTL:         settingBool(ctx, q, "fetch.honor_publisher_ttl", true),
+		FulltextAll:      settingBool(ctx, q, SettingFulltextAll, false),
 	}
 }
 
@@ -91,6 +93,9 @@ func settingString(ctx context.Context, q Querier, key, def string) string {
 // SetSettings writes the given overrides in one transaction: a nil value
 // deletes the row (back to the default). Validation is the caller's job.
 func (d *DB) SetSettings(ctx context.Context, set map[string]any) error {
+	if _, ok := set[SettingFulltextAll]; ok {
+		defer d.ftAll.invalidate() // after the commit, whatever its outcome
+	}
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		for k, v := range set {
 			if v == nil {

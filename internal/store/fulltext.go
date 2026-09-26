@@ -14,7 +14,7 @@ type FulltextItem struct {
 	ID, FeedID int64
 	URL        string
 	Mode       *int // items.fulltext_mode
-	Effective  int  // COALESCE(mode, feeds.fulltext)
+	Effective  int  // EffectiveFulltext(mode, feeds.fulltext, fetch.fulltext_all)
 
 	// UserAgent is resolved for the feed exactly as a feed fetch resolves it
 	// (per-feed override, fetch.user_agent_mode, the remembered browser fallback,
@@ -40,12 +40,12 @@ func (d *DB) GetFulltextItem(ctx context.Context, id int64) (it FulltextItem, ok
 	var mode sql.NullInt64
 	var ua, html, ferr, eclass sql.NullString
 	var row, words, attempted sql.NullInt64
-	var priv, insecure, noH2, uaFallback int
-	err = d.reader.QueryRowContext(ctx, `SELECT i.id, i.feed_id, i.url, i.fulltext_mode, COALESCE(i.fulltext_mode, f.fulltext),
+	var priv, insecure, noH2, uaFallback, feedFT int
+	err = d.reader.QueryRowContext(ctx, `SELECT i.id, i.feed_id, i.url, i.fulltext_mode, f.fulltext,
 			f.user_agent, f.allow_private_net, f.allow_insecure_tls, f.disable_http2, f.ua_fallback,
 			ft.item_id, ft.content_html, ft.error, ft.word_count, ft.error_class, ft.extracted_at
 		FROM items i JOIN feeds f ON f.id = i.feed_id LEFT JOIN item_fulltext ft ON ft.item_id = i.id WHERE i.id = ?`, id).
-		Scan(&it.ID, &it.FeedID, &it.URL, &mode, &it.Effective, &ua, &priv, &insecure, &noH2, &uaFallback, &row, &html, &ferr, &words, &eclass, &attempted)
+		Scan(&it.ID, &it.FeedID, &it.URL, &mode, &feedFT, &ua, &priv, &insecure, &noH2, &uaFallback, &row, &html, &ferr, &words, &eclass, &attempted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return it, false, nil
 	}
@@ -56,7 +56,9 @@ func (d *DB) GetFulltextItem(ctx context.Context, id int64) (it FulltextItem, ok
 		m := int(mode.Int64)
 		it.Mode = &m
 	}
-	it.UserAgent, it.RetryUserAgent = ResolveUserAgent(d.FetchSettings(ctx), strings.TrimSpace(ua.String), uaFallback == 1)
+	set := d.FetchSettings(ctx)
+	it.Effective = EffectiveFulltext(it.Mode, feedFT == 1, set.FulltextAll)
+	it.UserAgent, it.RetryUserAgent = ResolveUserAgent(set, strings.TrimSpace(ua.String), uaFallback == 1)
 	it.AllowPrivateNet, it.AllowInsecureTLS, it.NoHTTP2 = priv == 1, insecure == 1, noH2 == 1
 	it.HasRow, it.HTML, it.Error, it.Words = row.Valid, html.String, ferr.String, words.Int64
 	it.ErrorTransient, it.AttemptedAt = eclass.String == "transient", attempted.Int64
@@ -110,7 +112,7 @@ func (d *DB) SaveFulltext(ctx context.Context, id, now int64, s FulltextSave) er
 
 // SaveFulltextIfURL is SaveFulltext for a background extraction: it writes only
 // while the item still exists with the given URL and its effective full-text
-// mode (COALESCE(items.fulltext_mode, feeds.fulltext)) is still 1, checked in
+// mode (EffectiveFulltext) is still 1, checked in
 // the same transaction as the write. A result for a page the item no longer
 // points at, or for an item whose full text was switched off meanwhile, is
 // dropped. It reports whether a row was written.
@@ -121,22 +123,23 @@ func (d *DB) SaveFulltextIfURL(ctx context.Context, id int64, url string, now in
 // itemStillWanted is the WHERE of a guarded save: the item exists and, when
 // onlyURL is set, still has that URL and full text still on. ?N is the
 // placeholder index of onlyURL.
-func itemStillWanted(n string) string {
-	return "EXISTS (SELECT 1 FROM items i JOIN feeds f ON f.id = i.feed_id WHERE i.id = ?1 AND (" + n + " = '' OR (i.url = " + n + " AND COALESCE(i.fulltext_mode, f.fulltext) = 1)))"
+func itemStillWanted(n string, all bool) string {
+	return "EXISTS (SELECT 1 FROM items i JOIN feeds f ON f.id = i.feed_id WHERE i.id = ?1 AND (" + n + " = '' OR (i.url = " + n + " AND " + FulltextModeSQL("i.fulltext_mode", "f.fulltext", all) + " = 1)))"
 }
 
 func (d *DB) saveFulltext(ctx context.Context, id, now int64, s FulltextSave, onlyURL string) (written bool, err error) {
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		all := txFulltextAll(ctx, tx) // read in the same transaction as the guarded write
 		var res sql.Result
 		var err error
 		if s.Error != "" {
 			res, err = tx.ExecContext(ctx, `INSERT INTO item_fulltext (item_id, extracted_at, error, error_class)
-				SELECT ?1, ?2, ?3, ?4 WHERE `+itemStillWanted("?5")+`
+				SELECT ?1, ?2, ?3, ?4 WHERE `+itemStillWanted("?5", all)+`
 				ON CONFLICT (item_id) DO UPDATE SET error = excluded.error, extracted_at = excluded.extracted_at, error_class = excluded.error_class
 				WHERE item_fulltext.content_html IS NULL`, id, now, s.Error, errorClass(s.ErrorTransient), onlyURL)
 		} else {
 			res, err = tx.ExecContext(ctx, `INSERT INTO item_fulltext (item_id, content_html, content_text, word_count, image_url, source_url, extracted_at, error, error_class)
-				SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL WHERE `+itemStillWanted("?8")+`
+				SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL WHERE `+itemStillWanted("?8", all)+`
 				ON CONFLICT (item_id) DO UPDATE SET content_html = excluded.content_html, content_text = excluded.content_text,
 					word_count = excluded.word_count, image_url = excluded.image_url, source_url = excluded.source_url,
 					extracted_at = excluded.extracted_at, error = NULL, error_class = NULL`,

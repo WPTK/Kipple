@@ -511,3 +511,33 @@ func TestDuplicateItemsInADocumentExtractTheStoredURLOnce(t *testing.T) {
 	require.Equal(t, []string{"https://art.test/same"}, calls)
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM items WHERE feed_id = ? AND url = 'https://art.test/same'", id))
 }
+
+// fetch.fulltext_all extracts the new items of a feed whose own flag is off,
+// takes effect on the next fetch without a restart, and never backfills.
+func TestFulltextAllSwitchAppliesToNewItemsOnly(t *testing.T) {
+	r := newRig(t, Options{})
+	srv := newFTServer(t, nil)
+	srv.body.Store(ftFeed(srv.URL, 1, 2))
+	id := r.add(srv.URL+"/f", nil) // feed fulltext = 0
+
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	require.NotContains(t, r.lastNote(id), "fulltext", "switch off, feed off: nothing extracted")
+	require.EqualValues(t, 0, r.num("SELECT count(*) FROM item_fulltext"))
+
+	require.NoError(t, r.db.SetSettings(context.Background(), map[string]any{"fetch.fulltext_all": true}))
+	srv.body.Store(ftFeed(srv.URL, 1, 2, 3))
+	r.clk.Advance(31 * time.Minute)
+	r.waitEvents("fetch.done", 2)
+	r.waitRows(id, 1, 0)
+	require.Equal(t, 1, srv.count("/a/3"))
+	require.Equal(t, 0, srv.count("/a/1"), "old items are not backfilled")
+
+	// Switching it off again stops extraction of the next new item.
+	require.NoError(t, r.db.SetSettings(context.Background(), map[string]any{"fetch.fulltext_all": false}))
+	srv.body.Store(ftFeed(srv.URL, 1, 2, 3, 4))
+	r.clk.Advance(31 * time.Minute)
+	r.waitEvents("fetch.done", 3)
+	require.Equal(t, 0, srv.count("/a/4"))
+	require.EqualValues(t, 1, r.num("SELECT count(*) FROM item_fulltext"))
+}

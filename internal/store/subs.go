@@ -358,8 +358,10 @@ func removeFeed(ctx context.Context, tx *sql.Tx, id int64, archiveStarred bool) 
 			}
 		}
 	}
-	_, err := tx.ExecContext(ctx, "DELETE FROM feeds WHERE id = ?", id)
-	return err
+	if _, err := tx.ExecContext(ctx, "DELETE FROM feeds WHERE id = ?", id); err != nil {
+		return err
+	}
+	return dropFavorite(ctx, tx, FavFeed, id)
 }
 
 func ensureArchiveFeed(ctx context.Context, tx *sql.Tx) (int64, error) {
@@ -431,7 +433,7 @@ func (d *DB) UnreadCounts(ctx context.Context, holdCut int64) ([]UnreadRow, erro
 	held := ""
 	var args []any
 	if holdCut > 0 {
-		held = " AND NOT " + HeldSQL
+		held = " AND NOT " + HeldSQL(d.FulltextAll(ctx))
 		args = append(args, sql.Named("hold_cut", holdCut))
 	}
 	rows, err := d.reader.QueryContext(ctx, `

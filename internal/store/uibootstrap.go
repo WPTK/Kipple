@@ -20,7 +20,9 @@ var DefaultSettings = map[string]any{
 	"tz":                            "America/New_York",
 	"stats.api_single_read_is_open": false,
 	"imgproxy.mode":                 "http_only",
-	"greader.icon_urls":             false,
+	"greader.icon_urls":             true,
+	"fetch.fulltext_all":            false,
+	"library.favorites":             []any{},
 	"links.strip_tracking":          true,
 
 	// Named by design §2.2 but not yet read by any code (greader/ui phases).
@@ -99,17 +101,20 @@ func (d *DB) UIFolders(ctx context.Context) ([]UIFolder, error) {
 // UIFeed is a feed as GET /api/bootstrap lists it. Status is the disabled
 // reason, "failing" while consecutive_failures > 0, else "ok".
 type UIFeed struct {
-	ID              int64   `json:"id,string"`
-	FolderID        int64   `json:"folder_id,string"`
-	Title           string  `json:"title"`
-	SiteURL         string  `json:"site_url"`
-	Icon            *string `json:"icon"`
-	Unread          int64   `json:"unread"`
-	Status          string  `json:"status"`
-	Fulltext        bool    `json:"fulltext"`
-	Retention       *int64  `json:"retention"`
-	IntervalMinutes *int64  `json:"interval_minutes"`
-	IsArchive       bool    `json:"is_archive"`
+	ID       int64   `json:"id,string"`
+	FolderID int64   `json:"folder_id,string"`
+	Title    string  `json:"title"`
+	SiteURL  string  `json:"site_url"`
+	Icon     *string `json:"icon"`
+	Unread   int64   `json:"unread"`
+	Status   string  `json:"status"`
+	Fulltext bool    `json:"fulltext"` // the feed's own flag (what the feed dialog edits)
+	// FulltextEffective is what new items of this feed get: the feed flag, or true
+	// while fetch.fulltext_all is on (items may still override it one by one).
+	FulltextEffective bool   `json:"fulltext_effective"`
+	Retention         *int64 `json:"retention"`
+	IntervalMinutes   *int64 `json:"interval_minutes"`
+	IsArchive         bool   `json:"is_archive"`
 	// StarredCount is what the delete confirm dialog shows: starred items move to
 	// the archive feed unless the user chooses to delete them too.
 	StarredCount int64 `json:"starred_count"`
@@ -123,6 +128,7 @@ func (d *DB) UIFeeds(ctx context.Context, env StatusEnv) ([]UIFeed, error) {
 
 // uiFeeds runs the feed list query with a WHERE condition.
 func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...any) ([]UIFeed, error) {
+	all := d.FulltextAll(ctx)
 	rows, err := d.reader.QueryContext(ctx, `
 		SELECT f.id, f.folder_id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url, fi.hash,
 		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes,
@@ -155,6 +161,7 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 		f.Status = FeedStatus(StatusRow{DisabledReason: strp(reason), Enabled: enabled == 1, ConsecutiveFailures: failures,
 			RedirectKind: strp(rKind), RedirectTo: strp(rTo), LastNewItemsAt: lastNew}, env.HostUntil[host.String], env.Now)
 		f.Fulltext = fulltext == 1
+		f.FulltextEffective = EffectiveFulltext(nil, f.Fulltext, all) == 1
 		f.Retention, f.IntervalMinutes = intp(retention), intp(interval)
 		out = append(out, f)
 	}

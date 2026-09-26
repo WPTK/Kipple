@@ -1037,11 +1037,11 @@ func TestBootstrap(t *testing.T) {
 	fa, fb := feeds[0].(map[string]any), feeds[1].(map[string]any)
 	require.Equal(t, map[string]any{
 		"id": sid(a), "folder_id": "1", "title": "A", "site_url": "https://x.example/", "icon": "/api/feeds/" + sid(a) + "/icon?h=abc123",
-		"unread": float64(1), "status": "ok", "fulltext": false, "retention": nil, "interval_minutes": nil, "is_archive": false, "starred_count": float64(1),
+		"unread": float64(1), "status": "ok", "fulltext": false, "fulltext_effective": false, "retention": nil, "interval_minutes": nil, "is_archive": false, "starred_count": float64(1),
 	}, fa)
 	require.Equal(t, map[string]any{
 		"id": sid(b), "folder_id": sid(fo), "title": "Bee", "site_url": "https://x.example/", "icon": nil,
-		"unread": float64(2), "status": "erroring", "fulltext": true, "retention": float64(100), "interval_minutes": float64(60), "is_archive": false, "starred_count": float64(0),
+		"unread": float64(2), "status": "erroring", "fulltext": true, "fulltext_effective": true, "retention": float64(100), "interval_minutes": float64(60), "is_archive": false, "starred_count": float64(0),
 	}, fb)
 
 	require.Equal(t, []any{map[string]any{"id": "42", "kind": "manual", "done": float64(1), "total": float64(3), "new_items": float64(0), "errors": float64(0)}}, body["runs"])

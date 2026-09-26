@@ -213,6 +213,11 @@ var settingDefs = []settingDef{
 	{Key: "retention.restore_days", Label: "Days you can restore removed articles", Description: "How long a removed article can be brought back. Zero turns this off.",
 		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(store.MaxRestoreDays), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, store.MaxRestoreDays)},
 
+	{Key: "fetch.fulltext_all", Label: "Fetch the full article for every feed", Description: "Download the page of each new article and show its full text, whatever a feed's own setting says. This uses a little more bandwidth and time on each refresh. Feeds that block extraction fall back to the feed's own content. Articles already saved are not changed; you can still turn full text on or off for a single article.",
+		Group: groupLibrary, Kind: "bool", Surface: surfaceSettings, check: boolVal},
+	{Key: "library.favorites", Label: "Sidebar favorites", Description: "The folders and feeds you pinned to the top of the sidebar.",
+		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkFavorites},
+
 	// Account.
 	{Key: "tz", Label: "Time zone", Description: "Used for daily statistics and the nightly maintenance job.",
 		Group: groupAccount, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
@@ -229,7 +234,7 @@ var settingDefs = []settingDef{
 	// Advanced: shown in an Advanced section of the Settings screen.
 	{Key: "fetch.honor_publisher_ttl", Label: "Follow publisher refresh hints", Description: "Wait longer between checks when a site asks readers not to check too often.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceSettings, check: boolVal},
-	{Key: "greader.icon_urls", Label: "Send feed icons to sync apps", Description: "Let apps like Reeder show each feed's icon.",
+	{Key: "greader.icon_urls", Label: "Send feed icons to sync apps", Description: "Let apps like Reeder show each feed's icon. On by default.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Hidden plumbing: validated and PATCH-able, never shown by default.
@@ -268,3 +273,49 @@ var settingDefByKey = func() map[string]settingDef {
 	}
 	return m
 }()
+
+// maxFavorites bounds library.favorites.
+const maxFavorites = 500
+
+// checkFavorites validates library.favorites: an array of at most 500
+// {"t":"folder"|"feed","id":"<digits>"} objects with no other keys and no
+// repeated (t, id). It returns the normalized value.
+func checkFavorites(v any) (any, string) {
+	const msg = `must be a list (at most 500) of {"t":"folder"|"feed","id":"<digits>"} without repeats`
+	arr, ok := v.([]any)
+	if !ok || len(arr) > maxFavorites {
+		return nil, msg
+	}
+	out := make([]any, 0, len(arr))
+	seen := make(map[[2]string]bool, len(arr))
+	for _, x := range arr {
+		m, ok := x.(map[string]any)
+		if !ok || len(m) != 2 {
+			return nil, msg
+		}
+		t, ok1 := m["t"].(string)
+		id, ok2 := m["id"].(string)
+		if !ok1 || !ok2 || (t != store.FavFolder && t != store.FavFeed) || !allDigits(id) || len(id) > 19 {
+			return nil, msg
+		}
+		k := [2]string{t, id}
+		if seen[k] {
+			return nil, msg
+		}
+		seen[k] = true
+		out = append(out, map[string]any{"t": t, "id": id})
+	}
+	return out, ""
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}

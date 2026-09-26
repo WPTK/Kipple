@@ -216,7 +216,7 @@ func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now in
 	}
 	itemArgs, held := args, ""
 	if scope.HoldCut > 0 {
-		held = " AND NOT " + HeldSQL
+		held = " AND NOT " + HeldSQL(txFulltextAll(ctx, tx))
 		itemArgs = append(append([]any{}, args...), sql.Named("hold_cut", scope.HoldCut))
 	}
 	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere+held, itemArgs...)

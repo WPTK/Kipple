@@ -250,3 +250,48 @@ func TestFulltextValidationAndAuth(t *testing.T) {
 	code, _, _ = h.api(c, "POST", url, "", func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") })
 	require.Equal(t, 403, code)
 }
+
+// fetch.fulltext_all: PATCH flips it immediately for the on-demand endpoint and
+// the item detail; the feed's own flag stays; an item forced off still wins.
+func TestFulltextAllSwitchOnDemandAndDetail(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	site := newFTSite(t)
+	feed, id := h.ftItem(site, false, true) // feed flag off
+	url := "/api/items/" + sid(id) + "/fulltext"
+
+	_, body, _ := h.api(c, "POST", url, "")
+	require.Equal(t, "skipped", body["status"])
+	require.EqualValues(t, 0, body["effective"])
+	require.EqualValues(t, 0, site.hits.Load())
+
+	code, _, _ := h.api(c, "PATCH", "/api/settings", `{"fetch.fulltext_all":true}`)
+	require.Equal(t, 200, code)
+	_, body, _ = h.api(c, "POST", url, "")
+	require.Equal(t, "ok", body["status"])
+	require.EqualValues(t, 1, body["effective"])
+	require.Nil(t, body["mode"])
+	_, det, _ := h.api(c, "GET", "/api/items/"+sid(id), "")
+	ft := det["fulltext"].(map[string]any)
+	require.EqualValues(t, 1, ft["effective"])
+	require.Equal(t, true, ft["available"])
+	require.Contains(t, det["content_html"], "quick brown fox")
+	_, boot, _ := h.api(c, "GET", "/api/bootstrap", "")
+	f0 := boot["feeds"].([]any)[0].(map[string]any)
+	require.Equal(t, sid(feed), f0["id"])
+	require.Equal(t, false, f0["fulltext"])
+	require.Equal(t, true, f0["fulltext_effective"])
+
+	// Item forced off wins.
+	h.exec("UPDATE items SET fulltext_mode = 0 WHERE id = ?", id)
+	_, body, _ = h.api(c, "POST", url, "")
+	require.Equal(t, "skipped", body["status"])
+	require.EqualValues(t, 0, body["effective"])
+
+	// Off again: an item that follows the feed is skipped at once.
+	h.exec("UPDATE items SET fulltext_mode = NULL WHERE id = ?", id)
+	h.api(c, "PATCH", "/api/settings", `{"fetch.fulltext_all":false}`)
+	_, det, _ = h.api(c, "GET", "/api/items/"+sid(id), "")
+	require.EqualValues(t, 0, det["fulltext"].(map[string]any)["effective"])
+	require.NotContains(t, det["content_html"], "quick brown fox", "feed content again")
+}

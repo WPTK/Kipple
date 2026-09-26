@@ -59,6 +59,9 @@ type DB struct {
 
 	holder atomic.Pointer[holder]
 
+	// ftAll caches fetch.fulltext_all; SetSettings invalidates it.
+	ftAll boolCache
+
 	closeOnce sync.Once
 	closeErr  error
 }
