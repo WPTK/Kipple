@@ -10,7 +10,8 @@ import { handleServerEvent, initialLive, liveStore, resetSavedSearchCounts, SAVE
 import { COUNTS_RETRY, invalidateSavedSearches, savedSearchCountsKey, savedSearchesKey, searchRoute, unreadLabel } from "@/api/savedSearches";
 import type { SavedSearch } from "@/api/types";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
-import { resetDeviceSync, syncStore, hydrateDevice } from "@/lib/deviceSync";
+import { resetDeviceSync, syncStore, hydrateDevice, SYNC_DIRTY_KEY, SYNC_FLAG_KEY } from "@/lib/deviceSync";
+import { devicePrefsStore, updateDevicePrefs } from "@/lib/devicePrefs";
 import { setSavedOpen } from "@/lib/searchPrefs";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 
@@ -602,6 +603,21 @@ describe("The unsaved default device (id empty)", () => {
     // A later bootstrap that does register the browser starts syncing normally.
     hydrateDevice({ id: "d7", name: "", profile: {}, merged: {} });
     expect(syncStore.get().status).not.toBe("unsaved");
+  });
+
+  it("a change made while unsaved is kept and sent once the browser registers, not overwritten by the server's values", async () => {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    localStorage.removeItem(SYNC_DIRTY_KEY);
+    const { calls } = base({ "PATCH /api/device": () => json({ id: "d7", name: "", profile: { "client.layout": "compact" }, defaults: {}, merged: { "client.layout": "compact" } }) });
+    updateDevicePrefs({ layout: "magazine" });
+    hydrateDevice({ id: "", name: "", profile: {}, merged: { "client.layout": "cards" } });
+    updateDevicePrefs({ layout: "compact" });
+    expect(JSON.parse(localStorage.getItem(SYNC_DIRTY_KEY) ?? "{}")).toMatchObject({ "client.layout": "compact" });
+    expect(calls).toHaveLength(0);
+    hydrateDevice({ id: "d7", name: "", profile: {}, merged: { "client.layout": "cards" } });
+    expect(devicePrefsStore.get().layout).toBe("compact");
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH" && c.url.pathname === "/api/device")).toBe(true));
+    expect(body(calls.find((c) => c.method === "PATCH"))).toMatchObject({ "client.layout": "compact" });
   });
 });
 

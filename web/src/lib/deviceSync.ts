@@ -200,6 +200,12 @@ let refused: Record<string, string> = {};
 let timer: ReturnType<typeof setTimeout> | undefined;
 let inflight: Promise<void> | null = null;
 let again = false;
+/**
+ * While the device is unsaved (no id yet): what the profile looked like when the unsaved device was adopted. Changes made
+ * since then are kept as the unsent changes (localStorage), so the bootstrap that finally registers this browser puts
+ * them back on top of the server's values instead of overwriting them.
+ */
+let unsavedBase: Profile = {};
 
 /** Refused values the user has since changed are no longer refused: only a value still refused counts. */
 function pruneRefused(): void {
@@ -246,7 +252,15 @@ function readDirty(): Profile {
 }
 
 function onLocalChange(): void {
-  if (!enabled || applying || syncStore.get().status === "unsaved") return;
+  if (applying) return;
+  if (syncStore.get().status === "unsaved") {
+    const want = profileOf(store());
+    const mine: Profile = {};
+    for (const k of Object.keys(want)) if (!eq(want[k], unsavedBase[k])) mine[k] = want[k] ?? null;
+    persistDirty(mine);
+    return;
+  }
+  if (!enabled) return;
   pruneRefused();
   persistDirty(pendingChanges());
   if (timer) clearTimeout(timer);
@@ -440,6 +454,8 @@ export function hydrateDevice(device: DeviceView | undefined): void {
     timer = undefined;
     synced = {};
     refused = {};
+    unsavedBase = profileOf(store());
+    // Whatever was left unsent before stays: it is still the person's choice.
     syncStore.set({ status: "unsaved", refused: 0 });
     return;
   }
@@ -529,6 +545,7 @@ export function resetDeviceSync(): void {
   hydratedFor = null;
   synced = {};
   refused = {};
+  unsavedBase = {};
   inflight = null;
   again = false;
   syncStore.set({ status: "off", refused: 0 });

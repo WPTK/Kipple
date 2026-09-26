@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clearImgCache, hitRate, imgCacheKey, useImgCache } from "@/api/imgcache";
 import { errorMessage } from "@/api/client";
@@ -20,8 +20,12 @@ export function ImageCachePanel({ watch }: { watch: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // A changed cap or mode: look again after the server has applied it.
+  // A changed cap or mode: look again after the server has applied it. Not on mount: opening the section already
+  // fetched the stats.
+  const seen = useRef(watch);
   useEffect(() => {
+    if (watch === seen.current) return;
+    seen.current = watch;
     const h = setTimeout(() => void qc.invalidateQueries({ queryKey: imgCacheKey }), 800);
     return () => clearTimeout(h);
   }, [watch, qc]);

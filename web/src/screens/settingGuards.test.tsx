@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SettingMeta } from "@/api/admin";
@@ -8,6 +8,7 @@ import { Segmented } from "@/ui/segmented";
 import { json, mockFetch } from "@/test/mockApi";
 import { PRESETS } from "./SettingsScreen";
 import { SettingField } from "./SettingField";
+import { ImageCachePanel } from "./ImageCachePanel";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -115,5 +116,25 @@ describe("Destructive settings", () => {
     expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Keep fewer" }));
     await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1));
+  });
+});
+
+describe("ImageCachePanel", () => {
+  const stats = { enabled: true, mode: "all", cache_mb: 1024, max_bytes: 1024 ** 3, used_bytes: 1, entries: 1, neg_entries: 0, thumbnails: 0, hits: 0, misses: 0, evictions: 0, failures: 0, since: 1, oldest_access_at: null, disk_free_bytes: 10 ** 11, disk_floor_bytes: 1, low_disk: false };
+
+  it("fetches once when it opens (no second fetch 800 ms later) and again only when the cap or mode changes", async () => {
+    const { calls } = mockFetch({ "GET /api/imgcache": () => json(stats) });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrap = (watch: string) => (
+      <QueryClientProvider client={client}>
+        <ImageCachePanel watch={watch} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(wrap("1024|all"));
+    await screen.findByTestId("imgcache-card");
+    await act(async () => void (await new Promise((r) => setTimeout(r, 1100))));
+    expect(calls.filter((c) => c.url.pathname === "/api/imgcache")).toHaveLength(1);
+    rerender(wrap("512|all"));
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/imgcache")).toHaveLength(2), { timeout: 3000 });
   });
 });
