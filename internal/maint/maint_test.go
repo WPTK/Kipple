@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	_ "time/tzdata" // the tz setting resolves IANA names even where the OS has no zoneinfo
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/clock"
+	"github.com/WPTK/kipple/internal/imgcache"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -428,3 +430,29 @@ type syncBuf struct {
 
 func (s *syncBuf) Write(p []byte) (int, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.b.Write(p) }
 func (s *syncBuf) String() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
+
+func TestNightlySweepsTheImageCache(t *testing.T) {
+	e := newEnv(t, local(27, 4, 0))
+	var skew atomic.Int64 // seconds the cache's clock runs ahead of the fake clock
+	ic, err := imgcache.Open(imgcache.Options{
+		Dir: filepath.Join(t.TempDir(), "imgcache"), MaxBytes: 1 << 20, NoBackgound: true,
+		Now: func() time.Time { return e.clk.Now().Add(time.Duration(skew.Load()) * time.Second) },
+		DiskSpace: func(string) (uint64, uint64, error) { return 500 << 30, 800 << 30, nil },
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ic.Close() })
+	url := "http://img.example/idle.png"
+	key := imgcache.KeyOrig(0, url)
+	w, err := ic.Begin(key, url, 0, 10)
+	require.NoError(t, err)
+	_, _ = w.Write([]byte("0123456789"))
+	require.NoError(t, w.Commit(imgcache.Meta{ContentType: "image/png"}))
+	skew.Store(61 * 24 * 3600) // idle past the 60 day expiry
+
+	e.start(Options{ImgCache: ic})
+	e.clk.Advance(11 * time.Minute)
+	j := e.waitJob("imgcache_sweep")
+	require.NoError(t, j.Err)
+	require.EqualValues(t, 1, j.Rows)
+	require.Zero(t, ic.Stats().Files)
+}

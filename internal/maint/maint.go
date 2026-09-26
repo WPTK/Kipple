@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/clock"
+	"github.com/WPTK/kipple/internal/imgcache"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -37,7 +38,7 @@ const (
 
 // Job is the summary of one maintenance job, logged and handed to OnJob.
 type Job struct {
-	Name     string // checkpoint, purge_stubs, purge_ledger, purge_sessions, optimize, snapshot
+	Name     string // checkpoint, purge_stubs, purge_ledger, purge_sessions, purge_devices, imgcache_sweep, optimize, snapshot
 	Rows     int64  // rows purged (frames checkpointed for the checkpoint)
 	Batches  int
 	Duration time.Duration // wall clock
@@ -49,6 +50,9 @@ type Options struct {
 	DB     *store.DB
 	Clock  clock.Clock // defaults to the store's clock
 	Logger *slog.Logger
+	// ImgCache, if set, gets its idle-expiry sweep and index VACUUM in the nightly
+	// job (job name imgcache_sweep). Optional.
+	ImgCache *imgcache.Cache
 
 	BatchSize int           // default DefaultBatchSize
 	Pause     time.Duration // between batches; default DefaultPause
@@ -266,6 +270,14 @@ func (m *Maint) nightly(ctx context.Context, now time.Time, loc *time.Location) 
 	m.purge(ctx, "purge_devices", func() (int64, error) { return db.PurgeDevices(ctx, unix, m.o.BatchSize) })
 	if ctx.Err() != nil {
 		return
+	}
+	if ic := m.o.ImgCache; ic != nil {
+		began := time.Now()
+		r, err := ic.Sweep(ctx, true)
+		m.finish(Job{Name: "imgcache_sweep", Rows: r.Rows(), Batches: 1, Err: err}, began)
+		if ctx.Err() != nil {
+			return
+		}
 	}
 	began := time.Now()
 	m.finish(Job{Name: "optimize", Batches: 1, Err: db.Optimize(ctx)}, began)
