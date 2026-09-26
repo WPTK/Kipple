@@ -566,6 +566,13 @@ func nonNil(ids []int64) []int64 {
 }
 
 func (s *Server) serverError(w http.ResponseWriter, what string, err error) {
+	if errors.Is(err, store.ErrMaintenance) {
+		// A search index rebuild owns the writer for up to 45 s: a temporary answer the client retries.
+		s.log.Info("api: "+what+": deferred by maintenance", "err", err)
+		w.Header().Set("Retry-After", strconv.Itoa(int(store.MaintenanceRetryAfter/time.Second)))
+		writeError(w, http.StatusServiceUnavailable, "maintenance")
+		return
+	}
 	s.log.Error("api: "+what, "err", err)
 	writeError(w, http.StatusInternalServerError, "internal")
 }

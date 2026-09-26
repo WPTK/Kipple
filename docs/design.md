@@ -228,6 +228,7 @@ After opening, the writer runs `PRAGMA optimize=0x10002` once, then checks that 
 2. Commits when `fn` returns nil, and rolls back otherwise.
 3. Records the caller (one frame from `runtime.Caller(1)`: file, line and function, plus the start time) in an atomic "holder" slot. A timed-out acquisition logs that slot at ERROR.
 4. Every `*sql.Rows` opened inside `fn` is closed by `defer` in the store method that opened it. `UPDATE … RETURNING` goes through a helper that scans all rows and closes before returning.
+5. While a maintenance job that holds the writer past the 10 s deadline runs (only the FTS rebuild, up to 45 s), it returns `store.ErrMaintenance` at once instead of waiting; a wait that times out because such a job started meanwhile ends with it too. The API answers it `503 {error:"maintenance"}` and the Reader API `503`, both with `Retry-After: 15`. Writers that take the commit gate first never see it: they wait on the gate, which the rebuild holds.
 
 **Other connection details:**
 
@@ -1623,6 +1624,8 @@ On an invalid URL the reply is `200 {"numResults":0,"query":url,"error":"<msg>"}
      - create the archive feed if missing: `url='kipple:archive'`, `url_key='kipple:archive'`, `host='kipple.invalid'`, title "Unsubscribed (starred)", `enabled=0`, `disabled_reason='archive'`, `retention=0`, folder 1;
      - `UPDATE items SET feed_id = :archive, uid = 'a' || :f || ':' || uid, origin_title = COALESCE(origin_title, :feed_title) WHERE feed_id = :f AND starred = 1`.
   3. `DELETE FROM feeds WHERE id = :f`. The cascade covers the remaining items (and FTS via trigger), ledger, stubs, log, icons and full text. Stats survive.
+
+  Steps 2 and 3 run after two others, so a large feed never needs one long transaction and an interruption never leaves a subscribed feed with its history gone (the same holds for the web `DELETE /api/feeds/{id}`): first one short transaction **marks** every listed feed (except the archive feed): `enabled=0`, `disabled_reason='user'`, `url`/`url_key` = `kipple:deleting:<id>`, `url_original(_key)` cleared. The scheduler only picks enabled feeds and a fetch already in flight finds its URL changed and drops its commit as stale, so nothing is fetched or stored for the feed again; its `feed/<id>` stays the same and its old URL is free at once. Then each feed's unstarred items and ledger rows are deleted in bounded batches behind the commit gate. The request runs detached from the client's cancellation and bounded at 5 min; cut off anywhere (client timeout, writer deadline, restart) the feed stays marked and unfetched, a PATCH of it answers 404, and unsubscribing or deleting it again (or `store.ResumeFeedDeletes`, which archives starred items) finishes the job.
 - `ac=edit`:
   - a non-empty `t` → `custom_title`; with several `s` and exactly as many `t`, `t[i]` applies to feed `i`, otherwise `t[0]` applies to all;
   - an `a=` label → move to that folder, created if missing;
@@ -1730,7 +1733,7 @@ Other conventions:
 | `POST /api/stats/events` | `{events:[{kind:"read_time"\|"scroll"\|"open_original"\|"share", item_id, session_key?, value?}]}`. Accepted via `fetch` or `navigator.sendBeacon` (a JSON Blob) | `204`. Invalid events are dropped silently (§8) |
 | `GET /api/stats/export.csv` (phase 4, not mounted yet) | `?from=&to=` | RFC 4180 CSV of `stats_events`, paged by keyset (§8) |
 | `GET /api/stats/summary` (phase 4, not mounted yet) | `?from=&to=&include_inferred=0\|1` (default 0) | Aggregates (§8) |
-| `POST /api/maintenance/fts-rebuild` | — | Runs `'rebuild'` on the writer. `204` |
+| `POST /api/maintenance/fts-rebuild` | — | Runs `'rebuild'` on the writer behind the commit gate, bounded at 45 s. `204`. While it runs every write that does not queue on the commit gate (read and star changes, edit-tag, logins, settings, filter edits) is refused at once with `503 {error:"maintenance"}` + `Retry-After: 15` here and `503` + `Retry-After: 15` on the Reader API, instead of waiting out the 10 s write deadline and failing with a 500; clients retry. Fetch commits and maintenance batches wait on the gate and are not refused |
 | `GET /healthz` | — (no session) | Plain text `ok` |
 | `GET /img/{sig}/{flags}/{b64url}` | — (session cookie) | Proxied image (§7.4) |
 | `GET /` and SPA paths | — | Embedded `index.html` (`no-cache`, ETag). `/assets/*` is immutable. MIME types are registered for woff2, woff, ttf and webmanifest |
@@ -1752,7 +1755,7 @@ Other conventions:
 
 ### 7.1b Filters (`internal/api/filters.go`, engine `internal/filter`)
 
-All routes need the session and the same-origin rules of §7. Ids are strings in every body (numbers are accepted in requests). A `Filter` is `{id, name, enabled, scope("global"|"folder"|"feed"), folder_id|null, feed_id|null, kind("text"|"regex"), terms:[…], fields:["title"|"author"|"content"|"url"|"category"|"feed"], case_sensitive, whole_word, fold_diacritics, invert, action("mute"|"mark_read"|"star"|"highlight"), position, hits, last_hit_at|null, created_at, updated_at, muted_items}`. `muted_items` is how many items the filter currently mutes (orphans of deleted filters are counted under their old id). Matching semantics, limits and precedence are the package comment of `internal/filter`.
+All routes need the session and the same-origin rules of §7. Ids are strings in every body (numbers are accepted in requests). A `Filter` is `{id, name, enabled, scope("global"|"folder"|"feed"), folder_id|null, feed_id|null, kind("text"|"regex"), terms:[…], fields:["title"|"author"|"content"|"url"|"category"|"feed"], case_sensitive, whole_word, fold_diacritics, invert, action("mute"|"mark_read"|"star"|"highlight"), position, hits, last_hit_at|null, created_at, updated_at, disabled_reason|null, muted_items}`. `muted_items` is how many items the filter currently mutes (orphans of deleted filters are counted under their old id). `disabled_reason` is set on a disabled filter that Kipple switched off because it no longer meets the current limits (a rule saved by an older version, or one that pushed the enabled regex rules past the set cap), e.g. `"terms[0]: repeats something 400 times … (edit the filter to re-enable it)"`; an edit that validates clears it. Validation (`400 bad_filter`) judges only the filter being created, edited, previewed or applied, plus the set-wide sums over the enabled filters, so such a stored filter never blocks another one. Matching semantics, limits and precedence are the package comment of `internal/filter`.
 
 | Route | Request | Response |
 |---|---|---|
@@ -2136,10 +2139,19 @@ internal/filter         The keyword rules engine (round-2 spec §1), pure: no I/
                         (normalize, word runes, containsTerm), prefilter.go (required-literal prefilter for regexes),
                         eval.go (Set.Evaluate, precedence: star beats mute, mute implies read, lowest mute id
                         wins). Regexes are RE2 only, compiled with (?i) unless case-sensitive, rejected when they
-                        match the empty string, exceed 500 instructions or repeat more than 50 times, or push the enabled regex rules past MaxRegexCost; scanned text is truncated (content 32 KiB
+                        match the empty string, exceed 500 instructions, repeat more than 50 times or cost more than
+                        MaxRegexCost (20,000) on their own; the enabled regex rules of a set (at most 50) stay under
+                        MaxRegexSetCost (60,000), which admits 40 typical 15-word keyword alternations on title and
+                        content. These limits apply to the rule being created or edited (ValidateEdit); a stored rule
+                        from an older version that no longer meets them never blocks another rule's edit, preview or
+                        apply. The store disables such a rule with a reason (settings key sys.filter_disabled_reasons,
+                        shown as the filter's disabled_reason) on the first filters list, filter write or fetch
+                        commit that meets it, instead of ingest skipping it silently. Scanned text is truncated (content 32 KiB
                         for text, 8 KiB for regex, other fields 4 KiB). Single-word terms are answered from a
                         per-field word set. Reference numbers: 10,000 items x 50 rules in about 1.7 s (170 us per
-                        item); 25 regex rules x 5 patterns on a full 8 KiB scan in about 8 ms per item; the worst case the cost cap allows, about 180 ms.
+                        item); 25 regex rules x 5 patterns on a full 8 KiB scan in about 9 ms per item; 40 keyword
+                        rules with their prefilter defeated about 13 ms; the worst case the set cost cap allows,
+                        about 0.45 s.
 internal/sched          sched.go, dispatcher.go, worker.go, run.go (attach/outstanding), fulltext.go (the
                         extraction pool)
 internal/maint          maint.go: the one maintenance goroutine (hourly/nightly/Sunday, cancellable);

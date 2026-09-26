@@ -63,8 +63,11 @@ func TestDownloadsInProgressCountAgainstTheCap(t *testing.T) {
 	_, err = c.Sweep(context.Background(), false)
 	require.NoError(t, err)
 	st = c.Stats()
-	require.LessOrEqual(t, st.UsedBytes, int64(18000-10000), "room is made for the download")
-	require.LessOrEqual(t, st.ChargedBytes, int64(18000))
+	// Room is made for the download, but the files are never evicted below half the target
+	// (18000/2), however large the downloads in flight (TestDownloadsInProgressCannotWipeTheCache).
+	require.LessOrEqual(t, st.UsedBytes, int64(18000/2), "room is made for the download")
+	require.GreaterOrEqual(t, st.UsedBytes, int64(18000/2-3000), "down to half the target, not further")
+	require.LessOrEqual(t, st.ChargedBytes, int64(18000/2+10000))
 
 	w.Abort()
 	require.Equal(t, c.Stats().UsedBytes, c.Stats().ChargedBytes, "given back at Abort")

@@ -40,6 +40,9 @@ type Filter struct {
 	LastHitAt      *int64   `json:"last_hit_at"`
 	CreatedAt      int64    `json:"created_at"`
 	UpdatedAt      int64    `json:"updated_at"`
+	// DisabledReason says why Kipple switched the rule off (it no longer meets the current
+	// limits); nil for a rule the user controls. Editing the rule so it validates clears it.
+	DisabledReason *string `json:"disabled_reason"`
 }
 
 // Rule converts a stored filter to the engine's rule.
@@ -137,18 +140,205 @@ func loadFilters(ctx context.Context, q Querier) ([]Filter, error) {
 	return out, rows.Err()
 }
 
-// ListFilters returns every filter in display order.
+// ListFilters returns every filter in display order. It is also where stored rules that no
+// longer meet the current limits are noticed lazily: when the list holds one that is still
+// enabled (or has no recorded reason), they are switched off with their reason first
+// (SanitizeFilters), so the list the user sees is what ingest runs.
 func (d *DB) ListFilters(ctx context.Context) ([]Filter, error) {
-	return loadFilters(ctx, d.reader)
+	fs, err := loadFilters(ctx, d.reader)
+	if err != nil {
+		return nil, err
+	}
+	reasons, err := loadFilterReasons(ctx, d.reader)
+	if err != nil {
+		return nil, err
+	}
+	if sanitizeNeeded(fs, reasons) {
+		if _, err := d.SanitizeFilters(ctx); err != nil {
+			// Best effort (the writer may be busy): the list still answers, and the next
+			// list, filter write or fetch commit tries again.
+			d.log.Warn("store: disable stored filters the current limits refuse", "err", err)
+			attachReasons(fs, reasons)
+			return fs, nil
+		}
+		if fs, err = loadFilters(ctx, d.reader); err != nil {
+			return nil, err
+		}
+		if reasons, err = loadFilterReasons(ctx, d.reader); err != nil {
+			return nil, err
+		}
+	}
+	attachReasons(fs, reasons)
+	return fs, nil
 }
 
 // GetFilter returns one filter.
 func (d *DB) GetFilter(ctx context.Context, id int64) (Filter, bool, error) {
-	f, err := scanFilter(d.reader.QueryRowContext(ctx, "SELECT "+filterCols+" FROM filters WHERE id = ?", id))
+	f, err := getFilter(ctx, d.reader, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return f, false, nil
 	}
 	return f, err == nil, err
+}
+
+// getFilter loads one filter with its disabled reason.
+func getFilter(ctx context.Context, q Querier, id int64) (Filter, error) {
+	f, err := scanFilter(q.QueryRowContext(ctx, "SELECT "+filterCols+" FROM filters WHERE id = ?", id))
+	if err != nil {
+		return f, err
+	}
+	reasons, err := loadFilterReasons(ctx, q)
+	if err != nil {
+		return f, err
+	}
+	fs := []Filter{f}
+	attachReasons(fs, reasons)
+	return fs[0], nil
+}
+
+// ---- rules the current limits refuse ----
+
+// settingFilterReasons holds, as a JSON object keyed by filter id, the reason Kipple disabled a
+// stored rule (a system key: never exported, never PATCHable).
+const settingFilterReasons = "sys.filter_disabled_reasons"
+
+func loadFilterReasons(ctx context.Context, q Querier) (map[int64]string, error) {
+	var raw string
+	err := q.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", settingFilterReasons).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return map[int64]string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var byKey map[string]string
+	if err := json.Unmarshal([]byte(raw), &byKey); err != nil {
+		return map[int64]string{}, nil // unreadable: start over, the next sanitize rewrites it
+	}
+	out := make(map[int64]string, len(byKey))
+	for k, v := range byKey {
+		var id int64
+		if _, err := fmt.Sscan(k, &id); err == nil {
+			out[id] = v
+		}
+	}
+	return out, nil
+}
+
+func saveFilterReasons(ctx context.Context, q Querier, m map[int64]string, now int64) error {
+	if len(m) == 0 {
+		_, err := q.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", settingFilterReasons)
+		return err
+	}
+	byKey := make(map[string]string, len(m))
+	for id, v := range m {
+		byKey[fmt.Sprint(id)] = v
+	}
+	v, err := jsonText(byKey)
+	if err != nil {
+		return err
+	}
+	_, err = q.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, settingFilterReasons, v, now)
+	return err
+}
+
+func attachReasons(fs []Filter, reasons map[int64]string) {
+	for i := range fs {
+		fs[i].DisabledReason = nil
+		if why, ok := reasons[fs[i].ID]; ok && !fs[i].Enabled {
+			fs[i].DisabledReason = &why
+		}
+	}
+}
+
+func filterRules(fs []Filter) []filter.Rule {
+	rules := make([]filter.Rule, len(fs))
+	for i, f := range fs {
+		rules[i] = f.Rule()
+	}
+	return rules
+}
+
+// sanitizeNeeded reports whether a stored rule the current limits refuse is still enabled or has
+// no recorded reason, so SanitizeFilters has something to write.
+func sanitizeNeeded(fs []Filter, reasons map[int64]string) bool {
+	for i := range filter.Sanitize(filterRules(fs)) {
+		if _, has := reasons[fs[i].ID]; fs[i].Enabled || !has {
+			return true
+		}
+	}
+	return false
+}
+
+// SanitizeFilters disables every stored rule that cannot run under the current limits (a rule
+// saved by an older version whose regex is now too expensive, or one that pushes the enabled
+// rules past a set-wide limit) and records why, for the filters list to show. Without it such a
+// rule would look enabled while ingest skipped it. It reports whether any rule was disabled. It
+// runs lazily (the filters list, every filter write and the ingest hook); a startup call is cheap.
+func (d *DB) SanitizeFilters(ctx context.Context) (bool, error) {
+	var changed bool
+	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		var err error
+		changed, err = d.sanitizeFiltersTx(ctx, tx)
+		return err
+	})
+	return changed, err
+}
+
+// sanitizeFiltersTx is SanitizeFilters inside the caller's write transaction.
+func (d *DB) sanitizeFiltersTx(ctx context.Context, q Querier) (changed bool, err error) {
+	fs, err := loadFilters(ctx, q)
+	if err != nil {
+		return false, err
+	}
+	reasons, err := loadFilterReasons(ctx, q)
+	if err != nil {
+		return false, err
+	}
+	if !sanitizeNeeded(fs, reasons) {
+		return false, nil
+	}
+	now := d.clock.Now().Unix()
+	next := map[int64]string{}
+	for _, f := range fs { // entries of rules that are gone or back on are dropped
+		if why, ok := reasons[f.ID]; ok && !f.Enabled {
+			next[f.ID] = why
+		}
+	}
+	for i, why := range filter.Sanitize(filterRules(fs)) {
+		f := fs[i]
+		if f.Enabled {
+			if _, err := q.ExecContext(ctx, "UPDATE filters SET enabled = 0, updated_at = ? WHERE id = ?", now, f.ID); err != nil {
+				return false, err
+			}
+			d.log.Warn("store: disabled a stored filter the current limits refuse", "filter", f.ID, "name", f.Name, "reason", why)
+			changed = true
+		} else if _, has := next[f.ID]; has {
+			continue // keep the reason it was disabled for
+		}
+		next[f.ID] = why + " (edit the filter to re-enable it)"
+	}
+	if err := saveFilterReasons(ctx, q, next, now); err != nil {
+		return false, err
+	}
+	if changed {
+		d.bumpFilters()
+	}
+	return changed, nil
+}
+
+// dropFilterReason forgets the recorded reason of one rule (an edit that validates, a delete).
+func dropFilterReason(ctx context.Context, q Querier, id, now int64) error {
+	reasons, err := loadFilterReasons(ctx, q)
+	if err != nil {
+		return err
+	}
+	if _, ok := reasons[id]; !ok {
+		return nil
+	}
+	delete(reasons, id)
+	return saveFilterReasons(ctx, q, reasons, now)
 }
 
 // ---- the compiled-set cache ----
@@ -198,6 +388,13 @@ func (d *DB) filters(ctx context.Context, q Querier) *filterSet {
 	if d.fcache.ok && d.fcache.gen == g {
 		return d.fcache.set
 	}
+	// A stored rule the current limits refuse is switched off visibly here (the first fetch
+	// commit after an upgrade), not just skipped: the filters list then shows why. It runs in
+	// the commit's own transaction, so it is durable exactly when the commit is. A failure only
+	// costs the visible reason: compileSkippingBad still leaves the rule out.
+	if _, err := d.sanitizeFiltersTx(ctx, q); err != nil {
+		d.log.Warn("store: disable stored filters the current limits refuse", "err", err)
+	}
 	fs, err := loadFilters(ctx, q)
 	if err != nil {
 		d.log.Warn("store: load filters; ingesting without them", "err", err)
@@ -237,9 +434,11 @@ func (d *DB) compileSkippingBad(rules []filter.Rule) *filterSet {
 
 // ---- CRUD ----
 
-// validateSet compiles rules as one set and returns the failure as a *filter.Error.
-func validateSet(rules []filter.Rule) error {
-	if _, err := filter.NewSet(rules); err != nil {
+// validateEdit checks rules[edited] (the rule being created, edited, previewed or applied) with
+// filter.ValidateEdit and returns the failure as a *filter.Error about that rule. Other stored
+// rules that no longer compile cannot fail it.
+func validateEdit(rules []filter.Rule, edited int) error {
+	if err := filter.ValidateEdit(rules, edited); err != nil {
 		var se *filter.SetError
 		if errors.As(err, &se) {
 			return se.Err
@@ -285,6 +484,9 @@ func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
 	var out Filter
 	now := d.clock.Now().Unix()
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := d.sanitizeFiltersTx(ctx, tx); err != nil {
+			return err
+		}
 		cur, err := loadFilters(ctx, tx)
 		if err != nil {
 			return err
@@ -296,7 +498,7 @@ func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
 		f.ID = unsavedFilterID // above any real id, so the set treats it as new
 		normalizeFields(&f)
 		rules = append(rules, f.Rule())
-		if err := validateSet(rules); err != nil {
+		if err := validateEdit(rules, len(rules)-1); err != nil {
 			return err
 		}
 		if err := checkScopeRefs(ctx, tx, f); err != nil {
@@ -322,7 +524,7 @@ func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
 		if err != nil {
 			return err
 		}
-		out, err = scanFilter(tx.QueryRowContext(ctx, "SELECT "+filterCols+" FROM filters WHERE id = ?", id))
+		out, err = getFilter(ctx, tx, id)
 		if err != nil {
 			return err
 		}
@@ -338,6 +540,9 @@ func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
 func (d *DB) UpdateFilter(ctx context.Context, id int64, mutate func(*Filter) error) (out Filter, ok bool, err error) {
 	now := d.clock.Now().Unix()
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := d.sanitizeFiltersTx(ctx, tx); err != nil {
+			return err
+		}
 		cur, err := loadFilters(ctx, tx)
 		if err != nil {
 			return err
@@ -364,8 +569,15 @@ func (d *DB) UpdateFilter(ctx context.Context, id int64, mutate func(*Filter) er
 			rules[i] = c.Rule()
 		}
 		rules[idx] = f.Rule()
-		if err := validateSet(rules); err != nil {
+		if err := validateEdit(rules, idx); err != nil {
 			return err
+		}
+		// The rule now validates: a reason Kipple recorded for disabling it goes once it is back on
+		// or its matching changed; a rename or move of a still-disabled rule keeps it.
+		if f.Enabled || !sameRule(cur[idx], f) {
+			if err := dropFilterReason(ctx, tx, id, now); err != nil {
+				return err
+			}
 		}
 		if err := checkScopeRefs(ctx, tx, f); err != nil {
 			return err
@@ -384,7 +596,7 @@ func (d *DB) UpdateFilter(ctx context.Context, id int64, mutate func(*Filter) er
 			boolInt(f.CaseSensitive), boolInt(f.WholeWord), boolInt(f.FoldDiacritics), boolInt(f.Invert), f.Action, f.Position, now, id); err != nil {
 			return err
 		}
-		out, err = scanFilter(tx.QueryRowContext(ctx, "SELECT "+filterCols+" FROM filters WHERE id = ?", id))
+		out, err = getFilter(ctx, tx, id)
 		if err != nil {
 			return err
 		}
@@ -447,6 +659,9 @@ func (d *DB) DeleteFilterWithin(ctx context.Context, id int64, unmute string, de
 			n, err := res.RowsAffected()
 			ok = n > 0
 			if err == nil && ok {
+				if err := dropFilterReason(ctx, tx, id, d.clock.Now().Unix()); err != nil {
+					return err
+				}
 				d.bumpFilters()
 				d.filterTxDone()
 			}
@@ -476,8 +691,13 @@ func (d *DB) DeleteFilterWithin(ctx context.Context, id int64, unmute string, de
 	}
 
 	// 2. Restore its items, batch by batch. Each batch takes the lowest ids still muted by it, so a
-	// re-run picks up exactly where a cut-off one stopped.
+	// re-run picks up exactly where a cut-off one stopped. The deadline is checked after each full
+	// batch, before the next one waits for the commit gate (so every call makes progress), and a
+	// batch whose gate wait or write runs into ctx's end (the caller's hard backstop, past the
+	// deadline) ends the call as cut short (Done false, no error) rather than failing it: what
+	// committed stays, the rule stays disabled, and the caller calls again.
 	orphans := false
+	expired := func() bool { return !deadline.IsZero() && time.Now().After(deadline) }
 	for {
 		var res StateResult
 		var n int
@@ -532,6 +752,9 @@ func (d *DB) DeleteFilterWithin(ctx context.Context, id int64, unmute string, de
 			return int64(len(res.Changed)), nil
 		})
 		if err != nil {
+			if expired() && errors.Is(err, context.DeadlineExceeded) {
+				return out, true, nil // cut short past the budget: resumable, not a failure
+			}
 			return out, hadRow || orphans, err
 		}
 		if n == 0 {
@@ -543,7 +766,7 @@ func (d *DB) DeleteFilterWithin(ctx context.Context, id int64, unmute string, de
 		if onBatch != nil && len(res.Changed) > 0 {
 			onBatch(res)
 		}
-		if n == unmuteBatch && !deadline.IsZero() && time.Now().After(deadline) {
+		if n == unmuteBatch && expired() {
 			return out, true, nil // more may be left: the caller calls again
 		}
 	}
@@ -554,11 +777,17 @@ func (d *DB) DeleteFilterWithin(ctx context.Context, id int64, unmute string, de
 			if _, err := tx.ExecContext(ctx, "DELETE FROM filters WHERE id = ?", id); err != nil {
 				return err
 			}
+			if err := dropFilterReason(ctx, tx, id, d.clock.Now().Unix()); err != nil {
+				return err
+			}
 			d.bumpFilters()
 			d.filterTxDone()
 			return nil
 		})
 		if err != nil {
+			if expired() && errors.Is(err, context.DeadlineExceeded) {
+				return out, true, nil // everything is restored; the next call deletes the row
+			}
 			return out, true, err
 		}
 	}

@@ -225,7 +225,11 @@ var rebuildFTSHook func(ctx context.Context)
 // RebuildFTS repairs the search index from its content view (design §2.4). It
 // takes the commit gate (fetch commits and maintenance batches wait for it
 // rather than time out on the writer) and runs on the writer with its own
-// FTSRebuildTimeout deadline instead of WithWrite's 10 s one.
+// FTSRebuildTimeout deadline instead of WithWrite's 10 s one. While it runs,
+// every other write (WithWrite: edit-tag, mark-read, sessions, settings, ...)
+// fails at once with ErrMaintenance, which the HTTP layers turn into 503 with
+// Retry-After, instead of each waiting 10 s for the writer and failing with a
+// 500.
 func (d *DB) RebuildFTS(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, FTSRebuildTimeout)
 	defer cancel()
@@ -234,6 +238,9 @@ func (d *DB) RebuildFTS(ctx context.Context) error {
 		return err
 	}
 	defer release()
+	d.maintGen.Add(1)
+	d.maintActive.Store(true)
+	defer d.maintActive.Store(false)
 
 	tx, err := d.writer.BeginTx(ctx, nil)
 	if err != nil {

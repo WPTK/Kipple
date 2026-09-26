@@ -358,7 +358,12 @@ func (c *call) subscriptionEdit() {
 			c.publishFolders()
 		}
 	case "unsubscribe":
-		ids, skipped, err := c.a.db.UnsubscribeSkipped(ctx, feedRefs(ss))
+		// A large feed is emptied in many short batches: a client that times out
+		// must not cut the deletion between them (it would stay marked and
+		// unfetched until the next unsubscribe), so it runs detached and bounded.
+		dctx, cancel := store.DeleteContext(ctx)
+		defer cancel()
+		ids, skipped, err := c.a.db.UnsubscribeSkipped(dctx, feedRefs(ss))
 		if err != nil {
 			c.serverError("unsubscribe", err)
 			return
