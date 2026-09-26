@@ -120,6 +120,7 @@ func (c *call) pageParams(maxN int) store.IDPage {
 		p.N = maxN
 	}
 	p.Asc = c.p.Get("r") == "o"
+	p.UserChanges = c.a.db.BoolSetting(c.r.Context(), "greader.ot_includes_user_changes", false)
 	if s := c.p.Get("c"); allDigits(s) {
 		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
 			p.Cont, p.HasCont = n, true

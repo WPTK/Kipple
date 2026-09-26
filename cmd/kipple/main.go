@@ -187,6 +187,19 @@ func runServe() error {
 		DB: db, Logger: logger, Wake: scheduler.Wake, Events: hub, Stats: recorder,
 		TrustedProxies: cfg.TrustedProxyIPs, PublicURL: cfg.PublicURL, LogForms: cfg.LogGreaderForms,
 		Verifier: verifier,
+		FetchNow: func(ctx context.Context, feedID int64, wait time.Duration) {
+			ch, err := scheduler.Submit(sched.Priority{FeedID: feedID, Full: true, Trigger: fetch.TriggerSubscribe})
+			if err != nil {
+				return // the feed is due; the tick picks it up
+			}
+			t := time.NewTimer(wait)
+			defer t.Stop()
+			select {
+			case <-ch:
+			case <-t.C:
+			case <-ctx.Done():
+			}
+		},
 	})
 
 	mux := http.NewServeMux()

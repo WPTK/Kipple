@@ -31,6 +31,9 @@ type Options struct {
 	Logger *slog.Logger
 	// Wake asks the scheduler for a tick (non-blocking); optional.
 	Wake func()
+	// FetchNow fetches a just-subscribed feed at once and waits up to wait for it; optional. It is
+	// used only while greader.subscribe_fetch_now is on and never for a feed that already existed.
+	FetchNow func(ctx context.Context, feedID int64, wait time.Duration)
 	// Stats records star/unstar rows from edit-tag (design §8); optional.
 	Stats stats.Recorder
 	// Events receives items.state and feed.changed notifications; optional.

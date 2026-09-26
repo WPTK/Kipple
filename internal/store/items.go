@@ -82,6 +82,9 @@ type IDPage struct {
 	HasOT   bool
 	NT      int64 // nt= seconds, valid only when HasNT
 	HasNT   bool
+	// UserChanges (greader.ot_includes_user_changes) adds items read or starred since ot to the
+	// second leg, so a sync app that passes ot also hears about state changes made in Kipple.
+	UserChanges bool
 }
 
 // otSlack is the 120 s slack on both legs of the ot filter (design §3).
@@ -122,11 +125,17 @@ func streamIDsSQL(f StreamFilter, p IDPage) (string, []any) {
 	} else {
 		leg2Bound = "id < min(:ot_us, :c)"
 	}
+	leg2 := `SELECT id FROM (SELECT id FROM items INDEXED BY idx_items_changed
+                  WHERE content_changed_at >= :ot_s AND %[5]s AND %[2]s%[3]s ORDER BY id %[4]s LIMIT :n1)`
+	if p.UserChanges {
+		// Not the partial index: read_at and starred_at are not in it, and a single user's table is small.
+		leg2 = `SELECT id FROM (SELECT id FROM items
+                  WHERE (content_changed_at >= :ot_s OR read_at >= :ot_s OR starred_at >= :ot_s) AND %[5]s AND %[2]s%[3]s ORDER BY id %[4]s LIMIT :n1)`
+	}
 	q := fmt.Sprintf(`SELECT id FROM (
   SELECT id FROM (SELECT id FROM items WHERE id >= :ot_us AND id %[1]s :c AND %[2]s%[3]s ORDER BY id %[4]s LIMIT :n1)
   UNION ALL
-  SELECT id FROM (SELECT id FROM items INDEXED BY idx_items_changed
-                  WHERE content_changed_at >= :ot_s AND %[5]s AND %[2]s%[3]s ORDER BY id %[4]s LIMIT :n1)
+  `+leg2+`
 ) ORDER BY id %[4]s LIMIT :n1`, cmp, preds, nt, order, leg2Bound)
 	return q, args
 }

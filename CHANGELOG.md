@@ -6,10 +6,18 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.3.0-alpha.1] - 2026-09-26
+### Added
 
-First public build. Adds the Blue Oak license and third-party notices, the container health check and hardened
-compose options, fuzz targets and a release checklist, restore and snapshot fixes, and local CI.
+- `greader.ot_includes_user_changes` (default off, hidden): with it on, `stream/items/ids` with `ot` also returns items read or starred since `ot`, so sync apps hear about changes made in Kipple.
+- `greader.subscribe_fetch_now` (default off, hidden): with it on, a feed a sync app adds is fetched at once, waiting up to 8 s, instead of on the next scheduler tick.
+
+### Fixed
+
+- Auto-read now has a test pinning that disabled feeds are included and archived feeds are skipped.
+
+### Documentation
+
+- Removed a duplicated 0.3.0-alpha.1 heading from the changelog.
 
 ## [0.3.0-alpha.1] - 2026-09-26
 

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/WPTK/kipple/internal/opml"
 	"github.com/WPTK/kipple/internal/store"
@@ -250,11 +251,17 @@ func (c *call) quickAdd() {
 	c.json(http.StatusOK, quickAddJSON{NumResults: 1, Query: q, StreamID: feedID(res.FeedID), StreamName: res.Title})
 }
 
+// subscribeFetchWait bounds the optional synchronous first fetch of greader.subscribe_fetch_now.
+const subscribeFetchWait = 8 * time.Second
+
 func (c *call) publishFolders() { c.a.publish("folder.changed", map[string]any{}) }
 
 func (c *call) afterSubscribe(res store.SubscribeResult) {
 	if !res.Existed {
 		c.a.wake()
+		if c.a.opt.FetchNow != nil && c.a.db.BoolSetting(c.r.Context(), "greader.subscribe_fetch_now", false) {
+			c.a.opt.FetchNow(c.r.Context(), res.FeedID, subscribeFetchWait)
+		}
 	}
 	c.a.publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(res.FeedID, 10)})
 }

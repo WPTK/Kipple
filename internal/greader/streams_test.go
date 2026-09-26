@@ -702,3 +702,21 @@ func TestStreamRowByRowWritesBeforeFinishing(t *testing.T) {
 	require.Len(t, env.Items, 300)
 	_ = http.StatusOK
 }
+
+func TestOTIncludesUserChangesWhenSettingOn(t *testing.T) {
+	h := newHarness(t)
+	feed := h.addFeed("https://a.example/feed.xml", "Alpha", "")
+	old := h.addItem(feed, itemSeed{Title: "old"})
+	ot := baseID/1_000_000 + 10_000 // well after the item was crawled
+	path := rd + "stream/items/ids?s=user/-/state/com.google/reading-list&ot=" + strconv.FormatInt(ot, 10)
+	ids := func() []int64 { got, _, _ := idsPage(t, h.get(path)); return got }
+
+	require.NoError(t, execSQL(h, "UPDATE items SET read = 1, read_at = ? WHERE id = ?", ot+5, old))
+	require.Empty(t, ids(), "default: a user state change is not new activity")
+
+	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"greader.ot_includes_user_changes": true}))
+	require.Len(t, ids(), 1)
+
+	require.NoError(t, execSQL(h, "UPDATE items SET read_at = ? WHERE id = ?", ot-1000, old))
+	require.Empty(t, ids(), "a change before ot (minus slack) stays out")
+}
