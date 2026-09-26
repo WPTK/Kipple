@@ -5,7 +5,21 @@ import { api, errorMessage } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
 import type { Card, Scope } from "@/api/types";
 import { announce, toast } from "@/shell/toasts";
+import { createStore } from "./store";
 import { pushUndo } from "./undo";
+
+/**
+ * Articles the user marked read on purpose, with a button, a key or the menu (not by opening them, and not by a
+ * swipe, which removes its row itself). The Unread list lets those rows leave after a moment; marking one
+ * unread again, or undoing, takes it back out of this set and the row stays.
+ */
+export const readIntent = createStore<ReadonlySet<string>>(new Set());
+function addIntent(ids: string[]): void {
+  readIntent.set((s) => new Set([...s, ...ids]));
+}
+function dropIntent(ids: string[]): void {
+  readIntent.set((s) => (ids.some((i) => s.has(i)) ? new Set([...s].filter((x) => !ids.includes(x))) : s));
+}
 
 /** Read, unread and star changes with their undo entries. One place, so every gesture agrees. */
 export function useItemActions() {
@@ -26,6 +40,19 @@ async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promi
   }
 }
 
+/**
+ * An Unread list is a snapshot, so an article that becomes unread while it is not in that snapshot (marked
+ * unread from All, from Starred, from the reader) would be missing when the list is opened. Mark those lists
+ * stale, without refetching the one on screen: they reload when next shown.
+ */
+export function invalidateUnreadLists(qc: QueryClient): void {
+  void qc.invalidateQueries({
+    queryKey: keys.itemsAll,
+    predicate: (q) => String(q.queryKey[1]).startsWith("unread"),
+    refetchType: "none",
+  });
+}
+
 export function itemActions(qc: QueryClient) {
   /** Set read state for ids and record an undo (mark-read undone = mark-unread through the API). */
   async function setRead(ids: string[], read: boolean, reason: "swipe" | "key", restore?: () => void): Promise<void> {
@@ -35,11 +62,19 @@ export function itemActions(qc: QueryClient) {
       restore?.();
       return;
     }
+    if (read && reason === "key") addIntent(ids);
+    else dropIntent(ids);
+    if (!read) invalidateUnreadLists(qc);
     pushUndo({
       kind: read ? "read" : "unread",
       ids,
       restore,
-      undo: async (undoIds) => (await applyRead(qc, undoIds, !read, "key")) !== undefined,
+      undo: async (undoIds) => {
+        dropIntent(undoIds);
+        const ok = (await applyRead(qc, undoIds, !read, "key")) !== undefined;
+        if (ok && read) invalidateUnreadLists(qc);
+        return ok;
+      },
     });
   }
 

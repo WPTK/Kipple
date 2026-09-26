@@ -7,13 +7,44 @@ import { createStore, useStore } from "./store";
 
 export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines"] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
+// The ids are what devices have stored, so they never change; only the labels do. "magazine" is shown as
+// Editorial and "headlines" as Email - Compact (title-only rows in the email style).
 export const LAYOUT_LABELS: Record<LayoutId, string> = {
-  magazine: "Magazine",
+  magazine: "Editorial",
   cards: "Cards",
   compact: "Compact",
   inbox: "Inbox",
-  headlines: "Headlines",
+  headlines: "Email - Compact",
 };
+
+/** One-line description of each layout, shown beside it in the layout menu and settings. */
+export const LAYOUT_HINTS: Record<LayoutId, string> = {
+  magazine: "Big lead image, large title and excerpt",
+  cards: "A grid of picture cards",
+  compact: "Small source line over the title, no pictures",
+  inbox: "Email rows: sender, subject, snippet, time",
+  headlines: "One line per article, titles only",
+};
+
+export const ARTICLE_WIDTHS = ["narrow", "medium", "wide", "full"] as const;
+export type ArticleWidth = (typeof ARTICLE_WIDTHS)[number];
+export const ARTICLE_WIDTH_LABELS: Record<ArticleWidth, string> = { narrow: "Narrow", medium: "Medium", wide: "Wide", full: "Full" };
+/** Max width of the article column (rem); Full uses the whole pane. */
+export const ARTICLE_WIDTH_REM: Record<ArticleWidth, number | null> = { narrow: 34, medium: 46, wide: 62, full: null };
+
+export type LinkTarget = "new" | "same";
+export type UnreadBadge = "count" | "dot" | "off";
+export const UNREAD_BADGES: readonly UnreadBadge[] = ["count", "dot", "off"];
+
+/** A pinned sidebar entry (matches the server's `library.favorites`). */
+export interface Favorite {
+  t: "folder" | "feed";
+  id: string;
+}
+
+/** Bounds of the resizable list column (px), on a wide screen. */
+export const LIST_WIDTH_MIN = 260;
+export const LIST_WIDTH_MAX = 720;
 
 export type OrderPref = "newest" | "oldest";
 
@@ -27,7 +58,24 @@ export interface DevicePrefs {
   inboxThumbs: "auto" | "off";
   /** The first-run swipe peek has played (or been dismissed) on this device. */
   peekSeen: boolean;
+  /** Width of the article column in the reader pane and the full-screen article. */
+  articleWidth: ArticleWidth;
+  /** Width in px of the list column beside the reader pane; null follows the layout's own width. */
+  listWidth: number | null;
+  /** Width in px of the sidebar. */
+  sidebarWidth: number;
+  /** Folders collapsed in the sidebar (folder ids). */
+  collapsedFolders: string[];
+  /** Where external links open. null: the device default (same tab on iOS and iPadOS, a new tab elsewhere). */
+  linkTarget: LinkTarget | null;
+  /** The unread badge on the tab bar and sidebar. */
+  unreadBadge: UnreadBadge;
+  /** Favorites kept on this device when the server does not accept them. */
+  favoritesLocal: Favorite[];
 }
+
+export const SIDEBAR_WIDTH_MIN = 200;
+export const SIDEBAR_WIDTH_MAX = 420;
 
 export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   layout: "magazine",
@@ -35,11 +83,37 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   order: "newest",
   inboxThumbs: "auto",
   peekSeen: false,
+  articleWidth: "medium",
+  listWidth: null,
+  sidebarWidth: 240,
+  collapsedFolders: [],
+  linkTarget: null,
+  unreadBadge: "count",
+  favoritesLocal: [],
 };
 
 export const DEVICE_PREFS_KEY = "kipple.device.v1";
 
 export const isLayoutId = (v: unknown): v is LayoutId => LAYOUT_IDS.includes(v as LayoutId);
+
+export const clampNum = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, Math.round(n)));
+
+/** A well-formed favorites list: known kinds, digit ids, no repeats, at most 500. */
+export function cleanFavorites(v: unknown): Favorite[] {
+  if (!Array.isArray(v)) return [];
+  const seen = new Set<string>();
+  const out: Favorite[] = [];
+  for (const x of v as unknown[]) {
+    const o = x as Partial<Favorite> | null;
+    if (!o || (o.t !== "folder" && o.t !== "feed") || typeof o.id !== "string" || !/^[0-9]{1,19}$/.test(o.id)) continue;
+    const k = o.t + ":" + o.id;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ t: o.t, id: o.id });
+    if (out.length >= 500) break;
+  }
+  return out;
+}
 
 function cleanMap(v: unknown): Record<string, LayoutId> {
   const out: Record<string, LayoutId> = {};
@@ -60,6 +134,14 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       order: v?.order === "oldest" ? "oldest" : "newest",
       inboxThumbs: v?.inboxThumbs === "off" ? "off" : "auto",
       peekSeen: v?.peekSeen === true,
+      articleWidth: ARTICLE_WIDTHS.includes(v?.articleWidth as ArticleWidth) ? (v?.articleWidth as ArticleWidth) : d.articleWidth,
+      listWidth: typeof v?.listWidth === "number" && Number.isFinite(v.listWidth) ? clampNum(v.listWidth, LIST_WIDTH_MIN, LIST_WIDTH_MAX) : null,
+      sidebarWidth:
+        typeof v?.sidebarWidth === "number" && Number.isFinite(v.sidebarWidth) ? clampNum(v.sidebarWidth, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX) : d.sidebarWidth,
+      collapsedFolders: Array.isArray(v?.collapsedFolders) ? v.collapsedFolders.filter((x): x is string => typeof x === "string") : [],
+      linkTarget: v?.linkTarget === "new" || v?.linkTarget === "same" ? v.linkTarget : null,
+      unreadBadge: UNREAD_BADGES.includes(v?.unreadBadge as UnreadBadge) ? (v?.unreadBadge as UnreadBadge) : d.unreadBadge,
+      favoritesLocal: cleanFavorites(v?.favoritesLocal),
     };
   } catch {
     return { ...d, overrides: { feed: {}, folder: {} } };

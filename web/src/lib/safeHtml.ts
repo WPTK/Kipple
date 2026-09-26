@@ -4,6 +4,8 @@ import DOMPurify from "dompurify";
 // client-side pass (defense in depth) plus link and image hygiene.
 
 let hooked = false;
+/** Set for the duration of one sanitize call: whether external links open in a new tab or the same one. */
+let sameTab = false;
 function ensureHooks(): void {
   if (hooked) return;
   hooked = true;
@@ -15,7 +17,10 @@ function ensureHooks(): void {
           // Even a server-supplied target must not survive on an in-article link.
           node.removeAttribute("target");
         } else {
-          node.setAttribute("target", "_blank");
+          // "Same tab" (the iOS default) lets a link a native app claims hand off cleanly instead of leaving an
+          // about:blank tab behind. rel stays either way.
+          if (sameTab) node.removeAttribute("target");
+          else node.setAttribute("target", "_blank");
           node.setAttribute("rel", "noopener noreferrer");
         }
       }
@@ -29,8 +34,9 @@ function ensureHooks(): void {
   });
 }
 
-export function sanitizeArticleHtml(html: string): string {
+export function sanitizeArticleHtml(html: string, linkTarget: "new" | "same" = "new"): string {
   ensureHooks();
+  sameTab = linkTarget === "same";
   return DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true },
     FORBID_TAGS: ["style", "form", "input", "button", "textarea", "select", "iframe", "object", "embed", "base", "meta", "link"],
