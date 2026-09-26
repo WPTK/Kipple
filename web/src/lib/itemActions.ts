@@ -66,6 +66,20 @@ export function invalidateUnreadLists(qc: QueryClient): void {
   });
 }
 
+/**
+ * Whether article `id` arrived after a list's `as_of`, so a bulk mark bounded by it left the article alone. Ids are
+ * decimal and rise with arrival. With no bound nothing was left out for arriving late; an id that does not parse
+ * counts as late, since treating a row as untouched only puts it back on screen, which is the safe mistake.
+ */
+export function arrivedAfter(id: string, asOf: string | undefined): boolean {
+  if (!asOf) return false;
+  try {
+    return BigInt(id) > BigInt(asOf);
+  } catch {
+    return true;
+  }
+}
+
 export function itemActions(qc: QueryClient) {
   /** Set read state for ids and record an undo (mark-read undone = mark-unread through the API). */
   async function setRead(ids: string[], read: boolean, reason: "swipe" | "key", restore?: () => void): Promise<void> {
@@ -122,13 +136,16 @@ export function itemActions(qc: QueryClient) {
   }
 
   /**
-   * After a bulk call: patch the ids the server changed and offer undo through them. `local` are the rows
-   * the caller optimistically marked (and possibly hid); the ones the server did not change (above the
-   * list's `as_of`, or read elsewhere already) go back to unread, and `unhide` brings them back on screen.
+   * After a bulk call: patch the ids the server changed and offer undo through them. `local` are the rows the
+   * caller optimistically marked (and possibly hid). Of the ones the server did not change, only those above the
+   * list's `as_of` (`asOf`) were left alone because of the bound: they go back to unread and `unhide` brings them
+   * back on screen. The rest were not changed because they were read already (on another device, say): they stay
+   * read and hidden, since showing them as unread again would be wrong.
    */
   function finishBulk(
     res: { changed: string[]; count?: number; undoable?: boolean; ledger_ids?: string[] },
     local: string[],
+    asOf: string | undefined,
     restore?: () => void,
     unhide?: (ids: string[]) => void,
   ): void {
@@ -144,7 +161,7 @@ export function itemActions(qc: QueryClient) {
     }
     if (changed.length) patchItems(qc, changed, { read: true });
     const kept = new Set(changed);
-    const skipped = local.filter((id) => !kept.has(id));
+    const skipped = local.filter((id) => !kept.has(id) && arrivedAfter(id, asOf));
     if (skipped.length) {
       patchItems(qc, skipped, { read: false });
       unhide?.(skipped);
@@ -166,7 +183,7 @@ export function itemActions(qc: QueryClient) {
   async function markSide(p: RangeParams, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
     patchItems(qc, local, { read: true });
     try {
-      finishBulk(await markRange(p), local, restore, unhide);
+      finishBulk(await markRange(p), local, p.maxId, restore, unhide);
     } catch {
       patchItems(qc, local, { read: false });
       restore?.();
@@ -177,7 +194,7 @@ export function itemActions(qc: QueryClient) {
   async function markAll(scope: Scope, maxId: string | undefined, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
     patchItems(qc, local, { read: true });
     try {
-      finishBulk(await markAllRead(scope, maxId), local, restore, unhide);
+      finishBulk(await markAllRead(scope, maxId), local, maxId, restore, unhide);
     } catch {
       patchItems(qc, local, { read: false });
       restore?.();
