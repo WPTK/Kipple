@@ -150,11 +150,15 @@ type Options struct {
 // Handler serves GET /img/{sig}/{flags}/{u} (path values). The caller enforces
 // the web session before it gets here.
 type Handler struct {
-	opt   Options
-	sem   chan struct{}
-	hosts *hostLimiter
-	hints hintStore
-	log   *slog.Logger
+	opt Options
+	// secret keys the signatures. It is swapped in place on a rotation
+	// (SetSecret) so the process keeps one handler, and with it one fetch
+	// semaphore, host limiter, thumbnail pool and decode budget.
+	secret atomic.Pointer[[]byte]
+	sem    chan struct{}
+	hosts  *hostLimiter
+	hints  hintStore
+	log    *slog.Logger
 
 	pool     *pool
 	lim      thumbLimits
@@ -227,7 +231,7 @@ func New(opt Options) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{
+	h := &Handler{
 		opt: opt, sem: make(chan struct{}, opt.Concurrency), hosts: newHostLimiter(opt.PerHost),
 		hints: hintStore{cache: opt.Cache}, log: log,
 		pool: newPool(opt.ThumbWorkers, opt.ThumbQueue),
@@ -235,6 +239,16 @@ func New(opt Options) *Handler {
 			width: opt.ThumbWidth, maxPixels: opt.ThumbMaxPixels, ceiling: opt.DecodeCeiling, budget: newBudget(opt.DecodeBudget),
 		},
 	}
+	h.SetSecret(opt.Secret)
+	return h
+}
+
+// SetSecret replaces the signing secret: URLs signed with the old one stop
+// verifying at once. Requests in flight finish; the fetch slots, thumbnail
+// pool and decode budget are the same ones.
+func (h *Handler) SetSecret(secret []byte) {
+	s := append([]byte(nil), secret...)
+	h.secret.Store(&s)
 }
 
 // ServeHTTP implements http.Handler.
@@ -255,7 +269,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orig := string(raw)
-	if !hmac.Equal([]byte(sig), []byte(Sign(h.opt.Secret, flags, orig))) {
+	if !hmac.Equal([]byte(sig), []byte(Sign(*h.secret.Load(), flags, orig))) {
 		fail(w, http.StatusForbidden)
 		return
 	}

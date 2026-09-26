@@ -176,7 +176,11 @@ func TestCardImagesUseThumbnailsWhenCacheIsOn(t *testing.T) {
 	require.EqualValues(t, 0, st["thumbnails"])
 }
 
-func TestSecretRotationClosesOldImageHandler(t *testing.T) {
+// TestSecretRotationKeepsOneImageHandler: the fetch slots, host limiter,
+// thumbnail pool and decode budget are process-wide, so a rotation re-keys the
+// one handler instead of building a second (with its own pool and budget)
+// beside the draining old one.
+func TestSecretRotationKeepsOneImageHandler(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	old, ok := h.srv.imageHandler(ctx)
@@ -187,7 +191,16 @@ func TestSecretRotationClosesOldImageHandler(t *testing.T) {
 	h.srv.imgMu.Unlock()
 	fresh, ok := h.srv.imageHandler(ctx)
 	require.True(t, ok)
-	require.NotSame(t, old, fresh)
-	require.Eventually(t, old.Closed, 2*time.Second, 5*time.Millisecond, "old handler must be closed, not leaked")
+	require.Same(t, old, fresh, "one handler per process")
 	require.False(t, fresh.Closed())
+	// Rotated through imageSecret alone (a list render) as well.
+	h.exec("UPDATE account SET secret = ? WHERE id = 1", strings.Repeat("e", 64))
+	h.srv.imgMu.Lock()
+	h.srv.imgSecretAt = time.Time{}
+	h.srv.imgMu.Unlock()
+	secret, ok := h.srv.imageSecret(ctx)
+	require.True(t, ok)
+	require.Equal(t, strings.Repeat("e", 64), string(secret))
+	again, _ := h.srv.imageHandler(ctx)
+	require.Same(t, old, again)
 }

@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/imgcache"
 )
 
@@ -215,6 +217,33 @@ func TestServedThumbnailTouchesItsOriginal(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, oe.LastAccess.Add(time.Hour).Unix(), oe2.LastAccess.Unix())
 	require.Equal(t, oe.Hits, oe2.Hits, "a touch is not a hit")
+}
+
+// TestSetSecretReKeysInPlace: a rotated secret is swapped into the same
+// handler (one pool, one budget, one set of fetch slots per process): URLs
+// signed with the old secret stop verifying, new ones verify.
+func TestSetSecretReKeysInPlace(t *testing.T) {
+	fc := fetch.NewClient(fetch.ClientOptions{})
+	h := New(Options{Secret: secret, Transport: func(a, i bool) http.RoundTripper { return fc.Transport(a, i, false) }})
+	t.Cleanup(h.Close)
+	mux := http.NewServeMux()
+	mux.Handle("GET /img/{sig}/{flags}/{u}", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	rg := &rig{t: t, srv: srv}
+	up := upstream(t, serve("image/png", pngBytes))
+	orig := up.URL + "/a.png"
+
+	require.Equal(t, http.StatusOK, rg.get(Path(secret, FlagPrivateNet, orig)).StatusCode)
+	pool, budget := h.pool, h.lim.budget
+	next := []byte("fedcba9876543210fedcba9876543210")
+	h.SetSecret(next)
+	require.Equal(t, http.StatusForbidden, rg.get(Path(secret, FlagPrivateNet, orig)).StatusCode)
+	require.Equal(t, http.StatusOK, rg.get(Path(next, FlagPrivateNet, orig)).StatusCode)
+	require.Same(t, pool, h.pool)
+	require.Same(t, budget, h.lim.budget)
+	next[0] = 'x' // the handler keeps its own copy
+	require.Equal(t, http.StatusOK, rg.get(Path([]byte("fedcba9876543210fedcba9876543210"), FlagPrivateNet, orig)).StatusCode)
 }
 
 // TestThumbURLWithoutCacheIsNotImmutable: with the cache off a thumbnail URL

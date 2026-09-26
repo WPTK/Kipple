@@ -18,9 +18,10 @@ const imageSecretTTL = time.Second
 
 // imageSecret returns the account secret that keys image proxy signatures. It is
 // cached for imageSecretTTL and re-read after that, and the proxy handler is
-// rebuilt when it changed: `kipple password` rotates the secret from another
-// process while the server runs, and old signed image URLs must stop verifying
-// within a second. A failed read falls back to the last good value.
+// re-keyed when it changed (imageHandler): `kipple password` rotates the
+// secret from another process while the server runs, and old signed image URLs
+// must stop verifying within a second. A failed read falls back to the last
+// good value.
 func (s *Server) imageSecret(ctx context.Context) ([]byte, bool) {
 	s.imgMu.Lock()
 	if s.imgSecret != nil && s.now().Sub(s.imgSecretAt) < imageSecretTTL {
@@ -40,16 +41,19 @@ func (s *Server) imageSecret(ctx context.Context) ([]byte, bool) {
 	}
 	if s.imgSecret == nil || string(s.imgSecret) != secret {
 		s.imgSecret = []byte(secret)
-		if old := s.imgH; old != nil { // keyed by the old secret; in-flight requests finish, queued thumbnails drain
-			go old.Close()
+		if s.imgH != nil { // re-keyed in place: one handler, one set of fetch slots and one thumbnail pool per process
+			s.imgH.SetSecret(s.imgSecret)
+			s.imgHSecret = s.imgSecret
 		}
-		s.imgH = nil
 	}
 	s.imgSecretAt = s.now()
 	return s.imgSecret, true
 }
 
 // imageHandler builds the proxy handler on first use (it needs the secret).
+// There is only ever one: its fetch semaphore, host limiter, thumbnail pool
+// and decode budget are process-wide (design §7.4), so a rotated secret is
+// swapped into it rather than a second handler being built beside it.
 func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 	secret, ok := s.imageSecret(ctx)
 	if !ok {
@@ -57,11 +61,13 @@ func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 	}
 	s.imgMu.Lock()
 	defer s.imgMu.Unlock()
-	if s.imgH == nil || !bytes.Equal(s.imgHSecret, secret) {
-		s.imgHSecret = secret
-		if s.imgH != nil {
-			go s.imgH.Close() // keyed by the old secret; its queued thumbnails finish first
+	if s.imgH != nil {
+		if !bytes.Equal(s.imgHSecret, secret) {
+			s.imgHSecret = secret
+			s.imgH.SetSecret(secret)
 		}
+	} else {
+		s.imgHSecret = secret
 		s.imgH = imgproxy.New(imgproxy.Options{
 			Secret: secret, UserAgent: s.outgoingUA(), Logger: s.log, Cache: s.opt.ImgCache,
 			Transport: func(allowPrivate, insecure bool) http.RoundTripper { return s.opt.Guard(allowPrivate, insecure, false) },
