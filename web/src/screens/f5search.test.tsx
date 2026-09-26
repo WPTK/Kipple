@@ -54,6 +54,24 @@ describe("Search: what is sent", () => {
     expect(itemCalls(calls).at(-1)?.url.searchParams.get("q")).toBe("big re ");
   });
 
+  it("typing one more character and backspacing to the submitted query is not typing again", async () => {
+    const { calls } = mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
+    go("/search");
+    const user = userEvent.setup();
+    const box = await screen.findByRole("searchbox", { name: "Search articles" });
+    await user.type(box, "cat{Enter}");
+    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.has("typing")).toBe(false), { timeout: 3000 });
+    const markAll = screen.getByRole("button", { name: "Mark all results as read" });
+    await waitFor(() => expect(markAll).toBeEnabled());
+    await user.type(box, "s");
+    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("typing")).toBe("1"), { timeout: 3000 });
+    expect(markAll).toBeDisabled();
+    await user.keyboard("{Backspace}");
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("q")).toBe("cat"), { timeout: 3000 });
+    // Back at the submitted text: the exact search again, so Mark all is allowed.
+    expect(screen.getByRole("button", { name: "Mark all results as read" })).toBeEnabled();
+  });
+
   it("a search opened from the URL (a saved search, a reload) is a submitted search: no typing", async () => {
     const { calls } = mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
     go("/search?q=big%20red&order=oldest&feed=1");
@@ -90,6 +108,13 @@ describe("Search: what is sent", () => {
     await screen.findByText("Cats");
     expect(screen.queryByRole("heading", { name: "Best matches first" })).toBeNull();
     expect(document.querySelector("h2.sticky")).not.toBeNull();
+  });
+
+  it("a relevance search with no hits shows the empty message, not a lone header", async () => {
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items({ items: [] })), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
+    go("/search?q=zzzz");
+    expect(await screen.findByText(/No results for "zzzz"/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Best matches first" })).toBeNull();
   });
 
   it("puts the syntax in a help popover", async () => {

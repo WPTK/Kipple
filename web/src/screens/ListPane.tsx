@@ -42,11 +42,22 @@ interface ListMemory {
   /** Ids already sent by mark-read-on-scroll. */
   sentByScroll: Set<string>;
 }
+const MEMORY_CAP = 100;
 const memory = new Map<string, ListMemory>();
 const memoryFor = (key: string): ListMemory => {
   let m = memory.get(key);
   if (!m) {
     m = { offset: 0, hidden: new Set(), checked: new Set(), sentByScroll: new Set() };
+    memory.set(key, m);
+    // Bounded: every scope (each partial search string too) adds an entry. Map order is insertion order, so the
+    // oldest go first; a touched entry is re-inserted below to stay recent.
+    while (memory.size > MEMORY_CAP) {
+      const oldest = memory.keys().next().value;
+      if (oldest === undefined) break;
+      memory.delete(oldest);
+    }
+  } else {
+    memory.delete(key);
     memory.set(key, m);
   }
   return m;
@@ -177,7 +188,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const rows = useMemo(
     () =>
       chunkRows(
-        rank
+        rank && items.length > 0
           ? [{ kind: "header", key: "h:rank", label: "Best matches first" } as Row<Card>, ...items.map((item): Row<Card> => ({ kind: "item", key: item.id, item }))]
           : withDayHeaders(items),
         cols,
@@ -223,6 +234,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   // The same goes for a width that moves a row across a breakpoint or changes its image height: re-measure per
   // 48 px of width rather than per pixel, so dragging the list wider does not thrash the cache.
   const widthBucket = Math.round(width / 48);
+  // The root font size changes with the text-size preference, so it is re-read (and rows re-measured) then too.
+  const textSize = prefs.textSize;
   useEffect(() => {
     try {
       sizeCtx.current.rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
@@ -230,7 +243,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       /* keep the last */
     }
     virtualizer.measure();
-  }, [layout.id, cols, widthBucket, virtualizer]);
+  }, [layout.id, cols, widthBucket, virtualizer, textSize]);
 
   const rowIndexOf = useCallback(
     (id: string) => rows.findIndex((r) => (r.kind === "item" ? r.item.id === id : r.kind === "group" && r.items.some((i) => i.id === id))),

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createElement, createRef } from "react";
 import { ListenBar } from "@/screens/ListenBar";
@@ -126,6 +126,20 @@ describe("ListenBar", () => {
     expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Stop" }));
     expect(screen.getByRole("button", { name: "Listen" })).toBeInTheDocument();
+  });
+
+  it("turning the setting off mid-playback stops the speech", async () => {
+    const ref = createRef<HTMLDivElement>();
+    const host = document.createElement("div");
+    host.innerHTML = "<p>Hello there.</p>";
+    ref.current = host;
+    render(createElement(ListenBar, { bodyRef: ref, articleId: "1" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Listen" }));
+    expect(narratorStore.get().status).toBe("playing");
+    env.synth.cancel.mockClear();
+    act(() => prefsStore.set({ ...prefsStore.get(), listen: false }));
+    expect(env.synth.cancel).toHaveBeenCalled();
+    expect(narratorStore.get().status).toBe("idle");
   });
 
   it("renders nothing when speech is unsupported or the setting is off", () => {
