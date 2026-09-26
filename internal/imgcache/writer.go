@@ -1,7 +1,6 @@
 package imgcache
 
 import (
-	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -77,7 +76,7 @@ func (c *Cache) checkDisk(incoming int64) error {
 	if last := c.lastLowEvict.Load(); now-last >= int64(lowDiskEvictEvery/time.Second) && c.lastLowEvict.CompareAndSwap(last, now) {
 		if cp := c.maxBytes.Load(); cp > 0 && c.used.Load() > cp*lowDiskTargetPct/100 {
 			c.mu.Lock()
-			c.noteEvict(c.evictLocked(context.Background(), cp*lowDiskTargetPct/100), "imgcache: low-disk eviction")
+			c.noteEvict(c.evictLocked(c.ctx, cp*lowDiskTargetPct/100), "imgcache: low-disk eviction")
 			c.mu.Unlock()
 		}
 	}
@@ -190,7 +189,7 @@ func (w *Writer) Commit(m Meta) error {
 	now := c.now()
 	sum := hex.EncodeToString(w.h.Sum(nil))
 	if len(w.url) > maxStoredURLLength {
-		w.url = w.url[:maxStoredURLLength]
+		w.url = truncateURL(w.url)
 	}
 	if _, err := c.wr.Exec(`INSERT OR REPLACE INTO entries (key, url, flags, variant, status, content_type, size, sha256, etag, last_modified,
 		fetched_at, fresh_until, last_access_at) VALUES (?, ?, ?, ?, 'ok', ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -215,7 +214,7 @@ func (w *Writer) Commit(m Meta) error {
 		c.files.Add(1)
 	}
 	if cp := c.maxBytes.Load(); cp > 0 && c.used.Load() > cp {
-		c.noteEvict(c.evictLocked(context.Background(), cp*evictTargetPct/100), "imgcache: eviction")
+		c.noteEvict(c.evictLocked(c.ctx, cp*evictTargetPct/100), "imgcache: eviction")
 	}
 	return nil
 }

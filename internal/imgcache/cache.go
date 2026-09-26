@@ -180,6 +180,7 @@ type Cache struct {
 
 	closed atomic.Bool
 	cancel context.CancelFunc
+	ctx    context.Context // cancelled by Close; bounds every eviction
 	wg     sync.WaitGroup
 }
 
@@ -265,6 +266,7 @@ func Open(o Options) (*Cache, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
+	c.ctx = ctx
 	if !o.NoBackgound {
 		c.wg.Add(1)
 		go c.loop(ctx)
@@ -623,7 +625,7 @@ func (c *Cache) SetCap(bytes int64) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.used.Load() > bytes {
-			c.noteEvict(c.evictLocked(context.Background(), bytes*evictTargetPct/100), "imgcache: evict after cap change")
+			c.noteEvict(c.evictLocked(c.ctx, bytes*evictTargetPct/100), "imgcache: evict after cap change")
 		}
 	}()
 }
@@ -889,7 +891,7 @@ func (c *Cache) putNeg(key, url string, flags int, variant string, kind NegKind,
 		return ErrDisabled
 	}
 	if len(url) > maxStoredURLLength {
-		url = url[:maxStoredURLLength]
+		url = truncateURL(url)
 	}
 	now := c.now()
 	c.mu.Lock()
@@ -1138,4 +1140,12 @@ func (c *Cache) SetHostHint(host string, h HostHint) error {
 	}
 	_, err := c.wr.Exec("INSERT OR REPLACE INTO hosts (host, referer, ua, updated_at) VALUES (?, ?, ?, ?)", host, h.Referer, h.UA, c.now().Unix())
 	return err
+}
+
+// truncateURL cuts u to maxStoredURLLength bytes on a rune boundary.
+func truncateURL(u string) string {
+	if len(u) <= maxStoredURLLength {
+		return u
+	}
+	return strings.ToValidUTF8(u[:maxStoredURLLength], "")
 }

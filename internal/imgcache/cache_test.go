@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 )
@@ -697,4 +698,13 @@ func TestVariantEntriesCoexistAndCountTowardTheCap(t *testing.T) {
 	require.NoError(t, c.rd.QueryRow("SELECT variant FROM entries WHERE key = ?", KeyThumb(0, url+"3")).Scan(&variant))
 	require.Equal(t, "t800", variant)
 	require.EqualValues(t, 1, c.Stats().NegEntries)
+}
+
+func TestTruncateURLKeepsValidUTF8(t *testing.T) {
+	long := strings.Repeat("a", maxStoredURLLength-1) + "é" + "tail" // a two-byte rune straddles the limit
+	got := truncateURL(long)
+	require.True(t, utf8.ValidString(got))
+	require.LessOrEqual(t, len(got), maxStoredURLLength)
+	require.Equal(t, strings.Repeat("a", maxStoredURLLength-1), got)
+	require.Equal(t, "short", truncateURL("short"))
 }
