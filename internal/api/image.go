@@ -56,6 +56,9 @@ func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 	defer s.imgMu.Unlock()
 	if s.imgH == nil || !bytes.Equal(s.imgHSecret, secret) {
 		s.imgHSecret = secret
+		if s.imgH != nil {
+			go s.imgH.Close() // keyed by the old secret; its queued thumbnails finish first
+		}
 		s.imgH = imgproxy.New(imgproxy.Options{
 			Secret: secret, UserAgent: s.outgoingUA(), Logger: s.log, Cache: s.opt.ImgCache,
 			Transport: func(allowPrivate, insecure bool) http.RoundTripper { return s.opt.Guard(allowPrivate, insecure, false) },
@@ -79,7 +82,7 @@ func (s *Server) image(w http.ResponseWriter, r *http.Request) {
 
 // imageRewriters returns, per feed id, the serve-time image URL rewriter
 // (design §7.4), or nil when the proxy cannot sign (no account secret yet).
-func (s *Server) imageRewriters(ctx context.Context, feedIDs []int64) func(feedID int64) func(string) string {
+func (s *Server) imageRewriters(ctx context.Context, feedIDs []int64, thumb bool) func(feedID int64) func(string) string {
 	secret, ok := s.imageSecret(ctx)
 	if !ok {
 		return nil
@@ -90,8 +93,10 @@ func (s *Server) imageRewriters(ctx context.Context, feedIDs []int64) func(feedI
 		return nil
 	}
 	all := s.db.StringSetting(ctx, "imgproxy.mode", store.DefaultImgMode) == "all"
+	// Thumbnails are made from the cached original, so they need the cache.
+	thumb = thumb && s.opt.ImgCache.Enabled()
 	return func(feedID int64) func(string) string {
-		return imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: all}.Rewrite
+		return imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: all, Thumb: thumb}.Rewrite
 	}
 }
 
@@ -101,7 +106,8 @@ func (s *Server) stripLinks(ctx context.Context) bool {
 	return s.db.BoolSetting(ctx, "links.strip_tracking", true)
 }
 
-// proxyCards rewrites each card's lead image through the proxy and strips
+// proxyCards rewrites each card's lead image through the proxy (its thumbnail
+// variant; article bodies and the open article's lead image keep the original) and strips
 // tracking parameters from its link. Stored URLs are never touched.
 func (s *Server) proxyCards(ctx context.Context, cards []store.Card) {
 	if len(cards) == 0 {
@@ -118,7 +124,7 @@ func (s *Server) proxyCards(ctx context.Context, cards []store.Card) {
 			ids = append(ids, c.FeedID)
 		}
 	}
-	rw := s.imageRewriters(ctx, ids)
+	rw := s.imageRewriters(ctx, ids, true) // list cards use the 800 px thumbnail
 	if rw == nil {
 		return
 	}

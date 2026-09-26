@@ -36,6 +36,9 @@ import (
 	"time"
 )
 
+// VariantThumb is the variant of the list-card thumbnail (800 px wide).
+const VariantThumb = "t800"
+
 // Defaults.
 const (
 	DefaultMaxObject   = 15 << 20
@@ -97,6 +100,7 @@ type Meta struct {
 	ETag         string
 	LastModified string
 	FreshFor     time.Duration // 0 means the default (7 days)
+	Variant      string        // "" is the original; VariantThumb for a thumbnail
 }
 
 // Entry is one index row.
@@ -134,6 +138,7 @@ type Stats struct {
 	Misses       int64
 	Evictions    int64
 	Failures     int64 // failures recorded (negative entries written)
+	Thumbnails   int64 // cached thumbnails (a subset of Files)
 	Since        time.Time
 	OldestAccess time.Time // zero when empty
 	DiskFree     uint64
@@ -189,6 +194,11 @@ func Key(variant string, flags int, url string) string {
 
 // KeyOrig is Key for the original image.
 func KeyOrig(flags int, url string) string { return Key(variantOrig, flags, url) }
+
+// KeyThumb is Key for the card thumbnail of an image. flags are the fetch flags
+// of the source (without the proxy's thumbnail bit), so the thumbnail and the
+// original are separate entries that share one fetch.
+func KeyThumb(flags int, url string) string { return Key(VariantThumb, flags, url) }
 
 // Open creates the directory tree, opens the index, repairs it against the files
 // on disk and starts the background flush/eviction goroutine.
@@ -668,6 +678,7 @@ func (c *Cache) Stats() Stats {
 	if err := c.rd.QueryRow("SELECT min(last_access_at) FROM entries WHERE status = 'ok'").Scan(&oldest); err == nil && oldest.Valid {
 		s.OldestAccess = time.Unix(oldest.Int64, 0)
 	}
+	_ = c.rd.QueryRow("SELECT count(*) FROM entries WHERE status = 'ok' AND variant <> 'orig'").Scan(&s.Thumbnails)
 	if free, total, err := c.o.DiskSpace(c.dir); err == nil {
 		s.DiskFree, s.DiskTotal, s.DiskFloor = free, total, c.floor(total)
 	}
@@ -698,6 +709,12 @@ const (
 // PutNeg remembers a failure so the source is not contacted again until the
 // retry-after passes. It replaces whatever the key held (an ok entry loses its file).
 func (c *Cache) PutNeg(key, url string, flags int, kind NegKind, status int, reason string) error {
+	return c.PutNegVariant(key, url, flags, variantOrig, kind, status, reason)
+}
+
+// PutNegVariant is PutNeg for an entry of the given variant (a thumbnail that
+// could not be made is remembered so it is not attempted again until the retry-after).
+func (c *Cache) PutNegVariant(key, url string, flags int, variant string, kind NegKind, status int, reason string) error {
 	if !c.Enabled() || !validKey(key) {
 		return ErrDisabled
 	}
@@ -730,8 +747,8 @@ func (c *Cache) PutNeg(key, url string, flags int, kind NegKind, status int, rea
 		}
 	}
 	if _, err := c.wr.Exec(`INSERT OR REPLACE INTO entries (key, url, flags, variant, status, fetched_at, fresh_until, last_access_at,
-		neg_status, neg_reason, neg_count) VALUES (?, ?, ?, 'orig', 'neg', ?, ?, ?, ?, ?, ?)`,
-		key, url, flags, now.Unix(), now.Add(ttl).Unix(), now.Unix(), status, truncate(reason, 200), count); err != nil {
+		neg_status, neg_reason, neg_count) VALUES (?, ?, ?, ?, 'neg', ?, ?, ?, ?, ?, ?)`,
+		key, url, flags, variant, now.Unix(), now.Add(ttl).Unix(), now.Unix(), status, truncate(reason, 200), count); err != nil {
 		return err
 	}
 	c.fails.Add(1)

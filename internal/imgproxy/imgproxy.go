@@ -31,7 +31,12 @@ import (
 const (
 	FlagPrivateNet  = 1 << 0 // feeds.allow_private_net
 	FlagInsecureTLS = 1 << 1 // feeds.allow_insecure_tls
-	maxFlags        = FlagPrivateNet | FlagInsecureTLS
+	// FlagThumb asks for the list-card thumbnail of the image. It is part of the
+	// signed flags, so a thumbnail URL cannot be turned into an original (or the
+	// reverse) without the secret, and URLs signed before it existed (flags 0
+	// to 3) verify exactly as before.
+	FlagThumb = 1 << 2
+	maxFlags  = FlagPrivateNet | FlagInsecureTLS | FlagThumb
 )
 
 const (
@@ -41,6 +46,7 @@ const (
 	defaultMax        = 15 << 20
 	defaultTimeout    = 15 * time.Second
 	defaultWait       = 10 * time.Second
+	defaultThumbWait  = 4 * time.Second
 	defaultRevalidate = 3 * time.Second
 	defaultConc       = 8
 	defaultPerHost    = 4
@@ -68,6 +74,8 @@ type Rewriter struct {
 	// All proxies https sources too; the default (http_only) proxies only
 	// http:// sources, which a browser would block as mixed content.
 	All bool
+	// Thumb points at the card thumbnail instead of the original.
+	Thumb bool
 }
 
 // Rewrite returns the proxy path for u, or u unchanged when the mode leaves it
@@ -84,7 +92,11 @@ func (r Rewriter) Rewrite(u string) string {
 	if len(u) > maxURLLen {
 		return u
 	}
-	return Path(r.Secret, r.Flags, u)
+	flags := r.Flags
+	if r.Thumb {
+		flags |= FlagThumb
+	}
+	return Path(r.Secret, flags, u)
 }
 
 // Options configures New. Zero values take the design's numbers.
@@ -111,6 +123,15 @@ type Options struct {
 	// RevalidateWithin bounds how long a stale cached image may wait for its
 	// source to answer a conditional request before the stale copy is served (3 s).
 	RevalidateWithin time.Duration
+
+	// Thumbnails (FlagThumb). Zero values take the defaults.
+	ThumbWidth     int           // 800 px
+	ThumbWorkers   int           // 2 transcoder goroutines
+	ThumbQueue     int           // 16 waiting jobs; beyond that the original is served
+	ThumbMaxPixels int           // 24 megapixels; more is served as the original
+	ThumbWait      time.Duration // 4 s a request waits for a thumbnail before the original is served
+	DecodeCeiling  int64         // 96 MiB: the most one decode may be estimated to need
+	DecodeBudget   int64         // 128 MiB: the most all decodes together may be estimated to need
 }
 
 // Handler serves GET /img/{sig}/{flags}/{u} (path values). The caller enforces
@@ -121,7 +142,14 @@ type Handler struct {
 	hosts *hostLimiter
 	hints hintStore
 	log   *slog.Logger
+
+	pool *pool
+	lim  thumbLimits
 }
+
+// Close stops the thumbnail workers after the queued jobs finish. The handler
+// keeps serving (originals) afterwards.
+func (h *Handler) Close() { h.pool.close() }
 
 // New builds the handler.
 func New(opt Options) *Handler {
@@ -149,6 +177,28 @@ func New(opt Options) *Handler {
 	if opt.BrowserUA == "" {
 		opt.BrowserUA = defaultBrowserUA
 	}
+	if opt.ThumbWidth <= 0 {
+		opt.ThumbWidth = ThumbWidth
+	}
+	if opt.ThumbWorkers <= 0 {
+		opt.ThumbWorkers = defaultThumbWorkers
+	}
+	if opt.ThumbQueue <= 0 {
+		opt.ThumbQueue = defaultThumbQueue
+	}
+	if opt.ThumbMaxPixels <= 0 {
+		opt.ThumbMaxPixels = defaultThumbPixels
+	}
+	if opt.ThumbWait <= 0 {
+		opt.ThumbWait = defaultThumbWait
+	}
+	if opt.DecodeBudget <= 0 {
+		opt.DecodeBudget = defaultDecodeBudget
+	}
+	if opt.DecodeCeiling <= 0 {
+		opt.DecodeCeiling = defaultDecodeCeiling
+	}
+	opt.DecodeCeiling = min(opt.DecodeCeiling, opt.DecodeBudget)
 	log := opt.Logger
 	if log == nil {
 		log = slog.Default()
@@ -156,6 +206,10 @@ func New(opt Options) *Handler {
 	return &Handler{
 		opt: opt, sem: make(chan struct{}, opt.Concurrency), hosts: newHostLimiter(opt.PerHost),
 		hints: hintStore{cache: opt.Cache}, log: log,
+		pool: newPool(opt.ThumbWorkers, opt.ThumbQueue),
+		lim: thumbLimits{
+			width: opt.ThumbWidth, maxPixels: opt.ThumbMaxPixels, ceiling: opt.DecodeCeiling, budget: newBudget(opt.DecodeBudget),
+		},
 	}
 }
 
@@ -186,11 +240,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest)
 		return
 	}
-	if h.opt.Cache.Enabled() {
-		h.serveCached(w, r, u, flags, orig)
-		return
+	base := flags &^ FlagThumb // the source is fetched, and cached, by its fetch flags alone
+	switch {
+	case !h.opt.Cache.Enabled():
+		h.serveDirect(w, r, u, base) // no cache, no thumbnails: the original streams through
+	case flags&FlagThumb != 0:
+		h.serveThumb(w, r, u, base, orig)
+	default:
+		h.serveCached(w, r, u, base, orig)
 	}
-	h.serveDirect(w, r, u, flags)
 }
 
 func fail(w http.ResponseWriter, code int) {

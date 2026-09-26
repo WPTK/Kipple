@@ -151,6 +151,10 @@ func (w *Writer) Commit(m Meta) error {
 	if m.FreshFor <= 0 {
 		m.FreshFor = freshDefault
 	}
+	variant := m.Variant
+	if variant == "" {
+		variant = variantOrig
+	}
 	final := c.path(w.key)
 	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
 		_ = os.Remove(name)
@@ -176,8 +180,8 @@ func (w *Writer) Commit(m Meta) error {
 		w.url = w.url[:maxStoredURLLength]
 	}
 	if _, err := c.wr.Exec(`INSERT OR REPLACE INTO entries (key, url, flags, variant, status, content_type, size, sha256, etag, last_modified,
-		fetched_at, fresh_until, last_access_at) VALUES (?, ?, ?, 'orig', 'ok', ?, ?, ?, ?, ?, ?, ?, ?)`,
-		w.key, w.url, w.flag, m.ContentType, w.n, sum, m.ETag, m.LastModified,
+		fetched_at, fresh_until, last_access_at) VALUES (?, ?, ?, ?, 'ok', ?, ?, ?, ?, ?, ?, ?, ?)`,
+		w.key, w.url, w.flag, variant, m.ContentType, w.n, sum, m.ETag, m.LastModified,
 		now.Unix(), now.Add(m.FreshFor).Unix(), now.Unix()); err != nil {
 		_ = os.Remove(final)
 		return err

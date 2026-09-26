@@ -138,8 +138,14 @@ Phase 2 (reading UI backend) so far.
   extra steps for the phase 2 deploy (an off-box copy first) and how to roll back to phase 1.
 - `GET /api/events` accepts `?last_event_id=` as well as the `Last-Event-ID` header, so a client that recreates its `EventSource` can still replay what it missed.
 
+- Search with stemming (backend plan step 16). Schema 5 (`0005_fts_porter.sql`) rebuilds the FTS5 index with `tokenize = 'porter unicode61 remove_diacritics 2'` and a persistent `bm25(4.0, 2.0, 1.0)` rank (title 4x, author 2x, body 1x): `running` finds `run` and `runs`, accents fold both ways, and a title hit outranks repeats in the body. The five FTS triggers and the `item_search` view are unchanged. It runs once in `BEGIN IMMEDIATE` behind the pre-migration snapshot (a failure rolls back and the old index survives). Rehearsed on a copy of the real phase 1 database (5,600 items): the rebuild took about 0.6 s (linear in the text, so roughly 10 s at 100,000 items), the whole schema 1 to 5 open 0.95 s, integrity checks clean, every hit of the old index is still a hit. Porter also merges words that share a stem (for example `news` now also finds `new`).
+- Search query syntax (`q` on `GET /api/items` and `scope.q` of mark-read, one shared builder): `"exact phrase"`, `-word` or `NOT word` to exclude (needs at least one positive term), `title:word` and `author:"jane doe"` column filters (those two columns only; any other `x:y` stays literal text), `word*` prefix. The last word (at least 3 characters, 2 for CJK) is a prefix while the text does not end in a space (search-as-you-type). User text still never reaches FTS5 outside quotes, so it cannot cause a syntax error or an unlisted column filter (fuzz test with seeds).
+- Search fallback: a search with no exact match in its scope is retried once as an OR of prefix matches, and the response says so with `fallback: true` (every page of that result; `false` otherwise), so the UI can show "No exact matches: showing partial matches". Mark-read by search picks the same mode the list showed.
+
 ### Changed
 
+- Relevance cursors (`order=rank`) changed form with the new rank basis: cursors issued before this version are a 400 (start the search again). Date cursors are unchanged and every cursor now also records the fallback mode. `GET /api/items` always returns `fallback`.
+- Search text is no longer trimmed of trailing spaces before it is parsed (a trailing space means "finished word": no prefix on the last word).
 - `imgproxy.mode` now defaults to `all`: every image goes through Kipple, so the page policy needs no `https:` in `img-src`. A stored `imgproxy.mode` value (an existing deployment that chose `http_only`) is kept. The image proxy also takes at most 4 concurrent fetches per host, and with the cache on it no longer forwards a browser's conditional request headers to the source.
 - Store internals (no behavior change): the gate + write transaction boilerplate of `CommitFetchError`, `CommitSkip` and `TrimOnly` is now the shared `gated`/`batch` helper; every JSON column and `json_each` argument is encoded by one helper (`jsonText`) that returns the marshal error; the two uid lookups of a fetch chunk (live items and ledger tombstones) are one `UNION ALL` query; feed URL normalization and key come from one parse (`feedurl.KeyAndNormalize`) in `AddFeed`, `ValidateFeedURL` and the redirect decision. Benchmarks added (`BenchmarkApplyItemsRefetch`, `BenchmarkUIDLookup`).
 
@@ -194,6 +200,7 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- `DB.HoldPending` encoded the pending full-text ids in map order, so its JSON array was not deterministic (the CI flake `TestHoldPendingEncoding` saw `[42,7]`). The ids are sorted before encoding.
 - A failed settings read (cancelled context, disk I/O error) was taken for "not set". Inside a write transaction it now fails the transaction (`LoadFetchSettingsErr`): retention trimming, restore of trimmed items, the stub and ledger purges, the full-text guard in saves and mark-all-as-read, and `PullInSchedule` no longer act on a compiled-in default (a wrong retention cap or restore window) and the batch retries. Outside a transaction the loaders log a warning and use defaults for that pass only; nothing caches them. A JSON value that cannot be encoded now fails with its own error instead of tripping the `json_valid` CHECK.
 
 - Review of keyword filters (migration 0004, `internal/filter`, ingest, filters API):

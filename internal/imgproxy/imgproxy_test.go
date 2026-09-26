@@ -169,7 +169,7 @@ func TestSignatureAndFlagsChecked(t *testing.T) {
 	require.Equal(t, 403, rg.get("/img/"+sig+"A/1/"+enc).StatusCode)
 	require.Equal(t, 403, rg.get("/img/"+strings.Repeat("A", 22)+"/1/"+enc).StatusCode)
 	// Malformed flags and payloads never reach the network.
-	for _, f := range []string{"01", "+1", "4", "-1", "x", "1.0", "99999999999999999999"} {
+	for _, f := range []string{"01", "+1", "8", "-1", "x", "1.0", "99999999999999999999"} {
 		require.Equal(t, 400, rg.get("/img/"+sig+"/"+f+"/"+enc).StatusCode, f)
 	}
 	require.Equal(t, 400, rg.get("/img/"+sig+"/1/!!!notb64").StatusCode)

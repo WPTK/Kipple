@@ -17,6 +17,7 @@ type imgcacheView struct {
 	UsedBytes      int64  `json:"used_bytes"`
 	Entries        int64  `json:"entries"`
 	NegEntries     int64  `json:"neg_entries"`
+	Thumbnails     int64  `json:"thumbnails"` // cached card thumbnails, a subset of entries
 	Hits           int64  `json:"hits"`
 	Misses         int64  `json:"misses"`
 	Evictions      int64  `json:"evictions"`
@@ -40,6 +41,7 @@ func (s *Server) imgcacheStats(w http.ResponseWriter, r *http.Request) {
 		st := c.Stats()
 		v.Enabled = st.Enabled
 		v.MaxBytes, v.UsedBytes, v.Entries, v.NegEntries = st.MaxBytes, st.UsedBytes, st.Files, st.NegEntries
+		v.Thumbnails = st.Thumbnails
 		v.Hits, v.Misses, v.Evictions, v.Failures = st.Hits, st.Misses, st.Evictions, st.Failures
 		v.Since = st.Since.Unix()
 		if !st.OldestAccess.IsZero() {

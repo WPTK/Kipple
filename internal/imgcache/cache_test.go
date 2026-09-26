@@ -652,3 +652,49 @@ func TestLookupAfterCloseAndBadKeys(t *testing.T) {
 	require.ErrorIs(t, err, ErrClosed)
 	require.False(t, c.Enabled())
 }
+
+func TestVariantEntriesCoexistAndCountTowardTheCap(t *testing.T) {
+	c, _ := newCache(t, func(o *Options) { o.MaxBytes = 1000 })
+	const url = "http://img.example/big.jpg"
+	okey, tkey := KeyOrig(0, url), KeyThumb(0, url)
+	require.NotEqual(t, okey, tkey)
+	require.Equal(t, Key("t800", 0, url), tkey)
+
+	w, err := c.Begin(okey, url, 0, 600)
+	require.NoError(t, err)
+	_, _ = w.Write(bytes.Repeat([]byte{'o'}, 600))
+	require.NoError(t, w.Commit(Meta{ContentType: "image/jpeg"}))
+	w, err = c.Begin(tkey, url, 0, 100)
+	require.NoError(t, err)
+	_, _ = w.Write(bytes.Repeat([]byte{'t'}, 100))
+	require.NoError(t, w.Commit(Meta{ContentType: "image/jpeg", Variant: VariantThumb, ETag: "src=abc"}))
+
+	st := c.Stats()
+	require.EqualValues(t, 700, st.UsedBytes)
+	require.EqualValues(t, 2, st.Files)
+	require.EqualValues(t, 1, st.Thumbnails)
+	te, ok := lookupOK(t, c, tkey)
+	require.True(t, ok)
+	require.Equal(t, "src=abc", te.ETag)
+	var variant string
+	require.NoError(t, c.rd.QueryRow("SELECT variant FROM entries WHERE key = ?", tkey).Scan(&variant))
+	require.Equal(t, "t800", variant)
+
+	// Over the cap: the least recently used goes first, whichever variant it is, and the totals follow.
+	c.touch(tkey, c.Now().Add(time.Second))
+	w, err = c.Begin(KeyOrig(0, url+"2"), url+"2", 0, 500)
+	require.NoError(t, err)
+	_, _ = w.Write(bytes.Repeat([]byte{'p'}, 500))
+	require.NoError(t, w.Commit(Meta{ContentType: "image/png"}))
+	st = c.Stats()
+	require.LessOrEqual(t, st.UsedBytes, int64(1000))
+	var sum int64
+	require.NoError(t, c.rd.QueryRow("SELECT COALESCE(SUM(size),0) FROM entries WHERE status = 'ok'").Scan(&sum))
+	require.Equal(t, sum, st.UsedBytes)
+
+	// A thumbnail refusal is a negative entry of its own and takes nothing from the original.
+	require.NoError(t, c.PutNegVariant(KeyThumb(0, url+"3"), url+"3", 0, VariantThumb, NegPermanent, 0, "animated"))
+	require.NoError(t, c.rd.QueryRow("SELECT variant FROM entries WHERE key = ?", KeyThumb(0, url+"3")).Scan(&variant))
+	require.Equal(t, "t800", variant)
+	require.EqualValues(t, 1, c.Stats().NegEntries)
+}

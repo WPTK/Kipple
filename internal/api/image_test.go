@@ -152,3 +152,25 @@ func TestImageSecretRotationIsSeenByARunningServer(t *testing.T) {
 	_, det, _ = h.api(c, "GET", "/api/items/"+sid(id), "")
 	require.Equal(t, newPath, det["image"], "new lists are signed with the new secret")
 }
+
+func TestCardImagesUseThumbnailsWhenCacheIsOn(t *testing.T) {
+	h, _ := cacheHarness(t, 64)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	h.exec("UPDATE feeds SET allow_private_net = 1 WHERE id = ?", f)
+	id := h.addItem(f, seedItem{Text: "x", Image: "http://a.example/lead.jpg"})
+	h.exec("UPDATE item_content SET content_html = ? WHERE item_id = ?", `<p><img src="http://a.example/1.png"></p>`, id)
+	pathFor := func(flags int, u string) string { return imgproxy.Path([]byte(testSecret), flags, u) }
+
+	// List cards carry the thumbnail variant (the signed thumb bit on top of the feed's flags)...
+	_, list, _ := h.api(c, "GET", "/api/items?view=all", "")
+	card := list["items"].([]any)[0].(map[string]any)
+	require.Equal(t, pathFor(1|imgproxy.FlagThumb, "http://a.example/lead.jpg"), card["image"])
+	// ...while the open article, its lead image and its body keep the originals.
+	_, det, _ := h.api(c, "GET", "/api/items/"+sid(id), "")
+	require.Equal(t, pathFor(1, "http://a.example/lead.jpg"), det["image"])
+	require.Contains(t, det["content_html"], `src="`+pathFor(1, "http://a.example/1.png")+`"`)
+
+	_, st, _ := h.api(c, "GET", "/api/imgcache", "")
+	require.EqualValues(t, 0, st["thumbnails"])
+}
