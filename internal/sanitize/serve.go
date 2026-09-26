@@ -24,6 +24,13 @@ type ServeOptions struct {
 var (
 	ytEmbedID    = regexp.MustCompile(`^https://(?:www\.)?(?:youtube\.com|youtube-nocookie\.com)/embed/([A-Za-z0-9_-]+)`)
 	vimeoEmbedID = regexp.MustCompile(`^https://player\.vimeo\.com/video/([0-9]+)`)
+
+	// The values a placeholder may carry; web/src/lib/articleDom.ts has the same
+	// patterns. All of them are plain URL- and attribute-safe characters.
+	ytIDValue      = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	ytListValue    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	startValue     = regexp.MustCompile(`^[0-9]{1,6}$`)
+	vimeoHashValue = regexp.MustCompile(`^[0-9a-f]{1,32}$`)
 )
 
 // Elements ServeHTML never emits. Stored content has been through bluemonday, so
@@ -166,10 +173,44 @@ func mixedContentLink(kind, u string) string {
 
 // embedPlaceholder is the click-to-load figure for an iframe, or "" for one that
 // is neither YouTube nor Vimeo.
+//
+// Only three player parameters survive, each in its own data-* attribute and
+// only when its value matches a tight pattern (the client checks them again
+// before it builds the iframe): YouTube's list (a playlist, which is all an
+// /embed/videoseries player shows) and start, and Vimeo's h (the hash an
+// unlisted video needs).
 func embedPlaceholder(t html.Token, opt ServeOptions) string {
 	src := attrVal(t, "src")
+	var q url.Values
+	if i := strings.IndexByte(src, '?'); i >= 0 {
+		qs := src[i+1:]
+		if j := strings.IndexByte(qs, '#'); j >= 0 {
+			qs = qs[:j]
+		}
+		q, _ = url.ParseQuery(qs) // a malformed pair is skipped, the rest still count
+	}
 	if m := ytEmbedID.FindStringSubmatch(src); m != nil {
 		id := m[1]
+		if !ytIDValue.MatchString(id) {
+			return ""
+		}
+		list := embedParam(q, "list", ytListValue)
+		start := embedParam(q, "start", startValue)
+		attrs := ""
+		if list != "" {
+			attrs += ` data-list="` + list + `"`
+		}
+		if start != "" {
+			attrs += ` data-start="` + start + `"`
+		}
+		if id == "videoseries" {
+			if list == "" {
+				return "" // a playlist player without a playlist plays nothing
+			}
+			// No single video, so no thumbnail: the link is the playlist page.
+			return `<figure class="kp-embed" data-provider="youtube" data-id="videoseries"` + attrs + `>` +
+				`<a href="https://www.youtube.com/playlist?list=` + list + `" target="_blank" rel="noopener noreferrer">Watch on YouTube</a></figure>`
+		}
 		img := ""
 		if opt.Thumb != nil {
 			orig := "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg"
@@ -177,13 +218,38 @@ func embedPlaceholder(t html.Token, opt ServeOptions) string {
 				img = `<img src="` + html.EscapeString(p) + `" alt="">`
 			}
 		}
-		return `<figure class="kp-embed" data-provider="youtube" data-id="` + id + `">` + img +
-			`<a href="https://www.youtube.com/watch?v=` + id + `" target="_blank" rel="noopener noreferrer">Watch on YouTube</a></figure>`
+		watch := "https://www.youtube.com/watch?v=" + id
+		if list != "" {
+			watch += "&list=" + list
+		}
+		if start != "" {
+			watch += "&t=" + start + "s"
+		}
+		return `<figure class="kp-embed" data-provider="youtube" data-id="` + id + `"` + attrs + `>` + img +
+			`<a href="` + html.EscapeString(watch) + `" target="_blank" rel="noopener noreferrer">Watch on YouTube</a></figure>`
 	}
 	if m := vimeoEmbedID.FindStringSubmatch(src); m != nil {
 		id := m[1]
-		return `<figure class="kp-embed" data-provider="vimeo" data-id="` + id + `">` +
-			`<a href="https://vimeo.com/` + id + `" target="_blank" rel="noopener noreferrer">Watch on Vimeo</a></figure>`
+		if len(id) > 20 {
+			return ""
+		}
+		h := embedParam(q, "h", vimeoHashValue)
+		attrs, page := "", "https://vimeo.com/"+id
+		if h != "" {
+			attrs = ` data-h="` + h + `"`
+			page += "/" + h
+		}
+		return `<figure class="kp-embed" data-provider="vimeo" data-id="` + id + `"` + attrs + `>` +
+			`<a href="` + page + `" target="_blank" rel="noopener noreferrer">Watch on Vimeo</a></figure>`
+	}
+	return ""
+}
+
+// embedParam is query parameter key when it is present once or more and its
+// first value matches ok, else "".
+func embedParam(q url.Values, key string, ok *regexp.Regexp) string {
+	if v := q.Get(key); ok.MatchString(v) {
+		return v
 	}
 	return ""
 }
