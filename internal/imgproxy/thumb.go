@@ -283,7 +283,12 @@ func exifOrientation(b []byte) int {
 			break
 		}
 		l := int(binary.BigEndian.Uint16(b[i+2:]))
-		if m == 0xE1 && i+10 <= len(b) && string(b[i+4:i+10]) == "Exif\x00\x00" {
+		if l < 2 {
+			break // a segment length counts its own two bytes: anything less is malformed
+		}
+		// An EXIF APP1 segment holds at least its length and the 6-byte header;
+		// a shorter declared length would slice past its own end.
+		if m == 0xE1 && l >= 8 && i+10 <= len(b) && string(b[i+4:i+10]) == "Exif\x00\x00" {
 			end := min(i+2+l, len(b))
 			return tiffOrientation(b[i+10 : end])
 		}
