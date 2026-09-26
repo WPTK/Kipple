@@ -210,6 +210,10 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- Device settings changed in another tab or browser are no longer overwritten by a stale value on the next save; the Unread badge (Dot/Off) and "Highlight keywords" now sync with the device profile and survive a reload; the first-run migration no longer turns the account's "mark read on scroll" into a per-device override; settings the server refused clear once you change them and can be discarded.
+- Filter names are limited by bytes (CJK), "Mute similar…" splits spaceless titles, delete and apply dialogs handle stale counts and a busy apply, and keyword highlights match the rule engine (accent folding, retry after a whole-word miss, scan window).
+- The article toolbar fits 375 px: Open original and Mute similar… moved into a More menu (the `o` shortcut still opens the original); auto-read runs show a quiet status line.
+
 - The nightly auto-read step read a failed settings lookup as "off" or "never ran", so a transient read error produced an empty window that the recorded run then closed for good. It now fails the step and records nothing; the next night repeats the window.
 - `feedurl.KeyAndNormalize` did not equal `Key(Normalize(x))` for a query ending in whitespace before a fragment (`http://h/p?a=b #x`) or an IPv6 zone that does not survive a re-parse; the key is now taken from the normalized string, and a differential fuzz test (seeds committed, 60 s run) keeps them equal.
 - `TestRestoreRefusesBadInput` failed about one run in five: it flipped a raw byte of the zip, which can land in a compressed stream and leave the decompressed bytes unchanged. It now rewrites the `kipple.db` entry with one changed byte and the manifest's checksum stale (200 runs clean).
