@@ -214,6 +214,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
 
   const a = item.data;
   const ftOn = a.fulltext.effective === 1;
+  // The wide pane is not remounted per article (that would drop focus from the toolbar on Next), so the
+  // mutation outlives the article it was started for: busy only means busy for this one.
+  const ftBusy = fulltext.isPending && fulltext.variables?.id === id;
 
   return (
     <div ref={frame} className="flex h-full min-h-0 flex-col bg-bg">
@@ -223,7 +226,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           top
           a={a}
           ftOn={ftOn}
-          ftBusy={fulltext.isPending}
+          ftBusy={ftBusy}
           canPrev={!!prevId}
           canNext={canPage}
           onPrev={() => prev("nav")}
@@ -306,7 +309,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
         <Toolbar
           a={a}
           ftOn={ftOn}
-          ftBusy={fulltext.isPending}
+          ftBusy={ftBusy}
           canPrev={!!prevId}
           canNext={canPage}
           onPrev={() => prev("nav")}

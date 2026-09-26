@@ -69,6 +69,30 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+describe("reader pane: per-article state", () => {
+  it("a full-text request still running for one article does not disable the button on the next", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    routes({
+      "POST /api/items/1001/fulltext": async () => {
+        await held;
+        return json({ status: "skipped", mode: 1, effective: 0 });
+      },
+    });
+    go("/i/1001?from=unread");
+    await screen.findByTestId("article-body");
+    const user = userEvent.setup();
+    const ft = () => screen.getByRole("button", { name: "Full text" });
+    await user.click(ft());
+    await waitFor(() => expect(ft()).toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "Next article" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
+    await screen.findByRole("heading", { level: 1, name: "Article number 2" });
+    expect(ft()).toBeEnabled();
+    release();
+  });
+});
+
 describe("reader pane: one persistent list", () => {
   it("opening an article does not remount the list: rows swiped away stay away", async () => {
     routes({ "POST /api/items/mark-read": () => json({ changed: ["1002", "1003", "1004", "1005"], restored: [], count: 4, undoable: true }) });
