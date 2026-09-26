@@ -52,3 +52,7 @@ Element.prototype.hasPointerCapture = function () {
 };
 Element.prototype.setPointerCapture = function () {};
 Element.prototype.releasePointerCapture = function () {};
+
+// The unread prefetch is rate-limited by a module-level clock; every test starts as if it had not run.
+import { resetPrefetchForTests } from "@/lib/offline";
+afterEach(() => resetPrefetchForTests());

@@ -78,7 +78,7 @@ function kippleSw(): Plugin {
         if (/\.(js|css)$/.test(f)) list.push(`/assets/${f}`);
       }
       const id = createHash("sha256").update(list.join(",")).update(readFileSync(root + "index.html")).digest("hex").slice(0, 10);
-      const stamp = String(Number(process.env.SOURCE_DATE_EPOCH ? process.env.SOURCE_DATE_EPOCH + "000" : Date.now())).padStart(13, "0");
+      const stamp = String(Math.floor(Number(process.env.SOURCE_DATE_EPOCH) * 1000) || Date.now()).padStart(13, "0");
       const src = readFileSync(fileURLToPath(new URL("./sw/sw.js", import.meta.url)), "utf8")
         .replace('/*BUILD*/ "dev"', JSON.stringify(`${stamp}-${id}`))
         .replace("/*PRECACHE*/ []", JSON.stringify(list));

@@ -79,7 +79,7 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
     if (!opts.quiet) setOnline(false);
     throw new ApiError(0, "network");
   }
-  noteResponse(res);
+  noteResponse(res, opts.quiet);
   if (res.status === 401) {
     authStore.set("out");
     throw new ApiError(401, "auth");

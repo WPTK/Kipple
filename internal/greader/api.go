@@ -126,6 +126,8 @@ type call struct {
 	p      *Params
 	family string
 	acct   *acctSnap // account snapshot taken once per request
+	// fetchSpent is the time this request has already waited for subscribe_fetch_now fetches.
+	fetchSpent time.Duration
 }
 
 // New builds the API.

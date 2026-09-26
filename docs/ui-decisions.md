@@ -70,7 +70,7 @@ were resolved in round 2 and what shipped; each is annotated below.
 8. **Keyword mute filters: yes**, and other filtering features in the same family (TODO brainstorm, resolved in round 2).
 9. Pending defaults and search: follow industry best practice (FTS5 stemming with prefix fallback).
 10. Offline/PWA scope: read and interact with what is already downloaded; show an "offline" message at
-    launch; queue actions and sync when back online. (Shipped in phase 3, design §7.8: manifest,
+    launch; queue actions and sync when back online. (Shipped in phase 3, design §7.9: manifest,
     service worker, an offline notice, and a queue for star and read changes. Prefetch keeps only the first page of Unread.)
 
 ## Parking lot additions

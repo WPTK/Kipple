@@ -190,13 +190,15 @@ func runServe() error {
 		FetchNow: func(ctx context.Context, feedID int64, wait time.Duration) {
 			ch, err := scheduler.Submit(sched.Priority{FeedID: feedID, Full: true, Trigger: fetch.TriggerSubscribe})
 			if err != nil {
-				return // the feed is due; the tick picks it up
+				scheduler.Wake() // stopping; nothing more to do, and harmless if not
+				return
 			}
 			t := time.NewTimer(wait)
 			defer t.Stop()
 			select {
 			case <-ch:
 			case <-t.C:
+			case <-scheduler.Shutdown():
 			case <-ctx.Done():
 			}
 		},

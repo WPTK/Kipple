@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -172,4 +174,14 @@ func TestAPIHandshakeHeaderOnAPIPathsOnly(t *testing.T) {
 	require.Equal(t, APIVersion, get("/api/bootstrap"))
 	require.Empty(t, get("/"))
 	require.Empty(t, get("/api/greader.php/reader/api/0/token"), "the Reader API is a different contract")
+}
+
+// The Go and TypeScript halves of the handshake must agree: web/src/lib/offlineState.ts says which contract
+// the app was built for.
+func TestAPIVersionMatchesTheWebApp(t *testing.T) {
+	src, err := os.ReadFile("../../web/src/lib/offlineState.ts")
+	require.NoError(t, err)
+	m := regexp.MustCompile(`export const API_VERSION = (\d+);`).FindSubmatch(src)
+	require.NotNil(t, m, "API_VERSION not found in offlineState.ts")
+	require.Equal(t, APIVersion, string(m[1]))
 }

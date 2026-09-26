@@ -1,8 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { api, ApiError, authStore, buildPath } from "@/api/client";
 import { itemsParams, keys, PAGE_SIZE } from "@/api/queries";
+import { toast } from "@/shell/toasts";
+import { devicePrefsStore } from "./devicePrefs";
 import type { MarkReadResponse } from "@/api/types";
-import { setOnline, setPending, setUpdateReady } from "./offlineState";
+import { offlineStore, setOnline, setPending, setUpdateReady } from "./offlineState";
 
 /**
  * Offline support (docs/ui-decisions.md, answer 10): read what is already on the device, keep working, and
@@ -15,7 +17,7 @@ import { setOnline, setPending, setUpdateReady } from "./offlineState";
  */
 export type Queued =
   | { kind: "star"; id: string; starred: boolean; at: number }
-  | { kind: "read"; ids: string[]; read: boolean; at: number };
+  | { kind: "read"; ids: string[]; read: boolean };
 
 type Row = Queued & { seq: number };
 
@@ -24,6 +26,8 @@ const STORE = "queue";
 
 /** Where queued changes live: IndexedDB, or memory when it is unavailable (private windows, tests). */
 interface Backend {
+  /** Rejects when the store cannot be used at all (private windows, blocked storage). */
+  probe?(): Promise<void>;
   all(): Promise<Row[]>;
   put(row: Row): Promise<void>;
   del(seq: number): Promise<void>;
@@ -51,16 +55,20 @@ function idbBackend(): Backend {
   const run = async <T>(mode: IDBTransactionMode, f: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> => {
     const db = await open();
     try {
+      // Resolve when the transaction commits, not when the request succeeds: a quota error surfaces at commit.
       return await new Promise<T>((resolve, reject) => {
-        const req = f(db.transaction(STORE, mode).objectStore(STORE));
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
+        const tx = db.transaction(STORE, mode);
+        const req = f(tx.objectStore(STORE));
+        tx.oncomplete = () => resolve(req.result);
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
       });
     } finally {
       db.close();
     }
   };
   return {
+    probe: async () => void (await run("readonly", (s) => s.count())),
     all: async () => ((await run("readonly", (s) => s.getAll())) as Row[]).sort((a, b) => a.seq - b.seq),
     put: async (r) => void (await run("readwrite", (s) => s.put(r))),
     del: async (seq) => void (await run("readwrite", (s) => s.delete(seq))),
@@ -68,36 +76,47 @@ function idbBackend(): Backend {
   };
 }
 
-let backend: Backend | undefined;
-function store(): Backend {
-  if (!backend) {
+/**
+ * The backend is chosen once, on first use: IndexedDB when a probe of it works, otherwise memory for the whole
+ * session. A later error on one operation never swaps it, which would strand the rows already stored.
+ */
+let backend: Promise<Backend> | undefined;
+function store(): Promise<Backend> {
+  backend ??= (async () => {
+    if (typeof indexedDB === "undefined") return memoryBackend();
     try {
-      backend = typeof indexedDB === "undefined" ? memoryBackend() : idbBackend();
+      const b = idbBackend();
+      await b.probe?.();
+      return b;
     } catch {
-      backend = memoryBackend();
+      return memoryBackend();
     }
-  }
+  })();
   return backend;
 }
 
 /** Tests: start from an empty in-memory queue. */
 export function resetOfflineForTests(): void {
-  backend = memoryBackend();
-  seq = Date.now();
+  backend = Promise.resolve(memoryBackend());
+  seq = 0;
   setPending(0);
 }
 
-async function safe<T>(f: () => Promise<T>, fallback: T): Promise<T> {
+/** One failed storage operation is treated as "nothing there" / "not saved"; the queue keeps working. */
+async function safe<T>(f: (b: Backend) => Promise<T>, fallback: T): Promise<T> {
   try {
-    return await f();
+    return await f(await store());
   } catch {
-    // IndexedDB refused (quota, private window): drop to memory for the rest of the session.
-    backend = memoryBackend();
     return fallback;
   }
 }
 
-let seq = Date.now();
+let seq = 0;
+/** Rising keys that also differ between two tabs started in the same millisecond. */
+function nextSeq(): number {
+  seq = Math.max(seq + 1, Date.now() * 1000 + Math.floor(Math.random() * 1000));
+  return seq;
+}
 
 /** True for the failure of a request that never reached the server. */
 export function isOffline(e: unknown): boolean {
@@ -105,22 +124,41 @@ export function isOffline(e: unknown): boolean {
 }
 
 async function refreshCount(): Promise<void> {
-  setPending((await safe(() => store().all(), [])).length);
+  setPending((await safe((b) => b.all(), [])).length);
 }
 
 /** Queue a star change. A later change to the same article replaces an earlier queued one. */
 export async function queueStar(id: string, starred: boolean, at = Math.floor(Date.now() / 1000)): Promise<void> {
-  const rows = await safe(() => store().all(), []);
-  for (const r of rows) if (r.kind === "star" && r.id === id) await safe(() => store().del(r.seq), undefined);
-  await safe(() => store().put({ kind: "star", id, starred, at, seq: ++seq }), undefined);
+  const rows = await safe((b) => b.all(), []);
+  for (const r of rows) if (r.kind === "star" && r.id === id) await safe((b) => b.del(r.seq), undefined);
+  await safe((b) => b.put({ kind: "star", id, starred, at, seq: nextSeq() }), undefined);
   await refreshCount();
 }
 
 /** Queue a read or unread mark for ids; answers the way the server would for a plain by-id mark. */
-export async function queueRead(ids: string[], read: boolean, at = Math.floor(Date.now() / 1000)): Promise<MarkReadResponse> {
-  await safe(() => store().put({ kind: "read", ids, read, at, seq: ++seq }), undefined);
+export async function queueRead(ids: string[], read: boolean): Promise<MarkReadResponse> {
+  await safe((b) => b.put({ kind: "read", ids, read, seq: nextSeq() }), undefined);
   await refreshCount();
   return { changed: ids, restored: [] };
+}
+
+/**
+ * A change made with the network up settles what a queued change to the same articles would have said, so the
+ * queued one must not be replayed over it later. Called before an online write; cheap when nothing waits.
+ */
+export async function supersede(change: { star?: string; read?: string[] }): Promise<void> {
+  if (offlineStore.get().pending === 0) return;
+  const rows = await safe((b) => b.all(), []);
+  const ids = new Set(change.read ?? []);
+  for (const r of rows) {
+    if (r.kind === "star" && r.id === change.star) {
+      await safe((b) => b.del(r.seq), undefined);
+    } else if (r.kind === "read" && r.ids.some((i) => ids.has(i))) {
+      const rest = r.ids.filter((i) => !ids.has(i));
+      await safe((b) => (rest.length ? b.put({ ...r, ids: rest }) : b.del(r.seq)), undefined);
+    }
+  }
+  await refreshCount();
 }
 
 let flushing: Promise<void> | undefined;
@@ -141,8 +179,9 @@ export function flushQueue(qc?: QueryClient): Promise<void> {
 
 async function doFlush(qc?: QueryClient): Promise<void> {
   if (authStore.get() === "out") return;
-  const rows = await safe(() => store().all(), []);
+  const rows = await safe((b) => b.all(), []);
   let sent = 0;
+  let dropped = 0;
   for (const r of rows) {
     try {
       if (r.kind === "star") {
@@ -152,19 +191,32 @@ async function doFlush(qc?: QueryClient): Promise<void> {
       }
     } catch (e) {
       if (isOffline(e) || (e instanceof ApiError && (e.status === 401 || e.status === 429 || e.status >= 500))) break;
-      // Any other refusal is final: fall through and drop the change.
+      // Any other refusal is final: drop the change, and say so below.
+      dropped++;
     }
-    await safe(() => store().del(r.seq), undefined);
+    await safe((b) => b.del(r.seq), undefined);
     sent++;
   }
   await refreshCount();
   if (sent > 0 && qc) void qc.invalidateQueries({ queryKey: keys.bootstrap });
+  if (dropped > 0) {
+    // The screen still shows what those changes would have done; reload it from the server.
+    if (qc) void qc.invalidateQueries({ queryKey: keys.itemsAll });
+    if (qc) void qc.invalidateQueries({ queryKey: ["item"] });
+    toast(dropped === 1 ? "A change made offline couldn't be saved." : `${dropped} changes made offline couldn't be saved.`, "error");
+  }
 }
 
-/** Forget everything queued (sign-out: the changes belong to the session that made them). */
-export async function clearQueue(): Promise<void> {
-  await safe(() => store().clear(), undefined);
+/**
+ * Sign-out ends the device's offline data: the queue, and the worker's copies of API answers and images. Only an
+ * explicit sign-out does this. An expired session (401) keeps the queue so the changes survive logging back in.
+ */
+export async function wipeOfflineData(): Promise<void> {
+  await safe((b) => b.clear(), undefined);
   setPending(0);
+  // From the page, not only through the worker: a page that is not controlled (hard reload) cannot message it.
+  if (typeof caches !== "undefined") await Promise.all([caches.delete("kipple-data"), caches.delete("kipple-images")]).catch(() => {});
+  navigator.serviceWorker?.controller?.postMessage({ type: "clear-data" });
 }
 
 // ---- Prefetch for offline reading ------------------------------------------------------------
@@ -181,7 +233,9 @@ export async function prefetchUnread(now = Date.now()): Promise<void> {
   const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
   if (!navigator.onLine || nav.connection?.saveData || now - lastPrefetch < PREFETCH_EVERY_MS) return;
   lastPrefetch = now;
-  const params = itemsParams({ view: "unread" }, undefined, PAGE_SIZE);
+  // The list the app itself asks for first, so the worker files the answer under the same address.
+  const order = devicePrefsStore.get().order === "oldest" ? "oldest" : undefined;
+  const params = itemsParams({ view: "unread", order }, undefined, PAGE_SIZE);
   try {
     await api(buildPath("/api/items", params) + "&include=content", { quiet: true });
   } catch {
@@ -227,13 +281,15 @@ export function initOffline(qc: QueryClient): () => void {
   const timer = window.setInterval(() => void flushQueue(qc), 60_000);
   cleanups.push(() => window.clearInterval(timer));
 
-  // Sign-out ends the session's offline data: the worker's copies of the API answers and the queue.
-  const unsubAuth = authStore.subscribe(() => {
-    if (authStore.get() !== "out") return;
-    void clearQueue();
-    navigator.serviceWorker?.controller?.postMessage({ type: "clear-data" });
+  // A request that got through after a failure is the earliest sign the network is back, often before the
+  // browser's own `online` event (which a patchy connection never fires): send what waits.
+  let wasOnline = offlineStore.get().online;
+  const unsubNet = offlineStore.subscribe(() => {
+    const now = offlineStore.get().online;
+    if (now && !wasOnline) void flushQueue(qc);
+    wasOnline = now;
   });
-  cleanups.push(unsubAuth);
+  cleanups.push(unsubNet);
 
   if (import.meta.env.PROD && "serviceWorker" in navigator) {
     const had = !!navigator.serviceWorker.controller;

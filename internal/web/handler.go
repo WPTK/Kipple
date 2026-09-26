@@ -109,11 +109,25 @@ func rootFiles(dist fs.FS) []string {
 	var out []string
 	for _, e := range ents {
 		n := e.Name()
-		if e.Type().IsRegular() && n != "index.html" && !strings.HasPrefix(n, ".") {
+		if e.Type().IsRegular() && n != "index.html" && validRootName(n) {
 			out = append(out, n)
 		}
 	}
 	return out
+}
+
+// validRootName keeps a name that is safe as a mux pattern and cannot shadow a route of the server: plain
+// characters only, no dotfiles, nothing starting with an underscore (the /_status pages).
+func validRootName(n string) bool {
+	if n == "" || strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_") {
+		return false
+	}
+	for _, r := range n {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // rootFile serves one root file. All of them revalidate on every use (no-cache plus an ETag of the

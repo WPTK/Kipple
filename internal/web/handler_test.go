@@ -226,6 +226,9 @@ func TestRootFilesFromTheBuild(t *testing.T) {
 		"manifest.webmanifest": {Data: []byte(`{"name":"Kipple"}`)},
 		"apple-touch-icon.png": {Data: []byte("not really a png")},
 		"assets/app-abc.js":    {Data: []byte("x")},
+		"_secret.txt":          {Data: []byte("shadow")},
+		"a{b}.txt":             {Data: []byte("bad pattern")},
+		"100%.txt":             {Data: []byte("bad escape")},
 	}
 	h := newHandler(dist, func(b string) string { return b })
 	get := func(path string) *httptest.ResponseRecorder {
@@ -258,4 +261,5 @@ func TestRootFilesFromTheBuild(t *testing.T) {
 
 	require.Equal(t, "<html></html>", get("/.gitkeep").Body.String(), "dotfiles are not served: the SPA fallback answers")
 	require.Equal(t, "<html></html>", get("/nope.txt").Body.String())
+	require.Equal(t, "<html></html>", get("/_secret.txt").Body.String(), "a name that could shadow a server route is not registered")
 }

@@ -7,7 +7,9 @@ import { ApiError, api, authStore } from "@/api/client";
 import { applyRead, applyStar, keys, useOpenItem } from "@/api/queries";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import { card, detail, json, mockFetch } from "@/test/mockApi";
-import { clearQueue, flushQueue, isOffline, prefetchUnread, queueRead, queueStar, resetOfflineForTests, resetPrefetchForTests } from "./offline";
+import { flushQueue, isOffline, prefetchUnread, queueRead, queueStar, resetOfflineForTests, resetPrefetchForTests, supersede, wipeOfflineData } from "./offline";
+import { devicePrefsStore } from "./devicePrefs";
+import * as toasts from "@/shell/toasts";
 import { offlineStore, setOnline, setPending } from "./offlineState";
 
 function fresh() {
@@ -23,7 +25,7 @@ const netFail = () => vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeE
 describe("the offline queue", () => {
   it("replays in order with the time each change was made, then empties", async () => {
     await queueStar("1001", true, 1_700_000_000);
-    await queueRead(["1002", "1003"], true, 1_700_000_100);
+    await queueRead(["1002", "1003"], true);
     expect(offlineStore.get().pending).toBe(2);
 
     const { calls } = mockFetch({
@@ -60,7 +62,8 @@ describe("the offline queue", () => {
     expect(offlineStore.get().online).toBe(false);
   });
 
-  it("stops on 401, 429 and 5xx (retry later) but drops a change the server refuses for good", async () => {
+  it("stops on 401, 429 and 5xx (retry later) but drops a change the server refuses for good, and says so", async () => {
+    const toast = vi.spyOn(toasts, "toast");
     await queueStar("1", true);
     await queueStar("2", true);
     await queueStar("3", true);
@@ -71,16 +74,37 @@ describe("the offline queue", () => {
     });
     await flushQueue();
     expect(offlineStore.get().pending).toBe(1); // 1 and 2 are gone for good, 3 waits
+    expect(toast).toHaveBeenCalledWith("2 changes made offline couldn't be saved.", "error");
   });
 
-  it("does nothing while signed out, and sign-out clears the queue", async () => {
+  it("a 401 keeps the queue: an expired session is not a sign-out", async () => {
+    await queueStar("1", true);
+    await queueRead(["2"], true);
+    mockFetch({ "PUT /api/items/1/star": () => json({ error: "auth" }, 401) });
+    await flushQueue();
+    expect(offlineStore.get().pending).toBe(2);
+  });
+
+  it("does nothing while signed out; an explicit sign-out wipes the queue", async () => {
     await queueStar("1", true);
     authStore.set("out");
     const { calls } = mockFetch({});
     await flushQueue();
     expect(calls).toHaveLength(0);
-    await clearQueue();
+    expect(offlineStore.get().pending).toBe(1);
+    await wipeOfflineData();
     expect(offlineStore.get().pending).toBe(0);
+  });
+
+  it("an online change to the same article settles the queued one instead of being overwritten later", async () => {
+    await queueStar("1", true);
+    await queueRead(["2", "3"], true);
+    await supersede({ star: "1" });
+    await supersede({ read: ["3"] });
+    expect(offlineStore.get().pending).toBe(1);
+    const { calls } = mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["2"], restored: [] }) });
+    await flushQueue();
+    expect(JSON.parse(String(calls[0]?.init?.body)).ids).toEqual(["2"]);
   });
 
   it("concurrent flushes share one run", async () => {
@@ -117,7 +141,7 @@ describe("changes made offline", () => {
     const c2 = qc();
     await expect(applyRead(c2, ["1001"], true, "key")).resolves.toBeUndefined();
     expect(c2.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
-    expect(offlineStore.get().pending).toBe(1);
+    expect(offlineStore.get().pending).toBe(0); // the online attempt settled the queued read for that article
   });
 
   it("opening a held article offline marks it read and queues the read", async () => {
@@ -140,11 +164,23 @@ describe("changes made offline", () => {
 
 describe("the handshake and the connection state", () => {
   it("a server on a newer API asks for a reload; the same or an older one does not", async () => {
-    mockFetch({ "GET /api/a": () => json({}, 200, { "X-Kipple-API": "1" }), "GET /api/b": () => json({}, 200, { "X-Kipple-API": "2" }) });
+    mockFetch({
+      "GET /api/a": () => json({}, 200, { "X-Kipple-API": "1" }),
+      "GET /api/older": () => json({}, 200, { "X-Kipple-API": "0" }),
+      "GET /api/b": () => json({}, 200, { "X-Kipple-API": "2" }),
+    });
+    await api("/api/older");
+    expect(offlineStore.get().updateReady).toBe(false);
     await api("/api/a");
     expect(offlineStore.get().updateReady).toBe(false);
     await api("/api/b");
     expect(offlineStore.get().updateReady).toBe(true);
+  });
+
+  it("a slow answer the worker replaced with its copy does not make a background request call the app offline", async () => {
+    mockFetch({ "GET /api/a": () => json({}, 200, { "X-Kipple-Cache": "1" }) });
+    await api("/api/a", { quiet: true });
+    expect(offlineStore.get().online).toBe(true);
   });
 
   it("an answer the service worker served from its copy means offline; a live one means online again", async () => {
@@ -157,6 +193,18 @@ describe("the handshake and the connection state", () => {
 });
 
 describe("prefetch for offline reading", () => {
+  it("follows the device's sort order, so the worker files the page where the list asks for it", async () => {
+    const prev = devicePrefsStore.get();
+    devicePrefsStore.set({ ...prev, order: "oldest" });
+    try {
+      const { calls } = mockFetch({ "GET /api/items": () => json({ items: [], next_cursor: null }) });
+      await prefetchUnread(9_000_000);
+      expect(calls[0]?.url.search).toBe("?view=unread&order=oldest&limit=50&include=content");
+    } finally {
+      devicePrefsStore.set(prev);
+    }
+  });
+
   it("asks for the first Unread page with content, at most every 15 minutes", async () => {
     const { calls } = mockFetch({ "GET /api/items": () => json({ items: [card(1)], next_cursor: null }) });
     await prefetchUnread(1_000_000);

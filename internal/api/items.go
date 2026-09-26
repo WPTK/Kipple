@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/sanitize"
 	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -96,7 +97,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	case "":
 	case "content":
 		withContent = true
-		q.Limit = maxContentItems // a larger limit below is refused, a smaller one kept
+		q.Limit = maxContentItems // a larger limit below is refused, a smaller one kept (0 means this default)
 	default:
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
@@ -144,9 +145,12 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		if v := qv.Get("limit"); v != "" {
 			q.Limit, err3 = strconv.Atoi(v)
 		}
-		if withContent && (err3 == nil && q.Limit > maxContentItems) {
+		if withContent && err3 == nil && q.Limit > maxContentItems {
 			writeError(w, http.StatusBadRequest, "bad_request")
 			return
+		}
+		if withContent && err3 == nil && q.Limit == 0 {
+			q.Limit = maxContentItems
 		}
 		if err1 != nil || err2 != nil || err3 != nil || (q.FeedID != 0 && q.FolderID != 0) || q.Limit < 0 {
 			writeError(w, http.StatusBadRequest, "bad_request")
@@ -182,7 +186,9 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "list items", err)
 		return
 	}
-	s.proxyCards(r.Context(), cards)
+	if !withContent { // content mode returns details, which proxyDetail rewrites itself
+		s.proxyCards(r.Context(), cards)
+	}
 	var cur any
 	if next != nil {
 		cur = next.Encode()
@@ -191,16 +197,22 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	if withContent {
 		full := make([]store.ItemDetail, 0, len(cards))
 		now := s.now().Unix()
+		opts := map[int64]sanitize.ServeOptions{} // one set of serve options per feed, not per item
 		for _, c := range cards {
 			det, found, err := s.db.GetItem(r.Context(), c.ID, now)
 			if err != nil {
 				s.serverError(w, "list items", err)
 				return
 			}
-			if !found { // trimmed between the two reads: leave it out, it is gone
+			if !found { // gone between the two reads (a trimmed item inside the restore window still answers, as a stub)
 				continue
 			}
-			s.proxyDetail(r.Context(), &det)
+			opt, ok := opts[det.FeedID]
+			if !ok {
+				opt = s.serveOptions(r.Context(), det.FeedID)
+				opts[det.FeedID] = opt
+			}
+			applyServeOptions(&det, opt)
 			full = append(full, det)
 		}
 		out = full
@@ -316,8 +328,8 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Starred *bool `json:"starred"`
 		// At is when the star happened (unix seconds), sent by a client replaying a change it queued
-		// offline. Absent means now; a time ahead of the clock is taken as now; older than
-		// maxStarAge or not positive is a bad request.
+		// offline. Absent means now; a time ahead of the clock is taken as now, one older than
+		// maxStarAge is taken as maxStarAge ago (the star still counts); not positive is a bad request.
 		At *int64 `json:"at"`
 	}
 	if !decodeBody(w, r, &body, false) {
@@ -330,11 +342,11 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 	now := s.now().Unix()
 	at := now
 	if body.At != nil {
-		if *body.At <= 0 || *body.At < now-maxStarAge {
+		if *body.At <= 0 {
 			writeError(w, http.StatusBadRequest, "bad_request")
 			return
 		}
-		at = min(*body.At, now)
+		at = max(min(*body.At, now), now-maxStarAge) // a queue that waited longer still lands, stamped 30 days back
 	}
 	if known, err := s.db.ItemKnown(r.Context(), id, now); err != nil {
 		s.serverError(w, "star item", err)

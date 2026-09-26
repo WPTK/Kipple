@@ -35,10 +35,11 @@ export function setUpdateReady(): void {
 export const API_VERSION = 1;
 
 /** Read the handshake headers of an /api response. */
-export function noteResponse(res: Pick<Response, "headers">): void {
-  // A copy the service worker served while the network was down proves nothing about the connection.
+export function noteResponse(res: Pick<Response, "headers">, quiet = false): void {
+  // A copy the service worker served while the network was down, or too slow, proves nothing either way; a
+  // background request (the prefetch) never says the app is offline.
   if (res.headers.get("X-Kipple-Cache")) {
-    setOnline(false);
+    if (!quiet) setOnline(false);
     return;
   }
   setOnline(true);

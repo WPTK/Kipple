@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import swSource from "../sw/sw.js?raw";
 
 // Runs web/sw/sw.js against a fake worker scope: an in-memory CacheStorage and a scripted network.
@@ -110,6 +110,7 @@ describe("install and activate", () => {
     const bad = setup(["/", "/assets/gone.js"]);
     bad.setNetwork((u) => (u.endsWith("gone.js") ? new Response("no", { status: 404 }) : new Response("ok")));
     await expect(bad.lifecycle("install")).rejects.toThrow("404");
+    expect([...bad.stores.keys()]).toEqual([]); // no half-filled shell left for an offline launch to prefer
   });
 
   it("keeps this build's shell and the one before, drops older ones", async () => {
@@ -158,6 +159,76 @@ describe("navigation", () => {
     const w = setup();
     expect(await w.fetch("/img/x", { mode: "navigate" })).toBeUndefined();
     expect(await w.fetch("/healthz", { mode: "navigate" })).toBeUndefined();
+  });
+});
+
+describe("slow and failing networks", () => {
+  it("with no copy kept, a slow answer is waited for, not turned into an error", async () => {
+    vi.useFakeTimers();
+    try {
+      const w = setup();
+      w.setNetwork(() => new Promise<Response>((resolve) => setTimeout(() => resolve(json({ slow: true })), 8000)));
+      const pending = w.fetch("/api/items?view=all");
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(await (await pending)!.json()).toEqual({ slow: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("with a copy kept, a slow answer gets the copy now and refreshes it when it lands", async () => {
+    vi.useFakeTimers();
+    try {
+      const w = setup();
+      w.setNetwork(() => json({ v: 1 }));
+      await w.fetch("/api/bootstrap");
+      w.setNetwork(() => new Promise<Response>((resolve) => setTimeout(() => resolve(json({ v: 2 })), 8000)));
+      const pending = w.fetch("/api/bootstrap");
+      await vi.advanceTimersByTimeAsync(9000);
+      const res = (await pending)!;
+      expect(res.headers.get("X-Kipple-Cache")).toBe("1");
+      expect(await res.json()).toEqual({ v: 1 });
+      w.setNetwork(() => {
+        throw new TypeError("offline");
+      });
+      expect(await (await w.fetch("/api/bootstrap"))!.json()).toEqual({ v: 2 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("searches being typed are not kept", async () => {
+    const w = setup();
+    w.setNetwork(() => json({ n: 1 }));
+    await w.fetch("/api/items?view=all&q=ab&typing=1");
+    w.setNetwork(() => {
+      throw new TypeError("offline");
+    });
+    await expect(w.fetch("/api/items?view=all&q=ab&typing=1")).rejects.toThrow();
+  });
+
+  it("root files such as the manifest are network first", async () => {
+    const w = setup(["/manifest.webmanifest"]);
+    w.stores.set("kipple-shell-0000000000001-aaaa", fakeCache());
+    await w.stores.get("kipple-shell-0000000000001-aaaa")!.put("/manifest.webmanifest", new Response("old"));
+    w.setNetwork(() => new Response("new"));
+    expect(await (await w.fetch("/manifest.webmanifest"))!.text()).toBe("new");
+    w.setNetwork(() => {
+      throw new TypeError("offline");
+    });
+    expect(await (await w.fetch("/manifest.webmanifest"))!.text()).toBe("old");
+  });
+
+  it("an image the cache cannot store still loads, and a partial response is not stored", async () => {
+    const w = setup();
+    w.setNetwork(() => new Response("png"));
+    await w.fetch("/img/warm"); // creates the images cache
+    w.stores.get("kipple-images")!.put = async () => {
+      throw new Error("QuotaExceededError");
+    };
+    expect(await (await w.fetch("/img/other"))!.text()).toBe("png");
+    w.setNetwork(() => new Response("partial", { status: 206 }));
+    expect((await w.fetch("/img/range"))!.status).toBe(206);
   });
 });
 

@@ -17,7 +17,7 @@ import type {
   OpenResponse,
   Scope,
 } from "./types";
-import { isOffline, queueRead, queueStar } from "@/lib/offline";
+import { isOffline, queueRead, queueStar, supersede } from "@/lib/offline";
 import { toast } from "@/shell/toasts";
 
 export const PAGE_SIZE = 50;
@@ -206,6 +206,7 @@ export function useOpenItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, via }: { id: string; via: "tap" | "key" | "nav" }) => {
+      await supersede({ read: [id] });
       try {
         return await api<OpenResponse>(`/api/items/${id}/open`, { method: "POST", body: { via } });
       } catch (e) {
@@ -239,6 +240,7 @@ export function useToggleStar() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, starred }: { id: string; starred: boolean }) => {
+      await supersede({ star: id });
       try {
         return await api<{ starred: boolean; restored: boolean }>(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
       } catch (e) {
@@ -296,6 +298,7 @@ export async function applyRead(
   reason: "swipe" | "key" | "scroll" | "bulk",
 ): Promise<MarkReadResponse | undefined> {
   patchItems(qc, ids, { read });
+  await supersede({ read: ids });
   try {
     return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason } });
   } catch (e) {
@@ -310,6 +313,7 @@ export async function applyRead(
 /** Set starred with an optimistic patch; reverts and toasts on failure. */
 export async function applyStar(qc: QueryClient, id: string, starred: boolean): Promise<boolean> {
   patchItems(qc, [id], { starred: starred });
+  await supersede({ star: id });
   try {
     await api(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
     return true;

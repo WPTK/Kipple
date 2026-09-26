@@ -161,7 +161,11 @@ func (s *Server) serveOptions(ctx context.Context, feedID int64) sanitize.ServeO
 // proxyDetail applies the serve-time transform (design 7.8) to an item's lead
 // image, link and content HTML.
 func (s *Server) proxyDetail(ctx context.Context, det *store.ItemDetail) {
-	opt := s.serveOptions(ctx, det.FeedID)
+	applyServeOptions(det, s.serveOptions(ctx, det.FeedID))
+}
+
+// applyServeOptions is proxyDetail with the options already looked up.
+func applyServeOptions(det *store.ItemDetail, opt sanitize.ServeOptions) {
 	if det.Image != nil && opt.Image != nil {
 		img := opt.Image(*det.Image)
 		det.Image = &img

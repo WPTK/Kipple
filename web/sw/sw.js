@@ -26,6 +26,7 @@ const IMAGES = "kipple-images";
 const STATIC = "kipple-static";
 const DATA_MAX = 600;
 const IMAGES_MAX = 400;
+const STATIC_MAX = 200;
 const NET_WAIT_MS = 5000;
 
 const API_READS = /^\/api\/(bootstrap|items|items\/\d+)$/;
@@ -39,13 +40,19 @@ async function precache() {
   const cache = await caches.open(SHELL);
   // All or nothing: a half-filled shell would make an offline launch fail in a confusing way, and a
   // failed install keeps the previous worker running.
-  await Promise.all(
-    PRECACHE.map(async (u) => {
-      const res = await fetch(u, { cache: "reload" });
-      if (!res.ok) throw new Error(u + " " + res.status);
-      await cache.put(u, res);
-    }),
-  );
+  try {
+    await Promise.all(
+      PRECACHE.map(async (u) => {
+        const res = await fetch(u, { cache: "reload" });
+        if (!res.ok) throw new Error(u + " " + res.status);
+        await cache.put(u, res);
+      }),
+    );
+  } catch (e) {
+    // Never leave a half-filled shell behind: offline navigations would prefer it to a complete older one.
+    await caches.delete(SHELL);
+    throw e;
+  }
 }
 
 self.addEventListener("activate", (event) => {
@@ -53,8 +60,9 @@ self.addEventListener("activate", (event) => {
     (async () => {
       // Keep this build's shell and the one before it: a page from the previous build may still ask for its
       // lazy chunks until it reloads.
-      const shells = (await caches.keys()).filter((k) => k.startsWith(SHELL_PREFIX)).sort();
-      await Promise.all(shells.slice(0, -2).map((k) => caches.delete(k)));
+      const others = (await caches.keys()).filter((k) => k.startsWith(SHELL_PREFIX) && k !== SHELL).sort();
+      const keep = new Set([SHELL, others[others.length - 1]]); // this build's shell always stays
+      await Promise.all(others.filter((k) => !keep.has(k)).map((k) => caches.delete(k)));
       await self.clients.claim();
     })(),
   );
@@ -79,11 +87,11 @@ self.addEventListener("fetch", (event) => {
   if (p.startsWith("/assets/")) {
     event.respondWith(assetFirst(event, req));
   } else if (p.startsWith("/img/") || ICONS.test(p)) {
-    event.respondWith(imageFirst(req));
+    event.respondWith(imageFirst(event, req));
   } else if (API_READS.test(p)) {
     event.respondWith(dataFirst(event, req, url));
   } else if (PRECACHE.includes(p)) {
-    event.respondWith(assetFirst(event, req));
+    event.respondWith(rootFile(req));
   }
 });
 
@@ -108,8 +116,9 @@ function withTimeout(promise, ms) {
 }
 
 async function shellIndex() {
-  const shells = (await caches.keys()).filter((k) => k.startsWith(SHELL_PREFIX)).sort().reverse();
-  for (const k of shells) {
+  // This build's own shell first, then the newest of the others.
+  const others = (await caches.keys()).filter((k) => k.startsWith(SHELL_PREFIX) && k !== SHELL).sort().reverse();
+  for (const k of [SHELL, ...others]) {
     const hit = await (await caches.open(k)).match("/");
     if (hit) return hit;
   }
@@ -133,21 +142,42 @@ async function assetFirst(event, req) {
   if (res.ok) {
     const copy = res.clone();
     // Fonts and lazy chunks that the precache leaves out: kept once seen, so the next offline launch has them.
-    event.waitUntil(caches.open(STATIC).then((c) => c.put(req, copy)).catch(() => {}));
+    event.waitUntil(
+      caches
+        .open(STATIC)
+        .then(async (c) => {
+          await c.put(req, copy);
+          await trim(c, STATIC_MAX);
+        })
+        .catch(() => {}),
+    );
   }
   return res;
 }
 
-async function imageFirst(req) {
+async function imageFirst(event, req) {
   const cache = await caches.open(IMAGES);
   const hit = await cache.match(req);
   if (hit) return hit;
   const res = await fetch(req);
-  if (res.ok) {
-    await cache.put(req, res.clone());
-    await trim(cache, IMAGES_MAX);
+  // 200 only (a 206 partial cannot be stored), and never in the way of the answer: a full or failing cache
+  // must not break an image that loaded fine.
+  if (res.status === 200) {
+    const copy = res.clone();
+    event.waitUntil(cache.put(req, copy).then(() => trim(cache, IMAGES_MAX)).catch(() => {}));
   }
   return res;
+}
+
+// The manifest and icons have fixed names, so a cached copy could be a build old: network first.
+async function rootFile(req) {
+  try {
+    return await fetch(req);
+  } catch (e) {
+    const hit = await caches.match(req);
+    if (hit) return hit;
+    throw e;
+  }
 }
 
 function keyOf(url) {
@@ -160,16 +190,25 @@ async function dataFirst(event, req, url) {
     const hit = await cache.match(keyOf(url));
     return hit ? marked(hit) : undefined;
   };
+  // A search being typed is not worth a slot: it would push saved articles out of the cache.
+  const keep = !url.searchParams.has("typing");
+  const network = fetch(req);
   let res;
   try {
-    res = await withTimeout(fetch(req), NET_WAIT_MS);
+    res = await withTimeout(network, NET_WAIT_MS);
   } catch (e) {
     const hit = await fallback();
-    if (hit) return hit;
-    throw e;
+    if (hit) {
+      // Slow rather than down: let the answer still arrive and refresh the copy for next time.
+      if (keep) event.waitUntil(network.then((r) => (r.ok ? storeData(cache, url, r.clone()) : undefined)).catch(() => {}));
+      return hit;
+    }
+    // Nothing kept: wait for the real answer however long it takes; only a genuine failure is an error.
+    if (e && e.message === "timeout") res = await network;
+    else throw e;
   }
   if (res.ok) {
-    event.waitUntil(storeData(cache, url, res.clone()).catch(() => {}));
+    if (keep) event.waitUntil(storeData(cache, url, res.clone()).catch(() => {}));
     return res;
   }
   // A 5xx (the origin is down behind a proxy) is treated like no network; a 4xx, 401 above all, is the answer.
