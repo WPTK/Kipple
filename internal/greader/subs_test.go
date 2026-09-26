@@ -431,13 +431,9 @@ func TestRawLabelNamesSubscriptionEdit(t *testing.T) {
 			h := newHarness(t)
 			f := h.addFeed("https://a.example/f", "A", "")
 			before := folderCount(h)
-			id := "user/-/label/" + name
-			// Without a literal '&' the client is taken to be form-encoding, so '+' is a
-			// space in a name being created (design §6.2).
+			id := "user/-/label/" + nnwEnc(name)
+			// NNW encodes '&' and '+', so the name arrives exactly (phase 1 parser).
 			want := name
-			if !strings.Contains(name, "&") {
-				want = strings.ReplaceAll(name, "+", " ")
-			}
 			// edit, a= last and in the middle (before T=), then r= to go back.
 			h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s=feed/"+strconv.FormatInt(f, 10)+"&a="+id)
 			require.Equal(t, before+1, folderCount(h), "exactly one folder created")
@@ -466,17 +462,17 @@ func TestRawLabelNamesRenameAndDisable(t *testing.T) {
 			h.addFolder("A")
 			h.addFolder("Tom ")
 			before := folderCount(h)
-			id := "user/-/label/" + name
+			id := "user/-/label/" + nnwEnc(name)
 			// rename-tag: s= raw in the middle, dest= raw last (NNW order is T, s, dest).
-			h.post(rd+"rename-tag", "T="+h.tok+"&s="+id+"&dest=user/-/label/Renamed & Co+")
+			h.post(rd+"rename-tag", "T="+h.tok+"&s="+id+"&dest=user/-/label/"+nnwEnc("Renamed & Co+"))
 			require.Equal(t, before, folderCount(h), "rename creates nothing")
 			require.Equal(t, []string{"Renamed & Co+"}, labelsOf(findSub(subsOf(t, h), feedID(f))))
 			// and back, dest carrying the odd name.
-			h.post(rd+"rename-tag", "s=user/-/label/Renamed & Co+&T="+h.tok+"&dest="+url.QueryEscape(id))
+			h.post(rd+"rename-tag", "s=user/-/label/"+nnwEnc("Renamed & Co+")+"&T="+h.tok+"&dest="+id)
 			require.Equal(t, before, folderCount(h))
 			require.Equal(t, []string{name}, labelsOf(findSub(subsOf(t, h), feedID(f))))
 			// disable-tag, raw last and raw in the middle.
-			h.post(rd+"disable-tag", "T="+h.tok+"&s="+id)
+			h.post(rd+"disable-tag", "T="+h.tok+"&s=user/-/label/"+name)
 			require.Equal(t, before-1, folderCount(h))
 			require.Equal(t, 4, q[int](h, "SELECT count(*) FROM folders WHERE name IN ('News','R','A','Tom ')"), "look-alikes survive")
 			require.Equal(t, []string{"Uncategorized"}, labelsOf(findSub(subsOf(t, h), feedID(f))))
@@ -498,3 +494,7 @@ func TestParseUserPath(t *testing.T) {
 	_, ok = parseUserPath("feed/1", "/label/")
 	require.False(t, ok)
 }
+
+// nnwEnc encodes a folder name the way NNW does for a=/r=/t=/rename-tag: percent
+// encoding with '&' and '+' encoded too (netnewswire.md section 4).
+func nnwEnc(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") }

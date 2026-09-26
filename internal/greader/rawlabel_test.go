@@ -159,7 +159,7 @@ func FuzzSplitPairs(f *testing.F) {
 		hasLabel := false
 		for _, e := range want {
 			if labelKeys[e.key] {
-				if _, ok := labelName(e.val); ok {
+				if hasLabelPrefix(e.val) {
 					hasLabel = true
 				}
 			}
@@ -171,4 +171,103 @@ func FuzzSplitPairs(f *testing.F) {
 			require.Equal(t, want, rep)
 		}
 	})
+}
+
+func TestRepairKeepsParamsAndGluesNames(t *testing.T) {
+	cases := []struct {
+		body   string
+		s      string
+		others map[string]string // params that must survive as their own pairs
+	}{
+		{"s=user/-/label/A&a b=c&i=1", "user/-/label/A&a b=c", map[string]string{"i": "1"}},
+		{"s=user/-/label/A&x=1", "user/-/label/A", map[string]string{"x": "1"}},
+		{"s=user/-/label/A&x-client=1", "user/-/label/A", map[string]string{"x-client": "1"}},
+		{"s=user/-/label/A&client.id=1", "user/-/label/A", map[string]string{"client.id": "1"}},
+		{"s=user/-/label/A&%54=tok", "user/-/label/A", map[string]string{"T": "tok"}},
+		{"s=user/-/label/A&%61=user/-/label/Y", "user/-/label/A", map[string]string{"a": "user/-/label/Y"}},
+		{"s=user/-/label/R&", "user/-/label/R&", nil},
+		{"s=user/-/label/A&&B", "user/-/label/A&&B", nil},
+		{"s=user/-/label/&Co", "user/-/label/&Co", nil},
+		{"s=user/-/label/ &Co&T=tok", "user/-/label/ &Co", map[string]string{"T": "tok"}},
+		{"s=user/-/label/My%20News&100%&T=tok", "user/-/label/My News&100%", map[string]string{"T": "tok"}},
+	}
+	for _, c := range cases {
+		p := repairParams(c.body)
+		require.Equal(t, c.s, p.Get("s"), c.body)
+		for k, v := range c.others {
+			require.Equal(t, v, p.Get(k), c.body+" "+k)
+		}
+	}
+}
+
+func TestLenientUnescape(t *testing.T) {
+	require.Equal(t, "a b&100%", lenientUnescape("a%20b&100%"))
+	require.Equal(t, "%zz%4", lenientUnescape("%zz%4"))
+	require.Equal(t, "+é", lenientUnescape("+%C3%A9"))
+}
+
+// subscription/edit, rename-tag and every non-disable-tag endpoint parse with
+// the exact phase 1 parser: the repair is off for them.
+func TestNoRepairOutsideDisableTag(t *testing.T) {
+	bodies := []string{
+		"a=user/-/label/News&", "a=user/-/label/News&&T=tok", "s=user/-/label/A&x-client=1", "s=user/-/label/A&%54=tok",
+		"s=user/-/label/&Co", "s=user/-/label/My%20News&100%", "T=tok&s=user/-/label/AT&T", "T=tok&a=user/-/label/News & Politics+",
+		"s=user/-/label/A&a b=c&i=1", "s=user/-/label/A&client.id=1&dest=user/-/label/B&",
+	}
+	rng := rand.New(rand.NewSource(7))
+	for i := 0; i < 5000; i++ {
+		parts := []string{"s=user/-/label/A", "&", "T", "x-y=1", "%54=z", " b=c", "&", "a=user/-/label/", "R", "", "dest=user/-/label/Q&"}
+		var sb strings.Builder
+		for n := rng.Intn(8); n >= 0; n-- {
+			sb.WriteString(parts[rng.Intn(len(parts))] + "&")
+		}
+		bodies = append(bodies, sb.String())
+	}
+	for _, b := range bodies {
+		want, wok := refSplitPairs(b)
+		got, gok := splitPairsLimit(b, false)
+		require.Equal(t, wok, gok, b)
+		require.Equal(t, want, got, b)
+		r := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(b))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		require.Equal(t, want, readParamsLimit(r, false, maxBody, false).body, b)
+	}
+	require.False(t, (&route{}).repair)
+}
+
+func TestSubscriptionEditAndRenameTagAreNotRepaired(t *testing.T) {
+	h := newHarness(t)
+	f := h.addFeed("https://a.example/a", "A", "Tech")
+	h.addFolder("News")
+	// Phase 1: name "News" (the stray '&' is its own empty pair); the feed goes to the
+	// existing folder, no garbage folder is created.
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(f)+"&a=user/-/label/News&")
+	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM folders WHERE name LIKE '%&%'"))
+	require.Equal(t, []string{"News"}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(f)+"&a=user/-/label/News&&T="+h.tok)
+	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM folders WHERE name LIKE '%&%'"))
+	h.post(rd+"rename-tag", "T="+h.tok+"&s=user/-/label/News&&dest=user/-/label/Fresh&")
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM folders WHERE name = 'Fresh'"))
+	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM folders WHERE name LIKE '%&%'"))
+}
+
+func TestDisableTagStrayAmpersandAndVendorKeys(t *testing.T) {
+	h := newHarness(t)
+	h.addFeed("https://a.example/a", "A", "News")
+	h.post(rd+"disable-tag", "T="+h.tok+"&s=user/-/label/News&")
+	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM folders WHERE name = 'News'"))
+	h.addFeed("https://a.example/b", "B", "Sports")
+	h.post(rd+"disable-tag", "s=user/-/label/Sports&x-client=1&client.id=2&T="+h.tok)
+	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM folders WHERE name = 'Sports'"))
+	h.addFeed("https://a.example/c", "C", "R&Co")
+	h.post(rd+"disable-tag", "T="+h.tok+"&s=user/-/label/R&Co")
+	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM folders WHERE name = 'R&Co'"))
+	// A missing "AT&T" never deletes the folder "AT".
+	h.addFeed("https://a.example/d", "D", "AT")
+	h.post(rd+"disable-tag", "T="+h.tok+"&s=user/-/label/AT&T")
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM folders WHERE name = 'AT'"))
+	// Mixed escapes in a merged run still find the folder.
+	h.addFeed("https://a.example/e", "E", "My News&100%")
+	h.post(rd+"disable-tag", "T="+h.tok+"&s=user/-/label/My%20News&100%")
+	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM folders WHERE name = 'My News&100%'"))
 }

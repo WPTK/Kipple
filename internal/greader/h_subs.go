@@ -27,10 +27,10 @@ func (a *API) registerSubs() {
 	a.routes["subscription/list"] = route{h: (*call).subscriptionList}
 	a.routes["tag/list"] = route{h: (*call).tagList}
 	a.routes["subscription/quickadd"] = route{h: (*call).quickAdd, post: true}
-	a.routes["subscription/edit"] = route{h: (*call).subscriptionEdit, post: true, repair: true}
+	a.routes["subscription/edit"] = route{h: (*call).subscriptionEdit, post: true}
 	a.routes["subscription/import"] = route{h: (*call).subscriptionImport, post: true, raw: true}
 	a.routes["subscription/export"] = route{h: (*call).subscriptionExport}
-	a.routes["rename-tag"] = route{h: (*call).renameTag, post: true, repair: true}
+	a.routes["rename-tag"] = route{h: (*call).renameTag, post: true}
 	a.routes["disable-tag"] = route{h: (*call).disableTag, post: true, repair: true}
 	a.routes["unread-count"] = route{h: (*call).unreadCount}
 }
@@ -423,6 +423,12 @@ func (c *call) disableTag() {
 			raw = raws[i]
 		}
 		cands := labelCandidates(s, raw)
+		// A stray "&" after the id ("News&") is glued into the name; when no folder
+		// carries that name, fall back to the name without the stray tail. Only
+		// empty tails: "AT&T" never deletes "AT".
+		if trimmed := strings.TrimRight(raw, "&"); trimmed != raw {
+			cands = append(cands, labelCandidates(lenientUnescape(trimmed), trimmed)...)
+		}
 		id, found, err := c.a.db.FindLabel(ctx, cands)
 		if err != nil {
 			c.serverError("disable-tag", err)
