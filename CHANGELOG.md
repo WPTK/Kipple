@@ -8,6 +8,7 @@ All notable changes to Kipple are documented here. The format follows
 
 ### Fixed
 
+- The article list no longer overlaps its rows or clips their text after you open an article and go back, or after the first load: rows are re-measured once the layout settles, instead of keeping their estimated height.
 - Live updates: a stream that opens and immediately drops (a proxy that accepts then resets) now reaches the polling fallback after two failures instead of resetting the count on every open.
 - Live updates: no misleading "No new articles" toast when a refresh finishes whose start event was missed.
 - Sync: the first-run migration of old device settings only sends values that differ from the defaults, so untouched settings no longer override a different server default.

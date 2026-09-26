@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { remeasureMounted } from "@/lib/remeasure";
 import { useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
 import { ApiError } from "@/api/client";
@@ -242,7 +243,10 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     } catch {
       /* keep the last */
     }
-    virtualizer.measure();
+    // measure() drops every cached size. Rows already on screen (the list came back from an article with its
+    // data cached, so it renders at once) will not report again until they resize, so measure them now or they
+    // keep the estimate and overlap the rows below.
+    remeasureMounted(virtualizer, parentRef.current);
   }, [layout.id, cols, widthBucket, virtualizer, textSize]);
 
   const rowIndexOf = useCallback(
