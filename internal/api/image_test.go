@@ -63,8 +63,41 @@ func TestImageRewriteAtServeTimeOnly(t *testing.T) {
 	// imgproxy.mode = all (the default, so no row) proxies https too.
 	h.exec(`DELETE FROM settings WHERE key = 'imgproxy.mode'`)
 	_, det, _ = h.api(c, "GET", "/api/items/"+sid(id), "")
-	require.Contains(t, det["content_html"], `src="`+pathFor(3, "https://s.example/secure.png")+`"`)
+	// s.example is not the feed's host (a.example): no private-network grant.
+	require.Contains(t, det["content_html"], `src="`+pathFor(2, "https://s.example/secure.png")+`"`)
 	require.NotContains(t, det["content_html"], `"https://s.example`)
+}
+
+// TestPrivateNetGrantedOnlyToFeedHost: a feed's allow_private_net is signed
+// into image URLs on the feed's own host only (any case, any port); a
+// third-party image in the same item, card or extracted page is signed
+// without it, so the guard still blocks it if it points at a private address.
+func TestPrivateNetGrantedOnlyToFeedHost(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("Nas", 0)
+	h.exec("UPDATE feeds SET allow_private_net = 1, url = 'http://nas.example:8080/rss' WHERE id = ?", f)
+	body := `<p><img src="http://NAS.example/a.png"><img src="http://other.example/b.png"><img src="http://10.0.0.5/c.png"></p>`
+	id := h.addItem(f, seedItem{Text: "x", Image: "http://nas.example/lead.jpg"})
+	h.exec("UPDATE item_content SET content_html = ? WHERE item_id = ?", body, id)
+	other := h.addItem(f, seedItem{Text: "y", Image: "http://10.0.0.5/lead.jpg"})
+	pathFor := func(flags int, u string) string { return imgproxy.Path([]byte(testSecret), flags, u) }
+
+	_, det, _ := h.api(c, "GET", "/api/items/"+sid(id), "")
+	require.Equal(t, pathFor(1, "http://nas.example/lead.jpg"), det["image"])
+	html := det["content_html"].(string)
+	require.Contains(t, html, `src="`+pathFor(1, "http://NAS.example/a.png")+`"`, "the feed's own host keeps the grant")
+	require.Contains(t, html, `src="`+pathFor(0, "http://other.example/b.png")+`"`, "a third-party host does not")
+	require.Contains(t, html, `src="`+pathFor(0, "http://10.0.0.5/c.png")+`"`, "nor another private address")
+
+	_, list, _ := h.api(c, "GET", "/api/items?view=all", "")
+	got := map[string]string{}
+	for _, it := range list["items"].([]any) {
+		m := it.(map[string]any)
+		got[m["id"].(string)] = m["image"].(string)
+	}
+	require.Equal(t, pathFor(1, "http://nas.example/lead.jpg"), got[sid(id)])
+	require.Equal(t, pathFor(0, "http://10.0.0.5/lead.jpg"), got[sid(other)], "cards too")
 }
 
 func TestImageRouteNeedsSessionAndSignature(t *testing.T) {
@@ -131,7 +164,8 @@ func TestImageSecretRotationIsSeenByARunningServer(t *testing.T) {
 	t.Cleanup(up.Close)
 	orig := up.URL + "/a.png"
 	f := h.addFeed("A", 0)
-	h.exec("UPDATE feeds SET allow_private_net = 1 WHERE id = ?", f)
+	// The feed lives on the private host its images come from.
+	h.exec("UPDATE feeds SET allow_private_net = 1, url = ? WHERE id = ?", up.URL+"/feed", f)
 	id := h.addItem(f, seedItem{Image: orig})
 
 	oldPath := imgproxy.Path([]byte(testSecret), imgproxy.FlagPrivateNet, orig)

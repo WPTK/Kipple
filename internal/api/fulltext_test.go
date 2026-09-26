@@ -88,7 +88,9 @@ func TestFulltextSetModeExtractsOnceAndStores(t *testing.T) {
 	htmlOut := body["content_html"].(string)
 	require.Contains(t, htmlOut, "quick brown fox")
 	require.NotContains(t, htmlOut, "<script")
-	require.Contains(t, htmlOut, imgproxy.Path([]byte(testSecret), imgproxy.FlagPrivateNet, "http://cdn.example/pic.png"), "served through the image proxy")
+	// Served through the image proxy; cdn.example is not the feed's own host,
+	// so the feed's private-network allowance does not extend to it.
+	require.Contains(t, htmlOut, imgproxy.Path([]byte(testSecret), 0, "http://cdn.example/pic.png"), "served through the image proxy")
 	require.EqualValues(t, 1, site.hits.Load())
 
 	// Stored unproxied, with the source and no error.

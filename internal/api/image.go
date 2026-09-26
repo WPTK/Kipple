@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/WPTK/kipple/internal/imgproxy"
@@ -101,11 +103,55 @@ func (s *Server) imageRewriters(ctx context.Context, feedIDs []int64, thumb bool
 		s.log.Error("api: image flags", "err", err)
 		return nil
 	}
+	hosts := s.privateNetHosts(ctx, flags)
 	all := s.db.StringSetting(ctx, "imgproxy.mode", store.DefaultImgMode) == "all"
 	// Thumbnails are made from the cached original, so they need the cache.
 	thumb = thumb && s.opt.ImgCache.Enabled()
 	return func(feedID int64) func(string) string {
-		return imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: all, Thumb: thumb}.Rewrite
+		return scopePrivateNet(imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: all, Thumb: thumb}, hosts[feedID])
+	}
+}
+
+// privateNetHosts returns the host of each feed in flags whose image flags
+// allow private networks (only those are looked up: they are rare).
+func (s *Server) privateNetHosts(ctx context.Context, flags map[int64]int) map[int64]string {
+	out := map[int64]string{}
+	for id, f := range flags {
+		if f&imgproxy.FlagPrivateNet == 0 {
+			continue
+		}
+		fd, ok, err := s.db.FeedDetail(ctx, id, s.statusEnv())
+		if err != nil {
+			s.log.Error("api: feed host for image flags", "err", err)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if u, err := url.Parse(fd.URL); err == nil {
+			out[id] = strings.ToLower(u.Hostname())
+		}
+	}
+	return out
+}
+
+// scopePrivateNet limits a feed's allow_private_net to images on the feed's
+// own host (feedHost): a third-party image in the feed's items or in an
+// extracted page is signed without the private-network grant, so a feed
+// that is allowed to reach a LAN address cannot be used to point the proxy
+// at any other private address. The flag stays in the signature, and so in the
+// cache key, of the images it is granted to. An unknown feed host grants it
+// to nothing.
+func scopePrivateNet(rw imgproxy.Rewriter, feedHost string) func(string) string {
+	if rw.Flags&imgproxy.FlagPrivateNet == 0 {
+		return rw.Rewrite
+	}
+	return func(raw string) string {
+		r := rw
+		if u, err := url.Parse(strings.TrimSpace(raw)); err != nil || feedHost == "" || !strings.EqualFold(u.Hostname(), feedHost) {
+			r.Flags &^= imgproxy.FlagPrivateNet
+		}
+		return r.Rewrite(raw)
 	}
 }
 
@@ -154,11 +200,12 @@ func (s *Server) serveOptions(ctx context.Context, feedID int64) sanitize.ServeO
 		if flags, err := s.db.FeedImageFlags(ctx, []int64{feedID}); err != nil {
 			s.log.Error("api: image flags", "err", err)
 		} else {
+			host := s.privateNetHosts(ctx, flags)[feedID]
 			all := s.db.StringSetting(ctx, "imgproxy.mode", store.DefaultImgMode) == "all"
-			opt.Image = imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: all}.Rewrite
+			opt.Image = scopePrivateNet(imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: all}, host)
 			// Embed thumbnails always go through the proxy, whatever the mode:
 			// the point of click-to-load is that nothing contacts YouTube first.
-			opt.Thumb = imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: true}.Rewrite
+			opt.Thumb = scopePrivateNet(imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: true}, host)
 		}
 	}
 	return opt

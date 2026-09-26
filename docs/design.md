@@ -1862,7 +1862,7 @@ The React app does not refetch lists on events, except on `resync`. For `fetch.d
 
 - **URL.** `/img/{sig}/{flags}/{u}`:
   - `u = base64url(originalURL)` without padding;
-  - `flags` is a decimal bitset (bit 0 = `allow_private_net`, bit 1 = `allow_insecure_tls`, bit 2 = `FlagThumb`; bits 0 and 1 are taken from the item's feed at rewrite time, bit 2 is set for list-card images, see Thumbnails);
+  - `flags` is a decimal bitset (bit 0 = `allow_private_net`, bit 1 = `allow_insecure_tls`, bit 2 = `FlagThumb`; bits 0 and 1 are taken from the item's feed at rewrite time, bit 0 only for an image on the feed's own host (the host of its URL, any case or port), so a third-party image in its items, cards or extracted pages never gets the private-network grant; bit 2 is set for list-card images, see Thumbnails);
   - `sig = base64url(HMAC-SHA256(account.secret, "img-v1|" + flags + "|" + originalURL))[:22]`.
 
   The proxy checks `sig` with `hmac.Equal` **and** requires a web session. It uses the transport variant that `flags` selects. It answers 400 to an encoded URL over 4096 bytes, to non-canonical flags (such as `04`) and to a URL with userinfo, and 503 while the account has no secret.
