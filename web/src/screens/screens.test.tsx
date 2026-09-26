@@ -16,7 +16,12 @@ class NoES {
 }
 
 function routes(extra: Parameters<typeof mockFetch>[0] = {}) {
-  const items = [card(1), card(2, { read: true }), card(3, { starred: true })];
+  // Midday today, so the "Today" header holds at any hour and in any time zone (hours-ago dates fall on
+  // yesterday for a run just after midnight).
+  const noon = new Date();
+  noon.setHours(12, 0, 0, 0);
+  const at = Math.floor(noon.getTime() / 1000);
+  const items = [card(1, { published_at: at - 60, sort_at: at - 60 }), card(2, { read: true, published_at: at - 120, sort_at: at - 120 }), card(3, { starred: true, published_at: at - 180, sort_at: at - 180 })];
   return mockFetch({
     "GET /api/bootstrap": () => json(bootstrap),
     "GET /api/items": () => json(pageOf(items)),
