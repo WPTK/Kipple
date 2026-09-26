@@ -60,7 +60,12 @@ Step 'security' 'gitleaks (git history)' {
   $clone = Join-Path $env:TEMP 'kipple-gitleaks-clone'
   Remove-Item -Recurse -Force $clone -ErrorAction SilentlyContinue
   git clone --quiet --no-hardlinks --mirror $root $clone
-  docker run --rm -v "${clone}:/repo:ro" "zricethezav/gitleaks:v$GitleaksVersion" git /repo --no-banner --redact
+  # A mirror has no working tree, so hand the container the repo's allowlist config explicitly.
+  $cfg = Join-Path $env:TEMP 'kipple-gitleaks-cfg'
+  New-Item -ItemType Directory -Force -Path $cfg | Out-Null
+  Copy-Item (Join-Path $root '.gitleaks.toml') $cfg -Force
+  Copy-Item (Join-Path $root '.gitleaksignore') $cfg -Force
+  docker run --rm -v "${clone}:/repo:ro" -v "${cfg}:/cfg:ro" "zricethezav/gitleaks:v$GitleaksVersion" git /repo --no-banner --redact -c /cfg/.gitleaks.toml --gitleaks-ignore-path /cfg/.gitleaksignore
   $code = $LASTEXITCODE
   Remove-Item -Recurse -Force $clone -ErrorAction SilentlyContinue
   $global:LASTEXITCODE = $code

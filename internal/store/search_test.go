@@ -471,7 +471,13 @@ func TestMarkScopeHonorsListFallback(t *testing.T) {
 // A search that outruns its budget answers ErrSearchTooBroad instead of holding a reader.
 func TestSearchTooBroad(t *testing.T) {
 	e := newEnv(t)
-	seedSearch(t, e, sitem{"Apple", "Ann", "apple pie"})
+	// Enough matching rows that the search really is still running when its (already expired)
+	// deadline is noticed: with one row it could finish first, which made this test flaky under load.
+	items := make([]sitem, 0, 1500)
+	for i := 0; i < 1500; i++ {
+		items = append(items, sitem{fmt.Sprintf("Apple %d", i), "Ann", "apple pie with more apple and pastry text to rank"})
+	}
+	seedSearch(t, e, items...)
 	old := searchBudget
 	searchBudget = time.Nanosecond
 	t.Cleanup(func() { searchBudget = old })
