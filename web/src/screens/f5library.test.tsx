@@ -502,6 +502,8 @@ describe("Images (Settings)", () => {
     expect(within(field).getByRole("radio", { name: "1 GB" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Only insecure images" })).toBeInTheDocument();
     await user.click(within(field).getByRole("radio", { name: "512 MB" }));
+    // Lowering the cap evicts at once: it asks first.
+    await user.click(await screen.findByRole("button", { name: "Make it smaller" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(body(calls.find((c) => c.method === "PATCH"))).toEqual({ "imgproxy.cache_mb": 512 });
     // A value that is not a preset opens the stepper.

@@ -1,9 +1,10 @@
 import { useId, useRef, useState } from "react";
 import { errorMessage } from "@/api/client";
 import { settingsIssues, usePatchSettings, type SettingMeta } from "@/api/admin";
+import { settingWarning } from "@/lib/settingGuards";
 import { Segmented } from "@/ui/segmented";
 import { Button } from "@/ui/button";
-import { Field, Stepper, Switch, inputCls } from "@/ui/kit";
+import { Field, Modal, Stepper, Switch, inputCls } from "@/ui/kit";
 import { announce } from "@/shell/toasts";
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -24,6 +25,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
   const draft = typed ?? String(meta.value ?? "");
   const uid = useId();
   const inflight = useRef(false);
+  const [confirm, setConfirm] = useState<{ value: unknown; w: { title: string; body: string; action: string } } | null>(null);
   const queued = useRef<{ value: unknown } | null>(null);
 
   if (meta.kind === "json") return null;
@@ -57,6 +59,18 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
     );
   };
 
+  // A change the server acts on at once (a lower cache cap, fewer articles kept) waits for a yes.
+  const ask = (value: unknown): void => {
+    const w = settingWarning(meta.key, meta.value, value === null ? meta.default : value);
+    if (w) setConfirm({ value, w });
+    else send(value);
+  };
+
+  const cancelAsk = (): void => {
+    setConfirm(null);
+    setDraft(null); // a stepper that was typed into shows the saved number again
+  };
+
   const isDefault = same(meta.value, meta.default);
   const help = meta.description;
   const describedBy = [`${uid}-h`, error ? `${uid}-e` : ""].filter(Boolean).join(" ");
@@ -64,7 +78,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
   let control;
   switch (meta.kind) {
     case "bool":
-      control = <Switch label={meta.label} help={help} checked={meta.value === true} onChange={send} error={error} />;
+      control = <Switch label={meta.label} help={help} checked={meta.value === true} onChange={ask} error={error} />;
       break;
     case "enum": {
       const opts = meta.options ?? [];
@@ -76,13 +90,13 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
       control =
         opts.length <= 4 ? (
           <>
-            <Segmented<string | number> legend={meta.label} hint={help} value={meta.value as string | number} options={opts} onChange={send} />
+            <Segmented<string | number> legend={meta.label} hint={help} value={meta.value as string | number} options={opts} onChange={ask} explicit />
             {err}
           </>
         ) : (
           <Field label={meta.label} help={help} error={error}>
             {(a) => (
-              <select {...a} value={String(meta.value)} onChange={(e) => send(opts.find((o) => String(o.value) === e.target.value)?.value ?? e.target.value)} className={inputCls}>
+              <select {...a} value={String(meta.value)} onChange={(e) => ask(opts.find((o) => String(o.value) === e.target.value)?.value ?? e.target.value)} className={inputCls}>
                 {opts.map((o) => (
                   <option key={String(o.value)} value={String(o.value)}>
                     {o.label}
@@ -105,10 +119,12 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
               legend={meta.label}
               value={stepper ? "custom" : current}
               wrap
+              explicit
               options={[...presets.map((p) => ({ value: p.value as string | number, label: p.label })), { value: "custom", label: "Custom" }]}
               onChange={(v) => {
                 if (v === "custom") return setCustomOpen(true);
                 setCustomOpen(false);
+                if (settingWarning(meta.key, meta.value, v)) return ask(v);
                 setDraft(String(v));
                 send(v);
               }}
@@ -130,7 +146,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
             invalid={!!error}
             onChange={(n) => {
               setDraft(String(n));
-              send(n);
+              ask(n);
             }}
           />
           </div> : null}
@@ -167,8 +183,36 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
   return (
     <div data-setting={meta.key} className="flex flex-col gap-1">
       {control}
+      {confirm ? (
+        <Modal
+          open
+          onOpenChange={(o) => {
+            if (!o) cancelAsk();
+          }}
+          title={confirm.w.title}
+          description={confirm.w.body}
+          footer={
+            <>
+              <Button variant="ghost" onClick={cancelAsk}>
+                Cancel
+              </Button>
+              <Button
+                variant="solid"
+                onClick={() => {
+                  const v = confirm.value;
+                  setConfirm(null);
+                  if (typeof v === "number") setDraft(String(v));
+                  send(v);
+                }}
+              >
+                {confirm.w.action}
+              </Button>
+            </>
+          }
+        />
+      ) : null}
       {!isDefault ? (
-        <Button variant="link" className="min-h-11 self-start px-0" aria-label={`Reset ${meta.label} to default`} onClick={() => send(null)}>
+        <Button variant="link" className="min-h-11 self-start px-0" aria-label={`Reset ${meta.label} to default`} onClick={() => ask(null)}>
           Reset to default
         </Button>
       ) : null}

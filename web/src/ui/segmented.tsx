@@ -9,6 +9,12 @@ interface Props<T extends string | number> {
   onChange: (v: T) => void;
   /** Long labels: let the options wrap onto a second row instead of squeezing into one. */
   wrap?: boolean;
+  /**
+   * Choose on purpose: the arrow keys only move focus, and Enter or Space (or a click) picks. Native radios pick on
+   * every arrow press, which would fire onChange for each option passed on the way; wrong for a setting whose change
+   * the server acts on at once.
+   */
+  explicit?: boolean;
 }
 
 /** The nearest ancestor that scrolls vertically, or null when the page itself does. */
@@ -26,9 +32,10 @@ export function scrollParent(el: HTMLElement | null): HTMLElement | null {
  * the live preview), so the control's own position on screen is held: what you just clicked never
  * slides out from under the pointer or off the screen.
  */
-export function Segmented<T extends string | number>({ legend, hint, value, options, onChange, wrap }: Props<T>) {
+export function Segmented<T extends string | number>({ legend, hint, value, options, onChange, wrap, explicit }: Props<T>) {
   const name = useId();
   const box = useRef<HTMLDivElement>(null);
+  const inputs = useRef<(HTMLInputElement | null)[]>([]);
   const anchor = useRef<{ top: number; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   useLayoutEffect(() => {
@@ -60,7 +67,7 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
       <legend className="text-sm font-semibold">{legend}</legend>
       {hint ? <p className="mb-2 text-xs text-fg2">{hint}</p> : <div className="mb-2" />}
       <div ref={box} className={cn("flex w-full gap-px overflow-hidden rounded-xl border border-line bg-line", wrap && "flex-wrap")}>
-        {options.map((o) => {
+        {options.map((o, i) => {
           const on = o.value === value;
           return (
             <label
@@ -78,7 +85,24 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
                 name={name}
                 value={String(o.value)}
                 checked={on}
+                ref={(el) => {
+                  inputs.current[i] = el;
+                }}
                 onChange={() => pick(o.value)}
+                onKeyDown={
+                  explicit
+                    ? (e) => {
+                        const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+                        if (d) {
+                          e.preventDefault();
+                          inputs.current[(i + d + options.length) % options.length]?.focus();
+                        } else if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (!on) pick(o.value);
+                        }
+                      }
+                    : undefined
+                }
                 className="sr-only-live"
               />
               {o.label}
