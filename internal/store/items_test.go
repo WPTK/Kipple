@@ -66,7 +66,7 @@ func TestStreamIDsQueryPlans(t *testing.T) {
 			q, args = streamIDsSQL(StreamFilter{}, IDPage{N: 10, Asc: asc, HasOT: true, OT: 1_700_000_000, UserChanges: true})
 			p = plan(q, args)
 			require.Contains(t, p, "idx_items_changed", "analyze=%v asc=%v\n%s", analyze, asc, p)
-			require.Contains(t, p, "idx_items_state_changed", "analyze=%v asc=%v\n%s", analyze, asc, p)
+			require.Contains(t, p, "USING COVERING INDEX idx_items_state_changed (state_changed_at>?)", "analyze=%v asc=%v\n%s", analyze, asc, p)
 			require.Contains(t, p, "PRIMARY KEY", "analyze=%v asc=%v\n%s", analyze, asc, p)
 			require.NotContains(t, p, "SCAN items\n", "analyze=%v asc=%v\n%s", analyze, asc, p)
 		}

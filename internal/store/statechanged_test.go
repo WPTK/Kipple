@@ -231,7 +231,7 @@ func TestMigration0007OnPopulatedSchema6(t *testing.T) {
 		case i%3 == 0:
 			e.exec(`UPDATE items SET read = 1, read_at = 100 WHERE id = ?`, id)
 			want[100]++
-		case i%7 == 0: // unstarred-then-starred without a read
+		case i%7 == 0: // starred, never read
 			e.exec(`UPDATE items SET starred = 1, starred_at = 50 WHERE id = ?`, id)
 			want[50]++
 		}

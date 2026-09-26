@@ -160,8 +160,9 @@ func SetStarredAt(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, at
 // Only ledger rows trimmed within retention.restore_days qualify: the nightly
 // purge deletes older stubs, but until it runs a stub can outlive the window,
 // and a restore must not depend on when the purge last ran. mode is "star" or
-// "unread". changedAt is the state_changed_at of the restored rows (the real time of the change;
-// now may be a replayed star time). It returns the ids actually restored (inserted into items).
+// "unread". now stamps starred_at (a replayed star passes the time it was made); changedAt is the real
+// time of the change: it decides the restore window, so a star replayed late cannot reach a stub the
+// window has already closed on, and it is the state_changed_at and read_at of the restored rows. It returns the ids actually restored (inserted into items).
 func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, now, changedAt int64) ([]int64, error) {
 	if mode != "star" && mode != "unread" {
 		return nil, fmt.Errorf("store: restore mode %q", mode)
@@ -174,7 +175,7 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 	if err != nil {
 		return nil, fmt.Errorf("restore: settings: %w", err)
 	}
-	cutoff := now - int64(set.RestoreDays)*86400
+	cutoff := changedAt - int64(set.RestoreDays)*86400
 	rows, err := tx.QueryContext(ctx, `SELECT t.id, t.feed_id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
 		WHERE t.id IN (SELECT value FROM json_each(?1)) AND t.trimmed_at >= ?2`, js, cutoff)
 	if err != nil {
@@ -194,7 +195,7 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 		  SELECT t.id, t.feed_id, t.uid,
 		         CASE WHEN ?1 = 'unread' THEN 0 ELSE t.read END,
 		         CASE WHEN ?1 = 'star' THEN 1 ELSE 0 END,
-		         CASE WHEN ?1 = 'unread' THEN NULL WHEN t.read = 1 THEN ?2 END,
+		         CASE WHEN ?1 = 'unread' THEN NULL WHEN t.read = 1 THEN ?4 END,
 		         CASE WHEN ?1 = 'star' THEN ?2 END,
 		         ?4,
 		         CASE WHEN ?1 = 'unread' THEN ?2 + 7*86400 END,
