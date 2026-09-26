@@ -103,15 +103,25 @@ func (s *Scheduler) exec(f *flight) (out result) {
 		if s.failCommit != nil {
 			err = s.failCommit(f.snap.ID)
 		} else if res.Success() {
+			if len(cand) > 0 {
+				// The commit marks these pending as it inserts them, so a Reader
+				// client never sees one before its hold starts.
+				res.HoldUIDs = make(map[string]bool, len(cand))
+				for _, it := range cand {
+					res.HoldUIDs[it.UID] = true
+				}
+			}
 			ci, cerr := s.commitFetch(context.WithoutCancel(s.fetchCtx), res)
 			err = cerr
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
 			out.migrated = ci.Migrated
 			out.mutedIDs, out.muted = ci.MutedIDs, ci.Muted
 			if cerr == nil {
-				// ci.NewIDs is what really committed: empty for a stale fetch, the
+				// ci.Held is what really committed: empty for a stale fetch, the
 				// early chunks for a large one cut short by a URL edit.
-				s.queueFulltext(f.snap.ID, cand, withoutIDs(ci.NewIDs, ci.MutedIDs))
+				s.queueFulltext(f.snap.ID, cand, ci.Held)
+			} else {
+				s.db.ClearFulltextPending(heldIDs(ci.Held)...) // left to on-demand, as before
 			}
 			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil && !ci.Stale {
 				cctx, cancel := s.commitCtx()
@@ -171,6 +181,15 @@ func (s *Scheduler) recovered(f *flight, v any, stack []byte, committing bool) (
 	}
 	out.errClass, out.nextFetch, out.commitFailed = fetch.ClassParse, res.NextFetchAt, false
 	return out
+}
+
+// heldIDs lists the ids of a CommitInfo.Held map.
+func heldIDs(held map[string]int64) []int64 {
+	ids := make([]int64, 0, len(held))
+	for _, id := range held {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // withoutIDs returns ids minus drop, keeping order. With nothing to drop it returns ids itself.

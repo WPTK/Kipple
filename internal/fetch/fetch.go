@@ -117,6 +117,13 @@ type Result struct {
 
 	Redirect RedirectDecision
 
+	// HoldUIDs are the uids of the new items the scheduler will queue for
+	// full-text extraction (set by the scheduler, not by Fetch). The commit marks
+	// each one it inserts (and does not mute) pending for the Reader API hold
+	// before its chunk's transaction commits, so the item is never visible
+	// unheld; CommitInfo.Held reports them.
+	HoldUIDs map[string]bool
+
 	NextFetchAt   time.Time
 	CurrentDelayS int64
 }

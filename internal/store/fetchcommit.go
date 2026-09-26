@@ -31,6 +31,11 @@ type CommitInfo struct {
 	Muted      int
 	MarkedRead int
 	Starred    int
+	// Held maps the uid to the id of every inserted item that was in
+	// res.HoldUIDs and not muted: each is marked pending (MarkFulltextPending)
+	// from before its transaction committed. The caller owns the marks: it queues
+	// the items for extraction or clears them. Only chunks that committed count.
+	Held map[string]int64
 	// Migrated is set when the commit rewrote feeds.url (design §4.7).
 	Migrated bool
 	// Stale is set when the feed's URL changed under the fetch and nothing (or,
@@ -53,11 +58,17 @@ type commitState struct {
 	trimmed    int64
 	notes      []string
 	mutedIDs   []int64
+	held       []heldItem // marked pending, in insert order
 	fMarked    int
 	fStarred   int
 	keep       bool
 	begun      bool
 	stale      bool // the feed's URL changed under the fetch; nothing was written
+}
+
+type heldItem struct {
+	uid string
+	id  int64
 }
 
 func (st *commitState) note(s string, keep bool) {
@@ -97,8 +108,15 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 
 	st := &commitState{firstNewID: maxInt64}
 	info := func() CommitInfo {
+		var held map[string]int64
+		if len(st.held) > 0 {
+			held = make(map[string]int64, len(st.held))
+			for _, h := range st.held {
+				held[h.uid] = h.id
+			}
+		}
 		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale,
-			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred}
+			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred, Held: held}
 	}
 	for i, ch := range chunks {
 		last := i == len(chunks)-1
@@ -126,7 +144,12 @@ func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item
 		return d.commitTx(ctx, tx, res, ch, last, st)
 	})
 	if err != nil {
-		*st = saved // the transaction rolled back: forget what it collected
+		// The transaction rolled back: its items never became visible, so drop
+		// their pending marks, and forget what it collected.
+		for _, h := range st.held[len(saved.held):] {
+			d.ClearFulltextPending(h.id)
+		}
+		*st = saved
 	}
 	return err
 }
@@ -441,6 +464,12 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 			}
 			if _, err := insContent.ExecContext(ctx, id, it.ContentHTML, it.ContentText, enc, cats); err != nil {
 				return err
+			}
+			if res.HoldUIDs[it.UID] && mutedBy == nil {
+				// Marked inside the transaction: the item is held from the moment it
+				// becomes visible. commitChunk clears the mark if this rolls back.
+				d.MarkFulltextPending(id)
+				st.held = append(st.held, heldItem{uid: it.UID, id: id})
 			}
 			if st.firstNewID == maxInt64 {
 				st.firstNewID = id
