@@ -1598,7 +1598,7 @@ Everything under `/api/` except the Reader paths requires the `kipple_session` c
 - It is `Secure` when the effective scheme is https: `X-Forwarded-Proto: https` from a trusted proxy IP, or real TLS.
 - It is persistent, not a session cookie, because WebKit bug 272325 drops session cookies in Home Screen apps.
 
-**Same-origin enforcement** (`internal/httpx/csrf.go`, every cookie-authenticated request whose method is not GET/HEAD, plus the GET downloads `GET /api/opml`, `GET /api/stats/export.csv` and `GET /api/backup/{token}`, which get rules 1 and 2 only):
+**Same-origin enforcement** (`internal/api/api.go`: `authed`, `needsOriginCheck`, `sameOrigin`; every cookie-authenticated request whose method is not GET/HEAD, plus the GET downloads `GET /api/opml`, `GET /api/stats/export.csv` and `GET /api/backup/{token}`, which get rules 1 and 2 only):
 
 1. If `Sec-Fetch-Site` is present, it must be `same-origin`.
 2. Else `Origin` must be present and equal `scheme://host` of the request, using the effective scheme.
@@ -1995,32 +1995,52 @@ Server-side ingest and validation of `read_time`, `scroll`, `open_original` and 
 ## 9. Go package layout and goroutines
 
 ```
-cmd/kipple/main.go      config → store.Open (migrations) → fetch/sched/hub/handlers → greader.Front ahead of
-                        the root mux → serve; shutdown sequence (§4.10); import _ "time/tzdata"; mime
-                        registrations; sqlite.OFDLocking()
+cmd/kipple/main.go      subcommands (serve is the default; import, api-password, password, restore, version).
+                        serve: config → TZ → lock.Acquire(kipple.lock) → store.Open (migrations; sqlite
+                        OFDLocking is switched on inside Open) → ensureAccount → imgcache.Open (optional) →
+                        one shared auth.Verifier, fetch client, ftrun runner, sched, maint → greader.Front
+                        ahead of the root mux, wrapped by auth.WarnUntrustedProxyHeaders and httpx.Secure →
+                        serve; shutdown sequence (§4.10); import _ "time/tzdata"; mime registrations
+cmd/kipple/*.go         import.go, account.go (api-password, ensureAccount), password.go, restore.go
+                        (+ restore_owner_*.go); see §2.6
 web/embed.go            package web: //go:embed all:dist (web/dist from the Vite build)
 internal/config         KIPPLE_* env only: ADDR(:7080), DATA(/data), USERNAME, PASSWORD, API_PASSWORD
                         (optional initial), PUBLIC_URL, TRUSTED_PROXY_IPS, TZ, SCHED_TICK,
                         FETCH_WORKERS(8), FETCH_PER_HOST(2),
                         LOG_LEVEL, LOG_GREADER_FORMS. Documented in .env.example. Nothing else reads os.Getenv.
-internal/store          db.go (three pools, DSNs), tx.go (WithWrite, holder tracking, deadline), migrate.go +
-                        migrations/*.sql, idalloc.go (seed, high-water, clock check), feeds.go (FindFeedByURL,
-                        archive), folders.go (label lookup), items.go (list/keyset/search/get; SetRead/SetStarred/
-                        MarkScope/MarkAllRead, all taking tx), fetchcommit.go (CommitFetch/CommitFetchError/
-                        KnownUIDs), retention.go (trim, restore, ledger updates, purge), settings.go (cached
-                        snapshot in an atomic.Pointer, refreshed on PATCH), account.go, sessions.go, stats.go
-                        (insert + validation in tx + aggregates + keyset CSV pages), icons.go, fulltext.go,
-                        maint.go. Only this package contains SQL.
+internal/clock          the injectable time source (scheduler, id allocator, store)
+internal/lock           the data-directory lock (kipple.lock): flock on Unix, LockFileEx on Windows
+internal/store          db.go (three pools, DSNs, sqlite OFDLocking under a sync.Once), tx.go (WithWrite, holder
+                        tracking, deadline), migrate.go + migrations/*.sql, idalloc.go (seed, high-water, clock
+                        check), feeds.go, subs.go, feedadmin.go, feedstatus.go, health.go, items.go / uiitems.go /
+                        itemstate.go (list/keyset/get; SetRead/SetStarred/MarkScope/MarkAllRead, restore of trimmed
+                        items, all taking tx), search.go / searchquery.go, fetchcommit.go (CommitFetch/
+                        CommitFetchError), retention.go (trim, ledger updates), maint.go (purges, snapshot,
+                        checkpoint), settings.go (typed reads with defaults; not cached), account.go, sessions.go,
+                        devices.go, favorites.go, savedsearch.go, filters.go / filterretro.go, autoread.go,
+                        fulltext.go (incl. KnownUIDs) / fulltextmode.go, export.go, uibootstrap.go, selfcheck.go,
+                        stats.go (stats_events insert + validation in a tx, session lookups; aggregates and CSV
+                        pages are phase 4, not built). Kipple-database SQL lives in this package, except
+                        `internal/opml` (import/export, run inside a store transaction), `internal/backup`
+                        (checks on a copied file) and one count in `internal/api/autoread.go`; `internal/imgcache`
+                        has its own separate SQLite index.
 internal/feedurl        Normalize and Key (scheme-less url_key), shared by store, fetch and opml
 internal/fetch          client.go (transports, ssrf.go guard, UA, timeouts, hop recorder), fetch.go
-                        (conditional GET, cap, charset.go, body hash, gofeed), dedup.go (uid, content_hash,
-                        text_hash, in-document duplicates, churn/dup detection), errors.go (classification),
-                        backoff.go (pure NextOnSuccess/NextOnFailure; injected clock + rand), redirect.go
-                        (policy decision), discover.go (autodiscovery, favicon finder; UI path only by default)
-internal/sanitize       absolutize.go (URL attribute resolution, base chain), bluemonday feed policy, iframes.go (ingest pre-pass), serve.go (ServeHTML, StripTracking)
-                        (RequireParseableURLs, no relative URLs), plain text + word count, lead-image pick,
-                        serve-time proxy rewrite
-internal/readability    go-readabilityV2 pipeline (guarded fetch, charset, absolutize, sanitize, text, image)
+                        (conditional GET, cap, charset.go, body hash), parse.go (gofeed parse, malformed-item
+                        skip, enclosure dedup), dedup.go (uid, content_hash, text_hash, in-document duplicates,
+                        churn/dup detection), errors.go (classification), backoff.go (pure NextOnSuccess/
+                        NextOnFailure; injected clock + rand), redirect.go (policy decision)
+internal/discover       feed autodiscovery for the UI add-feed path, through the guarded transport. There is no
+                        favicon finder (not built, backlog): `feed_icons` is only read, never populated, so
+                        Reader `iconUrl` and the `/icon/` route have no data
+internal/sanitize       absolutize.go (URL attribute resolution, base chain), policy.go (bluemonday feed policy,
+                        RequireParseableURLs, no relative URLs), iframes.go (ingest pre-pass), text.go (plain text
+                        + word count), leadimage.go (lead-image pick), rewrite.go (serve-time proxy rewrite),
+                        serve.go (ServeHTML, StripTracking), url.go
+internal/extract        go-readability v2 (codeberg.org/readeck) pipeline: guarded fetch, charset, absolutize,
+                        sanitize, text, image
+internal/ftrun          the one place a stored item's full-text extraction runs; the ingest pool and the
+                        on-demand endpoint share a Runner (joined extractions, per-host limit)
 internal/filter         The keyword rules engine (round-2 spec §1), pure: no I/O, no DB, no clock. rule.go (Rule,
                         Item, Error, the limits and the package comment that states the matching semantics),
                         compile.go (CompileRule, NewSet: validation, regex safety, set-wide caps), text.go
@@ -2031,52 +2051,67 @@ internal/filter         The keyword rules engine (round-2 spec §1), pure: no I/
                         for text, 8 KiB for regex, other fields 4 KiB). Single-word terms are answered from a
                         per-field word set. Reference numbers: 10,000 items x 50 rules in about 1.7 s (170 us per
                         item); 25 regex rules x 5 patterns on a full 8 KiB scan in about 8 ms per item.
-internal/sched          dispatcher.go, worker.go, run.go (attach/outstanding)
+internal/sched          sched.go, dispatcher.go, worker.go, run.go (attach/outstanding), fulltext.go (the
+                        extraction pool)
 internal/maint          maint.go: the one maintenance goroutine (hourly/nightly/Sunday, cancellable);
                         its SQL is store/maint.go
-internal/greader        front.go (path cleaning, dispatch switch), form.go (raw-preserving), auth.go,
-                        itemid.go, stream.go, filter.go, h_ids.go, h_contents.go (streaming encoder),
-                        h_edit.go, h_markall.go, h_subs.go, h_tags.go, h_misc.go, response.go (no-null
-                        writers), ua.go, seen.go (client last-seen map)
-internal/api            router.go, items.go, feeds.go, folders.go, refresh.go, health.go, settings.go,
-                        account.go, opml.go, fulltext.go, stats.go, events.go, archive.go
+internal/backup         the backup export (zip of a VACUUM INTO snapshot, OPML, settings, manifest) and its
+                        read-back for `kipple restore`: archive.go, backup.go, check.go, job.go, sessions.go
+internal/greader        api.go (New, Front: path cleaning and dispatch switch, auth, client-seen map), routes.go,
+                        form.go (raw-preserving), itemid.go, stream.go, h_streams.go (ids, contents), h_edit.go
+                        (edit-tag, mark-all-as-read), h_subs.go, log.go (request log with redaction)
+internal/api            api.go (routes, session check, same-origin guard: authed/needsOriginCheck/sameOrigin),
+                        login.go, account.go, bootstrap.go, items.go (incl. POST /api/stats/events), feeds.go,
+                        feedadmin.go, filters.go, autoread.go, savedsearches.go, devices.go, settings.go /
+                        settingsmeta.go, opml.go, fulltext.go, image.go, imgcache.go, backup.go,
+                        maintenance.go, sse.go
 internal/auth           argon2id Verifier (params, semaphore, memo, per-IP failure delay), cookie sessions,
-                        effective scheme, trusted-proxy IP, optional Access JWT verifier
-internal/events         SSE hub: Subscribe/Publish/Close, per-subscriber buffer 64, 500-event ring
+                        effective scheme, trusted-proxy IP, web login Lockout (10 failures / 15 min),
+                        GeneratePassword, WarnUntrustedProxyHeaders
+internal/events         SSE hub: Subscribe/Publish/Close, per-subscriber buffer 64, replay ring bounded at 500
+                        events and 1 MiB
 internal/opml           encoding/xml structs, Import (flatten, positions, report), Export (kipple: attrs)
-internal/imgproxy       signed, streaming proxy handler (flags, AVIF sniff, semaphores, hotlink ladder, cache tee)
+internal/imgproxy       signed, streaming proxy handler (flags, AVIF sniff, semaphores, hotlink ladder, cache tee),
+                        upstream.go, relay.go, thumb*.go (lazily started thumbnail worker pool)
 internal/imgcache       bounded on-disk image cache: index.db, LRU, idle expiry, failure cache, disk guard, repair
-internal/stats          Recorder interface (Record(tx, ev)) + impl (event validation, local-time fields)
-internal/web            SPA handler (index ETag + no-cache, immutable /assets)
-internal/httpx          middleware: request log with redaction, recover, security headers, csrf.go
+internal/stats          Recorder interface (Record(tx, ev), RecordStars) + impl (event validation, local-time fields)
+internal/web            SPA handler (index ETag + no-cache, immutable /assets), plus the `/_status` page
+internal/httpx          headers.go: Secure (security headers, CSP via PageCSP). No recover middleware and no CSRF
+                        code: the same-origin guard is in internal/api/api.go and the redacting request log is
+                        internal/greader/log.go
 ```
 
-**Dependencies** (pinned): `modernc.org/sqlite` v1.59.x (with its exact `modernc.org/libc`), `github.com/mmcdole/gofeed` v1.4.x, `github.com/microcosm-cc/bluemonday` v1.0.27, `github.com/markusmobius/go-readabilityV2`, `golang.org/x/net` (html, charset), `golang.org/x/text`, `golang.org/x/crypto/argon2`, `golang.org/x/sync`. Tests use `testify/require`.
+**Dependencies** (pinned): `modernc.org/sqlite` v1.59.x (with its exact `modernc.org/libc`), `github.com/mmcdole/gofeed` v1.4.x, `github.com/microcosm-cc/bluemonday` v1.0.27, `codeberg.org/readeck/go-readability/v2`, `golang.org/x/net` (html, charset), `golang.org/x/text`, `golang.org/x/crypto/argon2`, `golang.org/x/image` (thumbnails), `golang.org/x/sys`, `golang.org/x/term` (password prompt). Tests use `testify/require`.
 
 **Dockerfile.** Three stages: `node:22-alpine` (`npm ci && npm run build`) → `golang:1.27-alpine` (`CGO_ENABLED=0 go build -trimpath -ldflags="-s -w"`, with cache mounts) → `gcr.io/distroless/static-debian12:nonroot`.
 
-**Compose** (`host-a` project, service `kipple`): named volume `/data`, `stop_grace_period: 30s`, `GOMEMLIMIT=64MiB`, `mem_limit: 256m`, json-file logging 10m × 3, port 7080. `http.Server` has `ReadHeaderTimeout` 10 s, `WriteTimeout` 60 s on non-SSE routes (SSE clears it with `http.ResponseController.SetWriteDeadline`), and `IdleTimeout` 120 s.
+**Compose** (`host-a` project, service `kipple`): named volume `/data`, `stop_grace_period: 30s`, `GOMEMLIMIT=64MiB`, `mem_limit: 256m`, json-file logging 10m × 3, port 7080. `http.Server` has `ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s, `WriteTimeout` 60 s (SSE and the backup download replace it per write with `http.ResponseController.SetWriteDeadline`), and `IdleTimeout` 120 s.
 
 **Long-lived goroutines:**
 
-1. `http.Server`: per-connection goroutines. SSE handlers select on the subscriber channel and `r.Context()`.
+1. `http.Server`: per-connection goroutines. SSE handlers select on the subscriber channel and `r.Context()`. The `ListenAndServe` call runs in its own goroutine.
 2. The sched dispatcher (1). It is the only owner of in-flight, per-host, host-deadline, pending and run state.
 3. Fetch workers (8), ranging over `jobs`, sharing the commit gate.
-4. Maintenance (1).
-5. The signal watcher (main, blocked on `ctx.Done()`).
+4. The full-text extraction pool (`FulltextGlobal`, default 4), running through `ftrun`.
+5. Maintenance (1).
+6. The imgcache sweep loop (1), plus a short goroutine per cap change.
+7. The thumbnail worker pool (started lazily on the first thumbnail).
+8. Short-lived job goroutines: the backup export, a filter apply, an auto-read run.
+9. Main, in `superviseServe`, selecting on the listener error and `ctx.Done()` (the signal watcher).
 
 **Synchronization inventory:**
 
 - the id allocator mutex;
 - the hub mutex;
-- the cached Reader-token and settings `atomic.Pointer`s;
-- the Verifier semaphore, memo and per-IP failure map (mutex);
+- the `atomic.Pointer`s for the Reader API account snapshot (5 s TTL), the API `imgMode`, and the `WithWrite` holder (settings are read on each call, not cached);
+- the Verifier semaphore, memo and per-IP failure map (mutex), and the web-login Lockout map;
 - the greader client-seen map (mutex);
-- the image-proxy semaphore;
+- the image-proxy semaphores and per-host limiter, and the imgcache mutex;
+- the full-text queue mutex and condition variable, and the `ftrun` in-flight call map;
 - the commit gate;
 - the writer `*sql.DB` with one connection, reachable only through `WithWrite`: the only persistence serialization point.
 
-No goroutine holds a transaction across a channel send, an HTTP call or an SSE wait. No code inside `WithWrite` touches a `*sql.DB`. `go test -race ./...` is mandatory.
+No goroutine holds a transaction across a channel send, an HTTP call or an SSE wait. No code inside `WithWrite` touches a `*sql.DB`. `go test -race ./...` runs in CI (the Windows dev box has no C compiler, so it cannot run there).
 
 ---
 
