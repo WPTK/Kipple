@@ -6,6 +6,11 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `kipple healthcheck` subcommand: probes `/healthz` on the loopback address of `KIPPLE_ADDR` (3 s timeout, exit 0 only on HTTP 200), for the container `HEALTHCHECK` and for scripts.
+- The image declares a `HEALTHCHECK` and OCI labels; `docker-compose.example.yml` shows hardened runtime options.
+
 ## [0.2.0] - 2026-09-26
 
 Everything since 0.2.0-alpha.2, including the alpha.3 and alpha.4 builds (both deployed to Host-A).
