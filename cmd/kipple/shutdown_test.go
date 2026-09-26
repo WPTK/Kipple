@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,22 +41,22 @@ func TestShutdownFitsOneBudgetWhenEveryStageHangs(t *testing.T) {
 	hang := make(chan struct{})
 	t.Cleanup(func() { close(hang) })
 	var budget shutdownBudget
-	cut := false
-	var maintStart time.Time
+	var cut atomic.Bool
+	var maintStartNs atomic.Int64 // written by the hung maintenance goroutine
 	start := time.Now()
 	err := runShutdown(&budget, shutdownSteps{
 		stopWork:  func() {},
 		drainHTTP: func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() },
-		cutHTTP:   func() { cut = true },
-		stopped:   make(chan struct{}),                        // the scheduler never drains
-		stopMaint: func() { maintStart = time.Now(); <-hang }, // maintenance never stops
+		cutHTTP:   func() { cut.Store(true) },
+		stopped:   make(chan struct{}),                                          // the scheduler never drains
+		stopMaint: func() { maintStartNs.Store(time.Now().UnixNano()); <-hang }, // maintenance never stops
 	}, quiet)
 	stages := time.Since(start)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.True(t, cut, "a drain that ran out cuts the connections")
+	require.True(t, cut.Load(), "a drain that ran out cuts the connections")
 	require.Less(t, stages, shutdownTotal-storeCloseReserve+80*time.Millisecond, "the stages leave the store's reserve")
-	require.False(t, maintStart.IsZero())
-	require.GreaterOrEqual(t, time.Since(maintStart), maintFloor-10*time.Millisecond, "maintenance got its floor, not a zero wait")
+	require.NotZero(t, maintStartNs.Load())
+	require.GreaterOrEqual(t, time.Since(time.Unix(0, maintStartNs.Load())), maintFloor-10*time.Millisecond, "maintenance got its floor, not a zero wait")
 
 	closeWithin(&budget, quiet, "closing the UI API", storeCloseReserve, func() error { <-hang; return nil })
 	closeWithin(&budget, quiet, "closing image cache", storeCloseReserve, func() error { <-hang; return nil })
@@ -65,10 +66,10 @@ func TestShutdownFitsOneBudgetWhenEveryStageHangs(t *testing.T) {
 	require.Less(t, time.Since(start), shutdownTotal+80*time.Millisecond, "the whole shutdown fits the budget")
 
 	// A close that finishes in time has its error logged.
-	var logged bool
-	closeWithin(&shutdownBudget{}, slog.New(slog.NewTextHandler(writerFunc(func(p []byte) { logged = true }), nil)), "x", 0,
+	var logged atomic.Bool
+	closeWithin(&shutdownBudget{}, slog.New(slog.NewTextHandler(writerFunc(func(p []byte) { logged.Store(true) }), nil)), "x", 0,
 		func() error { return errors.New("boom") })
-	require.True(t, logged)
+	require.True(t, logged.Load())
 }
 
 type writerFunc func([]byte)
