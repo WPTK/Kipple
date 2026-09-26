@@ -34,9 +34,9 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
    - *Rejected:* api-first's per-host map and simplicity-first's in-flight set, which workers mutated with no stated synchronization (Judge 2 flagged both as plausible data races).
 
 2. **Three `*sql.DB` pools on one file, one write helper, and a one-slot commit gate.**
-   - **Writer pool.** `SetMaxOpenConns(1)` and `_txlock=immediate`. Only `store.WithWrite(ctx, func(tx *sql.Tx) error)` can reach it. Every store write method takes a `*sql.Tx` (or a `Querier`) and never the `*sql.DB`, so nothing inside a write transaction can ask the pool for a second connection. Each acquisition has a 10 s context deadline. On timeout it logs an ERROR naming the current holder (the helper records its caller's stack).
+   - **Writer pool.** `SetMaxOpenConns(1)` and `_txlock=immediate`. Only `store.WithWrite(ctx, fn func(ctx context.Context, tx *sql.Tx) error)` can reach it. Every store write method takes a `*sql.Tx` (or a `Querier`) and never the `*sql.DB`, so nothing inside a write transaction can ask the pool for a second connection. Each write transaction (acquisition, `fn` and commit) has a 10 s context deadline. On timeout it logs an ERROR naming the current holder (the helper records its caller's file:line and function).
    - **Reader pool.** `SetMaxOpenConns(4)`, `SetMaxIdleConns(4)`, `SetConnMaxIdleTime(0)`, `query_only`.
-   - **Snapshot pool.** `SetMaxOpenConns(1)`, not `query_only`. It is opened only by maintenance for `VACUUM INTO`, because `query_only` rejects that statement.
+   - **Snapshot pool.** `SetMaxOpenConns(1)`, not `query_only`. It is opened only for `VACUUM INTO` (the nightly snapshot, the pre-migration snapshot and the backup export), because `query_only` rejects that statement.
    - **Commit gate.** Fetch workers take a `chan struct{}` of capacity 1 before they `BEGIN`. API writers skip the gate and queue on the pool. `database/sql` does not hand a freed connection to waiters in FIFO order, so without the gate 8 queued fetch commits could keep winning over a Reeder `edit-tag`. With the gate, an API write waits for at most one feed commit.
    - *Rejected:* "pool alone" (no ordering guarantee), and a dedicated writer goroutine fed with closures (more code, same effect).
 
@@ -56,7 +56,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
    - Both legs get the 120 s visibility slack (BazQux uses 180 s). The legs stay disjoint because leg 2 is bounded by `id < ot_us`.
    - An absent `c` binds to MaxInt64 when descending and to 0 when ascending, never to NULL.
    - Read/star changes are **not** included. Both clients pull the full unread and starred lists without `ot`. Including them would make Reeder's `s=read&ot=now-30d` list grow with every bulk mark. The verified FreshRSS source does not include them either.
-   - The `greader.ot_includes_user_changes` setting (default `false`) restores the OR on `read_at`/`starred_at`.
+   - The `greader.ot_includes_user_changes` setting (default `false`) was meant to restore the OR on `read_at`/`starred_at`. **Reserved, not implemented:** the key is stored and validated but no code reads it, so `ot` never includes user changes.
    - *Rejected:* `user_modified_at` in `ot`. *Rejected:* published-date `ot` (Miniflux), which causes NNW's documented sync gap.
 
 7. **Continuation uses an n+1 lookahead.** `continuation` is emitted only when `n+1` rows come back, so the last page never carries one. *Rejected:* `LIMIT n` emitting on every full page.
@@ -91,19 +91,19 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
     - The FTS triggers carry `WHEN old.x IS NOT new.x` guards, so markup-only churn never touches the index (validated).
     - *Rejected:* insert-only.
 
-16. **Retention ranks by `sort_at = min(published_at, crawl_second + 86400)`**, then `id`: the UI order. Items with `retain_until > now` are exempt; they come from a mark-unread restore (§5). *Rejected:* pure arrival id.
+16. **Retention ranks by `sort_at = min(published_at, crawl_second + 86400)`**, then `id`: the UI order. The trim is a window query, `row_number() OVER (PARTITION BY muted_by IS NOT NULL ORDER BY sort_at DESC, id DESC)`, over the feed's unstarred, unretained items, so muted and real items are kept against separate allowances (the muted one is at least N/5). Items with `retain_until > now` are exempt; they come from a mark-unread restore (§5). *Rejected:* pure arrival id.
 
 17. **Trimmed ledger plus restore stubs.**
     - A trim writes the ledger row (id, feed, uid, read) and, for `retention.restore_days` (default **90**, matching NNW's article window), a `trimmed_content` stub that holds everything needed to rebuild the item.
     - `a=starred` on a ledger id that still has a stub, a web star on a trimmed card, or `r=read` / mark-unread on one **restores** the row into `items` with the same id and the new state, and deletes the ledger row. The id then appears in the next starred or unread list, so the client's reconcile keeps the change instead of undoing it.
     - A mark-unread restore sets `retain_until = now + 7 d`, so the item is not trimmed straight away.
     - After the stub window a ledger id is a tombstone only: a star is ignored and OK is returned (§11).
-    - The ledger insert uses `ON CONFLICT (feed_id, uid) DO UPDATE`. Rows are deleted with the feed. A ledger row is purged 180 days after its uid was **last seen** in the feed document. The purge horizon is `max(180, restore_days + 7)` days, so a restore stub (it cascades from its ledger row) can never be purged inside its `restore_days` window; `MaxRestoreDays <= LedgerDays` is asserted at compile time and in a test.
+    - The ledger insert uses `ON CONFLICT (feed_id, uid) DO UPDATE`. Rows are deleted with the feed. A ledger row is purged after its uid was **last seen** in the feed document. The purge horizon is `max(180, restore_days + 7)` days, so a restore stub (it cascades from its ledger row) can never be purged inside its `restore_days` window; `MaxRestoreDays <= LedgerDays` is asserted at compile time and in a test.
     - *Rejected:* "ignore stars on ledger ids" (revision 1; the red team showed both clients silently undo it). *Rejected:* a crawl-age grace window (7 days untrimmed). It breaks "newest N" on busy feeds and still misses NNW's 90-day window. *Rejected:* soft-deleting inside `items`, which would add `AND trimmed_at IS NULL` to every partial index and query.
 
 18. **Trim runs in every successful fetch commit** (`ok`, `unchanged`, `not_modified`). Changing a feed's `retention`, or `retention.default`, also enqueues a `trim_only` job for the affected feeds. So does "Apply retention now". Trim never runs on page load or on API traffic. On a quiet feed it costs one indexed statement over ≤ N+starred narrow rows. *Rejected:* "only when the fetch inserted items" (revision 1). Lowering N on a quiet feed then did nothing for days.
 
-19. **Full text lives in its own `item_fulltext` table** and can be toggled per feed (`feeds.fulltext`) and per article (`items.fulltext_mode`). For full-text feeds, the new items are committed first and then extracted **after the commit in a bounded background pool** (§4.3): up to 20 newest new items per fetch, 10 s each, 4 at once overall, 2 per article host. Items not queued are extracted on demand from the UI. *Rejected:* extracting inline in the worker before the commit (a slow article host held a fetch worker for up to 60 s and made `POST /api/feeds/{id}/refresh` answer 202 pending). *Rejected:* a column on `items`.
+19. **Full text lives in its own `item_fulltext` table** and can be toggled per feed (`feeds.fulltext`) and per article (`items.fulltext_mode`). For full-text feeds, the new items are committed first and then extracted **after the commit in a bounded background pool** (§4.3): up to 20 newest new items per fetch, 10 s each, 4 at once overall, 2 per article host, through a 500-item queue (while `fetch.fulltext_all` is on: 50 per fetch and a 2000-item queue). Items not queued are extracted on demand from the UI. *Rejected:* extracting inline in the worker before the commit (a slow article host held a fetch worker for up to 60 s and made `POST /api/feeds/{id}/refresh` answer 202 pending). *Rejected:* a column on `items`.
 
 20. **The image proxy is UI-only.**
     - Route `/img/{sig}/{flags}/{b64url}`, HMAC-signed over flags and URL, and session-gated. `flags` carries `allow_private_net` from the item's feed.
@@ -114,7 +114,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
 
 21. **Stats.**
     - There is one `open` kind for every client. `client` carries web, pwa, reeder, netnewswire, unread or api, and `inferred=1` marks API-derived opens.
-    - **API inference is off by default** (`stats.api_single_read_is_open = false`). It is turned on only if the day-1 capture shows that Reeder's scroll marks can be told apart from article opens.
+    - **API inference is off, and not built.** `stats.api_single_read_is_open` (default `false`) is reserved: it is stored and validated but no code reads it, and nothing writes an API-derived `open` row (`inferred=1`). The only stats the Reader API writes are stars (`RecordStars`, from `edit-tag`). The design would turn it on only if the day-1 capture showed that Reeder's scroll marks can be told apart from article opens.
     - Every phase-4 view defaults to `inferred = 0`. Streaks and feeds-never-opened exclude inferred rows unless the toggle is on.
     - `Recorder.Record(tx, …)` takes the caller's write transaction, so a stats row commits atomically with the state change and can never deadlock the one-connection pool.
     - *Rejected:* a separate `read` kind. *Rejected:* the ≤ 10-id threshold. *Rejected:* inference on by default (the red-team blocker).
@@ -178,9 +178,9 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
 32. **No JSON `null` in any Reader API response** except `LSID` in JSON ClientLogin. Every field that may be unknown is emitted as `""`, like Miniflux and FreshRSS: `iconUrl`, `htmlUrl`, `origin.htmlUrl`, `alternate[].href`, `canonical[].href` and `author`. Reeder is closed source and has broken on field types before (FreshRSS #3247, #2620). A golden-test rule enforces this.
 
 33. **OPEN, needs the owner's confirmation: API subscribe paths and outbound HTTP.** The brief says API clients never trigger fetches.
-    - **Default** (`greader.subscribe_fetch_now = false`): `quickadd`, `subscription/edit ac=subscribe` and `subscription/import` do **no** outbound HTTP and no discovery. They insert the feed with `next_fetch_at = now` and return at once. The scheduler's next tick (≤ 30 s) fetches the feed like any other due feed.
+    - **Behaviour** (`greader.subscribe_fetch_now` is reserved and always acts as `false`): `quickadd`, `subscription/edit ac=subscribe` and `subscription/import` do **no** outbound HTTP and no discovery. They insert the feed with `next_fetch_at = now` and return at once. The scheduler's next tick (≤ 30 s) fetches the feed like any other due feed.
     - The first NNW or Reeder sync after that shows the feed title as its host and no items. The next sync fills both in.
-    - The revision-1 behaviour (synchronous discovery plus a priority first fetch that waits up to 8 s) stays behind the setting, pending the owner.
+    - The revision-1 behaviour (synchronous discovery plus a priority first fetch that waits up to 8 s) is **not built**. `greader.subscribe_fetch_now` is reserved: stored and validated, but no code reads it, so the default behaviour above always applies.
     - The web UI's add-feed and OPML import are not API clients and keep synchronous discovery and runs.
 
 34. **OPML fidelity.**
@@ -193,7 +193,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
 
 35. **Memory budget: Go heap plus SQLite heap plus runtime, under 100 MB.**
     - `GOMEMLIMIT=64MiB`. modernc allocates SQLite's heap outside the Go heap, where GOMEMLIMIT does not reach it.
-    - SQLite page caches: 16 + 4×4 + 2 MB = 34 MB worst case.
+    - SQLite page caches: 16 + 4×4 + 2 MB = 34 MB worst case for the main database. The image-cache index (`imgcache/index.db`, when the cache is enabled) has its own writer and 4 readers at 2 MB each, up to 10 MB more, which this total excludes.
     - About 10 MB of runtime overhead.
     - A compose `mem_limit: 256m` backstop.
     - `stream/items/contents` and `stream/contents` stream their envelope row by row and never build the whole `[]item`. `i=` is capped at 1000 per contents request.
@@ -218,15 +218,15 @@ After opening, the writer runs `PRAGMA optimize=0x10002` once, then checks that 
 
 **Reader pool** (`SetMaxOpenConns(4)`, `SetMaxIdleConns(4)`, `SetConnMaxIdleTime(0)`, `SetConnMaxLifetime(0)`): the same pragmas, plus `_pragma=query_only(1)` and `cache_size(-4000)`.
 
-**Snapshot pool** (`SetMaxOpenConns(1)`): the same pragmas except `query_only`, with `cache_size(-2000)`. It is opened by maintenance, used for `VACUUM INTO`, and closed afterwards. `VACUUM INTO` holds only a read snapshot on the source, so it blocks no writers.
+**Snapshot pool** (`SetMaxOpenConns(1)`): the same pragmas except `query_only`, with `cache_size(-2000)`. It is opened for the nightly snapshot, the pre-migration snapshot and the backup export, used for `VACUUM INTO`, and closed after each. `VACUUM INTO` holds only a read snapshot on the source, so it blocks no writers.
 
-**Page caches.** The worst case is 16 + 16 + 2 = 34 MB. This memory lives outside the Go heap (decision 35).
+**Page caches.** The worst case is 16 + 16 + 2 = 34 MB for the main database, plus up to 10 MB for `imgcache/index.db` when the image cache is on (its own writer and 4 readers at 2 MB each). This memory lives outside the Go heap (decision 35).
 
 **`store.WithWrite(ctx, fn)`:**
 
-1. Derives a context with a 10 s deadline, calls `db.BeginTx`, and runs `fn(tx)`.
+1. Derives a context with a 10 s deadline, calls `db.BeginTx`, and runs `fn(ctx, tx)`. The deadline covers begin, `fn` and commit.
 2. Commits when `fn` returns nil, and rolls back otherwise.
-3. Records the caller (`runtime.Caller` plus the start time) in an atomic "holder" slot. A timed-out acquisition logs that slot at ERROR.
+3. Records the caller (one frame from `runtime.Caller(1)`: file, line and function, plus the start time) in an atomic "holder" slot. A timed-out acquisition logs that slot at ERROR.
 4. Every `*sql.Rows` opened inside `fn` is closed by `defer` in the store method that opened it. `UPDATE … RETURNING` goes through a helper that scans all rows and closes before returning.
 
 **Other connection details:**
@@ -239,7 +239,7 @@ After opening, the writer runs `PRAGMA optimize=0x10002` once, then checks that 
 
 ### 2.2 DDL — `internal/store/migrations/0001_init.sql`
 
-This block is exactly `0001_init.sql`, the schema as first shipped. Later migrations are listed in §2.2a; do not edit this block to match them. Two comments inside it are stale: sessions slide over 90 days (`sessionTTL`), not 30, and the `ui.line_height` and `ui.content_width` settings it names were replaced by `ui.reading_density` (migration 0002).
+This block is exactly `0001_init.sql`, the schema as first shipped. Later migrations are listed in §2.2a; do not edit this block to match them. Three comments inside it are stale: sessions slide over 90 days (`sessionTTL`), not 30; the `ui.line_height` and `ui.content_width` settings it names were replaced by `ui.reading_density` (migration 0002); and its settings key list is incomplete (see the paragraph after the block).
 
 ```sql
 -- Kipple schema v1. Applied by the migration runner inside BEGIN IMMEDIATE; the runner then sets
@@ -252,12 +252,9 @@ PRAGMA application_id = 1263095884;   -- 'KIPL' = 0x4B49504C
 -- overridden keys. User keys (whitelisted for PATCH): refresh.interval_minutes, retention.default,
 -- retention.restore_days, fetch.user_agent, fetch.honor_publisher_ttl, greader.icon_urls,
 -- greader.ot_includes_user_changes, greader.subscribe_fetch_now, stats.api_single_read_is_open,
--- fetch.fulltext_all, library.favorites, library.auto_read_days, library.saved_searches (§7.1d), imgproxy.mode, imgproxy.cache_mb, tz, ui.* (theme, font_body, font_ui, font_size, line_height, content_width,
+-- imgproxy.mode, tz, ui.* (theme, font_body, font_ui, font_size, line_height, content_width,
 -- layouts, mark_read_on_scroll, ...). System keys (never PATCHable): sys.id_high_water (JSON
--- integer, allocator high-water mark), sys.last_snapshot_at, sys.last_snapshot_error, sys.auto_read_last_run.
--- Defaults worth knowing: greader.icon_urls is TRUE (a database with no stored row picks the new
--- default up; only an explicit false turns icons off), fetch.fulltext_all is false, library.favorites
--- is [] (§7.5 and §7.1a).
+-- integer, allocator high-water mark), sys.last_snapshot_at, sys.last_snapshot_error.
 CREATE TABLE settings (
   key        TEXT PRIMARY KEY,
   value      TEXT NOT NULL CHECK (json_valid(value)),
@@ -580,16 +577,17 @@ CREATE INDEX idx_stats_feed    ON stats_events(feed_id, kind, ts);
 CREATE INDEX idx_stats_session ON stats_events(session_key, kind) WHERE session_key IS NOT NULL;
 ```
 
+**Settings keys added after 0001.** The comment above lists the keys at v1. Since then: user keys `fetch.user_agent_mode` (0002; `browser_on_failure` uses the `ua_fallback` column), `fetch.fulltext_all` (default false), `library.favorites` (default `[]`, §7.1a), `library.auto_read_days` and `library.saved_searches` (§7.1d), and `imgproxy.cache_mb` (§7.4); and system keys `sys.last_nightly_date`, `sys.last_nightly_at`, `sys.auto_read_last_run` and `sys.auto_read_feed_marks`. `greader.icon_urls` defaults to true (a database with no stored row picks the default up; only an explicit false turns icons off). `greader.ot_includes_user_changes`, `greader.subscribe_fetch_now` and `stats.api_single_read_is_open` are stored and validated but not yet read by any code (reserved).
+
 ### 2.2a Migrations after 0001
 
 Built (applied in order by the runner; each one is a line here so the block above stays the v1 schema):
 
 | Migration | Change | Why |
 |---|---|---|
-| `0002_ua_fallback.sql` | `feeds.ua_fallback INTEGER NOT NULL DEFAULT 0 CHECK (ua_fallback IN (0,1))`; deletes the `ui.line_height` and `ui.content_width` settings rows | A feed that only loads with a browser User-Agent remembers it (§4.4); the two reading settings became the single `ui.reading_density` preset |
+| `0002_ua_fallback.sql` | `feeds.ua_fallback INTEGER NOT NULL DEFAULT 0 CHECK (ua_fallback IN (0,1))`; deletes the `ui.line_height` and `ui.content_width` settings rows | A feed that only loads with a browser User-Agent remembers it (§4.4; used when `fetch.user_agent_mode` is `browser_on_failure`); the two reading settings became the single `ui.reading_density` preset |
 | `0003_fulltext_error_class.sql` | `item_fulltext.error_class TEXT CHECK (error_class IN ('transient','permanent'))`; NULL means an error stored before the column existed, treated as permanent | `POST /api/items/{id}/fulltext` retries a transient failure after an hour (§7.5) |
-| `0004_filters_devices.sql` | Schema only, spec §1.8, §1.13 and §4 of `docs/research/backend-additions-round2.md`: table `filters` (scope, kind and action CHECKs, `terms` and `fields` JSON arrays, the scope-to-id CHECK, highlight only for text, cascade from folders and feeds, partial indexes on `folder_id` and `feed_id`); `items.muted_by INTEGER` (no FK) with the partial index `idx_items_muted(sort_at, id)`, and `items.muted_was_read` (0 or 1, NULL while not muted: whether the item was already read when the rule muted it, so `?unmute=unread` only restores the ones that were unread); `categories_json` on `item_content` (JSON-checked) and `trimmed_content`; `feeds.auto_read_days` (NULL inherits, 0 is off, at most 365); table `devices` (`id` 16 to 32 chars, `settings` a JSON object of at most 8 KB, `idx_devices_seen`). The trim (`retention.go`) and restore (`itemstate.go`) SQL copy `categories_json` both ways | Keyword filters, the mute marker, item categories, auto-mark-read and per-device appearance profiles. Steps 10 and 11 now read and write `filters`, `items.muted_by`, `items.muted_was_read` and `categories_json` (§4.8, §5, §7.1b); `devices` and `feeds.auto_read_days` are still unused. Additive and O(1): no table is rebuilt and the indexes start empty. Rehearsed on a copy of the real phase 1 database (schema 1 to 4, 5,600 items, about 0.3 s) |
-
+| `0004_filters_devices.sql` | Schema only, spec §1.8, §1.13 and §4 of `docs/research/backend-additions-round2.md`: table `filters` (scope, kind and action CHECKs, `terms` and `fields` JSON arrays, the scope-to-id CHECK, highlight only for text, cascade from folders and feeds, partial indexes on `folder_id` and `feed_id`); `items.muted_by INTEGER` (no FK) with the partial index `idx_items_muted(sort_at, id)`, and `items.muted_was_read` (0 or 1, NULL while not muted: whether the item was already read when the rule muted it, so `?unmute=unread` only restores the ones that were unread); `categories_json` on `item_content` (JSON-checked) and `trimmed_content`; `feeds.auto_read_days` (NULL inherits, 0 is off, at most 365); table `devices` (`id` 16 to 32 chars, `name` of at most 64, `user_agent`, `client` default `'web'`, `settings` a JSON object of at most 8 KB, `created_at`, `last_seen_at`, `idx_devices_seen`); `filters` also has `invert`, `position`, `hits` and `last_hit_at`, and defaults `fields` to `'["title"]'`, `whole_word` to 1 and `fold_diacritics` to 1. The SQL file is the authority. The trim (`retention.go`) and restore (`itemstate.go`) SQL copy `categories_json` both ways | Keyword filters, the mute marker, item categories, auto-mark-read and per-device appearance profiles. Steps 10 and 11 now read and write `filters`, `items.muted_by`, `items.muted_was_read` and `categories_json` (§4.8, §5, §7.1b); `devices` backs per-device appearance profiles (§7.1c) and is purged nightly after 400 days unseen; `feeds.auto_read_days` feeds the nightly auto-read step (§2.6, §7.1d). Additive and O(1): no table is rebuilt and the indexes start empty. Rehearsed on a copy of the real phase 1 database (schema 1 to 4, 5,600 items, about 0.3 s) |
 | `0005_fts_porter.sql` | Drops and recreates `items_fts` with `tokenize = 'porter unicode61 remove_diacritics 2'`, stores the rank config `bm25(4.0, 2.0, 1.0)` (title 4x, author 2x, body 1x) with `INSERT INTO items_fts(items_fts, rank) VALUES ('rank', ...)`, then `'rebuild'`s from `item_search` | Stemmed, title-weighted search (§2.4). The five FTS triggers resolve `items_fts` by name when they fire, so they survive the drop untouched, and the view is unchanged. One `BEGIN IMMEDIATE` transaction behind the pre-migration snapshot; a failure rolls the whole file back and leaves the old index. Cost is linear in the indexed text: rehearsed on a copy of the real phase 1 database (5,600 items) the rebuild took 0.58 s and the full schema 1 to 5 open 0.95 s; expect about 10 s per 100,000 items, with no serving meanwhile. Every hit of the old index remains a hit; the index size stays about the same |
 
 Nothing is pending: migration 0005 was the last one designed in `docs/research/backend-additions-round2.md`.
@@ -616,17 +614,17 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 | `idx_items_unread (id) WHERE read=0` | Reader `reading-list&xt=read` (NNW every ~120 s, Reeder `n=10000`); global mark-all `UPDATE … WHERE read=0 AND id<=?` | `SCAN items USING COVERING INDEX idx_items_unread`; with `c`: `SEARCH … (id<?)`; mark-all `SEARCH … idx_items_unread (id<?)` |
 | `idx_items_unread_feed (feed_id,id) WHERE read=0` | Unread counts `GROUP BY feed_id` (UI sidebar, `unread-count`); `feed/N&xt=read`; label + unread; mark-all on a feed | `SCAN … COVERING INDEX idx_items_unread_feed`; `SEARCH … (feed_id=? AND id<?)` |
 | `idx_items_starred (id) WHERE starred=1` | Reader `s=starred` (both clients, full list) | `SCAN … COVERING INDEX idx_items_starred` |
-| `idx_items_feed_sort (feed_id,sort_at,id)` | UI feed view (keyset); the trim-set selection `ORDER BY sort_at DESC, id DESC OFFSET N` (narrow-row lookups for `starred`/`retain_until`); Reader `feed/N` streams | `SEARCH items USING INDEX idx_items_feed_sort (feed_id=?)` |
+| `idx_items_feed_sort (feed_id,sort_at,id)` | UI feed view (keyset); the trim-set selection, a `row_number() OVER (PARTITION BY muted_by IS NOT NULL ORDER BY sort_at DESC, id DESC)` window over the feed's unstarred, unretained items with separate allowances for muted and real items (narrow-row lookups for `starred`/`retain_until`); Reader `feed/N` streams | `SEARCH items USING INDEX idx_items_feed_sort (feed_id=?)` |
 | `idx_items_sort (sort_at,id)` | UI "All" view keyset | `SEARCH … (sort_at<?)` |
 | `idx_items_unread_sort (sort_at,id) WHERE read=0` | UI default "Unread" view keyset | `SCAN/SEARCH … COVERING INDEX idx_items_unread_sort` |
 | `idx_items_changed (content_changed_at) WHERE NOT NULL` | Leg 2 of the `ot` filter (§6.5), forced with `INDEXED BY` (always satisfiable: the leg has a range on the leading column) | `SEARCH items USING COVERING INDEX idx_items_changed (content_changed_at>?)`, the same after `ANALYZE` |
 | Integer primary key | Leg 1 of `ot`; Reeder `s=read&ot=now-30d` (narrow pages now, ~5 MB for 34k rows) | `SEARCH items USING INTEGER PRIMARY KEY (rowid>? AND rowid<?)` |
-| `UNIQUE (feed_id, uid)` (autoindex) | Dedup lookup in CommitFetch (`uid IN json_each(?)`) | `SEARCH … sqlite_autoindex_items_1 (feed_id=? AND uid=?)` |
+| `UNIQUE (feed_id, uid)` (autoindex) | Dedup lookup in CommitFetch: the first arm of one `WITH u(uid) AS MATERIALIZED (SELECT value FROM json_each(?))` `UNION ALL` query, `uid IN u` | `SEARCH … sqlite_autoindex_items_1 (feed_id=? AND uid=?)` |
 | `item_content` PK | Contents and item views join; the FTS view lookup by rowid | `SEARCH c USING INTEGER PRIMARY KEY (rowid=?)` |
 | FTS5 | Search | `SCAN items_fts VIRTUAL TABLE INDEX 32:M3` then `SEARCH i USING INTEGER PRIMARY KEY (rowid=?)` |
-| `trimmed_items UNIQUE (feed_id, uid)` | Tombstone check at ingest; ledger upsert | `SEARCH … COVERING INDEX sqlite_autoindex_trimmed_items_1` |
+| `trimmed_items UNIQUE (feed_id, uid)` | Tombstone check at ingest (the second arm of that same `UNION ALL` query); ledger upsert | `SEARCH … COVERING INDEX sqlite_autoindex_trimmed_items_1` |
 | `idx_trimmed_seen (last_seen_at)` | Nightly purge `DELETE … WHERE last_seen_at < ?` | `SEARCH … COVERING INDEX idx_trimmed_seen` |
-| `idx_trimmed_trimmed (trimmed_at)` | Nightly stub purge `DELETE FROM trimmed_content WHERE id IN (SELECT id FROM trimmed_items WHERE trimmed_at < ?)` | range |
+| `idx_trimmed_trimmed (trimmed_at)` | Nightly stub purge `DELETE FROM trimmed_content WHERE id IN (SELECT c.id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id WHERE t.trimmed_at < ? LIMIT ?)` | range |
 | `idx_feeds_due (next_fetch_at) WHERE enabled=1` | Scheduler tick selection | `SEARCH feeds USING COVERING INDEX idx_feeds_due (next_fetch_at<?)` |
 | `idx_feeds_folder (folder_id,position)` | Label streams; subscription/list ordering; folder view | `SEARCH feeds USING COVERING INDEX idx_feeds_folder (folder_id=?)` |
 | `idx_feeds_url_key` (unique), `idx_feeds_url_orig_key` | `FindFeedByURL`: `WHERE url_key = :k OR url_original_key = :k` | `MULTI-INDEX OR` |
@@ -635,6 +633,9 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 | `idx_fetch_log_err (feed_id,id) WHERE outcome='error'` | "Keep the last 10 error rows" in the cap | `SEARCH … COVERING INDEX idx_fetch_log_err (feed_id=?)` |
 | `idx_sessions_expires` | Nightly session purge | range |
 | `idx_folders_one_default` | Enforces a single default folder | — |
+| `idx_items_muted (sort_at,id) WHERE muted_by IS NOT NULL` (0004) | The muted view keyset | range |
+| `idx_filters_folder`, `idx_filters_feed` (0004, partial) | Cascade lookup when a folder or feed is deleted | range |
+| `idx_devices_seen` (0004) | LRU eviction above 50 devices and the 400-day purge | range |
 | `idx_stats_kind_ts (kind,ts)` | Phase-4 windows | `SEARCH … (kind=? AND ts>?)` |
 | `idx_stats_feed (feed_id,kind,ts)` | Per-source views | range |
 | `idx_stats_session (session_key,kind)` | Ingest validation (open exists, cumulative read_time), inside the ingest write transaction | `SEARCH … idx_stats_session (session_key=? AND kind=?)` |
@@ -643,7 +644,7 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 
 ### 2.4 FTS5
 
-- **Setup.** External content over the view `item_search`, with `porter unicode61 remove_diacritics 2` from schema 5 (stemming on both sides, diacritics folded; `unicode61` alone before) and the persistent rank `bm25(4.0, 2.0, 1.0)`, so `items_fts.rank` is already title-weighted. Only plain text is indexed (`content_text`, produced by bluemonday `StrictPolicy` at ingest), so a retention trim deletes cheap rows. All three update triggers are value-guarded. Validated: 200 markup-only updates left `items_fts_data` unchanged at 21 rows.
+- **Setup.** External content over the view `item_search`, with `porter unicode61 remove_diacritics 2` from schema 5 (stemming on both sides, diacritics folded; `unicode61` alone before) and the persistent rank `bm25(4.0, 2.0, 1.0)`, so `items_fts.rank` is already title-weighted. Only plain text is indexed (`content_text`, produced by bluemonday `StrictPolicy` at ingest), so a retention trim deletes cheap rows. Both update triggers (`items_fts_au`, `item_content_fts_au`) are value-guarded, and `item_content_fts_bd` fires only while the item exists (five FTS triggers in all). Validated: 200 markup-only updates left `items_fts_data` unchanged at 21 rows.
 - **Query builder v2** (`internal/store/searchquery.go`: `ParseSearch`, `SearchQuery.Match`, `SearchQuery.FallbackMatch`; `BuildFTSQuery` is the exact form). User text is parsed left to right into terms, and the MATCH expression is built only from double-quoted phrases (embedded quotes doubled), parentheses, `AND`, `OR`, `NOT` and two whitelisted column filters, so user text can never cause an FTS5 syntax error (a fuzz test runs every parse against a live index) or filter on an unlisted column. FTS5 needs an explicit `AND` next to a parenthesized group, so terms are joined with ` AND `.
 
   | Input | Expression |
@@ -660,7 +661,7 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
   -- pass 1: the page's ids (rank only when order=rank; date order never computes bm25)
   SELECT i.id, items_fts.rank FROM items_fts JOIN items i ON i.id = items_fts.rowid
   WHERE items_fts MATCH :q [AND i.feed_id = :f | AND i.feed_id IN (SELECT id FROM feeds WHERE folder_id = :fo)]
-  ORDER BY rank LIMIT :n+1;        -- or ORDER BY i.sort_at DESC when order=date
+  ORDER BY rank LIMIT :n+1;        -- or ORDER BY i.sort_at DESC, i.id DESC when order=date (ASC when order=oldest)
   -- pass 2: only those rows are decorated
   SELECT i.*, snippet(items_fts, 2, '<mark>', '</mark>', '…', 24) FROM items_fts JOIN items i ON i.id = items_fts.rowid
   WHERE items_fts MATCH :q AND i.id IN (:page_ids);
@@ -670,24 +671,24 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 - **Cursors.** A relevance cursor is `s2[f]|<rank>|<id>` (base64url); the `s2` tag versions the rank basis: cursors of the old `r<rank>|<id>` form (before schema 5) are refused with `400 bad_cursor` because their numbers are on another scale. Date cursors are `[a][f]<sort_at>.<id>`.
 - **CJK.** `unicode61` does not segment Han, Kana or Hangul: a run of such characters is a single token, so a query matches the whole run or (as a prefix) its start, never a substring from the middle. Documented limit; there is no trigram index (a second index would roughly double the FTS size for a single-user reader).
 - **Known limit.** Extracted full text is not indexed. Trimmed stubs are not searchable.
-- **Maintenance.** There is no weekly `optimize`: FTS5's default automerge keeps segment counts bounded without one large write. Each week the nightly snapshot job runs `'integrity-check'` against the freshly written **snapshot file**, never the live database. A failure logs an ERROR, is recorded in `sys.last_snapshot_error`, and is shown in the health view. `'rebuild'` is a manual repair action in the UI and runs on the writer.
+- **Maintenance.** There is no weekly `optimize`: FTS5's default automerge keeps segment counts bounded without one large write. Each week the nightly snapshot job runs `'integrity-check'` against the freshly written **snapshot file**, never the live database. A failure logs an ERROR, is recorded in `sys.last_snapshot_error`, and is shown in the health view. `'rebuild'` is a manual repair action in the UI and runs on the writer, in one `WithWrite` (10 s deadline), so on a very large library it can time out and roll back; the offline path is a restore or migration.
 
 ### 2.5 Migration mechanism
 
 1. `//go:embed migrations/*.sql`. Files are named `NNNN_name.sql`, numbered densely from 0001.
-2. On open, the runner reads `PRAGMA application_id`:
+2. On open, the runner reads `PRAGMA application_id` (first on a throwaway read-only connection with no pragmas, so a foreign file is never switched to WAL; `migrate` checks again):
    - `0` with an empty schema is a fresh file.
    - `0` with a non-empty schema, or any value other than 1263095884, means refuse to start: "not a Kipple database".
 3. It reads `PRAGMA user_version`. If that is higher than the highest embedded migration, it refuses to start (downgrade guard).
 4. If migrations are pending and the database is not fresh:
    - `os.MkdirAll("/data/backup")`.
-   - `VACUUM INTO '/data/backup/pre-migration-<from>-<to>-<unixtime>.db'` on the snapshot pool. The target name is unique, so a retried migration can never hit "output file already exists".
+   - `VACUUM INTO '/data/backup/pre-migration-<from>-<to>-<unix-ns>.db'` on the snapshot pool. The target name is unique, so a retried migration can never hit "output file already exists".
    - The newest 3 `pre-migration-*` files are kept.
 5. It applies each pending file N on the writer connection, inside a function that has `defer`: `PRAGMA foreign_keys=ON`, followed by a check that `PRAGMA foreign_keys` returns 1. That check runs on success, on error and on panic, and startup aborts if it fails.
    - If the file's first line is `-- kipple:foreign-keys-off`, the runner executes `PRAGMA foreign_keys=OFF` before `BEGIN`. This is required for the 12-step table-rebuild procedure.
    - Then `BEGIN IMMEDIATE; <file>; PRAGMA foreign_key_check;`, which must return no rows or the migration rolls back. Then `PRAGMA user_version = N; COMMIT;`.
    - **Idempotence.** The runner is the guard: a file runs once, gated by `user_version`, inside one transaction, so a failure rolls the whole file back (a test appends a failing statement to 0004 and checks nothing is left behind). Plain `ALTER TABLE ... ADD COLUMN` is therefore fine; `CREATE ... IF NOT EXISTS` is used only where a file needs to tolerate a table that may exist.
-   - **Tests.** `migrate0004_test.go` migrates a fresh database, a populated schema-3 database and (when present) a copy of a real export (`TestRehearsalOnRealDatabase`, path from `KIPPLE_REHEARSAL_DB`, skipped in CI), runs `integrity_check` and `foreign_key_check` after each, and checks that a binary with only three migrations refuses a schema-4 file.
+   - **Tests.** `migrate0004_test.go` and `migrate0005_test.go` (fresh schema, populated schema 4, rollback on failure, the search plan) migrate a fresh database, a populated older database and (when present) a copy of a real export (`TestRehearsalOnRealDatabase`, path from `KIPPLE_REHEARSAL_DB`, skipped in CI), runs `integrity_check` and `foreign_key_check` after each, and checks that a binary with only three (or four) migrations refuses a schema-4 (or schema-5) file.
 6. After all migrations, it runs `PRAGMA optimize` (`analysis_limit=400` is already set).
 7. There are no down migrations. Rollback means restoring the pre-migration snapshot: `kipple restore /data/backup/pre-migration-<from>-<to>-<ns>.db --yes` (§2.6; the runbook is `docs/deploy.md`).
 
@@ -695,22 +696,23 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 
 - **Implementation (as built).** `internal/maint` owns the schedule (a 1-minute `clock.Clock` ticker; hourly and nightly are due-checks against the injected clock, so a coalesced tick never loses a job) and `internal/store/maint.go` owns the SQL. Each job logs one summary line (rows, batches, duration) and calls the optional `OnJob` hook.
 - **Batching.** Every purge below is a loop of bounded batches: 1000 rows per `WithWrite`, each behind the commit gate, with a 25 ms pause between batches (cancellable) so fetch commits and edit-tags interleave. A batch shorter than 1000 ends the loop.
-- **Hourly:** `PRAGMA wal_checkpoint(PASSIVE)` on the writer's single connection. It cannot run inside the `WithWrite` transaction (SQLite answers "database table is locked"), so it takes the writer connection directly, which is the same exclusion `WithWrite` uses.
-- **Nightly at 04:10 in `settings.tz`.** The `tz` setting is the only time zone source for the nightly job and the statistics (`store.LoadLocation`, default `America/New_York`). The maintenance loop reads it at every minute check. It keeps the last nightly run as an absolute instant (`sys.last_nightly_at`, RFC 3339 UTC; `sys.last_nightly_date` is still written, and read alone by a database from before the instant existed), and runs when the current local date is later than the date of that instant **read in the zone now in use**, and 04:10 has passed: once per local date, across restarts, and a `tz` change can neither repeat a date nor skip one (zone moved ahead: the same date is not run again; zone moved behind: the recorded run is read in the new calendar, so the new zone's own next date runs at its 04:10, which can be a few hours after the last run rather than a day later; zone moved before tonight's run so that 04:10 has already passed there: it runs at the next minute check). A fresh install treats the date it starts on as covered when 04:10 has passed. A night missed while the server was down runs on the first check at least 5 minutes after startup (`CatchUpDelay`), so it does not overlap the startup fetch burst; only that catch-up waits, not an on-schedule run or one that a zone change makes due. An unknown `tz` name keeps the previous zone, is not a zone change, and logs one warning per distinct bad value (the Sunday FTS check follows the same zone). The container `TZ` only sets `time.Local`, which affects log timestamps; the UI shows times in the device zone. The steps:
-- **Auto-read step.** After the purges the nightly job runs `auto_read` (§7.1d): it marks read what crossed each feed's auto-read threshold since `sys.auto_read_last_run`. It is a no-op while `library.auto_read_days` and every feed's `auto_read_days` are off.
-  1. Through `WithWrite`, batched as above (a restore also refuses ledger rows older than `restore_days`, so it never depends on when this ran):
-     - `DELETE FROM trimmed_content WHERE id IN (SELECT id FROM trimmed_items WHERE trimmed_at < now − restore_days·86400)`
-     - `DELETE FROM trimmed_items WHERE last_seen_at < now − 180 d`
-     - `DELETE FROM sessions WHERE expires_at < now`
-     - `PRAGMA optimize`
-  1b. The image cache sweep (`imgcache.Cache.Sweep`, job `imgcache_sweep`, only when the cache is open): idle expiry, expired failure records, eviction to the cap, old host hints, then a WAL checkpoint and `VACUUM` of `imgcache/index.db` (its own file, never the main database). A failure is logged and does not stop the snapshot.
-  2. The snapshot, on the snapshot pool:
+- **Hourly:** `PRAGMA wal_checkpoint(PASSIVE)` on the writer's single connection. It cannot run inside the `WithWrite` transaction (SQLite answers "database table is locked"), so it takes the writer connection directly, which is the same exclusion `WithWrite` uses, behind the commit gate and bounded by the 10 s write timeout.
+- **Nightly at 04:10 in `settings.tz`.** The `tz` setting is the only time zone source for the nightly job and the statistics (`store.LoadLocation`, default `America/New_York`). The maintenance loop reads it at every minute check. It keeps the last nightly run as an absolute instant (`sys.last_nightly_at`, RFC 3339 UTC; `sys.last_nightly_date` is still written, and read alone by a database from before the instant existed), and runs when the current local date is later than the date of that instant **read in the zone now in use**, and 04:10 has passed: once per local date, across restarts, and a `tz` change can neither repeat a date nor skip one (zone moved ahead: the same date is not run again; zone moved behind: the recorded run is read in the new calendar, so the new zone's own next date runs at its 04:10, which can be a few hours after the last run rather than a day later; zone moved before tonight's run so that 04:10 has already passed there: it runs at the next minute check). A fresh install treats the date it starts on as covered when 04:10 has passed. A night missed while the server was down runs on the first check at least 5 minutes after startup (`CatchUpDelay`), so it does not overlap the startup fetch burst; only that catch-up waits, not an on-schedule run or one that a zone change makes due. An unknown `tz` name keeps the previous zone, is not a zone change, and logs one warning per distinct bad value (the Sunday FTS check follows the same zone). The container `TZ` only sets `time.Local`, which affects log timestamps; the UI shows times in the device zone. The steps, in code order (`internal/maint/maint.go`):
+  1. Purges, through `WithWrite`, batched as above (a restore also refuses ledger rows older than `restore_days`, so it never depends on when this ran):
+     - `DELETE FROM trimmed_content WHERE id IN (SELECT c.id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id WHERE t.trimmed_at < now − restore_days·86400 LIMIT :batch)`
+     - `DELETE FROM trimmed_items WHERE id IN (SELECT id FROM trimmed_items WHERE last_seen_at < now − max(180, restore_days + 7) d LIMIT :batch)`
+     - `DELETE FROM sessions WHERE expires_at < now` (batched)
+     - `DELETE FROM devices WHERE last_seen_at < now − 400 d` (batched)
+  2. Auto-read (`auto_read`, §7.1d): marks read what crossed each feed's auto-read threshold since `sys.auto_read_last_run`. It is a no-op while `library.auto_read_days` and every feed's `auto_read_days` are off.
+  3. The image cache sweep (`imgcache.Cache.Sweep`, job `imgcache_sweep`, only when the cache is open): idle expiry, expired failure records, eviction to the cap, old host hints, then a WAL checkpoint and `VACUUM` of `imgcache/index.db` (its own file, never the main database). A failure is logged and does not stop the snapshot.
+  4. `PRAGMA optimize`, through `WithWrite`.
+  5. The snapshot, on the snapshot pool:
      - `os.MkdirAll("/data/backup")` and `os.Remove("/data/backup/kipple-snapshot.tmp")`, ignoring not-exist.
      - `VACUUM INTO '/data/backup/kipple-snapshot.tmp'`, using the maintenance context so shutdown interrupts it.
      - On Sundays, the FTS `integrity-check` against the tmp file, through a throwaway connection.
      - `fsync`, then an atomic rename to `kipple-snapshot.db`.
-     - Record `sys.last_snapshot_at`, or `sys.last_snapshot_error` on failure. The health view shows the age of the last good snapshot and turns it red after 48 h.
-  3. Off-box copies use only `kipple-snapshot.db`, never the live db/wal pair. As built, nothing on Host-A copies it: Host-B's backup job pulls it with `ssh host-a docker cp kipple:/data/backup/kipple-snapshot.db …` (`docker cp` needs no shell in the image). The in-app backup export below complements the pull.
+     - Record `sys.last_snapshot_at` (on success `sys.last_snapshot_error` is cleared), or `sys.last_snapshot_error` on failure; a cancelled run records nothing and removes the tmp file with its `-wal`, `-shm` and `-journal`. The health view shows the age of the last good snapshot and turns it red after 48 h.
+  6. Off-box copies use only `kipple-snapshot.db`, never the live db/wal pair. As built, nothing on Host-A copies it: Host-B's backup job pulls it with `ssh host-a docker cp kipple:/data/backup/kipple-snapshot.db …` (`docker cp` needs no shell in the image). The in-app backup export below complements the pull.
 - **One snapshot at a time.** The nightly snapshot and the backup export share one slot in `store` (`TrySnapshot`). The nightly job waits for an export in progress (it is short); an export that finds the slot taken answers `409 busy` and never queues. Both use `VACUUM INTO` on the snapshot pool, which holds only a read snapshot, so neither blocks the writer or the commit gate.
 - **Backup export** (`internal/backup`, `POST /api/backup`, §7.1). Steps: take the slot; refuse a database over 4 GiB or a volume with less than 2.2x the database (plus 16 MB) free; discard any unclaimed earlier export; `VACUUM INTO backup/export/export-<ns>.db`; open that copy (journal mode `DELETE`, so it leaves no `-wal`), run `PRAGMA quick_check`, count feeds, items and starred, and read the OPML (`opml.ExportFrom`) and the non-`sys.` settings from the copy, so all files describe the same instant; close it; write the zip (Deflate) with `kipple.db`, `feeds.opml`, `settings.json`, `RESTORE.txt` and last `manifest.json` (`format, app, kipple_version, schema_version, application_id, created_at, db_sha256, db_bytes, feeds, items, starred, files:[{name, bytes, sha256}]`; the manifest lists every file but itself); rename it into place and delete the copy. The build is bounded to 10 minutes and runs as a background job (§7.1), so its context ends with the timeout or the shutdown, not the request. The `export/` directory is created 0700 and the snapshot copy 0600 before it is filled. The result is held under a random 128-bit token for 5 minutes; a new export replaces an unclaimed one; the download spends the token and deletes the file; an expiry timer deletes it otherwise; a failed or cancelled build removes its files; `backup.New` empties `backup/export/` at startup. What the DB holds that is sensitive (and the export dialog says, as the `warning` field): the web and Reader API password hashes, `account.secret` (keys Reader tokens and image links), hashed session ids, and feeds' `http_auth` in plain text. There is no redaction option: a restore needs the secret.
 - **Data lock.** `serve` holds an exclusive OS lock (`flock`, or `LockFileEx` on Windows dev) on `<data>/kipple.lock` for its whole life, taken before the database opens; a second `serve` on the same directory refuses to start. The lock belongs to the process, so a crash leaves no stale lock. `import`, `api-password` and `password` do not take it (they are safe next to a running server); `restore` takes it and so refuses while `serve` runs.
@@ -735,10 +737,10 @@ func (a *IDAlloc) Last() int64 { /* a.last */ }
 ```
 
 - **Seeding.** At startup: `a.last = max(settings['sys.id_high_water'], MAX(items.id), MAX(trimmed_items.id))`. Both MAX calls are rowid lookups.
-  - Each `CommitFetch` that allocated ids ends with `INSERT INTO settings(key,value) VALUES('sys.id_high_water', :last) ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE CAST(excluded.value AS INTEGER) > CAST(settings.value AS INTEGER)`.
+  - Each `CommitFetch` that allocated ids ends with `INSERT INTO settings(key,value) VALUES('sys.id_high_water', :last) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = unixepoch() WHERE CAST(excluded.value AS INTEGER) > CAST(settings.value AS INTEGER)`.
   - Ids therefore never go backwards across restarts, unsubscribe cascades or an NTP step back. `stats_events` is no longer scanned.
 - **Clock sanity.** If the seed is more than 3600·1e6 µs ahead of `time.Now()`, startup logs an ERROR with the offset, and the health view shows a banner until real time passes the seed: "Item ids are ahead of the clock by X. `ot` windows and mark-all-as-read cutoffs are unreliable until then." Kipple still starts.
-- **Where it is called.** Only inside `CommitFetch`, after `BEGIN IMMEDIATE` has acquired the write lock. New items in a batch are sorted oldest-first: `published_at` ascending, ties broken by reverse document order. Ids are allocated in that order. Consequences:
+- **Where it is called.** Only inside `CommitFetch` (one transaction per chunk of 250 when a fetch has more than 500 new items; see §4.8), after `BEGIN IMMEDIATE` has acquired the write lock. New items in a batch are sorted oldest-first: `published_at` ascending, ties broken by reverse document order; items without a date sort last, stamped with the crawl time. Ids are allocated in that order. Consequences:
   - ids are strictly increasing in commit order;
   - within one fetch, id order equals publication order;
   - a batch of 1000 items runs the counter at most 1 ms ahead of the wall clock.
@@ -777,7 +779,7 @@ The remaining ambiguity is an *unpadded* bare-hex value made only of digits. No 
 | `c` | Descending: `id < :c`. With `r=o`: `id > :c`. `c` must be all digits, otherwise it is ignored. **Absent → bound to `math.MaxInt64` (descending) or `0` (ascending), never NULL** |
 | `ot` (seconds) | `id >= (:ot − 120)·1e6 OR content_changed_at >= :ot − 120`. Executed as two disjoint ordered legs (§6.5) |
 | `nt` (seconds) | `id < (:nt + 1)·1e6` |
-| mark-all `ts` | Normalized to µs by digit count: 1–12 → seconds × 1e6; 13–15 → milliseconds × 1e3; 16 → µs; ≥ 17 → ns ÷ 1e3. **Absent, 0 or non-digit → `SELECT max(id) FROM items` on a reader snapshot** (committed ids only, never the allocator, which can be ahead of visible rows). Applied as `id <= ts_us` |
+| mark-all `ts` | Normalized to µs by digit count: 1–12 → seconds × 1e6; 13–15 → milliseconds × 1e3; 16 → µs; ≥ 17 → ns ÷ 1e3. **Absent, 0, non-digit or overflowing → the larger of `max(items.id)` and `max(trimmed_items.id)` on a reader snapshot** (`MaxCommittedID`: committed ids only, never the allocator, which can be ahead of visible rows). Applied as `id <= ts_us` |
 
 ---
 
