@@ -137,9 +137,9 @@ func (r *Result) fail(class, msg string) *Result {
 	return r
 }
 
-// uaRefused reports whether a response looks like the publisher rejecting the
+// UARefused reports whether a response looks like the publisher rejecting the
 // User-Agent: 403 or 406, or a Cloudflare challenge served as a 503.
-func uaRefused(resp *http.Response) bool {
+func UARefused(resp *http.Response) bool {
 	switch resp.StatusCode {
 	case http.StatusForbidden, http.StatusNotAcceptable:
 		return true
@@ -186,7 +186,7 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	}
 	hc := c.httpClient(variant{noHTTP2: snap.DisableHTTP2, insecureTLS: snap.AllowInsecureTLS, allowPrivate: snap.AllowPrivateNet}, &res.Hops)
 	resp, err := c.get(ctx, hc, snap, ua)
-	if err == nil && snap.RetryUserAgent != "" && snap.RetryUserAgent != ua && uaRefused(resp) {
+	if err == nil && snap.RetryUserAgent != "" && snap.RetryUserAgent != ua && UARefused(resp) {
 		// The feed refused Kipple's User-Agent: retry once as a browser. The
 		// same guarded transport is used, so the SSRF guard is unchanged.
 		resp.Body.Close()

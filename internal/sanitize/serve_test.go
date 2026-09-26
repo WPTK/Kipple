@@ -51,6 +51,8 @@ func TestServeHTMLGolden(t *testing.T) {
 			`<video src="https://a.example/v.mp4" poster="/img/http_a.example_p.jpg" preload="none" controls=""></video><audio src="https://a.example/a.mp3" preload="none" controls=""></audio>`},
 		{"http video source becomes a link", `<p>x</p><video src="http://a.example/v.mp4" controls><source src="http://a.example/v.webm">Fallback</video><p>y</p>`,
 			`<p>x</p><p><a href="http://a.example/v.mp4"` + relNew + `>Open video</a></p><p>y</p>`},
+		{"self-closing http video becomes a link", `<p>x</p><video src="http://a.example/v.mp4"/><p>y</p>`,
+			`<p>x</p><p><a href="http://a.example/v.mp4"` + relNew + `>Open video</a></p><p>y</p>`},
 		{"all http sources dropped leaves a link", `<audio controls><source src="http://a.example/a.ogg"><source src="http://a.example/a.mp3"></audio>`,
 			`<audio controls="" preload="none"></audio><p><a href="http://a.example/a.ogg"` + relNew + `>Open audio</a></p>`},
 		{"an https source keeps the element playable", `<video><source src="http://a.example/a.webm"><source src="https://a.example/a.mp4" type="video/mp4"></video>`,

@@ -67,7 +67,7 @@ func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw str
 		return hc.Do(req)
 	}
 	resp, err := get(userAgent)
-	if err == nil && retryUA != "" && retryUA != userAgent && uaRefused(resp) {
+	if err == nil && retryUA != "" && retryUA != userAgent && fetch.UARefused(resp) {
 		resp.Body.Close()
 		resp, err = get(retryUA)
 	}
@@ -193,18 +193,6 @@ func hasToken(list, want string) bool {
 		if t == want {
 			return true
 		}
-	}
-	return false
-}
-
-// uaRefused reports whether a response looks like the publisher rejecting the
-// User-Agent (the rule the feed fetcher uses).
-func uaRefused(resp *http.Response) bool {
-	switch resp.StatusCode {
-	case http.StatusForbidden, http.StatusNotAcceptable:
-		return true
-	case http.StatusServiceUnavailable:
-		return resp.Header.Get("cf-mitigated") == "challenge"
 	}
 	return false
 }

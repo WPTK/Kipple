@@ -117,13 +117,19 @@ func ServeHTML(src string, opt ServeOptions) string {
 					skipName, skipDepth, after = t.Data, 1, ""
 				}
 				continue
-			case (t.Data == "video" || t.Data == "audio") && tt == html.StartTagToken:
+			case t.Data == "video" || t.Data == "audio":
 				if u := attrVal(t, "src"); isHTTP(u) && !isHTTPS(u) {
-					skipName, skipDepth = t.Data, 1
-					after = mixedContentLink(t.Data, u)
+					if tt == html.StartTagToken {
+						skipName, skipDepth = t.Data, 1
+						after = mixedContentLink(t.Data, u)
+					} else {
+						b.WriteString(mixedContentLink(t.Data, u))
+					}
 					continue
 				}
-				media = append(media, &mediaState{name: t.Data, hasSrc: attrVal(t, "src") != ""})
+				if tt == html.StartTagToken {
+					media = append(media, &mediaState{name: t.Data, hasSrc: attrVal(t, "src") != ""})
+				}
 			case t.Data == "source" && len(media) > 0:
 				m := media[len(media)-1]
 				if u := attrVal(t, "src"); isHTTP(u) && !isHTTPS(u) {

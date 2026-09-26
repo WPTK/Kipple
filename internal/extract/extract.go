@@ -131,7 +131,7 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 		},
 	}
 	resp, err := e.get(ctx, client, u.String(), ua)
-	if err == nil && t.RetryUserAgent != "" && t.RetryUserAgent != ua && uaRefused(resp) {
+	if err == nil && t.RetryUserAgent != "" && t.RetryUserAgent != ua && fetch.UARefused(resp) {
 		resp.Body.Close()
 		resp, err = e.get(ctx, client, u.String(), t.RetryUserAgent)
 	}
@@ -229,17 +229,4 @@ func (e *Extractor) get(ctx context.Context, client *http.Client, u, ua string) 
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "text/html, application/xhtml+xml;q=0.9, */*;q=0.1")
 	return client.Do(req)
-}
-
-// uaRefused reports whether a response looks like the publisher rejecting the
-// User-Agent: 403 or 406, or a Cloudflare challenge served as a 503 (the same
-// rule the feed fetcher uses).
-func uaRefused(resp *http.Response) bool {
-	switch resp.StatusCode {
-	case http.StatusForbidden, http.StatusNotAcceptable:
-		return true
-	case http.StatusServiceUnavailable:
-		return resp.Header.Get("cf-mitigated") == "challenge"
-	}
-	return false
 }
