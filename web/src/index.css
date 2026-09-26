@@ -168,6 +168,11 @@ body {
 .pl-safe { padding-left: env(safe-area-inset-left); }
 .pr-safe { padding-right: env(safe-area-inset-right); }
 
+/* The notch inset is paid once per column, by its topmost bar: a banner above the screen (offline, warnings, a
+   filter apply) takes it, and the banners under it and the screen's own header drop theirs. */
+.kp-stack > .pt-safe ~ .pt-safe,
+.kp-stack > .pt-safe ~ main .pt-safe { padding-top: 0; }
+
 /* 44 px minimum touch target, without changing the visual size of the icon. */
 .hit {
   min-width: 44px;
