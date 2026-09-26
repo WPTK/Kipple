@@ -7,7 +7,7 @@ import (
 )
 
 // FuzzIconLinks: icon-link extraction from arbitrary HTML never panics, is
-// bounded, offers only absolute http(s) URLs without a fragment, never an .svg
+// bounded, offers only absolute http(s) URLs without a fragment or userinfo, never an .svg
 // path, never a duplicate, and returns them ranked.
 func FuzzIconLinks(f *testing.F) {
 	for _, s := range []string{
@@ -16,6 +16,7 @@ func FuzzIconLinks(f *testing.F) {
 		`<base href="/sub/"><link rel=icon href=x.png sizes="16x16 any 999999x2">`,
 		`<link rel=icon type=image/svg+xml href=/a><link rel=icon href=/b.SVG#x>`,
 		`<base href="http://[::1"><link rel=icon href="javascript:x">`, `<link rel=icon href="data:image/png;base64,AA">`,
+		`<base href="https://u:p@example.org/"><link rel=icon href="//a:b@cdn.example.net/i.png">`,
 		strings.Repeat(`<link rel=icon href=/f>`, 100),
 	} {
 		f.Add(s, "https://example.com/page")
@@ -28,7 +29,7 @@ func FuzzIconLinks(f *testing.F) {
 		seen := map[string]bool{}
 		for i, c := range cs {
 			u, err := url.Parse(c.URL)
-			if err != nil || !httpURL(u) || u.Fragment != "" {
+			if err != nil || !httpURL(u) || u.Fragment != "" || u.User != nil {
 				t.Fatalf("bad candidate %q", c.URL)
 			}
 			if strings.HasSuffix(strings.ToLower(u.Path), ".svg") {
@@ -61,6 +62,7 @@ func FuzzSniff(f *testing.F) {
 	f.Add([]byte("\x89PNG\r\n\x1a\n"))
 	f.Add([]byte{0, 0, 1, 0, 1, 0, 16, 16, 0, 0, 1, 0, 32, 0, 4, 0, 0, 0, 22, 0, 0, 0, 1, 2, 3, 4})
 	f.Add([]byte("RIFF\x00\x00\x00\x00WEBPVP8 "))
+	f.Add(append([]byte{0, 0, 1, 0, 1, 0, 32, 32, 0, 0, 1, 0, 32, 0, 44, 0, 0, 0, 22, 0, 0, 0, 40, 0, 0, 0}, make([]byte, 40)...))
 	f.Add([]byte("GIF89a"))
 	f.Add([]byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`))
 	f.Fuzz(func(t *testing.T, b []byte) {
