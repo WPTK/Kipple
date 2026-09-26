@@ -163,8 +163,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		s.log.Error("api: list items", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "list items", err)
 		return
 	}
 	s.proxyCards(r.Context(), cards)
@@ -195,8 +194,7 @@ func (s *Server) getItem(w http.ResponseWriter, r *http.Request) {
 	}
 	det, found, err := s.db.GetItem(r.Context(), id, s.now().Unix())
 	if err != nil {
-		s.log.Error("api: get item", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "get item", err)
 		return
 	}
 	if !found {

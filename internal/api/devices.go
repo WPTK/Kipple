@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -113,21 +114,12 @@ func layoutMap(v any, max int) (map[string]any, bool) {
 	out := make(map[string]any, len(m))
 	for k, x := range m {
 		s, isStr := x.(string)
-		if !idKeyRe.MatchString(k) || !isStr || !contains(layoutIDs, s) {
+		if !idKeyRe.MatchString(k) || !isStr || !slices.Contains(layoutIDs, s) {
 			return nil, false
 		}
 		out[k] = s
 	}
 	return out, true
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 func boundedInt(lo, hi int) func(any) (any, string) { return intIn(lo, hi) }

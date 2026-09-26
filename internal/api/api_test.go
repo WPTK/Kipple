@@ -570,9 +570,9 @@ func TestSSEHeartbeatAndSurvivesWriteAndReadTimeout(t *testing.T) {
 		readUntil(t, br, ": ping", 2*time.Second)
 	}
 	// and a real event published after both timeouts have elapsed is delivered
-	h.hub.Publish("run.done", map[string]any{"run_id": 1})
+	h.hub.Publish("run.done", map[string]any{"run_id": "1"})
 	require.Equal(t, "event: run.done\n", readUntil(t, br, "event: run.done", 2*time.Second)) // heartbeat events interleave
-	require.Contains(t, readUntil(t, br, "data:", time.Second), `"run_id":1`)
+	require.Contains(t, readUntil(t, br, "data:", time.Second), `"run_id":"1"`)
 }
 
 func TestSSEReplayAndResync(t *testing.T) {
