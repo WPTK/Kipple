@@ -87,7 +87,7 @@ func newHarness(t *testing.T, o ...harnessOpts) *harness {
 		ch <- clk.Now()
 		return ch
 	}
-	h.h =h.api.Front(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h.h = h.api.Front(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 		_, _ = io.WriteString(w, "fallthrough")
 	}))

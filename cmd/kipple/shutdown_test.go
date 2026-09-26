@@ -47,7 +47,7 @@ func TestShutdownFitsOneBudgetWhenEveryStageHangs(t *testing.T) {
 		stopWork:  func() {},
 		drainHTTP: func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() },
 		cutHTTP:   func() { cut = true },
-		stopped:   make(chan struct{}), // the scheduler never drains
+		stopped:   make(chan struct{}),                        // the scheduler never drains
 		stopMaint: func() { maintStart = time.Now(); <-hang }, // maintenance never stops
 	}, quiet)
 	stages := time.Since(start)

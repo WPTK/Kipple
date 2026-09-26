@@ -70,10 +70,10 @@ func TestAuthAllowed(t *testing.T) {
 		{"https://example.com/f", "https://EXAMPLE.com:8443/g", true},
 		{"http://example.com/f", "http://example.com/g", true},
 		{"http://example.com/f", "https://example.com/g", true},
-		{"https://example.com/f", "http://example.com/g", false},    // downgrade
+		{"https://example.com/f", "http://example.com/g", false},     // downgrade
 		{"https://example.com/f", "https://www.example.com/g", true}, // subdomain: kept, as net/http does
 		{"https://example.com/f", "https://a.b.Example.com./g", true},
-		{"https://example.com/f", "http://www.example.com/g", false}, // subdomain but a downgrade
+		{"https://example.com/f", "http://www.example.com/g", false},  // subdomain but a downgrade
 		{"https://www.example.com/f", "https://example.com/g", false}, // parent: net/http strips it too
 		{"https://example.com/f", "https://badexample.com/g", false},
 		{"https://example.com/f", "https://example.com.evil.test/g", false},
