@@ -2,6 +2,7 @@ package sched
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"time"
@@ -24,6 +25,23 @@ func (s *Scheduler) commitFetch(ctx context.Context, res *fetch.Result) (store.C
 	}
 	return s.db.CommitFetchTimeout(ctx, res, s.opt.CommitTimeout)
 }
+
+// trim runs one trim job: gated batches (each with its own CommitTimeout) until the
+// feed is within its cap or the job's budget, one CommitTimeout, is spent. It stops
+// between batches at shutdown. more reports that it stopped with work left.
+func (s *Scheduler) trim(feedID int64) (n int64, more bool, err error) {
+	b := store.TrimBudget{Total: s.opt.CommitTimeout, PerBatch: s.opt.CommitTimeout}
+	if s.trimFn != nil {
+		return s.trimFn(s.fetchCtx, feedID, b)
+	}
+	return s.db.TrimOnlyBudget(s.fetchCtx, feedID, fetch.TriggerRetention, b)
+}
+
+// trimRequeueDelay is how long the dispatcher waits before queueing the trim job
+// that continues an unfinished trim, so a large backlog is worked off in steps
+// that leave the workers and the writer to other jobs in between, never in a hot
+// loop. A variable so tests can shorten it.
+var trimRequeueDelay = time.Second
 
 // worker ranges over the job queue until Stop closes it (design §4.3). It holds
 // no transaction across a network call or a channel send.
@@ -61,15 +79,16 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			out.errMsg = err.Error()
 		}
 	case kindTrim:
-		cctx, cancel := s.commitCtx()
-		defer cancel()
 		out.outcome = fetch.OutcomeTrimOnly
-		n, err := s.db.TrimOnly(cctx, f.snap.ID, fetch.TriggerRetention)
+		n, more, err := s.trim(f.snap.ID)
+		if err != nil && errors.Is(err, context.Canceled) && s.fetchCtx.Err() != nil {
+			err = nil // shutdown between batches: what committed stays, the rest waits for a later trim
+		}
 		if err != nil {
 			s.log.Error("sched: trim", "feed", f.snap.ID, "err", err)
 			out.outcome, out.errClass, out.errMsg = fetch.OutcomeError, "internal", err.Error()
 		}
-		out.trimmed = n
+		out.trimmed, out.trimPending = n, more && err == nil
 	default:
 		fetchFn := s.client.Fetch
 		if s.fetchFn != nil {
@@ -116,6 +135,7 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
 			out.migrated = ci.Migrated
 			out.mutedIDs, out.muted = ci.MutedIDs, ci.Muted
+			out.trimPending = ci.TrimPending && cerr == nil
 			if cerr == nil {
 				// ci.Held is what really committed: empty for a stale fetch, the
 				// early chunks for a large one cut short by a URL edit.

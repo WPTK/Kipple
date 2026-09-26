@@ -2,6 +2,7 @@ package sched
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -280,6 +281,9 @@ func (s *Scheduler) handleDone(r result) {
 	if r.cancelled || f == nil {
 		return // shutdown aborted it; nothing was written
 	}
+	if r.trimPending {
+		s.queueTrimLater(r.feedID)
+	}
 
 	now := s.clk.Now()
 	// hostUntil is fed by every completed fetch, but each fetch's own
@@ -525,6 +529,21 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 		f.waited = true
 		s.pending = append([]*flight{f}, s.pending...)
 	}
+}
+
+// queueTrimLater queues a trim job for a feed whose last trim stopped with work
+// left, after trimRequeueDelay. It goes through Submit like any priority job, so
+// it joins a trim already queued or running for the feed, waits behind a fetch in
+// flight (as a follow-up) and is refused once shutdown has begun.
+func (s *Scheduler) queueTrimLater(feedID int64) {
+	if s.stopping {
+		return
+	}
+	time.AfterFunc(trimRequeueDelay, func() {
+		if _, err := s.Submit(Priority{FeedID: feedID, Kind: PriorityTrim}); err != nil && !errors.Is(err, ErrStopped) {
+			s.log.Warn("sched: queue the rest of a trim", "feed", feedID, "err", err)
+		}
+	})
 }
 
 // satisfies reports whether the in-flight job f already does what p asks: a

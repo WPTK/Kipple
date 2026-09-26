@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // trimBatch bounds the items one transaction trims (or deletes with a feed): at
@@ -12,14 +13,6 @@ import (
 // 0.2 s, far inside the writer's 10 s deadline however large the feed is. The
 // rest is left for the next batch. A variable so tests can shrink it.
 var trimBatch = 2000
-
-// trimFeed is trimFeedBatch with the standard bound; it returns the number of
-// items removed. A fetch commit calls it once in its last chunk, so a trim larger
-// than trimBatch leaves the remainder for a later trim (see trimFeedBatch).
-func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (int64, error) {
-	n, _, err := trimFeedBatch(ctx, tx, feedID, now, firstNewID, trimBatch)
-	return n, err
-}
 
 // trimFeedBatch applies design §5 to one feed inside a write transaction: keep the newest
 // (sort_at DESC, id DESC) real items and the newest muted ones under the muted allowance
@@ -34,7 +27,8 @@ func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (i
 // Repeating the call converges on exactly the one-shot result: the kept items
 // never enter the trim set, so the muted allowance recomputed from the smaller
 // counts does not change. more reports a full batch, so another call may find
-// more to trim (TrimOnly loops on it; a fetch commit can queue a TrimOnly).
+// more to trim (TrimOnly loops on it; a fetch commit reports it as
+// CommitInfo.TrimPending and the scheduler queues a trim job for the feed).
 func trimFeedBatch(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64, limit int) (n int64, more bool, err error) {
 	n, err = trimFeedLimit(ctx, tx, feedID, now, firstNewID, limit)
 	return n, err == nil && n >= int64(limit), err
@@ -148,15 +142,44 @@ func mutedAllowance(n, real, muted int) int {
 // between batches TrimOnly returns the items trimmed so far with ctx's error,
 // and the next trim resumes where it stopped.
 func (d *DB) TrimOnly(ctx context.Context, feedID int64, trigger string) (int64, error) {
+	n, _, err := d.TrimOnlyBudget(ctx, feedID, trigger, TrimBudget{})
+	return n, err
+}
+
+// TrimBudget bounds one trim job (TrimOnlyBudget).
+type TrimBudget struct {
+	// Total is the job's time budget: no batch starts once it is spent (the first
+	// always runs). Zero means until done.
+	Total time.Duration
+	// PerBatch is each batch's own deadline, gate wait included. When set, a batch
+	// is detached from ctx's cancellation (a started batch finishes, as a fetch
+	// commit does at shutdown) and ctx is only checked between batches. Zero runs
+	// each batch under ctx itself.
+	PerBatch time.Duration
+}
+
+// TrimOnlyBudget is TrimOnly within a budget: it trims batch after batch until the
+// feed is within its cap, ctx ends or the budget is spent, and reports in more
+// whether it stopped with a full last batch (so more may be left: the scheduler
+// queues another trim job). A ctx that ends between batches returns its error with
+// more set when a batch already ran.
+func (d *DB) TrimOnlyBudget(ctx context.Context, feedID int64, trigger string, b TrimBudget) (total int64, more bool, err error) {
 	started := d.clock.Now()
-	var total, logID int64
-	for {
+	wall := time.Now()
+	var logID int64
+	for batches := 0; ; batches++ {
 		if err := ctx.Err(); err != nil {
-			return total, err
+			return total, batches > 0, err // the loop only goes on after a full batch
 		}
-		var more bool
+		if b.Total > 0 && batches > 0 && time.Since(wall) >= b.Total {
+			return total, true, nil
+		}
 		var newLogID int64
-		trimmed, err := d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
+		bctx, cancel := ctx, context.CancelFunc(func() {})
+		if b.PerBatch > 0 {
+			bctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), b.PerBatch)
+		}
+		trimmed, err := d.batch(bctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
 			trimmed, m, err := trimFeedBatch(ctx, tx, feedID, started.Unix(), maxInt64, trimBatch)
 			if err != nil {
 				return 0, err
@@ -178,8 +201,9 @@ func (d *DB) TrimOnly(ctx context.Context, feedID int64, trigger string) (int64,
 			}
 			return trimmed, capFetchLog(ctx, tx, feedID, started.Unix())
 		})
+		cancel()
 		if err != nil {
-			return total, err
+			return total, false, err
 		}
 		total += trimmed
 		if logID == 0 {
@@ -189,7 +213,7 @@ func (d *DB) TrimOnly(ctx context.Context, feedID int64, trigger string) (int64,
 			afterTrimBatch()
 		}
 		if !more {
-			return total, nil
+			return total, false, nil
 		}
 	}
 }

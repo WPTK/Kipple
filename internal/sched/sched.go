@@ -146,6 +146,10 @@ type result struct {
 	cancelled bool
 
 	commitFailed bool // the fetch completed but its commit did not
+	// trimPending: the job's retention trim stopped with a full batch (a fetch
+	// commit's single batch, or a trim job whose budget ran out), so the feed may
+	// still be over its cap. The dispatcher queues a trim job for it.
+	trimPending bool
 }
 
 type runReq struct {
@@ -191,6 +195,7 @@ type Scheduler struct {
 	failCommit    func(feedID int64) error                                                                       // test hook: replaces the fetch commit
 	commitFetchFn func(ctx context.Context, res *fetch.Result, perChunk time.Duration) (store.CommitInfo, error) // test hook
 	fetchFn       func(ctx context.Context, snap fetch.Snapshot, now time.Time) *fetch.Result                    // test hook: replaces client.Fetch
+	trimFn        func(ctx context.Context, feedID int64, b store.TrimBudget) (int64, bool, error)               // test hook: replaces the trim job
 
 	fetchCtx    context.Context
 	cancelFetch context.CancelFunc
