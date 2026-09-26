@@ -4,7 +4,7 @@
 //   npm run contrast -- --markdown  print the tables used in src/theme/README.md
 // Needs Node >= 22.18 (built-in TypeScript type stripping).
 import { readFileSync } from "node:fs";
-import { contrast, deltaE } from "../src/theme/contrast.ts";
+import { contrast, deltaE, mixHex } from "../src/theme/contrast.ts";
 
 const schemes = JSON.parse(readFileSync(new URL("../src/theme/schemes.json", import.meta.url), "utf8"));
 const md = process.argv.includes("--markdown");
@@ -42,6 +42,13 @@ for (const s of schemes) {
   for (const [k, min] of Object.entries(need)) {
     if (r[k] < min) failures.push(`${s.name}: ${k} ${r[k].toFixed(2)} < ${min}`);
   }
+  // Toasts (undo, help, errors): text on the accent-tinted surface (--kp-toast-bg in index.css: 18% accent into
+  // the surface), and the accent and danger borders against the page.
+  const toastBg = mixHex(t.accent, t.surface, 18);
+  const toast = { text: contrast(t.text, toastBg), border: contrast(t.accent, t.bg), errBorder: contrast(t.danger, t.bg) };
+  if (toast.text < TEXT_MIN) failures.push(`${s.name}: toast text ${toast.text.toFixed(2)} < ${TEXT_MIN}`);
+  if (toast.border < UI_MIN) failures.push(`${s.name}: toast border ${toast.border.toFixed(2)} < ${UI_MIN}`);
+  if (toast.errBorder < UI_MIN) failures.push(`${s.name}: error toast border ${toast.errBorder.toFixed(2)} < ${UI_MIN}`);
   rows.push([s.name, ...["text", "text2", "text2s", "link", "links", "danger", "accent", "star", "sel"].map((k) => r[k].toFixed(2))]);
 
   const cvd = {};

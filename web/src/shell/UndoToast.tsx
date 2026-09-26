@@ -1,5 +1,6 @@
 import { holdUndoToast, undoStore, undoToast } from "@/lib/undo";
 import { useStore } from "@/lib/store";
+import { TOAST_SURFACE } from "./toasts";
 
 /**
  * The undo toast: one slot, 15 s, merged text ("4 articles marked read"). The wrapper is a
@@ -14,16 +15,16 @@ export function UndoToast() {
       {toast ? (
         <div
           key={toast.id}
-          className="pointer-events-auto flex min-h-11 w-full max-w-md items-center gap-3 rounded-xl border border-line bg-surface px-4 py-2 text-sm text-fg shadow-lg"
+          className={`pointer-events-auto flex min-h-11 w-full max-w-md items-center gap-3 rounded-xl px-4 py-2 text-sm ${TOAST_SURFACE}`}
           onPointerEnter={() => holdUndoToast(true)}
           onPointerLeave={() => holdUndoToast(false)}
           onFocus={() => holdUndoToast(true)}
           onBlur={() => holdUndoToast(false)}
         >
-          <span className="flex-1">{toast.text}</span>
+          <span className="flex-1 font-medium">{toast.text}</span>
           <button
             type="button"
-            className="hit inline-flex items-center justify-center rounded-md px-2 font-semibold text-link underline"
+            className="hit inline-flex items-center justify-center rounded-md px-2 font-bold underline underline-offset-2"
             onClick={() => void undoToast()}
           >
             Undo

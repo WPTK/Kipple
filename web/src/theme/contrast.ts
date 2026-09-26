@@ -11,6 +11,13 @@ const lin = (c: number): number => {
   return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
 };
 
+/** sRGB channel-wise mix, like CSS `color-mix(in srgb, a pct%, b)`: `pct` percent of `a`, the rest `b`. */
+export function mixHex(a: string, b: string, pct: number): string {
+  const [ra, rb] = [hexToRgb(a), hexToRgb(b)];
+  const ch = ra.map((v, i) => Math.round((v * pct) / 100 + (rb[i] as number) * (1 - pct / 100)));
+  return "#" + ch.map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
 export function luminance(hex: string): number {
   const [r, g, b] = hexToRgb(hex);
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);

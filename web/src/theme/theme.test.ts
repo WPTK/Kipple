@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { contrast, deltaE } from "./contrast";
+import { contrast, deltaE, mixHex } from "./contrast";
 import { SCHEMES, schemeById } from "./schemes";
 import { DEFAULT_THEME_SETTINGS, parseThemeSettings, resolveTheme, THEME_STORAGE_KEY, type ThemeSettings } from "./settings";
 import { bootScript, themesCss } from "./css";
@@ -65,6 +65,20 @@ describe("scheme roster", () => {
         expect(contrast(fg, t.bg), `${s.name} ${label}`).toBeGreaterThanOrEqual(3);
       }
     }
+  });
+
+  it("toasts: text on the accent-tinted toast surface is AA in every scheme, and the borders are visible", () => {
+    // --kp-toast-bg in index.css is color-mix(in srgb, accent 18%, surface).
+    for (const s of SCHEMES) {
+      const t = s.tokens;
+      const bg = mixHex(t.accent, t.surface, 18);
+      expect(contrast(t.text, bg), `${s.name} toast text`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(t.accent, t.bg), `${s.name} toast border`).toBeGreaterThanOrEqual(3);
+      expect(contrast(t.danger, t.bg), `${s.name} error toast border`).toBeGreaterThanOrEqual(3);
+      // It must read as a toast: clearly different from the plain surface it floats over.
+      expect(bg, `${s.name} toast surface`).not.toBe(t.surface);
+    }
+    expect(mixHex("#000000", "#ffffff", 50)).toBe("#808080");
   });
 
   it("Signal's danger is no longer confusable with star under deuteranopia", () => {
