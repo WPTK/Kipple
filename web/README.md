@@ -209,15 +209,14 @@ background) with the theme's text and a star underline, checked in every theme b
 user is typing (250 ms debounce); Enter, a saved-search run and a URL load are submitted searches without it (`Scope.typing`, part of the scope key,
 never sent otherwise). `fallback:true` shows the quiet banner "No exact matches: showing partial matches" and is echoed as `scope.fallback` in
 "Mark all results as read" (`Scope.fallback` is not part of the key; off while typing). `422 search_too_broad` shows the server message inline (no
-retry); a `400` on a later page restarts the search (at most twice). The ordering (Relevance, Newest, Oldest) is per device in localStorage
-(`kipple.searchOrder.v1`; the device profile has no key for it). Relevance shows one "Best matches first" header instead of day headers and disables
+retry); a `400 bad_cursor` on a later page restarts the search (at most twice; other 400s show their message). The ordering (Relevance, Newest, Oldest) is per device in the device profile (`client.search_order`; the old `kipple.searchOrder.v1` value migrates once). Relevance shows one "Best matches first" header instead of day headers and disables
 mark above/below. Query words are drawn with the highlight module: a client copy of the server parser (phrases, `-x`, `NOT x`, `title:`, `author:`,
 `x*`) with a rough stem (`approxStem`), marks from the start of a word to its end; in fallback mode the words the fallback used.
 
 **Saved searches** (`api/savedSearches.ts`, `SavedSearchesNav`, `SavedSearchesSection`). Sidebar and Feeds screen list them (collapsible, remembered
 on the device; hidden when none) from `GET /api/saved-searches?counts=0`, with the counts from a second request; `999+` when capped, a dash when
 `unread` is null. A run navigates to `/search?q=&feed|folder|view=&order=&ss=<id>`. "Save this search" creates (or updates the run one). Settings >
-Saved searches: edit, delete (confirm), reorder (drag, grip arrows, buttons). `saved_searches.changed` and `feed.changed` refetch; `counts` events
+Saved searches: edit, delete (confirm), reorder (drag, grip arrows, buttons). `saved_searches.changed`, `folder.changed` and `feed.changed` refetch; `counts` events
 refresh the counts at most every 10 s.
 
 **Auto-read** (`api/autoRead.ts`, `AutoReadCatchUp`). The global control is drawn from the settings metadata with presets (Off, 30, 60, 90, 180, 365,

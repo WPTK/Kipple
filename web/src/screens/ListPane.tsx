@@ -600,13 +600,13 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     setHolding(true);
     refreshAll.mutate();
   }, [refreshAll]);
-  // A relevance cursor from before a server upgrade (or one for another ordering) is refused with a 400 on a later
+  // A relevance cursor from before a server upgrade (or one for another ordering) is refused with 400 bad_cursor on a later
   // page: start the search over instead of leaving "Couldn't load more" that can never succeed. At most twice.
   const restarts = useRef(0);
   useEffect(() => {
     if (!scope.q || !q.isFetchNextPageError) return;
     const e = q.error;
-    if (!(e instanceof ApiError) || e.status !== 400 || restarts.current >= 2) return;
+    if (!(e instanceof ApiError) || e.status !== 400 || e.code !== "bad_cursor" || restarts.current >= 2) return;
     restarts.current++;
     announce("Search restarted");
     void qc.resetQueries({ queryKey: keys.items(scope) });
