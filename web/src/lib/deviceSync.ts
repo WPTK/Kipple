@@ -175,8 +175,12 @@ function applyLocal(next: LocalState): void {
 // ---- the engine ---------------------------------------------------------------------------------
 
 export interface SyncState {
-  /** off: no profile to sync with (not hydrated, or the server sent none). */
-  status: "off" | "idle" | "saving" | "error";
+  /**
+   * off: no profile to sync with (not hydrated, or the server sent none).
+   * unsaved: the server answered with its unsaved default device (`id` empty: it could not register this browser,
+   * docs/design.md 7.1c). Nothing can be written, so nothing is sent and the local values are all there is.
+   */
+  status: "off" | "idle" | "saving" | "error" | "unsaved";
   /** How many settings the server refused (they keep their local value). */
   refused: number;
 }
@@ -238,7 +242,7 @@ function readDirty(): Profile {
 }
 
 function onLocalChange(): void {
-  if (!enabled || applying) return;
+  if (!enabled || applying || syncStore.get().status === "unsaved") return;
   pruneRefused();
   persistDirty(pendingChanges());
   if (timer) clearTimeout(timer);
@@ -424,6 +428,17 @@ export function hydrateDevice(device: DeviceView | undefined): void {
   if (hydratedFor === device.id) return;
   hydratedFor = device.id;
   ensureSubscribed();
+  if (device.id === "") {
+    // The unsaved default device: every write would be a 404. Keep using the local values, send nothing (the
+    // profile the server describes is only the defaults), and let the next bootstrap that registers us start over.
+    enabled = false;
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+    synced = {};
+    refused = {};
+    syncStore.set({ status: "unsaved", refused: 0 });
+    return;
+  }
   const cur = store();
   let done = false;
   try {

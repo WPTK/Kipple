@@ -3,7 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Smartphone } from "lucide-react";
 import { ApiError, errorMessage } from "@/api/client";
 import { describeUserAgent, deleteDevice, devicesKey, renameDevice, useDevices, type DeviceRow } from "@/api/devices";
-import { copySettingsFrom, makeThisDeviceDefault } from "@/lib/deviceSync";
+import { copySettingsFrom, makeThisDeviceDefault, syncStore } from "@/lib/deviceSync";
+import { useStore } from "@/lib/store";
 import { whenLabel } from "@/lib/format";
 import { announce, toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
@@ -110,8 +111,10 @@ export function DevicesSection() {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The server could not register this browser (docs/design.md 7.1c): its settings stay local and nothing is sent.
+  const unsaved = useStore(syncStore).status === "unsaved";
   const list = devices.data ?? [];
-  const me = list.find((d) => d.current);
+  const me = unsaved ? undefined : list.find((d) => d.current);
   const others = list.filter((d) => !d.current);
 
   const run = async () => {
@@ -147,6 +150,11 @@ export function DevicesSection() {
       <p className="text-sm text-fg2">
         Each browser or installed app is a device with its own theme, font, layout and other choices. They are saved on the server, so they survive clearing the browser.
       </p>
+      {unsaved ? (
+        <Notice tone="warn" role="status">
+          This browser can't save its own settings yet. Older browsers will be forgotten automatically. Until then it keeps using the settings stored in this browser.
+        </Notice>
+      ) : null}
       {devices.isPending ? <Skeleton rows={2} label="Loading devices" /> : null}
       {devices.isError ? (
         <Notice tone="error">
@@ -177,9 +185,11 @@ export function DevicesSection() {
               </div>
               {d.current ? null : (
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => setConfirm({ kind: "copy", from: d })} aria-label={`Copy settings from ${label(d)}`}>
-                    Copy its settings here
-                  </Button>
+                  {unsaved ? null : (
+                    <Button onClick={() => setConfirm({ kind: "copy", from: d })} aria-label={`Copy settings from ${label(d)}`}>
+                      Copy its settings here
+                    </Button>
+                  )}
                   <Button variant="ghost" onClick={() => setConfirm({ kind: "delete", device: d })} aria-label={`Forget ${label(d)}`}>
                     Forget
                   </Button>
@@ -190,15 +200,19 @@ export function DevicesSection() {
         </ul>
       ) : null}
       {others.length === 0 && me ? <p className="text-xs text-fg2">This is the only device so far. Open Kipple on another browser or your phone and it will show up here.</p> : null}
-      <div className="flex flex-col items-start gap-1">
-        <Button onClick={() => setConfirm({ kind: "default" })}>Use this device's settings as the default for new devices</Button>
-        <p className="text-xs text-fg2">A device that has never changed a setting follows the default, so it stays in step when you update it.</p>
-      </div>
-      <div className="flex flex-col items-start gap-1">
-        <Button variant="link" className="min-h-11 px-0" onClick={() => setConfirm({ kind: "reset" })}>
-          Reset this device to defaults
-        </Button>
-      </div>
+      {unsaved ? null : (
+        <>
+          <div className="flex flex-col items-start gap-1">
+            <Button onClick={() => setConfirm({ kind: "default" })}>Use this device's settings as the default for new devices</Button>
+            <p className="text-xs text-fg2">A device that has never changed a setting follows the default, so it stays in step when you update it.</p>
+          </div>
+          <div className="flex flex-col items-start gap-1">
+            <Button variant="link" className="min-h-11 px-0" onClick={() => setConfirm({ kind: "reset" })}>
+              Reset this device to defaults
+            </Button>
+          </div>
+        </>
+      )}
       {confirm && c ? (
         <Modal
           open

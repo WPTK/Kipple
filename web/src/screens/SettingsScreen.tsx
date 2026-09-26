@@ -1,6 +1,7 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useSettings, type SettingGroup, type SettingMeta } from "@/api/admin";
+import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { errorMessage } from "@/api/client";
 import {
   ARTICLE_WIDTHS,
@@ -27,6 +28,9 @@ import { DensityControl, SpacingControl, TextSizeControl } from "./AppearanceCon
 import { DevicesSection } from "./DevicesSection";
 import { FiltersSection } from "./filters/FiltersSection";
 import { AccountActions } from "./AccountSection";
+import { AutoReadCatchUp } from "./AutoReadCatchUp";
+import { ImageCachePanel } from "./ImageCachePanel";
+import { SavedSearchesSection } from "./SavedSearchesSection";
 import { SettingField } from "./SettingField";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -51,18 +55,67 @@ const GROUPS: { id: SettingGroup; title: string }[] = [
   { id: "images", title: "Images" },
 ];
 
+/** Number settings that get a row of presets ("Custom" opens the stepper). Everything else is drawn from the metadata alone. */
+export const PRESETS: Record<string, readonly { value: number; label: string }[]> = {
+  "library.auto_read_days": AUTO_READ_PRESETS.map((value) => ({ value, label: autoReadLabel(value) })),
+  "imgproxy.cache_mb": [
+    { value: 256, label: "256 MB" },
+    { value: 512, label: "512 MB" },
+    { value: 1024, label: "1 GB" },
+    { value: 2048, label: "2 GB" },
+    { value: 0, label: "Off" },
+  ],
+};
+
+/** Under "Mark old articles as read after": the previewed catch-up, offered again whenever the number changes. */
+function AutoReadPanel({ days }: { days: number }) {
+  const first = useRef(days);
+  const [changed, setChanged] = useState(false);
+  const [whatIf, setWhatIf] = useState("");
+  useEffect(() => {
+    if (days !== first.current) setChanged(true);
+  }, [days]);
+  const trial = whatIf.trim() === "" ? undefined : Number(whatIf);
+  const valid = trial === undefined || (Number.isInteger(trial) && trial >= 0 && trial <= 365);
+  return (
+    <div className="flex flex-col gap-2">
+      <AutoReadCatchUp offer={changed && days > 0} days={valid ? trial : undefined} blockedReason={valid ? undefined : "Enter a whole number of days from 0 to 365."} />
+      <Disclosure label="Try a different number of days">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-semibold">Preview as if it were set to</span>
+          <input
+            inputMode="numeric"
+            value={whatIf}
+            onChange={(e) => setWhatIf(e.target.value)}
+            placeholder={`${days} (the saved value)`}
+            aria-invalid={valid ? undefined : true}
+            className={`${inputCls} w-40`}
+          />
+          <span className="text-xs text-fg2">Leave empty to use the saved value. Nothing is saved or marked by trying a number.</span>
+        </label>
+      </Disclosure>
+    </div>
+  );
+}
+
 /** Settings from the server, grouped by their `group`. Advanced is collapsed. */
 export function ServerSettings({ settings }: { settings: SettingMeta[] }) {
   const shown = settings.filter((s) => s.surface === "settings" && !SPECIAL.has(s.key) && s.kind !== "json");
   const by = (g: SettingGroup) => shown.filter((s) => s.group === g);
   const advanced = by("advanced");
+  const imgWatch = `${settings.find((s) => s.key === "imgproxy.cache_mb")?.value}|${settings.find((s) => s.key === "imgproxy.mode")?.value}`;
+  const extra = (s: SettingMeta): ReactNode =>
+    s.key === "library.auto_read_days" ? <AutoReadPanel days={Number(s.value) || 0} /> : s.key === "imgproxy.cache_mb" ? <ImageCachePanel watch={imgWatch} /> : null;
   return (
     <>
       {GROUPS.map(({ id, title }) =>
         by(id).length ? (
           <Section key={id} title={title}>
             {by(id).map((s) => (
-              <SettingField key={s.key} meta={s} />
+              <div key={s.key} className="flex flex-col gap-3">
+                <SettingField meta={s} presets={PRESETS[s.key]} />
+                {extra(s)}
+              </div>
             ))}
           </Section>
         ) : null,
@@ -284,6 +337,10 @@ export function SettingsScreen() {
 
         <Section title="Filters">
           <FiltersSection />
+        </Section>
+
+        <Section title="Saved searches">
+          <SavedSearchesSection />
         </Section>
 
         <Section title="Devices">
