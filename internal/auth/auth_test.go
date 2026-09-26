@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -39,67 +40,137 @@ func TestVerifierRealArgon2WithMemo(t *testing.T) {
 	require.False(t, v.Verify(t.Context(), "api", "pw", phc2), "memo does not survive a password change")
 }
 
-// fail reserves and fails one attempt, reporting whether it was granted.
+// fakePacing makes f's pacing wait advance the fake clock *now instead of
+// sleeping, and counts the waits.
+func fakePacing(f *FailureTracker, now *time.Time, waits *int) {
+	var mu sync.Mutex
+	f.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return *now }
+	f.After = func(d time.Duration) <-chan time.Time {
+		mu.Lock()
+		*now = now.Add(d)
+		if waits != nil {
+			*waits++
+		}
+		mu.Unlock()
+		ch := make(chan time.Time, 1)
+		ch <- time.Time{}
+		return ch
+	}
+}
+
+// fail admits and fails one attempt, reporting whether it was admitted.
 func fail(f *FailureTracker, ip string) bool {
-	if !f.Reserve(ip) {
+	if !f.Acquire(context.Background(), ip) {
 		return false
 	}
-	f.Done(ip)
+	f.Finish(ip, true)
 	return true
 }
 
+// Only failures count; over budget an attempt waits out the delay instead of
+// being refused, and a success neither counts nor clears.
 func TestFailureTrackerBudget(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	waits := 0
 	f := NewFailureTracker()
-	f.Now = func() time.Time { return now }
+	fakePacing(f, &now, &waits)
 	for i := 0; i < 5; i++ {
 		require.True(t, fail(f, "a"), "attempt %d", i+1)
 	}
-	require.False(t, fail(f, "a"), "over budget inside the delay")
-	require.Equal(t, 5, f.Count("a"), "a refused attempt is not counted")
+	require.Zero(t, waits, "inside the budget nothing waits")
+	start := now
+	require.True(t, f.Acquire(context.Background(), "a"), "over budget: admitted after the delay, not refused")
+	require.Equal(t, 1, waits)
+	require.Equal(t, 2*time.Second, now.Sub(start), "waited exactly the delay")
+	f.Finish("a", false) // a success
+	require.Equal(t, 5, f.Count("a"), "a success is not counted and clears nothing")
 	require.True(t, fail(f, "b"), "per IP")
-	now = now.Add(2 * time.Second)
-	require.True(t, fail(f, "a"), "one attempt per delay")
-	require.False(t, fail(f, "a"))
-	f.Clear("a")
-	require.Equal(t, 0, f.Count("a"))
-	require.True(t, fail(f, "a"))
+	require.Equal(t, 1, waits, "another client does not wait")
+
+	// A busy verifier (Finish false) counts nothing either.
+	require.True(t, f.Acquire(context.Background(), "c"))
+	f.Finish("c", false)
+	require.Zero(t, f.Count("c"))
+
 	for i := 0; i < 10; i++ {
-		fail(f, "c")
-		now = now.Add(2 * time.Second)
+		fail(f, "d")
 	}
+	require.Equal(t, 10, f.Count("d"))
 	now = now.Add(11 * time.Minute)
-	require.True(t, fail(f, "c"), "window expired")
-	require.Equal(t, 1, f.Count("c"))
+	w := waits
+	require.True(t, fail(f, "d"), "window expired")
+	require.Equal(t, w, waits, "a new window does not wait")
+	require.Equal(t, 1, f.Count("d"))
 }
 
-func TestFailureTrackerInFlightAndRelease(t *testing.T) {
+// A second concurrent attempt from one client waits for the first instead of
+// failing; one client never has two hashes in flight; the waiting is bounded.
+func TestFailureTrackerConcurrentAttemptsWait(t *testing.T) {
 	f := NewFailureTracker()
-	require.True(t, f.Reserve("192.0.2.1"))
-	require.False(t, f.Reserve("192.0.2.1"), "one attempt in flight per client")
-	require.False(t, f.Reserve("::ffff:192.0.2.1"), "mapped form is the same client")
-	require.True(t, f.Reserve("192.0.2.2"))
-	f.Release("192.0.2.1")
-	require.Equal(t, 0, f.Count("192.0.2.1"), "released attempt is given back")
-	require.True(t, f.Reserve("192.0.2.1"))
-	f.Clear("192.0.2.1")
-	require.True(t, f.Reserve("192.0.2.1"), "Clear ends the attempt")
+	ctx := context.Background()
+	require.True(t, f.Acquire(ctx, "192.0.2.1"))
+	require.True(t, f.Acquire(ctx, "192.0.2.2"), "another client is independent")
 
-	// Concurrent burst from one client: exactly one is granted.
+	got := make(chan bool, 1)
+	go func() { got <- f.Acquire(ctx, "::ffff:192.0.2.1") }() // mapped form: same client
+	select {
+	case <-got:
+		t.Fatal("the second attempt must wait for the first, not fail or run alongside it")
+	case <-time.After(50 * time.Millisecond):
+	}
+	f.Finish("192.0.2.1", true)
+	require.True(t, <-got, "admitted once the first finished")
+	f.Finish("192.0.2.1", false)
+	f.Finish("192.0.2.2", false)
+	require.Empty(t, f.live, "idle clients are forgotten")
+
+	// Bounded: MaxWait.
 	g := NewFailureTracker()
-	var granted atomic.Int32
+	g.MaxWait = 30 * time.Millisecond
+	require.True(t, g.Acquire(ctx, "198.51.100.1"))
+	begin := time.Now()
+	require.False(t, g.Acquire(ctx, "198.51.100.1"), "gives up after MaxWait")
+	require.GreaterOrEqual(t, time.Since(begin), 25*time.Millisecond)
+	// Bounded: a cancelled request stops waiting.
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	require.False(t, g.Acquire(cctx, "198.51.100.1"))
+	require.Zero(t, g.Count("198.51.100.1"), "an attempt that never started counts nothing")
+
+	// Bounded: MaxWaiters. A burst of 50 from one client has at most one
+	// attempt admitted at a time and at most MaxWaiters waiting; the rest are
+	// refused at once.
+	h := NewFailureTracker()
+	h.MaxWait = 5 * time.Second
+	var cur, peak, admitted, refused atomic.Int32
+	release := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if g.Reserve("2001:db8::1") {
-				granted.Add(1)
+			if !h.Acquire(ctx, "2001:db8::1") {
+				refused.Add(1)
+				return
 			}
+			n := cur.Add(1)
+			for {
+				p := peak.Load()
+				if n <= p || peak.CompareAndSwap(p, n) {
+					break
+				}
+			}
+			admitted.Add(1)
+			<-release
+			cur.Add(-1)
+			h.Finish("2001:db8::1", true)
 		}()
 	}
+	require.Eventually(t, func() bool { return refused.Load() == 50-1-int32(h.MaxWaiters) }, 2*time.Second, 5*time.Millisecond)
+	close(release)
 	wg.Wait()
-	require.EqualValues(t, 1, granted.Load())
+	require.EqualValues(t, 1, peak.Load(), "one attempt per client at a time")
+	require.EqualValues(t, 1+h.MaxWaiters, admitted.Load(), "the waiting ones ran in turn")
 }
 
 func TestRateKeyGroupsIPv6By64(t *testing.T) {
@@ -159,6 +230,22 @@ func TestVerifierSetSecretDropsMemo(t *testing.T) {
 	v.SetSecret([]byte("two"))
 	require.True(t, v.Verify(t.Context(), "web", "pw", "h"))
 	require.Equal(t, 2, checks, "a rotated secret forgets remembered logins")
+}
+
+// A panic inside the password check must not keep the only hashing slot.
+func TestVerifierPanicReleasesHashingSlot(t *testing.T) {
+	boom := true
+	v := NewVerifier([]byte("k"), VerifierOptions{Wait: 50 * time.Millisecond, Check: func(pw, phc string) bool {
+		if boom {
+			panic("check failed")
+		}
+		return pw == "pw"
+	}})
+	require.Panics(t, func() { v.VerifyBusy(t.Context(), "api", "pw", "h") })
+	boom = false
+	ok, busy := v.VerifyBusy(t.Context(), "api", "pw", "h")
+	require.False(t, busy, "the slot was released by the panicking check")
+	require.True(t, ok)
 }
 
 func TestVerifierRemembered(t *testing.T) {

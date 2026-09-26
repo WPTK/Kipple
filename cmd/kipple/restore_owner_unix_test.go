@@ -64,7 +64,7 @@ func TestRestoreAsRootChownsLockAndBackupDir(t *testing.T) {
 	require.Contains(t, chowned, lockPath)
 	require.Contains(t, chowned, backupDir, "backup/ was created by this restore")
 	require.Contains(t, chowned, filepath.Join(dir, "kipple.db"))
-	require.Contains(t, chowned, filepath.Join(backupDir, "pre-restore-20260925-120000"))
+	require.Contains(t, chowned, filepath.Join(backupDir, "pre-restore-20260925-120000Z"))
 
 	// A second restore: backup/ already existed, so it is not handed over again.
 	chowned = nil

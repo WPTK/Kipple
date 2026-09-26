@@ -1,8 +1,10 @@
 package extract
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -89,14 +91,49 @@ func TestTransportScopedToFeedHost(t *testing.T) {
 	}})
 
 	rt := e.transport(Target{InsecureTLS: true, FeedHost: "Feed.Example.com"})
-	for _, u := range []string{"https://feed.example.com/a", "https://cdn.example.com/a", "https://FEED.example.com:8443/b"} {
+	for _, u := range []string{"https://feed.example.com/a", "https://cdn.example.com/a", "https://FEED.example.com:8443/b",
+		"https://www.feed.example.com/c", "https://example.com/d"} {
 		req, _ := http.NewRequest(http.MethodGet, u, nil)
 		_, _ = rt.RoundTrip(req)
 	}
-	require.Equal(t, []string{"exempt feed.example.com", "guarded cdn.example.com", "exempt FEED.example.com:8443"}, log)
+	require.Equal(t, []string{"exempt feed.example.com", "guarded cdn.example.com", "exempt FEED.example.com:8443",
+		"exempt www.feed.example.com", "guarded example.com"}, log, "a subdomain is a variant; a sibling or parent is not")
+
+	// A www feed host also covers its bare twin (article links often drop www).
+	log = nil
+	rt = e.transport(Target{AllowPrivate: true, FeedHost: "www.blog.test"})
+	for _, u := range []string{"https://blog.test/a", "https://www.blog.test/b", "https://other.test/c"} {
+		req, _ := http.NewRequest(http.MethodGet, u, nil)
+		_, _ = rt.RoundTrip(req)
+	}
+	require.Equal(t, []string{"exempt blog.test", "exempt www.blog.test", "guarded other.test"}, log)
 
 	log, flags = nil, nil
 	_ = e.transport(Target{InsecureTLS: true}) // no feed host
 	_ = e.transport(Target{FeedHost: "feed.example.com"})
 	require.Equal(t, []string{"guarded", "guarded"}, flags, "without a feed host or an exception only the guarded transport is built")
+}
+
+// A request withheld from the feed's exception is logged with the feed and the
+// host, and the stored error says why.
+func TestScopedRefusalIsExplained(t *testing.T) {
+	srv := page(t, htmlPage(t).ServeHTTP)
+	var buf bytes.Buffer
+	e := New(Options{Transport: newExtractor().opt.Transport, Logger: slog.New(slog.NewTextHandler(&buf, nil))})
+	_, err := e.Extract(context.Background(), Target{URL: srv.URL + "/a", AllowPrivate: true, FeedHost: "nas.lan", FeedID: 42})
+	var ee *Error
+	require.True(t, errors.As(err, &ee), "%v", err)
+	require.False(t, ee.Transient, "still a permanent blocked-address failure")
+	require.Contains(t, ee.Msg, "private-network exception does not cover 127.0.0.1 (feed host nas.lan)")
+	out := buf.String()
+	require.Contains(t, out, "level=WARN")
+	require.Contains(t, out, "feed=42")
+	require.Contains(t, out, "host=127.0.0.1")
+	require.Contains(t, out, "feed_host=nas.lan")
+
+	// Without the exception there is nothing to explain.
+	buf.Reset()
+	_, err = e.Extract(context.Background(), Target{URL: srv.URL + "/a", FeedHost: "nas.lan", FeedID: 42})
+	require.Error(t, err)
+	require.Empty(t, buf.String())
 }

@@ -111,6 +111,20 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 	}
 
 	st := &commitState{firstNewID: maxInt64}
+	defer func() {
+		if v := recover(); v != nil {
+			// A panic in a chunk skips the error path below (WithWrite has no
+			// recover; its context's cancel rolls the transaction back) and the
+			// caller gets no CommitInfo, so it can neither queue nor clear these
+			// marks: drop every one this commit set, the committed chunks'
+			// included (their items are then left to on-demand extraction, as on
+			// a commit error), and let the panic reach the scheduler's recover.
+			for _, h := range st.held {
+				d.ClearFulltextPending(h.id)
+			}
+			panic(v)
+		}
+	}()
 	info := func() CommitInfo {
 		var held map[string]int64
 		if len(st.held) > 0 {
@@ -134,6 +148,10 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 	return info(), nil
 }
 
+// commitChunkTestHook, when set (tests only), runs at the end of each chunk's
+// transaction, before it commits.
+var commitChunkTestHook func()
+
 // commitChunk runs one chunk under its own bounded context.
 //
 // The filter rules are evaluated for the chunk's new items first, on the reader and
@@ -155,7 +173,13 @@ func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item
 	defer release()
 	saved := *st
 	err = d.WithWrite(cctx, func(ctx context.Context, tx *sql.Tx) error {
-		return d.commitTx(ctx, tx, res, ch, last, st, pre)
+		if err := d.commitTx(ctx, tx, res, ch, last, st, pre); err != nil {
+			return err
+		}
+		if commitChunkTestHook != nil {
+			commitChunkTestHook()
+		}
+		return nil
 	})
 	if err != nil {
 		// The transaction rolled back: its items never became visible, so drop
@@ -641,16 +665,26 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 		if kerr != nil || herr != nil {
 			return nil
 		}
-		// The credentials and the network exceptions were granted for the old host
-		// (as with a URL edit, api PATCH): a move to another host drops them, so a
-		// publisher's redirect cannot collect the password or reach a private
-		// address. The note says what was reset.
+		// The credentials and the network exceptions were granted for the old
+		// host. A move inside the same site (example.com -> www.example.com, a LAN
+		// name gaining its domain: nas -> nas.lan) keeps them. A move to another
+		// site would have to drop them (so a publisher's redirect cannot collect
+		// the password or reach a private address), which silently breaks the
+		// feed; so while any is set the move is not made automatically: the
+		// redirect stays pending with a note, and the user accepts it by editing
+		// the URL (api PATCH, which drops them the same way).
 		oldHost, oerr := feedurl.Host(res.Snap.URL)
-		moved := oerr != nil || !strings.EqualFold(oldHost, host)
-		reset := false
+		moved := oerr != nil || !fetch.SameSite(oldHost, host)
 		if moved {
+			var held bool
 			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(http_auth, '') != '' OR allow_insecure_tls = 1 OR allow_private_net = 1
-				FROM feeds WHERE id = ?`, feedID).Scan(&reset); err != nil {
+				FROM feeds WHERE id = ?`, feedID).Scan(&held); err != nil {
+				return err
+			}
+			if held {
+				st.note(fmt.Sprintf("redirect_held_new_site: %s is on another site; the feed's HTTP credentials or network exceptions apply only to %s, so the move is not automatic: edit the feed URL to accept it (they are then cleared)", dec.To, oldHost), false)
+				_, err := tx.ExecContext(ctx, `UPDATE feeds SET redirect_to = ?, redirect_kind = 'permanent', redirect_count = ? WHERE id = ?`,
+					dec.To, min(dec.Count, 2), feedID)
 				return err
 			}
 		}
@@ -664,9 +698,6 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 			return err
 		}
 		st.note(fmt.Sprintf("redirect_migrated: %s -> %s", res.Snap.URL, dec.To), true)
-		if reset {
-			st.note("redirect_new_host: http_auth, allow_insecure_tls and allow_private_net reset", true)
-		}
 		st.migrated = true
 		return nil
 	default: // clear

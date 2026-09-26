@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -106,10 +107,19 @@ func TestEnsureAccountValidatesEnvPasswords(t *testing.T) {
 		})
 	}
 
-	// An existing account: a short KIPPLE_API_PASSWORD that would be applied is refused...
+	// An existing account without an API password (a restored older backup) and a
+	// leftover short KIPPLE_API_PASSWORD: the start goes on with the API disabled,
+	// and says so loudly, instead of refusing (which took the web UI down too).
 	db := openDB(t)
 	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "web-pw"}, quiet))
-	require.ErrorContains(t, ensureAccount(ctx, db, config.Config{APIPassword: "short"}, quiet), "KIPPLE_API_PASSWORD must be 16")
+	var buf bytes.Buffer
+	loud := slog.New(slog.NewTextHandler(&buf, nil))
+	require.NoError(t, ensureAccount(ctx, db, config.Config{APIPassword: "short"}, loud))
+	require.Contains(t, buf.String(), "level=ERROR")
+	require.Contains(t, buf.String(), "KIPPLE_API_PASSWORD must be 16")
+	require.Contains(t, buf.String(), "Reader API stays disabled")
+	acc, _, _ := db.Account(ctx)
+	require.Empty(t, acc.APIPasswordHash, "not applied")
 	// ...but a stale KIPPLE_PASSWORD, which is never read again, does not stop a start.
 	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "change-me"}, quiet))
 }

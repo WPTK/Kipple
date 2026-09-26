@@ -16,7 +16,9 @@ import (
 // ensureAccount creates the single account row on first start from
 // KIPPLE_USERNAME / KIPPLE_PASSWORD (and KIPPLE_API_PASSWORD when set). An
 // existing account is never modified, except that KIPPLE_API_PASSWORD is applied
-// when the account has no API password yet. Without credentials configured the
+// when the account has no API password yet (one that fails the length rules is
+// then logged as an error and not applied: the server starts with the Reader
+// API disabled). Invalid passwords for a new account refuse the start. Without credentials configured the
 // account stays absent and the web login and Reader API stay disabled.
 func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger *slog.Logger) error {
 	acc, exists, err := db.Account(ctx)
@@ -26,7 +28,12 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 	if exists {
 		if acc.APIPasswordHash == "" && cfg.APIPassword != "" {
 			if err := checkEnvPassword("KIPPLE_API_PASSWORD", cfg.APIPassword, auth.MinAPIPasswordLen); err != nil {
-				return err
+				// Usually a leftover variable meeting an account without an API
+				// password (a restored older backup, say): refusing to start would
+				// take the web UI down too. Say so loudly and keep the API disabled.
+				logger.Error("KIPPLE_API_PASSWORD not applied, the Reader API stays disabled: "+err.Error()+
+					"; fix or unset it, or run `kipple api-password`", "reader_api", false)
+				return nil
 			}
 			hash, err := auth.HashPassword(cfg.APIPassword)
 			if err != nil {

@@ -124,11 +124,18 @@ func (s *Scheduler) tryStart(f *flight) bool {
 		return false
 	}
 	if f.waited {
+		oldHost := f.snap.Host
 		if !s.reload(f) {
 			return true
 		}
+		if f.snap.Host != oldHost && s.applyHostHold(f, s.clk.Now(), true) {
+			return true // the reload moved it to a held host: dropped like drainPending does
+		}
 		if !s.canStart(f) {
-			return false // the reload moved it to a host whose slots are taken
+			// The reload moved it to a host whose slots are taken: it waits again,
+			// and is reloaded again before it finally starts.
+			f.waited = true
+			return false
 		}
 	}
 	if t, ok := s.hostUntil[f.snap.Host]; ok && t.After(s.clk.Now()) {
@@ -219,18 +226,8 @@ func (s *Scheduler) drainPending() {
 	now := s.clk.Now()
 	kept := s.pending[:0:0]
 	for _, f := range s.pending {
-		if f.kind == kindFetch {
-			if t, ok := s.hostUntil[f.snap.Host]; ok && t.After(now) && !forcesFetch(f) {
-				// Never drop a flight someone is waiting on: a run, a reply, or a
-				// queued follow-up (a trim, a re-key) that only runs once it finishes.
-				if len(f.runs) == 0 && len(f.replies) == 0 && len(f.followups) == 0 && len(f.runFollows) == 0 &&
-					f.snap.Trigger == fetch.TriggerScheduled {
-					delete(s.flights, f.snap.ID)
-					continue
-				}
-				f.kind = kindSkip
-				f.snap.HostUntil = t
-			}
+		if s.applyHostHold(f, now, false) {
+			continue
 		}
 		if !s.tryStart(f) {
 			kept = append(kept, f)
@@ -238,6 +235,34 @@ func (s *Scheduler) drainPending() {
 	}
 	s.pending = kept
 	s.replayDropped()
+}
+
+// applyHostHold makes the Retry-After decision for a waiting job whose host is
+// held: a plain scheduled fetch nobody waits on is dropped (it reports true; the
+// feed stays due) and any other fetch that does not force one becomes a skip.
+// Never drop a flight someone is waiting on: a run, a reply, or a queued
+// follow-up (a trim, a re-key) that only runs once it finishes. rehosted is set
+// after a reload moved the job to another host: the decision made for the old
+// host is then redone, so a skip for a host that is not held becomes a fetch
+// again and a skip for a held one takes that host's deadline.
+func (s *Scheduler) applyHostHold(f *flight, now time.Time, rehosted bool) bool {
+	t, ok := s.hostUntil[f.snap.Host]
+	held := ok && t.After(now)
+	switch {
+	case f.kind == kindFetch && held && !forcesFetch(f):
+		if len(f.runs) == 0 && len(f.replies) == 0 && len(f.followups) == 0 && len(f.runFollows) == 0 &&
+			f.snap.Trigger == fetch.TriggerScheduled {
+			delete(s.flights, f.snap.ID)
+			return true
+		}
+		f.kind = kindSkip
+		f.snap.HostUntil = t
+	case rehosted && f.kind == kindSkip && held:
+		f.snap.HostUntil = t
+	case rehosted && f.kind == kindSkip:
+		f.kind, f.snap.HostUntil = kindFetch, time.Time{}
+	}
+	return false
 }
 
 // forcesFetch reports whether a job goes ahead despite a host Retry-After: a

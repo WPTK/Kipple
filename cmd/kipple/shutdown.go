@@ -19,6 +19,14 @@ var (
 	closeReserve  = 5 * time.Second
 	httpDrainMax  = 10 * time.Second
 	schedDrainMax = 15 * time.Second
+	// storeCloseReserve is the part of closeReserve kept for the store's close
+	// (the WAL checkpoint) alone: stopping maintenance and the other deferred
+	// closes may use only what is left above it.
+	storeCloseReserve = 3 * time.Second
+	// maintFloor is the least time maintenance is given to stop even when the
+	// earlier stages used their whole share, so it is not still running while
+	// the store closes. It comes out of closeReserve, above storeCloseReserve.
+	maintFloor = time.Second
 )
 
 // shutdownBudget is the one deadline every shutdown stage draws on. The zero
@@ -98,7 +106,8 @@ func runShutdown(b *shutdownBudget, s shutdownSteps, logger *slog.Logger) error 
 	t.Stop()
 	// Design §4.10 step 5: cancel maintenance (interrupts a running purge or
 	// VACUUM INTO) before the final checkpoint in the deferred db.Close.
-	if !bounded(b.left(closeReserve, shutdownTotal), s.stopMaint) {
+	maintWait := min(max(b.left(closeReserve, shutdownTotal), maintFloor), b.left(storeCloseReserve, shutdownTotal))
+	if !bounded(maintWait, s.stopMaint) {
 		logger.Error("maintenance did not stop in time")
 	}
 	if shutErr != nil {
@@ -107,11 +116,14 @@ func runShutdown(b *shutdownBudget, s shutdownSteps, logger *slog.Logger) error 
 	return nil
 }
 
-// closeWithin runs one deferred close inside what is left of the budget
-// (closeMax when the budget has not started), logging when it runs out.
-func closeWithin(b *shutdownBudget, logger *slog.Logger, what string, fn func() error) {
+// closeWithin runs one deferred close inside what is left of the budget less
+// reserve (closeMax when the budget has not started), logging when it runs
+// out. The store's close passes 0; every close deferred after it (so run
+// before it) passes storeCloseReserve, so a hanging one cannot eat the store's
+// checkpoint time.
+func closeWithin(b *shutdownBudget, logger *slog.Logger, what string, reserve time.Duration, fn func() error) {
 	var err error
-	if !bounded(b.left(0, closeMax), func() { err = fn() }) {
+	if !bounded(b.left(reserve, closeMax), func() { err = fn() }) {
 		logger.Error(what+" did not finish in the shutdown budget", "budget", shutdownTotal)
 		return
 	}

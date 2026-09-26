@@ -41,6 +41,8 @@ type harness struct {
 	tok    string
 	wakes  atomic.Int32
 	checks atomic.Int32
+	// paced counts ClientLogin pacing waits; each one advances clk instead of sleeping.
+	paced atomic.Int32
 }
 
 type harnessOpts struct {
@@ -78,6 +80,13 @@ func newHarness(t *testing.T, o ...harnessOpts) *harness {
 		Wake: func() { h.wakes.Add(1) },
 		Now:  clk.Now,
 	})
+	h.api.fails.After = func(d time.Duration) <-chan time.Time {
+		h.paced.Add(1)
+		clk.Advance(d)
+		ch := make(chan time.Time, 1)
+		ch <- clk.Now()
+		return ch
+	}
 	h.h = h.api.Front(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 		_, _ = io.WriteString(w, "fallthrough")

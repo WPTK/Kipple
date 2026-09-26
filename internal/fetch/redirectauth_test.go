@@ -70,11 +70,37 @@ func TestAuthAllowed(t *testing.T) {
 		{"https://example.com/f", "https://EXAMPLE.com:8443/g", true},
 		{"http://example.com/f", "http://example.com/g", true},
 		{"http://example.com/f", "https://example.com/g", true},
-		{"https://example.com/f", "http://example.com/g", false},    // downgrade
-		{"https://example.com/f", "https://a.example.com/g", false}, // subdomain: net/http would keep it
+		{"https://example.com/f", "http://example.com/g", false},     // downgrade
+		{"https://example.com/f", "https://www.example.com/g", true}, // subdomain: kept, as net/http does
+		{"https://example.com/f", "https://a.b.Example.com./g", true},
+		{"https://example.com/f", "http://www.example.com/g", false},  // subdomain but a downgrade
+		{"https://www.example.com/f", "https://example.com/g", false}, // parent: net/http strips it too
+		{"https://example.com/f", "https://badexample.com/g", false},
+		{"https://example.com/f", "https://example.com.evil.test/g", false},
 		{"https://example.com/f", "https://example.org/g", false},
+		{"http://192.0.2.1/f", "http://192.0.2.1:8080/g", true},
+		{"http://192.0.2.1/f", "http://x.192.0.2.1/g", false},
 	} {
 		require.Equal(t, tc.want, authAllowed(u(tc.feed), u(tc.target)), "%s -> %s", tc.feed, tc.target)
 	}
 	require.False(t, authAllowed(nil, u("https://example.com/")))
+}
+
+// A basic-auth feed that 301s from the bare host to www keeps its credentials
+// on the redirect hop (it used to lose them and get 401 forever).
+func TestAuthKeptOnSubdomainRedirectHop(t *testing.T) {
+	c := NewClient(ClientOptions{})
+	var hops []Hop
+	feed, _ := url.Parse("https://example.com/feed")
+	hc := c.httpClient(variant{}, &hops, feed)
+	prev := httptest.NewRequest(http.MethodGet, "https://example.com/feed", nil)
+	next := httptest.NewRequest(http.MethodGet, "https://www.example.com/feed", nil)
+	next.Header.Set("Authorization", "Basic Ym9iOnNlY3JldA==")
+	require.NoError(t, hc.CheckRedirect(next, []*http.Request{prev}))
+	require.Equal(t, "Basic Ym9iOnNlY3JldA==", next.Header.Get("Authorization"))
+
+	other := httptest.NewRequest(http.MethodGet, "https://example.org/feed", nil)
+	other.Header.Set("Authorization", "Basic Ym9iOnNlY3JldA==")
+	require.NoError(t, hc.CheckRedirect(other, []*http.Request{prev}))
+	require.Empty(t, other.Header.Get("Authorization"))
 }
