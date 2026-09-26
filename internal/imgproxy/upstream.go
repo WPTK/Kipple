@@ -233,6 +233,10 @@ type budgetBody struct {
 	t      *time.Timer
 	fired  atomic.Bool
 	out    bool
+	// closed is set by Close before the body is closed: a read that fails
+	// afterwards failed because Kipple let go of the exchange (the client
+	// left, SlotHold ran out), not because the source did.
+	closed atomic.Bool
 }
 
 func newBudgetBody(rc io.ReadCloser, left time.Duration, cancel context.CancelFunc) *budgetBody {
@@ -266,8 +270,16 @@ func (b *budgetBody) Read(p []byte) (int, error) {
 }
 
 func (b *budgetBody) Close() error {
+	b.closed.Store(true)
 	b.t.Stop()
 	return b.rc.Close()
+}
+
+// releasedByUs reports that resp's body was closed by Kipple (fin) rather
+// than failed by the source.
+func releasedByUs(resp *http.Response) bool {
+	b, ok := resp.Body.(*budgetBody)
+	return ok && b.closed.Load()
 }
 
 // hostLimiter caps concurrent upstream fetches per host.
@@ -362,6 +374,26 @@ func (s *sink) fail(kind imgcache.NegKind, status int, reason string) {
 }
 
 func (s *sink) refuse(r *refusal) { s.fail(r.kind, r.status, r.reason) }
+
+// bodyFailed records a body that failed after its 200 went out: over the cap
+// is remembered for a day; a source that stalled (the body budget ran out) or
+// died mid-body backs off (10 minutes, doubling), or, while a stale copy was
+// being revalidated, keeps that copy and puts the next revalidation off. A
+// read that failed because Kipple closed the body itself (the client left,
+// SlotHold) is not the source's fault and records nothing, and neither does a
+// cancelled request (fail checks it).
+func (s *sink) bodyFailed(resp *http.Response, err error) {
+	var mbe *http.MaxBytesError
+	switch {
+	case errors.As(err, &mbe):
+		s.fail(imgcache.NegPermanent, http.StatusBadGateway, "over the size limit")
+	case releasedByUs(resp):
+	case errors.Is(err, context.DeadlineExceeded):
+		s.fail(imgcache.NegTransient, 0, "timed out")
+	default:
+		s.fail(imgcache.NegTransient, 0, "the body was cut")
+	}
+}
 
 func (s *sink) done() {
 	if s != nil && s.release != nil {

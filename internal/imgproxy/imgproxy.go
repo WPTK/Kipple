@@ -464,7 +464,7 @@ func (h *Handler) stream(w http.ResponseWriter, resp *http.Response, sk *sink, h
 		if _, err := w.Write(head); err != nil {
 			return
 		}
-		h.pump(w, body, sk)
+		h.pump(w, body, resp, sk)
 		return
 	}
 	defer rd.Close()
@@ -479,13 +479,13 @@ func (h *Handler) stream(w http.ResponseWriter, resp *http.Response, sk *sink, h
 		}
 		p.forward()
 	}
-	h.follow(w, rd, pr, body, sk)
+	h.follow(w, rd, pr, body, resp, sk)
 }
 
 // pump copies the rest of body to the client. A failure mid-stream (over the
 // cap, the source died, the budget ran out) cuts the connection: the status is
 // already sent, so the browser shows a broken image.
-func (h *Handler) pump(w http.ResponseWriter, body io.Reader, sk *sink) {
+func (h *Handler) pump(w http.ResponseWriter, body io.Reader, resp *http.Response, sk *sink) {
 	buf := make([]byte, 32<<10)
 	for {
 		m, rerr := body.Read(buf)
@@ -498,10 +498,7 @@ func (h *Handler) pump(w http.ResponseWriter, body io.Reader, sk *sink) {
 			return
 		}
 		if rerr != nil {
-			var mbe *http.MaxBytesError
-			if errors.As(rerr, &mbe) {
-				sk.fail(imgcache.NegPermanent, http.StatusBadGateway, "over the size limit")
-			}
+			sk.bodyFailed(resp, rerr)
 			panic(http.ErrAbortHandler)
 		}
 	}
@@ -536,6 +533,8 @@ func (h *Handler) fill(cw *imgcache.Writer, body io.Reader, head []byte, resp *h
 		case rerr == io.EOF:
 			if resp.ContentLength >= 0 && total != resp.ContentLength {
 				cw.Abort()
+				sk.fail(imgcache.NegTransient, 0, "the body was cut")
+				sk.done()
 				pr.finish(fillFailed, false)
 			} else {
 				committed := sk.commit(cw, ct, resp, h.log)
@@ -546,10 +545,7 @@ func (h *Handler) fill(cw *imgcache.Writer, body io.Reader, head []byte, resp *h
 			return
 		case rerr != nil:
 			cw.Abort()
-			var mbe *http.MaxBytesError
-			if errors.As(rerr, &mbe) {
-				sk.fail(imgcache.NegPermanent, http.StatusBadGateway, "over the size limit")
-			}
+			sk.bodyFailed(resp, rerr)
 			sk.done()
 			pr.finish(fillFailed, false)
 			fin()
@@ -559,7 +555,7 @@ func (h *Handler) fill(cw *imgcache.Writer, body io.Reader, head []byte, resp *h
 }
 
 // follow serves the client from the cache file as the fill writes it.
-func (h *Handler) follow(w http.ResponseWriter, rd *os.File, pr *progress, body io.Reader, sk *sink) {
+func (h *Handler) follow(w http.ResponseWriter, rd *os.File, pr *progress, body io.Reader, resp *http.Response, sk *sink) {
 	buf := make([]byte, 32<<10)
 	var off int64
 	for {
@@ -589,7 +585,7 @@ func (h *Handler) follow(w http.ResponseWriter, rd *os.File, pr *progress, body 
 					return
 				}
 			}
-			h.pump(w, body, sk)
+			h.pump(w, body, resp, sk)
 			return
 		}
 	}

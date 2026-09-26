@@ -225,8 +225,10 @@ func TestPartialAndOverflowBodiesAreNeverCached(t *testing.T) {
 	resp := cr.fetchOrig(short.URL+"/short.png", FlagPrivateNet)
 	_, err := io.ReadAll(resp.Body)
 	require.Error(t, err)
-	_, ok := cr.entry(short.URL + "/short.png")
-	require.False(t, ok)
+	se, ok := cr.entry(short.URL + "/short.png")
+	require.True(t, ok, "the cut body is remembered")
+	require.False(t, se.OK, "as a failure, not cached")
+	require.Equal(t, 10*time.Minute, se.FreshUntil.Sub(se.FetchedAt), "a transient one")
 
 	// An undeclared body past the limit aborts and remembers "too large".
 	huge := upstream(t, func(w http.ResponseWriter, r *http.Request) {
