@@ -229,7 +229,9 @@ func restore(ctx context.Context, o restoreOptions) error {
 	}
 	fmt.Fprintln(out, "Restored. Next: start Kipple (it migrates an older schema after taking its own pre-migration snapshot),")
 	fmt.Fprintln(out, "sign in again (all sessions were signed out), and check the feed count on the status page.")
-	fmt.Fprintln(out, "To undo, stop Kipple and restore the file in that pre-restore directory (kipple.db, with its -wal if present).")
+	if moved {
+		fmt.Fprintln(out, "To undo, stop Kipple and restore the file in that pre-restore directory (kipple.db, with its -wal if present).")
+	}
 	return nil
 }
 
