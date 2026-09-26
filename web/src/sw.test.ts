@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import swSource from "../sw/sw.js?raw";
+import { SIGN_IN_RELOAD } from "@/lib/reload";
 
 // Runs web/sw/sw.js against a fake worker scope: an in-memory CacheStorage and a scripted network.
 
@@ -172,6 +173,36 @@ describe("navigation", () => {
 
     w.setNetwork(() => new Response("bad gateway", { status: 502 }));
     expect(await (await w.fetch("/i/5", { mode: "navigate" }))!.text()).toBe("cached index");
+  });
+
+  it("a reload to sign in again waits for a slow network instead of serving the shell, so it reaches the login page", async () => {
+    vi.useFakeTimers();
+    try {
+      const w = setup(["/"]);
+      shell(w);
+      await w.stores.get("kipple-shell-0000000000001-aaaa")!.put("/", new Response("cached index"));
+      const slow = (body: string) => () => new Promise<Response>((resolve) => setTimeout(() => resolve(new Response(body)), 8000));
+
+      // Without the marker a slow navigation gets the shell, which would only land in the expired sign-in again.
+      w.setNetwork(slow("live index"));
+      const plain = w.fetch("/l/unread", { mode: "navigate" });
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(await (await plain)!.text()).toBe("cached index");
+
+      w.setNetwork(slow("the access proxy's login page"));
+      expect(swSource).toContain(`const SIGN_IN_RELOAD = "${SIGN_IN_RELOAD}";`); // the page and the worker agree
+      const signIn = w.fetch(`/l/unread?${SIGN_IN_RELOAD}=1`, { mode: "navigate" });
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(await (await signIn)!.text()).toBe("the access proxy's login page");
+
+      // A network that is really down still gets the shell.
+      w.setNetwork(() => {
+        throw new TypeError("offline");
+      });
+      expect(await (await w.fetch(`/l/unread?${SIGN_IN_RELOAD}=2`, { mode: "navigate" }))!.text()).toBe("cached index");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not answer navigations to the API or images with the app", async () => {

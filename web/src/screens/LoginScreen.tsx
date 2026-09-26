@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, authStore } from "@/api/client";
+import { ApiError, api, authStore, SESSION_EXPIRED } from "@/api/client";
+import { reloadToSignIn } from "@/lib/reload";
 import { Button } from "@/ui/button";
 
 /** Sign-in (POST /api/auth/login). A 401 anywhere in the app lands here. */
@@ -9,6 +10,8 @@ export function LoginScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** The sign-in in front of Kipple (the access proxy) expired: only a reload through it helps, not a password. */
+  const [expired, setExpired] = useState(false);
   const [busy, setBusy] = useState(false);
   const uid = useId();
   const pid = useId();
@@ -17,12 +20,17 @@ export function LoginScreen() {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    setExpired(false);
     try {
       await api("/api/auth/login", { method: "POST", body: { username, password } });
       authStore.set("in");
       await qc.invalidateQueries();
     } catch (err) {
-      if (err instanceof ApiError && err.status === 429) setError("Too many attempts. Try again in a few minutes.");
+      // Checked before the status: an expired proxy sign-in also arrives as a 401, and it is not a wrong password.
+      if (err instanceof ApiError && err.code === SESSION_EXPIRED) {
+        setExpired(true);
+        setError("The sign-in in front of Kipple has expired. Reload to sign in again.");
+      } else if (err instanceof ApiError && err.status === 429) setError("Too many attempts. Try again in a few minutes.");
       else if (err instanceof ApiError && err.status === 401) setError("That username or password didn't match.");
       else if (err instanceof ApiError && err.status === 0) setError("Kipple couldn't reach the server.");
       else setError("Something went wrong. Try again.");
@@ -38,9 +46,14 @@ export function LoginScreen() {
           Sign in to Kipple
         </h1>
         {error ? (
-          <p role="alert" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
+          <div role="alert" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-danger">
+            <p>{error}</p>
+            {expired ? (
+              <Button type="button" className="mt-2" onClick={() => reloadToSignIn()}>
+                Reload
+              </Button>
+            ) : null}
+          </div>
         ) : null}
         <div className="flex flex-col gap-1">
           <label htmlFor={uid} className="text-sm font-medium">

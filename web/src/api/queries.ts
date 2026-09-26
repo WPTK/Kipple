@@ -24,7 +24,7 @@ import { itemsParams, keys } from "./queryKeys";
 export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams } from "./queryKeys";
 
 /** The toast for a failed change: one made offline that could not be stored says so, not "the server". */
-function changeError(e: unknown): string {
+export function changeError(e: unknown): string {
   return e instanceof QueueWriteError ? "Kipple couldn't save that change on this device." : errorMessage(e);
 }
 
@@ -255,12 +255,16 @@ export function useFulltext() {
   });
 }
 
-/** Mark ids read or unread with an optimistic patch; reverts and toasts on failure. */
+/**
+ * Mark ids read or unread with an optimistic patch; reverts and toasts on failure. `onError` replaces the toast
+ * for a caller that decides itself what to say (mark-read-on-scroll tells a streak of failures once).
+ */
 export async function applyRead(
   qc: QueryClient,
   ids: string[],
   read: boolean,
   reason: "swipe" | "key" | "scroll" | "bulk",
+  opts: { onError?: (e: unknown) => void } = {},
 ): Promise<MarkReadResponse | undefined> {
   patchItems(qc, ids, { read });
   await supersede({ read: ids });
@@ -275,7 +279,8 @@ export async function applyRead(
     }
   } catch (e) {
     patchItems(qc, ids, { read: !read });
-    toast(changeError(e), "error");
+    if (opts.onError) opts.onError(e);
+    else toast(changeError(e), "error");
     return undefined;
   }
 }

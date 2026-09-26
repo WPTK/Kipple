@@ -1,5 +1,6 @@
 import { CloudOff, LogIn, RefreshCw } from "lucide-react";
 import { offlineStore, type OfflineState } from "@/lib/offlineState";
+import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
 
 const bar = "pt-safe flex shrink-0 items-center gap-2 border-b border-line bg-surface px-4 py-2 text-sm";
@@ -36,7 +37,11 @@ export function OfflineNotice() {
         {n?.text ?? ""}
       </p>
       {n?.reload ? (
-        <button type="button" className="hit rounded-lg px-2 font-medium text-link underline underline-offset-2" onClick={() => window.location.reload()}>
+        <button
+          type="button"
+          className="hit rounded-lg px-2 font-medium text-link underline underline-offset-2"
+          onClick={() => (n.icon === "session" ? reloadToSignIn() : window.location.reload())}
+        >
           Reload
         </button>
       ) : null}

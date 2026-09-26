@@ -4,8 +4,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { remeasureMounted } from "@/lib/remeasure";
 import { useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
-import { ApiError } from "@/api/client";
-import { applyRead, flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
+import { ApiError, SESSION_EXPIRED } from "@/api/client";
+import { offlineStore } from "@/lib/offlineState";
+import { applyRead, changeError, flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
 import { clearPending, liveStore, pendingFor } from "@/api/events";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, Feed, Scope } from "@/api/types";
@@ -26,7 +27,7 @@ import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
-import { announce } from "@/shell/toasts";
+import { announce, toast } from "@/shell/toasts";
 import { openExternal } from "@/lib/links";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { copyLink, shareLink } from "@/lib/share";
@@ -40,17 +41,41 @@ function openOriginalUrl(url: string, target?: LinkTarget): void {
   if (safe) openExternal(safe, target);
 }
 
+/** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
+export const SCROLL_RETRY_MS = 30_000;
+/** A failure streak of mark-read-on-scroll: told once, and retried only after a pause. */
+const scrollFailure = { streak: false, until: 0 };
+/** Tests: forget an earlier failure. */
+export function resetScrollReadForTests(): void {
+  scrollFailure.streak = false;
+  scrollFailure.until = 0;
+}
+
 /**
  * Mark-read-on-scroll: send the unread rows that scrolled past, each once. `sent` remembers them while the request
- * is out (so the next settle does not send them twice); a request that fails forgets them again, so the next
- * scroll retries instead of leaving them unread for good.
+ * is out (so the next settle does not send them twice). A request that fails forgets them again, so a later scroll
+ * retries instead of leaving them unread for good, but not at once: every scroll pause would send and fail again,
+ * flipping the rows between read and unread. Scrolling sends nothing for SCROLL_RETRY_MS after a failure, and a
+ * streak of failures is told once. An expired sign-in is not retried at all: only a reload helps, and the notice at
+ * the top says so.
  */
-export async function markScrolledPast(qc: QueryClient, passed: Card[], sent: Set<string>): Promise<void> {
+export async function markScrolledPast(qc: QueryClient, passed: Card[], sent: Set<string>, now = Date.now()): Promise<void> {
+  if (offlineStore.get().sessionExpired || now < scrollFailure.until) return;
   const ids = passed.filter((i) => !i.read && !sent.has(i.id)).map((i) => i.id);
   if (ids.length === 0) return;
   ids.forEach((id) => sent.add(id));
-  const res = await applyRead(qc, ids, true, "scroll");
-  if (!res) ids.forEach((id) => sent.delete(id));
+  let failure: unknown;
+  const res = await applyRead(qc, ids, true, "scroll", { onError: (e) => (failure = e) });
+  if (res) {
+    scrollFailure.streak = false;
+    scrollFailure.until = 0;
+    return;
+  }
+  const expired = failure instanceof ApiError && (failure.code === SESSION_EXPIRED || failure.status === 401);
+  if (!expired) ids.forEach((id) => sent.delete(id));
+  scrollFailure.until = now + SCROLL_RETRY_MS;
+  if (!scrollFailure.streak) toast(changeError(failure), "error");
+  scrollFailure.streak = true;
 }
 
 // Scroll and selection memory per list, so "back" lands where you were

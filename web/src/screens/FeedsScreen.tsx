@@ -1,4 +1,5 @@
-import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
@@ -37,9 +38,9 @@ import { SavedSearchesNav } from "./SavedSearchesNav";
 import { DeleteDialog, MoveDialog } from "./feeds/BulkActions";
 
 // The dialogs load when first opened, not with the Feeds screen.
-const AddFeedDialog = lazy(() => import("./feeds/AddFeedDialog").then((m) => ({ default: m.AddFeedDialog })));
-const FeedEditor = lazy(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
-const OpmlImportDialog = lazy(() => import("./feeds/OpmlDialog").then((m) => ({ default: m.OpmlImportDialog })));
+const AddFeedDialog = lazyScreen(() => import("./feeds/AddFeedDialog").then((m) => ({ default: m.AddFeedDialog })));
+const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
+const OpmlImportDialog = lazyScreen(() => import("./feeds/OpmlDialog").then((m) => ({ default: m.OpmlImportDialog })));
 
 const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 const menuItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
