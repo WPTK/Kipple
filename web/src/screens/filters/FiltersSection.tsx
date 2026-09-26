@@ -18,6 +18,45 @@ export function scopeText(f: Pick<Filter, "scope" | "folder_id" | "feed_id">, fo
   return "Everywhere";
 }
 
+/** What one DELETE /api/filters/{id} answers: `made_unread` and `done` come from newer servers. */
+interface DeleteAnswer {
+  changed: number;
+  made_unread?: number;
+  done?: boolean;
+}
+
+/** Most DELETE calls one deletion makes: each restores at least 500 articles, so this covers any library. */
+const MAX_DELETE_ROUNDS = 1000;
+
+/**
+ * Delete a filter, repeating the call while the server answers `done: false`: a large restore is done in
+ * rounds of about 40 seconds each (the rule is already off after the first), and each round resumes.
+ */
+export async function deleteUntilDone(id: string, mode: Unmute): Promise<{ restored: number; madeUnread: number }> {
+  let restored = 0;
+  let madeUnread = 0;
+  for (let i = 0; i < MAX_DELETE_ROUNDS; i++) {
+    const res = (await deleteFilter(id, mode)) as DeleteAnswer;
+    restored += res.changed;
+    madeUnread += res.made_unread ?? 0;
+    if (res.done !== false || res.changed === 0) break;
+  }
+  return { restored, madeUnread };
+}
+
+/** The toast after a deletion: how many articles came back, and how many of them are unread again. */
+export function deletedMessage(restored: number, madeUnread: number, mode: Unmute): string {
+  if (restored === 0) return "Filter deleted";
+  const n = (k: number) => `${k.toLocaleString()} article${k === 1 ? "" : "s"}`;
+  let msg = `Filter deleted. ${n(restored)} restored`;
+  if (mode === "unread") {
+    if (madeUnread === restored) msg += restored === 1 ? " as unread" : ", all marked unread";
+    else if (madeUnread === 0) msg += "; none were unread when muted, so they stay read";
+    else msg += `, ${madeUnread.toLocaleString()} of them marked unread (the rest you had already read)`;
+  }
+  return `${msg}.`;
+}
+
 export function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClose: () => void }) {
   const qc = useQueryClient();
   const [mode, setMode] = useState<Unmute>("read");
@@ -33,11 +72,10 @@ export function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClos
     setBusy(true);
     setError(null);
     try {
-      const res = await deleteFilter(filter.id, mode);
+      const { restored, madeUnread } = await deleteUntilDone(filter.id, mode);
       invalidateFilterData(qc);
       onClose();
-      const restored = res.changed;
-      toast(restored > 0 ? `Filter deleted. ${restored.toLocaleString()} article${restored === 1 ? "" : "s"} restored${mode === "unread" ? " as unread" : ""}.` : "Filter deleted");
+      toast(deletedMessage(restored, madeUnread, mode));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -46,7 +84,11 @@ export function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClos
   };
   const opts: { value: Unmute; label: string; help: string }[] = [
     { value: "read", label: "Restore them and keep them read", help: "They come back to All and search, and stay marked read. This is the safe choice." },
-    { value: "unread", label: "Restore them and mark them unread", help: "They come back to All and Unread as new articles." },
+    {
+      value: "unread",
+      label: "Restore them and mark them unread",
+      help: "They come back to All. The ones that were unread when the filter muted them become unread again; the ones you had already read stay read.",
+    },
     { value: "keep", label: "Leave them muted", help: "They stay in Muted, labelled as muted by a deleted filter." },
   ];
   return (

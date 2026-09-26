@@ -19,6 +19,17 @@ export function savedSearchError(e: unknown): string {
   return "Couldn't save the search. Try again.";
 }
 
+/** The first `max` characters of `s` counted as code points (as the server counts), never half an emoji; `…` when cut. */
+function cutCodePoints(s: string, max: number): string {
+  const cps = Array.from(s);
+  return cps.length > max ? `${cps.slice(0, max).join("")}…` : s;
+}
+
+/** The suggested name for a new saved search: the query, cut to the server's 60 characters on a code point. */
+export function defaultSearchName(q: string): string {
+  return Array.from(q).slice(0, 60).join("");
+}
+
 /**
  * "Save this search": a name, the current text, scope and order. When the search on screen came from a saved one
  * (`existing`), the dialog also offers to update it instead of adding another.
@@ -44,7 +55,7 @@ export function SaveSearchDialog({
   const qc = useQueryClient();
   const id = useId();
   const trimmed = q.trim();
-  const [name, setName] = useState(existing?.name ?? trimmed.slice(0, 60));
+  const [name, setName] = useState(existing?.name ?? defaultSearchName(trimmed));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const orderLabel = order === "rank" ? "relevance" : order === "oldest" ? "oldest first" : "newest first";
@@ -81,7 +92,7 @@ export function SaveSearchDialog({
           </Button>
           {existing ? (
             <Button onClick={() => void save(true)} disabled={busy}>
-              Update {existing.name.length > 24 ? `${existing.name.slice(0, 24)}…` : existing.name}
+              Update {cutCodePoints(existing.name, 24)}
             </Button>
           ) : null}
           <Button variant="solid" onClick={() => void save(false)} disabled={busy}>
