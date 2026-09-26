@@ -28,7 +28,7 @@ export async function opmlFileProblem(file: File): Promise<string | null> {
   } catch {
     /* unreadable: fall through to the message */
   }
-  if (/^[\s﻿]*<(\?xml|opml)/i.test(head)) return null;
+  if (/^[\s\uFEFF]*<(\?xml|opml)/i.test(head)) return null;
   return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
 }
 
