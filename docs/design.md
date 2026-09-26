@@ -1424,7 +1424,7 @@ Response:
 
 `continuation` is present only when `n+1` rows came back; the page is then exactly `n` rows, and `continuation` is the id of the n-th row. `itemRefs` carries no `timestampUsec` or `directStreamIds`.
 
-**Full-text hold.** A new item of a full-text feed is *held back* from every Reader API listing until its extraction has finished or a hold window has passed, whichever comes first, so a client that syncs right after a fetch gets the extracted text and not the feed stub (open question 55, decided). An item is held when all of these are true at request time: its effective mode (§7.5, which includes `fetch.fulltext_all`) is 1; it has no `item_fulltext` row (a stored result **or** a stored error releases it); it is **pending in the ingest pool** (see below); and `id > :hold_cut`, where `:hold_cut = (now − window)·1e6`. The id is the crawl time in microseconds, so the window is measured from insert time. The window is `greader.Options.FulltextHold`: 0 means 30 s, negative disables it, and it is capped at 60 s. It is an Options field, not a user setting. Non-full-text feeds and items, and items older than the window, are never held. **Pending set.** The scheduler records each item it hands to the pool in `store.DB` (`MarkFulltextPending`, before the push, undone if the queue refuses it) and forgets it when its job ends, after any result or error row is written (`ClearFulltextPending`). `HeldSQL` holds only items in that set (bound as `:pending`, a JSON array, next to `:hold_cut`; `MarkScope.HoldPending` carries it for mark-all-as-read). So an item the pool never accepted (beyond the per-fetch cap, queue full, shutdown, or a fetch that snapshotted the mode before the setting changed) is served at once with the feed's own content instead of waiting out the window for text that is not coming. The set is process memory: after a restart nothing is pending, which matches the queue being gone. The window still ends the hold for an item that waits in a long queue (a big refresh with the switch on), which then shows the feed content to Reader clients; the web UI swaps in the text when it arrives.
+**Full-text hold.** A new item of a full-text feed is *held back* from every Reader API listing until its extraction has finished or a hold window has passed, whichever comes first, so a client that syncs right after a fetch gets the extracted text and not the feed stub (open question 55, decided). An item is held when all of these are true at request time: its effective mode (§7.5, which includes `fetch.fulltext_all`) is 1; it has no `item_fulltext` row (a stored result **or** a stored error releases it); it is **pending in the ingest pool** (see below); and `id > :hold_cut`, where `:hold_cut = (now − window)·1e6`. The id is the crawl time in microseconds, so the window is measured from insert time. The window is `greader.Options.FulltextHold`: 0 means 30 s, negative disables it, and it is capped at 60 s. It is an Options field, not a user setting. Non-full-text feeds and items, and items older than the window, are never held. **Pending set.** The scheduler records each item it hands to the pool in `store.DB` (`MarkFulltextPending`, before the push, undone if the queue refuses it) and forgets it when its job ends, after any result or error row is written (`ClearFulltextPending`). `HeldSQL` holds only items in that set (bound as `:pending`, a JSON array, next to `:hold_cut`; `MarkScope.HoldPending` carries it for mark-all-as-read). So an item the pool never accepted (beyond the per-fetch cap, queue full, shutdown, or full-text turned on for the feed after its fetch was picked; muted items are never queued, so never held) is served at once with the feed's own content instead of waiting out the window for text that is not coming. The set is process memory: after a restart nothing is pending, which matches the queue being gone. The window still ends the hold for an item that waits in a long queue (a big refresh with the switch on), which then shows the feed content to Reader clients; the web UI swaps in the text when it arrives.
 
 - **SQL, not Go.** The predicate (`store.HeldSQL`) is ANDed into the stream filter, so `LIMIT`, continuation and both `ot` legs see only visible rows and a page is never short.
 - **Everything the Reader API reads.** It applies to `stream/items/ids`, `stream/contents`, `stream/items/contents` (a held id is absent even if a client asks for it), `unread-count` and the default `mark-all-as-read`. The web UI (`/api/items`, bootstrap counts, SSE `counts`) is **not** held; the UI already swaps in text through `fulltext.ready`.
@@ -1440,15 +1440,17 @@ Response:
 
 ```sql
 SELECT i.id, i.feed_id, i.url, i.title, i.author, c.content_html, i.published_at, i.updated_at,
-       i.read, i.starred, c.enclosures_json, i.fulltext_mode, i.origin_title,
-       COALESCE(f.custom_title, f.title) AS feed_title, f.site_url, f.fulltext AS feed_fulltext,
-       fo.name AS folder_name, ft.content_html AS fulltext_html
+       i.read, i.starred, c.enclosures_json, i.origin_title,
+       COALESCE(f.custom_title, f.title) AS feed_title, f.site_url, fo.name AS folder_name,
+       <effective full-text mode>, ft.content_html AS fulltext_html
 FROM items i JOIN item_content c ON c.item_id = i.id
 JOIN feeds f ON f.id = i.feed_id JOIN folders fo ON fo.id = f.folder_id
 LEFT JOIN item_fulltext ft ON ft.item_id = i.id
-WHERE i.id IN (SELECT value FROM json_each(:ids_json))
+WHERE i.id IN (SELECT value FROM json_each(:ids_json)) [AND NOT <HeldSQL(i.)>]
 ORDER BY i.id DESC;                                   -- ASC when r=o
 ```
+
+`<effective full-text mode>` is `store.FulltextModeSQL("i.fulltext_mode", "f.fulltext", fetch.fulltext_all)`: `COALESCE(i.fulltext_mode, 1)` when the `fetch.fulltext_all` switch is on, else `COALESCE(i.fulltext_mode, f.fulltext, 0)`. The switch is read once per request, so the hold and the content mode agree. The `AND NOT <HeldSQL>` predicate is appended only when the hold is active (§6.5).
 
 **Envelope:**
 
@@ -1485,19 +1487,21 @@ Rules for the item fields:
 
 ### 6.7 edit-tag (POST)
 
-`ids = p.All("i")` parsed per §3; `a = p.All("a")`; `r = p.All("r")`. It runs as one `WithWrite` transaction:
+`ids = p.All("i")` parsed per §3, and only the first 10000 values (`maxEditIDs`) are processed: the rest are ignored and the reply is still `200`. `a = p.All("a")`; `r = p.All("r")`. When no id parsed, or no `a=`/`r=` value is a recognized read/starred op, it answers `OK` without opening a transaction. Otherwise it runs as one `WithWrite` transaction, the `a=` values first, then the `r=` values:
 
 | Tag | SQL (then ledger handling, §5) |
 |---|---|
 | `a=read`, `r=kept-unread` | `UPDATE items SET read=1, read_at=:now WHERE id IN (SELECT value FROM json_each(:ids)) AND read=0 RETURNING id, feed_id`; ledger `read=1` for the rest |
-| `r=read`, `a=kept-unread` | `UPDATE items SET read=0, read_at=NULL WHERE id IN (…) AND read=1 RETURNING id, feed_id`; ids not in `items` → restore `mode='unread'` or ledger `read=0` |
-| `a=starred` | `UPDATE items SET starred=1, starred_at=:now WHERE id IN (…) AND starred=0 RETURNING id, feed_id`; ids not in `items` → restore `mode='star'` |
+| `r=read`, `a=kept-unread` | `UPDATE items SET read=0, read_at=NULL, muted_by=NULL, muted_was_read=NULL WHERE id IN (…) AND (read=1 OR muted_by IS NOT NULL) RETURNING id, feed_id`; ids not in `items` → restore `mode='unread'` or ledger `read=0` |
+| `a=starred` | `UPDATE items SET starred=1, starred_at=:now, muted_by=NULL, muted_was_read=NULL WHERE id IN (…) AND (starred=0 OR muted_by IS NOT NULL) RETURNING id, feed_id`; ids not in `items` → restore `mode='star'` (the item stays read) |
 | `r=starred` | `UPDATE items SET starred=0, starred_at=NULL WHERE id IN (…) AND starred=1 RETURNING id, feed_id` |
 | labels, `broadcast`, `like`, `tracking-*`, unknown | ignored |
 
+- The Reader API has no concept of filters: a muted item is an ordinary read item. `r=read`/`a=kept-unread` and `a=starred` are the un-mute (star beats mute), which is why their guards also match `muted_by IS NOT NULL`.
 - The `WHERE` guards make replays and NNW's four-pass retries no-ops.
 - `RETURNING` rows are fully scanned and closed inside the store helper.
-- The changed ids feed the SSE `items.state` event after commit. Stats rules (§8) run inside the same transaction through `Recorder.Record(tx, …)`.
+- The changed ids feed the SSE `items.state` event after commit, with `source` = the client family and `restored` listing the ids brought back from the ledger. When one op changes more than `events.MaxStateIDs` ids, it publishes `resync` instead of listing them.
+- Star and unstar changes record one stats row per changed id (restores included) through `Recorder.RecordStars(tx, …)` in the same transaction. Read changes record nothing: single-read inference (§8) is not implemented, and `stats.api_single_read_is_open` is reserved (stored and validated, not yet read by any code).
 - The response is **always** `200 text/plain "OK"`: for zero ids, unknown ids, ledger ids, and an empty `i`.
 
 ### 6.8 mark-all-as-read (POST)
@@ -1511,9 +1515,10 @@ Scope from `s`:
 | `feed/<url>` | `FindFeedByURL` |
 | label | `feed_id IN (folder feeds)` |
 | starred | `starred = 1` (**no ledger statement**) |
-| read, unread, unknown | no-op, `OK` |
+| read, `kept-unread`, unread, unknown | no-op, `OK` |
+| empty `s` | reading-list |
 
-`ts` is normalized per §3. When it is absent, it is the committed `max(id)` from a reader snapshot.
+`ts` is normalized per §3. When it is absent, 0, non-digit or overflowing, the cutoff is the committed maximum id over `items` and `trimmed_items` (`max(max(items.id), max(trimmed_items.id))`) from a reader snapshot. `it` and `xt` are ignored. When any item row changed, it publishes an SSE `resync`.
 
 ```sql
 UPDATE items SET read = 1, read_at = :now WHERE read = 0 AND id <= :ts_us [AND scope];
@@ -1539,7 +1544,7 @@ It returns `{"subscriptions":[{"id":"feed/12","title":…,"categories":[{"id":"u
 
 - There is always exactly one category per feed.
 - Disabled and gone feeds are listed. The archive feed is listed while it holds items.
-- `iconUrl` is **always present**. It is `<KIPPLE_PUBLIC_URL>/api/greader.php/icon/<id>-<hash>` when the `greader.icon_urls` setting is on (the default) and an icon exists, otherwise `""`.
+- `iconUrl` is **always present**. It is `<KIPPLE_PUBLIC_URL>/api/greader.php/icon/<id>-<hash>` (a trailing `/` on the public URL is trimmed) only when the `greader.icon_urls` setting is on (the default), `KIPPLE_PUBLIC_URL` is set and the feed has an icon, otherwise `""`.
 - **ETag:** `"` + the first 16 hex of `sha256(body)` + `"`. An `If-None-Match` match (after stripping `W/`) returns `304` with an empty body.
 
 **`GET tag/list`.** Returns `{"tags":[{"id":"user/-/state/com.google/starred"},{"id":"user/-/state/com.google/reading-list"},{"id":"user/-/label/<name>","type":"folder"},…]}` from `SELECT name FROM folders ORDER BY position, name`, with the same body-hash ETag. `types=1` is ignored.
@@ -1548,46 +1553,54 @@ It returns `{"subscriptions":[{"id":"feed/12","title":…,"categories":[{"id":"u
 
 1. The `quickadd=` value has a leading `feed/` stripped.
 2. **Idempotent.** If `FindFeedByURL(url)` matches (http/https and pre-migration URLs included), reply `200 {"numResults":1,"query":url,"streamId":"feed/<id>","streamName":<display title>}` with the **existing** feed. NNW's follow-up re-list then finds it.
-3. Otherwise, by default (decision 33): validate the URL (http/https, a host, not an SSRF-literal IP unless allowed), then insert the feed. The fields are `folder_id=1`, `title` = host, `url`, `url_key`, `host`, and `next_fetch_at = now`. Send a non-blocking `wake`.
+3. Otherwise (decision 33): validate the URL (`ValidateFeedURL(raw, false)`: absolute http/https, a host, not a literal blocked IP; the Reader API always refuses one, and per-feed `allow_private_net` is set only from the web UI), then insert the feed. The fields are `folder_id=1`, `title` = host, `url`, `url_key`, `host`, and `next_fetch_at = now`. Send a non-blocking `wake`.
 4. Reply `{"numResults":1,"query":url,"streamId":"feed/<id>","streamName":title}`. The subscription/list ETag changes automatically.
-5. With `greader.subscribe_fetch_now = true`, step 3 runs guarded discovery and a priority first fetch, waiting up to 8 s, as in revision 1.
+5. `greader.subscribe_fetch_now` is stored and validated but not yet read by any code (reserved): every Reader subscribe path behaves as the default above, with no outbound HTTP.
 
-On an invalid URL the reply is `200 {"numResults":0,"error":"<msg>"}`.
+On an invalid URL the reply is `200 {"numResults":0,"query":url,"error":"<msg>"}`, where the message is `not an absolute http(s) URL` or `address not allowed`.
 
 **`POST subscription/edit`.**
 
-- `ac=subscribe`: `s=feed/<url>` is repeatable. `t` values are index-aligned with `s`. `a=user/-/label/<name>` puts the feed in that folder, creating the folder if missing. Each `s` goes through the idempotent quickadd logic; an existing feed is moved or renamed only if `a`/`t` were given.
+- `ac=subscribe`: `s=feed/<url>` is repeatable; an `s` that is not `feed/<url>` or whose URL is invalid is skipped (the reply is still `OK`). `t` values are index-aligned with `s`. `a=user/-/label/<name>` puts the feed in that folder, creating the folder if missing. Each `s` goes through the idempotent quickadd logic; an existing feed is moved or renamed only if `a`/`t` were given.
 - `ac=unsubscribe` (**archive, decision 24**), in one transaction:
-  1. If the feed is the archive feed, `DELETE` it (a real delete).
-  2. Otherwise, if it has starred items:
+  1. The archive feed, if listed, is processed **last**, after the other `s` feeds have moved their starred items into it. It is deleted only when it holds no starred items; otherwise it is kept, an INFO line is logged, and the reply is still `OK` (the Reader API has no `delete_starred`; the web UI answers `409 archive_has_starred`, §7.1).
+  2. Any other feed with starred items:
      - create the archive feed if missing: `url='kipple:archive'`, `url_key='kipple:archive'`, `host='kipple.invalid'`, title "Unsubscribed (starred)", `enabled=0`, `disabled_reason='archive'`, `retention=0`, folder 1;
      - `UPDATE items SET feed_id = :archive, uid = 'a' || :f || ':' || uid, origin_title = COALESCE(origin_title, :feed_title) WHERE feed_id = :f AND starred = 1`.
   3. `DELETE FROM feeds WHERE id = :f`. The cascade covers the remaining items (and FTS via trigger), ledger, stubs, log, icons and full text. Stats survive.
 - `ac=edit`:
-  - a non-empty `t` → `custom_title`;
+  - a non-empty `t` → `custom_title`; with several `s` and exactly as many `t`, `t[i]` applies to feed `i`, otherwise `t[0]` applies to all;
   - an `a=` label → move to that folder, created if missing;
-  - `r=` without `a=` → move to folder 1.
-- Unknown feeds still get `OK`.
+  - `r=` without `a=` → move to folder 1 (`r=` is only checked for being a `user/<x>/label/<name>` value, never looked up: any label moves the feed).
+- An unknown `ac`, and unknown feeds, still get `OK`.
 
 **`POST rename-tag`** (`s=user/-/label/<old>`, `dest=user/-/label/<new>`): the label lookup (§6.2) finds the old folder. `UPDATE folders SET name = ?`. If the new name already exists, the folders are merged (feeds moved, old folder deleted). The default folder may be renamed. Response `OK`.
 
-**`POST disable-tag`** (`s` repeatable): the label lookup with the raw-body fallback (§6.2), then `UPDATE feeds SET folder_id = 1 WHERE folder_id = ?` and `DELETE FROM folders WHERE id = ? AND is_default = 0`. Response `OK`.
+**`POST disable-tag`** (`s` repeatable): the label lookup with the merged-name candidates (§6.2), then `UPDATE feeds SET folder_id = 1 WHERE folder_id = ?` and `DELETE FROM folders WHERE id = ? AND is_default = 0`. Response `OK`.
 
 **`POST subscription/import`**:
 
-1. Parse the raw OPML body (no T needed; NNW requires exactly 200).
+1. Requires the `Authorization` header (the route is `raw`: T is not read, the body is not a form, so a T-only POST is 401). Parse the raw OPML body (4 MiB cap). An unparseable body answers `400 text/plain "Bad OPML"` and logs a WARN.
 2. Flatten nested folders.
 3. Match each outline through `FindFeedByURL`. Matches keep their state and folder. New feeds get their OPML title in `custom_title` and their OPML position, with `next_fetch_at = now`.
-4. Send `wake` (no run, no synchronous HTTP; decision 33).
-5. Reply `200 OK`.
+4. Send `wake` when any feed was added (no run, no synchronous HTTP; decision 33).
+5. Reply `200 OK` (NNW requires exactly 200).
 
 **`GET subscription/export`** returns the OPML attachment from the same exporter as the UI (§7.6).
 
 **`GET user-info`** returns `{"userId":"1","userName":u,"userProfileId":"1","userEmail":u}`. Reeder calls it right after ClientLogin.
 
-**`GET unread-count`** runs `SELECT feed_id, count(*), max(id) FROM items WHERE read = 0 GROUP BY feed_id` (covering on `idx_items_unread_feed`) and rolls the results up in Go. The response is `{"max":<total>,"unreadcounts":[{"id":"feed/12","count":3,"newestItemTimestampUsec":"…"},…]}`.
+**`GET unread-count`** runs `SELECT feed_id, count(*), max(id) FROM items WHERE read = 0 GROUP BY feed_id` (covering on `idx_items_unread_feed`) and rolls the results up in Go. Held items (§6.5) are left out (`AND NOT <HeldSQL>`), and the rows are joined to their folder and ordered by folder position and name, feed position, then feed id. The response is `{"max":<total>,"unreadcounts":[…]}`, where `unreadcounts` holds three kinds of entry in this order: one `user/-/state/com.google/reading-list` entry (the total and the newest id), then one `user/-/label/<folder>` entry per folder with unread items, then one `feed/<id>` entry per feed with unread items:
 
-**`GET /api/greader.php/icon/<id>-<hash>`** is unauthenticated and exists only while `greader.icon_urls` is on (the default). It serves `feed_icons` bytes and nothing else.
+```json
+{"max":5,"unreadcounts":[
+  {"id":"user/-/state/com.google/reading-list","count":5,"newestItemTimestampUsec":"1758700000123456"},
+  {"id":"user/-/label/Comics","count":5,"newestItemTimestampUsec":"1758700000123456"},
+  {"id":"feed/12","count":3,"newestItemTimestampUsec":"1758700000123456"},
+  {"id":"feed/14","count":2,"newestItemTimestampUsec":"1758690000000001"}]}
+```
+
+**`GET /api/greader.php/icon/<id>-<hash>`** is unauthenticated and exists only while `greader.icon_urls` is on (the default). It serves the stored `feed_icons` bytes only for raster image types (JPEG, PNG, GIF, WebP, AVIF, ICO); SVG, HTML and anything else answer `404`, as do a malformed path, a hash that does not match, and the setting being off. The reply carries `Cache-Control: public, max-age=86400`, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`.
 
 **Parameters ignored everywhere:** `output` (except on ClientLogin), `ck`, `client`, `includeAllDirectStreamIds`, `merge`, `likes`, `comments`, `mediaRss`, `types`.
 
