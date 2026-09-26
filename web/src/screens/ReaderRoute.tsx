@@ -33,7 +33,7 @@ function useScopeTitle(scope: Scope): string {
   const boot = useBootstrap();
   if (scope.feed) return boot.data?.feeds.find((f) => f.id === scope.feed)?.title ?? "Feed";
   if (scope.folder) return boot.data?.folders.find((f) => f.id === scope.folder)?.name ?? "Folder";
-  return scope.view === "all" ? "All articles" : scope.view === "starred" ? "Starred" : "Unread";
+  return scope.view === "all" ? "All articles" : scope.view === "starred" ? "Starred" : scope.view === "muted" ? "Muted" : "Unread";
 }
 
 /** Feeds (or folders, on a folder list) in sidebar order, and the neighbours of the current one. */
@@ -68,6 +68,10 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   // Feed and folder scopes do not carry the order; it is a device preference.
   const go = (s: Scope | undefined) => s && navigate(listTo(s));
   const noun = scope.feed ? "feed" : "folder";
+  const boot = useBootstrap();
+  const mutedCount = boot.data?.counts.muted ?? 0;
+  // The Muted pill appears when there is something muted, or when you are in it.
+  const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: "Muted" }] : VIEWS;
   const hint = (k: string) => (prefs.shortcuts ? <kbd className="ml-auto rounded border border-line px-1.5 font-mono text-xs text-fg2">{k}</kbd> : null);
   // `r` (refresh) is bound once for every screen, in the app shell.
   useHotkeys({ prevFeed: () => go(prev), nextFeed: () => go(next) }, { singleKeys: prefs.shortcuts });
@@ -113,7 +117,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
-              <DropdownMenu.Item className={menuItem} disabled={!controls} onSelect={() => controls?.markAllRead()}>
+              <DropdownMenu.Item className={menuItem} disabled={!controls || scope.view === "muted"} onSelect={() => controls?.markAllRead()}>
                 <CheckCheck className="size-5" aria-hidden="true" />
                 Mark all as read
               </DropdownMenu.Item>
@@ -147,7 +151,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
       </div>
       <div className="mt-1 flex items-center gap-1">
       <nav aria-label="Show" className="flex gap-1">
-        {VIEWS.map((v) => {
+        {views.map((v) => {
           const active = v.view === scope.view;
           return (
             <Link
@@ -192,6 +196,9 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           </div>
         ) : null}
       </div>
+      {scope.view === "muted" ? (
+        <p className="mt-1 text-xs text-fg2">Articles your filters muted. Restore brings one back as unread. Muting keeps them here instead of deleting them.</p>
+      ) : null}
       </div>
     </header>
   );

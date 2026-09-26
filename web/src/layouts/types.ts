@@ -15,6 +15,12 @@ export interface RowMenuActions {
   openOriginal: (item: Card) => void;
   copyLink: (item: Card) => void;
   share: (item: Card) => void;
+  /** Start a filter from this article ("Mute similar..."). */
+  muteSimilar: (item: Card) => void;
+  /** A muted article: bring it back (marks it unread, which un-mutes it). */
+  restore: (item: Card) => void;
+  /** A muted article: open the filter that muted it. */
+  editRule: (item: Card) => void;
 }
 
 export interface RowProps {

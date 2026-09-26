@@ -27,6 +27,7 @@ import { clickRow, groupState, toggleGroup } from "@/lib/selection";
 import { cn } from "@/lib/cn";
 import { listTo } from "@/lib/routes";
 import { FavStar } from "@/ui/FavStar";
+import { MutedCount } from "@/ui/UnreadCount";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
@@ -516,6 +517,12 @@ export function FeedsScreen() {
                 <Link to={listTo({ view: "starred" })} className={row}>
                   Starred
                   <Badge n={c?.starred ?? 0} />
+                </Link>
+              </li>
+              <li>
+                <Link to={listTo({ view: "muted" })} className={row}>
+                  Muted
+                  <MutedCount n={c?.muted ?? 0} className="ml-auto" />
                 </Link>
               </li>
             </ul>

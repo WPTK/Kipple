@@ -22,7 +22,7 @@ export function scopeFromSearch(search: URLSearchParams, fallback: Scope = { vie
 }
 
 export function scopeFromList(view: string | undefined, search: URLSearchParams): Scope {
-  const v: View = view === "all" || view === "starred" ? view : "unread";
+  const v: View = view === "all" || view === "starred" || view === "muted" ? view : "unread";
   const s: Scope = { view: v };
   const feed = search.get("feed");
   const folder = search.get("folder");

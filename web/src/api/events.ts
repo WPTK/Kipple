@@ -94,7 +94,7 @@ export function pendingFor(
   /** Ids the list already holds (with `ids`, the pending ids per feed): those are not new to it. */
   loaded?: { ids: ReadonlySet<string>; pendingIds: Record<string, string[]> },
 ): number {
-  if (scope.view === "starred" || scope.q || scope.order === "oldest") return 0;
+  if (scope.view === "starred" || scope.view === "muted" || scope.q || scope.order === "oldest") return 0;
   const count = (id: string): number => {
     const n = pending[id] ?? 0;
     if (!loaded || n === 0) return n;

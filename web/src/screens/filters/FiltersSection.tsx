@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
-import { useLocation } from "react-router";
 import { errorMessage } from "@/api/client";
 import { actionLabel, deleteFilter, fieldLabel, filtersKey, invalidateFilterData, setFilterEnabled, useFilters, type Filter, type Unmute } from "@/api/filters";
 import { useBootstrap } from "@/api/queries";
@@ -133,12 +132,6 @@ export function FiltersSection() {
   const folders = boot.data?.folders ?? [];
   const feeds = boot.data?.feeds ?? [];
   const list = filters.data ?? [];
-  const location = useLocation();
-  // "Edit rule" on a muted article lands here with the rule to open.
-  const wanted = (location.state as { editFilter?: string } | null)?.editFilter;
-  useEffect(() => {
-    if (wanted && filters.data?.some((f) => f.id === wanted)) openFilterEditor({ mode: "edit", id: wanted });
-  }, [wanted, filters.data]);
   return (
     <>
       <p className="text-sm text-fg2">Filters run on every new article. They can hide noise, mark things read, star what you care about, or highlight words. Muted articles are kept in Muted, and you can restore them.</p>

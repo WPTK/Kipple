@@ -173,6 +173,11 @@ export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void
   });
 }
 
+/** Adjust the muted count locally (a restore) before the `counts` event lands. */
+export function bumpMuted(qc: QueryClient, delta: number): void {
+  qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, counts: { ...old.counts, muted: Math.max(0, (old.counts.muted ?? 0) + delta) } } : old));
+}
+
 /** The cached card or detail for an id, wherever it is cached. */
 export function findCached(qc: QueryClient, id: string): Pick<Card, "feed_id" | "read"> | undefined {
   const d = qc.getQueryData<ItemDetail>(keys.item(id));

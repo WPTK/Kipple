@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, Share2, Star } from "lucide-react";
+import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, Share2, Star } from "lucide-react";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
@@ -16,6 +16,7 @@ import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
 import { shareLink } from "@/lib/share";
+import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { StatusBlock, focusListRow } from "./ListPane";
@@ -126,6 +127,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const share = () => {
     if (item.data) void shareLink(item.data);
   };
+  const muteSimilar = () => {
+    if (item.data) openFilterEditor({ mode: "create", seed: similarSeed(item.data, item.data.feed.title) });
+  };
   const toggleFulltext = () => {
     if (!item.data) return;
     fulltext.mutate({ id, mode: item.data.fulltext.effective === 1 ? 0 : 1 });
@@ -215,6 +219,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           onFulltext={toggleFulltext}
           onOriginal={openOriginal}
           onShare={share}
+          onMuteSimilar={muteSimilar}
         />
       )}
       <div ref={scroller} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
@@ -240,6 +245,21 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
                 .join(" · ")}
             </p>
           </header>
+          {a.muted_by !== null && a.muted_by !== undefined ? (
+            <div role="status" data-testid="muted-banner" className="mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1 text-sm">
+              <span className="min-w-0 flex-1">
+                {a.muted_by_name ? (
+                  <>
+                    Muted by <strong>{a.muted_by_name}</strong>.
+                  </>
+                ) : (
+                  "Muted by a filter that was deleted."
+                )}
+              </span>
+              <Button onClick={() => void act.restoreMuted([a])}>Restore</Button>
+              {a.muted_by_name ? <Button variant="ghost" onClick={() => openFilterEditor({ mode: "edit", id: a.muted_by as string })}>Edit rule</Button> : null}
+            </div>
+          ) : null}
           {a.fulltext.error && ftOn ? (
             <p role="status" className="mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-sm">
               <span className="flex-1">Couldn't load full text. Showing the version from the feed instead.</span>
@@ -278,6 +298,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           onFulltext={toggleFulltext}
           onOriginal={openOriginal}
           onShare={share}
+          onMuteSimilar={muteSimilar}
         />
       )}
     </div>
@@ -309,6 +330,7 @@ interface ToolbarProps {
   onFulltext: () => void;
   onOriginal: () => void;
   onShare: () => void;
+  onMuteSimilar: () => void;
 }
 
 function Toolbar(p: ToolbarProps) {
@@ -362,6 +384,9 @@ function Toolbar(p: ToolbarProps) {
       </Button>
       <Button variant="ghost" size="icon" onClick={p.onOriginal} aria-label="Open original">
         <ExternalLink aria-hidden="true" />
+      </Button>
+      <Button variant="ghost" size="icon" onClick={p.onMuteSimilar} aria-label="Mute similar…" title="Mute similar…">
+        <BellOff aria-hidden="true" />
       </Button>
       <ReadingMenu />
     </div>

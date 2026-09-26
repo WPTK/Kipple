@@ -1,5 +1,5 @@
 import { DropdownMenu } from "radix-ui";
-import { Check, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Share2, Star } from "lucide-react";
+import { BellOff, Check, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, RotateCcw, Share2, Star } from "lucide-react";
 import type { Card } from "@/api/types";
 import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
@@ -61,6 +61,7 @@ export function RowMenu({
   const openId = useStore(rowMenuStore);
   const open = openId === item.id;
   const canShare = canNativeShare();
+  const muted = item.muted_by !== null && item.muted_by !== undefined;
   return (
     <DropdownMenu.Root open={open} onOpenChange={(o) => (o ? rowMenuStore.set(item.id) : closeRowMenu())} modal={false}>
       <DropdownMenu.Trigger asChild>
@@ -91,18 +92,39 @@ export function RowMenu({
             <Star className="size-5" aria-hidden="true" />
             {item.starred ? "Unstar" : "Star"}
           </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={() => actions.toggleRead(item)}>
-            {item.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
-            {item.read ? "Mark as unread" : "Mark as read"}
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={() => actions.markAbove(item)}>
-            <MoveUp className="size-5" aria-hidden="true" />
-            Mark above as read
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={() => actions.markBelow(item)}>
-            <MoveDown className="size-5" aria-hidden="true" />
-            Mark below as read
-          </DropdownMenu.Item>
+          {muted ? (
+            <>
+              <DropdownMenu.Item className={menuItem} onSelect={() => actions.restore(item)}>
+                <RotateCcw className="size-5" aria-hidden="true" />
+                Restore
+              </DropdownMenu.Item>
+              {item.muted_by_name !== null ? (
+                <DropdownMenu.Item className={menuItem} onSelect={() => actions.editRule(item)}>
+                  <Pencil className="size-5" aria-hidden="true" />
+                  Edit rule
+                </DropdownMenu.Item>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <DropdownMenu.Item className={menuItem} onSelect={() => actions.toggleRead(item)}>
+                {item.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
+                {item.read ? "Mark as unread" : "Mark as read"}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item className={menuItem} onSelect={() => actions.markAbove(item)}>
+                <MoveUp className="size-5" aria-hidden="true" />
+                Mark above as read
+              </DropdownMenu.Item>
+              <DropdownMenu.Item className={menuItem} onSelect={() => actions.markBelow(item)}>
+                <MoveDown className="size-5" aria-hidden="true" />
+                Mark below as read
+              </DropdownMenu.Item>
+              <DropdownMenu.Item className={menuItem} onSelect={() => actions.muteSimilar(item)}>
+                <BellOff className="size-5" aria-hidden="true" />
+                Mute similar…
+              </DropdownMenu.Item>
+            </>
+          )}
           <DropdownMenu.Separator className="my-1 h-px bg-line" />
           <DropdownMenu.Item className={menuItem} onSelect={() => actions.openOriginal(item)}>
             <ExternalLink className="size-5" aria-hidden="true" />

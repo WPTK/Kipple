@@ -26,6 +26,7 @@ import { FirstRun } from "./FirstRun";
 import { announce } from "@/shell/toasts";
 import { openExternal } from "@/lib/links";
 import { copyLink, shareLink } from "@/lib/share";
+import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { useWidth } from "@/lib/useWidth";
 
 // Scroll and selection memory per list, so "back" lands where you were
@@ -64,6 +65,7 @@ export const LEAVE_MS = 1500;
 
 export function emptyCopy(scope: Scope): { title: string; body: string } {
   if (scope.q) return { title: `No results for "${scope.q}"`, body: "Try fewer words, or search All instead of just this feed." };
+  if (scope.view === "muted") return { title: "Nothing muted", body: "Articles that your filters mute are kept here, so you can restore any of them. Add a filter in Settings." };
   if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
   if (scope.view === "unread") return { title: "All caught up", body: "No unread articles. New ones appear after the next refresh." };
   return { title: "No articles yet", body: "Kipple hasn't fetched anything from these feeds yet." };
@@ -370,12 +372,21 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   }, [hidden]);
 
   /** Swipe right, `m` in the menu: toggle read. Unread view: a row that became read leaves at once. */
+  const mutedView = scope.view === "muted";
+  /** Muted list: bring an article back (marks it unread, which un-mutes it) and take its row out of the list. */
+  const restoreRow = useCallback(
+    (item: Card) => {
+      void act.restoreMuted([item], hide([item.id]));
+    },
+    [act, hide],
+  );
   const swipeRead = useCallback(
     (item: Card) => {
+      if (mutedView) return restoreRow(item);
       const leaves = unreadView && !item.read;
       void act.toggleRead(item, "swipe", leaves ? hide([item.id]) : undefined);
     },
-    [act, hide, unreadView],
+    [act, hide, unreadView, mutedView, restoreRow],
   );
 
   // Marked read on purpose (button, key or menu) in the Unread list: the row leaves after LEAVE_MS, with the undo
@@ -433,6 +444,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   const range = useCallback(
     (item: Card, side: "above" | "below") => {
+      if (scope.view === "muted") return; // nothing to mark in the muted list: those articles are already read
       const at = items.findIndex((i) => i.id === item.id);
       if (at < 0) return;
       const part = side === "above" ? items.slice(0, at) : items.slice(at + 1);
@@ -444,6 +456,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   );
 
   const markAllRead = useCallback(() => {
+    if (scope.view === "muted") return;
     const local = items.filter((i) => !i.read).map((i) => i.id);
     const restore = unreadView && local.length ? hide(local) : undefined;
     void act.markAll(scope, asOf.current, local, restore, unhide);
@@ -458,8 +471,11 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       openOriginal: (item) => openExternal(item.url),
       copyLink: (item) => void copyLink(item.url),
       share: (item) => void shareLink(item),
+      muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedById.get(item.feed_id)?.title) }),
+      restore: restoreRow,
+      editRule: (item) => item.muted_by && openFilterEditor({ mode: "edit", id: item.muted_by }),
     }),
-    [act, range],
+    [act, range, restoreRow, feedById],
   );
 
   const toggleChecked = () => {
@@ -495,6 +511,11 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       toggleRead: () => {
         const t = targets();
         if (t.length === 0) return;
+        if (mutedView) {
+          void act.restoreMuted(t, hide(t.map((i) => i.id)));
+          setChecked(new Set());
+          return;
+        }
         if (t.length === 1) return void act.toggleRead(t[0] as Card, "key");
         const read = t.some((i) => !i.read);
         void act.setRead(
@@ -601,8 +622,18 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   // Row callbacks take the item as an argument, so they stay the same function between renders and the
   // memoized rows below skip renders that did not change them.
   const onLeading = swipeRead;
-  const onTrailing = useCallback((item: Card) => void act.toggleStar(item, true), [act]);
-  const onStar = useCallback((item: Card) => void act.toggleStar(item), [act]);
+  // Starring a muted article un-mutes it (the server clears the mute), so its row leaves the Muted list.
+  const starRow = useCallback(
+    (item: Card, undoable: boolean) => {
+      const leaves = mutedView && !item.starred;
+      void act.toggleStar(item, undoable).then((ok) => {
+        if (ok && leaves) hide([item.id]);
+      });
+    },
+    [act, hide, mutedView],
+  );
+  const onTrailing = useCallback((item: Card) => starRow(item, true), [starRow]);
+  const onStar = useCallback((item: Card) => starRow(item, false), [starRow]);
   const onMore = useCallback((item: Card) => openRowMenu(item.id), []);
   const renderRow = (item: Card, swipe: boolean, peek: boolean) => (
     <ListRow
@@ -616,6 +647,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       selected={item.id === selected}
       checked={checked.has(item.id)}
       showThumb={dp.inboxThumbs === "auto"}
+      showMuted={mutedView}
       actions={menuActions}
       onOpen={openItem}
       onLeading={onLeading}
@@ -789,6 +821,8 @@ interface ListRowProps {
   selected: boolean;
   checked: boolean;
   showThumb: boolean;
+  /** The Muted list: each row says which filter muted it, with Restore and Edit rule. */
+  showMuted: boolean;
   actions: RowMenuActions;
   onOpen: (item: Card) => void;
   onLeading: (item: Card) => void;
@@ -801,7 +835,7 @@ interface ListRowProps {
 /** One list row. Memoized: run progress, fetch ticks and unrelated selection changes leave it alone. */
 export const ListRow = memo(function ListRow(p: ListRowProps) {
   const { item } = p;
-  return (
+  const row = (
     <SwipeRow
       item={item}
       enabled={p.swipe}
@@ -826,7 +860,40 @@ export const ListRow = memo(function ListRow(p: ListRowProps) {
       />
     </SwipeRow>
   );
+  if (!p.showMuted) return row;
+  return (
+    <>
+      {row}
+      <MutedStrip item={item} onRestore={() => p.actions.restore(item)} onEditRule={() => p.actions.editRule(item)} />
+    </>
+  );
 });
+
+/** "Muted by <rule>" under a row of the Muted list, with the two things you can do about it. */
+export function MutedStrip({ item, onRestore, onEditRule }: { item: Card; onRestore: () => void; onEditRule: () => void }) {
+  const name = item.muted_by_name;
+  return (
+    <div data-testid="muted-strip" className="flex flex-wrap items-center gap-x-3 border-b border-line bg-surface px-4 text-xs">
+      <span className="min-w-0 flex-1 py-1 text-fg2">
+        {name ? (
+          <>
+            Muted by <strong className="font-semibold text-fg">{name}</strong>
+          </>
+        ) : (
+          "Muted by a filter that was deleted"
+        )}
+      </span>
+      <Button variant="ghost" onClick={onRestore} aria-label={`Restore ${item.title || "article"}`}>
+        Restore
+      </Button>
+      {name ? (
+        <Button variant="ghost" onClick={onEditRule} aria-label={`Edit the rule that muted ${item.title || "this article"}`}>
+          Edit rule
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 /** Put keyboard focus back on a list row (Esc or u in the reader pane); the list itself when the row is not rendered. */
 export function focusListRow(id: string): void {

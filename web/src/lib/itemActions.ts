@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { applyRead, applyStar, keys, patchItems } from "@/api/queries";
+import { applyRead, applyStar, bumpMuted, dropFromLists, keys, patchItems } from "@/api/queries";
 import { api, errorMessage } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
 import type { Card, Scope } from "@/api/types";
@@ -101,10 +101,11 @@ export function itemActions(qc: QueryClient) {
     return setRead([item.id], !item.read, reason, restore);
   }
 
-  async function toggleStar(item: Card, undoable = false): Promise<void> {
+  /** Resolves to whether the server took it. */
+  async function toggleStar(item: Card, undoable = false): Promise<boolean> {
     const starred = !item.starred;
     const ok = await applyStar(qc, item.id, starred);
-    if (!ok) return;
+    if (!ok) return false;
     announce(starred ? "Starred" : "Unstarred");
     if (undoable) {
       // Merged swipe-stars share the first closure, so it must act on the ids it is handed.
@@ -117,6 +118,7 @@ export function itemActions(qc: QueryClient) {
         },
       });
     }
+    return true;
   }
 
   /**
@@ -183,5 +185,27 @@ export function itemActions(qc: QueryClient) {
     }
   }
 
-  return { setRead, toggleRead, toggleStar, markSide, markAll };
+  /**
+   * Restore muted articles: mark them unread, which is what un-mutes them (the server clears the mute in the same
+   * write). There is no undo entry: putting one back under its rule is not something a mark-read can do, so the
+   * announcement says where they went instead. Resolves to the ids the server accepted.
+   */
+  async function restoreMuted(items: Pick<Card, "id">[], restore?: () => void): Promise<boolean> {
+    const ids = items.map((i) => i.id);
+    if (ids.length === 0) return false;
+    const res = await applyRead(qc, ids, false, "key");
+    if (!res) {
+      restore?.();
+      return false;
+    }
+    patchItems(qc, ids, { muted_by: null, muted_by_name: null });
+    dropFromLists(qc, ids, (k) => k.startsWith("muted"));
+    invalidateUnreadLists(qc);
+    notifyUnread(ids);
+    bumpMuted(qc, -ids.length);
+    announce(ids.length === 1 ? "Restored. It is unread again." : `Restored ${ids.length} articles. They are unread again.`);
+    return true;
+  }
+
+  return { setRead, toggleRead, toggleStar, markSide, markAll, restoreMuted };
 }

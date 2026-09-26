@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
-import { Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
+import { BellOff, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
 import { useRefreshAll } from "@/api/refresh";
@@ -16,7 +16,7 @@ import { undoLast } from "@/lib/undo";
 import { HelpDialog, openHelp } from "./HelpDialog";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { ARTICLE_MIN, LIST_MIN_FOR_SIDEBAR, maxFor, useViewportWidth } from "@/lib/useWidth";
-import { UnreadCount } from "@/ui/UnreadCount";
+import { MutedCount, UnreadCount } from "@/ui/UnreadCount";
 import { ApplyProgress, FilterEditorHost } from "./FilterHost";
 import { DeviceSaveStatus } from "./SaveStatus";
 import { UndoToast } from "./UndoToast";
@@ -91,6 +91,12 @@ function Sidebar() {
           <NavLink to="/l/starred" className={item}>
             <Star aria-hidden="true" className="size-5" />
             Starred
+          </NavLink>
+          <NavLink to="/l/muted" className={item}>
+            <BellOff aria-hidden="true" className="size-5" />
+            Muted
+            <span className="ml-auto" />
+            <MutedCount n={c?.muted ?? 0} />
           </NavLink>
           <NavLink to="/search" className={item}>
             <Search aria-hidden="true" className="size-5" />

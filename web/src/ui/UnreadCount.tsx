@@ -40,3 +40,14 @@ export function UnreadCount({ n, tone = "quiet", className }: { n: number; tone?
     </span>
   );
 }
+
+/** How many articles are muted. A plain count (not an unread badge), so the "Unread badge" setting does not hide it. */
+export function MutedCount({ n, className }: { n: number; className?: string }) {
+  if (n <= 0) return null;
+  return (
+    <span data-testid="muted-count" className={cn("shrink-0 rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-fg2 tabular-nums", className)}>
+      <span className="sr-only-live">Muted </span>
+      {badgeText(n)}
+    </span>
+  );
+}
