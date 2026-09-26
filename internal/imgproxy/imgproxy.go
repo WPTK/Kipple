@@ -267,7 +267,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	base := flags &^ FlagThumb // the source is fetched, and cached, by its fetch flags alone
 	switch {
 	case !h.opt.Cache.Enabled():
-		h.serveDirect(w, r, u, base) // no cache, no thumbnails: the original streams through
+		// No cache, no thumbnails: the original streams through. At a thumbnail
+		// URL it is never immutable, or the original would stay pinned under the
+		// thumbnail URL for 30 days once the cache is back.
+		if flags&FlagThumb != 0 {
+			w = &ccWriter{ResponseWriter: w, cc: noCache}
+		}
+		h.serveDirect(w, r, u, base)
 	case flags&FlagThumb != 0:
 		h.serveThumb(w, r, u, base, orig)
 	default:
