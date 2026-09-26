@@ -371,6 +371,7 @@ CREATE INDEX idx_feeds_url_orig_key ON feeds(url_original_key) WHERE url_origina
 CREATE UNIQUE INDEX idx_feeds_one_archive ON feeds(disabled_reason) WHERE disabled_reason = 'archive';
 
 -- Favicon bytes, served at /api/feeds/{id}/icon (and /api/greader.php/icon/... when enabled).
+-- Filled by the favicon finder (§4.11); its bookkeeping is feed_icon_checks (migration 0006).
 CREATE TABLE feed_icons (
   feed_id      INTEGER PRIMARY KEY REFERENCES feeds(id) ON DELETE CASCADE,
   data         BLOB NOT NULL,
@@ -589,8 +590,9 @@ Built (applied in order by the runner; each one is a line here so the block abov
 | `0003_fulltext_error_class.sql` | `item_fulltext.error_class TEXT CHECK (error_class IN ('transient','permanent'))`; NULL means an error stored before the column existed, treated as permanent | `POST /api/items/{id}/fulltext` retries a transient failure after an hour (§7.5) |
 | `0004_filters_devices.sql` | Schema only, spec §1.8, §1.13 and §4 of `docs/research/backend-additions-round2.md`: table `filters` (scope, kind and action CHECKs, `terms` and `fields` JSON arrays, the scope-to-id CHECK, highlight only for text, cascade from folders and feeds, partial indexes on `folder_id` and `feed_id`); `items.muted_by INTEGER` (no FK) with the partial index `idx_items_muted(sort_at, id)`, and `items.muted_was_read` (0 or 1, NULL while not muted: whether the item was already read when the rule muted it, so `?unmute=unread` only restores the ones that were unread); `categories_json` on `item_content` (JSON-checked) and `trimmed_content`; `feeds.auto_read_days` (NULL inherits, 0 is off, at most 365); table `devices` (`id` 16 to 32 chars, `name` of at most 64, `user_agent`, `client` default `'web'`, `settings` a JSON object of at most 8 KB, `created_at`, `last_seen_at`, `idx_devices_seen`); `filters` also has `invert`, `position`, `hits` and `last_hit_at`, and defaults `fields` to `'["title"]'`, `whole_word` to 1 and `fold_diacritics` to 1. The SQL file is the authority. The trim (`retention.go`) and restore (`itemstate.go`) SQL copy `categories_json` both ways | Keyword filters, the mute marker, item categories, auto-mark-read and per-device appearance profiles. Steps 10 and 11 now read and write `filters`, `items.muted_by`, `items.muted_was_read` and `categories_json` (§4.8, §5, §7.1b); `devices` backs per-device appearance profiles (§7.1c) and is purged nightly after 400 days unseen; `feeds.auto_read_days` feeds the nightly auto-read step (§2.6, §7.1d). Additive and O(1): no table is rebuilt and the indexes start empty. Rehearsed on a copy of the real phase 1 database (schema 1 to 4, 5,600 items, about 0.3 s) |
 | `0005_fts_porter.sql` | Drops and recreates `items_fts` with `tokenize = 'porter unicode61 remove_diacritics 2'`, stores the rank config `bm25(4.0, 2.0, 1.0)` (title 4x, author 2x, body 1x) with `INSERT INTO items_fts(items_fts, rank) VALUES ('rank', ...)`, then `'rebuild'`s from `item_search` | Stemmed, title-weighted search (§2.4). The five FTS triggers resolve `items_fts` by name when they fire, so they survive the drop untouched, and the view is unchanged. One `BEGIN IMMEDIATE` transaction behind the pre-migration snapshot; a failure rolls the whole file back and leaves the old index. Cost is linear in the indexed text: rehearsed on a copy of the real phase 1 database (5,600 items) the rebuild took 0.58 s and the full schema 1 to 5 open 0.95 s; expect about 10 s per 100,000 items, with no serving meanwhile. Every hit of the old index remains a hit; the index size stays about the same |
+| `0006_feed_icon_checks.sql` | Table `feed_icon_checks` (`feed_id` PK with cascade from feeds, `site_url` and `feed_url` as the lookup saw them, `checked_at`, `next_check_at`, `failures >= 0`, `last_error`), STRICT, no index (one full scan of feeds per poll) | The favicon finder (§4.11): when each feed was last looked up and when it is due again, kept apart from the feed's own health columns so a failing icon never shows as a failing feed. Additive, one empty table |
 
-Nothing is pending: migration 0005 was the last one designed in `docs/research/backend-additions-round2.md`.
+Nothing is pending: migration 0006 is the last one designed.
 
 Theme, density and similar UI changes need no migration: `ui.*` values are settings rows validated in Go.
 
@@ -1182,6 +1184,8 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and nothing e
      - close `jobs`.
 
      Workers finish the job in hand: a completed fetch commits under `WithoutCancel` (the context carries no deadline; each chunk of a large feed gets its own 10 s budget), and an aborted one writes nothing. Each worker then sends `workerExit`.
+
+     Right after it, `favicon.Finder.Stop()` cancels an icon lookup in progress (which writes nothing) and waits for the finder's goroutine (§4.11).
   2. `hub.Close()` closes every subscriber channel, so SSE handlers return immediately.
   3. `http.Server.Shutdown` with a 10 s context; when it errors, `srv.Close()` cuts the requests that outlived the grace period. No handler waits on the scheduler any more.
   4. `<-sched.Stopped()`, bounded at 15 s (it logs "scheduler did not drain in time" and goes on). The dispatcher keeps receiving on `doneCh` until `live == 0`, so no worker can block on its final send.
@@ -1190,6 +1194,18 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and nothing e
 
   Compose sets `stop_grace_period: 30s`. The shutdown test asserts exit in under 15 s during a 138-feed run.
 - **Startup.** Feeds that are already past due are simply due on the first tick. A full catch-up of 138 feeds takes about 30 s.
+
+### 4.11 Feed icons (`internal/favicon`)
+
+`feed_icons` is filled by one background goroutine, the favicon finder. It is not part of the scheduler and never runs on the fetch path: a feed fetch neither waits for it nor learns of its outcome.
+
+- **When.** Every minute (`Poll`) the finder asks `store.NextIconJob` for the most overdue feed and runs lookups one at a time, 2 s apart, at most 30 per pass. A feed is due when it is enabled, has had at least one successful fetch (`last_success_at` set), and either has no `feed_icon_checks` row (first lookup, so a new feed gets its icon within a minute or two of its first fetch), or its `next_check_at` has passed, or its site changed since the last lookup (`site_url` differs, or, while `site_url` is `''`, the feed `url` differs). A changed site is due at once and its failure count starts over. The pass ends early while a scheduler run (refresh-all, import, retention) is active, so a big import is not slowed down; the finder then catches up one feed at a time.
+- **Schedule.** After a success the next lookup is 7 days later (at most weekly; the icon is replaced when it changed). After failure *n* it is 6 h × 2^(n−1), capped at 7 days: 6 h, 12 h, 1 d, 2 d, 4 d, then weekly. A failure keeps any icon already stored. Failures are recorded only in `feed_icon_checks` (`failures`, `last_error`, logged at debug level): the feed's `consecutive_failures`, `last_error` and the health view are never touched.
+- **Lookup.** The page is `site_url` when it is an absolute http(s) URL, else the origin of the feed URL. The finder fetches the page (at most 512 KiB are read; a failing page is not fatal), collects the head's `<link rel>` icons with `icon` or `apple-touch-icon(-precomposed)` among the rel tokens (so `shortcut icon` counts, `mask-icon` and `fluid-icon` do not), resolved against the final URL and the first `<base href>`, at most 32. SVG is dropped by `type` or `.svg` path, as are `data:` and any other non-http(s) URL. Candidates are ranked by the largest side in `sizes`: 32 to 180 px first (closest to 64), then unknown sizes (an unsized apple-touch-icon counts as 180), then the rest (closest to the band), document order breaking ties. `/favicon.ico` at the final page's origin is always the last candidate. At most 4 icon fetches are made per lookup (the top 3 links plus the fallback).
+- **Limits.** Every request goes through `fetch.Client.Transport(allow_private_net, allow_insecure_tls, disable_http2)` with the feed's own flags: the dial-time SSRF guard applies to every hop, and a feed that may reach a private address (`allow_private_net`) lets its icon lookup reach it too, and no other. The User-Agent is the one the feed's fetch resolves to, with the same one-time browser retry on 403/406. HTTP credentials are never sent. Each request has a 10 s timeout (body included), a lookup 45 s overall, at most 5 redirects (http(s) only). An icon is at most 256 KiB (by `Content-Length` and by the bytes read).
+- **Accepted bytes.** The type is sniffed from the bytes; the response's `Content-Type` is ignored. Only PNG, JPEG, GIF, WebP (their headers must decode, sides 8 to 2048 px) and ICO (1 to 64 directory entries, each inside the file) pass, stored as `image/png`, `image/jpeg`, `image/gif`, `image/webp` or `image/x-icon`. SVG, HTML and anything else are rejected, which matches what the Reader `/icon/` route serves (§6.9).
+- **Write.** `store.SaveIconCheck` upserts `feed_icons` (`data`, `content_type`, `source_url` = the final icon URL, `hash` = the first 16 hex characters of its SHA-256, `fetched_at`) and the check row in one transaction, only if the feed still exists with the same `url` and `site_url` the lookup used; otherwise it writes nothing and the changed feed is simply due again. The `hash` changes with the bytes, so Reader `iconUrl` (`/icon/<id>-<hash>`) and the UI's `/api/feeds/{id}/icon?h=<hash>` bust caches by themselves.
+- **Shutdown.** `Stop` cancels the lookup in hand; a cancelled lookup writes nothing and the feed stays due (§4.10).
 
 ---
 
@@ -1586,7 +1602,7 @@ It returns `{"subscriptions":[{"id":"feed/12","title":…,"categories":[{"id":"u
 
 - There is always exactly one category per feed.
 - Disabled and gone feeds are listed. The archive feed is listed while it holds items.
-- `iconUrl` is **always present**. It is `<KIPPLE_PUBLIC_URL>/api/greader.php/icon/<id>-<hash>` (a trailing `/` on the public URL is trimmed) only when the `greader.icon_urls` setting is on (the default), `KIPPLE_PUBLIC_URL` is set and the feed has an icon, otherwise `""`.
+- `iconUrl` is **always present**. It is `<KIPPLE_PUBLIC_URL>/api/greader.php/icon/<id>-<hash>` (a trailing `/` on the public URL is trimmed) only when the `greader.icon_urls` setting is on (the default), `KIPPLE_PUBLIC_URL` is set and the feed has an icon (the favicon finder fills `feed_icons`, §4.11), otherwise `""`.
 - **ETag:** `"` + the first 16 hex of `sha256(body)` + `"`. An `If-None-Match` match (after stripping `W/`) returns `304` with an empty body.
 
 **`GET tag/list`.** Returns `{"tags":[{"id":"user/-/state/com.google/starred"},{"id":"user/-/state/com.google/reading-list"},{"id":"user/-/label/<name>","type":"folder"},…]}` from `SELECT name FROM folders ORDER BY position, name`, with the same body-hash ETag. `types=1` is ignored.
@@ -2058,7 +2074,7 @@ Server-side ingest and validation of `read_time`, `scroll`, `open_original` and 
 cmd/kipple/main.go      subcommands (serve is the default; import, api-password, password, restore, version).
                         serve: config → TZ → lock.Acquire(kipple.lock) → store.Open (migrations; sqlite
                         OFDLocking is switched on inside Open) → ensureAccount → imgcache.Open (optional) →
-                        one shared auth.Verifier, fetch client, ftrun runner, sched, maint → greader.Front
+                        one shared auth.Verifier, fetch client, ftrun runner, sched, maint, favicon finder → greader.Front
                         ahead of the root mux, wrapped by auth.WarnUntrustedProxyHeaders and httpx.Secure →
                         serve; shutdown sequence (§4.10); import _ "time/tzdata"; mime registrations
 cmd/kipple/*.go         import.go, account.go (api-password, ensureAccount), password.go, restore.go
@@ -2090,9 +2106,10 @@ internal/fetch          client.go (transports, ssrf.go guard, UA, timeouts, hop 
                         skip, enclosure dedup), dedup.go (uid, content_hash, text_hash, in-document duplicates,
                         churn/dup detection), errors.go (classification), backoff.go (pure NextOnSuccess/
                         NextOnFailure; injected clock + rand), redirect.go (policy decision)
-internal/discover       feed autodiscovery for the UI add-feed path, through the guarded transport. There is no
-                        favicon finder (not built, backlog): `feed_icons` is only read, never populated, so
-                        Reader `iconUrl` and the `/icon/` route have no data
+internal/discover       feed autodiscovery for the UI add-feed path, through the guarded transport
+internal/favicon        the favicon finder (§4.11): links.go (pure `<link rel=icon>` parser and ranking, fuzzed),
+                        sniff.go (raster-only byte sniffing), favicon.go (Lookup through the guarded transport),
+                        finder.go (the one background goroutine, NextCheck backoff); its SQL is store/icons.go
 internal/sanitize       absolutize.go (URL attribute resolution, base chain), policy.go (bluemonday feed policy,
                         RequireParseableURLs, no relative URLs), iframes.go (ingest pre-pass), text.go (plain text
                         + word count), leadimage.go (lead-image pick), rewrite.go (serve-time proxy rewrite),
@@ -2154,10 +2171,11 @@ internal/httpx          headers.go: Secure (security headers, CSP via PageCSP). 
 3. Fetch workers (8), ranging over `jobs`.
 4. The full-text extraction pool (`FulltextGlobal`, default 4), running through `ftrun`.
 5. Maintenance (1).
-6. The imgcache sweep loop (1), plus a short goroutine per cap change.
-7. The thumbnail worker pool (started lazily on the first thumbnail).
-8. Short-lived job goroutines: the backup export, a filter apply, an auto-read run.
-9. Main, in `superviseServe`, selecting on the listener error and `ctx.Done()` (the signal watcher).
+6. The favicon finder (1), one lookup at a time (§4.11).
+7. The imgcache sweep loop (1), plus a short goroutine per cap change.
+8. The thumbnail worker pool (started lazily on the first thumbnail).
+9. Short-lived job goroutines: the backup export, a filter apply, an auto-read run.
+10. Main, in `superviseServe`, selecting on the listener error and `ctx.Done()` (the signal watcher).
 
 **Synchronization inventory:**
 

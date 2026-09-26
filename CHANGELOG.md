@@ -6,6 +6,10 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Feed icons: a background favicon finder now fills the icon store that the web UI's feed list and article rows, and the Reader API `iconUrl` for sync apps, already read. After a feed's first successful fetch, then at most weekly and again whenever its site address changes, it looks for the site's `<link rel="icon">`, `shortcut icon` or `apple-touch-icon` (preferring 32 to 180 px), falling back to `/favicon.ico`. It runs one lookup at a time, off the fetch path and not during a refresh-all or import, through the same address guard as feed fetches (a feed allowed to reach a private network lets its icon lookup reach it too, no other). Only PNG, JPEG, GIF, WebP and ICO images up to 256 KiB are kept, identified by their bytes; SVG and HTML are refused. A failed lookup retries after 6 hours, backing off to weekly, and never counts against the feed's health. Adds schema migration 0006 (`feed_icon_checks`).
+
 ## [0.3.0-alpha.1] - 2026-09-26
 
 First public build. Adds the Blue Oak license and third-party notices, the container health check and hardened
