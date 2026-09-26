@@ -88,8 +88,11 @@ func PublisherHintSeconds(honor bool, ttlMinutes int, h http.Header, now time.Ti
 		hint = int64(ttlMinutes) * 60
 	}
 	cc := strings.ToLower(h.Get("Cache-Control"))
-	if strings.Contains(cc, "no-cache") || strings.Contains(cc, "no-store") {
-		return hint
+	for _, part := range strings.Split(cc, ",") {
+		tok, _, _ := strings.Cut(strings.TrimSpace(part), "=")
+		if tok == "no-cache" || tok == "no-store" || tok == "private" {
+			return hint
+		}
 	}
 	if ma, ok := directive(cc, "s-maxage"); ok {
 		hint = max(hint, ma-headerAge(h))

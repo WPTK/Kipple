@@ -93,6 +93,9 @@ func TestPublisherHint(t *testing.T) {
 		h("Cache-Control", "max-age=600", "Expires", t0.Add(2*time.Hour).Format(http.TimeFormat)), t0), "the max of the three")
 	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Expires", "0"), t0), "Expires: 0 is no hint")
 	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Cache-Control", "no-cache, max-age=3600"), t0))
+	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Cache-Control", "private, max-age=3600"), t0), "private")
+	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Cache-Control", "max-age=3600, private"), t0), "private")
+	require.EqualValues(t, 5400, PublisherHintSeconds(true, 90, h("Cache-Control", "private, max-age=9999"), t0), "private keeps the rss ttl")
 	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Cache-Control", "max-age=10", "Age", "50"), t0), "never negative")
 }
 
@@ -157,4 +160,17 @@ func TestDecideRedirect(t *testing.T) {
 
 	// final == url clears
 	require.Equal(t, RedirectClear, DecideRedirect(feed, RedirectState{To: final}, "HTTPS://A.example:443/feed", nil).Action)
+}
+
+func TestClassifyTooLargeNamesTheRealLimit(t *testing.T) {
+	for limit, want := range map[int64]string{
+		10 << 20:  "response larger than 10 MiB",
+		3 << 20:   "response larger than 3 MiB",
+		512 << 10: "response larger than 512 KiB",
+		1000:      "response larger than 1000 bytes",
+	} {
+		class, msg := Classify(&http.MaxBytesError{Limit: limit})
+		require.Equal(t, ClassTooLarge, class)
+		require.Equal(t, want, msg)
+	}
 }

@@ -182,7 +182,8 @@ type Scheduler struct {
 	ftq    *ftQueue // bounded background extraction queue, drained by the pool
 	ftWG   sync.WaitGroup
 
-	failCommit func(feedID int64) error // test hook: replaces the fetch commit
+	failCommit    func(feedID int64) error                                                                       // test hook: replaces the fetch commit
+	commitFetchFn func(ctx context.Context, res *fetch.Result, perChunk time.Duration) (store.CommitInfo, error) // test hook
 
 	fetchCtx    context.Context
 	cancelFetch context.CancelFunc
@@ -194,12 +195,16 @@ type Scheduler struct {
 	perHost   map[string]int
 	hostUntil map[string]time.Time
 	notBefore map[int64]time.Time // feeds whose commit failed: not redispatched before this
-	pending   []*flight
-	runs      map[string]*Run
-	running   int
-	live      int
-	stopping  bool
-	lastRunID int64
+	// commitFails counts consecutive commit failures per feed (in memory only:
+	// a failed write leaves the persisted counter untouched). Reset by a commit
+	// that succeeds; drives the notBefore backoff.
+	commitFails map[int64]int
+	pending     []*flight
+	runs        map[string]*Run
+	running     int
+	live        int
+	stopping    bool
+	lastRunID   int64
 }
 
 // New builds a scheduler. Call Start to run it and Stop to shut it down.
@@ -272,11 +277,12 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 		stopped:    make(chan struct{}),
 		syncCh:     make(chan func()),
 		fetchCtx:   ctx, cancelFetch: cancel,
-		flights:   map[int64]*flight{},
-		perHost:   map[string]int{},
-		hostUntil: map[string]time.Time{},
-		notBefore: map[int64]time.Time{},
-		runs:      map[string]*Run{},
+		flights:     map[int64]*flight{},
+		perHost:     map[string]int{},
+		hostUntil:   map[string]time.Time{},
+		notBefore:   map[int64]time.Time{},
+		commitFails: map[int64]int{},
+		runs:        map[string]*Run{},
 	}
 }
 

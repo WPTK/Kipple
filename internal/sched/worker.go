@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/store"
 )
 
 const commitTimeout = 10 * time.Second
@@ -13,6 +14,14 @@ const commitTimeout = 10 * time.Second
 // commitCtx is a fresh commit context, detached from the fetch context.
 func (s *Scheduler) commitCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(s.fetchCtx), s.opt.CommitTimeout)
+}
+
+// commitFetch runs the item commit with a per-chunk budget of CommitTimeout.
+func (s *Scheduler) commitFetch(ctx context.Context, res *fetch.Result) (store.CommitInfo, error) {
+	if s.commitFetchFn != nil {
+		return s.commitFetchFn(ctx, res, s.opt.CommitTimeout)
+	}
+	return s.db.CommitFetchTimeout(ctx, res, s.opt.CommitTimeout)
 }
 
 // worker ranges over the job queue until Stop closes it (design §4.3). It holds
@@ -70,15 +79,16 @@ func (s *Scheduler) exec(f *flight) (out result) {
 		out.retry, out.nextFetch = res.RetryAfter, res.NextFetchAt
 
 		// A completed fetch commits even when shutdown starts now: the commit
-		// context is detached from the fetch context and gets its own deadline,
-		// started here so a slow fetch does not eat the commit's budget.
-		cctx, cancel := s.commitCtx()
-		defer cancel()
+		// context is detached from the fetch context. CommitFetch bounds each
+		// chunk itself (store.CommitFetch: ctx carries no deadline), so a feed
+		// committed in several chunks gets a full CommitTimeout per chunk rather
+		// than one shared window. The small follow-up writes get their own
+		// bounded context, started after the item commit.
 		var err error
 		if s.failCommit != nil {
 			err = s.failCommit(f.snap.ID)
 		} else if res.Success() {
-			ci, cerr := s.db.CommitFetch(cctx, res)
+			ci, cerr := s.commitFetch(context.WithoutCancel(s.fetchCtx), res)
 			err = cerr
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
 			out.migrated = ci.Migrated
@@ -88,6 +98,8 @@ func (s *Scheduler) exec(f *flight) (out result) {
 				s.queueFulltext(f.snap.ID, cand, ci.NewIDs)
 			}
 			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil && !ci.Stale {
+				cctx, cancel := s.commitCtx()
+				defer cancel()
 				moved := ""
 				if ci.Migrated {
 					moved = res.Redirect.To
@@ -97,6 +109,8 @@ func (s *Scheduler) exec(f *flight) (out result) {
 				}
 			}
 		} else {
+			cctx, cancel := s.commitCtx()
+			defer cancel()
 			err = s.db.CommitFetchError(cctx, res)
 			out.gone = res.Gone && err == nil
 		}

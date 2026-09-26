@@ -172,6 +172,7 @@ Phase 2 (reading UI backend) so far.
 
 ### Fixed
 
+- Fetch pipeline (review of phase 1): a large feed committed in several chunks no longer shares one 10 s window across the chunks (each chunk gets its own budget); the backoff after a failed commit now escalates (in-memory count, capped like any failure backoff) instead of retrying at the first step forever; a UTF-32LE BOM is no longer mistaken for UTF-16LE (all UTF-32 and UTF-16 BOMs are decoded); the "response too large" message names the configured limit rather than always 10 MiB; `Cache-Control: private` now contributes no publisher refresh hint, as documented; the charset fixture generator no longer carries two no-op string replacements (fixtures unchanged).
 - Undo of a mark-read after opening an article on a phone now brings the row back; a saved "shortcuts off" from a touch device no longer blocks the hardware-keyboard auto-enable.
 - Press-and-hold drag on feed rows works on touch (needs real-device confirmation); keyboard and button reorder keep focus; a focused Settings switch stays in view.
 - Favorites keep syncing after a rejected save (latest save wins; a failure reverts only favorites); column resizing is smooth, saves on release, and can't squeeze the article below 320 px; Editorial's row-height estimate follows the list width.

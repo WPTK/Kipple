@@ -849,7 +849,7 @@ doneCh <- workerExit
   - **Bounds are never silent.** At most 20 (`FulltextMaxItems`) newest new items per fetch are queued, and no more than the queue has room for. While `fetch.fulltext_all` is on every feed feeds the pool, so a refresh-all would overflow those limits; then the per-fetch cap is 50 (`FulltextMaxItemsAll`) and the queue bound 2000 (`FulltextQueueAll`), never below the plain ones. Concurrency does not scale: still 4 overall and 2 per host, so a big refresh just takes longer to extract (the setting's help text says so), and what is beyond the limits is left to on-demand. The fetch_log note records `fulltext_picked: n` (chosen before the commit, so an upper bound on what was queued) and `fulltext_deferred: m`. Anything picked but not queued (a stale commit, a filled queue, shutdown, a failed id lookup) is logged with the real counts at warn or info level and left to on-demand. The lookup of the new items' ids after the commit has its own 5 s deadline, so a slow commit cannot starve it. Deferred items are extracted on demand when opened. Outcomes are logged as they finish (failures at info level). There is no per-run `ok/tried` note any more, since the fetch is already committed and logged by then.
   - **Stored with a small write.** Each result is one `SaveFulltextIfURL` write (one `WithWrite`, not the bulk commit), applied only if the item still exists with the queued URL and its effective full-text mode (§7.5: `COALESCE(items.fulltext_mode, CASE WHEN fetch.fulltext_all THEN 1 ELSE feeds.fulltext END)`) is still 1, checked inside the write transaction. A result for an item whose full text was switched off meanwhile is dropped and not announced. Work for an item that was trimmed or deleted, whose URL changed, that already has a row, or whose full-text setting was turned off is skipped, so editing or deleting the feed meanwhile is safe. Finished items (text or error) are announced with one coalesced `fulltext.ready` event (§7.3). Until then the Reader API and the UI serve the feed's own content, because there is no `item_fulltext` row.
   - **Shutdown and restarts.** Stop cancels the fetch context: running extractions end, queued ones are dropped (logged), the pool goroutines are joined before the scheduler reports stopped, and a cut-off extraction is not stored as a failure. The queue is in memory only: items queued at a crash or restart get no extraction at ingest and are extracted on demand when opened (§7.5).
-- A fetch that completed before shutdown still commits, under `WithoutCancel` with its own 10 s deadline, so the fetch_log row is not lost.
+- A fetch that completed before shutdown still commits, under `WithoutCancel`, each commit chunk with its own 10 s budget, so the fetch_log row is not lost.
 - Fetches of more than 500 new items (only realistic on a first fetch) are committed in chunks of 250. The gate is taken and released for each chunk. The trim and the feed bookkeeping run in the last chunk. A crash between chunks is safe. The stale-URL check (a URL PATCH that landed while the fetch was in flight) runs per chunk: if it fires after earlier chunks committed, the remaining chunks, the trim, the bookkeeping and the log row are dropped, the earlier chunks' items stay, and `CommitInfo` reports `Stale` with exactly the items that did commit, so the scheduler still queues full text for them. The remembered browser-UA flag (`SetFeedUAFallback`) is bound to the URL the fetch used (or the permanent-redirect target that same commit migrated to), so a URL PATCH cannot mark a URL that was never tried.
 - Job kinds that skip HTTP are `skip` (writes a `skipped` fetch_log row) and `trim_only` (the retention transaction only). Both go through the same gate.
 
@@ -869,7 +869,7 @@ doneCh <- workerExit
   - `Accept-Encoding` is **not** set, so Go negotiates gzip transparently.
 - **Body.** `http.MaxBytesReader(nil, body, 10 MiB)` caps the decoded size.
 - **Charset** (gofeed only honours the XML declaration):
-  1. A BOM wins.
+  1. A BOM wins: UTF-8, UTF-32 (LE `FF FE 00 00`, BE `00 00 FE FF`, checked before UTF-16 because the LE one begins with the UTF-16LE BOM), UTF-16.
   2. Else the XML declaration's encoding, else the HTTP charset, else UTF-8.
   3. If UTF-8 was chosen but the bytes are not valid UTF-8, retry with the HTTP charset, then `windows-1252`.
   4. Decode with `charset.NewReaderLabel`, rewrite the `encoding=` attribute to `utf-8`, and compute `sha256` of the decoded bytes: this is `body_hash`.
@@ -940,11 +940,13 @@ current_delay_s = d
 - At the default of 30 min: n=1 → 30 m, then 1 h, 2 h, 4 h, 8 h, 16 h, and 24 h from n=7 on, each ×0.85–1.15.
 - At a 7-day interval: every failure retries after 7 days (the cap is `max(86400, interval_s)`), so a failing feed never polls more often than a healthy one.
 - A success resets the count. A feed is never auto-disabled except on 410.
+- When the commit itself fails (the database write errors), nothing is persisted, so `consecutive_failures` does not move. The scheduler keeps an in-memory count of consecutive commit failures per feed and backs the feed off with the same schedule using `n = consecutive_failures + commit_failures` (same cap, so a permanently failing database costs at most one retry per feed per 24 h or per interval). A commit that succeeds clears the count.
 
 On success:
 
 ```
 hint_s        = fetch.honor_publisher_ttl ? max(RSS <ttl>×60, Cache-Control max-age − Age, Expires − now, 0) : 0
+              (a response with Cache-Control no-cache, no-store or private contributes only the RSS <ttl>)
 d             = round(max(interval_s, min(hint_s, 86400)) × U(0.95, 1.05))
 next_fetch_at = now + d;  ttl_hint_s = hint_s;  current_delay_s = d
 ```
@@ -1109,7 +1111,7 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and enqueues 
      - cancel the fetch context so in-flight HTTP aborts;
      - close `jobs`.
 
-     Workers finish the job in hand: a completed fetch commits under `WithoutCancel` with a 10 s deadline, and an aborted one writes nothing. Each worker then sends `workerExit`.
+     Workers finish the job in hand: a completed fetch commits under `WithoutCancel` (the context carries no deadline; each chunk of a large feed gets its own 10 s budget), and an aborted one writes nothing. Each worker then sends `workerExit`.
   2. `hub.Close()` closes every subscriber channel, so SSE handlers return immediately.
   3. `http.Server.Shutdown` with a 10 s context. No handler waits on the scheduler any more.
   4. `<-sched.Stopped()`. The dispatcher keeps receiving on `doneCh` until `live == 0`, so no worker can block on its final send.

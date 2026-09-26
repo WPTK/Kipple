@@ -248,6 +248,43 @@ func TestDecodeBodyCharsetEdgeCases(t *testing.T) {
 		require.Contains(t, string(d.Body), "café")
 	})
 
+	t.Run("every UTF-16 and UTF-32 BOM decodes", func(t *testing.T) {
+		const doc = `<?xml version="1.0"?><rss><t>café €</t></rss>`
+		rs := []rune(doc)
+		build := func(bom []byte, size int, be bool) []byte {
+			out := append([]byte{}, bom...)
+			for _, r := range rs {
+				var u []byte
+				if size == 4 {
+					u = []byte{byte(r >> 24), byte(r >> 16), byte(r >> 8), byte(r)}
+				} else {
+					u = []byte{byte(r >> 8), byte(r)}
+				}
+				if !be {
+					for i, j := 0, len(u)-1; i < j; i, j = i+1, j-1 {
+						u[i], u[j] = u[j], u[i]
+					}
+				}
+				out = append(out, u...)
+			}
+			return out
+		}
+		cases := []struct {
+			name string
+			body []byte
+		}{
+			{"utf-16le", build([]byte{0xFF, 0xFE}, 2, false)},
+			{"utf-16be", build([]byte{0xFE, 0xFF}, 2, true)},
+			{"utf-32le", build([]byte{0xFF, 0xFE, 0x00, 0x00}, 4, false)},
+			{"utf-32be", build([]byte{0x00, 0x00, 0xFE, 0xFF}, 4, true)},
+		}
+		for _, c := range cases {
+			d := DecodeBody(c.body, "")
+			require.Equal(t, c.name, d.Source, c.name)
+			require.Contains(t, string(d.Body), "café €", c.name)
+		}
+	})
+
 	t.Run("invalid UTF-8 after a UTF-8 BOM falls back to windows-1252", func(t *testing.T) {
 		b := append([]byte{0xEF, 0xBB, 0xBF}, []byte("<rss><t>caf\xe9</t></rss>")...)
 		d := DecodeBody(b, "")

@@ -170,6 +170,10 @@ func forcesFetch(f *flight) bool {
 	return f.snap.Full || f.snap.Trigger == fetch.TriggerSubscribe
 }
 
+// maxCommitFailCount stops the in-memory counter growing without bound; well
+// past the point where the backoff has reached its cap.
+const maxCommitFailCount = 64
+
 // handleDone processes one worker result (design §4.2 steps 1-6).
 func (s *Scheduler) handleDone(r result) {
 	if r.exit {
@@ -215,13 +219,20 @@ func (s *Scheduler) handleDone(r result) {
 	if r.commitFailed {
 		// Nothing was written, so next_fetch_at is still in the past and the feed
 		// would be redispatched every tick. Back it off in memory instead.
-		nb, _ := fetch.NextOnFailure(now, f.snap.IntervalS, f.snap.ConsecutiveFailures+1, 0, time.Time{}, s.opt.Rand)
+		// The persisted failure counter does not move when the write itself
+		// fails, so escalate on an in-memory count of consecutive commit
+		// failures on top of it. FailureDelaySeconds caps the delay (24 h, or the
+		// feed's interval when longer), which bounds retries on a dead database.
+		s.commitFails[r.feedID] = min(s.commitFails[r.feedID]+1, maxCommitFailCount)
+		n := f.snap.ConsecutiveFailures + s.commitFails[r.feedID]
+		nb, _ := fetch.NextOnFailure(now, f.snap.IntervalS, n, 0, time.Time{}, s.opt.Rand)
 		if r.nextFetch.After(nb) {
 			nb = r.nextFetch
 		}
 		s.notBefore[r.feedID] = nb
 	} else if f.kind == kindFetch {
 		delete(s.notBefore, r.feedID)
+		delete(s.commitFails, r.feedID)
 	}
 
 	// Ids are strings in every JSON body (design §7).

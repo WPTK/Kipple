@@ -1087,3 +1087,49 @@ func TestStaleFetchDoesNotLearnBrowserUA(t *testing.T) {
 	r.waitEvents("fetch.done", 1)
 	require.Zero(t, r.num("SELECT ua_fallback FROM feeds WHERE id = ?", id.Load()))
 }
+
+func TestCommitFailureBackoffEscalatesAndCaps(t *testing.T) {
+	r := newRig(t, Options{})
+	r.s.inDispatcher(func() { r.s.failCommit = func(int64) error { return fmt.Errorf("injected commit failure") } })
+	srv := newSrv(t, serveOK)
+	id := r.add(srv.URL+"/f", nil)
+
+	var delays []time.Duration
+	for i := 1; i <= 10; i++ {
+		r.s.Wake()
+		r.waitEvents("fetch.done", i)
+		var nb time.Time
+		r.s.inDispatcher(func() { nb = r.s.notBefore[id] })
+		delays = append(delays, nb.Sub(r.clk.Now()))
+		r.clk.Set(nb.Add(time.Second))
+	}
+	for i := 1; i < 6; i++ {
+		require.Greater(t, delays[i], delays[i-1], "delay %d grows", i)
+	}
+	require.InDelta(t, (24 * time.Hour).Seconds(), delays[9].Seconds(), 24*3600*0.16, "capped near 24 h")
+	require.LessOrEqual(t, delays[9], time.Duration(float64(24*time.Hour)*1.16))
+	require.InDelta(t, delays[8].Seconds(), delays[9].Seconds(), 24*3600*0.32, "stays at the cap")
+}
+
+func TestCommitFetchGetsNoDeadlineAndPerChunkBudget(t *testing.T) {
+	r := newRig(t, Options{CommitTimeout: 7 * time.Second})
+	type seen struct {
+		deadline bool
+		perChunk time.Duration
+	}
+	got := make(chan seen, 4)
+	r.s.inDispatcher(func() {
+		r.s.commitFetchFn = func(ctx context.Context, _ *fetch.Result, perChunk time.Duration) (store.CommitInfo, error) {
+			_, has := ctx.Deadline()
+			got <- seen{has, perChunk}
+			return store.CommitInfo{}, nil
+		}
+	})
+	srv := newSrv(t, serveOK)
+	r.add(srv.URL+"/f", nil)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	s := <-got
+	require.False(t, s.deadline, "chunks must not share a deadline on ctx")
+	require.Equal(t, 7*time.Second, s.perChunk)
+}
