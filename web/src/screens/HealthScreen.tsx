@@ -19,7 +19,7 @@ import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { FeedEditor } from "./feeds/FeedEditor";
-import { StatusChip } from "./FeedsScreen";
+import { StatusChip } from "./StatusChip";
 
 const menuItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
 

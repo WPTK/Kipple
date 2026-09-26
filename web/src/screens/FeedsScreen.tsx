@@ -1,21 +1,24 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
-import { ArrowDown, ArrowUp, CircleAlert, CircleCheck, CirclePause, FolderPlus, HeartPulse, MoreVertical, Pencil, Plus, Upload, Download } from "lucide-react";
+import { ArrowDown, ArrowUp, FolderPlus, HeartPulse, MoreVertical, Pencil, Plus, Upload, Download } from "lucide-react";
 import { createFolder, deleteFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { errorMessage } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import type { Feed, Folder } from "@/api/types";
 import { LAYOUT_IDS, LAYOUT_LABELS, setLayoutOverride, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
-import { statusInfo } from "@/lib/feedStatus";
 import { listTo } from "@/lib/routes";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { toast } from "@/shell/toasts";
-import { AddFeedDialog } from "./feeds/AddFeedDialog";
-import { FeedEditor } from "./feeds/FeedEditor";
-import { OpmlImportDialog } from "./feeds/OpmlDialog";
+import { FirstRun } from "./FirstRun";
+import { StatusChip } from "./StatusChip";
+
+// The dialogs load when first opened, not with the Feeds screen.
+const AddFeedDialog = lazy(() => import("./feeds/AddFeedDialog").then((m) => ({ default: m.AddFeedDialog })));
+const FeedEditor = lazy(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
+const OpmlImportDialog = lazy(() => import("./feeds/OpmlDialog").then((m) => ({ default: m.OpmlImportDialog })));
 
 const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 const menuItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
@@ -26,18 +29,6 @@ function Badge({ n }: { n: number }) {
     <span className="ml-auto shrink-0 rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-fg2 tabular-nums">
       <span className="sr-only-live">Unread </span>
       {n > 9999 ? "9999+" : n}
-    </span>
-  );
-}
-
-/** Icon and text together: status is never color alone. */
-export function StatusChip({ status }: { status: string }) {
-  const s = statusInfo(status);
-  const Icon = s.tone === "ok" ? CircleCheck : s.tone === "muted" ? CirclePause : CircleAlert;
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs ${s.tone === "bad" ? "font-semibold text-danger" : "text-fg2"}`}>
-      <Icon aria-hidden="true" className="size-4" />
-      {s.label}
     </span>
   );
 }
@@ -148,25 +139,6 @@ function move<T>(list: T[], i: number, d: -1 | 1): T[] {
   const [x] = out.splice(i, 1);
   out.splice(i + d, 0, x as T);
   return out;
-}
-
-export function FirstRun({ onAdd, onImport }: { onAdd: () => void; onImport: () => void }) {
-  return (
-    <div role="status" className="mx-auto flex max-w-sm flex-col items-center gap-3 px-6 py-16 text-center">
-      <h2 className="text-lg font-semibold">No feeds yet</h2>
-      <p className="text-sm text-fg2">Add a feed by its address, or import an OPML file from another reader.</p>
-      <div className="flex flex-wrap justify-center gap-2">
-        <Button variant="solid" onClick={onAdd}>
-          <Plus aria-hidden="true" />
-          Add your first feed
-        </Button>
-        <Button onClick={onImport}>
-          <Upload aria-hidden="true" />
-          Import OPML
-        </Button>
-      </div>
-    </div>
-  );
 }
 
 /** Feeds: where you open a folder or feed, and where feeds and folders are added, edited, ordered and removed. */
@@ -348,9 +320,11 @@ export function FeedsScreen() {
           </>
         ) : null}
       </div>
+      <Suspense fallback={null}>
       {adding ? <AddFeedDialog onClose={() => setAdding(false)} onOpenFeed={(id) => { setAdding(false); navigate(listTo({ view: "unread", feed: id })); }} /> : null}
       {importing ? <OpmlImportDialog onClose={() => setImporting(false)} /> : null}
       {editing ? <FeedEditor feed={editing} onClose={() => setEditing(null)} /> : null}
+      </Suspense>
       {folderDialog ? <FolderDialogs dialog={folderDialog} onClose={() => setFolderDialog(null)} /> : null}
     </div>
   );

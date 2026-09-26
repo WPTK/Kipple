@@ -22,7 +22,7 @@ import { useHotkeys, type Handlers } from "@/lib/keys";
 import { useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { articleTo } from "@/lib/routes";
-import { FirstRun } from "./FeedsScreen";
+import { FirstRun } from "./FirstRun";
 import { announce, toast } from "@/shell/toasts";
 
 // Scroll and selection memory per list, so "back" lands where you were

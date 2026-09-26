@@ -1,18 +1,25 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { ApiError, authStore } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import { useStore } from "@/lib/store";
-import { FeedsScreen } from "@/screens/FeedsScreen";
-import { HealthScreen } from "@/screens/HealthScreen";
 import { LoginScreen } from "@/screens/LoginScreen";
 import { ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
-import { SettingsScreen } from "@/screens/SettingsScreen";
 import { AppShell } from "@/shell/AppShell";
 import { StatusBlock } from "@/screens/ListPane";
 import { Button } from "@/ui/button";
+import { Skeleton } from "@/ui/kit";
+
+// Settings, Feeds and Health load on first visit; the reader and list stay in the main chunk.
+const FeedsScreen = lazy(() => import("@/screens/FeedsScreen").then((m) => ({ default: m.FeedsScreen })));
+const HealthScreen = lazy(() => import("@/screens/HealthScreen").then((m) => ({ default: m.HealthScreen })));
+const SettingsScreen = lazy(() => import("@/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen })));
+
+function Lazy({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<Skeleton label="Loading screen" />}>{children}</Suspense>;
+}
 
 export function makeQueryClient(opts: { retry?: boolean } = {}): QueryClient {
   return new QueryClient({
@@ -58,10 +65,10 @@ function Gate() {
           <Route path="l/:view" />
           <Route path="i/:id" />
         </Route>
-        <Route path="feeds" element={<FeedsScreen />} />
-        <Route path="health" element={<HealthScreen />} />
+        <Route path="feeds" element={<Lazy><FeedsScreen /></Lazy>} />
+        <Route path="health" element={<Lazy><HealthScreen /></Lazy>} />
         <Route path="search" element={<SearchScreen />} />
-        <Route path="settings" element={<SettingsScreen />} />
+        <Route path="settings" element={<Lazy><SettingsScreen /></Lazy>} />
         <Route path="*" element={<Navigate to="/l/unread" replace />} />
       </Route>
     </Routes>
