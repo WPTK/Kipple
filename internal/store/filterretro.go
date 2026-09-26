@@ -192,13 +192,14 @@ func (d *DB) retroSet(ctx context.Context, r filter.Rule) (*filter.Set, filter.R
 		if f.ID != r.ID && f.Enabled {
 			fr := f.Rule()
 			rules = append(rules, fr)
-			if fr.Action == filter.ActionStar {
+			// A saved star rule that no longer compiles is skipped at ingest, so it is skipped here too.
+			if fr.Action == filter.ActionStar && filter.Validate(fr) == nil {
 				eval = append(eval, fr)
 			}
 		}
 	}
 	rules = append(rules, r)
-	if err := validateSet(rules); err != nil {
+	if err := validateEdit(rules, len(rules)-1); err != nil {
 		return nil, r, retroCols{}, err
 	}
 	set, err := filter.NewSet(eval)

@@ -569,6 +569,11 @@ func (s *Server) startApply(id int64, includeRead bool) (*applyRun, error) {
 		if errors.Is(cause, errApplyCancelled) {
 			return nil, errApplyCancelled
 		}
+		if s.apply.ctx.Err() != nil {
+			// A shutdown began during the count: the run could not start, like any other refused
+			// start (createFilter answers "created, apply busy" instead of a 500 for a committed rule).
+			return nil, errApplyBusy
+		}
 		return nil, err
 	}
 	s.apply.mu.Lock()

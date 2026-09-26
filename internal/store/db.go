@@ -60,6 +60,12 @@ type DB struct {
 
 	holder atomic.Pointer[holder]
 
+	// maintActive is set while a long maintenance job (the FTS rebuild) owns the
+	// writer; maintGen counts such jobs. WithWrite answers ErrMaintenance instead
+	// of waiting out its deadline behind one.
+	maintActive atomic.Bool
+	maintGen    atomic.Uint64
+
 	// ftAll caches fetch.fulltext_all; SetSettings invalidates it.
 	ftAll boolCache
 	// filterGen counts filter writes; fcache holds the rule set compiled at one generation.

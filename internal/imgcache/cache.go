@@ -735,7 +735,12 @@ func (c *Cache) evictLocked(ctx context.Context, target int64) error {
 	if err := c.flushLocked(); err != nil {
 		return err
 	}
-	target = max(target-c.tmpBytes.Load(), 0) // the downloads in progress are not evictable: make room for them
+	// The downloads in progress are not evictable: make room for them, but never
+	// below half the target. At a small cap a few large downloads in flight would
+	// otherwise drive the target to 0 and one eviction would empty the cache for
+	// files that may still fail or be refused; the cap is enforced again when
+	// they are committed.
+	target = max(target-c.tmpBytes.Load(), target/2)
 	for c.charged.Load() > target {
 		if err := ctx.Err(); err != nil {
 			return err

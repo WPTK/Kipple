@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -571,6 +572,14 @@ func (c *call) serverError(what string, err error) {
 	if errors.Is(err, store.ErrBadFolderName) {
 		c.a.log.Warn("greader: "+what+": folder name refused", "err", err, "path", c.path, "ua", c.r.UserAgent())
 		c.ok()
+		return
+	}
+	if errors.Is(err, store.ErrMaintenance) {
+		// A search index rebuild owns the writer for up to 45 s. Reader clients
+		// retry a 503 (edit-tag and friends are queued and sent again).
+		c.a.log.Info("greader: "+what+": deferred by maintenance", "err", err, "path", c.path)
+		c.w.Header().Set("Retry-After", strconv.Itoa(int(store.MaintenanceRetryAfter/time.Second)))
+		c.text(http.StatusServiceUnavailable, "Service Unavailable")
 		return
 	}
 	c.a.log.Error("greader: "+what, "err", err, "path", c.path)

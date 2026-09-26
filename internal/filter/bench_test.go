@@ -120,7 +120,7 @@ func BenchmarkEvaluate50Rules(b *testing.B) {
 // 5 ms per item.
 func BenchmarkEvaluate25RegexWorstCase(b *testing.B) {
 	var rs []Rule
-	for i := 0; i < MaxRegexRules; i++ {
+	for i := 0; i < 25; i++ {
 		x := NewRule(ScopeGlobal, KindRegex, ActionMute, `(?:sponsored|giveaway|coupon)\s+\w+`, `\b`+vocab[i]+`\d{3}\b`, `[a-z]+@[a-z]+\.com`, `(.*b){3}zzz`, `(?:foo|bar|baz|qux)+\d`)
 		x.ID = int64(i + 1)
 		x.Fields = []Field{FieldContent} // adding the title would pass MaxRegexCost
@@ -166,7 +166,9 @@ func TestThroughputCeiling10kItems50Rules(t *testing.T) {
 func TestRegexWorstCaseCeiling(t *testing.T) {
 	skipTimingUnderRace(t)
 	var rs []Rule
-	for i := 0; i < MaxRegexRules; i++ {
+	// 25 heavy rules (the count cap before it was raised for keyword rules; the set cost cap, not the
+	// count, bounds the worst case: TestRegexWorstCaseAtTheCostCap).
+	for i := 0; i < 25; i++ {
 		x := NewRule(ScopeGlobal, KindRegex, ActionMute, `(?:sponsored|giveaway|coupon)\s+\w+`, `\b`+vocab[i]+`\d{3}\b`, `[a-z]+@[a-z]+\.com`, `(.*b){3}zzz`, `(?:foo|bar|baz|qux)+\d`)
 		x.ID = int64(i + 1)
 		x.Fields = []Field{FieldContent} // adding the title would pass MaxRegexCost

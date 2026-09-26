@@ -353,14 +353,30 @@ func (d *DB) Unsubscribe(ctx context.Context, refs []FeedRef) (feedIDs []int64, 
 // UnsubscribeSkipped is Unsubscribe that also returns the ids it refused to
 // delete (the archive feed while it still holds starred items).
 func (d *DB) UnsubscribeSkipped(ctx context.Context, refs []FeedRef) (feedIDs, skipped []int64, err error) {
-	// Empty each feed in bounded batches first (purgeFeedItems leaves starred
-	// items and the archive feed alone), so the transaction below only moves
-	// starred items and removes feed rows.
-	for _, ref := range refs {
-		id, err := resolveFeed(ctx, d.Reader(), ref)
-		if err != nil {
-			return nil, nil, err
+	// Mark every feed for deletion in one short transaction first (never fetched
+	// again, see deletingURLPrefix; refs are resolved there, before a URL ref's
+	// feed has its URL moved), then empty each in bounded batches
+	// (purgeFeedItems leaves starred items and the archive feed alone), so the
+	// transaction below only moves starred items and removes feed rows. An
+	// interruption leaves marked feeds that the next unsubscribe (or
+	// ResumeFeedDeletes) finishes.
+	var ids []int64
+	now := d.clock.Now().Unix()
+	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		ids = ids[:0]
+		for _, ref := range refs {
+			id, err := resolveFeed(ctx, tx, ref)
+			if err != nil {
+				return err
+			}
+			ids = append(ids, id)
 		}
+		return markFeedsDeleting(ctx, tx, ids, now)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, id := range ids {
 		if id != 0 {
 			if err := d.purgeFeedItems(ctx, id, true); err != nil {
 				return nil, nil, err
@@ -370,13 +386,18 @@ func (d *DB) UnsubscribeSkipped(ctx context.Context, refs []FeedRef) (feedIDs, s
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		feedIDs, skipped = nil, nil
 		var archiveID int64
-		for _, ref := range refs {
-			id, err := resolveFeed(ctx, tx, ref)
-			if err != nil {
+		seen := map[int64]bool{}
+		for _, id := range ids {
+			if id == 0 || seen[id] {
+				continue
+			}
+			seen[id] = true
+			var n int
+			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ?", id).Scan(&n); err != nil {
 				return err
 			}
-			if id == 0 {
-				continue
+			if n == 0 {
+				continue // removed meanwhile
 			}
 			var reason sql.NullString
 			if err := tx.QueryRowContext(ctx, "SELECT disabled_reason FROM feeds WHERE id = ?", id).Scan(&reason); err != nil {

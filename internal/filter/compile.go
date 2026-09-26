@@ -43,6 +43,9 @@ func (c *Compiled) Rule() Rule {
 	return r
 }
 
+// Cost is a regex rule's worst-case evaluation cost (see MaxRegexCost); 0 for a text rule.
+func (c *Compiled) Cost() int { return c.cost }
+
 // CompileRule validates and compiles one rule. The error, when not nil, is an *Error.
 func CompileRule(r Rule) (*Compiled, error) {
 	c, err := compileRule(r)
@@ -278,18 +281,23 @@ type Set struct {
 }
 
 // NewSet validates and compiles rules, enforces the set-wide limits and orders them by id.
-// Disabled rules are validated and kept (Len counts them) but never evaluated and do not
-// count toward the regex and term caps. The error, when not nil, is a *SetError.
+// Disabled rules are compiled and kept when they compile (Len counts them) but never evaluated
+// and do not count toward the regex and term caps; a disabled rule that no longer compiles (a
+// stored rule from an older version's limits) is left out rather than failing the set. The
+// error, when not nil, is a *SetError.
 func NewSet(rules []Rule) (*Set, error) {
 	if len(rules) > MaxRules {
 		return nil, &SetError{Index: MaxRules, Err: bad("rules", "more than %d filters", MaxRules)}
 	}
 	ids := map[int64]int{}
 	s := &Set{}
-	regexN, termN, cost := 0, 0, 0
+	var tally setTally
 	for i, r := range rules {
 		c, err := compileRule(r)
 		if err != nil {
+			if !r.Enabled {
+				continue
+			}
 			return nil, &SetError{Index: i, RuleID: r.ID, Err: err}
 		}
 		if j, dup := ids[r.ID]; dup && r.ID != 0 {
@@ -297,26 +305,111 @@ func NewSet(rules []Rule) (*Set, error) {
 		}
 		ids[r.ID] = i
 		if r.Enabled {
-			if r.Kind == KindRegex {
-				regexN++
-				if regexN > MaxRegexRules {
-					return nil, &SetError{Index: i, RuleID: r.ID, Err: bad("kind", "more than %d enabled regex filters", MaxRegexRules)}
-				}
-				cost += c.cost
-				if cost > MaxRegexCost {
-					return nil, &SetError{Index: i, RuleID: r.ID, Err: bad("terms", "the enabled regex filters together are too expensive to run on every article (cost %d, the limit is %d): use fewer or simpler patterns, fewer fields, or fewer regex filters", cost, MaxRegexCost)}
-				}
-			} else {
-				termN += len(r.Terms)
-				if termN > MaxTextTerms {
-					return nil, &SetError{Index: i, RuleID: r.ID, Err: bad("terms", "more than %d enabled text terms in all filters", MaxTextTerms)}
-				}
+			if e := tally.add(c); e != nil {
+				return nil, &SetError{Index: i, RuleID: r.ID, Err: e}
 			}
 		}
 		s.rules = append(s.rules, c)
 	}
 	sort.SliceStable(s.rules, func(i, j int) bool { return s.rules[i].rule.ID < s.rules[j].rule.ID })
 	return s, nil
+}
+
+// setTally adds up the set-wide limits over enabled rules.
+type setTally struct{ regexN, termN, cost int }
+
+// add counts one enabled compiled rule and reports the first set-wide limit it breaks (the tally
+// is then left unchanged).
+func (t *setTally) add(c *Compiled) *Error {
+	if c.rule.Kind == KindRegex {
+		if t.regexN+1 > MaxRegexRules {
+			return bad("kind", "more than %d enabled regex filters", MaxRegexRules)
+		}
+		if t.cost+c.cost > MaxRegexSetCost {
+			return bad("terms", "the enabled regex filters together are too expensive to run on every article (cost %d, the limit is %d): use fewer or simpler patterns, fewer fields, or fewer regex filters", t.cost+c.cost, MaxRegexSetCost)
+		}
+		t.regexN++
+		t.cost += c.cost
+		return nil
+	}
+	if t.termN+len(c.rule.Terms) > MaxTextTerms {
+		return bad("terms", "more than %d enabled text terms in all filters", MaxTextTerms)
+	}
+	t.termN += len(c.rule.Terms)
+	return nil
+}
+
+// ValidateEdit checks rules[edited], the rule being created or edited, against every per-rule
+// limit, and the set-wide limits over the enabled rules. The other rules are not held to the
+// per-rule limits: one that no longer compiles (a stored rule from an older version) is left out
+// of the sums, as ingest leaves it out, and never blocks this edit. A set-wide limit is only this
+// edit's fault when the edited rule is enabled, so it is only then an error. The error, when not
+// nil, is a *SetError naming the edited rule.
+func ValidateEdit(rules []Rule, edited int) error {
+	if edited < 0 || edited >= len(rules) {
+		return &SetError{Index: edited, Err: bad("rules", "no rule at index %d", edited)}
+	}
+	r := rules[edited]
+	fail := func(e *Error) error { return &SetError{Index: edited, RuleID: r.ID, Err: e} }
+	if len(rules) > MaxRules {
+		return fail(bad("rules", "more than %d filters", MaxRules))
+	}
+	c, e := compileRule(r)
+	if e != nil {
+		return fail(e)
+	}
+	if !r.Enabled {
+		return nil
+	}
+	var tally setTally
+	for i, o := range rules {
+		if i == edited || !o.Enabled {
+			continue
+		}
+		oc, e := compileRule(o)
+		if e != nil {
+			continue
+		}
+		if tally.add(oc) != nil {
+			// The stored set is already over a set-wide limit (Sanitize disables the excess); the
+			// edited rule is then judged against what is left.
+			continue
+		}
+	}
+	if e := tally.add(c); e != nil {
+		return fail(e)
+	}
+	return nil
+}
+
+// Sanitize names the stored rules that cannot run under the current limits, by index, with the
+// reason for the user: a rule that no longer compiles on its own (enabled or not), and an enabled
+// rule that pushes the enabled rules past a set-wide limit (counted in ascending id order, so the
+// newest rules give way). The store disables them and shows the reason instead of ingest skipping
+// them silently.
+func Sanitize(rules []Rule) map[int]string {
+	out := map[int]string{}
+	order := make([]int, len(rules))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return rules[order[a]].ID < rules[order[b]].ID })
+	var tally setTally
+	for _, i := range order {
+		r := rules[i]
+		c, e := compileRule(r)
+		if e != nil {
+			out[i] = e.Field + ": " + e.Message
+			continue
+		}
+		if !r.Enabled {
+			continue
+		}
+		if e := tally.add(c); e != nil {
+			out[i] = e.Message
+		}
+	}
+	return out
 }
 
 // Len is the number of rules in the set, enabled or not.

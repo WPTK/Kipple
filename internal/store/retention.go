@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 )
 
 // trimBatch bounds the items one transaction trims (or deletes with a feed): at
@@ -196,6 +198,89 @@ func (d *DB) TrimOnly(ctx context.Context, feedID int64, trigger string) (int64,
 
 const maxInt64 = int64(^uint64(0) >> 1)
 
+// A feed deletion runs in three steps so a large feed never needs one long
+// transaction, and so an interruption can never leave a subscribed feed with its
+// history gone:
+//
+//  1. markFeedsDeleting, one short transaction, disables the feed and moves its
+//     fetch URL to deletingURLPrefix+id. The scheduler only picks enabled feeds,
+//     and a fetch already in flight finds the URL changed under it, so its commit
+//     (or error bookkeeping) is dropped as stale: nothing is fetched or stored for
+//     the feed again. The Reader API id (feed/<id>) does not change, and the old
+//     URL is free at once for a new subscription.
+//  2. purgeFeedItems empties it in bounded batches.
+//  3. removeFeed deletes the row in one short transaction.
+//
+// Interrupted anywhere (a client that gives up, a writer deadline, a restart),
+// the feed stays marked, never fetched, and deleting it again (DeleteFeed, a
+// Reader API unsubscribe) or ResumeFeedDeletes finishes the job. Without the mark
+// the scheduler would have refetched the emptied feed and stored its whole
+// document again as new unread items under new ids.
+const deletingURLPrefix = "kipple:deleting:"
+
+// markFeedsDeleting applies step 1 to ids inside tx. The archive feed (never
+// fetched) and ids that are gone are left alone; a feed already marked stays
+// marked.
+func markFeedsDeleting(ctx context.Context, tx *sql.Tx, ids []int64, now int64) error {
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `UPDATE feeds SET enabled = 0, disabled_reason = 'user',
+			url = ?2 || id, url_key = ?2 || id, url_original = NULL, url_original_key = NULL,
+			etag = NULL, last_modified = NULL, redirect_to = NULL, redirect_kind = NULL, redirect_count = 0,
+			updated_at = ?3
+			WHERE id = ?1 AND disabled_reason IS NOT 'archive' AND url NOT LIKE ?2 || '%'`, id, deletingURLPrefix, now); err != nil {
+			return fmt.Errorf("store: mark feed %d for deletion: %w", id, err)
+		}
+	}
+	return nil
+}
+
+// isDeleting reports whether a feed row is marked for deletion (step 1 ran).
+func isDeleting(url string) bool { return strings.HasPrefix(url, deletingURLPrefix) }
+
+// deleteBudget bounds a deletion that runs detached from its request (the UI
+// delete, a Reader API unsubscribe) or from startup: at about 0.2 s per batch of
+// trimBatch items it covers millions of items, and a deletion it cuts short is
+// resumed by the next one.
+const deleteBudget = 5 * time.Minute
+
+// DeleteContext detaches ctx from its cancellation (a client that gives up must
+// not cut a deletion between batches) and bounds it with deleteBudget.
+func DeleteContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), deleteBudget)
+}
+
+// ResumeFeedDeletes finishes every feed deletion that was interrupted after its
+// first step (see deletingURLPrefix): purge, then remove, starred items going to
+// the archive feed (the safe choice: the original request's delete_starred is
+// not stored). It returns the ids it removed. Call it at startup; deleting the
+// feed again does the same for one feed.
+func (d *DB) ResumeFeedDeletes(ctx context.Context) ([]int64, error) {
+	rows, err := d.reader.QueryContext(ctx, "SELECT id FROM feeds WHERE url LIKE ? || '%' ORDER BY id", deletingURLPrefix)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	var done []int64
+	for _, id := range ids {
+		if err := d.DeleteFeed(ctx, id, false); err != nil && !errors.Is(err, ErrFeedNotFound) {
+			return done, err
+		}
+		done = append(done, id)
+	}
+	return done, nil
+}
+
 // purgeFeedItems empties a feed that is about to be removed (removeFeed), in
 // transactions of at most trimBatch rows each behind the commit gate: first its
 // items (the FTS delete trigger makes these the expensive rows), then its
@@ -203,9 +288,10 @@ const maxInt64 = int64(^uint64(0) >> 1)
 // transaction is then small however large the feed was. With archiveStarred
 // starred items are left alone for removeFeed to re-parent, and the archive feed
 // itself is not touched (removeFeed decides whether it may go, and refuses with
-// nothing changed while it holds starred items). Each batch is durable and a
-// feed that is gone ends the purge, so an interrupted delete simply resumes on
-// retry.
+// nothing changed while it holds starred items). The caller marks the feed first
+// (markFeedsDeleting), so it is never fetched again while it is emptied. Each
+// batch is durable and a feed that is gone ends the purge, so an interrupted
+// delete simply resumes on retry.
 // afterPurgeBatch and afterTrimBatch, when set (tests only), run after each
 // committed purge or TrimOnly batch.
 var afterPurgeBatch, afterTrimBatch func()
