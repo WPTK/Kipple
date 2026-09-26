@@ -50,8 +50,11 @@ not localhost, name compose services explicitly).
 
 ## Deploy
 
-GitHub is the source of truth (repo `WPTK/Kipple`). Nothing deploys from an unpushed tree.
-On Host-A: `ssh host-a 'cd /home/user/kipple && git pull && docker compose -f /home/user/stack/docker-compose.yml build kipple && docker compose -f /home/user/stack/docker-compose.yml up -d kipple'`.
+GitHub is the source of truth (repo `WPTK/Kipple`), and the pushed release tag is what deploys: nothing deploys from
+an unpushed tree or from `main`. On Host-A (full steps in `docs/RELEASING.md`):
+`ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout vX.Y.Z && KIPPLE_VERSION=vX.Y.Z KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose -f /home/user/stack/docker-compose.yml build kipple && docker compose -f /home/user/stack/docker-compose.yml up -d kipple'`,
+then `ssh host-a 'cd /home/user/kipple && git checkout main'` to leave the detached HEAD. `.git` is not in the build
+context, so the version reaches the binary only through `KIPPLE_VERSION` and the service's `build.args`.
 Service `kipple` in compose project `host-a`, named volume for `/data`, 10m x 3 log rotation.
 Public URL `https://rss.example.com` via Host-B's cloudflared; the Access bypass covers exactly the
 `/api/greader.php` prefix (Reader API and its `/icon/` URLs); root `/accounts/ClientLogin` and

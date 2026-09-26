@@ -99,7 +99,7 @@ it). Use it for `docker ps`, monitoring and `depends_on: condition: service_heal
 | Option | What it does |
 |---|---|
 | `restart: unless-stopped` | Restarts after a crash or reboot, but not after you stopped it on purpose. |
-| `stop_grace_period: 30s` | Time Docker waits after SIGTERM before killing. Kipple drains HTTP for up to 10 s then closes the database, so 30 s is ample. |
+| `stop_grace_period: 30s` | Time Docker waits after SIGTERM before killing. Kipple bounds its whole shutdown (HTTP drain, background work, closing the database) to 25 s, so the process finishes within 25 s and 30 s leaves margin before the kill. |
 | no `init: true` | Not needed: Kipple is PID 1 and handles SIGTERM/Ctrl-C itself. |
 | `mem_limit: 256m` + `GOMEMLIMIT=64MiB` | Hard cap plus a Go soft limit so the GC works harder before the cap is hit. |
 | `pids_limit: 200` | Caps processes and threads. |
@@ -127,6 +127,16 @@ Nothing on Host-A has been changed yet. In the `kipple` service of `/home/user/s
     +      - ALL
     +    security_opt:
     +      - no-new-privileges:true
+
+Also give the service's `build:` the version arguments from `docker-compose.example.yml` (keep its
+existing context path), so the deploy command's `KIPPLE_VERSION`/`KIPPLE_VCS_REF` reach the build; without
+them the binary reports version `dev`, because `.git` is not in the build context:
+
+         build:
+           context: /home/user/kipple
+    +      args:
+    +        VERSION: ${KIPPLE_VERSION:-dev}
+    +        VCS_REF: ${KIPPLE_VCS_REF:-unknown}
 
 No healthcheck line is needed: it comes from the image, so the rebuild picks it up. Before the deploy,
 `docker compose ... config` shows the merged result; afterwards check `docker ps` reaches `(healthy)`
@@ -246,8 +256,10 @@ it keeps restarting). Nothing is changed on the volume. Stop it, then:
     # 2. Restore it with the NEW image (still built; old releases may have no restore command).
     ssh host-a 'cd /home/user/stack && docker compose run --rm -T --no-deps kipple restore /data/backup/pre-migration-<old>-<new>-<ns>.db --yes'
     # 3. Check out the old tag, rebuild, start. Do not start the new image in between: it would migrate again.
-    ssh host-a 'cd /home/user/kipple && git checkout <old tag>'
-    ssh host-a 'cd /home/user/stack && docker compose build kipple && docker compose up -d kipple'
+    ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout <old tag>'
+    ssh host-a 'cd /home/user/stack && KIPPLE_VERSION=<old tag> KIPPLE_VCS_REF=$(git -C /home/user/kipple rev-parse HEAD) docker compose build kipple && docker compose up -d kipple'
+    # 4. Put the checkout back on a branch (the checkout above left a detached HEAD; the running image is not affected).
+    ssh host-a 'cd /home/user/kipple && git checkout main'
 
 The restore prints `schema version <old>` for the snapshot and moves the migrated database to
 `backup/pre-restore-<ts>/`, so the roll-forward is one more restore away. Sign in again afterwards.
@@ -268,8 +280,9 @@ Historical: this applies to a schema-1 database. With a build after alpha 2 the 
 
    (`docker cp` works on a stopped container.) The no-downtime alternative is the nightly
    `kipple-snapshot.db` (see above), up to a day old.
-2. Pull, build, start (named service): the existing `git pull`, `docker compose build kipple`,
-   `docker compose up -d kipple`. The first start writes
+2. Pull, build, start (named service): at the time `git pull`, `docker compose build kipple`,
+   `docker compose up -d kipple` (deploys now check out the release tag instead; see docs/RELEASING.md, step 9).
+   The first start writes
    `/data/backup/pre-migration-1-3-<ns>.db` (on the volume) and migrates.
 3. First thing in the new UI: **Export backup**, saved off-box. That is the first backup that
    contains phase 2 data.
@@ -291,8 +304,9 @@ mind.
        # or the off-box copy:
        ssh host-a 'cd /home/user/stack && docker compose run --rm -T --no-deps kipple restore - --yes' < kipple-phase1-YYYYMMDD.db
 
-4. Check out phase 1 on Host-A (`cd /home/user/kipple && git checkout v0.1.0`), then
-   `docker compose build kipple && docker compose up -d kipple`.
+4. Check out phase 1 on Host-A (`cd /home/user/kipple && git fetch --tags --force && git checkout v0.1.0`), then
+   from `/home/user/stack`: `KIPPLE_VERSION=v0.1.0 docker compose build kipple && docker compose up -d kipple`.
+   Afterwards `git checkout main` in `/home/user/kipple` puts the checkout back on a branch (the image is already built).
 5. Sign in again (restore signed every session out).
 
 ## Phase 2 alpha 3 deploy notes
@@ -310,8 +324,9 @@ mind.
 
       ssh host-a 'cd /home/user/stack && docker compose stop kipple'
       ssh host-a 'cd /home/user/stack && docker compose run --rm -T --no-deps kipple restore /data/backup/pre-migration-3-5-<ns>.db --yes'
-      ssh host-a 'cd /home/user/kipple && git checkout v0.2.0-alpha.2'
-      ssh host-a 'cd /home/user/stack && docker compose build kipple && docker compose up -d kipple'
+      ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout v0.2.0-alpha.2'
+      ssh host-a 'cd /home/user/stack && KIPPLE_VERSION=v0.2.0-alpha.2 KIPPLE_VCS_REF=$(git -C /home/user/kipple rev-parse HEAD) docker compose build kipple && docker compose up -d kipple'
+      ssh host-a 'cd /home/user/kipple && git checkout main'
 
   Do not start the alpha 3 image on the restored database (it would migrate again). Until the new
   server has started once, `kipple password`, `api-password` and `import` refuse the old schema
