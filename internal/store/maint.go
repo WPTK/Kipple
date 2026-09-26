@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -221,7 +222,31 @@ func (d *DB) writeSnapshot(ctx context.Context, final string, integrity bool) (e
 	if err := os.Rename(tmp, final); err != nil {
 		return fmt.Errorf("store: publish snapshot: %w", err)
 	}
+	// The rename is only durable once the directory entry is: without this a
+	// crash can leave the old snapshot (or none) although the new one was
+	// reported written.
+	if err := syncDir(d.backupDir); err != nil {
+		return fmt.Errorf("store: fsync backup dir: %w", err)
+	}
 	return nil
+}
+
+// syncDir fsyncs a directory so a rename inside it survives a crash. Windows
+// cannot open a directory for FlushFileBuffers (and NTFS journals the rename
+// itself), so it is a no-op there. A variable so tests can observe the call.
+var syncDir = func(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // snapshotFTSCheck runs the FTS5 integrity-check against a snapshot file through a
