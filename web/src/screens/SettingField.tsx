@@ -14,8 +14,10 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * PATCH with an optimistic update; a 400 puts the server's message next to the control, and
  * "Reset to default" sends null.
  */
-export function SettingField({ meta }: { meta: SettingMeta }) {
+export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: readonly { value: number; label: string }[] }) {
   const patch = usePatchSettings();
+  // With presets, the stepper (Custom) shows only when asked for, or when the value is not one of the presets.
+  const [customOpen, setCustomOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // What the user has typed and not yet saved; null shows the saved value.
   const [typed, setDraft] = useState<string | null>(null);
@@ -92,12 +94,31 @@ export function SettingField({ meta }: { meta: SettingMeta }) {
         );
       break;
     }
-    case "int":
+    case "int": {
+      const current = Number(draft) || 0;
+      const onPreset = !!presets && presets.some((p) => p.value === current);
+      const stepper = !presets || customOpen || !onPreset;
       control = (
         <div>
-          <div className="mb-1 text-sm font-semibold" id={`${uid}-l`}>
-            {meta.label}
-          </div>
+          {presets ? (
+            <Segmented<string | number>
+              legend={meta.label}
+              value={stepper ? "custom" : current}
+              wrap
+              options={[...presets.map((p) => ({ value: p.value as string | number, label: p.label })), { value: "custom", label: "Custom" }]}
+              onChange={(v) => {
+                if (v === "custom") return setCustomOpen(true);
+                setCustomOpen(false);
+                setDraft(String(v));
+                send(v);
+              }}
+            />
+          ) : (
+            <div className="mb-1 text-sm font-semibold" id={`${uid}-l`}>
+              {meta.label}
+            </div>
+          )}
+          {stepper ? <div className={presets ? "mt-2" : undefined}>
           <Stepper
             label={meta.label}
             value={Number(draft) || 0}
@@ -112,6 +133,7 @@ export function SettingField({ meta }: { meta: SettingMeta }) {
               send(n);
             }}
           />
+          </div> : null}
           <p id={`${uid}-h`} className="mt-1 text-xs text-fg2">
             {help}
           </p>
@@ -123,6 +145,7 @@ export function SettingField({ meta }: { meta: SettingMeta }) {
         </div>
       );
       break;
+    }
     default:
       control = (
         <Field label={meta.label} help={help} error={error}>

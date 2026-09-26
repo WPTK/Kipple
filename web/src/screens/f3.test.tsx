@@ -349,11 +349,12 @@ describe("Feed editor", () => {
 
   it("diffForm produces a minimal PATCH", () => {
     const d = feedDetail() as never;
-    expect(diffForm(d, { title: "", url: "https://example.com/feed.xml", folder: "1", interval: "", retention: "", fulltext: false, enabled: true, dedup: "auto", userAgent: "", auth: "", clearAuth: false, ignoreCache: false, noHttp2: false, insecureTls: false, privateNet: false })).toEqual({});
-    expect(diffForm(d, { title: "Mine", url: "https://example.com/feed.xml", folder: "1", interval: "60", retention: "0", fulltext: true, enabled: false, dedup: "link", userAgent: "x", auth: "u:p", clearAuth: false, ignoreCache: true, noHttp2: true, insecureTls: true, privateNet: true })).toEqual({
+    expect(diffForm(d, { title: "", url: "https://example.com/feed.xml", folder: "1", interval: "", retention: "", autoRead: "", fulltext: false, enabled: true, dedup: "auto", userAgent: "", auth: "", clearAuth: false, ignoreCache: false, noHttp2: false, insecureTls: false, privateNet: false })).toEqual({});
+    expect(diffForm(d, { title: "Mine", url: "https://example.com/feed.xml", folder: "1", interval: "60", retention: "0", autoRead: "90", fulltext: true, enabled: false, dedup: "link", userAgent: "x", auth: "u:p", clearAuth: false, ignoreCache: true, noHttp2: true, insecureTls: true, privateNet: true })).toEqual({
       custom_title: "Mine",
       interval_minutes: 60,
       retention: 0,
+      auto_read_days: 90,
       fulltext: true,
       enabled: false,
       dedup_mode: "link",

@@ -5,7 +5,9 @@ import { deleteFeed, invalidateFeeds, loadFeedDetail, patchFeed, refreshFeed, ty
 import { useBootstrap } from "@/api/queries";
 import type { Feed } from "@/api/types";
 import { LAYOUT_IDS, LAYOUT_LABELS, setLayoutOverride, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
+import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { Button } from "@/ui/button";
+import { AutoReadCatchUp } from "../AutoReadCatchUp";
 import { Disclosure, Field, Modal, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 
@@ -20,6 +22,7 @@ interface Form {
   folder: string;
   interval: string; // "" = default
   retention: string; // "" = default
+  autoRead: string; // "" = follow the global setting, "0" = off, else days
   fulltext: boolean;
   enabled: boolean;
   dedup: FeedDetail["dedup_mode"];
@@ -38,6 +41,7 @@ const fromDetail = (d: FeedDetail): Form => ({
   folder: d.folder_id,
   interval: d.interval_minutes == null ? "" : String(d.interval_minutes),
   retention: d.retention == null ? "" : String(d.retention),
+  autoRead: d.auto_read_days == null ? "" : String(d.auto_read_days),
   fulltext: d.fulltext,
   enabled: d.enabled,
   dedup: d.dedup_mode,
@@ -59,6 +63,7 @@ export function diffForm(d: FeedDetail, f: Form): Record<string, unknown> {
   if (f.folder !== o.folder) out.folder_id = f.folder;
   if (f.interval !== o.interval) out.interval_minutes = f.interval === "" ? null : Number(f.interval);
   if (f.retention !== o.retention) out.retention = f.retention === "" ? null : Number(f.retention);
+  if (f.autoRead !== o.autoRead) out.auto_read_days = f.autoRead === "" ? null : Number(f.autoRead);
   if (f.fulltext !== o.fulltext) out.fulltext = f.fulltext;
   if (f.enabled !== o.enabled) out.enabled = f.enabled;
   if (f.dedup !== o.dedup) out.dedup_mode = f.dedup;
@@ -263,6 +268,30 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
               </select>
             )}
           </Field>
+          <Field
+            label="Mark as read after"
+            help="Unread articles are marked read once they are this old. Starred and muted articles are never touched. Changing this never marks anything at once."
+          >
+            {(a) => (
+              <select {...a} value={f.autoRead} onChange={(e) => set("autoRead", e.target.value)} className={inputCls}>
+                <option value="">Use the global setting</option>
+                {(f.autoRead && !AUTO_READ_PRESETS.includes(Number(f.autoRead) as (typeof AUTO_READ_PRESETS)[number])
+                  ? [...AUTO_READ_PRESETS, Number(f.autoRead)].sort((x, y) => x - y)
+                  : [...AUTO_READ_PRESETS]
+                ).map((n) => (
+                  <option key={n} value={n}>
+                    {n === 0 ? "Off for this feed" : autoReadLabel(n)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <AutoReadCatchUp
+            feedId={feed.id}
+            days={f.autoRead !== fromDetail(q.data).autoRead && f.autoRead !== "" ? Number(f.autoRead) : undefined}
+            blockedReason={f.autoRead === "" && q.data.auto_read_days != null ? "Save this change to preview it." : undefined}
+            runBlocked={f.autoRead !== fromDetail(q.data).autoRead ? "Save the feed, then open it again to mark these now." : undefined}
+          />
           {fulltextAll ? (
             <Switch
               label="Fetch full article text"
