@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -269,6 +270,104 @@ func TestFeedFieldAgreesBetweenIngestAndRetro(t *testing.T) {
 	res, err = e.db.PreviewFilter(e.ctx, rule, false, 5*time.Second)
 	require.NoError(t, err)
 	require.Equal(t, 1, res.Matches)
+}
+
+// seedCostly loads n unread items whose 8 KiB of letters keep a broad bounded regex busy (several ms
+// each), and returns a mute rule that does exactly that.
+func (e *env) seedCostly(n int) Filter {
+	e.t.Helper()
+	id := e.addFeed("http://slow.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	body := "<p>" + strings.Repeat("lorem ipsum dolor sit amet ", 8<<10/27) + "</p>"
+	specs := make([]fspec, n)
+	for i := range specs {
+		specs[i] = fspec{guid: fmt.Sprintf("c%d", i), title: fmt.Sprintf("costly %d", i), body: body, age: time.Duration(n-i) * time.Minute}
+	}
+	e.fetchBody(id, frss(specs...))
+	f := newFilter("mute", `[a-z ]{1,50}[0-9]{3}`, `(?:\pL|\s){1,50}\d{5}`)
+	f.Kind, f.Fields = "regex", []string{"content"}
+	return f
+}
+
+// The preview checks its budget on every item, not every 64: with items that cost milliseconds each,
+// a 64-item page would otherwise run far past the budget (and report an untruncated full scan).
+func TestPreviewBudgetIsCheckedOnEveryItem(t *testing.T) {
+	e := newEnv(t)
+	f := e.seedCostly(64)
+	start := time.Now()
+	res, err := e.db.PreviewFilter(e.ctx, f, false, 20*time.Millisecond)
+	took := time.Since(start)
+	require.NoError(t, err)
+	require.True(t, res.Truncated, "scanned %d in %v", res.Scanned, took)
+	require.Less(t, res.Scanned, 64)
+}
+
+// An apply notices a cancel (or its deadline) at the next item, not after evaluating a whole page.
+func TestApplyStopsAtTheNextItemOnCancel(t *testing.T) {
+	e := newEnv(t)
+	rule := e.mkFilter(e.seedCostly(128))
+	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	res, err := e.db.ApplyFilter(ctx, rule.ID, false, 0, nil, nil)
+	took := time.Since(start)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Zero(t, res.Changed, "nothing was written: the page never reached its write")
+	// A page of 128 items costs several hundred ms; stopping at the next item takes one item's worth.
+	require.Less(t, took, 250*time.Millisecond)
+}
+
+// A deadline-bounded delete restores at least one batch per call, answers Done=false while muted
+// items remain, keeps the rule (disabled) until the last call, and counts what went back to unread.
+func TestDeleteFilterWithinIsResumable(t *testing.T) {
+	e := newEnv(t)
+	e.seedRetro(2400)
+	e.exec("UPDATE items SET read = 1 WHERE title IN ('spam 0', 'spam 2', 'spam 4')")
+	rule := e.mkFilter(newFilter("mute", "spam"))
+	_, err := e.db.ApplyFilter(e.ctx, rule.ID, true, 0, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1200, e.count("SELECT count(*) FROM items WHERE muted_by = ?", rule.ID))
+
+	past := time.Now().Add(-time.Second)
+	var got []DeleteResult
+	for i := 0; i < 5; i++ {
+		res, ok, err := e.db.DeleteFilterWithin(e.ctx, rule.ID, UnmuteUnread, past, nil)
+		require.NoError(t, err)
+		require.True(t, ok)
+		got = append(got, res)
+		if res.Done {
+			break
+		}
+		require.Equal(t, 1, e.count("SELECT count(*) FROM filters WHERE id = ? AND enabled = 0", rule.ID), "kept, disabled, until done")
+	}
+	require.Equal(t, []DeleteResult{{500, 497, false}, {500, 500, false}, {200, 200, true}}, got,
+		"the three read before the mute (the oldest, so in the first batch) stay read and are not counted")
+	require.Zero(t, e.count("SELECT count(*) FROM filters"))
+	require.Zero(t, e.count("SELECT count(*) FROM items WHERE muted_by IS NOT NULL"))
+	require.Equal(t, 3, e.count("SELECT count(*) FROM items WHERE title LIKE 'spam%' AND read = 1"))
+}
+
+// An empty field list is stored and read back as ["title"], so the client's highlighter (which only
+// sees the stored list) draws it where the engine matches.
+func TestEmptyFieldsAreTitle(t *testing.T) {
+	e := newEnv(t)
+	f := newFilter("highlight", "go")
+	f.Fields = []string{}
+	got := e.mkFilter(f)
+	require.Equal(t, []string{"title"}, got.Fields)
+	var stored string
+	require.NoError(t, e.db.Reader().QueryRow("SELECT fields FROM filters WHERE id = ?", got.ID).Scan(&stored))
+	require.Equal(t, `["title"]`, stored)
+	upd, ok, err := e.db.UpdateFilter(e.ctx, got.ID, func(f *Filter) error { f.Fields = nil; return nil })
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []string{"title"}, upd.Fields)
+	// A row stored by an older version with [] reads as title too.
+	e.exec(`UPDATE filters SET fields = '[]' WHERE id = ?`, got.ID)
+	hs, err := e.db.Highlights(e.ctx)
+	require.NoError(t, err)
+	require.Len(t, hs, 1)
+	require.Equal(t, []string{"title"}, hs[0].Fields)
 }
 
 func TestDeleteFilterUnmuteModes(t *testing.T) {

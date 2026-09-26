@@ -400,6 +400,14 @@ func (d *DB) ApplyFilter(ctx context.Context, id int64, includeRead bool, total 
 	return out, err
 }
 
+// SameRule reports whether two stored filters match and act alike (sameRule), reading an empty field
+// list as title only, as the engine does. The API uses it to cancel an apply only on a real change.
+func SameRule(a, b Filter) bool {
+	normalizeFields(&a)
+	normalizeFields(&b)
+	return sameRule(a, b)
+}
+
 // sameRule reports whether two stored filters are the same rule for matching and acting
 // (name, position, hits and timestamps do not matter).
 func sameRule(a, b Filter) bool {
