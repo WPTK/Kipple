@@ -168,6 +168,50 @@ func TestExportZipContentsAndIntegrity(t *testing.T) {
 	require.EqualValues(t, 20, info.Starred)
 }
 
+// The export carries items.state_changed_at and its index, and a restored file opens as is.
+func TestExportKeepsStateChangedAt(t *testing.T) {
+	db := openDB(t)
+	seed(t, db, 10)
+	ctx := context.Background()
+	const first = int64(1_700_000_000_000_000)
+	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := store.SetRead(ctx, tx, []int64{first}, true, 1111); err != nil {
+			return err
+		}
+		_, err := store.SetStarred(ctx, tx, []int64{first}, false, 2222) // item 0 is seeded starred
+		return err
+	}))
+	m := newManager(t, db)
+	exp, err := m.Create(ctx)
+	require.NoError(t, err)
+	d, err := m.Take(exp.Token)
+	require.NoError(t, err)
+	body := readAll(t, d)
+	require.NoError(t, d.Close())
+	zipPath := filepath.Join(t.TempDir(), "b.zip")
+	require.NoError(t, os.WriteFile(zipPath, body, 0o600))
+	out := filepath.Join(t.TempDir(), "out.db")
+	_, err = ExtractDB(zipPath, out)
+	require.NoError(t, err)
+	_, err = Inspect(ctx, out, true)
+	require.NoError(t, err)
+
+	restored, err := store.Open(ctx, store.Options{Path: out, Logger: quiet})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = restored.Close() })
+	v, err := restored.Version(ctx)
+	require.NoError(t, err)
+	require.Equal(t, store.LatestVersion(), v)
+	var at int64
+	require.NoError(t, restored.Reader().QueryRow("SELECT state_changed_at FROM items WHERE id = ?", first).Scan(&at))
+	require.EqualValues(t, 2222, at)
+	var n int
+	require.NoError(t, restored.Reader().QueryRow("SELECT count(*) FROM items WHERE state_changed_at IS NOT NULL").Scan(&n))
+	require.Equal(t, 1, n)
+	require.NoError(t, restored.Reader().QueryRow("SELECT count(*) FROM sqlite_master WHERE name = 'idx_items_state_changed'").Scan(&n))
+	require.Equal(t, 1, n)
+}
+
 func keys(m map[string][]byte) []string {
 	var k []string
 	for n := range m {

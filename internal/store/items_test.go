@@ -21,12 +21,15 @@ func TestStreamIDsQueryPlans(t *testing.T) {
 			return err
 		}
 		for i := 0; i < 300; i++ {
-			var changed any
+			var changed, state any
 			if i%10 == 0 {
 				changed = 1000 + i
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, read, published_at, sort_at, content_changed_at, uid, content_hash, text_hash)
-				VALUES (?,1,?,1,1,?,?,'c','t')`, 1_700_000_000_000_000+int64(i)*1000, i%3/2, changed, fmt.Sprintf("u%d", i)); err != nil {
+			if i%3 == 2 {
+				state = 2000 + i
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, read, published_at, sort_at, content_changed_at, state_changed_at, uid, content_hash, text_hash)
+				VALUES (?,1,?,1,1,?,?,?,'c','t')`, 1_700_000_000_000_000+int64(i)*1000, i%3/2, changed, state, fmt.Sprintf("u%d", i)); err != nil {
 				return err
 			}
 		}
@@ -54,6 +57,16 @@ func TestStreamIDsQueryPlans(t *testing.T) {
 			q, args := streamIDsSQL(StreamFilter{}, IDPage{N: 10, Asc: asc, HasOT: true, OT: 1_700_000_000})
 			p := plan(q, args)
 			require.Contains(t, p, "idx_items_changed", "analyze=%v asc=%v\n%s", analyze, asc, p)
+			require.Contains(t, p, "PRIMARY KEY", "analyze=%v asc=%v\n%s", analyze, asc, p)
+			require.NotContains(t, p, "SCAN items\n", "analyze=%v asc=%v\n%s", analyze, asc, p)
+			require.NotContains(t, q, "state_changed_at", "the default-off query is unchanged")
+			require.Contains(t, q, "UNION ALL")
+
+			// greader.ot_includes_user_changes: the state-change branch on its own partial index.
+			q, args = streamIDsSQL(StreamFilter{}, IDPage{N: 10, Asc: asc, HasOT: true, OT: 1_700_000_000, UserChanges: true})
+			p = plan(q, args)
+			require.Contains(t, p, "idx_items_changed", "analyze=%v asc=%v\n%s", analyze, asc, p)
+			require.Contains(t, p, "idx_items_state_changed", "analyze=%v asc=%v\n%s", analyze, asc, p)
 			require.Contains(t, p, "PRIMARY KEY", "analyze=%v asc=%v\n%s", analyze, asc, p)
 			require.NotContains(t, p, "SCAN items\n", "analyze=%v asc=%v\n%s", analyze, asc, p)
 		}

@@ -1235,6 +1235,8 @@ func TestStarAtRecordsWhenItHappened(t *testing.T) {
 	}
 	require.Equal(t, 200, put(fmt.Sprintf(`{"starred":true,"at":%d}`, now-3600)))
 	require.Equal(t, now-3600, int64(h.count("SELECT starred_at FROM items WHERE id = ?", id)))
+	require.Equal(t, now, int64(h.count("SELECT state_changed_at FROM items WHERE id = ?", id)),
+		"the state change is stamped when the server applied it, so a sync app passing ot still hears of it")
 
 	require.Equal(t, 200, put(`{"starred":false}`))
 	require.Equal(t, 200, put(fmt.Sprintf(`{"starred":true,"at":%d}`, now+9999)))

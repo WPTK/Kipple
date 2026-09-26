@@ -362,7 +362,7 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 	var res store.StateResult
 	err := s.db.WithWrite(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
 		var err error
-		if res, err = store.SetStarred(ctx, tx, []int64{id}, *body.Starred, at); err != nil {
+		if res, err = store.SetStarredAt(ctx, tx, []int64{id}, *body.Starred, at, now); err != nil {
 			return err
 		}
 		for _, cid := range res.Changed { // only when RETURNING shows a change

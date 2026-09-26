@@ -82,8 +82,9 @@ type IDPage struct {
 	HasOT   bool
 	NT      int64 // nt= seconds, valid only when HasNT
 	HasNT   bool
-	// UserChanges (greader.ot_includes_user_changes) adds items read or starred since ot to the
-	// second leg, so a sync app that passes ot also hears about state changes made in Kipple.
+	// UserChanges (greader.ot_includes_user_changes) adds items whose read or starred state
+	// changed since ot (read, unread, star or unstar: items.state_changed_at) to the second leg,
+	// so a sync app that passes ot also hears about state changes made in Kipple.
 	UserChanges bool
 }
 
@@ -127,14 +128,21 @@ func streamIDsSQL(f StreamFilter, p IDPage) (string, []any) {
 	}
 	leg2 := `SELECT id FROM (SELECT id FROM items INDEXED BY idx_items_changed
                   WHERE content_changed_at >= :ot_s AND %[5]s AND %[2]s%[3]s ORDER BY id %[4]s LIMIT :n1)`
+	legs := "UNION ALL"
 	if p.UserChanges {
-		// Not the partial index: read_at and starred_at are not in it, and a single user's table is small.
-		leg2 = `SELECT id FROM (SELECT id FROM items
-                  WHERE (content_changed_at >= :ot_s OR read_at >= :ot_s OR starred_at >= :ot_s) AND %[5]s AND %[2]s%[3]s ORDER BY id %[4]s LIMIT :n1)`
+		// Items whose read or starred state changed since ot (state_changed_at, set by every
+		// change after ingest, unread and unstar included) join leg 2 as a third ordered branch
+		// on their own partial index. An item can match both branches of leg 2, so the compound
+		// is UNION (distinct); leg 1 and leg 2 stay disjoint by id, so nothing else changes.
+		leg2 += `
+  UNION
+  SELECT id FROM (SELECT id FROM items INDEXED BY idx_items_state_changed
+                  WHERE state_changed_at >= :ot_s AND %[5]s AND %[2]s%[3]s ORDER BY id %[4]s LIMIT :n1)`
+		legs = "UNION"
 	}
 	q := fmt.Sprintf(`SELECT id FROM (
   SELECT id FROM (SELECT id FROM items WHERE id >= :ot_us AND id %[1]s :c AND %[2]s%[3]s ORDER BY id %[4]s LIMIT :n1)
-  UNION ALL
+  `+legs+`
   `+leg2+`
 ) ORDER BY id %[4]s LIMIT :n1`, cmp, preds, nt, order, leg2Bound)
 	return q, args

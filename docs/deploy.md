@@ -278,6 +278,19 @@ new image, then check out, rebuild and start the old tag. Never copy the snapsho
 by hand. Anything read or starred since the upgrade is lost; the icons found are simply looked up
 again after the next upgrade.
 
+### Schema 6 -> 7 (state changes for `ot`)
+
+Migration 0007 adds `items.state_changed_at` and its partial index, and backfills the column from
+`read_at`/`starred_at` in one `UPDATE` (a quick first start: one pass over the items that were ever
+read or starred). It is what `greader.ot_includes_user_changes` reads; with that setting off (the
+default) nothing a client sees changes. The first start writes
+`/data/backup/pre-migration-6-7-<ns>.db` (or `pre-migration-5-7-<ns>.db` when coming straight from
+schema 5), then migrates. A binary without 0007 refuses the schema-7 database with `database schema
+version 7 is newer than this binary (6); refusing to start`, so a rollback is the same procedure:
+stop kipple, `restore /data/backup/pre-migration-6-7-<ns>.db --yes` with the new image, then check
+out, rebuild and start the old tag. Never copy the snapshot over `kipple.db` by hand, and never drop
+the column by hand to make an older binary start. Anything read or starred since the upgrade is lost.
+
 ## Phase 1 to phase 2 (done 2026-09-25, v0.2.0-alpha.1)
 
 Historical: this applies to a schema-1 database. With a build after alpha 2 the snapshot is `pre-migration-1-<latest>-*` (schema 5 is the latest at the time of writing), not `pre-migration-1-3-*`. Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migrates the schema

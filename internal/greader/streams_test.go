@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -301,12 +303,16 @@ func TestIDsOTTwoLegEqualsNaiveOR(t *testing.T) {
 			if rng.IntN(4) == 0 {
 				changed = start + rng.Int64N(span)
 			}
+			var state any
+			if rng.IntN(3) == 0 {
+				state = start + rng.Int64N(span)
+			}
 			feed := fa
 			if rng.IntN(2) == 0 {
 				feed = fb
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, content_changed_at, uid, content_hash, text_hash)
-				VALUES (?,?,?,?,?,?,?,?,'c','t')`, id, feed, rng.IntN(2), rng.IntN(5)/4, id/1_000_000, id/1_000_000, changed, fmt.Sprintf("u%d", i)); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, content_changed_at, state_changed_at, uid, content_hash, text_hash)
+				VALUES (?,?,?,?,?,?,?,?,?,'c','t')`, id, feed, rng.IntN(2), rng.IntN(5)/4, id/1_000_000, id/1_000_000, changed, state, fmt.Sprintf("u%d", i)); err != nil {
 				return err
 			}
 		}
@@ -326,10 +332,17 @@ func TestIDsOTTwoLegEqualsNaiveOR(t *testing.T) {
 	}
 	nonEmpty, multiPage := 0, 0
 	defer func() {
-		require.GreaterOrEqual(t, nonEmpty, 40)
-		require.GreaterOrEqual(t, multiPage, 20)
+		require.GreaterOrEqual(t, nonEmpty, 80)
+		require.GreaterOrEqual(t, multiPage, 40)
 	}()
-	for iter := 0; iter < 60; iter++ {
+	userChanges := false
+	for iter := 0; iter < 120; iter++ {
+		// The second half runs with greader.ot_includes_user_changes on: the reference then ORs
+		// state_changed_at in as well.
+		if iter == 60 {
+			otUserChanges(t, h, true)
+			userChanges = true
+		}
 		v := variants[rng.IntN(len(variants))]
 		ot := start + rng.Int64N(span+86400)
 		asc := rng.IntN(2) == 0
@@ -339,8 +352,12 @@ func TestIDsOTTwoLegEqualsNaiveOR(t *testing.T) {
 			order, cmp = "ASC", ">"
 		}
 		// Reference: the naive OR, fully ordered, no paging.
-		refSQL := fmt.Sprintf(`SELECT id FROM items WHERE (id >= %d OR content_changed_at >= %d) AND %s ORDER BY id %s`,
-			(ot-120)*1_000_000, ot-120, v.preds, order)
+		orState := ""
+		if userChanges {
+			orState = fmt.Sprintf(" OR state_changed_at >= %d", ot-120)
+		}
+		refSQL := fmt.Sprintf(`SELECT id FROM items WHERE (id >= %d OR content_changed_at >= %d%s) AND %s ORDER BY id %s`,
+			(ot-120)*1_000_000, ot-120, orState, v.preds, order)
 		rows, err := h.db.Reader().Query(refSQL)
 		require.NoError(t, err)
 		var want []int64
@@ -370,7 +387,7 @@ func TestIDsOTTwoLegEqualsNaiveOR(t *testing.T) {
 			}
 			cont = c
 		}
-		require.Equal(t, want, got, "iter %d %s ot=%d asc=%v n=%d cmp=%s", iter, v.query, ot, asc, n, cmp)
+		require.Equal(t, want, got, "iter %d %s ot=%d asc=%v n=%d cmp=%s user=%v", iter, v.query, ot, asc, n, cmp, userChanges)
 		if len(want) > 0 {
 			nonEmpty++
 		}
@@ -703,6 +720,17 @@ func TestStreamRowByRowWritesBeforeFinishing(t *testing.T) {
 	_ = http.StatusOK
 }
 
+// otUserChanges turns greader.ot_includes_user_changes on or off.
+func otUserChanges(t *testing.T, h *harness, on bool) {
+	t.Helper()
+	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"greader.ot_includes_user_changes": on}))
+}
+
+// advanceTo moves the harness clock forward to unix second s.
+func advanceTo(h *harness, s int64) {
+	h.clk.Advance(time.Duration(s-h.clk.Now().Unix()) * time.Second)
+}
+
 func TestOTIncludesUserChangesWhenSettingOn(t *testing.T) {
 	h := newHarness(t)
 	feed := h.addFeed("https://a.example/feed.xml", "Alpha", "")
@@ -711,34 +739,130 @@ func TestOTIncludesUserChangesWhenSettingOn(t *testing.T) {
 	path := rd + "stream/items/ids?s=user/-/state/com.google/reading-list&ot=" + strconv.FormatInt(ot, 10)
 	ids := func() []int64 { got, _, _ := idsPage(t, h.get(path)); return got }
 
-	require.NoError(t, execSQL(h, "UPDATE items SET read = 1, read_at = ? WHERE id = ?", ot+5, old))
+	advanceTo(h, ot+5)
+	h.post(rd+"edit-tag", editBody("a="+readSt, FormatLongID(old)))
+	require.True(t, isRead(h, old))
 	require.Empty(t, ids(), "default: a user state change is not new activity")
 
-	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"greader.ot_includes_user_changes": true}))
-	require.Len(t, ids(), 1)
+	otUserChanges(t, h, true)
+	require.Equal(t, []int64{old}, ids())
 
-	require.NoError(t, execSQL(h, "UPDATE items SET read_at = ? WHERE id = ?", ot-1000, old))
+	require.NoError(t, execSQL(h, "UPDATE items SET state_changed_at = ? WHERE id = ?", ot-1000, old))
 	require.Empty(t, ids(), "a change before ot (minus slack) stays out")
 }
 
-func TestOTUserChangesStarredOldestFirstAndPaging(t *testing.T) {
+// Mark unread and unstar clear read_at and starred_at, but they are changes too: with the
+// setting on they appear in ids?ot=, with it off they do not. So do star and mark-all-as-read.
+func TestOTUserChangesReportUnreadAndUnstar(t *testing.T) {
 	h := newHarness(t)
-	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"greader.ot_includes_user_changes": true}))
+	feed := h.addFeed("https://a.example/feed.xml", "Alpha", "")
+	other := h.addFeed("https://b.example/feed.xml", "Beta", "")
+	wasRead := h.addItem(feed, itemSeed{Title: "was read", Read: true})
+	wasStarred := h.addItem(feed, itemSeed{Title: "was starred", Starred: true})
+	stale := h.addItem(feed, itemSeed{Title: "stale"})
+	untouched := h.addItem(feed, itemSeed{Title: "untouched"})
+	markAll := h.addItem(other, itemSeed{Title: "mark all"})
+	star := h.addItem(feed, itemSeed{Title: "star"})
+	ot := baseID/1_000_000 + 10_000
+
+	// Changed long before ot: out.
+	h.post(rd+"edit-tag", editBody("a="+starred, FormatLongID(stale)))
+	advanceTo(h, ot+30)
+	h.post(rd+"edit-tag", editBody("r="+readSt, FormatLongID(wasRead)))
+	h.post(rd+"edit-tag", editBody("r="+starred, FormatLongID(wasStarred)))
+	h.post(rd+"edit-tag", editBody("a="+starred, FormatLongID(star)))
+	w := h.post(rd+"mark-all-as-read", "T=x&s=feed/"+strconv.FormatInt(other, 10))
+	require.Equal(t, 200, w.Code)
+	require.False(t, isRead(h, wasRead))
+	require.False(t, isStarred(h, wasStarred))
+	require.Equal(t, 1, q[int](h, "SELECT read_at IS NULL AND starred_at IS NULL FROM items WHERE id = ?", wasRead))
+	require.True(t, isRead(h, markAll))
+
+	get := func(extra string) []int64 {
+		got, _, more := idsPage(t, h.get(rd+"stream/items/ids?s="+rl+"&n=100&ot="+strconv.FormatInt(ot, 10)+extra))
+		require.False(t, more)
+		return got
+	}
+	require.Empty(t, get(""), "setting off")
+	require.Empty(t, get("&r=o"), "setting off")
+
+	otUserChanges(t, h, true)
+	want := []int64{wasRead, wasStarred, markAll, star} // ascending: seeded in this order
+	require.Equal(t, want, get("&r=o"))
+	require.Equal(t, reverse(want), get(""))
+	require.NotContains(t, get(""), stale)
+	require.NotContains(t, get(""), untouched)
+	// The state filters still apply to the state-change branch.
+	require.Equal(t, []int64{wasRead, wasStarred, star}, get("&r=o&xt="+readSt))
+	require.Equal(t, []int64{star}, get("&r=o&it="+starred))
+
+	otUserChanges(t, h, false)
+	require.Empty(t, get(""), "off again: the default query")
+}
+
+// Oldest first and newest first, page by page: the continuation carries across leg 2 (content
+// changes and state changes, some items matching both) and leg 1 (crawled after ot), with no
+// duplicates and nothing skipped.
+func TestOTUserChangesPagingAcrossLegs(t *testing.T) {
+	h := newHarness(t)
+	otUserChanges(t, h, true)
 	feed := h.addFeed("https://a.example/feed.xml", "Alpha", "")
 	ot := baseID/1_000_000 + 10_000
-	var starred []int64
-	for i := range 3 {
-		id := h.addItem(feed, itemSeed{Title: fmt.Sprintf("old %d", i)})
-		require.NoError(t, execSQL(h, "UPDATE items SET starred = 1, starred_at = ? WHERE id = ?", ot+int64(i), id))
-		starred = append(starred, id)
+	var leg2, contentOnly []int64
+	for i := range 9 {
+		s := itemSeed{Title: fmt.Sprintf("old %d", i), Read: i%2 == 0, Starred: i%3 == 0}
+		if i%3 == 1 {
+			s.ChangedAt = ot + 1 // content changed after ot
+		}
+		id := h.addItem(feed, s)
+		leg2 = append(leg2, id)
+		if i == 4 || i == 7 {
+			contentOnly = append(contentOnly, id) // content change only, no state change
+		}
 	}
-	stale := h.addItem(feed, itemSeed{Title: "stale"})
-	require.NoError(t, execSQL(h, "UPDATE items SET starred = 1, starred_at = ? WHERE id = ?", ot-200, stale)) // before ot minus the slack
+	h.addItem(feed, itemSeed{Title: "untouched"})
+	var leg1 []int64
+	for i := range 4 {
+		leg1 = append(leg1, h.addItem(feed, itemSeed{ID: (ot+100)*1_000_000 + int64(i)*1000, Title: fmt.Sprintf("new %d", i)}))
+	}
+	advanceTo(h, ot+50)
+	for _, id := range leg2 {
+		if slices.Contains(contentOnly, id) {
+			continue
+		}
+		switch q[int](h, "SELECT read * 2 + starred FROM items WHERE id = ?", id) {
+		case 0:
+			h.post(rd+"edit-tag", editBody("a="+starred, FormatLongID(id)))
+		case 1:
+			h.post(rd+"edit-tag", editBody("r="+starred, FormatLongID(id)))
+		default:
+			h.post(rd+"edit-tag", editBody("r="+readSt, FormatLongID(id)))
+		}
+	}
+	require.Equal(t, 7, q[int](h, "SELECT count(*) FROM items WHERE state_changed_at >= ?", ot))
+	all := append(append([]int64{}, leg2...), leg1...)
 
-	path := rd + "stream/items/ids?s=user/-/state/com.google/reading-list&r=o&n=2&ot=" + strconv.FormatInt(ot, 10)
-	first, cont, more := idsPage(t, h.get(path))
-	require.True(t, more)
-	second, _, more2 := idsPage(t, h.get(path+"&c="+cont))
-	require.False(t, more2)
-	require.Equal(t, starred, append(first, second...), "oldest first, across the continuation, without the stale one")
+	walk := func(order string, n int) []int64 {
+		path := rd + "stream/items/ids?s=" + rl + "&n=" + strconv.Itoa(n) + "&ot=" + strconv.FormatInt(ot, 10) + order
+		var got []int64
+		cont := ""
+		for pages := 0; ; pages++ {
+			require.Less(t, pages, 20)
+			p := path
+			if cont != "" {
+				p += "&c=" + cont
+			}
+			ids, c, more := idsPage(t, h.get(p))
+			require.LessOrEqual(t, len(ids), n)
+			got = append(got, ids...)
+			if !more {
+				return got
+			}
+			cont = c
+		}
+	}
+	for _, n := range []int{1, 2, 3, 5, 100} {
+		require.Equal(t, all, walk("&r=o", n), "oldest first, n=%d", n)
+		require.Equal(t, reverse(all), walk("", n), "newest first, n=%d", n)
+	}
 }

@@ -80,7 +80,7 @@ func TestPurgesFailOnSettingsReadFailure(t *testing.T) {
 	_, err = e.db.PurgeLedger(e.ctx, now, 1000)
 	require.Error(t, err)
 	err = e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := restoreTrimmed(ctx, tx, []int64{1}, "star", now)
+		_, err := restoreTrimmed(ctx, tx, []int64{1}, "star", now, now)
 		return err
 	})
 	require.Error(t, err)
