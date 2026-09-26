@@ -69,8 +69,20 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	before := s.db.FetchSettings(ctx)
 	if err := s.db.SetSettings(ctx, set); err != nil {
+		var ve *store.SavedSearchError
+		if errors.As(err, &ve) {
+			// A saved search names a feed or folder that does not exist (checked in the write).
+			msg := ve.Field + ": " + ve.Message
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "invalid_settings", "message": "invalid settings: " + store.SettingSavedSearches, "keys": []string{store.SettingSavedSearches},
+				"issues": []settingIssue{{store.SettingSavedSearches, msg}}})
+			return
+		}
 		s.serverError(w, "settings", err)
 		return
+	}
+	if _, ok := set[store.SettingSavedSearches]; ok {
+		s.publishSavedSearchesChanged() // a replaced or reset list, like every other change to it
 	}
 	after := s.db.FetchSettings(ctx)
 	if _, ok := set["imgproxy.mode"]; ok {

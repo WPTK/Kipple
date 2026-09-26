@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -82,9 +83,11 @@ func validSavedSearchID(id string) bool {
 	return true
 }
 
+// hasCtl reports a control or line-break character: any Unicode Cc (C0, DEL and the C1 range,
+// which includes U+0085 NEL, so a tab too) or the line and paragraph separators U+2028 and U+2029.
 func hasCtl(s string) bool {
 	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
+		if unicode.Is(unicode.Cc, r) || r == '\u2028' || r == '\u2029' {
 			return true
 		}
 	}
@@ -193,11 +196,15 @@ func (d *DB) EditSavedSearches(ctx context.Context, fn func([]SavedSearch) ([]Sa
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		next, err := fn(decodeSavedSearches(raw))
+		prev := decodeSavedSearches(raw)
+		next, err := fn(append([]SavedSearch(nil), prev...))
 		if err != nil {
 			return err
 		}
 		if next, err = NormalizeSavedSearches(next); err != nil {
+			return err
+		}
+		if err := checkNewSavedSearchScopes(ctx, tx, prev, next); err != nil {
 			return err
 		}
 		b, err := json.Marshal(next)
@@ -212,6 +219,41 @@ func (d *DB) EditSavedSearches(ctx context.Context, fn func([]SavedSearch) ([]Sa
 		return nil
 	})
 	return out, err
+}
+
+// checkNewSavedSearchScopes checks, inside the writing transaction, that every scope of next that
+// is new or changed against prev names a feed or folder that exists. It runs in the same
+// transaction that stores the list, and a feed or folder delete drops the scopes naming it in its
+// own transaction (dropSavedSearchScope), so a scope can never be stored for a row that is already
+// gone. A scope left as it was is not checked: an old dangling one must not block other edits.
+func checkNewSavedSearchScopes(ctx context.Context, tx *sql.Tx, prev, next []SavedSearch) error {
+	before := make(map[string]SavedSearchScope, len(prev))
+	for _, p := range prev {
+		if p.Scope != nil {
+			before[p.ID] = *p.Scope
+		}
+	}
+	for _, n := range next {
+		sc := n.Scope
+		if sc == nil || (sc.FeedID == "" && sc.FolderID == "") {
+			continue
+		}
+		if old, ok := before[n.ID]; ok && old == *sc {
+			continue
+		}
+		table, id := "feeds", sc.FeedID
+		if sc.FeedID == "" {
+			table, id = "folders", sc.FolderID
+		}
+		var exists bool
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+table+" WHERE id = ?)", id).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return badSS("scope", "no such feed or folder")
+		}
+	}
+	return nil
 }
 
 // dropSavedSearchScope removes the scope of every saved search that names a deleted (or merged

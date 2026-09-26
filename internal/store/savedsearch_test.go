@@ -23,6 +23,7 @@ func TestSavedSearchNormalize(t *testing.T) {
 	require.Equal(t, "7", n.Scope.FeedID)
 	ok(SavedSearch{Name: "n", Q: "q", Scope: &SavedSearchScope{View: "starred"}})
 	ok(SavedSearch{Name: "n", Q: "q"})
+	ok(SavedSearch{Name: "Café x", Q: "title:\"a b\" é ☃"}) // spaces, accents and symbols are fine
 
 	long := strings.Repeat("x", MaxSavedSearchName+1)
 	for _, tc := range []struct {
@@ -33,6 +34,15 @@ func TestSavedSearchNormalize(t *testing.T) {
 		{"empty name", SavedSearch{Name: " ", Q: "q"}, "name"},
 		{"long name", SavedSearch{Name: long, Q: "q"}, "name"},
 		{"newline name", SavedSearch{Name: "a\nb", Q: "q"}, "name"},
+		{"NEL name", SavedSearch{Name: "a\u0085b", Q: "q"}, "name"},
+		{"C1 control name", SavedSearch{Name: "a\u009fb", Q: "q"}, "name"},
+		{"line separator name", SavedSearch{Name: "a b", Q: "q"}, "name"},
+		{"paragraph separator name", SavedSearch{Name: "a b", Q: "q"}, "name"},
+		{"tab name", SavedSearch{Name: "a\tb", Q: "q"}, "name"},
+		{"NEL q", SavedSearch{Name: "n", Q: "a\u0085b"}, "q"},
+		{"line separator q", SavedSearch{Name: "n", Q: "a b"}, "q"},
+		{"paragraph separator q", SavedSearch{Name: "n", Q: "a b"}, "q"},
+		{"DEL q", SavedSearch{Name: "n", Q: "a\x7fb"}, "q"},
 		{"empty q", SavedSearch{Name: "n", Q: "  "}, "q"},
 		{"long q", SavedSearch{Name: "n", Q: strings.Repeat("q", MaxSavedSearchQ+1)}, "q"},
 		{"order", SavedSearch{Name: "n", Q: "q", Order: "newest"}, "order"},
@@ -129,3 +139,72 @@ func TestDeletingAFeedOrFolderDropsOnlyTheScope(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// A scope is checked in the transaction that stores it: one naming a feed or folder that is gone
+// (deleted after any earlier check, dropSavedSearchScope having already run) is refused, and
+// nothing is stored.
+func TestEditSavedSearchesRefusesAScopeForAGoneFeedOrFolder(t *testing.T) {
+	e := newAREnv(t)
+	ctx := context.Background()
+	other := e.addFeed("https://b/f")
+	fo, err := e.db.CreateFolder(ctx, "News", 5)
+	require.NoError(t, err)
+	add := func(sc *SavedSearchScope) error {
+		_, err := e.db.EditSavedSearches(ctx, func(l []SavedSearch) ([]SavedSearch, error) {
+			return append(l, SavedSearch{ID: NewSavedSearchID(), Name: "n", Q: "q", Scope: sc}), nil
+		})
+		return err
+	}
+	require.NoError(t, add(&SavedSearchScope{FeedID: itoa(other)}))
+	require.NoError(t, add(&SavedSearchScope{FolderID: itoa(fo.ID)}))
+	require.NoError(t, add(&SavedSearchScope{View: "unread"}))
+	require.NoError(t, add(nil))
+
+	// The feed and the folder are deleted (their own transactions drop existing scopes) ...
+	require.NoError(t, e.db.DeleteFeed(ctx, other, false))
+	_, err = e.db.DeleteFolder(ctx, fo.ID)
+	require.NoError(t, err)
+	// ... and a create that had checked before that now commits inside the transaction: refused.
+	for _, sc := range []*SavedSearchScope{{FeedID: itoa(other)}, {FolderID: itoa(fo.ID)}} {
+		var ve *SavedSearchError
+		require.ErrorAs(t, add(sc), &ve)
+		require.Equal(t, "scope", ve.Field)
+	}
+	got, err := e.db.SavedSearches(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 4, "nothing was stored")
+	for _, g := range got {
+		require.True(t, g.Scope == nil || g.Scope.View != "", "no dead scope: %+v", g.Scope)
+	}
+
+	// A patch that moves a scope onto a gone feed is refused; one that leaves the scope alone is not
+	// checked, so a stale dangling scope (raw delete) never blocks an unrelated edit.
+	_, err = e.db.EditSavedSearches(ctx, func(l []SavedSearch) ([]SavedSearch, error) {
+		l[3].Scope = &SavedSearchScope{FeedID: itoa(other)}
+		return l, nil
+	})
+	require.Error(t, err)
+	live := e.addFeed("https://c/f")
+	require.NoError(t, add(&SavedSearchScope{FeedID: itoa(live)}))
+	e.exec("DELETE FROM feeds WHERE id = ?", live) // no drop: the scope dangles
+	_, err = e.db.EditSavedSearches(ctx, func(l []SavedSearch) ([]SavedSearch, error) {
+		l[0].Name = "renamed"
+		return l, nil
+	})
+	require.NoError(t, err)
+}
+
+// PATCH /api/settings goes through SetSettings, which checks new scopes the same way.
+func TestSetSettingsRefusesAScopeForAGoneFeed(t *testing.T) {
+	e := newAREnv(t)
+	ctx := context.Background()
+	list := []any{map[string]any{"id": "a", "name": "n", "q": "q", "scope": map[string]any{"feed_id": "99999"}}}
+	err := e.db.SetSettings(ctx, map[string]any{SettingSavedSearches: list})
+	var ve *SavedSearchError
+	require.ErrorAs(t, err, &ve)
+	got, err := e.db.SavedSearches(ctx)
+	require.NoError(t, err)
+	require.Empty(t, got)
+	list[0].(map[string]any)["scope"] = map[string]any{"feed_id": itoa(e.feed)}
+	require.NoError(t, e.db.SetSettings(ctx, map[string]any{SettingSavedSearches: list}))
+}

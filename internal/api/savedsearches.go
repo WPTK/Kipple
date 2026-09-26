@@ -79,7 +79,7 @@ func (s *Server) countSavedSearch(ctx context.Context, ss store.SavedSearch) (n 
 				n++
 			}
 		}
-		if n >= savedSearchCap {
+		if n > savedSearchCap {
 			return savedSearchCap, true, true
 		}
 		if next == nil {
@@ -122,25 +122,6 @@ func (s *Server) publishSavedSearchesChanged() {
 	if s.opt.Hub != nil {
 		s.opt.Hub.Publish("saved_searches.changed", map[string]any{})
 	}
-}
-
-// scopeExists checks that a feed or folder the scope names exists.
-func (s *Server) scopeExists(ctx context.Context, sc *store.SavedSearchScope) (bool, error) {
-	if sc == nil {
-		return true, nil
-	}
-	var table, id string
-	switch {
-	case sc.FeedID != "":
-		table, id = "feeds", sc.FeedID
-	case sc.FolderID != "":
-		table, id = "folders", sc.FolderID
-	default:
-		return true, nil
-	}
-	var n int
-	err := s.db.Reader().QueryRowContext(ctx, "SELECT count(*) FROM "+table+" WHERE id = ?", id).Scan(&n)
-	return n > 0, err
 }
 
 // ---- GET /api/saved-searches ----
@@ -188,14 +169,6 @@ func (s *Server) createSavedSearch(w http.ResponseWriter, r *http.Request) {
 		s.savedSearchError(w, "create saved search", err)
 		return
 	}
-	if ok, err := s.scopeExists(r.Context(), ss.Scope); err != nil || !ok {
-		if err != nil {
-			s.serverError(w, "create saved search", err)
-			return
-		}
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_saved_search", "field": "scope", "message": "no such feed or folder"})
-		return
-	}
 	ss.ID = store.NewSavedSearchID()
 	_, err = s.db.EditSavedSearches(r.Context(), func(list []store.SavedSearch) ([]store.SavedSearch, error) {
 		if len(list) >= store.MaxSavedSearches {
@@ -227,14 +200,6 @@ func (s *Server) patchSavedSearch(w http.ResponseWriter, r *http.Request) {
 		newScope = new(store.SavedSearchScope)
 		if err := dec.Decode(newScope); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_saved_search", "field": "scope", "message": "must be {feed_id}, {folder_id} or {view}"})
-			return
-		}
-		if ok, err := s.scopeExists(r.Context(), newScope); err != nil || !ok {
-			if err != nil {
-				s.serverError(w, "patch saved search", err)
-				return
-			}
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_saved_search", "field": "scope", "message": "no such feed or folder"})
 			return
 		}
 	}

@@ -288,3 +288,81 @@ func TestSavedSearchCountThatRunsOutOfBudgetIsNull(t *testing.T) {
 	noBudget(t)
 	require.EqualValues(t, 1, savedList(t, h, c, "")[0]["unread"])
 }
+
+// Replacing or resetting the list through PATCH /api/settings tells other tabs, like every other
+// change to it, and a scope naming a feed or folder that does not exist is a field error.
+func TestSettingsPatchOfSavedSearchesPublishesAndChecksScopes(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	feed := h.addFeed("A", 0)
+	sub := h.hub.Subscribe(h.hub.LastID())
+	defer sub.Close()
+	got := func() int {
+		n := 0
+		for {
+			select {
+			case ev := <-sub.C:
+				if ev.Type == "saved_searches.changed" {
+					n++
+				}
+			case <-time.After(150 * time.Millisecond):
+				return n
+			}
+		}
+	}
+
+	code, out, _ := h.api(c, "PATCH", "/api/settings", `{"library.saved_searches":[{"id":"a","name":"n","q":"x","scope":{"feed_id":"`+sid(feed)+`"}}]}`)
+	require.Equal(t, 200, code, out)
+	require.Equal(t, 1, got(), "a replaced list publishes saved_searches.changed")
+
+	for _, scope := range []string{`{"feed_id":"9999"}`, `{"folder_id":"9999"}`} {
+		code, out, _ = h.api(c, "PATCH", "/api/settings", `{"library.saved_searches":[{"id":"b","name":"n","q":"x","scope":`+scope+`}]}`)
+		require.Equal(t, 400, code, "%v", out)
+		require.Equal(t, "invalid_settings", out["error"])
+		require.Equal(t, []any{"library.saved_searches"}, out["keys"])
+		require.Contains(t, jsonStr(out["issues"]), "scope: no such feed or folder")
+	}
+	require.Zero(t, got(), "a refused change publishes nothing")
+	l := savedList(t, h, c, "?counts=0")
+	require.Len(t, l, 1, "and stores nothing")
+	require.Equal(t, "a", l[0]["id"])
+
+	// A scope left as it was is not rechecked: a list round-tripped from the client keeps working.
+	h.exec("DELETE FROM feeds WHERE id = ?", feed) // leaves the stored scope dangling (raw delete)
+	code, out, _ = h.api(c, "PATCH", "/api/settings", `{"library.saved_searches":[{"id":"a","name":"renamed","q":"x","scope":{"feed_id":"`+sid(feed)+`"}}]}`)
+	require.Equal(t, 200, code, out)
+	require.Equal(t, 1, got())
+
+	code, _, _ = h.api(c, "PATCH", "/api/settings", `{"library.saved_searches":null}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, 1, got(), "a reset publishes too")
+	require.Empty(t, savedList(t, h, c, "?counts=0"))
+
+	// Other keys alone publish nothing.
+	code, _, _ = h.api(c, "PATCH", "/api/settings", `{"library.auto_read_days":3}`)
+	require.Equal(t, 200, code)
+	require.Zero(t, got())
+}
+
+// The count stops at 999 only when there is more: exactly 999 is "999", not "999+".
+func TestSavedSearchCapBoundary(t *testing.T) {
+	noBudget(t)
+	h := newHarness(t)
+	c := h.login()
+	feed := h.addFeed("A", 0)
+	h.exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 1001)
+		INSERT INTO items (id, feed_id, read, published_at, sort_at, word_count, uid, content_hash, text_hash, url, title, author)
+		SELECT ?1 + i, ?2, 0, i, i, 0, 'cap:' || i, 'c', 't', 'https://x.example/' || i, 'capword ' || i, '' FROM n`, baseID+9_000_000_000, feed)
+	h.exec(`INSERT INTO item_content (item_id, content_html, content_text) SELECT id, '<p>x</p>', 'x' FROM items WHERE uid LIKE 'cap:%'`)
+	h.saved(c, `{"name":"cap","q":"capword"}`)
+	for _, tc := range []struct {
+		unread int
+		want   int
+		capped bool
+	}{{1001, 999, true}, {1000, 999, true}, {999, 999, false}, {998, 998, false}} {
+		h.exec("UPDATE items SET read = CASE WHEN CAST(substr(uid, 5) AS INTEGER) > ? THEN 1 ELSE 0 END WHERE uid LIKE 'cap:%'", tc.unread)
+		l := savedList(t, h, c, "")
+		require.EqualValues(t, tc.want, l[0]["unread"], "unread %d", tc.unread)
+		require.Equal(t, tc.capped, l[0]["unread_capped"], "unread %d", tc.unread)
+	}
+}

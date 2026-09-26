@@ -205,6 +205,16 @@ func (d *DB) SetSettings(ctx context.Context, set map[string]any) error {
 			if err != nil {
 				return err
 			}
+			if k == SettingSavedSearches {
+				// A replaced list: its new or changed scopes must exist (SavedSearchError).
+				var raw string
+				if err := tx.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", k).Scan(&raw); err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return err
+				}
+				if err := checkNewSavedSearchScopes(ctx, tx, decodeSavedSearches(raw), decodeSavedSearches(string(b))); err != nil {
+					return err
+				}
+			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)
 				ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()`, k, string(b)); err != nil {
 				return err
