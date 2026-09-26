@@ -136,7 +136,7 @@ func runServe() error {
 		return fmt.Errorf("store: %w", err)
 	}
 	// db.Close (WAL checkpoint, pools) runs last, after the scheduler has drained.
-	defer closeWithin(&budget, logger, "closing store", db.Close)
+	defer closeWithin(&budget, logger, "closing store", 0, db.Close)
 
 	if err := ensureAccount(context.Background(), db, cfg, logger); err != nil {
 		return fmt.Errorf("account: %w", err)
@@ -154,7 +154,7 @@ func runServe() error {
 		imgc = nil
 	} else {
 		// Runs before db.Close (defers unwind last-in first) and after the HTTP drain.
-		defer closeWithin(&budget, logger, "closing image cache", imgc.Close)
+		defer closeWithin(&budget, logger, "closing image cache", storeCloseReserve, imgc.Close)
 	}
 
 	hub := events.New()
@@ -204,7 +204,7 @@ func runServe() error {
 		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount,
 	})
-	defer closeWithin(&budget, logger, "closing the UI API", func() error { uiAPI.Close(); return nil })
+	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API
 	uiAPI.Register(mux)
 	webHandler, err := newWebHandler(uiAPI.ImgMode)

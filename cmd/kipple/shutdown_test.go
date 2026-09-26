@@ -19,16 +19,21 @@ import (
 func shrinkBudget(t *testing.T) {
 	t.Helper()
 	oldT, oldR, oldH, oldS, oldC := shutdownTotal, closeReserve, httpDrainMax, schedDrainMax, closeMax
+	oldSR, oldMF := storeCloseReserve, maintFloor
 	t.Cleanup(func() {
 		shutdownTotal, closeReserve, httpDrainMax, schedDrainMax, closeMax = oldT, oldR, oldH, oldS, oldC
+		storeCloseReserve, maintFloor = oldSR, oldMF
 	})
-	// Scaled from 25 s / 5 s / 10 s / 15 s: the stage maxima alone add up to more
-	// than the total, as in production.
-	shutdownTotal, closeReserve, httpDrainMax, schedDrainMax = 500*time.Millisecond, 100*time.Millisecond, 200*time.Millisecond, 300*time.Millisecond
+	// Scaled from 25 s / 5 s / 10 s / 15 s / 3 s / 1 s: the stage maxima alone add
+	// up to more than the total, as in production.
+	shutdownTotal, closeReserve, httpDrainMax, schedDrainMax = 1000*time.Millisecond, 200*time.Millisecond, 400*time.Millisecond, 600*time.Millisecond
+	storeCloseReserve, maintFloor = 120*time.Millisecond, 40*time.Millisecond
 }
 
 // Every stage hanging still ends inside the one budget: the stages by the
-// deadline less the close reserve, the deferred closes by the deadline.
+// deadline less the close reserve, the deferred closes by the deadline. Even
+// then maintenance gets its floor to stop, and the hanging UI API and image
+// cache closes leave the store's close its own reserve.
 func TestShutdownFitsOneBudgetWhenEveryStageHangs(t *testing.T) {
 	shrinkBudget(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -36,25 +41,32 @@ func TestShutdownFitsOneBudgetWhenEveryStageHangs(t *testing.T) {
 	t.Cleanup(func() { close(hang) })
 	var budget shutdownBudget
 	cut := false
+	var maintStart time.Time
 	start := time.Now()
 	err := runShutdown(&budget, shutdownSteps{
 		stopWork:  func() {},
 		drainHTTP: func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() },
 		cutHTTP:   func() { cut = true },
 		stopped:   make(chan struct{}), // the scheduler never drains
-		stopMaint: func() { <-hang },   // maintenance never stops
+		stopMaint: func() { maintStart = time.Now(); <-hang }, // maintenance never stops
 	}, quiet)
 	stages := time.Since(start)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.True(t, cut, "a drain that ran out cuts the connections")
-	require.Less(t, stages, shutdownTotal-closeReserve+80*time.Millisecond, "the stages leave the close reserve")
+	require.Less(t, stages, shutdownTotal-storeCloseReserve+80*time.Millisecond, "the stages leave the store's reserve")
+	require.False(t, maintStart.IsZero())
+	require.GreaterOrEqual(t, time.Since(maintStart), maintFloor-10*time.Millisecond, "maintenance got its floor, not a zero wait")
 
-	closeWithin(&budget, quiet, "closing store", func() error { <-hang; return nil })
+	closeWithin(&budget, quiet, "closing the UI API", storeCloseReserve, func() error { <-hang; return nil })
+	closeWithin(&budget, quiet, "closing image cache", storeCloseReserve, func() error { <-hang; return nil })
+	storeStart := time.Now()
+	closeWithin(&budget, quiet, "closing store", 0, func() error { <-hang; return nil })
+	require.GreaterOrEqual(t, time.Since(storeStart), storeCloseReserve-30*time.Millisecond, "the store's close still had its reserve")
 	require.Less(t, time.Since(start), shutdownTotal+80*time.Millisecond, "the whole shutdown fits the budget")
 
 	// A close that finishes in time has its error logged.
 	var logged bool
-	closeWithin(&shutdownBudget{}, slog.New(slog.NewTextHandler(writerFunc(func(p []byte) { logged = true }), nil)), "x",
+	closeWithin(&shutdownBudget{}, slog.New(slog.NewTextHandler(writerFunc(func(p []byte) { logged = true }), nil)), "x", 0,
 		func() error { return errors.New("boom") })
 	require.True(t, logged)
 }
