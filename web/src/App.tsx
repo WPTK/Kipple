@@ -11,6 +11,7 @@ import { LoginScreen } from "@/screens/LoginScreen";
 import { ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { AppShell } from "@/shell/AppShell";
+import { ErrorBoundary } from "@/shell/ErrorBoundary";
 import { StatusBlock } from "@/screens/ListPane";
 import { Button } from "@/ui/button";
 import { Skeleton } from "@/ui/kit";
@@ -105,7 +106,9 @@ export default function App({ client }: { client?: QueryClient }) {
   return (
     <QueryClientProvider client={qc}>
       <BrowserRouter>
-        <Gate />
+        <ErrorBoundary>
+          <Gate />
+        </ErrorBoundary>
       </BrowserRouter>
     </QueryClientProvider>
   );

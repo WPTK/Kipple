@@ -38,8 +38,14 @@ export function parseScopeKey(key: string | null | undefined): Scope {
     const v = part.slice(idx + 1);
     if (k === "feed") scope.feed = v;
     else if (k === "folder") scope.folder = v;
-    else if (k === "q") scope.q = decodeURIComponent(v);
-    else if (k === "order" && (v === "oldest" || v === "rank")) scope.order = v;
+    else if (k === "q") {
+      try {
+        scope.q = decodeURIComponent(v);
+      } catch {
+        // A hand-edited or truncated `?from=` (a stray `%`): the default scope, not a crash during render.
+        return { view: "unread" };
+      }
+    } else if (k === "order" && (v === "oldest" || v === "rank")) scope.order = v;
     else if (k === "typing" && v === "1") scope.typing = true;
   }
   return scope;
