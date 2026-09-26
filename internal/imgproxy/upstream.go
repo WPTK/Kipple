@@ -3,12 +3,14 @@ package imgproxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/WPTK/kipple/internal/imgcache"
@@ -163,9 +165,12 @@ func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p
 	if cd.ims != "" {
 		req.Header.Set("If-Modified-Since", cd.ims)
 	}
+	// No Client.Timeout: it would also run while the body waits on a slow
+	// client (a relay writes to the client between upstream reads). Instead the
+	// headers get a deadline and the body a budget that only counts the time
+	// spent waiting on the source (budgetBody); together they are Timeout.
 	client := &http.Client{
 		Transport: h.opt.Transport(flags&FlagPrivateNet != 0, flags&FlagInsecureTLS != 0),
-		Timeout:   h.opt.Timeout, // covers reading the body too
 		// No cookie jar. Go adds a Referer on redirects; strip it.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > maxHops {
@@ -175,20 +180,84 @@ func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p
 			return nil
 		},
 	}
-	var t *time.Timer
+	limit := h.opt.Timeout
 	if headerBudget > 0 {
-		t = time.AfterFunc(headerBudget, cancel)
+		limit = min(limit, headerBudget)
 	}
+	var fired atomic.Bool
+	t := time.AfterFunc(limit, func() { fired.Store(true); cancel() })
+	start := time.Now()
 	// #nosec G704 -- same as above: signed URL, SSRF-guarded transport, capped redirects
 	resp, err := client.Do(req)
-	if t != nil {
-		t.Stop()
-	}
+	stopped := t.Stop()
 	if err != nil {
 		cancel()
+		if fired.Load() {
+			return nil, nil, fmt.Errorf("%w: %w", errUpstreamTimeout, err)
+		}
 		return nil, nil, err
 	}
+	if !stopped {
+		// The deadline fired as the headers arrived: the request is already cancelled.
+		_ = resp.Body.Close()
+		cancel()
+		return nil, nil, errUpstreamTimeout
+	}
+	resp.Body = newBudgetBody(resp.Body, h.opt.Timeout-time.Since(start), cancel)
 	return resp, cancel, nil
+}
+
+// errUpstreamTimeout is the source taking longer than Timeout (it wraps
+// context.DeadlineExceeded, so failures record "timed out").
+var errUpstreamTimeout = fmt.Errorf("imgproxy: upstream timed out: %w", context.DeadlineExceeded)
+
+// budgetBody is an upstream body with a time budget that only runs inside
+// Read: time the caller spends elsewhere (writing to a slow client) is not
+// counted, so a slow reader never times out a fast source, while a source that
+// trickles is still cut at Timeout. When the budget runs out mid-read the
+// request is cancelled and the read fails with errUpstreamTimeout.
+type budgetBody struct {
+	rc     io.ReadCloser
+	left   time.Duration
+	cancel context.CancelFunc
+	t      *time.Timer
+	fired  atomic.Bool
+	out    bool
+}
+
+func newBudgetBody(rc io.ReadCloser, left time.Duration, cancel context.CancelFunc) *budgetBody {
+	b := &budgetBody{rc: rc, left: left, cancel: cancel}
+	b.t = time.AfterFunc(time.Hour, func() { b.fired.Store(true); b.cancel() })
+	b.t.Stop()
+	return b
+}
+
+func (b *budgetBody) Read(p []byte) (int, error) {
+	if b.out {
+		return 0, errUpstreamTimeout
+	}
+	if b.left <= 0 {
+		b.out = true
+		b.cancel()
+		return 0, errUpstreamTimeout
+	}
+	b.t.Reset(b.left)
+	start := time.Now()
+	n, err := b.rc.Read(p)
+	b.t.Stop()
+	b.left -= time.Since(start)
+	if b.fired.Load() {
+		b.out = true
+		if err != nil || n == 0 {
+			return n, errUpstreamTimeout
+		}
+	}
+	return n, err
+}
+
+func (b *budgetBody) Close() error {
+	b.t.Stop()
+	return b.rc.Close()
 }
 
 // hostLimiter caps concurrent upstream fetches per host.
@@ -262,6 +331,10 @@ type sink struct {
 	key   string
 	orig  string
 	flags int
+	// release ends the leader's flight on key; the fill calls it as soon as
+	// the entry (or its failure) is in the index, so followers need not wait
+	// for a slow client to finish reading. It is safe to call more than once.
+	release func()
 }
 
 func (s *sink) fail(kind imgcache.NegKind, status int, reason string) {
@@ -269,6 +342,14 @@ func (s *sink) fail(kind imgcache.NegKind, status int, reason string) {
 		return
 	}
 	_ = s.c.PutNeg(s.key, s.orig, s.flags, kind, status, reason)
+}
+
+func (s *sink) refuse(r *refusal) { s.fail(r.kind, r.status, r.reason) }
+
+func (s *sink) done() {
+	if s != nil && s.release != nil {
+		s.release()
+	}
 }
 
 // begin starts the cache write; it returns nil (stream without caching) when the
@@ -285,12 +366,16 @@ func (s *sink) begin(expected int64, log *slog.Logger) *imgcache.Writer {
 	return w
 }
 
-func (s *sink) commit(w *imgcache.Writer, contentType string, resp *http.Response, log *slog.Logger) {
+// commit publishes the download. The source's ETag is stored for revalidation
+// (the client is never sent it: hits answer with the checksum tag).
+func (s *sink) commit(w *imgcache.Writer, contentType string, resp *http.Response, log *slog.Logger) bool {
 	err := w.Commit(imgcache.Meta{
 		ContentType: contentType, ETag: resp.Header.Get("ETag"), LastModified: resp.Header.Get("Last-Modified"),
 		FreshFor: imgcache.Freshness(resp.Header.Get("Cache-Control")),
 	})
 	if err != nil {
 		log.Debug("imgproxy: cache commit", "err", err)
+		return false
 	}
+	return true
 }

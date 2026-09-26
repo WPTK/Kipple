@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/WPTK/kipple/internal/imgcache"
@@ -61,6 +62,7 @@ func (h *Handler) serveCached(w http.ResponseWriter, r *http.Request, u *url.URL
 			}
 		}
 		defer release()
+		sk.release = release
 		// Another leader may have finished between our lookup and our Flight.
 		if e2, ok2 := c.Peek(ctx, key); ok2 {
 			switch {
@@ -83,6 +85,11 @@ func (h *Handler) serveCached(w http.ResponseWriter, r *http.Request, u *url.URL
 
 // fetchAndFill is the leader's work: fetch (conditionally when there is a stale
 // copy), stream to the client and fill the cache.
+//
+// While a stale copy is being revalidated, anything but a 304 or a good new
+// image (an error, a timeout, a 5xx, a 4xx, a body that is not an image) serves
+// the stale copy and keeps it: the next revalidation is put off (10 minutes,
+// doubling) instead of the good copy being replaced by a failure entry.
 func (h *Handler) fetchAndFill(w http.ResponseWriter, r *http.Request, u *url.URL, flags int, sk *sink, stale *imgcache.Entry) {
 	ctx := r.Context()
 	release, out := h.acquire(ctx, u.Hostname())
@@ -96,46 +103,73 @@ func (h *Handler) fetchAndFill(w http.ResponseWriter, r *http.Request, u *url.UR
 	case slotGone:
 		return
 	}
-	defer release()
+	slot := sync.OnceFunc(release)
+	defer slot()
 
-	var cd cond
-	var budget time.Duration
-	if stale != nil {
-		cd = cond{inm: stale.ETag, ims: stale.LastModified}
-		budget = h.opt.RevalidateWithin
-	}
-	resp, done, err := h.fetchUpstream(ctx, u, flags, cd, budget)
-	if err != nil {
-		if ctx.Err() != nil {
-			return
+	// At most two exchanges: a revalidation whose 304 finds the stale file
+	// evicted meanwhile is followed by one unconditional fetch.
+	for attempt := 0; attempt < 2; attempt++ {
+		var cd cond
+		var budget time.Duration
+		if stale != nil {
+			cd = cond{inm: stale.ETag, ims: stale.LastModified}
+			budget = h.opt.RevalidateWithin
 		}
-		h.log.Debug("imgproxy: upstream", "host", u.Host, "err", err)
-		if stale != nil && h.serveHit(w, r, *stale) {
-			return // revalidation failed or timed out: the stale copy beats a broken image
-		}
-		sk.fail(imgcache.NegTransient, 0, errReason(err))
-		fail(w, http.StatusBadGateway)
-		return
-	}
-	defer done()
-	defer resp.Body.Close()
-
-	if stale != nil {
-		switch {
-		case resp.StatusCode == http.StatusNotModified:
-			_ = sk.c.Revalidated(sk.key, imgcache.Freshness(resp.Header.Get("Cache-Control")), resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"))
-			if h.serveHit(w, r, *stale) {
+		resp, done, err := h.fetchUpstream(ctx, u, flags, cd, budget)
+		if err != nil {
+			if ctx.Err() != nil {
 				return
 			}
+			h.log.Debug("imgproxy: upstream", "host", u.Host, "err", err)
+			if stale != nil && h.serveStale(w, r, sk, *stale) {
+				return // revalidation failed or timed out: the stale copy beats a broken image
+			}
+			sk.fail(imgcache.NegTransient, 0, errReason(err))
 			fail(w, http.StatusBadGateway)
 			return
-		case resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests:
+		}
+		if stale != nil && resp.StatusCode == http.StatusNotModified {
+			_ = sk.c.Revalidated(sk.key, imgcache.Freshness(resp.Header.Get("Cache-Control")), resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"))
+			_ = resp.Body.Close()
+			done()
 			if h.serveHit(w, r, *stale) {
 				return
 			}
+			stale = nil // the file went (evicted) between the lookup and now: fetch it whole
+			continue
 		}
+		h.fillFrom(w, r, sk, stale, resp, sync.OnceFunc(func() { _ = resp.Body.Close(); done(); slot() }))
+		return
 	}
-	h.relay(w, resp, sk)
+	fail(w, http.StatusBadGateway)
+}
+
+// fillFrom vets a fetched response and streams it, or serves the stale copy
+// when a revalidation got something that is not an image.
+func (h *Handler) fillFrom(w http.ResponseWriter, r *http.Request, sk *sink, stale *imgcache.Entry, resp *http.Response, fin func()) {
+	defer fin()
+	head, ct, body, ref := h.vet(resp)
+	if ref != nil {
+		if stale != nil && h.serveStale(w, r, sk, *stale) {
+			return
+		}
+		sk.refuse(ref)
+		fail(w, ref.code)
+		return
+	}
+	h.stream(w, resp, sk, head, ct, body, fin)
+}
+
+// serveStale serves a stale copy whose revalidation failed and puts the next
+// revalidation off. It reports false when the file is gone.
+func (h *Handler) serveStale(w http.ResponseWriter, r *http.Request, sk *sink, e imgcache.Entry) bool {
+	if !h.serveHit(w, r, e) {
+		return false
+	}
+	if err := sk.c.DeferRevalidation(sk.key); err != nil {
+		h.log.Debug("imgproxy: deferring revalidation", "err", err)
+	}
+	return true
 }
 
 func errReason(err error) string {

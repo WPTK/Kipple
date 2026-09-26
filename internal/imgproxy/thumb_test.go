@@ -230,8 +230,8 @@ func TestTranscodeAppliesExifOrientation(t *testing.T) {
 }
 
 func TestOrientImageMovesPixels(t *testing.T) {
-	src := image.NewNRGBA(image.Rect(0, 0, 2, 3))
-	src.Set(0, 0, color.NRGBA{R: 255, A: 255}) // top-left marker
+	src := image.NewRGBA(image.Rect(0, 0, 2, 3))
+	src.Set(0, 0, color.RGBA{R: 255, A: 255}) // top-left marker
 	got := func(o int) [2]int {
 		img := orientImage(src, o)
 		for y := 0; y < img.Bounds().Dy(); y++ {
@@ -299,11 +299,13 @@ func TestTranscodeHeapStaysUnderCeiling(t *testing.T) {
 	runtime.ReadMemStats(&end)
 	grew := int64(peak.Load()) - int64(base.HeapAlloc)
 	allocated := int64(end.TotalAlloc - base.TotalAlloc)
+	p, err := planThumb(bytes.NewReader(src), int64(len(src)), "image/jpeg", ThumbWidth, defaultThumbPixels)
+	require.NoError(t, err)
 	t.Logf("20 MP JPEG (%d KB) -> %d KB in %s; heap peak +%d MiB (includes uncollected garbage), allocated in total %d MiB, estimate %d MiB",
-		len(src)>>10, len(out)>>10, took, grew>>20, allocated>>20, estimateDecode("jpeg", false, 5000, 4000)>>20)
+		len(src)>>10, len(out)>>10, took, grew>>20, allocated>>20, p.need>>20)
 	// Every byte the transcode allocates, garbage included, fits the ceiling, so no GC timing can push the heap past it.
 	require.Less(t, allocated, int64(defaultDecodeCeiling), "one decode stays under the ceiling")
-	require.LessOrEqual(t, allocated, estimateDecode("jpeg", false, 5000, 4000)+8<<20, "the estimate that admits a decode is honest")
+	require.LessOrEqual(t, allocated, p.need, "the estimate that admits a decode is honest")
 }
 
 func TestBudgetSerializesDecodes(t *testing.T) {

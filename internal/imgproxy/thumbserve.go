@@ -11,19 +11,6 @@ import (
 
 const srcTagPrefix = "src=" // the thumbnail's etag column holds the source's checksum
 
-// discard is a ResponseWriter that throws the body away: a thumbnail request
-// runs the ordinary fetch-and-cache path for the original through it.
-type discard struct{ h http.Header }
-
-func (d *discard) Header() http.Header {
-	if d.h == nil {
-		d.h = http.Header{}
-	}
-	return d.h
-}
-func (d *discard) Write(p []byte) (int, error) { return len(p), nil }
-func (d *discard) WriteHeader(int)             {}
-
 // serveThumb serves the card thumbnail of orig. flags are the fetch flags with
 // the thumbnail bit already removed.
 //
@@ -37,8 +24,6 @@ func (h *Handler) serveThumb(w http.ResponseWriter, r *http.Request, u *url.URL,
 	c := h.opt.Cache
 	ctx := r.Context()
 	tkey := imgcache.KeyThumb(flags, orig)
-	okey := imgcache.KeyOrig(flags, orig)
-	original := func() { h.serveCached(w, r, u, flags, orig) }
 	for round := 0; round < maxFlightRounds; round++ {
 		te, ok, err := c.Lookup(ctx, tkey)
 		if err != nil {
@@ -46,14 +31,16 @@ func (h *Handler) serveThumb(w http.ResponseWriter, r *http.Request, u *url.URL,
 				return
 			}
 			h.log.Warn("imgproxy: cache lookup", "err", err)
-			original()
+			h.serveCached(w, r, u, flags, orig)
 			return
 		}
 		var stale *imgcache.Entry
 		if ok {
 			switch {
+			case !te.OK && te.NegReason == imgcache.InProgress:
+				// A transcode is running (its flight is below), or one died with the process (the leader finds out).
 			case !te.OK:
-				original() // thumbnailing was refused for this image, and not long ago
+				h.serveCached(w, r, u, flags, orig) // thumbnailing was refused for this image, and not long ago
 				return
 			case te.Fresh(c.Now()):
 				if h.serveHit(w, r, te) {
@@ -74,55 +61,83 @@ func (h *Handler) serveThumb(w http.ResponseWriter, r *http.Request, u *url.URL,
 				t.Stop()
 				return
 			case <-t.C:
-				original()
+				h.serveCached(w, r, u, flags, orig)
 				return
 			}
 		}
-		// A previous leader may have finished between our lookup and our Flight.
-		if e2, ok2 := c.Peek(ctx, tkey); ok2 && (!e2.OK || e2.Fresh(c.Now())) {
-			release()
-			continue
-		}
-		oe, ok := h.ensureOriginal(r, u, flags, orig, okey)
-		if !ok {
-			release()
-			original()
-			return
-		}
-		tag := srcTag(oe)
-		if stale != nil && stale.ETag == tag {
-			// The source is the one this thumbnail was made from: it is still good.
-			_ = c.Revalidated(tkey, thumbFresh(c, oe), tag, "")
-			release()
-			continue
-		}
-		if !h.thumbnailable(oe) {
-			h.rememberNoThumb(tkey, orig, flags, "the source is served as it is")
-			release()
-			original()
-			return
-		}
-		job := func() { h.runThumb(tkey, okey, orig, flags, oe, release) }
-		if err := h.pool.submit(job); err != nil {
-			release()
-			h.log.Debug("imgproxy: thumbnail queue full, serving the original", "host", u.Host)
-			original()
-			return
-		}
-		t := time.NewTimer(h.opt.ThumbWait)
-		select {
-		case <-done:
-			t.Stop()
-			continue
-		case <-ctx.Done():
-			t.Stop()
-			return
-		case <-t.C:
-			original() // the worker goes on and the next request finds the thumbnail
+		if h.leadThumb(w, r, u, flags, orig, stale, release, done) {
 			return
 		}
 	}
-	original()
+	h.serveCached(w, r, u, flags, orig)
+}
+
+// leadThumb is the thumbnail leader's work. It reports true when the request
+// has been answered and false when the caller should look the key up again.
+// The flight is released on every path, a panic included, unless the job was
+// handed to a worker (which then releases it).
+func (h *Handler) leadThumb(w http.ResponseWriter, r *http.Request, u *url.URL, flags int, orig string, stale *imgcache.Entry, release func(), done <-chan struct{}) bool {
+	c := h.opt.Cache
+	ctx := r.Context()
+	tkey := imgcache.KeyThumb(flags, orig)
+	okey := imgcache.KeyOrig(flags, orig)
+	owned := true
+	defer func() {
+		if owned {
+			release()
+		}
+	}()
+	original := func() bool {
+		owned = false
+		release()
+		h.serveCached(w, r, u, flags, orig)
+		return true
+	}
+	if testHookThumbLeader != nil {
+		testHookThumbLeader()
+	}
+	// A previous leader may have finished between our lookup and our Flight.
+	if e2, ok2 := c.Peek(ctx, tkey); ok2 && (!e2.OK || e2.Fresh(c.Now())) {
+		if !e2.OK && e2.NegReason == imgcache.InProgress {
+			// We lead, so no transcode of this image is running in this process:
+			// the marker was left by one that died with the process (an
+			// out-of-memory kill records nothing else). Serve the original until
+			// the marker expires; the next attempt backs off longer.
+			return original()
+		}
+		return false
+	}
+	oe, ok := h.ensureOriginal(w, r, u, flags, orig, okey)
+	if !ok {
+		return true // answered: the original streamed, or the failure replayed
+	}
+	tag := srcTag(oe)
+	if stale != nil && stale.ETag == tag {
+		// The source is the one this thumbnail was made from: it is still good.
+		_ = c.Revalidated(tkey, thumbFresh(c, oe), tag, "")
+		return false
+	}
+	if !h.thumbnailable(oe) {
+		h.rememberNoThumb(tkey, orig, flags, "the source is served as it is")
+		return original()
+	}
+	job := func() { h.runThumb(tkey, okey, orig, flags, oe, release) }
+	if err := h.pool.submit(job); err != nil {
+		h.log.Debug("imgproxy: thumbnail queue full, serving the original", "host", u.Host)
+		return original()
+	}
+	owned = false // the worker releases it
+	t := time.NewTimer(h.opt.ThumbWait)
+	defer t.Stop()
+	select {
+	case <-done:
+		return false
+	case <-ctx.Done():
+		return true
+	case <-t.C:
+		h.serveCached(w, r, u, flags, orig) // the worker goes on and the next request finds the thumbnail
+		return true
+	}
 }
 
 // thumbnailable is the cheap pre-check: the type and the size, no decoding.
@@ -154,10 +169,16 @@ func thumbFresh(c *imgcache.Cache, oe imgcache.Entry) time.Duration {
 
 // ensureOriginal makes sure the original is in the cache and returns its entry.
 // A stale original is revalidated through the normal path (a stale copy is
-// accepted when the source is failing); a missing one is fetched. It reports
-// false when there is no cached original afterwards (a failure, an oversize
-// image, a full disk): the caller then answers with the ordinary path.
-func (h *Handler) ensureOriginal(r *http.Request, u *url.URL, flags int, orig, okey string) (imgcache.Entry, bool) {
+// accepted when the source is failing); a missing one is fetched. The path
+// runs into a probe that keeps its answer from the client.
+//
+// It reports false when there is no cached original afterwards, and then the
+// request has been answered: when the path could not cache (low disk, a
+// failed commit) the probe forwarded the original it was fetching to the
+// client; otherwise its failure (502, 415, or 503 for no fetch slot) is
+// replayed as it is. The source is never fetched twice and a slot never
+// waited for twice.
+func (h *Handler) ensureOriginal(w http.ResponseWriter, r *http.Request, u *url.URL, flags int, orig, okey string) (imgcache.Entry, bool) {
 	c := h.opt.Cache
 	ctx := r.Context()
 	if e, ok := c.Peek(ctx, okey); ok && e.OK && e.Fresh(c.Now()) {
@@ -167,17 +188,32 @@ func (h *Handler) ensureOriginal(r *http.Request, u *url.URL, flags int, orig, o
 	for _, k := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
 		r2.Header.Del(k)
 	}
+	p := &probe{real: w}
 	func() {
 		defer func() {
-			// relay cuts the connection with this panic when the source dies mid-body.
-			if v := recover(); v != nil && !errors.Is(asError(v), http.ErrAbortHandler) {
+			// The relay cuts the connection with this panic when the source dies
+			// mid-body. Swallowed only while nothing has reached the client.
+			if v := recover(); v != nil && (p.fwd || !errors.Is(asError(v), http.ErrAbortHandler)) {
 				panic(v)
 			}
 		}()
-		h.serveCached(&discard{}, r2, u, flags, orig)
+		h.serveCached(p, r2, u, flags, orig)
 	}()
-	e, ok := c.Peek(ctx, okey)
-	return e, ok && e.OK
+	if p.fwd {
+		return imgcache.Entry{}, false
+	}
+	if e, ok := c.Peek(ctx, okey); ok && e.OK {
+		return e, true
+	}
+	if ctx.Err() != nil {
+		return imgcache.Entry{}, false
+	}
+	if p.code == 0 || p.code == http.StatusOK {
+		fail(w, http.StatusBadGateway) // the body failed after its status: nothing cached, nothing sent
+	} else {
+		p.replay()
+	}
+	return imgcache.Entry{}, false
 }
 
 func asError(v any) error {
@@ -199,8 +235,21 @@ func (h *Handler) runThumb(tkey, okey, orig string, flags int, oe imgcache.Entry
 	if err != nil {
 		return // evicted meanwhile: the next request starts over
 	}
+	defer f.Close()
+	// The marker goes in before any decode and every outcome below replaces
+	// it. If the decode takes the process down (an out-of-memory kill runs no
+	// defer), the marker is what the next start finds, and the thumbnail is not
+	// retried in a crash loop (serveThumb: 10 minutes, doubling per repeat).
+	if err := c.PutInProgress(tkey, orig, flags, imgcache.VariantThumb); err != nil {
+		h.log.Debug("imgproxy: thumbnail marker", "err", err)
+	}
+	backOff := func(reason string) {
+		// A full disk or the like: back off (10 minutes, doubling) instead of transcoding on every request.
+		if err := c.PutNegVariant(tkey, orig, flags, imgcache.VariantThumb, imgcache.NegTransient, 0, reason); err != nil && !errors.Is(err, imgcache.ErrDisabled) {
+			h.log.Debug("imgproxy: thumbnail failure record", "err", err)
+		}
+	}
 	out, ct, err := transcode(f, oe.Size, oe.ContentType, h.lim)
-	_ = f.Close()
 	if err != nil {
 		var pe *passError
 		reason := "the transcode failed"
@@ -213,19 +262,18 @@ func (h *Handler) runThumb(tkey, okey, orig string, flags int, oe imgcache.Entry
 	cw, err := c.Begin(tkey, orig, flags, int64(len(out)))
 	if err != nil {
 		h.log.Debug("imgproxy: thumbnail not cached", "err", err)
-		if !errors.Is(err, imgcache.ErrDisabled) {
-			// A full disk or the like: back off (10 minutes, doubling) instead of transcoding on every request.
-			_ = c.PutNegVariant(tkey, orig, flags, imgcache.VariantThumb, imgcache.NegTransient, 0, "could not store the thumbnail")
-		}
+		backOff("could not store the thumbnail")
 		return
 	}
 	if _, err := cw.Write(out); err != nil {
 		cw.Abort()
+		backOff("could not store the thumbnail")
 		return
 	}
 	if err := cw.Commit(imgcache.Meta{
 		ContentType: ct, ETag: srcTag(oe), Variant: imgcache.VariantThumb, FreshFor: thumbFresh(c, oe),
 	}); err != nil {
 		h.log.Debug("imgproxy: thumbnail commit", "err", err)
+		backOff("could not store the thumbnail")
 	}
 }

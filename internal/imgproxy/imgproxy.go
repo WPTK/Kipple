@@ -20,8 +20,10 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/WPTK/kipple/internal/imgcache"
@@ -115,8 +117,11 @@ type Options struct {
 	// zero, streams every image straight from the source as before.
 	Cache *imgcache.Cache
 
-	MaxBytes    int64         // 15 MiB
-	Timeout     time.Duration // 15 s, the whole upstream exchange
+	MaxBytes int64 // 15 MiB
+	// Timeout bounds the time spent waiting on the source: the headers, then
+	// every body read, together (15 s). Time spent writing to a slow client
+	// does not count.
+	Timeout     time.Duration
 	Concurrency int           // 8 simultaneous upstream fetches
 	PerHost     int           // 4 of them to one host
 	Wait        time.Duration // 10 s queueing for a slot
@@ -130,8 +135,8 @@ type Options struct {
 	ThumbQueue     int           // 16 waiting jobs; beyond that the original is served
 	ThumbMaxPixels int           // 24 megapixels; more is served as the original
 	ThumbWait      time.Duration // 4 s a request waits for a thumbnail before the original is served
-	DecodeCeiling  int64         // 96 MiB: the most one decode may be estimated to need
-	DecodeBudget   int64         // 128 MiB: the most all decodes together may be estimated to need
+	DecodeCeiling  int64         // 80 MiB: the most one transcode may be estimated to allocate (thumbCost)
+	DecodeBudget   int64         // 96 MiB: the most all running transcodes together may be estimated to allocate
 }
 
 // Handler serves GET /img/{sig}/{flags}/{u} (path values). The caller enforces
@@ -306,7 +311,8 @@ func (h *Handler) serveDirect(w http.ResponseWriter, r *http.Request, u *url.URL
 	case slotGone:
 		return
 	}
-	defer release()
+	slot := sync.OnceFunc(release)
+	defer slot()
 	cd := cond{inm: r.Header.Get("If-None-Match"), ims: r.Header.Get("If-Modified-Since")}
 	resp, done, err := h.fetchUpstream(r.Context(), u, flags, cd, 0)
 	if err != nil {
@@ -314,19 +320,22 @@ func (h *Handler) serveDirect(w http.ResponseWriter, r *http.Request, u *url.URL
 		fail(w, http.StatusBadGateway)
 		return
 	}
-	defer done()
-	defer resp.Body.Close()
+	fin := sync.OnceFunc(func() { _ = resp.Body.Close(); done(); slot() })
+	defer fin()
 	if resp.StatusCode == http.StatusNotModified {
-		passValidators(w.Header(), resp)
+		passValidators(w.Header(), resp, true)
 		w.Header().Set("Cache-Control", cacheControl)
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
-	h.relay(w, resp, nil)
+	h.relay(w, resp, nil, fin)
 }
 
-func passValidators(hdr http.Header, resp *http.Response) {
-	if v := resp.Header.Get("ETag"); v != "" {
+// passValidators copies the source's Last-Modified and, with etag, its ETag.
+// A response that fills the cache sends no ETag: every later hit answers with
+// the cache's own checksum tag, which the source's tag would never match.
+func passValidators(hdr http.Header, resp *http.Response, etag bool) {
+	if v := resp.Header.Get("ETag"); v != "" && etag {
 		hdr.Set("ETag", v)
 	}
 	if v := resp.Header.Get("Last-Modified"); v != "" {
@@ -334,45 +343,83 @@ func passValidators(hdr http.Header, resp *http.Response) {
 	}
 }
 
-// relay checks a 200 response, streams it to the client and, with a sink,
-// tees it into the cache. Failures are remembered through the sink. Only a body
-// that arrives complete and passes every check is committed to the cache.
-func (h *Handler) relay(w http.ResponseWriter, resp *http.Response, sk *sink) {
-	hdr := w.Header()
+// refusal is why a response is not served as an image, decided before
+// anything is written to the client.
+type refusal struct {
+	kind   imgcache.NegKind
+	status int    // recorded with the failure
+	code   int    // answered to the client
+	reason string //
+}
+
+// vet checks a response before anything is written: the status, the declared
+// length and the sniffed type. It returns the sniffed head, the type to serve
+// and the capped body to read the rest from.
+func (h *Handler) vet(resp *http.Response) (head []byte, ct string, body io.Reader, ref *refusal) {
 	if resp.StatusCode != http.StatusOK {
-		sk.fail(negKindFor(resp.StatusCode), resp.StatusCode, "source answered "+strconv.Itoa(resp.StatusCode))
-		fail(w, http.StatusBadGateway)
-		return
+		return nil, "", nil, &refusal{negKindFor(resp.StatusCode), resp.StatusCode, http.StatusBadGateway, "source answered " + strconv.Itoa(resp.StatusCode)}
 	}
 	if resp.ContentLength > h.opt.MaxBytes {
-		sk.fail(imgcache.NegPermanent, http.StatusBadGateway, "over the size limit")
-		fail(w, http.StatusBadGateway) // over the cap: nothing was written
-		return
+		return nil, "", nil, &refusal{imgcache.NegPermanent, http.StatusBadGateway, http.StatusBadGateway, "over the size limit"}
 	}
-
-	body := http.MaxBytesReader(nil, resp.Body, h.opt.MaxBytes)
-	head := make([]byte, sniffLen)
+	body = http.MaxBytesReader(nil, resp.Body, h.opt.MaxBytes)
+	head = make([]byte, sniffLen)
 	n, err := io.ReadFull(body, head)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		sk.fail(negKindForErr(err), 0, "reading the image failed")
-		fail(w, http.StatusBadGateway)
-		return
+		return nil, "", nil, &refusal{negKindForErr(err), 0, http.StatusBadGateway, "reading the image failed"}
 	}
 	head = head[:n]
 	if n == 0 {
-		sk.fail(imgcache.NegTransient, 0, "empty body")
-		fail(w, http.StatusBadGateway)
-		return
+		return nil, "", nil, &refusal{imgcache.NegTransient, 0, http.StatusBadGateway, "empty body"}
 	}
 	ct, ok := detectType(head, resp.Header.Get("Content-Type"))
 	if !ok {
-		sk.fail(imgcache.NegPermanent, http.StatusUnsupportedMediaType, "not a supported image type")
-		fail(w, http.StatusUnsupportedMediaType)
+		return nil, "", nil, &refusal{imgcache.NegPermanent, http.StatusUnsupportedMediaType, http.StatusUnsupportedMediaType, "not a supported image type"}
+	}
+	return head, ct, body, nil
+}
+
+// relay checks a response and streams it (stream). Refusals are remembered
+// through the sink. fin releases the upstream exchange (body, request, slot).
+func (h *Handler) relay(w http.ResponseWriter, resp *http.Response, sk *sink, fin func()) {
+	head, ct, body, ref := h.vet(resp)
+	if ref != nil {
+		sk.refuse(ref)
+		fail(w, ref.code)
 		return
 	}
-	cw := sk.begin(resp.ContentLength, h.log)
+	h.stream(w, resp, sk, head, ct, body, fin)
+}
 
-	passValidators(hdr, resp)
+// stream sends a vetted 200 to the client and, with a sink, fills the cache.
+//
+// With a cache file the body is read into it at the source's speed by a fill
+// goroutine, and the client is served from the file as it grows: a slow client
+// never holds up the upstream read (so never times it out), and once the body
+// is complete it is committed and the flight and fetch slot are released even
+// while the client is still reading. Memory stays at two 32 KiB buffers. Only a
+// body that arrives complete (matching any Content-Length) is committed.
+//
+// Without one (no cache, or the cache refused: low disk) the body streams
+// straight through, and the upstream time budget (budgetBody) only counts time
+// spent waiting on the source.
+func (h *Handler) stream(w http.ResponseWriter, resp *http.Response, sk *sink, head []byte, ct string, body io.Reader, fin func()) {
+	cw := sk.begin(resp.ContentLength, h.log)
+	var rd *os.File
+	if cw != nil {
+		var err error
+		if rd, err = cw.OpenReader(); err != nil {
+			h.log.Debug("imgproxy: not caching", "err", err)
+			cw.Abort()
+			cw = nil
+		}
+	}
+	p, probing := w.(*probe)
+	if cw == nil && probing {
+		p.forward() // the thumbnail path cannot cache the original: stream it to its client instead of fetching twice
+	}
+	hdr := w.Header()
+	passValidators(hdr, resp, sk == nil)
 	hdr.Set("Content-Type", ct)
 	hdr.Set("Cache-Control", cacheControl)
 	hdr.Set("X-Content-Type-Options", "nosniff")
@@ -381,49 +428,44 @@ func (h *Handler) relay(w http.ResponseWriter, resp *http.Response, sk *sink) {
 		hdr.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
 	}
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(head); err != nil {
-		abort(cw)
+	if cw == nil {
+		if _, err := w.Write(head); err != nil {
+			return
+		}
+		h.pump(w, body, sk)
 		return
 	}
-	teeErr := func(err error) {
-		if err != nil {
-			abort(cw)
-			cw = nil
+	defer rd.Close()
+	pr := newProgress()
+	go h.fill(cw, body, head, resp, ct, sk, pr, fin)
+	if probing {
+		// Nobody waits on the bytes: let the fill finish. Only when it could not
+		// commit (the bytes are complete but not cached) does the original go
+		// to the thumbnail's client, from the file, without a second fetch.
+		if st := pr.wait(); st == fillFailed || (st == fillDone && pr.committed()) {
+			return
 		}
+		p.forward()
 	}
-	if cw != nil {
-		_, err := cw.Write(head)
-		teeErr(err)
-	}
-	total := int64(n)
+	h.follow(w, rd, pr, body, sk)
+}
+
+// pump copies the rest of body to the client. A failure mid-stream (over the
+// cap, the source died, the budget ran out) cuts the connection: the status is
+// already sent, so the browser shows a broken image.
+func (h *Handler) pump(w http.ResponseWriter, body io.Reader, sk *sink) {
 	buf := make([]byte, 32<<10)
 	for {
 		m, rerr := body.Read(buf)
 		if m > 0 {
 			if _, werr := w.Write(buf[:m]); werr != nil {
-				abort(cw) // the browser went away: a partial body is never cached
-				return
-			}
-			total += int64(m)
-			if cw != nil {
-				_, err := cw.Write(buf[:m])
-				teeErr(err)
+				return // the browser went away
 			}
 		}
 		if rerr == io.EOF {
-			if cw != nil {
-				if resp.ContentLength >= 0 && total != resp.ContentLength {
-					abort(cw)
-					return
-				}
-				sk.commit(cw, ct, resp, h.log)
-			}
 			return
 		}
 		if rerr != nil {
-			// Over the cap mid-stream, or upstream died: the status is already
-			// sent, so cut the connection and the browser shows a broken image.
-			abort(cw)
 			var mbe *http.MaxBytesError
 			if errors.As(rerr, &mbe) {
 				sk.fail(imgcache.NegPermanent, http.StatusBadGateway, "over the size limit")
@@ -433,9 +475,91 @@ func (h *Handler) relay(w http.ResponseWriter, resp *http.Response, sk *sink) {
 	}
 }
 
-func abort(cw *imgcache.Writer) {
-	if cw != nil {
-		cw.Abort()
+// fill reads the upstream body into the cache file at the source's speed.
+func (h *Handler) fill(cw *imgcache.Writer, body io.Reader, head []byte, resp *http.Response, ct string, sk *sink, pr *progress, fin func()) {
+	var total int64
+	write := func(b []byte) bool {
+		if _, err := cw.Write(b); err != nil {
+			// The disk failed or the file hit the cache's object limit: stop
+			// caching and hand the rest of the body to the client loop.
+			h.log.Debug("imgproxy: cache write failed; streaming the rest uncached", "err", err)
+			cw.Abort()
+			pr.handoff(b)
+			return false
+		}
+		total += int64(len(b))
+		pr.add(int64(len(b)))
+		return true
+	}
+	if !write(head) {
+		return
+	}
+	buf := make([]byte, 32<<10)
+	for {
+		m, rerr := body.Read(buf)
+		if m > 0 && !write(buf[:m]) {
+			return
+		}
+		switch {
+		case rerr == io.EOF:
+			if resp.ContentLength >= 0 && total != resp.ContentLength {
+				cw.Abort()
+				pr.finish(fillFailed, false)
+			} else {
+				committed := sk.commit(cw, ct, resp, h.log)
+				sk.done()
+				pr.finish(fillDone, committed)
+			}
+			fin()
+			return
+		case rerr != nil:
+			cw.Abort()
+			var mbe *http.MaxBytesError
+			if errors.As(rerr, &mbe) {
+				sk.fail(imgcache.NegPermanent, http.StatusBadGateway, "over the size limit")
+			}
+			sk.done()
+			pr.finish(fillFailed, false)
+			fin()
+			return
+		}
+	}
+}
+
+// follow serves the client from the cache file as the fill writes it.
+func (h *Handler) follow(w http.ResponseWriter, rd *os.File, pr *progress, body io.Reader, sk *sink) {
+	buf := make([]byte, 32<<10)
+	var off int64
+	for {
+		n, st, pending := pr.next(off)
+		if off < n {
+			m, err := rd.ReadAt(buf[:min(int64(len(buf)), n-off)], off)
+			if m > 0 {
+				if _, werr := w.Write(buf[:m]); werr != nil {
+					return // the browser went away; the request's end cancels the fill
+				}
+				off += int64(m)
+				continue
+			}
+			if err != nil {
+				panic(http.ErrAbortHandler)
+			}
+			continue
+		}
+		switch st {
+		case fillDone:
+			return
+		case fillFailed:
+			panic(http.ErrAbortHandler)
+		case fillHandoff:
+			if len(pending) > 0 {
+				if _, err := w.Write(pending); err != nil {
+					return
+				}
+			}
+			h.pump(w, body, sk)
+			return
+		}
 	}
 }
 

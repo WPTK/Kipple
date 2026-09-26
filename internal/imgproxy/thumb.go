@@ -22,14 +22,25 @@ const (
 	ThumbWidth = 800
 	// thumbMinSource is the smallest source worth re-encoding: below it the
 	// original is already about as cheap as a thumbnail.
-	thumbMinSource       = 150 << 10
-	defaultThumbPixels   = 24_000_000
-	defaultThumbWorkers  = 2
-	defaultThumbQueue    = 16
-	defaultDecodeCeiling = 96 << 20  // the most one decode may need
-	defaultDecodeBudget  = 128 << 20 // the most all decodes together may need
+	thumbMinSource      = 150 << 10
+	defaultThumbPixels  = 24_000_000
+	defaultThumbWorkers = 2
+	defaultThumbQueue   = 16
+	// defaultDecodeCeiling is the most one transcode may be estimated to
+	// allocate (thumbCost, an upper bound of every byte including garbage), and
+	// defaultDecodeBudget the most all running transcodes together may: the
+	// worst admitted case keeps the transient heap under 100 MiB in a 256 MB
+	// container with GOMEMLIMIT=64MiB.
+	defaultDecodeCeiling = 80 << 20
+	defaultDecodeBudget  = 96 << 20
 	jpegQuality          = 80
 	exifScan             = 256 << 10
+)
+
+// Test hooks: nil in production.
+var (
+	testHookBeforeDecode func() // on the worker, after the in-progress marker is written, before the decode
+	testHookThumbLeader  func() // on the request, right after it becomes the thumbnail leader
 )
 
 // passError is a reason the original is served instead of a thumbnail. It is
@@ -77,43 +88,33 @@ func (b *budget) release(n int64) {
 	b.cond.Broadcast()
 }
 
-// estimateDecode is an upper bound of the bytes decoding a w x h image of the
-// given format needs. Progressive JPEG keeps 32-bit coefficients for every
-// component, baseline JPEG a YCbCr image, PNG up to 16-bit RGBA, WebP YCbCr plus alpha.
-func estimateDecode(format string, progressive bool, w, h int) int64 {
-	px := int64(w) * int64(h)
-	switch format {
-	case "jpeg":
-		if progressive {
-			return px * 8
-		}
-		return px * 3
-	case "png":
-		return px * 8
-	default:
-		return px * 5
-	}
+// thumbPlan is what the headers say about a transcode, before any decode.
+type thumbPlan struct {
+	format string
+	w, h   int   // the stored picture
+	orient int   // EXIF orientation, 1 when none
+	rw, rh int   // the scaled size before orientation
+	need   int64 // thumbCost: the bytes the transcode may allocate
 }
 
-// transcode makes a ThumbWidth-wide thumbnail of the image in r (size bytes,
-// content type ct): JPEG at quality 80, or PNG when the picture has
-// transparency. Metadata is dropped (an EXIF orientation is applied to the
-// pixels first). It never upscales. When there is nothing to gain or the image
-// is unsafe to decode it returns a *passError and the original is served.
-func transcode(r io.ReaderAt, size int64, ct string, lim thumbLimits) (out []byte, outType string, err error) {
+// planThumb reads the headers of the image in r (size bytes, content type ct)
+// and decides whether a thumbnail is possible and what it costs. It never
+// decodes pixels. Refusals are *passError.
+func planThumb(r io.ReaderAt, size int64, ct string, width, maxPixels int) (thumbPlan, error) {
+	var p thumbPlan
 	switch ct {
 	case "image/jpeg", "image/png", "image/webp":
 	default:
-		return nil, "", pass("%s is served as it is", ct) // gif, avif
+		return p, pass("%s is served as it is", ct) // gif, avif
 	}
 	if size < thumbMinSource {
-		return nil, "", pass("the source is small")
+		return p, pass("the source is small")
 	}
 	head := make([]byte, exifScan)
 	n, _ := r.ReadAt(head, 0)
 	head = head[:n]
 	if ct == "image/webp" && webpAnimated(head) {
-		return nil, "", pass("animated WebP")
+		return p, pass("animated WebP")
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(head))
 	if err != nil {
@@ -121,56 +122,71 @@ func transcode(r io.ReaderAt, size int64, ct string, lim thumbLimits) (out []byt
 		cfg, format, err = image.DecodeConfig(io.NewSectionReader(r, 0, size))
 	}
 	if err != nil {
-		return nil, "", pass("unreadable image")
+		return p, pass("unreadable image")
 	}
 	switch format {
 	case "jpeg", "png", "webp":
 	default:
-		return nil, "", pass("%s is served as it is", format)
+		return p, pass("%s is served as it is", format)
 	}
-	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > int64(lim.maxPixels) {
-		return nil, "", pass("over %d megapixels", lim.maxPixels/1_000_000)
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > int64(maxPixels) {
+		return p, pass("over %d megapixels", maxPixels/1_000_000)
 	}
-	orient := 1
-	progressive := false
+	p.format, p.w, p.h, p.orient = format, cfg.Width, cfg.Height, 1
 	if format == "jpeg" {
-		orient = exifOrientation(head)
-		progressive = jpegProgressive(head)
+		p.orient = exifOrientation(head)
 	}
 	dispW, dispH := cfg.Width, cfg.Height
-	if orient >= 5 {
+	if p.orient >= 5 {
 		dispW, dispH = dispH, dispW
 	}
-	if dispW <= lim.width {
-		return nil, "", pass("already %d px wide or less", lim.width)
+	if dispW <= width {
+		return p, pass("already %d px wide or less", width)
 	}
-	need := estimateDecode(format, progressive, cfg.Width, cfg.Height)
-	if need > lim.ceiling {
-		return nil, "", pass("decoding needs about %d MiB", need>>20)
-	}
-	lim.budget.acquire(need)
-	defer lim.budget.release(need)
-
-	newW := lim.width
+	newW := width
 	newH := max(1, int((int64(dispH)*int64(newW)+int64(dispW)/2)/int64(dispW)))
-	rw, rh := newW, newH
-	if orient >= 5 {
-		rw, rh = newH, newW
+	p.rw, p.rh = newW, newH
+	if p.orient >= 5 {
+		p.rw, p.rh = newH, newW
 	}
-	dst, err := decodeScale(io.NewSectionReader(r, 0, size), rw, rh)
+	p.need = thumbCost(r, size, format, p.w, p.h, p.rw, p.rh, p.orient != 1)
+	return p, nil
+}
+
+// transcode makes a ThumbWidth-wide thumbnail of the image in r (size bytes,
+// content type ct): JPEG at quality 80, or PNG when the picture has
+// transparency. Metadata is dropped (an EXIF orientation is applied to the
+// pixels first). It never upscales. When there is nothing to gain or the image
+// is unsafe to decode (its estimated cost is over the ceiling) it returns a
+// *passError and the original is served.
+func transcode(r io.ReaderAt, size int64, ct string, lim thumbLimits) (out []byte, outType string, err error) {
+	p, err := planThumb(r, size, ct, lim.width, lim.maxPixels)
+	if err != nil {
+		return nil, "", err
+	}
+	if p.need > lim.ceiling {
+		return nil, "", pass("decoding needs about %d MiB", p.need>>20)
+	}
+	lim.budget.acquire(p.need)
+	defer lim.budget.release(p.need)
+	return render(r, size, p)
+}
+
+// render decodes, scales, orients and encodes as planned.
+func render(r io.ReaderAt, size int64, p thumbPlan) (out []byte, outType string, err error) {
+	if testHookBeforeDecode != nil {
+		testHookBeforeDecode()
+	}
+	dst, err := decodeScale(io.NewSectionReader(r, 0, size), p.rw, p.rh)
 	if err != nil {
 		return nil, "", pass("decode failed")
 	}
 	final := dst
-	if orient != 1 {
-		final = orientImage(dst, orient)
-	}
-	opaque := true
-	if op, ok := final.(interface{ Opaque() bool }); ok {
-		opaque = op.Opaque()
+	if p.orient != 1 {
+		final = orientImage(dst, p.orient)
 	}
 	var buf bytes.Buffer
-	if opaque {
+	if final.Opaque() {
 		outType = "image/jpeg"
 		err = jpeg.Encode(&buf, final, &jpeg.Options{Quality: jpegQuality})
 	} else {
@@ -195,59 +211,54 @@ func transcode(r io.ReaderAt, size int64, ct string, lim thumbLimits) (out []byt
 // aliased; and unlike the kernel scalers of x/image/draw (which keep a
 // float64 intermediate of dstW x srcH x 4, about 100 MB for a 20 MP photo)
 // its working memory is the half-size picture.
-func decodeScale(r io.Reader, w, h int) (image.Image, error) {
+//
+// Every intermediate and the result are *image.RGBA (premultiplied alpha,
+// which keeps transparency and is the right space to average in): x/image/draw
+// writes those directly, while any other destination type goes through
+// dst.Set and allocates a boxed color per pixel.
+func decodeScale(r io.Reader, w, h int) (*image.RGBA, error) {
 	src, _, err := image.Decode(bufio.NewReaderSize(r, 64<<10))
 	if err != nil {
 		return nil, err
 	}
-	cur := src
+	cur := scalable(src)
 	for b := cur.Bounds(); b.Dx() >= 2*w && b.Dy() >= 2*h; b = cur.Bounds() {
-		next := newLike(cur, b.Dx()/2, b.Dy()/2)
+		next := image.NewRGBA(image.Rect(0, 0, b.Dx()/2, b.Dy()/2))
 		xdraw.ApproxBiLinear.Scale(next, next.Bounds(), cur, b, xdraw.Src, nil)
 		cur = next
 	}
-	dst := newLike(cur, w, h)
+	dst := image.NewRGBA(image.Rect(0, 0, w, h))
 	xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), cur, cur.Bounds(), xdraw.Src, nil)
 	return dst, nil
 }
 
-// newLike is an empty w x h picture that can hold src: opaque when src is.
-func newLike(src image.Image, w, h int) xdraw.Image {
-	if op, ok := src.(interface{ Opaque() bool }); ok && op.Opaque() {
-		return image.NewRGBA(image.Rect(0, 0, w, h))
+// rgba64Only hides a picture's concrete type so x/image/draw reads it through
+// RGBA64At (a plain value) instead of At (a color boxed on the heap for every
+// sample).
+type rgba64Only struct{ image.RGBA64Image }
+
+// scalable returns src as x/image/draw can scale it without per-pixel
+// allocations: the types it has fast paths for as they are, anything else
+// (CMYK, 16-bit, paletted, NYCbCrA, 4:1:1 YCbCr) through RGBA64At.
+func scalable(src image.Image) image.Image {
+	switch s := src.(type) {
+	case *image.Gray, *image.NRGBA, *image.RGBA:
+		return src
+	case *image.YCbCr:
+		switch s.SubsampleRatio {
+		case image.YCbCrSubsampleRatio444, image.YCbCrSubsampleRatio422, image.YCbCrSubsampleRatio420, image.YCbCrSubsampleRatio440:
+			return src
+		}
 	}
-	return image.NewNRGBA(image.Rect(0, 0, w, h))
+	if s, ok := src.(image.RGBA64Image); ok {
+		return rgba64Only{s}
+	}
+	return src
 }
 
 // webpAnimated reports a VP8X header with the animation flag.
 func webpAnimated(b []byte) bool {
 	return len(b) >= 21 && string(b[0:4]) == "RIFF" && string(b[8:12]) == "WEBP" && string(b[12:16]) == "VP8X" && b[20]&0x02 != 0
-}
-
-// jpegProgressive scans the marker segments for a progressive frame header.
-// An unfound frame header counts as progressive (the larger estimate).
-func jpegProgressive(b []byte) bool {
-	i := 2
-	for i+4 <= len(b) {
-		if b[i] != 0xFF {
-			return true
-		}
-		m := b[i+1]
-		switch {
-		case m == 0xFF:
-			i++
-			continue
-		case m == 0xC2 || m == 0xC6 || m == 0xCA || m == 0xCE:
-			return true
-		case m == 0xC0 || m == 0xC1 || m == 0xC3 || m == 0xC5 || m == 0xC7 || m == 0xC9 || m == 0xCB || m == 0xCD || m == 0xCF:
-			return false
-		case m == 0xD8 || m == 0x01 || (m >= 0xD0 && m <= 0xD7):
-			i += 2
-			continue
-		}
-		i += 2 + int(binary.BigEndian.Uint16(b[i+2:]))
-	}
-	return true
 }
 
 // exifOrientation is the EXIF orientation (1 to 8) of a JPEG, 1 when absent or unreadable.
@@ -301,15 +312,16 @@ func tiffOrientation(t []byte) int {
 	return 1
 }
 
-// orientImage returns src with the EXIF orientation o (2 to 8) applied.
-func orientImage(src image.Image, o int) image.Image {
+// orientImage returns src with the EXIF orientation o (2 to 8) applied. It
+// copies pixel bytes, so it allocates nothing but the result.
+func orientImage(src *image.RGBA, o int) *image.RGBA {
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
 	dw, dh := w, h
 	if o >= 5 {
 		dw, dh = h, w
 	}
-	dst := image.NewNRGBA(image.Rect(0, 0, dw, dh))
+	dst := image.NewRGBA(image.Rect(0, 0, dw, dh))
 	for y := 0; y < dh; y++ {
 		for x := 0; x < dw; x++ {
 			var sx, sy int
@@ -331,7 +343,8 @@ func orientImage(src image.Image, o int) image.Image {
 			default:
 				sx, sy = x, y
 			}
-			dst.Set(x, y, src.At(b.Min.X+sx, b.Min.Y+sy))
+			si, di := src.PixOffset(b.Min.X+sx, b.Min.Y+sy), dst.PixOffset(x, y)
+			copy(dst.Pix[di:di+4], src.Pix[si:si+4])
 		}
 	}
 	return dst

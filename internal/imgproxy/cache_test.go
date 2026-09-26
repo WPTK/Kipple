@@ -413,6 +413,7 @@ func TestStaleServedWhenRevalidationFailsOrIsSlow(t *testing.T) {
 	require.Equal(t, 200, resp.StatusCode)
 	require.Equal(t, pngBytes, read(t, resp), "a 5xx serves the stale copy")
 
+	cr.clk.Advance(11 * time.Minute) // past the revalidation back-off the 5xx set
 	mode.Store(2)
 	start := time.Now()
 	resp = cr.fetchOrig(orig, FlagPrivateNet)
@@ -421,26 +422,6 @@ func TestStaleServedWhenRevalidationFailsOrIsSlow(t *testing.T) {
 	require.Less(t, time.Since(start), 2500*time.Millisecond)
 	_, ok := cr.entry(orig)
 	require.True(t, ok, "the stale entry is kept for the next try")
-}
-
-func TestStaleEntryDroppedWhenSourceSays404(t *testing.T) {
-	cr := newCacheRig(t)
-	var gone atomic.Bool
-	up := upstream(t, func(w http.ResponseWriter, r *http.Request) {
-		if gone.Load() {
-			w.WriteHeader(404)
-			return
-		}
-		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write(pngBytes)
-	})
-	orig := up.URL + "/d.png"
-	require.Equal(t, 200, cr.fetchOrig(orig, FlagPrivateNet).StatusCode)
-	cr.clk.Advance(8 * 24 * time.Hour)
-	gone.Store(true)
-	require.Equal(t, 502, cr.fetchOrig(orig, FlagPrivateNet).StatusCode)
-	require.Zero(t, cr.cache.Stats().Files)
-	require.Zero(t, cr.cache.Stats().UsedBytes)
 }
 
 // bigPNG is longer than the 512 bytes the proxy sniffs and the 4 KiB the server buffers, so a stalled or cut
