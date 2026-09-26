@@ -6,6 +6,10 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-26
+
+Everything since 0.2.0-alpha.2, including the alpha.3 and alpha.4 builds (both deployed to Host-A).
+
 ### Fixed
 
 - The article list no longer overlaps its rows or clips their text after you open an article and go back, or after the first load: rows are re-measured once the layout settles, instead of keeping their estimated height.
@@ -421,7 +425,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.2.0-alpha.2...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/WPTK/Kipple/compare/v0.2.0-alpha.2...v0.2.0
 [0.2.0-alpha.2]: https://github.com/WPTK/Kipple/compare/v0.2.0-alpha.1...v0.2.0-alpha.2
 [0.2.0-alpha.1]: https://github.com/WPTK/Kipple/compare/v0.1.0...v0.2.0-alpha.1
 [0.1.0]: https://github.com/WPTK/Kipple/releases/tag/v0.1.0
