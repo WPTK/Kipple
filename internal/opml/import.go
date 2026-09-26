@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strings"
 
@@ -47,7 +48,8 @@ type Result struct {
 	Skipped            []Skipped    `json:"skipped"`
 	InvalidAttrs       []string     `json:"invalid_attrs"`
 	// IgnoredAttrs are valid but security-sensitive kipple:* attributes that an
-	// import never applies (allow_private_net, allow_insecure_tls).
+	// import never applies (allow_private_net, allow_insecure_tls), and feeds
+	// on a literal private address, imported with allow_private_net off.
 	IgnoredAttrs []string `json:"ignored_attrs"`
 	// NewFeedIDs are the inserted feeds in document order (for sched.StartImport).
 	NewFeedIDs []int64 `json:"-"`
@@ -130,11 +132,19 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		seen := map[string]*firstSeen{}
 		var order []*firstSeen
 		for _, f := range doc.Feeds {
-			// The same URL check as every other way a feed enters the database.
-			norm, key, host, err := store.ValidateFeedURL(f.URL, false)
+			// The URL syntax check every other way a feed enters the database makes
+			// (userinfo refused). A literal private address is still imported: the
+			// feed gets allow_private_net off like every imported feed, so the
+			// dial-time guard blocks it until the user turns the exception on
+			// (a self-export or migration must not silently drop LAN feeds).
+			norm, key, host, err := store.ValidateFeedURL(f.URL, true)
 			if err != nil {
 				res.Skipped = append(res.Skipped, Skipped{f.URL, err.Error()})
 				continue
+			}
+			privateAddr := false
+			if ip, perr := netip.ParseAddr(host); perr == nil && fetch.Blocked(ip.Unmap()) {
+				privateAddr = true
 			}
 			// Every feed's folder is in doc.Folders, so badFolder is complete here.
 			if badFolder[f.Folder] {
@@ -173,6 +183,9 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			if a.AllowInsecureTLS != nil {
 				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_insecure_tls")
 				a.AllowInsecureTLS = nil
+			}
+			if privateAddr {
+				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": private address, imported with allow_private_net off; turn it on for this feed to fetch it")
 			}
 			enabled, reason := 1, any(nil)
 			if a.Enabled != nil && !*a.Enabled {
