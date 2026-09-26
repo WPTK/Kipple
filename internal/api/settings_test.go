@@ -396,6 +396,8 @@ func TestAccountAPIPassword(t *testing.T) {
 		{"generate false", `{"current":"correct-horse","generate":false}`, http.StatusBadRequest, "bad_request"},
 		{"both", `{"current":"correct-horse","new":"my-own-api-passphrase","generate":true}`, http.StatusBadRequest, "bad_request"},
 		{"new too short", `{"current":"correct-horse","new":"four"}`, http.StatusBadRequest, "bad_new_password"},
+		// A chosen API password guards the public ClientLogin: 16 minimum, not the web 5.
+		{"new 15 chars", `{"current":"correct-horse","new":"fifteen-chars-x"}`, http.StatusBadRequest, "bad_new_password"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var hook int

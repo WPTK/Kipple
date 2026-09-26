@@ -39,23 +39,89 @@ func TestVerifierRealArgon2WithMemo(t *testing.T) {
 	require.False(t, v.Verify(t.Context(), "api", "pw", phc2), "memo does not survive a password change")
 }
 
-func TestFailureTracker(t *testing.T) {
+// fail reserves and fails one attempt, reporting whether it was granted.
+func fail(f *FailureTracker, ip string) bool {
+	if !f.Reserve(ip) {
+		return false
+	}
+	f.Done(ip)
+	return true
+}
+
+func TestFailureTrackerBudget(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	f := NewFailureTracker()
 	f.Now = func() time.Time { return now }
 	for i := 0; i < 5; i++ {
-		require.Equal(t, time.Duration(0), f.Fail("a"), "failure %d", i+1)
+		require.True(t, fail(f, "a"), "attempt %d", i+1)
 	}
-	require.Equal(t, 2*time.Second, f.Fail("a"))
-	require.Equal(t, time.Duration(0), f.Fail("b"), "per IP")
+	require.False(t, fail(f, "a"), "over budget inside the delay")
+	require.Equal(t, 5, f.Count("a"), "a refused attempt is not counted")
+	require.True(t, fail(f, "b"), "per IP")
+	now = now.Add(2 * time.Second)
+	require.True(t, fail(f, "a"), "one attempt per delay")
+	require.False(t, fail(f, "a"))
 	f.Clear("a")
 	require.Equal(t, 0, f.Count("a"))
-	require.Equal(t, time.Duration(0), f.Fail("a"))
+	require.True(t, fail(f, "a"))
 	for i := 0; i < 10; i++ {
-		f.Fail("c")
+		fail(f, "c")
+		now = now.Add(2 * time.Second)
 	}
 	now = now.Add(11 * time.Minute)
-	require.Equal(t, time.Duration(0), f.Fail("c"), "window expired")
+	require.True(t, fail(f, "c"), "window expired")
+	require.Equal(t, 1, f.Count("c"))
+}
+
+func TestFailureTrackerInFlightAndRelease(t *testing.T) {
+	f := NewFailureTracker()
+	require.True(t, f.Reserve("192.0.2.1"))
+	require.False(t, f.Reserve("192.0.2.1"), "one attempt in flight per client")
+	require.False(t, f.Reserve("::ffff:192.0.2.1"), "mapped form is the same client")
+	require.True(t, f.Reserve("192.0.2.2"))
+	f.Release("192.0.2.1")
+	require.Equal(t, 0, f.Count("192.0.2.1"), "released attempt is given back")
+	require.True(t, f.Reserve("192.0.2.1"))
+	f.Clear("192.0.2.1")
+	require.True(t, f.Reserve("192.0.2.1"), "Clear ends the attempt")
+
+	// Concurrent burst from one client: exactly one is granted.
+	g := NewFailureTracker()
+	var granted atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if g.Reserve("2001:db8::1") {
+				granted.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	require.EqualValues(t, 1, granted.Load())
+}
+
+func TestRateKeyGroupsIPv6By64(t *testing.T) {
+	require.Equal(t, "192.0.2.7", RateKey("192.0.2.7"))
+	require.Equal(t, "192.0.2.7", RateKey("::ffff:192.0.2.7"))
+	require.Equal(t, "2001:db8:1:2::/64", RateKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd"))
+	require.Equal(t, RateKey("2001:db8:1:2::1"), RateKey("2001:db8:1:2:ffff::1"))
+	require.NotEqual(t, RateKey("2001:db8:1:2::1"), RateKey("2001:db8:1:3::1"))
+	require.Equal(t, "fe80::/64", RateKey("fe80::1%eth0"))
+	require.Equal(t, "not-an-ip", RateKey("not-an-ip"))
+
+	// The web login lockout keys the same way.
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	l := NewLockout(func() time.Time { return now })
+	for i := 0; i < 10; i++ {
+		ok, _ := l.Reserve(fmt.Sprintf("2001:db8:5:6::%x", i+1))
+		require.True(t, ok)
+	}
+	ok, _ := l.Reserve("2001:db8:5:6::ffff")
+	require.False(t, ok, "rotating inside one /64 hits the same lockout")
+	locked, _ := l.Locked("2001:db8:5:6::1234")
+	require.True(t, locked)
 }
 
 func TestClientIP(t *testing.T) {
@@ -93,6 +159,18 @@ func TestVerifierSetSecretDropsMemo(t *testing.T) {
 	v.SetSecret([]byte("two"))
 	require.True(t, v.Verify(t.Context(), "web", "pw", "h"))
 	require.Equal(t, 2, checks, "a rotated secret forgets remembered logins")
+}
+
+func TestVerifierRemembered(t *testing.T) {
+	var checks int
+	v := NewVerifier([]byte("k"), VerifierOptions{Check: func(pw, phc string) bool { checks++; return pw == "pw" }})
+	require.False(t, v.Remembered("api", "pw", "h"), "nothing remembered yet")
+	require.True(t, v.Verify(t.Context(), "api", "pw", "h"))
+	require.True(t, v.Remembered("api", "pw", "h"))
+	require.False(t, v.Remembered("api", "other", "h"))
+	require.False(t, v.Remembered("web", "pw", "h"), "per kind")
+	require.False(t, v.Remembered("api", "pw", "h2"), "per hash")
+	require.Equal(t, 1, checks, "Remembered never hashes")
 }
 
 func TestLockoutReserveIsAtomicAndReleasable(t *testing.T) {
@@ -151,11 +229,11 @@ func TestTrackersEvictOldestWhenFull(t *testing.T) {
 	f.Now = func() time.Time { return now }
 	for i := 0; i < maxTracked; i++ {
 		now = now.Add(time.Millisecond)
-		f.Fail(fmt.Sprintf("ip-%d", i))
+		fail(f, fmt.Sprintf("ip-%d", i))
 	}
 	for i := 0; i < 6; i++ {
-		now = now.Add(time.Millisecond)
-		f.Fail("newcomer")
+		now = now.Add(2 * time.Second)
+		fail(f, "newcomer")
 	}
 	require.Equal(t, 6, f.Count("newcomer"))
 	require.Len(t, f.m, maxTracked)
