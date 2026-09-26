@@ -598,7 +598,12 @@ func (s *Server) makeDeviceDefault(w http.ResponseWriter, r *http.Request) {
 	clients := map[string]any{}
 	if m, ok := merged["ui.device_defaults"].(map[string]any); ok {
 		for k, v := range m {
-			clients[k] = v
+			// A stored key this version no longer accepts is dropped, not a reason to fail.
+			if def, known := clientDefs[k]; known && v != nil {
+				if _, msg := def.check(v); msg == "" {
+					clients[k] = v
+				}
+			}
 		}
 	}
 	for k, v := range dv.Profile {
@@ -612,7 +617,30 @@ func (s *Server) makeDeviceDefault(w http.ResponseWriter, r *http.Request) {
 			set[k] = c
 		}
 	}
-	set["ui.device_defaults"] = clients
+	// The stored defaults and this device's keys each fit, but together they can
+	// pass the 8 KB a direct write of ui.device_defaults is held to. The checked
+	// values go through JSON first so they look like a request body again.
+	var asBody map[string]any
+	b, err := json.Marshal(clients)
+	if err == nil {
+		err = json.Unmarshal(b, &asBody)
+	}
+	if err != nil {
+		s.serverError(w, "device", err)
+		return
+	}
+	dd, msg := checkDeviceDefaults(asBody)
+	if msg == "too large" {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{
+			"error": "too_large", "message": "The defaults for new devices would be larger than 8 KB."})
+		return
+	}
+	if msg != "" {
+		// Cannot happen: every key was checked above.
+		s.serverError(w, "device", errors.New("stored ui.device_defaults: "+msg))
+		return
+	}
+	set["ui.device_defaults"] = dd
 	if err := s.db.SetSettings(r.Context(), set); err != nil {
 		s.serverError(w, "device", err)
 		return
