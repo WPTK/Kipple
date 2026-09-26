@@ -140,3 +140,22 @@ implementing anything. Commit and PR as needed without asking." (Host-A deploys 
 ### Working agreement
 - Commit and open PRs without asking. Merge docs-only PRs when CI is green. Code PR for `phase-2` opens at
   deploy time. Reviews (Opus, high) after every two or three backend steps; fix all findings.
+
+## Stats round (phase 4 pre-meeting, 2026-09-26)
+
+Decisions are recorded in full in the private history repository. Summary of what shapes the build:
+
+- **Focus:** sources and pruning (most read, time per source, never opened) with habits at the top (summary strip,
+  daily activity, streaks, weekday-by-hour heatmap, behavior facts). Wrapped is a simple yearly summary with an opt-in
+  share sheet, aggregates only by default. No goals, targets, badges, comparisons with other people or directives.
+- **Reading:** every open is recorded; views count an item as read at 10 s active time or 25% scroll. List-preview
+  opens count. Stats are web-only; Reader API clients are not tracked (`stats.api_single_read_is_open` stays off).
+- **Screen:** one Stats nav entry, phone first. Range Week/Month/Year/All (default Month). Items/Minutes toggle with
+  folder rollup; average read length, quick-bounce rate, open-original rate, most-starred feeds; never opened.
+  Deferred: per-feed drill-down, period comparison, monthly charts, read rate per feed.
+- **Settings:** first day of week (Sunday or Monday, default Sunday); stats on/off (off stops recording and hides the
+  screen, keeps data); Wrapped on/off; delete a range; delete all (typed confirmation).
+- **Export:** CSV and JSON (array or JSON Lines), raw or summary, range, titles/URLs toggle, data dictionary.
+- **Sender:** 15 s flush, visibilitychange primary and pagehide backup, 2 minute idle cutoff, per-session sequence
+  number for dedup, offline events queued, losses accepted.
+- **Delivery:** alpha.4 sender and settings, alpha.5 screen, alpha.6 export and data controls, alpha.7 Wrapped.
