@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,8 +129,34 @@ var ReadingDensityCSS = map[string]map[string]any{
 	"relaxed":     {"line_height": 1.8, "content_width": "720px"},
 }
 
+// retentionLimits are the "newest N per feed" tiers, smallest first. 0
+// (unlimited) is also accepted everywhere a retention is set; this is the one
+// list the settings metadata, the settings validator and the per-feed PATCH use.
+var retentionLimits = []int{50, 100, 250, 500, 1000}
+
+// isRetentionChoice reports whether n is a tier of retentionLimits or 0.
+func isRetentionChoice(n int64) bool {
+	if n == 0 {
+		return true
+	}
+	for _, v := range retentionLimits {
+		if int64(v) == n {
+			return true
+		}
+	}
+	return false
+}
+
+// retentionChoicesText lists the tiers for error messages, e.g. "50, 100, ... or 1000".
+func retentionChoicesText() string {
+	parts := make([]string, len(retentionLimits))
+	for i, v := range retentionLimits {
+		parts[i] = strconv.Itoa(v)
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
+}
+
 var (
-	retentionValues = map[int]bool{0: true, 50: true, 100: true, 250: true, 500: true, 1000: true}
 	// uiFonts are the bundled and system faces of CLAUDE.md; "" = the platform default.
 	uiFonts = []string{"", "Literata", "Charter", "Vollkorn", "Gentium Book Plus", "Source Serif 4", "Arvo",
 		"Inter", "Manrope", "Source Sans 3", "JetBrains Mono", "Source Code Pro", "Atkinson Hyperlegible Next",
@@ -188,7 +215,7 @@ func densityOptions() []settingOption {
 
 func retentionOptions() []settingOption {
 	out := []settingOption{}
-	for _, n := range []int{50, 100, 250, 500, 1000} {
+	for _, n := range retentionLimits {
 		out = append(out, settingOption{Value: n, Label: fmt.Sprintf("Newest %d", n)})
 	}
 	return append(out, settingOption{Value: 0, Label: "Keep everything"})
@@ -294,10 +321,10 @@ var settingDefs = withScopes([]settingDef{
 	// Library.
 	{Key: "retention.default", Label: "Articles to keep per feed", Description: "Only the newest N articles per feed are kept, read or unread. Starred articles are always kept.",
 		Group: groupLibrary, Kind: "enum", Options: retentionOptions(), Surface: surfaceSettings, check: func(v any) (any, string) {
-			if f, ok := v.(float64); ok && f == math.Trunc(f) && retentionValues[int(f)] {
+			if f, ok := v.(float64); ok && f == math.Trunc(f) && f >= 0 && f <= math.MaxInt32 && isRetentionChoice(int64(f)) {
 				return int(f), ""
 			}
-			return nil, "must be 50, 100, 250, 500, 1000 or 0 (unlimited)"
+			return nil, "must be " + retentionChoicesText() + ", or 0 (unlimited)"
 		}},
 	{Key: "retention.restore_days", Label: "Days you can restore removed articles", Description: "How long a removed article can be brought back. Zero turns this off.",
 		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(store.MaxRestoreDays), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, store.MaxRestoreDays)},

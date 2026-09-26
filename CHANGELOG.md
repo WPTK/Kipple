@@ -69,6 +69,8 @@ Phase 2 (reading UI: backend and web app) so far. Schema 4 and 5 (migrations 000
 - Image proxy: every image response (cold miss, first view, cache disabled) now carries `Cross-Origin-Resource-Policy: same-origin`, not only cache hits.
 - Image proxy: rotating the account secret closes the old image handler and its thumbnail workers instead of leaking them; the stale-revalidation bound now covers the whole hotlink retry ladder; learned host hints are evicted one at a time instead of all at once; card image flags are looked up once per feed.
 - Image cache: evictions are cancelled by shutdown, and long stored URLs are cut on a character boundary so they stay valid UTF-8.
+- `kipple restore -` (read the backup from standard input, as RESTORE.txt and the docs say) no longer fails with "unknown option". A restore whose swap fails no longer leaves an empty `pre-restore-*` directory, and empty ones no longer count toward the three kept, so they cannot push out a real safety copy.
+- Status page: the event log names each run by its kind (a filter apply or auto-read run no longer shows as "refresh", and reports articles changed), and logs `folder.changed` and `saved_searches.changed`.
 - Reordering saved searches quickly no longer loses moves.
 - The search box no longer undoes a scope or sort change made while you type.
 - The auto-read catch-up reports the true number marked, shows a run immediately, recounts a stale preview and refuses to mark more than the preview showed; the what-if number can no longer be used to mark articles.

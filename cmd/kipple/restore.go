@@ -32,28 +32,38 @@ const restoreUsage = "usage: kipple restore <backup.zip|kipple.db|-> [--yes]  (-
 
 // runRestore implements `kipple restore <backup.zip|.db> [--yes]`.
 func runRestore(args []string) error {
-	var src string
-	yes := false
-	for _, a := range args {
-		switch {
-		case a == "--yes" || a == "-yes":
-			yes = true
-		case strings.HasPrefix(a, "-"):
-			return fmt.Errorf("unknown option %q (%s)", a, restoreUsage)
-		case src == "":
-			src = a
-		default:
-			return errors.New(restoreUsage)
-		}
-	}
-	if src == "" {
-		return errors.New(restoreUsage)
+	src, yes, err := parseRestoreArgs(args)
+	if err != nil {
+		return err
 	}
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
 	return restore(context.Background(), restoreOptions{DataDir: cfg.DataDir, Src: src, Yes: yes, In: os.Stdin, Out: os.Stdout, Now: time.Now})
+}
+
+// parseRestoreArgs reads the source and --yes. A lone "-" is the source
+// (standard input), not an option, so it is matched before the option check.
+func parseRestoreArgs(args []string) (src string, yes bool, err error) {
+	for _, a := range args {
+		switch {
+		case a == "--yes" || a == "-yes":
+			yes = true
+		case a == "-" && src == "":
+			src = a
+		case a != "-" && strings.HasPrefix(a, "-"):
+			return "", false, fmt.Errorf("unknown option %q (%s)", a, restoreUsage)
+		case src == "":
+			src = a
+		default:
+			return "", false, errors.New(restoreUsage)
+		}
+	}
+	if src == "" {
+		return "", false, errors.New(restoreUsage)
+	}
+	return src, yes, nil
 }
 
 var errNotConfirmed = errors.New("nothing was changed: run the same command again with --yes to restore")
@@ -233,6 +243,12 @@ func swap(dataDir, tmp, live string, now time.Time, preOut *string) (moved bool,
 		for _, s := range done {
 			_ = os.Rename(filepath.Join(pre, "kipple.db"+s), live+s)
 		}
+		// Remove the now-empty pre-restore directory: left behind, it would count
+		// toward keepPreRestore and prune a real safety copy early. os.Remove
+		// refuses a non-empty directory, so a file that failed to move back stays.
+		if pre != "" {
+			_ = os.Remove(pre)
+		}
 	}
 	for _, s := range []string{"", "-wal", "-shm"} {
 		if _, err := os.Stat(live + s); err != nil {
@@ -281,7 +297,17 @@ func newPreRestoreDir(backupDir string, now time.Time) (string, error) {
 }
 
 func prunePreRestore(backupDir string) {
-	dirs, _ := filepath.Glob(filepath.Join(backupDir, "pre-restore-*"))
+	found, _ := filepath.Glob(filepath.Join(backupDir, "pre-restore-*"))
+	// An empty directory (a leftover of an interrupted restore) holds nothing to
+	// keep: remove it rather than let it take one of the keepPreRestore places.
+	var dirs []string
+	for _, d := range found {
+		if ents, err := os.ReadDir(d); err == nil && len(ents) == 0 {
+			_ = os.Remove(d)
+			continue
+		}
+		dirs = append(dirs, d)
+	}
 	sort.Strings(dirs) // the timestamp sorts as text
 	for len(dirs) > keepPreRestore {
 		_ = os.RemoveAll(dirs[0])

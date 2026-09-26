@@ -282,6 +282,53 @@ func TestRunRestoreArgs(t *testing.T) {
 	require.ErrorContains(t, runRestore(nil), "usage")
 	require.ErrorContains(t, runRestore([]string{"a.zip", "b.zip"}), "usage")
 	require.ErrorContains(t, runRestore([]string{"--force", "a.zip"}), "unknown option")
+	require.ErrorContains(t, runRestore([]string{"-", "-"}), "usage")
+
+	// The documented stdin form: a lone "-" is the source, not an option.
+	for _, args := range [][]string{{"-"}, {"-", "--yes"}, {"--yes", "-"}} {
+		src, yes, err := parseRestoreArgs(args)
+		require.NoError(t, err, args)
+		require.Equal(t, "-", src, args)
+		require.Equal(t, len(args) == 2, yes, args)
+	}
+}
+
+func TestFailedSwapLeavesNoEmptyPreRestoreDir(t *testing.T) {
+	dir := t.TempDir()
+	live := filepath.Join(dir, "kipple.db")
+	require.NoError(t, os.WriteFile(live, []byte("live"), 0o600))
+	require.NoError(t, os.WriteFile(live+"-wal", []byte("wal"), 0o600))
+
+	var pre string
+	moved, err := swap(dir, filepath.Join(dir, "missing-tmp.db"), live, time.Now(), &pre)
+	require.Error(t, err)
+	require.False(t, moved)
+	b, err := os.ReadFile(live)
+	require.NoError(t, err)
+	require.Equal(t, "live", string(b), "the live database was put back")
+	require.FileExists(t, live+"-wal")
+	dirs, err := filepath.Glob(filepath.Join(dir, "backup", "pre-restore-*"))
+	require.NoError(t, err)
+	require.Empty(t, dirs, "the rollback removed the empty pre-restore directory")
+}
+
+func TestPruneIgnoresEmptyPreRestoreDirs(t *testing.T) {
+	backupDir := filepath.Join(t.TempDir(), "backup")
+	full := func(name string) string {
+		d := filepath.Join(backupDir, name)
+		require.NoError(t, os.MkdirAll(d, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(d, "kipple.db"), []byte("x"), 0o600))
+		return d
+	}
+	oldest := full("pre-restore-20260101-000000")
+	full("pre-restore-20260102-000000")
+	full("pre-restore-20260103-000000")
+	empty := filepath.Join(backupDir, "pre-restore-20260104-000000")
+	require.NoError(t, os.MkdirAll(empty, 0o755))
+
+	prunePreRestore(backupDir)
+	require.DirExists(t, oldest, "an empty directory does not push a real copy out")
+	require.NoDirExists(t, empty)
 }
 
 func TestRestoreFromStandardInput(t *testing.T) {

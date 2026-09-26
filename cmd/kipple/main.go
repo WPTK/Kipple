@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -203,10 +204,8 @@ func runServe() error {
 	mux.Handle("/", webHandler)
 
 	srv := &http.Server{
-		Addr: cfg.Addr,
-		Handler: httpx.Secure(
-			auth.WarnUntrustedProxyHeaders(readerAPI.Front(mux), cfg.TrustedProxyIPs, logger, nil),
-			httpx.Options{ImgMode: uiAPI.ImgMode, TrustedProxies: cfg.TrustedProxyIPs}),
+		Addr:              cfg.Addr,
+		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, cfg.TrustedProxyIPs, logger),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
 		// WriteTimeout would kill /api/events; the SSE handler replaces it with a
@@ -254,6 +253,18 @@ func runServe() error {
 	}
 
 	return superviseServe(ctx, serveErr, stopAll, logger)
+}
+
+// rootHandler is the server's whole handler chain: the Reader API claims its
+// paths ahead of the mux, untrusted forwarding headers are logged, and
+// httpx.Secure puts the security headers (frame-ancestors, X-Frame-Options,
+// CSP by content type, Permissions-Policy on pages) on every response, the SPA,
+// the UI API, the Reader API and the image proxy alike.
+func rootHandler(readerFront func(http.Handler) http.Handler, mux http.Handler, imgMode func() string,
+	trusted []netip.Addr, logger *slog.Logger) http.Handler {
+	return httpx.Secure(
+		auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, logger, nil),
+		httpx.Options{ImgMode: imgMode, TrustedProxies: trusted})
 }
 
 // serveDrainWait bounds the wait for ListenAndServe to report after a shutdown.
