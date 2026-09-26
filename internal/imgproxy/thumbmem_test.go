@@ -649,8 +649,8 @@ func TestThumbCostBoundsRealAllocation(t *testing.T) {
 			t.Logf("%dx%d: allocated %.1f MiB (heap peak sample +%.1f MiB), estimate %.1f MiB (%.2fx), ceiling %d MiB",
 				p.w, p.h, mib(total), mib(peak), mib(p.need), float64(p.need)/float64(total), defaultDecodeCeiling>>20)
 			require.LessOrEqual(t, total, p.need, "the estimate is an upper bound of the real allocation")
-			// Meta prefix codes are priced by the tile bound (the entropy image is not
-			// decoded), so those estimates may exceed the real allocation by more.
+			// With meta prefix codes every group is priced at full trees for its
+			// alphabets, so those estimates may exceed the real allocation by more.
 			if !strings.Contains(tc.name, "meta codes") && !strings.Contains(tc.name, "alpha with 8 groups") {
 				require.Less(t, p.need, 3*total, "and not so loose that it refuses what would fit")
 			}
@@ -684,6 +684,15 @@ func TestThumbWorstAdmittedStaysUnderCeiling(t *testing.T) {
 		}},
 		{"png 16-bit RGBA Adam7", "image/png", func(w, h int) []byte {
 			return synthPNG(t, w, h, 16, 6, true, false, thumbMinSource)
+		}},
+		// Lossless WebP: the padding chunk after the image is never read by the decoder.
+		{"webp lossless all transforms, 11-bit cache, full trees", "image/webp", func(w, h int) []byte {
+			s := vp8lSpec{w: w, h: h, predictor: true, crossColor: true, subGreen: true, palette: true, cacheBits: 11, fullTrees: true}
+			return riffWebP(webpChunk("VP8L", synthVP8L(s, true)), webpChunk("PADD", make([]byte, thumbMinSource)))
+		}},
+		{"webp lossless meta codes 40 groups, 11-bit cache", "image/webp", func(w, h int) []byte {
+			s := vp8lSpec{w: w, h: h, cacheBits: 11, groups: 40}
+			return riffWebP(webpChunk("VP8L", synthVP8L(s, true)), webpChunk("PADD", make([]byte, thumbMinSource)))
 		}},
 	}
 	lim := testLimits()

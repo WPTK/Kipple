@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strconv"
 	"testing"
+
+	"golang.org/x/image/webp"
 )
 
 // FuzzProxyPath: hostile {sig}/{flags}/{u} path values never panic and are
@@ -61,6 +63,43 @@ func FuzzWebPCost(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte, w, h uint8) {
 		if n, ok := webpDecodeCost(bytes.NewReader(data), int64(len(data)), int(w), int(h)); ok && n <= 0 {
 			t.Fatal("accepted with a non-positive cost")
+		}
+	})
+}
+
+// FuzzWebPLosslessCost: the WebP walk, at the size DecodeConfig reads from the
+// same bytes (as planThumb calls it), never panics, and an accepted file is
+// priced at least at its decoded picture (NRGBA, 4 bytes per pixel, for a
+// lossless file; 1 for any WebP). Seeded with synthetic lossless streams of
+// every shape and the libwebp files in golang.org/x/image's test data.
+func FuzzWebPLosslessCost(f *testing.F) {
+	for _, s := range []vp8lSpec{
+		{w: 60, h: 40},
+		{w: 60, h: 40, predictor: true, crossColor: true, subGreen: true, palette: true, cacheBits: 5, fullTrees: true},
+		{w: 60, h: 40, cacheBits: 11, groups: 7},
+		{w: 60, h: 40, groups: 40, sparse: true},
+	} {
+		f.Add(riffWebP(webpChunk("VP8L", synthVP8L(s, true))))
+	}
+	f.Add(synthWebPAlpha(60, 40, &vp8lSpec{w: 60, h: 40, palette: true, groups: 3}))
+	for _, b := range libwebpFiles(f) {
+		f.Add(b)
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		cfg, err := webp.DecodeConfig(bytes.NewReader(data))
+		if err != nil || cfg.Width*cfg.Height > 1<<20 {
+			return // a larger picture only makes each run slower (sub-images are walked pixel by pixel)
+		}
+		n, ok := webpDecodeCost(bytes.NewReader(data), int64(len(data)), cfg.Width, cfg.Height)
+		if !ok {
+			return
+		}
+		px := int64(cfg.Width) * int64(cfg.Height)
+		if n < px {
+			t.Fatalf("%dx%d accepted at %d bytes", cfg.Width, cfg.Height, n)
+		}
+		if len(data) >= 16 && string(data[12:16]) == "VP8L" && n < 4*px {
+			t.Fatalf("lossless %dx%d accepted at %d bytes, under its NRGBA picture", cfg.Width, cfg.Height, n)
 		}
 	})
 }
