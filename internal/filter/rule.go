@@ -45,15 +45,15 @@ import (
 
 // Limits. See the package comment.
 const (
-	MaxRules            = 200
-	MaxRegexRules       = 25
-	MaxTextTerms        = 2000 // enabled text terms across a whole set
-	MaxTermsPerRule     = 50
-	MaxTermRunes        = 100 // text terms
-	MaxRegexPatterns    = 5
-	MaxRegexBytes       = 256
-	MaxRegexProgInsts   = 500 // compiled program size of one pattern
-	MaxRegexRepeat      = 50  // copies a counted repeat makes, nested repeats multiplied
+	MaxRules          = 200
+	MaxRegexRules     = 25
+	MaxTextTerms      = 2000 // enabled text terms across a whole set
+	MaxTermsPerRule   = 50
+	MaxTermRunes      = 100 // text terms
+	MaxRegexPatterns  = 5
+	MaxRegexBytes     = 256
+	MaxRegexProgInsts = 500 // compiled program size of one pattern
+	MaxRegexRepeat    = 50  // copies a counted repeat makes, nested repeats multiplied
 	// MaxRegexCost bounds the worst-case evaluation time of the enabled regex rules of a set, which is
 	// linear in program size times text scanned (Go's regexp has no DFA: up to one live thread per
 	// instruction per byte). A rule costs the sum of its patterns' instructions times the KiB it scans
@@ -61,7 +61,7 @@ const (
 	// worst case (TestRegexWorstCaseAtTheCostCap) measured about 180 ms per item on the development
 	// machine, against 2 s for 25 rules before these limits; a typical rule costs well under a
 	// thousand (the 25 rules x 5 patterns on content of the benchmarks cost 17,600 and take 16 ms).
-	MaxRegexCost = 20000
+	MaxRegexCost        = 20000
 	MaxNameBytes        = 200
 	MaxTextContentScan  = 32 << 10 // content bytes scanned by text rules
 	MaxRegexContentScan = 8 << 10  // content bytes scanned by regex rules
