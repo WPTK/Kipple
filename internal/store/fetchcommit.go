@@ -586,13 +586,32 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 		if kerr != nil || herr != nil {
 			return nil
 		}
+		// The credentials and the network exceptions were granted for the old host
+		// (as with a URL edit, api PATCH): a move to another host drops them, so a
+		// publisher's redirect cannot collect the password or reach a private
+		// address. The note says what was reset.
+		oldHost, oerr := feedurl.Host(res.Snap.URL)
+		moved := oerr != nil || !strings.EqualFold(oldHost, host)
+		reset := false
+		if moved {
+			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(http_auth, '') != '' OR allow_insecure_tls = 1 OR allow_private_net = 1
+				FROM feeds WHERE id = ?`, feedID).Scan(&reset); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE feeds SET url_original = COALESCE(url_original, url),
 			url_original_key = COALESCE(url_original_key, url_key),
-			url = ?, url_key = ?, host = ?, redirect_to = NULL, redirect_kind = NULL, redirect_count = 0
-			WHERE id = ?`, dec.To, key, host, feedID); err != nil {
+			url = ?2, url_key = ?3, host = ?4, redirect_to = NULL, redirect_kind = NULL, redirect_count = 0,
+			http_auth = CASE WHEN ?5 THEN NULL ELSE http_auth END,
+			allow_insecure_tls = CASE WHEN ?5 THEN 0 ELSE allow_insecure_tls END,
+			allow_private_net = CASE WHEN ?5 THEN 0 ELSE allow_private_net END
+			WHERE id = ?1`, feedID, dec.To, key, host, moved); err != nil {
 			return err
 		}
 		st.note(fmt.Sprintf("redirect_migrated: %s -> %s", res.Snap.URL, dec.To), true)
+		if reset {
+			st.note("redirect_new_host: http_auth, allow_insecure_tls and allow_private_net reset", true)
+		}
 		st.migrated = true
 		return nil
 	default: // clear

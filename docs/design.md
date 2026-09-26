@@ -523,7 +523,8 @@ CREATE TABLE trimmed_content (
 -- error rows and every keep = 1 row (redirect_migrated, guid_churn_suspected, rekeyed) survive.
 -- first_item_id/last_item_id bound the ids this fetch inserted ("mark this fetch read").
 -- error_class: timeout|dns|connect|tls|http|cloudflare|too_large|empty|parse|ssrf|redirect_loop|gone
--- note: 'redirect_migrated: <old> -> <new>', 'redirect_target_owned_by_feed <id>',
+-- note: 'redirect_migrated: <old> -> <new>', 'redirect_new_host: http_auth, allow_insecure_tls and allow_private_net reset',
+--       'redirect_target_owned_by_feed <id>',
 --       'retry_after=<s>s', 'guid_churn_suspected', 'guid_duplicates: <k>/<n>', 'rekeyed: <k>',
 --       'skipped: host retry-after until <ts>', 'fulltext: <ok>/<tried>', 'initial_read: <k>'.
 CREATE TABLE fetch_log (
@@ -903,7 +904,7 @@ doneCh <- workerExit
 - **Request headers:**
   - `User-Agent`: `feeds.user_agent` wins and never retries. Otherwise `fetch.user_agent_mode` decides: `default` sends `Mozilla/5.0 (compatible; Kipple/<ver>; +<KIPPLE_PUBLIC_URL>)` (the `+url` part only when configured) and never retries; `browser_always` sends a browser string; `browser_on_failure` (the default) sends Kipple's UA and, on a 403, 406 or a Cloudflare 503 challenge, retries once with the browser string through the same guarded transport, then sets `feeds.ua_fallback = 1` so later fetches use the browser string directly. The browser string is a common Chrome UA unless the `fetch.user_agent` setting supplies a custom one. The same resolution (`store.ResolveUserAgent`) applies to the two other outgoing requests that reach a publisher's site: web add-feed discovery (§4.9; no per-feed override or remembered flag exists yet, so `browser_on_failure` means Kipple's UA and one browser-UA retry on a 403, 406 or Cloudflare 503) and article extraction (§7.5; the per-feed override, the remembered `ua_fallback` and the mode all apply, and `browser_on_failure` retries once as a browser on the same refusals).
   - `Accept: application/rss+xml, application/atom+xml, application/feed+json, application/json;q=0.9, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8`.
-  - Basic auth from `http_auth`.
+  - Basic auth from `http_auth`. `CheckRedirect` drops it from every hop that is not the feed's own host over https (plain http is allowed only when the feed URL itself is http): net/http keeps it for a subdomain and for an https to http move on the same host.
   - `If-None-Match` and `If-Modified-Since` (verbatim), sent only when stored non-empty, the job is not `full`, and `ignore_http_cache=0`.
   - `Accept-Encoding` is **not** set, so Go negotiates gzip transparently.
 - **Body.** `http.MaxBytesReader(nil, body, 10 MiB)` caps the decoded size.
@@ -1036,11 +1037,15 @@ To **migrate**, first run `store.FindFeedByURL(tx, final)`. If it finds a differ
 UPDATE feeds SET url_original = COALESCE(url_original, url),
                  url_original_key = COALESCE(url_original_key, url_key),
                  url = :final, url_key = :final_key, host = :host,
-                 redirect_to = NULL, redirect_kind = NULL, redirect_count = 0
+                 redirect_to = NULL, redirect_kind = NULL, redirect_count = 0,
+                 -- :moved = the new host differs from the old one (case-insensitive)
+                 http_auth = CASE WHEN :moved THEN NULL ELSE http_auth END,
+                 allow_insecure_tls = CASE WHEN :moved THEN 0 ELSE allow_insecure_tls END,
+                 allow_private_net = CASE WHEN :moved THEN 0 ELSE allow_private_net END
 WHERE id = :f
 ```
 
-Then add the fetch_log note `redirect_migrated: <old> -> <new>` with `keep = 1`. Validators are kept. The `feed/<url>` stream lookup uses `FindFeedByURL`.
+Then add the fetch_log note `redirect_migrated: <old> -> <new>` with `keep = 1`, and, when a move to another host reset any of the three (they were granted for the old host, as with a URL edit), `redirect_new_host: http_auth, allow_insecure_tls and allow_private_net reset`, also `keep = 1`. Validators are kept. The `feed/<url>` stream lookup uses `FindFeedByURL`.
 
 **`FindFeedByURL(u)`** (`internal/feedurl.Key` computes the key):
 
