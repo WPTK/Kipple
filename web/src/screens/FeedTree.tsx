@@ -7,6 +7,7 @@ import { useFavorites } from "@/lib/favorites";
 import { listTo } from "@/lib/routes";
 import { cn } from "@/lib/cn";
 import { FavStar } from "@/ui/FavStar";
+import { SavedSearchesNav } from "./SavedSearchesNav";
 import { UnreadCount } from "@/ui/UnreadCount";
 
 export const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
@@ -88,6 +89,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
           <ul className="flex flex-col gap-1">{favoriteRows}</ul>
         </section>
       ) : null}
+      <SavedSearchesNav onNavigate={onNavigate} />
       <h2 className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Feeds</h2>
       <ul className="flex flex-col gap-1">
         {folders.map((fo) => {

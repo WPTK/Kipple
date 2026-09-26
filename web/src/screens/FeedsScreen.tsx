@@ -33,6 +33,7 @@ import { Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { FirstRun } from "./FirstRun";
 import { StatusChip } from "./StatusChip";
+import { SavedSearchesNav } from "./SavedSearchesNav";
 import { DeleteDialog, MoveDialog } from "./feeds/BulkActions";
 
 // The dialogs load when first opened, not with the Feeds screen.
@@ -532,6 +533,7 @@ export function FeedsScreen() {
                 <ul className="flex flex-col">{favRows}</ul>
               </section>
             ) : null}
+            <SavedSearchesNav />
             <ul className="flex flex-col gap-1">
               {folders.map((fo, fi) => {
                 const inFolder = byFolder[fo.id] ?? [];
