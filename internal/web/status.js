@@ -74,7 +74,12 @@
     d.scrollTop = d.scrollHeight;
   }
   function feedName(id) { return titles[String(id)] || "feed #" + id; }
-  function runLine(r) { return "refresh " + r.done + "/" + r.total + " (" + r.new_items + " new, " + r.errors + " errors)"; }
+  // Runs are scheduler refreshes (new items) or item runs such as filter_apply
+  // and auto_read, which report "changed" instead.
+  function runLine(r) {
+    var what = r.changed !== undefined ? r.changed + " changed" : (r.new_items || 0) + " new";
+    return (r.kind || "refresh") + " " + r.done + "/" + r.total + " (" + what + ", " + (r.errors || 0) + " errors)";
+  }
   // Turn one server event into a short line. Raw JSON stays in the line's title.
   function describe(type, raw) {
     var d = {};
@@ -85,14 +90,17 @@
         if (d.error) return ["fetch " + d.outcome + "  " + feedName(d.feed_id) + "  " + (d.error_class || "error") + ": " + d.error, "failing"];
         return ["fetch " + d.outcome + "  " + feedName(d.feed_id) + "  " + (d.new_items || 0) + " new", ""];
       case "run.start":
-        r = runs[d.run_id] = { done: 0, total: d.total || 0, new_items: 0, errors: 0 };
+        r = runs[d.run_id] = { kind: d.kind, done: 0, total: d.total || 0, new_items: 0, errors: 0 };
         return [runLine(r), ""];
       case "run.progress":
-        r = runs[d.run_id] = { done: d.done, total: d.total, new_items: d.new_items, errors: d.errors };
+        // run.progress carries no kind: keep the one run.start gave.
+        r = runs[d.run_id] = { kind: (runs[d.run_id] || {}).kind, done: d.done, total: d.total, new_items: d.new_items, errors: d.errors, changed: d.changed };
         return [runLine(r), ""];
       case "run.done":
         r = runs[d.run_id] || { done: 0, total: 0 };
+        if (d.kind) r.kind = d.kind;
         r.new_items = d.new_items; r.errors = d.errors; r.done = r.total;
+        if (d.changed !== undefined) r.changed = d.changed;
         delete runs[d.run_id];
         return [runLine(r) + " done", d.errors ? "failing" : ""];
       case "items.state":
@@ -105,6 +113,10 @@
         return ["full text ready (" + (d.ids ? d.ids.length : 0) + ")", ""];
       case "filters.changed":
         return ["filters changed", ""];
+      case "folder.changed":
+        return ["folders changed", ""];
+      case "saved_searches.changed":
+        return ["saved searches changed", ""];
       case "resync":
         return ["resync requested", "warn"];
     }
@@ -139,10 +151,14 @@
     };
     es.addEventListener("heartbeat", function () { lastBeat = Date.now(); conn("events: live"); });
     if (!beatTimer) beatTimer = setInterval(checkBeat, 10000);
-    ["run.start", "run.progress", "run.done", "fetch.done", "items.state", "counts", "feed.changed", "fulltext.ready", "filters.changed", "resync"].forEach(function (t) {
+    // Every event the server publishes goes to the log. The feed table has no
+    // folder, filter or saved-search column, so those three only log.
+    var logOnly = { "items.state": true, "folder.changed": true, "filters.changed": true, "saved_searches.changed": true };
+    ["run.start", "run.progress", "run.done", "fetch.done", "items.state", "counts", "feed.changed", "fulltext.ready",
+      "filters.changed", "folder.changed", "saved_searches.changed", "resync"].forEach(function (t) {
       es.addEventListener(t, function (e) {
         var l = describe(t, e.data); log(l[0], l[1], e.data);
-        if (t !== "items.state") scheduleReload();
+        if (!logOnly[t]) scheduleReload();
       });
     });
   }
