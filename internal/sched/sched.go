@@ -186,7 +186,7 @@ type Scheduler struct {
 
 	failCommit    func(feedID int64) error                                                                       // test hook: replaces the fetch commit
 	commitFetchFn func(ctx context.Context, res *fetch.Result, perChunk time.Duration) (store.CommitInfo, error) // test hook
-	fetchFn       func(ctx context.Context, snap fetch.Snapshot, now time.Time) *fetch.Result                   // test hook: replaces client.Fetch
+	fetchFn       func(ctx context.Context, snap fetch.Snapshot, now time.Time) *fetch.Result                    // test hook: replaces client.Fetch
 
 	fetchCtx    context.Context
 	cancelFetch context.CancelFunc
