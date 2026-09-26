@@ -1,6 +1,6 @@
 // Settings, feed management, health, account and backup calls (docs/design.md 7.1).
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { api, ApiError, clientKind } from "./client";
+import { api, ApiError } from "./client";
 import { keys } from "./queries";
 import type { Bootstrap, Feed, Folder } from "./types";
 
@@ -168,29 +168,15 @@ export interface OpmlResult {
   run_id?: string;
 }
 
-/** Multipart OPML upload (the api() helper is JSON only). */
-export async function importOpml(file: File, markReadOlderThanDays?: number): Promise<OpmlResult> {
+/** Multipart OPML upload: api() passes FormData through unchanged. */
+export function importOpml(file: File, markReadOlderThanDays?: number): Promise<OpmlResult> {
   const fd = new FormData();
   fd.append("file", file);
-  const q = markReadOlderThanDays ? `?mark_read_older_than_days=${markReadOlderThanDays}` : "";
-  const res = await fetch(`/api/opml${q}`, {
+  return api<OpmlResult>("/api/opml", {
     method: "POST",
-    headers: { "X-Kipple-Client": clientKind(), Accept: "application/json" },
     body: fd,
-    credentials: "same-origin",
+    params: { mark_read_older_than_days: markReadOlderThanDays || undefined },
   });
-  if (!res.ok) {
-    let code = `http_${res.status}`;
-    let body: Record<string, unknown> | null = null;
-    try {
-      body = (await res.json()) as Record<string, unknown>;
-      if (typeof body.error === "string") code = body.error;
-    } catch {
-      /* not JSON */
-    }
-    throw new ApiError(res.status, code, body);
-  }
-  return (await res.json()) as OpmlResult;
 }
 
 // ---- Health ---------------------------------------------------------------------

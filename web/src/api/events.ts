@@ -181,7 +181,9 @@ export function announcementFor(ev: ServerEvent, runKind?: string): string | nul
     // The retention sweep is housekeeping, not a refresh: nothing to announce.
     if (kind !== undefined && !isRefreshKind(kind)) return null;
     if (ev.data.errors > 0) return `Couldn't refresh ${ev.data.errors} feed${ev.data.errors === 1 ? "" : "s"}. The rest updated.`;
-    return ev.data.new_items > 0 ? plural(ev.data.new_items) : "No new articles";
+    if (ev.data.new_items > 0) return plural(ev.data.new_items);
+    // Kind unknown (its run.start was missed): an empty result is not worth a toast.
+    return kind === undefined ? null : "No new articles";
   }
   // A scheduled fetch outside any run: announce the new items.
   if (ev.type === "fetch.done" && ev.data.new_items > 0 && !(ev.data.run_ids && ev.data.run_ids.length)) {
@@ -286,7 +288,7 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
 }
 
 export function parseServerEvent(type: string, data: string): ServerEvent | null {
-  if (!(SERVER_EVENT_TYPES as string[]).includes(type)) return null;
+  if (!(SERVER_EVENT_TYPES as readonly string[]).includes(type)) return null;
   try {
     return { type, data: JSON.parse(data) } as ServerEvent;
   } catch {
@@ -404,8 +406,10 @@ export function useServerEvents(enabled: boolean): void {
     };
     let lastEventId = "";
     /** The stream is up: leave fallback polling and reconcile runs and counts if events were missed. */
-    const connected = () => {
-      errors = 0;
+    const connected = (proven = true) => {
+      // Only a delivered message or heartbeat proves the stream healthy; a bare onopen does not (a proxy
+      // that accepts then resets would otherwise never reach the polling fallback).
+      if (proven) errors = 0;
       stopPolling();
       if (liveStore.get().transport !== "open") liveStore.set((s) => ({ ...s, transport: "open" }));
       if (lost) {
@@ -449,7 +453,7 @@ export function useServerEvents(enabled: boolean): void {
       for (const t of SERVER_EVENT_TYPES) src.addEventListener(t, onMessage(t) as EventListener);
       src.onopen = () => {
         openedAt = Date.now();
-        connected();
+        connected(false);
         pet(src);
       };
       fail = (s: EventSource) => {

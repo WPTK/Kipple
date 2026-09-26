@@ -246,7 +246,8 @@ export type ServerEvent =
   | { type: "folder.changed"; data: { folder_id?: string } }
   | { type: "resync"; data: Record<string, never> };
 
-export const SERVER_EVENT_TYPES: ServerEvent["type"][] = [
+/** Every SSE event type; the compile-time check below fails if this list and `ServerEvent` drift apart. */
+export const SERVER_EVENT_TYPES = [
   "run.start",
   "run.progress",
   "run.done",
@@ -259,7 +260,9 @@ export const SERVER_EVENT_TYPES: ServerEvent["type"][] = [
   "saved_searches.changed",
   "folder.changed",
   "resync",
-];
+] as const satisfies readonly ServerEvent["type"][];
+type MissingEventTypes = Exclude<ServerEvent["type"], (typeof SERVER_EVENT_TYPES)[number]>;
+export const SERVER_EVENT_TYPES_COMPLETE: [MissingEventTypes] extends [never] ? true : never = true;
 
 /** Response of a scoped or bounded mark-read. `changed` is empty and `undoable` false above the server cap. */
 export interface BulkMarkResponse extends MarkReadResponse {

@@ -70,8 +70,13 @@ describe("announcementFor", () => {
   it("says what a manual refresh did", () => {
     expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 12, errors: 0 } })).toBe("12 new articles");
     expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 1, errors: 0 } })).toBe("1 new article");
-    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } })).toBe("No new articles");
+    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } }, "manual")).toBe("No new articles");
     expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 3, errors: 2 } })).toMatch(/Couldn't refresh 2 feeds/);
+  });
+
+  it("stays quiet about an empty run whose kind is unknown (run.start missed)", () => {
+    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } })).toBeNull();
+    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 2, errors: 0 } })).toBe("2 new articles");
   });
 
   it("does not announce the retention sweep as a refresh", () => {

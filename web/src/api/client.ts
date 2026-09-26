@@ -31,6 +31,7 @@ export function clientKind(): "web" | "pwa" {
 
 export interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** A plain value is sent as JSON; FormData is sent as multipart (the browser sets the boundary). */
   body?: unknown;
   params?: Record<string, string | number | undefined | null>;
   signal?: AbortSignal;
@@ -54,8 +55,10 @@ export function buildPath(path: string, params?: RequestOptions["params"]): stri
 export async function api<T = void>(path: string, opts: RequestOptions = {}): Promise<T> {
   const method = opts.method ?? "GET";
   const headers: Record<string, string> = { Accept: "application/json", "X-Kipple-Client": clientKind() };
-  let body: string | undefined;
-  if (opts.body !== undefined) {
+  let body: string | FormData | undefined;
+  if (opts.body instanceof FormData) {
+    body = opts.body;
+  } else if (opts.body !== undefined) {
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(opts.body);
   }

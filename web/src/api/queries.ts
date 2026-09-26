@@ -6,7 +6,7 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
-import { api, ApiError } from "./client";
+import { api, ApiError, errorMessage } from "./client";
 import type {
   Bootstrap,
   Card,
@@ -18,7 +18,6 @@ import type {
   Scope,
 } from "./types";
 import { toast } from "@/shell/toasts";
-import { errorMessage } from "./client";
 
 export const PAGE_SIZE = 50;
 

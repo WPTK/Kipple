@@ -83,6 +83,18 @@ describe("useServerEvents", () => {
     unmount();
   });
 
+  it("still falls back when the stream opens and dies each time (a proxy that accepts then resets)", async () => {
+    mockFetch({ "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 4 }) });
+    const { unmount } = setup();
+    const es = FakeES.last;
+    act(() => es?.onopen?.());
+    act(() => es?.onerror?.());
+    act(() => es?.onopen?.());
+    act(() => es?.onerror?.());
+    expect(liveStore.get().transport).toBe("fallback");
+    unmount();
+  });
+
   it("does not fall back when the failure is a sign-out", () => {
     authStore.set("out");
     const { unmount } = setup();
