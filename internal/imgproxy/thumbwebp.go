@@ -14,7 +14,7 @@ import (
 // "prefix code group", a file with meta prefix codes may read up to 2,600 of
 // them, and with an 11-bit color cache a kept group holds about 50 KB of trees
 // and leaves about 25 KB of garbage, whatever the pixel count (about 200 MB
-// for an 801x1000 picture with 650 KB of tree data); a group read and dropped
+// for an 801x1000 picture with 600 KB of tree data); a group read and dropped
 // still leaves about 12 KB. The walk below reads a VP8L stream (the image, or
 // a compressed ALPH plane, which is one too) as far as the decoder's
 // allocations are decided by it: the transforms and their sub-images, which

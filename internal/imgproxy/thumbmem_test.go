@@ -1081,6 +1081,13 @@ func TestWebPLossyFrameMustMatchTheCanvas(t *testing.T) {
 	require.True(t, cost(riffWebP(webpChunk("VP8 ", synthVP8(640, 480))), 640, 480), "a plain lossy file")
 	require.True(t, cost(synthWebPAlpha(640, 480, nil), 640, 480), "a VP8X file with an alpha plane")
 
+	// The two scaling bits above each 14-bit dimension are ignored, as the
+	// decoder ignores them: a legitimate file that sets them is still priced.
+	scaled := synthVP8(640, 480)
+	scaled[7] |= 0x40
+	scaled[9] |= 0x80
+	require.True(t, cost(riffWebP(webpChunk("VP8 ", scaled)), 640, 480), "scaling bits are not part of the size")
+
 	// A small canvas around a 4000x4000 frame: DecodeConfig reports the canvas,
 	// so pricing it from the canvas would be about 1,600x short. Refused.
 	crafted := vp8xWebP(100, 100, synthVP8(4000, 4000))
