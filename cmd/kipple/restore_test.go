@@ -347,3 +347,60 @@ func TestRestoreFromStandardInput(t *testing.T) {
 	require.Equal(t, 9, countItems(t, dir))
 	require.NoFileExists(t, filepath.Join(dir, "restore-upload.tmp"), "the spool is removed")
 }
+
+// The -N suffix orders as a number (-10 is newer than -2) and a name that is
+// not ours is never pruned.
+func TestPrunePreRestoreOrdersSuffixNumerically(t *testing.T) {
+	backupDir := filepath.Join(t.TempDir(), "backup")
+	full := func(name string) string {
+		d := filepath.Join(backupDir, name)
+		require.NoError(t, os.MkdirAll(d, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(d, "kipple.db"), []byte("x"), 0o600))
+		return d
+	}
+	var all []string
+	all = append(all, full("pre-restore-20260101-000000"))
+	for i := 2; i <= 10; i++ {
+		all = append(all, full(fmt.Sprintf("pre-restore-20260101-000000-%d", i)))
+	}
+	foreign := full("pre-restore-keep-me")
+	prunePreRestore(backupDir)
+	for _, d := range all[:len(all)-3] {
+		require.NoDirExists(t, d)
+	}
+	for _, d := range all[len(all)-3:] {
+		require.DirExists(t, d, "the three newest (-8, -9, -10) are kept")
+	}
+	require.DirExists(t, foreign, "a name that does not parse is left alone")
+
+	// The timestamp is compared as a time, not as text.
+	at, n, ok := preRestoreKey("pre-restore-20260101-000000-12")
+	require.True(t, ok)
+	require.Equal(t, 12, n)
+	require.Equal(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), at)
+	for _, bad := range []string{"pre-restore-2026", "pre-restore-20260101-000000-", "pre-restore-20260101-000000-x", "pre-restore-20261301-000000"} {
+		_, _, ok := preRestoreKey(bad)
+		require.False(t, ok, bad)
+	}
+}
+
+// Names are UTC, so the repeated hour at the end of daylight saving time can
+// never make the newer directory sort first.
+func TestPreRestoreNamesAreUTC(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	backupDir := filepath.Join(t.TempDir(), "backup")
+	// 2026-11-01 01:30 EDT, then 01:10 EST (40 minutes later in real time).
+	first := time.Date(2026, 11, 1, 5, 30, 0, 0, time.UTC).In(ny)
+	second := time.Date(2026, 11, 1, 6, 10, 0, 0, time.UTC).In(ny)
+	require.True(t, first.Format("150405") > second.Format("150405"), "local wall clock goes backwards")
+	a, err := newPreRestoreDir(backupDir, first)
+	require.NoError(t, err)
+	b, err := newPreRestoreDir(backupDir, second)
+	require.NoError(t, err)
+	require.Equal(t, "pre-restore-20261101-053000", filepath.Base(a))
+	require.Equal(t, "pre-restore-20261101-061000", filepath.Base(b))
+	ka, _, _ := preRestoreKey(filepath.Base(a))
+	kb, _, _ := preRestoreKey(filepath.Base(b))
+	require.True(t, ka.Before(kb))
+}

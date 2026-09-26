@@ -584,3 +584,25 @@ func TestQuickAddFetchNowOnlyWhenSettingOn(t *testing.T) {
 	add("https://on.example/feed.xml")
 	require.Len(t, calls, 1, "an existing feed is never fetched by a client")
 }
+
+// A folder name the store refuses (too long, control characters) is client
+// data: 200 OK with nothing changed, never a 5xx.
+func TestReaderFolderNameLimitsAreOKNoOps(t *testing.T) {
+	h := newHarness(t)
+	f := h.addFeed("https://a.example/f", "A", "News")
+	long := strings.Repeat("x", 101)
+
+	w := h.post(rd+"subscription/edit", "T=x&ac=edit&s=feed/"+strconv.FormatInt(f, 10)+"&a="+url.QueryEscape("user/-/label/"+long))
+	require.Equal(t, 200, w.Code)
+	require.Equal(t, "OK", w.Body.String())
+	require.Equal(t, "News", q[string](h, "SELECT fo.name FROM feeds f JOIN folders fo ON fo.id = f.folder_id WHERE f.id = ?", f))
+
+	w = h.post(rd+"subscription/edit", "T=x&ac=subscribe&s=feed/"+url.QueryEscape("https://b.example/f")+"&a="+url.QueryEscape("user/-/label/bad\x01name"))
+	require.Equal(t, 200, w.Code)
+	require.Zero(t, q[int](h, "SELECT count(*) FROM feeds WHERE url LIKE 'https://b.example/%'"))
+
+	w = h.post(rd+"rename-tag", "T=x&s="+url.QueryEscape("user/-/label/News")+"&dest="+url.QueryEscape("user/-/label/"+long))
+	require.Equal(t, 200, w.Code)
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM folders WHERE name = 'News'"))
+	require.Zero(t, q[int](h, "SELECT count(*) FROM folders WHERE length(name) > 100"))
+}

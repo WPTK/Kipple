@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
@@ -103,7 +104,31 @@ func (d *DB) FindLabel(ctx context.Context, candidates []string) (int64, bool, e
 	return FindLabel(ctx, d.reader, candidates)
 }
 
+// MaxFolderNameRunes is the longest folder name, in characters, on every path
+// that names a folder (the web UI, the Reader API, OPML import).
+const MaxFolderNameRunes = 100
+
+// ErrBadFolderName is returned for a folder name that is longer than
+// MaxFolderNameRunes or holds a control character.
+var ErrBadFolderName = errors.New("store: folder names are 1 to 100 characters without control characters")
+
+// CheckFolderName reports whether a (trimmed, non-empty) folder name may be
+// stored: at most MaxFolderNameRunes characters and no control character
+// (below 0x20 except tab, or DEL), the web UI's rule.
+func CheckFolderName(name string) error {
+	if utf8.RuneCountInString(name) > MaxFolderNameRunes {
+		return ErrBadFolderName
+	}
+	for i := 0; i < len(name); i++ {
+		if c := name[i]; c < 0x20 && c != '\t' || c == 0x7f {
+			return ErrBadFolderName
+		}
+	}
+	return nil
+}
+
 // ensureFolder returns the id of the folder called name, creating it at the end.
+// A new name must pass CheckFolderName; an existing folder is found whatever its name.
 func ensureFolder(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -112,6 +137,9 @@ func ensureFolder(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
 	id, found, err := FindLabel(ctx, tx, []string{name})
 	if err != nil || found {
 		return id, err
+	}
+	if err := CheckFolderName(name); err != nil {
+		return 0, err
 	}
 	res, err := tx.ExecContext(ctx, "INSERT INTO folders (name, position) SELECT ?, COALESCE(MAX(position)+1, 1) FROM folders", name)
 	if err != nil {
@@ -441,11 +469,15 @@ func ensureArchiveFeed(ctx context.Context, tx *sql.Tx) (int64, error) {
 
 // RenameLabel renames folder oldID to newName; when a different folder already
 // has that name the two are merged (feeds move, the old folder is deleted). The
-// default folder may be renamed but never deleted.
+// default folder may be renamed but never deleted. A name that fails
+// CheckFolderName is ErrBadFolderName and changes nothing.
 func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) error {
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return nil
+	}
+	if err := CheckFolderName(newName); err != nil {
+		return err
 	}
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		target, found, err := FindLabel(ctx, tx, []string{newName})

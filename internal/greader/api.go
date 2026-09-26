@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -54,9 +55,8 @@ type Options struct {
 	// DefaultFulltextHold, negative disables the hold; it is capped at
 	// MaxFulltextHold so it stays inside the ot slack.
 	FulltextHold time.Duration
-	// Now and Sleep default to the wall clock (tests).
-	Now   func() time.Time
-	Sleep func(ctx context.Context, d time.Duration)
+	// Now defaults to the wall clock (tests).
+	Now func() time.Time
 }
 
 const (
@@ -89,7 +89,6 @@ type API struct {
 	wake   func()
 	opt    Options
 	now    func() time.Time
-	sleep  func(ctx context.Context, d time.Duration)
 	fails  *auth.FailureTracker
 	ver    *auth.Verifier
 	routes map[string]route
@@ -134,7 +133,7 @@ type call struct {
 func New(opt Options) *API {
 	a := &API{
 		db: opt.DB, log: opt.Logger, wake: opt.Wake, opt: opt,
-		now: opt.Now, sleep: opt.Sleep, fails: opt.Failures, ver: opt.Verifier,
+		now: opt.Now, fails: opt.Failures, ver: opt.Verifier,
 		routes: map[string]route{}, seen: map[string]time.Time{},
 	}
 	if a.log == nil {
@@ -143,18 +142,9 @@ func New(opt Options) *API {
 	if a.now == nil {
 		a.now = time.Now
 	}
-	if a.sleep == nil {
-		a.sleep = func(ctx context.Context, d time.Duration) {
-			t := time.NewTimer(d)
-			defer t.Stop()
-			select {
-			case <-t.C:
-			case <-ctx.Done():
-			}
-		}
-	}
 	if a.fails == nil {
 		a.fails = auth.NewFailureTracker()
+		a.fails.Now = a.now
 	}
 	if a.ver == nil {
 		a.ver = auth.NewVerifier(nil, auth.VerifierOptions{})
@@ -445,10 +435,7 @@ func (c *call) clientLogin() {
 	a := c.a
 	ctx := c.r.Context()
 	ip := auth.ClientIP(c.r, a.opt.TrustedProxies)
-	fail := func() {
-		if d := a.fails.Fail(ip); d > 0 {
-			a.sleep(ctx, d)
-		}
+	bad := func() {
 		c.w.Header().Set("Google-Bad-Token", "true")
 		c.w.Header().Set("X-Reader-Google-Bad-Token", "true")
 		c.text(http.StatusUnauthorized, "Error=BadAuthentication\n")
@@ -460,27 +447,52 @@ func (c *call) clientLogin() {
 		return
 	}
 	if !s.enabled {
-		fail()
+		bad()
 		return
 	}
 	email, pass := c.p.Get("Email"), c.p.Get("Passwd")
-	// The password is always verified, even when the email is wrong.
+	emailOK := strings.EqualFold(email, s.username)
 	a.ver.SetSecret([]byte(s.secret))
+	// A remembered success costs no hashing, so it is not rate budgeted: a
+	// signed-in client keeps working while its address is over budget.
+	if emailOK && a.ver.Remembered("api", pass, s.hash) {
+		a.fails.Clear(ip)
+		c.loginOK(s)
+		return
+	}
+	// The attempt is reserved before any hashing (design §6.3): one attempt per
+	// client in flight, then a rate budget. Over budget is the ordinary 401.
+	if !a.fails.Reserve(ip) {
+		bad()
+		return
+	}
+	settled := false
+	defer func() {
+		if !settled {
+			a.fails.Release(ip)
+		}
+	}()
+	// The password is always verified, even when the email is wrong.
 	ok, busy := a.ver.VerifyBusy(ctx, "api", pass, s.hash)
 	if busy {
 		// Hashing slot unavailable (design §6.3: a 401 after the 5 s wait). It says
-		// nothing about the password, so no failure is recorded and there is no
-		// delay or Retry-After.
-		c.w.Header().Set("Google-Bad-Token", "true")
-		c.w.Header().Set("X-Reader-Google-Bad-Token", "true")
-		c.text(http.StatusUnauthorized, "Error=BadAuthentication\n")
+		// nothing about the password, so the attempt is given back and there is no
+		// Retry-After.
+		bad()
 		return
 	}
-	if !ok || !strings.EqualFold(email, s.username) {
-		fail()
+	settled = true
+	if !ok || !emailOK {
+		a.fails.Done(ip)
+		bad()
 		return
 	}
 	a.fails.Clear(ip)
+	c.loginOK(s)
+}
+
+// loginOK answers a successful ClientLogin.
+func (c *call) loginOK(s *acctSnap) {
 	if c.p.Get("output") == "json" {
 		c.json(http.StatusOK, map[string]any{"SID": s.token, "LSID": nil, "Auth": s.token})
 		return
@@ -551,8 +563,16 @@ func (c *call) jsonETag(v any) {
 // ok is the text/plain OK every write endpoint answers.
 func (c *call) ok() { c.text(http.StatusOK, "OK") }
 
-// serverError answers a genuine database failure (the only 5xx).
+// serverError answers a genuine database failure (the only 5xx). A folder name
+// the store refuses (too long, control characters) is client data, never a 5xx:
+// it is logged and answered OK with nothing changed, like any other ignored
+// value (a non-2xx wedges NetNewsWire's queue).
 func (c *call) serverError(what string, err error) {
+	if errors.Is(err, store.ErrBadFolderName) {
+		c.a.log.Warn("greader: "+what+": folder name refused", "err", err, "path", c.path, "ua", c.r.UserAgent())
+		c.ok()
+		return
+	}
 	c.a.log.Error("greader: "+what, "err", err, "path", c.path)
 	c.text(http.StatusInternalServerError, "Internal Server Error")
 }

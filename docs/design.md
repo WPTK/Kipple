@@ -1189,12 +1189,12 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and nothing e
 
      Workers finish the job in hand: a completed fetch commits under `WithoutCancel` (the context carries no deadline; each chunk of a large feed gets its own 10 s budget), and an aborted one writes nothing. Each worker then sends `workerExit`.
   2. `hub.Close()` closes every subscriber channel, so SSE handlers return immediately.
-  3. `http.Server.Shutdown` with a 10 s context; when it errors, `srv.Close()` cuts the requests that outlived the grace period. No handler waits on the scheduler any more.
+  3. `http.Server.Shutdown` with a context of at most 10 s; when it errors, `srv.Close()` cuts the requests that outlived the grace period. No handler waits on the scheduler any more.
   4. `<-sched.Stopped()`, bounded at 15 s (it logs "scheduler did not drain in time" and goes on). The dispatcher keeps receiving on `doneCh` until `live == 0`, so no worker can block on its final send.
   5. `maint.Stop()` cancels the maintenance context. An in-progress `VACUUM INTO` is interrupted and its tmp file is removed at once; a leftover is removed again at the start of the next run.
   6. The deferred closes run, last in first out: the API server's `Close`, then the image cache's `Close`, then `db.Close()`. `db.Close()` closes the reader pool, runs `PRAGMA wal_checkpoint(TRUNCATE)` on the writer with a 5 s timeout, and closes the writer.
 
-  Compose sets `stop_grace_period: 30s`. The shutdown test asserts exit in under 15 s during a 138-feed run.
+  All of it shares one 25 s budget (`cmd/kipple/shutdown.go`), started by the signal: each stage is capped by its own maximum and by what is left, steps 3 to 5 stop 5 s before the deadline so the closes of step 6 always keep that reserve, and each close is abandoned (logged) at the deadline. The scheduler and maintenance start only after every handler is built, so a setup error leaves nothing running. Compose sets `stop_grace_period: 30s`. The shutdown test asserts exit in under 15 s during a 138-feed run.
 - **Startup.** Feeds that are already past due are simply due on the first tick. A full catch-up of 138 feeds takes about 30 s.
 
 ---
@@ -1385,11 +1385,13 @@ Reader routes never call `r.ParseForm`.
     2. Otherwise acquire the global semaphore of 1, waiting at most 5 s (else 401). Run argon2id (m=19 MiB, t=2, p=1; about 50 ms and 19 MiB on Host-A), then release. On success, set the memo for that kind.
     3. The stored hash is part of the MAC, so a changed password never matches an old memo and nothing is cleared. A changed account secret (`SetSecret`) drops every memo.
     4. A **busy** verifier (the 5 s wait expired, or the request context was cancelled) answers 401 but records no failure and adds no delay: it says nothing about the password.
-  - **Per-IP failure delay.** The client IP is `CF-Connecting-IP` when `RemoteAddr` is in `KIPPLE_TRUSTED_PROXY_IPS`, else `RemoteAddr`. The password is **always** verified.
-    - A success clears that IP's failure count and returns at once.
-    - A failure is counted in a fixed 10-minute window. Once the window holds 5 or more failures, each further failing response is delayed 2 s.
-    - A stale device retrying an old password therefore never blocks the correct password from the same home IP.
+  - **Per-client attempt budget** (`auth.FailureTracker`). The client IP is `CF-Connecting-IP` when `RemoteAddr` is in `KIPPLE_TRUSTED_PROXY_IPS`, else `RemoteAddr`; the budget (like the web login lockout) keys an IPv6 client by its /64, so rotating addresses inside one subscriber prefix buys nothing.
+    - A password that matches the success memo succeeds without hashing and is not budgeted, so a signed-in device keeps working while its address is over budget.
+    - Otherwise the attempt is reserved **before** hashing: at most one attempt per client is in flight, attempts are counted in a fixed 10-minute window, and once the window holds 5 a further attempt is granted only 2 s after the previous granted one. A refused attempt is the ordinary failure 401 below, without hashing. Every granted attempt verifies the password, even when the email is wrong.
+    - A success clears the client's count; a busy verifier gives its attempt back.
+    - A stale device retrying an old password therefore never blocks the correct password for more than 2 s.
     - Never 429.
+  - A chosen Reader API password (`POST /api/account/api-password` with `new`, or `KIPPLE_API_PASSWORD`) must be 16 to 256 characters; the UI and `kipple api-password` generate 24.
   - **Failure:** `401 text/plain "Error=BadAuthentication\n"` with both `Google-Bad-Token: true` and `X-Reader-Google-Bad-Token: true`.
   - **Success:** `text/plain "SID=<tok>\nLSID=null\nAuth=<tok>\n"`. With `output=json`: `{"SID":…,"LSID":null,"Auth":…}`.
   - `tok = username + "/" + hex(HMAC-SHA256(secret, "greader-token-v1|" + api_password_hash))`. It is 64 hex after the slash and never contains `=`. It is part of an account snapshot cached in an `atomic.Pointer` with a 5 s TTL (`acctTTL`). `InvalidateAccount` (wired to `OnAPIPasswordChange` in `main`) drops the snapshot at once when the API password changes in the UI, and a change made through the CLI takes effect within 5 s. Either way every client is revoked.
@@ -1684,7 +1686,7 @@ Other conventions:
 
 | Method and path | Request | Response |
 |---|---|---|
-| `POST /api/auth/login` | `{username, password}` (same Verifier and failure delay as ClientLogin) | `204` + cookie and `Cache-Control: private, no-store`. Errors: `401 auth` (bad user or password), `429 locked` + `Retry-After` (IP lockout), `503 busy` + `Retry-After: 5` (verifier saturated, not counted as a failure), `400 bad_request` (malformed body), `403 origin` (the same-origin rule above) |
+| `POST /api/auth/login` | `{username, password}` (same Verifier as ClientLogin; the IP lockout keys IPv6 by /64) | `204` + cookie and `Cache-Control: private, no-store`. Errors: `401 auth` (bad user or password), `429 locked` + `Retry-After` (IP lockout), `503 busy` + `Retry-After: 5` (verifier saturated, not counted as a failure), `400 bad_request` (malformed body), `403 origin` (the same-origin rule above) |
 | `POST /api/auth/logout` | — | `204` |
 | `GET /api/auth/me` | — | `{username, api_enabled}` |
 | `GET /api/bootstrap` | — | `{user, settings:{…merged defaults…}, device:{id,name,profile,merged}, folders:[{id,name,position,is_default,unread}], feeds:[{id,folder_id,title,site_url,icon:"/api/feeds/<id>/icon?h=<hash>",unread,status(§4.6),fulltext,retention,interval_minutes,auto_read_days,is_archive,starred_count,fulltext_effective}], saved_searches:[{id,name,q,scope?,order?}] (§7.1d, no counts), counts:{unread,starred,muted}, highlights:[{id,scope,folder_id,feed_id,terms,fields,case_sensitive,whole_word,fold_diacritics}], runs:[{…}], warnings:[…], server_time, version}`. `counts.muted` is the number of muted items (the partial index answers it). `highlights` lists the enabled, non-inverted `highlight` filters (text kind only) for the client to draw in titles and articles (§7.1b). `runs` holds the scheduler's runs and, while one is active, the filter apply run (`{id, kind:"filter_apply", filter_id, done, total, changed, new_items, errors}`) and the auto-read catch-up run (`{id, kind:"auto_read", ...}`, §7.1d). `warnings` carries the clock banner, a stale snapshot, and "unread total above 10,000: Reeder only syncs the newest 10,000 unread ids" |
@@ -1938,7 +1940,7 @@ The React app does not refetch lists on events, except on `resync`. For `fetch.d
 5. Folder names that differ only by case are merged (the `COLLATE NOCASE` unique) and reported in `folders_merged_case`.
 6. For a new feed, a non-empty `title`/`text` goes into `custom_title`, and `kipple:*` attributes are applied (validated like PATCH; `kipple:enabled=0` imports as `disabled_reason='user'`). Only the real `kipple` namespace counts. `kipple:allow_private_net` and `kipple:allow_insecure_tls` are never applied on import; they are listed in the result as `ignored_attrs`. A non-http(s) `htmlUrl` is dropped.
 7. The UI option `mark_read_older_than_days=N` (1 to 365, otherwise 400 `bad_days`) sets `initial_read_before = now − N·86400` on every new feed.
-9. The result also carries `folders_created`, `feeds_added`, `skipped` (outlines that could not be imported, with the reason) and `invalid_attrs`; `POST /api/opml` adds a `run_id`.
+9. The result also carries `folders_created`, `feeds_added`, `skipped` (outlines that could not be imported, with the reason: a URL that fails `store.ValidateFeedURL`, the check every other path uses, or a folder name over 100 characters or with a control character) and `invalid_attrs`; `POST /api/opml` adds a `run_id`.
 8. Values are never split on commas, and the `category` attribute is ignored.
 
 **Export:**
@@ -2149,7 +2151,7 @@ internal/api            api.go (routes, session check, same-origin guard: authed
                         feedadmin.go, filters.go, autoread.go, savedsearches.go, devices.go, settings.go /
                         settingsmeta.go, opml.go, fulltext.go, image.go, imgcache.go, backup.go,
                         maintenance.go, sse.go
-internal/auth           argon2id Verifier (params, semaphore, memo, per-IP failure delay), cookie sessions,
+internal/auth           argon2id Verifier (params, semaphore, memo, per-client attempt budget), cookie sessions,
                         effective scheme, trusted-proxy IP, web login Lockout (10 failures / 15 min),
                         GeneratePassword, WarnUntrustedProxyHeaders
 internal/events         SSE hub: Subscribe/Publish/Close, per-subscriber buffer 64, replay ring bounded at 500
@@ -2357,7 +2359,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
   - a wrong token → 401;
   - a GET with a cookie but no token → 401;
   - the API disabled (NULL hash) → ClientLogin 401;
-  - the failure delay never returns 429;
+  - the attempt budget never returns 429;
   - **after 20 wrong-password attempts from one IP, the correct password from the same IP succeeds at once and clears the count**;
   - a memoized login does not call argon2 (counted through a fake);
   - 50 concurrent wrong ClientLogins never run more than one argon2 at a time (fake with a concurrency gauge).
@@ -2467,7 +2469,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
 | **Unpadded bare-hex ids made only of digits** would be parsed as decimal | No target client sends them. A test documents the limitation |
 | **SSE through cloudflared and Access** is unverified on this named tunnel | Pings every 15 s, `no-transform`, the `/api/status` polling fallback, and `curl -N` on the release checklist |
 | **Access path precedence** for the `/api/greader.php` Bypass app has community reports of inconsistency | The external `curl` checks are mandatory. The root Reader routes never get a bypass |
-| **Password exposure on the public ClientLogin** | A separate, generated API password, argon2id (m=19 MiB) behind a global semaphore of 1, a success memo, per-IP failure delays (never 429), and redaction in logs. A distributed attacker gets at most ~20 guesses per second against a 24-character random password |
+| **Password exposure on the public ClientLogin** | A separate, generated API password, argon2id (m=19 MiB) behind a global semaphore of 1, a success memo, a per-client attempt budget checked before hashing (one in flight, IPv6 per /64, never 429), and redaction in logs. A distributed attacker gets at most ~20 guesses per second against a 24-character random password |
 | **The stateless Reader token** can only be revoked by changing the API password | Accepted for a single user. The settings UI says so |
 | **Cloudflare-challenged feeds** fail on TLS fingerprint | `error_class='cloudflare'` with actionable text; `disable_http2` and a UA override |
 | **Per-host limits key on the exact hostname** | About 15 rounds of 1–2 s in a manual run at 138 feeds |

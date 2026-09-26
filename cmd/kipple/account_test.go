@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -50,17 +51,17 @@ func TestEnsureAccountCreatesOnceAndNeverModifies(t *testing.T) {
 	require.Equal(t, acc, again)
 
 	// KIPPLE_API_PASSWORD fills in a missing API password, once.
-	require.NoError(t, ensureAccount(ctx, db, config.Config{APIPassword: "api-pw"}, quiet))
+	require.NoError(t, ensureAccount(ctx, db, config.Config{APIPassword: "initial-api-passphrase"}, quiet))
 	withAPI, _, _ := db.Account(ctx)
-	require.True(t, auth.CheckPassword("api-pw", withAPI.APIPasswordHash))
-	require.NoError(t, ensureAccount(ctx, db, config.Config{APIPassword: "different"}, quiet))
+	require.True(t, auth.CheckPassword("initial-api-passphrase", withAPI.APIPasswordHash))
+	require.NoError(t, ensureAccount(ctx, db, config.Config{APIPassword: "a-different-api-passphrase"}, quiet))
 	still, _, _ := db.Account(ctx)
 	require.Equal(t, withAPI.APIPasswordHash, still.APIPasswordHash)
 }
 
 func TestEnsureAccountRejectsBadUsername(t *testing.T) {
 	db := openDB(t)
-	err := ensureAccount(context.Background(), db, config.Config{Username: "owner smith", Password: "x"}, quiet)
+	err := ensureAccount(context.Background(), db, config.Config{Username: "owner smith", Password: "web-pw"}, quiet)
 	require.Error(t, err)
 }
 
@@ -70,7 +71,7 @@ func TestSetAPIPassword(t *testing.T) {
 	_, err := setAPIPassword(ctx, db)
 	require.Error(t, err, "needs an account first")
 
-	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "web-pw", APIPassword: "old"}, quiet))
+	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "web-pw", APIPassword: "old-api-passphrase"}, quiet))
 	before, _, _ := db.Account(ctx)
 	pw, err := setAPIPassword(ctx, db)
 	require.NoError(t, err)
@@ -78,7 +79,37 @@ func TestSetAPIPassword(t *testing.T) {
 	after, _, _ := db.Account(ctx)
 	require.NotEqual(t, before.APIPasswordHash, after.APIPasswordHash)
 	require.True(t, auth.CheckPassword(pw, after.APIPasswordHash))
-	require.False(t, auth.CheckPassword("old", after.APIPasswordHash))
+	require.False(t, auth.CheckPassword("old-api-passphrase", after.APIPasswordHash))
 	require.Equal(t, before.PasswordHash, after.PasswordHash, "the web password is untouched")
 	require.Equal(t, before.Secret, after.Secret)
+}
+
+func TestEnsureAccountValidatesEnvPasswords(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		cfg  config.Config
+		want string
+	}{
+		{"example placeholder", config.Config{Username: "owner", Password: "change-me"}, "KIPPLE_PASSWORD is the example value"},
+		{"web too short", config.Config{Username: "owner", Password: "four"}, "KIPPLE_PASSWORD must be 5 to 256"},
+		{"web too long", config.Config{Username: "owner", Password: strings.Repeat("x", 257)}, "KIPPLE_PASSWORD must be 5 to 256"},
+		{"api too short", config.Config{Username: "owner", Password: "web-pw", APIPassword: "fifteen-chars-x"}, "KIPPLE_API_PASSWORD must be 16 to 256"},
+		{"api placeholder", config.Config{Username: "owner", Password: "web-pw", APIPassword: "change-me"}, "KIPPLE_API_PASSWORD is the example value"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openDB(t)
+			err := ensureAccount(ctx, db, tc.cfg, quiet)
+			require.ErrorContains(t, err, tc.want)
+			_, ok, _ := db.Account(ctx)
+			require.False(t, ok, "nothing is created")
+		})
+	}
+
+	// An existing account: a short KIPPLE_API_PASSWORD that would be applied is refused...
+	db := openDB(t)
+	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "web-pw"}, quiet))
+	require.ErrorContains(t, ensureAccount(ctx, db, config.Config{APIPassword: "short"}, quiet), "KIPPLE_API_PASSWORD must be 16")
+	// ...but a stale KIPPLE_PASSWORD, which is never read again, does not stop a start.
+	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "change-me"}, quiet))
 }

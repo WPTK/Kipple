@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -85,30 +84,40 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		// Folders: reuse a NOCASE match, else create in document order. A folder
 		// that holds a feed but is missing from doc.Folders is created on demand.
 		folderID := map[string]int64{"": 1}
-		ensureFolder := func(name string) error {
+		badFolder := map[string]bool{}
+		// ensureFolder reports false for a new name that store.CheckFolderName
+		// refuses (too long, control characters): it is not created.
+		ensureFolder := func(name string) (bool, error) {
 			if _, ok := folderID[name]; ok {
-				return nil
+				return true, nil
+			}
+			if badFolder[name] {
+				return false, nil
 			}
 			var id int64
 			err := tx.QueryRowContext(ctx, "SELECT id FROM folders WHERE name = ? COLLATE NOCASE", name).Scan(&id)
 			if err == sql.ErrNoRows {
+				if store.CheckFolderName(name) != nil {
+					badFolder[name] = true
+					return false, nil
+				}
 				r, err := tx.ExecContext(ctx, "INSERT INTO folders (name, position) VALUES (?,?)", name, nextFolderPos)
 				if err != nil {
-					return fmt.Errorf("opml: create folder %q: %w", name, err)
+					return false, fmt.Errorf("opml: create folder %q: %w", name, err)
 				}
 				nextFolderPos++
 				res.FoldersCreated++
 				if id, err = r.LastInsertId(); err != nil {
-					return err
+					return false, err
 				}
 			} else if err != nil {
-				return err
+				return false, err
 			}
 			folderID[name] = id
-			return nil
+			return true, nil
 		}
 		for _, name := range doc.Folders {
-			if err := ensureFolder(name); err != nil {
+			if _, err := ensureFolder(name); err != nil {
 				return err
 			}
 		}
@@ -121,9 +130,15 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		seen := map[string]*firstSeen{}
 		var order []*firstSeen
 		for _, f := range doc.Feeds {
-			key, norm, err := feedurl.KeyAndNormalize(f.URL)
+			// The same URL check as every other way a feed enters the database.
+			norm, key, host, err := store.ValidateFeedURL(f.URL, false)
 			if err != nil {
-				res.Skipped = append(res.Skipped, Skipped{f.URL, "not a valid http(s) URL"})
+				res.Skipped = append(res.Skipped, Skipped{f.URL, err.Error()})
+				continue
+			}
+			// Every feed's folder is in doc.Folders, so badFolder is complete here.
+			if badFolder[f.Folder] {
+				res.Skipped = append(res.Skipped, Skipped{norm, "folder name must be 1 to 100 characters without control characters"})
 				continue
 			}
 			if p, ok := seen[key]; ok {
@@ -142,10 +157,12 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				res.FeedsExisting = append(res.FeedsExisting, Existing{norm, id})
 				continue
 			}
-			if err := ensureFolder(f.Folder); err != nil {
+			if ok, err := ensureFolder(f.Folder); err != nil {
 				return err
+			} else if !ok {
+				res.Skipped = append(res.Skipped, Skipped{norm, "folder name must be 1 to 100 characters without control characters"})
+				continue
 			}
-			host, _ := feedurl.Host(norm)
 			a := f.Attrs
 			res.InvalidAttrs = append(res.InvalidAttrs, prefixAll(norm, f.BadAttrs)...)
 			// An imported file must not weaken the SSRF/TLS guards of a feed.

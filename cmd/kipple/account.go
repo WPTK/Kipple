@@ -25,6 +25,9 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 	}
 	if exists {
 		if acc.APIPasswordHash == "" && cfg.APIPassword != "" {
+			if err := checkEnvPassword("KIPPLE_API_PASSWORD", cfg.APIPassword, auth.MinAPIPasswordLen); err != nil {
+				return err
+			}
 			hash, err := auth.HashPassword(cfg.APIPassword)
 			if err != nil {
 				return err
@@ -39,6 +42,14 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 	if cfg.Username == "" || cfg.Password == "" {
 		logger.Warn("no account yet: set KIPPLE_USERNAME and KIPPLE_PASSWORD; the web login and the Reader API stay disabled")
 		return nil
+	}
+	if err := checkEnvPassword("KIPPLE_PASSWORD", cfg.Password, auth.MinPasswordLen); err != nil {
+		return err
+	}
+	if cfg.APIPassword != "" {
+		if err := checkEnvPassword("KIPPLE_API_PASSWORD", cfg.APIPassword, auth.MinAPIPasswordLen); err != nil {
+			return err
+		}
 	}
 	pwHash, err := auth.HashPassword(cfg.Password)
 	if err != nil {
@@ -65,6 +76,24 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 		if apiHash == "" {
 			logger.Info("Reader API is disabled until you run `kipple api-password`")
 		}
+	}
+	return nil
+}
+
+// examplePassword is the placeholder an older .env.example shipped; it is
+// refused so a copied example never becomes a real password.
+const examplePassword = "change-me"
+
+// checkEnvPassword applies the account endpoints' length rules (and refuses the
+// example placeholder) to a password taken from the environment. It is checked
+// only when the value is about to be used, so a stale variable left set after
+// the account exists never stops a start or a recovery command.
+func checkEnvPassword(name, pw string, min int) error {
+	if pw == examplePassword {
+		return fmt.Errorf("%s is the example value %q: choose a real password", name, examplePassword)
+	}
+	if n := len(pw); n < min || n > auth.MaxPasswordLen {
+		return fmt.Errorf("%s must be %d to %d characters (it is %d)", name, min, auth.MaxPasswordLen, n)
 	}
 	return nil
 }
@@ -104,7 +133,7 @@ func runAPIPassword(args []string) error {
 		return fmt.Errorf("config: %w", err)
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+	if err := ensureDataDir(cfg.DataDir); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
 	ctx := context.Background()

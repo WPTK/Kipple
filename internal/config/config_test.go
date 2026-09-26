@@ -78,6 +78,18 @@ func TestLoadInvalid(t *testing.T) {
 		"bad fetch per host":   {"KIPPLE_FETCH_PER_HOST": "lots"},
 		"bad log level":        {"KIPPLE_LOG_LEVEL": "shout"},
 		"bad log greader bool": {"KIPPLE_LOG_GREADER_FORMS": "maybe"},
+		"sched tick under 1s":  {"KIPPLE_SCHED_TICK": "500ms"},
+		"sched tick 1ns":       {"KIPPLE_SCHED_TICK": "1ns"},
+		"public URL no scheme": {"KIPPLE_PUBLIC_URL": "rss.example.com"},
+		"public URL ftp":       {"KIPPLE_PUBLIC_URL": "ftp://rss.example.com"},
+		"public URL no host":   {"KIPPLE_PUBLIC_URL": "https://"},
+		"public URL query":     {"KIPPLE_PUBLIC_URL": "https://rss.example.com/?x=1"},
+		"public URL fragment":  {"KIPPLE_PUBLIC_URL": "https://rss.example.com/#top"},
+		"public URL bare ?":    {"KIPPLE_PUBLIC_URL": "https://rss.example.com?"},
+		"public URL user info": {"KIPPLE_PUBLIC_URL": "https://u:p@rss.example.com"},
+		"public URL space":     {"KIPPLE_PUBLIC_URL": "https://rss.example.com /x"},
+		"public URL trailing":  {"KIPPLE_PUBLIC_URL": "https://rss.example.com "},
+		"public URL relative":  {"KIPPLE_PUBLIC_URL": "/rss"},
 	}
 
 	for name, envMap := range cases {
@@ -86,4 +98,23 @@ func TestLoadInvalid(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestLoadAcceptsPublicURLsAndMinimumTick(t *testing.T) {
+	for _, u := range []string{"https://rss.example.com", "https://rss.example.com/", "http://192.0.2.10:7080", "https://example.com/kipple"} {
+		cfg, err := load(env(map[string]string{"KIPPLE_PUBLIC_URL": u}))
+		require.NoError(t, err, u)
+		require.Equal(t, u, cfg.PublicURL)
+	}
+	cfg, err := load(env(map[string]string{"KIPPLE_SCHED_TICK": "1s"}))
+	require.NoError(t, err)
+	require.Equal(t, time.Second, cfg.SchedTick)
+}
+
+// A trusted proxy written in IPv4-mapped form is unmapped, as the peer address
+// it is compared with is (auth.ClientIP, auth.PeerTrusted).
+func TestTrustedProxiesAreUnmapped(t *testing.T) {
+	cfg, err := load(env(map[string]string{"KIPPLE_TRUSTED_PROXY_IPS": "::ffff:192.0.2.10, 2001:db8::1"}))
+	require.NoError(t, err)
+	require.Equal(t, []netip.Addr{netip.MustParseAddr("192.0.2.10"), netip.MustParseAddr("2001:db8::1")}, cfg.TrustedProxyIPs)
 }

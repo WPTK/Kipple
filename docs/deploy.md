@@ -27,7 +27,7 @@ Everything is on the `kipple_data` volume (`host-a_kipple_data`), mounted at `/d
 | `/data/kipple.lock` | Held by `serve` (an OS lock: it vanishes with the process, no stale lock) | live |
 | `/data/backup/kipple-snapshot.db` | Nightly snapshot at 04:10 (`tz` setting), consistent, safe to copy | 1 |
 | `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration (`0600`; files written by 0.2.0 and earlier are `0644`) | newest 3 |
-| `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>/` | The database that `kipple restore` replaced | newest 3 |
+| `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>/` (UTC) | The database that `kipple restore` replaced | newest 3 |
 | `/data/backup/export/` | Temporary files of an export in progress. Emptied at startup | transient |
 | `/data/imgcache/` | Image cache (`imgproxy.cache_mb`, default 1024 MiB, least recently used evicted; never in backups or snapshots) | capped |
 | `/data/restore-tmp.db*`, `/data/restore-upload.tmp` | Only while a `kipple restore` runs | transient |
@@ -203,7 +203,7 @@ the `alpine ls` command above):
 
 A bare `.db` restore also applies a `-wal` file sitting beside it (a pre-restore copy taken after an unclean stop keeps its newest transactions there), and says so. Two restores in the same second get `pre-restore-<ts>` and `pre-restore-<ts>-2`, never the same directory.
 
-**Run restore as Kipple's own user.** `docker compose run` does that by default; do not add `-u root`. A restore run as root would leave a root-owned `0600` `kipple.db` that the server (nonroot) cannot open. If it detects root it warns and hands the new database and the pre-restore directory to the data directory's owner, but do not rely on that.
+**Run restore as Kipple's own user.** `docker compose run` does that by default; do not add `-u root`. A restore run as root would leave a root-owned `0600` `kipple.db` that the server (nonroot) cannot open. If it detects root it warns and hands the new database, the pre-restore directory, `kipple.lock` and a `backup/` directory it created to the data directory's owner (the lock even when the restore stops early), but do not rely on that.
 
 If the refusal says "kipple is running": the service is still up (`docker compose stop kipple`), or
 a second `run` is open. Do not delete `kipple.lock`; it is not a file marker, the OS drops it.
