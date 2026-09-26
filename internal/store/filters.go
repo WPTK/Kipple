@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/filter"
@@ -84,11 +85,39 @@ func scanFilter(sc interface{ Scan(...any) error }) (Filter, error) {
 	if err := json.Unmarshal([]byte(terms), &f.Terms); err != nil || f.Terms == nil {
 		f.Terms = []string{}
 	}
-	if err := json.Unmarshal([]byte(fields), &f.Fields); err != nil || f.Fields == nil {
-		f.Fields = []string{"title"}
+	if err := json.Unmarshal([]byte(fields), &f.Fields); err != nil {
+		f.Fields = nil
 	}
+	normalizeFields(&f)
 	return f, nil
 }
+
+// normalizeFields makes an empty field list explicit: the engine reads it as title only, and the
+// client's highlighter (which only sees the stored list) needs to know that too.
+func normalizeFields(f *Filter) {
+	if len(f.Fields) == 0 {
+		f.Fields = []string{string(filter.FieldTitle)}
+	}
+}
+
+// feedTitleSQL is the feed title a rule's `feed` field sees, for the feeds table under alias a: the
+// custom title, else the stored title, else the feed URL (both titles trimmed of ASCII whitespace,
+// blank counts as absent). The ingest hook (loadFeed), the retroactive scan and the stats snapshots
+// all use it, so a rule and a stats row name a feed the same way.
+func feedTitleSQL(a string) string {
+	return "COALESCE(" + feedOwnTitleSQL(a) + ", " + a + ".url)"
+}
+
+// feedOwnTitleSQL is feedTitleSQL without the URL fallback: NULL when the feed has no title yet.
+func feedOwnTitleSQL(a string) string {
+	return "COALESCE(NULLIF(trim(" + a + ".custom_title, " + sqlSpace + "), ''), NULLIF(trim(" + a + ".title, " + sqlSpace + "), ''))"
+}
+
+// sqlSpace and goSpace are the same set of whitespace, for SQL trim() and strings.Trim.
+const (
+	sqlSpace = "char(32, 9, 10, 11, 12, 13)"
+	goSpace  = " \t\n\v\f\r"
+)
 
 func loadFilters(ctx context.Context, q Querier) ([]Filter, error) {
 	rows, err := q.QueryContext(ctx, "SELECT "+filterCols+" FROM filters ORDER BY position, id")
@@ -258,6 +287,7 @@ func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
 			rules = append(rules, c.Rule())
 		}
 		f.ID = unsavedFilterID // above any real id, so the set treats it as new
+		normalizeFields(&f)
 		rules = append(rules, f.Rule())
 		if err := validateSet(rules); err != nil {
 			return err
@@ -321,6 +351,7 @@ func (d *DB) UpdateFilter(ctx context.Context, id int64, mutate func(*Filter) er
 			return err
 		}
 		f.ID = id
+		normalizeFields(&f)
 		rules := make([]filter.Rule, len(cur))
 		for i, c := range cur {
 			rules[i] = c.Rule()
@@ -379,11 +410,26 @@ const unmuteBatch = 500
 // orphan. unmute=keep just deletes the row. onBatch (optional) receives each restored batch so the
 // caller can publish it. changed counts restored items.
 func (d *DB) DeleteFilter(ctx context.Context, id int64, unmute string, onBatch func(StateResult)) (changed int64, ok bool, err error) {
+	res, ok, err := d.DeleteFilterWithin(ctx, id, unmute, time.Time{}, onBatch)
+	return res.Changed, ok, err
+}
+
+// DeleteResult is the outcome of one DeleteFilterWithin call.
+type DeleteResult struct {
+	Changed    int64 // items restored (muted_by cleared)
+	MadeUnread int64 // of those, the ones that went back to unread (unmute=unread only)
+	Done       bool  // false: the deadline cut the restore short; the rule is disabled, call again
+}
+
+// DeleteFilterWithin is DeleteFilter that stops restoring once deadline (zero = none) has passed,
+// after at least one batch, so every call makes progress. A cut-off call leaves the rule disabled
+// and its row in place (Done false); calling it again resumes where it stopped (see DeleteFilter).
+func (d *DB) DeleteFilterWithin(ctx context.Context, id int64, unmute string, deadline time.Time, onBatch func(StateResult)) (out DeleteResult, ok bool, err error) {
 	if unmute == "" {
 		unmute = UnmuteRead
 	}
 	if unmute != UnmuteKeep && unmute != UnmuteRead && unmute != UnmuteUnread {
-		return 0, false, fmt.Errorf("store: unmute mode %q", unmute)
+		return out, false, fmt.Errorf("store: unmute mode %q", unmute)
 	}
 	if unmute == UnmuteKeep {
 		err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
@@ -399,7 +445,8 @@ func (d *DB) DeleteFilter(ctx context.Context, id int64, unmute string, onBatch 
 			}
 			return err
 		})
-		return 0, ok, err
+		out.Done = true
+		return out, ok, err
 	}
 
 	// 1. Stop the rule from muting anything further.
@@ -418,7 +465,7 @@ func (d *DB) DeleteFilter(ctx context.Context, id int64, unmute string, onBatch 
 		return err
 	})
 	if err != nil {
-		return 0, false, err
+		return out, false, err
 	}
 
 	// 2. Restore its items, batch by batch. Each batch takes the lowest ids still muted by it, so a
@@ -478,15 +525,19 @@ func (d *DB) DeleteFilter(ctx context.Context, id int64, unmute string, onBatch 
 			return int64(len(res.Changed)), nil
 		})
 		if err != nil {
-			return changed, hadRow || orphans, err
+			return out, hadRow || orphans, err
 		}
 		if n == 0 {
 			break
 		}
 		orphans = true
-		changed += int64(len(res.Changed))
+		out.Changed += int64(len(res.Changed))
+		out.MadeUnread += int64(len(res.MadeUnread))
 		if onBatch != nil && len(res.Changed) > 0 {
 			onBatch(res)
+		}
+		if n == unmuteBatch && !deadline.IsZero() && time.Now().After(deadline) {
+			return out, true, nil // more may be left: the caller calls again
 		}
 	}
 
@@ -501,10 +552,11 @@ func (d *DB) DeleteFilter(ctx context.Context, id int64, unmute string, onBatch 
 			return nil
 		})
 		if err != nil {
-			return changed, true, err
+			return out, true, err
 		}
 	}
-	return changed, hadRow || orphans, nil
+	out.Done = true
+	return out, hadRow || orphans, nil
 }
 
 // scanUnmuted reads RETURNING id, feed_id, read of an un-mute UPDATE: every id is Changed, and
@@ -589,20 +641,23 @@ func (d *DB) newIngestEval(ctx context.Context, tx *sql.Tx, feedID int64, docTit
 	return e, nil
 }
 
-// loadFeed fills the folder and the title a rule's `feed` field sees: the custom title, else the
-// stored title, else the fetched document's title (a brand-new subscription has none stored yet).
-// The commit and the full-text prediction (MutedUIDs) both use it, so they cannot disagree.
+// loadFeed fills the folder and the title a rule's `feed` field sees: feedTitleSQL, except that a
+// feed with no title stored yet (a brand-new subscription) uses the fetched document's title, which
+// this commit stores as its title, before the URL. The commit and the full-text prediction
+// (MutedUIDs) both use it, so they cannot disagree, and a retroactive run sees the same title.
 func (e *ingestEval) loadFeed(ctx context.Context, q Querier, docTitle string) error {
-	var custom, title sql.NullString
-	if err := q.QueryRowContext(ctx, "SELECT folder_id, custom_title, title FROM feeds WHERE id = ?", e.feedID).Scan(&e.folderID, &custom, &title); err != nil {
+	var own sql.NullString
+	var url string
+	if err := q.QueryRowContext(ctx, "SELECT f.folder_id, "+feedOwnTitleSQL("f")+", f.url FROM feeds f WHERE f.id = ?", e.feedID).Scan(&e.folderID, &own, &url); err != nil {
 		return err
 	}
-	e.feedTitle = strings.TrimSpace(custom.String)
-	if e.feedTitle == "" {
-		e.feedTitle = strings.TrimSpace(title.String)
-	}
-	if e.feedTitle == "" {
-		e.feedTitle = docTitle
+	switch doc := strings.Trim(docTitle, goSpace); {
+	case own.Valid:
+		e.feedTitle = own.String
+	case doc != "":
+		e.feedTitle = doc
+	default:
+		e.feedTitle = url
 	}
 	return nil
 }
