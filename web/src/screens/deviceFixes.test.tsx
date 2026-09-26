@@ -402,6 +402,45 @@ describe("manage feeds", () => {
     expect(await screen.findByText("Saved")).toBeInTheDocument();
   });
 
+  it("keyboard reorder keeps focus on the moved row's grip (the keyed row is moved, which drops focus)", async () => {
+    routes({ "POST /api/reorder": () => json({ changed_feeds: ["1", "2"], changed_folders: [] }) }, boot3);
+    go("/feeds");
+    await screen.findByText("Alpha");
+    const grip = screen.getByRole("button", { name: /Reorder Alpha/ });
+    grip.focus();
+    fireEvent.keyDown(grip, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: /Reorder Alpha/ })));
+    // ...and again, from the new place, so a second press works without touching the mouse.
+    fireEvent.keyDown(document.activeElement as Element, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: /Reorder Alpha/ })));
+  });
+
+  it("the Move buttons keep focus on the same button, or on the grip once it is disabled at the end", async () => {
+    // A server that remembers the new order, so the refetch after the save agrees with what was moved.
+    const live = { ...boot3, feeds: [...boot3.feeds] };
+    routes(
+      {
+        "GET /api/bootstrap": () => json(live),
+        "POST /api/reorder": (_u, init) => {
+          const ids: string[] = JSON.parse(String(init?.body)).feeds[0].ids;
+          live.feeds = [...ids.map((id) => boot3.feeds.find((f) => f.id === id)!), ...boot3.feeds.filter((f) => !ids.includes(f.id))];
+          return json({ changed_feeds: ids, changed_folders: [] });
+        },
+      },
+      boot3,
+    );
+    go("/feeds");
+    await screen.findByText("Alpha");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Show move buttons" }));
+    await user.click(screen.getByRole("button", { name: "Move Alpha down" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Move Alpha down" })));
+    await user.click(screen.getByRole("button", { name: "Move Alpha down" }));
+    // Alpha is now last: its Down button is disabled, so focus goes to its grip rather than the page.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: /Reorder Alpha/ })));
+  });
+
   it("stars a feed and a folder into Favorites, at the top, in the order they are kept", async () => {
     routes({}, boot3);
     go("/feeds");

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
@@ -248,8 +248,34 @@ export function FeedsScreen() {
     }
   };
 
+  /**
+   * Moving a row re-orders its keyed <li>, and the browser drops focus to the body when a focused node moves. Put it
+   * back on the same row's control (the grip, or the Move button that was pressed; the grip when that one is now
+   * disabled at the end of the list) after each commit for a short while, until the new order has settled.
+   */
+  const refocus = useRef<{ src: DragSource; want: string } | null>(null);
+  const refocusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const keepFocus = (src: DragSource, from: Element | null) => {
+    const want = from instanceof HTMLElement && from.dataset.move ? from.dataset.move : "grip";
+    refocus.current = { src, want };
+    clearTimeout(refocusTimer.current);
+    refocusTimer.current = setTimeout(() => (refocus.current = null), 400);
+  };
+  useLayoutEffect(() => {
+    const r = refocus.current;
+    if (!r) return;
+    const row = document.querySelector<HTMLElement>(`[data-dnd-kind="${r.src.kind}"][data-dnd-id="${CSS.escape(r.src.id)}"]`);
+    const scope = row?.closest("li") ?? row;
+    const btn = r.want === "grip" ? null : scope?.querySelector<HTMLButtonElement>(`[data-move="${r.want}"]`);
+    const target = btn && !btn.disabled ? btn : scope?.querySelector<HTMLElement>("[data-drag-handle]");
+    if (target && document.activeElement !== target) target.focus();
+  });
+  useEffect(() => () => clearTimeout(refocusTimer.current), []);
+
   /** One place up or down inside the list the row lives in (arrow keys on the grip, and the buttons). */
   const step = (src: DragSource, delta: -1 | 1) => {
+    const had = document.activeElement;
+    if (had && had !== document.body) keepFocus(src, had);
     if (src.kind === "folder") {
       const i = tree.folders.indexOf(src.id);
       if (i + delta < 0 || i + delta >= tree.folders.length) return;
@@ -309,10 +335,10 @@ export function FeedsScreen() {
   const moves = (src: DragSource, i: number, n: number, label: string) =>
     buttons ? (
       <>
-        <Button variant="ghost" size="icon" aria-label={`Move ${label} up`} disabled={i === 0} onClick={() => step(src, -1)}>
+        <Button variant="ghost" size="icon" data-move="up" aria-label={`Move ${label} up`} disabled={i === 0} onClick={() => step(src, -1)}>
           <ArrowUp aria-hidden="true" />
         </Button>
-        <Button variant="ghost" size="icon" aria-label={`Move ${label} down`} disabled={i === n - 1} onClick={() => step(src, 1)}>
+        <Button variant="ghost" size="icon" data-move="down" aria-label={`Move ${label} down`} disabled={i === n - 1} onClick={() => step(src, 1)}>
           <ArrowDown aria-hidden="true" />
         </Button>
       </>
