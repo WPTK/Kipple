@@ -1,5 +1,5 @@
 import type { Card } from "@/api/types";
-import { emptyDraft, type FilterDraft } from "@/api/filters";
+import { LIMITS, clipName, emptyDraft, type FilterDraft } from "@/api/filters";
 import { createStore } from "./store";
 
 // "Mute similar...": a filter rule started from an article. The feed becomes the scope, the author and the
@@ -13,17 +13,42 @@ const STOP = new Set(
   ).split(" "),
 );
 
-/** Distinctive words of a title: letters and digits only, at least 4 characters, no common words, in order, no repeats. */
+/** Scripts written without spaces between words: a whole headline is one "word" there, so it is cut into short pieces. */
+const UNSPACED = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Thai}\\p{Script=Lao}\\p{Script=Khmer}\\p{Script=Myanmar}";
+const UNSPACED_RUN = new RegExp(`[${UNSPACED}]+|[^${UNSPACED}]+`, "gu");
+const IS_UNSPACED = new RegExp(`^[${UNSPACED}]`, "u");
+/** A piece of an unspaced-script run, in characters, and how many pieces one run may give. */
+const CHUNK = 3;
+const CHUNKS_PER_RUN = 3;
+
+/**
+ * Distinctive words of a title: letters and digits only, at least 4 characters, no common words, in order, no repeats.
+ * A run of Chinese, Japanese or Thai text (no spaces) gives its first few 3-character pieces instead of one long word.
+ * No keyword is longer than the server's limit for a term.
+ */
 export function titleKeywords(title: string, max = 8): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of title.split(/[^\p{L}\p{N}']+/u)) {
-    const w = raw.replace(/^'+|'+$/g, "");
+  const add = (w: string): boolean => {
     const key = w.toLowerCase();
-    if ([...w].length < 4 || STOP.has(key) || seen.has(key) || /^\d+$/.test(w)) continue;
+    if (seen.has(key)) return false;
     seen.add(key);
     out.push(w);
-    if (out.length >= max) break;
+    return out.length >= max;
+  };
+  for (const raw of title.split(/[^\p{L}\p{N}']+/u)) {
+    for (const piece of raw.match(UNSPACED_RUN) ?? []) {
+      if (IS_UNSPACED.test(piece)) {
+        const runes = [...piece];
+        if (runes.length < 2) continue;
+        const parts = runes.length <= CHUNK + 1 ? [piece] : Array.from({ length: Math.min(CHUNKS_PER_RUN, Math.ceil(runes.length / CHUNK)) }, (_, i) => runes.slice(i * CHUNK, i * CHUNK + CHUNK).join(""));
+        for (const part of parts) if ([...part].length >= 2 && add(part)) return out;
+        continue;
+      }
+      const w = [...piece.replace(/^'+|'+$/g, "")].slice(0, LIMITS.termRunes).join("");
+      if ([...w].length < 4 || STOP.has(w.toLowerCase()) || /^\d+$/.test(w)) continue;
+      if (add(w)) return out;
+    }
   }
   return out;
 }
@@ -48,7 +73,7 @@ export function similarSeed(item: Pick<Card, "title" | "author" | "feed_id" | "s
       terms,
       fields: ["title"],
       action: "mute",
-      name: terms.length ? `Mute: ${terms.join(", ")}` : "",
+      name: terms.length ? clipName(`Mute: ${terms.join(", ")}`) : "",
     }),
     keywords,
     author,

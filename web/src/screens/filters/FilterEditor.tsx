@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
-import { errorMessage } from "@/api/client";
+import { ApiError, errorMessage } from "@/api/client";
 import {
   ACTIONS,
   FIELDS,
@@ -10,6 +10,7 @@ import {
   applyFilter,
   badFilter,
   bodyOf,
+  clipName,
   createFilter,
   draftOf,
   fieldGroup,
@@ -54,7 +55,9 @@ export function autoName(d: Pick<FilterDraft, "action" | "terms">): string {
   const verb = ACTIONS.find((a) => a.id === d.action)?.label ?? "Filter";
   const list = d.terms.slice(0, 3).join(", ");
   const name = `${verb}: ${list}${d.terms.length > 3 ? "…" : ""}`;
-  return name.length > 80 ? `${name.slice(0, 79)}…` : name;
+  const runes = [...name];
+  // 80 characters for the eye, and never more than the server's 200 bytes (CJK is three bytes a character).
+  return clipName(runes.length > 80 ? `${runes.slice(0, 79).join("")}…` : name);
 }
 
 const verbFor: Record<FilterDraft["action"], string> = {
@@ -122,10 +125,10 @@ function Group({ legend, help, error, children }: { legend: string; help?: React
   );
 }
 
-function Check({ label, help, checked, onChange, disabled }: { label: string; help?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+function Check({ label, help, checked, onChange, disabled, busy }: { label: string; help?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; busy?: boolean }) {
   const id = useId();
   return (
-    <label htmlFor={id} className={cn("flex min-h-11 items-start gap-3 py-1 text-sm", disabled ? "opacity-60" : "cursor-pointer")}>
+    <label htmlFor={id} aria-busy={busy || undefined} className={cn("flex min-h-11 items-start gap-3 py-1 text-sm", disabled ? "opacity-60" : "cursor-pointer")}>
       <input id={id} type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-[var(--kp-accent)]" />
       <span>
         {label}
@@ -358,7 +361,10 @@ function EditorForm({
   const regex = d.kind === "regex";
   const canApply = d.action !== "highlight" && d.enabled;
   const scopeOk = d.scope === "global" || (d.scope === "folder" ? !!d.folder_id : !!d.feed_id);
-  const ok = d.terms.length > 0 && d.fields.length > 0 && scopeOk;
+  const nameTooLong = byteCount(d.name.trim()) > LIMITS.nameBytes;
+  // The preview on screen (and the count in the Apply help) is for an older state of the rule until this is false.
+  const previewStale = d.terms.length > 0 && preview.status === "loading";
+  const ok = d.terms.length > 0 && d.fields.length > 0 && scopeOk && !nameTooLong;
 
   // Suggestions from the article "Mute similar..." started from: one click adds a word or the author.
   const addTerm = (t: string, field?: FilterField) => {
@@ -372,10 +378,12 @@ function EditorForm({
     setBusy(true);
     setFailed(null);
     setIssue(null);
+    let saved = false;
     try {
       let run: ApplyRun | { error: "busy" } | null = null;
       if (id) {
         await updateFilter(id, draft);
+        saved = true;
         if (apply && canApply) run = await applyFilter(id, includeRead);
       } else {
         const res = await createFilter(draft, apply && canApply ? { include_read: includeRead } : undefined);
@@ -391,7 +399,16 @@ function EditorForm({
       }
     } catch (e) {
       const bf = badFilter(e);
-      if (bf) setIssue(bf);
+      if (saved && e instanceof ApiError && e.status === 409) {
+        // The edit is stored; only the apply was refused because another one is running.
+        invalidateFilterData(qc);
+        setApply(false);
+        setFailed("Saved. Another apply is running; try Apply again in a moment.");
+      } else if (saved) {
+        invalidateFilterData(qc);
+        setApply(false);
+        setFailed(`Saved, but it was not applied to stored articles: ${errorMessage(e)}`);
+      } else if (bf) setIssue(bf);
       else setFailed(errorMessage(e));
     } finally {
       setBusy(false);
@@ -407,13 +424,13 @@ function EditorForm({
       description="A filter looks for words in new articles as they arrive and mutes, marks read, stars or highlights the ones that match."
       footer={
         <div className="flex w-full flex-wrap items-center gap-2">
-          <p aria-hidden="true" className="min-w-0 flex-1 text-xs text-fg2">
+          <p aria-hidden="true" data-busy={previewStale || undefined} className={cn("min-w-0 flex-1 text-xs text-fg2", previewStale && "opacity-60")}>
             {d.terms.length === 0 ? "" : preview.data ? previewSummary(preview.data, d.action) : preview.status === "loading" ? "Checking…" : ""}
           </p>
           <Button variant="ghost" onClick={closeFilterEditor} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="solid" onClick={() => void save()} disabled={busy || !ok}>
+          <Button variant="solid" onClick={() => void save()} disabled={busy || !ok || (apply && canApply && previewStale)}>
             {busy ? "Saving" : "Save filter"}
           </Button>
         </div>
@@ -438,8 +455,8 @@ function EditorForm({
         </section>
       ) : null}
 
-      <Field label="Name" help="Optional. Shown in Settings and on each muted article.">
-        {(a) => <input {...a} value={d.name} maxLength={LIMITS.nameBytes} onChange={(e) => set({ name: e.target.value })} className={inputCls} />}
+      <Field label="Name" help="Optional. Shown in Settings and on each muted article." error={nameTooLong ? `A name can be at most ${LIMITS.nameBytes} bytes (about ${Math.floor(LIMITS.nameBytes / 3)} Chinese, Japanese or Korean characters).` : null}>
+        {(a) => <input {...a} value={d.name} onChange={(e) => set({ name: e.target.value })} className={inputCls} />}
       </Field>
 
       <Group legend="Where it applies" error={at("scope") ?? at("target")}>
@@ -540,8 +557,10 @@ function EditorForm({
       {canApply ? (
         <Check
           label="Apply to existing articles"
+          disabled={previewStale}
+          busy={previewStale}
           help={
-            preview.data && d.terms.length
+            preview.data && d.terms.length && !previewStale
               ? `Also ${d.action === "mute" ? "mute" : d.action === "star" ? "star" : "mark read"} the ${preview.data.matches.toLocaleString()}${preview.data.truncated ? "+" : ""} stored article${preview.data.matches === 1 ? "" : "s"} it matches now. New articles are always filtered.`
               : "Also runs the rule over the articles Kipple has already stored. New articles are always filtered. Progress shows at the top of the screen."
           }

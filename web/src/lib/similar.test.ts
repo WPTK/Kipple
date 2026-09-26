@@ -33,3 +33,27 @@ describe("similarSeed", () => {
     expect(s.author).toBeNull();
   });
 });
+
+describe("unspaced scripts and the term limit (review finding 5)", () => {
+  it("cuts a spaceless Chinese title into short pieces instead of one giant keyword", () => {
+    const title = "新闻联播今日要闻全球经济形势分析报告发布会";
+    const k = titleKeywords(title);
+    expect(k.length).toBeGreaterThan(1);
+    expect(k.length).toBeLessThanOrEqual(3);
+    for (const w of k) expect([...w].length).toBeLessThanOrEqual(3);
+  });
+
+  it("keeps a short CJK word whole and separates it from Latin text", () => {
+    expect(titleKeywords("新iPhone発表")).toEqual(expect.arrayContaining(["iPhone", "発表"]));
+  });
+
+  it("no keyword exceeds the server's 100-character term limit, and the seeded name fits 200 bytes", () => {
+    const long = "a".repeat(300);
+    for (const w of titleKeywords(long)) expect([...w].length).toBeLessThanOrEqual(100);
+    const thai = "ประกาศผลการแข่งขันฟุตบอลโลกรอบชิงชนะเลิศ";
+    const s = similarSeed({ title: thai + " " + thai, author: "", feed_id: "1", source: "x" });
+    expect(new TextEncoder().encode(s.draft.name).length).toBeLessThanOrEqual(200);
+    for (const t of s.draft.terms) expect([...t].length).toBeLessThanOrEqual(100);
+  });
+});
+

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import { errorMessage } from "@/api/client";
@@ -23,12 +23,17 @@ export function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClos
   const [mode, setMode] = useState<Unmute>("read");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const n = filter.muted_items;
+  // The count on the row can be stale (articles muted since the list loaded): look again when the dialog opens.
+  useEffect(() => {
+    void qc.invalidateQueries({ queryKey: filtersKey });
+  }, [qc]);
+  const live = useFilters().data?.find((x) => x.id === filter.id);
+  const n = live?.muted_items ?? filter.muted_items;
   const remove = async () => {
     setBusy(true);
     setError(null);
     try {
-      const res = await deleteFilter(filter.id, n > 0 ? mode : "keep");
+      const res = await deleteFilter(filter.id, mode);
       invalidateFilterData(qc);
       onClose();
       const restored = res.changed;

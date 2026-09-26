@@ -367,3 +367,78 @@ describe("background runs in the app shell (review findings 8 and 12)", () => {
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/filters")).toBe(true));
   }, 20000);
 });
+
+describe("review findings 5, 6 and 9", () => {
+  it("autoName never exceeds the server's 200 bytes, even for CJK terms (finding 5)", async () => {
+    const { autoName } = await import("./FilterEditor");
+    const cjk = "新闻联播今日要闻".repeat(9);
+    const name = autoName({ action: "mute", terms: [cjk, cjk, cjk] });
+    expect(new TextEncoder().encode(name).length).toBeLessThanOrEqual(200);
+    expect([...name].length).toBeLessThanOrEqual(80);
+    expect(name.startsWith("Mute: ")).toBe(true);
+  });
+
+  it("the name field checks bytes, not characters, and blocks Save (finding 5)", async () => {
+    routes({ "GET /api/filters": () => json({ filters: [] }), "POST /api/filters/preview": () => json(previewOf(0)) });
+    go("/settings");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "New filter" }));
+    const w = within(await screen.findByRole("dialog", { name: "New filter" }));
+    await user.type(w.getByLabelText("Words or phrases"), "giveaway{Enter}");
+    // 70 CJK characters are 210 bytes: under 200 characters, over 200 bytes.
+    await user.click(w.getByLabelText("Name"));
+    await user.paste("中".repeat(70));
+    expect(await w.findByText(/at most 200 bytes/)).toBeInTheDocument();
+    expect(w.getByRole("button", { name: "Save filter" })).toBeDisabled();
+  });
+
+  it("deleting a rule always sends the chosen mode, even when the row's count was stale (finding 6)", async () => {
+    const { calls } = routes({
+      "GET /api/filters": () => json({ filters: [filter(4, { name: "Stale", muted_items: 0 })] }),
+      "DELETE /api/filters/4": () => json({ changed: 2 }),
+    });
+    go("/settings");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Delete Stale" }));
+    const w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
+    await user.click(w.getByRole("button", { name: "Delete filter" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
+    expect(calls.find((c) => c.method === "DELETE")?.url.search).toBe("?unmute=read");
+  });
+
+  it("the dialog looks at the count again when it opens (finding 6)", async () => {
+    let n = 0;
+    routes({ "GET /api/filters": () => json({ filters: [filter(4, { name: "Stale", muted_items: n })] }) });
+    go("/settings");
+    const user = userEvent.setup();
+    const trash = await screen.findByRole("button", { name: "Delete Stale" });
+    n = 3; // three articles were muted since the list loaded
+    await user.click(trash);
+    const w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
+    expect(await w.findByText(/has muted 3 articles/)).toBeInTheDocument();
+  });
+
+  it("Apply waits for the preview of the current rule, and a 409 from apply after a saved edit is explained (finding 9)", async () => {
+    const { calls } = routes({
+      "GET /api/filters": () => json({ filters: [filter(5, { name: "Editable" })] }),
+      "POST /api/filters/preview": () => json(previewOf(3)),
+      "PATCH /api/filters/5": () => json({ filter: filter(5) }),
+      "POST /api/filters/5/apply": () => json({ error: "busy" }, 409),
+    });
+    go("/settings");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit Editable" }));
+    const w = within(await screen.findByRole("dialog", { name: "Edit filter" }));
+    await within(w.getByRole("region", { name: "Preview" })).findByText("3 articles would be muted", {}, { timeout: 3000 });
+    expect(w.getByRole("checkbox", { name: /Apply to existing articles/ })).not.toBeDisabled();
+    await user.type(w.getByLabelText("Words or phrases"), "extra{Enter}");
+    expect(w.getByRole("checkbox", { name: /Apply to existing articles/ })).toBeDisabled(); // the count on screen is for the old rule
+    await waitFor(() => expect(w.getByRole("checkbox", { name: /Apply to existing articles/ })).not.toBeDisabled(), { timeout: 3000 });
+    await user.click(w.getByRole("checkbox", { name: /Apply to existing articles/ }));
+    await user.click(w.getByRole("button", { name: "Save filter" }));
+    expect(await w.findByText(/Saved\. Another apply is running/)).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "PATCH")).toBe(true);
+    expect(screen.getByRole("dialog", { name: "Edit filter" })).toBeInTheDocument();
+  }, 20000);
+});
+

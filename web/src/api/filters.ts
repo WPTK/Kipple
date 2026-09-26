@@ -108,6 +108,27 @@ export const draftOf = (f: Filter): FilterDraft => ({
   action: f.action,
 });
 
+/** `s` cut to at most `max` UTF-8 bytes, on a character boundary. */
+export function truncateBytes(s: string, max: number): string {
+  const enc = new TextEncoder();
+  if (enc.encode(s).length <= max) return s;
+  let out = "";
+  let used = 0;
+  for (const ch of s) {
+    const n = enc.encode(ch).length;
+    if (used + n > max) break;
+    out += ch;
+    used += n;
+  }
+  return out;
+}
+
+/** A name that fits the server's limit (200 bytes, not characters: CJK takes three bytes each). */
+export function clipName(s: string): string {
+  if (new TextEncoder().encode(s).length <= LIMITS.nameBytes) return s;
+  return `${truncateBytes(s, LIMITS.nameBytes - 3)}…`;
+}
+
 export const filtersKey = ["filters"] as const;
 
 export function useFilters() {
