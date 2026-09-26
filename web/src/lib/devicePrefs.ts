@@ -86,6 +86,8 @@ export interface DevicePrefs {
   favoritesLocal: Favorite[];
   /** Draw the words of Highlight filters in lists and articles (the reading menu's "Highlight keywords"). */
   highlightKeywords: boolean;
+  /** The layout to go back to when "Titles only in lists" is turned off. Local to this device (no profile key), like favoritesLocal. */
+  layoutBeforeTitlesOnly: LayoutId | null;
 }
 
 export const SIDEBAR_WIDTH_MIN = 200;
@@ -106,6 +108,7 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   unreadBadge: "count",
   favoritesLocal: [],
   highlightKeywords: true,
+  layoutBeforeTitlesOnly: null,
 };
 
 export const DEVICE_PREFS_KEY = "kipple.device.v1";
@@ -160,6 +163,7 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       unreadBadge: UNREAD_BADGES.includes(v?.unreadBadge as UnreadBadge) ? (v?.unreadBadge as UnreadBadge) : d.unreadBadge,
       favoritesLocal: cleanFavorites(v?.favoritesLocal),
       highlightKeywords: v?.highlightKeywords !== false,
+      layoutBeforeTitlesOnly: isLayoutId(v?.layoutBeforeTitlesOnly) && v.layoutBeforeTitlesOnly !== "headlines" ? v.layoutBeforeTitlesOnly : null,
     };
   } catch {
     return { ...d, overrides: { feed: {}, folder: {} } };

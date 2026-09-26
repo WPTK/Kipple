@@ -167,8 +167,6 @@ function VoicePicker() {
   );
 }
 
-let layoutBeforeTitlesOnly: LayoutId = "magazine";
-
 function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }) {
   const p = useStore(prefsStore);
   const dp = useDevicePrefs();
@@ -224,9 +222,8 @@ function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }
         checked={titlesOnly}
         onChange={(v) => {
           if (v) {
-            layoutBeforeTitlesOnly = dp.layout;
-            updateDevicePrefs({ layout: "headlines" });
-          } else updateDevicePrefs({ layout: layoutBeforeTitlesOnly === "headlines" ? "magazine" : layoutBeforeTitlesOnly });
+            updateDevicePrefs({ layoutBeforeTitlesOnly: dp.layout === "headlines" ? null : dp.layout, layout: "headlines" });
+          } else updateDevicePrefs({ layout: dp.layoutBeforeTitlesOnly ?? "magazine", layoutBeforeTitlesOnly: null });
         }}
       />
     </Section>

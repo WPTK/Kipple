@@ -32,6 +32,15 @@ export async function opmlFileProblem(file: File): Promise<string | null> {
   return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
 }
 
+/** "<url>: kipple:allow_private_net" from the import report, in plain words. */
+export function attrNote(s: string): string {
+  const at = s.lastIndexOf(": ");
+  const url = at >= 0 ? s.slice(0, at) : s;
+  const attr = at >= 0 ? s.slice(at + 2) : "";
+  const what = attr.endsWith("allow_private_net") ? "allowing private-network addresses" : attr.endsWith("allow_insecure_tls") ? "skipping certificate checks" : attr || "a setting";
+  return `${url}: ${what} was ignored`;
+}
+
 /** Import an OPML file: file picker, the mark-older-as-read option, then the result summary. */
 export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -64,6 +73,9 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
   if (result) {
     const existing = result.feeds_existing.length;
     const dropped = result.memberships_dropped.length;
+    const skipped = result.skipped ?? [];
+    const invalid = result.invalid_attrs ?? [];
+    const ignored = result.ignored_attrs ?? [];
     return (
       <Modal open onOpenChange={(o) => !o && onClose()} title="Import finished" footer={<Button variant="solid" onClick={onClose}>Done</Button>}>
         <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
@@ -83,8 +95,47 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
               {dropped} feed{dropped === 1 ? " was" : "s were"} listed in more than one folder. Each stays in the first.
             </li>
           ) : null}
-          {result.folders_merged_case.length ? <li>Folders that differed only by capital letters were merged: {result.folders_merged_case.join(", ")}</li> : null}
+          {result.folders_merged_case.length ? <li>Folders that differed only by capital letters were merged: {result.folders_merged_case.map((m) => `${m.merged} into ${m.kept}`).join(", ")}</li> : null}
         </ul>
+        {skipped.length ? (
+          <div className="text-sm">
+            <p className="font-semibold">
+              {skipped.length} feed{skipped.length === 1 ? " was" : "s were"} skipped
+            </p>
+            <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
+              {skipped.map((s, i) => (
+                <li key={i} className="break-all">
+                  {s.url || "(no address)"}: {s.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {ignored.length ? (
+          <div className="text-sm">
+            <p className="font-semibold">Some settings in the file were not applied</p>
+            <p className="text-fg2">For safety, an import never lets a file allow private-network addresses or skip certificate checks. Set those on the feed itself if you need them.</p>
+            <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
+              {ignored.map((s, i) => (
+                <li key={i} className="break-all">
+                  {attrNote(s)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {invalid.length ? (
+          <div className="text-sm">
+            <p className="font-semibold">Some settings in the file had values Kipple could not use</p>
+            <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
+              {invalid.map((s, i) => (
+                <li key={i} className="break-all">
+                  {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {result.run_id ? <p className="text-sm text-fg2">Kipple is fetching the new feeds now.</p> : null}
       </Modal>
     );

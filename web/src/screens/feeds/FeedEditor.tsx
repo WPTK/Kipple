@@ -78,6 +78,12 @@ export function diffForm(d: FeedDetail, f: Form): Record<string, unknown> {
 }
 
 /** Turn a failed save into a message next to the field it belongs to. */
+/** The preset numbers, plus the feed's own stored value when it is not one of them, in ascending order. */
+export function withCustom(presets: readonly number[], custom: string): number[] {
+  const n = Number(custom);
+  return custom && !presets.includes(n) ? [...presets, n].sort((x, y) => x - y) : [...presets];
+}
+
 function saveError(e: unknown): { field: "url" | "auth" | "form"; message: string } {
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
@@ -248,7 +254,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
             {(a) => (
               <select {...a} value={f.interval} onChange={(e) => set("interval", e.target.value)} className={inputCls}>
                 <option value="">Use the default in Settings</option>
-                {(f.interval && !INTERVALS.includes(Number(f.interval)) ? [...INTERVALS, Number(f.interval)].sort((x, y) => x - y) : INTERVALS).map((m) => (
+                {withCustom(INTERVALS, f.interval).map((m) => (
                   <option key={m} value={m}>
                     Every {intervalLabel(m)}
                   </option>
@@ -275,10 +281,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
             {(a) => (
               <select {...a} value={f.autoRead} onChange={(e) => set("autoRead", e.target.value)} className={inputCls}>
                 <option value="">Use the global setting</option>
-                {(f.autoRead && !AUTO_READ_PRESETS.includes(Number(f.autoRead) as (typeof AUTO_READ_PRESETS)[number])
-                  ? [...AUTO_READ_PRESETS, Number(f.autoRead)].sort((x, y) => x - y)
-                  : [...AUTO_READ_PRESETS]
-                ).map((n) => (
+                {withCustom(AUTO_READ_PRESETS, f.autoRead).map((n) => (
                   <option key={n} value={n}>
                     {n === 0 ? "Off for this feed" : autoReadLabel(n)}
                   </option>

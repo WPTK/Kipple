@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
 import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderPlus, GripVertical, HeartPulse, MoreVertical, Pencil, Plus, Upload } from "lucide-react";
 import { createFolder, deleteFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
-import { errorMessage } from "@/api/client";
+import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap, Feed, Folder } from "@/api/types";
 import { LAYOUT_IDS, LAYOUT_LABELS, setLayoutOverride, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
@@ -63,7 +63,7 @@ function FolderDialogs({ dialog, onClose }: { dialog: FolderDialog; onClose: () 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const fail = (e: unknown) => {
-    const code = (e as { code?: string }).code;
+    const code = e instanceof ApiError ? e.code : undefined;
     setError(code === "folder_exists" ? "A folder with that name already exists." : errorMessage(e));
   };
   const run = async (fn: () => Promise<unknown>, done: string) => {
