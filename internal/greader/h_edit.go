@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -88,6 +89,16 @@ func (c *call) editTag() {
 			if err != nil {
 				return err
 			}
+			if op.starred != nil && c.a.opt.Stats != nil {
+				// one star/unstar row per id RETURNING showed changing (restores included)
+				kind := stats.KindUnstar
+				if *op.starred {
+					kind = stats.KindStar
+				}
+				if err := c.a.opt.Stats.RecordStars(tx, kind, c.family, res.Changed); err != nil {
+					return err
+				}
+			}
 			changes = append(changes, change{op, res})
 		}
 		return nil
@@ -169,7 +180,7 @@ func (c *call) markAllAsRead() {
 		c.ok()
 		return
 	}
-	scope := store.MarkScope{FeedID: f.FeedID, FolderID: f.FolderID, Starred: len(f.Starred) > 0}
+	scope := store.MarkScope{FeedID: f.FeedID, FolderID: f.FolderID, Starred: len(f.Starred) > 0, HoldCut: c.a.holdCut(), HoldPending: c.a.db.HoldPending()}
 	ts, ok := normalizeTS(c.p.Get("ts"))
 	if !ok {
 		if ts, err = c.a.db.MaxCommittedID(ctx); err != nil {

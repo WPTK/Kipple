@@ -110,9 +110,15 @@ func resolveAttr(tag, key, val string, bases []string) (string, bool) {
 
 // resolveSrcset resolves each candidate URL of a srcset value and drops the
 // candidates that do not resolve. Descriptors ("2x", "480w") are preserved.
-// A comma inside a URL is tolerated: only a comma after whitespace, or a
-// trailing comma on the URL token, ends a candidate.
 func resolveSrcset(v string, bases []string) string {
+	return mapSrcset(v, func(u string) string { return ResolveURL(u, bases...) })
+}
+
+// mapSrcset applies fn to each candidate URL of a srcset value and drops the
+// candidates for which it returns "". A comma inside a URL is tolerated: only a
+// comma after whitespace, or a trailing comma on the URL token, ends a
+// candidate.
+func mapSrcset(v string, fn func(string) string) string {
 	var out []string
 	i := 0
 	for i < len(v) {
@@ -137,7 +143,7 @@ func resolveSrcset(v string, bases []string) string {
 		if u == "" {
 			continue
 		}
-		abs := ResolveURL(u, bases...)
+		abs := fn(u)
 		if abs == "" {
 			continue
 		}

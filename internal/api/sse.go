@@ -15,9 +15,20 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	_ = rc.SetReadDeadline(time.Time{})
 
+	// A native EventSource resends Last-Event-ID itself; a client that recreates
+	// its EventSource (a watchdog reconnect) cannot set the header, so the same
+	// cursor is accepted as ?last_event_id=. The header wins when both are sent.
 	var last uint64
-	if v := r.Header.Get("Last-Event-ID"); v != "" {
+	v := r.Header.Get("Last-Event-ID")
+	if v == "" {
+		v = r.URL.Query().Get("last_event_id")
+	}
+	if v != "" {
 		last, _ = strconv.ParseUint(v, 10, 64)
+	}
+	var session string
+	if c, err := r.Cookie(cookieName); err == nil {
+		session = sessionID(c.Value)
 	}
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
@@ -51,7 +62,15 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-tick.C:
-			if !write(": ping\n\n") {
+			// "Sign out other sessions" (password change) deletes session rows; an
+			// open stream must not outlive its session.
+			if ok, err := s.db.SessionActive(r.Context(), session, s.now().Unix()); err == nil && !ok {
+				return
+			}
+			// The comment keeps proxies open; the named event (no id, so it never
+			// moves Last-Event-ID) is what an EventSource listener can observe, so
+			// a client watchdog can tell a hung stream from a quiet one.
+			if !write(": ping\n\nevent: heartbeat\ndata: {\"t\":%d}\n\n", s.now().Unix()) {
 				return
 			}
 		case <-r.Context().Done():

@@ -18,6 +18,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -30,6 +31,8 @@ type Options struct {
 	Logger *slog.Logger
 	// Wake asks the scheduler for a tick (non-blocking); optional.
 	Wake func()
+	// Stats records star/unstar rows from edit-tag (design §8); optional.
+	Stats stats.Recorder
 	// Events receives items.state and feed.changed notifications; optional.
 	Events *events.Hub
 	// Failures defaults to the design settings. Verifier must be the one
@@ -43,9 +46,37 @@ type Options struct {
 	PublicURL string
 	// LogForms (KIPPLE_LOG_GREADER_FORMS) adds redacted, truncated form values to the debug log.
 	LogForms bool
+	// FulltextHold is how long a new item of a full-text feed is held back from
+	// the Reader API while its extraction is pending (design §6.5). Zero means
+	// DefaultFulltextHold, negative disables the hold; it is capped at
+	// MaxFulltextHold so it stays inside the ot slack.
+	FulltextHold time.Duration
 	// Now and Sleep default to the wall clock (tests).
 	Now   func() time.Time
 	Sleep func(ctx context.Context, d time.Duration)
+}
+
+const (
+	// DefaultFulltextHold is the default hold window, measured from the item's crawl time.
+	DefaultFulltextHold = 30 * time.Second
+	// MaxFulltextHold caps the hold at half the 120 s ot slack (design §3), so an
+	// ot taken while an item was held still reaches it on the next sync.
+	MaxFulltextHold = 60 * time.Second
+)
+
+// holdCut is the id (crawl time in microseconds) above which a pending full-text
+// item is held; 0 disables the hold. Read once per request.
+func (a *API) holdCut() int64 {
+	w := a.opt.FulltextHold
+	switch {
+	case w < 0:
+		return 0
+	case w == 0:
+		w = DefaultFulltextHold
+	case w > MaxFulltextHold:
+		w = MaxFulltextHold
+	}
+	return a.now().Add(-w).UnixMicro()
 }
 
 // API is the Reader API handler set.
@@ -61,6 +92,13 @@ type API struct {
 	routes map[string]route
 
 	acct atomic.Pointer[acctSnap]
+	// acctMu makes "generation unchanged, so store" atomic against
+	// InvalidateAccount, which bumps acctGen. A snapshot read before an
+	// invalidation is therefore never cached after it.
+	acctMu  sync.Mutex
+	acctGen uint64
+	// afterAcctRead is a test hook run between the DB read and the store.
+	afterAcctRead func()
 
 	seenMu sync.Mutex
 	seen   map[string]time.Time
@@ -71,6 +109,7 @@ type route struct {
 	h      func(*call)
 	post   bool // writes: POST only, T checked
 	raw    bool // body is not a form (subscription/import): no T, raw body kept
+	repair bool // glue the unencoded tail of a label name in the POST body (design §6.2)
 	prefix bool // matches name + anything after it
 }
 
@@ -206,7 +245,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
 		c.icon(strings.TrimPrefix(rest, "/icon/"))
 		return
 	case rest == "/accounts/ClientLogin":
-		c.p = readParamsLimit(r, false, maxLoginBody)
+		c.p = readParamsLimit(r, false, maxLoginBody, false)
 		if c.rejectParams() {
 			return
 		}
@@ -235,7 +274,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
 	if !hdrOK {
 		limit = maxLoginBody
 	}
-	c.p = readParamsLimit(r, rt.raw, limit)
+	c.p = readParamsLimit(r, rt.raw, limit, rt.repair)
 	if c.rejectParams() {
 		return
 	}
@@ -326,16 +365,26 @@ func (a *API) account(ctx context.Context) (*acctSnap, error) {
 	if s := a.acct.Load(); s != nil && a.now().Sub(s.loaded) < acctTTL {
 		return s, nil
 	}
+	a.acctMu.Lock()
+	gen := a.acctGen
+	a.acctMu.Unlock()
 	acc, ok, err := a.db.Account(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if a.afterAcctRead != nil {
+		a.afterAcctRead()
 	}
 	s := &acctSnap{loaded: a.now()}
 	if ok && acc.APIPasswordHash != "" {
 		s.enabled, s.username, s.hash, s.secret = true, acc.Username, acc.APIPasswordHash, acc.Secret
 		s.token = makeToken(acc.Username, acc.Secret, acc.APIPasswordHash)
 	}
-	a.acct.Store(s)
+	a.acctMu.Lock()
+	if a.acctGen == gen {
+		a.acct.Store(s)
+	}
+	a.acctMu.Unlock()
 	return s, nil
 }
 
@@ -508,4 +557,13 @@ func (a *API) publish(typ string, data any) {
 	if a.opt.Events != nil {
 		a.opt.Events.Publish(typ, data)
 	}
+}
+
+// InvalidateAccount drops the cached account snapshot, so a changed API
+// password revokes every token on the next request instead of within acctTTL.
+func (a *API) InvalidateAccount() {
+	a.acctMu.Lock()
+	a.acctGen++
+	a.acct.Store(nil)
+	a.acctMu.Unlock()
 }

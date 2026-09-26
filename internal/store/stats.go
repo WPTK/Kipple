@@ -1,0 +1,138 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+)
+
+// StatRow is one stats_events row (design §2.2, §8). The stats package builds
+// it; this package owns the SQL.
+type StatRow struct {
+	TS           int64
+	LocalDate    string
+	LocalHour    int
+	LocalWeekday int
+	Kind         string
+	Client       string
+	Inferred     bool
+	ItemID       int64
+	FeedID       int64
+	FeedTitle    string
+	FolderID     sql.NullInt64
+	FolderName   sql.NullString
+	ItemTitle    string
+	ItemURL      string
+	Value        sql.NullInt64
+	SessionKey   string // "" = NULL
+}
+
+// StatSnapshot is the identity snapshotted into a stats row.
+type StatSnapshot struct {
+	FeedID     int64
+	FeedTitle  string
+	FolderID   sql.NullInt64
+	FolderName sql.NullString
+	ItemTitle  string
+	ItemURL    string
+}
+
+// LoadLocation returns the tz setting location (default America/New_York),
+// falling back to UTC when the name does not resolve.
+func LoadLocation(ctx context.Context, q Querier) *time.Location {
+	loc, err := time.LoadLocation(settingString(ctx, q, "tz", "America/New_York"))
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}
+
+// StatItemSnapshot reads the identity of an item, or of a ledger id (title and
+// URL come from its restore stub when one exists). ok is false when the id is
+// in neither table.
+func StatItemSnapshot(ctx context.Context, q Querier, itemID int64) (s StatSnapshot, ok bool, err error) {
+	row := q.QueryRowContext(ctx, `SELECT x.feed_id, COALESCE(f.custom_title, f.title, ''), f.folder_id, fo.name, x.title, x.url
+		FROM items x LEFT JOIN feeds f ON f.id = x.feed_id LEFT JOIN folders fo ON fo.id = f.folder_id
+		WHERE x.id = ?`, itemID)
+	err = row.Scan(&s.FeedID, &s.FeedTitle, &s.FolderID, &s.FolderName, &s.ItemTitle, &s.ItemURL)
+	if err == nil {
+		return s, true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return s, false, err
+	}
+	row = q.QueryRowContext(ctx, `SELECT x.feed_id, COALESCE(f.custom_title, f.title, ''), f.folder_id, fo.name,
+		COALESCE(c.title, ''), COALESCE(c.url, '')
+		FROM trimmed_items x LEFT JOIN trimmed_content c ON c.id = x.id
+		LEFT JOIN feeds f ON f.id = x.feed_id LEFT JOIN folders fo ON fo.id = f.folder_id
+		WHERE x.id = ?`, itemID)
+	err = row.Scan(&s.FeedID, &s.FeedTitle, &s.FolderID, &s.FolderName, &s.ItemTitle, &s.ItemURL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return s, false, nil
+	}
+	return s, err == nil, err
+}
+
+// InsertStat appends a stats row.
+func InsertStat(ctx context.Context, q Querier, r StatRow) error {
+	_, err := q.ExecContext(ctx, `INSERT INTO stats_events
+		(ts, local_date, local_hour, local_weekday, kind, client, inferred, item_id, feed_id, feed_title,
+		 folder_id, folder_name, item_title, item_url, value, session_key)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		r.TS, r.LocalDate, r.LocalHour, r.LocalWeekday, r.Kind, r.Client, boolInt(r.Inferred), r.ItemID, r.FeedID, r.FeedTitle,
+		r.FolderID, r.FolderName, nullStr(r.ItemTitle), nullStr(r.ItemURL), r.Value, nullStr(r.SessionKey))
+	return err
+}
+
+// StatOpenTS returns the ts of the open event that issued sessionKey for
+// itemID, when it is no older than since.
+func StatOpenTS(ctx context.Context, q Querier, sessionKey string, itemID, since int64) (ts int64, ok bool, err error) {
+	err = q.QueryRowContext(ctx, `SELECT ts FROM stats_events WHERE session_key = ? AND kind = 'open' AND item_id = ? AND ts >= ?
+		ORDER BY id LIMIT 1`, sessionKey, itemID, since).Scan(&ts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	return ts, err == nil, err
+}
+
+// StatReadTimeSum is the seconds of read_time already recorded for a session.
+func StatReadTimeSum(ctx context.Context, q Querier, sessionKey string) (int64, error) {
+	var n int64
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(SUM(value), 0) FROM stats_events WHERE session_key = ? AND kind = 'read_time'`,
+		sessionKey).Scan(&n)
+	return n, err
+}
+
+// StatSetScroll keeps one scroll row per session: it raises the existing row
+// when value is larger and reports whether a row already existed.
+func StatSetScroll(ctx context.Context, q Querier, sessionKey string, value int64) (existed bool, err error) {
+	var id int64
+	err = q.QueryRowContext(ctx, `SELECT id FROM stats_events WHERE session_key = ? AND kind = 'scroll' ORDER BY id LIMIT 1`, sessionKey).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	_, err = q.ExecContext(ctx, `UPDATE stats_events SET value = ? WHERE id = ? AND value < ?`, value, id, value)
+	return true, err
+}
+
+// StatItemBasics reads just the item-level fields of a live item; ok is false
+// for a trimmed or unknown id (callers fall back to StatItemSnapshot).
+func StatItemBasics(ctx context.Context, q Querier, itemID int64) (feedID int64, title, url string, ok bool, err error) {
+	err = q.QueryRowContext(ctx, `SELECT feed_id, title, url FROM items WHERE id = ?`, itemID).Scan(&feedID, &title, &url)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", "", false, nil
+	}
+	return feedID, title, url, err == nil, err
+}
+
+// StatFeedSnapshot reads the feed and folder identity for a stats row.
+func StatFeedSnapshot(ctx context.Context, q Querier, feedID int64) (s StatSnapshot, err error) {
+	s.FeedID = feedID
+	err = q.QueryRowContext(ctx, `SELECT COALESCE(f.custom_title, f.title, ''), f.folder_id, fo.name
+		FROM feeds f LEFT JOIN folders fo ON fo.id = f.folder_id WHERE f.id = ?`, feedID).Scan(&s.FeedTitle, &s.FolderID, &s.FolderName)
+	return s, err
+}

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -247,6 +248,43 @@ func TestDecodeBodyCharsetEdgeCases(t *testing.T) {
 		require.Contains(t, string(d.Body), "café")
 	})
 
+	t.Run("every UTF-16 and UTF-32 BOM decodes", func(t *testing.T) {
+		const doc = `<?xml version="1.0"?><rss><t>café €</t></rss>`
+		rs := []rune(doc)
+		build := func(bom []byte, size int, be bool) []byte {
+			out := append([]byte{}, bom...)
+			for _, r := range rs {
+				var u []byte
+				if size == 4 {
+					u = []byte{byte(r >> 24), byte(r >> 16), byte(r >> 8), byte(r)}
+				} else {
+					u = []byte{byte(r >> 8), byte(r)}
+				}
+				if !be {
+					for i, j := 0, len(u)-1; i < j; i, j = i+1, j-1 {
+						u[i], u[j] = u[j], u[i]
+					}
+				}
+				out = append(out, u...)
+			}
+			return out
+		}
+		cases := []struct {
+			name string
+			body []byte
+		}{
+			{"utf-16le", build([]byte{0xFF, 0xFE}, 2, false)},
+			{"utf-16be", build([]byte{0xFE, 0xFF}, 2, true)},
+			{"utf-32le", build([]byte{0xFF, 0xFE, 0x00, 0x00}, 4, false)},
+			{"utf-32be", build([]byte{0x00, 0x00, 0xFE, 0xFF}, 4, true)},
+		}
+		for _, c := range cases {
+			d := DecodeBody(c.body, "")
+			require.Equal(t, c.name, d.Source, c.name)
+			require.Contains(t, string(d.Body), "café €", c.name)
+		}
+	})
+
 	t.Run("invalid UTF-8 after a UTF-8 BOM falls back to windows-1252", func(t *testing.T) {
 		b := append([]byte{0xEF, 0xBB, 0xBF}, []byte("<rss><t>caf\xe9</t></rss>")...)
 		d := DecodeBody(b, "")
@@ -269,4 +307,71 @@ func TestDecodeBodyCharsetEdgeCases(t *testing.T) {
 		require.Equal(t, "iso-8859-2", d.Source)
 		require.Contains(t, string(d.Body), "ą")
 	})
+}
+
+const rssWithBadEntries = `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://e.example/</link>
+<item><title>Good one</title><link>https://e.example/1</link><guid>g1</guid><description>hello there</description>
+  <enclosure url="https://e.example/a.mp3" type="audio/mpeg" length="1"/>
+  <enclosure url="https://e.example/a.mp3" type="audio/mpeg" length="1"/>
+  <enclosure url="/b.mp3" type="audio/mpeg" length="2"/>
+  <enclosure url="https://e.example/b.mp3" type="audio/mpeg" length="2"/></item>
+<item></item>
+<item><title>Explodes</title><link>https://e.example/3</link><guid>g3</guid><description>BOOM</description></item>
+<item><title>Good two</title><link>https://e.example/4</link><guid>g4</guid><description>fine</description></item>
+</channel></rss>`
+
+// One unusable entry (empty, or one that panics in conversion) is dropped and
+// counted; the rest of the document still commits (design §13 item 9).
+func TestParseFeedSkipsMalformedItems(t *testing.T) {
+	content := func(raw string, _ ...string) (string, string) {
+		if raw == "BOOM" {
+			panic("hostile markup")
+		}
+		return raw, raw
+	}
+	f, err := ParseFeed([]byte(rssWithBadEntries), ParseOptions{FeedURL: "https://e.example/feed", Content: content})
+	require.NoError(t, err)
+	require.Len(t, f.Items, 2)
+	require.Equal(t, "Good one", f.Items[0].Title)
+	require.Equal(t, "Good two", f.Items[1].Title)
+	require.Contains(t, f.Notes, "skipped_malformed_items: 2/4")
+
+	// A clean document has no note.
+	clean, err := ParseFeed([]byte(strings.Replace(rssWithBadEntries, "<item></item>", "", 1)), ParseOptions{FeedURL: "https://e.example/feed", Content: func(raw string, _ ...string) (string, string) { return raw, raw }})
+	require.NoError(t, err)
+	require.Len(t, clean.Items, 3)
+	for _, n := range clean.Notes {
+		require.NotContains(t, n, "skipped_malformed_items")
+	}
+}
+
+// The same file listed twice (also once relative, once absolute) is one enclosure (design §13 item 10).
+func TestParseFeedDedupesEnclosuresByURL(t *testing.T) {
+	f, err := ParseFeed([]byte(rssWithBadEntries), ParseOptions{FeedURL: "https://e.example/feed", Content: func(raw string, _ ...string) (string, string) { return raw, raw }})
+	require.NoError(t, err)
+	var urls []string
+	for _, e := range f.Items[0].Enclosures {
+		urls = append(urls, e.URL)
+	}
+	require.Equal(t, []string{"https://e.example/a.mp3", "https://e.example/b.mp3"}, urls)
+}
+
+// Enclosure-only entries (podcast or photo feeds without text) are kept, named
+// after their file; a truly empty entry is still dropped.
+func TestEnclosureOnlyItemsAreKept(t *testing.T) {
+	body := []byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>Pod Feed</title><link>https://p.example/</link>
+<item><enclosure url="https://cdn.example/audio/ep%201.mp3" type="audio/mpeg" length="5"/></item>
+<item><enclosure url="https://cdn.example/audio/ep2.mp3" type="audio/mpeg" length="5"/></item>
+<item><enclosure url="https://cdn.example/" type="audio/mpeg" length="5"/></item>
+<item></item>
+</channel></rss>`)
+	f, err := ParseFeed(body, ParseOptions{FeedURL: "https://p.example/feed.xml"})
+	require.NoError(t, err)
+	require.Len(t, f.Items, 3)
+	require.Equal(t, "ep 1.mp3", f.Items[0].Title)
+	require.Equal(t, "ep2.mp3", f.Items[1].Title)
+	require.Equal(t, "Pod Feed", f.Items[2].Title, "no file name: the feed title")
+	require.Len(t, f.Items[0].Enclosures, 1)
+	require.NotEqual(t, f.Items[0].UID, f.Items[1].UID)
+	require.Contains(t, strings.Join(f.Notes, ";"), "skipped_malformed_items: 1/4")
 }

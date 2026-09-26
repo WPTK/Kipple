@@ -70,3 +70,14 @@ func truncate(s string, n int) string {
 	}
 	return s
 }
+
+// SessionActive reports whether the session exists and has not expired. It is
+// read-only (no sliding), for long-lived streams that re-check their session.
+func (d *DB) SessionActive(ctx context.Context, id string, now int64) (bool, error) {
+	var expires int64
+	err := d.reader.QueryRowContext(ctx, "SELECT expires_at FROM sessions WHERE id = ?", id).Scan(&expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil && expires > now, err
+}

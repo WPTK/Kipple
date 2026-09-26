@@ -1,0 +1,6 @@
+go test fuzz v1
+string("iphone")
+string("新iPhone发布 中国")
+bool(true)
+bool(true)
+bool(false)

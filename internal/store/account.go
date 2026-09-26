@@ -71,3 +71,31 @@ func (d *DB) SetAPIPasswordHash(ctx context.Context, hash string) error {
 		return nil
 	})
 }
+
+// SetPasswordHash replaces the web password hash and, in the same transaction,
+// deletes every session except keepSession (the caller's), so a changed
+// password signs out every other browser.
+func (d *DB) SetPasswordHash(ctx context.Context, hash, keepSession string) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, "UPDATE account SET password_hash = ?, updated_at = unixepoch() WHERE id = 1", hash)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("store: no account row")
+		}
+		_, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE id <> ?", keepSession)
+		return err
+	})
+}
+
+// AccountSecret is the account secret alone: a single-row point read cheap
+// enough for every image request, so a rotation by `kipple password` (another
+// process) is seen at once.
+func (d *DB) AccountSecret(ctx context.Context) (secret string, ok bool, err error) {
+	err = d.reader.QueryRowContext(ctx, "SELECT secret FROM account WHERE id = 1").Scan(&secret)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return secret, err == nil, err
+}

@@ -1,7 +1,10 @@
 package sanitize
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -16,8 +19,11 @@ var (
 
 var youtubeEmbed = regexp.MustCompile(`^https://(www\.)?(youtube\.com|youtube-nocookie\.com)/embed/[A-Za-z0-9_-]+([?&/#][^\s"'<>]*)?$`)
 
+// embedSrc is every iframe source the policy keeps: YouTube and Vimeo players.
+var embedSrc = regexp.MustCompile("(?:" + youtubeEmbed.String() + ")|(?:" + vimeoEmbed.String() + ")")
+
 // FeedPolicy is the bluemonday policy for feed content (design §4.4 step 3):
-// UGCPolicy plus media elements and YouTube embeds, absolute URLs only.
+// UGCPolicy plus media elements and YouTube and Vimeo embeds, absolute URLs only.
 func FeedPolicy() *bluemonday.Policy {
 	policyOnce.Do(func() {
 		p := bluemonday.UGCPolicy()
@@ -34,9 +40,13 @@ func FeedPolicy() *bluemonday.Policy {
 		p.AllowAttrs("src", "controls", "preload", "loop").OnElements("audio")
 		p.AllowURLSchemes("http", "https", "mailto", "tel")
 
-		p.AllowAttrs("src").Matching(youtubeEmbed).OnElements("iframe")
-		p.AllowAttrs("width", "height", "allowfullscreen", "frameborder").OnElements("iframe")
-		p.RequireSandboxOnIFrame(bluemonday.SandboxAllowScripts, bluemonday.SandboxAllowSameOrigin, bluemonday.SandboxAllowPresentation)
+		p.AllowAttrs("src").Matching(embedSrc).OnElements("iframe")
+		p.AllowAttrs("width", "height", "allowfullscreen", "frameborder", "sandbox").OnElements("iframe")
+		// sandbox has to be an allowed attribute or bluemonday drops it and writes
+		// sandbox="" (a blank player in Reader clients); IframesToLinks sets the
+		// value and this filters it to the tokens Kipple grants.
+		p.RequireSandboxOnIFrame(bluemonday.SandboxAllowScripts, bluemonday.SandboxAllowSameOrigin,
+			bluemonday.SandboxAllowPresentation, bluemonday.SandboxAllowPopups)
 		policy = p
 	})
 	return policy
@@ -45,8 +55,9 @@ func FeedPolicy() *bluemonday.Policy {
 // Content is the per-item content pipeline (design §4.4): resolve URLs against
 // the base chain, sanitize, then derive plain text. It matches fetch.ContentFunc.
 func Content(rawHTML string, bases ...string) (htmlOut, text string) {
-	htmlOut = FeedPolicy().Sanitize(shieldFragments(Absolutize(rawHTML, bases...)))
-	htmlOut = strings.TrimSpace(unshieldFragments(htmlOut))
+	sh := newShielded()
+	htmlOut = FeedPolicy().Sanitize(sh.shield(IframesToLinks(Absolutize(rawHTML, bases...))))
+	htmlOut = strings.TrimSpace(sh.unshield(htmlOut))
 	return htmlOut, PlainText(htmlOut)
 }
 
@@ -54,14 +65,33 @@ func Content(rawHTML string, bases ...string) (htmlOut, text string) {
 // validation drops scheme-less values, and relative URLs cannot be allowed
 // without weakening every other URL attribute, so in-page anchors ("#fn1",
 // footnotes) travel as absolute URLs on this reserved host and are turned back
-// into bare fragments afterwards.
+// into bare fragments afterwards. Every a[href] beginning with "#" is shielded,
+// whatever characters follow (Absolutize keeps all of them).
+//
+// Each shielded href becomes fragmentShield + <nonce>/<index>; the original
+// fragment is kept out of band, so it needs no escaping to survive the policy,
+// and the nonce is random per call, so a literal shield URL in feed HTML is
+// never mistaken for one of ours.
 const fragmentShield = "https://fragment.kipple.invalid/"
 
-var fragmentHref = regexp.MustCompile(`^#[\w:.%-]*$`)
+type shielded struct {
+	nonce string
+	frags []string
+}
 
-// shieldFragments rewrites a[href="#frag"] to the shield URL; every other
-// href is left exactly as it was.
-func shieldFragments(src string) string {
+func newShielded() *shielded {
+	var n [12]byte
+	if _, err := rand.Read(n[:]); err != nil {
+		panic("sanitize: crypto/rand: " + err.Error())
+	}
+	return &shielded{nonce: hex.EncodeToString(n[:])}
+}
+
+func (s *shielded) prefix() string { return fragmentShield + s.nonce + "/" }
+
+// shield rewrites a[href="#..."] to a placeholder URL; every other href is left
+// exactly as it was.
+func (s *shielded) shield(src string) string {
 	if !strings.Contains(src, "#") {
 		return src
 	}
@@ -78,8 +108,9 @@ func shieldFragments(src string) string {
 			changed := false
 			if t.Data == "a" {
 				for i, a := range t.Attr {
-					if strings.EqualFold(a.Key, "href") && fragmentHref.MatchString(strings.TrimSpace(a.Val)) {
-						t.Attr[i].Val = fragmentShield + strings.TrimSpace(a.Val)
+					if v := strings.TrimSpace(a.Val); strings.EqualFold(a.Key, "href") && strings.HasPrefix(v, "#") {
+						t.Attr[i].Val = s.prefix() + strconv.Itoa(len(s.frags))
+						s.frags = append(s.frags, v)
 						changed = true
 					}
 				}
@@ -95,8 +126,35 @@ func shieldFragments(src string) string {
 	}
 }
 
-func unshieldFragments(out string) string {
-	return strings.ReplaceAll(out, `href="`+fragmentShield+`#`, `href="#`)
+// unshield restores the original fragments of the hrefs shield produced.
+func (s *shielded) unshield(out string) string {
+	pre := `href="` + s.prefix()
+	if !strings.Contains(out, pre) {
+		return out
+	}
+	var b strings.Builder
+	for {
+		i := strings.Index(out, pre)
+		if i < 0 {
+			b.WriteString(out)
+			return b.String()
+		}
+		b.WriteString(out[:i])
+		rest := out[i+len(pre):]
+		j := 0
+		for j < len(rest) && rest[j] >= '0' && rest[j] <= '9' {
+			j++
+		}
+		n, err := strconv.Atoi(rest[:j])
+		if j == 0 || j >= len(rest) || rest[j] != '"' || err != nil || n >= len(s.frags) {
+			// not ours after all (cannot happen with a random nonce): keep as is
+			b.WriteString(pre)
+			out = rest
+			continue
+		}
+		b.WriteString(`href="` + html.EscapeString(s.frags[n]) + `"`)
+		out = rest[j+1:]
+	}
 }
 
 // WordCount counts whitespace-separated words in plain text.

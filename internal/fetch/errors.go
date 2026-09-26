@@ -51,7 +51,7 @@ func Classify(err error) (class, msg string) {
 	case errors.Is(err, errTooManyHops):
 		return ClassRedirectLoop, errTooManyHops.Error()
 	case errors.As(err, &maxBytes):
-		return ClassTooLarge, fmt.Sprintf("response larger than %d MiB", maxBodyBytes>>20)
+		return ClassTooLarge, tooLargeMessage(maxBytes.Limit)
 	case errors.Is(err, context.DeadlineExceeded), isTimeout(err):
 		return ClassTimeout, "timed out"
 	case errors.As(err, &dnsErr):
@@ -68,4 +68,18 @@ func Classify(err error) (class, msg string) {
 func isTimeout(err error) bool {
 	var ne net.Error
 	return errors.As(err, &ne) && ne.Timeout()
+}
+
+// tooLargeMessage words the too_large error with the limit actually enforced
+// (Options.MaxResponseBody), in MiB when it is a whole number of them.
+func tooLargeMessage(limit int64) string {
+	switch {
+	case limit <= 0:
+		return "response too large"
+	case limit%(1<<20) == 0:
+		return fmt.Sprintf("response larger than %d MiB", limit>>20)
+	case limit%(1<<10) == 0:
+		return fmt.Sprintf("response larger than %d KiB", limit>>10)
+	}
+	return fmt.Sprintf("response larger than %d bytes", limit)
 }

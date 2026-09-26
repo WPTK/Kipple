@@ -30,3 +30,49 @@ func TestNormalizeKeyHost(t *testing.T) {
 	_, err = Key("/relative")
 	require.Error(t, err)
 }
+
+func TestKeyAndNormalize(t *testing.T) {
+	for _, raw := range []string{"HTTP://Example.COM:80/Feed.xml?a=1#frag", " https://x.org:443/a b ", "https://[::1]:8080/p"} {
+		key, norm, err := KeyAndNormalize(raw)
+		require.NoError(t, err)
+		wn, _ := Normalize(raw)
+		wk, _ := Key(raw)
+		require.Equal(t, wn, norm)
+		require.Equal(t, wk, key)
+	}
+	for _, bad := range []string{"", "ftp://x/y", "/relative", "http://"} {
+		_, _, err := KeyAndNormalize(bad)
+		require.Error(t, err, bad)
+	}
+}
+
+// FuzzKeyAndNormalizeMatchesKeyOfNormalize: KeyAndNormalize must equal Normalize followed by Key
+// for every input, errors included. Regression seeds are the cases a fuzz run found: whitespace
+// at the end of the query before a fragment, and an IPv6 zone that does not survive a re-parse.
+func FuzzKeyAndNormalizeMatchesKeyOfNormalize(f *testing.F) {
+	for _, s := range []string{
+		"http://h/p?a=b #x", "http://h/p?a=b\t#x", "http://h/p?a=b ", "https://Example.com:443/Feed?x=1#frag",
+		"http://[fe80::1%25eth0]/feed", "http://[fe80::1%zz]/feed", "http://[::1%25]/x", "http://[fe80::1%25a b]/f",
+		"http://h:80/p", "  http://h/p  ", "http://h/%zz", "http://h/a b?c d#e f", "ftp://h/x", "http:///x", "",
+		"http://h?#", "http://h/p?#x", "HTTP://H:8080/P?Q=%41",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, raw string) {
+		norm, err := Normalize(raw)
+		var wantKey string
+		if err == nil {
+			wantKey, err = Key(norm)
+		}
+		key, gotNorm, gerr := KeyAndNormalize(raw)
+		if err != nil {
+			if gerr == nil {
+				t.Fatalf("KeyAndNormalize(%q) = %q, %q, nil; Normalize then Key fails: %v", raw, key, gotNorm, err)
+			}
+			return
+		}
+		if gerr != nil || key != wantKey || gotNorm != norm {
+			t.Fatalf("KeyAndNormalize(%q) = %q, %q, %v; want %q, %q", raw, key, gotNorm, gerr, wantKey, norm)
+		}
+	})
+}

@@ -1,6 +1,7 @@
 package sanitize
 
 import (
+	"html"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -37,6 +38,29 @@ func TestContentKeepsFragmentHrefs(t *testing.T) {
 	out, _ := Content(`<p>note<a href="#fn1" id="r1">1</a> <a href="#user-content-fn:2">2</a></p><a href="#x y">bad</a><a href="javascript:alert(1)">js</a>`, "https://a.com/post")
 	require.Contains(t, out, `href="#fn1"`)
 	require.Contains(t, out, `href="#user-content-fn:2"`)
-	require.NotContains(t, out, `href="#x y"`)
+	require.Contains(t, out, `href="#x y"`)
 	require.NotContains(t, out, "javascript:")
+}
+
+func TestContentKeepsEveryFragmentHref(t *testing.T) {
+	for _, frag := range []string{"#footnote's-1", "#a&b", "#f(1)", "#a*b+c,d;e=f@g/h?i", "#", "#00e9t00e9", "#a\"b", "#a<b>"} {
+		src := `<p><a href="` + html.EscapeString(frag) + `">n</a></p>`
+		out, _ := Content(src, "https://a.com/post")
+		require.Contains(t, out, `href="`+html.EscapeString(frag)+`"`, frag)
+		// stored form is stable: sanitizing it again changes nothing
+		again, _ := Content(out, "https://a.com/post")
+		require.Equal(t, out, again, frag)
+		// serve time prefixes the target, the stored form does not
+		if frag != "#" { // a bare "#" (top of page) has no target to prefix
+			require.Contains(t, ServeHTML(out, ServeOptions{}), `href="#kp-`, frag)
+		}
+	}
+}
+
+func TestContentLiteralShieldURLSurvives(t *testing.T) {
+	in := `<a href="https://fragment.kipple.invalid/#evil">x</a><a href="https://fragment.kipple.invalid/0">y</a><a href="#real">z</a>`
+	out, _ := Content(in, "https://a.com/post")
+	require.Contains(t, out, `href="https://fragment.kipple.invalid/#evil"`)
+	require.Contains(t, out, `href="https://fragment.kipple.invalid/0"`)
+	require.Contains(t, out, `href="#real"`)
 }

@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -52,12 +50,12 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 			return err
 		}
 	}
-	secret := make([]byte, 32)
-	if _, err := rand.Read(secret); err != nil {
+	secret, err := newAccountSecret()
+	if err != nil {
 		return err
 	}
 	created, err := db.CreateAccount(ctx, store.Account{
-		Username: cfg.Username, PasswordHash: pwHash, APIPasswordHash: apiHash, Secret: hex.EncodeToString(secret),
+		Username: cfg.Username, PasswordHash: pwHash, APIPasswordHash: apiHash, Secret: secret,
 	})
 	if err != nil {
 		return fmt.Errorf("create account (KIPPLE_USERNAME must be 1-64 characters of A-Z a-z 0-9 . _ -): %w", err)

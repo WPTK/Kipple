@@ -5,7 +5,6 @@ package main
 
 import (
 	"os"
-	"strings"
 
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
@@ -41,9 +40,9 @@ func main() {
 	// Declares iso-8859-1 but the bytes are UTF-8.
 	write("charset-utf8-labelled-latin1.xml", nil, doc(` encoding="iso-8859-1"`, "Café feed", latin))
 	// Declares utf-8 but the bytes are windows-1252; HTTP header names the truth.
-	write("charset-cp1252-labelled-utf8.xml", charmap.Windows1252, strings.Replace(doc(` encoding="utf-8"`, "Café feed", latin), "x", "x", 1))
+	write("charset-cp1252-labelled-utf8.xml", charmap.Windows1252, doc(` encoding="utf-8"`, "Café feed", latin))
 	// No declaration at all, invalid UTF-8, no HTTP charset: windows-1252 fallback.
-	write("charset-undeclared-cp1252.xml", charmap.Windows1252, strings.Replace(doc("", "Café feed", latin), `<?xml version="1.0"?>`, `<?xml version="1.0"?>`, 1))
+	write("charset-undeclared-cp1252.xml", charmap.Windows1252, doc("", "Café feed", latin))
 	// Shift_JIS declared correctly.
 	write("charset-shiftjis.xml", japanese.ShiftJIS, doc(` encoding="Shift_JIS"`, "日本語のフィード", "こんにちは世界"))
 	// UTF-16LE with BOM, declaration says utf-16.

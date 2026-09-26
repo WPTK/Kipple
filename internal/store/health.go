@@ -3,6 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
+	"io/fs"
+	"os"
+	"path/filepath"
 )
 
 // FeedHealth is one feed's fetch health (GET /api/health/feeds, design §7.1).
@@ -29,6 +32,10 @@ type FeedHealth struct {
 	LastNewItemsAt      *int64  `json:"last_new_items_at"`
 	TrimmedUnreadCount  int64   `json:"trimmed_unread_count"`
 	TrimmedUnreadSince  *int64  `json:"trimmed_unread_since"`
+
+	// Host and CreatedAt feed FeedStatus and the host throttle lookup; not serialized.
+	Host      string `json:"-"`
+	CreatedAt int64  `json:"-"`
 }
 
 // FeedHealth lists every feed except the archive feed, by title.
@@ -37,7 +44,7 @@ func (d *DB) FeedHealth(ctx context.Context) ([]FeedHealth, error) {
 		SELECT id, COALESCE(NULLIF(custom_title,''), NULLIF(title,''), url), url, url_original, enabled, disabled_reason,
 		       last_success_at, last_fetch_at, last_error_at, last_error_class, last_error, last_status,
 		       consecutive_failures, current_delay_s, next_fetch_at, redirect_to, redirect_kind, redirect_count,
-		       last_new_items_at, trimmed_unread_count, trimmed_unread_since
+		       last_new_items_at, trimmed_unread_count, trimmed_unread_since, host, created_at
 		FROM feeds WHERE disabled_reason IS NOT 'archive'
 		ORDER BY lower(COALESCE(NULLIF(custom_title,''), NULLIF(title,''), url)), id`)
 	if err != nil {
@@ -53,7 +60,7 @@ func (d *DB) FeedHealth(ctx context.Context) ([]FeedHealth, error) {
 		if err := rows.Scan(&h.ID, &h.Title, &h.URL, &origURL, &enabled, &reason,
 			&succ, &fetch, &errAt, &class, &lastErr, &status,
 			&h.ConsecutiveFailures, &h.CurrentDelayS, &h.NextFetchAt, &rTo, &rKind, &h.RedirectCount,
-			&newAt, &h.TrimmedUnreadCount, &trimSince); err != nil {
+			&newAt, &h.TrimmedUnreadCount, &trimSince, &h.Host, &h.CreatedAt); err != nil {
 			return nil, err
 		}
 		h.Enabled = enabled == 1
@@ -86,4 +93,67 @@ func intp(n sql.NullInt64) *int64 {
 		return nil
 	}
 	return &n.Int64
+}
+
+// DiskUsage is the on-disk footprint shown in the health view (audit D7).
+type DiskUsage struct {
+	DBBytes     int64 `json:"db_bytes"`
+	WALBytes    int64 `json:"wal_bytes"`
+	BackupBytes int64 `json:"backup_bytes"`
+	// ImgcacheBytes is the image cache's footprint (its files and its index), 0
+	// when there is none. It is never part of a backup.
+	ImgcacheBytes int64 `json:"imgcache_bytes"`
+}
+
+// DiskUsage sizes the database file, its WAL and the backup directory tree
+// (snapshots, pre-migration copies, pre-restore-* copies and the export/
+// scratch files), and walks <data>/imgcache for ImgcacheBytes. Missing files
+// count as 0. The API, which holds the open cache, uses DiskUsageWith instead
+// so a health call never walks thousands of cache files.
+func (d *DB) DiskUsage() DiskUsage {
+	return d.DiskUsageWith(d.walkImgcache)
+}
+
+// DiskUsageWith is DiskUsage with ImgcacheBytes taken from imgcacheBytes (the
+// open cache's own byte counter plus its index) instead of a directory walk.
+func (d *DB) DiskUsageWith(imgcacheBytes func() int64) DiskUsage {
+	var u DiskUsage
+	if fi, err := os.Stat(d.path); err == nil {
+		u.DBBytes = fi.Size()
+	}
+	if fi, err := os.Stat(d.path + "-wal"); err == nil {
+		u.WALBytes = fi.Size()
+	}
+	// Recursive: pre-restore-* directories and the export/ scratch directory
+	// (temporary export files) count too, since they are all disk the backup
+	// directory holds.
+	_ = filepath.WalkDir(d.backupDir, func(_ string, e fs.DirEntry, err error) error {
+		if err != nil || e.IsDir() {
+			return nil // unreadable or vanished entries (an export finishing) count as 0
+		}
+		if info, ierr := e.Info(); ierr == nil && info.Mode().IsRegular() {
+			u.BackupBytes += info.Size()
+		}
+		return nil
+	})
+	if imgcacheBytes != nil {
+		u.ImgcacheBytes = imgcacheBytes()
+	}
+	return u
+}
+
+// walkImgcache sizes the image cache directory, which lives next to the
+// database (main wires <data>/imgcache): files, temp files and the index.
+func (d *DB) walkImgcache() int64 {
+	var n int64
+	_ = filepath.WalkDir(filepath.Join(filepath.Dir(d.path), "imgcache"), func(_ string, e fs.DirEntry, err error) error {
+		if err != nil || e.IsDir() {
+			return nil
+		}
+		if info, ierr := e.Info(); ierr == nil && info.Mode().IsRegular() {
+			n += info.Size()
+		}
+		return nil
+	})
+	return n
 }

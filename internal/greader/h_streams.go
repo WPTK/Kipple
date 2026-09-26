@@ -41,6 +41,7 @@ func (c *call) streamItemIDs() {
 	}
 	f = applyStates(f, c.p.All("it"), c.p.All("xt"))
 	page := c.pageParams(maxIDsN)
+	f.HoldCut = c.a.holdCut()
 
 	var bw *bufio.Writer
 	first := true
@@ -114,6 +115,7 @@ func (c *call) streamContents() {
 	}
 	f = applyStates(f, c.p.All("it"), c.p.All("xt"))
 	page := c.pageParams(maxContentsN)
+	f.HoldCut = c.a.holdCut()
 	var ids []int64
 	last, more, err := c.a.db.StreamIDs(c.r.Context(), f, page, func(id int64) error {
 		ids = append(ids, id)
@@ -148,7 +150,7 @@ func (c *call) writeContents(streamID, continuation string, ids []int64, asc boo
 		_, _ = bw.WriteString(`,"items":[`)
 	}
 	first := true
-	err := c.a.db.StreamItems(c.r.Context(), ids, asc, func(r *store.ContentRow) error {
+	err := c.a.db.StreamItems(c.r.Context(), ids, asc, c.a.holdCut(), func(r *store.ContentRow) error {
 		if bw == nil {
 			begin()
 		}

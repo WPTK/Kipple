@@ -11,6 +11,8 @@ services:
     image: kipple:latest
     container_name: kipple
     restart: always
+    # No /import mount on purpose: the nonroot user cannot read a bind-mounted
+    # directory. Import an OPML with `kipple import -` and pipe the file in.
     env_file:
       - .env
     ports:

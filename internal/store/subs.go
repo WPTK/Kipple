@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -129,6 +130,9 @@ type SubscribeOpts struct {
 	URL    string
 	Folder string // label name; "" leaves an existing feed where it is (new feeds go to the default folder)
 	Title  string // custom title; "" leaves it unchanged
+	// FolderID places a new feed in that folder (which must exist) when Folder is
+	// empty; the web UI addresses folders by id. 0 = the default folder.
+	FolderID int64
 }
 
 // SubscribeResult is what quickadd and ac=subscribe report.
@@ -144,15 +148,10 @@ type SubscribeResult struct {
 // existing feed is moved or renamed only if a folder or title was given.
 func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, error) {
 	raw := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(o.URL), "feed/"))
-	norm, err := feedurl.Normalize(raw)
+	norm, key, host, err := ValidateFeedURL(raw, false)
 	if err != nil {
-		return SubscribeResult{}, &InvalidURLError{"not an absolute http(s) URL"}
+		return SubscribeResult{}, err
 	}
-	host, _ := feedurl.Host(norm)
-	if ip, perr := netip.ParseAddr(host); perr == nil && fetch.Blocked(ip.Unmap()) {
-		return SubscribeResult{}, &InvalidURLError{"address not allowed"}
-	}
-	key, _ := feedurl.Key(norm)
 	now := d.clock.Now().Unix()
 	var res SubscribeResult
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
@@ -169,6 +168,18 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 			folder, err := ensureFolder(ctx, tx, o.Folder)
 			if err != nil {
 				return err
+			}
+			if strings.TrimSpace(o.Folder) == "" && o.FolderID > 0 {
+				// Checked in this transaction: a folder deleted after the caller's own
+				// check must answer folder_not_found, not a foreign-key failure.
+				var n int
+				if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM folders WHERE id = ?", o.FolderID).Scan(&n); err != nil {
+					return err
+				}
+				if n == 0 {
+					return ErrFolderNotFound
+				}
+				folder = o.FolderID
 			}
 			var pos int64
 			if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(position)+1, 0) FROM feeds").Scan(&pos); err != nil {
@@ -191,6 +202,24 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 		return tx.QueryRowContext(ctx, "SELECT COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&res.Title)
 	})
 	return res, err
+}
+
+// ValidateFeedURL is the one URL check for every way a feed URL enters the
+// database (Reader subscribe, web add, web URL edit): an absolute http(s) URL
+// with a host, normalized, and not a literal blocked address (loopback,
+// private, link-local, ...) unless the feed allows private networks. Hostnames
+// that resolve to blocked addresses are stopped at dial time by the fetch
+// guard. It returns the normalized URL, its key and its host.
+func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err error) {
+	key, norm, nerr := feedurl.KeyAndNormalize(raw)
+	if nerr != nil {
+		return "", "", "", &InvalidURLError{"not an absolute http(s) URL"}
+	}
+	host, _ = feedurl.Host(norm)
+	if ip, perr := netip.ParseAddr(host); perr == nil && !allowPrivate && fetch.Blocked(ip.Unmap()) {
+		return "", "", "", &InvalidURLError{"address not allowed"}
+	}
+	return norm, key, host, nil
 }
 
 // FeedRef identifies a feed by numeric id or by URL (feed/<n> vs feed/<url>).
@@ -281,10 +310,21 @@ func (d *DB) EditSubscription(ctx context.Context, refs []FeedRef, o EditOpts) (
 
 // Unsubscribe removes feeds (design decision 24): starred items are re-parented
 // to the archive feed first, then the feed is deleted (cascading its items,
-// ledger, stubs, log and icon). Unsubscribing the archive feed deletes it.
-// Unknown feeds are ignored; the ids that existed are returned.
+// ledger, stubs, log and icon). Unknown feeds are ignored; the ids that were
+// removed are returned. The archive feed is processed last and only deleted
+// when it holds no starred items; otherwise it is skipped (see
+// UnsubscribeSkipped), so starred items are never lost.
 func (d *DB) Unsubscribe(ctx context.Context, refs []FeedRef) (feedIDs []int64, err error) {
+	feedIDs, _, err = d.UnsubscribeSkipped(ctx, refs)
+	return feedIDs, err
+}
+
+// UnsubscribeSkipped is Unsubscribe that also returns the ids it refused to
+// delete (the archive feed while it still holds starred items).
+func (d *DB) UnsubscribeSkipped(ctx context.Context, refs []FeedRef) (feedIDs, skipped []int64, err error) {
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		feedIDs, skipped = nil, nil
+		var archiveID int64
 		for _, ref := range refs {
 			id, err := resolveFeed(ctx, tx, ref)
 			if err != nil {
@@ -293,35 +333,79 @@ func (d *DB) Unsubscribe(ctx context.Context, refs []FeedRef) (feedIDs []int64, 
 			if id == 0 {
 				continue
 			}
-			feedIDs = append(feedIDs, id)
 			var reason sql.NullString
-			var title string
-			if err := tx.QueryRowContext(ctx, "SELECT disabled_reason, COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&reason, &title); err != nil {
+			if err := tx.QueryRowContext(ctx, "SELECT disabled_reason FROM feeds WHERE id = ?", id).Scan(&reason); err != nil {
 				return err
 			}
-			if reason.String != "archive" {
-				var starred int
-				if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", id).Scan(&starred); err != nil {
-					return err
-				}
-				if starred > 0 {
-					arch, err := ensureArchiveFeed(ctx, tx)
-					if err != nil {
-						return err
-					}
-					if _, err := tx.ExecContext(ctx, `UPDATE items SET feed_id = ?1, uid = 'a' || ?2 || ':' || uid,
-						origin_title = COALESCE(origin_title, ?3) WHERE feed_id = ?2 AND starred = 1`, arch, id, title); err != nil {
-						return err
-					}
-				}
+			if reason.String == "archive" {
+				archiveID = id
+				continue
 			}
-			if _, err := tx.ExecContext(ctx, "DELETE FROM feeds WHERE id = ?", id); err != nil {
+			feedIDs = append(feedIDs, id)
+			if err := removeFeed(ctx, tx, id, true); err != nil {
 				return err
+			}
+			d.bumpFilters() // its filters cascade away
+		}
+		if archiveID != 0 {
+			// Last, after the others have moved their starred items into it.
+			switch err := removeFeed(ctx, tx, archiveID, true); {
+			case errors.Is(err, ErrArchiveHasStarred):
+				skipped = append(skipped, archiveID)
+			case err != nil:
+				return err
+			default:
+				feedIDs = append(feedIDs, archiveID)
 			}
 		}
 		return nil
 	})
-	return feedIDs, err
+	return feedIDs, skipped, err
+}
+
+// ErrArchiveHasStarred is returned when the archive feed would be deleted
+// while it still holds starred items and delete_starred was not requested.
+var ErrArchiveHasStarred = errors.New("store: the archive feed holds starred items")
+
+// removeFeed deletes a feed. With archiveStarred its starred items are first
+// re-parented to the archive feed (design decision 24). The archive feed itself
+// is only deleted when it holds no starred items or archiveStarred is false
+// (explicit delete_starred); otherwise ErrArchiveHasStarred, nothing changed.
+func removeFeed(ctx context.Context, tx *sql.Tx, id int64, archiveStarred bool) error {
+	var reason sql.NullString
+	var title string
+	if err := tx.QueryRowContext(ctx, "SELECT disabled_reason, COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&reason, &title); err != nil {
+		return err
+	}
+	if archiveStarred && reason.String == "archive" {
+		var starred int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", id).Scan(&starred); err != nil {
+			return err
+		}
+		if starred > 0 {
+			return ErrArchiveHasStarred
+		}
+	}
+	if archiveStarred && reason.String != "archive" {
+		var starred int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", id).Scan(&starred); err != nil {
+			return err
+		}
+		if starred > 0 {
+			arch, err := ensureArchiveFeed(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE items SET feed_id = ?1, uid = 'a' || ?2 || ':' || uid,
+				origin_title = COALESCE(origin_title, ?3) WHERE feed_id = ?2 AND starred = 1`, arch, id, title); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM feeds WHERE id = ?", id); err != nil {
+		return err
+	}
+	return dropFavorite(ctx, tx, FavFeed, id)
 }
 
 func ensureArchiveFeed(ctx context.Context, tx *sql.Tx) (int64, error) {
@@ -358,8 +442,15 @@ func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) error
 			if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ? WHERE folder_id = ?", target, oldID); err != nil {
 				return err
 			}
-			_, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", oldID)
-			return err
+			res, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", oldID)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				d.bumpFilters() // the folder's filters cascade away
+				return dropFavorite(ctx, tx, FavFolder, oldID)
+			}
+			return nil
 		}
 		_, err = tx.ExecContext(ctx, "UPDATE folders SET name = ? WHERE id = ?", newName, oldID)
 		return err
@@ -372,8 +463,15 @@ func (d *DB) DisableLabel(ctx context.Context, id int64) error {
 		if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = 1 WHERE folder_id = ?", id); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", id)
-		return err
+		res, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			d.bumpFilters() // the folder's filters cascade away
+			return dropFavorite(ctx, tx, FavFolder, id)
+		}
+		return nil
 	})
 }
 
@@ -386,12 +484,21 @@ type UnreadRow struct {
 }
 
 // UnreadCounts returns per-feed unread counts (never counting ledger rows).
-func (d *DB) UnreadCounts(ctx context.Context) ([]UnreadRow, error) {
+//
+// holdCut > 0 leaves out items held back from the Reader API (HeldSQL), so the
+// counts match what the listings return.
+func (d *DB) UnreadCounts(ctx context.Context, holdCut int64) ([]UnreadRow, error) {
+	held := ""
+	var args []any
+	if holdCut > 0 {
+		held = " AND NOT " + HeldSQL(d.FulltextAll(ctx))
+		args = append(args, d.holdArgs(holdCut)...)
+	}
 	rows, err := d.reader.QueryContext(ctx, `
 		SELECT u.feed_id, fo.name, u.n, u.newest
-		FROM (SELECT feed_id, count(*) AS n, max(id) AS newest FROM items WHERE read = 0 GROUP BY feed_id) u
+		FROM (SELECT feed_id, count(*) AS n, max(id) AS newest FROM items WHERE read = 0`+held+` GROUP BY feed_id) u
 		JOIN feeds f ON f.id = u.feed_id JOIN folders fo ON fo.id = f.folder_id
-		ORDER BY fo.position, fo.name, f.position, u.feed_id`)
+		ORDER BY fo.position, fo.name, f.position, u.feed_id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -413,4 +520,54 @@ func (d *DB) FindFeedID(ctx context.Context, u string) (int64, bool, error) {
 		return 0, false, nil
 	}
 	return FindFeedByURL(ctx, d.reader, u)
+}
+
+// FeedIconAny returns a feed's icon whatever its hash (the web UI's /api/feeds/{id}/icon;
+// the ?h= value is only a cache-buster).
+func (d *DB) FeedIconAny(ctx context.Context, feedID int64) (data []byte, contentType string, ok bool, err error) {
+	err = d.reader.QueryRowContext(ctx, "SELECT data, content_type FROM feed_icons WHERE feed_id = ?", feedID).
+		Scan(&data, &contentType)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", false, nil
+	}
+	return data, contentType, err == nil, err
+}
+
+// StringSettingErr is StringSetting that reports a read failure (as opposed to
+// an unset key, which is the default with a nil error), for callers that cache.
+func (d *DB) StringSettingErr(ctx context.Context, key, def string) (string, error) {
+	return settingStringErr(ctx, d.reader, key, def)
+}
+
+// StringSetting reads a string setting through the reader pool.
+func (d *DB) StringSetting(ctx context.Context, key, def string) string {
+	return settingString(ctx, d.reader, key, def)
+}
+
+// FeedImageFlags returns, per feed id, the image proxy flag bits taken from
+// the feed (bit 0 allow_private_net, bit 1 allow_insecure_tls; design §7.4).
+func (d *DB) FeedImageFlags(ctx context.Context, feedIDs []int64) (map[int64]int, error) {
+	out := make(map[int64]int, len(feedIDs))
+	if len(feedIDs) == 0 {
+		return out, nil
+	}
+	js, err := json.Marshal(feedIDs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := d.reader.QueryContext(ctx,
+		"SELECT id, allow_private_net | (allow_insecure_tls << 1) FROM feeds WHERE id IN (SELECT value FROM json_each(?))", string(js))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var f int
+		if err := rows.Scan(&id, &f); err != nil {
+			return nil, err
+		}
+		out[id] = f
+	}
+	return out, rows.Err()
 }

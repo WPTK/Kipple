@@ -44,6 +44,9 @@ type DB struct {
 	writer *sql.DB
 	reader *sql.DB
 	gate   chan struct{}
+	// snap is the one-slot exclusion shared by the nightly snapshot and the
+	// backup export (both run VACUUM INTO on the snapshot pool).
+	snap chan struct{}
 
 	clock clock.Clock
 	alloc *IDAlloc
@@ -55,6 +58,17 @@ type DB struct {
 	noCheckpoint bool
 
 	holder atomic.Pointer[holder]
+
+	// ftAll caches fetch.fulltext_all; SetSettings invalidates it.
+	ftAll boolCache
+	// filterGen counts filter writes; fcache holds the rule set compiled at one generation.
+	filterGen atomic.Uint64
+	fcache    filterCache
+	// testFilterTxHook, when set by a test, runs at the end of every filter write's transaction.
+	testFilterTxHook func()
+
+	// ftPend is the set of items queued for ingest extraction (the Reader hold).
+	ftPend ftPending
 
 	closeOnce sync.Once
 	closeErr  error
@@ -187,7 +201,7 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	if clk == nil {
 		clk = clock.Real{}
 	}
-	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1), clock: clk,
+	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1), snap: make(chan struct{}, 1), clock: clk,
 		noMigrate: opts.NoMigrate, noCheckpoint: opts.NoCheckpoint}
 
 	if err := checkForeign(ctx, opts.Path); err != nil {
@@ -204,6 +218,10 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	d.writer.SetConnMaxLifetime(0)
 
 	if err := d.initWriter(ctx); err != nil {
+		d.writer.Close()
+		return nil, err
+	}
+	if err := selfCheck(ctx, d.writer); err != nil {
 		d.writer.Close()
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package sched
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/WPTK/kipple/internal/fetch"
@@ -54,6 +55,7 @@ func (s *Scheduler) dispatch(tickC <-chan time.Time, stopTick func()) {
 			for s.live > 0 {
 				s.handleDone(<-s.doneCh)
 			}
+			s.stopFulltext()
 			return
 		}
 	}
@@ -143,7 +145,10 @@ func (s *Scheduler) drainPending() {
 	for _, f := range s.pending {
 		if f.kind == kindFetch {
 			if t, ok := s.hostUntil[f.snap.Host]; ok && t.After(now) && !forcesFetch(f) {
-				if len(f.runs) == 0 && len(f.replies) == 0 && f.snap.Trigger == fetch.TriggerScheduled {
+				// Never drop a flight someone is waiting on: a run, a reply, or a
+				// queued follow-up (a trim, a re-key) that only runs once it finishes.
+				if len(f.runs) == 0 && len(f.replies) == 0 && len(f.followups) == 0 && len(f.runFollows) == 0 &&
+					f.snap.Trigger == fetch.TriggerScheduled {
 					delete(s.flights, f.snap.ID)
 					continue
 				}
@@ -165,6 +170,10 @@ func forcesFetch(f *flight) bool {
 	return f.snap.Full || f.snap.Trigger == fetch.TriggerSubscribe
 }
 
+// maxCommitFailCount stops the in-memory counter growing without bound; well
+// past the point where the backoff has reached its cap.
+const maxCommitFailCount = 64
+
 // handleDone processes one worker result (design §4.2 steps 1-6).
 func (s *Scheduler) handleDone(r result) {
 	if r.exit {
@@ -173,6 +182,18 @@ func (s *Scheduler) handleDone(r result) {
 	}
 	f := s.flights[r.feedID]
 	delete(s.flights, r.feedID)
+	if f != nil {
+		// Replayed last, on every exit path (including a cancelled job, where
+		// stopping is set and each request is answered ErrStopped).
+		defer func() {
+			for _, req := range f.followups {
+				s.handlePriority(req)
+			}
+			for _, rf := range f.runFollows {
+				s.runFollowup(rf)
+			}
+		}()
+	}
 	if f != nil && f.started {
 		s.running--
 		s.perHost[r.host]--
@@ -198,18 +219,26 @@ func (s *Scheduler) handleDone(r result) {
 	if r.commitFailed {
 		// Nothing was written, so next_fetch_at is still in the past and the feed
 		// would be redispatched every tick. Back it off in memory instead.
-		nb, _ := fetch.NextOnFailure(now, f.snap.IntervalS, f.snap.ConsecutiveFailures+1, 0, time.Time{}, s.opt.Rand)
+		// The persisted failure counter does not move when the write itself
+		// fails, so escalate on an in-memory count of consecutive commit
+		// failures on top of it. FailureDelaySeconds caps the delay (24 h, or the
+		// feed's interval when longer), which bounds retries on a dead database.
+		s.commitFails[r.feedID] = min(s.commitFails[r.feedID]+1, maxCommitFailCount)
+		n := f.snap.ConsecutiveFailures + s.commitFails[r.feedID]
+		nb, _ := fetch.NextOnFailure(now, f.snap.IntervalS, n, 0, time.Time{}, s.opt.Rand)
 		if r.nextFetch.After(nb) {
 			nb = r.nextFetch
 		}
 		s.notBefore[r.feedID] = nb
 	} else if f.kind == kindFetch {
 		delete(s.notBefore, r.feedID)
+		delete(s.commitFails, r.feedID)
 	}
 
-	var runIDs []int64
+	// Ids are strings in every JSON body (design §7).
+	runIDs := []string{}
 	for _, run := range f.runs {
-		runIDs = append(runIDs, run.ID)
+		runIDs = append(runIDs, strconv.FormatInt(run.ID, 10))
 		run.Done++
 		run.NewItems += r.newItems
 		if r.outcome == fetch.OutcomeError {
@@ -220,7 +249,7 @@ func (s *Scheduler) handleDone(r result) {
 			if s.runs[run.Kind] == run {
 				delete(s.runs, run.Kind)
 			}
-			s.hub.Publish("run.done", map[string]any{"run_id": run.ID, "new_items": run.NewItems, "errors": run.Errors})
+			s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": run.NewItems, "errors": run.Errors})
 		}
 	}
 
@@ -233,23 +262,29 @@ func (s *Scheduler) handleDone(r result) {
 		}
 	}
 
-	ids := r.newIDs
-	if len(ids) > maxEventIDs {
-		ids = ids[:maxEventIDs]
+	// Muted items are read already and hidden from every list but the Muted view, so a client
+	// catching up on new items never needs their ids.
+	shown := withoutIDs(r.newIDs, r.mutedIDs)
+	ids := make([]string, 0, min(len(shown), maxEventIDs))
+	for _, id := range shown[:min(len(shown), maxEventIDs)] {
+		ids = append(ids, idStr(id))
 	}
 	ev := map[string]any{
-		"feed_id": r.feedID, "run_ids": runIDs, "trigger": r.trigger, "outcome": r.outcome,
-		"new_items": r.newItems, "new_item_ids": ids, "updated_items": r.updated, "trimmed_items": r.trimmed,
+		"feed_id": idStr(r.feedID), "run_ids": runIDs, "trigger": r.trigger, "outcome": r.outcome,
+		"new_items": r.newItems, "new_item_ids": ids, "muted_items": r.muted, "updated_items": r.updated, "trimmed_items": r.trimmed,
 		"error_class": r.errClass, "error": r.errMsg,
 	}
 	if !r.nextFetch.IsZero() {
 		ev["next_fetch_at"] = r.nextFetch.Unix()
 	}
 	s.hub.Publish("fetch.done", ev)
+	if r.migrated || r.gone {
+		s.hub.Publish("feed.changed", map[string]any{"feed_id": idStr(r.feedID)})
+	}
 	for _, run := range f.runs {
 		if s.runs[run.Kind] == run && now.Sub(run.lastProgress) >= progressEvery {
 			run.lastProgress = now
-			s.hub.Publish("run.progress", map[string]any{"run_id": run.ID, "done": run.Done, "total": run.Total,
+			s.hub.Publish("run.progress", map[string]any{"run_id": idStr(run.ID), "done": run.Done, "total": run.Total,
 				"new_items": run.NewItems, "errors": run.Errors})
 		}
 	}
@@ -309,37 +344,29 @@ func (s *Scheduler) handleRun(req runReq) {
 	var toEnqueue []*flight
 	for _, snap := range snaps {
 		if f, busy := s.flights[snap.ID]; busy {
-			// a fetch happening now counts as "fetched now"
-			f.runs = append(f.runs, run)
 			run.Outstanding++
+			if runSatisfied(f, req.kind) {
+				// a fetch happening now counts as "fetched now"
+				f.runs = append(f.runs, run)
+			} else {
+				// A trim or skip in flight did not fetch the feed: the run's
+				// own job for it follows once that one is done.
+				f.runFollows = append(f.runFollows, runFollow{run: run, kind: req.kind, feedID: snap.ID})
+			}
 			continue
 		}
-		f := &flight{runs: []*Run{run}}
-		switch req.kind {
-		case RunRetention:
-			snap.Trigger, f.kind = fetch.TriggerRetention, kindTrim
-		default:
-			snap.Trigger = fetch.TriggerManual
-			if req.kind == RunImport {
-				snap.Trigger = fetch.TriggerImport
-			}
-			f.kind = kindFetch
-			if t, held := s.hostUntil[snap.Host]; held && t.After(now) {
-				f.kind, snap.HostUntil = kindSkip, t
-			}
-		}
-		f.snap = snap
+		f := s.newRunFlight(run, req.kind, snap, now)
 		toEnqueue = append(toEnqueue, f)
 		run.Outstanding++
 	}
 	run.Total = run.Outstanding
 	if run.Total == 0 {
-		s.hub.Publish("run.done", map[string]any{"run_id": run.ID, "new_items": 0, "errors": 0})
+		s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": 0, "errors": 0})
 		reply(runReply{info: RunInfo{RunID: run.ID, Kind: run.Kind}})
 		return
 	}
 	s.runs[run.Kind] = run
-	s.hub.Publish("run.start", map[string]any{"run_id": run.ID, "kind": run.Kind, "total": run.Total})
+	s.hub.Publish("run.start", map[string]any{"run_id": idStr(run.ID), "kind": run.Kind, "total": run.Total})
 	for _, f := range toEnqueue {
 		s.enqueue(f)
 	}
@@ -358,12 +385,21 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 		answer(Reply{FeedID: req.p.FeedID, Err: ErrStopped})
 		return
 	}
-	// Known and latent (review #18, deliberately not changed): a request for a
-	// feed that is already in flight only borrows that job's reply. Its intent
-	// (Full refetch, a trim, a different trigger) is not applied, so it gets the
-	// outcome of whatever is running. No caller depends on more today.
 	if f, busy := s.flights[req.p.FeedID]; busy {
-		f.replies = append(f.replies, req.reply) // it answers when the running job does
+		if satisfies(f, req.p) {
+			f.replies = append(f.replies, req.reply) // it answers when the running job does
+		} else if !f.started && req.p.Kind == PriorityRefresh && req.p.Full && f.kind != kindTrim {
+			// Not started yet (waiting for a worker or host slot): upgrade it in
+			// place to the full refetch instead of queueing a follow-up behind a
+			// job that may never run.
+			f.snap.Full, f.kind, f.snap.HostUntil = true, kindFetch, time.Time{}
+			f.replies = append(f.replies, req.reply)
+		} else {
+			// The running job cannot honor this request's intent (a full refetch,
+			// a trim, a re-key that arrived after its snapshot). Keep the request
+			// whole and run it after this job, on a fresh snapshot.
+			f.followups = append(f.followups, req)
+		}
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), tickQueryTimeout)
@@ -376,7 +412,7 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 	case !ok:
 		answer(Reply{FeedID: req.p.FeedID, Err: ErrNotFound})
 		return
-	case !snap.Enabled:
+	case !snap.Enabled && req.p.Kind != PriorityTrim: // a trim touches no network, so a disabled feed still honors a lowered cap
 		answer(Reply{FeedID: req.p.FeedID, Err: ErrDisabled})
 		return
 	}
@@ -406,3 +442,93 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 		s.pending = append([]*flight{f}, s.pending...)
 	}
 }
+
+// satisfies reports whether the in-flight job f already does what p asks: a
+// plain refresh is covered by any fetch, a full refresh only by a full fetch,
+// a trim only by a trim.
+func satisfies(f *flight, p Priority) bool {
+	switch p.Kind {
+	case PriorityTrim:
+		return f.kind == kindTrim
+	default:
+		return f.kind == kindFetch && (!p.Full || f.snap.Full)
+	}
+}
+
+// runFollow is a run's job for a feed whose in-flight job did not do what the
+// run needs (a trim or a skip where the run fetches). It starts a fresh flight
+// once the in-flight one is done; the run keeps that feed outstanding meanwhile.
+type runFollow struct {
+	run    *Run
+	kind   string
+	feedID int64
+}
+
+// runSatisfied reports whether the in-flight job f does what a run of the
+// given kind needs for that feed: a fetch run needs a real fetch (same rule as
+// a priority refresh); a retention run is served by a trim or by a fetch, which
+// trims after its commit.
+func runSatisfied(f *flight, runKind string) bool {
+	if runKind == RunRetention {
+		return f.kind == kindTrim || f.kind == kindFetch
+	}
+	return satisfies(f, Priority{Kind: PriorityRefresh})
+}
+
+// newRunFlight builds the job a run uses for one feed.
+func (s *Scheduler) newRunFlight(run *Run, runKind string, snap fetch.Snapshot, now time.Time) *flight {
+	f := &flight{runs: []*Run{run}}
+	switch runKind {
+	case RunRetention:
+		snap.Trigger, f.kind = fetch.TriggerRetention, kindTrim
+	default:
+		snap.Trigger = fetch.TriggerManual
+		if runKind == RunImport {
+			snap.Trigger = fetch.TriggerImport
+		}
+		f.kind = kindFetch
+		if t, held := s.hostUntil[snap.Host]; held && t.After(now) {
+			f.kind, snap.HostUntil = kindSkip, t
+		}
+	}
+	f.snap = snap
+	return f
+}
+
+// runFollowup starts a run's deferred job for one feed, or settles the feed as
+// an error when it can no longer run (shutdown, feed gone or disabled).
+func (s *Scheduler) runFollowup(rf runFollow) {
+	ctx, cancel := context.WithTimeout(context.Background(), tickQueryTimeout)
+	defer cancel()
+	snap, ok, err := s.db.FeedSnapshot(ctx, s.db.FetchSettings(ctx), rf.feedID)
+	if s.stopping || err != nil || !ok || !snap.Enabled {
+		s.settleRunFeed(rf.run, true)
+		return
+	}
+	if f, busy := s.flights[rf.feedID]; busy { // something else started meanwhile
+		if runSatisfied(f, rf.kind) {
+			f.runs = append(f.runs, rf.run)
+		} else {
+			f.runFollows = append(f.runFollows, rf)
+		}
+		return
+	}
+	s.enqueue(s.newRunFlight(rf.run, rf.kind, snap, s.clk.Now()))
+}
+
+// settleRunFeed closes one feed of a run without a job.
+func (s *Scheduler) settleRunFeed(run *Run, isErr bool) {
+	run.Done++
+	if isErr {
+		run.Errors++
+	}
+	run.Outstanding--
+	if run.Outstanding <= 0 {
+		if s.runs[run.Kind] == run {
+			delete(s.runs, run.Kind)
+		}
+		s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": run.NewItems, "errors": run.Errors})
+	}
+}
+
+func idStr(id int64) string { return strconv.FormatInt(id, 10) }

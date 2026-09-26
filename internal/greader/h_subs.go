@@ -2,6 +2,7 @@ package greader
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"mime"
 	"net/http"
@@ -30,7 +31,7 @@ func (a *API) registerSubs() {
 	a.routes["subscription/import"] = route{h: (*call).subscriptionImport, post: true, raw: true}
 	a.routes["subscription/export"] = route{h: (*call).subscriptionExport}
 	a.routes["rename-tag"] = route{h: (*call).renameTag, post: true}
-	a.routes["disable-tag"] = route{h: (*call).disableTag, post: true}
+	a.routes["disable-tag"] = route{h: (*call).disableTag, post: true, repair: true}
 	a.routes["unread-count"] = route{h: (*call).unreadCount}
 }
 
@@ -58,7 +59,7 @@ func (c *call) subscriptionList() {
 		c.serverError("subscription list", err)
 		return
 	}
-	icons := c.a.db.BoolSetting(ctx, "greader.icon_urls", false) && c.a.opt.PublicURL != ""
+	icons := c.a.db.BoolSetting(ctx, "greader.icon_urls", true) && c.a.opt.PublicURL != ""
 	pub := strings.TrimRight(c.a.opt.PublicURL, "/")
 	out := make([]subscriptionJSON, 0, len(subs))
 	for _, s := range subs {
@@ -90,7 +91,7 @@ func (c *call) tagList() {
 
 // icon serves feed icons, unauthenticated, only while greader.icon_urls is on.
 func (c *call) icon(rest string) {
-	if !c.a.db.BoolSetting(c.r.Context(), "greader.icon_urls", false) {
+	if !c.a.db.BoolSetting(c.r.Context(), "greader.icon_urls", true) {
 		c.text(http.StatusNotFound, "Not Found")
 		return
 	}
@@ -136,18 +137,22 @@ func safeIconType(ct string) bool {
 
 // ---- labels ----
 
-// labelName returns the folder name after user/<x>/label/.
-func labelName(id string) (string, bool) {
+// parseUserPath returns the name after user/<x>/<suffix> (suffix such as
+// "/label/" or "/state/com.google/"). An empty or all-space name is not ok.
+func parseUserPath(id, suffix string) (string, bool) {
 	rest, ok := strings.CutPrefix(id, "user/")
 	if !ok {
 		return "", false
 	}
-	_, name, ok := strings.Cut(rest, "/label/")
+	_, name, ok := strings.Cut(rest, suffix)
 	if !ok || strings.TrimSpace(name) == "" {
 		return "", false
 	}
 	return name, true
 }
+
+// labelName returns the folder name after user/<x>/label/.
+func labelName(id string) (string, bool) { return parseUserPath(id, "/label/") }
 
 // labelCandidates are the lookup forms of §6.2: decoded, raw, raw through
 // PathUnescape (which keeps '+'). Duplicates are dropped.
@@ -176,14 +181,29 @@ func labelCandidates(decoded, raw string) []string {
 	return out
 }
 
-// firstLabel returns the first label name among values (decoded form), for a=/r=.
-func firstLabel(values []string) (string, bool) {
-	for _, v := range values {
-		if n, ok := labelName(v); ok {
-			return n, true
+// folderName resolves the a=/r= label values to the folder name to use: an
+// existing folder matching any lookup form of §6.2 wins (so a raw '+' still finds
+// "Politics+"), otherwise the decoded name.
+func (c *call) folderName(ctx context.Context, values, raws []string) (string, bool, error) {
+	for i, v := range values {
+		n, ok := labelName(v)
+		if !ok {
+			continue
 		}
+		raw := ""
+		if i < len(raws) {
+			raw = raws[i]
+		}
+		for _, cand := range labelCandidates(v, raw) {
+			if _, found, err := c.a.db.FindLabel(ctx, []string{cand}); err != nil {
+				return "", false, err
+			} else if found {
+				return cand, true, nil
+			}
+		}
+		return n, true, nil
 	}
-	return "", false
+	return "", false, nil
 }
 
 // feedRefs turns s= values into FeedRefs: feed/<digits> or feed/<url>.
@@ -230,11 +250,13 @@ func (c *call) quickAdd() {
 	c.json(http.StatusOK, quickAddJSON{NumResults: 1, Query: q, StreamID: feedID(res.FeedID), StreamName: res.Title})
 }
 
+func (c *call) publishFolders() { c.a.publish("folder.changed", map[string]any{}) }
+
 func (c *call) afterSubscribe(res store.SubscribeResult) {
 	if !res.Existed {
 		c.a.wake()
 	}
-	c.a.publish("feed.changed", map[string]any{"feed_id": res.FeedID})
+	c.a.publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(res.FeedID, 10)})
 }
 
 // subscriptionEdit is POST subscription/edit (ac=subscribe|edit|unsubscribe).
@@ -244,7 +266,11 @@ func (c *call) subscriptionEdit() {
 	ss, ts := p.All("s"), p.All("t")
 	switch p.Get("ac") {
 	case "subscribe":
-		folder, _ := firstLabel(p.All("a"))
+		folder, _, err := c.folderName(ctx, p.All("a"), p.AllRaw("a"))
+		if err != nil {
+			c.serverError("subscribe", err)
+			return
+		}
 		for i, s := range ss {
 			rest, ok := strings.CutPrefix(strings.TrimSpace(s), "feed/")
 			if !ok || rest == "" {
@@ -264,6 +290,9 @@ func (c *call) subscriptionEdit() {
 				return
 			}
 			c.afterSubscribe(res)
+			if folder != "" {
+				c.publishFolders() // may have created the folder
+			}
 		}
 	case "edit":
 		refs := feedRefs(ss)
@@ -271,9 +300,12 @@ func (c *call) subscriptionEdit() {
 		if len(ts) > 0 {
 			opts.Title = ts[0]
 		}
-		if name, ok := firstLabel(p.All("a")); ok {
+		if name, ok, err := c.folderName(ctx, p.All("a"), p.AllRaw("a")); err != nil {
+			c.serverError("edit subscription", err)
+			return
+		} else if ok {
 			opts.Folder, opts.SetFolder = name, true
-		} else if _, ok := firstLabel(p.All("r")); ok {
+		} else if _, ok := labelName(firstOrEmpty(p.All("r"))); ok {
 			opts.MoveToDefault = true
 		}
 		// One title per feed when several are edited at once.
@@ -287,6 +319,9 @@ func (c *call) subscriptionEdit() {
 					return
 				}
 				c.publishFeeds(ids)
+				if len(ids) > 0 && (o.SetFolder || o.MoveToDefault) {
+					c.publishFolders()
+				}
 			}
 			break
 		}
@@ -296,11 +331,17 @@ func (c *call) subscriptionEdit() {
 			return
 		}
 		c.publishFeeds(ids)
+		if len(ids) > 0 && (opts.SetFolder || opts.MoveToDefault) {
+			c.publishFolders()
+		}
 	case "unsubscribe":
-		ids, err := c.a.db.Unsubscribe(ctx, feedRefs(ss))
+		ids, skipped, err := c.a.db.UnsubscribeSkipped(ctx, feedRefs(ss))
 		if err != nil {
 			c.serverError("unsubscribe", err)
 			return
+		}
+		if len(skipped) > 0 {
+			c.a.log.Info("greader: unsubscribe kept the archive feed: it still holds starred items", "feed_ids", skipped)
 		}
 		c.publishFeeds(ids)
 	}
@@ -309,7 +350,7 @@ func (c *call) subscriptionEdit() {
 
 func (c *call) publishFeeds(ids []int64) {
 	for _, id := range ids {
-		c.a.publish("feed.changed", map[string]any{"feed_id": id})
+		c.a.publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(id, 10)})
 	}
 }
 
@@ -331,7 +372,10 @@ func (c *call) subscriptionImport() {
 		c.a.wake()
 	}
 	for _, id := range res.NewFeedIDs {
-		c.a.publish("feed.changed", map[string]any{"feed_id": id})
+		c.a.publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(id, 10)})
+	}
+	if res.FoldersCreated > 0 {
+		c.publishFolders()
 	}
 	c.ok()
 }
@@ -355,7 +399,11 @@ func (c *call) renameTag() {
 	ctx := c.r.Context()
 	s := c.p.Get("s")
 	rawS := firstOrEmpty(c.p.AllRaw("s"))
-	dest, ok := labelName(c.p.Get("dest"))
+	dest, ok, err := c.folderName(ctx, c.p.All("dest"), c.p.AllRaw("dest"))
+	if err != nil {
+		c.serverError("rename-tag", err)
+		return
+	}
 	if !ok {
 		c.ok()
 		return
@@ -371,6 +419,7 @@ func (c *call) renameTag() {
 			return
 		}
 		c.a.publish("feed.changed", map[string]any{})
+		c.publishFolders()
 	}
 	c.ok()
 }
@@ -382,47 +431,22 @@ func firstOrEmpty(l []string) string {
 	return l[0]
 }
 
-// rawSFallback extracts the raw text of the first s= from the undecoded body up
-// to the next "&T=" or the end (design §6.2): NNW leaves a folder name's '&'
-// and '+' unencoded there.
-func rawSFallback(body string) string {
-	var rest string
-	switch {
-	case strings.HasPrefix(body, "s="):
-		rest = body[2:]
-	default:
-		i := strings.Index(body, "&s=")
-		if i < 0 {
-			return ""
-		}
-		rest = body[i+3:]
-	}
-	if j := strings.Index(rest, "&T="); j >= 0 {
-		rest = rest[:j]
-	}
-	return rest
-}
-
 // disableTag is POST disable-tag: delete each folder, moving its feeds to Uncategorized.
 func (c *call) disableTag() {
 	ctx := c.r.Context()
 	svals, raws := c.p.All("s"), c.p.AllRaw("s")
-	fallback := rawSFallback(c.p.RawBody())
 	for i, s := range svals {
-		var cands []string
-		if i == 0 && fallback != "" && (len(raws) == 0 || fallback != raws[0]) {
-			// The raw body text is more complete than the '&'-split value: prefer it.
-			dec := fallback
-			if u, err := url.QueryUnescape(fallback); err == nil {
-				dec = u
-			}
-			cands = append(cands, labelCandidates(dec, fallback)...)
-		}
 		raw := ""
 		if i < len(raws) {
 			raw = raws[i]
 		}
-		cands = append(cands, labelCandidates(s, raw)...)
+		cands := labelCandidates(s, raw)
+		// A stray "&" after the id ("News&") is glued into the name; when no folder
+		// carries that name, fall back to the name without the stray tail. Only
+		// empty tails: "AT&T" never deletes "AT".
+		if trimmed := strings.TrimRight(raw, "&"); trimmed != raw {
+			cands = append(cands, labelCandidates(lenientUnescape(trimmed), trimmed)...)
+		}
 		id, found, err := c.a.db.FindLabel(ctx, cands)
 		if err != nil {
 			c.serverError("disable-tag", err)
@@ -434,6 +458,7 @@ func (c *call) disableTag() {
 				return
 			}
 			c.a.publish("feed.changed", map[string]any{})
+			c.publishFolders()
 		}
 	}
 	c.ok()
@@ -447,7 +472,7 @@ type unreadCountJSON struct {
 
 // unreadCount is GET unread-count (FeedMe-class clients).
 func (c *call) unreadCount() {
-	rows, err := c.a.db.UnreadCounts(c.r.Context())
+	rows, err := c.a.db.UnreadCounts(c.r.Context(), c.a.holdCut())
 	if err != nil {
 		c.serverError("unread-count", err)
 		return

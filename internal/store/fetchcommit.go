@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -23,10 +22,25 @@ type CommitInfo struct {
 	New     int
 	Updated int
 	Trimmed int64
-	NewIDs  []int64 // ascending
+	NewIDs  []int64 // ascending; every new item, muted ones included
+	// MutedIDs are the new items a mute rule muted (already read, never queued for
+	// full text, left out of the fetch.done new_item_ids). Muted, MarkedRead and Starred
+	// count what the filters did to this fetch's new items (a match counts only when its
+	// action took effect).
+	MutedIDs   []int64
+	Muted      int
+	MarkedRead int
+	Starred    int
+	// Migrated is set when the commit rewrote feeds.url (design §4.7).
+	Migrated bool
+	// Stale is set when the feed's URL changed under the fetch and nothing (or,
+	// for a chunked commit, only the chunks before the change) was
+	// written.
+	Stale bool
 }
 
 type commitState struct {
+	migrated   bool
 	before     int // items in the feed before the fetch
 	firstNewID int64
 	firstID    int64
@@ -38,8 +52,12 @@ type commitState struct {
 	seenTomb   int
 	trimmed    int64
 	notes      []string
+	mutedIDs   []int64
+	fMarked    int
+	fStarred   int
 	keep       bool
 	begun      bool
+	stale      bool // the feed's URL changed under the fetch; nothing was written
 }
 
 func (st *commitState) note(s string, keep bool) {
@@ -79,12 +97,16 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 
 	st := &commitState{firstNewID: maxInt64}
 	info := func() CommitInfo {
-		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs}
+		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale,
+			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred}
 	}
 	for i, ch := range chunks {
 		last := i == len(chunks)-1
 		if err := d.commitChunk(ctx, res, ch, last, st, perChunk); err != nil {
 			return info(), fmt.Errorf("store: commit fetch of feed %d (chunk %d/%d): %w", res.Snap.ID, i+1, len(chunks), err)
+		}
+		if st.stale {
+			break // the URL changed under the fetch: stop here and report what did commit
 		}
 	}
 	return info(), nil
@@ -152,6 +174,22 @@ type existingRow struct {
 func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, last bool, st *commitState) error {
 	feedID := res.Snap.ID
 	now := d.clock.Now().Unix()
+	// A URL edit that landed while this fetch was in flight makes its result
+	// stale: the validators, redirect state and schedule belong to the old URL.
+	// Drop this chunk and every later one (the trim, the bookkeeping and the log
+	// row with them) and leave the feed row as PATCH set it. The check is per
+	// chunk, so a URL edit that lands between chunks of a large fetch leaves the
+	// earlier chunks' items durable; CommitInfo.Stale is set and NewIDs/New list
+	// exactly what did commit, which callers use (the scheduler still queues
+	// full-text extraction for those items).
+	var curURL string
+	if err := tx.QueryRowContext(ctx, "SELECT url FROM feeds WHERE id = ?", feedID).Scan(&curURL); err != nil {
+		return err
+	}
+	if curURL != res.Snap.URL {
+		st.stale = true
+		return nil
+	}
 	first := !st.begun
 	st.begun = true
 
@@ -189,6 +227,9 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	}
 	if st.initRead > 0 {
 		st.note(fmt.Sprintf("initial_read: %d", st.initRead), false)
+	}
+	if len(st.mutedIDs)+st.fMarked+st.fStarred > 0 {
+		st.note(fmt.Sprintf("filters: muted %d, marked_read %d, starred %d", len(st.mutedIDs), st.fMarked, st.fStarred), false)
 	}
 	if st.rekeyed > 0 || (res.Snap.RekeyPending && res.Outcome == fetch.OutcomeOK) {
 		st.note(fmt.Sprintf("rekeyed: %d", st.rekeyed), true)
@@ -254,39 +295,37 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 	for i, it := range items {
 		uids[i] = it.UID
 	}
-	uidJSON, _ := json.Marshal(uids)
+	uidJSON, err := jsonText(uids)
+	if err != nil {
+		return err
+	}
 
+	// One pass over the chunk's uids: live items (kind 0, with the columns updateItem
+	// needs) and ledger tombstones (kind 1) come back together.
 	existing := map[string]existingRow{}
-	rows, err := tx.QueryContext(ctx, `SELECT id, uid, content_hash, text_hash, title, author, url, COALESCE(image_url,''), word_count
-		FROM items WHERE feed_id = ? AND uid IN (SELECT value FROM json_each(?))`, feedID, string(uidJSON))
+	tomb := map[string]bool{}
+	rows, err := tx.QueryContext(ctx, `WITH u(uid) AS MATERIALIZED (SELECT value FROM json_each(?2))
+		SELECT 0, id, uid, content_hash, text_hash, title, author, url, COALESCE(image_url,''), word_count
+		  FROM items WHERE feed_id = ?1 AND uid IN (SELECT uid FROM u)
+		UNION ALL
+		SELECT 1, 0, uid, '', '', '', '', '', '', 0
+		  FROM trimmed_items WHERE feed_id = ?1 AND uid IN (SELECT uid FROM u)`, feedID, uidJSON)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
+		var kind int
 		var uid string
 		var e existingRow
-		if err := rows.Scan(&e.id, &uid, &e.contentHash, &e.textHash, &e.title, &e.author, &e.url, &e.imageURL, &e.wordCount); err != nil {
+		if err := rows.Scan(&kind, &e.id, &uid, &e.contentHash, &e.textHash, &e.title, &e.author, &e.url, &e.imageURL, &e.wordCount); err != nil {
 			rows.Close()
 			return err
 		}
-		existing[uid] = e
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	tomb := map[string]bool{}
-	rows, err = tx.QueryContext(ctx, `SELECT uid FROM trimmed_items WHERE feed_id = ? AND uid IN (SELECT value FROM json_each(?))`,
-		feedID, string(uidJSON))
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var uid string
-		if err := rows.Scan(&uid); err != nil {
-			rows.Close()
-			return err
+		if kind == 1 {
+			tomb[uid] = true
+		} else {
+			existing[uid] = e
 		}
-		tomb[uid] = true
 	}
 	if err := rows.Close(); err != nil {
 		return err
@@ -319,16 +358,25 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 	}
 
 	if len(fresh) > 0 {
+		docTitle := ""
+		if res.Feed != nil {
+			docTitle = res.Feed.Title
+		}
+		fe, err := d.newIngestEval(ctx, tx, feedID, docTitle)
+		if err != nil {
+			return err
+		}
+		hits := map[int64]int{}
 		insItem, err := tx.PrepareContext(ctx, `INSERT INTO items
 			(id, feed_id, uid, url, title, author, image_url, word_count, content_hash, text_hash,
-			 published_at, updated_at, sort_at, read, read_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			 published_at, updated_at, sort_at, read, read_at, starred, starred_at, muted_by, muted_was_read)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 		if err != nil {
 			return err
 		}
 		defer insItem.Close()
 		insContent, err := tx.PrepareContext(ctx,
-			`INSERT INTO item_content (item_id, content_html, content_text, enclosures_json) VALUES (?,?,?,?)`)
+			`INSERT INTO item_content (item_id, content_html, content_text, enclosures_json, categories_json) VALUES (?,?,?,?,?)`)
 		if err != nil {
 			return err
 		}
@@ -349,6 +397,29 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				read = 1
 				st.initRead++
 			}
+			var starred, mutedBy, mutedWasRead, starredAt any
+			baseRead := read
+			if fe != nil {
+				v := fe.eval(it, read == 1, hits)
+				if v.read {
+					read = 1
+				}
+				if v.starred {
+					starred, starredAt = 1, now
+					st.fStarred++
+				} else {
+					starred = 0
+				}
+				if v.mutedBy != 0 {
+					mutedBy, mutedWasRead = v.mutedBy, baseRead
+					st.mutedIDs = append(st.mutedIDs, id)
+				}
+				if v.marked {
+					st.fMarked++
+				}
+			} else {
+				starred = 0
+			}
 			var readAt, updatedAt any
 			if read == 1 {
 				readAt = now
@@ -357,15 +428,18 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				updatedAt = it.Updated.Unix()
 			}
 			if _, err := insItem.ExecContext(ctx, id, feedID, it.UID, it.URL, it.Title, it.Author, nullStr(it.ImageURL),
-				it.WordCount, it.ContentHash, it.TextHash, pub, updatedAt, sortAt, read, readAt); err != nil {
+				it.WordCount, it.ContentHash, it.TextHash, pub, updatedAt, sortAt, read, readAt, starred, starredAt, mutedBy, mutedWasRead); err != nil {
 				return err
 			}
-			var enc any
-			if len(it.Enclosures) > 0 {
-				b, _ := json.Marshal(it.Enclosures)
-				enc = string(b)
+			enc, err := optJSON(it.Enclosures, len(it.Enclosures) == 0)
+			if err != nil {
+				return err
 			}
-			if _, err := insContent.ExecContext(ctx, id, it.ContentHTML, it.ContentText, enc); err != nil {
+			cats, err := categoriesJSON(it.Categories)
+			if err != nil {
+				return err
+			}
+			if _, err := insContent.ExecContext(ctx, id, it.ContentHTML, it.ContentText, enc, cats); err != nil {
 				return err
 			}
 			if st.firstNewID == maxInt64 {
@@ -377,12 +451,18 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 			st.lastID = id
 			st.newIDs = append(st.newIDs, id)
 		}
+		if err := writeHits(ctx, tx, hits, now); err != nil {
+			return err
+		}
 	}
 
 	if len(seenTomb) > 0 {
-		b, _ := json.Marshal(seenTomb)
+		b, err := jsonText(seenTomb)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE trimmed_items SET last_seen_at = ? WHERE feed_id = ? AND uid IN (SELECT value FROM json_each(?))`,
-			now, feedID, string(b)); err != nil {
+			now, feedID, b); err != nil {
 			return err
 		}
 		st.seenTomb += len(seenTomb)
@@ -419,17 +499,16 @@ func updateItem(ctx context.Context, tx *sql.Tx, e existingRow, it fetch.Item, n
 	if _, err := tx.ExecContext(ctx, "UPDATE items SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...); err != nil {
 		return err
 	}
-	var enc any
-	if len(it.Enclosures) > 0 {
-		b, _ := json.Marshal(it.Enclosures)
-		enc = string(b)
+	enc, err := optJSON(it.Enclosures, len(it.Enclosures) == 0)
+	if err != nil {
+		return err
 	}
 	if textChanged {
-		_, err := tx.ExecContext(ctx, `UPDATE item_content SET content_html = ?, content_text = ?, enclosures_json = ? WHERE item_id = ?`,
+		_, err = tx.ExecContext(ctx, `UPDATE item_content SET content_html = ?, content_text = ?, enclosures_json = ? WHERE item_id = ?`,
 			it.ContentHTML, it.ContentText, enc, e.id)
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE item_content SET content_html = ?, enclosures_json = ? WHERE item_id = ?`,
+	_, err = tx.ExecContext(ctx, `UPDATE item_content SET content_html = ?, enclosures_json = ? WHERE item_id = ?`,
 		it.ContentHTML, enc, e.id)
 	return err
 }
@@ -514,6 +593,7 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 			return err
 		}
 		st.note(fmt.Sprintf("redirect_migrated: %s -> %s", res.Snap.URL, dec.To), true)
+		st.migrated = true
 		return nil
 	default: // clear
 		_, err := tx.ExecContext(ctx, `UPDATE feeds SET redirect_to = NULL, redirect_kind = NULL, redirect_count = 0
@@ -532,23 +612,22 @@ func (d *DB) saveHighWater(ctx context.Context, tx *sql.Tx) error {
 // CommitFetchError is the error bookkeeping transaction: failure counters,
 // the backoff schedule, the 410 disable, and the fetch_log row.
 func (d *DB) CommitFetchError(ctx context.Context, res *fetch.Result) error {
-	release, err := d.AcquireGate(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
 	now := d.clock.Now().Unix()
-	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	return d.gated(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		feedID := res.Snap.ID
-		if _, err := tx.ExecContext(ctx, `UPDATE feeds SET
+		upd, err := tx.ExecContext(ctx, `UPDATE feeds SET
 			consecutive_failures = consecutive_failures + 1,
 			last_error = ?2, last_error_class = ?3, last_error_at = ?4, last_status = ?5, last_fetch_at = ?4,
 			next_fetch_at = ?6, current_delay_s = ?7, updated_at = ?4,
 			enabled = CASE WHEN ?8 THEN 0 ELSE enabled END,
 			disabled_reason = CASE WHEN ?8 THEN 'gone' ELSE disabled_reason END
-			WHERE id = ?1`,
-			feedID, res.ErrMsg, res.ErrClass, now, nullInt(res.Status), res.NextFetchAt.Unix(), res.CurrentDelayS, res.Gone); err != nil {
+			WHERE id = ?1 AND url = ?9`,
+			feedID, res.ErrMsg, res.ErrClass, now, nullInt(res.Status), res.NextFetchAt.Unix(), res.CurrentDelayS, res.Gone, res.Snap.URL)
+		if err != nil {
 			return err
+		}
+		if n, _ := upd.RowsAffected(); n == 0 {
+			return nil // the URL was edited while this fetch ran: the error is about the old URL
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO fetch_log
 			(feed_id, trigger, started_at, duration_ms, outcome, http_status, error_class, error, bytes, final_url, note)
@@ -563,13 +642,8 @@ func (d *DB) CommitFetchError(ctx context.Context, res *fetch.Result) error {
 
 // CommitSkip writes a `skipped` fetch_log row and leaves the schedule alone.
 func (d *DB) CommitSkip(ctx context.Context, snap fetch.Snapshot, note string) error {
-	release, err := d.AcquireGate(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
 	now := d.clock.Now().Unix()
-	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	return d.gated(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO fetch_log (feed_id, trigger, started_at, duration_ms, outcome, note)
 			VALUES (?,?,?,0,'skipped',?)`, snap.ID, snap.Trigger, now, note); err != nil {
 			return err

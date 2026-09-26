@@ -1,12 +1,16 @@
 package greader
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/WPTK/kipple/internal/events"
 )
 
 func subsOf(t *testing.T, h *harness) []map[string]any {
@@ -216,10 +220,29 @@ func TestUnsubscribeArchivesStarredItems(t *testing.T) {
 	sw := h.get(rd + "stream/items/ids?output=json&s=" + starred)
 	require.Contains(t, sw.Body.String(), `"`+FormatDecimal(keep)+`"`)
 
-	// Unsubscribing the archive deletes it and its items.
-	h.post(rd+"subscription/edit", "ac=unsubscribe&s="+feedID(arch))
-	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM items WHERE id = ?", keep))
-	require.Nil(t, findSub(subsOf(t, h), feedID(arch)))
+	// Unsubscribing the archive while it holds starred items is skipped: the reply
+	// is still OK and the items survive.
+	w = h.post(rd+"subscription/edit", "T="+h.tok+"&ac=unsubscribe&s="+feedID(arch))
+	require.Equal(t, "OK", w.Body.String())
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM items WHERE id = ?", keep))
+	require.NotNil(t, findSub(subsOf(t, h), feedID(arch)))
+}
+
+func TestUnsubscribeStarredFeedAndArchiveTogether(t *testing.T) {
+	h := newHarness(t)
+	f := h.addFeed("https://a.example/feed.xml", "Alpha", "")
+	keep := h.addItem(f, itemSeed{Title: "starred one", Starred: true})
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=unsubscribe&s="+feedID(f))
+	arch := q[int64](h, "SELECT feed_id FROM items WHERE id = ?", keep)
+	g := h.addFeed("https://b.example/feed.xml", "Beta", "")
+	kept2 := h.addItem(g, itemSeed{Title: "starred two", Starred: true})
+
+	// One request naming the archive feed (first) and a starred feed.
+	w := h.post(rd+"subscription/edit", "T="+h.tok+"&ac=unsubscribe&s="+feedID(arch)+"&s="+feedID(g))
+	require.Equal(t, "OK", w.Body.String())
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM items WHERE id = ?", keep))
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM items WHERE id = ?", kept2))
+	require.Equal(t, 2, q[int](h, "SELECT count(*) FROM items WHERE starred = 1"))
 }
 
 func TestRenameTagAndMerge(t *testing.T) {
@@ -345,10 +368,13 @@ func TestIconEndpoint(t *testing.T) {
 	f := h.addFeed("https://a.example/f", "A", "")
 	require.NoError(t, execSQL(h, "INSERT INTO feed_icons (feed_id, data, content_type, hash, fetched_at) VALUES (?, x'89504e47', 'image/png', 'abc123', 1)", f))
 
-	require.Equal(t, 404, h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-abc123", "", map[string]string{"Authorization": ""}).Code, "off by default")
+	// On by default (a stored row is only needed to turn it off); no public URL yet, so no iconUrl.
 	require.Equal(t, "", subsOf(t, h)[0]["iconUrl"])
-
-	require.NoError(t, execSQL(h, "INSERT INTO settings (key, value) VALUES ('greader.icon_urls', 'true')"))
+	require.NoError(t, execSQL(h, "INSERT INTO settings (key, value) VALUES ('greader.icon_urls', 'false')"))
+	require.Equal(t, 404, h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-abc123", "", map[string]string{"Authorization": ""}).Code, "off when set to false")
+	h.api.opt.PublicURL = "https://rss.example.org/"
+	require.Equal(t, "", subsOf(t, h)[0]["iconUrl"], "off when set to false")
+	require.NoError(t, execSQL(h, "DELETE FROM settings WHERE key = 'greader.icon_urls'")) // back to the default: on
 	h.api.opt.PublicURL = "https://rss.example.org/"
 	require.Equal(t, "https://rss.example.org/api/greader.php/icon/"+FormatDecimal(f)+"-abc123", subsOf(t, h)[0]["iconUrl"])
 	w := h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-abc123", "", map[string]string{"Authorization": ""})
@@ -356,4 +382,179 @@ func TestIconEndpoint(t *testing.T) {
 	require.Equal(t, "image/png", w.Header().Get("Content-Type"))
 	require.Equal(t, "\x89PNG", w.Body.String())
 	require.Equal(t, 404, h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-wrong", "", nil).Code)
+}
+
+// Every feed.changed event carries the feed id as a string, like the web API and
+// the scheduler do (a JSON number would lose precision in JS clients).
+func TestFeedChangedEventsCarryStringFeedID(t *testing.T) {
+	h := newHarness(t)
+	hub := events.New()
+	h.api.opt.Events = hub
+	sub := hub.Subscribe(0)
+	defer sub.Close()
+	feedChanged := func() []map[string]any {
+		var out []map[string]any
+		for {
+			select {
+			case ev := <-sub.C:
+				if ev.Type == "feed.changed" {
+					var m map[string]any
+					require.NoError(t, json.Unmarshal(ev.Data, &m))
+					out = append(out, m)
+				}
+			default:
+				return out
+			}
+		}
+	}
+	requireStrings := func(evs []map[string]any, n int, what string) {
+		t.Helper()
+		require.Len(t, evs, n, what)
+		for _, m := range evs {
+			require.IsType(t, "", m["feed_id"], what)
+			require.NotEmpty(t, m["feed_id"], what)
+		}
+	}
+
+	// subscribe (afterSubscribe)
+	require.Equal(t, "OK", h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/"+url.QueryEscape("https://one.example/rss")).Body.String())
+	requireStrings(feedChanged(), 1, "subscribe")
+
+	// edit / unsubscribe (publishFeeds)
+	id := h.addFeed("https://a.example/feed.xml", "Alpha", "Old")
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(id)+"&t=Renamed")
+	evs := feedChanged()
+	require.NotEmpty(t, evs, "edit")
+	requireStrings(evs, len(evs), "edit")
+	require.Equal(t, strconv.FormatInt(id, 10), evs[0]["feed_id"])
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=unsubscribe&s="+feedID(id))
+	evs = feedChanged()
+	requireStrings(evs, len(evs), "unsubscribe")
+
+	// OPML import
+	opmlBody := `<?xml version="1.0"?><opml version="2.0"><head/><body><outline type="rss" text="Z" xmlUrl="https://z.example/rss"/></body></opml>`
+	w := h.do(http.MethodPost, base+rd+"subscription/import", opmlBody, map[string]string{"Content-Type": "text/xml"})
+	require.Equal(t, 200, w.Code)
+	requireStrings(feedChanged(), 1, "import")
+}
+
+// NNW sends folder names with '&' and '+' unencoded; every label-carrying
+// parameter must see the whole name and never create a truncated folder.
+var rawFolderNames = []string{"News & Politics+", "R&D", "A+B", "Tom & Jerry", "Café & Thé", "日本&ニュース", "Plain Name"}
+
+func folderCount(h *harness) int { return q[int](h, "SELECT count(*) FROM folders") }
+
+func TestRawLabelNamesSubscriptionEdit(t *testing.T) {
+	for _, name := range rawFolderNames {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			f := h.addFeed("https://a.example/f", "A", "")
+			before := folderCount(h)
+			id := "user/-/label/" + nnwEnc(name)
+			// NNW encodes '&' and '+', so the name arrives exactly (phase 1 parser).
+			want := name
+			// edit, a= last and in the middle (before T=), then r= to go back.
+			h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s=feed/"+strconv.FormatInt(f, 10)+"&a="+id)
+			require.Equal(t, before+1, folderCount(h), "exactly one folder created")
+			require.Equal(t, 1, q[int](h, "SELECT count(*) FROM folders WHERE name = ?", want), "whole name")
+			h.post(rd+"subscription/edit", "ac=edit&s=feed/"+strconv.FormatInt(f, 10)+"&a="+id+"&T="+h.tok)
+			require.Equal(t, before+1, folderCount(h))
+			require.Equal(t, []string{want}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+			h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s=feed/"+strconv.FormatInt(f, 10)+"&r="+id)
+			require.Equal(t, []string{"Uncategorized"}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+
+			// subscribe (existing feed URL, no fetch) files it under the whole name too.
+			h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/https://a.example/f&a="+id)
+			require.Equal(t, before+1, folderCount(h))
+			require.Equal(t, []string{want}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+		})
+	}
+}
+
+func TestRawLabelNamesRenameAndDisable(t *testing.T) {
+	for _, name := range rawFolderNames {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			f := h.addFeed("https://a.example/f", "A", name)
+			h.addFolder("News")
+			h.addFolder("R")
+			h.addFolder("A")
+			h.addFolder("Tom ")
+			before := folderCount(h)
+			id := "user/-/label/" + nnwEnc(name)
+			// rename-tag: s= raw in the middle, dest= raw last (NNW order is T, s, dest).
+			h.post(rd+"rename-tag", "T="+h.tok+"&s="+id+"&dest=user/-/label/"+nnwEnc("Renamed & Co+"))
+			require.Equal(t, before, folderCount(h), "rename creates nothing")
+			require.Equal(t, []string{"Renamed & Co+"}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+			// and back, dest carrying the odd name.
+			h.post(rd+"rename-tag", "s=user/-/label/"+nnwEnc("Renamed & Co+")+"&T="+h.tok+"&dest="+id)
+			require.Equal(t, before, folderCount(h))
+			require.Equal(t, []string{name}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+			// disable-tag, raw last and raw in the middle.
+			h.post(rd+"disable-tag", "T="+h.tok+"&s=user/-/label/"+name)
+			require.Equal(t, before-1, folderCount(h))
+			require.Equal(t, 4, q[int](h, "SELECT count(*) FROM folders WHERE name IN ('News','R','A','Tom ')"), "look-alikes survive")
+			require.Equal(t, []string{"Uncategorized"}, labelsOf(findSub(subsOf(t, h), feedID(f))))
+		})
+	}
+}
+
+func TestParseUserPath(t *testing.T) {
+	n, ok := parseUserPath("user/-/label/Tech", "/label/")
+	require.True(t, ok)
+	require.Equal(t, "Tech", n)
+	_, ok = parseUserPath("user/-/label/  ", "/label/")
+	require.False(t, ok)
+	_, ok = parseUserPath("user/-/state/com.google/", "/state/com.google/")
+	require.False(t, ok)
+	n, ok = parseUserPath("user/1/state/com.google/read", "/state/com.google/")
+	require.True(t, ok)
+	require.Equal(t, "read", n)
+	_, ok = parseUserPath("feed/1", "/label/")
+	require.False(t, ok)
+}
+
+// nnwEnc encodes a folder name the way NNW does for a=/r=/t=/rename-tag: percent
+// encoding with '&' and '+' encoded too (netnewswire.md section 4).
+func nnwEnc(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") }
+
+// Every folder mutation over the Reader API announces folder.changed.
+func TestFolderChangedEventsFromReaderAPI(t *testing.T) {
+	h := newHarness(t)
+	hub := events.New()
+	h.api.opt.Events = hub
+	sub := hub.Subscribe(0)
+	defer sub.Close()
+	count := func() int {
+		n := 0
+		for {
+			select {
+			case ev := <-sub.C:
+				if ev.Type == "folder.changed" {
+					n++
+				}
+			default:
+				return n
+			}
+		}
+	}
+	id := h.addFeed("https://a.example/feed.xml", "Alpha", "Old")
+	count()
+
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/"+url.QueryEscape("https://one.example/rss")+"&a=user/-/label/Made")
+	require.Equal(t, 1, count(), "subscribe into a new folder")
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(id)+"&t=OnlyATitle")
+	require.Equal(t, 0, count(), "a title edit moves nothing")
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(id)+"&a=user/-/label/Elsewhere")
+	require.Equal(t, 1, count(), "edit into a new folder")
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(id)+"&r=user/-/label/Elsewhere")
+	require.Equal(t, 1, count(), "edit to the default folder")
+	h.post(rd+"rename-tag", "T="+h.tok+"&s=user/-/label/Made&dest=user/-/label/Merged")
+	require.Equal(t, 1, count(), "rename-tag")
+	h.post(rd+"rename-tag", "T="+h.tok+"&s=user/-/label/Nope&dest=user/-/label/Zip")
+	require.Equal(t, 0, count(), "renaming a folder that does not exist changes nothing")
+	h.post(rd+"disable-tag", "T="+h.tok+"&s=user/-/label/Merged")
+	require.Equal(t, 1, count(), "disable-tag")
+	h.post(rd+"subscription/import", `<?xml version="1.0"?><opml version="2.0"><head/><body><outline text="Imp"><outline type="rss" text="B" xmlUrl="https://b.example/f.xml"/></outline></body></opml>`)
+	require.Equal(t, 1, count(), "import creating a folder")
 }

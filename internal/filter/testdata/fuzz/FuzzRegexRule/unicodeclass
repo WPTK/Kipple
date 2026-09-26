@@ -1,0 +1,4 @@
+go test fuzz v1
+string("\\p{Greek}+\\d")
+string("αβγ1 ΑΒΓ2")
+bool(false)

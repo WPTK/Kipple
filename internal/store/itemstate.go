@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -17,12 +18,36 @@ type StateResult struct {
 	Changed []int64
 	// Restored are ids that came back from the retention ledger.
 	Restored []int64
+	// LedgerRead are trimmed-ledger ids a scope mark flipped to read. They are not
+	// items, so they are not in Changed; a client keeps them for undo
+	// (UnreadLedger), since the Reader API still reports the ledger.
+	LedgerRead []int64
+	// MadeUnread are the ids among Changed that an un-mute (DeleteFilter, unmute=unread) turned
+	// back to unread; the rest keep the read state they had before the mute.
+	MadeUnread []int64
 }
 
-func idsJSON(ids []int64) (string, error) {
-	b, err := json.Marshal(ids)
-	return string(b), err
+// jsonText is the one way this package encodes a value for a JSON column or a
+// json_each() argument. It returns the marshal error: a value that cannot be
+// encoded must fail the write with that error, not be stored as "" and trip the
+// json_valid CHECK with a confusing constraint failure.
+func jsonText(v any) (string, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("store: encode json: %w", err)
+	}
+	return string(b), nil
 }
+
+// optJSON is jsonText for a nullable column: NULL (nil) when empty is true.
+func optJSON(v any, empty bool) (any, error) {
+	if empty {
+		return nil, nil
+	}
+	return jsonText(v)
+}
+
+func idsJSON(ids []int64) (string, error) { return jsonText(ids) }
 
 // scanIDs drains and closes rows of (id, feed_id) before the next statement.
 func scanIDs(rows *sql.Rows) ([]int64, error) {
@@ -64,8 +89,9 @@ func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64)
 			WHERE id IN (SELECT value FROM json_each(?1)) AND read = 0`, js)
 		return res, err
 	}
-	rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 0, read_at = NULL
-		WHERE id IN (SELECT value FROM json_each(?1)) AND read = 1 RETURNING id, feed_id`, js)
+	// Marking unread is also the un-mute: muted_by is cleared in the same UPDATE (design 5.2a).
+	rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 0, read_at = NULL, muted_by = NULL, muted_was_read = NULL
+		WHERE id IN (SELECT value FROM json_each(?1)) AND (read = 1 OR muted_by IS NOT NULL) RETURNING id, feed_id`, js)
 	if err != nil {
 		return res, err
 	}
@@ -104,8 +130,9 @@ func SetStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, now 
 		res.Changed, err = scanIDs(rows)
 		return res, err
 	}
-	rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 1, starred_at = ?1
-		WHERE id IN (SELECT value FROM json_each(?2)) AND starred = 0 RETURNING id, feed_id`, now, js)
+	// A manual star also un-mutes (star beats mute); the item stays read.
+	rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 1, starred_at = ?1, muted_by = NULL, muted_was_read = NULL
+		WHERE id IN (SELECT value FROM json_each(?2)) AND (starred = 0 OR muted_by IS NOT NULL) RETURNING id, feed_id`, now, js)
 	if err != nil {
 		return res, err
 	}
@@ -135,7 +162,11 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 	if err != nil {
 		return nil, err
 	}
-	cutoff := now - int64(LoadFetchSettings(ctx, tx).RestoreDays)*86400
+	set, err := LoadFetchSettingsErr(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("restore: settings: %w", err)
+	}
+	cutoff := now - int64(set.RestoreDays)*86400
 	rows, err := tx.QueryContext(ctx, `SELECT t.id, t.feed_id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
 		WHERE t.id IN (SELECT value FROM json_each(?1)) AND t.trimmed_at >= ?2`, js, cutoff)
 	if err != nil {
@@ -171,8 +202,8 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 		return nil, fmt.Errorf("store: restore trimmed: %w", err)
 	}
 	stmts := []string{
-		`INSERT INTO item_content (item_id, content_html, content_text, enclosures_json)
-		  SELECT c.id, c.content_html, c.content_text, c.enclosures_json FROM trimmed_content c
+		`INSERT INTO item_content (item_id, content_html, content_text, enclosures_json, categories_json)
+		  SELECT c.id, c.content_html, c.content_text, c.enclosures_json, c.categories_json FROM trimmed_content c
 		  WHERE c.id IN (SELECT value FROM json_each(?3)) AND EXISTS (SELECT 1 FROM items i WHERE i.id = c.id)
 		ON CONFLICT DO NOTHING`,
 		`DELETE FROM trimmed_items WHERE id IN (SELECT value FROM json_each(?3)) AND id IN (SELECT id FROM items)`,
@@ -190,6 +221,12 @@ type MarkScope struct {
 	FeedID   int64
 	FolderID int64
 	Starred  bool // starred items only; the ledger is skipped (starred items are never in it)
+	Muted    bool // muted items only (view=muted); the ledger is skipped
+	// HoldCut > 0 leaves out items held back from the Reader API (HeldSQL): a client
+	// cannot have seen them, so its mark-all must not read them.
+	HoldCut int64
+	// HoldPending is DB.HoldPending() taken when HoldCut is set; empty means nothing is pending.
+	HoldPending string
 }
 
 // MarkAllRead marks unread items with id <= maxID read inside scope, and the
@@ -207,7 +244,16 @@ func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now in
 	case scope.Starred:
 		where = " AND starred = 1"
 	}
-	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere, args...)
+	itemArgs, held := args, ""
+	if scope.HoldCut > 0 {
+		all, err := txFulltextAll(ctx, tx)
+		if err != nil {
+			return 0, err
+		}
+		held = " AND NOT " + HeldSQL(all)
+		itemArgs = append(append([]any{}, args...), sql.Named("hold_cut", scope.HoldCut), sql.Named("pending", cmp.Or(scope.HoldPending, "[]")))
+	}
+	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere+held, itemArgs...)
 	if err != nil {
 		return 0, err
 	}
@@ -231,4 +277,24 @@ func (d *DB) MaxCommittedID(ctx context.Context) (int64, error) {
 	err := d.reader.QueryRowContext(ctx, `SELECT max(COALESCE((SELECT max(id) FROM items), 0),
 		COALESCE((SELECT max(id) FROM trimmed_items), 0))`).Scan(&id)
 	return id, err
+}
+
+// UnreadLedger flips ledger rows back to unread without restoring any stub: the
+// undo of a bulk mark-read, whose ledger rows were only ever flag-flipped.
+// Live items are untouched. It returns the ids that changed.
+func UnreadLedger(ctx context.Context, tx *sql.Tx, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	js, err := idsJSON(ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `UPDATE trimmed_items SET read = 0
+		WHERE id IN (SELECT value FROM json_each(?1)) AND read = 1
+		  AND id NOT IN (SELECT id FROM items) RETURNING id, feed_id`, js)
+	if err != nil {
+		return nil, err
+	}
+	return scanIDs(rows)
 }

@@ -46,8 +46,12 @@ type Snapshot struct {
 	ETag         string
 	LastModified string
 	BodyHash     string
-	UserAgent    string // resolved: feed override, else setting, else default ("" = client default)
-	HTTPAuth     string // user:pass
+	UserAgent    string // resolved: feed override, else browser UA per mode ("" = client default)
+	// RetryUserAgent, when set, is tried once after a 403/406 (fetch.user_agent_mode
+	// browser_on_failure); a success sets Result.UAFallbackWorked.
+	RetryUserAgent string
+	UAFallback     bool   // feeds.ua_fallback as loaded
+	HTTPAuth       string // user:pass
 
 	IgnoreHTTPCache  bool
 	DisableHTTP2     bool
@@ -93,6 +97,10 @@ type Result struct {
 	FinalURL string
 	Hops     []Hop
 
+	// UAFallbackWorked: the RetryUserAgent retry succeeded, so the feed should
+	// use the browser UA from now on.
+	UAFallbackWorked bool
+
 	Feed  *Feed // parsed feed, Outcome ok only
 	Notes []string
 
@@ -129,6 +137,41 @@ func (r *Result) fail(class, msg string) *Result {
 	return r
 }
 
+// UARefused reports whether a response looks like the publisher rejecting the
+// User-Agent: 403 or 406, or a Cloudflare challenge served as a 503.
+func UARefused(resp *http.Response) bool {
+	switch resp.StatusCode {
+	case http.StatusForbidden, http.StatusNotAcceptable:
+		return true
+	case http.StatusServiceUnavailable:
+		return resp.Header.Get("cf-mitigated") == "challenge"
+	}
+	return false
+}
+
+// get sends one conditional GET with the given User-Agent.
+func (c *Client) get(ctx context.Context, hc *http.Client, snap Snapshot, ua string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, snap.URL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", ua)
+	req.Header.Set("Accept", acceptHeader)
+	if snap.HTTPAuth != "" {
+		user, pass, _ := strings.Cut(snap.HTTPAuth, ":")
+		req.SetBasicAuth(user, pass)
+	}
+	if !snap.Full && !snap.IgnoreHTTPCache {
+		if snap.ETag != "" {
+			req.Header.Set("If-None-Match", snap.ETag)
+		}
+		if snap.LastModified != "" {
+			req.Header.Set("If-Modified-Since", snap.LastModified)
+		}
+	}
+	return hc.Do(req)
+}
+
 // Fetch performs one conditional GET and classifies the outcome (design §4.4,
 // §4.5). It never returns an error: everything is a Result. now is the
 // scheduler clock, used for Retry-After / Expires arithmetic.
@@ -137,32 +180,27 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	began := time.Now()
 	defer func() { res.Duration = time.Since(began) }()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, snap.URL, nil)
-	if err != nil {
-		return res.fail(ClassConnect, err.Error())
-	}
 	ua := snap.UserAgent
 	if ua == "" {
 		ua = c.ua
 	}
-	req.Header.Set("User-Agent", ua)
-	req.Header.Set("Accept", acceptHeader)
-	if snap.HTTPAuth != "" {
-		user, pass, _ := strings.Cut(snap.HTTPAuth, ":")
-		req.SetBasicAuth(user, pass)
-	}
-	conditional := !snap.Full && !snap.IgnoreHTTPCache
-	if conditional {
-		if snap.ETag != "" {
-			req.Header.Set("If-None-Match", snap.ETag)
-		}
-		if snap.LastModified != "" {
-			req.Header.Set("If-Modified-Since", snap.LastModified)
-		}
-	}
-
 	hc := c.httpClient(variant{noHTTP2: snap.DisableHTTP2, insecureTLS: snap.AllowInsecureTLS, allowPrivate: snap.AllowPrivateNet}, &res.Hops)
-	resp, err := hc.Do(req)
+	resp, err := c.get(ctx, hc, snap, ua)
+	if err == nil && snap.RetryUserAgent != "" && snap.RetryUserAgent != ua && UARefused(resp) {
+		// The feed refused Kipple's User-Agent: retry once as a browser. The
+		// same guarded transport is used, so the SSRF guard is unchanged.
+		resp.Body.Close()
+		res.Hops = nil
+		retry, rerr := c.get(ctx, hc, snap, snap.RetryUserAgent)
+		if rerr == nil {
+			resp = retry
+			if code := resp.StatusCode; code == http.StatusNotModified || (code >= 200 && code <= 299) {
+				res.UAFallbackWorked = true
+			}
+		} else {
+			resp, err = nil, rerr
+		}
+	}
 	if err != nil {
 		if ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled) {
 			res.Cancelled = true
@@ -198,7 +236,7 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		res.Gone = true
 		return res.fail(ClassGone, "410 Gone: the feed was removed")
 	case code == http.StatusTooManyRequests || code == http.StatusServiceUnavailable:
-		res.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"), now)
+		res.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"), now, responseDate(resp.Header))
 		res.Notes = append(res.Notes, fmt.Sprintf("retry_after=%ds", int64(res.RetryAfter.Seconds())))
 		return res.fail(ClassHTTP, fmt.Sprintf("HTTP %d", code))
 	case code == http.StatusForbidden && resp.Header.Get("cf-mitigated") == "challenge" &&
@@ -260,4 +298,14 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	res.SetValidators, res.ETag, res.LastModified = true, etag, lm
 	res.Notes = append(res.Notes, feed.Notes...)
 	return res
+}
+
+// responseDate is the response's Date header, or the zero time when it is
+// missing or not an HTTP date.
+func responseDate(h http.Header) time.Time {
+	t, err := http.ParseTime(h.Get("Date"))
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }

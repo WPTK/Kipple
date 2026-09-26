@@ -1,0 +1,122 @@
+import { describe, expect, it } from "vitest";
+import { interpretKey, isTypingTarget } from "./keys";
+
+const on = { typing: false, singleKeys: true };
+
+describe("interpretKey", () => {
+  it("maps the single keys", () => {
+    const map: Record<string, string> = { j: "next", k: "prev", s: "star", m: "toggleRead", o: "original", r: "refresh", f: "fulltext", u: "up", Escape: "up", "/": "search", "?": "help", G: "bottom" };
+    for (const [key, action] of Object.entries(map)) expect(interpretKey({ key }, false, on).action, key).toBe(action);
+  });
+
+  it("never binds Ctrl, Cmd or Alt combinations", () => {
+    for (const mod of ["ctrlKey", "metaKey", "altKey"] as const) {
+      expect(interpretKey({ key: "s", [mod]: true }, false, on).action).toBeNull();
+    }
+  });
+
+  it("does nothing while typing or composing", () => {
+    expect(interpretKey({ key: "j" }, false, { typing: true, singleKeys: true }).action).toBeNull();
+    expect(interpretKey({ key: "j", isComposing: true }, false, on).action).toBeNull();
+  });
+
+  it("the setting off disables letter keys but leaves Escape and ?", () => {
+    const off = { typing: false, singleKeys: false };
+    expect(interpretKey({ key: "j" }, false, off).action).toBeNull();
+    expect(interpretKey({ key: "s" }, false, off).action).toBeNull();
+    expect(interpretKey({ key: "Escape" }, false, off).action).toBe("up");
+    expect(interpretKey({ key: "?" }, false, off).action).toBe("help");
+  });
+
+  it("g starts a chord that resolves on the next key and then clears", () => {
+    const first = interpretKey({ key: "g" }, false, on);
+    expect(first).toEqual({ action: null, pendingG: true });
+    expect(interpretKey({ key: "g" }, true, on)).toEqual({ action: "top", pendingG: false });
+    expect(interpretKey({ key: "i" }, true, on).action).toBe("goUnread");
+    expect(interpretKey({ key: "s" }, true, on).action).toBe("goStarred");
+    expect(interpretKey({ key: "," }, true, on).action).toBe("goSettings");
+    // An unbound second key cancels the chord without acting.
+    expect(interpretKey({ key: "x" }, true, on)).toEqual({ action: null, pendingG: false });
+  });
+
+  it("leaves arrows and Space to the browser", () => {
+    for (const key of ["ArrowDown", "ArrowUp", " "]) expect(interpretKey({ key }, false, on).action).toBeNull();
+  });
+});
+
+describe("Shift and CapsLock", () => {
+  it("Shift+A marks all, Shift+G goes to the bottom", () => {
+    expect(interpretKey({ key: "A", shiftKey: true }, false, on).action).toBe("markAll");
+    expect(interpretKey({ key: "G", shiftKey: true }, false, on).action).toBe("bottom");
+  });
+
+  it("with CapsLock on, a plain letter stays plain: g a is Go to All, not mark-all", () => {
+    // CapsLock makes event.key upper case but shiftKey stays false.
+    const g = interpretKey({ key: "G", shiftKey: false }, false, on);
+    expect(g).toEqual({ action: null, pendingG: true });
+    expect(interpretKey({ key: "A", shiftKey: false }, true, on)).toEqual({ action: "goAll", pendingG: false });
+    // And alone, a caps-locked A does not mark everything read, nor a G jump to the bottom.
+    expect(interpretKey({ key: "A", shiftKey: false }, false, on).action).toBeNull();
+    expect(interpretKey({ key: "G", shiftKey: false }, false, on)).toEqual({ action: null, pendingG: true });
+    // Caps-locked j, k, s, m, f are their plain selves.
+    for (const [key, action] of [["J", "next"], ["K", "prev"], ["S", "star"], ["M", "toggleRead"], ["F", "fulltext"], ["Z", "undo"]] as const) {
+      expect(interpretKey({ key, shiftKey: false }, false, on).action, key).toBe(action);
+    }
+  });
+
+  it("with CapsLock on, Shift gives the lower-case letter and is still Shift", () => {
+    expect(interpretKey({ key: "a", shiftKey: true }, false, on).action).toBe("markAll");
+    expect(interpretKey({ key: "g", shiftKey: true }, false, on).action).toBe("bottom");
+  });
+
+  it("a Shifted letter does not complete a chord or start one", () => {
+    expect(interpretKey({ key: "G", shiftKey: true }, false, on).pendingG).toBe(false);
+    expect(interpretKey({ key: "A", shiftKey: true }, true, on)).toEqual({ action: null, pendingG: false });
+  });
+
+  it("Shift on other letters does not trigger their plain action", () => {
+    for (const key of ["J", "K", "S", "M", "F", "X", "Z", "C", "R", "U", "O", "V"]) {
+      expect(interpretKey({ key, shiftKey: true }, false, on).action, key).toBeNull();
+    }
+  });
+
+  it("keeps the symbol keys: { } [ ] ? /", () => {
+    for (const [key, action] of [["{", "markAbove"], ["}", "markBelow"], ["[", "prevFeed"], ["]", "nextFeed"], ["?", "help"], ["/", "search"]] as const) {
+      expect(interpretKey({ key, shiftKey: key === "{" || key === "}" || key === "?" }, false, on).action, key).toBe(action);
+    }
+  });
+});
+
+describe("isTypingTarget", () => {
+  it("detects form controls and textbox roles", () => {
+    expect(isTypingTarget(document.createElement("input"))).toBe(true);
+    expect(isTypingTarget(document.createElement("textarea"))).toBe(true);
+    const div = document.createElement("div");
+    div.setAttribute("role", "searchbox");
+    expect(isTypingTarget(div)).toBe(true);
+    expect(isTypingTarget(document.createElement("button"))).toBe(false);
+    expect(isTypingTarget(null)).toBe(false);
+  });
+});
+
+describe("round-2 keymap additions", () => {
+  const on2 = { typing: false, singleKeys: true };
+  it("maps the new single keys", () => {
+    const map: Record<string, string> = { v: "background", A: "markAll", "{": "markAbove", "}": "markBelow", x: "select", z: "undo", c: "compact", "[": "prevFeed", "]": "nextFeed" };
+    for (const [key, action] of Object.entries(map)) expect(interpretKey({ key }, false, on2).action, key).toBe(action);
+  });
+  it("gg jumps to the top and g then i/a/s/f go to views", () => {
+    expect(interpretKey({ key: "g" }, false, on2)).toEqual({ action: null, pendingG: true });
+    expect(interpretKey({ key: "g" }, true, on2).action).toBe("top");
+    expect(interpretKey({ key: "i" }, true, on2).action).toBe("goUnread");
+    expect(interpretKey({ key: "a" }, true, on2).action).toBe("goAll");
+    expect(interpretKey({ key: "s" }, true, on2).action).toBe("goStarred");
+  });
+  it("none of the new keys work while typing or with the setting off", () => {
+    for (const key of ["v", "A", "{", "}", "x", "z", "c", "[", "]"]) {
+      expect(interpretKey({ key }, false, { typing: true, singleKeys: true }).action, key).toBeNull();
+      expect(interpretKey({ key }, false, { typing: false, singleKeys: false }).action, key).toBeNull();
+      expect(interpretKey({ key, ctrlKey: true }, false, on2).action, key).toBeNull();
+    }
+  });
+});

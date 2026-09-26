@@ -38,8 +38,8 @@ type RedirectDecision struct {
 // DecideRedirect applies the redirect policy. feedURL is feeds.url, final the
 // normalized URL of the last response, hops the followed redirects in order.
 func DecideRedirect(feedURL string, cur RedirectState, final string, hops []Hop) RedirectDecision {
-	nf, err1 := feedurl.Normalize(feedURL)
-	fin, err2 := feedurl.Normalize(final)
+	k1, nf, err1 := feedurl.KeyAndNormalize(feedURL)
+	k2, fin, err2 := feedurl.KeyAndNormalize(final)
 	if err1 != nil || err2 != nil || nf == fin {
 		return RedirectDecision{Action: RedirectClear}
 	}
@@ -61,8 +61,6 @@ func DecideRedirect(feedURL string, cur RedirectState, final string, hops []Hop)
 	}
 
 	// Only http -> https on the same host, identical path and query.
-	k1, _ := feedurl.Key(nf)
-	k2, _ := feedurl.Key(fin)
 	if strings.HasPrefix(nf, "http://") && strings.HasPrefix(fin, "https://") && k1 == k2 {
 		return RedirectDecision{Action: RedirectMigrate, To: fin, Kind: "permanent", Count: 3}
 	}

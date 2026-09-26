@@ -2,23 +2,81 @@ name: CI
 
 on:
   push:
-    branches: [main, phase-1]
+    branches: [main, phase-1, phase-2]
   pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GOVULNCHECK_VERSION: v1.8.0
+  STATICCHECK_VERSION: v0.8.1
+  GOSEC_VERSION: v2.29.0
+  GITLEAKS_VERSION: 8.30.1
+  # SHA-256 of gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz, from the release's
+  # gitleaks_<version>_checksums.txt. Update both together when bumping.
+  GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.27"
+
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "gofmt needed on:"; echo "$out"; exit 1
+          fi
 
       # web/dist only has the committed .gitkeep placeholder here; the Go
       # build and tests must succeed against that (see web/embed.go).
       - run: go vet ./...
-      - run: go test -race ./...
+      - run: go test -race -shuffle=on -timeout 15m ./...
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0 # gitleaks scans history
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.27"
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
+
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION} ./...
+
+      # Advisory pass: everything stays visible in the log, never fails.
+      - name: gosec (all findings, advisory)
+        run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet ./... || true
+
+      # Gate: only HIGH severity with HIGH confidence fails the job.
+      - name: gosec (gate)
+        run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet -severity high -confidence high ./...
+
+      # Binary, not gitleaks-action: the action needs a paid license key for
+      # organization repos.
+      - name: gitleaks
+        run: |
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$tarball" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tarball"
+          echo "${GITLEAKS_SHA256}  $tarball" | sha256sum -c -
+          tar -xzf "$tarball" gitleaks
+          ./gitleaks detect --source . --config .gitleaks.toml --redact --verbose
 
   web:
     runs-on: ubuntu-latest
@@ -26,27 +84,40 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - run: npm ci
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
+      - run: npm run contrast
+      - run: npm audit --omit=dev --audit-level=high
 
   docker:
     runs-on: ubuntu-latest
-    needs: [go, web]
+    needs: [go, web, security]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: false
+          load: true
           tags: kipple:ci
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: kipple:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

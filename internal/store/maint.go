@@ -3,13 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // The functions here are the SQL half of the maintenance goroutine (design
@@ -17,10 +17,18 @@ import (
 // the commit gate, then one short WithWrite, so a night's purge is many small
 // writes that fetch commits and edit-tags interleave with, never one long one.
 
+// Compile-time guard: raising MaxRestoreDays past LedgerDays fails the build
+// (the purge horizon also follows restore_days at runtime).
+const _ = uint(LedgerDays - MaxRestoreDays)
+
 const (
 	// LedgerDays is how long a trimmed ledger row (tombstone) outlives the last
 	// time its uid was seen in the feed document (design §5).
 	LedgerDays = 180
+
+	// LedgerMarginDays is the slack added past retention.restore_days before a
+	// ledger row (and its cascading stub) may be purged.
+	LedgerMarginDays = 7
 
 	// SnapshotName is the nightly snapshot a host backup copies (design §2.6).
 	SnapshotName = "kipple-snapshot.db"
@@ -30,15 +38,22 @@ const (
 // BackupDir returns the directory for the nightly and pre-migration snapshots.
 func (d *DB) BackupDir() string { return d.backupDir }
 
-// batch runs fn in one write transaction behind the commit gate.
-func (d *DB) batch(ctx context.Context, fn func(ctx context.Context, tx *sql.Tx) (int64, error)) (int64, error) {
+// gated runs fn in one write transaction behind the commit gate: the gate is
+// taken first (ctx bounds the wait), held for the whole transaction, and released
+// after it, whatever its outcome.
+func (d *DB) gated(ctx context.Context, fn func(ctx context.Context, tx *sql.Tx) error) error {
 	release, err := d.AcquireGate(ctx)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer release()
+	return d.WithWrite(ctx, fn)
+}
+
+// batch is gated for a bounded maintenance step that reports a row count.
+func (d *DB) batch(ctx context.Context, fn func(ctx context.Context, tx *sql.Tx) (int64, error)) (int64, error) {
 	var n int64
-	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	err := d.gated(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var err error
 		n, err = fn(ctx, tx)
 		return err
@@ -51,7 +66,11 @@ func (d *DB) batch(ctx context.Context, fn func(ctx context.Context, tx *sql.Tx)
 // tombstone. It returns the rows deleted.
 func (d *DB) PurgeStubs(ctx context.Context, now int64, limit int) (int64, error) {
 	return d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
-		cutoff := now - int64(LoadFetchSettings(ctx, tx).RestoreDays)*86400
+		set, err := LoadFetchSettingsErr(ctx, tx)
+		if err != nil {
+			return 0, err
+		}
+		cutoff := now - int64(set.RestoreDays)*86400
 		res, err := tx.ExecContext(ctx, `DELETE FROM trimmed_content WHERE id IN (
 			SELECT c.id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
 			WHERE t.trimmed_at < ?1 LIMIT ?2)`, cutoff, limit)
@@ -63,11 +82,18 @@ func (d *DB) PurgeStubs(ctx context.Context, now int64, limit int) (int64, error
 }
 
 // PurgeLedger deletes up to limit ledger rows (and, by cascade, any stub) whose
-// uid was last seen in the feed document more than LedgerDays before now.
+// uid was last seen in the feed document more than the ledger horizon before
+// now: max(LedgerDays, retention.restore_days + LedgerMarginDays), so a restore
+// stub (which cascades from its ledger row) never vanishes inside its window.
 func (d *DB) PurgeLedger(ctx context.Context, now int64, limit int) (int64, error) {
 	return d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
+		set, err := LoadFetchSettingsErr(ctx, tx)
+		if err != nil {
+			return 0, err
+		}
+		horizon := max(LedgerDays, set.RestoreDays+LedgerMarginDays)
 		res, err := tx.ExecContext(ctx, `DELETE FROM trimmed_items WHERE id IN (
-			SELECT id FROM trimmed_items WHERE last_seen_at < ?1 LIMIT ?2)`, now-LedgerDays*86400, limit)
+			SELECT id FROM trimmed_items WHERE last_seen_at < ?1 LIMIT ?2)`, now-int64(horizon)*86400, limit)
 		if err != nil {
 			return 0, err
 		}
@@ -129,6 +155,12 @@ func (d *DB) CheckpointPassive(ctx context.Context) (int64, error) {
 // the tmp file and records nothing. It returns the snapshot path.
 func (d *DB) WriteSnapshot(ctx context.Context, now int64, integrity bool) (string, error) {
 	final := filepath.Join(d.backupDir, SnapshotName)
+	// Wait for an export in progress rather than skip the night: it is short.
+	release, aerr := d.acquireSnapshot(ctx)
+	if aerr != nil {
+		return final, aerr
+	}
+	defer release()
 	err := d.writeSnapshot(ctx, final, integrity)
 	if ctx.Err() != nil {
 		return final, ctx.Err()
@@ -209,7 +241,11 @@ func (d *DB) recordSnapshot(ctx context.Context, now int64, snapErr error) error
 		const upsert = `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
 		if snapErr != nil {
-			_, err := tx.ExecContext(ctx, upsert, "sys.last_snapshot_error", jsonString(snapErr.Error()), now)
+			v, err := jsonString(snapErr.Error())
+			if err != nil {
+				return 0, err
+			}
+			_, err = tx.ExecContext(ctx, upsert, "sys.last_snapshot_error", v, now)
 			return 0, err
 		}
 		if _, err := tx.ExecContext(ctx, upsert, "sys.last_snapshot_at", fmt.Sprint(now), now); err != nil {
@@ -221,7 +257,49 @@ func (d *DB) recordSnapshot(ctx context.Context, now int64, snapErr error) error
 	return err
 }
 
-func jsonString(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
+func jsonString(s string) (string, error) { return jsonText(s) }
+
+// TZName is the `tz` setting as written (default America/New_York), without
+// resolving it: the caller decides what an unknown name means.
+func TZName(ctx context.Context, q Querier) string {
+	return settingString(ctx, q, "tz", "America/New_York")
+}
+
+// NightlyDate is the local calendar date (YYYY-MM-DD, in the zone that was
+// current then) of the last completed nightly run, or "" when there is none
+// (sys.last_nightly_date).
+func NightlyDate(ctx context.Context, q Querier) string {
+	return settingString(ctx, q, "sys.last_nightly_date", "")
+}
+
+// NightlyAt is the absolute instant of the last nightly run that started
+// (sys.last_nightly_at, RFC 3339 UTC). It is what a time zone change is judged
+// against: the run's local date depends on the zone asking. ok is false when
+// none is recorded (a database from before it existed has only NightlyDate).
+func NightlyAt(ctx context.Context, q Querier) (t time.Time, ok bool) {
+	s := settingString(ctx, q, "sys.last_nightly_at", "")
+	if s == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	return t, err == nil
+}
+
+// RecordNightlyDate stores a nightly run that has started: its local date (in
+// the zone then current) and the absolute instant.
+func (d *DB) RecordNightlyDate(ctx context.Context, date string, now int64) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		at := time.Unix(now, 0).UTC().Format(time.RFC3339)
+		for _, kv := range [][2]string{{"sys.last_nightly_date", date}, {"sys.last_nightly_at", at}} {
+			v, err := jsonString(kv[1])
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
+				ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, kv[0], v, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

@@ -138,3 +138,18 @@ func TestWriteSnapshotRecordsAndSurvivesLeftoverTmp(t *testing.T) {
 	require.FileExists(t, path)
 	require.Equal(t, "1800000000", scalar[string](t, db.Reader(), "SELECT value FROM settings WHERE key = 'sys.last_snapshot_at'"))
 }
+
+func TestLedgerPurgeHorizonFollowsRestoreDays(t *testing.T) {
+	require.LessOrEqual(t, MaxRestoreDays, LedgerDays)
+	ctx := context.Background()
+	db, _ := openTest(t)
+	feed := seedFeed(t, db)
+	require.NoError(t, db.SetSettings(ctx, map[string]any{"retention.restore_days": MaxRestoreDays}))
+	now := int64(1_800_000_000)
+	// Trimmed inside the window, last seen just past LedgerDays: the stub must survive.
+	seedLedger(t, db, feed, 1, now-int64(MaxRestoreDays-1)*day, now-int64(LedgerDays+1)*day, true)
+	n, err := db.PurgeLedger(ctx, now, 100)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, n)
+	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM trimmed_content"))
+}

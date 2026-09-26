@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"log/slog"
 )
 
 // MaxRestoreDays caps retention.restore_days. The nightly ledger purge removes a
@@ -11,36 +13,142 @@ import (
 // stub window could never be honored.
 const MaxRestoreDays = 180
 
+// Values of fetch.user_agent_mode.
+const (
+	UAModeDefault   = "default"            // always Kipple's own User-Agent, never retry
+	UAModeOnFailure = "browser_on_failure" // Kipple's UA; retry once as a browser on 403/406, then remember per feed
+	UAModeAlways    = "browser_always"     // browser User-Agent for every fetch
+)
+
 // FetchSettings are the settings the fetch layer reads. Defaults live here;
 // a settings row exists only for an overridden key.
 type FetchSettings struct {
 	IntervalMinutes  int    // refresh.interval_minutes, default 30
 	RetentionDefault int    // retention.default, default 250 (0 = unlimited)
 	RestoreDays      int    // retention.restore_days, default 90, clamped to 0..MaxRestoreDays
-	UserAgent        string // fetch.user_agent, default "" (client default)
+	UserAgent        string // fetch.user_agent, default "": optional custom UA that replaces the built-in browser string
+	UAMode           string // fetch.user_agent_mode, default UAModeOnFailure
 	HonorTTL         bool   // fetch.honor_publisher_ttl, default true
+	FulltextAll      bool   // fetch.fulltext_all, default false
 }
 
-// LoadFetchSettings reads the fetch-related settings through q.
-func LoadFetchSettings(ctx context.Context, q Querier) FetchSettings {
-	return FetchSettings{
-		IntervalMinutes:  settingInt(ctx, q, "refresh.interval_minutes", 30),
-		RetentionDefault: settingInt(ctx, q, "retention.default", 250),
-		RestoreDays:      min(max(settingInt(ctx, q, "retention.restore_days", 90), 0), MaxRestoreDays),
-		UserAgent:        settingString(ctx, q, "fetch.user_agent", ""),
-		HonorTTL:         settingBool(ctx, q, "fetch.honor_publisher_ttl", true),
+// LoadFetchSettingsErr reads the fetch-related settings through q. A missing row
+// or an unparseable value is the default; a failed read (cancelled context, busy
+// or broken database) is a non-nil error, with the settings that could not be
+// read left at their defaults. Callers inside a write transaction must fail it
+// rather than act on those defaults (a trim or purge with the wrong cap or
+// window is not undone by a retry that never happens).
+func LoadFetchSettingsErr(ctx context.Context, q Querier) (FetchSettings, error) {
+	var errs []error
+	keep := func(err error) {
+		if err != nil {
+			errs = append(errs, err)
+		}
 	}
+	var s FetchSettings
+	var err error
+	s.IntervalMinutes, err = settingIntErr(ctx, q, "refresh.interval_minutes", 30)
+	keep(err)
+	s.RetentionDefault, err = settingIntErr(ctx, q, "retention.default", 250)
+	keep(err)
+	s.RestoreDays, err = settingIntErr(ctx, q, "retention.restore_days", 90)
+	keep(err)
+	s.RestoreDays = min(max(s.RestoreDays, 0), MaxRestoreDays)
+	s.UserAgent, err = settingStringErr(ctx, q, "fetch.user_agent", "")
+	keep(err)
+	s.UAMode, err = settingStringErr(ctx, q, "fetch.user_agent_mode", UAModeOnFailure)
+	keep(err)
+	s.HonorTTL, err = settingBoolErr(ctx, q, "fetch.honor_publisher_ttl", true)
+	keep(err)
+	s.FulltextAll, err = settingBoolErr(ctx, q, SettingFulltextAll, false)
+	keep(err)
+	return s, errors.Join(errs...)
 }
 
-func settingRaw(ctx context.Context, q Querier, key string) (json.RawMessage, bool) {
+// LoadFetchSettings is LoadFetchSettingsErr for callers outside a write
+// transaction that can live with defaults for one pass: a read failure is logged
+// at warn and the defaults are used. The result must not be cached.
+func LoadFetchSettings(ctx context.Context, q Querier) FetchSettings {
+	s, err := LoadFetchSettingsErr(ctx, q)
+	if err != nil {
+		slog.Warn("store: reading fetch settings failed; using defaults for this pass", "err", err)
+	}
+	return s
+}
+
+// settingRawErr reads one settings row. A missing row is (nil, false, nil); any
+// other failure (a cancelled context, a busy database) is a non-nil error, so a
+// caller that caches the result can tell "not set" from "could not read".
+func settingRawErr(ctx context.Context, q Querier, key string) (json.RawMessage, bool, error) {
 	var v string
 	if err := q.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", key).Scan(&v); err != nil {
-		if err != sql.ErrNoRows {
-			return nil, false
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
 		}
+		return nil, false, err
+	}
+	return json.RawMessage(v), true, nil
+}
+
+// settingRaw is settingRawErr for callers that fall back to a default: a read
+// failure is logged at warn (never silently taken for "not set") and reported as
+// not found.
+func settingRaw(ctx context.Context, q Querier, key string) (json.RawMessage, bool) {
+	raw, ok, err := settingRawErr(ctx, q, key)
+	if err != nil {
+		slog.Warn("store: reading setting failed; using its default", "key", key, "err", err)
 		return nil, false
 	}
-	return json.RawMessage(v), true
+	return raw, ok
+}
+
+// settingIntErr is the integer counterpart of settingBoolErr.
+func settingIntErr(ctx context.Context, q Querier, key string, def int) (int, error) {
+	raw, ok, err := settingRawErr(ctx, q, key)
+	if err != nil {
+		return def, err
+	}
+	if !ok {
+		return def, nil
+	}
+	var n float64
+	if json.Unmarshal(raw, &n) != nil {
+		return def, nil
+	}
+	return int(n), nil
+}
+
+// settingBoolErr is settingBool that reports a read failure instead of
+// returning the default for it.
+func settingBoolErr(ctx context.Context, q Querier, key string, def bool) (bool, error) {
+	raw, ok, err := settingRawErr(ctx, q, key)
+	if err != nil {
+		return def, err
+	}
+	if !ok {
+		return def, nil
+	}
+	var b bool
+	if json.Unmarshal(raw, &b) != nil {
+		return def, nil
+	}
+	return b, nil
+}
+
+// settingStringErr is the string counterpart of settingBoolErr.
+func settingStringErr(ctx context.Context, q Querier, key, def string) (string, error) {
+	raw, ok, err := settingRawErr(ctx, q, key)
+	if err != nil {
+		return def, err
+	}
+	if !ok {
+		return def, nil
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return def, nil
+	}
+	return s, nil
 }
 
 func settingInt(ctx context.Context, q Querier, key string, def int) int {
@@ -77,4 +185,71 @@ func settingString(ctx context.Context, q Querier, key, def string) string {
 		return def
 	}
 	return s
+}
+
+// SetSettings writes the given overrides in one transaction: a nil value
+// deletes the row (back to the default). Validation is the caller's job.
+func (d *DB) SetSettings(ctx context.Context, set map[string]any) error {
+	if _, ok := set[SettingFulltextAll]; ok {
+		defer d.ftAll.invalidate() // after the commit, whatever its outcome
+	}
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		for k, v := range set {
+			if v == nil {
+				if _, err := tx.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", k); err != nil {
+					return err
+				}
+				continue
+			}
+			b, err := json.Marshal(v)
+			if err != nil {
+				return err
+			}
+			if k == SettingSavedSearches {
+				// A replaced list: its new or changed scopes must exist (SavedSearchError).
+				var raw string
+				if err := tx.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", k).Scan(&raw); err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return err
+				}
+				if err := checkNewSavedSearchScopes(ctx, tx, decodeSavedSearches(raw), decodeSavedSearches(string(b))); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)
+				ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()`, k, string(b)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// PullInSchedule makes a lowered refresh.interval_minutes take effect now: every
+// enabled, healthy feed that inherits the interval and is due later than its new
+// due time becomes due then. The new due time is last_fetch_at + interval, or,
+// when fetch.honor_publisher_ttl is on, no earlier than last_fetch_at plus the
+// feed's publisher TTL hint (capped at a day, as scheduling caps it). It never
+// postpones a feed (a raised interval applies from each feed's next fetch).
+// Returns the feeds moved.
+func (d *DB) PullInSchedule(ctx context.Context, intervalMinutes int) (int64, error) {
+	honor := 0
+	if ttl, err := settingBoolErr(ctx, d.reader, "fetch.honor_publisher_ttl", true); err != nil {
+		return 0, err
+	} else if ttl {
+		honor = 1
+	}
+	var n int64
+	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE feeds SET next_fetch_at = last_fetch_at + max(?1, CASE WHEN ?2 = 1 THEN min(coalesce(ttl_hint_s, 0), 86400) ELSE 0 END)
+			WHERE enabled = 1 AND interval_minutes IS NULL AND consecutive_failures = 0
+			  AND last_fetch_at IS NOT NULL
+			  AND next_fetch_at > last_fetch_at + max(?1, CASE WHEN ?2 = 1 THEN min(coalesce(ttl_hint_s, 0), 86400) ELSE 0 END)`,
+			intervalMinutes*60, honor)
+		if err != nil {
+			return err
+		}
+		n, _ = res.RowsAffected()
+		return nil
+	})
+	return n, err
 }

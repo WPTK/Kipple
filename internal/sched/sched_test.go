@@ -398,16 +398,18 @@ func TestManualRunAttachesToInFlightFetches(t *testing.T) {
 	// the 3 attached feeds fetched once (not twice); the 4th only by the manual run
 	r.waitEvents("fetch.done", 4)
 	require.Equal(t, 4, srv.total())
-	byFeed := map[float64][]any{}
+	byFeed := map[string][]any{}
 	for _, ev := range r.events("fetch.done") {
-		byFeed[ev["feed_id"].(float64)] = ev["run_ids"].([]any)
+		byFeed[ev["feed_id"].(string)] = ev["run_ids"].([]any)
 	}
 	for _, id := range ids {
-		require.Contains(t, byFeed[float64(id)], float64(info.RunID))
+		require.Contains(t, byFeed[fmt.Sprint(id)], fmt.Sprint(info.RunID), "run ids are strings")
 	}
 	start := r.events("run.start")
 	require.Len(t, start, 1)
 	require.EqualValues(t, 4, start[0]["total"])
+	require.Equal(t, fmt.Sprint(info.RunID), start[0]["run_id"], "run.start carries the run id as a string")
+	require.Equal(t, fmt.Sprint(info.RunID), r.events("run.done")[0]["run_id"])
 }
 
 func TestRunKindsDoNotJoinAndEmptyRunFinishes(t *testing.T) {
@@ -488,6 +490,11 @@ func TestRetryAfterFloorHostDeadlineAndSkippedRows(t *testing.T) {
 	r.waitEvents("fetch.done", 1)
 	require.EqualValues(t, base.Add(time.Hour).Unix(), r.next(a), "next = max(now+30m backoff, now+Retry-After)")
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM fetch_log WHERE feed_id=? AND note LIKE '%retry_after=3600s%'", a))
+	holds := r.s.HostHolds() // what the health view calls "throttled"
+	require.Len(t, holds, 1)
+	for _, until := range holds {
+		require.EqualValues(t, base.Add(time.Hour).Unix(), until.Unix())
+	}
 
 	// B is due at 15 min but the host is held until 60 min: it stays due, no request is made
 	r.clk.Advance(15 * time.Minute)
@@ -548,6 +555,9 @@ func TestPriorityRepliesSurviveAbandonedHandlers(t *testing.T) {
 	r.sql("UPDATE feeds SET enabled = 0, disabled_reason = 'user' WHERE id = ?", a)
 	ch, _ = r.s.Submit(Priority{FeedID: a})
 	require.ErrorIs(t, (<-ch).Err, ErrDisabled)
+	// ...but a trim needs no network and still runs on a disabled feed
+	ch, _ = r.s.Submit(Priority{FeedID: a, Kind: PriorityTrim})
+	require.NoError(t, (<-ch).Err)
 }
 
 func TestGoneDisablesAndStopsFetching(t *testing.T) {
@@ -557,6 +567,8 @@ func TestGoneDisablesAndStopsFetching(t *testing.T) {
 	r.s.Wake()
 	r.waitEvents("fetch.done", 1)
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM feeds WHERE id=? AND enabled=0 AND disabled_reason='gone'", id))
+	r.waitEvents("feed.changed", 1)
+	require.Equal(t, fmt.Sprint(id), r.events("feed.changed")[0]["feed_id"])
 	r.clk.Advance(72 * time.Hour)
 	r.barrier()
 	require.Equal(t, 1, srv.count("/g"))
@@ -682,11 +694,9 @@ func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
 	}
 	r := newRig(t, Options{PerHost: 8})
 	srv := newSrv(t, serveOK)
-	var ids []int64
 	for i := 0; i < 138; i++ {
 		id := r.add(fmt.Sprintf("%s/f%d", srv.URL, i), nil)
 		r.setHost(id, fmt.Sprintf("h%d", i%40))
-		ids = append(ids, id)
 	}
 	// items the "API" will flip while the run commits
 	r.sql(`INSERT INTO feeds (url, url_key, host, enabled, disabled_reason, retention) VALUES ('kipple:archive','kipple:archive','',0,'archive',0)`)
@@ -879,6 +889,7 @@ func TestPartialChunkedCommitStillReportsCommittedItems(t *testing.T) {
 	require.EqualValues(t, 250, ev["new_items"], "but chunk 1's items are reported")
 	ids, _ := ev["new_item_ids"].([]any)
 	require.Len(t, ids, maxEventIDs)
+	require.IsType(t, "", ids[0], "item ids are strings")
 	require.EqualValues(t, 250, r.num("SELECT count(*) FROM items WHERE feed_id = ?", id))
 }
 
@@ -919,4 +930,206 @@ func TestStatusNeverBlocksShutdown(t *testing.T) {
 	require.Less(t, time.Since(start), 2*time.Second)
 	require.Empty(t, runs)
 	require.Zero(t, inflight)
+}
+
+// A per-feed request that arrives while the feed is already in flight used to
+// borrow the running job's reply and lose its intent. A Full refresh must run
+// as its own fetch (validators dropped) after the in-flight one, and a trim
+// request must run a trim.
+func TestPriorityIntentSurvivesInFlightFeed(t *testing.T) {
+	r := newRig(t, Options{})
+	release := make(chan struct{})
+	started := make(chan struct{}, 4)
+	var mu sync.Mutex
+	var inms []string
+	srv := newSrv(t, func(_ string, w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		inms = append(inms, req.Header.Get("If-None-Match"))
+		first := len(inms) == 1
+		mu.Unlock()
+		if first {
+			started <- struct{}{}
+			<-release
+		}
+		w.Header().Set("ETag", `"v1"`)
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(feedXML))
+	})
+	id := r.add(srv.URL+"/f", nil)
+	// seed a validator so a non-full fetch would send If-None-Match
+	r.sql("UPDATE feeds SET etag = '\"v1\"' WHERE id = ?", id)
+	r.s.Wake()
+	<-started // the scheduled fetch is now in flight
+
+	full, err := r.s.Submit(Priority{FeedID: id, Full: true})
+	require.NoError(t, err)
+	trim, err := r.s.Submit(Priority{FeedID: id, Kind: PriorityTrim})
+	require.NoError(t, err)
+	r.barrier()
+	close(release)
+
+	for name, ch := range map[string]<-chan Reply{"full": full, "trim": trim} {
+		select {
+		case rep := <-ch:
+			require.NoError(t, rep.Err, name)
+			if name == "trim" {
+				require.Equal(t, fetch.OutcomeTrimOnly, rep.Outcome)
+			} else {
+				require.NotEqual(t, fetch.OutcomeNotModified, rep.Outcome)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s reply never arrived", name)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, inms, 2, "the full refresh must run as its own fetch")
+	require.Equal(t, `"v1"`, inms[0])
+	require.Empty(t, inms[1], "a full refetch drops validators")
+	require.EqualValues(t, 1, r.num("SELECT count(*) FROM fetch_log WHERE feed_id=? AND outcome='trim_only'", id))
+}
+
+// A trim needs no network, so a disabled feed still honors a lowered cap.
+func TestTrimRunsOnDisabledFeed(t *testing.T) {
+	r := newRig(t, Options{})
+	srv := newSrv(t, serveOK)
+	id := r.add(srv.URL+"/d", nil)
+	r.sql("UPDATE feeds SET enabled = 0, disabled_reason = 'user', retention = 50 WHERE id = ?", id)
+	r.sql(`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < 60)
+	       INSERT INTO items (id, feed_id, uid, url, title, published_at, sort_at, content_hash, text_hash)
+	       SELECT 1000+n, ?1, 'x'||n, '', 't', 1, 1, 'c', 't' FROM seq`, id)
+	ch, err := r.s.Submit(Priority{FeedID: id, Kind: PriorityTrim})
+	require.NoError(t, err)
+	rep := <-ch
+	require.NoError(t, rep.Err)
+	require.EqualValues(t, 10, rep.Trimmed)
+	require.EqualValues(t, 50, r.num("SELECT count(*) FROM items WHERE feed_id=?", id))
+	require.Zero(t, srv.total(), "a trim never touches the network")
+
+	// while a fetch-type job on the same disabled feed is still refused
+	ch, _ = r.s.Submit(Priority{FeedID: id, Full: true})
+	require.ErrorIs(t, (<-ch).Err, ErrDisabled)
+}
+
+// uaSrv refuses any User-Agent without "Chrome" with 403 and records every UA.
+func uaSrv(t *testing.T) (*feedSrv, func() []string) {
+	var mu sync.Mutex
+	var uas []string
+	srv := newSrv(t, func(_ string, w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		uas = append(uas, req.UserAgent())
+		mu.Unlock()
+		if !strings.Contains(req.UserAgent(), "Chrome") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		serveOK("", w, req)
+	})
+	return srv, func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), uas...) }
+}
+
+func TestBrowserUARetryIsRememberedPerFeed(t *testing.T) {
+	r := newRig(t, Options{})
+	srv, uas := uaSrv(t)
+	id := r.add(srv.URL+"/f", nil)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	require.Len(t, uas(), 2, "Kipple UA refused, then one browser retry")
+	require.Contains(t, uas()[0], "Kipple")
+	require.Contains(t, uas()[1], "Chrome")
+	require.Equal(t, "ok", r.events("fetch.done")[0]["outcome"])
+	require.EqualValues(t, 1, r.num("SELECT ua_fallback FROM feeds WHERE id = ?", id))
+
+	r.clk.Advance(31 * time.Minute)
+	r.waitEvents("fetch.done", 2)
+	require.Len(t, uas(), 3, "the remembered feed goes straight to the browser UA")
+	require.Contains(t, uas()[2], "Chrome")
+}
+
+func TestUAModeDefaultNeverRetries(t *testing.T) {
+	r := newRig(t, Options{})
+	require.NoError(t, r.db.SetSettings(context.Background(), map[string]any{"fetch.user_agent_mode": "default"}))
+	srv, uas := uaSrv(t)
+	id := r.add(srv.URL+"/f", nil)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	require.Len(t, uas(), 1)
+	require.Equal(t, "error", r.events("fetch.done")[0]["outcome"])
+	require.Zero(t, r.num("SELECT ua_fallback FROM feeds WHERE id = ?", id))
+}
+
+// A fetch whose feed URL is edited while the browser-UA retry is in flight is
+// stale: nothing is committed, so the browser UA must not be learned for the
+// new URL either.
+func TestStaleFetchDoesNotLearnBrowserUA(t *testing.T) {
+	r := newRig(t, Options{})
+	var id atomic.Int64
+	var srv *feedSrv
+	var once sync.Once
+	srv = newSrv(t, func(path string, w http.ResponseWriter, req *http.Request) {
+		if path != "/f" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if !strings.Contains(req.UserAgent(), "Chrome") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		once.Do(func() {
+			nu := srv.URL + "/other"
+			_, err := r.db.PatchFeed(context.Background(), id.Load(), store.FeedPatch{URL: &nu, Cols: map[string]any{}})
+			require.NoError(t, err)
+		})
+		serveOK("", w, req)
+	})
+	id.Store(r.add(srv.URL+"/f", nil))
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	require.Zero(t, r.num("SELECT ua_fallback FROM feeds WHERE id = ?", id.Load()))
+}
+
+func TestCommitFailureBackoffEscalatesAndCaps(t *testing.T) {
+	r := newRig(t, Options{})
+	r.s.inDispatcher(func() { r.s.failCommit = func(int64) error { return fmt.Errorf("injected commit failure") } })
+	srv := newSrv(t, serveOK)
+	id := r.add(srv.URL+"/f", nil)
+
+	var delays []time.Duration
+	for i := 1; i <= 10; i++ {
+		r.s.Wake()
+		r.waitEvents("fetch.done", i)
+		var nb time.Time
+		r.s.inDispatcher(func() { nb = r.s.notBefore[id] })
+		delays = append(delays, nb.Sub(r.clk.Now()))
+		r.clk.Set(nb.Add(time.Second))
+	}
+	for i := 1; i < 6; i++ {
+		require.Greater(t, delays[i], delays[i-1], "delay %d grows", i)
+	}
+	require.InDelta(t, (24 * time.Hour).Seconds(), delays[9].Seconds(), 24*3600*0.16, "capped near 24 h")
+	require.LessOrEqual(t, delays[9], time.Duration(float64(24*time.Hour)*1.16))
+	require.InDelta(t, delays[8].Seconds(), delays[9].Seconds(), 24*3600*0.32, "stays at the cap")
+}
+
+func TestCommitFetchGetsNoDeadlineAndPerChunkBudget(t *testing.T) {
+	r := newRig(t, Options{CommitTimeout: 7 * time.Second})
+	type seen struct {
+		deadline bool
+		perChunk time.Duration
+	}
+	got := make(chan seen, 4)
+	r.s.inDispatcher(func() {
+		r.s.commitFetchFn = func(ctx context.Context, _ *fetch.Result, perChunk time.Duration) (store.CommitInfo, error) {
+			_, has := ctx.Deadline()
+			got <- seen{has, perChunk}
+			return store.CommitInfo{}, nil
+		}
+	})
+	srv := newSrv(t, serveOK)
+	r.add(srv.URL+"/f", nil)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	s := <-got
+	require.False(t, s.deadline, "chunks must not share a deadline on ctx")
+	require.Equal(t, 7*time.Second, s.perChunk)
 }

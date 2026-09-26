@@ -121,9 +121,8 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		seen := map[string]*firstSeen{}
 		var order []*firstSeen
 		for _, f := range doc.Feeds {
-			key, err := feedurl.Key(f.URL)
-			norm, nerr := feedurl.Normalize(f.URL)
-			if err != nil || nerr != nil {
+			key, norm, err := feedurl.KeyAndNormalize(f.URL)
+			if err != nil {
 				res.Skipped = append(res.Skipped, Skipped{f.URL, "not a valid http(s) URL"})
 				continue
 			}

@@ -33,11 +33,12 @@ func TestContentPolicy(t *testing.T) {
 	bases := []string{"https://a.com/post/"}
 	h, txt := Content(`<p onclick="x()">Hi <script>evil()</script><img src="/i.png"></p>`+
 		`<iframe src="https://www.youtube.com/embed/abc123"></iframe><iframe src="https://evil.example/x"></iframe>`, bases...)
-	require.NotContains(t, h, "script")
+	require.NotContains(t, h, "<script")
 	require.NotContains(t, h, "onclick")
-	require.NotContains(t, h, "evil.example")
+	require.Contains(t, h, `<a href="https://evil.example/x" rel="nofollow">Embedded content from evil.example</a>`)
+	require.NotContains(t, h, "<iframe src=\"https://evil")
 	require.Contains(t, h, `src="https://a.com/i.png"`)
 	require.Contains(t, h, "youtube.com/embed/abc123")
-	require.Equal(t, "Hi", txt)
+	require.Equal(t, "Hi Embedded content from evil.example", txt)
 	require.Equal(t, 2, WordCount("two words"))
 }

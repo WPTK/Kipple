@@ -482,3 +482,11 @@ func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Addr, log *slo
 		next.ServeHTTP(w, r)
 	})
 }
+
+// Web and Reader API password length limits, in bytes (the owner chose 5; the upper
+// bound keeps the hashing input sane). The account endpoints and
+// `kipple password` share them.
+const (
+	MinPasswordLen = 5
+	MaxPasswordLen = 256
+)

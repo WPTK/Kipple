@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -23,10 +24,16 @@ import (
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/greader"
+	"github.com/WPTK/kipple/internal/httpx"
+	"github.com/WPTK/kipple/internal/imgcache"
+	"github.com/WPTK/kipple/internal/lock"
 	"github.com/WPTK/kipple/internal/maint"
 	"github.com/WPTK/kipple/internal/sched"
+	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 	kweb "github.com/WPTK/kipple/internal/web"
 )
@@ -68,13 +75,17 @@ func run(args []string) error {
 		return runServe()
 	case "api-password":
 		return runAPIPassword(args[1:])
+	case "password":
+		return runPassword(args[1:])
+	case "restore":
+		return runRestore(args[1:])
 	case "import":
 		return runImport(args[1:])
 	case "version":
 		fmt.Println(version)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (want serve, import, api-password or version)", cmd)
+		return fmt.Errorf("unknown command %q (want serve, import, api-password, password, restore or version)", cmd)
 	}
 }
 
@@ -105,6 +116,16 @@ func runServe() error {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
+	// One server per data directory, and no restore under a live server: the OS
+	// lock goes with the process, so a crash never leaves a stale one.
+	dataLock, err := lock.Acquire(filepath.Join(cfg.DataDir, "kipple.lock"))
+	if errors.Is(err, lock.ErrLocked) {
+		return fmt.Errorf("another kipple is already running on %s (kipple.lock is held)", cfg.DataDir)
+	}
+	if err != nil {
+		return fmt.Errorf("data dir lock: %w", err)
+	}
+	defer func() { _ = dataLock.Release() }()
 	db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(cfg.DataDir, "kipple.db"), Logger: logger})
 	if err != nil {
 		return fmt.Errorf("store: %w", err)
@@ -120,41 +141,71 @@ func runServe() error {
 		return fmt.Errorf("account: %w", err)
 	}
 
+	// The image cache is optional: if it cannot open (a read-only volume, say), the
+	// proxy still works and streams every image straight from its source.
+	imgc, err := imgcache.Open(imgcache.Options{
+		Dir:      filepath.Join(cfg.DataDir, "imgcache"),
+		MaxBytes: int64(db.IntSetting(context.Background(), "imgproxy.cache_mb", store.DefaultImgCacheMB)) << 20,
+		Logger:   logger,
+	})
+	if err != nil {
+		logger.Error("image cache unavailable; images stream uncached", "err", err)
+		imgc = nil
+	} else {
+		// Runs before db.Close (defers unwind last-in first) and after the HTTP drain.
+		defer func() {
+			if err := imgc.Close(); err != nil {
+				logger.Error("closing image cache", "err", err)
+			}
+		}()
+	}
+
 	hub := events.New()
 	// One verifier for the whole process: the web login and ClientLogin share its
 	// single argon2id slot, so they can never hash at the same time.
 	verifier := auth.NewVerifier(nil, auth.VerifierOptions{})
 	client := fetch.NewClient(fetch.ClientOptions{Version: version, PublicURL: cfg.PublicURL})
+	// One full-text runner for the process: the ingest pool and the on-demand
+	// endpoint join each other's extractions and share the per-article-host limit.
+	ftRunner := ftrun.New(ftrun.Options{
+		DB: db, Log: logger,
+		Extractor: extract.New(extract.Options{Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: 15 * time.Second}),
+	})
 	scheduler := sched.New(db, client, hub, nil, logger, sched.Options{
-		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick,
+		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick, Runner: ftRunner,
 	})
 	scheduler.Start()
-	maintenance := maint.New(maint.Options{DB: db, Logger: logger})
+	maintenance := maint.New(maint.Options{DB: db, Logger: logger, ImgCache: imgc})
 	maintenance.Start()
 
 	// The Reader API claims /api/greader.php and its root aliases ahead of the
 	// mux, so no ServeMux ever sees a Reader path (design §6.1).
+	recorder := stats.New(time.Now)
 	readerAPI := greader.New(greader.Options{
-		DB: db, Logger: logger, Wake: scheduler.Wake, Events: hub,
+		DB: db, Logger: logger, Wake: scheduler.Wake, Events: hub, Stats: recorder,
 		TrustedProxies: cfg.TrustedProxyIPs, PublicURL: cfg.PublicURL, LogForms: cfg.LogGreaderForms,
 		Verifier: verifier,
 	})
 
-	webHandler, err := kweb.NewHandler()
+	mux := http.NewServeMux()
+	uiAPI := api.New(api.Options{
+		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
+		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
+		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
+		OnAPIPasswordChange: readerAPI.InvalidateAccount,
+	})
+	defer uiAPI.Close()
+	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API
+	uiAPI.Register(mux)
+	webHandler, err := kweb.NewHandler(kweb.WithImgMode(uiAPI.ImgMode))
 	if err != nil {
 		return fmt.Errorf("web: %w", err)
 	}
-
-	mux := http.NewServeMux()
-	api.New(api.Options{
-		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
-		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
-	}).Register(mux)
 	mux.Handle("/", webHandler)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           auth.WarnUntrustedProxyHeaders(readerAPI.Front(mux), cfg.TrustedProxyIPs, logger, nil),
+		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, cfg.TrustedProxyIPs, logger),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
 		// WriteTimeout would kill /api/events; the SSE handler replaces it with a
@@ -202,6 +253,18 @@ func runServe() error {
 	}
 
 	return superviseServe(ctx, serveErr, stopAll, logger)
+}
+
+// rootHandler is the server's whole handler chain: the Reader API claims its
+// paths ahead of the mux, untrusted forwarding headers are logged, and
+// httpx.Secure puts the security headers (frame-ancestors, X-Frame-Options,
+// CSP by content type, Permissions-Policy on pages) on every response, the SPA,
+// the UI API, the Reader API and the image proxy alike.
+func rootHandler(readerFront func(http.Handler) http.Handler, mux http.Handler, imgMode func() string,
+	trusted []netip.Addr, logger *slog.Logger) http.Handler {
+	return httpx.Secure(
+		auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, logger, nil),
+		httpx.Options{ImgMode: imgMode, TrustedProxies: trusted})
 }
 
 // serveDrainWait bounds the wait for ListenAndServe to report after a shutdown.

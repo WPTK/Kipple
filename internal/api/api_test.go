@@ -23,6 +23,7 @@ import (
 	"github.com/WPTK/kipple/internal/clock"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/greader"
+	"github.com/WPTK/kipple/internal/httpx"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -34,15 +35,65 @@ const (
 )
 
 type fakeSched struct {
-	mu       sync.Mutex
-	refreshN int
-	imported [][]int64
+	mu         sync.Mutex
+	refreshN   int
+	refreshErr error // what RefreshAll fails with, when set
+	imported   [][]int64
+
+	submits      []sched.Priority
+	reply        sched.Reply // what Submit answers at once, unless hang
+	hang         bool        // Submit's reply channel never fires
+	submitErr    error
+	retentionAll []bool
+	wakes        int
+	down         chan struct{}
+	holds        map[string]time.Time
+}
+
+func (f *fakeSched) Submit(p sched.Priority) (<-chan sched.Reply, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.submits = append(f.submits, p)
+	if f.submitErr != nil {
+		return nil, f.submitErr
+	}
+	ch := make(chan sched.Reply, 1)
+	if !f.hang {
+		rep := f.reply
+		rep.FeedID = p.FeedID
+		ch <- rep
+	}
+	return ch, nil
+}
+
+func (f *fakeSched) Wake() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.wakes++
+}
+
+func (f *fakeSched) Shutdown() <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.down == nil {
+		f.down = make(chan struct{})
+	}
+	return f.down
+}
+
+func (f *fakeSched) submitted() []sched.Priority {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]sched.Priority(nil), f.submits...)
 }
 
 func (f *fakeSched) RefreshAll() (sched.RunInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.refreshN++
+	if f.refreshErr != nil {
+		return sched.RunInfo{}, f.refreshErr
+	}
 	return sched.RunInfo{RunID: 42, Kind: "manual", Total: 3}, nil
 }
 
@@ -55,6 +106,12 @@ func (f *fakeSched) StartImport(ids []int64) (sched.RunInfo, error) {
 
 func (f *fakeSched) Status() ([]sched.RunStatus, int) {
 	return []sched.RunStatus{{ID: 42, Kind: "manual", Done: 1, Total: 3}}, 2
+}
+
+func (f *fakeSched) HostHolds() map[string]time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.holds
 }
 
 type harness struct {
@@ -87,6 +144,7 @@ func newHarness(t *testing.T, tune ...func(*Options)) *harness {
 		f(&opt)
 	}
 	h.srv = New(opt)
+	t.Cleanup(h.srv.Close)
 	h.srv.Register(h.mux)
 	return h
 }
@@ -262,16 +320,19 @@ func TestCrossOriginRejected(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		mod  []func(*http.Request)
+		// clientOnly marks a failure of the X-Kipple-Client rule alone: GET
+		// downloads are reachable by a plain link, so only the origin rule guards them.
+		clientOnly bool
 	}{
-		{"cross-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }}},
-		{"same-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "same-site") }}},
-		{"no metadata no origin", []func(*http.Request){strip, func(r *http.Request) { r.Header.Set("X-Kipple-Client", "web") }}},
+		{"cross-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }}, false},
+		{"same-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "same-site") }}, false},
+		{"no metadata no origin", []func(*http.Request){strip, func(r *http.Request) { r.Header.Set("X-Kipple-Client", "web") }}, false},
 		{"foreign origin", []func(*http.Request){strip, func(r *http.Request) {
 			r.Header.Set("Origin", "https://evil.example")
 			r.Header.Set("X-Kipple-Client", "web")
-		}}},
-		{"missing client header", []func(*http.Request){func(r *http.Request) { r.Header.Del("X-Kipple-Client") }}},
-		{"bad client header", []func(*http.Request){func(r *http.Request) { r.Header.Set("X-Kipple-Client", "curl") }}},
+		}}, false},
+		{"missing client header", []func(*http.Request){func(r *http.Request) { r.Header.Del("X-Kipple-Client") }}, true},
+		{"bad client header", []func(*http.Request){func(r *http.Request) { r.Header.Set("X-Kipple-Client", "curl") }}, true},
 	} {
 		mods := append([]func(*http.Request){withCookie(c)}, tc.mod...)
 		for _, path := range []string{"/api/refresh", "/api/auth/logout"} {
@@ -281,7 +342,11 @@ func TestCrossOriginRejected(t *testing.T) {
 		}
 		rec := h.do("POST", "/api/opml", "<opml/>", mods...)
 		require.Equal(t, http.StatusForbidden, rec.Code, tc.name)
-		require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", mods...).Code, "%s GET opml", tc.name)
+		wantGet := http.StatusForbidden
+		if tc.clientOnly {
+			wantGet = http.StatusOK
+		}
+		require.Equal(t, wantGet, h.do("GET", "/api/opml", "", mods...).Code, "%s GET opml", tc.name)
 	}
 	require.Zero(t, h.sched.refreshN)
 
@@ -361,7 +426,8 @@ func TestStatusMeHealthRefresh(t *testing.T) {
 			ID                  string   `json:"id"`
 			Title               string   `json:"title"`
 			Status              string   `json:"status"`
-			Migrated            bool     `json:"migrated"`
+			RedirectPending     bool     `json:"redirect_pending"`
+			HostThrottledUntil  *int64   `json:"host_throttled_until"`
 			Notices             []string `json:"notices"`
 			LastError           string   `json:"last_error"`
 			ConsecutiveFailures int      `json:"consecutive_failures"`
@@ -373,8 +439,9 @@ func TestStatusMeHealthRefresh(t *testing.T) {
 	require.Len(t, hf.Feeds, 1)
 	f := hf.Feeds[0]
 	require.Equal(t, "Alpha", f.Title)
-	require.Equal(t, "failing", f.Status)
-	require.True(t, f.Migrated)
+	require.Equal(t, "erroring", f.Status, "3 failures is erroring; failing starts at 14")
+	require.True(t, f.RedirectPending)
+	require.Nil(t, f.HostThrottledUntil)
 	require.Equal(t, "boom", f.LastError)
 	require.Equal(t, 3, f.ConsecutiveFailures)
 	require.Nil(t, f.LastSuccessAt)
@@ -503,9 +570,9 @@ func TestSSEHeartbeatAndSurvivesWriteAndReadTimeout(t *testing.T) {
 		readUntil(t, br, ": ping", 2*time.Second)
 	}
 	// and a real event published after both timeouts have elapsed is delivered
-	h.hub.Publish("run.done", map[string]any{"run_id": 1})
-	require.Equal(t, "event: run.done\n", readUntil(t, br, "event:", 2*time.Second))
-	require.Contains(t, readUntil(t, br, "data:", time.Second), `"run_id":1`)
+	h.hub.Publish("run.done", map[string]any{"run_id": "1"})
+	require.Equal(t, "event: run.done\n", readUntil(t, br, "event: run.done", 2*time.Second)) // heartbeat events interleave
+	require.Contains(t, readUntil(t, br, "data:", time.Second), `"run_id":"1"`)
 }
 
 func TestSSEReplayAndResync(t *testing.T) {
@@ -518,12 +585,12 @@ func TestSSEReplayAndResync(t *testing.T) {
 	h.hub.Publish("two", 2)
 
 	br, closeBody := openStream(t, ts, c, itoa(first))
-	require.Equal(t, "event: two\n", readUntil(t, br, "event:", 2*time.Second))
+	require.Equal(t, "event: two\n", readUntil(t, br, "event: two", 2*time.Second))
 	closeBody()
 
 	br, closeBody = openStream(t, ts, c, "1") // ring cannot cover id 1
 	defer closeBody()
-	require.Equal(t, "event: resync\n", readUntil(t, br, "event:", 2*time.Second))
+	require.Equal(t, "event: resync\n", readUntil(t, br, "event: resync", 2*time.Second))
 }
 
 func TestSSEEndsOnHubClose(t *testing.T) {
@@ -588,18 +655,123 @@ func TestBusyAndMalformedLoginsAreNotCountedAgainstLockout(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
 }
 
-func TestAPIResponsesForbidFraming(t *testing.T) {
+// The API routes under httpx.Secure: every answer, errors included, forbids
+// framing and carries a JSON-only policy; the image proxy keeps its own.
+func TestAPIResponsesUnderSecure(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
+	secure := httpx.Secure(h.mux, httpx.Options{})
+	get := func(method, path, body string, withC bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Sec-Fetch-Site", "same-origin")
+		r.Header.Set("X-Kipple-Client", "web")
+		if withC {
+			r.AddCookie(c)
+		}
+		rec := httptest.NewRecorder()
+		secure.ServeHTTP(rec, r)
+		return rec
+	}
 	check := func(rec *httptest.ResponseRecorder, what string) {
 		t.Helper()
-		require.Equal(t, "frame-ancestors 'none'", rec.Header().Get("Content-Security-Policy"), what)
+		require.Equal(t, "default-src 'none'; frame-ancestors 'none'", rec.Header().Get("Content-Security-Policy"), what)
 		require.Equal(t, "DENY", rec.Header().Get("X-Frame-Options"), what)
+		require.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"), what)
+		require.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"), what)
 	}
-	check(h.do("GET", "/healthz", ""), "healthz")
-	check(h.do("POST", "/api/auth/login", loginBody("wrong")), "failed login")
-	check(h.do("GET", "/api/status", ""), "unauthenticated 401")
-	check(h.do("GET", "/api/status", "", withCookie(c)), "status")
-	check(h.do("GET", "/api/opml", "", withCookie(c)), "opml export")
-	check(h.do("GET", "/api/nope", "", withCookie(c)), "404")
+	check(get("GET", "/healthz", "", false), "healthz")
+	check(get("POST", "/api/auth/login", loginBody("wrong"), false), "failed login")
+	check(get("GET", "/api/status", "", false), "unauthenticated 401")
+	check(get("GET", "/api/status", "", true), "status")
+	check(get("GET", "/api/opml", "", true), "opml export")
+	check(get("GET", "/api/nope", "", true), "404")
+	require.Equal(t, "same-origin", get("GET", "/api/status", "", true).Header().Get("Cross-Origin-Resource-Policy"))
+	require.Empty(t, get("GET", "/healthz", "", false).Header().Get("Cross-Origin-Resource-Policy"))
+}
+
+// stop closes the Shutdown channel, as sched.Scheduler.Stop does.
+func (f *fakeSched) stop() {
+	f.Shutdown()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	close(f.down)
+}
+
+func (f *fakeSched) ApplyRetention(all bool) (sched.RunInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.retentionAll = append(f.retentionAll, all)
+	return sched.RunInfo{RunID: 44, Kind: "retention", Total: 7}, nil
+}
+
+// GET downloads answer to the Sec-Fetch-Site/Origin rule alone (a link click
+// carries no X-Kipple-Client); every other GET and every write still needs it.
+func TestDownloadOriginMatrix(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	plain := func(site string) func(*http.Request) {
+		return func(r *http.Request) {
+			r.Header.Del("X-Kipple-Client")
+			r.Header.Del("Sec-Fetch-Site")
+			r.Header.Del("Origin")
+			if site != "" {
+				r.Header.Set("Sec-Fetch-Site", site)
+			}
+		}
+	}
+	require.Equal(t, http.StatusOK, h.do("GET", "/api/opml", "", withCookie(c), plain("same-origin")).Code, "link click")
+	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", withCookie(c), plain("cross-site")).Code)
+	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", withCookie(c), plain("same-site")).Code)
+	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", withCookie(c), plain("")).Code, "no metadata and no Origin")
+	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/opml", "", plain("same-origin")).Code, "auth still first")
+	// Not a download: a POST to the same path keeps the header rule.
+	require.Equal(t, http.StatusForbidden, h.do("POST", "/api/opml", "<opml/>", withCookie(c), plain("same-origin")).Code)
+}
+
+func TestSSEReplayFromLastEventIDQueryParam(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	ts := sseServer(t, h)
+	h.hub.Publish("one", 1)
+	first := h.hub.LastID()
+	h.hub.Publish("two", 2)
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/events?last_event_id="+itoa(first), nil)
+	req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	br := bufio.NewReader(resp.Body)
+	require.Equal(t, "event: two\n", readUntil(t, br, "event: two", 2*time.Second))
+}
+
+func TestSSEEndsWhenItsSessionIsGone(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	ts := sseServer(t, h)
+	br, closeBody := openStream(t, ts, c, "")
+	defer closeBody()
+	readUntil(t, br, ": connected", time.Second)
+	h.exec("DELETE FROM sessions")
+	done := make(chan struct{})
+	go func() { _, _ = io.Copy(io.Discard, br); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream outlived its session")
+	}
+}
+
+func TestOPMLImportPublishesFolderChangedOnlyWhenFoldersAreCreated(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	sub := h.hub.Subscribe(h.hub.LastID())
+	defer sub.Close()
+	doc := `<?xml version="1.0"?><opml version="2.0"><head/><body>
+	<outline text="Fresh"><outline type="rss" text="Alpha" xmlUrl="https://a.example/feed.xml"/></outline>
+	</body></opml>`
+	require.Equal(t, http.StatusOK, h.do("POST", "/api/opml", doc, withCookie(c)).Code)
+	require.Len(t, folderChanged(t, sub), 1)
+	require.Equal(t, http.StatusOK, h.do("POST", "/api/opml", doc, withCookie(c)).Code)
+	require.Empty(t, folderChanged(t, sub), "nothing created the second time")
 }

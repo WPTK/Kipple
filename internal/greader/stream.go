@@ -8,14 +8,7 @@ import (
 )
 
 // stateName returns the name in user/<x>/state/com.google/<name>.
-func stateName(id string) (string, bool) {
-	rest, ok := strings.CutPrefix(id, "user/")
-	if !ok {
-		return "", false
-	}
-	_, name, ok := strings.Cut(rest, "/state/com.google/")
-	return name, ok
-}
+func stateName(id string) (string, bool) { return parseUserPath(id, "/state/com.google/") }
 
 // resolveStream turns a stream id into a filter (design §6.4). Unknown streams,
 // unknown labels and unknown feeds are an empty result, never an error.

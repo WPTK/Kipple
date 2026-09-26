@@ -11,6 +11,7 @@ import (
 	"golang.org/x/net/html/charset"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/encoding/unicode/utf32"
 	"golang.org/x/text/transform"
 )
 
@@ -50,6 +51,15 @@ func DecodeBody(body []byte, httpCharset string) Decoded {
 	case bytes.HasPrefix(body, []byte{0xEF, 0xBB, 0xBF}):
 		body = body[3:]
 		enc, name = encoding.Nop, "utf-8"
+	case bytes.HasPrefix(body, []byte{0xFF, 0xFE, 0x00, 0x00}):
+		// Checked before UTF-16LE: its BOM (FF FE) is a prefix of this one.
+		enc, name = utf32.UTF32(utf32.LittleEndian, utf32.IgnoreBOM), "utf-32le"
+		body = body[4:]
+		bom = true
+	case bytes.HasPrefix(body, []byte{0x00, 0x00, 0xFE, 0xFF}):
+		enc, name = utf32.UTF32(utf32.BigEndian, utf32.IgnoreBOM), "utf-32be"
+		body = body[4:]
+		bom = true
 	case bytes.HasPrefix(body, []byte{0xFF, 0xFE}):
 		enc, name = unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM), "utf-16le"
 		body = body[2:]

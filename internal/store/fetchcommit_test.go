@@ -19,7 +19,7 @@ import (
 var base = time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 
 type env struct {
-	t   *testing.T
+	t   testing.TB
 	db  *DB
 	clk *clock.Fake
 	ctx context.Context
@@ -430,7 +430,7 @@ func TestRedirectMigration(t *testing.T) {
 	res := e.okResult(e.snap(id), rss(numbered(1)...))
 	res.FinalURL = newURL
 	res.Redirect = fetch.RedirectDecision{Action: fetch.RedirectMigrate, To: newURL, Kind: "permanent", Count: 3}
-	e.commit(res)
+	require.True(t, e.commit(res).Migrated)
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE url = ? AND url_original = 'http://a.example/feed' AND url_original_key = 'a.example/feed' AND url_key = 'a.example/feed' AND redirect_to IS NULL", newURL))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM fetch_log WHERE keep = 1 AND note LIKE '%redirect_migrated: http://a.example/feed -> https://a.example/feed%'"))
 	found, ok, err := FindFeedByURL(e.ctx, e.db.Reader(), "http://a.example/feed")
@@ -442,7 +442,7 @@ func TestRedirectMigration(t *testing.T) {
 	other := e.addFeed("http://b.example/feed")
 	res = e.okResult(e.snap(id), rss(numbered(1)...))
 	res.Redirect = fetch.RedirectDecision{Action: fetch.RedirectMigrate, To: "https://b.example/feed", Kind: "permanent", Count: 3}
-	e.commit(res)
+	require.False(t, e.commit(res).Migrated, "a refused migration is not a change")
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND url = ? AND redirect_to = 'https://b.example/feed' AND redirect_kind = 'permanent'", id, newURL))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM fetch_log WHERE note LIKE ?", fmt.Sprintf("%%redirect_target_owned_by_feed %d%%", other)))
 
@@ -563,4 +563,123 @@ func TestChunkedCommitEachChunkHasItsOwnDeadline(t *testing.T) {
 	info, err = e.db.CommitFetchTimeout(e.ctx, e.okResult(e.snap(id2), rss(numbered(5)...)), time.Nanosecond)
 	require.Error(t, err)
 	require.Zero(t, info.New)
+}
+
+// staleFetch starts a fetch on the old URL, edits the URL, and returns the
+// snapshot of the in-flight fetch plus the new URL.
+func staleFetch(t *testing.T) (e *env, id int64, snap fetch.Snapshot, newURL string) {
+	e = newEnv(t)
+	id = e.addFeed("http://example.test/old.xml")
+	snap = e.snap(id) // the fetch starts on the old URL
+	newURL = "http://example.test/new.xml"
+	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &newURL, Cols: map[string]any{}})
+	require.NoError(t, err)
+	return
+}
+
+func TestStaleFetchAfterURLEditDropsItems(t *testing.T) {
+	e, id, snap, _ := staleFetch(t)
+	e.commit(e.okResult(snap, rss(numbered(2)...)))
+	require.Equal(t, 0, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	require.Equal(t, 0, e.count("SELECT count(*) FROM fetch_log WHERE feed_id = ? AND outcome = 'ok'", id))
+}
+
+func TestStaleFetchAfterURLEditKeepsPatchedRow(t *testing.T) {
+	e, id, snap, nu := staleFetch(t)
+	before := e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id)
+	res := e.okResult(snap, rss(numbered(2)...))
+	res.Redirect = fetch.RedirectDecision{Action: fetch.RedirectMigrate, To: "http://example.test/elsewhere.xml", Kind: "permanent", Count: 3}
+	e.commit(res)
+	// validators stay cleared, the url stays repointed (no migrate), the schedule is untouched
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND url = ? AND etag IS NULL AND last_modified IS NULL", id, nu))
+	require.Equal(t, before, e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id))
+}
+
+func TestStaleFetchErrorAfterURLEditIsIgnored(t *testing.T) {
+	e, id, snap, _ := staleFetch(t)
+	// a 410 on the old URL must not disable the repointed feed, nor count as its failure
+	er := &fetch.Result{Snap: snap, StartedAt: e.clk.Now(), Outcome: fetch.OutcomeError, ErrClass: "http", ErrMsg: "gone", Gone: true,
+		NextFetchAt: e.clk.Now().Add(time.Hour), CurrentDelayS: 3600}
+	require.NoError(t, e.db.CommitFetchError(e.ctx, er))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND enabled = 1 AND consecutive_failures = 0", id))
+	require.Equal(t, 0, e.count("SELECT count(*) FROM fetch_log WHERE feed_id = ? AND outcome = 'error'", id))
+}
+
+func TestPatchFeedResetsLearnedUAFallback(t *testing.T) {
+	learn := func(e *env, id int64) {
+		require.NoError(t, e.db.SetFeedUAFallback(e.ctx, id, "http://example.test/a.xml", ""))
+		require.Equal(t, 1, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id))
+	}
+	e := newEnv(t)
+	id := e.addFeed("http://example.test/a.xml")
+
+	learn(e, id)
+	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{Cols: map[string]any{"custom_title": "x"}})
+	require.NoError(t, err)
+	require.Equal(t, 1, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "unrelated patch keeps it")
+
+	_, err = e.db.PatchFeed(e.ctx, id, FeedPatch{Cols: map[string]any{"user_agent": "Custom/1"}})
+	require.NoError(t, err)
+	require.Equal(t, 0, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "changed per-feed UA resets it")
+
+	learn(e, id)
+	nu := "http://example.test/b.xml"
+	_, err = e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &nu, Cols: map[string]any{}})
+	require.NoError(t, err)
+	require.Equal(t, 0, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "changed URL resets it")
+}
+
+func TestPullInScheduleRespectsPublisherTTL(t *testing.T) {
+	e := newEnv(t)
+	mk := func(url string, ttl any) int64 {
+		id := e.addFeed(url)
+		e.exec("UPDATE feeds SET last_fetch_at = 1000, next_fetch_at = 1000 + 7200, ttl_hint_s = ? WHERE id = ?", ttl, id)
+		return id
+	}
+	noTTL, shortTTL, longTTL, hugeTTL := mk("http://a.test/1", nil), mk("http://a.test/2", 300), mk("http://a.test/3", 3600), mk("http://a.test/4", 999999)
+	next := func(id int64) int { return e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id) }
+
+	_, err := e.db.PullInSchedule(e.ctx, 10) // 600 s
+	require.NoError(t, err)
+	require.Equal(t, 1000+600, next(noTTL))
+	require.Equal(t, 1000+600, next(shortTTL), "a TTL shorter than the interval does not matter")
+	require.Equal(t, 1000+3600, next(longTTL), "held back to the publisher TTL")
+	require.Equal(t, 1000+7200, next(hugeTTL), "TTL capped at a day, and never postponed: 7200 already sooner")
+
+	// With the setting off the TTL is ignored.
+	require.NoError(t, e.db.SetSettings(e.ctx, map[string]any{"fetch.honor_publisher_ttl": false}))
+	e.exec("UPDATE feeds SET next_fetch_at = 1000 + 7200 WHERE id = ?", longTTL)
+	_, err = e.db.PullInSchedule(e.ctx, 10)
+	require.NoError(t, err)
+	require.Equal(t, 1000+600, next(longTTL))
+}
+
+// A URL edit landing between chunks of a large fetch: the earlier chunks are
+// durable and reported, the rest (trim, bookkeeping, log row) is dropped.
+func TestChunkedCommitStaleMidwayReportsWhatCommitted(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	// the edit rides along with chunk 1's transaction, after that chunk's own check
+	e.exec(fmt.Sprintf(`CREATE TRIGGER moved AFTER INSERT ON items WHEN NEW.uid = 'g:%s'
+		BEGIN UPDATE feeds SET url = 'http://b.example/feed' WHERE id = %d; END`, fetch.H("g0"), id))
+	res := e.okResult(e.snap(id), rss(numbered(620)...))
+	info, err := e.db.CommitFetch(e.ctx, res)
+	require.NoError(t, err)
+	require.True(t, info.Stale)
+	require.Equal(t, 250, info.New, "chunk 1 is reported as committed")
+	require.Len(t, info.NewIDs, 250)
+	require.Equal(t, 250, e.count("SELECT count(*) FROM items"))
+	require.Zero(t, e.count("SELECT count(*) FROM fetch_log"))
+	require.Equal(t, "http://b.example/feed", scalar[string](t, e.db.Reader(), "SELECT url FROM feeds WHERE id=?", id))
+}
+
+func TestSetFeedUAFallbackIsBoundToTheFetchedURL(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://example.test/a.xml")
+	e.exec("UPDATE feeds SET url = 'http://example.test/b.xml' WHERE id = ?", id) // PATCHed after the fetch
+	require.NoError(t, e.db.SetFeedUAFallback(e.ctx, id, "http://example.test/a.xml", ""))
+	require.Equal(t, 0, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "the new URL was never tried")
+	require.NoError(t, e.db.SetFeedUAFallback(e.ctx, id, "http://example.test/a.xml", "http://example.test/b.xml"))
+	require.Equal(t, 1, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "a migration target counts")
 }

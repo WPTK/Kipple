@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/store"
 )
 
 const commitTimeout = 10 * time.Second
@@ -13,6 +14,14 @@ const commitTimeout = 10 * time.Second
 // commitCtx is a fresh commit context, detached from the fetch context.
 func (s *Scheduler) commitCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(s.fetchCtx), s.opt.CommitTimeout)
+}
+
+// commitFetch runs the item commit with a per-chunk budget of CommitTimeout.
+func (s *Scheduler) commitFetch(ctx context.Context, res *fetch.Result) (store.CommitInfo, error) {
+	if s.commitFetchFn != nil {
+		return s.commitFetchFn(ctx, res, s.opt.CommitTimeout)
+	}
+	return s.db.CommitFetchTimeout(ctx, res, s.opt.CommitTimeout)
 }
 
 // worker ranges over the job queue until Stop closes it (design §4.3). It holds
@@ -61,30 +70,73 @@ func (s *Scheduler) exec(f *flight) (out result) {
 		// (Snap.HostUntil). A Retry-After a sibling feed learns while this fetch
 		// is in flight is intentionally not applied here: tick skips held hosts,
 		// so this feed simply waits out the deadline when it next comes due.
+		// Extraction happens after the commit, in the background pool (design
+		// §4.3): only the candidates and the fetch_log notes are chosen here.
+		cand := s.pickFulltext(s.fetchCtx, res)
 		res.Schedule(s.clk.Now(), s.opt.Rand)
 		out.outcome, out.status = res.Outcome, res.Status
 		out.errClass, out.errMsg = res.ErrClass, res.ErrMsg
 		out.retry, out.nextFetch = res.RetryAfter, res.NextFetchAt
 
 		// A completed fetch commits even when shutdown starts now: the commit
-		// context is detached from the fetch context and gets its own deadline,
-		// started here so a slow fetch does not eat the commit's budget.
-		cctx, cancel := s.commitCtx()
-		defer cancel()
+		// context is detached from the fetch context. CommitFetch bounds each
+		// chunk itself (store.CommitFetch: ctx carries no deadline), so a feed
+		// committed in several chunks gets a full CommitTimeout per chunk rather
+		// than one shared window. The small follow-up writes get their own
+		// bounded context, started after the item commit.
 		var err error
 		if s.failCommit != nil {
 			err = s.failCommit(f.snap.ID)
 		} else if res.Success() {
-			ci, cerr := s.db.CommitFetch(cctx, res)
+			ci, cerr := s.commitFetch(context.WithoutCancel(s.fetchCtx), res)
 			err = cerr
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
+			out.migrated = ci.Migrated
+			out.mutedIDs, out.muted = ci.MutedIDs, ci.Muted
+			if cerr == nil {
+				// ci.NewIDs is what really committed: empty for a stale fetch, the
+				// early chunks for a large one cut short by a URL edit.
+				s.queueFulltext(f.snap.ID, cand, withoutIDs(ci.NewIDs, ci.MutedIDs))
+			}
+			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil && !ci.Stale {
+				cctx, cancel := s.commitCtx()
+				defer cancel()
+				moved := ""
+				if ci.Migrated {
+					moved = res.Redirect.To
+				}
+				if uerr := s.db.SetFeedUAFallback(cctx, f.snap.ID, f.snap.URL, moved); uerr != nil {
+					s.log.Warn("sched: remember browser user agent", "feed", f.snap.ID, "err", uerr)
+				}
+			}
 		} else {
+			cctx, cancel := s.commitCtx()
+			defer cancel()
 			err = s.db.CommitFetchError(cctx, res)
+			out.gone = res.Gone && err == nil
 		}
 		if err != nil {
 			out.commitFailed = true
 			s.log.Error("sched: commit", "feed", f.snap.ID, "err", err)
 			out.outcome, out.errClass, out.errMsg = fetch.OutcomeError, "internal", err.Error()
+		}
+	}
+	return out
+}
+
+// withoutIDs returns ids minus drop, keeping order. With nothing to drop it returns ids itself.
+func withoutIDs(ids, drop []int64) []int64 {
+	if len(drop) == 0 {
+		return ids
+	}
+	skip := make(map[int64]struct{}, len(drop))
+	for _, id := range drop {
+		skip[id] = struct{}{}
+	}
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := skip[id]; !ok {
+			out = append(out, id)
 		}
 	}
 	return out

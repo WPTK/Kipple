@@ -70,8 +70,13 @@ func NewClient(opt ClientOptions) *Client {
 	return &Client{opt: opt, ua: ua, transports: map[variant]*http.Transport{}}
 }
 
+// BrowserUserAgent is the common desktop-browser string used for feeds that
+// refuse Kipple's own User-Agent (fetch.user_agent_mode), unless a custom
+// fetch.user_agent replaces it.
+const BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+
 // DefaultUserAgent is the User-Agent used when neither the feed nor the
-// fetch.user_agent setting overrides it.
+// user-agent mode overrides it.
 func (c *Client) DefaultUserAgent() string { return c.ua }
 
 func (c *Client) transport(v variant) *http.Transport {
@@ -95,7 +100,7 @@ func (c *Client) transport(v variant) *http.Transport {
 		t.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 	}
 	if v.insecureTLS {
-		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // per-feed opt-in
+		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // #nosec G402 -- deliberate per-feed opt-in for self-signed feeds (feeds.insecure_tls)
 	}
 	c.transports[v] = t
 	return t
@@ -128,4 +133,12 @@ func (c *Client) httpClient(v variant, hops *[]Hop) *http.Client {
 			return nil
 		},
 	}
+}
+
+// Transport returns the cached guarded transport for a variant, for callers
+// outside the feed fetcher that need the same dial-time SSRF guard: the image
+// proxy (keyed by its signed flags, design §7.4) and full-text extraction.
+// The result is shared and must not be modified.
+func (c *Client) Transport(allowPrivate, insecureTLS, noHTTP2 bool) http.RoundTripper {
+	return c.transport(variant{noHTTP2: noHTTP2, insecureTLS: insecureTLS, allowPrivate: allowPrivate})
 }

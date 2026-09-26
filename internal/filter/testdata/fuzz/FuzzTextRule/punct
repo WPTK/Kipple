@@ -1,0 +1,6 @@
+go test fuzz v1
+string("c++")
+string("c++ abc++ c++11 c ++")
+bool(true)
+bool(true)
+bool(false)

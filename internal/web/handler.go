@@ -24,14 +24,38 @@ import (
 //go:embed status.html
 var statusPage []byte
 
-// placeholderApp is true until the real single-page app exists: "/" then
-// redirects to /_status instead of serving web/dist/index.html (which is only
-// the Vite scaffold). Flip it to false when phase 2 lands. Every other path,
-// including /assets/, is unaffected. Tests may set it before NewHandler.
-var placeholderApp = true
+// statusScript is the status page's script, served at /_status.js so the page
+// carries no inline script and the strict CSP (script-src 'self') holds.
+//
+//go:embed status.js
+var statusScript []byte
+
+// Option configures NewHandler.
+type Option func(*handlerOpts)
+
+type handlerOpts struct{ imgMode func() string }
+
+// WithImgMode supplies the current imgproxy.mode. The page CSP (img-src)
+// depends on it and a 304 cannot carry a new policy, so the mode is folded into
+// the ETag of every HTML page: a mode change invalidates cached copies.
+func WithImgMode(f func() string) Option { return func(o *handlerOpts) { o.imgMode = f } }
 
 // NewHandler returns an http.Handler serving the embedded frontend.
-func NewHandler() (http.Handler, error) {
+func NewHandler(opts ...Option) (http.Handler, error) {
+	var o handlerOpts
+	for _, f := range opts {
+		f(&o)
+	}
+	modeTag := func() string {
+		if o.imgMode == nil {
+			return "all"
+		}
+		return o.imgMode()
+	}
+	// pageETag is the content hash plus the policy input, so it changes when
+	// either does.
+	pageETag := func(base string) string { return base[:len(base)-1] + "." + modeTag() + `"` }
+
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		return nil, fmt.Errorf("web: %w", err)
@@ -44,31 +68,21 @@ func NewHandler() (http.Handler, error) {
 	mux.Handle("GET /assets/", immutable(http.FileServerFS(dist)))
 	mux.HandleFunc("GET /_status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("ETag", etagOf(statusPage))
+		w.Header().Set("ETag", pageETag(etagOf(statusPage)))
 		http.ServeContent(w, r, "status.html", time.Time{}, bytes.NewReader(statusPage))
 	})
-	if placeholderApp {
-		// "/{$}" matches the root only (GET also covers HEAD).
-		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/_status", http.StatusFound)
-		})
-	}
+	mux.HandleFunc("GET /_status.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("ETag", etagOf(statusScript))
+		http.ServeContent(w, r, "status.js", time.Time{}, bytes.NewReader(statusScript))
+	})
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("ETag", etag)
+		w.Header().Set("ETag", pageETag(etag))
 		http.ServeContent(w, r, "index.html", modTime, bytes.NewReader(index))
 	})
-	return noFraming(mux), nil
-}
-
-// noFraming forbids embedding any page or asset in a frame (clickjacking):
-// CSP frame-ancestors is the standard, X-Frame-Options covers older browsers.
-func noFraming(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
-		w.Header().Set("X-Frame-Options", "DENY")
-		h.ServeHTTP(w, r)
-	})
+	return mux, nil
 }
 
 // readIndex returns the built index.html, or the placeholder page (with a

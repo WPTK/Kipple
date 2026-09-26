@@ -93,17 +93,27 @@ func TestPublisherHint(t *testing.T) {
 		h("Cache-Control", "max-age=600", "Expires", t0.Add(2*time.Hour).Format(http.TimeFormat)), t0), "the max of the three")
 	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Expires", "0"), t0), "Expires: 0 is no hint")
 	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Cache-Control", "no-cache, max-age=3600"), t0))
+	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Cache-Control", "private, max-age=3600"), t0), "private")
+	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Cache-Control", "max-age=3600, private"), t0), "private")
+	require.EqualValues(t, 5400, PublisherHintSeconds(true, 90, h("Cache-Control", "private, max-age=9999"), t0), "private keeps the rss ttl")
 	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Cache-Control", "max-age=10", "Age", "50"), t0), "never negative")
 }
 
 func TestParseRetryAfter(t *testing.T) {
-	require.Equal(t, 300*time.Second, ParseRetryAfter("300", t0))
-	require.Equal(t, 1500*time.Second, ParseRetryAfter("", t0))
-	require.Equal(t, 1500*time.Second, ParseRetryAfter("soon", t0))
-	require.Equal(t, 60*time.Second, ParseRetryAfter("0", t0))
-	require.Equal(t, 24*time.Hour, ParseRetryAfter("9999999", t0))
-	require.Equal(t, time.Hour, ParseRetryAfter(t0.Add(time.Hour).Format(http.TimeFormat), t0))
-	require.Equal(t, 60*time.Second, ParseRetryAfter(t0.Add(-time.Hour).Format(http.TimeFormat), t0), "a past date clamps up")
+	require.Equal(t, 300*time.Second, ParseRetryAfter("300", t0, time.Time{}))
+	require.Equal(t, 1500*time.Second, ParseRetryAfter("", t0, time.Time{}))
+	require.Equal(t, 1500*time.Second, ParseRetryAfter("soon", t0, time.Time{}))
+	require.Equal(t, 60*time.Second, ParseRetryAfter("0", t0, time.Time{}))
+	require.Equal(t, 24*time.Hour, ParseRetryAfter("9999999", t0, time.Time{}))
+	require.Equal(t, time.Hour, ParseRetryAfter(t0.Add(time.Hour).Format(http.TimeFormat), t0, time.Time{}))
+	require.Equal(t, 60*time.Second, ParseRetryAfter(t0.Add(-time.Hour).Format(http.TimeFormat), t0, time.Time{}), "a past date clamps up")
+
+	// An HTTP-date is relative to the response's Date header, so a publisher clock
+	// that is 3 hours fast still gets the intended one hour.
+	fast := t0.Add(3 * time.Hour)
+	require.Equal(t, time.Hour, ParseRetryAfter(fast.Add(time.Hour).Format(http.TimeFormat), t0, fast))
+	require.Equal(t, 4*time.Hour, ParseRetryAfter(fast.Add(time.Hour).Format(http.TimeFormat), t0, time.Time{}), "without a Date header it is measured against now")
+	require.Equal(t, 300*time.Second, ParseRetryAfter("300", t0, fast), "delta-seconds ignore Date")
 }
 
 func TestDecideRedirect(t *testing.T) {
@@ -150,4 +160,17 @@ func TestDecideRedirect(t *testing.T) {
 
 	// final == url clears
 	require.Equal(t, RedirectClear, DecideRedirect(feed, RedirectState{To: final}, "HTTPS://A.example:443/feed", nil).Action)
+}
+
+func TestClassifyTooLargeNamesTheRealLimit(t *testing.T) {
+	for limit, want := range map[int64]string{
+		10 << 20:  "response larger than 10 MiB",
+		3 << 20:   "response larger than 3 MiB",
+		512 << 10: "response larger than 512 KiB",
+		1000:      "response larger than 1000 bytes",
+	} {
+		class, msg := Classify(&http.MaxBytesError{Limit: limit})
+		require.Equal(t, ClassTooLarge, class)
+		require.Equal(t, want, msg)
+	}
 }

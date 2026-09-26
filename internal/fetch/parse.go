@@ -2,7 +2,10 @@ package fetch
 
 import (
 	"bytes"
+	"fmt"
 	stdhtml "html"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -38,8 +41,11 @@ type Item struct {
 	Updated     *time.Time  `json:"updated,omitempty"`   // item's own updated date, if any
 	Enclosures  []Enclosure `json:"enclosures,omitempty"`
 	WordCount   int         `json:"-"` // words in ContentText; not in the golden output
-	ContentHash string      `json:"content_hash"`
-	TextHash    string      `json:"text_hash"`
+	// Categories are the entry's category/tag labels (at most MaxCategories of MaxCategoryRunes),
+	// stored at ingest so category filter rules can match. Not in the golden output.
+	Categories  []string `json:"-"`
+	ContentHash string   `json:"content_hash"`
+	TextHash    string   `json:"text_hash"`
 }
 
 // Feed is the normalized parse result.
@@ -113,45 +119,12 @@ func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	}
 
 	items := make([]Item, 0, len(gf.Items))
+	skipped := 0
 	for i, gi := range gf.Items {
-		if gi == nil {
+		it, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
+		if !ok {
+			skipped++
 			continue
-		}
-		it := Item{
-			GUID:    gi.GUID,
-			RawLink: strings.TrimSpace(gi.Link),
-			Title:   strings.TrimSpace(gi.Title),
-			Author:  itemAuthor(gi),
-		}
-		bases := []string{opt.FeedURL}
-		it.URL = sanitize.ResolveURL(origLink(gi), opt.FeedURL)
-		if it.URL == "" {
-			it.URL = sanitize.ResolveURL(it.RawLink, opt.FeedURL)
-		}
-		if it.URL != "" {
-			it.LinkHash = H(it.URL)
-			bases = []string{it.URL, out.SiteURL, opt.FeedURL}
-		} else {
-			bases = []string{out.SiteURL, opt.FeedURL}
-		}
-
-		raw := gi.Content
-		if raw == "" {
-			raw = gi.Description
-		}
-		// JSON Feed content_text is plain text, not markup.
-		if i < len(jsonItems) && jsonItems[i] != nil && jsonItems[i].ContentHTML == "" && jsonItems[i].ContentText != "" {
-			raw = "<p>" + strings.ReplaceAll(stdhtml.EscapeString(jsonItems[i].ContentText), "\n", "<br>") + "</p>"
-		}
-		it.ContentHTML, it.ContentText = content(raw, bases...)
-
-		it.ImageURL = pickImage(gi, raw, bases)
-		it.Published = firstTime(gi.PublishedParsed, gi.UpdatedParsed)
-		it.Updated = validTime(gi.UpdatedParsed)
-		for _, e := range gi.Enclosures {
-			if u := sanitize.ResolveURL(e.URL, bases...); u != "" {
-				it.Enclosures = append(it.Enclosures, Enclosure{URL: u, Type: e.Type, Length: e.Length})
-			}
 		}
 		items = append(items, it)
 	}
@@ -169,7 +142,99 @@ func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	}
 	out.Items = items
 	out.Notes = notes
+	if skipped > 0 {
+		out.Notes = append(out.Notes, fmt.Sprintf("skipped_malformed_items: %d/%d", skipped, len(gf.Items)))
+	}
 	return out, nil
+}
+
+// convertItem turns one gofeed item into an Item. ok is false for an entry that
+// cannot be used: a nil entry, one with no title, link, guid, text, enclosure or
+// image at all (every such entry would share one uid), or one whose conversion panics on
+// hostile input. One bad entry is dropped and counted, never fatal to the
+// fetch (design §13 item 9).
+func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			it, ok = Item{}, false
+		}
+	}()
+	if gi == nil {
+		return Item{}, false
+	}
+	it = Item{
+		GUID:    gi.GUID,
+		RawLink: strings.TrimSpace(gi.Link),
+		Title:   strings.TrimSpace(gi.Title),
+		Author:  itemAuthor(gi),
+	}
+	var bases []string
+	it.URL = sanitize.ResolveURL(origLink(gi), opt.FeedURL)
+	if it.URL == "" {
+		it.URL = sanitize.ResolveURL(it.RawLink, opt.FeedURL)
+	}
+	if it.URL != "" {
+		it.LinkHash = H(it.URL)
+		bases = []string{it.URL, siteURL, opt.FeedURL}
+	} else {
+		bases = []string{siteURL, opt.FeedURL}
+	}
+
+	raw := gi.Content
+	if raw == "" {
+		raw = gi.Description
+	}
+	// JSON Feed content_text is plain text, not markup.
+	if i < len(jsonItems) && jsonItems[i] != nil && jsonItems[i].ContentHTML == "" && jsonItems[i].ContentText != "" {
+		raw = "<p>" + strings.ReplaceAll(stdhtml.EscapeString(jsonItems[i].ContentText), "\n", "<br>") + "</p>"
+	}
+	it.ContentHTML, it.ContentText = content(raw, bases...)
+
+	it.ImageURL = pickImage(gi, raw, bases)
+	it.Categories = itemCategories(gi.Categories)
+	it.Published = firstTime(gi.PublishedParsed, gi.UpdatedParsed)
+	it.Updated = validTime(gi.UpdatedParsed)
+	// One entry per resolved URL: feeds that list the same file twice (an RSS
+	// enclosure plus media:content) would otherwise show two players.
+	seenEnc := map[string]bool{}
+	for _, e := range gi.Enclosures {
+		if u := sanitize.ResolveURL(e.URL, bases...); u != "" && !seenEnc[u] {
+			seenEnc[u] = true
+			it.Enclosures = append(it.Enclosures, Enclosure{URL: u, Type: e.Type, Length: e.Length})
+		}
+	}
+	if it.GUID == "" && it.RawLink == "" && it.Title == "" && it.ContentText == "" {
+		// An enclosure-only entry (a podcast or photo feed with no text) is real
+		// content: keep it, named after its file, or the feed when there is none.
+		// Its first media URL doubles as the guid so two such entries get their
+		// own uids instead of sharing the empty-text one.
+		media := ""
+		if len(it.Enclosures) > 0 {
+			media = it.Enclosures[0].URL
+		} else {
+			media = it.ImageURL
+		}
+		if media == "" {
+			return Item{}, false
+		}
+		it.GUID = media
+		it.Title = mediaTitle(media, feedTitle)
+	}
+	return it, true
+}
+
+// mediaTitle names an enclosure-only entry: the file name of its media URL
+// (percent-decoded), else the feed title, else "Untitled".
+func mediaTitle(mediaURL, feedTitle string) string {
+	if u, err := url.Parse(mediaURL); err == nil {
+		if name := path.Base(u.Path); name != "" && name != "." && name != "/" {
+			return name
+		}
+	}
+	if feedTitle != "" {
+		return feedTitle
+	}
+	return "Untitled"
 }
 
 func formatName(t string) string {
@@ -278,4 +343,35 @@ func pickImage(gi *gofeed.Item, rawHTML string, bases []string) string {
 		}
 	}
 	return sanitize.LeadImage(rawHTML, bases...)
+}
+
+// Category limits (backend additions 1.8): a feed can list dozens of tags.
+const (
+	MaxCategories    = 20
+	MaxCategoryRunes = 100
+)
+
+// itemCategories trims, drops blanks and repeats (case-insensitively) and caps the list.
+func itemCategories(in []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range in {
+		c = strings.Join(strings.Fields(c), " ")
+		if c == "" {
+			continue
+		}
+		if r := []rune(c); len(r) > MaxCategoryRunes {
+			c = string(r[:MaxCategoryRunes])
+		}
+		k := strings.ToLower(c)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, c)
+		if len(out) == MaxCategories {
+			break
+		}
+	}
+	return out
 }

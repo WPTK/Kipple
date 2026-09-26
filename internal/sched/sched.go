@@ -15,7 +15,9 @@ import (
 
 	"github.com/WPTK/kipple/internal/clock"
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -41,6 +43,19 @@ type Options struct {
 	Rand    fetch.Rand    // jitter source, default math/rand/v2
 
 	CommitTimeout time.Duration // per-commit deadline, 10 s
+
+	// Inline full-text extraction (design §4.3).
+	Extractor           ftrun.Extractor // used to build Runner when Runner is nil (tests); default: the guarded extract.Extractor
+	Runner              *ftrun.Runner   // shared with the on-demand endpoint; default: built from Extractor and FulltextPerHost
+	FulltextMaxItems    int             // new items queued per fetch, 20; the rest are left to on-demand
+	FulltextItemTimeout time.Duration   // per article, 10 s
+	FulltextPerHost     int             // concurrent articles per article host, 2
+	FulltextGlobal      int             // extraction pool size = concurrent articles overall, 4 (memory guard)
+	FulltextQueue       int             // items waiting for extraction, 500; beyond it items are left to on-demand
+	// The same two limits while fetch.fulltext_all is on, when every feed feeds the pool: 50 and 2000
+	// (never below the plain limits). Concurrency stays FulltextGlobal and FulltextPerHost.
+	FulltextMaxItemsAll int
+	FulltextQueueAll    int
 }
 
 // RunInfo answers a refresh-all, import or retention request.
@@ -97,6 +112,12 @@ type flight struct {
 	started bool
 	runs    []*Run
 	replies []chan Reply
+	// followups are priority requests that arrived while this job was running
+	// and that it does not satisfy (a full refetch, a trim, a re-key). They are
+	// replayed, each as a fresh job on a fresh snapshot, once this one is done.
+	followups []priorityReq
+	// runFollows are runs' jobs for this feed that this job cannot stand in for.
+	runFollows []runFollow
 }
 
 type result struct {
@@ -109,9 +130,13 @@ type result struct {
 	errClass  string
 	errMsg    string
 	newIDs    []int64
+	mutedIDs  []int64 // new items a filter muted (left out of the fetch.done ids)
+	muted     int
 	updated   int
 	trimmed   int64
 	newItems  int
+	migrated  bool // the commit rewrote feeds.url (redirect migration)
+	gone      bool // a 410 disabled the feed
 	retry     time.Duration
 	nextFetch time.Time
 	cancelled bool
@@ -155,7 +180,12 @@ type Scheduler struct {
 	stopped    chan struct{}
 	syncCh     chan func()
 
-	failCommit func(feedID int64) error // test hook: replaces the fetch commit
+	runner *ftrun.Runner
+	ftq    *ftQueue // bounded background extraction queue, drained by the pool
+	ftWG   sync.WaitGroup
+
+	failCommit    func(feedID int64) error                                                                       // test hook: replaces the fetch commit
+	commitFetchFn func(ctx context.Context, res *fetch.Result, perChunk time.Duration) (store.CommitInfo, error) // test hook
 
 	fetchCtx    context.Context
 	cancelFetch context.CancelFunc
@@ -167,12 +197,16 @@ type Scheduler struct {
 	perHost   map[string]int
 	hostUntil map[string]time.Time
 	notBefore map[int64]time.Time // feeds whose commit failed: not redispatched before this
-	pending   []*flight
-	runs      map[string]*Run
-	running   int
-	live      int
-	stopping  bool
-	lastRunID int64
+	// commitFails counts consecutive commit failures per feed (in memory only:
+	// a failed write leaves the persisted counter untouched). Reset by a commit
+	// that succeeds; drives the notBefore backoff.
+	commitFails map[int64]int
+	pending     []*flight
+	runs        map[string]*Run
+	running     int
+	live        int
+	stopping    bool
+	lastRunID   int64
 }
 
 // New builds a scheduler. Call Start to run it and Stop to shut it down.
@@ -189,6 +223,29 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	if opt.CommitTimeout <= 0 {
 		opt.CommitTimeout = commitTimeout
 	}
+	if opt.FulltextMaxItems <= 0 {
+		opt.FulltextMaxItems = defaultFTMaxItems
+	}
+	if opt.FulltextItemTimeout <= 0 {
+		opt.FulltextItemTimeout = defaultFTItemTimeout
+	}
+	if opt.FulltextQueue <= 0 {
+		opt.FulltextQueue = defaultFTQueue
+	}
+	if opt.FulltextMaxItemsAll <= 0 {
+		opt.FulltextMaxItemsAll = defaultFTMaxItemsAll
+	}
+	opt.FulltextMaxItemsAll = max(opt.FulltextMaxItemsAll, opt.FulltextMaxItems)
+	if opt.FulltextQueueAll <= 0 {
+		opt.FulltextQueueAll = defaultFTQueueAll
+	}
+	opt.FulltextQueueAll = max(opt.FulltextQueueAll, opt.FulltextQueue)
+	if opt.FulltextPerHost <= 0 {
+		opt.FulltextPerHost = defaultFTPerHost
+	}
+	if opt.FulltextGlobal <= 0 {
+		opt.FulltextGlobal = defaultFTGlobal
+	}
 	if opt.Rand == nil {
 		opt.Rand = rand.Float64
 	}
@@ -198,8 +255,19 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 	if log == nil {
 		log = slog.Default()
 	}
+	if opt.Runner == nil {
+		// Only when the caller supplies no shared Runner (tests): main builds one
+		// Runner, with its own extractor, for the scheduler and the API.
+		if opt.Extractor == nil {
+			opt.Extractor = extract.New(extract.Options{
+				Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: opt.FulltextItemTimeout,
+			})
+		}
+		opt.Runner = ftrun.New(ftrun.Options{DB: db, Extractor: opt.Extractor, PerHost: opt.FulltextPerHost, Log: log})
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
+		runner: opt.Runner, ftq: newFTQueue(opt.FulltextQueueAll, opt.FulltextPerHost),
 		db: db, client: client, hub: hub, clk: clk, log: log, opt: opt,
 		jobs:       make(chan *flight, opt.Workers),
 		doneCh:     make(chan result, opt.Workers),
@@ -211,11 +279,12 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 		stopped:    make(chan struct{}),
 		syncCh:     make(chan func()),
 		fetchCtx:   ctx, cancelFetch: cancel,
-		flights:   map[int64]*flight{},
-		perHost:   map[string]int{},
-		hostUntil: map[string]time.Time{},
-		notBefore: map[int64]time.Time{},
-		runs:      map[string]*Run{},
+		flights:     map[int64]*flight{},
+		perHost:     map[string]int{},
+		hostUntil:   map[string]time.Time{},
+		notBefore:   map[int64]time.Time{},
+		commitFails: map[int64]int{},
+		runs:        map[string]*Run{},
 	}
 }
 
@@ -227,6 +296,7 @@ func (s *Scheduler) Start() {
 		for i := 0; i < s.opt.Workers; i++ {
 			go s.worker()
 		}
+		s.startFulltext()
 		go s.dispatch(tickC, stopTick)
 	})
 }
@@ -381,4 +451,39 @@ func (s *Scheduler) Status() (runs []RunStatus, inflight int) {
 	}
 	sort.Slice(runs, func(i, j int) bool { return runs[i].ID < runs[j].ID })
 	return runs, inflight
+}
+
+// HostHolds snapshots the per-host politeness deadlines still in the future
+// (host -> until). Like Status it reads dispatcher state on the dispatcher
+// goroutine and gives up (returning an empty map) at shutdown or statusWait.
+func (s *Scheduler) HostHolds() map[string]time.Time {
+	out := make(chan map[string]time.Time, 1)
+	fn := func() {
+		now := s.clk.Now()
+		m := map[string]time.Time{}
+		for h, t := range s.hostUntil {
+			if t.After(now) {
+				m[h] = t
+			}
+		}
+		out <- m
+	}
+	timer := time.NewTimer(statusWait)
+	defer timer.Stop()
+	select {
+	case s.syncCh <- fn:
+	case <-s.shutdownCh:
+		return map[string]time.Time{}
+	case <-s.stopped:
+		return map[string]time.Time{}
+	case <-timer.C:
+		return map[string]time.Time{}
+	}
+	select {
+	case m := <-out:
+		return m
+	case <-s.shutdownCh:
+	case <-timer.C:
+	}
+	return map[string]time.Time{}
 }
