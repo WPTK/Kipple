@@ -6,7 +6,7 @@ with it. It builds to one container with one port.
 
 **Status:** work in progress, developed in phases. `v0.3.0-alpha.1` is the first public build: the fetch and sync
 core (phase 1) and the reading UI (phase 2) are done and run in daily use; installable-app and offline support
-(phase 3) is next. See [CHANGELOG.md](CHANGELOG.md). Design notes may link to planning and research documents that
+(phase 3) is in progress on the `Unreleased` line of the changelog. See [CHANGELOG.md](CHANGELOG.md). Design notes may link to planning and research documents that
 are not part of this repository.
 
 ## Where things are

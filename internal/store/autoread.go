@@ -82,6 +82,7 @@ func (d *DB) autoReadTargets(ctx context.Context, feedID int64, days *int) ([]au
 	if days != nil && feedID == 0 {
 		global = *days
 	}
+	// Disabled feeds are included (they can never clear themselves); only the archive is skipped.
 	q := `SELECT f.id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.auto_read_days
 		FROM feeds f WHERE f.disabled_reason IS NOT 'archive'`
 	var args []any

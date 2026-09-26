@@ -12,7 +12,7 @@ not localhost, name compose services explicitly).
   Reeder Classic, secondary NetNewsWire. Test against both.
 - **Refresh:** background poll every 30 min (global + per-feed override), ETag/Last-Modified
   conditional requests, exponential backoff on failing feeds, manual refresh fetches all now.
-  API clients never trigger fetches of existing feeds (the Reader API has no refresh-all call; if a client ever sends one, it is ignored); a feed added from a client is fetched on the next scheduler tick, which the add brings forward.
+  API clients never trigger fetches of existing feeds (the Reader API has no refresh-all call; if a client ever sends one, it is ignored); a feed added from a client is fetched on the next scheduler tick, which the add brings forward (the one opt-in exception is the setting `greader.subscribe_fetch_now`, default off: a bounded 8 s wait for the first fetch).
 - **Retention:** newest N per feed (50/100/250/500/1000/unlimited), global + per-feed. Starred
   never trimmed. Trimmed IDs and read state kept for API consistency. Trim after each fetch and when retention changes (a settings change or Apply retention now).
 - **Stats:** bulk mark-as-read and mark-read-on-scroll are not reads. Active reading time =

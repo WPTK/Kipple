@@ -4,6 +4,8 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { ApiError, authStore } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import { hydrateDevice } from "@/lib/deviceSync";
+import { prefetchUnread } from "@/lib/offline";
+import { offlineStore } from "@/lib/offlineState";
 import { useStore } from "@/lib/store";
 import { LoginScreen } from "@/screens/LoginScreen";
 import { ReaderRoute } from "@/screens/ReaderRoute";
@@ -35,6 +37,7 @@ export function makeQueryClient(opts: { retry?: boolean } = {}): QueryClient {
 
 function Gate() {
   const auth = useStore(authStore);
+  const { online } = useStore(offlineStore);
   const qc = useQueryClient();
   const boot = useBootstrap(auth !== "out");
 
@@ -49,12 +52,25 @@ function Gate() {
     hydrateDevice(device);
   }, [device]);
 
+  // Keep the first page of Unread on the device for offline reading (the service worker stores it).
+  const ready = boot.isSuccess && auth === "in";
+  useEffect(() => {
+    if (ready) void prefetchUnread();
+  }, [ready]);
+
   if (auth === "out") return <LoginScreen />;
   if (boot.isPending) {
     return (
       <div className="flex h-full items-center justify-center" role="status">
         <span className="text-fg2">Loading Kipple</span>
       </div>
+    );
+  }
+  if (boot.isError && !online) {
+    return (
+      <StatusBlock role="alert" title="You're offline" body="Kipple has nothing saved on this device yet. Open it once while you're online and your unread articles will be here next time.">
+        <Button onClick={() => void boot.refetch()}>Try again</Button>
+      </StatusBlock>
     );
   }
   if (boot.isError) {

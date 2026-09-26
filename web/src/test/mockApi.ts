@@ -65,8 +65,8 @@ export const bootstrap: Bootstrap = {
 
 type Handler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
 
-export const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
 
 /** Route table keyed "METHOD /path". Unmatched requests fail the test loudly. */
 export function mockFetch(routes: Record<string, Handler>) {

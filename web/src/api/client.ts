@@ -1,3 +1,4 @@
+import { noteResponse, setOnline } from "@/lib/offlineState";
 import { createStore } from "@/lib/store";
 
 export class ApiError extends Error {
@@ -35,6 +36,8 @@ export interface RequestOptions {
   body?: unknown;
   params?: Record<string, string | number | undefined | null>;
   signal?: AbortSignal;
+  /** A background request: a network failure is not evidence that the app is offline. */
+  quiet?: boolean;
 }
 
 export function buildPath(path: string, params?: RequestOptions["params"]): string {
@@ -73,8 +76,10 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
     });
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") throw e;
+    if (!opts.quiet) setOnline(false);
     throw new ApiError(0, "network");
   }
+  noteResponse(res, opts.quiet);
   if (res.status === 401) {
     authStore.set("out");
     throw new ApiError(401, "auth");

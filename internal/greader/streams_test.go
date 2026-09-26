@@ -702,3 +702,43 @@ func TestStreamRowByRowWritesBeforeFinishing(t *testing.T) {
 	require.Len(t, env.Items, 300)
 	_ = http.StatusOK
 }
+
+func TestOTIncludesUserChangesWhenSettingOn(t *testing.T) {
+	h := newHarness(t)
+	feed := h.addFeed("https://a.example/feed.xml", "Alpha", "")
+	old := h.addItem(feed, itemSeed{Title: "old"})
+	ot := baseID/1_000_000 + 10_000 // well after the item was crawled
+	path := rd + "stream/items/ids?s=user/-/state/com.google/reading-list&ot=" + strconv.FormatInt(ot, 10)
+	ids := func() []int64 { got, _, _ := idsPage(t, h.get(path)); return got }
+
+	require.NoError(t, execSQL(h, "UPDATE items SET read = 1, read_at = ? WHERE id = ?", ot+5, old))
+	require.Empty(t, ids(), "default: a user state change is not new activity")
+
+	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"greader.ot_includes_user_changes": true}))
+	require.Len(t, ids(), 1)
+
+	require.NoError(t, execSQL(h, "UPDATE items SET read_at = ? WHERE id = ?", ot-1000, old))
+	require.Empty(t, ids(), "a change before ot (minus slack) stays out")
+}
+
+func TestOTUserChangesStarredOldestFirstAndPaging(t *testing.T) {
+	h := newHarness(t)
+	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"greader.ot_includes_user_changes": true}))
+	feed := h.addFeed("https://a.example/feed.xml", "Alpha", "")
+	ot := baseID/1_000_000 + 10_000
+	var starred []int64
+	for i := range 3 {
+		id := h.addItem(feed, itemSeed{Title: fmt.Sprintf("old %d", i)})
+		require.NoError(t, execSQL(h, "UPDATE items SET starred = 1, starred_at = ? WHERE id = ?", ot+int64(i), id))
+		starred = append(starred, id)
+	}
+	stale := h.addItem(feed, itemSeed{Title: "stale"})
+	require.NoError(t, execSQL(h, "UPDATE items SET starred = 1, starred_at = ? WHERE id = ?", ot-200, stale)) // before ot minus the slack
+
+	path := rd + "stream/items/ids?s=user/-/state/com.google/reading-list&r=o&n=2&ot=" + strconv.FormatInt(ot, 10)
+	first, cont, more := idsPage(t, h.get(path))
+	require.True(t, more)
+	second, _, more2 := idsPage(t, h.get(path+"&c="+cont))
+	require.False(t, more2)
+	require.Equal(t, starred, append(first, second...), "oldest first, across the continuation, without the stale one")
+}

@@ -69,6 +69,10 @@ func PageCSP(imgMode string, secure bool) string {
 	return strings.Join(parts, "; ")
 }
 
+// APIVersion is the version of the web API contract (/api/*, not the Reader API). It is bumped when a
+// change would break a web app built for the previous one; the app reloads itself when the server's is newer.
+const APIVersion = "1"
+
 // Secure wraps h so every response carries the security headers of
 // docs/research/backend-additions-round2.md section 5.1. The policy that depends
 // on the content is chosen when the response starts, from its Content-Type, so
@@ -87,6 +91,9 @@ func Secure(h http.Handler, opt Options) http.Handler {
 		}
 		if p := r.URL.Path; strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/img/") {
 			hd.Set("Cross-Origin-Resource-Policy", "same-origin")
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/api/greader.php") {
+			hd.Set("X-Kipple-API", APIVersion) // the handshake: the web app compares it with the one it was built for
 		}
 		h.ServeHTTP(&secureWriter{ResponseWriter: w, opt: opt, secure: secure}, r)
 	})

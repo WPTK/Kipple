@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/WPTK/kipple/internal/httpx"
 	"github.com/WPTK/kipple/web"
@@ -215,4 +216,50 @@ func TestETagChangesWithImgMode(t *testing.T) {
 		require.Equal(t, http.StatusNotModified, rec.Code, path)
 		mode = "all"
 	}
+}
+
+func TestRootFilesFromTheBuild(t *testing.T) {
+	dist := fstest.MapFS{
+		"index.html":           {Data: []byte("<html></html>")},
+		".gitkeep":             {Data: nil},
+		"sw.js":                {Data: []byte("self.skipWaiting()")},
+		"manifest.webmanifest": {Data: []byte(`{"name":"Kipple"}`)},
+		"apple-touch-icon.png": {Data: []byte("not really a png")},
+		"assets/app-abc.js":    {Data: []byte("x")},
+		"_secret.txt":          {Data: []byte("shadow")},
+		"a{b}.txt":             {Data: []byte("bad pattern")},
+		"100%.txt":             {Data: []byte("bad escape")},
+	}
+	h := newHandler(dist, func(b string) string { return b })
+	get := func(path string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		return rec
+	}
+
+	sw := get("/sw.js")
+	require.Equal(t, http.StatusOK, sw.Code)
+	require.Equal(t, "no-cache", sw.Header().Get("Cache-Control"))
+	require.Equal(t, "/", sw.Header().Get("Service-Worker-Allowed"))
+	require.Equal(t, "text/javascript; charset=utf-8", sw.Header().Get("Content-Type"))
+	require.Equal(t, "self.skipWaiting()", sw.Body.String())
+
+	man := get("/manifest.webmanifest")
+	require.Equal(t, "application/manifest+json", man.Header().Get("Content-Type"))
+	require.Equal(t, "no-cache", man.Header().Get("Cache-Control"))
+	require.Empty(t, man.Header().Get("Service-Worker-Allowed"))
+
+	icon := get("/apple-touch-icon.png")
+	require.Equal(t, http.StatusOK, icon.Code)
+	require.Equal(t, "image/png", icon.Header().Get("Content-Type"))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/sw.js", nil)
+	req.Header.Set("If-None-Match", sw.Header().Get("ETag"))
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNotModified, rec.Code)
+
+	require.Equal(t, "<html></html>", get("/.gitkeep").Body.String(), "dotfiles are not served: the SPA fallback answers")
+	require.Equal(t, "<html></html>", get("/nope.txt").Body.String())
+	require.Equal(t, "<html></html>", get("/_secret.txt").Body.String(), "a name that could shadow a server route is not registered")
 }

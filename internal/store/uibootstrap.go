@@ -41,7 +41,7 @@ var DefaultSettings = map[string]any{
 	"library.saved_searches":        []any{},
 	"links.strip_tracking":          true,
 
-	// Named by design §2.2 but not yet read by any code (greader/ui phases).
+	// Named by design §2.2, read by the Reader API (ot user changes, synchronous first fetch on subscribe).
 	"greader.ot_includes_user_changes": false,
 	"greader.subscribe_fetch_now":      false,
 

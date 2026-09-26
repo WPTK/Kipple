@@ -132,6 +132,16 @@ No healthcheck line is needed: it comes from the image, so the rebuild picks it 
 `docker compose ... config` shows the merged result; afterwards check `docker ps` reaches `(healthy)`
 within about a minute. To back out, remove the hardening lines and `up -d kipple` again.
 
+## Installing the app and offline reading
+
+Kipple is an installable web app: open it in a browser and use "Add to Home Screen" (iOS) or "Install" (Chrome). The
+service worker (`/sw.js`) needs HTTPS or `127.0.0.1`. If the site sits behind an access proxy, the manifest and the
+worker script are fetched with the session cookie, so a signed-in browser is fine; a proxy that answers those two
+files with a login page would stop installation and offline support, not reading. Offline, the app opens from its
+cache, shows what it kept (the first page of Unread, and anything you opened) and queues stars and read marks until
+the connection returns. Signing out clears all of it. A new build is picked up the next time the app is opened or
+comes to the front, and a banner offers the reload.
+
 ## Reset the web password
 
 Works while the server runs. At a terminal, without echo, asked twice:

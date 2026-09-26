@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/WPTK/kipple/internal/opml"
 	"github.com/WPTK/kipple/internal/store"
@@ -250,11 +251,26 @@ func (c *call) quickAdd() {
 	c.json(http.StatusOK, quickAddJSON{NumResults: 1, Query: q, StreamID: feedID(res.FeedID), StreamName: res.Title})
 }
 
+// subscribeFetchWait bounds the optional synchronous first fetches of greader.subscribe_fetch_now for one
+// request in total, however many feeds it subscribes: it stays well inside the server's write timeout.
+const subscribeFetchWait = 8 * time.Second
+
+// fetchLeft is what remains of the request's fetch-now budget.
+func (c *call) fetchLeft() time.Duration { return max(0, subscribeFetchWait-c.fetchSpent) }
+
 func (c *call) publishFolders() { c.a.publish("folder.changed", map[string]any{}) }
 
 func (c *call) afterSubscribe(res store.SubscribeResult) {
 	if !res.Existed {
-		c.a.wake()
+		// With fetch-now on, the priority fetch replaces the wake: a wake first could start an ordinary fetch
+		// of the just-due feed, and the Full job would then run behind it as a second fetch.
+		if left := c.fetchLeft(); left > 0 && c.a.opt.FetchNow != nil && c.a.db.BoolSetting(c.r.Context(), "greader.subscribe_fetch_now", false) {
+			start := c.a.now()
+			c.a.opt.FetchNow(c.r.Context(), res.FeedID, left)
+			c.fetchSpent += c.a.now().Sub(start)
+		} else {
+			c.a.wake()
+		}
 	}
 	c.a.publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(res.FeedID, 10)})
 }

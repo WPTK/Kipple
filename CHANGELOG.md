@@ -6,10 +6,27 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.3.0-alpha.1] - 2026-09-26
+### Added
 
-First public build. Adds the Blue Oak license and third-party notices, the container health check and hardened
-compose options, fuzz targets and a release checklist, restore and snapshot fixes, and local CI.
+- `greader.ot_includes_user_changes` (default off, hidden): with it on, `stream/items/ids` with `ot` also returns items read or starred since `ot`, so sync apps hear about changes made in Kipple.
+- `greader.subscribe_fetch_now` (default off, hidden): with it on, a feed a sync app adds is fetched at once, waiting up to 8 s per request, instead of on the next scheduler tick.
+- `GET /api/items?include=content` returns each item with its full content (as `GET /api/items/{id}`), at most 50 a page, so a client can store a page for offline reading in one request.
+- `PUT /api/items/{id}/star` accepts `at` (unix seconds): a star or unstar queued offline is recorded when it happened (up to 30 days back; older is stamped 30 days back).
+- Every `/api/*` response carries `X-Kipple-API` (the web API contract version), the server half of the handshake the app uses to notice it is out of date.
+- Files at the top of the web build (manifest, service worker, icons) are served at the site root with revalidating cache headers; `sw.js` is sent as JavaScript with `Service-Worker-Allowed: /`.
+- Installable app: a web manifest, generated icons (Apple touch icon, maskable icon, favicons) and status-bar meta tags in `index.html`.
+- Service worker (`/sw.js`, built with the app): the shell precached for offline launch, network-first with the last good copy for the unread list, item lists and articles, cached images, update on open, and cleanup at sign-out. See design section 7.9.
+- Offline changes: star, unstar and mark-read keep working with no network, wait in a queue on the device and are sent, in order, when the connection returns. A line above the app says when it is offline, how many changes wait and when a newer version is ready.
+- The app keeps the first page of Unread (with full text) on the device for offline reading, refreshed at most every 15 minutes and never with data-saver on.
+
+### Fixed
+
+- Small font subsets were inlined as `data:` URIs and blocked by the page's `font-src 'self'` policy; the build no longer inlines any asset.
+- The changelog no longer repeats the 0.3.0-alpha.1 heading.
+
+### Changed
+
+- Auto-read includes disabled feeds and skips archived ones (unchanged behavior, now pinned by a test).
 
 ## [0.3.0-alpha.1] - 2026-09-26
 

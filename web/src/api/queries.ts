@@ -17,6 +17,7 @@ import type {
   OpenResponse,
   Scope,
 } from "./types";
+import { isOffline, queueRead, queueStar, supersede } from "@/lib/offline";
 import { toast } from "@/shell/toasts";
 
 export const PAGE_SIZE = 50;
@@ -204,8 +205,18 @@ export function findCached(qc: QueryClient, id: string): Pick<Card, "feed_id" | 
 export function useOpenItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, via }: { id: string; via: "tap" | "key" | "nav" }) =>
-      api<OpenResponse>(`/api/items/${id}/open`, { method: "POST", body: { via } }),
+    mutationFn: async ({ id, via }: { id: string; via: "tap" | "key" | "nav" }) => {
+      await supersede({ read: [id] });
+      try {
+        return await api<OpenResponse>(`/api/items/${id}/open`, { method: "POST", body: { via } });
+      } catch (e) {
+        // Offline with the article on the device: it reads, and the read is sent when the network is back.
+        const held = qc.getQueryData<ItemDetail>(keys.item(id));
+        if (!isOffline(e) || !held) throw e;
+        await queueRead([id], true);
+        return { session_key: "", item: { ...held, read: true } } satisfies OpenResponse;
+      }
+    },
     onMutate: ({ id }) => {
       const cached = findCached(qc, id);
       if (!cached || cached.read) return { bumped: null as string | null };
@@ -228,8 +239,16 @@ export function useOpenItem() {
 export function useToggleStar() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, starred }: { id: string; starred: boolean }) =>
-      api<{ starred: boolean; restored: boolean }>(`/api/items/${id}/star`, { method: "PUT", body: { starred } }),
+    mutationFn: async ({ id, starred }: { id: string; starred: boolean }) => {
+      await supersede({ star: id });
+      try {
+        return await api<{ starred: boolean; restored: boolean }>(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
+      } catch (e) {
+        if (!isOffline(e)) throw e;
+        await queueStar(id, starred);
+        return { starred, restored: false };
+      }
+    },
     onMutate: ({ id, starred }) => {
       const prev = qc.getQueryData<ItemDetail>(keys.item(id))?.starred;
       patchItems(qc, [id], { starred });
@@ -279,9 +298,12 @@ export async function applyRead(
   reason: "swipe" | "key" | "scroll" | "bulk",
 ): Promise<MarkReadResponse | undefined> {
   patchItems(qc, ids, { read });
+  await supersede({ read: ids });
   try {
     return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason } });
   } catch (e) {
+    // No network: keep the change on screen and send it when the connection returns (lib/offline.ts).
+    if (isOffline(e)) return await queueRead(ids, read);
     patchItems(qc, ids, { read: !read });
     toast(errorMessage(e), "error");
     return undefined;
@@ -291,10 +313,15 @@ export async function applyRead(
 /** Set starred with an optimistic patch; reverts and toasts on failure. */
 export async function applyStar(qc: QueryClient, id: string, starred: boolean): Promise<boolean> {
   patchItems(qc, [id], { starred: starred });
+  await supersede({ star: id });
   try {
     await api(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
     return true;
   } catch (e) {
+    if (isOffline(e)) {
+      await queueStar(id, starred);
+      return true;
+    }
     patchItems(qc, [id], { starred: !starred });
     toast(errorMessage(e), "error");
     return false;
