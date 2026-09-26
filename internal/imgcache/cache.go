@@ -48,7 +48,8 @@ const (
 	DefaultSweepEvery  = 10 * time.Minute
 	evictTargetPct     = 90
 	lowDiskTargetPct   = 50
-	maxNegEntries      = 20000
+	maxNegEntries      = 20000 // failure rows (in-progress markers are counted apart)
+	maxMarkerEntries   = 5000
 	freshMin           = 24 * time.Hour
 	freshMax           = 30 * 24 * time.Hour
 	freshDefault       = 7 * 24 * time.Hour
@@ -159,15 +160,16 @@ type Cache struct {
 
 	mu sync.Mutex // serializes every index mutation and the used/files counters
 
-	used, files, negN atomic.Int64
-	maxBytes          atomic.Int64
-	hits, misses      atomic.Int64
-	evictions, fails  atomic.Int64
-	since             time.Time
-	lowDisk           atomic.Bool
-	lastWarn          atomic.Int64 // unix seconds
-	lastLowEvict      atomic.Int64
-	evictWarn         warnGate
+	used, files, negN  atomic.Int64 // negN counts failure rows and in-progress markers
+	maxNeg, maxMarkers int64        // the caps of each (maxNegEntries, maxMarkerEntries; tests lower them)
+	maxBytes           atomic.Int64
+	hits, misses       atomic.Int64
+	evictions, fails   atomic.Int64
+	since              time.Time
+	lowDisk            atomic.Bool
+	lastWarn           atomic.Int64 // unix seconds
+	lastLowEvict       atomic.Int64
+	evictWarn          warnGate
 
 	amu    sync.Mutex
 	access map[string]accessRec
@@ -235,6 +237,7 @@ func Open(o Options) (*Cache, error) {
 		o: o, log: o.Logger, now: o.Now, dir: o.Dir,
 		filesDir: filepath.Join(o.Dir, filesSubdir), tmpDir: filepath.Join(o.Dir, tmpSubdir),
 		access: map[string]accessRec{}, flights: map[string]chan struct{}{}, since: o.Now(),
+		maxNeg: maxNegEntries, maxMarkers: maxMarkerEntries,
 	}
 	if c.log == nil {
 		c.log = slog.Default()
@@ -371,9 +374,7 @@ func (c *Cache) Lookup(ctx context.Context, key string) (Entry, bool, error) {
 		return Entry{}, false, nil
 	}
 	c.hits.Add(1)
-	if e.OK {
-		c.touch(key, now)
-	}
+	c.touch(key, now) // a replayed failure is used too: pruning keeps the recently replayed ones
 	return e, true, nil
 }
 
@@ -555,7 +556,7 @@ func (c *Cache) flushLocked() error {
 		c.requeue(batch)
 		return err
 	}
-	st, err := tx.Prepare("UPDATE entries SET last_access_at = max(last_access_at, ?), hits = hits + ? WHERE key = ? AND status = 'ok'")
+	st, err := tx.Prepare("UPDATE entries SET last_access_at = max(last_access_at, ?), hits = hits + ? WHERE key = ?")
 	if err != nil {
 		_ = tx.Rollback()
 		c.requeue(batch)
@@ -907,21 +908,44 @@ func (c *Cache) putNeg(key, url string, flags int, variant string, kind NegKind,
 		c.negN.Add(1)
 	}
 	c.forgetAccess(key)
-	if c.negN.Load() > maxNegEntries {
+	if c.negN.Load() > c.maxNeg+c.maxMarkers {
 		c.pruneNegLocked()
 	}
 	return nil
 }
 
+// pruneNegLocked bounds the negative rows. In-progress markers are the crash
+// protection of the thumbnailer, so ordinary failures never push them out:
+// markers have their own cap (the oldest go first). Failures past theirs go
+// expired first, then the least recently replayed. Each set is cut to 90% of
+// its cap so pruning is rare. mu is held.
 func (c *Cache) pruneNegLocked() {
-	res, err := c.wr.Exec(`DELETE FROM entries WHERE key IN
-		(SELECT key FROM entries WHERE status = 'neg' ORDER BY fresh_until LIMIT (SELECT count(*) - ? FROM entries WHERE status = 'neg'))`,
-		maxNegEntries*9/10)
-	if err != nil {
-		return
+	if err := c.flushLocked(); err != nil {
+		c.log.Debug("imgcache: flush before pruning failures", "err", err)
 	}
-	if n, err := res.RowsAffected(); err == nil {
-		c.negN.Add(-n)
+	now := c.now().Unix()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`WITH n(c) AS (SELECT count(*) FROM entries WHERE status = 'neg' AND neg_reason = ?1)
+			DELETE FROM entries WHERE key IN (SELECT key FROM entries WHERE status = 'neg' AND neg_reason = ?1
+			ORDER BY fetched_at, key LIMIT (SELECT CASE WHEN c > ?2 THEN c - ?2 * 9 / 10 ELSE 0 END FROM n))`,
+			[]any{InProgress, c.maxMarkers}},
+		{`WITH n(c) AS (SELECT count(*) FROM entries WHERE status = 'neg' AND neg_reason <> ?1)
+			DELETE FROM entries WHERE key IN (SELECT key FROM entries WHERE status = 'neg' AND neg_reason <> ?1
+			ORDER BY fresh_until >= ?3, last_access_at, fetched_at, key
+			LIMIT (SELECT CASE WHEN c > ?2 THEN c - ?2 * 9 / 10 ELSE 0 END FROM n))`,
+			[]any{InProgress, c.maxNeg, now}},
+	} {
+		res, err := c.wr.Exec(q.sql, q.args...)
+		if err != nil {
+			c.log.Debug("imgcache: pruning failures", "err", err)
+			return
+		}
+		if n, err := res.RowsAffected(); err == nil {
+			c.negN.Add(-n)
+		}
 	}
 }
 
@@ -1012,7 +1036,7 @@ func (c *Cache) Sweep(ctx context.Context, vacuum bool) (SweepResult, error) {
 			r.NegExpired = n
 			c.negN.Add(-n)
 		}
-		if c.negN.Load() > maxNegEntries {
+		if c.negN.Load() > c.maxNeg+c.maxMarkers {
 			c.pruneNegLocked()
 		}
 		res, err = c.wr.ExecContext(ctx, "DELETE FROM hosts WHERE updated_at < ?", now.Add(-hostHintExpiry).Unix())

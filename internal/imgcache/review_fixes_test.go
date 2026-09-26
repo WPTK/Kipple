@@ -3,6 +3,7 @@ package imgcache
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -238,4 +239,67 @@ func TestDiskBytesIsTheCounterPlusTheIndex(t *testing.T) {
 	// Not a directory walk: a stray file does not count.
 	require.NoError(t, os.WriteFile(filepath.Join(c.Dir(), "stray"), make([]byte, 5000), 0o600))
 	require.Equal(t, int64(3000)+idx, c.DiskBytes())
+}
+
+// Past the cap on failure rows, in-progress markers are never pushed out by
+// ordinary failures (they are the crash-loop protection), expired failures go
+// first, then the least recently replayed; markers have their own, smaller cap.
+func TestNegPruneKeepsMarkersAndRecentlyHitFailures(t *testing.T) {
+	c, clk := newCache(t)
+	c.maxNeg, c.maxMarkers = 10, 4
+	u := func(s string, i int) string { return fmt.Sprintf("http://img.example/%s%d", s, i) }
+	fail := func(i int) {
+		t.Helper()
+		require.NoError(t, c.PutNeg(KeyOrig(0, u("p", i)), u("p", i), 0, NegPermanent, 404, "gone"))
+		clk.Advance(time.Second)
+	}
+	has := func(key string) bool {
+		var n int
+		require.NoError(t, c.rd.QueryRow("SELECT count(*) FROM entries WHERE key = ?", key).Scan(&n))
+		return n == 1
+	}
+	marker := func(i int) string { return KeyThumb(0, u("m", i)) }
+	for i := 0; i < 4; i++ {
+		require.NoError(t, c.PutInProgress(marker(i), u("m", i), 0, VariantThumb))
+		clk.Advance(time.Second)
+	}
+	for i := 0; i < 9; i++ {
+		fail(i)
+	}
+	// A transient failure, newer than all of them, that has expired by the time the cap is hit.
+	x := KeyOrig(0, u("x", 0))
+	require.NoError(t, c.PutNeg(x, u("x", 0), 0, NegTransient, 503, "busy"))
+	clk.Advance(11 * time.Minute)
+	for i := 0; i < 3; i++ { // replayed: the most recently used failures
+		e, ok := lookupOK(t, c, KeyOrig(0, u("p", i)))
+		require.True(t, ok && !e.OK)
+	}
+	clk.Advance(time.Second)
+	for i := 9; i < 12; i++ { // two prunes, of two rows each
+		fail(i)
+	}
+	for i := 0; i < 4; i++ {
+		require.True(t, has(marker(i)), "marker %d survives the failures", i)
+	}
+	require.False(t, has(x), "the expired failure went first")
+	for i := 0; i < 3; i++ {
+		require.True(t, has(KeyOrig(0, u("p", i))), "recently replayed failure %d is kept", i)
+	}
+	require.False(t, has(KeyOrig(0, u("p", 3))), "the least recently used went")
+	var failures int64
+	require.NoError(t, c.rd.QueryRow("SELECT count(*) FROM entries WHERE status = 'neg' AND neg_reason <> ?", InProgress).Scan(&failures))
+	require.LessOrEqual(t, failures, int64(10))
+	require.Equal(t, failures+4, c.Stats().NegEntries, "the counter follows")
+
+	// Markers have their own cap: the oldest go.
+	for i := 4; i < 9; i++ {
+		require.NoError(t, c.PutInProgress(marker(i), u("m", i), 0, VariantThumb))
+		clk.Advance(time.Second)
+	}
+	fail(99) // over the total: a prune
+	require.False(t, has(marker(0)))
+	require.True(t, has(marker(8)))
+	var markers int64
+	require.NoError(t, c.rd.QueryRow("SELECT count(*) FROM entries WHERE neg_reason = ?", InProgress).Scan(&markers))
+	require.LessOrEqual(t, markers, int64(4))
 }
