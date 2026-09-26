@@ -224,7 +224,7 @@ func TestRootFilesFromTheBuild(t *testing.T) {
 		".gitkeep":             {Data: nil},
 		"sw.js":                {Data: []byte("self.skipWaiting()")},
 		"manifest.webmanifest": {Data: []byte(`{"name":"Kipple"}`)},
-		"apple-touch-icon.png": {Data: []byte("PNG")},
+		"apple-touch-icon.png": {Data: []byte("not really a png")},
 		"assets/app-abc.js":    {Data: []byte("x")},
 	}
 	h := newHandler(dist, func(b string) string { return b })

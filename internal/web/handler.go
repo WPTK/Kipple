@@ -70,7 +70,6 @@ func newHandler(dist fs.FS, pageETag func(string) string) http.Handler {
 	index, modTime := readIndex(dist)
 	etag := etagOf(index)
 
-
 	mux := http.NewServeMux()
 	mux.Handle("GET /assets/", immutable(http.FileServerFS(dist)))
 	mux.HandleFunc("GET /_status", func(w http.ResponseWriter, r *http.Request) {

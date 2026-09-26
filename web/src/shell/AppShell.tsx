@@ -19,6 +19,7 @@ import { ResizeHandle } from "@/ui/ResizeHandle";
 import { ARTICLE_MIN, LIST_MIN_FOR_SIDEBAR, maxFor, useViewportWidth } from "@/lib/useWidth";
 import { MutedCount, UnreadCount } from "@/ui/UnreadCount";
 import { ApplyProgress, FilterEditorHost } from "./FilterHost";
+import { OfflineNotice } from "./OfflineNotice";
 import { DeviceSaveStatus } from "./SaveStatus";
 import { UndoToast } from "./UndoToast";
 import { LiveRegion, Toasts } from "./toasts";
@@ -238,6 +239,7 @@ export function AppShell() {
       </a>
       {wide ? <Sidebar /> : null}
       <div className="flex min-w-0 flex-1 flex-col">
+        <OfflineNotice />
         <WarningsBanner />
         <ApplyProgress />
         <main id="main" ref={mainRef} tabIndex={-1} className="pl-safe pr-safe min-h-0 flex-1 outline-none">

@@ -16,8 +16,14 @@ All notable changes to Kipple are documented here. The format follows
 - Every `/api/*` response carries `X-Kipple-API` (the web API contract version), the server half of the handshake the app uses to notice it is out of date.
 - Files at the top of the web build (manifest, service worker, icons) are served at the site root with revalidating cache headers; `sw.js` is sent as JavaScript with `Service-Worker-Allowed: /`.
 
+- Installable app: a web manifest, generated icons (Apple touch icon, maskable icon, favicons) and status-bar meta tags in `index.html`.
+- Service worker (`/sw.js`, built with the app): the shell precached for offline launch, network-first with the last good copy for the unread list, item lists and articles, cached images, update on open, and cleanup at sign-out. See design section 7.8.
+- Offline changes: star, unstar and mark-read keep working with no network, wait in a queue on the device and are sent, in order, when the connection returns. A line above the app says when it is offline, how many changes wait and when a newer version is ready.
+- The app keeps the first page of Unread (with full text) on the device for offline reading, refreshed at most every 15 minutes and never with data-saver on.
+
 ### Fixed
 
+- Small font subsets were inlined as `data:` URIs and blocked by the page's `font-src 'self'` policy; the build no longer inlines any asset.
 - Auto-read now has a test pinning that disabled feeds are included and archived feeds are skipped.
 
 ### Documentation
