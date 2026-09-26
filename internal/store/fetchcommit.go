@@ -107,6 +107,20 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 	}
 
 	st := &commitState{firstNewID: maxInt64}
+	defer func() {
+		if v := recover(); v != nil {
+			// A panic in a chunk skips the error path below (WithWrite has no
+			// recover; its context's cancel rolls the transaction back) and the
+			// caller gets no CommitInfo, so it can neither queue nor clear these
+			// marks: drop every one this commit set, the committed chunks'
+			// included (their items are then left to on-demand extraction, as on
+			// a commit error), and let the panic reach the scheduler's recover.
+			for _, h := range st.held {
+				d.ClearFulltextPending(h.id)
+			}
+			panic(v)
+		}
+	}()
 	info := func() CommitInfo {
 		var held map[string]int64
 		if len(st.held) > 0 {
@@ -130,6 +144,10 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 	return info(), nil
 }
 
+// commitChunkTestHook, when set (tests only), runs at the end of each chunk's
+// transaction, before it commits.
+var commitChunkTestHook func()
+
 // commitChunk runs one chunk under its own bounded context.
 func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item, last bool, st *commitState, perChunk time.Duration) error {
 	cctx, cancel := context.WithTimeout(ctx, perChunk)
@@ -141,7 +159,13 @@ func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item
 	defer release()
 	saved := *st
 	err = d.WithWrite(cctx, func(ctx context.Context, tx *sql.Tx) error {
-		return d.commitTx(ctx, tx, res, ch, last, st)
+		if err := d.commitTx(ctx, tx, res, ch, last, st); err != nil {
+			return err
+		}
+		if commitChunkTestHook != nil {
+			commitChunkTestHook()
+		}
+		return nil
 	})
 	if err != nil {
 		// The transaction rolled back: its items never became visible, so drop
