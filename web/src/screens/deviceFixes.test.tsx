@@ -13,7 +13,7 @@ import { resetDevicePrefs, devicePrefsStore, updateDevicePrefs } from "@/lib/dev
 import { resetFavoritesMode } from "@/lib/favorites";
 import { itemActions } from "@/lib/itemActions";
 import { DEFAULT_PREFS, applyPrefs, prefsStore, updatePrefs } from "@/lib/prefs";
-import { resetUndo } from "@/lib/undo";
+import { resetUndo, undoLast } from "@/lib/undo";
 import { helpStore } from "@/shell/HelpDialog";
 import { INFO_MS, ACTION_MS, clearToasts, toast, toastMs, Toasts } from "@/shell/toasts";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
@@ -194,6 +194,37 @@ describe("read state in the Unread list", () => {
     await user.click(await screen.findByRole("button", { name: "Undo" }));
     await act(async () => void (await vi.advanceTimersByTimeAsync(3000)));
     expect(screen.getByText("Article number 1")).toBeInTheDocument();
+  });
+
+  it("phone: marked read, then an article is opened (the list unmounts), then Undo: the row is back when the list returns", async () => {
+    routes();
+    const first = go("/l/unread");
+    await screen.findByText("Article number 1");
+    const user = userEvent.setup();
+    await menuFor(user, 1);
+    await user.click(await screen.findByRole("menuitem", { name: "Mark as read" }));
+    await waitFor(() => expect(screen.getByText("Marked read")).toBeInTheDocument());
+    // Within 1.5 s the list goes away (a phone shows the article as a new screen): the row is remembered as gone.
+    first.unmount();
+    await act(async () => void (await undoLast()));
+    go("/l/unread");
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(screen.getByText("Article number 2")).toBeInTheDocument();
+  });
+
+  it("a remembered-hidden row that comes back unread (not marked on purpose) is shown again on return", async () => {
+    routes();
+    const first = go("/l/unread");
+    await screen.findByText("Article number 1");
+    const user = userEvent.setup();
+    await menuFor(user, 1);
+    await user.click(await screen.findByRole("menuitem", { name: "Mark as read" }));
+    first.unmount();
+    // Undone somewhere the list could not hear (its intent is gone): the server serves it unread again.
+    const { readIntent } = await import("@/lib/itemActions");
+    act(() => readIntent.set(new Set()));
+    go("/l/unread");
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
   });
 
   it("an article marked unread again is a normal unread row (and menu items say what they do)", async () => {

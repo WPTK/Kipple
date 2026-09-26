@@ -19,7 +19,7 @@ import { prefsStore } from "@/lib/prefs";
 import { useStore, useStoreSelector } from "@/lib/store";
 import { withDayHeaders, type Row } from "@/lib/format";
 import { useHotkeys, type Handlers } from "@/lib/keys";
-import { readIntent, useItemActions } from "@/lib/itemActions";
+import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
@@ -47,6 +47,11 @@ const memoryFor = (key: string): ListMemory => {
   }
   return m;
 };
+
+// An article that becomes unread again (undo, mark unread) while its list is not mounted must not stay hidden.
+onBecameUnread((ids) => {
+  for (const m of memory.values()) if (ids.some((id) => m.hidden.has(id))) m.hidden = new Set([...m.hidden].filter((x) => !ids.includes(x)));
+});
 
 /** Forget remembered scroll and selection (tests). */
 export function clearListMemory(): void {
@@ -348,6 +353,17 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
     setHidden((h) => new Set([...h].filter((x) => !ids.includes(x))));
   }, [key]);
+
+  // Coming back to a list: rows remembered as hidden that are loaded, unread and not marked read on purpose are
+  // stale (undone or marked unread while this list was not mounted), so they come back. Once per mount.
+  const reconciled = useRef(false);
+  useEffect(() => {
+    if (reconciled.current || allItems.length === 0) return;
+    reconciled.current = true;
+    const stale = allItems.filter((i) => hidden.has(i.id) && !i.read && !readIntent.get().has(i.id)).map((i) => i.id);
+    if (stale.length) unhide(stale);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allItems]);
 
   // After rows are removed, put the first visible row back where it was on screen.
   useLayoutEffect(() => {

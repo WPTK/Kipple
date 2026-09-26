@@ -21,6 +21,19 @@ function dropIntent(ids: string[]): void {
   readIntent.set((s) => (ids.some((i) => s.has(i)) ? new Set([...s].filter((x) => !ids.includes(x))) : s));
 }
 
+const unreadListeners = new Set<(ids: string[]) => void>();
+/**
+ * Called with ids that became unread again (an undo of a mark-read, or a mark-unread). A list that is not on screen
+ * (a phone shows the article in a new screen) keeps remembered hidden rows; this is how it hears they are back.
+ */
+export function onBecameUnread(fn: (ids: string[]) => void): () => void {
+  unreadListeners.add(fn);
+  return () => unreadListeners.delete(fn);
+}
+function notifyUnread(ids: string[]): void {
+  for (const fn of unreadListeners) fn(ids);
+}
+
 /** Read, unread and star changes with their undo entries. One place, so every gesture agrees. */
 export function useItemActions() {
   const qc = useQueryClient();
@@ -64,7 +77,10 @@ export function itemActions(qc: QueryClient) {
     }
     if (read && reason === "key") addIntent(ids);
     else dropIntent(ids);
-    if (!read) invalidateUnreadLists(qc);
+    if (!read) {
+      invalidateUnreadLists(qc);
+      notifyUnread(ids);
+    }
     pushUndo({
       kind: read ? "read" : "unread",
       ids,
@@ -72,7 +88,10 @@ export function itemActions(qc: QueryClient) {
       undo: async (undoIds) => {
         dropIntent(undoIds);
         const ok = (await applyRead(qc, undoIds, !read, "key")) !== undefined;
-        if (ok && read) invalidateUnreadLists(qc);
+        if (ok && read) {
+          invalidateUnreadLists(qc);
+          notifyUnread(undoIds);
+        }
         return ok;
       },
     });
