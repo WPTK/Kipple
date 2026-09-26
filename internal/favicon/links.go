@@ -95,6 +95,7 @@ func iconLinks(body []byte, base string) []candidate {
 		}
 		target := b.ResolveReference(ref)
 		target.Fragment, target.RawFragment = "", ""
+		target.User = nil // a link's credentials are never sent (nor stored)
 		if !httpURL(target) || strings.HasSuffix(strings.ToLower(target.Path), ".svg") {
 			continue
 		}

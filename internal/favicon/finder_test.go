@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -110,7 +111,9 @@ func TestFinderFailureBacksOffAndLeavesFeedHealthAlone(t *testing.T) {
 	e := newFEnv(t)
 	var hits atomic.Int32
 	srv := iconSite(t, &hits)
-	id := e.fetchedFeed("https://feeds.example.com/rss", srv.URL+"/", false)
+	// The feed lives on the site's own host (another port): its exception, once
+	// on, covers the site (ScopedTransport).
+	id := e.fetchedFeed("http://127.0.0.1:1/rss", srv.URL+"/", false)
 
 	did, err := e.f.RunOnce(e.ctx)
 	require.NoError(t, err)
@@ -140,7 +143,8 @@ func TestFinderFailureBacksOffAndLeavesFeedHealthAlone(t *testing.T) {
 	require.Equal(t, int64(0), e.int("SELECT failures FROM feed_icon_checks WHERE feed_id = ?", id))
 }
 
-// A changed site_url is looked up at once, not after the week.
+// A site_url that moves to another host is looked up at once, not after the
+// week; one that changes only its path or query is the same site.
 func TestFinderRechecksWhenTheSiteChanges(t *testing.T) {
 	e := newFEnv(t)
 	var hits atomic.Int32
@@ -149,13 +153,18 @@ func TestFinderRechecksWhenTheSiteChanges(t *testing.T) {
 	did, err := e.f.RunOnce(e.ctx)
 	require.NoError(t, err)
 	require.True(t, did)
-	e.exec("UPDATE feeds SET site_url = ? WHERE id = ?", srv.URL+"/moved/", id)
+	e.exec("UPDATE feeds SET site_url = ? WHERE id = ?", srv.URL+"/moved/?sid=2", id)
+	did, err = e.f.RunOnce(e.ctx)
+	require.NoError(t, err)
+	require.False(t, did, "the same site")
+	moved := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1) + "/"
+	e.exec("UPDATE feeds SET site_url = ? WHERE id = ?", moved, id)
 	did, err = e.f.RunOnce(e.ctx)
 	require.NoError(t, err)
 	require.True(t, did)
 	var site string
 	require.NoError(t, e.db.Reader().QueryRow("SELECT site_url FROM feed_icon_checks WHERE feed_id = ?", id).Scan(&site))
-	require.Equal(t, srv.URL+"/moved/", site)
+	require.Equal(t, moved, site)
 }
 
 // A cancelled lookup (shutdown) writes nothing, so the feed stays due.

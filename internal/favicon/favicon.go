@@ -3,8 +3,10 @@
 // "shortcut icon" and "apple-touch-icon" candidates, falls back to
 // /favicon.ico, and keeps the first raster image (PNG, JPEG, GIF, WebP or ICO,
 // sniffed from the bytes) within the size limit. Every request goes through
-// the caller's guarded transport, so the feed fetcher's dial-time SSRF check
-// applies to each hop. Finder runs lookups one at a time in the background,
+// the caller's guarded transport (ScopedTransport: the feed's network
+// exceptions cover its own host only), so the feed fetcher's dial-time SSRF
+// check applies to each hop. User names and passwords in any URL (site, link,
+// redirect) are dropped: never sent as credentials, never stored. Finder runs lookups one at a time in the background,
 // off the fetch path, and records them in feed_icon_checks.
 package favicon
 
@@ -36,7 +38,7 @@ const (
 type Icon struct {
 	Data        []byte
 	ContentType string // image/png, image/jpeg, image/gif, image/webp or image/x-icon
-	SourceURL   string // where the bytes came from (after redirects)
+	SourceURL   string // where the bytes came from (after redirects), without userinfo
 	Hash        string // 16 hex chars of the SHA-256 of Data, used in icon URLs
 }
 
@@ -47,16 +49,17 @@ var ErrTooLarge = fmt.Errorf("the icon is larger than %d KiB", maxIconBytes>>10)
 type Request struct {
 	SiteURL   string            // the feed's site_url; "" to use FeedURL's origin
 	FeedURL   string            // the feed's own URL, for its origin
-	Transport http.RoundTripper // guarded (fetch.Client.Transport); never a bare transport in production
+	Transport http.RoundTripper // guarded (ScopedTransport); never a bare transport in production
 	UserAgent string
 	RetryUA   string // tried once after a 403/406, as the feed fetcher does
 }
 
 // PageURL is the page a lookup starts from: site_url when it is an absolute
-// http(s) URL, else the origin of the feed URL.
+// http(s) URL, else the origin of the feed URL. Userinfo is dropped.
 func PageURL(siteURL, feedURL string) (string, error) {
 	if u, err := url.Parse(strings.TrimSpace(siteURL)); err == nil && httpURL(u) {
 		u.Fragment, u.RawFragment = "", ""
+		u.User = nil
 		return u.String(), nil
 	}
 	u, err := url.Parse(feedURL)
@@ -119,6 +122,9 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 		return errors.New("redirect to a non-http(s) URL")
 	}
+	// http.Client turns a Location's userinfo into an Authorization header when
+	// it sends the hop, which happens after this check: drop it here.
+	req.URL.User = nil
 	return nil
 }
 
@@ -144,6 +150,7 @@ func get(ctx context.Context, hc *http.Client, r Request, target, accept string)
 		if err != nil {
 			return nil, err
 		}
+		req.URL.User = nil // never sent as Basic credentials
 		req.Header.Set("User-Agent", ua)
 		req.Header.Set("Accept", accept)
 		return hc.Do(req)
@@ -175,7 +182,7 @@ func getPage(ctx context.Context, hc *http.Client, r Request, page string) ([]by
 	if err != nil {
 		return nil, "", err
 	}
-	return body, resp.Request.URL.String(), nil
+	return body, withoutUser(resp.Request.URL), nil
 }
 
 // getIcon fetches one candidate and validates it.
@@ -200,5 +207,12 @@ func getIcon(ctx context.Context, hc *http.Client, r Request, target string) (Ic
 		return Icon{}, err
 	}
 	sum := sha256.Sum256(data)
-	return Icon{Data: data, ContentType: ct, SourceURL: resp.Request.URL.String(), Hash: hex.EncodeToString(sum[:8])}, nil
+	return Icon{Data: data, ContentType: ct, SourceURL: withoutUser(resp.Request.URL), Hash: hex.EncodeToString(sum[:8])}, nil
+}
+
+// withoutUser is u as a string with any userinfo removed.
+func withoutUser(u *url.URL) string {
+	c := *u
+	c.User = nil
+	return c.String()
 }

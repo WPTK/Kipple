@@ -22,14 +22,14 @@ func TestNextIconJobDueRules(t *testing.T) {
 
 	_, err := e.db.AddFeed(e.ctx, NewFeed{URL: "https://a.example.com/feed"})
 	require.NoError(t, err)
-	_, ok, err := e.db.NextIconJob(e.ctx, set, now)
+	_, ok, err := e.db.NextIconJob(e.ctx, set, now, nil)
 	require.NoError(t, err)
 	require.False(t, ok, "a feed that never fetched successfully is not due")
 
 	f, err := e.db.AddFeed(e.ctx, NewFeed{URL: "https://b.example.com/feed", AllowPrivateNet: true})
 	require.NoError(t, err)
 	e.exec("UPDATE feeds SET last_success_at = ?, site_url = 'https://b.example.com/' WHERE id = ?", now, f)
-	job, ok, err := e.db.NextIconJob(e.ctx, set, now)
+	job, ok, err := e.db.NextIconJob(e.ctx, set, now, nil)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, f, job.FeedID)
@@ -39,13 +39,13 @@ func TestNextIconJobDueRules(t *testing.T) {
 
 	// A failure backs off; the feed's health is untouched.
 	require.NoError(t, e.db.SaveIconCheck(e.ctx, job, nil, "boom", 1, now, now+3600))
-	_, ok, err = e.db.NextIconJob(e.ctx, set, now)
+	_, ok, err = e.db.NextIconJob(e.ctx, set, now, nil)
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.Equal(t, 0, e.count("SELECT consecutive_failures FROM feeds WHERE id = ?", f))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND last_error IS NULL", f))
 
-	job, ok, err = e.db.NextIconJob(e.ctx, set, now+3600)
+	job, ok, err = e.db.NextIconJob(e.ctx, set, now+3600, nil)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, 1, job.Failures, "failures carry over for the same site")
@@ -57,14 +57,14 @@ func TestNextIconJobDueRules(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []byte{1, 2}, data)
 	require.Equal(t, "image/png", ct)
-	_, ok, err = e.db.NextIconJob(e.ctx, set, now+86400)
+	_, ok, err = e.db.NextIconJob(e.ctx, set, now+86400, nil)
 	require.NoError(t, err)
 	require.False(t, ok)
 
 	// A site change makes the feed due at once, with failures starting over.
 	e.exec("UPDATE feed_icon_checks SET failures = 3 WHERE feed_id = ?", f)
 	e.exec("UPDATE feeds SET site_url = 'https://c.example.com/' WHERE id = ?", f)
-	job, ok, err = e.db.NextIconJob(e.ctx, set, now)
+	job, ok, err = e.db.NextIconJob(e.ctx, set, now, nil)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "https://c.example.com/", job.SiteURL)
@@ -73,21 +73,21 @@ func TestNextIconJobDueRules(t *testing.T) {
 	// With no site_url, a feed URL change counts as a site change.
 	require.NoError(t, e.db.SaveIconCheck(e.ctx, IconJob{FeedID: f, FeedURL: job.FeedURL, SiteURL: job.SiteURL}, nil, "x", 1, now, now+3600))
 	e.exec("UPDATE feeds SET site_url = '' WHERE id = ?", f)
-	job, ok, err = e.db.NextIconJob(e.ctx, set, now)
+	job, ok, err = e.db.NextIconJob(e.ctx, set, now, nil)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NoError(t, e.db.SaveIconCheck(e.ctx, job, nil, "x", 1, now, now+3600))
-	_, ok, err = e.db.NextIconJob(e.ctx, set, now)
+	_, ok, err = e.db.NextIconJob(e.ctx, set, now, nil)
 	require.NoError(t, err)
 	require.False(t, ok)
 	e.exec("UPDATE feeds SET url = 'https://d.example.com/feed', url_key = 'd.example.com/feed' WHERE id = ?", f)
-	_, ok, err = e.db.NextIconJob(e.ctx, set, now)
+	_, ok, err = e.db.NextIconJob(e.ctx, set, now, nil)
 	require.NoError(t, err)
 	require.True(t, ok)
 
 	// Disabled feeds are never due.
 	e.exec("UPDATE feeds SET enabled = 0 WHERE id = ?", f)
-	_, ok, err = e.db.NextIconJob(e.ctx, set, now)
+	_, ok, err = e.db.NextIconJob(e.ctx, set, now, nil)
 	require.NoError(t, err)
 	require.False(t, ok)
 }
@@ -99,7 +99,7 @@ func TestSaveIconCheckSkipsAChangedOrDeletedFeed(t *testing.T) {
 	f, err := e.db.AddFeed(e.ctx, NewFeed{URL: "https://b.example.com/feed"})
 	require.NoError(t, err)
 	e.exec("UPDATE feeds SET last_success_at = ?, site_url = 'https://b.example.com/' WHERE id = ?", now, f)
-	job, ok, err := e.db.NextIconJob(e.ctx, e.db.FetchSettings(e.ctx), now)
+	job, ok, err := e.db.NextIconJob(e.ctx, e.db.FetchSettings(e.ctx), now, nil)
 	require.NoError(t, err)
 	require.True(t, ok)
 	icon := &IconResult{Data: []byte{1}, ContentType: "image/png", Hash: "h"}

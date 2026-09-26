@@ -7,7 +7,7 @@ import (
 	"image"
 	_ "image/gif"  // register the decoder for DecodeConfig
 	_ "image/jpeg" // register the decoder for DecodeConfig
-	_ "image/png"  // register the decoder for DecodeConfig
+	"image/png"    // DecodeConfig, also for a PNG inside an ICO
 
 	_ "golang.org/x/image/webp" // register the decoder for DecodeConfig
 )
@@ -53,6 +53,11 @@ func sniff(b []byte) (contentType string, err error) {
 
 // checkICO validates an ICO directory: 1 to 64 entries, each image's bytes
 // inside the file. Sides are one byte each (0 means 256), so they need no cap.
+// The first entry must also be an icon in its own right: at least minSide on
+// both sides, and its payload a PNG (whose header parses, with the same side
+// limits as a bare image) or a DIB starting with a 40-byte BITMAPINFOHEADER,
+// the only two formats an ICO holds. Anything else (HTML or SVG behind a
+// forged directory) is refused.
 func checkICO(b []byte) error {
 	n := int(binary.LittleEndian.Uint16(b[4:6]))
 	if n < 1 || n > 64 || len(b) < 6+16*n {
@@ -65,6 +70,32 @@ func checkICO(b []byte) error {
 		if size == 0 || off < int64(6+16*n) || off+size > int64(len(b)) {
 			return errors.New("the ICO directory points outside the file")
 		}
+	}
+	first := b[6:22]
+	side := func(v byte) int {
+		if v == 0 {
+			return 256
+		}
+		return int(v)
+	}
+	if side(first[0]) < minSide || side(first[1]) < minSide {
+		return errors.New("the ICO image is too small to be an icon")
+	}
+	off := int64(binary.LittleEndian.Uint32(first[12:16]))
+	size := int64(binary.LittleEndian.Uint32(first[8:12]))
+	payload := b[off : off+size] // bounds checked above
+	switch {
+	case bytes.HasPrefix(payload, []byte("\x89PNG\r\n\x1a\n")):
+		cfg, err := png.DecodeConfig(bytes.NewReader(payload))
+		if err != nil {
+			return errors.New("the ICO's PNG header does not parse")
+		}
+		if cfg.Width < minSide || cfg.Height < minSide || cfg.Width > maxSide || cfg.Height > maxSide {
+			return errors.New("the ICO image is too small or too large to be an icon")
+		}
+	case len(payload) >= 40 && binary.LittleEndian.Uint32(payload[0:4]) == 40:
+	default:
+		return errors.New("the ICO holds neither a PNG nor a bitmap")
 	}
 	return nil
 }

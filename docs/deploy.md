@@ -266,6 +266,18 @@ The restore prints `schema version <old>` for the snapshot and moves the migrate
 Rehearsed 2026-09-26 with v0.2.0-alpha.2 (schema 3) and 0.2.0 (schema 5): feeds, items, read and
 starred state were identical after the upgrade and after the rollback, and the Reader API answered.
 
+### Schema 5 -> 6 (the favicon finder)
+
+The first build with the favicon finder adds migration 0006 (`feed_icon_checks`, a new empty
+table; nothing is rewritten, so the first start is quick). Its first start writes
+`/data/backup/pre-migration-5-6-<ns>.db`, then migrates. A binary without 0006 (0.3.0-alpha.2, or
+an alpha.3 built before the finder was merged) refuses the schema-6 database with `database schema
+version 6 is newer than this binary (5); refusing to start`, so a rollback is the procedure above
+with that snapshot: stop kipple, `restore /data/backup/pre-migration-5-6-<ns>.db --yes` with the
+new image, then check out, rebuild and start the old tag. Never copy the snapshot over `kipple.db`
+by hand. Anything read or starred since the upgrade is lost; the icons found are simply looked up
+again after the next upgrade.
+
 ## Phase 1 to phase 2 (done 2026-09-25, v0.2.0-alpha.1)
 
 Historical: this applies to a schema-1 database. With a build after alpha 2 the snapshot is `pre-migration-1-<latest>-*` (schema 5 is the latest at the time of writing), not `pre-migration-1-3-*`. Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migrates the schema
