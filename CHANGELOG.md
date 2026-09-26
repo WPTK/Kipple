@@ -12,6 +12,7 @@ All notable changes to Kipple are documented here. The format follows
 - Sanitizer: a self-closing `<video src="http://...">` or `<audio>` no longer keeps its insecure source; it becomes an "Open video" link like the non-self-closing form.
 - Thumbnails: a lossy WebP is priced only when its VP8 key frame is exactly the size `DecodeConfig` reported (the VP8X canvas); a frame of another size, or no key frame, is refused and the original served, instead of relying on the decoder's own check.
 - Thumbnails: a lossless WebP's prefix code groups are priced at what `golang.org/x/image/vp8l` really allocates: 24 bytes per symbol instead of 16 (the code lengths and canonical codes were left out, about 20% short on group-heavy files), and groups that no tile uses but the decoder still reads are now counted (a 64x64 file naming group 2,599 allocated 33 MiB against an estimate of 1 MiB). The entropy image is decoded during the header walk (up to 65,536 tiles) so the group count is exact rather than bounded by the tile count, which also prices few-group files lower.
+- Image proxy: a failure to record a revalidated original or thumbnail in the cache index is now logged at debug level instead of dropped silently.
 
 Phase 2 (reading UI: backend and web app) so far. Schema 4 and 5 (migrations 0004, 0005) are here, not in the alpha tags.
 

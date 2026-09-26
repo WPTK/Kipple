@@ -166,7 +166,9 @@ func (h *Handler) leadThumb(w http.ResponseWriter, r *http.Request, u *url.URL, 
 	tag := srcTag(oe)
 	if stale != nil && stale.ETag == tag {
 		// The source is the one this thumbnail was made from: it is still good.
-		_ = c.Revalidated(tkey, thumbFresh(c, oe), tag, "")
+		if err := c.Revalidated(tkey, thumbFresh(c, oe), tag, ""); err != nil {
+			h.log.Debug("imgproxy: thumbnail revalidation not recorded", "err", err)
+		}
 		return false
 	}
 	if !h.thumbnailable(oe) {

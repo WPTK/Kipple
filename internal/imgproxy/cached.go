@@ -130,7 +130,9 @@ func (h *Handler) fetchAndFill(w http.ResponseWriter, r *http.Request, u *url.UR
 			return
 		}
 		if stale != nil && resp.StatusCode == http.StatusNotModified {
-			_ = sk.c.Revalidated(sk.key, imgcache.Freshness(resp.Header.Get("Cache-Control")), resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"))
+			if err := sk.c.Revalidated(sk.key, imgcache.Freshness(resp.Header.Get("Cache-Control")), resp.Header.Get("ETag"), resp.Header.Get("Last-Modified")); err != nil {
+				h.log.Debug("imgproxy: revalidation not recorded", "err", err)
+			}
 			_ = resp.Body.Close()
 			done()
 			if h.serveHit(w, r, *stale) {
