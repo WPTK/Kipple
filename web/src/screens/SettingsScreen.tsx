@@ -79,7 +79,13 @@ function AutoReadPanel({ days }: { days: number }) {
   const valid = trial === undefined || (Number.isInteger(trial) && trial >= 0 && trial <= 365);
   return (
     <div className="flex flex-col gap-2">
-      <AutoReadCatchUp offer={changed && days > 0} days={valid ? trial : undefined} blockedReason={valid ? undefined : "Enter a whole number of days from 0 to 365."} />
+      <AutoReadCatchUp
+        offer={changed && days > 0}
+        days={valid ? trial : undefined}
+        blockedReason={valid ? undefined : "Enter a whole number of days from 0 to 365."}
+        // A what-if number was never saved: marking with it would clear articles the saved setting keeps.
+        runBlocked={valid && trial !== undefined && trial !== days ? "That number is only a preview. Save it as the setting above first, then mark." : undefined}
+      />
       <Disclosure label="Try a different number of days">
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-semibold">Preview as if it were set to</span>
@@ -91,7 +97,7 @@ function AutoReadPanel({ days }: { days: number }) {
             aria-invalid={valid ? undefined : true}
             className={`${inputCls} w-40`}
           />
-          <span className="text-xs text-fg2">Leave empty to use the saved value. Nothing is saved or marked by trying a number.</span>
+          <span className="text-xs text-fg2">Leave empty to use the saved value. Trying a number only counts; it is never saved, and articles are only marked using the saved setting.</span>
         </label>
       </Disclosure>
     </div>

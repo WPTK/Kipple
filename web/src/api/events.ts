@@ -26,13 +26,32 @@ export interface LiveState {
   pendingIds: Record<string, string[]>;
   /** Active fetch runs by run id. */
   runs: Record<string, RunStatus>;
+  /**
+   * How recent runs ended, by run id: the `run.done` numbers (`changed`, `scanned`, `error`) that the last progress
+   * event does not have (the server throttles those to one per 500 ms). Bounded and short lived.
+   */
+  finished: Record<string, FinishedRun>;
   transport: "connecting" | "open" | "fallback";
 }
+
+export interface FinishedRun {
+  kind?: string;
+  changed?: number;
+  scanned?: number;
+  errors: number;
+  error?: string;
+  at: number;
+}
+
+/** How long, and how many, finished runs are remembered. */
+export const FINISHED_KEEP_MS = 5 * 60_000;
+export const FINISHED_KEEP_MAX = 20;
 
 export const initialLive: LiveState = {
   pendingByFeed: {},
   pendingIds: {},
   runs: {},
+  finished: {},
   transport: "connecting",
 };
 
@@ -55,9 +74,23 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
       return { ...s, runs: { ...s.runs, [id]: { ...(cur?.filter_id ? { filter_id: cur.filter_id } : {}), ...ev.data, id, kind } } };
     }
     case "run.done": {
-      const { [String(ev.data.run_id)]: _done, ...rest } = s.runs;
-      void _done;
-      return { ...s, runs: rest };
+      const id = String(ev.data.run_id);
+      const { [id]: gone, ...rest } = s.runs;
+      const now = Date.now();
+      const kept = Object.entries(s.finished ?? {})
+        .filter(([, f]) => now - f.at < FINISHED_KEEP_MS)
+        .sort((a, b) => b[1].at - a[1].at)
+        .slice(0, FINISHED_KEEP_MAX - 1);
+      const d = ev.data;
+      const done: FinishedRun = {
+        kind: d.kind ?? gone?.kind,
+        ...(d.changed !== undefined ? { changed: d.changed } : {}),
+        ...(d.scanned !== undefined ? { scanned: d.scanned } : {}),
+        errors: d.errors,
+        ...(d.error ? { error: d.error } : {}),
+        at: now,
+      };
+      return { ...s, runs: rest, finished: { ...Object.fromEntries(kept), [id]: done } };
     }
     case "fetch.done": {
       if (!(ev.data.new_items > 0)) return s;
@@ -294,6 +327,14 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
 export async function reconcile(qc: QueryClient): Promise<void> {
   await pollStatus(qc);
   void qc.invalidateQueries({ queryKey: keys.bootstrap });
+}
+
+/**
+ * Show a run the moment the server accepts it (the 202 body), without waiting for `run.start` (the stream can be down,
+ * and polling is 60 s). Nothing is added for a run that already finished: its `run.done` may have come first.
+ */
+export function seedRun(run: RunStatus): void {
+  liveStore.set((s) => (s.finished?.[run.id] || s.runs[run.id] ? s : { ...s, runs: { ...s.runs, [run.id]: run } }));
 }
 
 /** Seed live runs from a freshly loaded bootstrap when nothing is known yet (a run already going at load). */

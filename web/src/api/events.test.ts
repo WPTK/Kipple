@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import { isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent } from "./events";
+import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent } from "./events";
 import { keys, scopeKey } from "./queries";
 import { savedSearchesKey } from "./savedSearches";
 import { noteFilterTouched, resetFilterTouched } from "./filterEdits";
@@ -18,6 +18,21 @@ describe("reduceEvent", () => {
     expect(s.runs["9"]).toMatchObject({ done: 2, new_items: 5 });
     s = reduceEvent(s, { type: "run.done", data: { run_id: "9", new_items: 7, errors: 0 } });
     expect(s.runs).toEqual({});
+  });
+
+  it("keeps how a run ended (run.done's changed and scanned), bounded and for a few minutes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-26T12:00:00Z"));
+    let s = reduceEvent(initialLive, { type: "run.start", data: { run_id: "1", kind: "auto_read", total: 1200 } });
+    s = reduceEvent(s, { type: "run.done", data: { run_id: "1", kind: "auto_read", new_items: 0, errors: 0, changed: 1200, scanned: 1200 } });
+    expect(s.runs).toEqual({});
+    expect(s.finished["1"]).toMatchObject({ kind: "auto_read", changed: 1200, scanned: 1200, errors: 0 });
+    for (let i = 2; i < 40; i++) s = reduceEvent(s, { type: "run.done", data: { run_id: String(i), new_items: 0, errors: 0 } });
+    expect(Object.keys(s.finished).length).toBeLessThanOrEqual(FINISHED_KEEP_MAX);
+    vi.advanceTimersByTime(FINISHED_KEEP_MS + 1000);
+    s = reduceEvent(s, { type: "run.done", data: { run_id: "99", new_items: 0, errors: 0 } });
+    expect(Object.keys(s.finished)).toEqual(["99"]);
+    vi.useRealTimers();
   });
 
   it("accumulates new items from fetch.done and clears them on resync", () => {

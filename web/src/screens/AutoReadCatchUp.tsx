@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { liveStore } from "@/api/events";
+import { useQueryClient } from "@tanstack/react-query";
+import { liveStore, pollStatus, seedRun } from "@/api/events";
 import { ApiError, errorMessage } from "@/api/client";
 import { previewAutoRead, runAutoRead, type AutoReadPreview } from "@/api/autoRead";
 import { useStoreSelector } from "@/lib/store";
@@ -8,6 +9,13 @@ import { Button } from "@/ui/button";
 import { Modal, Notice } from "@/ui/kit";
 
 const n = (x: number): string => x.toLocaleString();
+
+/** A preview older than this is counted again before anything is marked. */
+export const PREVIEW_MAX_AGE_MS = 60_000;
+/** The count grew this much (a fraction, or that many articles) since the preview: the person must see the new number. */
+export const GREW_FRACTION = 0.1;
+export const GREW_ARTICLES = 100;
+export const grewTooMuch = (before: number, after: number): boolean => after - before > Math.min(before * GREW_FRACTION, GREW_ARTICLES) && after > before;
 
 /** What a failed preview or run says. `busy` and `confirm_required` have their own wording; everything else is generic. */
 export function catchUpError(e: unknown): string {
@@ -41,7 +49,10 @@ export function AutoReadCatchUp({
   runBlocked?: string;
 }) {
   const key = `${feedId ?? ""}|${days ?? ""}`;
-  const [held, setPreview] = useState<{ p: AutoReadPreview; days?: number; key: string } | null>(null);
+  const qc = useQueryClient();
+  const [held, setPreview] = useState<{ p: AutoReadPreview; days?: number; key: string; at: number } | null>(null);
+  // Set when a fresh count came out much higher than the one the person looked at: they confirm the new number.
+  const [grew, setGrew] = useState<{ from: number } | null>(null);
   // Numbers counted for another threshold or feed are not shown.
   const preview = held && held.key === key ? held : null;
   const [busy, setBusy] = useState(false);
@@ -53,14 +64,19 @@ export function AutoReadCatchUp({
   const body = { ...(feedId ? { feed_id: feedId } : {}), ...(days !== undefined ? { days } : {}) };
 
 
-  // A run that finishes: say how many it marked. The count is what the last progress event reported.
+  // A run that finishes: say how many it marked. The last progress event is throttled and can be far behind, so the
+  // number comes from the run.done the live store kept for it; without one (a missed event) the last progress is a
+  // lower bound.
   const last = useRef(active);
   useEffect(() => {
     const before = last.current;
     last.current = active;
     if (before && !active) {
-      const changed = before.changed ?? before.done;
-      setNote(changed > 0 ? `Marked ${n(changed)} older article${changed === 1 ? "" : "s"} as read.` : "Nothing was left to mark.");
+      const fin = liveStore.get().finished?.[before.id];
+      const exact = fin?.changed !== undefined;
+      const changed = fin?.changed ?? before.changed ?? before.done;
+      const marked = changed > 0 ? `${exact ? "Marked" : "Marked at least"} ${n(changed)} older article${changed === 1 ? "" : "s"} as read.` : "Nothing was left to mark.";
+      setNote(fin?.error ? `${changed > 0 ? `${marked} ` : ""}The catch-up stopped early because of an error. Preview again to see what is left.` : marked);
       setPreview(null);
     }
   }, [active]);
@@ -71,7 +87,8 @@ export function AutoReadCatchUp({
     setNote(null);
     try {
       const p = await previewAutoRead(body);
-      setPreview({ p, days, key });
+      setGrew(null);
+      setPreview({ p, days, key, at: Date.now() });
     } catch (e) {
       setError(catchUpError(e));
     } finally {
@@ -84,8 +101,11 @@ export function AutoReadCatchUp({
     setBusy(true);
     setError(null);
     try {
-      await runAutoRead({ ...body, ...(confirmed ? { confirm: true } : {}) });
+      const r = await runAutoRead({ ...body, ...(confirmed ? { confirm: true } : {}) });
+      // Show it running now: the stream's run.start may be far away (or the stream down).
+      seedRun({ id: String(r.id), kind: "auto_read", done: r.done, total: r.total, changed: r.changed, new_items: r.new_items, errors: r.errors });
       setConfirm(false);
+      setGrew(null);
       announce("Marking old articles as read");
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && e.code === "confirm_required") {
@@ -96,10 +116,51 @@ export function AutoReadCatchUp({
       } else {
         setConfirm(false);
         setError(catchUpError(e));
+        // Busy: another run is going. Learn which one now, so the button is disabled and its progress shows.
+        if (e instanceof ApiError && e.status === 409 && e.code === "busy") void pollStatus(qc).catch(() => undefined);
       }
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * Called before anything is sent: a preview older than a minute is counted again. If that count is much higher
+   * (more than 10% or 100 articles) the new number is shown and confirmed again. Resolves to the numbers to act on,
+   * or null when the person has to look first.
+   */
+  const stillValid = async (): Promise<AutoReadPreview | null> => {
+    if (!preview) return null;
+    if (Date.now() - preview.at < PREVIEW_MAX_AGE_MS) return preview.p;
+    setBusy(true);
+    setError(null);
+    try {
+      const p = await previewAutoRead(body);
+      const from = preview.p.total;
+      setPreview({ p, days, key, at: Date.now() });
+      if (grewTooMuch(from, p.total)) {
+        setGrew({ from });
+        setConfirm(true);
+        return null;
+      }
+      return p;
+    } catch (e) {
+      setConfirm(false);
+      setError(catchUpError(e));
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const start = async (confirmed: boolean) => {
+    const p = await stillValid();
+    if (!p) return;
+    // The recount may have moved the total across the confirm threshold.
+    if (!confirmed && p.total > p.confirm_above) return void setConfirm(true);
+    await doRun(confirmed);
+  };
+  const askFirst = async () => {
+    if (await stillValid()) setConfirm(true);
   };
 
   const total = preview?.p.total ?? 0;
@@ -146,7 +207,7 @@ export function AutoReadCatchUp({
                 <p className="text-xs text-fg2">{runBlocked}</p>
               ) : (
                 <div className="flex flex-col items-start gap-1">
-                  <Button variant="solid" onClick={() => (needsConfirm ? setConfirm(true) : void doRun(false))} disabled={busy}>
+                  <Button variant="solid" onClick={() => (needsConfirm ? void askFirst() : void start(false))} disabled={busy}>
                     Mark {n(total)} older article{total === 1 ? "" : "s"} as read now
                   </Button>
                   <p className="text-xs text-fg2">There is no Undo for this. You can mark articles unread again from any list.</p>
@@ -161,13 +222,16 @@ export function AutoReadCatchUp({
           open
           onOpenChange={(o) => !o && !busy && setConfirm(false)}
           title={`Mark ${n(total)} older articles as read?`}
-          description="They are unread, not starred, not muted and older than the limit. There is no Undo button for this. You can mark articles unread again from any list."
+          description={
+            (grew ? `The count grew from ${n(grew.from)} to ${n(total)} since you previewed it. ` : "") +
+            "They are unread, not starred, not muted and older than the limit. There is no Undo button for this. You can mark articles unread again from any list."
+          }
           footer={
             <>
               <Button variant="ghost" onClick={() => setConfirm(false)} disabled={busy}>
                 Cancel
               </Button>
-              <Button variant="solid" onClick={() => void doRun(true)} disabled={busy}>
+              <Button variant="solid" onClick={() => void start(true)} disabled={busy}>
                 {busy ? "Starting" : `Mark ${n(total)} as read`}
               </Button>
             </>

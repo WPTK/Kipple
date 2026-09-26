@@ -404,7 +404,7 @@ describe("Auto-read (Settings > Library)", () => {
     });
     expect(await screen.findByTestId("auto-read-progress")).toHaveTextContent("Marking old articles as read: 20 of 40 checked, 12 marked");
     act(() => {
-      liveStore.set((s) => ({ ...s, runs: {} }));
+      handleServerEvent(new QueryClient(), { type: "run.done", data: { run_id: "78", kind: "auto_read", new_items: 0, errors: 0, changed: 12, scanned: 12 } });
     });
     expect(await screen.findByText("Marked 12 older articles as read.")).toBeInTheDocument();
     expect(screen.queryByTestId("auto-read-preview")).toBeNull(); // the numbers are stale after a run
@@ -708,5 +708,113 @@ describe("Saved search reorder (review 3)", () => {
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/saved-searches/reorder")).toHaveLength(2));
     const sent = calls.filter((c) => c.url.pathname === "/api/saved-searches/reorder").map(body);
     expect(sent).toEqual([{ ids: ["s2", "s1", "s3"] }, { ids: ["s2", "s3", "s1"] }]);
+  });
+});
+
+// ---- review 3: auto-read ------------------------------------------------------------------------
+
+describe("Auto-read catch-up (review 3)", () => {
+  const RUN = { id: "90", kind: "auto_read", done: 0, total: 40, changed: 0, new_items: 0, errors: 0 };
+  const preview40 = { ...PREVIEW, total: 40, feeds: [{ feed_id: "1", title: "Example Feed", days: 90, count: 40 }] };
+
+  it("says how many the run marked from run.done, not from the throttled last progress", async () => {
+    base({ "POST /api/library/auto-read/preview": () => json(preview40), "POST /api/library/auto-read/run": () => json(RUN, 202) });
+    go("/settings");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
+    const qc = new QueryClient();
+    act(() => {
+      handleServerEvent(qc, { type: "run.start", data: { run_id: "90", kind: "auto_read", total: 1200 } });
+      handleServerEvent(qc, { type: "run.progress", data: { run_id: "90", done: 500, total: 1200, new_items: 0, errors: 0, changed: 500 } });
+    });
+    expect(await screen.findByTestId("auto-read-progress")).toHaveTextContent("500 marked");
+    act(() => {
+      handleServerEvent(qc, { type: "run.done", data: { run_id: "90", kind: "auto_read", new_items: 0, errors: 0, changed: 1200, scanned: 1200 } });
+    });
+    expect(await screen.findByText("Marked 1,200 older articles as read.")).toBeInTheDocument();
+  });
+
+  it("shows the run at once from the 202 body, with no stream event: Preview is disabled and progress shows", async () => {
+    base({ "POST /api/library/auto-read/preview": () => json(preview40), "POST /api/library/auto-read/run": () => json(RUN, 202) });
+    go("/settings");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
+    expect(await screen.findByTestId("auto-read-progress")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /older articles as read now/ })).toBeNull();
+  });
+
+  it("a 409 busy learns the running catch-up from /api/status and shows it", async () => {
+    base({
+      "POST /api/library/auto-read/preview": () => json(preview40),
+      "POST /api/library/auto-read/run": () => json({ error: "busy" }, 409),
+      "GET /api/status": () => json({ unread_total: 3, runs: [{ id: "5", kind: "auto_read", done: 7, total: 90, changed: 7, new_items: 0, errors: 0 }] }),
+    });
+    go("/settings");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
+    expect(await screen.findByTestId("auto-read-progress")).toHaveTextContent("7 of 90");
+    expect(screen.getByRole("button", { name: "Preview" })).toBeDisabled();
+  });
+
+  describe("a stale preview", () => {
+    const realNow = Date.now.bind(Date);
+    let skew = 0;
+    beforeEach(() => {
+      skew = 0;
+      vi.spyOn(Date, "now").mockImplementation(() => realNow() + skew);
+    });
+
+    it("that has grown a lot is shown again with the new number and needs another confirmation", async () => {
+      let n = 0;
+      const { calls } = base({
+        "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: n++ === 0 ? 60 : 200, feeds: [] }),
+        "POST /api/library/auto-read/run": () => json(RUN, 202),
+      });
+      go("/settings");
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+      const mark = await screen.findByRole("button", { name: "Mark 60 older articles as read now" });
+      skew = 61_000;
+      await user.click(mark);
+      const dlg = await screen.findByRole("dialog", { name: "Mark 200 older articles as read?" });
+      expect(dlg).toHaveTextContent("The count grew from 60 to 200");
+      expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(false);
+      await user.click(within(dlg).getByRole("button", { name: "Mark 200 as read" }));
+      await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(true));
+      expect(body(calls.find((c) => c.url.pathname.endsWith("/run")))).toEqual({ confirm: true });
+    });
+
+    it("that barely changed is counted again and then runs without asking", async () => {
+      let n = 0;
+      const { calls } = base({
+        "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: n++ === 0 ? 60 : 62, feeds: [] }),
+        "POST /api/library/auto-read/run": () => json(RUN, 202),
+      });
+      go("/settings");
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+      const mark = await screen.findByRole("button", { name: "Mark 60 older articles as read now" });
+      skew = 61_000;
+      await user.click(mark);
+      await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(true));
+      expect(calls.filter((c) => c.url.pathname.endsWith("/preview"))).toHaveLength(2);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
+  it("will not mark with a what-if number that was never saved", async () => {
+    base({ "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: 5, feeds: [] }) });
+    go("/settings");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Try a different number of days" }, { timeout: 5000 }));
+    await user.type(await screen.findByRole("textbox", { name: /Preview as if it were set to/ }), "60");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(await screen.findByText(/using 60 days/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /older articles? as read now/ })).toBeNull();
+    expect(screen.getByText(/only a preview/)).toBeInTheDocument();
   });
 });
