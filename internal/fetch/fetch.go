@@ -216,10 +216,14 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 
 	res.Status = resp.StatusCode
 	if resp.Request != nil && resp.Request.URL != nil {
-		if fin, err := feedurl.Normalize(resp.Request.URL.String()); err == nil {
+		fu := *resp.Request.URL
+		// A redirect to user:pass@host must not put the credentials in fetch_log
+		// or feeds.url; without them the URL is also one feedurl accepts.
+		fu.User = nil
+		if fin, err := feedurl.Normalize(fu.String()); err == nil {
 			res.FinalURL = fin
 		} else {
-			res.FinalURL = resp.Request.URL.String()
+			res.FinalURL = fu.String()
 		}
 	}
 	res.TTLHintS = PublisherHintSeconds(snap.HonorTTL, 0, resp.Header, now)
