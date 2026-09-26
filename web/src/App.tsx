@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { ApiError, authStore, SESSION_EXPIRED } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
-import { hydrateDevice } from "@/lib/deviceSync";
+import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
 import { prefetchUnread } from "@/lib/offline";
 import { offlineStore } from "@/lib/offlineState";
 import { useStore } from "@/lib/store";
@@ -47,11 +47,15 @@ function Gate() {
     if (auth === "out") qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
   }, [auth, qc]);
 
-  // The device profile is the truth for per-device settings; the local cache is reconciled with it once.
+  // The device profile is the truth for per-device settings; the local cache is reconciled with it once, from a live
+  // answer only: the worker's stored copy can predate changes made on this device since, and taking it as the truth
+  // would put them back. Changes made before that are kept as unsent (lib/deviceSync.ts) and win over the profile.
+  useEffect(() => startDeviceSync(), []);
   const device = boot.data?.device;
+  const fromCache = boot.data?.fromCache === true;
   useEffect(() => {
-    hydrateDevice(device);
-  }, [device]);
+    if (!fromCache) hydrateDevice(device);
+  }, [device, fromCache]);
 
   // Keep the first page of Unread on the device for offline reading (the service worker stores it).
   const ready = boot.isSuccess && auth === "in";

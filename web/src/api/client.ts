@@ -41,6 +41,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** A background request: a network failure is not evidence that the app is offline. */
   quiet?: boolean;
+  /** Filled in with what the answer was: `cached` when the service worker served its stored copy (X-Kipple-Cache). */
+  meta?: { cached?: boolean };
 }
 
 export function buildPath(path: string, params?: RequestOptions["params"]): string {
@@ -91,8 +93,10 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
     setSessionExpired();
     throw new ApiError(401, SESSION_EXPIRED);
   }
+  const cached = !!res.headers.get("X-Kipple-Cache");
+  if (opts.meta) opts.meta.cached = cached;
   // A live answer (not the worker's stored copy) proves the proxy lets requests through again.
-  if (!res.headers.get("X-Kipple-Cache")) setSessionExpired(false);
+  if (!cached) setSessionExpired(false);
   noteResponse(res, opts.quiet);
   if (res.status === 401) {
     authStore.set("out");

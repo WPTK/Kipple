@@ -28,10 +28,21 @@ function changeError(e: unknown): string {
   return e instanceof QueueWriteError ? "Kipple couldn't save that change on this device." : errorMessage(e);
 }
 
+/**
+ * The bootstrap as the app holds it. `fromCache`: the service worker answered with its stored copy (offline, or the
+ * network too slow), so it may be older than what this device already changed; the device settings are not taken
+ * from it (App.tsx).
+ */
+export type BootstrapAnswer = Bootstrap & { fromCache?: true };
+
 export function useBootstrap(enabled = true) {
   return useQuery({
     queryKey: keys.bootstrap,
-    queryFn: ({ signal }) => api<Bootstrap>("/api/bootstrap", { signal }),
+    queryFn: async ({ signal }): Promise<BootstrapAnswer> => {
+      const meta: { cached?: boolean } = {};
+      const b = await api<Bootstrap>("/api/bootstrap", { signal, meta });
+      return meta.cached ? { ...b, fromCache: true } : b;
+    },
     enabled,
     retry: (n, e) => (e as { status?: number }).status !== 401 && n < 2,
     staleTime: 60_000,

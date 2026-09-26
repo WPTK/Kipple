@@ -16,6 +16,7 @@ import {
   resetDeviceSync,
   discardRefused,
   retrySave,
+  startDeviceSync,
   syncStore,
   type LocalState,
 } from "./deviceSync";
@@ -210,6 +211,31 @@ describe("hydrating from the bootstrap", () => {
     updateDevicePrefs({ layout: "cards" });
     hydrateDevice(device({ merged: { ...DEFAULTS, "client.layout": "inbox" } })); // a bootstrap refetch
     expect(devicePrefsStore.get().layout).toBe("cards");
+  });
+
+  it("a change made before the bootstrap arrives is kept as unsent and wins over the profile", async () => {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    startDeviceSync(); // app start
+    updatePrefs({ textSize: 1.5 }); // while the bootstrap is still loading (or only a stored copy answered)
+    expect(JSON.parse(localStorage.getItem(SYNC_DIRTY_KEY) ?? "{}")).toEqual({ "client.text_size": 1.5 });
+    const s = server({ "client.layout": "compact" });
+    hydrateDevice(s.view());
+    expect(prefsStore.get().textSize).toBe(1.5);
+    expect(devicePrefsStore.get().layout).toBe("compact"); // everything else is the server's
+    await flush();
+    expect(s.patches).toEqual([{ "client.text_size": 1.5 }]);
+  });
+
+  it("an unsent change from the last visit survives an unrelated change made before hydration", () => {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    localStorage.setItem(SYNC_DIRTY_KEY, JSON.stringify({ "client.order": "oldest" }));
+    updateDevicePrefs({ order: "oldest" }); // the local cache already holds it
+    startDeviceSync();
+    updateDevicePrefs({ layout: "cards" });
+    expect(JSON.parse(localStorage.getItem(SYNC_DIRTY_KEY) ?? "{}")).toEqual({ "client.order": "oldest", "client.layout": "cards" });
+    server();
+    hydrateDevice(device());
+    expect(devicePrefsStore.get()).toMatchObject({ order: "oldest", layout: "cards" });
   });
 
   it("a server with no device profile leaves everything local", () => {
