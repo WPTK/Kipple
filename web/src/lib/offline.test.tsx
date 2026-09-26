@@ -4,10 +4,22 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { ApiError, api, authStore } from "@/api/client";
-import { applyRead, applyStar, keys, useOpenItem } from "@/api/queries";
+import { applyRead, applyStar, keys, useOpenItem, useToggleStar } from "@/api/queries";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import { card, detail, json, mockFetch } from "@/test/mockApi";
-import { flushQueue, isOffline, prefetchUnread, queueRead, queueStar, resetOfflineForTests, resetPrefetchForTests, supersede, wipeOfflineData } from "./offline";
+import {
+  flushQueue,
+  isOffline,
+  prefetchUnread,
+  QueueWriteError,
+  queueRead,
+  queueStar,
+  resetOfflineForTests,
+  resetPrefetchForTests,
+  setOfflineBackendForTests,
+  supersede,
+  wipeOfflineData,
+} from "./offline";
 import { devicePrefsStore } from "./devicePrefs";
 import * as toasts from "@/shell/toasts";
 import { offlineStore, setOnline, setPending } from "./offlineState";
@@ -107,6 +119,54 @@ describe("the offline queue", () => {
     expect(JSON.parse(String(calls[0]?.init?.body)).ids).toEqual(["2"]);
   });
 
+  it("an online change made while a flush runs is not overwritten by the flush's older copy of the queue", async () => {
+    await queueRead(["9"], true);
+    await queueStar("1", true);
+    await queueRead(["2", "3"], true);
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const { calls } = mockFetch({
+      "POST /api/items/mark-read": async (_u, init) => {
+        const ids = JSON.parse(String(init?.body)).ids as string[];
+        if (ids.includes("9")) await held;
+        return json({ changed: ids, restored: [] });
+      },
+      "PUT /api/items/1/star": () => json({ starred: true, restored: false }),
+    });
+    const flush = flushQueue();
+    await waitFor(() => expect(calls).toHaveLength(1)); // the first row is on its way
+    // Online writes to article 1 and article 3 happen now, while the flush waits on the first request.
+    let superseded = false;
+    const both = Promise.all([supersede({ star: "1" }), supersede({ read: ["3"] })]).then(() => (superseded = true));
+    await new Promise((r) => setTimeout(r, 20));
+    // The online write must land after the request already in flight, so supersede waits for it.
+    expect(superseded).toBe(false);
+    release();
+    await Promise.all([flush, both]);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname} ${JSON.parse(String(c.init?.body)).ids ?? ""}`)).toEqual([
+      "POST /api/items/mark-read 9",
+      "POST /api/items/mark-read 2",
+    ]);
+    expect(offlineStore.get().pending).toBe(0);
+  });
+
+  it("a change queued while a flush runs is sent in the same run", async () => {
+    await queueRead(["1"], true);
+    let queuedLate = false;
+    const { calls } = mockFetch({
+      "POST /api/items/mark-read": async (_u, init) => {
+        if (!queuedLate) {
+          queuedLate = true;
+          await queueRead(["2"], false);
+        }
+        return json({ changed: JSON.parse(String(init?.body)).ids, restored: [] });
+      },
+    });
+    await flushQueue();
+    expect(calls.map((c) => JSON.parse(String(c.init?.body)).ids)).toEqual([["1"], ["2"]]);
+    expect(offlineStore.get().pending).toBe(0);
+  });
+
   it("concurrent flushes share one run", async () => {
     await queueStar("1", true);
     const { calls } = mockFetch({ "PUT /api/items/1/star": () => json({ starred: true, restored: false }) });
@@ -153,6 +213,42 @@ describe("changes made offline", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(offlineStore.get().pending).toBe(1);
     expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(true);
+  });
+
+  it("a change that could not be stored on the device is reverted and said, not reported as queued", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    const broken = {
+      all: async () => [],
+      put: async () => {
+        throw new DOMException("quota", "QuotaExceededError");
+      },
+      del: async () => {},
+      clear: async () => {},
+    };
+    setOfflineBackendForTests(broken);
+    netFail();
+    const c = qc();
+    await expect(queueRead(["1"], true)).rejects.toBeInstanceOf(QueueWriteError);
+    await expect(queueStar("1", true)).rejects.toBeInstanceOf(QueueWriteError);
+
+    await expect(applyRead(c, ["1001"], true, "key")).resolves.toBeUndefined();
+    expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
+    await expect(applyStar(c, "1001", true)).resolves.toBe(false);
+    expect(c.getQueryData<{ starred: boolean }>(keys.item("1001"))?.starred).toBe(false);
+    expect(toast).toHaveBeenCalledWith("Kipple couldn't save that change on this device.", "error");
+
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={c}>{children}</QueryClientProvider>;
+    const star = renderHook(() => useToggleStar(), { wrapper });
+    star.result.current.mutate({ id: "1001", starred: true });
+    await waitFor(() => expect(star.result.current.isError).toBe(true));
+    expect(c.getQueryData<{ starred: boolean }>(keys.item("1001"))?.starred).toBe(false);
+
+    const open = renderHook(() => useOpenItem(), { wrapper });
+    open.result.current.mutate({ id: "1001", via: "tap" });
+    await waitFor(() => expect(open.result.current.isError).toBe(true));
+    expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
+    expect(toast).toHaveBeenCalledTimes(4);
+    expect(offlineStore.get().pending).toBe(0);
   });
 
   it("isOffline is only the request that never arrived", () => {

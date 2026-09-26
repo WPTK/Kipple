@@ -17,11 +17,16 @@ import type {
   OpenResponse,
   Scope,
 } from "./types";
-import { isOffline, queueRead, queueStar, supersede } from "@/lib/offline";
+import { isOffline, queueRead, queueStar, QueueWriteError, supersede } from "@/lib/offline";
 import { toast } from "@/shell/toasts";
 import { itemsParams, keys } from "./queryKeys";
 
 export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams } from "./queryKeys";
+
+/** The toast for a failed change: one made offline that could not be stored says so, not "the server". */
+function changeError(e: unknown): string {
+  return e instanceof QueueWriteError ? "Kipple couldn't save that change on this device." : errorMessage(e);
+}
 
 export function useBootstrap(enabled = true) {
   return useQuery({
@@ -171,7 +176,9 @@ export function useOpenItem() {
       bumpUnread(qc, cached.feed_id, -1);
       return { bumped: cached.feed_id as string | null };
     },
-    onError: (_e, { id }, ctx) => {
+    onError: (e, { id }, ctx) => {
+      // The article itself is still on screen (it is held on the device); only the read could not be kept.
+      if (e instanceof QueueWriteError) toast(changeError(e), "error");
       if (!ctx?.bumped) return;
       patchItems(qc, [id], { read: false });
       bumpUnread(qc, ctx.bumped, 1);
@@ -203,7 +210,7 @@ export function useToggleStar() {
     },
     onError: (e, { id }, ctx) => {
       if (ctx?.prev !== undefined) patchItems(qc, [id], { starred: ctx.prev });
-      toast(errorMessage(e), "error");
+      toast(changeError(e), "error");
     },
   });
 }
@@ -247,12 +254,17 @@ export async function applyRead(
   patchItems(qc, ids, { read });
   await supersede({ read: ids });
   try {
-    return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason } });
+    try {
+      return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason } });
+    } catch (e) {
+      // No network: keep the change on screen and send it when the connection returns (lib/offline.ts). A
+      // change that could not be stored for later is a failure like any other.
+      if (isOffline(e)) return await queueRead(ids, read);
+      throw e;
+    }
   } catch (e) {
-    // No network: keep the change on screen and send it when the connection returns (lib/offline.ts).
-    if (isOffline(e)) return await queueRead(ids, read);
     patchItems(qc, ids, { read: !read });
-    toast(errorMessage(e), "error");
+    toast(changeError(e), "error");
     return undefined;
   }
 }
@@ -262,15 +274,16 @@ export async function applyStar(qc: QueryClient, id: string, starred: boolean): 
   patchItems(qc, [id], { starred: starred });
   await supersede({ star: id });
   try {
-    await api(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
+    try {
+      await api(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
+    } catch (e) {
+      if (!isOffline(e)) throw e;
+      await queueStar(id, starred);
+    }
     return true;
   } catch (e) {
-    if (isOffline(e)) {
-      await queueStar(id, starred);
-      return true;
-    }
     patchItems(qc, [id], { starred: !starred });
-    toast(errorMessage(e), "error");
+    toast(changeError(e), "error");
     return false;
   }
 }

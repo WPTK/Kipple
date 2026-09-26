@@ -14,6 +14,12 @@ import { offlineStore, setOnline, setPending, setUpdateReady } from "./offlineSt
  * Only two kinds of change are queued, both idempotent on the server: star or unstar one article (sent with
  * `at`, the time it happened) and mark articles read or unread by id. Everything else (subscribing,
  * settings, filters, bulk scope marks) needs the server and fails with its usual error.
+ *
+ * Conflicts: a star carries `at` and the server keeps the newer of the two. A read mark carries no time, because
+ * the server has nothing to compare it with (read state has no timestamp), so a replayed read or unread simply
+ * wins over whatever another device did to the same article while this one was offline. That is the accepted
+ * rule: the last change to reach the server wins. What this device does online in the meantime is protected by
+ * supersede(), which drops the queued change for those articles before the online write is sent.
  */
 export type Queued =
   | { kind: "star"; id: string; starred: boolean; at: number }
@@ -25,7 +31,7 @@ const DB_NAME = "kipple-offline";
 const STORE = "queue";
 
 /** Where queued changes live: IndexedDB, or memory when it is unavailable (private windows, tests). */
-interface Backend {
+export interface Backend {
   /** Rejects when the store cannot be used at all (private windows, blocked storage). */
   probe?(): Promise<void>;
   all(): Promise<Row[]>;
@@ -99,10 +105,19 @@ function store(): Promise<Backend> {
 export function resetOfflineForTests(): void {
   backend = Promise.resolve(memoryBackend());
   seq = 0;
+  sending = undefined;
   setPending(0);
 }
 
-/** One failed storage operation is treated as "nothing there" / "not saved"; the queue keeps working. */
+/** Tests: use this storage for the queue (for example one whose writes fail). */
+export function setOfflineBackendForTests(b: Backend): void {
+  backend = Promise.resolve(b);
+}
+
+/**
+ * A read or a cleanup that fails is treated as "nothing there"; the queue keeps working. Saving a new change is
+ * not wrapped in this: a change that could not be stored must not be reported as queued (see QueueWriteError).
+ */
 async function safe<T>(f: (b: Backend) => Promise<T>, fallback: T): Promise<T> {
   try {
     return await f(await store());
@@ -118,6 +133,22 @@ function nextSeq(): number {
   return seq;
 }
 
+/** A change made offline could not be stored on the device, so it will not be sent later. */
+export class QueueWriteError extends Error {
+  constructor(cause: unknown) {
+    super("could not store the change on this device", { cause });
+    this.name = "QueueWriteError";
+  }
+}
+
+async function put(row: Row): Promise<void> {
+  try {
+    await (await store()).put(row);
+  } catch (e) {
+    throw new QueueWriteError(e);
+  }
+}
+
 /** True for the failure of a request that never reached the server. */
 export function isOffline(e: unknown): boolean {
   return e instanceof ApiError && e.status === 0;
@@ -127,17 +158,25 @@ async function refreshCount(): Promise<void> {
   setPending((await safe((b) => b.all(), [])).length);
 }
 
-/** Queue a star change. A later change to the same article replaces an earlier queued one. */
+/**
+ * Queue a star change. A later change to the same article replaces an earlier queued one. Rejects with
+ * QueueWriteError when the change could not be stored.
+ */
 export async function queueStar(id: string, starred: boolean, at = Math.floor(Date.now() / 1000)): Promise<void> {
+  // Stored first, so a failed save leaves the earlier queued change in place rather than nothing at all.
+  const row: Row = { kind: "star", id, starred, at, seq: nextSeq() };
+  await put(row);
   const rows = await safe((b) => b.all(), []);
-  for (const r of rows) if (r.kind === "star" && r.id === id) await safe((b) => b.del(r.seq), undefined);
-  await safe((b) => b.put({ kind: "star", id, starred, at, seq: nextSeq() }), undefined);
+  for (const r of rows) if (r.kind === "star" && r.id === id && r.seq !== row.seq) await safe((b) => b.del(r.seq), undefined);
   await refreshCount();
 }
 
-/** Queue a read or unread mark for ids; answers the way the server would for a plain by-id mark. */
+/**
+ * Queue a read or unread mark for ids; answers the way the server would for a plain by-id mark. Rejects with
+ * QueueWriteError when the change could not be stored.
+ */
 export async function queueRead(ids: string[], read: boolean): Promise<MarkReadResponse> {
-  await safe((b) => b.put({ kind: "read", ids, read, seq: nextSeq() }), undefined);
+  await put({ kind: "read", ids, read, seq: nextSeq() });
   await refreshCount();
   return { changed: ids, restored: [] };
 }
@@ -159,9 +198,14 @@ export async function supersede(change: { star?: string; read?: string[] }): Pro
     }
   }
   await refreshCount();
+  // A running flush may already have picked up one of those rows and sent it: let that request finish first, so
+  // the online write that follows lands after it and has the last word.
+  if (sending) await sending.catch(() => {});
 }
 
 let flushing: Promise<void> | undefined;
+/** The request of the queued change being sent right now, if any (supersede waits for it). */
+let sending: Promise<unknown> | undefined;
 
 /**
  * Send the queued changes in the order they were made. Stops, keeping the rest, at the first request that
@@ -179,16 +223,22 @@ export function flushQueue(qc?: QueryClient): Promise<void> {
 
 async function doFlush(qc?: QueryClient): Promise<void> {
   if (authStore.get() === "out") return;
-  const rows = await safe((b) => b.all(), []);
   let sent = 0;
   let dropped = 0;
-  for (const r of rows) {
+  // Each row is read from the store right before it is sent, never from a list taken at the start: an online
+  // write in the meantime (supersede) may have removed it or narrowed its ids, and replaying the old copy
+  // would undo that write. Rows queued during the run are picked up too, in order.
+  let after = -Infinity;
+  for (;;) {
+    const r = (await safe((b) => b.all(), [])).find((x) => x.seq > after);
+    if (!r) break;
+    after = r.seq;
     try {
-      if (r.kind === "star") {
-        await api(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at } });
-      } else {
-        await api("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key" } });
-      }
+      sending =
+        r.kind === "star"
+          ? api(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at } })
+          : api("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key" } });
+      await sending;
     } catch (e) {
       if (isOffline(e) || (e instanceof ApiError && (e.status === 401 || e.status === 429 || e.status >= 500))) break;
       // Any other refusal is final: drop the change, and say so below.
@@ -197,6 +247,7 @@ async function doFlush(qc?: QueryClient): Promise<void> {
     await safe((b) => b.del(r.seq), undefined);
     sent++;
   }
+  sending = undefined;
   await refreshCount();
   if (sent > 0 && qc) void qc.invalidateQueries({ queryKey: keys.bootstrap });
   if (dropped > 0) {
