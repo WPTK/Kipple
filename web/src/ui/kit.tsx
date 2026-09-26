@@ -186,10 +186,12 @@ export function Stepper({
     latest.current = { value, onChange, text };
   });
   // The saved value changed under us (a reset, a rollback): show it.
-  useEffect(() => {
+  const [seen, setSeen] = useState(value);
+  if (seen !== value) {
+    setSeen(value);
     setText(String(value));
     setProblem(null);
-  }, [value]);
+  }
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef(false);
 

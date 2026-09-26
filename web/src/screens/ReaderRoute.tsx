@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useMatch, useNavigate, useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, Keyboard, MoreVertical, RefreshCw, Undo2 } from "lucide-react";
 import { scopeKey, useBootstrap } from "@/api/queries";
@@ -66,10 +66,8 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   const go = (s: Scope | undefined) => s && navigate(listTo(s));
   const noun = scope.feed ? "feed" : "folder";
   const hint = (k: string) => (prefs.shortcuts ? <kbd className="ml-auto rounded border border-line px-1.5 font-mono text-xs text-fg2">{k}</kbd> : null);
-  useHotkeys(
-    { refresh: () => refresh.mutate(), prevFeed: () => go(prev), nextFeed: () => go(next) },
-    { singleKeys: prefs.shortcuts },
-  );
+  // `r` (refresh) is bound once for every screen, in the app shell.
+  useHotkeys({ prevFeed: () => go(prev), nextFeed: () => go(next) }, { singleKeys: prefs.shortcuts });
   return (
     <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-2">
       <div className="flex items-center gap-0.5 pt-2">
@@ -187,7 +185,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   );
 }
 
-function ReaderLayout({ scope, articleId }: { scope: Scope; articleId?: string }) {
+function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?: string; hasFrom: boolean }) {
   const wide = useWide();
   const navigate = useNavigate();
   const { layout } = useResolvedLayout(scope);
@@ -203,18 +201,20 @@ function ReaderLayout({ scope, articleId }: { scope: Scope; articleId?: string }
     [paneMode, articleId, listKey, navigate],
   );
 
+  // In the reader pane the list stays live beside the article: its keys (mark all, above/below, select,
+  // gg/G, Enter, c) keep working, and it drives j/k/m/s/o for the article, which is its selected row.
   const list = (
     <ListPane
       key={listKey}
       scope={scope}
       activeId={articleId}
+      articleOpen={paneMode && !!articleId}
       header={(controls) => <ScopeHeader scope={scope} controls={controls} />}
       onKeyMove={onKeyMove}
-      keysEnabled={!articleId || !paneMode}
     />
   );
 
-  if (!paneMode) return articleId ? <ArticlePane key={articleId} id={articleId} pane={false} /> : list;
+  if (!paneMode) return articleId ? <ArticlePane key={articleId} id={articleId} scope={scope} hasFrom={hasFrom} pane={false} /> : list;
 
   return (
     <div className="flex h-full min-h-0">
@@ -223,7 +223,7 @@ function ReaderLayout({ scope, articleId }: { scope: Scope; articleId?: string }
       </div>
       <div className="min-w-0 flex-1">
         {articleId ? (
-          <ArticlePane id={articleId} pane />
+          <ArticlePane id={articleId} scope={scope} hasFrom={hasFrom} pane />
         ) : (
           <div className="flex h-full items-center justify-center p-6 text-center text-fg2">
             <p>Select an article to read it here.</p>
@@ -234,20 +234,33 @@ function ReaderLayout({ scope, articleId }: { scope: Scope; articleId?: string }
   );
 }
 
-export function ListRoute() {
-  const { view } = useParams();
-  const [sp] = useSearchParams();
-  const { order } = useDevicePrefs();
-  const scope = useMemo(() => {
-    const s = scopeFromList(view, sp);
-    return order === "oldest" ? { ...s, order: "oldest" as const } : s;
-  }, [view, sp, order]);
-  return <ReaderLayout scope={scope} />;
+/**
+ * The scope of the reader screen, one builder for the list route and the article route: the list
+ * comes from `/l/:view?feed=&folder=`, an article's list from `?from=`; the sort order is always the
+ * device preference (a `from` written under the other order does not stick).
+ */
+export function readerScope(view: string | undefined, sp: URLSearchParams, isArticle: boolean, order: "newest" | "oldest"): Scope {
+  const base = isArticle ? scopeFromSearch(sp) : scopeFromList(view, sp);
+  const { order: _drop, ...rest } = base;
+  void _drop;
+  return order === "oldest" ? { ...rest, order: "oldest" } : rest;
 }
 
-export function ItemRoute() {
-  const { id } = useParams();
+/**
+ * One persistent layout for `/l/:view` and `/i/:id`: opening or closing an article never remounts the
+ * list, so hidden rows, ticks, scroll and focus survive on a wide screen.
+ */
+export function ReaderRoute() {
+  const item = useMatch("/i/:id");
+  const list = useMatch("/l/:view");
   const [sp] = useSearchParams();
-  const scope = useMemo(() => scopeFromSearch(sp), [sp]);
-  return <ReaderLayout scope={scope} articleId={id} />;
+  const { order } = useDevicePrefs();
+  const isArticle = !!item;
+  const view = list?.params.view;
+  const spKey = sp.toString();
+  const scope = useMemo(
+    () => readerScope(view, new URLSearchParams(spKey), isArticle, order),
+    [view, spKey, isArticle, order],
+  );
+  return <ReaderLayout scope={scope} articleId={item?.params.id} hasFrom={sp.has("from")} />;
 }

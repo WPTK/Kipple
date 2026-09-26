@@ -3,7 +3,9 @@ import { useEffect, useRef } from "react";
 // Keymap per docs/research/ui-layouts-keymap-density-round2.md section 4.
 // Rules: never bind Ctrl/Cmd/Alt; single keys are off while typing, during IME
 // composition and behind the global "Single-key shortcuts" setting; `g` starts
-// a two-key chord that expires after 1.2 s. Bind by event.key, not code.
+// a two-key chord that expires after 1.2 s. Bind by event.key (layout-aware), not code, but read the
+// Shift state from event.shiftKey: with CapsLock on, `key` for a plain "a" is "A", so the letter's case
+// says nothing about Shift. Letters are matched lower-case; Shift+A and Shift+G are explicit entries.
 
 export type Action =
   | "next"
@@ -38,6 +40,8 @@ export const CHORD_TIMEOUT_MS = 1200;
 
 export interface KeyLike {
   key: string;
+  /** Real key events always carry it; when absent (tests), an upper-case letter counts as shifted. */
+  shiftKey?: boolean;
   ctrlKey?: boolean;
   metaKey?: boolean;
   altKey?: boolean;
@@ -65,10 +69,8 @@ const SINGLE: Record<string, Action> = {
   r: "refresh",
   u: "up",
   Escape: "up",
-  G: "bottom",
   Home: "top",
   f: "fulltext",
-  A: "markAll",
   "{": "markAbove",
   "}": "markBelow",
   x: "select",
@@ -78,6 +80,12 @@ const SINGLE: Record<string, Action> = {
   "]": "nextFeed",
   "/": "search",
   "?": "help",
+};
+
+/** Letters that need an explicit Shift. */
+const SHIFTED: Record<string, Action> = {
+  g: "bottom",
+  a: "markAll",
 };
 
 const CHORD: Record<string, Action> = {
@@ -105,12 +113,17 @@ export function interpretKey(
   const always = e.key === "Escape" || e.key === "?";
   if (!opts.singleKeys && !always) return { action: null, pendingG: false };
 
+  // A letter is its lower-case self plus an explicit Shift flag (CapsLock cannot fake either).
+  const letter = e.key.length === 1 && /[a-z]/i.test(e.key);
+  const k = letter ? e.key.toLowerCase() : e.key;
+  const shift = letter && (e.shiftKey ?? e.key !== e.key.toLowerCase());
+
   if (pendingG) {
-    const a = CHORD[e.key];
+    const a = shift ? undefined : CHORD[k];
     return { action: a ?? null, pendingG: false };
   }
-  if (e.key === "g") return { action: null, pendingG: true };
-  const a = SINGLE[e.key];
+  if (k === "g" && letter && !shift) return { action: null, pendingG: true };
+  const a = shift ? SHIFTED[k] : SINGLE[k];
   return { action: a ?? null, pendingG: false };
 }
 
@@ -167,14 +180,14 @@ export const KEYMAP: KeyDoc[] = [
   { keys: "s", desc: "Star or unstar", scope: "List" },
   { keys: "{ / }", desc: "Mark above / below as read", scope: "List" },
   { keys: "Shift+A", desc: "Mark everything in this list as read", scope: "List" },
-  { keys: "g g / G", desc: "Jump to top / bottom", scope: "List" },
+  { keys: "g g / Shift+G", desc: "Jump to top / bottom", scope: "List" },
   { keys: "[ / ]", desc: "Previous / next feed", scope: "List" },
   { keys: "c", desc: "Switch to the Compact layout and back", scope: "List" },
   { keys: "o / v", desc: "Open the original in a new tab", scope: "Everywhere" },
   { keys: "j / k", desc: "Next / previous article", scope: "Article" },
   { keys: "m / s", desc: "Mark read or unread / star", scope: "Article" },
   { keys: "f", desc: "Toggle full text", scope: "Article" },
-  { keys: "u or Esc", desc: "Back to the list", scope: "Article" },
+  { keys: "u or Esc", desc: "Back to the list (beside the list: focus returns to it)", scope: "Article" },
   { keys: "r", desc: "Refresh all feeds", scope: "Everywhere" },
   { keys: "z", desc: "Undo the last action (60 seconds, 2 minutes for bulk)", scope: "Everywhere" },
   { keys: "g i / a / s / f / ,", desc: "Go to Unread / All / Starred / Feeds / Settings", scope: "Everywhere" },

@@ -18,7 +18,7 @@ import { sessionLayoutStore, updateDevicePrefs, useDevicePrefs } from "@/lib/dev
 import { prefsStore } from "@/lib/prefs";
 import { useStore, useStoreSelector } from "@/lib/store";
 import { withDayHeaders, type Row } from "@/lib/format";
-import { useHotkeys } from "@/lib/keys";
+import { useHotkeys, type Handlers } from "@/lib/keys";
 import { useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { articleTo } from "@/lib/routes";
@@ -27,7 +27,24 @@ import { announce, toast } from "@/shell/toasts";
 
 // Scroll and selection memory per list, so "back" lands where you were
 // (design 3.4: one restore path). Module scope: survives route changes.
-const memory = new Map<string, { offset: number; selectedId?: string }>();
+interface ListMemory {
+  offset: number;
+  selectedId?: string;
+  /** Rows swiped or marked away in Unread, so leaving the list and coming back keeps them gone. */
+  hidden: ReadonlySet<string>;
+  checked: ReadonlySet<string>;
+  /** Ids already sent by mark-read-on-scroll. */
+  sentByScroll: Set<string>;
+}
+const memory = new Map<string, ListMemory>();
+const memoryFor = (key: string): ListMemory => {
+  let m = memory.get(key);
+  if (!m) {
+    m = { offset: 0, hidden: new Set(), checked: new Set(), sentByScroll: new Set() };
+    memory.set(key, m);
+  }
+  return m;
+};
 
 /** Forget remembered scroll and selection (tests). */
 export function clearListMemory(): void {
@@ -53,6 +70,8 @@ interface Props {
   /** Called on j/k. On a wide screen the route opens the item in the reader pane. */
   onKeyMove?: (item: Card) => void;
   keysEnabled?: boolean;
+  /** An article is open in the reader pane beside this list: the article, not the list, owns `f` and `u`/Esc. */
+  articleOpen?: boolean;
   header?: ReactNode | ((c: ListControls) => ReactNode);
 }
 
@@ -108,7 +127,7 @@ const isTouch = (): boolean => {
   }
 };
 
-export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, header }: Props) {
+export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, articleOpen = false, header }: Props) {
   const key = scopeKey(scope);
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -129,10 +148,10 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
   const width = useWidth(parentRef);
   const cols = layout.grid ? columnsFor(width) : 1;
 
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => memory.get(key)?.hidden ?? new Set());
   // Rows that are collapsing (COLLAPSE_MS) before they leave the list.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(() => new Set());
-  const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
+  const [checked, setChecked] = useState<ReadonlySet<string>>(() => memory.get(key)?.checked ?? new Set());
   const allItems = useMemo(() => flattenItems(q.data), [q.data]);
   const items = useMemo(() => (hidden.size ? allItems.filter((i) => !hidden.has(i.id)) : allItems), [allItems, hidden]);
   const rows = useMemo(() => chunkRows(withDayHeaders(items), cols), [items, cols]);
@@ -177,13 +196,21 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
   useEffect(() => {
     const el = parentRef.current;
     if (!el) return;
-    const onScroll = () => memory.set(key, { offset: el.scrollTop, selectedId: memory.get(key)?.selectedId });
+    const onScroll = () => {
+      memoryFor(key).offset = el.scrollTop;
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, [key]);
   useEffect(() => {
-    memory.set(key, { offset: memory.get(key)?.offset ?? 0, selectedId });
+    memoryFor(key).selectedId = selectedId;
   }, [key, selectedId]);
+  // Hidden and ticked rows outlive the mount (opening an article on a phone unmounts the list).
+  useEffect(() => {
+    const m = memoryFor(key);
+    m.hidden = hidden;
+    m.checked = checked;
+  }, [key, hidden, checked]);
 
   // Restore focus to the anchor row when returning to the list.
   const restoredFocus = useRef(false);
@@ -210,7 +237,15 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
     if (q.hasNextPage && !q.isFetchingNextPage && !q.isFetchNextPageError && rows.length > 0 && lastIndex >= rows.length - 10) void q.fetchNextPage();
   }, [lastIndex, rows.length, q]);
 
-  const openItem = useCallback((item: Card) => setSelectedId(item.id), []);
+  // The selection is committed to memory before the route changes: on a phone the list unmounts in the
+  // same render, before any effect would have saved it, and "back" must land on this row.
+  const openItem = useCallback(
+    (item: Card) => {
+      memoryFor(key).selectedId = item.id;
+      setSelectedId(item.id);
+    },
+    [key],
+  );
 
   // "Mark as read while scrolling" (Accessibility, off by default): rows that have scrolled past the top of
   // the list are marked read once scrolling settles. Goes through mark-read with reason "scroll": no stats,
@@ -218,7 +253,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
   const markOnScroll = boot.data?.settings?.["ui.mark_read_on_scroll"] === true && scope.view !== "starred" && !scope.q;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
-  const sentByScroll = useRef(new Set<string>());
+  const sentByScroll = useRef(memoryFor(key).sentByScroll);
   useEffect(() => {
     const el = parentRef.current;
     if (!markOnScroll || !el) return;
@@ -282,6 +317,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
       setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Recorded now, not after the collapse: leaving the list mid-animation must not bring the rows back.
+    const m = memoryFor(key);
+    m.hidden = new Set([...m.hidden, ...ids]);
     if (prefersReducedMotion() || colsRef.current > 1) commit();
     else {
       setLeaving((l) => new Set([...l, ...ids]));
@@ -290,16 +328,20 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
     }
     return () => {
       if (timer) clearTimeout(timer);
+      const m2 = memoryFor(key);
+      m2.hidden = new Set([...m2.hidden].filter((x) => !ids.includes(x)));
       setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
       setHidden((h) => new Set([...h].filter((x) => !ids.includes(x))));
     };
-  }, []);
+  }, [key]);
 
   /** Bring some hidden rows back (the server did not mark them). */
   const unhide = useCallback((ids: string[]) => {
+    const m = memoryFor(key);
+    m.hidden = new Set([...m.hidden].filter((x) => !ids.includes(x)));
     setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
     setHidden((h) => new Set([...h].filter((x) => !ids.includes(x))));
-  }, []);
+  }, [key]);
 
   // After rows are removed, put the first visible row back where it was on screen.
   useLayoutEffect(() => {
@@ -364,12 +406,13 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
   };
   const targets = (): Card[] => (checked.size ? items.filter((i) => checked.has(i.id)) : selectedItem ? [selectedItem] : []);
 
-  useHotkeys(
-    {
+  const hotkeys: Handlers = {
       next: () => move(1),
       prev: () => move(-1),
       open: () => {
-        if (selectedItem) navigate(articleTo(selectedItem.id, scope), { state: { via: "key" } });
+        if (!selectedItem || selectedItem.id === activeId) return; // already open beside the list
+        openItem(selectedItem);
+        navigate(articleTo(selectedItem.id, scope), { state: { via: "key" } });
       },
       original: () => selectedItem && window.open(selectedItem.url, "_blank", "noopener,noreferrer"),
       // A background tab is a browser decision; window.open is the best a page can do.
@@ -415,9 +458,13 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
       },
       top: () => virtualizer.scrollToOffset(0),
       bottom: () => virtualizer.scrollToIndex(rows.length - 1, { align: "end" }),
-    },
-    { singleKeys: prefs.shortcuts, enabled: keysEnabled },
-  );
+  };
+  // An article open beside the list that is not one of its rows (a deep link) has nothing here to drive:
+  // the article pane takes j/k/m/s/o/v itself.
+  if (articleOpen && activeId && !allItems.some((i) => i.id === activeId)) {
+    for (const k of ["next", "prev", "original", "background", "star", "toggleRead"] as const) delete hotkeys[k];
+  }
+  useHotkeys(hotkeys, { singleKeys: prefs.shortcuts, enabled: keysEnabled });
 
   // ---- pull to refresh ---------------------------------------------------
 
@@ -471,6 +518,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, heade
       return { ...s, pendingByFeed: left, pendingIds: Object.fromEntries(Object.entries(s.pendingIds).filter(([k]) => k in left)) };
     });
     memory.delete(key);
+    sentByScroll.current = memoryFor(key).sentByScroll;
     asOf.current = undefined;
     setHidden(new Set());
     setLeaving(new Set());
@@ -704,6 +752,13 @@ function copyLink(url: string): void {
     () => announce("Link copied"),
     () => toast("Couldn't copy the link. Long-press the link to copy it.", "error"),
   );
+}
+
+/** Put keyboard focus back on a list row (Esc or u in the reader pane); the list itself when the row is not rendered. */
+export function focusListRow(id: string): void {
+  const list = document.querySelector<HTMLElement>('[data-testid="list-scroll"]');
+  const link = list?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`);
+  (link ?? list)?.focus({ preventScroll: true });
 }
 
 function focusRow(container: HTMLElement | null, id: string): void {

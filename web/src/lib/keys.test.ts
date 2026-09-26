@@ -44,6 +44,49 @@ describe("interpretKey", () => {
   });
 });
 
+describe("Shift and CapsLock", () => {
+  it("Shift+A marks all, Shift+G goes to the bottom", () => {
+    expect(interpretKey({ key: "A", shiftKey: true }, false, on).action).toBe("markAll");
+    expect(interpretKey({ key: "G", shiftKey: true }, false, on).action).toBe("bottom");
+  });
+
+  it("with CapsLock on, a plain letter stays plain: g a is Go to All, not mark-all", () => {
+    // CapsLock makes event.key upper case but shiftKey stays false.
+    const g = interpretKey({ key: "G", shiftKey: false }, false, on);
+    expect(g).toEqual({ action: null, pendingG: true });
+    expect(interpretKey({ key: "A", shiftKey: false }, true, on)).toEqual({ action: "goAll", pendingG: false });
+    // And alone, a caps-locked A does not mark everything read, nor a G jump to the bottom.
+    expect(interpretKey({ key: "A", shiftKey: false }, false, on).action).toBeNull();
+    expect(interpretKey({ key: "G", shiftKey: false }, false, on)).toEqual({ action: null, pendingG: true });
+    // Caps-locked j, k, s, m, f are their plain selves.
+    for (const [key, action] of [["J", "next"], ["K", "prev"], ["S", "star"], ["M", "toggleRead"], ["F", "fulltext"], ["Z", "undo"]] as const) {
+      expect(interpretKey({ key, shiftKey: false }, false, on).action, key).toBe(action);
+    }
+  });
+
+  it("with CapsLock on, Shift gives the lower-case letter and is still Shift", () => {
+    expect(interpretKey({ key: "a", shiftKey: true }, false, on).action).toBe("markAll");
+    expect(interpretKey({ key: "g", shiftKey: true }, false, on).action).toBe("bottom");
+  });
+
+  it("a Shifted letter does not complete a chord or start one", () => {
+    expect(interpretKey({ key: "G", shiftKey: true }, false, on).pendingG).toBe(false);
+    expect(interpretKey({ key: "A", shiftKey: true }, true, on)).toEqual({ action: null, pendingG: false });
+  });
+
+  it("Shift on other letters does not trigger their plain action", () => {
+    for (const key of ["J", "K", "S", "M", "F", "X", "Z", "C", "R", "U", "O", "V"]) {
+      expect(interpretKey({ key, shiftKey: true }, false, on).action, key).toBeNull();
+    }
+  });
+
+  it("keeps the symbol keys: { } [ ] ? /", () => {
+    for (const [key, action] of [["{", "markAbove"], ["}", "markBelow"], ["[", "prevFeed"], ["]", "nextFeed"], ["?", "help"], ["/", "search"]] as const) {
+      expect(interpretKey({ key, shiftKey: key === "{" || key === "}" || key === "?" }, false, on).action, key).toBe(action);
+    }
+  });
+});
+
 describe("isTypingTarget", () => {
   it("detects form controls and textbox roles", () => {
     expect(isTypingTarget(document.createElement("input"))).toBe(true);

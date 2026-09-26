@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, Star } from "lucide-react";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
 import { enhanceEmbeds, handleArticleClick } from "@/lib/articleDom";
 import { useItemActions } from "@/lib/itemActions";
-import { scopeFromSearch, articleTo, listTo } from "@/lib/routes";
+import { articleTo, listTo } from "@/lib/routes";
 import { sanitizeArticleHtml } from "@/lib/safeHtml";
 import { fullDate } from "@/lib/format";
 import { useHotkeys } from "@/lib/keys";
@@ -15,26 +15,28 @@ import { useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
-import { StatusBlock } from "./ListPane";
+import { StatusBlock, focusListRow } from "./ListPane";
+import type { Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
 
 interface Props {
   id: string;
+  /** The list this article belongs to (the route builds it once, honouring the sort-order preference). */
+  scope: Scope;
+  /** The URL carried `?from=`: only then is the list loaded for previous/next in the full-screen view. */
+  hasFrom: boolean;
   /** Wide screens show the article beside the list: no back button, navigation replaces. */
   pane: boolean;
 }
 
-export function ArticlePane({ id, pane }: Props) {
+export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [search] = useSearchParams();
-  const hasFrom = search.has("from");
-  const scope = useMemo(() => scopeFromSearch(search), [search]);
   const prefs = useStore(prefsStore);
 
   const item = useItem(id);
-  const list = useItems(scope, hasFrom);
+  const list = useItems(scope, hasFrom || pane);
   const open = useOpenItem();
   const star = useToggleStar();
   const act = useItemActions();
@@ -67,7 +69,9 @@ export function ArticlePane({ id, pane }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, ft?.effective, ft?.available, ft?.error]);
 
-  const html = useMemo(() => (item.data ? sanitizeArticleHtml(item.data.content_html) : ""), [item.data]);
+  // Keyed on the markup alone: a read or star patch must not re-run the sanitizer over the whole body.
+  const content = item.data?.content_html;
+  const html = useMemo(() => (content === undefined ? "" : sanitizeArticleHtml(content)), [content]);
 
   const go = (target: string | undefined, via: "key" | "nav") => {
     if (!target) return;
@@ -113,15 +117,19 @@ export function ArticlePane({ id, pane }: Props) {
     fulltext.mutate({ id, mode: item.data.fulltext.effective === 1 ? 0 : 1 });
   };
 
+  // Precedence in the wide pane: the open article is the list's selected row, so the list's keys drive
+  // j/k/m/s/o/v (and stay live for mark all, above/below, select, gg/G, Enter). The article keeps only
+  // what the list has no notion of: f (full text) and u/Esc, which returns focus to the list. If the
+  // article is not among the loaded rows (a deep link), the list has nothing to drive and the article
+  // takes the whole set. In the full-screen view the list is not on screen, so the article owns all keys.
+  const ownsItemKeys = !pane || !canPage;
   useHotkeys(
     {
-      next: () => next("key"),
-      prev: () => prev("key"),
-      original: openOriginal,
-      star: toggleStar,
-      toggleRead,
+      ...(ownsItemKeys
+        ? { next: () => next("key"), prev: () => prev("key"), original: openOriginal, star: toggleStar, toggleRead }
+        : {}),
       fulltext: toggleFulltext,
-      up: () => (pane ? undefined : back()),
+      up: () => (pane ? focusListRow(id) : back()),
     },
     { singleKeys: prefs.shortcuts },
   );

@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { FeedsScreen } from "@/screens/FeedsScreen";
 import { HealthScreen } from "@/screens/HealthScreen";
 import { LoginScreen } from "@/screens/LoginScreen";
-import { ItemRoute, ListRoute } from "@/screens/ReaderRoute";
+import { ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { SettingsScreen } from "@/screens/SettingsScreen";
 import { AppShell } from "@/shell/AppShell";
@@ -54,8 +54,10 @@ function Gate() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/l/unread" replace />} />
-        <Route path="l/:view" element={<ListRoute />} />
-        <Route path="i/:id" element={<ItemRoute />} />
+        <Route element={<ReaderRoute />}>
+          <Route path="l/:view" />
+          <Route path="i/:id" />
+        </Route>
         <Route path="feeds" element={<FeedsScreen />} />
         <Route path="health" element={<HealthScreen />} />
         <Route path="search" element={<SearchScreen />} />

@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { HeartPulse, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
+import { useRefreshAll } from "@/api/refresh";
 import { useHotkeys } from "@/lib/keys";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
@@ -161,9 +162,11 @@ export function AppShell() {
   const { pathname } = useLocation();
   const prefs = useStore(prefsStore);
   useServerEvents(true);
+  const refresh = useRefreshAll();
 
   useHotkeys(
     {
+      refresh: () => refresh.mutate(),
       goUnread: () => navigate(listTo({ view: "unread" })),
       goAll: () => navigate(listTo({ view: "all" })),
       goStarred: () => navigate(listTo({ view: "starred" })),

@@ -469,7 +469,7 @@ describe("mark above and below, and mark all", () => {
     const { calls } = routes({ "GET /api/items": () => json(pageOf(items(), null, "1200")), "POST /api/items/mark-read": () => json({ changed: ["1001", "1004", "1005"], restored: [], count: 3, undoable: true }) });
     go("/l/unread?feed=1");
     await screen.findByText("Article number 3");
-    await userEvent.setup().keyboard("A");
+    await userEvent.setup().keyboard("{Shift>}A{/Shift}");
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
     expect(bodyOf(calls.find((c) => c.url.pathname === "/api/items/mark-read"))).toEqual({
       scope: { view: "unread", feed_id: "1" },
@@ -486,7 +486,7 @@ describe("mark above and below, and mark all", () => {
     updateDevicePrefs({ order: "oldest" });
     go("/l/unread");
     await screen.findByText("Article number 3");
-    await userEvent.setup().keyboard("A");
+    await userEvent.setup().keyboard("{Shift>}A{/Shift}");
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
     expect(bodyOf(calls.find((c) => c.url.pathname === "/api/items/mark-read")).max_id).toBe("1777");
   });
@@ -495,7 +495,7 @@ describe("mark above and below, and mark all", () => {
     const { calls } = routes({ "POST /api/items/mark-read": () => json({ changed: [], restored: [], count: 0, undoable: true }) });
     go("/l/unread");
     await screen.findByText("Article number 3");
-    await userEvent.setup().keyboard("A");
+    await userEvent.setup().keyboard("{Shift>}A{/Shift}");
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
@@ -506,7 +506,7 @@ describe("mark above and below, and mark all", () => {
     go("/l/unread");
     await screen.findByText("Article number 3");
     const user = userEvent.setup();
-    await user.keyboard("A");
+    await user.keyboard("{Shift>}A{/Shift}");
     await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read").length).toBe(2));
     expect(bodyOf(calls.filter((c) => c.url.pathname === "/api/items/mark-read")[1])).toEqual({ ids: ["1001", "1004"], ledger_ids: ["77", "78"], read: false, reason: "bulk" });
@@ -518,7 +518,7 @@ describe("mark above and below, and mark all", () => {
     go("/l/unread");
     await screen.findByText("Article number 3");
     const user = userEvent.setup();
-    await user.keyboard("A");
+    await user.keyboard("{Shift>}A{/Shift}");
     await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
     await waitFor(() => expect(n).toBe(2));
     await screen.findByText(/Couldn.t undo/);
@@ -530,7 +530,7 @@ describe("mark above and below, and mark all", () => {
     routes({ "POST /api/items/mark-read": () => json({ changed: [], restored: [], count: 20000, undoable: false }) });
     go("/l/unread");
     await screen.findByText("Article number 3");
-    await userEvent.setup().keyboard("A");
+    await userEvent.setup().keyboard("{Shift>}A{/Shift}");
     await waitFor(() => expect(screen.queryByRole("button", { name: "Undo" })).toBeNull());
   });
 });
@@ -553,7 +553,7 @@ describe("keymap", () => {
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
     await user.keyboard("jm");
-    await user.keyboard("A");
+    await user.keyboard("{Shift>}A{/Shift}");
     expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(false);
     await user.keyboard("?");
     expect(await screen.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();

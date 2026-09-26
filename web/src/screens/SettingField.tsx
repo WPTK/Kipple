@@ -21,13 +21,13 @@ export function SettingField({ meta }: { meta: SettingMeta }) {
   const [typed, setDraft] = useState<string | null>(null);
   const draft = typed ?? String(meta.value ?? "");
   const uid = useId();
+  const inflight = useRef(false);
+  const queued = useRef<{ value: unknown } | null>(null);
 
   if (meta.kind === "json") return null;
 
   // One PATCH per key at a time, latest value wins: while one is in flight, later values replace the
   // queued one, so responses can never arrive out of order and an older value never lands last.
-  const inflight = useRef(false);
-  const queued = useRef<{ value: unknown } | null>(null);
   const send = (value: unknown): void => {
     if (inflight.current) {
       queued.current = { value };
