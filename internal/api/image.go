@@ -40,7 +40,10 @@ func (s *Server) imageSecret(ctx context.Context) ([]byte, bool) {
 	}
 	if s.imgSecret == nil || string(s.imgSecret) != secret {
 		s.imgSecret = []byte(secret)
-		s.imgH = nil // keyed by the old secret
+		if old := s.imgH; old != nil { // keyed by the old secret; in-flight requests finish, queued thumbnails drain
+			go old.Close()
+		}
+		s.imgH = nil
 	}
 	s.imgSecretAt = s.now()
 	return s.imgSecret, true
@@ -119,8 +122,10 @@ func (s *Server) proxyCards(ctx context.Context, cards []store.Card) {
 		}
 	}
 	ids := make([]int64, 0, len(cards))
+	seen := map[int64]bool{}
 	for _, c := range cards {
-		if c.Image != nil {
+		if c.Image != nil && !seen[c.FeedID] {
+			seen[c.FeedID] = true
 			ids = append(ids, c.FeedID)
 		}
 	}

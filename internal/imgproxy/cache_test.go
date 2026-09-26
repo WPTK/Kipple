@@ -649,3 +649,19 @@ func TestCachedResponsesKeepTheGuards(t *testing.T) {
 	require.EqualValues(t, 0, up.n.Load())
 	require.Equal(t, 200, cr.fetchOrig(orig, FlagPrivateNet).StatusCode)
 }
+
+func TestEveryImageResponseCarriesCORP(t *testing.T) {
+	up := countingImg(t)
+	orig := up.URL + "/c.png"
+	cr := newCacheRig(t)
+	resp := cr.fetchOrig(orig, FlagPrivateNet) // cold miss streams through stream()
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "same-origin", resp.Header.Get("Cross-Origin-Resource-Policy"), "cold miss")
+	_ = read(t, resp)
+
+	rg := newRig(t) // no cache at all
+	resp = rg.fetchOrig(orig, FlagPrivateNet)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "same-origin", resp.Header.Get("Cross-Origin-Resource-Policy"), "cache disabled")
+	require.Equal(t, "nosniff", resp.Header.Get("X-Content-Type-Options"))
+}

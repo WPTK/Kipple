@@ -89,11 +89,14 @@ func (s *hintStore) set(host string, h imgcache.HostHint) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.mem) >= 1024 {
-		s.mem = nil
-	}
 	if s.mem == nil {
 		s.mem = map[string]imgcache.HostHint{}
+	}
+	if _, have := s.mem[host]; !have && len(s.mem) >= 1024 {
+		for k := range s.mem { // drop one arbitrary entry, keep the rest
+			delete(s.mem, k)
+			break
+		}
 	}
 	if h.UA == "kipple" && h.Referer == "none" {
 		delete(s.mem, host)
@@ -109,8 +112,15 @@ func (h *Handler) fetchUpstream(ctx context.Context, u *url.URL, flags int, cd c
 	host := u.Hostname()
 	hint, hinted := h.hints.get(host)
 	order := profileOrder(hint, hinted)
+	begin := time.Now()
 	for i, p := range order {
-		resp, done, err := h.attempt(ctx, u, flags, cd, p, headerBudget)
+		budget := headerBudget
+		if headerBudget > 0 { // one bound for the whole ladder, not per attempt
+			if budget = headerBudget - time.Since(begin); budget <= 0 {
+				return nil, nil, errUpstreamTimeout
+			}
+		}
+		resp, done, err := h.attempt(ctx, u, flags, cd, p, budget)
 		if err != nil {
 			return nil, nil, err
 		}

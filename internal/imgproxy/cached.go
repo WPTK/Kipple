@@ -204,13 +204,18 @@ func (h *Handler) serveHit(w http.ResponseWriter, r *http.Request, e imgcache.En
 		hdr.Set("ETag", `"`+e.SHA256[:16]+`"`)
 	}
 	hdr.Set("Cache-Control", cacheControl)
-	hdr.Set("X-Content-Type-Options", "nosniff")
-	hdr.Set("Content-Security-Policy", "default-src 'none'")
-	hdr.Set("Cross-Origin-Resource-Policy", "same-origin")
+	setImageSecurityHeaders(hdr)
 	var mod time.Time
 	if t, err := http.ParseTime(e.LastModified); err == nil {
 		mod = t
 	}
 	http.ServeContent(w, r, "", mod, f)
 	return true
+}
+
+// setImageSecurityHeaders is the hardening every image response carries, hit or miss.
+func setImageSecurityHeaders(hdr http.Header) {
+	hdr.Set("X-Content-Type-Options", "nosniff")
+	hdr.Set("Content-Security-Policy", "default-src 'none'")
+	hdr.Set("Cross-Origin-Resource-Policy", "same-origin")
 }

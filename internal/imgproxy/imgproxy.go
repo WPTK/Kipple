@@ -165,6 +165,13 @@ type Handler struct {
 // keeps serving (originals) afterwards.
 func (h *Handler) Close() { h.pool.close() }
 
+// Closed reports whether Close has begun (no new thumbnail work is accepted).
+func (h *Handler) Closed() bool {
+	h.pool.mu.Lock()
+	defer h.pool.mu.Unlock()
+	return h.pool.shut
+}
+
 // New builds the handler.
 func New(opt Options) *Handler {
 	if opt.MaxBytes <= 0 {
@@ -442,8 +449,7 @@ func (h *Handler) stream(w http.ResponseWriter, resp *http.Response, sk *sink, h
 	passValidators(hdr, resp, sk == nil)
 	hdr.Set("Content-Type", ct)
 	hdr.Set("Cache-Control", cacheControl)
-	hdr.Set("X-Content-Type-Options", "nosniff")
-	hdr.Set("Content-Security-Policy", "default-src 'none'")
+	setImageSecurityHeaders(hdr)
 	if resp.ContentLength >= 0 {
 		hdr.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
 	}

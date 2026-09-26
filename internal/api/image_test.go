@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -173,4 +174,20 @@ func TestCardImagesUseThumbnailsWhenCacheIsOn(t *testing.T) {
 
 	_, st, _ := h.api(c, "GET", "/api/imgcache", "")
 	require.EqualValues(t, 0, st["thumbnails"])
+}
+
+func TestSecretRotationClosesOldImageHandler(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	old, ok := h.srv.imageHandler(ctx)
+	require.True(t, ok)
+	h.exec("UPDATE account SET secret = ? WHERE id = 1", strings.Repeat("f", 64))
+	h.srv.imgMu.Lock()
+	h.srv.imgSecretAt = time.Time{} // let the TTL lapse so the rotation is seen
+	h.srv.imgMu.Unlock()
+	fresh, ok := h.srv.imageHandler(ctx)
+	require.True(t, ok)
+	require.NotSame(t, old, fresh)
+	require.Eventually(t, old.Closed, 2*time.Second, 5*time.Millisecond, "old handler must be closed, not leaked")
+	require.False(t, fresh.Closed())
 }
