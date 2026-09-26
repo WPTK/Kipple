@@ -4,9 +4,9 @@ A self-hosted RSS reader for one person. It fetches feeds, keeps them in a small
 a web app plus a Google Reader-compatible sync API, so apps like Reeder Classic and NetNewsWire can sync
 with it. It builds to one container with one port.
 
-**Status:** work in progress, developed in phases. Phase 1 (fetch, store, sync API) is deployed. Phase 2 (the
-reading UI, search, filters, image cache, backups) is built on the `phase-2` branch and being reviewed.
-Phase 3 (installable app, offline use) is next. See [CHANGELOG.md](CHANGELOG.md).
+**Status:** work in progress, developed in phases. Phase 1 (v0.1.0) and phase 2 alpha 2 (v0.2.0-alpha.2, the reading UI) are deployed; alpha 3 (search, filters,
+image cache, backups) is on the `phase-2` branch, and neither alpha is merged into `main`. Phase 3 (installable
+app, offline use) is next. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Where things are
 

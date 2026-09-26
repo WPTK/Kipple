@@ -4,24 +4,29 @@ Source of truth: [`schemes.json`](./schemes.json) (20 schemes, 12 tokens each). 
 from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per scheme as the virtual stylesheet
 `virtual:kipple-themes.css`, and the theme boot script. Tailwind maps the tokens in `src/index.css`
 (`bg-bg`, `bg-surface`, `text-fg`, `text-fg2`, `border-line`, `text-accent`, `text-link`, `bg-unread`,
-`text-star`, `text-danger`, `bg-selection`).
+`text-star`, `text-danger`, `bg-selection`). Derived in `index.css`: `--kp-toast-bg` and `--kp-hl-bg`; device tokens
+(`--kp-scale`, `--kp-reading-font`, `--kp-app-font`, `--kp-col` and the density variables) come from `lib/prefs.ts`. The
+`meta` token has no Tailwind utility; it is only used for `<meta name="theme-color">`.
 
 ## How it works
 
-- **Per device.** The choice lives in `localStorage` (`kipple.theme.v1`), never on the server:
-  `{mode: "follow" | "fixed", fixed, day, night}`.
+- **Per device.** The choice is part of the server's device profile (`ui.theme`, `system` or a scheme id, plus
+  `ui.theme_day` and `ui.theme_night`; see `lib/deviceSync.ts`). `localStorage` (`kipple.theme.v1`,
+  `{mode: "follow" | "fixed", fixed, day, night}`) is the instant-paint cache the boot script reads.
 - **Follow system** resolves `prefers-color-scheme`: default day Paper, night Midnight. The Day and Night
   pickers accept **any** scheme (a dark day theme or a light night theme is allowed).
   `resolveTheme()` in `settings.ts` is the one pure rule.
 - **No flash.** A blocking classic script in `<head>` (`assets/theme-boot-<hash>.js`, built from
   `bootScript()`) reads the stored choice, resolves it, sets `data-theme` and a single
-  `<meta name="theme-color">` before first paint. It is a hashed file rather than an inline script so a strict
+  `<meta name="theme-color">` before first paint (in dev the script is inlined by the Vite dev server). It is a hashed file rather than an inline script so a strict
   `script-src 'self'` CSP needs no hash. `theme.test.ts` evaluates it against `resolveTheme()`.
 - **Live meta theme-color.** `applyTheme()` (in `theme.ts`) updates the same tag on every pick and every
   OS appearance change. `index.html` keeps Paper/Midnight media-qualified tags as the first-paint fallback.
 - **Picker.** Follow system first, then a short featured list (Paper, Linen, Newsprint, Graphite, Midnight),
   the rest under "More themes", and the accessibility group collapsed under its own fold.
-  Unread state is always a dot plus a bold title, never color alone.
+  The offered schemes are narrowed to the ids the server lists in the `ui.theme_day` options
+  (`theme/serverThemes.ts`), and the fold is labelled "Accessibility themes". The Aa menu has a compact grouped select
+  of every theme with "Match my device" first. Unread state is always a dot plus a bold title, never color alone.
 
 ## Changes from the round-2 research (the owner's decisions)
 
@@ -40,7 +45,11 @@ from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per sch
 `npm run contrast` recomputes everything and exits 1 on a miss: text 4.5:1, accent/unread/star 3:1, the
 color-blind-safe schemes and Signal keep all three accent/star/danger pairs at delta E 15 or more for each
 simulated deficiency, and Carbon and Fountain stay apart. `npm run contrast -- --markdown` prints the tables
-below. `theme.test.ts` asserts the same in the test run.
+below. The script also requires 4.5:1 for text, text2, link and danger on the surface and for text on the selection
+color, text on the toast tint (18% accent into the surface) with accent and danger borders at 3:1, text on the
+highlight tint (20% star into the background) with the star underline at 3:1, and for Carbon and Fountain a background
+delta E of 25 and an accent delta E of 40. `theme.test.ts` asserts the WCAG, toast, highlight, Signal and
+Carbon/Fountain checks; the per-deficiency color-blind check is `npm run contrast` only.
 
 ## Final tokens
 

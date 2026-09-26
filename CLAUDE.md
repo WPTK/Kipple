@@ -28,15 +28,17 @@ not localhost, name compose services explicitly).
 
 ## Layout
 
-- `cmd/kipple/` main. `internal/` Go packages (fetch, store, greader, readability, stats).
+- `cmd/kipple/` main. `internal/` Go packages (fetch, sched, store, greader, api, extract, imgproxy, imgcache, filter, backup, stats, ...).
 - `web/` Vite app. `web/dist` is embedded via `go:embed` at build time.
-- `Dockerfile` is multi-stage (node build → go build → scratch/distroless). Host-A has Docker
+- `Dockerfile` is multi-stage (node build → go build → distroless static nonroot, uid 65532). Host-A has Docker
   but no Go or Node, so the image must build with Docker alone.
 - No secrets or hostnames committed. `.env.example` documents every variable.
 
 ## Commands
 
-- Dev: `cd web && npm run dev` plus `go run ./cmd/kipple` (API on 127.0.0.1:8080).
+- Dev: `cd web && npm run seed` (Kipple on 127.0.0.1:7080 with sample feeds in `%TEMP%\kipple-dev`), or set
+  `KIPPLE_ADDR=127.0.0.1:7080` and `KIPPLE_DATA=%TEMP%\kipple-dev` and run `go run ./cmd/kipple serve`; then
+  `cd web && npm run dev` (Vite on 127.0.0.1:5173 proxies to 7080).
 - Test: `go test ./...` and `cd web && npm test`.
 - Build image locally: `docker build -t kipple:dev .`
 - Run `/code-review high` before every deploy.
@@ -65,5 +67,5 @@ preset before calling a UI phase done. Save decisions and gotchas to memory.
   `[Unreleased]`; a release moves it under the version heading.
 - CI has govulncheck, staticcheck, gosec (fails on high/high only), gitleaks and Trivy. Any
   dependency change gets a govulncheck run. Suppress findings only with a written reason.
-- TODO when the phase 2 frontend deps land: add `npm audit --omit=dev`, ESLint and Vitest to
-  the web job.
+- The web job runs lint, Vitest, the build, the theme contrast check and
+  `npm audit --omit=dev --audit-level=high`.
