@@ -193,7 +193,7 @@ export interface SavedSearch {
   q: string;
   scope?: { feed_id?: string; folder_id?: string; view?: "all" | "unread" | "starred" };
   order?: "date" | "oldest" | "rank";
-  /** Absent until the counts load; null when the server ran out of time counting it (show nothing). */
+  /** Absent until the counts load (the client drops the base list's null); null when the server ran out of time counting it (a dash). */
   unread?: number | null;
   unread_capped?: boolean;
 }

@@ -2,7 +2,7 @@ import { useId, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, GripVertical, Pencil, Trash2 } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
-import { deleteSavedSearch, invalidateSavedSearches, patchSavedSearch, useReorderSavedSearches, useSavedSearches } from "@/api/savedSearches";
+import { deleteSavedSearch, invalidateSavedSearches, patchSavedSearch, savedSearchesKey, useReorderSavedSearches, useSavedSearches } from "@/api/savedSearches";
 import type { Bootstrap, SavedSearch } from "@/api/types";
 import { errorMessage } from "@/api/client";
 import { DND_ROW_CLASS, arrayMove, insertBefore, useRowDnd, type DragSource } from "@/lib/dnd";
@@ -135,6 +135,7 @@ export function SavedSearchesSection() {
   const boot = useBootstrap();
   const { searches, loading, error, refetch } = useSavedSearches();
   const reorder = useReorderSavedSearches();
+  const currentIds = () => (qc.getQueryData<SavedSearch[]>(savedSearchesKey) ?? []).map((x) => x.id);
   const [editing, setEditing] = useState<SavedSearch | null>(null);
   const [deleting, setDeleting] = useState<SavedSearch | null>(null);
   const [busy, setBusy] = useState(false);
@@ -144,18 +145,21 @@ export function SavedSearchesSection() {
 
   const ids = searches.map((s) => s.id);
   const commit = (next: string[]) => {
-    reorder.mutate(next, { onError: (e) => announce(`Couldn't reorder: ${errorMessage(e)}`) });
+    reorder(next, (e) => announce(`Couldn't reorder: ${errorMessage(e)}`));
   };
+  // Moves read the order from the cache, not from this render: a second key press before React re-rendered
+  // must build on the first move, not on the list as it was.
   const step = (id: string, delta: -1 | 1) => {
+    const ids = currentIds();
     const i = ids.indexOf(id);
     if (i < 0 || i + delta < 0 || i + delta >= ids.length) return;
     commit(arrayMove(ids, i, i + delta));
-    announce(`Moved ${searches[i]?.name ?? "saved search"} to position ${i + delta + 1} of ${ids.length}`);
+    announce(`Moved ${searches.find((x) => x.id === id)?.name ?? "saved search"} to position ${i + delta + 1} of ${ids.length}`);
   };
   const dnd = useRowDnd({
     enabled: true,
     scroller: () => scrollParent(box.current),
-    onDrop: (from, to) => commit(insertBefore(ids, from.id, to.before)),
+    onDrop: (from, to) => commit(insertBefore(currentIds(), from.id, to.before)),
     onKeyMove: (src, delta) => step(src.id, delta),
   });
   const dragging = dnd.state.source;

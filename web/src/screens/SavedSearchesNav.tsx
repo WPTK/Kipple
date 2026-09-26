@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Link, useLocation } from "react-router";
 import { ChevronDown, ChevronRight, Search } from "lucide-react";
 import { searchRoute, unreadLabel, useSavedSearches } from "@/api/savedSearches";
@@ -34,12 +35,12 @@ export function SavedCount({ s }: { s: SavedSearch }) {
  * (remembered on this device). Counts are lazy: the names paint first, the numbers follow. Hidden when there are none.
  */
 export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
-  const { searches } = useSavedSearches({ counts: true });
+  const { searches, countsError, refetchCounts } = useSavedSearches({ counts: true });
+  const listId = useId();
   const open = useStore(savedOpenStore);
   const loc = useLocation();
   if (searches.length === 0) return null;
   const current = loc.pathname === "/search" ? new URLSearchParams(loc.search).get("ss") : null;
-  const listId = "saved-searches-list";
   return (
     <section aria-label="Saved searches" className="mb-2">
       <h2 className="mt-3">
@@ -71,6 +72,14 @@ export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
               </Link>
             </li>
           ))}
+          {countsError ? (
+            <li className="px-3 text-xs text-fg2">
+              Couldn't count unread articles.{" "}
+              <button type="button" onClick={refetchCounts} className="min-h-11 text-link underline underline-offset-2">
+                Try again
+              </button>
+            </li>
+          ) : null}
         </ul>
       ) : null}
     </section>

@@ -5,7 +5,7 @@ import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
 import { wasFilterTouched } from "./filterEdits";
 import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type ItemPatch } from "./queries";
-import { invalidateSavedSearches, savedSearchCountsKey } from "./savedSearches";
+import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
 import {
@@ -175,30 +175,7 @@ export function applyCounts(qc: QueryClient, c: CountsEvent): void {
 
 let countsRefetch: ReturnType<typeof setTimeout> | undefined;
 
-/** The saved searches' unread counts are a search each: refreshed by `counts` events at most every 10 s. */
-export const SAVED_COUNTS_MIN_MS = 10_000;
-let savedCountsAt = 0;
-let savedCountsTimer: ReturnType<typeof setTimeout> | undefined;
-export function refreshSavedSearchCounts(qc: QueryClient, now = Date.now()): void {
-  const wait = savedCountsAt + SAVED_COUNTS_MIN_MS - now;
-  const run = () => {
-    savedCountsAt = Date.now();
-    void qc.invalidateQueries({ queryKey: savedSearchCountsKey });
-  };
-  if (wait <= 0) run();
-  else if (!savedCountsTimer) {
-    savedCountsTimer = setTimeout(() => {
-      savedCountsTimer = undefined;
-      run();
-    }, wait);
-  }
-}
-/** Tests: forget the throttle. */
-export function resetSavedSearchCounts(): void {
-  savedCountsAt = 0;
-  if (savedCountsTimer) clearTimeout(savedCountsTimer);
-  savedCountsTimer = undefined;
-}
+export { SAVED_COUNTS_MIN_MS, refreshSavedSearchCounts, resetSavedSearchCounts };
 
 /** Everything one event does: reducer, query cache, live region. */
 export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
@@ -231,7 +208,7 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
       void qc.invalidateQueries({ queryKey: keys.bootstrap });
       break;
     case "saved_searches.changed":
-      invalidateSavedSearches(qc);
+      invalidateSavedSearches(qc, { echo: true });
       break;
     case "counts": {
       refreshSavedSearchCounts(qc);

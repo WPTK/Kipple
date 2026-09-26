@@ -7,7 +7,7 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import type { SettingMeta } from "@/api/admin";
 import { handleServerEvent, initialLive, liveStore, resetSavedSearchCounts, SAVED_COUNTS_MIN_MS } from "@/api/events";
-import { savedSearchCountsKey, savedSearchesKey, searchRoute, unreadLabel } from "@/api/savedSearches";
+import { COUNTS_RETRY, invalidateSavedSearches, savedSearchCountsKey, savedSearchesKey, searchRoute, unreadLabel } from "@/api/savedSearches";
 import type { SavedSearch } from "@/api/types";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
 import { resetDeviceSync, syncStore, hydrateDevice } from "@/lib/deviceSync";
@@ -223,10 +223,10 @@ describe("Saved search events", () => {
     const qc = new QueryClient();
     const spy = vi.spyOn(qc, "invalidateQueries");
     handleServerEvent(qc, { type: "saved_searches.changed", data: {} });
-    expect(spy).toHaveBeenCalledWith({ queryKey: savedSearchesKey });
+    expect(spy).toHaveBeenCalledWith({ queryKey: savedSearchesKey, exact: true });
     spy.mockClear();
     handleServerEvent(qc, { type: "feed.changed", data: { feed_id: "1" } });
-    expect(spy).toHaveBeenCalledWith({ queryKey: savedSearchesKey });
+    expect(spy).toHaveBeenCalledWith({ queryKey: savedSearchesKey, exact: true });
   });
 
   it("counts events refresh the counts at most every 10 s", () => {
@@ -600,5 +600,111 @@ describe("The unsaved default device (id empty)", () => {
     // A later bootstrap that does register the browser starts syncing normally.
     hydrateDevice({ id: "d7", name: "", profile: {}, merged: {} });
     expect(syncStore.get().status).not.toBe("unsaved");
+  });
+});
+
+// ---- review 3: counts, events, reorder -------------------------------------------------------------
+
+/** What the real server sends for ?counts=0: every row, with `unread: null`. */
+const nullBase = (l: SavedSearch[]): SavedSearch[] => l.map((s) => ({ ...s, unread: null }));
+
+describe("Saved search counts (review 3)", () => {
+  it("shows no dash while the counts are loading: the base list's null means not loaded", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    base({
+      "GET /api/saved-searches": async (u) => {
+        if (u.searchParams.get("counts") === "0") return json({ saved_searches: nullBase(SAVED) });
+        await gate;
+        return json({ saved_searches: withCounts(SAVED) });
+      },
+    });
+    go("/feeds");
+    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    expect(within(nav).getByRole("link", { name: /Rust news/ })).toBeInTheDocument();
+    expect(within(nav).queryByText("Unread count unavailable")).toBeNull();
+    expect(within(nav).queryAllByTestId("saved-count")).toHaveLength(0);
+    release();
+    await waitFor(() => expect(within(nav).getByText("999+")).toBeInTheDocument());
+    expect(within(nav).getAllByText("Unread count unavailable")).toHaveLength(1); // only the entry the server timed out on
+  });
+
+  it("retries a failed counts request twice, then offers Try again instead of a dash on every entry", async () => {
+    const saved = { ...COUNTS_RETRY };
+    COUNTS_RETRY.baseMs = 1;
+    let countCalls = 0;
+    let fail = true;
+    base({
+      "GET /api/saved-searches": (u) => {
+        if (u.searchParams.get("counts") === "0") return json({ saved_searches: nullBase(SAVED) });
+        countCalls++;
+        return fail ? json({ error: "boom" }, 500) : json({ saved_searches: withCounts(SAVED) });
+      },
+    });
+    go("/feeds");
+    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    await waitFor(() => expect(within(nav).getByRole("button", { name: "Try again" })).toBeInTheDocument(), { timeout: 5000 });
+    expect(countCalls).toBe(3); // the first try and two retries
+    expect(within(nav).queryByText("Unread count unavailable")).toBeNull();
+    fail = false;
+    await userEvent.setup().click(within(nav).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(within(nav).getByText("999+")).toBeInTheDocument());
+    Object.assign(COUNTS_RETRY, saved);
+  });
+});
+
+describe("Saved search events and writes (review 3)", () => {
+  it("a burst of feed.changed events does not restart the counts request: only the throttle touches it", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-26T12:00:00Z"));
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    const counts = () => spy.mock.calls.filter((c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(savedSearchCountsKey)).length;
+    for (let i = 0; i < 20; i++) handleServerEvent(qc, { type: "feed.changed", data: { feed_id: String(i) } });
+    expect(counts()).toBe(1);
+    // The list itself is only ever invalidated exactly, never by prefix (which would also hit the counts).
+    for (const c of spy.mock.calls) if (JSON.stringify(c[0]?.queryKey) === JSON.stringify(savedSearchesKey)) expect(c[0]?.exact).toBe(true);
+    vi.advanceTimersByTime(SAVED_COUNTS_MIN_MS);
+    expect(counts()).toBe(2); // one trailing refresh for the whole burst
+  });
+
+  it("the saved_searches.changed echo of this tab's own write is dropped; another tab's is not", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-26T12:00:00Z"));
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    const lists = () => spy.mock.calls.filter((c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(savedSearchesKey)).length;
+    invalidateSavedSearches(qc); // the local write succeeded
+    expect(lists()).toBe(1);
+    handleServerEvent(qc, { type: "saved_searches.changed", data: {} }); // its echo
+    expect(lists()).toBe(1);
+    vi.advanceTimersByTime(1500);
+    handleServerEvent(qc, { type: "saved_searches.changed", data: {} }); // someone else
+    expect(lists()).toBe(2);
+  });
+});
+
+describe("Saved search reorder (review 3)", () => {
+  it("two quick moves build on each other and only the last order is sent after the first lands", async () => {
+    let release: () => void = () => {};
+    const first = new Promise<void>((r) => (release = r));
+    let n = 0;
+    const { calls } = base({
+      "POST /api/saved-searches/reorder": async () => {
+        if (n++ === 0) await first;
+        return json({ saved_searches: SAVED });
+      },
+    });
+    go("/settings");
+    const user = userEvent.setup();
+    const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
+    await user.click(within(list).getByRole("button", { name: "Move Rust news down" }));
+    // Rust news is now second; moving it down again must start from that optimistic order.
+    await user.click(within(screen.getByRole("list", { name: "Saved searches" })).getByRole("button", { name: "Move Rust news down" }));
+    expect(calls.filter((c) => c.url.pathname === "/api/saved-searches/reorder")).toHaveLength(1); // serialized
+    release();
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/saved-searches/reorder")).toHaveLength(2));
+    const sent = calls.filter((c) => c.url.pathname === "/api/saved-searches/reorder").map(body);
+    expect(sent).toEqual([{ ids: ["s2", "s1", "s3"] }, { ids: ["s2", "s3", "s1"] }]);
   });
 });
