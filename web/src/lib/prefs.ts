@@ -91,7 +91,9 @@ export function parsePrefs(raw: string | null): Prefs {
   if (!raw) return { ...d, shortcuts: !touchFirst() };
   try {
     const v = JSON.parse(raw) as Partial<Prefs> | null;
-    const chosen = typeof v?.shortcuts === "boolean" && (v.shortcutsChosen === true || v.shortcuts === false);
+    // Chosen only when flagged. A saved value with no flag at all predates the flag, when an "off" could only have
+    // been the user's doing, so that one stays chosen. A flagged-false "off" is the device default saved back.
+    const chosen = typeof v?.shortcuts === "boolean" && (v.shortcutsChosen === true || (v.shortcutsChosen === undefined && v.shortcuts === false));
     return {
       font: isFontId(v?.font) ? v.font : d.font,
       textSize: (TEXT_SIZES as readonly number[]).includes(v?.textSize as number) ? (v?.textSize as number) : d.textSize,

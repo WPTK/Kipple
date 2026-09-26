@@ -39,6 +39,33 @@ describe("single-key shortcuts default", () => {
     expect(parsePrefs(JSON.stringify({ shortcuts: false })).shortcuts).toBe(false);
   });
 
+  it("a device default saved back (off, flagged not chosen) is not read as a choice; a pre-flag 'off' still is", () => {
+    media({ "pointer: coarse": true, "any-pointer: fine": false });
+    const saved = JSON.stringify({ ...parsePrefs(null) });
+    expect(parsePrefs(saved).shortcutsChosen).toBe(false);
+    media({ "pointer: fine": true, "any-pointer: fine": true });
+    expect(parsePrefs(saved).shortcuts).toBe(true);
+    expect(parsePrefs(JSON.stringify({ shortcuts: false })).shortcutsChosen).toBe(true);
+  });
+
+  it("phone first load, another pref changes, reload: a hardware keyboard still turns shortcuts on", async () => {
+    media({ "pointer: coarse": true, "any-pointer: fine": false });
+    localStorage.clear();
+    vi.resetModules();
+    const m1 = await import("./prefs");
+    m1.initPrefs();
+    expect(m1.prefsStore.get().shortcuts).toBe(false);
+    m1.updatePrefs({ textSize: 1.25 });
+    // The whole store was saved, including the device-default "off".
+    vi.resetModules();
+    const m2 = await import("./prefs");
+    expect(m2.prefsStore.get().shortcutsChosen).toBe(false);
+    m2.initPrefs();
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }));
+    expect(m2.prefsStore.get().shortcuts).toBe(true);
+    localStorage.clear();
+  });
+
   it("changing the setting marks it as chosen", () => {
     const before = prefsStore.get();
     updatePrefs({ shortcuts: false });
