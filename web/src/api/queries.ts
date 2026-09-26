@@ -6,7 +6,7 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
-import { api } from "./client";
+import { api, ApiError } from "./client";
 import type {
   Bootstrap,
   Card,
@@ -35,7 +35,8 @@ export function scopeKey(s: Scope): string {
   if (s.feed) parts.push(`feed:${s.feed}`);
   if (s.folder) parts.push(`folder:${s.folder}`);
   if (s.q) parts.push(`q:${encodeURIComponent(s.q)}`);
-  if (s.order === "oldest") parts.push("order:oldest");
+  if (s.order === "oldest" || s.order === "rank") parts.push(`order:${s.order}`);
+  if (s.typing) parts.push("typing:1");
   return parts.join("|");
 }
 
@@ -53,7 +54,8 @@ export function parseScopeKey(key: string | null | undefined): Scope {
     if (k === "feed") scope.feed = v;
     else if (k === "folder") scope.folder = v;
     else if (k === "q") scope.q = decodeURIComponent(v);
-    else if (k === "order" && v === "oldest") scope.order = "oldest";
+    else if (k === "order" && (v === "oldest" || v === "rank")) scope.order = v;
+    else if (k === "typing" && v === "1") scope.typing = true;
   }
   return scope;
 }
@@ -66,7 +68,9 @@ export function itemsParams(scope: Scope, cursor?: string, limit = PAGE_SIZE) {
     q: scope.q,
     // Newest first is the server default, so it is not sent. The UI is embedded in the server binary,
     // so `order=oldest` is always understood (docs/design.md 7.1: cursor `a<sort_at>.<id>`).
-    order: scope.order === "oldest" ? "oldest" : undefined,
+    order: scope.order,
+    // Only while the user is typing (docs/design.md 7.1): a submitted or saved search never sends it.
+    typing: scope.typing && scope.q ? 1 : undefined,
     cursor,
     limit,
   };
@@ -91,6 +95,8 @@ export function useItems(scope: Scope, enabled = true) {
     initialPageParam: "",
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled,
+    // A search the server refuses (422 too broad) or a cursor it no longer takes (400) will not get better by asking again.
+    retry: (n, e) => !(e instanceof ApiError && (e.status === 422 || e.status === 400 || e.status === 401 || e.status === 404)) && n < 2,
     // A list is a snapshot: rows read in place stay visible (dimmed) until the
     // user refreshes or leaves. SSE never refetches it behind the user's back.
     staleTime: Infinity,

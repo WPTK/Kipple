@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
+import { ApiError } from "@/api/client";
 import { applyRead, flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
 import { clearPending, liveStore, pendingFor } from "@/api/events";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
@@ -18,6 +19,7 @@ import { sessionLayoutStore, updateDevicePrefs, useDevicePrefs } from "@/lib/dev
 import { prefsStore } from "@/lib/prefs";
 import { useStore, useStoreSelector } from "@/lib/store";
 import { withDayHeaders, type Row } from "@/lib/format";
+import { useSearchHighlight } from "@/lib/useHighlights";
 import { useHotkeys, type Handlers } from "@/lib/keys";
 import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
@@ -74,6 +76,17 @@ export function emptyCopy(scope: Scope): { title: string; body: string } {
 /** What the header can ask the list to do (mark all needs the list's own loaded ids). */
 export interface ListControls {
   markAllRead: () => void;
+  /** How many rows are loaded (0 while loading or empty). */
+  count: number;
+  /** A search that had no exact match and shows partial matches (docs/design.md 2.4). */
+  fallback: boolean;
+}
+
+/** What a search that came back 422 says: the server's own message, or a plain one. */
+export function tooBroadMessage(e: unknown): string | null {
+  if (!(e instanceof ApiError) || e.status !== 422 || e.code !== "search_too_broad") return null;
+  const m = e.body && typeof e.body.message === "string" ? e.body.message : "";
+  return m || "That search matches too much. Add a longer or more specific word.";
 }
 
 interface Props {
@@ -86,6 +99,8 @@ interface Props {
   /** An article is open in the reader pane beside this list: the article, not the list, owns `f` and `u`/Esc. */
   articleOpen?: boolean;
   header?: ReactNode | ((c: ListControls) => ReactNode);
+  /** Called when what a header could offer changes (the loaded count, the fallback flag, mark all). The Search screen keeps its own header. */
+  onControls?: (c: ListControls) => void;
 }
 
 type VRow = Row<Card> | { kind: "group"; key: string; items: Card[] };
@@ -125,7 +140,7 @@ const isTouch = (): boolean => {
   }
 };
 
-export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, articleOpen = false, header }: Props) {
+export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, articleOpen = false, header, onControls }: Props) {
   const key = scopeKey(scope);
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -153,7 +168,24 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const allItems = useMemo(() => flattenItems(q.data), [q.data]);
   const loadedIdSet = useMemo(() => new Set(allItems.map((i) => i.id)), [allItems]);
   const items = useMemo(() => (hidden.size ? allItems.filter((i) => !hidden.has(i.id)) : allItems), [allItems, hidden]);
-  const rows = useMemo(() => chunkRows(withDayHeaders(items), cols), [items, cols]);
+  // Relevance order is not chronological: day headers would repeat and mean nothing. One header says what the order is
+  // (and keeps the heading levels in sequence for screen readers, as the day headers do elsewhere).
+  const rank = scope.order === "rank";
+  const rows = useMemo(
+    () =>
+      chunkRows(
+        rank
+          ? [{ kind: "header", key: "h:rank", label: "Best matches first" } as Row<Card>, ...items.map((item): Row<Card> => ({ kind: "item", key: item.id, item }))]
+          : withDayHeaders(items),
+        cols,
+      ),
+    [items, cols, rank],
+  );
+  // A search that had no exact match shows partial matches, and the list's own flag goes back to the server when
+  // the whole result is marked read, so it marks what was shown.
+  const fallback = !!scope.q && q.data?.pages[0]?.fallback === true;
+  const markScope = useMemo<Scope>(() => (scope.q ? { ...scope, fallback } : scope), [scope, fallback]);
+  useSearchHighlight(scope.q, { fallback, typing: scope.typing });
   const feedById = useMemo(() => new Map((boot.data?.feeds ?? []).map((f) => [f.id, f])), [boot.data]);
   const unreadView = scope.view === "unread" && !scope.q;
 
@@ -445,22 +477,23 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const range = useCallback(
     (item: Card, side: "above" | "below") => {
       if (scope.view === "muted") return; // nothing to mark in the muted list: those articles are already read
+      if (rank || scope.typing) return; // relevance order has no above or below, and a search being typed is not a set the server can mark
       const at = items.findIndex((i) => i.id === item.id);
       if (at < 0) return;
       const part = side === "above" ? items.slice(0, at) : items.slice(at + 1);
       const local = part.filter((i) => !i.read).map((i) => i.id);
       const restore = unreadView && local.length ? hide(local) : undefined;
-      void act.markSide({ scope, order: scope.order === "oldest" ? "oldest" : "date", side, anchor: item, maxId: asOf.current }, local, restore, unhide);
+      void act.markSide({ scope: markScope, order: scope.order === "oldest" ? "oldest" : "date", side, anchor: item, maxId: asOf.current }, local, restore, unhide);
     },
-    [act, hide, unhide, items, scope, unreadView],
+    [act, hide, unhide, items, scope, markScope, unreadView, rank],
   );
 
   const markAllRead = useCallback(() => {
-    if (scope.view === "muted") return;
+    if (scope.view === "muted" || scope.typing) return;
     const local = items.filter((i) => !i.read).map((i) => i.id);
     const restore = unreadView && local.length ? hide(local) : undefined;
-    void act.markAll(scope, asOf.current, local, restore, unhide);
-  }, [act, hide, unhide, items, scope, unreadView]);
+    void act.markAll(markScope, asOf.current, local, restore, unhide);
+  }, [act, hide, unhide, items, scope, markScope, unreadView]);
 
   const menuActions: RowMenuActions = useMemo(
     () => ({
@@ -474,8 +507,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedById.get(item.feed_id)?.title) }),
       restore: restoreRow,
       editRule: (item) => item.muted_by && openFilterEditor({ mode: "edit", id: item.muted_by }),
+      noRange: rank || !!scope.typing,
     }),
-    [act, range, restoreRow, feedById],
+    [act, range, restoreRow, feedById, rank, scope.typing],
   );
 
   const toggleChecked = () => {
@@ -566,6 +600,18 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     setHolding(true);
     refreshAll.mutate();
   }, [refreshAll]);
+  // A relevance cursor from before a server upgrade (or one for another ordering) is refused with a 400 on a later
+  // page: start the search over instead of leaving "Couldn't load more" that can never succeed. At most twice.
+  const restarts = useRef(0);
+  useEffect(() => {
+    if (!scope.q || !q.isFetchNextPageError) return;
+    const e = q.error;
+    if (!(e instanceof ApiError) || e.status !== 400 || restarts.current >= 2) return;
+    restarts.current++;
+    announce("Search restarted");
+    void qc.resetQueries({ queryKey: keys.items(scope) });
+  }, [q.isFetchNextPageError, q.error, scope, qc]);
+
   const pull = usePullToRefresh(parentRef, { enabled: !scope.q, onRefresh: startRefresh });
   // Hold the spinner until the run has finished (or a second after the request settles with nothing running).
   useEffect(() => {
@@ -662,6 +708,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     if (q.isPending) return <Skeleton />;
     // Only a failed first load replaces the list; a failed later page keeps it (and the scroll position).
     if (q.isError && !q.data) {
+      // A search the server calls too broad says so in its own words; asking again would not help.
+      const broad = tooBroadMessage(q.error);
+      if (broad) return <StatusBlock role="status" title="That search is too broad" body={broad} />;
       return (
         <StatusBlock role="alert" title="Couldn't load articles" body="Kipple couldn't reach the server. Your place in the list is saved.">
           <Button onClick={() => void q.refetch()}>Try again</Button>
@@ -730,11 +779,22 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const pullOffset = holding ? 56 : pull.distance;
   const pullLabel = holding || refreshing ? "Refreshing" : pull.armed ? "Release to refresh" : "Pull to refresh";
   const showPull = holding || pull.distance >= 16;
-  const headerNode = typeof header === "function" ? header({ markAllRead }) : header;
+  const controls: ListControls = { markAllRead, count: items.length, fallback };
+  const headerNode = typeof header === "function" ? header(controls) : header;
+  const controlsRef = useRef(onControls);
+  controlsRef.current = onControls;
+  useEffect(() => {
+    controlsRef.current?.({ markAllRead, count: items.length, fallback });
+  }, [markAllRead, items.length, fallback]);
 
   return (
     <section aria-label="Articles" className="flex h-full min-h-0 flex-col">
       {headerNode}
+      {fallback ? (
+        <p role="status" data-testid="fallback-banner" className="border-b border-line bg-surface px-4 py-2 text-sm text-fg2">
+          No exact matches: showing partial matches
+        </p>
+      ) : null}
       {caption ? (
         <div role="status" className="mx-3 mb-1 flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg">
           <span className="flex-1">Swipe a row right to mark it read or unread, left to star it or see more.</span>

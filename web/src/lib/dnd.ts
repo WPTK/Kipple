@@ -69,7 +69,7 @@ export function dropSlot(rows: readonly { id: string; top: number; bottom: numbe
 
 // ------------------------------------------------------------------ hook
 
-export type DragKind = "folder" | "feed" | "fav";
+export type DragKind = "folder" | "feed" | "fav" | "saved";
 
 export interface DragSource {
   kind: DragKind;
@@ -126,7 +126,7 @@ export function targetAt(src: DragSource, x: number, y: number, root: ParentNode
   const kind = el.dataset.dndKind as DragKind;
   const id = el.dataset.dndId as string;
   if (src.kind === "feed" && kind === "folder") return { kind: "feed", group: id, before: firstFeedOf(root, id) };
-  if (src.kind === "fav" || src.kind === "folder") {
+  if (src.kind !== "feed") {
     const rows = [...root.querySelectorAll<HTMLElement>(`[data-dnd-kind="${src.kind}"]`)].filter((r) => r.dataset.dndId !== src.id);
     return { kind: src.kind, group: src.group, before: dropSlot(rows.map((r) => ({ id: r.dataset.dndId as string, ...rectOf(r) })), y).before };
   }

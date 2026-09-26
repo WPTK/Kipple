@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { searchHighlightStore, setSearchHighlight, type SearchOpts } from "./searchTerms";
 import { useBootstrap } from "@/api/queries";
 import { useDevicePrefs } from "./devicePrefs";
 import { compileHighlights, groupsFor, highlightRanges, highlightStore, segments, type Group, type HighlightField } from "./highlight";
@@ -21,12 +22,24 @@ const NONE: Group[] = [];
 /** The rules that mark this field of an article of this feed. A stable empty array when there are none. */
 export function useGroups(field: HighlightField, feedId: string | undefined): Group[] {
   const s = useStore(highlightStore);
+  const search = useStore(searchHighlightStore);
   return useMemo(() => {
-    if (s.groups.length === 0) return NONE;
+    if (s.groups.length === 0 && search.groups.length === 0) return NONE;
     const folder = feedId ? s.feeds.get(feedId) : undefined;
     const got = groupsFor(s.groups, field, feedId && folder !== undefined ? { id: feedId, folder_id: folder } : undefined);
-    return got.length ? got : NONE;
-  }, [s, field, feedId]);
+    // The words of the search on screen (results and the article opened from them), on top of the keyword rules.
+    const found = search.groups.filter((g) => g.fields.has(field));
+    const all = found.length ? [...got, ...found] : got;
+    return all.length ? all : NONE;
+  }, [s, search, field, feedId]);
+}
+
+/** Draw the words of the search that a list (or an article opened from it) belongs to. No `q` clears them. */
+export function useSearchHighlight(q: string | undefined, opts: SearchOpts = {}): void {
+  const { fallback, typing } = opts;
+  useEffect(() => {
+    setSearchHighlight(q, { fallback, typing });
+  }, [q, fallback, typing]);
 }
 
 /** Most marks in one title or excerpt. */

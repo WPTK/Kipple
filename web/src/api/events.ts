@@ -5,6 +5,7 @@ import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
 import { wasFilterTouched } from "./filterEdits";
 import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type ItemPatch } from "./queries";
+import { invalidateSavedSearches, savedSearchCountsKey } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
 import {
@@ -73,6 +74,7 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
     case "fulltext.ready":
     case "feed.changed":
     case "filters.changed":
+    case "saved_searches.changed":
     case "items.state":
     case "counts":
       return s; // cache-only events
@@ -172,6 +174,31 @@ export function applyCounts(qc: QueryClient, c: CountsEvent): void {
 
 let countsRefetch: ReturnType<typeof setTimeout> | undefined;
 
+/** The saved searches' unread counts are a search each: refreshed by `counts` events at most every 10 s. */
+export const SAVED_COUNTS_MIN_MS = 10_000;
+let savedCountsAt = 0;
+let savedCountsTimer: ReturnType<typeof setTimeout> | undefined;
+export function refreshSavedSearchCounts(qc: QueryClient, now = Date.now()): void {
+  const wait = savedCountsAt + SAVED_COUNTS_MIN_MS - now;
+  const run = () => {
+    savedCountsAt = Date.now();
+    void qc.invalidateQueries({ queryKey: savedSearchCountsKey });
+  };
+  if (wait <= 0) run();
+  else if (!savedCountsTimer) {
+    savedCountsTimer = setTimeout(() => {
+      savedCountsTimer = undefined;
+      run();
+    }, wait);
+  }
+}
+/** Tests: forget the throttle. */
+export function resetSavedSearchCounts(): void {
+  savedCountsAt = 0;
+  if (savedCountsTimer) clearTimeout(savedCountsTimer);
+  savedCountsTimer = undefined;
+}
+
 /** Everything one event does: reducer, query cache, live region. */
 export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
   const runKind = ev.type === "run.done" ? liveStore.get().runs[String(ev.data.run_id)]?.kind : undefined;
@@ -202,7 +229,11 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
       void qc.invalidateQueries({ queryKey: filtersKey });
       void qc.invalidateQueries({ queryKey: keys.bootstrap });
       break;
+    case "saved_searches.changed":
+      invalidateSavedSearches(qc);
+      break;
     case "counts": {
+      refreshSavedSearchCounts(qc);
       // An event already in flight when the user opened an item carries the old numbers and would undo the
       // optimistic bump. Inside the window, skip it and refetch the truth once the window is over.
       const left = countsGuardLeft();
@@ -218,6 +249,8 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
     }
     case "feed.changed":
       void qc.invalidateQueries({ queryKey: keys.bootstrap });
+      // Deleting a feed drops it as the scope of a saved search on the server, silently.
+      invalidateSavedSearches(qc);
       break;
     case "fulltext.ready":
       for (const id of ev.data.ids) void qc.invalidateQueries({ queryKey: keys.item(id) });
@@ -226,6 +259,7 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
       // The server says it cannot replay what we missed: only then are the lists refetched.
       void qc.invalidateQueries({ queryKey: keys.bootstrap });
       void qc.invalidateQueries({ queryKey: keys.itemsAll });
+      invalidateSavedSearches(qc);
       break;
     default:
       break;

@@ -1,10 +1,12 @@
 import { useMemo, useRef } from "react";
+import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, useMatch, useNavigate, useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, Keyboard, MoreVertical, RefreshCw, Settings, Undo2 } from "lucide-react";
-import { scopeKey, useBootstrap } from "@/api/queries";
+import { keys, scopeKey, useBootstrap } from "@/api/queries";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
-import type { Card, Scope, View } from "@/api/types";
+import type { Card, ItemsPage, Scope, View } from "@/api/types";
+import { useSearchHighlight } from "@/lib/useHighlights";
 import { useResolvedLayout } from "@/layouts";
 import { DEFAULT_DEVICE_PREFS, LIST_WIDTH_MAX, LIST_WIDTH_MIN, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { ResizeHandle } from "@/ui/ResizeHandle";
@@ -215,6 +217,10 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
   const paneMode = wide && (!layout.grid || !!articleId);
   const listOnly = wide && layout.grid && !articleId;
   const listKey = scopeKey(scope);
+  // An article opened from a search draws the words of that search (on a phone no list is mounted to do it).
+  const qc = useQueryClient();
+  const fallback = scope.q ? qc.getQueryData<InfiniteData<ItemsPage>>(keys.items(scope))?.pages[0]?.fallback === true : false;
+  useSearchHighlight(scope.q, { fallback, typing: scope.typing });
   const onKeyMove = useMemo(
     () =>
       paneMode
@@ -316,6 +322,9 @@ function WidePane({
  */
 export function readerScope(view: string | undefined, sp: URLSearchParams, isArticle: boolean, order: "newest" | "oldest"): Scope {
   const base = isArticle ? scopeFromSearch(sp) : scopeFromList(view, sp);
+  // A search keeps the ordering it was run with (relevance, newest, oldest) and its typing flag: its list in the
+  // cache is keyed by them. Every other list follows the device's order.
+  if (base.q) return base;
   const { order: _drop, ...rest } = base;
   void _drop;
   return order === "oldest" ? { ...rest, order: "oldest" } : rest;

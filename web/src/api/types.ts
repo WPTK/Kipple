@@ -48,6 +48,8 @@ export interface ItemsPage {
   next_cursor: string | null;
   /** The store's highest committed id when the page was read; sent back as mark-read `max_id`. */
   as_of?: string;
+  /** A text search with no exact match that shows partial (prefix or OR) matches instead (docs/design.md 2.4). */
+  fallback?: boolean;
 }
 
 export interface Folder {
@@ -72,6 +74,8 @@ export interface Feed {
   fulltext_effective?: boolean;
   retention: number | null;
   interval_minutes: number | null;
+  /** This feed's own auto-read threshold: null follows the global setting, 0 is off, 1 to 365 is its own (docs/design.md 7.1d). */
+  auto_read_days?: number | null;
   is_archive: boolean;
   starred_count: number;
 }
@@ -127,6 +131,8 @@ export interface Bootstrap {
   folders: Folder[];
   feeds: Feed[];
   counts: { unread: number; starred: number; muted?: number };
+  /** The saved searches, without counts (docs/design.md 7.1d). Absent on an older server. */
+  saved_searches?: SavedSearch[];
   runs: RunStatus[];
   warnings: Warning[];
   server_time: number;
@@ -166,8 +172,30 @@ export interface Scope {
   feed?: string;
   folder?: string;
   q?: string;
-  /** Oldest first (device preference). Absent means newest first. */
-  order?: "oldest";
+  /** Oldest first (device preference), or relevance (search only). Absent means newest first. */
+  order?: "oldest" | "rank";
+  /**
+   * Search-as-you-type: the unfinished last word also matches as a prefix. Only while the user is typing; a
+   * submitted search, a saved-search run and every count leave it out.
+   */
+  typing?: boolean;
+  /**
+   * The list's own `fallback` flag, echoed into mark-read `scope.fallback` so the server marks what the list showed.
+   * Not part of the scope key and never sent to GET /api/items.
+   */
+  fallback?: boolean;
+}
+
+/** A saved search (docs/design.md 7.1d). `scope` is exactly one of a feed, a folder or a view; omitted means the whole library. */
+export interface SavedSearch {
+  id: string;
+  name: string;
+  q: string;
+  scope?: { feed_id?: string; folder_id?: string; view?: "all" | "unread" | "starred" };
+  order?: "date" | "oldest" | "rank";
+  /** Absent until the counts load; null when the server ran out of time counting it (show nothing). */
+  unread?: number | null;
+  unread_capped?: boolean;
 }
 
 // ---- SSE ----
@@ -214,6 +242,7 @@ export type ServerEvent =
   | { type: "counts"; data: CountsEvent }
   | { type: "feed.changed"; data: { feed_id: string } }
   | { type: "filters.changed"; data: Record<string, never> }
+  | { type: "saved_searches.changed"; data: Record<string, never> }
   | { type: "resync"; data: Record<string, never> };
 
 export const SERVER_EVENT_TYPES: ServerEvent["type"][] = [
@@ -226,6 +255,7 @@ export const SERVER_EVENT_TYPES: ServerEvent["type"][] = [
   "counts",
   "feed.changed",
   "filters.changed",
+  "saved_searches.changed",
   "resync",
 ];
 

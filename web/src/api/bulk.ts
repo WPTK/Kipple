@@ -11,6 +11,8 @@ export interface ScopeBody {
   all?: true;
   view: Scope["view"];
   q?: string;
+  /** The list's `fallback` flag echoed back, so the server marks what the list showed (docs/design.md 2.4). */
+  fallback?: boolean;
 }
 
 export function scopeBody(scope: Scope): ScopeBody {
@@ -18,7 +20,10 @@ export function scopeBody(scope: Scope): ScopeBody {
   if (scope.feed) b.feed_id = scope.feed;
   else if (scope.folder) b.folder_id = scope.folder;
   else b.all = true;
-  if (scope.q) b.q = scope.q;
+  if (scope.q) {
+    b.q = scope.q;
+    if (scope.fallback !== undefined) b.fallback = scope.fallback;
+  }
   return b;
 }
 

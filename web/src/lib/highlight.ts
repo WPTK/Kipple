@@ -32,6 +32,11 @@ export interface Group {
   caseSensitive: boolean;
   fold: boolean;
   wholeWord: boolean;
+  /**
+   * Search terms only: a match must start a word but may run on (a stem or a prefix, since the server's search
+   * stems both sides), so only the character before it is checked.
+   */
+  prefix?: boolean;
   /** One expression per term: the engine checks every term by itself. */
   res: RegExp[];
 }
@@ -55,7 +60,7 @@ const foldTerm = (t: string, g: Pick<Group, "caseSensitive" | "fold">): string =
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** One expression per term; whitespace inside a term matches any run of whitespace. */
-function buildRegexes(terms: string[], g: Pick<Group, "caseSensitive" | "fold">): RegExp[] {
+export function buildRegexes(terms: string[], g: Pick<Group, "caseSensitive" | "fold">): RegExp[] {
   const out: RegExp[] = [];
   const seen = new Set<string>();
   for (const t of terms) {
@@ -167,12 +172,20 @@ function rangesOf(text: string, g: Group, limit: number): Range[] {
     let m: RegExpExecArray | null;
     while ((m = re.exec(f.s))) {
       const start = m.index;
-      const end = start + m[0].length;
+      let end = start + m[0].length;
       if (m[0].length === 0) {
         re.lastIndex++;
         continue;
       }
-      if (g.wholeWord) {
+      if (g.prefix) {
+        if (isWordChar(codePointAt(f.s, start)) && isWordChar(codePointBefore(f.s, start))) {
+          re.lastIndex = start + Math.max(1, codePointAt(f.s, start).length);
+          continue;
+        }
+        // A search term is a stem or a prefix: mark the whole word it starts, not a fragment of it.
+        while (end < f.s.length && isWordChar(codePointAt(f.s, end))) end += codePointAt(f.s, end).length;
+        re.lastIndex = end;
+      } else if (g.wholeWord) {
         const first = codePointAt(f.s, start);
         const last = codePointBefore(f.s, end);
         if ((isWordChar(first) && isWordChar(codePointBefore(f.s, start))) || (isWordChar(last) && isWordChar(codePointAt(f.s, end)))) {
