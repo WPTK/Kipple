@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
+# Base images are pinned by tag and digest; Dependabot (docker ecosystem) bumps both together.
+
 # --- frontend build -----------------------------------------------------
-FROM node:22-alpine AS web
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS web
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
@@ -10,7 +12,7 @@ COPY web/ ./
 RUN npm run build
 
 # --- go build -------------------------------------------------------------
-FROM golang:1.27-alpine AS build
+FROM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS build
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -20,6 +22,8 @@ COPY internal/ ./internal/
 COPY web/embed.go ./web/embed.go
 COPY --from=web /app/web/dist ./web/dist
 
+# VERSION and VCS_REF come from the build (compose build.args, CI). .git is not in the build context
+# (.dockerignore), so the image cannot work them out itself; an unset VERSION reports "dev".
 ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
@@ -31,7 +35,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN mkdir -p /data && chown 65532:65532 /data
 
 # --- runtime ----------------------------------------------------------
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 ARG VERSION=dev
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="Kipple" \

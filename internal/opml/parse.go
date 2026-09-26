@@ -213,7 +213,10 @@ func parseAttrs(attrs []xml.Attr) (Attrs, []string) {
 				a.Dedup = &v
 			}
 		case "user_agent":
-			if v != "" {
+			// The feed PATCH rule: up to 500 characters, no control characters
+			// (the value becomes a request header).
+			ok = len(v) <= maxUserAgentLen && !hasControl(v)
+			if ok && v != "" {
 				a.UserAgent = &v
 			}
 		case "fulltext":
@@ -236,6 +239,19 @@ func parseAttrs(attrs []xml.Attr) (Attrs, []string) {
 		}
 	}
 	return a, bad
+}
+
+// maxUserAgentLen matches the feed PATCH limit for user_agent (internal/api).
+const maxUserAgentLen = 500
+
+// hasControl is the feed PATCH control-character rule: below 0x20 except tab, or DEL.
+func hasControl(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < 0x20 && c != '\t' || c == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 func atoi(s string) (int, error) {

@@ -110,6 +110,10 @@ type flight struct {
 	snap    fetch.Snapshot
 	kind    jobKind
 	started bool
+	// waited is set once the job had to wait in pending: its snapshot is then
+	// reloaded just before it starts (tryStart), so a change made meanwhile (URL,
+	// settings, disabled, deleted) is not ignored.
+	waited  bool
 	runs    []*Run
 	replies []chan Reply
 	// followups are priority requests that arrived while this job was running
@@ -142,6 +146,10 @@ type result struct {
 	cancelled bool
 
 	commitFailed bool // the fetch completed but its commit did not
+	// trimPending: the job's retention trim stopped with a full batch (a fetch
+	// commit's single batch, or a trim job whose budget ran out), so the feed may
+	// still be over its cap. The dispatcher queues a trim job for it.
+	trimPending bool
 }
 
 type runReq struct {
@@ -186,6 +194,8 @@ type Scheduler struct {
 
 	failCommit    func(feedID int64) error                                                                       // test hook: replaces the fetch commit
 	commitFetchFn func(ctx context.Context, res *fetch.Result, perChunk time.Duration) (store.CommitInfo, error) // test hook
+	fetchFn       func(ctx context.Context, snap fetch.Snapshot, now time.Time) *fetch.Result                    // test hook: replaces client.Fetch
+	trimFn        func(ctx context.Context, feedID int64, b store.TrimBudget) (int64, bool, error)               // test hook: replaces the trim job
 
 	fetchCtx    context.Context
 	cancelFetch context.CancelFunc
@@ -202,11 +212,14 @@ type Scheduler struct {
 	// that succeeds; drives the notBefore backoff.
 	commitFails map[int64]int
 	pending     []*flight
-	runs        map[string]*Run
-	running     int
-	live        int
-	stopping    bool
-	lastRunID   int64
+	// replays are the follow-ups (priority requests, run jobs) of flights dropped
+	// by tryStart, replayed once drainPending has finished rebuilding pending.
+	replays   []*flight
+	runs      map[string]*Run
+	running   int
+	live      int
+	stopping  bool
+	lastRunID int64
 }
 
 // New builds a scheduler. Call Start to run it and Stop to shut it down.

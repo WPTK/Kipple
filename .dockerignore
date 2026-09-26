@@ -16,6 +16,9 @@ kipple.exe
 # Local-only
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
+!**/.env.example
 docker-compose.example.yml
 .claude

@@ -1,7 +1,7 @@
 // Package auth holds password hashing and verification shared by the web login
 // and the Reader API (design §1 decision 10, §6.3): argon2id verification behind
 // a global semaphore, a keyed in-memory memo of the last good password, and a
-// per-IP failure delay.
+// per-client attempt budget.
 package auth
 
 import (
@@ -165,8 +165,11 @@ func (v *Verifier) VerifyBusy(ctx context.Context, kind, pw, phc string) (ok, bu
 	case <-ctx.Done():
 		return false, true
 	}
-	ok = v.check(pw, phc)
-	<-v.sem
+	// Deferred, so a panic in check cannot hold the only hashing slot forever.
+	ok = func() bool {
+		defer func() { <-v.sem }()
+		return v.check(pw, phc)
+	}()
 	if ok {
 		v.mu.Lock()
 		if bytes.Equal(v.secret, secret) { // not rotated while hashing
@@ -177,6 +180,19 @@ func (v *Verifier) VerifyBusy(ctx context.Context, kind, pw, phc string) (ok, bu
 	return ok, false
 }
 
+// Remembered reports whether pw matches the remembered success for kind and
+// phc, without hashing (a cheap check made before any rate budget is spent, so
+// a client already signed in keeps working while its address is over budget).
+func (v *Verifier) Remembered(kind, pw, phc string) bool {
+	if pw == "" || phc == "" {
+		return false
+	}
+	v.mu.Lock()
+	secret, memo := v.secret, v.memo[kind]
+	v.mu.Unlock()
+	return memo != nil && hmac.Equal(memo, mac(secret, kind, phc, pw))
+}
+
 // ClearMemo forgets every remembered login.
 func (v *Verifier) ClearMemo() {
 	v.mu.Lock()
@@ -184,63 +200,215 @@ func (v *Verifier) ClearMemo() {
 	v.mu.Unlock()
 }
 
-// FailureTracker delays repeated failures from one IP (design §6.3): failures
-// are counted in a fixed window; once the window holds Threshold failures each
-// further failing response is delayed. A success clears the IP. Never a 429.
+// FailureTracker paces ClientLogin password checks per client (design §6.3).
+// Only failures are counted, in a fixed Window started by the first one. Every
+// admitted attempt has its password verified, so the right password is never
+// refused unchecked; the budget only slows a client down:
+//
+//   - At most one attempt per client hashes at a time. A second concurrent one
+//     (a client retrying a slow login) waits for the first instead of failing.
+//   - Once the window holds Threshold failures, an attempt starts only when
+//     Delay has passed since the client's previous attempt; it waits for that
+//     instead of being refused.
+//   - Waiting is bounded: at most MaxWaiters attempts per client wait, for at
+//     most MaxWait (or until the request is cancelled). An attempt that cannot
+//     start is answered with the ordinary 401 and counts nothing (never a 429).
+//
+// So one client never runs more than one hash at a time, nor more than one per
+// Delay once over budget, and holds at most 1+MaxWaiters requests open. A
+// success changes nothing: it neither counts nor clears the failures, so a
+// client sharing the owner's address (carrier NAT) gains nothing from the
+// owner's logins. Clients are keyed by RateKey, so an IPv6 /64 is one client.
 type FailureTracker struct {
-	Window    time.Duration
-	Threshold int
-	Delay     time.Duration
-	Now       func() time.Time
+	Window     time.Duration
+	Threshold  int
+	Delay      time.Duration
+	MaxWait    time.Duration
+	MaxWaiters int
+	Now        func() time.Time
+	// After is time.After; tests with a fake Now replace it (the pacing wait).
+	After func(time.Duration) <-chan time.Time
 
-	mu sync.Mutex
-	m  map[string]*failure
+	mu   sync.Mutex
+	m    map[string]*failure
+	live map[string]*attempt
 }
 
 type failure struct {
 	start time.Time
 	n     int
+	last  time.Time // FailureTracker: when the client's last attempt started or failed
 }
 
-// NewFailureTracker returns the design defaults: 10 minute window, 5 failures, 2 s delay.
+// attempt is the in-flight state of one client.
+type attempt struct {
+	busy    bool          // an attempt is admitted and not finished
+	waiters int           // attempts waiting to start
+	done    chan struct{} // closed (and replaced) when an admitted attempt finishes
+}
+
+// NewFailureTracker returns the design defaults: 10 minute window, 5 failures,
+// then one attempt per 2 s; at most 4 waiting attempts per client, each waiting
+// at most 10 s.
 func NewFailureTracker() *FailureTracker {
-	return &FailureTracker{Window: 10 * time.Minute, Threshold: 5, Delay: 2 * time.Second, Now: time.Now, m: map[string]*failure{}}
+	return &FailureTracker{Window: 10 * time.Minute, Threshold: 5, Delay: 2 * time.Second,
+		MaxWait: 10 * time.Second, MaxWaiters: 4, Now: time.Now,
+		m: map[string]*failure{}, live: map[string]*attempt{}}
 }
 
-// Fail records a failure for ip and returns how long to delay this response.
-func (f *FailureTracker) Fail(ip string) time.Duration {
+// Acquire admits one attempt for ip before its password is checked, waiting
+// (bounded) while ip has an attempt in flight or is inside its over-budget
+// Delay. It returns false when the attempt could not start: too many attempts
+// already waiting, MaxWait passed, or ctx ended; nothing is counted and the
+// caller answers 401 without hashing. After true the caller must call Finish
+// exactly once.
+func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
+	k := RateKey(ip)
+	maxWait := f.MaxWait
+	if maxWait <= 0 {
+		maxWait = 10 * time.Second
+	}
+	after := f.After
+	if after == nil {
+		after = time.After
+	}
+	deadline := time.NewTimer(maxWait)
+	defer deadline.Stop()
+
+	f.mu.Lock()
+	if f.live == nil {
+		f.live = map[string]*attempt{}
+	}
+	if f.m == nil {
+		f.m = map[string]*failure{}
+	}
+	a := f.live[k]
+	if a == nil {
+		a = &attempt{done: make(chan struct{})}
+		f.live[k] = a
+	}
+	waiting := false
+	for {
+		var wake <-chan time.Time
+		var done <-chan struct{}
+		if a.busy {
+			done = a.done
+		} else {
+			now := f.Now()
+			e := f.m[k]
+			if e != nil && now.Sub(e.start) > f.Window {
+				delete(f.m, k)
+				e = nil
+			}
+			var pace time.Duration
+			if e != nil && e.n >= f.Threshold {
+				pace = e.last.Add(f.Delay).Sub(now)
+			}
+			if pace <= 0 {
+				a.busy = true
+				if waiting {
+					a.waiters--
+				}
+				if e != nil {
+					e.last = now
+				}
+				f.mu.Unlock()
+				return true
+			}
+			wake = after(pace)
+		}
+		if !waiting {
+			if a.waiters >= f.MaxWaiters {
+				f.dropIdle(k, a)
+				f.mu.Unlock()
+				return false
+			}
+			a.waiters++
+			waiting = true
+		}
+		f.mu.Unlock()
+		gaveUp := false
+		select {
+		case <-done:
+		case <-wake:
+		case <-deadline.C:
+			gaveUp = true
+		case <-ctx.Done():
+			gaveUp = true
+		}
+		f.mu.Lock()
+		if gaveUp {
+			a.waiters--
+			f.dropIdle(k, a)
+			f.mu.Unlock()
+			return false
+		}
+	}
+}
+
+// dropIdle forgets a's entry once nothing is in flight or waiting. f.mu is held.
+func (f *FailureTracker) dropIdle(k string, a *attempt) {
+	if !a.busy && a.waiters == 0 && f.live[k] == a {
+		delete(f.live, k)
+	}
+}
+
+// Finish ends an attempt admitted by Acquire. failed is true only for a wrong
+// password (or email): that is the one outcome counted. A success, or a busy
+// verifier that said nothing about the password, counts nothing.
+func (f *FailureTracker) Finish(ip string, failed bool) {
+	k := RateKey(ip)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if a := f.live[k]; a != nil && a.busy {
+		a.busy = false
+		close(a.done)
+		a.done = make(chan struct{})
+		f.dropIdle(k, a)
+	}
+	if !failed {
+		return
+	}
 	now := f.Now()
-	e := f.m[ip]
+	e := f.m[k]
 	if e == nil || now.Sub(e.start) > f.Window {
 		makeRoom(f.m, now, f.Window, false)
 		e = &failure{start: now}
-		f.m[ip] = e
-	}
-	delay := time.Duration(0)
-	if e.n >= f.Threshold {
-		delay = f.Delay
+		f.m[k] = e
 	}
 	e.n++
-	return delay
-}
-
-// Clear forgets ip's failures (after a successful login).
-func (f *FailureTracker) Clear(ip string) {
-	f.mu.Lock()
-	delete(f.m, ip)
-	f.mu.Unlock()
+	e.last = now
 }
 
 // Count returns the failures currently recorded for ip.
 func (f *FailureTracker) Count(ip string) int {
+	k := RateKey(ip)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if e := f.m[ip]; e != nil && f.Now().Sub(e.start) <= f.Window {
+	if e := f.m[k]; e != nil && f.Now().Sub(e.start) <= f.Window {
 		return e.n
 	}
 	return 0
+}
+
+// RateKey is the key the per-client trackers use for ip: an IPv4 address (an
+// IPv4-mapped IPv6 address is unmapped) as is, an IPv6 address as its /64,
+// because one subscriber usually holds a whole /64 and could otherwise rotate
+// through unlimited keys. Anything unparsable is used verbatim.
+func RateKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	a = a.Unmap()
+	if a.Is4() {
+		return a.String()
+	}
+	p, err := a.WithZone("").Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
 }
 
 // ClientIP is CF-Connecting-IP when the TCP peer is a trusted proxy, else the peer.
@@ -351,6 +519,7 @@ func NewLockout(now func() time.Time) *Lockout {
 
 // Locked reports whether ip is locked out and for how much longer.
 func (l *Lockout) Locked(ip string) (bool, time.Duration) {
+	ip = RateKey(ip)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e := l.m[ip]
@@ -375,6 +544,7 @@ func (l *Lockout) Locked(ip string) (bool, time.Duration) {
 // when the attempt says nothing about the password (busy, malformed), and does
 // nothing on a wrong password: the reservation stays as the recorded failure.
 func (l *Lockout) Reserve(ip string) (ok bool, left time.Duration) {
+	ip = RateKey(ip)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.Now()
@@ -397,6 +567,7 @@ func (l *Lockout) Reserve(ip string) (ok bool, left time.Duration) {
 
 // Release gives back one reservation.
 func (l *Lockout) Release(ip string) {
+	ip = RateKey(ip)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if e := l.m[ip]; e != nil {
@@ -438,6 +609,7 @@ func makeRoom(m map[string]*failure, now time.Time, window time.Duration, inclus
 
 // Clear forgets ip.
 func (l *Lockout) Clear(ip string) {
+	ip = RateKey(ip)
 	l.mu.Lock()
 	delete(l.m, ip)
 	l.mu.Unlock()
@@ -485,8 +657,11 @@ func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Addr, log *slo
 
 // Web and Reader API password length limits, in bytes (the owner chose 5; the upper
 // bound keeps the hashing input sane). The account endpoints and
-// `kipple password` share them.
+// `kipple password` share them. A chosen (not generated) Reader API password
+// must be at least MinAPIPasswordLen: it guards the public ClientLogin, where
+// the only brake is a per-client rate budget. Generated ones are 24 characters.
 const (
-	MinPasswordLen = 5
-	MaxPasswordLen = 256
+	MinPasswordLen    = 5
+	MaxPasswordLen    = 256
+	MinAPIPasswordLen = 16
 )

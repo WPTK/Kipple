@@ -1,12 +1,14 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -115,6 +117,13 @@ type Result struct {
 
 	Redirect RedirectDecision
 
+	// HoldUIDs are the uids of the new items the scheduler will queue for
+	// full-text extraction (set by the scheduler, not by Fetch). The commit marks
+	// each one it inserts (and does not mute) pending for the Reader API hold
+	// before its chunk's transaction commits, so the item is never visible
+	// unheld; CommitInfo.Held reports them.
+	HoldUIDs map[string]bool
+
 	NextFetchAt   time.Time
 	CurrentDelayS int64
 }
@@ -157,7 +166,7 @@ func (c *Client) get(ctx context.Context, hc *http.Client, snap Snapshot, ua str
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", acceptHeader)
-	if snap.HTTPAuth != "" {
+	if snap.HTTPAuth != "" { // the first request goes to the feed's own URL; redirects: httpClient
 		user, pass, _ := strings.Cut(snap.HTTPAuth, ":")
 		req.SetBasicAuth(user, pass)
 	}
@@ -184,7 +193,8 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	if ua == "" {
 		ua = c.ua
 	}
-	hc := c.httpClient(variant{noHTTP2: snap.DisableHTTP2, insecureTLS: snap.AllowInsecureTLS, allowPrivate: snap.AllowPrivateNet}, &res.Hops)
+	feedU, _ := url.Parse(snap.URL) // nil on error: then no hop carries credentials
+	hc := c.httpClient(variant{noHTTP2: snap.DisableHTTP2, insecureTLS: snap.AllowInsecureTLS, allowPrivate: snap.AllowPrivateNet}, &res.Hops, feedU)
 	resp, err := c.get(ctx, hc, snap, ua)
 	if err == nil && snap.RetryUserAgent != "" && snap.RetryUserAgent != ua && UARefused(resp) {
 		// The feed refused Kipple's User-Agent: retry once as a browser. The
@@ -213,10 +223,14 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 
 	res.Status = resp.StatusCode
 	if resp.Request != nil && resp.Request.URL != nil {
-		if fin, err := feedurl.Normalize(resp.Request.URL.String()); err == nil {
+		fu := *resp.Request.URL
+		// A redirect to user:pass@host must not put the credentials in fetch_log
+		// or feeds.url; without them the URL is also one feedurl accepts.
+		fu.User = nil
+		if fin, err := feedurl.Normalize(fu.String()); err == nil {
 			res.FinalURL = fin
 		} else {
-			res.FinalURL = resp.Request.URL.String()
+			res.FinalURL = fu.String()
 		}
 	}
 	res.TTLHintS = PublisherHintSeconds(snap.HonorTTL, 0, resp.Header, now)
@@ -257,7 +271,7 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		return res.fail(class, msg)
 	}
 	res.Bytes = len(body)
-	if len(strings.TrimSpace(string(body))) == 0 {
+	if len(bytes.TrimSpace(body)) == 0 {
 		return res.fail(ClassEmpty, "empty response body")
 	}
 
@@ -274,7 +288,7 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		}
 	}
 
-	dec := DecodeBody(body, httpCharset)
+	dec := decodeBody(body, httpCharset)
 	res.BodyHash = dec.BodyHash
 	if !snap.Full && snap.BodyHash != "" && dec.BodyHash == snap.BodyHash {
 		res.Outcome = OutcomeUnchanged
@@ -282,11 +296,10 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		return res
 	}
 
-	feed, err := ParseFeed(body, ParseOptions{
-		FeedURL:     res.FinalURL,
-		HTTPCharset: httpCharset,
-		DedupMode:   snap.DedupMode,
-		Content:     sanitize.Content,
+	feed, err := ParseDecoded(dec, ParseOptions{
+		FeedURL:   res.FinalURL,
+		DedupMode: snap.DedupMode,
+		Content:   sanitize.Content,
 	})
 	if err != nil {
 		res.BodyHash = ""

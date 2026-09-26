@@ -4,15 +4,18 @@
 //                                throwaway data dir, then import a few real feeds
 //   npm run seed -- --keep       reuse the data dir from the last run
 //   KIPPLE_DEV_DATA=D:\tmp\k npm run seed
+//                                a directory this script did not create (no
+//                                .kipple-dev-seed file) and that is not empty is
+//                                never deleted unless you add -- --force
 //
 // Then, in another terminal, `npm run dev` (Vite proxies /api and /img to
 // 127.0.0.1:7080) and sign in as dev / dev-password-only-for-local-testing.
 // The credentials below are for this throwaway local instance only; nothing
 // here is used in production. Needs Go on PATH and network access for the feeds.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -20,6 +23,8 @@ const dataDir = process.env.KIPPLE_DEV_DATA || join(tmpdir(), "kipple-dev");
 const port = process.env.KIPPLE_DEV_PORT || "7080";
 const addr = `127.0.0.1:${port}`;
 const keep = process.argv.includes("--keep");
+const force = process.argv.includes("--force");
+const SENTINEL = ".kipple-dev-seed";
 
 const env = {
   ...process.env,
@@ -39,8 +44,37 @@ const FEEDS = [
   ["BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"],
 ];
 
-if (!keep) rmSync(dataDir, { recursive: true, force: true });
+// The data dir is wiped on every run without --keep, so only ever delete a directory this script
+// created (it leaves a sentinel file; older runs are recognised by their seed.opml layout) or an
+// empty one. Anything else needs --force, and even then
+// never a filesystem root, the home directory or the temp directory itself.
+function wipeDataDir() {
+  if (!existsSync(dataDir)) return;
+  const resolved = resolve(dataDir);
+  const forbidden = [parse(resolved).root, resolve(homedir()), resolve(tmpdir())].map((p) => p.toLowerCase());
+  if (forbidden.includes(resolved.toLowerCase())) {
+    console.error(`refusing to delete ${resolved}: set KIPPLE_DEV_DATA to a dedicated directory`);
+    process.exit(1);
+  }
+  const entries = readdirSync(dataDir);
+  const empty = entries.length === 0;
+  // Runs from before the sentinel existed left seed.opml plus only these entries.
+  const legacy =
+    entries.includes("seed.opml") && entries.every((e) => ["data", "kipple", "kipple.exe", "seed.opml"].includes(e));
+  const ours = entries.includes(SENTINEL);
+  if (!ours && !empty && !legacy && !force) {
+    console.error(
+      `refusing to delete ${resolved}: it was not created by this script (no ${SENTINEL}).\n` +
+        "Point KIPPLE_DEV_DATA at a new directory, run with --keep, or pass --force to delete it anyway.",
+    );
+    process.exit(1);
+  }
+  rmSync(dataDir, { recursive: true, force: true });
+}
+
+if (!keep) wipeDataDir();
 mkdirSync(join(dataDir, "data"), { recursive: true });
+writeFileSync(join(dataDir, SENTINEL), "Created by web/scripts/seed.mjs; deleted and recreated on each run without --keep.\n");
 
 const bin = join(dataDir, process.platform === "win32" ? "kipple.exe" : "kipple");
 console.log("building Kipple ...");

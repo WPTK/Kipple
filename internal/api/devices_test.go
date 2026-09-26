@@ -384,6 +384,41 @@ func TestMakeDeviceDefault(t *testing.T) {
 	require.Len(t, out["profile"], 4)
 }
 
+// Make default merges this device's client.* keys into the stored defaults; the
+// merge is held to the same 8 KB cap as a direct write of ui.device_defaults.
+func TestMakeDeviceDefaultSizeCap(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	feeds := make([]string, 200)
+	for i := range feeds {
+		feeds[i] = fmt.Sprintf(`"%015d":"headlines"`, i)
+	}
+	stored := `{"ui.device_defaults":{"client.layout_overrides":{"feed":{` + strings.Join(feeds, ",") + `}}}}`
+	code, _, _ := h.api(c, "PATCH", "/api/settings", stored)
+	require.Equal(t, http.StatusOK, code, "under the cap on its own")
+
+	folders := make([]string, 200)
+	for i := range folders {
+		folders[i] = fmt.Sprintf(`"%015d"`, i)
+	}
+	phone := h.newDev()
+	code, _, _ = phone.call("PATCH", "/api/device", `{"client.collapsed_folders":[`+strings.Join(folders, ",")+`]}`)
+	require.Equal(t, http.StatusOK, code, "under the cap on its own")
+
+	code, out, _ := phone.call("POST", "/api/device/make-default", "")
+	require.Equal(t, http.StatusRequestEntityTooLarge, code)
+	require.Equal(t, "too_large", out["error"])
+	_, out, _ = phone.call("GET", "/api/settings", "")
+	dd := vals(out)["ui.device_defaults"].(map[string]any)
+	require.NotContains(t, dd, "client.collapsed_folders", "nothing was written")
+
+	// A merge that fits still goes through.
+	code, _, _ = phone.call("PATCH", "/api/device", `{"client.collapsed_folders":["1"]}`)
+	require.Equal(t, http.StatusOK, code)
+	code, _, _ = phone.call("POST", "/api/device/make-default", "")
+	require.Equal(t, http.StatusOK, code)
+}
+
 func TestSettingsMetadataScope(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()

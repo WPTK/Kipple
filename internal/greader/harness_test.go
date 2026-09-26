@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -40,10 +39,10 @@ type harness struct {
 	h      http.Handler
 	clk    *clock.Fake
 	tok    string
-	mu     sync.Mutex
-	slept  []time.Duration
 	wakes  atomic.Int32
 	checks atomic.Int32
+	// paced counts ClientLogin pacing waits; each one advances clk instead of sleeping.
+	paced atomic.Int32
 }
 
 type harnessOpts struct {
@@ -80,12 +79,14 @@ func newHarness(t *testing.T, o ...harnessOpts) *harness {
 		DB: db, Logger: opt.logger, Verifier: ver, LogForms: opt.logForms,
 		Wake: func() { h.wakes.Add(1) },
 		Now:  clk.Now,
-		Sleep: func(_ context.Context, d time.Duration) {
-			h.mu.Lock()
-			h.slept = append(h.slept, d)
-			h.mu.Unlock()
-		},
 	})
+	h.api.fails.After = func(d time.Duration) <-chan time.Time {
+		h.paced.Add(1)
+		clk.Advance(d)
+		ch := make(chan time.Time, 1)
+		ch <- clk.Now()
+		return ch
+	}
 	h.h = h.api.Front(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 		_, _ = io.WriteString(w, "fallthrough")
@@ -99,12 +100,18 @@ const base = "/api/greader.php"
 // do sends a request with the Authorization header unless hdr overrides it.
 func (h *harness) do(method, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
 	h.t.Helper()
+	return h.doFrom("192.0.2.10:5555", method, path, body, hdr)
+}
+
+// doFrom is do from the TCP peer remote.
+func (h *harness) doFrom(remote, method, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
+	h.t.Helper()
 	var rd io.Reader
 	if body != "" {
 		rd = strings.NewReader(body)
 	}
 	r := httptest.NewRequest(method, path, rd)
-	r.RemoteAddr = "192.0.2.10:5555"
+	r.RemoteAddr = remote
 	if method == http.MethodPost && body != "" {
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}

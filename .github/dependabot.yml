@@ -24,6 +24,9 @@ updates:
       actions-minor-patch:
         update-types: [minor, patch]
 
+  # The Dockerfile's base images are pinned as tag@sha256:digest; Dependabot updates the tag and
+  # digest together, including digest-only rebuilds of the same tag. The gitleaks and Trivy images
+  # in scripts/ci-local.ps1 are not covered: bump them with the versions in ci.yml.
   - package-ecosystem: docker
     directory: /
     schedule:

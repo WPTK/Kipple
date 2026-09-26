@@ -7,7 +7,7 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// stateName returns the name in user/<x>/state/com.google/<name>.
+// stateName returns the name in user/<x>/state/com.google/<name> (<x> one segment).
 func stateName(id string) (string, bool) { return parseUserPath(id, "/state/com.google/") }
 
 // resolveStream turns a stream id into a filter (design §6.4). Unknown streams,
@@ -120,6 +120,7 @@ func (c *call) pageParams(maxN int) store.IDPage {
 		p.N = maxN
 	}
 	p.Asc = c.p.Get("r") == "o"
+	p.UserChanges = c.a.db.BoolSetting(c.r.Context(), "greader.ot_includes_user_changes", false)
 	if s := c.p.Get("c"); allDigits(s) {
 		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
 			p.Cont, p.HasCont = n, true

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vitest/config";
 import react from "@vitejs/plugin-react";
@@ -56,11 +56,42 @@ function keepGitkeep(): Plugin {
   };
 }
 
+// The service worker: sw/sw.js with the build id and the precache list filled in, written to dist/sw.js
+// after everything else exists. It precaches the shell (index, JS, CSS, root icons) but not fonts or images,
+// which it keeps as they are used, so the first load stays small. The id starts with the build time so the
+// worker can tell which shell caches are the newest.
+function kippleSw(): Plugin {
+  let outDir = "dist";
+  return {
+    name: "kipple-sw",
+    apply: "build",
+    configResolved: (c) => {
+      outDir = c.build.outDir;
+    },
+    closeBundle() {
+      const root = fileURLToPath(new URL(`./${outDir}/`, import.meta.url));
+      const list = ["/"];
+      for (const f of readdirSync(root).sort()) {
+        if (statSync(root + f).isFile() && f !== "index.html" && f !== "sw.js" && !f.startsWith(".")) list.push(`/${f}`);
+      }
+      for (const f of readdirSync(root + "assets").sort()) {
+        if (/\.(js|css)$/.test(f)) list.push(`/assets/${f}`);
+      }
+      const id = createHash("sha256").update(list.join(",")).update(readFileSync(root + "index.html")).digest("hex").slice(0, 10);
+      const stamp = String(Math.floor(Number(process.env.SOURCE_DATE_EPOCH) * 1000) || Date.now()).padStart(13, "0");
+      const src = readFileSync(fileURLToPath(new URL("./sw/sw.js", import.meta.url)), "utf8")
+        .replace('/*BUILD*/ "dev"', JSON.stringify(`${stamp}-${id}`))
+        .replace("/*PRECACHE*/ []", JSON.stringify(list));
+      writeFileSync(root + "sw.js", src);
+    },
+  };
+}
+
 // KIPPLE_DEV_BACKEND points the dev proxy at another local server (a second instance, a worktree build).
 const backend = process.env.KIPPLE_DEV_BACKEND ?? "http://127.0.0.1:7080";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), kippleThemes(), themeBoot(), keepGitkeep()],
+  plugins: [react(), tailwindcss(), kippleThemes(), themeBoot(), keepGitkeep(), kippleSw()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   server: {
     host: "127.0.0.1",
@@ -70,7 +101,8 @@ export default defineConfig({
       "/healthz": backend,
     },
   },
-  build: { target: "es2022" },
+  // Nothing is inlined as a data: URI: the page policy is font-src 'self', and small font subsets were being blocked.
+  build: { target: "es2022", assetsInlineLimit: 0 },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],

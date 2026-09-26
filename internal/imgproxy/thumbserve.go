@@ -95,6 +95,9 @@ func (h *Handler) serveThumb(w http.ResponseWriter, r *http.Request, u *url.URL,
 				h.serveOriginal(w, r, u, flags, orig, refusalCC(te.FreshUntil.Sub(c.Now())))
 				return
 			case te.Fresh(c.Now()):
+				// The original ages with its thumbnail: evicted first, it would
+				// leave a stale thumbnail with nothing to revalidate it against.
+				c.Touch(imgcache.KeyOrig(flags, orig))
 				if h.serveHit(w, r, te) {
 					return
 				}
@@ -157,11 +160,28 @@ func (h *Handler) leadThumb(w http.ResponseWriter, r *http.Request, u *url.URL, 
 		}
 		return false
 	}
+	// A stale thumbnail beats a failure when its original cannot be had (the
+	// original was evicted and the source is failing): it is served and its
+	// revalidation put off (10 minutes, doubling), as a stale original would
+	// be. Without a fetch slot (503) it is served but not put off: that is
+	// load, not the source. The back-off is recorded before the answer goes
+	// out; if the file turns out to be gone, OpenFile drops the row anyway.
+	fallback := func(code int) bool {
+		if stale == nil {
+			return false
+		}
+		if code != http.StatusServiceUnavailable {
+			if err := c.DeferRevalidation(tkey); err != nil {
+				h.log.Debug("imgproxy: deferring thumbnail revalidation", "err", err)
+			}
+		}
+		return h.serveHit(w, r, *stale) // false: its file vanished too, and the failure is replayed
+	}
 	// The probe's own answer (a forwarded original, or a replayed failure) is
 	// not the thumbnail either.
-	oe, ok := h.ensureOriginal(&ccWriter{ResponseWriter: w, cc: noCache}, r, u, flags, orig, okey)
+	oe, ok := h.ensureOriginal(&ccWriter{ResponseWriter: w, cc: noCache}, r, u, flags, orig, okey, fallback)
 	if !ok {
-		return true // answered: the original streamed, or the failure replayed
+		return true // answered: the original streamed, the failure replayed, or the stale thumbnail served
 	}
 	tag := srcTag(oe)
 	if stale != nil && stale.ETag == tag {
@@ -240,9 +260,11 @@ func thumbFresh(c *imgcache.Cache, oe imgcache.Entry) time.Duration {
 // request has been answered: when the path could not cache (low disk, a
 // failed commit) the probe forwarded the original it was fetching to the
 // client; otherwise its failure (502, 415, or 503 for no fetch slot) is
-// replayed as it is. The source is never fetched twice and a slot never
-// waited for twice.
-func (h *Handler) ensureOriginal(w http.ResponseWriter, r *http.Request, u *url.URL, flags int, orig, okey string) (imgcache.Entry, bool) {
+// replayed as it is, unless fallback (when not nil) answers the request
+// instead: it gets the status that would be replayed and reports whether it
+// answered. The source is never fetched twice and a slot never waited for
+// twice.
+func (h *Handler) ensureOriginal(w http.ResponseWriter, r *http.Request, u *url.URL, flags int, orig, okey string, fallback func(code int) bool) (imgcache.Entry, bool) {
 	c := h.opt.Cache
 	ctx := r.Context()
 	if e, ok := c.Peek(ctx, okey); ok && e.OK && e.Fresh(c.Now()) {
@@ -270,6 +292,13 @@ func (h *Handler) ensureOriginal(w http.ResponseWriter, r *http.Request, u *url.
 		return e, true
 	}
 	if ctx.Err() != nil {
+		return imgcache.Entry{}, false
+	}
+	code := p.code
+	if code == 0 || code == http.StatusOK {
+		code = http.StatusBadGateway
+	}
+	if fallback != nil && fallback(code) {
 		return imgcache.Entry{}, false
 	}
 	if p.code == 0 || p.code == http.StatusOK {

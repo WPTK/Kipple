@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -55,6 +56,8 @@ func TestClientLoginAndWebLoginShareOneHashingSlot(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 6; i++ {
 		wg.Add(2)
+		// one ClientLogin per client address: a client has one attempt in flight
+		remote := "192.0.2." + strconv.Itoa(10+i) + ":2"
 		go func() {
 			defer wg.Done()
 			r := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(loginBody(testPass)))
@@ -70,7 +73,7 @@ func TestClientLoginAndWebLoginShareOneHashingSlot(t *testing.T) {
 			form := url.Values{"Email": {testUser}, "Passwd": {testPass}}.Encode()
 			r := httptest.NewRequest("POST", "/api/greader.php/accounts/ClientLogin", strings.NewReader(form))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			r.RemoteAddr = "192.0.2.10:2"
+			r.RemoteAddr = remote
 			w := httptest.NewRecorder()
 			front.ServeHTTP(w, r)
 			body, _ := io.ReadAll(w.Result().Body)

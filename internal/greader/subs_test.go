@@ -1,12 +1,14 @@
 package greader
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -557,4 +559,50 @@ func TestFolderChangedEventsFromReaderAPI(t *testing.T) {
 	require.Equal(t, 1, count(), "disable-tag")
 	h.post(rd+"subscription/import", `<?xml version="1.0"?><opml version="2.0"><head/><body><outline text="Imp"><outline type="rss" text="B" xmlUrl="https://b.example/f.xml"/></outline></body></opml>`)
 	require.Equal(t, 1, count(), "import creating a folder")
+}
+
+func TestQuickAddFetchNowOnlyWhenSettingOn(t *testing.T) {
+	h := newHarness(t)
+	var calls []int64
+	h.api.opt.FetchNow = func(_ context.Context, id int64, wait time.Duration) {
+		require.Equal(t, subscribeFetchWait, wait)
+		calls = append(calls, id)
+	}
+	add := func(u string) map[string]any {
+		w := h.post(rd+"subscription/quickadd", "T="+h.tok+"&quickadd="+url.QueryEscape(u))
+		require.Equal(t, 200, w.Code)
+		return jsonBody(t, w)
+	}
+	add("https://off.example/feed.xml")
+	require.Empty(t, calls, "default: no synchronous fetch")
+
+	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"greader.subscribe_fetch_now": true}))
+	res := add("https://on.example/feed.xml")
+	require.Len(t, calls, 1)
+	require.Equal(t, "feed/"+strconv.FormatInt(calls[0], 10), res["streamId"])
+
+	add("https://on.example/feed.xml")
+	require.Len(t, calls, 1, "an existing feed is never fetched by a client")
+}
+
+// A folder name the store refuses (too long, control characters) is client
+// data: 200 OK with nothing changed, never a 5xx.
+func TestReaderFolderNameLimitsAreOKNoOps(t *testing.T) {
+	h := newHarness(t)
+	f := h.addFeed("https://a.example/f", "A", "News")
+	long := strings.Repeat("x", 101)
+
+	w := h.post(rd+"subscription/edit", "T=x&ac=edit&s=feed/"+strconv.FormatInt(f, 10)+"&a="+url.QueryEscape("user/-/label/"+long))
+	require.Equal(t, 200, w.Code)
+	require.Equal(t, "OK", w.Body.String())
+	require.Equal(t, "News", q[string](h, "SELECT fo.name FROM feeds f JOIN folders fo ON fo.id = f.folder_id WHERE f.id = ?", f))
+
+	w = h.post(rd+"subscription/edit", "T=x&ac=subscribe&s=feed/"+url.QueryEscape("https://b.example/f")+"&a="+url.QueryEscape("user/-/label/bad\x01name"))
+	require.Equal(t, 200, w.Code)
+	require.Zero(t, q[int](h, "SELECT count(*) FROM feeds WHERE url LIKE 'https://b.example/%'"))
+
+	w = h.post(rd+"rename-tag", "T=x&s="+url.QueryEscape("user/-/label/News")+"&dest="+url.QueryEscape("user/-/label/"+long))
+	require.Equal(t, 200, w.Code)
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM folders WHERE name = 'News'"))
+	require.Zero(t, q[int](h, "SELECT count(*) FROM folders WHERE length(name) > 100"))
 }

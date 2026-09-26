@@ -1,4 +1,5 @@
-import { Suspense, lazy, useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { lazyScreen } from "@/lib/lazyScreen";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
 import { ArrowDown, ArrowUp, MoreVertical } from "lucide-react";
@@ -20,7 +21,7 @@ import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { StatusChip } from "./StatusChip";
 
-const FeedEditor = lazy(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
+const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
 
 const menuItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
 

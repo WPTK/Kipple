@@ -39,7 +39,7 @@ function wide() {
 }
 
 const items = (over: Partial<ItemsPage> = {}): ItemsPage => ({ items: [card(1, { title: "A big red dog" }), card(2, { title: "Cats" })], next_cursor: null, as_of: "5000", fallback: false, ...over });
-const itemCalls = (calls: { method: string; url: URL }[]) => calls.filter((c) => c.method === "GET" && c.url.pathname === "/api/items");
+const itemCalls = (calls: { method: string; url: URL }[]) => calls.filter((c) => c.method === "GET" && c.url.pathname === "/api/items" && !c.url.searchParams.has("include")); // the offline prefetch is not a list load
 const base = (extra: Parameters<typeof mockFetch>[0] = {}) =>
   mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }), ...extra });
 

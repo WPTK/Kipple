@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
@@ -103,7 +104,31 @@ func (d *DB) FindLabel(ctx context.Context, candidates []string) (int64, bool, e
 	return FindLabel(ctx, d.reader, candidates)
 }
 
+// MaxFolderNameRunes is the longest folder name, in characters, on every path
+// that names a folder (the web UI, the Reader API, OPML import).
+const MaxFolderNameRunes = 100
+
+// ErrBadFolderName is returned for a folder name that is longer than
+// MaxFolderNameRunes or holds a control character.
+var ErrBadFolderName = errors.New("store: folder names are 1 to 100 characters without control characters")
+
+// CheckFolderName reports whether a (trimmed, non-empty) folder name may be
+// stored: at most MaxFolderNameRunes characters and no control character
+// (below 0x20 except tab, or DEL), the web UI's rule.
+func CheckFolderName(name string) error {
+	if utf8.RuneCountInString(name) > MaxFolderNameRunes {
+		return ErrBadFolderName
+	}
+	for i := 0; i < len(name); i++ {
+		if c := name[i]; c < 0x20 && c != '\t' || c == 0x7f {
+			return ErrBadFolderName
+		}
+	}
+	return nil
+}
+
 // ensureFolder returns the id of the folder called name, creating it at the end.
+// A new name must pass CheckFolderName; an existing folder is found whatever its name.
 func ensureFolder(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -112,6 +137,9 @@ func ensureFolder(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
 	id, found, err := FindLabel(ctx, tx, []string{name})
 	if err != nil || found {
 		return id, err
+	}
+	if err := CheckFolderName(name); err != nil {
+		return 0, err
 	}
 	res, err := tx.ExecContext(ctx, "INSERT INTO folders (name, position) SELECT ?, COALESCE(MAX(position)+1, 1) FROM folders", name)
 	if err != nil {
@@ -212,6 +240,9 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 // guard. It returns the normalized URL, its key and its host.
 func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err error) {
 	key, norm, nerr := feedurl.KeyAndNormalize(raw)
+	if errors.Is(nerr, feedurl.ErrUserinfo) {
+		return "", "", "", &InvalidURLError{"the URL contains a user name or password; use the feed's HTTP authentication instead"}
+	}
 	if nerr != nil {
 		return "", "", "", &InvalidURLError{"not an absolute http(s) URL"}
 	}
@@ -322,16 +353,51 @@ func (d *DB) Unsubscribe(ctx context.Context, refs []FeedRef) (feedIDs []int64, 
 // UnsubscribeSkipped is Unsubscribe that also returns the ids it refused to
 // delete (the archive feed while it still holds starred items).
 func (d *DB) UnsubscribeSkipped(ctx context.Context, refs []FeedRef) (feedIDs, skipped []int64, err error) {
+	// Mark every feed for deletion in one short transaction first (never fetched
+	// again, see deletingURLPrefix; refs are resolved there, before a URL ref's
+	// feed has its URL moved), then empty each in bounded batches
+	// (purgeFeedItems leaves starred items and the archive feed alone), so the
+	// transaction below only moves starred items and removes feed rows. An
+	// interruption leaves marked feeds that the next unsubscribe (or
+	// ResumeFeedDeletes) finishes.
+	var ids []int64
+	now := d.clock.Now().Unix()
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		feedIDs, skipped = nil, nil
-		var archiveID int64
+		ids = ids[:0]
 		for _, ref := range refs {
 			id, err := resolveFeed(ctx, tx, ref)
 			if err != nil {
 				return err
 			}
-			if id == 0 {
+			ids = append(ids, id)
+		}
+		return markFeedsDeleting(ctx, tx, ids, now)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, id := range ids {
+		if id != 0 {
+			if err := d.purgeFeedItems(ctx, id, true); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		feedIDs, skipped = nil, nil
+		var archiveID int64
+		seen := map[int64]bool{}
+		for _, id := range ids {
+			if id == 0 || seen[id] {
 				continue
+			}
+			seen[id] = true
+			var n int
+			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ?", id).Scan(&n); err != nil {
+				return err
+			}
+			if n == 0 {
+				continue // removed meanwhile
 			}
 			var reason sql.NullString
 			if err := tx.QueryRowContext(ctx, "SELECT disabled_reason FROM feeds WHERE id = ?", id).Scan(&reason); err != nil {
@@ -427,11 +493,15 @@ func ensureArchiveFeed(ctx context.Context, tx *sql.Tx) (int64, error) {
 
 // RenameLabel renames folder oldID to newName; when a different folder already
 // has that name the two are merged (feeds move, the old folder is deleted). The
-// default folder may be renamed but never deleted.
+// default folder may be renamed but never deleted. A name that fails
+// CheckFolderName is ErrBadFolderName and changes nothing.
 func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) error {
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return nil
+	}
+	if err := CheckFolderName(newName); err != nil {
+		return err
 	}
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		target, found, err := FindLabel(ctx, tx, []string{newName})

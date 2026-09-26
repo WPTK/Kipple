@@ -1,4 +1,5 @@
-import { Suspense, lazy } from "react";
+import { Suspense } from "react";
+import { lazyScreen } from "@/lib/lazyScreen";
 import { liveStore } from "@/api/events";
 import { useFilters } from "@/api/filters";
 import { filterEditorStore } from "@/lib/similar";
@@ -6,7 +7,7 @@ import { useStore, useStoreSelector } from "@/lib/store";
 import type { RunStatus } from "@/api/types";
 
 // The editor is loaded the first time it is opened, so the main chunk does not carry it.
-const FilterEditor = lazy(() => import("@/screens/filters/FilterEditor").then((m) => ({ default: m.FilterEditor })));
+const FilterEditor = lazyScreen(() => import("@/screens/filters/FilterEditor").then((m) => ({ default: m.FilterEditor })));
 
 /** The one place the filter editor is mounted: Settings, the article menu and a muted article all open it through `openFilterEditor`. */
 export function FilterEditorHost() {

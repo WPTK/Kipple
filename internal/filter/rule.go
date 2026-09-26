@@ -22,12 +22,19 @@
 //     no categories, which means unknown, not "does not match", so an inverted rule that scans
 //     category never fires on an item without categories (a plain rule cannot fire on it either).
 //
-// Limits (all enforced by Validate and NewSet, all constants below): at most 200 rules, 25 enabled
-// regex rules and 2000 enabled text terms in a set; 1 to 50 terms per rule; a text term is 1 to 100
-// runes; a regex rule has 1 to 5 patterns of at most 256 bytes and at most 5000 program
-// instructions, and must not match the empty string. Scanned text is truncated (at a rune
+// Limits (all constants below): at most 200 rules, 50 enabled regex rules and 2000 enabled text
+// terms in a set; 1 to 50 terms per rule; a text term is 1 to 100 runes; a regex rule has 1 to 5
+// patterns of at most 256 bytes and at most 500 program instructions, with no counted repeat above
+// 50 copies (nested repeats multiplied), must not match the empty string and must cost at most
+// MaxRegexCost; the enabled regex rules of a set together stay under MaxRegexSetCost, so their
+// worst-case evaluation time per item is bounded. Scanned text is truncated (at a rune
 // boundary) before it is normalized or matched, so a giant item costs the same as a large one:
 // content 32 KiB for text rules and 8 KiB for regex rules, every other field 4 KiB.
+//
+// The per-rule limits apply to the rule being created or edited (ValidateEdit); a stored rule
+// from an older version that no longer meets them never blocks another rule's edit. Sanitize
+// names the stored rules that must be disabled (and why), so the store can switch them off
+// visibly instead of ingest silently skipping them.
 //
 // Precedence (section 1.3): every enabled rule in scope is evaluated and the results combine as a
 // set, so evaluation order never changes the outcome. star beats mute (a starred item is never
@@ -43,14 +50,29 @@ import (
 
 // Limits. See the package comment.
 const (
-	MaxRules            = 200
-	MaxRegexRules       = 25
-	MaxTextTerms        = 2000 // enabled text terms across a whole set
-	MaxTermsPerRule     = 50
-	MaxTermRunes        = 100 // text terms
-	MaxRegexPatterns    = 5
-	MaxRegexBytes       = 256
-	MaxRegexProgInsts   = 5000
+	MaxRules          = 200
+	MaxRegexRules     = 50
+	MaxTextTerms      = 2000 // enabled text terms across a whole set
+	MaxTermsPerRule   = 50
+	MaxTermRunes      = 100 // text terms
+	MaxRegexPatterns  = 5
+	MaxRegexBytes     = 256
+	MaxRegexProgInsts = 500 // compiled program size of one pattern
+	MaxRegexRepeat    = 50  // copies a counted repeat makes, nested repeats multiplied
+	// MaxRegexCost bounds the worst-case evaluation cost of one regex rule, which is linear in
+	// program size times text scanned (Go's regexp has no DFA: up to one live thread per instruction
+	// per byte). A rule costs the sum of its patterns' instructions times the KiB it scans (8 for
+	// content, 4 for each other field).
+	MaxRegexCost = 20000
+	// MaxRegexSetCost bounds the sum of the costs of a set's enabled regex rules, so the worst-case
+	// time one item can take stays bounded. A typical keyword rule, a 15-word alternation on title and
+	// content, costs about 1,450, so the cap admits 40 of them. At the cap the worst case
+	// (TestRegexWorstCaseAtTheCostCap: broad classes under the largest repeats, every NFA thread alive
+	// on every byte) measured about 0.45 s per item on the development machine, against 2 s for 25
+	// rules before any cost limit; 40 such keyword rules take about 13 ms per item even with their
+	// literal prefilter defeated (TestRegexSetCapAdmitsKeywordRules), well under a millisecond when
+	// the item contains none of their words.
+	MaxRegexSetCost     = 60000
 	MaxNameBytes        = 200
 	MaxTextContentScan  = 32 << 10 // content bytes scanned by text rules
 	MaxRegexContentScan = 8 << 10  // content bytes scanned by regex rules

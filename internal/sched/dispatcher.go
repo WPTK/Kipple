@@ -2,6 +2,7 @@ package sched
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -106,6 +107,7 @@ func (s *Scheduler) enqueue(f *flight) {
 	}
 	s.flights[f.snap.ID] = f
 	if !s.tryStart(f) {
+		f.waited = true
 		s.pending = append(s.pending, f)
 	}
 }
@@ -114,9 +116,27 @@ func (s *Scheduler) canStart(f *flight) bool {
 	return !s.stopping && s.running < s.opt.Workers && s.perHost[f.snap.Host] < s.opt.PerHost
 }
 
+// tryStart hands f to a worker when a worker and a host slot are free. It
+// reports whether f has left the queue: started, or dropped because it waited
+// and its feed has since been disabled or deleted.
 func (s *Scheduler) tryStart(f *flight) bool {
 	if !s.canStart(f) {
 		return false
+	}
+	if f.waited {
+		oldHost := f.snap.Host
+		if !s.reload(f) {
+			return true
+		}
+		if f.snap.Host != oldHost && s.applyHostHold(f, s.clk.Now(), true) {
+			return true // the reload moved it to a held host: dropped like drainPending does
+		}
+		if !s.canStart(f) {
+			// The reload moved it to a host whose slots are taken: it waits again,
+			// and is reloaded again before it finally starts.
+			f.waited = true
+			return false
+		}
 	}
 	if t, ok := s.hostUntil[f.snap.Host]; ok && t.After(s.clk.Now()) {
 		f.snap.HostUntil = t
@@ -132,6 +152,69 @@ func (s *Scheduler) tryStart(f *flight) bool {
 	return true
 }
 
+// reload refreshes a job's snapshot from the database just before it starts,
+// keeping what the dispatcher decided for it (trigger, full, host deadline). A
+// fetch or skip for a feed that is now disabled, or a job for a feed that is
+// gone, is dropped: it reports false and the job's waiters are answered. When
+// the lookup itself fails the job runs on the snapshot it has.
+func (s *Scheduler) reload(f *flight) bool {
+	f.waited = false
+	ctx, cancel := context.WithTimeout(context.Background(), tickQueryTimeout)
+	defer cancel()
+	snap, ok, err := s.db.FeedSnapshot(ctx, s.db.FetchSettings(ctx), f.snap.ID)
+	switch {
+	case err != nil:
+		s.log.Warn("sched: reload queued feed; using the queued snapshot", "feed", f.snap.ID, "err", err)
+		return true
+	case !ok:
+		s.drop(f, ErrNotFound)
+		return false
+	case !snap.Enabled && f.kind != kindTrim: // a trim still runs for a disabled feed (handlePriority)
+		s.drop(f, ErrDisabled)
+		return false
+	}
+	snap.Trigger, snap.Full, snap.HostUntil = f.snap.Trigger, f.snap.Full, f.snap.HostUntil
+	if f.kind == kindFetch && snap.RekeyPending {
+		snap.Full = true // as enqueue: a not_modified would never re-key
+	}
+	f.snap = snap
+	return true
+}
+
+// drop removes a job that never started: its callers are answered with err,
+// each run it belongs to counts the feed as done with an error, and its
+// follow-ups are replayed (replayDropped) on fresh snapshots.
+func (s *Scheduler) drop(f *flight, err error) {
+	delete(s.flights, f.snap.ID)
+	for _, ch := range f.replies {
+		select {
+		case ch <- Reply{FeedID: f.snap.ID, Err: err}:
+		default:
+		}
+	}
+	for _, run := range f.runs {
+		s.settleRunFeed(run, true)
+	}
+	if len(f.followups) > 0 || len(f.runFollows) > 0 {
+		s.replays = append(s.replays, f)
+	}
+}
+
+// replayDropped replays the follow-ups of dropped jobs. It runs after
+// drainPending has rebuilt the pending list, which a replay may add to.
+func (s *Scheduler) replayDropped() {
+	for len(s.replays) > 0 {
+		f := s.replays[0]
+		s.replays = s.replays[1:]
+		for _, req := range f.followups {
+			s.handlePriority(req)
+		}
+		for _, rf := range f.runFollows {
+			s.runFollowup(rf)
+		}
+	}
+}
+
 // drainPending starts waiting jobs whose host slot has freed. A job that
 // became blocked by a Retry-After after it was queued is dropped when it is a
 // plain scheduled fetch (the feed stays due) and turned into a skip when a
@@ -143,24 +226,43 @@ func (s *Scheduler) drainPending() {
 	now := s.clk.Now()
 	kept := s.pending[:0:0]
 	for _, f := range s.pending {
-		if f.kind == kindFetch {
-			if t, ok := s.hostUntil[f.snap.Host]; ok && t.After(now) && !forcesFetch(f) {
-				// Never drop a flight someone is waiting on: a run, a reply, or a
-				// queued follow-up (a trim, a re-key) that only runs once it finishes.
-				if len(f.runs) == 0 && len(f.replies) == 0 && len(f.followups) == 0 && len(f.runFollows) == 0 &&
-					f.snap.Trigger == fetch.TriggerScheduled {
-					delete(s.flights, f.snap.ID)
-					continue
-				}
-				f.kind = kindSkip
-				f.snap.HostUntil = t
-			}
+		if s.applyHostHold(f, now, false) {
+			continue
 		}
 		if !s.tryStart(f) {
 			kept = append(kept, f)
 		}
 	}
 	s.pending = kept
+	s.replayDropped()
+}
+
+// applyHostHold makes the Retry-After decision for a waiting job whose host is
+// held: a plain scheduled fetch nobody waits on is dropped (it reports true; the
+// feed stays due) and any other fetch that does not force one becomes a skip.
+// Never drop a flight someone is waiting on: a run, a reply, or a queued
+// follow-up (a trim, a re-key) that only runs once it finishes. rehosted is set
+// after a reload moved the job to another host: the decision made for the old
+// host is then redone, so a skip for a host that is not held becomes a fetch
+// again and a skip for a held one takes that host's deadline.
+func (s *Scheduler) applyHostHold(f *flight, now time.Time, rehosted bool) bool {
+	t, ok := s.hostUntil[f.snap.Host]
+	held := ok && t.After(now)
+	switch {
+	case f.kind == kindFetch && held && !forcesFetch(f):
+		if len(f.runs) == 0 && len(f.replies) == 0 && len(f.followups) == 0 && len(f.runFollows) == 0 &&
+			f.snap.Trigger == fetch.TriggerScheduled {
+			delete(s.flights, f.snap.ID)
+			return true
+		}
+		f.kind = kindSkip
+		f.snap.HostUntil = t
+	case rehosted && f.kind == kindSkip && held:
+		f.snap.HostUntil = t
+	case rehosted && f.kind == kindSkip:
+		f.kind, f.snap.HostUntil = kindFetch, time.Time{}
+	}
+	return false
 }
 
 // forcesFetch reports whether a job goes ahead despite a host Retry-After: a
@@ -203,6 +305,9 @@ func (s *Scheduler) handleDone(r result) {
 	}
 	if r.cancelled || f == nil {
 		return // shutdown aborted it; nothing was written
+	}
+	if r.trimPending {
+		s.queueTrimLater(r.feedID)
 	}
 
 	now := s.clk.Now()
@@ -317,9 +422,16 @@ func (s *Scheduler) handleRun(req runReq) {
 	var snaps []fetch.Snapshot
 	switch req.kind {
 	case RunImport:
-		for _, id := range req.feedIDs {
-			snap, ok, err := s.db.FeedSnapshot(ctx, set, id)
-			if err == nil && ok && snap.Enabled {
+		// One query for every new feed: a lookup per feed would share this one
+		// short deadline, hold up the dispatcher and drop feeds silently once it ran out.
+		all, err := s.db.FeedSnapshotsByID(ctx, set, req.feedIDs)
+		if err != nil {
+			s.log.Error("sched: load imported feeds", "feeds", len(req.feedIDs), "err", err)
+			reply(runReply{err: err})
+			return
+		}
+		for _, snap := range all {
+			if snap.Enabled {
 				snaps = append(snaps, snap)
 			}
 		}
@@ -439,8 +551,24 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 	}
 	s.flights[snap.ID] = f
 	if !s.tryStart(f) {
+		f.waited = true
 		s.pending = append([]*flight{f}, s.pending...)
 	}
+}
+
+// queueTrimLater queues a trim job for a feed whose last trim stopped with work
+// left, after trimRequeueDelay. It goes through Submit like any priority job, so
+// it joins a trim already queued or running for the feed, waits behind a fetch in
+// flight (as a follow-up) and is refused once shutdown has begun.
+func (s *Scheduler) queueTrimLater(feedID int64) {
+	if s.stopping {
+		return
+	}
+	time.AfterFunc(trimRequeueDelay, func() {
+		if _, err := s.Submit(Priority{FeedID: feedID, Kind: PriorityTrim}); err != nil && !errors.Is(err, ErrStopped) {
+			s.log.Warn("sched: queue the rest of a trim", "feed", feedID, "err", err)
+		}
+	})
 }
 
 // satisfies reports whether the in-flight job f already does what p asks: a

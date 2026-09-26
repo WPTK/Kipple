@@ -397,3 +397,23 @@ func TestAutoReadNothingToMarkTakesNoGate(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded, "a candidate needs the gate, which is held")
 	require.False(t, e.read(old))
 }
+
+// A disabled feed can never clear itself (nothing new arrives, so nothing is read by scrolling
+// past), so auto-read includes it; an archived feed is a keepsake and is left alone.
+func TestAutoReadIncludesDisabledFeedsAndSkipsArchived(t *testing.T) {
+	e := newAREnv(t)
+	ctx := context.Background()
+	require.NoError(t, e.db.SetSettings(ctx, map[string]any{SettingAutoReadDays: 7}))
+	disabled := e.addFeed("https://dis/f")
+	e.exec("UPDATE feeds SET enabled = 0, disabled_reason = 'user' WHERE id = ?", disabled)
+	broken := e.addFeed("https://brk/f")
+	e.exec("UPDATE feeds SET enabled = 0, disabled_reason = 'gone' WHERE id = ?", broken)
+	archive := e.addFeed("https://arc/f")
+	e.exec("UPDATE feeds SET enabled = 0, disabled_reason = 'archive' WHERE id = ?", archive)
+	a, b, c := e.item(disabled, 30*24*h), e.item(broken, 30*24*h), e.item(archive, 30*24*h)
+
+	_, err := e.db.RunAutoRead(ctx, AutoReadOptions{Now: arNow})
+	require.NoError(t, err)
+	require.True(t, e.read(a) && e.read(b), "disabled feeds are included")
+	require.False(t, e.read(c), "archived feeds are left alone")
+}

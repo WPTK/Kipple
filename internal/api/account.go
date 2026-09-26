@@ -54,9 +54,20 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 }
 
 func badNewPassword(w http.ResponseWriter, pw string) bool {
-	if n := len(pw); n < minPasswordLen || n > maxPasswordLen {
+	return badLength(w, pw, minPasswordLen)
+}
+
+// badNewAPIPassword is badNewPassword for a chosen Reader API password, which
+// guards the public ClientLogin and so needs auth.MinAPIPasswordLen (the UI only
+// generates 24-character ones).
+func badNewAPIPassword(w http.ResponseWriter, pw string) bool {
+	return badLength(w, pw, auth.MinAPIPasswordLen)
+}
+
+func badLength(w http.ResponseWriter, pw string, min int) bool {
+	if n := len(pw); n < min || n > maxPasswordLen {
 		writeErrorMsg(w, http.StatusBadRequest, "bad_new_password",
-			"the new password must be "+strconv.Itoa(minPasswordLen)+" to "+strconv.Itoa(maxPasswordLen)+" characters")
+			"the new password must be "+strconv.Itoa(min)+" to "+strconv.Itoa(maxPasswordLen)+" characters")
 		return true
 	}
 	return false
@@ -105,7 +116,7 @@ func (s *Server) accountAPIPassword(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusBadRequest, "bad_request", `send exactly one of "new" or "generate": true`)
 		return
 	}
-	if body.New != nil && badNewPassword(w, *body.New) {
+	if body.New != nil && badNewAPIPassword(w, *body.New) {
 		return
 	}
 	if !s.checkCurrent(w, r, body.Current) {

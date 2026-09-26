@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/WPTK/kipple/web"
@@ -60,7 +61,12 @@ func NewHandler(opts ...Option) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("web: %w", err)
 	}
+	return newHandler(dist, pageETag), nil
+}
 
+// newHandler serves dist: /assets/*, the root files of the build (manifest, service worker, icons), and
+// index.html for every other path.
+func newHandler(dist fs.FS, pageETag func(string) string) http.Handler {
 	index, modTime := readIndex(dist)
 	etag := etagOf(index)
 
@@ -77,12 +83,78 @@ func NewHandler(opts ...Option) (http.Handler, error) {
 		w.Header().Set("ETag", etagOf(statusScript))
 		http.ServeContent(w, r, "status.js", time.Time{}, bytes.NewReader(statusScript))
 	})
+	for _, name := range rootFiles(dist) {
+		body, err := fs.ReadFile(dist, name)
+		if err != nil {
+			continue
+		}
+		mux.Handle("GET /"+name, rootFile(name, body))
+	}
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("ETag", pageETag(etag))
 		http.ServeContent(w, r, "index.html", modTime, bytes.NewReader(index))
 	})
-	return mux, nil
+	return mux
+}
+
+// rootFiles lists the regular files at the top of dist other than index.html and dotfiles: what the
+// build copies from web/public (manifest, service worker, icons, robots.txt). Each is served at "/<name>",
+// so a name can never reach outside dist and needs no path cleaning.
+func rootFiles(dist fs.FS) []string {
+	ents, err := fs.ReadDir(dist, ".")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range ents {
+		n := e.Name()
+		if e.Type().IsRegular() && n != "index.html" && validRootName(n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// validRootName keeps a name that is safe as a mux pattern and cannot shadow a route of the server: plain
+// characters only, no dotfiles, nothing starting with an underscore (the /_status pages).
+func validRootName(n string) bool {
+	if n == "" || strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_") {
+		return false
+	}
+	for _, r := range n {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// rootFile serves one root file. All of them revalidate on every use (no-cache plus an ETag of the
+// content), which is what a service worker script needs so an update is found within a day at most, and
+// is cheap for the small rest. sw.js may control the whole origin; its type is fixed so a browser never
+// refuses it for a wrong MIME.
+func rootFile(name string, body []byte) http.Handler {
+	etag := etagOf(body)
+	ctype := ""
+	switch {
+	case name == "sw.js":
+		ctype = "text/javascript; charset=utf-8"
+	case strings.HasSuffix(name, ".webmanifest"):
+		ctype = "application/manifest+json"
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Cache-Control", "no-cache")
+		h.Set("ETag", etag)
+		if ctype != "" {
+			h.Set("Content-Type", ctype)
+		}
+		if name == "sw.js" {
+			h.Set("Service-Worker-Allowed", "/")
+		}
+		http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(body))
+	})
 }
 
 // readIndex returns the built index.html, or the placeholder page (with a

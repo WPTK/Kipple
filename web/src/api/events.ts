@@ -172,6 +172,11 @@ export function announcementFor(ev: ServerEvent, runKind?: string): string | nul
     const kind = runKind ?? ev.data.kind;
     if (kind === "filter_apply") {
       // Editing or deleting a rule mid-apply makes the server cancel it and report an error: that was intended.
+      // The server names how an apply ended: cancelled or filter_changed (the rule was edited or deleted), shutdown,
+      // timed_out, apply_failed.
+      if (ev.data.error === "cancelled" || ev.data.error === "filter_changed") return "Stopped because the rule changed";
+      if (ev.data.error === "shutdown") return null;
+      if (ev.data.error === "timed_out") return "The filter took too long and was stopped";
       if (ev.data.error && wasFilterTouched(ev.data.filter_id)) return "Stopped because the rule changed";
       if (ev.data.error || ev.data.errors > 0) return "Couldn't finish applying the filter";
       const n = ev.data.changed ?? 0;

@@ -12,7 +12,7 @@ not localhost, name compose services explicitly).
   Reeder Classic, secondary NetNewsWire. Test against both.
 - **Refresh:** background poll every 30 min (global + per-feed override), ETag/Last-Modified
   conditional requests, exponential backoff on failing feeds, manual refresh fetches all now.
-  API clients never trigger fetches of existing feeds (the Reader API has no refresh-all call; if a client ever sends one, it is ignored); a feed added from a client is fetched on the next scheduler tick, which the add brings forward.
+  API clients never trigger fetches of existing feeds (the Reader API has no refresh-all call; if a client ever sends one, it is ignored); a feed added from a client is fetched on the next scheduler tick, which the add brings forward (the one opt-in exception is the setting `greader.subscribe_fetch_now`, default off: a bounded 8 s wait for the first fetch).
 - **Retention:** newest N per feed (50/100/250/500/1000/unlimited), global + per-feed. Starred
   never trimmed. Trimmed IDs and read state kept for API consistency. Trim after each fetch and when retention changes (a settings change or Apply retention now).
 - **Stats:** bulk mark-as-read and mark-read-on-scroll are not reads. Active reading time =
@@ -44,14 +44,17 @@ not localhost, name compose services explicitly).
   `KIPPLE_ADDR=127.0.0.1:7080` and `KIPPLE_DATA=%TEMP%\kipple-dev` and run `go run ./cmd/kipple serve`; then
   `cd web && npm run dev` (Vite on 127.0.0.1:5173 proxies to 7080).
 - Test: `go test ./...` and `cd web && npm test`.
-- Local CI: `pwsh scripts/ci-local.ps1` (add `-Docker` for the image build and Trivy). It mirrors the CI workflow with the same pinned tools; while GitHub Actions minutes are unavailable, a green run is what "CI green" means. Fuzz targets: `scripts/fuzz.ps1` before each release (see `docs/RELEASING.md`).
+- Local CI: `pwsh scripts/ci-local.ps1` (add `-Docker` for the image build and Trivy). It mirrors the CI workflow with the same pinned tools; GitHub Actions is on (the repository is public) and its run on the exact commit is what "CI green" means; the local run is the fast check before pushing. Fuzz targets: `scripts/fuzz.ps1` before each release (see `docs/RELEASING.md`).
 - Build image locally: `docker build -t kipple:dev .`
 - Run `/code-review high` before every deploy.
 
 ## Deploy
 
-GitHub is the source of truth (repo `WPTK/Kipple`). Nothing deploys from an unpushed tree.
-On Host-A: `ssh host-a 'cd /home/user/kipple && git pull && docker compose -f /home/user/stack/docker-compose.yml build kipple && docker compose -f /home/user/stack/docker-compose.yml up -d kipple'`.
+GitHub is the source of truth (repo `WPTK/Kipple`), and the pushed release tag is what deploys: nothing deploys from
+an unpushed tree or from `main`. On Host-A (full steps in `docs/RELEASING.md`):
+`ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout vX.Y.Z && KIPPLE_VERSION=vX.Y.Z KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose -f /home/user/stack/docker-compose.yml build kipple && docker compose -f /home/user/stack/docker-compose.yml up -d kipple'`,
+then `ssh host-a 'cd /home/user/kipple && git checkout main'` to leave the detached HEAD. `.git` is not in the build
+context, so the version reaches the binary only through `KIPPLE_VERSION` and the service's `build.args`.
 Service `kipple` in compose project `host-a`, named volume for `/data`, 10m x 3 log rotation.
 Public URL `https://rss.example.com` via Host-B's cloudflared; the Access bypass covers exactly the
 `/api/greader.php` prefix (Reader API and its `/icon/` URLs); root `/accounts/ClientLogin` and

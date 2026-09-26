@@ -102,6 +102,24 @@ func TestEvictionStopsOnAFailingIndexWithoutSpinning(t *testing.T) {
 	require.Equal(t, sum, c.Stats().UsedBytes)
 }
 
+// Review finding: the downloads in progress were subtracted from the eviction target without a
+// floor. At a small cap a handful of large downloads in flight (8 x 15 MB against 64 MB) drove the
+// target to 0, and the next commit emptied the whole cache. The target now stays at half or more.
+func TestDownloadsInProgressCannotWipeTheCache(t *testing.T) {
+	const unit = 16 << 10 // 64 MB cap scaled down 1024x: 4 KiB files stand for 4 MB ones
+	c, _ := newCache(t, func(o *Options) { o.MaxBytes = 64 * unit })
+	for i := 0; i < 12; i++ {
+		put(t, c, fmt.Sprintf("f%02d", i), 4*unit) // 48 of 64
+	}
+	c.tmpBytes.Add(8 * 15 * unit) // eight 15 MB downloads in flight
+	defer c.tmpBytes.Add(-8 * 15 * unit)
+	put(t, c, "last", 4*unit) // the commit that finds the cache over its cap
+	used := c.Stats().UsedBytes
+	target := int64(64*unit) * evictTargetPct / 100
+	require.GreaterOrEqual(t, used, target/2-4*unit, "eviction stopped at about half the target, not at zero")
+	require.Less(t, used, int64(52*unit), "it still made room")
+}
+
 func TestEvictionHonorsCancellation(t *testing.T) {
 	c, _ := newCache(t)
 	put(t, c, "a", 1000)

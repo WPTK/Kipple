@@ -4,6 +4,8 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -116,13 +118,21 @@ func (c *Client) CloseIdle() {
 }
 
 // httpClient returns a client for one attempt; hops collects the redirects.
-func (c *Client) httpClient(v variant, hops *[]Hop) *http.Client {
+// feed is the feed's own URL: the Authorization header (feeds.http_auth) is
+// dropped from every hop authAllowed refuses. net/http strips it only on a move
+// to an unrelated host; it keeps it for a subdomain (so does authAllowed) and
+// for an https -> http downgrade, which would send the password in clear text
+// (authAllowed does not).
+func (c *Client) httpClient(v variant, hops *[]Hop, feed *url.URL) *http.Client {
 	return &http.Client{
 		Transport: c.transport(v),
 		Timeout:   c.opt.ClientTimeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > maxHops {
 				return errTooManyHops
+			}
+			if !authAllowed(feed, req.URL) {
+				req.Header.Del("Authorization")
 			}
 			prev := via[len(via)-1]
 			status := 0
@@ -133,6 +143,17 @@ func (c *Client) httpClient(v variant, hops *[]Hop) *http.Client {
 			return nil
 		},
 	}
+}
+
+// authAllowed reports whether a request to target may carry the feed's HTTP
+// credentials: only to the feed's own host or a subdomain of it (the net/http
+// rule, so example.com -> www.example.com keeps working), and only over https
+// unless the feed URL itself is plain http (the user chose clear text).
+func authAllowed(feed, target *url.URL) bool {
+	if feed == nil || target == nil || !SameOrSubdomain(feed.Hostname(), target.Hostname()) {
+		return false
+	}
+	return strings.EqualFold(target.Scheme, "https") || strings.EqualFold(feed.Scheme, "http")
 }
 
 // Transport returns the cached guarded transport for a variant, for callers

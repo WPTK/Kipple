@@ -13,6 +13,38 @@ describe("embedSrc", () => {
   });
 });
 
+describe("embedSrc player parameters", () => {
+  it("keeps a playlist, a start time and a Vimeo unlisted hash", () => {
+    expect(embedSrc("youtube", "videoseries", { list: "PLx_Y-9" })).toBe(
+      "https://www.youtube-nocookie.com/embed/videoseries?autoplay=1&list=PLx_Y-9",
+    );
+    expect(embedSrc("youtube", "abc", { list: "PL1", start: "90" })).toBe(
+      "https://www.youtube-nocookie.com/embed/abc?autoplay=1&list=PL1&start=90",
+    );
+    expect(embedSrc("vimeo", "123", { h: "8a1b2c3d4e" })).toBe("https://player.vimeo.com/video/123?h=8a1b2c3d4e&dnt=1&autoplay=1");
+  });
+
+  it("drops values that fail their pattern and refuses a playlist player without a list", () => {
+    expect(embedSrc("youtube", "videoseries")).toBeNull();
+    expect(embedSrc("youtube", "videoseries", { list: "PL&x=1" })).toBeNull();
+    expect(embedSrc("youtube", "abc", { list: 'a"b', start: "1e3" })).toBe("https://www.youtube-nocookie.com/embed/abc?autoplay=1");
+    expect(embedSrc("vimeo", "123", { h: "../x" })).toBe("https://player.vimeo.com/video/123?dnt=1&autoplay=1");
+  });
+
+  it("loadEmbed reads the parameters from the placeholder's data attributes", () => {
+    const fig = document.createElement("figure");
+    fig.dataset.provider = "vimeo";
+    fig.dataset.id = "123";
+    fig.dataset.h = "abc";
+    expect(loadEmbed(fig)?.src).toBe("https://player.vimeo.com/video/123?h=abc&dnt=1&autoplay=1");
+    const pl = document.createElement("figure");
+    pl.dataset.provider = "youtube";
+    pl.dataset.id = "videoseries";
+    pl.dataset.list = "PL1";
+    expect(loadEmbed(pl)?.src).toBe("https://www.youtube-nocookie.com/embed/videoseries?autoplay=1&list=PL1");
+  });
+});
+
 describe("loadEmbed", () => {
   it("does nothing for a placeholder with a bad id, and loads once for a good one", () => {
     const bad = document.createElement("figure");

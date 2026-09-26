@@ -158,6 +158,7 @@ func (r *Runner) lead(ctx context.Context, req Request) (Outcome, error) {
 	res, err := r.safeExtract(ictx, extract.Target{
 		URL: it.URL, UserAgent: it.UserAgent, RetryUserAgent: it.RetryUserAgent,
 		AllowPrivate: it.AllowPrivateNet, InsecureTLS: it.AllowInsecureTLS, NoHTTP2: it.NoHTTP2,
+		FeedHost: r.feedHost(ictx, it), FeedID: it.FeedID,
 	})
 	save := store.FulltextSave{HTML: res.HTML, Text: res.Text, WordCount: res.WordCount, ImageURL: res.ImageURL, SourceURL: res.SourceURL}
 	if err != nil {
@@ -190,6 +191,24 @@ func (r *Runner) lead(ctx context.Context, req Request) (Outcome, error) {
 		out.Written = err == nil
 	}
 	return out, err
+}
+
+// feedHost is the host of the item's feed, the only host the feed's network
+// exceptions (allow_private_net, allow_insecure_tls) apply to during the
+// extraction. It is looked up only when the feed has one; "" (none, or a failed
+// lookup) keeps every request on the guarded transport.
+func (r *Runner) feedHost(ctx context.Context, it store.FulltextItem) string {
+	if !it.AllowPrivateNet && !it.AllowInsecureTLS {
+		return ""
+	}
+	snap, ok, err := r.db.FeedSnapshot(ctx, r.db.FetchSettings(ctx), it.FeedID)
+	if err != nil || !ok {
+		if err != nil {
+			r.log.Warn("ftrun: feed host lookup; the feed's network exceptions are not used", "item", it.ID, "err", err)
+		}
+		return ""
+	}
+	return snap.Host
 }
 
 type panicError struct {

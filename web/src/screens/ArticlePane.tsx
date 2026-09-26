@@ -10,6 +10,7 @@ import { useItemActions } from "@/lib/itemActions";
 import { articleTo, listTo } from "@/lib/routes";
 import { sanitizeArticleHtml } from "@/lib/safeHtml";
 import { openExternal, resolveLinkTarget } from "@/lib/links";
+import { safeHttpUrl } from "@/lib/safeUrl";
 import { ARTICLE_WIDTH_REM, useDevicePrefs } from "@/lib/devicePrefs";
 import { fullDate } from "@/lib/format";
 import { useHotkeys } from "@/lib/keys";
@@ -115,7 +116,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   };
 
   const openOriginal = () => {
-    if (item.data?.url) openExternal(item.data.url);
+    const url = safeHttpUrl(item.data?.url);
+    if (url) openExternal(url);
   };
   const toggleStar = () => {
     if (!item.data) return;
@@ -214,6 +216,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
 
   const a = item.data;
   const ftOn = a.fulltext.effective === 1;
+  // The wide pane is not remounted per article (that would drop focus from the toolbar on Next), so the
+  // mutation outlives the article it was started for: busy only means busy for this one.
+  const ftBusy = fulltext.isPending && fulltext.variables?.id === id;
 
   return (
     <div ref={frame} className="flex h-full min-h-0 flex-col bg-bg">
@@ -223,7 +228,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           top
           a={a}
           ftOn={ftOn}
-          ftBusy={fulltext.isPending}
+          ftBusy={ftBusy}
           canPrev={!!prevId}
           canNext={canPage}
           onPrev={() => prev("nav")}
@@ -246,7 +251,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
               >
                 {a.read ? "Read" : "Unread"}
               </span>
-              <a href={a.feed.site_url || undefined} target={linkTarget === "new" ? "_blank" : undefined} rel="noopener noreferrer" className="hover:underline">
+              <a href={safeHttpUrl(a.feed.site_url)} target={linkTarget === "new" ? "_blank" : undefined} rel="noopener noreferrer" className="hover:underline">
                 {a.source || a.feed.title}
               </a>
             </p>
@@ -306,7 +311,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
         <Toolbar
           a={a}
           ftOn={ftOn}
-          ftBusy={fulltext.isPending}
+          ftBusy={ftBusy}
           canPrev={!!prevId}
           canNext={canPage}
           onPrev={() => prev("nav")}

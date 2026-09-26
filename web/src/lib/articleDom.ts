@@ -2,26 +2,53 @@
 // click-to-load embeds, footnote links that scroll inside the article, and nothing else.
 // No inline script, no eval; iframes exist only for the two allowed hosts and only after a tap.
 
+// Same patterns as internal/sanitize/serve.go, which already filtered what reaches the placeholder.
 const YOUTUBE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const YOUTUBE_LIST = /^[A-Za-z0-9_-]{1,64}$/;
+const START = /^\d{1,6}$/;
 const VIMEO_ID = /^\d{1,20}$/;
+const VIMEO_HASH = /^[0-9a-f]{1,32}$/;
 
 export const SANDBOX = "allow-scripts allow-same-origin allow-presentation allow-popups";
 export const ALLOW = "autoplay; fullscreen; picture-in-picture";
 
-/** The iframe URL for an embed placeholder, or null when the provider or id is not allowed. */
-export function embedSrc(provider: string | undefined, id: string | undefined): string | null {
+/** The player parameters a placeholder may carry (data-list, data-start, data-h). */
+export interface EmbedParams {
+  list?: string;
+  start?: string;
+  h?: string;
+}
+
+/**
+ * The iframe URL for an embed placeholder, or null when the provider or id is not allowed. A parameter
+ * that fails its pattern is left out; a YouTube playlist player (id "videoseries") needs a valid list.
+ */
+export function embedSrc(provider: string | undefined, id: string | undefined, params: EmbedParams = {}): string | null {
   if (!provider || !id) return null;
-  if (provider === "youtube" && YOUTUBE_ID.test(id)) return `https://www.youtube-nocookie.com/embed/${id}?autoplay=1`;
-  if (provider === "vimeo" && VIMEO_ID.test(id)) return `https://player.vimeo.com/video/${id}?dnt=1&autoplay=1`;
+  if (provider === "youtube" && YOUTUBE_ID.test(id)) {
+    const list = params.list && YOUTUBE_LIST.test(params.list) ? params.list : "";
+    if (id === "videoseries" && !list) return null;
+    let q = "autoplay=1";
+    if (list) q += `&list=${list}`;
+    if (params.start && START.test(params.start)) q += `&start=${params.start}`;
+    return `https://www.youtube-nocookie.com/embed/${id}?${q}`;
+  }
+  if (provider === "vimeo" && VIMEO_ID.test(id)) {
+    const h = params.h && VIMEO_HASH.test(params.h) ? `h=${params.h}&` : "";
+    return `https://player.vimeo.com/video/${id}?${h}dnt=1&autoplay=1`;
+  }
   return null;
 }
+
+const figureSrc = (fig: HTMLElement): string | null =>
+  embedSrc(fig.dataset.provider, fig.dataset.id, { list: fig.dataset.list, start: fig.dataset.start, h: fig.dataset.h });
 
 const providerName = (p: string | undefined): string => (p === "vimeo" ? "Vimeo" : "YouTube");
 
 /** Build the sandboxed iframe for a placeholder and put it in place of the thumbnail. */
 export function loadEmbed(figure: HTMLElement): HTMLIFrameElement | null {
   if (figure.dataset.loaded === "1") return null;
-  const src = embedSrc(figure.dataset.provider, figure.dataset.id);
+  const src = figureSrc(figure);
   if (!src) return null;
   const doc = figure.ownerDocument;
   const frame = doc.createElement("iframe");
@@ -43,7 +70,7 @@ export function loadEmbed(figure: HTMLElement): HTMLIFrameElement | null {
 export function enhanceEmbeds(root: ParentNode): void {
   for (const fig of root.querySelectorAll<HTMLElement>("figure.kp-embed[data-provider][data-id]")) {
     if (fig.querySelector("button.kp-embed-play") || fig.dataset.loaded === "1") continue;
-    if (!embedSrc(fig.dataset.provider, fig.dataset.id)) continue;
+    if (!figureSrc(fig)) continue;
     const b = fig.ownerDocument.createElement("button");
     b.type = "button";
     b.className = "kp-embed-play";
@@ -79,7 +106,7 @@ export function handleArticleClick(e: MouseEvent | React.MouseEvent, body: HTMLE
   const t = e.target;
   if (!(t instanceof Element)) return false;
 
-  const link = t.closest<HTMLAnchorElement>("a[href^='#kp-']");
+  const link = t.closest<HTMLElement>("a[href^='#kp-'], area[href^='#kp-']");
   if (link && body.contains(link)) {
     const target = footnoteTarget(body, link.getAttribute("href") ?? "");
     e.preventDefault();

@@ -208,6 +208,22 @@ let again = false;
  * them back on top of the server's values instead of overwriting them.
  */
 let unsavedBase: Profile = {};
+/**
+ * Before the first hydration (the bootstrap is still loading, or only the service worker's stored copy has answered):
+ * the local profile at page load, and the unsent changes left from before it. A change made now is recorded as unsent
+ * against that base, so the hydration puts it back on top of the server's values instead of overwriting it.
+ */
+let preBase: Profile | null = null;
+let preDirty: Profile = {};
+
+/** Called once at app start: listen to the local stores from the first frame, not only after the bootstrap. */
+export function startDeviceSync(): void {
+  ensureSubscribed();
+  if (hydratedFor === null && preBase === null) {
+    preBase = profileOf(store());
+    preDirty = readDirty();
+  }
+}
 
 /** Refused values the user has since changed are no longer refused: only a value still refused counts. */
 function pruneRefused(): void {
@@ -255,6 +271,14 @@ function readDirty(): Profile {
 
 function onLocalChange(): void {
   if (applying) return;
+  if (hydratedFor === null) {
+    if (preBase === null) return;
+    const want = profileOf(store());
+    const mine: Profile = { ...preDirty };
+    for (const k of Object.keys(want)) if (!eq(want[k], preBase[k])) mine[k] = want[k] ?? null;
+    persistDirty(mine);
+    return;
+  }
   if (syncStore.get().status === "unsaved") {
     const want = profileOf(store());
     const mine: Profile = {};
@@ -452,6 +476,8 @@ export function hydrateDevice(device: DeviceView | undefined): void {
   if (!device || !device.merged) return;
   if (hydratedFor === device.id) return;
   hydratedFor = device.id;
+  preBase = null;
+  preDirty = {};
   ensureSubscribed();
   if (device.id === "") {
     // The unsaved default device: every write would be a 404. Keep using the local values, send nothing (the
@@ -481,7 +507,8 @@ export function hydrateDevice(device: DeviceView | undefined): void {
     // effective value (an account-wide setting such as mark-read-on-scroll must not become a device override).
     const held = legacyProfileKeys();
     const want = profileOf(cur);
-    for (const k of Object.keys(want)) if (!held.has(k)) want[k] = synced[k] ?? null;
+    const early = readDirty(); // changed on this page before the bootstrap arrived
+    for (const k of Object.keys(want)) if (!held.has(k) && !(k in early)) want[k] = synced[k] ?? null;
     applyLocal(deriveLocal(want, cur));
     enabled = true;
     setStatus("idle");
@@ -553,6 +580,8 @@ export function resetDeviceSync(): void {
   synced = {};
   refused = {};
   unsavedBase = {};
+  preBase = null;
+  preDirty = {};
   inflight = null;
   again = false;
   syncStore.set({ status: "off", refused: 0 });

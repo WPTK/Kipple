@@ -76,3 +76,20 @@ func FuzzKeyAndNormalizeMatchesKeyOfNormalize(f *testing.F) {
 		}
 	})
 }
+
+// Credentials in the URL are refused everywhere a feed URL is parsed, so they are
+// never stored, logged or exported; the feed's HTTP authentication is the one path.
+func TestUserinfoRejected(t *testing.T) {
+	for _, raw := range []string{"https://bob:secret@example.com/feed", "http://bob@example.com/feed", "https://:pw@example.com/f"} {
+		_, err := Normalize(raw)
+		require.ErrorIs(t, err, ErrUserinfo, raw)
+		_, _, err = KeyAndNormalize(raw)
+		require.ErrorIs(t, err, ErrUserinfo, raw)
+		_, err = Key(raw)
+		require.ErrorIs(t, err, ErrUserinfo, raw)
+		_, err = Host(raw)
+		require.ErrorIs(t, err, ErrUserinfo, raw)
+	}
+	_, err := Normalize("https://example.com/feed?u=bob@x")
+	require.NoError(t, err, "an @ in the query is not userinfo")
+}

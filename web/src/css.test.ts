@@ -21,6 +21,14 @@ describe("article headings", () => {
   }
 });
 
+describe("top safe-area inset", () => {
+  it("is taken once per column: banners after the first, and the screen header under them, drop it", () => {
+    const r = rules().find((x) => x.sel.includes(".kp-stack > .pt-safe ~ .pt-safe"));
+    expect(r?.sel).toMatch(/\.kp-stack > \.pt-safe ~ \.pt-safe,\s*\.kp-stack > \.pt-safe ~ main \.pt-safe$/);
+    expect(r?.body).toMatch(/padding-top:\s*0;/);
+  });
+});
+
 describe("hit-row tap target", () => {
   it("is 44px on coarse pointers", () => {
     expect(css).toMatch(/@media \(pointer: coarse\) \{\s*\.hit-row \{ min-width: 44px; min-height: 44px; \}/);

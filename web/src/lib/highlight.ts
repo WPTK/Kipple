@@ -110,7 +110,8 @@ export function compileHighlights(rules: readonly Highlight[] | undefined): Grou
       scope: r.scope,
       folderId: r.folder_id,
       feedId: r.feed_id,
-      fields: new Set(r.fields),
+      // An empty list is title only, as in the engine (the server sends ["title"]; this covers older rows).
+      fields: new Set(r.fields && r.fields.length > 0 ? r.fields : ["title"]),
       caseSensitive: r.case_sensitive,
       fold: r.fold_diacritics,
       wholeWord: r.whole_word,

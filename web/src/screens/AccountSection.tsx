@@ -4,6 +4,7 @@ import { ApiError, api, authStore, errorMessage } from "@/api/client";
 import { applyRetention, changePassword, exportBackup, generateApiPassword, type BackupInfo } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { bytesLabel, fullDate } from "@/lib/format";
+import { wipeOfflineData } from "@/lib/offline";
 import { buttonVariants } from "@/ui/button";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, inputCls } from "@/ui/kit";
@@ -233,6 +234,9 @@ export function AccountActions() {
       return;
     }
     qc.clear();
+    // Wait for the copies to be gone before the sign-in screen: the next person at this browser must not be able
+    // to read them offline, and a request answered meanwhile must not find them still there.
+    await wipeOfflineData();
     authStore.set("out");
   };
 

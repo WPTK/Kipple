@@ -19,8 +19,11 @@ var blockedPrefixes = func() []netip.Prefix {
 		"0.0.0.0/8",      // "this" network
 		"100.64.0.0/10",  // CGNAT
 		"192.0.0.0/24",   // IETF protocol assignments
+		"192.88.99.0/24", // 6to4 relay anycast (deprecated, RFC 7526)
 		"198.18.0.0/15",  // benchmarking
 		"240.0.0.0/4",    // reserved + broadcast
+		"::/96",          // IPv4-compatible (deprecated; Unmap does not convert it)
+		"fec0::/10",      // site-local (deprecated, RFC 3879)
 		"64:ff9b::/96",   // NAT64
 		"64:ff9b:1::/48", // local-use NAT64
 		"2002::/16",      // 6to4
@@ -33,8 +36,9 @@ var blockedPrefixes = func() []netip.Prefix {
 }()
 
 // Blocked reports whether ip must not be dialled: loopback, private,
-// link-local, multicast, unspecified, CGNAT, NAT64, 6to4, Teredo, unique-local
-// and the other reserved ranges.
+// link-local, multicast, unspecified, CGNAT, NAT64, 6to4 (and its relay
+// anycast), Teredo, unique-local, site-local, IPv4-compatible and the other
+// reserved ranges.
 func Blocked(ip netip.Addr) bool {
 	ip = ip.Unmap()
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||

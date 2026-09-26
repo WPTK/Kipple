@@ -271,7 +271,9 @@ npm run dev                      # terminal 2: http://127.0.0.1:5173
 
 Sign in as `dev` with `dev-password-only-for-local-testing`. Those credentials belong to the throwaway data
 directory only (`%TEMP%\kipple-dev`, override with `KIPPLE_DEV_DATA`; `KIPPLE_DEV_PORT` changes the port; `npm run seed -- --keep` reuses it).
-Needs Go on PATH and network access for the feeds.
+Without `--keep` the directory is deleted and recreated, but only if the script made it (it leaves a
+`.kipple-dev-seed` file) or it is empty; any other `KIPPLE_DEV_DATA` directory is refused unless you add `-- --force`,
+and the temp directory, home directory or a drive root are always refused. Needs Go on PATH and network access for the feeds.
 
 **By hand**, without the script:
 

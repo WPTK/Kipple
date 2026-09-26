@@ -229,6 +229,28 @@ func TestTranscodeAppliesExifOrientation(t *testing.T) {
 	}
 }
 
+// TestExifOrientationShortAPP1: an APP1 segment whose declared length (2) is
+// shorter than its "Exif\0\0" header once sliced backwards and panicked. The
+// walk now stops, and the transcode of such a file ends without a panic.
+func TestExifOrientationShortAPP1(t *testing.T) {
+	base := sampleJPEG(t)
+	src := append([]byte{0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x02}, "Exif\x00\x00"...)
+	src = append(src, base[2:]...)
+	require.NotPanics(t, func() { require.Equal(t, 1, exifOrientation(src)) })
+	for _, l := range []byte{0, 1, 3, 7} {
+		b := append([]byte(nil), src...)
+		b[5] = l
+		require.NotPanics(t, func() { require.Equal(t, 1, exifOrientation(b)) }, "length %d", l)
+	}
+	require.NotPanics(t, func() {
+		_, err := planThumb(bytes.NewReader(src), int64(len(src)), "image/jpeg", ThumbWidth, defaultThumbPixels)
+		var pe *passError
+		if err != nil {
+			require.ErrorAs(t, err, &pe, "a refusal, not a failure")
+		}
+	})
+}
+
 func TestOrientImageMovesPixels(t *testing.T) {
 	src := image.NewRGBA(image.Rect(0, 0, 2, 3))
 	src.Set(0, 0, color.RGBA{R: 255, A: 255}) // top-left marker
@@ -486,9 +508,13 @@ func TestThumbEvictionAccounting(t *testing.T) {
 	}
 	require.Equal(t, sum, st.UsedBytes, "the counters match what is left")
 	require.Equal(t, files, st.Files)
-	_, origLeft := tr.origEntry("a.jpg")
-	require.False(t, origLeft, "the original was the eviction victim")
-	require.EqualValues(t, 1, st.Thumbnails)
+	// Serving the thumbnail touches its original too (the two age together), so
+	// which of them goes is down to the tie-break; the counters match either way.
+	thumbs := int64(0)
+	if en, ok := tr.thumbEntry("a.jpg"); ok && en.OK {
+		thumbs = 1
+	}
+	require.Equal(t, thumbs, st.Thumbnails)
 }
 
 func TestThumbFallbacksAreRememberedNotRetried(t *testing.T) {

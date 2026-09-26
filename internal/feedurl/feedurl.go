@@ -64,6 +64,11 @@ func Host(raw string) (string, error) {
 	return u.Hostname(), nil
 }
 
+// ErrUserinfo is returned for a URL with a user name or password in it
+// (https://user:pass@host/). Credentials would be stored, logged and exported
+// with the URL; the feed's HTTP authentication setting is the one place for them.
+var ErrUserinfo = errors.New("feedurl: the URL contains a user name or password; set them as the feed's HTTP authentication instead")
+
 func parse(raw string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -72,6 +77,9 @@ func parse(raw string) (*url.URL, error) {
 	u.Scheme = strings.ToLower(u.Scheme)
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return nil, errors.New("feedurl: not an absolute http(s) URL")
+	}
+	if u.User != nil {
+		return nil, ErrUserinfo
 	}
 	host := strings.ToLower(u.Hostname())
 	port := u.Port()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"unicode/utf8"
 )
 
 // CreateSession stores a web session under id (the hex sha256 of the cookie
@@ -64,11 +65,20 @@ func (d *DB) DeleteSession(ctx context.Context, id string) error {
 	})
 }
 
+// truncate cuts s to at most n bytes on a rune boundary, so a stored user
+// agent never ends in half a UTF-8 character. Bytes that are not valid UTF-8
+// are cut at n (at most utf8.UTFMax-1 bytes are given back looking for a
+// boundary).
 func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
+	if len(s) <= n {
+		return s
 	}
-	return s
+	for i := n; i > 0 && i > n-utf8.UTFMax; i-- {
+		if utf8.RuneStart(s[i]) {
+			return s[:i]
+		}
+	}
+	return s[:n]
 }
 
 // SessionActive reports whether the session exists and has not expired. It is
