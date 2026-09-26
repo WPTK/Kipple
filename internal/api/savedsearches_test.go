@@ -214,6 +214,9 @@ func TestSavedSearchScopeIsDroppedWhenItsFeedOrFolderIsDeleted(t *testing.T) {
 }
 
 func TestSavedSearchCountIsCappedAt999(t *testing.T) {
+	b, tb := savedSearchBudget, savedSearchTotalBudget
+	savedSearchBudget, savedSearchTotalBudget = time.Minute, time.Minute // the race detector is slow
+	t.Cleanup(func() { savedSearchBudget, savedSearchTotalBudget = b, tb })
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -232,4 +235,21 @@ func TestSavedSearchCountIsCappedAt999(t *testing.T) {
 	l = savedList(t, h, c, "")
 	require.EqualValues(t, 40, l[0]["unread"])
 	require.Equal(t, false, l[0]["unread_capped"])
+}
+
+func TestSavedSearchCountThatRunsOutOfBudgetIsNull(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	feed := h.addFeed("A", 0)
+	h.addItem(feed, seedItem{Title: "budget word"})
+	b, tb := savedSearchBudget, savedSearchTotalBudget
+	t.Cleanup(func() { savedSearchBudget, savedSearchTotalBudget = b, tb })
+	savedSearchBudget = time.Nanosecond
+	out := h.saved(c, `{"name":"n","q":"budget"}`)
+	require.Contains(t, out, "unread")
+	require.Nil(t, out["unread"], "no count is better than a slow one")
+	savedSearchBudget, savedSearchTotalBudget = time.Minute, 0
+	require.Nil(t, savedList(t, h, c, "")[0]["unread"], "the whole-list budget is spent")
+	savedSearchTotalBudget = time.Minute
+	require.EqualValues(t, 1, savedList(t, h, c, "")[0]["unread"])
 }

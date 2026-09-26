@@ -18,8 +18,12 @@ import (
 const (
 	// savedSearchCap is where a count stops: the UI shows "999+".
 	savedSearchCap = 999
-	// savedSearchBudget bounds one search's count; savedSearchTotalBudget bounds a whole list, so a
-	// hundred slow searches cannot hold the request. A count that runs out of budget is null.
+)
+
+// savedSearchBudget bounds one search's count; savedSearchTotalBudget bounds a whole list, so a
+// hundred slow searches cannot hold the request. A count that runs out of budget is null. They are
+// variables so a test can widen them (the race detector is many times slower).
+var (
 	savedSearchBudget      = 200 * time.Millisecond
 	savedSearchTotalBudget = 2 * time.Second
 )
