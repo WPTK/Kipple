@@ -186,7 +186,13 @@ func (s *Server) ImgMode() string {
 	return s.refreshImgMode(context.Background())
 }
 
+// refreshImgMode reads the setting and caches it. The read and the store happen
+// under one lock, so the last store always comes from the last read: a
+// first-use fill that read the old value cannot land after a PATCH's refresh
+// (which runs after its write committed) and pin a stale img-src.
 func (s *Server) refreshImgMode(ctx context.Context) string {
+	s.imgModeMu.Lock()
+	defer s.imgModeMu.Unlock()
 	lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	m, err := s.db.StringSettingErr(lctx, "imgproxy.mode", store.DefaultImgMode)
@@ -194,6 +200,9 @@ func (s *Server) refreshImgMode(ctx context.Context) string {
 		// Not cached: a failed read must not pin the default until the next PATCH.
 		s.log.Error("api: imgproxy mode", "err", err)
 		return m
+	}
+	if s.imgModeRead != nil {
+		s.imgModeRead(m)
 	}
 	s.imgMode.Store(&m)
 	return m

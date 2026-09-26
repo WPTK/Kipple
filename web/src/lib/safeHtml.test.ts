@@ -43,6 +43,44 @@ describe("sanitizeArticleHtml links", () => {
   });
 });
 
+describe("image-map areas", () => {
+  it("get the same link rules as anchors", () => {
+    const root = document.createElement("div");
+    root.innerHTML = sanitizeArticleHtml(
+      '<img usemap="#kp-m" src="https://e.com/i.png"><map name="kp-m"><area href="https://e.com/x" target="_self" shape="rect"><area href="#kp-fn1" target="_blank"></map>',
+    );
+    const [out, fn] = [...root.querySelectorAll("area")];
+    expect(out?.getAttribute("target")).toBe("_blank");
+    expect(out?.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(fn?.hasAttribute("target")).toBe(false);
+  });
+
+  it("scroll a footnote area inside the article like an anchor", () => {
+    const scroller = document.createElement("div");
+    const body = dom('<map name="kp-m"><area href="#kp-fn1" shape="rect"></map><p id="kp-fn1">note</p>');
+    scroller.append(body);
+    document.body.append(scroller);
+    let called = 0;
+    scroller.scrollTo = (() => {
+      called++;
+    }) as typeof scroller.scrollTo;
+    const ev = new MouseEvent("click", { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, "target", { value: body.querySelector("area") });
+    expect(handleArticleClick(ev, body, scroller, false)).toBe(true);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(called).toBe(1);
+    scroller.remove();
+  });
+
+  it("drop the target in same-tab mode but keep rel", () => {
+    const root = document.createElement("div");
+    root.innerHTML = sanitizeArticleHtml('<map name="kp-m"><area href="https://e.com/x" target="_blank"></map>', "same");
+    const area = root.querySelector("area");
+    expect(area?.hasAttribute("target")).toBe(false);
+    expect(area?.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+});
+
 describe("Same tab links", () => {
   it("leaves external links without a target but keeps in-page and footnote anchors as they are", () => {
     const root = document.createElement("div");

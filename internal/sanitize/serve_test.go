@@ -44,8 +44,32 @@ func TestServeHTMLGolden(t *testing.T) {
 				`<img src="/img/https_i.ytimg.com_vi_abc_-123_hqdefault.jpg" alt="">` +
 				`<a href="https://www.youtube.com/watch?v=abc_-123"` + relNew + `>Watch on YouTube</a></figure>`},
 		{"vimeo iframe", `<iframe src="https://player.vimeo.com/video/76979871?h=abc"></iframe>`,
-			`<figure class="kp-embed" data-provider="vimeo" data-id="76979871">` +
-				`<a href="https://vimeo.com/76979871"` + relNew + `>Watch on Vimeo</a></figure>`},
+			`<figure class="kp-embed" data-provider="vimeo" data-id="76979871" data-h="abc">` +
+				`<a href="https://vimeo.com/76979871/abc"` + relNew + `>Watch on Vimeo</a></figure>`},
+		{"youtube playlist player links to the playlist, no thumbnail",
+			`<iframe src="https://www.youtube.com/embed/videoseries?list=PLx_Y-9&amp;rel=0"></iframe>`,
+			`<figure class="kp-embed" data-provider="youtube" data-id="videoseries" data-list="PLx_Y-9">` +
+				`<a href="https://www.youtube.com/playlist?list=PLx_Y-9"` + relNew + `>Watch on YouTube</a></figure>`},
+		{"youtube playlist player without a list vanishes", `<iframe src="https://www.youtube.com/embed/videoseries"></iframe>`, ``},
+		{"youtube video in a playlist with a start time",
+			`<iframe src="https://www.youtube-nocookie.com/embed/abc?list=PL1&amp;start=90&amp;autoplay=1"></iframe>`,
+			`<figure class="kp-embed" data-provider="youtube" data-id="abc" data-list="PL1" data-start="90">` +
+				`<img src="/img/https_i.ytimg.com_vi_abc_hqdefault.jpg" alt="">` +
+				`<a href="https://www.youtube.com/watch?v=abc&amp;list=PL1&amp;t=90s"` + relNew + `>Watch on YouTube</a></figure>`},
+		{"youtube params that fail their pattern are dropped",
+			`<iframe src="https://www.youtube.com/embed/abc?list=PL%22%3E%3Cscript%3E&amp;start=1e3"></iframe>`,
+			`<figure class="kp-embed" data-provider="youtube" data-id="abc">` +
+				`<img src="/img/https_i.ytimg.com_vi_abc_hqdefault.jpg" alt="">` +
+				`<a href="https://www.youtube.com/watch?v=abc"` + relNew + `>Watch on YouTube</a></figure>`},
+		{"unlisted vimeo keeps its hash", `<iframe src="https://player.vimeo.com/video/76979871?h=8a1b2c3d4e&amp;badge=0#t=5"></iframe>`,
+			`<figure class="kp-embed" data-provider="vimeo" data-id="76979871" data-h="8a1b2c3d4e">` +
+				`<a href="https://vimeo.com/76979871/8a1b2c3d4e"` + relNew + `>Watch on Vimeo</a></figure>`},
+		{"vimeo hash that fails its pattern is dropped", `<iframe src="https://player.vimeo.com/video/5?h=../x"></iframe>`,
+			`<figure class="kp-embed" data-provider="vimeo" data-id="5">` +
+				`<a href="https://vimeo.com/5"` + relNew + `>Watch on Vimeo</a></figure>`},
+		{"area links follow the link rules",
+			`<map name="m"><area href="https://a.example/x?utm_source=z&amp;k=1" shape="rect"><area href="javascript:alert(1)"><area href="#fn1"></map>`,
+			`<map name="kp-m"><area href="https://a.example/x?k=1" shape="rect"` + relNew + `><area><area href="#kp-fn1"></map>`},
 		{"other iframe vanishes with its content", `<p>a</p><iframe src="https://evil.example/x">fallback <b>text</b></iframe><p>b</p>`, `<p>a</p><p>b</p>`},
 		{"video and audio get controls and preload none", `<video src="https://a.example/v.mp4" autoplay poster="http://a.example/p.jpg"></video><audio src="https://a.example/a.mp3" preload="auto" controls></audio>`,
 			`<video src="https://a.example/v.mp4" poster="/img/http_a.example_p.jpg" preload="none" controls=""></video><audio src="https://a.example/a.mp3" preload="none" controls=""></audio>`},
@@ -106,6 +130,8 @@ func TestStripTracking(t *testing.T) {
 func TestServeHTMLIsIdempotent(t *testing.T) {
 	in := `<p>Intro <a href="https://a.example/x?utm_source=z&amp;k=1">link</a> and a note<a href="#fn1" id="r1">1</a>.</p>` +
 		`<iframe src="https://www.youtube.com/embed/abc123"></iframe><iframe src="https://player.vimeo.com/video/5"></iframe>` +
+		`<iframe src="https://www.youtube.com/embed/videoseries?list=PL1"></iframe><iframe src="https://www.youtube.com/embed/abc?list=PL1&amp;start=3"></iframe>` +
+		`<iframe src="https://player.vimeo.com/video/5?h=abc"></iframe><area href="https://a.example/?utm_source=1">` +
 		`<img src="http://a.example/1.png" srcset="http://a.example/1.png 1x"><video autoplay><source src="http://a.example/v.webm"></video>` +
 		`<audio src="http://a.example/a.mp3"></audio><audio src="https://a.example/a.mp3"></audio>` +
 		`<ol><li id="fn1">n <a href="#r1">back</a></li></ol><a name="top"></a><a href="javascript:alert(1)">bad</a>`
