@@ -71,6 +71,10 @@
   --snippet-lines: 2;
   --row-min: 3.5rem;
 
+  /* Toasts: an accent-tinted surface (18% accent into the scheme's surface). The text is the scheme's own
+     text color; scripts/contrast.mjs checks 4.5:1 for it and 3:1 for the accent and danger borders, per theme. */
+  --kp-toast-bg: color-mix(in srgb, var(--kp-accent) 18%, var(--kp-surface));
+
   --kp-gutter: 1rem;
   --tabbar-h: 3.5rem;
   --toolbar-h: 3.05rem; /* article toolbar: 44 px buttons plus padding */
@@ -107,9 +111,19 @@ body {
   margin: 0;
   background: var(--kp-bg);
   color: var(--kp-text);
-  font-family: var(--font-sans);
+  font-family: var(--kp-app-font, var(--font-sans));
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Settings, Manage feeds, Health and every menu, popover and dialog keep the system UI font whatever
+   font is chosen in the Aa menu. */
+.ui-font,
+[role="menu"],
+[role="dialog"],
+[role="alertdialog"],
+[data-radix-popper-content-wrapper] {
+  font-family: var(--font-sans);
 }
 
 ::selection {
@@ -147,14 +161,18 @@ body {
 
 .sr-only-live {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-/* Tailwind's focus:not-sr-only resets clip-path and sizing but not the legacy clip. */
-.sr-only-live:focus {
+/* Tailwind's focus:not-sr-only resets clip-path and sizing but not the legacy clip. Only the skip link
+   (an anchor) may appear on focus: a focused hidden radio or switch input must stay hidden, or a native
+   radio circle pops out over the control it belongs to. */
+a.sr-only-live:focus {
   clip: auto;
   clip-path: none;
   width: auto;
@@ -162,6 +180,21 @@ body {
   overflow: visible;
   white-space: normal;
   padding: 0.75rem 1rem;
+}
+
+/* "N new articles": transform and opacity only, so it never causes layout. */
+.kp-pill {
+  opacity: 0;
+  transform: translate3d(0, -0.75rem, 0);
+  visibility: hidden;
+  will-change: transform, opacity;
+  transition: opacity 200ms cubic-bezier(0.2, 0, 0, 1), transform 200ms cubic-bezier(0.2, 0, 0, 1), visibility 0s linear 200ms;
+}
+.kp-pill[data-open="true"] {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition-delay: 0s;
 }
 
 /* Rows leaving the Unread list collapse to nothing (180 ms, matching lib/collapse.ts). */
@@ -185,7 +218,7 @@ body {
   font-size: 1.0625rem;
   line-height: var(--kp-lh);
   letter-spacing: var(--kp-ls);
-  max-width: min(var(--kp-measure), 46rem, 100%);
+  max-width: min(var(--kp-col, min(var(--kp-measure), 46rem)), 100%);
   margin-inline: auto;
   overflow-wrap: anywhere;
 }

@@ -2,7 +2,20 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useSettings, type SettingGroup, type SettingMeta } from "@/api/admin";
 import { errorMessage } from "@/api/client";
-import { LAYOUT_IDS, LAYOUT_LABELS, updateDevicePrefs, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
+import {
+  ARTICLE_WIDTHS,
+  ARTICLE_WIDTH_LABELS,
+  LAYOUT_IDS,
+  LAYOUT_LABELS,
+  UNREAD_BADGES,
+  updateDevicePrefs,
+  useDevicePrefs,
+  type ArticleWidth,
+  type LayoutId,
+  type LinkTarget,
+  type UnreadBadge,
+} from "@/lib/devicePrefs";
+import { resolveLinkTarget } from "@/lib/links";
 import { MOTIONS, MOTION_LABELS, RATES, prefsStore, updatePrefs, type Motion } from "@/lib/prefs";
 import { listVoices, speechSupported } from "@/lib/speech";
 import { useStore } from "@/lib/store";
@@ -10,14 +23,14 @@ import { ThemePicker } from "@/theme/ThemePicker";
 import { Segmented } from "@/ui/segmented";
 import { Button } from "@/ui/button";
 import { Disclosure, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
-import { DensityControl, FontSelect, SpacingControl, TextSizeControl } from "./AppearanceControls";
+import { DensityControl, SpacingControl, TextSizeControl } from "./AppearanceControls";
 import { AccountActions } from "./AccountSection";
 import { SettingField } from "./SettingField";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className="border-b border-line px-4 py-5">
+    <section aria-labelledby={id} className="border-b border-line py-5">
       <h2 id={id} className="mb-3 text-lg font-bold">
         {title}
       </h2>
@@ -103,13 +116,9 @@ function AccessibilitySection({ scrollSetting, loading }: { scrollSetting: Setti
   return (
     <Section title="Accessibility">
       <p className="text-sm text-fg2">Kipple follows your device's text, motion and contrast settings. These are extra controls for this device.</p>
-      <TextSizeControl />
-      <Switch
-        label="Easy-to-read font"
-        help="Switches to Atkinson Hyperlegible Next, a font designed for clear letter shapes."
-        checked={p.font === "easy"}
-        onChange={(v) => updatePrefs({ font: v ? "easy" : "default" })}
-      />
+      <p className="text-sm text-fg2">
+        For a font designed for clear letter shapes, choose Atkinson Hyperlegible Next ("Easy to read") in the Aa menu.
+      </p>
       <SpacingControl />
       <Segmented<Motion>
         legend="Reduce motion"
@@ -166,31 +175,57 @@ export function SettingsScreen() {
   const scrollSetting = settings.data?.settings.find((s) => s.key === "ui.mark_read_on_scroll");
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="pt-safe shrink-0 border-b border-line px-4 pb-2">
-        <h1 className="pt-2 text-xl font-bold" tabIndex={-1} data-route-heading>
+    <div className="ui-font flex h-full min-h-0 flex-col">
+      <header className="pt-safe shrink-0 border-b border-line">
+        <h1 className="mx-auto w-full max-w-[720px] px-4 pt-2 pb-2 text-xl font-bold" tabIndex={-1} data-route-heading>
           Settings
         </h1>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[720px] px-4 pb-10">
         <Section title="Appearance">
-          <p className="text-sm text-fg2">Saved on this device only.</p>
+          <p className="text-sm text-fg2">Saved on this device only. Change the font from the Aa button in any list or article.</p>
           <ThemePicker />
-          <FontSelect />
           <TextSizeControl />
           <DensityControl />
         </Section>
 
         <AccessibilitySection scrollSetting={scrollSetting} loading={settings.isPending} />
 
-        <Section title="Lists">
+        <Section title="Lists and reading">
           <Segmented<LayoutId>
             legend="Layout"
             hint="The default for this device. Each feed and folder can override it from the layout button in its list."
             value={dp.layout}
             onChange={(layout) => updateDevicePrefs({ layout })}
             options={LAYOUT_IDS.map((id) => ({ value: id, label: LAYOUT_LABELS[id] }))}
+            wrap
           />
+          <Segmented<ArticleWidth>
+            legend="Article width"
+            hint="How wide the text of an article is. Full uses the whole pane."
+            value={dp.articleWidth}
+            onChange={(articleWidth) => updateDevicePrefs({ articleWidth })}
+            options={ARTICLE_WIDTHS.map((w) => ({ value: w, label: ARTICLE_WIDTH_LABELS[w] }))}
+          />
+          <Segmented<LinkTarget>
+            legend="Open links in"
+            hint="Same tab lets a link that an installed app claims (ESPN, YouTube) open in the app cleanly, and Back returns here. It is the default on iPhone and iPad."
+            value={resolveLinkTarget(dp.linkTarget)}
+            onChange={(linkTarget) => updateDevicePrefs({ linkTarget })}
+            options={[
+              { value: "new", label: "New tab" },
+              { value: "same", label: "Same tab" },
+            ]}
+          />
+          <Segmented<UnreadBadge>
+            legend="Unread badge"
+            hint="On the Unread tab and in the sidebar. Counts show up to 99+."
+            value={dp.unreadBadge}
+            onChange={(unreadBadge) => updateDevicePrefs({ unreadBadge })}
+            options={UNREAD_BADGES.map((b) => ({ value: b, label: b === "count" ? "Count" : b === "dot" ? "Dot only" : "Off" }))}
+          />
+          <p className="text-xs text-fg2">Drag the edge of the sidebar or of the article list to resize them on a wide screen. Double-click an edge to reset it.</p>
           <Segmented<"auto" | "off">
             legend="Thumbnails in Inbox"
             value={dp.inboxThumbs}
@@ -222,7 +257,7 @@ export function SettingsScreen() {
             />
             <span>
               Single-key shortcuts
-              <span className="block text-xs text-fg2">j and k move, s stars, m marks read, o opens the original. Turn off if letter keys clash with assistive technology.</span>
+              <span className="block text-xs text-fg2">j and k move, s stars, m marks read, o opens the original. Off by default on a phone or tablet with no keyboard; turn it off if letter keys clash with assistive technology.</span>
             </span>
           </label>
         </Section>
@@ -246,6 +281,7 @@ export function SettingsScreen() {
             .map((s) => <SettingField key={s.key} meta={s} />)}
           <AccountActions />
         </Section>
+        </div>
       </div>
     </div>
   );

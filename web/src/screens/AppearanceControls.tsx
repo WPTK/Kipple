@@ -30,23 +30,44 @@ function useMeta(key: string, label: string, help?: string) {
   return { label: s?.label ?? label, help: s?.description ?? help };
 }
 
-/** Live sample of the chosen steps: a list row and a paragraph, scoped by data attributes. */
+/**
+ * Live sample of the chosen steps: a list row and a short article with a heading, a quote and a link, scoped
+ * by data attributes. It has a FIXED height and is painted in its own layout box, so a step that makes the
+ * text taller or shorter can never move the controls above or below it.
+ */
 export function DensityPreview({ list, reading }: { list: Step; reading: Step }) {
   return (
-    <div aria-hidden="true" className="overflow-hidden rounded-xl border border-line bg-bg" data-testid="density-preview">
-      <div data-list-density={list} className="flex min-h-[var(--row-min)] gap-3 border-b border-line px-4 py-[var(--row-py)]">
+    <div
+      aria-hidden="true"
+      className="h-[27rem] overflow-hidden rounded-xl border border-line bg-bg [contain:layout_paint]"
+      data-testid="density-preview"
+    >
+      <div
+        data-list-density={list}
+        className="flex min-h-[var(--row-min)] gap-3 border-b border-line px-4 py-[var(--row-py)]"
+        style={{ fontFamily: "var(--kp-app-font, var(--font-sans))" }}
+      >
         <div className="flex min-w-0 flex-1 flex-col gap-[var(--row-gap)]">
-          <div className="text-xs text-fg2">Example feed · 2h</div>
-          <div className="clamp-title text-base leading-snug font-bold">A sample headline that may run onto a second or third line</div>
+          <div className="text-xs text-fg2">The Ubiquitous Gazette · 2h</div>
+          <div className="clamp-title text-base leading-snug font-bold">Toaster files formal grievance against the kitchen, cites "a pattern of bread"</div>
           <div className="clamp-snippet text-sm leading-snug text-fg2">
-            The excerpt shows the first words of the article, so you can decide whether to open it, and grows with the density step.
+            Officials confirm the appliance has hired counsel, a second toaster, who has never been seen to toast anything.
           </div>
         </div>
         <div className="size-[var(--thumb)] shrink-0 rounded-lg bg-surface" />
       </div>
       <div data-reading-density={reading} className="article-body px-4 py-3 text-base">
-        <p>Reading text uses this spacing between lines and paragraphs.</p>
-        <p>A second paragraph shows the gap between them.</p>
+        <h3>Toaster files formal grievance against the kitchen</h3>
+        <p className="text-sm text-fg2">By A. Reasonable Person · The Ubiquitous Gazette</p>
+        <p>
+          Officials said on Tuesday that the toaster, a model of no distinction, had submitted a three-page complaint alleging that the
+          bread was not what it used to be. The kitchen declined to comment, adding that it had never met the toaster.
+        </p>
+        <blockquote>"I have been popping since before you were born," the toaster wrote. "That was not a metaphor."</blockquote>
+        <p>
+          This newscast wishes to correct itself: the toaster is a coffee machine, the complaint is a recipe, and the spokesman is,
+          as of this sentence, a lamp. <span className="text-link underline">Read the full statement</span>.
+        </p>
       </div>
     </div>
   );
@@ -178,8 +199,8 @@ export function SpacingControl() {
   const p = useStore(prefsStore);
   return (
     <Segmented<Spacing>
-      legend="Reading spacing"
-      hint="Changes space between lines and paragraphs. Normal follows Density."
+      legend="Text spacing"
+      hint="Adds extra space between letters, words and lines"
       value={p.spacing}
       onChange={(spacing) => updatePrefs({ spacing })}
       options={SPACINGS.map((s) => ({ value: s, label: SPACING_LABELS[s] }))}
@@ -188,8 +209,10 @@ export function SpacingControl() {
 }
 
 /**
- * The Kindle-style "Aa" panel: theme, font, text size, density and reading spacing. Everything applies at once
- * (the page behind is the live preview), is stored per device, and has no sliders.
+ * The Kindle-style "Aa" panel: theme, font, text size and density. Everything applies at once (the page behind is
+ * the live preview), is stored per device, and has no sliders. The font chosen here is THE font: it applies to
+ * every list, the reader and the sidebar (Settings and menus keep the system font). Text spacing, an
+ * accessibility control, lives in Settings so it never looks like a second density picker.
  */
 export function ReadingMenu({ className }: { className?: string }) {
   return (
@@ -211,7 +234,6 @@ export function ReadingMenu({ className }: { className?: string }) {
           <FontSelect />
           <TextSizeControl />
           <DensityControl preview={false} />
-          <SpacingControl />
           <p className="text-xs text-fg2">Saved on this device only.</p>
         </Popover.Content>
       </Popover.Portal>

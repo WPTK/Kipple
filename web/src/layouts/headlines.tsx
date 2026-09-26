@@ -5,7 +5,7 @@ import { CheckBadge, RowMenu, SourceIcon, StarButton, UnreadDot, rowLabel } from
 import type { ListLayout, RowProps } from "./types";
 
 /**
- * Headlines: one line per article, title only. Phone: dot, favicon, title, time.
+ * Email - Compact (layout id "headlines"): one line per article, title only, like a compact mail list. Phone: dot, favicon, title, time.
  * A wide list pane also shows the source name as a column (table-like on
  * desktop). 44 px on touch; 28 to 36 px with a mouse, by density step.
  */
@@ -47,7 +47,7 @@ function HeadlineRow({ item, feed, selected, checked, to, onOpen, onToggleStar, 
 
 export const headlines: ListLayout = {
   id: "headlines",
-  label: "Headlines",
+  label: "Email - Compact",
   Row: HeadlineRow,
   estimateRow: () => 44,
   paneRem: 22,

@@ -4,6 +4,7 @@ import type { Card } from "@/api/types";
 import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
 import { useStore } from "@/lib/store";
+import { canNativeShare } from "@/lib/share";
 import type { RowMenuActions } from "./types";
 
 export function UnreadDot({ unread, className }: { unread: boolean; className?: string }) {
@@ -59,7 +60,7 @@ export function RowMenu({
 }) {
   const openId = useStore(rowMenuStore);
   const open = openId === item.id;
-  const canShare = typeof navigator !== "undefined" && "share" in navigator;
+  const canShare = canNativeShare();
   return (
     <DropdownMenu.Root open={open} onOpenChange={(o) => (o ? rowMenuStore.set(item.id) : closeRowMenu())} modal={false}>
       <DropdownMenu.Trigger asChild>
@@ -92,7 +93,7 @@ export function RowMenu({
           </DropdownMenu.Item>
           <DropdownMenu.Item className={menuItem} onSelect={() => actions.toggleRead(item)}>
             {item.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
-            {item.read ? "Mark unread" : "Mark read"}
+            {item.read ? "Mark as unread" : "Mark as read"}
           </DropdownMenu.Item>
           <DropdownMenu.Item className={menuItem} onSelect={() => actions.markAbove(item)}>
             <MoveUp className="size-5" aria-hidden="true" />

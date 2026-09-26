@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, Star } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, Share2, Star } from "lucide-react";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
@@ -8,17 +8,26 @@ import { enhanceEmbeds, handleArticleClick } from "@/lib/articleDom";
 import { useItemActions } from "@/lib/itemActions";
 import { articleTo, listTo } from "@/lib/routes";
 import { sanitizeArticleHtml } from "@/lib/safeHtml";
+import { openExternal, resolveLinkTarget } from "@/lib/links";
+import { ARTICLE_WIDTH_REM, useDevicePrefs } from "@/lib/devicePrefs";
 import { fullDate } from "@/lib/format";
 import { useHotkeys } from "@/lib/keys";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
+import { shareLink } from "@/lib/share";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { StatusBlock, focusListRow } from "./ListPane";
 import type { Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
+
+/** The article column's max width for the "Article width" setting (Medium is the density's own measure). */
+export function columnWidth(w: keyof typeof ARTICLE_WIDTH_REM): string {
+  const rem = ARTICLE_WIDTH_REM[w];
+  return w === "medium" ? "min(var(--kp-measure), 46rem)" : rem === null ? "100%" : `${rem}rem`;
+}
 
 interface Props {
   id: string;
@@ -34,6 +43,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const prefs = useStore(prefsStore);
+  const dp = useDevicePrefs();
 
   const item = useItem(id);
   const list = useItems(scope, hasFrom || pane);
@@ -71,7 +81,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
 
   // Keyed on the markup alone: a read or star patch must not re-run the sanitizer over the whole body.
   const content = item.data?.content_html;
-  const html = useMemo(() => (content === undefined ? "" : sanitizeArticleHtml(content)), [content]);
+  const linkTarget = resolveLinkTarget(dp.linkTarget);
+  const html = useMemo(() => (content === undefined ? "" : sanitizeArticleHtml(content, linkTarget)), [content, linkTarget]);
 
   const go = (target: string | undefined, via: "key" | "nav") => {
     if (!target) return;
@@ -100,7 +111,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   };
 
   const openOriginal = () => {
-    if (item.data?.url) window.open(item.data.url, "_blank", "noopener,noreferrer");
+    if (item.data?.url) openExternal(item.data.url);
   };
   const toggleStar = () => {
     if (!item.data) return;
@@ -111,6 +122,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const toggleRead = () => {
     if (!item.data) return;
     void act.toggleRead(item.data, "key");
+  };
+  const share = () => {
+    if (item.data) void shareLink(item.data);
   };
   const toggleFulltext = () => {
     if (!item.data) return;
@@ -200,13 +214,20 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           onRead={toggleRead}
           onFulltext={toggleFulltext}
           onOriginal={openOriginal}
+          onShare={share}
         />
       )}
       <div ref={scroller} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
-        <article className="px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title">
-          <header className="mx-auto mb-5 max-w-[min(var(--kp-measure),46rem)]">
+        <article className="px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title" style={{ "--kp-col": columnWidth(dp.articleWidth) } as CSSProperties}>
+          <header className="mx-auto mb-5 max-w-[min(var(--kp-col),100%)]">
             <p className="text-sm text-fg2">
-              <a href={a.feed.site_url || undefined} target="_blank" rel="noopener noreferrer" className="hover:underline">
+              <span
+                data-testid="read-state"
+                className={cn("mr-2 rounded-full border px-2 py-0.5 text-xs font-medium", a.read ? "border-line text-fg2" : "border-accent text-fg")}
+              >
+                {a.read ? "Read" : "Unread"}
+              </span>
+              <a href={a.feed.site_url || undefined} target={linkTarget === "new" ? "_blank" : undefined} rel="noopener noreferrer" className="hover:underline">
                 {a.source || a.feed.title}
               </a>
             </p>
@@ -220,7 +241,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
             </p>
           </header>
           {a.fulltext.error && ftOn ? (
-            <p role="status" className="mx-auto mb-4 flex max-w-[min(var(--kp-measure),46rem)] items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-sm">
+            <p role="status" className="mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-sm">
               <span className="flex-1">Couldn't load full text. Showing the version from the feed instead.</span>
               <Button size="default" onClick={() => fulltext.mutate({ id, refresh: true })}>
                 Try again
@@ -256,6 +277,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           onRead={toggleRead}
           onFulltext={toggleFulltext}
           onOriginal={openOriginal}
+          onShare={share}
         />
       )}
     </div>
@@ -286,6 +308,7 @@ interface ToolbarProps {
   onRead: () => void;
   onFulltext: () => void;
   onOriginal: () => void;
+  onShare: () => void;
 }
 
 function Toolbar(p: ToolbarProps) {
@@ -294,7 +317,7 @@ function Toolbar(p: ToolbarProps) {
       role="toolbar"
       aria-label="Article actions"
       className={cn(
-        "flex shrink-0 items-center justify-around gap-1 bg-bg px-2",
+        "flex shrink-0 items-center justify-around overflow-x-auto bg-bg px-1",
         p.top ? "border-b border-line py-1" : "pb-safe border-t border-line py-1",
       )}
     >
@@ -314,7 +337,13 @@ function Toolbar(p: ToolbarProps) {
       >
         <Star aria-hidden="true" fill={p.a.starred ? "currentColor" : "none"} />
       </Button>
-      <Button variant="ghost" size="icon" onClick={p.onRead} aria-label={p.a.read ? "Mark as unread" : "Mark as read"}>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={p.onRead}
+        aria-label={p.a.read ? "Mark as unread" : "Mark as read"}
+        title={p.a.read ? "Mark as unread" : "Mark as read"}
+      >
         {p.a.read ? <Mail aria-hidden="true" /> : <MailOpen aria-hidden="true" />}
       </Button>
       <Button
@@ -327,6 +356,9 @@ function Toolbar(p: ToolbarProps) {
         className={p.ftOn ? "bg-selection" : undefined}
       >
         <FileText aria-hidden="true" />
+      </Button>
+      <Button variant="ghost" size="icon" onClick={p.onShare} aria-label="Share" title="Share">
+        <Share2 aria-hidden="true" />
       </Button>
       <Button variant="ghost" size="icon" onClick={p.onOriginal} aria-label="Open original">
         <ExternalLink aria-hidden="true" />

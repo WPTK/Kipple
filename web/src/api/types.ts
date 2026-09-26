@@ -62,7 +62,10 @@ export interface Feed {
   icon: string | null;
   unread: number;
   status: string;
+  /** The feed's own "fetch full article" flag (what the feed editor edits). */
   fulltext: boolean;
+  /** What new items really get: true while the global "fetch full article for every feed" setting is on. */
+  fulltext_effective?: boolean;
   retention: number | null;
   interval_minutes: number | null;
   is_archive: boolean;

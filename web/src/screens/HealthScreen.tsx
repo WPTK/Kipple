@@ -238,7 +238,7 @@ export function HealthScreen() {
   if (d?.snapshot.last_error) warnings.push(`The last automatic database snapshot failed: ${d.snapshot.last_error}`);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-2">
         <h1 className="pt-2 text-xl font-bold" tabIndex={-1} data-route-heading>
           Feed health

@@ -1,22 +1,40 @@
 import { Link } from "react-router";
+import { ChevronDown, ChevronRight, Folder as FolderIcon } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
+import type { Feed, Folder } from "@/api/types";
+import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
+import { useFavorites } from "@/lib/favorites";
 import { listTo } from "@/lib/routes";
-
-function Badge({ n }: { n: number }) {
-  if (n <= 0) return null;
-  return (
-    <span className="ml-auto shrink-0 rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-fg2 tabular-nums">
-      <span className="sr-only-live">Unread </span>
-      {n > 9999 ? "9999+" : n}
-    </span>
-  );
-}
+import { cn } from "@/lib/cn";
+import { FavStar } from "@/ui/FavStar";
+import { UnreadCount } from "@/ui/UnreadCount";
 
 export const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 
-/** Folders and their feeds, each linking to that scope's unread list. */
+/** Collapse or expand one folder; remembered on this device. */
+export function toggleCollapsed(collapsed: readonly string[], id: string): string[] {
+  return collapsed.includes(id) ? collapsed.filter((x) => x !== id) : [...collapsed, id];
+}
+
+/** The star that shows on hover or focus for a plain entry, and always once it is a favorite. */
+const reveal = "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 [&[aria-pressed=true]]:opacity-100 [@media(pointer:coarse)]:opacity-100";
+
+function FeedIcon({ feed }: { feed: Feed }) {
+  return feed.icon ? (
+    <img src={feed.icon} alt="" width={16} height={16} loading="lazy" className="size-4 shrink-0 rounded-sm" />
+  ) : (
+    <span className="size-4 shrink-0" aria-hidden="true" />
+  );
+}
+
+/**
+ * Favorites first (folders and feeds pinned with the star), then every folder with its feeds. Folders
+ * collapse (remembered per device); each entry links to that scope's unread list.
+ */
 export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
   const boot = useBootstrap();
+  const dp = useDevicePrefs();
+  const favs = useFavorites();
   if (boot.isPending) return <p className="px-3 py-2 text-sm text-fg2" role="status">Loading feeds</p>;
   if (boot.isError || !boot.data) return <p className="px-3 py-2 text-sm text-danger" role="alert">Couldn't load feeds.</p>;
   const { folders, feeds } = boot.data;
@@ -28,31 +46,95 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
       </div>
     );
   }
+  const folderById = new Map<string, Folder>(folders.map((f) => [f.id, f]));
+  const feedById = new Map<string, Feed>(feeds.map((f) => [f.id, f]));
+
+  const favoriteRows = favs.favorites.map((fav) => {
+    if (fav.t === "folder") {
+      const fo = folderById.get(fav.id);
+      if (!fo) return null;
+      return (
+        <li key={`folder:${fo.id}`} className="group/row flex items-center">
+          <Link to={listTo({ view: "unread", folder: fo.id })} onClick={onNavigate} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
+            <FolderIcon aria-hidden="true" className="size-4 shrink-0 text-fg2" />
+            <span className="truncate">{fo.name}</span>
+            <span className="ml-auto" />
+            <UnreadCount n={fo.unread} />
+          </Link>
+          <FavStar on name={fo.name} onToggle={() => favs.toggle("folder", fo.id)} className={reveal} />
+        </li>
+      );
+    }
+    const f = feedById.get(fav.id);
+    if (!f) return null;
+    return (
+      <li key={`feed:${f.id}`} className="group/row flex items-center">
+        <Link to={listTo({ view: "unread", feed: f.id })} onClick={onNavigate} className={`${row} min-w-0 flex-1 text-sm`}>
+          <FeedIcon feed={f} />
+          <span className="truncate">{f.title}</span>
+          <span className="ml-auto" />
+          <UnreadCount n={f.unread} />
+        </Link>
+        <FavStar on name={f.title} onToggle={() => favs.toggle("feed", f.id)} className={reveal} />
+      </li>
+    );
+  });
+
   return (
-    <ul className="flex flex-col gap-1">
-      {folders.map((fo) => {
-        const inFolder = feeds.filter((f) => f.folder_id === fo.id);
-        if (inFolder.length === 0) return null;
-        return (
-          <li key={fo.id}>
-            <Link to={listTo({ view: "unread", folder: fo.id })} onClick={onNavigate} className={`${row} text-sm font-semibold`}>
-              <span className="truncate">{fo.name}</span>
-              <Badge n={fo.unread} />
-            </Link>
-            <ul>
-              {inFolder.map((f) => (
-                <li key={f.id}>
-                  <Link to={listTo({ view: "unread", feed: f.id })} onClick={onNavigate} className={`${row} pl-6 text-sm`}>
-                    {f.icon ? <img src={f.icon} alt="" width={16} height={16} loading="lazy" className="size-4 shrink-0 rounded-sm" /> : <span className="size-4 shrink-0" aria-hidden="true" />}
-                    <span className="truncate">{f.title}</span>
-                    <Badge n={f.unread} />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </li>
-        );
-      })}
-    </ul>
+    <>
+      {favs.favorites.length > 0 ? (
+        <section aria-label="Favorites" className="mb-2">
+          <h2 className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Favorites</h2>
+          <ul className="flex flex-col gap-1">{favoriteRows}</ul>
+        </section>
+      ) : null}
+      <h2 className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Feeds</h2>
+      <ul className="flex flex-col gap-1">
+        {folders.map((fo) => {
+          const inFolder = feeds.filter((f) => f.folder_id === fo.id);
+          if (inFolder.length === 0) return null;
+          const collapsed = dp.collapsedFolders.includes(fo.id);
+          const listId = `folder-${fo.id}-feeds`;
+          return (
+            <li key={fo.id}>
+              <div className="group/row flex items-center">
+                <button
+                  type="button"
+                  aria-expanded={!collapsed}
+                  aria-controls={listId}
+                  aria-label={`${collapsed ? "Expand" : "Collapse"} ${fo.name}`}
+                  onClick={() => updateDevicePrefs({ collapsedFolders: toggleCollapsed(dp.collapsedFolders, fo.id) })}
+                  className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
+                >
+                  {collapsed ? <ChevronRight className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
+                </button>
+                <Link to={listTo({ view: "unread", folder: fo.id })} onClick={onNavigate} className={cn(row, "min-w-0 flex-1 pl-1 text-sm font-semibold")}>
+                  <span className="truncate">{fo.name}</span>
+                  <span className="ml-auto" />
+                  {/* A collapsed folder still shows what is inside it. */}
+                  <UnreadCount n={fo.unread} />
+                </Link>
+                <FavStar on={favs.has("folder", fo.id)} name={fo.name} onToggle={() => favs.toggle("folder", fo.id)} className={reveal} />
+              </div>
+              {collapsed ? null : (
+                <ul id={listId}>
+                  {inFolder.map((f) => (
+                    <li key={f.id} className="group/row flex items-center">
+                      <Link to={listTo({ view: "unread", feed: f.id })} onClick={onNavigate} className={`${row} min-w-0 flex-1 pl-6 text-sm`}>
+                        <FeedIcon feed={f} />
+                        <span className="truncate">{f.title}</span>
+                        <span className="ml-auto" />
+                        <UnreadCount n={f.unread} />
+                      </Link>
+                      <FavStar on={favs.has("feed", f.id)} name={f.title} onToggle={() => favs.toggle("feed", f.id)} className={reveal} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }

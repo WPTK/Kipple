@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
-import { HeartPulse, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
+import { Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
 import { useRefreshAll } from "@/api/refresh";
 import { useHotkeys } from "@/lib/keys";
+import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, DEFAULT_DEVICE_PREFS, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { useWide } from "@/lib/useMedia";
@@ -13,21 +14,17 @@ import { cn } from "@/lib/cn";
 import { FeedTree } from "@/screens/FeedTree";
 import { undoLast } from "@/lib/undo";
 import { HelpDialog, openHelp } from "./HelpDialog";
+import { ResizeHandle } from "@/ui/ResizeHandle";
+import { UnreadCount } from "@/ui/UnreadCount";
 import { UndoToast } from "./UndoToast";
 import { LiveRegion, Toasts } from "./toasts";
 
 const tab = "flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-xs font-medium";
 
+/** The Unread tab's badge: count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting. */
 function UnreadBadge() {
   const boot = useBootstrap();
-  const n = boot.data?.counts.unread ?? 0;
-  if (n <= 0) return null;
-  return (
-    <span className="rounded-full bg-accent px-1.5 text-[0.6875rem] leading-4 font-bold text-bg tabular-nums">
-      <span className="sr-only-live">Unread </span>
-      {n > 999 ? "999+" : n}
-    </span>
-  );
+  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" />;
 }
 
 function TabBar() {
@@ -65,44 +62,57 @@ function TabBar() {
 
 function Sidebar() {
   const boot = useBootstrap();
+  const dp = useDevicePrefs();
   const c = boot.data?.counts;
   const item = ({ isActive }: { isActive: boolean }) =>
     cn("flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-selection", isActive && "bg-selection");
   return (
-    <nav aria-label="Primary" className="pt-safe pl-safe flex h-full w-60 shrink-0 flex-col gap-1 overflow-y-auto border-r border-line bg-surface px-2 pb-4">
-      <p className="px-3 py-3 text-lg font-bold">Kipple</p>
-      <NavLink to="/l/unread" end className={item}>
-        <Inbox aria-hidden="true" className="size-5" />
-        Unread
-        {c && c.unread > 0 ? <span className="ml-auto text-xs text-fg2 tabular-nums">{c.unread}</span> : null}
-      </NavLink>
-      <NavLink to="/l/all" className={item}>
-        <List aria-hidden="true" className="size-5" />
-        All articles
-      </NavLink>
-      <NavLink to="/l/starred" className={item}>
-        <Star aria-hidden="true" className="size-5" />
-        Starred
-      </NavLink>
-      <NavLink to="/search" className={item}>
-        <Search aria-hidden="true" className="size-5" />
-        Search
-      </NavLink>
-      <NavLink to="/feeds" className={item}>
-        <Rss aria-hidden="true" className="size-5" />
-        Manage feeds
-      </NavLink>
-      <NavLink to="/health" className={item}>
-        <HeartPulse aria-hidden="true" className="size-5" />
-        Feed health
-      </NavLink>
-      <NavLink to="/settings" className={item}>
-        <Settings aria-hidden="true" className="size-5" />
-        Settings
-      </NavLink>
-      <h2 className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Feeds</h2>
-      <FeedTree />
-    </nav>
+    <div className="relative h-full shrink-0" style={{ width: dp.sidebarWidth }}>
+      <nav aria-label="Primary" className="pt-safe pl-safe flex h-full flex-col border-r border-line bg-surface px-2">
+        <div className="flex shrink-0 flex-col gap-1">
+          <p className="px-3 py-3 text-lg font-bold">Kipple</p>
+          <NavLink to="/l/unread" end className={item}>
+            <Inbox aria-hidden="true" className="size-5" />
+            Unread
+            <span className="ml-auto" />
+            <UnreadCount n={c?.unread ?? 0} />
+          </NavLink>
+          <NavLink to="/l/all" className={item}>
+            <List aria-hidden="true" className="size-5" />
+            All articles
+          </NavLink>
+          <NavLink to="/l/starred" className={item}>
+            <Star aria-hidden="true" className="size-5" />
+            Starred
+          </NavLink>
+          <NavLink to="/search" className={item}>
+            <Search aria-hidden="true" className="size-5" />
+            Search
+          </NavLink>
+          <NavLink to="/feeds" className={item}>
+            <Rss aria-hidden="true" className="size-5" />
+            Manage feeds
+          </NavLink>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+          <FeedTree />
+        </div>
+        <div className="shrink-0 border-t border-line py-2">
+          <NavLink to="/settings" className={item}>
+            <Settings aria-hidden="true" className="size-5" />
+            Settings
+          </NavLink>
+        </div>
+      </nav>
+      <ResizeHandle
+        label="Resize sidebar"
+        value={dp.sidebarWidth}
+        min={SIDEBAR_WIDTH_MIN}
+        max={SIDEBAR_WIDTH_MAX}
+        onChange={(sidebarWidth) => updateDevicePrefs({ sidebarWidth })}
+        onReset={() => updateDevicePrefs({ sidebarWidth: DEFAULT_DEVICE_PREFS.sidebarWidth })}
+      />
+    </div>
   );
 }
 

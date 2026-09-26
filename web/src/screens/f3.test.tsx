@@ -110,8 +110,9 @@ describe("Settings renderer", () => {
   it("draws every kind from the metadata, groups them, and collapses Advanced", async () => {
     base();
     const { container } = go("/settings");
-    await screen.findByRole("heading", { name: "Sync" });
-    for (const h of ["Appearance", "Accessibility", "Lists", "Keyboard", "Reading", "Sync", "Library", "Account", "Advanced"]) {
+    // Settings is a lazy chunk: under a busy full run its first import can take longer than findBy's default.
+    await screen.findByRole("heading", { name: "Sync" }, { timeout: 5000 });
+    for (const h of ["Appearance", "Accessibility", "Lists and reading", "Keyboard", "Reading", "Sync", "Library", "Account", "Advanced"]) {
       expect(screen.getByRole("heading", { name: h })).toBeInTheDocument();
     }
     expect(screen.getByRole("switch", { name: /Remove tracking from links/ })).toBeChecked();
@@ -165,16 +166,17 @@ describe("Accessibility section", () => {
     const user = userEvent.setup();
     const section = await screen.findByRole("region", { name: "Accessibility" });
     const w = within(section);
-    expect(w.getByRole("group", { name: "Text size" })).toBeInTheDocument();
-    expect(w.getByRole("switch", { name: /Easy-to-read font/ })).toBeInTheDocument();
-    expect(w.getByRole("group", { name: "Reading spacing" })).toBeInTheDocument();
+    // One font choice only (the Aa menu): the Accessibility section points at it instead of adding a second one.
+    expect(w.queryByRole("switch", { name: /Easy-to-read font/ })).toBeNull();
+    expect(w.queryByRole("combobox", { name: /font/i })).toBeNull();
+    expect(w.getByText(/Atkinson Hyperlegible Next/)).toBeInTheDocument();
+    expect(w.getByRole("group", { name: "Text spacing" })).toBeInTheDocument();
+    expect(w.getByText("Adds extra space between letters, words and lines")).toBeInTheDocument();
     expect(w.getByRole("group", { name: "Reduce motion" })).toBeInTheDocument();
     expect(await w.findByRole("switch", { name: /Mark articles read as I scroll/ })).not.toBeChecked();
     expect(w.getByRole("switch", { name: /Listen to articles/ })).toBeDisabled(); // jsdom has no speechSynthesis
 
-    await user.click(w.getByRole("switch", { name: /Easy-to-read font/ }));
-    expect(prefsStore.get().font).toBe("easy");
-    await user.click(w.getByRole("radio", { name: "Roomy" }));
+    await user.click(w.getByRole("radio", { name: "More" }));
     await user.click(w.getByRole("radio", { name: "On" }));
     await user.click(w.getByRole("switch", { name: /Larger buttons/ }));
     applyPrefs(prefsStore.get());
@@ -182,7 +184,6 @@ describe("Accessibility section", () => {
     expect(root.dataset.spacing).toBe("roomy");
     expect(root.dataset.motion).toBe("on");
     expect(root.dataset.targets).toBe("large");
-    expect(root.style.getPropertyValue("--kp-reading-font")).toContain("Atkinson Hyperlegible Next");
     await user.click(w.getByRole("switch", { name: /Titles only in lists/ }));
     expect(JSON.parse(localStorage.getItem("kipple.device.v1") ?? "{}").layout).toBe("headlines");
   });
@@ -381,7 +382,7 @@ describe("Folders and OPML", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/folders")).toBe(true));
 
     await user.click(screen.getByRole("button", { name: "Feed actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Reorder folders and feeds" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Show move buttons" }));
     await user.click(await screen.findByRole("button", { name: "Move folder Tech up" }));
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/reorder").map(body)).toEqual([{ folders: ["2", "1"] }]));
   });
@@ -395,7 +396,7 @@ describe("Folders and OPML", () => {
     go("/feeds");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Reorder folders and feeds" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Show move buttons" }));
     await user.click(await screen.findByRole("button", { name: "Move Second Feed up" }));
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/reorder").map(body)).toEqual([{ feeds: [{ folder_id: "1", ids: ["2", "1"] }] }]));
   });

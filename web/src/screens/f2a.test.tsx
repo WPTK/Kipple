@@ -205,27 +205,51 @@ describe("layouts", () => {
     go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Layout: Magazine" }));
-    const group = screen.getAllByRole("group");
-    expect(group.length).toBe(2); // this feed, device default
-    await user.click(within(group[0] as HTMLElement).getByRole("menuitemradio", { name: "Headlines" }));
+    await user.click(screen.getByRole("button", { name: "Layout: Editorial" }));
+    // One list under "This feed": the radio is the override, the star beside each layout is the device default.
+    expect(screen.getByText("This feed")).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitemradio", { name: /Email - Compact/ }));
     expect(devicePrefsStore.get().overrides.feed["1"]).toBe("headlines");
+    expect(devicePrefsStore.get().layout).toBe("magazine"); // the device default did not move
     await waitFor(() => expect(document.querySelector(".row-headline")).not.toBeNull());
     // Use device default clears it.
-    await user.click(screen.getByRole("button", { name: "Layout: Headlines" }));
+    await user.click(screen.getByRole("button", { name: "Layout: Email - Compact" }));
     await user.click(screen.getByRole("menuitemradio", { name: /Use device default/ }));
     expect(devicePrefsStore.get().overrides.feed["1"]).toBeUndefined();
     await waitFor(() => expect(document.querySelector(".row-headline")).toBeNull());
+    // The star makes a layout the device default; the filled star marks the current one.
+    await user.click(screen.getByRole("button", { name: "Layout: Editorial" }));
+    expect(screen.getByRole("menuitemcheckbox", { name: "Editorial is the device default" })).toBeChecked();
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Make Inbox the device default" }));
+    expect(devicePrefsStore.get().layout).toBe("inbox");
+    expect(screen.getByRole("menuitemcheckbox", { name: "Inbox is the device default" })).toBeChecked();
   });
 
-  it("Cards has no reader pane on a wide screen: the article opens full width", async () => {
+  it("Cards with nothing open fills the width; an open article keeps its list beside it", async () => {
     routes();
     media("min-width: 900px");
     updateDevicePrefs({ layout: "cards" });
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
-    expect(screen.getByRole("button", { name: "Back to list" })).toBeInTheDocument(); // single-pane article chrome
-    expect(document.querySelector('[data-item-id="1002"]')).toBeNull(); // no list beside it
+    // Wide screens always show the list next to an open article (a single column of cards in the pane).
+    expect(screen.queryByRole("button", { name: "Back to list" })).toBeNull();
+    await waitFor(() => expect(document.querySelector('[data-item-id="1002"]')).not.toBeNull());
+    expect(screen.getByRole("separator", { name: "Resize article list" })).toBeInTheDocument();
+  });
+
+  it("switching layout with an article open keeps the article and the list (Cards included)", async () => {
+    routes();
+    media("min-width: 900px");
+    go("/i/1001?from=unread");
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(document.querySelector('[data-item-id="1002"]')).not.toBeNull());
+    const user = userEvent.setup();
+    for (const [from, to] of [["Editorial", "Cards"], ["Cards", "Inbox"], ["Inbox", "Editorial"]] as const) {
+      await user.click(screen.getByRole("button", { name: `Layout: ${from}` }));
+      await user.click(screen.getByRole("menuitemradio", { name: new RegExp(`^${to}`) }));
+      expect(screen.getByTestId("article-body")).toBeInTheDocument(); // the article stays open
+      await waitFor(() => expect(document.querySelector('[data-item-id="1002"]')).not.toBeNull()); // and so does the list
+    }
   });
 
   it("c switches to Compact and back", async () => {
@@ -408,7 +432,7 @@ describe("row swipe (touch, iOS Mail directions)", () => {
       await vi.advanceTimersByTimeAsync(520);
     });
     expect(await screen.findByRole("menuitem", { name: "Mark above as read" })).toBeInTheDocument();
-    for (const name of ["Star", "Mark read", "Mark below as read", "Open original", "Copy link"]) {
+    for (const name of ["Star", "Mark as read", "Mark below as read", "Open original", "Copy link"]) {
       expect(screen.getByRole("menuitem", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     }
     expect(screen.getByRole("menuitem", { name: /^Share/ })).toBeInTheDocument();

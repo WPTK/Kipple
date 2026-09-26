@@ -1,12 +1,13 @@
 import { useMemo } from "react";
 import { Link, useMatch, useNavigate, useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, Keyboard, MoreVertical, RefreshCw, Undo2 } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, Keyboard, MoreVertical, RefreshCw, Settings, Undo2 } from "lucide-react";
 import { scopeKey, useBootstrap } from "@/api/queries";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, Scope, View } from "@/api/types";
 import { useResolvedLayout } from "@/layouts";
-import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
+import { DEFAULT_DEVICE_PREFS, LIST_WIDTH_MAX, LIST_WIDTH_MIN, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
+import { ResizeHandle } from "@/ui/ResizeHandle";
 import { useWide } from "@/lib/useMedia";
 import { articleTo, listTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { useHotkeys } from "@/lib/keys";
@@ -14,7 +15,7 @@ import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { undoLast, undoStore } from "@/lib/undo";
 import { openHelp } from "@/shell/HelpDialog";
-import { Button } from "@/ui/button";
+import { Button, buttonVariants } from "@/ui/button";
 import { cn } from "@/lib/cn";
 import { ArticlePane } from "./ArticlePane";
 import { LayoutMenu } from "./LayoutMenu";
@@ -60,6 +61,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   const dp = useDevicePrefs();
   const navigate = useNavigate();
   const { canUndo } = useStore(undoStore);
+  const wide = useWide();
   const { prev, next } = useNeighbours(scope);
   const oldest = dp.order === "oldest";
   // Feed and folder scopes do not carry the order; it is a device preference.
@@ -70,6 +72,9 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   useHotkeys({ prevFeed: () => go(prev), nextFeed: () => go(next) }, { singleKeys: prefs.shortcuts });
   return (
     <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-2">
+      {/* Never wider than 25rem and always left-aligned, so the controls sit in the same place in every layout
+          (a grid layout has no reader pane, and used to push them to the far right). */}
+      <div className="max-w-[25rem]">
       <div className="flex items-center gap-0.5 pt-2">
         <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
           {title}
@@ -94,6 +99,11 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
         >
           <RefreshCw aria-hidden="true" className={cn(refreshing && "animate-spin")} />
         </Button>
+        {wide ? (
+          <Link to="/settings" aria-label="Settings" title="Settings" className={buttonVariants({ variant: "ghost", size: "icon" })}>
+            <Settings aria-hidden="true" />
+          </Link>
+        ) : null}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <Button variant="ghost" size="icon" aria-label="List actions">
@@ -181,6 +191,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           </div>
         ) : null}
       </div>
+      </div>
     </header>
   );
 }
@@ -189,8 +200,12 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
   const wide = useWide();
   const navigate = useNavigate();
   const { layout } = useResolvedLayout(scope);
-  // Cards is a grid: no reader pane, the article opens full width.
-  const paneMode = wide && !layout.grid;
+  const dp = useDevicePrefs();
+  // On a wide screen an open article always has its list beside it, whatever the layout: switching layouts with an
+  // article open keeps both on screen (a grid layout such as Cards becomes a single column in the pane). A grid
+  // list with nothing open is the one case that is not a pane: it fills the width.
+  const paneMode = wide && (!layout.grid || !!articleId);
+  const listOnly = wide && layout.grid && !articleId;
   const listKey = scopeKey(scope);
   const onKeyMove = useMemo(
     () =>
@@ -214,22 +229,39 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
     />
   );
 
-  if (!paneMode) return articleId ? <ArticlePane key={articleId} id={articleId} scope={scope} hasFrom={hasFrom} pane={false} /> : list;
+  if (!wide) return articleId ? <ArticlePane key={articleId} id={articleId} scope={scope} hasFrom={hasFrom} pane={false} /> : list;
 
+  // The list column's width is the device's choice (drag the handle or use the arrow keys); until then the
+  // layout's own width.
+  const remPx = typeof document === "undefined" ? 16 : parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const shown = dp.listWidth ?? Math.round(layout.paneRem * remPx);
   return (
     <div className="flex h-full min-h-0">
-      <div className="shrink-0 border-r border-line" style={{ width: `${layout.paneRem}rem` }}>
+      {/* The list is always the first child here, so it is never remounted when an article opens or closes. */}
+      <div className={listOnly ? "relative min-w-0 flex-1" : "relative shrink-0 border-r border-line"} style={listOnly ? undefined : { width: shown, maxWidth: "60%" }}>
         {list}
-      </div>
-      <div className="min-w-0 flex-1">
-        {articleId ? (
-          <ArticlePane id={articleId} scope={scope} hasFrom={hasFrom} pane />
-        ) : (
-          <div className="flex h-full items-center justify-center p-6 text-center text-fg2">
-            <p>Select an article to read it here.</p>
-          </div>
+        {listOnly ? null : (
+          <ResizeHandle
+            label="Resize article list"
+            value={shown}
+            min={LIST_WIDTH_MIN}
+            max={LIST_WIDTH_MAX}
+            onChange={(listWidth) => updateDevicePrefs({ listWidth })}
+            onReset={() => updateDevicePrefs({ listWidth: DEFAULT_DEVICE_PREFS.listWidth })}
+          />
         )}
       </div>
+      {listOnly ? null : (
+        <div className="min-w-0 flex-1">
+          {articleId ? (
+            <ArticlePane id={articleId} scope={scope} hasFrom={hasFrom} pane />
+          ) : (
+            <div className="flex h-full items-center justify-center p-6 text-center text-fg2">
+              <p>Select an article to read it here.</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -148,6 +148,8 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
   };
 
   const layoutValue = dp.overrides.feed[feed.id] ?? "default";
+  // The global switch overrides every feed's own one: say so instead of showing a switch that does nothing.
+  const fulltextAll = boot.data?.settings?.["fetch.fulltext_all"] === true;
 
   if (confirmDelete) {
     return (
@@ -261,7 +263,17 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
               </select>
             )}
           </Field>
-          <Switch label="Fetch full article text" help="Loads the whole article from the website when the feed only has a summary." checked={f.fulltext} onChange={(v) => set("fulltext", v)} />
+          {fulltextAll ? (
+            <Switch
+              label="Fetch full article text"
+              help="On for all feeds. Settings > Library fetches the full article for every feed, so this switch has no effect until that is turned off."
+              checked
+              disabled
+              onChange={() => undefined}
+            />
+          ) : (
+            <Switch label="Fetch full article text" help="Loads the whole article from the website when the feed only has a summary." checked={f.fulltext} onChange={(v) => set("fulltext", v)} />
+          )}
           <Switch label="Enabled" help="Turn off to stop checking this feed without deleting it." checked={f.enabled} onChange={(v) => set("enabled", v)} />
 
           <Disclosure label="Advanced">

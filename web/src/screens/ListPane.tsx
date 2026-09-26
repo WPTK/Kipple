@@ -19,11 +19,13 @@ import { prefsStore } from "@/lib/prefs";
 import { useStore, useStoreSelector } from "@/lib/store";
 import { withDayHeaders, type Row } from "@/lib/format";
 import { useHotkeys, type Handlers } from "@/lib/keys";
-import { useItemActions } from "@/lib/itemActions";
+import { readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
-import { announce, toast } from "@/shell/toasts";
+import { announce } from "@/shell/toasts";
+import { openExternal } from "@/lib/links";
+import { copyLink, shareLink } from "@/lib/share";
 
 // Scroll and selection memory per list, so "back" lands where you were
 // (design 3.4: one restore path). Module scope: survives route changes.
@@ -50,6 +52,9 @@ const memoryFor = (key: string): ListMemory => {
 export function clearListMemory(): void {
   memory.clear();
 }
+
+/** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
+export const LEAVE_MS = 1500;
 
 export function emptyCopy(scope: Scope): { title: string; body: string } {
   if (scope.q) return { title: `No results for "${scope.q}"`, body: "Try fewer words, or search All instead of just this feed." };
@@ -153,6 +158,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(() => new Set());
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => memory.get(key)?.checked ?? new Set());
   const allItems = useMemo(() => flattenItems(q.data), [q.data]);
+  const loadedIdSet = useMemo(() => new Set(allItems.map((i) => i.id)), [allItems]);
   const items = useMemo(() => (hidden.size ? allItems.filter((i) => !hidden.has(i.id)) : allItems), [allItems, hidden]);
   const rows = useMemo(() => chunkRows(withDayHeaders(items), cols), [items, cols]);
   const feedById = useMemo(() => new Map((boot.data?.feeds ?? []).map((f) => [f.id, f])), [boot.data]);
@@ -359,6 +365,59 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     [act, hide, unreadView],
   );
 
+  // Marked read on purpose (button, key or menu) in the Unread list: the row leaves after LEAVE_MS, with the undo
+  // toast still up. The article open beside the list leaves when you move off it instead. Undo, or marking it
+  // unread again, cancels this and brings the row back.
+  const intent = useStore(readIntent);
+  const pendingLeave = useRef(new Map<string, { timer?: ReturnType<typeof setTimeout>; waiting: boolean; undoHide?: () => void }>());
+  const activeRef = useRef(activeId);
+  activeRef.current = activeId;
+  const idsRef = useRef<ReadonlySet<string>>(new Set());
+  idsRef.current = loadedIdSet;
+  useEffect(() => {
+    const pend = pendingLeave.current;
+    if (!unreadView) return;
+    for (const id of intent) {
+      if (pend.has(id) || !idsRef.current.has(id)) continue;
+      const entry: { timer?: ReturnType<typeof setTimeout>; waiting: boolean; undoHide?: () => void } = { waiting: id === activeRef.current };
+      pend.set(id, entry);
+      if (!entry.waiting) {
+        entry.timer = setTimeout(() => {
+          entry.timer = undefined;
+          entry.undoHide = hide([id]);
+        }, LEAVE_MS);
+      }
+    }
+    for (const [id, e] of pend) {
+      if (intent.has(id)) continue;
+      // Undone or marked unread again: the row stays (or comes back).
+      if (e.timer) clearTimeout(e.timer);
+      e.undoHide?.();
+      pend.delete(id);
+    }
+  }, [intent, unreadView, hide, loadedIdSet]);
+  // Moving off the open article lets it go.
+  useEffect(() => {
+    for (const [id, e] of pendingLeave.current) {
+      if (e.waiting && id !== activeId) {
+        e.waiting = false;
+        e.undoHide = hide([id]);
+      }
+    }
+  }, [activeId, hide]);
+  // Leaving the list (a phone opens an article in a new screen) must not bring back rows that were about to go.
+  useEffect(() => {
+    const pend = pendingLeave.current;
+    return () => {
+      const m = memoryFor(key);
+      for (const [id, e] of pend) {
+        if (e.timer) clearTimeout(e.timer);
+        if (!e.undoHide && !e.waiting) m.hidden = new Set([...m.hidden, id]);
+      }
+      pend.clear();
+    };
+  }, [key]);
+
   const range = useCallback(
     (item: Card, side: "above" | "below") => {
       const at = items.findIndex((i) => i.id === item.id);
@@ -383,13 +442,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       toggleStar: (item) => void act.toggleStar(item),
       markAbove: (item) => range(item, "above"),
       markBelow: (item) => range(item, "below"),
-      openOriginal: (item) => void window.open(item.url, "_blank", "noopener,noreferrer"),
-      copyLink: (item) => copyLink(item.url),
-      share: (item) => {
-        if (typeof navigator !== "undefined" && "share" in navigator) {
-          void navigator.share({ title: item.title, url: item.url }).catch(() => undefined);
-        } else copyLink(item.url);
-      },
+      openOriginal: (item) => openExternal(item.url),
+      copyLink: (item) => void copyLink(item.url),
+      share: (item) => void shareLink(item),
     }),
     [act, range],
   );
@@ -414,9 +469,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         openItem(selectedItem);
         navigate(articleTo(selectedItem.id, scope), { state: { via: "key" } });
       },
-      original: () => selectedItem && window.open(selectedItem.url, "_blank", "noopener,noreferrer"),
+      original: () => selectedItem && openExternal(selectedItem.url),
       // A background tab is a browser decision; window.open is the best a page can do.
-      background: () => selectedItem && window.open(selectedItem.url, "_blank", "noopener,noreferrer"),
+      background: () => selectedItem && openExternal(selectedItem.url, "new"),
       star: () => {
         const t = targets();
         if (t.length === 0) return;
@@ -510,7 +565,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   // Items the list already holds are not "new" to it, whatever fetched them (a later load, another route).
   const loadedIds = useMemo(() => new Set(allItems.map((i) => i.id)), [allItems]);
   const pendingNew = pendingFor(pendingByFeed, scope, boot.data?.feeds ?? [], { ids: loadedIds, pendingIds });
-  const showPill = pendingNew > 0;
   const loadNew = () => {
     // Only what this list showed is now loaded; other feeds' arrivals keep counting for other lists.
     liveStore.set((s) => {
@@ -653,13 +707,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         </div>
       ) : null}
       <div className="relative min-h-0 flex-1">
-        {showPill ? (
-          <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
-            <Button variant="solid" className="pointer-events-auto rounded-full shadow-lg" onClick={loadNew}>
-              {pendingNew} new article{pendingNew === 1 ? "" : "s"}
-            </Button>
-          </div>
-        ) : null}
+        <NewArticlesPill count={pendingNew} onClick={loadNew} />
         <div
           aria-hidden={!showPull}
           data-testid="pull-indicator"
@@ -690,6 +738,31 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * "N new articles". It is always mounted and fades and slides on transform and opacity only (compositor
+ * work: nothing in the list reflows, and the list is never pushed down), and it keeps the last count while
+ * it fades out so the text does not blank. Reduced motion is honoured by the global rule in index.css.
+ */
+export function NewArticlesPill({ count, onClick }: { count: number; onClick: () => void }) {
+  const [n, setN] = useState(count);
+  if (count > 0 && count !== n) setN(count);
+  const open = count > 0;
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center" data-testid="new-pill-wrap">
+      <button
+        type="button"
+        className="kp-pill pointer-events-auto min-h-11 rounded-full bg-accent px-5 text-sm font-medium text-bg tabular-nums shadow-lg"
+        data-open={open}
+        aria-hidden={!open}
+        tabIndex={open ? 0 : -1}
+        onClick={onClick}
+      >
+        {n} new article{n === 1 ? "" : "s"}
+      </button>
+    </div>
   );
 }
 
@@ -741,18 +814,6 @@ export const ListRow = memo(function ListRow(p: ListRowProps) {
     </SwipeRow>
   );
 });
-
-function copyLink(url: string): void {
-  const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
-  if (!clip) {
-    toast("Couldn't copy the link. Long-press the link to copy it.", "error");
-    return;
-  }
-  clip.writeText(url).then(
-    () => announce("Link copied"),
-    () => toast("Couldn't copy the link. Long-press the link to copy it.", "error"),
-  );
-}
 
 /** Put keyboard focus back on a list row (Esc or u in the reader pane); the list itself when the row is not rendered. */
 export function focusListRow(id: string): void {
