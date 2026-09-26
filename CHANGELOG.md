@@ -6,6 +6,12 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-alpha.3] - 2026-09-26
+
+Review fixes across ingestion, auth, images, filters, the web app and operations (from a local deep review of alpha.2), the
+favicon finder (schema 6) and unread/unstar reporting for the Reader API `ot` filter (schema 7). Two schema
+migrations: a rollback goes through the pre-migration snapshot.
+
 ### Added
 
 - Feed icons: a background favicon finder now fills the icon store that the web UI's feed list and article rows, and the Reader API `iconUrl` for sync apps, already read. After a feed's first successful fetch, then at most weekly, and again when its site moves to another host (or, with no site address, its feed does) or its own feed host changes, it looks for the site's `<link rel="icon">`, `shortcut icon` or `apple-touch-icon` (preferring 32 to 180 px), falling back to `/favicon.ico`. A site address that changes only in scheme, path or query (a session id, a tracking parameter, http/https) is the same site: no new lookup and no reset of the retry backoff. It runs one lookup at a time, off the fetch path and not while a refresh-all, import or retention run is active or the scheduler is stopping, through the same address guard as feed fetches. A feed's "allow private network" and "allow insecure TLS" cover only the feed's own host (its subdomains and bare/www twin), checked on every redirect hop: a site page or icon link on any other host goes through the guarded transport. One site is fetched at most once every 10 minutes: feeds of the same site (subreddits, channels) reuse the icon just found for it, or wait. User names and passwords in page, link or redirect URLs are never sent and never stored. Only PNG, JPEG, GIF, WebP and ICO images up to 256 KiB are kept, identified by their bytes (an ICO's first image must itself be a PNG or a bitmap, and at least 8 px); SVG and HTML are refused. An unchanged icon is not rewritten. A failed lookup retries after 6 hours, backing off to weekly, and never counts against the feed's health. Adds schema migration 0006 (`feed_icon_checks`); an older binary refuses the migrated database, so a rollback restores the pre-migration snapshot (docs/deploy.md).
@@ -522,7 +528,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.2...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.3...HEAD
+[0.3.0-alpha.3]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.2...v0.3.0-alpha.3
 [0.3.0-alpha.2]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.1...v0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/WPTK/Kipple/compare/v0.2.0...v0.3.0-alpha.1
 [0.2.0]: https://github.com/WPTK/Kipple/compare/v0.2.0-alpha.2...v0.2.0
