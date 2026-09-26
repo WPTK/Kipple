@@ -11,6 +11,11 @@ All notable changes to Kipple are documented here. The format follows
 - `greader.ot_includes_user_changes` (default off, hidden): with it on, `stream/items/ids` with `ot` also returns items read or starred since `ot`, so sync apps hear about changes made in Kipple.
 - `greader.subscribe_fetch_now` (default off, hidden): with it on, a feed a sync app adds is fetched at once, waiting up to 8 s, instead of on the next scheduler tick.
 
+- `GET /api/items?include=content` returns each item with its full content (as `GET /api/items/{id}`), at most 50 a page, so a client can store a page for offline reading in one request.
+- `PUT /api/items/{id}/star` accepts `at` (unix seconds, at most 30 days back): a star or unstar queued offline is recorded when it happened.
+- Every `/api/*` response carries `X-Kipple-API` (the web API contract version), the server half of the handshake the app uses to notice it is out of date.
+- Files at the top of the web build (manifest, service worker, icons) are served at the site root with revalidating cache headers; `sw.js` is sent as JavaScript with `Service-Worker-Allowed: /`.
+
 ### Fixed
 
 - Auto-read now has a test pinning that disabled feeds are included and archived feeds are skipped.

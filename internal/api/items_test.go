@@ -1184,3 +1184,50 @@ func TestPublishCountsIsSerialized(t *testing.T) {
 	}
 	require.Len(t, drain(sub, "counts", 100*time.Millisecond), 1)
 }
+
+func TestListItemsIncludeContent(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	id := h.addItem(f, seedItem{Title: "Full", SortAt: 1000})
+
+	code, body, _ := h.api(c, "GET", "/api/items?include=content", "")
+	require.Equal(t, 200, code)
+	first := body["items"].([]any)[0].(map[string]any)
+	require.Equal(t, sid(id), first["id"])
+	require.Contains(t, first, "content_html")
+	require.Contains(t, first, "feed")
+	require.Contains(t, first, "fulltext")
+
+	_, plain, _ := h.api(c, "GET", "/api/items", "")
+	require.NotContains(t, plain["items"].([]any)[0], "content_html", "cards stay light without include")
+
+	code, _, _ = h.api(c, "GET", "/api/items?include=content&limit=51", "")
+	require.Equal(t, 400, code)
+	code, _, _ = h.api(c, "GET", "/api/items?include=content&limit=50", "")
+	require.Equal(t, 200, code)
+	code, _, _ = h.api(c, "GET", "/api/items?include=everything", "")
+	require.Equal(t, 400, code)
+}
+
+func TestStarAtRecordsWhenItHappened(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	id := h.addItem(f, seedItem{Title: "S"})
+	now := h.clk.Now().Unix()
+	put := func(body string) int {
+		code, _, _ := h.api(c, "PUT", "/api/items/"+sid(id)+"/star", body)
+		return code
+	}
+	require.Equal(t, 200, put(fmt.Sprintf(`{"starred":true,"at":%d}`, now-3600)))
+	require.Equal(t, now-3600, int64(h.count("SELECT starred_at FROM items WHERE id = ?", id)))
+
+	require.Equal(t, 200, put(`{"starred":false}`))
+	require.Equal(t, 200, put(fmt.Sprintf(`{"starred":true,"at":%d}`, now+9999)))
+	require.Equal(t, now, int64(h.count("SELECT starred_at FROM items WHERE id = ?", id)), "a time ahead of the clock is now")
+
+	for _, bad := range []string{`{"starred":true,"at":0}`, `{"starred":true,"at":-5}`, fmt.Sprintf(`{"starred":true,"at":%d}`, now-31*86400), `{"starred":true,"at":"x"}`} {
+		require.Equal(t, 400, put(bad), bad)
+	}
+}

@@ -89,10 +89,22 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	}
 	q.Query = searchText(search)
 	q.Typing = qv.Get("typing") == "1"
+	// include=content returns each item as GET /api/items/{id} does (content_html, fulltext, feed), so a
+	// client can store a page for offline reading in one request. It is capped at maxContentItems a page.
+	withContent := false
+	switch qv.Get("include") {
+	case "":
+	case "content":
+		withContent = true
+		q.Limit = maxContentItems // a larger limit below is refused, a smaller one kept
+	default:
+		writeError(w, http.StatusBadRequest, "bad_request")
+		return
+	}
 	if v := qv.Get("ids"); v != "" {
 		for _, p := range strings.Split(v, ",") {
 			id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
-			if err != nil || id <= 0 || len(q.IDs) >= maxIDsQuery {
+			if err != nil || id <= 0 || len(q.IDs) >= maxIDsQuery || (withContent && len(q.IDs) >= maxContentItems) {
 				writeError(w, http.StatusBadRequest, "bad_request")
 				return
 			}
@@ -131,6 +143,10 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		}
 		if v := qv.Get("limit"); v != "" {
 			q.Limit, err3 = strconv.Atoi(v)
+		}
+		if withContent && (err3 == nil && q.Limit > maxContentItems) {
+			writeError(w, http.StatusBadRequest, "bad_request")
+			return
 		}
 		if err1 != nil || err2 != nil || err3 != nil || (q.FeedID != 0 && q.FolderID != 0) || q.Limit < 0 {
 			writeError(w, http.StatusBadRequest, "bad_request")
@@ -171,7 +187,25 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	if next != nil {
 		cur = next.Encode()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": cards, "next_cursor": cur, "as_of": strconv.FormatInt(asOf, 10), "fallback": fallback})
+	var out any = cards
+	if withContent {
+		full := make([]store.ItemDetail, 0, len(cards))
+		now := s.now().Unix()
+		for _, c := range cards {
+			det, found, err := s.db.GetItem(r.Context(), c.ID, now)
+			if err != nil {
+				s.serverError(w, "list items", err)
+				return
+			}
+			if !found { // trimmed between the two reads: leave it out, it is gone
+				continue
+			}
+			s.proxyDetail(r.Context(), &det)
+			full = append(full, det)
+		}
+		out = full
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": out, "next_cursor": cur, "as_of": strconv.FormatInt(asOf, 10), "fallback": fallback})
 }
 
 // searchText is the search text as sent, or "" when it is blank. Trailing spaces are kept: with
@@ -266,6 +300,13 @@ func (s *Server) openItem(w http.ResponseWriter, r *http.Request) {
 
 // ---- PUT /api/items/{id}/star ----
 
+// maxStarAge is how far back a queued star's `at` may reach (seconds). maxContentItems is the page
+// cap of GET /api/items?include=content.
+const (
+	maxStarAge      = 30 * 86400
+	maxContentItems = 50
+)
+
 func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathItemID(r)
 	if !ok {
@@ -274,6 +315,10 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Starred *bool `json:"starred"`
+		// At is when the star happened (unix seconds), sent by a client replaying a change it queued
+		// offline. Absent means now; a time ahead of the clock is taken as now; older than
+		// maxStarAge or not positive is a bad request.
+		At *int64 `json:"at"`
 	}
 	if !decodeBody(w, r, &body, false) {
 		return
@@ -283,6 +328,14 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now().Unix()
+	at := now
+	if body.At != nil {
+		if *body.At <= 0 || *body.At < now-maxStarAge {
+			writeError(w, http.StatusBadRequest, "bad_request")
+			return
+		}
+		at = min(*body.At, now)
+	}
 	if known, err := s.db.ItemKnown(r.Context(), id, now); err != nil {
 		s.serverError(w, "star item", err)
 		return
@@ -297,7 +350,7 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 	var res store.StateResult
 	err := s.db.WithWrite(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
 		var err error
-		if res, err = store.SetStarred(ctx, tx, []int64{id}, *body.Starred, now); err != nil {
+		if res, err = store.SetStarred(ctx, tx, []int64{id}, *body.Starred, at); err != nil {
 			return err
 		}
 		for _, cid := range res.Changed { // only when RETURNING shows a change

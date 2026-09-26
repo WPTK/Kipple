@@ -161,3 +161,15 @@ func TestPageCSPHasNoUnsafeScript(t *testing.T) {
 		}
 	}
 }
+
+func TestAPIHandshakeHeaderOnAPIPathsOnly(t *testing.T) {
+	get := func(path string) string {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		Secure(typed("application/json", "{}"), Options{}).ServeHTTP(rec, r)
+		return rec.Header().Get("X-Kipple-API")
+	}
+	require.Equal(t, APIVersion, get("/api/bootstrap"))
+	require.Empty(t, get("/"))
+	require.Empty(t, get("/api/greader.php/reader/api/0/token"), "the Reader API is a different contract")
+}
