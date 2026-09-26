@@ -161,6 +161,7 @@ type Cache struct {
 	mu sync.Mutex // serializes every index mutation and the used/files counters
 
 	used, files, negN  atomic.Int64 // negN counts failure rows and in-progress markers
+	markN              atomic.Int64 // of negN, the in-progress markers (failures are negN - markN)
 	maxNeg, maxMarkers int64        // the caps of each (maxNegEntries, maxMarkerEntries; tests lower them)
 	maxBytes           atomic.Int64
 	hits, misses       atomic.Int64
@@ -485,9 +486,9 @@ func (c *Cache) Delete(key string) {
 // dropLocked deletes a row and, when it was an ok entry, its file. mu is held.
 // A missing row is not an error; a failing index is, so a loop over keys can stop.
 func (c *Cache) dropLocked(key string, evicted bool) error {
-	var status string
+	var status, reason string
 	var size int64
-	err := c.wr.QueryRow("SELECT status, size FROM entries WHERE key = ?", key).Scan(&status, &size)
+	err := c.wr.QueryRow("SELECT status, size, neg_reason FROM entries WHERE key = ?", key).Scan(&status, &size, &reason)
 	if errors.Is(err, sql.ErrNoRows) {
 		c.forgetAccess(key)
 		return nil
@@ -508,6 +509,9 @@ func (c *Cache) dropLocked(key string, evicted bool) error {
 		}
 	} else {
 		c.negN.Add(-1)
+		if reason == InProgress {
+			c.markN.Add(-1)
+		}
 	}
 	return nil
 }
@@ -743,7 +747,25 @@ func (c *Cache) recountLocked() error {
 	c.used.Store(used)
 	c.files.Store(files)
 	c.negN.Store(neg)
+	return c.recountMarkersLocked()
+}
+
+// recountMarkersLocked reloads the in-progress marker count from the index (after a bulk delete
+// that does not know which rows it removed). mu is held.
+func (c *Cache) recountMarkersLocked() error {
+	var n int64
+	if err := c.wr.QueryRow("SELECT count(*) FROM entries WHERE status = 'neg' AND neg_reason = ?", InProgress).Scan(&n); err != nil {
+		return err
+	}
+	c.markN.Store(n)
 	return nil
+}
+
+// negOverCapLocked reports whether the failure rows or the in-progress markers are past their own
+// cap (each is checked against its own, so a flood of one cannot hide behind the other's room).
+func (c *Cache) negOverCap() bool {
+	marks := c.markN.Load()
+	return marks > c.maxMarkers || c.negN.Load()-marks > c.maxNeg
 }
 
 // Clear deletes every file, entry and host hint. It returns how many cached
@@ -774,6 +796,7 @@ func (c *Cache) Clear() (int64, error) {
 	c.used.Store(0)
 	c.files.Store(0)
 	c.negN.Store(0)
+	c.markN.Store(0)
 	return n, errors.Join(errs...)
 }
 
@@ -907,8 +930,15 @@ func (c *Cache) putNeg(key, url string, flags int, variant string, kind NegKind,
 	case !exists:
 		c.negN.Add(1)
 	}
+	if wasMarker := exists && oldStatus == statusNeg && oldReason == InProgress; wasMarker != (reason == InProgress) {
+		if wasMarker {
+			c.markN.Add(-1)
+		} else {
+			c.markN.Add(1)
+		}
+	}
 	c.forgetAccess(key)
-	if c.negN.Load() > c.maxNeg+c.maxMarkers {
+	if c.negOverCap() {
 		c.pruneNegLocked()
 	}
 	return nil
@@ -946,6 +976,9 @@ func (c *Cache) pruneNegLocked() {
 		if n, err := res.RowsAffected(); err == nil {
 			c.negN.Add(-n)
 		}
+	}
+	if err := c.recountMarkersLocked(); err != nil {
+		c.log.Debug("imgcache: recount markers", "err", err)
 	}
 }
 
@@ -1036,7 +1069,10 @@ func (c *Cache) Sweep(ctx context.Context, vacuum bool) (SweepResult, error) {
 			r.NegExpired = n
 			c.negN.Add(-n)
 		}
-		if c.negN.Load() > c.maxNeg+c.maxMarkers {
+		if err := c.recountMarkersLocked(); err != nil {
+			return err
+		}
+		if c.negOverCap() {
 			c.pruneNegLocked()
 		}
 		res, err = c.wr.ExecContext(ctx, "DELETE FROM hosts WHERE updated_at < ?", now.Add(-hostHintExpiry).Unix())

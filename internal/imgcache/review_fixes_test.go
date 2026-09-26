@@ -303,3 +303,55 @@ func TestNegPruneKeepsMarkersAndRecentlyHitFailures(t *testing.T) {
 	require.NoError(t, c.rd.QueryRow("SELECT count(*) FROM entries WHERE neg_reason = ?", InProgress).Scan(&markers))
 	require.LessOrEqual(t, markers, int64(4))
 }
+
+// Each count has its own cap: markers past 5,000 are pruned although failures are few, and
+// failures past 20,000 are pruned although markers are few (the total alone stayed under the sum).
+func TestNegPruneChecksEachCapOnItsOwn(t *testing.T) {
+	count := func(c *Cache, marker bool) int64 {
+		var n int64
+		q := "SELECT count(*) FROM entries WHERE status = 'neg' AND neg_reason <> ?"
+		if marker {
+			q = "SELECT count(*) FROM entries WHERE status = 'neg' AND neg_reason = ?"
+		}
+		require.NoError(t, c.rd.QueryRow(q, InProgress).Scan(&n))
+		return n
+	}
+	u := func(s string, i int) string { return fmt.Sprintf("http://img.example/%s%d", s, i) }
+
+	t.Run("markers over their cap, few failures", func(t *testing.T) {
+		c, clk := newCache(t)
+		c.maxNeg, c.maxMarkers = 10, 4
+		for i := 0; i < 2; i++ {
+			require.NoError(t, c.PutNeg(KeyOrig(0, u("p", i)), u("p", i), 0, NegPermanent, 404, "gone"))
+		}
+		for i := 0; i < 8; i++ { // 10 rows in all: under the 14 of the two caps together
+			require.NoError(t, c.PutInProgress(KeyThumb(0, u("m", i)), u("m", i), 0, VariantThumb))
+			clk.Advance(time.Second)
+		}
+		require.LessOrEqual(t, count(c, true), c.maxMarkers, "markers are held to their own cap")
+		require.EqualValues(t, 2, count(c, false), "the failures were not touched")
+	})
+	t.Run("failures over their cap, few markers", func(t *testing.T) {
+		c, clk := newCache(t)
+		c.maxNeg, c.maxMarkers = 10, 4
+		require.NoError(t, c.PutInProgress(KeyThumb(0, u("m", 0)), u("m", 0), 0, VariantThumb))
+		for i := 0; i < 12; i++ { // 13 rows in all: still under 14
+			require.NoError(t, c.PutNeg(KeyOrig(0, u("p", i)), u("p", i), 0, NegPermanent, 404, "gone"))
+			clk.Advance(time.Second)
+		}
+		require.LessOrEqual(t, count(c, false), c.maxNeg, "failures are held to their own cap")
+		require.EqualValues(t, 1, count(c, true), "the marker was not touched")
+	})
+	t.Run("the marker count follows replacement and deletion", func(t *testing.T) {
+		c, _ := newCache(t)
+		k := KeyThumb(0, u("m", 0))
+		require.NoError(t, c.PutInProgress(k, u("m", 0), 0, VariantThumb))
+		require.EqualValues(t, 1, c.markN.Load())
+		require.NoError(t, c.PutNeg(k, u("m", 0), 0, NegPermanent, 415, "not an image")) // the outcome replaces the marker
+		require.Zero(t, c.markN.Load())
+		require.NoError(t, c.PutInProgress(k, u("m", 0), 0, VariantThumb))
+		c.Delete(k)
+		require.Zero(t, c.markN.Load())
+		require.Zero(t, c.negN.Load())
+	})
+}

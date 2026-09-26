@@ -173,9 +173,9 @@ func (w *Writer) Commit(m Meta) error {
 		_ = os.Remove(name)
 		return err
 	}
-	var oldStatus string
+	var oldStatus, oldReason string
 	var oldSize int64
-	err := c.wr.QueryRow("SELECT status, size FROM entries WHERE key = ?", w.key).Scan(&oldStatus, &oldSize)
+	err := c.wr.QueryRow("SELECT status, size, neg_reason FROM entries WHERE key = ?", w.key).Scan(&oldStatus, &oldSize, &oldReason)
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		_ = os.Remove(name)
@@ -205,6 +205,9 @@ func (w *Writer) Commit(m Meta) error {
 		c.used.Add(w.n - oldSize)
 	case exists:
 		c.negN.Add(-1)
+		if oldReason == InProgress {
+			c.markN.Add(-1)
+		}
 		c.used.Add(w.n)
 		c.files.Add(1)
 	default:
