@@ -176,8 +176,8 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 		return nil, fmt.Errorf("store: restore trimmed: %w", err)
 	}
 	stmts := []string{
-		`INSERT INTO item_content (item_id, content_html, content_text, enclosures_json)
-		  SELECT c.id, c.content_html, c.content_text, c.enclosures_json FROM trimmed_content c
+		`INSERT INTO item_content (item_id, content_html, content_text, enclosures_json, categories_json)
+		  SELECT c.id, c.content_html, c.content_text, c.enclosures_json, c.categories_json FROM trimmed_content c
 		  WHERE c.id IN (SELECT value FROM json_each(?3)) AND EXISTS (SELECT 1 FROM items i WHERE i.id = c.id)
 		ON CONFLICT DO NOTHING`,
 		`DELETE FROM trimmed_items WHERE id IN (SELECT value FROM json_each(?3)) AND id IN (SELECT id FROM items)`,

@@ -64,10 +64,10 @@ func trimFeed(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64) (i
 		    id = excluded.id, read = excluded.read, trimmed_at = excluded.trimmed_at, last_seen_at = excluded.last_seen_at`, []any{now}},
 		{`INSERT INTO trimmed_content (id, published_at, updated_at, sort_at, word_count, content_hash, text_hash,
 		                              url, title, author, image_url, origin_title, fulltext_mode,
-		                              content_html, content_text, enclosures_json)
+		                              content_html, content_text, enclosures_json, categories_json)
 		    SELECT i.id, i.published_at, i.updated_at, i.sort_at, i.word_count, i.content_hash, i.text_hash,
 		           i.url, i.title, i.author, i.image_url, i.origin_title, i.fulltext_mode,
-		           c.content_html, c.content_text, c.enclosures_json
+		           c.content_html, c.content_text, c.enclosures_json, c.categories_json
 		    FROM temp.trim_set t JOIN items i ON i.id = t.id JOIN item_content c ON c.item_id = i.id
 		    WHERE ?1 > 0
 		  ON CONFLICT (id) DO NOTHING`, []any{set.RestoreDays}},

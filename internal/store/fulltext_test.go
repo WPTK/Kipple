@@ -91,7 +91,8 @@ func TestMigration0003KeepsExistingFulltextErrors(t *testing.T) {
 	e.fetchBody(fid, rss(numbered(1)...))
 	item := int64(scalar[int](t, db.Reader(), "SELECT id FROM items WHERE feed_id = ?", fid))
 	e.exec(`INSERT INTO item_fulltext (item_id, extracted_at, error) VALUES (?, 5, 'the page answered HTTP 500')`, item)
-	// Back to schema v2.
+	// Back to schema v2 (undo 0004, then 0003).
+	downgradeTo3(t, e)
 	e.exec(`ALTER TABLE item_fulltext DROP COLUMN error_class`)
 	e.exec(`PRAGMA user_version = 2`)
 	require.NoError(t, db.Close())
