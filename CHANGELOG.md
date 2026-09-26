@@ -108,6 +108,7 @@ Phase 2 (reading UI backend) so far.
   directory refuses to start. The lock goes with the process, so there is no stale lock file.
 - `docs/deploy.md`: where backups live, the export, password reset and restore runbooks, the
   extra steps for the phase 2 deploy (an off-box copy first) and how to roll back to phase 1.
+- `GET /api/events` accepts `?last_event_id=` as well as the `Last-Event-ID` header, so a client that recreates its `EventSource` can still replay what it missed.
 
 ### Changed
 
@@ -151,6 +152,8 @@ Phase 2 (reading UI backend) so far.
 - One unusable feed entry no longer costs the whole fetch: an empty entry, or one whose conversion fails, is dropped and counted in the fetch log note `skipped_malformed_items: n/total`, and the rest of the document commits.
 - An item's enclosures are deduplicated by resolved URL at ingest.
 - Known one-time effect after deploying phase 2: the ingest iframe pass (and the stored iframe sandbox) changes the stored HTML of existing items that contain a YouTube/Vimeo/other iframe the next time their feed is fetched, so their content and text hashes change once and Reader clients (Reeder, NetNewsWire) receive those items again as updated. Nothing is lost and it does not repeat; it is not suppressed on purpose, since the stored content really did change.
+- The image-proxy signing secret is cached for one second instead of being read for every image in a list; a rotation still takes effect within that second.
+- Internal: one outgoing User-Agent string, one control-character rule for titles, folder names and header values (tab allowed, as HTTP header values allow), the scheduler reuses the full-text runner's extractor type and host key, and `RecordStars` is part of the stats recorder interface.
 
 ### Removed
 
@@ -223,6 +226,20 @@ Phase 2 (reading UI backend) so far.
 - Serve-time HTML: an unclosed `<video src="http://...">` or `<audio>` keeps its "Open video"/"Open audio" fallback link (written at the end of the input); the id-reference attributes `headers`, `for`, `aria-describedby`, `aria-labelledby`, `aria-controls` and `usemap` are prefixed `kp-` along with the ids they point at, so table headers, labels and image maps keep working.
 - Enclosure-only entries (podcast or photo feeds with no text) are no longer dropped as empty: they are kept, titled after the media file name (or the feed title), with the first media URL as their guid. Truly empty entries are still skipped and counted.
 - Nightly maintenance follows the `tz` setting without doubling or skipping a day: the local date of the last run is kept (`sys.last_nightly_date`, survives restarts) and the job runs once per local date once 04:10 has passed. An unknown `tz` name keeps the previous zone and logs a warning instead of being treated as a change to UTC.
+- A full refresh or trim requested for a feed whose fetch was still waiting for a worker could be lost when its host became rate-limited: the waiting fetch was dropped with the request's follow-up on it, and the API call timed out. A waiting fetch is now upgraded in place to a full refetch, and a fetch that anything is waiting on is never dropped.
+- Refresh-all and import no longer count a feed as fetched when the job that was in flight for it was only a trim or a skip: the run now fetches it after that job.
+- Adding a feed from the web works for sites that refuse Kipple's User-Agent (403, 406, Cloudflare challenge): discovery follows `fetch.user_agent_mode` and retries once as a browser, as the fetcher does. Full-text extraction does the same, and honors the per-feed User-Agent, the remembered browser fallback and `browser_always`, so a feed that only loads with a browser User-Agent no longer gets a permanent 403 on its article pages.
+- A folder deleted while a feed is being added now answers `folder_not_found` (400) instead of a 500.
+- The health view's `backup_bytes` counts the whole backup tree (`pre-restore-*` copies and the `export/` scratch files), not just the top-level files.
+- A large fetch (over 500 items) cut short by a URL edit now reports exactly the items that committed and still queues full text for them; the remembered browser-User-Agent flag is bound to the URL that was fetched.
+- SSE ids are strings (`run_id`, `run_ids`, `new_item_ids`), as everywhere else in the API.
+- Serve-time HTML: inline event-handler attributes are recognized explicitly (`on` plus letters), so lookalike attributes such as `<details open>` are never touched.
+
+### Security
+
+- Open event streams end when their session is gone: "sign out other sessions" (password change, `kipple password`) and session expiry now close a stream at the next heartbeat instead of leaving it open.
+- Changing a feed's URL to a different host clears its stored HTTP credentials unless the same edit sets new ones, so a Basic-auth password is never sent to a host it was not entered for.
+- CI: the gitleaks download is verified against its published SHA-256, and every GitHub Action (including the Trivy image scan) is pinned to a commit SHA with the version in a comment; Dependabot keeps them current.
 
 ## [0.1.0] - 2026-09-25
 
