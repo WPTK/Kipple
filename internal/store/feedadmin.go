@@ -87,7 +87,7 @@ type FeedPatch struct {
 
 // patchable is the whitelist of plain columns. Values are validated by the caller.
 var patchable = map[string]bool{
-	"custom_title": true, "folder_id": true, "position": true, "interval_minutes": true, "retention": true,
+	"custom_title": true, "folder_id": true, "position": true, "interval_minutes": true, "retention": true, "auto_read_days": true,
 	"fulltext": true, "dedup_mode": true, "user_agent": true, "http_auth": true, "ignore_http_cache": true,
 	"disable_http2": true, "allow_insecure_tls": true, "allow_private_net": true,
 }

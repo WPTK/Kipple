@@ -271,7 +271,7 @@ func (s *Server) writeExisting(w http.ResponseWriter, r *http.Request, id int64)
 
 // ---- PATCH /api/feeds/{id} ----
 
-var patchKeys = []string{"custom_title", "folder_id", "position", "interval_minutes", "retention", "fulltext", "dedup_mode",
+var patchKeys = []string{"custom_title", "folder_id", "position", "interval_minutes", "retention", "auto_read_days", "fulltext", "dedup_mode",
 	"user_agent", "http_auth", "ignore_http_cache", "disable_http2", "allow_insecure_tls", "allow_private_net", "enabled", "url"}
 
 // parsePatch validates every field of a PATCH body; msg is non-empty on failure.
@@ -315,6 +315,16 @@ func parsePatch(m map[string]json.RawMessage) (p store.FeedPatch, msg string) {
 			n, ok := rawInt(raw)
 			if !ok || n < 5 || n > 10080 {
 				return p, "interval_minutes must be null or 5 to 10080"
+			}
+			p.Cols[k] = n
+		case "auto_read_days":
+			if null {
+				p.Cols[k] = nil
+				continue
+			}
+			n, ok := rawInt(raw)
+			if !ok || n < 0 || n > 365 {
+				return p, "auto_read_days must be null (use the library setting) or 0 to 365 (0 = off for this feed)"
 			}
 			p.Cols[k] = n
 		case "retention":

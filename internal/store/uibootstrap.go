@@ -37,6 +37,8 @@ var DefaultSettings = map[string]any{
 	"greader.icon_urls":             true,
 	"fetch.fulltext_all":            false,
 	"library.favorites":             []any{},
+	"library.auto_read_days":        0,
+	"library.saved_searches":        []any{},
 	"links.strip_tracking":          true,
 
 	// Named by design §2.2 but not yet read by any code (greader/ui phases).
@@ -161,7 +163,9 @@ type UIFeed struct {
 	FulltextEffective bool   `json:"fulltext_effective"`
 	Retention         *int64 `json:"retention"`
 	IntervalMinutes   *int64 `json:"interval_minutes"`
-	IsArchive         bool   `json:"is_archive"`
+	// AutoReadDays is the feed's own auto-read override (design 7.1d): null inherits library.auto_read_days, 0 is off for this feed.
+	AutoReadDays *int64 `json:"auto_read_days"`
+	IsArchive    bool   `json:"is_archive"`
 	// StarredCount is what the delete confirm dialog shows: starred items move to
 	// the archive feed unless the user chooses to delete them too.
 	StarredCount int64 `json:"starred_count"`
@@ -178,7 +182,7 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 	all := d.FulltextAll(ctx)
 	rows, err := d.reader.QueryContext(ctx, `
 		SELECT f.id, f.folder_id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url, fi.hash,
-		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes,
+		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes, f.auto_read_days,
 		       f.host, f.redirect_kind, f.redirect_to, COALESCE(f.last_new_items_at, f.created_at),
 		       (SELECT count(*) FROM items WHERE feed_id = f.id AND starred = 1)
 		FROM feeds f JOIN folders fo ON fo.id = f.folder_id
@@ -196,8 +200,8 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 		var hash, reason, host, rKind, rTo sql.NullString
 		var lastNew int64
 		var enabled, failures, fulltext int64
-		var retention, interval sql.NullInt64
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &host, &rKind, &rTo, &lastNew, &f.StarredCount); err != nil {
+		var retention, interval, autoRead sql.NullInt64
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &autoRead, &host, &rKind, &rTo, &lastNew, &f.StarredCount); err != nil {
 			return nil, err
 		}
 		if hash.Valid {
@@ -210,6 +214,7 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 		f.Fulltext = fulltext == 1
 		f.FulltextEffective = EffectiveFulltext(nil, f.Fulltext, all) == 1
 		f.Retention, f.IntervalMinutes = intp(retention), intp(interval)
+		f.AutoReadDays = intp(autoRead)
 		out = append(out, f)
 	}
 	return out, rows.Err()

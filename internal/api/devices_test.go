@@ -185,6 +185,7 @@ func TestPatchDeviceValidation(t *testing.T) {
 		{"width fractional", `{"client.list_width":300.5}`, "client.list_width"},
 		{"text size", `{"client.text_size":1.3}`, "client.text_size"},
 		{"bool type", `{"client.large_targets":"yes"}`, "client.large_targets"},
+		{"highlight type", `{"client.highlight_keywords":"no"}`, "client.highlight_keywords"},
 		{"voice newline", `{"client.voice":"a\nb"}`, "client.voice"},
 		{"voice long", `{"client.voice":"` + strings.Repeat("v", 201) + `"}`, "client.voice"},
 		{"override bad layout", `{"client.layout_overrides":{"feed":{"1":"grid"},"folder":{}}}`, "client.layout_overrides"},
@@ -220,7 +221,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	 "client.order":"oldest","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
 	 "client.text_size":0.875,"client.adjust_separately":true,"client.shortcuts":false,"client.spacing":"roomy",
-	 "client.motion":"on","client.large_targets":true,"client.listen":true,"client.voice":"Samantha","client.rate":1.2,
+	 "client.motion":"on","client.large_targets":true,"client.highlight_keywords":false,"client.listen":true,"client.voice":"Samantha","client.rate":1.2,
 	 "client.collapsed_folders":["4","9"]}`
 	code, out, _ := d.call("PATCH", "/api/device", body)
 	require.Equal(t, http.StatusOK, code, out)
@@ -228,6 +229,9 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	require.Equal(t, "headlines", m["client.layout"])
 	require.Equal(t, map[string]any{"feed": map[string]any{"12": "inbox"}, "folder": map[string]any{"3": "compact"}}, m["client.layout_overrides"])
 	require.Equal(t, false, m["client.shortcuts"])
+	require.Equal(t, false, m["client.highlight_keywords"])
+	_, fresh, _ := h.newDev().call("GET", "/api/device", "")
+	require.Equal(t, true, fresh["merged"].(map[string]any)["client.highlight_keywords"], "on unless a device turns it off")
 	require.EqualValues(t, 1.2, m["client.rate"])
 	require.Equal(t, []any{"4", "9"}, m["client.collapsed_folders"])
 	// partial update keeps the rest

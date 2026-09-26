@@ -64,6 +64,11 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
+	savedSearches, err := s.db.SavedSearches(ctx)
+	if err != nil {
+		fail(err)
+		return
+	}
 	highlights, err := s.db.Highlights(ctx)
 	if err != nil {
 		fail(err)
@@ -91,17 +96,21 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	if ar := s.applyStatus(); ar != nil {
 		runs = append(runs, ar)
 	}
+	if ar := s.autoReadStatus(); ar != nil {
+		runs = append(runs, ar)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":        map[string]any{"username": acct.Username, "api_enabled": acct.APIPasswordHash != ""},
-		"settings":    settings,
-		"device":      map[string]any{"id": dv.ID, "name": dv.Name, "profile": dview["profile"], "merged": dview["merged"]},
-		"folders":     folders,
-		"feeds":       feeds,
-		"counts":      map[string]int64{"unread": unread, "starred": starred, "muted": muted},
-		"highlights":  highlights,
-		"runs":        runs,
-		"warnings":    warnings,
-		"server_time": now.Unix(),
-		"version":     s.opt.Version,
+		"user":           map[string]any{"username": acct.Username, "api_enabled": acct.APIPasswordHash != ""},
+		"settings":       settings,
+		"device":         map[string]any{"id": dv.ID, "name": dv.Name, "profile": dview["profile"], "merged": dview["merged"]},
+		"folders":        folders,
+		"feeds":          feeds,
+		"counts":         map[string]int64{"unread": unread, "starred": starred, "muted": muted},
+		"highlights":     highlights,
+		"runs":           runs,
+		"warnings":       warnings,
+		"saved_searches": savedSearches,
+		"server_time":    now.Unix(),
+		"version":        s.opt.Version,
 	})
 }

@@ -1,0 +1,235 @@
+package api
+
+import (
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func (h *harness) saved(c *http.Cookie, body string) map[string]any {
+	h.t.Helper()
+	code, out, _ := h.api(c, "POST", "/api/saved-searches", body)
+	require.Equal(h.t, 201, code, "%v", out)
+	return out
+}
+
+func savedList(t *testing.T, h *harness, c *http.Cookie, query string) []map[string]any {
+	t.Helper()
+	code, out, _ := h.api(c, "GET", "/api/saved-searches"+query, "")
+	require.Equal(t, 200, code)
+	var list []map[string]any
+	for _, x := range out["saved_searches"].([]any) {
+		list = append(list, x.(map[string]any))
+	}
+	return list
+}
+
+func TestSavedSearchesCRUDCountsAndBootstrap(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	a := h.addFeed("A", 0)
+	b := h.addFeed("B", 0)
+	h.addItem(a, seedItem{Title: "Kernel release notes"})
+	h.addItem(a, seedItem{Title: "Another kernel patch", Read: true})
+	h.addItem(b, seedItem{Title: "Kernel in feed B"})
+	h.addItem(b, seedItem{Title: "Cooking", Starred: true})
+	h.addItem(b, seedItem{Title: "Cooking again", Starred: true, Read: true})
+
+	sub := h.events()
+	defer sub.Close()
+	all := h.saved(c, `{"name":"  Kernel  ","q":"kernel"}`)
+	require.Equal(t, "Kernel", all["name"])
+	require.Regexp(t, `^s[0-9a-f]{12}$`, all["id"], "the server makes the id")
+	require.EqualValues(t, 2, all["unread"], "unread kernel articles in the whole library")
+	require.Equal(t, false, all["unread_capped"])
+	require.NotContains(t, all, "scope")
+	inB := h.saved(c, `{"name":"B kernel","q":"kernel","scope":{"feed_id":"`+sid(b)+`"},"order":"rank"}`)
+	require.EqualValues(t, 1, inB["unread"])
+	require.Equal(t, "rank", inB["order"])
+	starred := h.saved(c, `{"name":"Cooking","q":"cooking","scope":{"view":"starred"}}`)
+	require.EqualValues(t, 1, starred["unread"], "the count is of unread articles even in the starred view")
+	require.Len(t, ofType(collect(t, sub, "saved_searches.changed", 2*time.Second), "saved_searches.changed"), 1)
+
+	list := savedList(t, h, c, "")
+	require.Len(t, list, 3)
+	require.Equal(t, []any{"Kernel", "B kernel", "Cooking"}, []any{list[0]["name"], list[1]["name"], list[2]["name"]})
+	require.EqualValues(t, 2, list[0]["unread"])
+	for _, l := range savedList(t, h, c, "?counts=0") {
+		require.Nil(t, l["unread"], "?counts=0 skips the counts")
+	}
+
+	// Bootstrap carries the list (no counts) and the setting value.
+	_, boot, _ := h.api(c, "GET", "/api/bootstrap", "")
+	require.Len(t, boot["saved_searches"].([]any), 3)
+	require.Len(t, boot["settings"].(map[string]any)["library.saved_searches"].([]any), 3)
+
+	// PATCH: rename, change scope, clear the scope and the order.
+	id := inB["id"].(string)
+	code, out, _ := h.api(c, "PATCH", "/api/saved-searches/"+id, `{"name":"Renamed","scope":{"folder_id":"1"},"order":null}`)
+	require.Equal(t, 200, code, out)
+	require.Equal(t, "Renamed", out["name"])
+	require.Equal(t, map[string]any{"folder_id": "1"}, out["scope"])
+	require.NotContains(t, out, "order")
+	code, out, _ = h.api(c, "PATCH", "/api/saved-searches/"+id, `{"scope":null}`)
+	require.Equal(t, 200, code)
+	require.NotContains(t, out, "scope")
+	require.Equal(t, "kernel", out["q"], "untouched fields stay")
+
+	// reorder
+	ids := []string{starred["id"].(string), id, all["id"].(string)}
+	code, out, _ = h.api(c, "POST", "/api/saved-searches/reorder", jsonStr(map[string]any{"ids": ids}))
+	require.Equal(t, 200, code, out)
+	list = savedList(t, h, c, "?counts=0")
+	require.Equal(t, ids, []string{list[0]["id"].(string), list[1]["id"].(string), list[2]["id"].(string)})
+	for _, bad := range []any{ids[:2], append(ids[:2:2], ids[0]), append(ids[:2:2], "nope")} {
+		code, _, _ = h.api(c, "POST", "/api/saved-searches/reorder", jsonStr(map[string]any{"ids": bad}))
+		require.Equal(t, 400, code)
+	}
+
+	// delete
+	code, _, rec := h.api(c, "DELETE", "/api/saved-searches/"+id, "")
+	require.Equal(t, 204, code)
+	require.Empty(t, rec.Body.String())
+	code, _, _ = h.api(c, "DELETE", "/api/saved-searches/"+id, "")
+	require.Equal(t, 404, code)
+	code, _, _ = h.api(c, "PATCH", "/api/saved-searches/nope", `{"name":"x"}`)
+	require.Equal(t, 404, code)
+	require.Len(t, savedList(t, h, c, "?counts=0"), 2)
+}
+
+func TestSavedSearchValidation(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	feed := h.addFeed("A", 0)
+	for _, tc := range []struct{ name, body, field string }{
+		{"no name", `{"q":"x"}`, "name"},
+		{"blank q", `{"name":"n","q":"  "}`, "q"},
+		{"long name", `{"name":"` + strings.Repeat("n", 61) + `","q":"x"}`, "name"},
+		{"newline", `{"name":"a\nb","q":"x"}`, "name"},
+		{"order", `{"name":"n","q":"x","order":"best"}`, "order"},
+		{"scope two", `{"name":"n","q":"x","scope":{"feed_id":"1","view":"all"}}`, "scope"},
+		{"scope view", `{"name":"n","q":"x","scope":{"view":"muted"}}`, "scope.view"},
+		{"scope feed id", `{"name":"n","q":"x","scope":{"feed_id":"abc"}}`, "scope.feed_id"},
+		{"scope unknown feed", `{"name":"n","q":"x","scope":{"feed_id":"9999"}}`, "scope"},
+		{"scope unknown folder", `{"name":"n","q":"x","scope":{"folder_id":"9999"}}`, "scope"},
+	} {
+		code, out, _ := h.api(c, "POST", "/api/saved-searches", tc.body)
+		require.Equal(t, 400, code, tc.name)
+		require.Equal(t, "bad_saved_search", out["error"], tc.name)
+		require.Equal(t, tc.field, out["field"], tc.name)
+	}
+	for _, body := range []string{`{"name":"n","q":"x","id":"mine"}`, `{"name":"n","q":"x","extra":1}`, `not json`} {
+		code, _, _ := h.api(c, "POST", "/api/saved-searches", body)
+		require.Equal(t, 400, code, body, "the client never picks an id, and unknown fields are refused")
+	}
+	require.Zero(t, h.count("SELECT count(*) FROM settings WHERE key = 'library.saved_searches'"))
+
+	ok := h.saved(c, `{"name":"n","q":"x","scope":{"feed_id":"`+sid(feed)+`"}}`)
+	for _, body := range []string{`{"q":" "}`, `{"name":5}`, `{"scope":{"feed_id":"9999"}}`, `{"scope":{"a":1}}`, `{"id":"z"}`} {
+		code, _, _ := h.api(c, "PATCH", "/api/saved-searches/"+ok["id"].(string), body)
+		require.Equal(t, 400, code, body)
+	}
+}
+
+func TestSavedSearchLimitAndSettingsPatch(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	var entries []map[string]any
+	for i := range 100 {
+		entries = append(entries, map[string]any{"id": fmt.Sprintf("id%d", i), "name": "n", "q": "x"})
+	}
+	code, out, _ := h.api(c, "PATCH", "/api/settings", jsonStr(map[string]any{"library.saved_searches": entries}))
+	require.Equal(t, 200, code, out)
+	code, out, _ = h.api(c, "POST", "/api/saved-searches", `{"name":"n","q":"x"}`)
+	require.Equal(t, 409, code)
+	require.Equal(t, "too_many", out["error"])
+	over := append(entries, map[string]any{"id": "id100", "name": "n", "q": "x"})
+	code, _, _ = h.api(c, "PATCH", "/api/settings", jsonStr(map[string]any{"library.saved_searches": over}))
+	require.Equal(t, 400, code)
+
+	for _, bad := range []any{
+		"x", []any{"x"},
+		[]any{map[string]any{"name": "n", "q": "x"}},                                                              // no id
+		[]any{map[string]any{"id": "a", "name": "n", "q": "x"}, map[string]any{"id": "a", "name": "n", "q": "x"}}, // dup
+		[]any{map[string]any{"id": "a", "name": "n", "q": "x", "extra": 1}},
+		[]any{map[string]any{"id": "a b", "name": "n", "q": "x"}},
+		[]any{map[string]any{"id": "a", "name": "n", "q": "x", "scope": map[string]any{"feed_id": "1", "folder_id": "1"}}},
+	} {
+		code, out, _ = h.api(c, "PATCH", "/api/settings", jsonStr(map[string]any{"library.saved_searches": bad}))
+		require.Equal(t, 400, code, "%v", bad)
+		require.Equal(t, []any{"library.saved_searches"}, out["keys"])
+	}
+	code, _, _ = h.api(c, "PATCH", "/api/settings", `{"library.saved_searches":[{"id":"a","name":" n ","q":"x","scope":{"folder_id":"01"}}]}`)
+	require.Equal(t, 200, code)
+	l := savedList(t, h, c, "?counts=0")
+	require.Equal(t, "n", l[0]["name"])
+	require.Equal(t, map[string]any{"folder_id": "1"}, l[0]["scope"], "normalized")
+	def := settingDefByKey["library.saved_searches"]
+	require.Equal(t, surfaceHidden, def.Surface)
+	require.Equal(t, groupLibrary, def.Group)
+}
+
+func TestSavedSearchConcurrentCreatesLoseNothing(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	var wg sync.WaitGroup
+	for i := range 12 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			code, out, _ := h.api(c, "POST", "/api/saved-searches", fmt.Sprintf(`{"name":"s%d","q":"word%d"}`, i, i))
+			require.Equal(t, 201, code, "%v", out)
+		}()
+	}
+	wg.Wait()
+	require.Len(t, savedList(t, h, c, "?counts=0"), 12)
+}
+
+func TestSavedSearchScopeIsDroppedWhenItsFeedOrFolderIsDeleted(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	feed := h.addFeed("A", 0)
+	fo := h.addFolder("News")
+	byFeed := h.saved(c, `{"name":"f","q":"x","scope":{"feed_id":"`+sid(feed)+`"}}`)
+	byFolder := h.saved(c, `{"name":"fo","q":"x","scope":{"folder_id":"`+sid(fo)+`"}}`)
+	view := h.saved(c, `{"name":"v","q":"x","scope":{"view":"unread"}}`)
+
+	code, _, _ := h.api(c, "DELETE", "/api/feeds/"+sid(feed), "")
+	require.Equal(t, 204, code)
+	code, _, _ = h.api(c, "DELETE", "/api/folders/"+sid(fo), "")
+	require.Contains(t, []int{200, 204}, code)
+	byID := map[string]map[string]any{}
+	for _, l := range savedList(t, h, c, "?counts=0") {
+		byID[l["id"].(string)] = l
+	}
+	require.Len(t, byID, 3, "the searches stay")
+	require.NotContains(t, byID[byFeed["id"].(string)], "scope")
+	require.NotContains(t, byID[byFolder["id"].(string)], "scope")
+	require.Equal(t, map[string]any{"view": "unread"}, byID[view["id"].(string)]["scope"])
+}
+
+func TestSavedSearchCountIsCappedAt999(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	feed := h.addFeed("A", 0)
+	h.exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 1100)
+		INSERT INTO items (id, feed_id, read, published_at, sort_at, word_count, uid, content_hash, text_hash, url, title, author)
+		SELECT ?1 + i, ?2, 0, i, i, 0, 'cap:' || i, 'c', 't', 'https://x.example/' || i, 'capword ' || i, '' FROM n`, baseID+9_000_000_000, feed)
+	h.exec(`INSERT INTO item_content (item_id, content_html, content_text) SELECT id, '<p>x</p>', 'x' FROM items WHERE uid LIKE 'cap:%'`)
+	out := h.saved(c, `{"name":"cap","q":"capword"}`)
+	require.EqualValues(t, 999, out["unread"])
+	require.Equal(t, true, out["unread_capped"])
+	l := savedList(t, h, c, "")
+	require.EqualValues(t, 999, l[0]["unread"])
+	require.Equal(t, true, l[0]["unread_capped"])
+
+	h.exec("UPDATE items SET read = 1 WHERE uid LIKE 'cap:%' AND CAST(substr(uid, 5) AS INTEGER) > 40")
+	l = savedList(t, h, c, "")
+	require.EqualValues(t, 40, l[0]["unread"])
+	require.Equal(t, false, l[0]["unread_capped"])
+}

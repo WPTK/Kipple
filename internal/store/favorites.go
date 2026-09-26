@@ -53,11 +53,11 @@ func normalizeFavorites(list []map[string]any) []map[string]any {
 	return out
 }
 
-// dropFavorite removes the favorite of one deleted folder or feed, inside the
+// dropFavoriteRow removes the favorite of one deleted folder or feed, inside the
 // deleting transaction, so the stored list never names a dead id. Ids compare
 // in canonical form, so a legacy "007" is cleaned like "7". A missing or
 // unparsable row is left alone (nothing to fix or nothing safe to rewrite).
-func dropFavorite(ctx context.Context, tx *sql.Tx, kind string, id int64) error {
+func dropFavoriteRow(ctx context.Context, tx *sql.Tx, kind string, id int64) error {
 	var raw string
 	if err := tx.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", SettingFavorites).Scan(&raw); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -110,4 +110,13 @@ func readFavorites(v any) any {
 		out = append(out, f)
 	}
 	return out
+}
+
+// dropFavorite is what every folder or feed delete calls: it cleans the favorites and the scope of
+// any saved search (library.saved_searches) that names the id, in the deleting transaction.
+func dropFavorite(ctx context.Context, tx *sql.Tx, kind string, id int64) error {
+	if err := dropFavoriteRow(ctx, tx, kind, id); err != nil {
+		return err
+	}
+	return dropSavedSearchScope(ctx, tx, kind, id)
 }

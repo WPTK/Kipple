@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -310,6 +311,10 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupLibrary, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: "library.favorites", Label: "Sidebar favorites", Description: "The folders and feeds you pinned to the top of the sidebar.",
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkFavorites},
+	{Key: "library.auto_read_days", Label: "Mark old articles as read after…", Description: "Articles you have not read are marked read once they are this many days old, which keeps your unread list (and the one sync apps such as Reeder load) from growing without end. Starred articles and muted ones are never touched, and an article you mark unread again stays unread. Zero turns this off. A feed can set its own number in its settings. Changing this never marks anything at once: use the catch-up button to clear what is already older.",
+		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(365), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, 365)},
+	{Key: "library.saved_searches", Label: "Saved searches", Description: "The searches you saved to the sidebar.",
+		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkSavedSearches},
 
 	// Account.
 	{Key: "tz", Label: "Time zone", Description: "Used for daily statistics and the nightly maintenance job.",
@@ -418,4 +423,38 @@ func checkFavorites(v any) (any, string) {
 		out = append(out, map[string]any{"t": t, "id": id})
 	}
 	return out, ""
+}
+
+// checkSavedSearches validates library.saved_searches: a list of at most 100 {id, name, q, scope?,
+// order?} objects with unique ids and no other keys (store.NormalizeSavedSearches). It returns the
+// normalized list.
+func checkSavedSearches(v any) (any, string) {
+	const msg = `must be a list (at most 100) of {"id","name","q","scope"?,"order"?} with unique ids`
+	arr, ok := v.([]any)
+	if !ok || len(arr) > store.MaxSavedSearches {
+		return nil, msg
+	}
+	b, err := json.Marshal(arr)
+	if err != nil {
+		return nil, msg
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	var list []store.SavedSearch
+	if err := dec.Decode(&list); err != nil {
+		return nil, msg
+	}
+	out, err := store.NormalizeSavedSearches(list)
+	if err != nil {
+		return nil, err.Error()
+	}
+	nb, err := json.Marshal(out)
+	var norm []any
+	if err != nil || json.Unmarshal(nb, &norm) != nil {
+		return nil, msg
+	}
+	if norm == nil {
+		norm = []any{}
+	}
+	return norm, ""
 }

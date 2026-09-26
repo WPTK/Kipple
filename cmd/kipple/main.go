@@ -194,6 +194,7 @@ func runServe() error {
 		OnAPIPasswordChange: readerAPI.InvalidateAccount,
 	})
 	defer uiAPI.Close()
+	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API
 	uiAPI.Register(mux)
 	webHandler, err := kweb.NewHandler(kweb.WithImgMode(uiAPI.ImgMode))
 	if err != nil {

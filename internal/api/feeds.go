@@ -36,6 +36,9 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	if ar := s.applyStatus(); ar != nil {
 		runs = append(runs, ar)
 	}
+	if ar := s.autoReadStatus(); ar != nil {
+		runs = append(runs, ar)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "inflight": inflight, "unread_total": unread, "muted": muted})
 }
 

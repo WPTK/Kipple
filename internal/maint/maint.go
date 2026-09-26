@@ -38,7 +38,7 @@ const (
 
 // Job is the summary of one maintenance job, logged and handed to OnJob.
 type Job struct {
-	Name     string // checkpoint, purge_stubs, purge_ledger, purge_sessions, purge_devices, imgcache_sweep, optimize, snapshot
+	Name     string // checkpoint, purge_stubs, purge_ledger, purge_sessions, purge_devices, auto_read, imgcache_sweep, optimize, snapshot
 	Rows     int64  // rows purged (frames checkpointed for the checkpoint)
 	Batches  int
 	Duration time.Duration // wall clock
@@ -61,6 +61,10 @@ type Options struct {
 	// Start waits; default DefaultCatchUpDelay, negative for none.
 	CatchUpDelay time.Duration
 
+	// OnAutoRead, if set, is called after each committed batch of the auto-read step with the ids
+	// marked read, with no lock held (the server publishes items.state and counts). It can also be
+	// set after New with SetOnAutoRead.
+	OnAutoRead func(store.StateResult)
 	// OnJob, if set, is called after every job (tests).
 	OnJob func(Job)
 	// AfterBatch, if set, is called after each purge batch with no lock held
@@ -271,6 +275,10 @@ func (m *Maint) nightly(ctx context.Context, now time.Time, loc *time.Location) 
 	if ctx.Err() != nil {
 		return
 	}
+	m.autoRead(ctx, now)
+	if ctx.Err() != nil {
+		return
+	}
 	if ic := m.o.ImgCache; ic != nil {
 		began := time.Now()
 		r, err := ic.Sweep(ctx, true)
@@ -322,4 +330,50 @@ func (m *Maint) purge(ctx context.Context, name string, batch func() (int64, err
 		}
 	}
 	m.finish(j, began)
+}
+
+// SetOnAutoRead installs the callback of Options.OnAutoRead (main wires it once the API exists,
+// which is after the maintenance goroutine has started).
+func (m *Maint) SetOnAutoRead(fn func(store.StateResult)) {
+	m.mu.Lock()
+	m.o.OnAutoRead = fn
+	m.mu.Unlock()
+}
+
+func (m *Maint) onAutoRead() func(store.StateResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.o.OnAutoRead
+}
+
+// autoRead is the nightly auto-read step (design 5.4a): it marks read the unread, unstarred,
+// unmuted articles whose crawl time crossed each feed's threshold since the last run, the window
+// (lastRun - N days, now - N days]. A run that was missed while the server was down is covered
+// because the window starts at the last run that completed; a step that fails or is interrupted
+// does not advance it, and the next night repeats the window (marking is idempotent). With no
+// recorded run (first night after the upgrade) the window is empty and only the instant is
+// recorded, so enabling the feature never marks history behind the reader's back: the explicit
+// "catch up" (POST /api/library/auto-read/run) does that, after a preview.
+func (m *Maint) autoRead(ctx context.Context, now time.Time) {
+	began := time.Now()
+	db := m.o.DB
+	since := now
+	last, ok := store.AutoReadLastRun(ctx, db.Reader())
+	if ok && last.Before(now) {
+		since = last
+	}
+	res, err := db.RunAutoRead(ctx, store.AutoReadOptions{
+		Now: now, Since: since, Pause: m.o.Pause, OnBatch: func(r store.StateResult) {
+			if fn := m.onAutoRead(); fn != nil {
+				fn(r)
+			}
+		},
+	})
+	if err == nil {
+		err = db.RecordAutoReadRun(ctx, now)
+	}
+	if err == nil && (res.Items > 0 || res.Ledger > 0) {
+		m.log.Info("maint: auto-read", "items", res.Items, "ledger", res.Ledger, "feeds", res.Feeds, "since", since.UTC().Format(time.RFC3339))
+	}
+	m.finish(Job{Name: "auto_read", Rows: int64(res.Items + res.Ledger), Batches: res.Batches, Err: err}, began)
 }

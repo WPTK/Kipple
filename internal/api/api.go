@@ -128,7 +128,8 @@ type Server struct {
 	imgH        *imgproxy.Handler
 	imgMode     atomic.Pointer[string] // cached imgproxy.mode for the CSP; refreshed on PATCH
 
-	apply applyState // the retroactive filter apply run
+	apply    applyState    // the retroactive filter apply run
+	autoRead autoReadState // the auto-read catch-up run
 
 	pubMu  sync.Mutex // serializes query+publish so counts events never arrive out of order
 	cmu    sync.Mutex // guards the counts coalescer
@@ -249,6 +250,13 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("PATCH /api/filters/{id}", s.authed(s.patchFilter))
 	handle("DELETE /api/filters/{id}", s.authed(s.deleteFilter))
 	handle("POST /api/filters/{id}/apply", s.authed(s.applyFilterRoute))
+	handle("POST /api/library/auto-read/preview", s.authed(s.previewAutoRead))
+	handle("POST /api/library/auto-read/run", s.authed(s.runAutoReadRoute))
+	handle("GET /api/saved-searches", s.authed(s.listSavedSearches))
+	handle("POST /api/saved-searches", s.authed(s.createSavedSearch))
+	handle("POST /api/saved-searches/reorder", s.authed(s.reorderSavedSearches))
+	handle("PATCH /api/saved-searches/{id}", s.authed(s.patchSavedSearch))
+	handle("DELETE /api/saved-searches/{id}", s.authed(s.deleteSavedSearch))
 	handle("/api/", s.authed(func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 	}))
