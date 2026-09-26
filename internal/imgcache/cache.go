@@ -167,6 +167,7 @@ type Cache struct {
 	lowDisk           atomic.Bool
 	lastWarn          atomic.Int64 // unix seconds
 	lastLowEvict      atomic.Int64
+	evictWarn         warnGate
 
 	amu    sync.Mutex
 	access map[string]accessRec
@@ -297,8 +298,8 @@ func (c *Cache) loop(ctx context.Context) {
 			}
 			c.mu.Unlock()
 		case <-sweep.C:
-			if _, err := c.Sweep(ctx, false); err != nil && ctx.Err() == nil {
-				c.log.Warn("imgcache: sweep", "err", err)
+			if _, err := c.Sweep(ctx, false); ctx.Err() == nil {
+				c.noteEvict(err, "imgcache: sweep")
 			}
 		}
 	}
@@ -412,7 +413,9 @@ func (c *Cache) OpenFile(key string) (*os.File, error) {
 	}
 	if errors.Is(err, fs.ErrNotExist) {
 		c.mu.Lock()
-		c.dropLocked(key, false)
+		if derr := c.dropLocked(key, false); derr != nil {
+			c.log.Debug("imgcache: dropping a row whose file vanished", "err", derr)
+		}
 		c.mu.Unlock()
 		return nil, ErrMissing
 	}
@@ -421,6 +424,7 @@ func (c *Cache) OpenFile(key string) (*os.File, error) {
 
 // Revalidated records a 304: the entry is fresh again for freshFor (0 = the
 // default), with the validators the source sent (empty keeps the stored ones).
+// It also clears the revalidation back-off of DeferRevalidation.
 func (c *Cache) Revalidated(key string, freshFor time.Duration, etag, lastModified string) error {
 	if freshFor <= 0 {
 		freshFor = freshDefault
@@ -428,7 +432,7 @@ func (c *Cache) Revalidated(key string, freshFor time.Duration, etag, lastModifi
 	now := c.now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_, err := c.wr.Exec(`UPDATE entries SET fetched_at = ?, fresh_until = ?,
+	_, err := c.wr.Exec(`UPDATE entries SET fetched_at = ?, fresh_until = ?, neg_count = 0,
 		etag = CASE WHEN ? = '' THEN etag ELSE ? END,
 		last_modified = CASE WHEN ? = '' THEN last_modified ELSE ? END
 		WHERE key = ? AND status = 'ok'`,
@@ -436,23 +440,62 @@ func (c *Cache) Revalidated(key string, freshFor time.Duration, etag, lastModifi
 	return err
 }
 
+// DeferRevalidation records a failed revalidation of a stale ok entry (the
+// source answered an error, a 4xx or something that is not an image) without
+// touching its file: the stale copy is served, and counts as fresh, for 10
+// minutes, doubling with each consecutive failure up to 24 hours. The entry
+// keeps its fetched_at and validators; neg_count counts the failures and a
+// later Revalidated or Commit resets it.
+func (c *Cache) DeferRevalidation(key string) error {
+	if !c.Enabled() || !validKey(key) {
+		return ErrDisabled
+	}
+	now := c.now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var n int
+	if err := c.wr.QueryRow("SELECT neg_count FROM entries WHERE key = ? AND status = 'ok'", key).Scan(&n); err != nil {
+		return err
+	}
+	_, err := c.wr.Exec("UPDATE entries SET fresh_until = ?, neg_count = ? WHERE key = ? AND status = 'ok'",
+		now.Add(backoff(n)).Unix(), n+1, key)
+	return err
+}
+
+// backoff is the transient retry-after after n earlier consecutive failures:
+// 10 minutes, doubling, at most 24 hours.
+func backoff(n int) time.Duration {
+	ttl := negTransientBase
+	for i := 0; i < n && ttl < negMax; i++ {
+		ttl *= 2
+	}
+	return min(ttl, negMax)
+}
+
 // Delete removes one entry and its file.
 func (c *Cache) Delete(key string) {
 	c.mu.Lock()
-	c.dropLocked(key, false)
+	if err := c.dropLocked(key, false); err != nil {
+		c.log.Debug("imgcache: delete", "err", err)
+	}
 	c.mu.Unlock()
 }
 
 // dropLocked deletes a row and, when it was an ok entry, its file. mu is held.
-func (c *Cache) dropLocked(key string, evicted bool) {
+// A missing row is not an error; a failing index is, so a loop over keys can stop.
+func (c *Cache) dropLocked(key string, evicted bool) error {
 	var status string
 	var size int64
 	err := c.wr.QueryRow("SELECT status, size FROM entries WHERE key = ?", key).Scan(&status, &size)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.forgetAccess(key)
+		return nil
+	}
 	if err != nil {
-		return
+		return err
 	}
 	if _, err := c.wr.Exec("DELETE FROM entries WHERE key = ?", key); err != nil {
-		return
+		return err
 	}
 	c.forgetAccess(key)
 	if status == statusOK {
@@ -465,6 +508,7 @@ func (c *Cache) dropLocked(key string, evicted bool) {
 	} else {
 		c.negN.Add(-1)
 	}
+	return nil
 }
 
 func (c *Cache) forgetAccess(key string) {
@@ -574,49 +618,117 @@ func (c *Cache) SetCap(bytes int64) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.used.Load() > bytes {
-			if err := c.evictLocked(bytes * evictTargetPct / 100); err != nil {
-				c.log.Warn("imgcache: evict after cap change", "err", err)
-			}
+			c.noteEvict(c.evictLocked(context.Background(), bytes*evictTargetPct/100), "imgcache: evict after cap change")
 		}
 	}()
 }
 
+// errNoProgress stops an eviction or expiry loop whose batch removed nothing.
+var errNoProgress = errors.New("imgcache: eviction made no progress")
+
+// noteEvict logs an eviction failure at WARN, at most once per back-off period
+// (1 minute, doubling to 1 hour while the failures go on); a success resets it.
+func (c *Cache) noteEvict(err error, msg string) {
+	if err == nil {
+		c.evictWarn.reset()
+		return
+	}
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	if c.evictWarn.allow(c.now()) {
+		c.log.Warn(msg, "err", err)
+	}
+}
+
+// warnGate rate-limits one repeating warning with a doubling back-off.
+type warnGate struct {
+	mu    sync.Mutex
+	next  time.Time
+	every time.Duration
+}
+
+func (g *warnGate) allow(now time.Time) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if now.Before(g.next) {
+		return false
+	}
+	switch {
+	case g.every == 0:
+		g.every = time.Minute
+	case g.every < time.Hour:
+		g.every = min(2*g.every, time.Hour)
+	}
+	g.next = now.Add(g.every)
+	return true
+}
+
+func (g *warnGate) reset() {
+	g.mu.Lock()
+	g.every, g.next = 0, time.Time{}
+	g.mu.Unlock()
+}
+
 // evictLocked deletes least-recently-used files until used <= target. mu is held.
-func (c *Cache) evictLocked(target int64) error {
+// It stops at the first index error (a full or failing disk) and on a batch
+// that frees nothing, so it can never spin while holding mu.
+func (c *Cache) evictLocked(ctx context.Context, target int64) error {
 	if err := c.flushLocked(); err != nil {
 		return err
 	}
 	for c.used.Load() > target {
-		rows, err := c.wr.Query("SELECT key FROM entries WHERE status = 'ok' ORDER BY last_access_at, fetched_at, key LIMIT ?", evictBatch)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		keys, err := c.keysLocked(ctx, "SELECT key FROM entries WHERE status = 'ok' ORDER BY last_access_at, fetched_at, key LIMIT ?", evictBatch)
 		if err != nil {
 			return err
 		}
-		var keys []string
-		for rows.Next() {
-			var k string
-			if err := rows.Scan(&k); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			keys = append(keys, k)
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		_ = rows.Close()
 		if len(keys) == 0 {
 			// Counters drifted (nothing left to evict): resync from the index.
 			return c.recountLocked()
 		}
+		before := c.used.Load()
+		dropped := 0
 		for _, k := range keys {
 			if c.used.Load() <= target {
 				break
 			}
-			c.dropLocked(k, true)
+			if err := c.dropLocked(k, true); err != nil {
+				return err
+			}
+			dropped++
+		}
+		if dropped == 0 || (c.used.Load() >= before && c.used.Load() > target) {
+			// Rows that do not go away or free nothing: resync and stop rather than re-select them forever.
+			if err := c.recountLocked(); err != nil {
+				return err
+			}
+			if c.used.Load() > target {
+				return errNoProgress
+			}
 		}
 	}
 	return nil
+}
+
+// keysLocked runs a one-column key query. mu is held.
+func (c *Cache) keysLocked(ctx context.Context, q string, args ...any) ([]string, error) {
+	rows, err := c.wr.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
 }
 
 func (c *Cache) recountLocked() error {
@@ -685,6 +797,21 @@ func (c *Cache) Stats() Stats {
 	return s
 }
 
+// DiskBytes is the cache's footprint on disk without walking it: the bytes of
+// the cached files (the same counter as Stats().UsedBytes) plus the index file,
+// its WAL and shared-memory file. Half-written downloads in tmp/ are not
+// counted (each is at most one image, and they are gone when it completes).
+func (c *Cache) DiskBytes() int64 {
+	n := c.used.Load()
+	base := filepath.Join(c.dir, "index.db")
+	for _, p := range []string{base, base + "-wal", base + "-shm"} {
+		if fi, err := os.Stat(p); err == nil {
+			n += fi.Size()
+		}
+	}
+	return n
+}
+
 // floor is the free-space floor for a volume of the given size.
 func (c *Cache) floor(total uint64) uint64 {
 	f := uint64(c.o.MinFree)
@@ -715,6 +842,25 @@ func (c *Cache) PutNeg(key, url string, flags int, kind NegKind, status int, rea
 // PutNegVariant is PutNeg for an entry of the given variant (a thumbnail that
 // could not be made is remembered so it is not attempted again until the retry-after).
 func (c *Cache) PutNegVariant(key, url string, flags int, variant string, kind NegKind, status int, reason string) error {
+	return c.putNeg(key, url, flags, variant, kind, status, reason, true)
+}
+
+// InProgress is the neg_reason of an in-progress marker (PutInProgress).
+const InProgress = "in progress"
+
+// PutInProgress writes an in-progress marker on key before risky work (a
+// thumbnail decode) starts: a transient failure entry (10 minutes, doubling
+// with each marker that was never replaced, up to 24 hours) with the reason
+// InProgress. The worker replaces it with its result. If the process dies
+// instead (an OOM kill records nothing), the marker is what the next start
+// finds, so the work is not retried in a crash loop. It does not count as a
+// failure in Stats, and Sweep keeps expired markers for two days so the
+// doubling survives the expiry.
+func (c *Cache) PutInProgress(key, url string, flags int, variant string) error {
+	return c.putNeg(key, url, flags, variant, NegTransient, 0, InProgress, false)
+}
+
+func (c *Cache) putNeg(key, url string, flags int, variant string, kind NegKind, status int, reason string, countFail bool) error {
 	if !c.Enabled() || !validKey(key) {
 		return ErrDisabled
 	}
@@ -724,10 +870,10 @@ func (c *Cache) PutNegVariant(key, url string, flags int, variant string, kind N
 	now := c.now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var oldStatus string
+	var oldStatus, oldReason string
 	var oldSize int64
 	var oldNeg int
-	err := c.wr.QueryRow("SELECT status, size, neg_count FROM entries WHERE key = ?", key).Scan(&oldStatus, &oldSize, &oldNeg)
+	err := c.wr.QueryRow("SELECT status, size, neg_count, neg_reason FROM entries WHERE key = ?", key).Scan(&oldStatus, &oldSize, &oldNeg, &oldReason)
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
@@ -735,23 +881,22 @@ func (c *Cache) PutNegVariant(key, url string, flags int, variant string, kind N
 	count := 0
 	ttl := negPermanent
 	if kind == NegTransient {
-		if exists && oldStatus == statusNeg {
+		switch {
+		case exists && oldStatus == statusNeg && oldReason == InProgress && reason != InProgress:
+			count = oldNeg // the work's own outcome replaces its marker: not another repeat
+		case exists && oldStatus == statusNeg:
 			count = oldNeg + 1
 		}
-		ttl = negTransientBase
-		for i := 0; i < count && ttl < negMax; i++ {
-			ttl *= 2
-		}
-		if ttl > negMax {
-			ttl = negMax
-		}
+		ttl = backoff(count)
 	}
 	if _, err := c.wr.Exec(`INSERT OR REPLACE INTO entries (key, url, flags, variant, status, fetched_at, fresh_until, last_access_at,
 		neg_status, neg_reason, neg_count) VALUES (?, ?, ?, ?, 'neg', ?, ?, ?, ?, ?, ?)`,
 		key, url, flags, variant, now.Unix(), now.Add(ttl).Unix(), now.Unix(), status, truncate(reason, 200), count); err != nil {
 		return err
 	}
-	c.fails.Add(1)
+	if countFail {
+		c.fails.Add(1)
+	}
 	switch {
 	case exists && oldStatus == statusOK:
 		_ = os.Remove(c.path(key))
@@ -841,29 +986,25 @@ func (c *Cache) Sweep(ctx context.Context, vacuum bool) (SweepResult, error) {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			rows, err := c.wr.QueryContext(ctx, "SELECT key FROM entries WHERE status = 'ok' AND last_access_at < ? LIMIT ?", idleBefore, evictBatch)
+			keys, err := c.keysLocked(ctx, "SELECT key FROM entries WHERE status = 'ok' AND last_access_at < ? LIMIT ?", idleBefore, evictBatch)
 			if err != nil {
 				return err
 			}
-			var keys []string
-			for rows.Next() {
-				var k string
-				if err := rows.Scan(&k); err != nil {
-					_ = rows.Close()
-					return err
-				}
-				keys = append(keys, k)
-			}
-			_ = rows.Close()
 			if len(keys) == 0 {
 				break
 			}
 			for _, k := range keys {
-				c.dropLocked(k, false)
+				// A failing index stops the pass: the next batch would select the same keys forever.
+				if err := c.dropLocked(k, false); err != nil {
+					return err
+				}
 			}
 			r.IdleExpired += int64(len(keys))
 		}
-		res, err := c.wr.ExecContext(ctx, "DELETE FROM entries WHERE status = 'neg' AND fresh_until < ?", now.Unix())
+		// Expired in-progress markers stay two more days, so a thumbnail that
+		// crashes the process again finds its count and backs off further.
+		res, err := c.wr.ExecContext(ctx, "DELETE FROM entries WHERE status = 'neg' AND fresh_until < ? AND (neg_reason <> ? OR fresh_until < ?)",
+			now.Unix(), InProgress, now.Add(-2*negMax).Unix())
 		if err != nil {
 			return err
 		}
@@ -883,7 +1024,7 @@ func (c *Cache) Sweep(ctx context.Context, vacuum bool) (SweepResult, error) {
 		}
 		if cp := c.maxBytes.Load(); cp > 0 && c.used.Load() > cp {
 			before := c.evictions.Load()
-			if err := c.evictLocked(cp * evictTargetPct / 100); err != nil {
+			if err := c.evictLocked(ctx, cp*evictTargetPct/100); err != nil {
 				return err
 			}
 			r.Evicted = c.evictions.Load() - before

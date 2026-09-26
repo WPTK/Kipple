@@ -2,7 +2,14 @@
 
 package imgcache
 
-import "syscall"
+import (
+	"os"
+	"syscall"
+)
+
+// openShared opens name read-only. On Unix an open file can be renamed or
+// unlinked and the handle keeps reading it.
+func openShared(name string) (*os.File, error) { return os.Open(name) }
 
 // diskSpace is the bytes available to an unprivileged process on the volume that
 // holds dir, and the volume's total size.

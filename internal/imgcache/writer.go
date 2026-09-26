@@ -1,6 +1,7 @@
 package imgcache
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -76,9 +77,7 @@ func (c *Cache) checkDisk(incoming int64) error {
 	if last := c.lastLowEvict.Load(); now-last >= int64(lowDiskEvictEvery/time.Second) && c.lastLowEvict.CompareAndSwap(last, now) {
 		if cp := c.maxBytes.Load(); cp > 0 && c.used.Load() > cp*lowDiskTargetPct/100 {
 			c.mu.Lock()
-			if err := c.evictLocked(cp * lowDiskTargetPct / 100); err != nil {
-				c.log.Warn("imgcache: low-disk eviction", "err", err)
-			}
+			c.noteEvict(c.evictLocked(context.Background(), cp*lowDiskTargetPct/100), "imgcache: low-disk eviction")
 			c.mu.Unlock()
 		}
 	}
@@ -109,6 +108,20 @@ func (w *Writer) Write(p []byte) (int, error) {
 
 // Size is the bytes written so far.
 func (w *Writer) Size() int64 { return w.n }
+
+// OpenReader opens a second, read-only handle on the download so another
+// goroutine can serve the bytes already written while the body is still
+// arriving (the proxy decouples a slow client from its source this way). Call
+// it before Commit or Abort. The handle stays readable after either: Commit
+// renames the file into place and Abort deletes it, and an open handle keeps
+// the data on both Unix and Windows (it is opened with FILE_SHARE_DELETE
+// there). Only read below what Write has returned; the caller closes it.
+func (w *Writer) OpenReader() (*os.File, error) {
+	if w.done {
+		return nil, errors.New("imgcache: reader after commit or abort")
+	}
+	return openShared(w.f.Name())
+}
 
 // Abort discards the download. Safe to call after Commit (no-op).
 func (w *Writer) Abort() {
@@ -199,9 +212,7 @@ func (w *Writer) Commit(m Meta) error {
 		c.files.Add(1)
 	}
 	if cp := c.maxBytes.Load(); cp > 0 && c.used.Load() > cp {
-		if err := c.evictLocked(cp * evictTargetPct / 100); err != nil {
-			c.log.Warn("imgcache: eviction", "err", err)
-		}
+		c.noteEvict(c.evictLocked(context.Background(), cp*evictTargetPct/100), "imgcache: eviction")
 	}
 	return nil
 }
