@@ -360,7 +360,8 @@ export function HealthScreen() {
               </ul>
             )}
             <p className="mt-4 text-xs text-fg2">
-              Database {bytesLabel(d.db.db_bytes)}, backups {bytesLabel(d.db.backup_bytes)}, {d.unread_total} unread.
+              Database {bytesLabel(d.db.db_bytes)}, backups {bytesLabel(d.db.backup_bytes)}
+              {typeof d.db.imgcache_bytes === "number" ? `, image cache ${bytesLabel(d.db.imgcache_bytes)}` : ""}, {d.unread_total} unread.
             </p>
           </>
         ) : null}
