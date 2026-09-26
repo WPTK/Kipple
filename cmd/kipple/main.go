@@ -166,7 +166,7 @@ func runServe() error {
 	// endpoint join each other's extractions and share the per-article-host limit.
 	ftRunner := ftrun.New(ftrun.Options{
 		DB: db, Log: logger,
-		Extractor: extract.New(extract.Options{Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: 15 * time.Second}),
+		Extractor: extract.New(extract.Options{Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: 15 * time.Second, Logger: logger}),
 	})
 	scheduler := sched.New(db, client, hub, nil, logger, sched.Options{
 		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick, Runner: ftRunner,

@@ -120,8 +120,9 @@ func (c *Client) CloseIdle() {
 // httpClient returns a client for one attempt; hops collects the redirects.
 // feed is the feed's own URL: the Authorization header (feeds.http_auth) is
 // dropped from every hop authAllowed refuses. net/http strips it only on a move
-// to an unrelated host; it keeps it for a subdomain and for an https -> http
-// downgrade on the same host, which would send the password in clear text.
+// to an unrelated host; it keeps it for a subdomain (so does authAllowed) and
+// for an https -> http downgrade, which would send the password in clear text
+// (authAllowed does not).
 func (c *Client) httpClient(v variant, hops *[]Hop, feed *url.URL) *http.Client {
 	return &http.Client{
 		Transport: c.transport(v),
@@ -145,10 +146,11 @@ func (c *Client) httpClient(v variant, hops *[]Hop, feed *url.URL) *http.Client 
 }
 
 // authAllowed reports whether a request to target may carry the feed's HTTP
-// credentials: only to the feed's own host, and only over https unless the
-// feed URL itself is plain http (the user chose clear text for that host).
+// credentials: only to the feed's own host or a subdomain of it (the net/http
+// rule, so example.com -> www.example.com keeps working), and only over https
+// unless the feed URL itself is plain http (the user chose clear text).
 func authAllowed(feed, target *url.URL) bool {
-	if feed == nil || target == nil || !strings.EqualFold(feed.Hostname(), target.Hostname()) {
+	if feed == nil || target == nil || !SameOrSubdomain(feed.Hostname(), target.Hostname()) {
 		return false
 	}
 	return strings.EqualFold(target.Scheme, "https") || strings.EqualFold(feed.Scheme, "http")
