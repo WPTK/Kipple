@@ -144,5 +144,9 @@ func (c *call) pageParams(maxN int) store.IDPage {
 			}
 		}
 	}
+	if (p.HasOT && p.OT == maxSeconds) || (p.HasNT && p.NT == maxSeconds) {
+		// Seconds are the unit (design §3); a millisecond value lands here and matches nothing.
+		c.a.log.Warn("greader: ot/nt beyond year 2100 clamped; expected unix seconds", "ot", c.p.Get("ot"), "nt", c.p.Get("nt"))
+	}
 	return p
 }

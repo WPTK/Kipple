@@ -315,7 +315,13 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 			http.NotFound(w, r) // never a UI route (design §6.1)
 			return
 		}
-		if !s.sessionOK(w, r) {
+		ok, err := s.sessionOK(w, r)
+		if err != nil {
+			// A failed lookup is not a missing session: answering 401 would sign the app out.
+			s.serverError(w, "session lookup", err)
+			return
+		}
+		if !ok {
 			writeError(w, http.StatusUnauthorized, "auth")
 			return
 		}
@@ -370,22 +376,21 @@ func (s *Server) sameOrigin(r *http.Request) bool {
 func (s *Server) scheme(r *http.Request) string { return auth.EffectiveScheme(r, s.opt.TrustedProxies) }
 
 // sessionOK validates the cookie, sliding the session (and re-issuing the
-// cookie) at most hourly.
-func (s *Server) sessionOK(w http.ResponseWriter, r *http.Request) bool {
+// cookie) at most hourly. An error is a failed lookup, not a missing session.
+func (s *Server) sessionOK(w http.ResponseWriter, r *http.Request) (bool, error) {
 	c, err := r.Cookie(cookieName)
 	if err != nil || c.Value == "" {
-		return false
+		return false, nil
 	}
 	now := s.now()
 	st, err := s.db.CheckSession(r.Context(), sessionID(c.Value), now.Unix(), now.Add(sessionTTL).Unix())
 	if err != nil {
-		s.log.Error("api: session lookup", "err", err)
-		return false
+		return false, err
 	}
 	if st == store.SessionRenewed {
 		s.setCookie(w, r, c.Value)
 	}
-	return st != store.SessionNone
+	return st != store.SessionNone, nil
 }
 
 func sessionID(cookieValue string) string {

@@ -465,6 +465,12 @@ func (c *Cache) OpenFile(key string) (*os.File, error) {
 	}
 	if errors.Is(err, fs.ErrNotExist) {
 		c.mu.Lock()
+		// A commit (under mu) may have published a fresh file for this key since
+		// the open above: look again before dropping, or the new entry goes too.
+		if f, err := os.Open(c.path(key)); err == nil {
+			c.mu.Unlock()
+			return f, nil
+		}
 		if derr := c.dropLocked(key, false); derr != nil {
 			c.log.Debug("imgcache: dropping a row whose file vanished", "err", derr)
 		}
