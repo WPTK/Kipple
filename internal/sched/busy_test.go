@@ -60,3 +60,73 @@ func TestBusyIsReliableWhenTheDispatcherIsLoaded(t *testing.T) {
 	r.s.Stop()
 	require.True(t, r.s.Busy(), "stopping counts as busy")
 }
+
+// Two overlapping runs of one kind are both tracked: a newer import that ends
+// first must not unregister the older one, which is still listed by Status,
+// still reports progress, and keeps Busy true until its own jobs are done.
+func TestOverlappingRunsOfOneKindAreAllTracked(t *testing.T) {
+	r := newRig(t, Options{})
+	rel := map[string]chan struct{}{"/a1": make(chan struct{}), "/a2": make(chan struct{}), "/b": make(chan struct{})}
+	var mu sync.Mutex
+	released := map[string]bool{}
+	release := func(p string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !released[p] {
+			released[p] = true
+			close(rel[p])
+		}
+	}
+	t.Cleanup(func() { release("/a1"); release("/a2"); release("/b") })
+	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
+		select {
+		case <-rel[p]:
+			serveOK(p, w, req)
+		case <-req.Context().Done():
+		}
+	})
+	far := func(f *store.NewFeed) { f.NextFetchAt = base.Add(9 * time.Hour).Unix() }
+	a1 := r.add(srv.URL+"/a1", far)
+	a2 := r.add(srv.URL+"/a2", far)
+	b := r.add(srv.URL+"/b", far)
+	r.setHost(b, "other.test")
+
+	older, err := r.s.StartImport([]int64{a1, a2})
+	require.NoError(t, err)
+	newer, err := r.s.StartImport([]int64{b})
+	require.NoError(t, err)
+	require.NotEqual(t, older.RunID, newer.RunID)
+	waitFor(t, "all in flight", func() bool { return srv.count("/a1") == 1 && srv.count("/a2") == 1 && srv.count("/b") == 1 })
+
+	ids := func() (out []int64) {
+		runs, _ := r.s.Status()
+		for _, rs := range runs {
+			out = append(out, rs.ID)
+		}
+		return out
+	}
+	require.Equal(t, []int64{older.RunID, newer.RunID}, ids(), "both runs are listed")
+
+	release("/b") // the newer run ends first
+	r.waitEvents("run.done", 1)
+	require.Equal(t, idStr(newer.RunID), r.events("run.done")[0]["run_id"])
+	r.barrier()
+	require.True(t, r.s.Busy(), "the older run still has jobs")
+	require.Equal(t, []int64{older.RunID}, ids(), "the older run is still listed")
+
+	release("/a1")
+	waitFor(t, "older run progress", func() bool {
+		for _, ev := range r.events("run.progress") {
+			if ev["run_id"] == idStr(older.RunID) {
+				return true
+			}
+		}
+		return false
+	})
+
+	release("/a2")
+	r.waitEvents("run.done", 2)
+	r.barrier()
+	require.False(t, r.s.Busy(), "every run ended")
+	require.Empty(t, ids())
+}

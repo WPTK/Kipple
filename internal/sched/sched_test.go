@@ -774,9 +774,10 @@ func TestOverlappingImportRunsKeepTheNewerRegistered(t *testing.T) {
 	r.waitEvents("run.done", 1)
 	var live int64
 	r.s.inDispatcher(func() {
-		if run := r.s.runs[RunImport]; run != nil {
-			live = run.ID
+		for id := range r.s.runs {
+			live = id
 		}
+		require.Len(t, r.s.runs, 1)
 	})
 	require.Equal(t, second.RunID, live, "finishing the older run must not unregister the newer one")
 
