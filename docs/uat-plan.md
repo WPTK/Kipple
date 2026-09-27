@@ -167,6 +167,13 @@ paraphrased: on a machine with nothing Kipple-related installed, follow `README.
 from `git clone` to a working login, noting every point where a real newcomer would get stuck. Findings go in
 the same `uat-findings` doc, not a separate one.
 
+**Simulate a single-host self-hoster, not the owner's own setup.** The owner runs Kipple across two machines
+(one running the app, one for admin/backups over SSH) because that's convenient for him, but most people
+following this walkthrough will have one machine with Docker on it and no SSH step at all. Run this suite as
+that person: everything (clone, build, `.env`, `docker compose up`, first login, a test backup export) on a
+single box, no `ssh host-a` wrapper. If anything in `docs/deploy.md`'s two-host framing trips up a one-host
+walkthrough, that's a real finding, not a suite mismatch.
+
 ## Defect severity (borrowed scale)
 
 | Severity | Meaning | Exit criteria impact |

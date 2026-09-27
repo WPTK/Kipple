@@ -3,6 +3,15 @@
 Naming in these docs: **Host-A** is the machine that runs Kipple (the app host) and **Host-B** is the machine you run
 admin commands and backups from. Hostnames, addresses and paths are placeholders; substitute your own.
 
+**Most self-hosters run everything on one machine, and that's the simpler and equally supported case.** These
+docs are written from a two-host workflow because that's how the maintainer happens to run it (a separate
+admin/backup machine, reached over SSH), not because Kipple needs two hosts. On a single machine, Host-A and
+Host-B are just the same box: drop the `ssh host-a '...'` wrapper and run the command directly where Docker
+lives, and treat "copy it to Host-B" as "copy it somewhere off that machine" — a second disk, an external drive,
+cloud storage, whatever you'd use for any other backup. Nothing here requires SSH, a second host, or the
+specific paths shown; substitute your own compose project location and adjust for your OS's shell (the
+PowerShell-specific notes below don't apply if you're on Linux/macOS with everything on one box).
+
 For the owner to merge into the local `deploy-local/RUNBOOK.md` (that file is gitignored, so this one
 travels with the repo). Commands run from Host-B as `ssh host-a '...'`, in the compose project
 `host-a` at `/home/user/stack`. Never a bare `docker compose up` or `down`: always name `kipple`.
