@@ -29,7 +29,8 @@ var (
 	ErrDisabled = errors.New("sched: feed is disabled")
 )
 
-// Run kinds (design §4.1). At most one run per kind is active.
+// Run kinds (design §4.1). A second manual run joins the active one; import and
+// retention runs of the same kind can be active side by side.
 const (
 	RunManual    = "manual"
 	RunImport    = "import"

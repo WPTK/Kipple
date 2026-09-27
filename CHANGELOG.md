@@ -6,7 +6,8 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
-Fixes from the phase 5 code audit. No schema migration.
+Phase 5 so far: fixes from the code audit, optional Cloudflare Access token validation with an optional web password,
+the scheduled auto-night theme, and a documentation accuracy pass. No schema migration.
 
 ### Added
 
@@ -17,6 +18,7 @@ Fixes from the phase 5 code audit. No schema migration.
 ### Changed
 
 - The sign-in form no longer requires the password field, so an account without a web password can sign in through Cloudflare Access. An empty password on an account that has one is still refused, and is no longer counted toward the login lockout.
+- Documentation brought up to date with phases 4 and 5: `docs/deploy.md` gains a Cloudflare Access section (and how to get a password back after turning Access off), `docker-compose.example.yml` lists the Access variables, and the README status, design notes (scheduler, Reader API, web API errors, package layout), release, UAT, SQA and risk documents no longer describe shipped work as upcoming or cite files that are not in the repository.
 
 ### Security
 

@@ -17,8 +17,10 @@ React 19, TypeScript (strict), Vite 8, Tailwind v4, TanStack Query and Virtual, 
   Hyperlegible Next labelled "Easy to read". `src/lib/fonts.ts` is the list. **Charter is not vendored**: Butterick's
   release has to be downloaded from his site and its licence text could not be confirmed from here, so Charter is
   offered only where the device has it (macOS and iOS ship it), like New York, SF Pro, SF Mono, Georgia and Menlo.
-- **`internal/web` serves `/assets/*`, `/_status` and `/_status.js`, and `index.html` for every other path.**
-  Anything in `public/` would fall through to `index.html`, so there is no `public/`; generated files (theme boot script, fonts) go under `assets/`.
+- **`internal/web` serves `/assets/*` (immutable), `/_status` and `/_status.js`, each top-level file of the build
+  at `/<name>` (what Vite copies from `public/`: the manifest and icons, plus the built `sw.js` from `sw/`;
+  revalidated on every use), and `index.html` for every other path.** Hashed generated files (theme boot script,
+  fonts) go under `assets/`.
 
 ## Layout
 
@@ -26,12 +28,14 @@ React 19, TypeScript (strict), Vite 8, Tailwind v4, TanStack Query and Virtual, 
 src/api/      fetch client (X-Kipple-Client, 401), types, TanStack Query hooks, SSE + fallback polling
 src/layouts/  the five list layouts behind the ListLayout interface (Editorial, Cards, Compact, Inbox, Email - Compact)
 src/gestures/ row swipe, long press, swipe back, pull to refresh (pointer events for row swipe and swipe back, touch events for pull to refresh; no gesture library)
-src/screens/  list pane, article pane, feeds (add, edit, folders, OPML), feed health, search, settings, login
+src/screens/  list pane, article pane, feeds (add, edit, folders, OPML), feed health, search, stats and Wrapped, settings, login
 src/ui/       button, segmented control, kit.tsx (modal, field, switch, stepper, disclosure, notices), FavStar, ResizeHandle (window splitter), UnreadCount
 src/shell/    app shell (tab bar / sidebar, landmarks, live region, toasts)
 src/theme/    schemes.json, CSS + boot script generators, picker (see src/theme/README.md)
 src/lib/      keyboard, per-device prefs (layout, order, density, font, text size), undo, formatting, safe HTML
 src/test/     Vitest setup and API mocks
+sw/           service worker source (built to /sw.js)
+public/       manifest and icons, copied to the build root
 ```
 
 ## Lists: layouts, gestures, keys, device prefs, undo
@@ -92,14 +96,16 @@ undoable, ledger_ids?}` (docs/design.md 7.1). Undoing sends `{ids, ledger_ids?, 
 (`SettingField`): a switch for `bool`, segmented buttons (up to four options) or a select for `enum`, a stepper for
 `int` (no sliders), a text box for `text`; `json` is never shown. Changes are a `PATCH /api/settings` with an
 optimistic update that rolls back on error; a 400's `keys` and `issues` show under the control; "Reset to default"
-sends `null`; changes that `lib/settingGuards.ts` flags (a lower image cache, a lower retention) ask for confirmation first, and an enum can offer a preset row with "Custom". Groups: Reading, Sync, Library, Images, Account, and Advanced (collapsed). Keys the screen draws itself
+sends `null`; changes that `lib/settingGuards.ts` flags (a lower image cache, a lower retention) ask for confirmation first, and an enum can offer a preset row with "Custom". Groups: Reading, Sync, Library, Images, Statistics and Advanced (collapsed); then Your statistics data, Filters, Saved searches, Devices and Account. Keys the screen draws itself
 or cannot honor yet (`ui.mark_read_on_scroll` sits in Accessibility; `ui.font_ui` is never shown: there is one font
 choice, in the Aa menu) are left out of the generic list. `fetch.fulltext_all` (fetch the full article for every
 feed, with its note about bandwidth and refresh time) appears under Library like any other bool; while it is on, the
 feed editor shows that feed's own switch as "On for all feeds". The screen is capped at 720 px wide.
 
 **Reading appearance** (the "Aa" button in the list header and the article toolbar, and Settings > Appearance):
-theme (including "Match my device" with any day and night pair), font, text size, one Density choice with an
+theme (including "Match my device" (Follow system in Settings) and "On a schedule", both with any day and night
+pair; the schedule switches at "Night starts" (default 21:00) and "Day starts" (default 07:00) on the device's
+clock, whatever the OS says), font, text size, one Density choice with an
 "Adjust separately" disclosure, and "Highlight keywords" (the Aa menu; Settings > Appearance has theme, text size and
 Density, and the font only in the Aa menu). The font is THE font: it applies at once to lists, the reader and the sidebar
 (`--kp-app-font`, and `--kp-reading-font` for articles); Settings, Manage feeds, Health and every menu, popover and
@@ -157,7 +163,9 @@ statuses (`lib/feedStatus.ts`), the one-tap "Update to new URL" for a pending pe
 log with "Mark this fetch read", refresh now, turn on or off, reset the trimmed-unread count, and the bootstrap
 `warnings` (also shown once per session as a banner above every screen).
 
-**Account and backup**: change the web password, generate an API password (shown once, with Copy and the Reeder or
+**Account and backup**: the signed-in user, the version and (with Cloudflare Access validation on) the verified
+Access email; change or set the web password, or remove it (offered only through a verified Access sign-in, and
+asking for the current password; docs/design.md 7.0); generate an API password (shown once, with Copy and the Reeder or
 NetNewsWire server URL), export a backup (build, confirm the returned `warning` and `contents`, then a real download
 link so the browser's save dialog picks the place; 409, 507 and 413 have their own messages), apply retention now,
 sign out.
@@ -254,6 +262,7 @@ motion are followed without any setting.
 | `npm run test:watch` | Vitest in watch mode |
 | `npm run lint` | ESLint (typescript-eslint, react-hooks) |
 | `npm test` | Vitest + Testing Library + axe |
+| `npm run test:coverage` | Vitest with v8 coverage (what CI runs; visibility only, not a gate) |
 | `npm run build` | `tsc --noEmit` then `vite build` |
 | `npm run contrast` | Recompute WCAG and color-blind checks for every theme |
 
@@ -265,7 +274,7 @@ Use `127.0.0.1`, never `localhost` (it resolves to `::1` first on this machine a
 
 ```
 cd web
-npm install --cache <some-dir>   # on Host-B the shared npm cache throws EPERM; see host-b-dev-gotchas
+npm install --cache <some-dir>   # if the shared npm cache throws EPERM, point --cache at a private directory
 npm run seed                     # terminal 1: Kipple on 127.0.0.1:7080, feeds fetching in the background
 npm run dev                      # terminal 2: http://127.0.0.1:5173
 ```
@@ -295,8 +304,9 @@ Without a build, `/` serves the status page, which is always at `/_status`.
 
 ## Tests
 
-`npm test` runs every `src/**/*.test.ts(x)` suite (Vitest, jsdom, Testing Library, axe; 47 files at the time of writing), covering the reader and gesture
-fixes, theme resolution (follow-system pair, custom pair, boot-script parity), the API client (401, cursor paging, pwa
+`npm test` runs every `src/**/*.test.ts(x)` suite (Vitest, jsdom, Testing Library, axe; 75 files at the time of writing), covering the reader and gesture
+fixes, theme resolution (follow-system pair, custom pair, the schedule, boot-script parity), stats and Wrapped,
+passwordless sign-in, the API client (401, cursor paging, pwa
 header), the SSE reducer and fallback polling, keyboard rules, undo, filters, devices, muted, highlights, device sync and
 search, with axe on the login, list, article, settings, feeds and search screens. jsdom has no layout, so `src/test/setup.ts` stubs sizes for the
 virtualizer. Colour contrast is checked by `npm run contrast` and `theme.test.ts` (axe cannot in jsdom).

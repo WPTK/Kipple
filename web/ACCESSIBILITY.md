@@ -1,6 +1,6 @@
 # Accessibility checklist (web)
 
-Source: `docs/research/ui-principles-and-accessibility.md` (phases 2 and 3) and `docs/ui-decisions.md`.
+Source: `docs/ui-decisions.md` and the phase 2 and 3 accessibility research (not in this repository).
 Status is what the code does today. Anything not verified on a real device is listed at the end.
 
 ## Structure and focus
@@ -24,6 +24,7 @@ Status is what the code does today. Anything not verified on a real device is li
 ## Color and contrast
 
 - [x] Every theme checked by `npm run contrast` (text 4.5:1, UI 3:1, color-blind separation).
+- [x] "On a schedule" theme: "Night starts" and "Day starts" are native time inputs with visible labels; the switch changes only colors, so every state keeps its non-color cue below.
 - [x] Never color alone: unread = dot plus bold title; read = normal weight and dimmed; starred = filled star plus `aria-pressed`; feed status = icon plus text label; errors = icon plus text; the paragraph being read aloud has a start bar as well as a background.
 - [x] `prefers-contrast: more`: full-strength borders and secondary text, thicker focus ring, underlined links.
 - [x] `forced-colors: active`: system colors for focus, checked controls and the unread dot; nothing meaningful sits in a background image.

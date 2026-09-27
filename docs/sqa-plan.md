@@ -9,32 +9,33 @@ candidate additions for the owner to accept or decline.
 
 Kipple is a single-maintainer, agent-assisted, self-hosted single-user RSS reader, now a public repository.
 Quality here means: never loses or corrupts the owner's read/starred state or feed data, never leaks personal
-information (scrubbed for the public repo per `docs/plan.md`/`kipple-history`), behaves correctly against real
+information (scrubbed before the repository went public), behaves correctly against real
 Reader API clients (Reeder Classic, NetNewsWire), stays within its resource budgets, and is safe and
 followable for a stranger to self-host from a clean machine.
 
 ## 2. Reference documents
 
-`CLAUDE.md` (fixed decisions), `docs/plan.md` (architecture, design rationale), `docs/design.md` (data model,
-API contract), `docs/uat-plan.md`, `docs/RELEASING.md`, `docs/deploy.md`, `CHANGELOG.md`, `SECURITY.md`,
-`.env.example`, and the private `kipple-history` repo (meetings, decisions, diary, audits — the project's
+`CLAUDE.md` (fixed decisions), `docs/design.md` (data model, API contract, design rationale), `docs/README.md`
+(the docs index), `docs/uat-plan.md`, `docs/risk-register.md`, `docs/RELEASING.md`, `docs/deploy.md`,
+`CHANGELOG.md`, `SECURITY.md`, `.env.example`; outside this repository, the master plan (`docs/plan.md`, a local
+planning document) and the private `kipple-history` repo (meetings, decisions, diary, audits — the project's
 institutional memory).
 
 ## 3. Management
 
 One person directs and signs off (the owner); one agent implements, reviews and tests (Claude), following a
 documented model policy — Sonnet for routine implementation, Opus for review/judging/ambiguous root-causing
-(`docs/plan.md`, "Model and effort for execution"). Concurrency rule: one writer on the Kipple repo/Ceres
+(`CLAUDE.md`, "Process"). Concurrency rule: one writer on the Kipple repo/Host-A
 instance at a time, to avoid half-applied changes. Deploys, Cloudflare changes, and go/no-go decisions are
 reserved to the owner; routine build decisions are not (current phase 5 preference — minimal owner
 involvement).
 
 ## 4. Documentation
 
-Already comprehensive and versioned in-repo: architecture (`design.md`, `plan.md`), release process
-(`RELEASING.md`, `deploy.md`), UAT (`uat-plan.md`), UI decisions (`ui-decisions.md`), a change history
-(`CHANGELOG.md`, Keep a Changelog 1.1.0). Gap noted below: no single index page tying them together for a
-newcomer.
+Already comprehensive and versioned in-repo: architecture (`design.md`), release process
+(`RELEASING.md`, `deploy.md`), UAT (`uat-plan.md`), UI decisions (`ui-decisions.md`), risks (`risk-register.md`),
+a change history (`CHANGELOG.md`, Keep a Changelog 1.1.0), and `docs/README.md`, an index tying them together
+for a newcomer (gap 3 below, since closed).
 
 ## 5. Standards, practices, conventions, and metrics
 
@@ -43,7 +44,8 @@ newcomer.
 - **Resource budgets, enforced as pass/fail gates, not aspirations:** image < 50 MB, idle RSS < 100 MB,
   `GOMEMLIMIT=64MiB`, compose `mem_limit: 256m`, content cap 500 KB per item, image cache default 1 GiB.
 - **Style/lint:** gofmt, go vet, staticcheck, ESLint (web), theme contrast check in CI.
-- **Metric gap noted below:** no code-coverage number is tracked or reported.
+- **Coverage:** `go test -cover` and `npm run test:coverage` print coverage in CI and in
+  `scripts/ci-local.ps1`, for visibility only, not as a gate (gap 2 below, since closed).
 
 ## 6. Reviews and audits
 
@@ -60,22 +62,23 @@ round. Standing rule: fix everything a review finds, no silent "not fixing" list
 - **Contract tests:** replay recorded Reeder Classic / NetNewsWire request sequences (unit-level, in CI).
 - **End-to-end UAT:** `docs/uat-plan.md` Suites 1-5 (scripted Playwright+axe, agent-driven scenarios,
   owner-only device checks, migration rehearsal, restore drill, Reader API regression replay against a real
-  deployed build, fresh-machine Docker walkthrough).
+  deployed build, fresh-machine Docker walkthrough). Planned for phase 5 and not yet executed; the Suite 1
+  script is not built yet.
 - **Security scanning:** govulncheck (on every dependency change), staticcheck, gosec (fails only on
   high/high), gitleaks, Trivy (image scan) — all in CI.
 
 ## 8. Problem reporting and corrective action
 
-GitHub Issues (now public). `SECURITY.md` for vulnerability reports — private vulnerability reporting is not
-yet turned on (owner action, tracked in `kipple-history` "still with the owner"). Every behavior change,
+GitHub Issues (now public). `SECURITY.md` for vulnerability reports, through GitHub private vulnerability
+reporting (turned on for the repository). Every behavior change,
 including a bug fix, gets a `CHANGELOG.md [Unreleased]` entry. Findings from reviews/audits/UAT go into
 `kipple-history/audits/*.md` with severity and resolution status; nothing is silently dropped.
 
 ## 9. Tools, techniques, and methodologies
 
-Go 1.27 toolchain, `modernc.org/sqlite` (CGO-free), Vite/Vitest, new in phase 5: Playwright + axe-core
-(in-repo script, not a third-party installed skill — see the phase 5 addendum in `docs/ui-decisions.md` for why
-an external UAT package was declined). `scripts/ci-local.ps1` mirrors CI for a fast pre-push check.
+Go 1.27 toolchain, `modernc.org/sqlite` (CGO-free), Vite/Vitest, and, planned for phase 5 (not built yet),
+Playwright + axe-core (an in-repo script, not a third-party installed skill — see the phase 5 addendum in
+`docs/ui-decisions.md` for why an external UAT package was declined). `scripts/ci-local.ps1` mirrors CI for a fast pre-push check.
 
 ## 10. Media/configuration control
 
@@ -86,7 +89,8 @@ automatically; rollback goes through that snapshot, never a hand-copied `kipple.
 
 ## 11. Supplier control (third-party dependencies)
 
-Every dependency choice in `docs/plan.md`'s Go-libraries table carries a documented reason. govulncheck runs
+Every dependency choice in the master plan's Go-libraries table (a local planning document) carries a
+documented reason; `docs/design.md` §1 records the ones that shape the design (the SQLite driver, routing). govulncheck runs
 on every dependency change; Dependabot is configured; `THIRD_PARTY_NOTICES.md` is regenerated after dependency
 changes. The phase 5 decision not to install the third-party `webapp-uat` npm skill (unverified package scope,
 unnecessary features) is this control working as intended, not a one-off.
@@ -104,11 +108,11 @@ agent working on the repo, and the planned first-time Docker setup walkthrough i
 
 ## 14. Risk management
 
-`docs/plan.md` has a per-phase "Risks" section (phase 1's, e.g., usage limits, the Reeder `ts` unit question,
-the SQLite libc pairing). Newer risks since have been tracked ad hoc across memory and `kipple-history` rather
-than in one place that stays current. See gap below.
+`docs/risk-register.md` is the living register of open and closed risks, updated at each phase (gap 1 below,
+since closed). It replaced the master plan's per-phase "Risks" sections and ad hoc notes. `docs/design.md` §11
+keeps the design-level risks and their mitigations.
 
-## Gaps / candidate additions (for the owner's decision, not yet built)
+## Gaps / candidate additions (all four accepted and built, 2026-09-27)
 
 1. **A living risk register.** Consolidate open risks (e.g., the unverified `document.hasFocus()` behavior in
    the installed iOS PWA, the 600k+-item feed-delete timeout noted in the phase 5 audit, the `x/crypto/openpgp`
@@ -124,4 +128,6 @@ than in one place that stays current. See gap below.
    maintainer, no SLA") rather than either silence or an over-promise, since external reports are now possible
    for the first time.
 
-None of these are built yet — they're recommendations, not phase 5 commitments, pending the owner's say.
+Status: all four are built. 1 is `docs/risk-register.md`; 2 is `-cover` in the Go test step and
+`npm run test:coverage` in the web job (CI and `scripts/ci-local.ps1`); 3 is `docs/README.md`; 4 is the "Issue
+triage" section of `SECURITY.md`.
