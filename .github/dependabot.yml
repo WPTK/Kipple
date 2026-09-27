@@ -15,6 +15,14 @@ updates:
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # typescript-eslint has no TS 7 support yet (tracked in typescript-eslint#10940); a TS 7 bump
+      # breaks `npm run lint`. Revisit once that lands.
+      - dependency-name: "typescript"
+        versions: [">=7"]
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
 
   - package-ecosystem: github-actions
     directory: /
@@ -23,6 +31,10 @@ updates:
     groups:
       actions-minor-patch:
         update-types: [minor, patch]
+      actions-major:
+        update-types: [major]
+    commit-message:
+      prefix: "chore(deps)"
 
   # The Dockerfile's base images are pinned as tag@sha256:digest; Dependabot updates the tag and
   # digest together, including digest-only rebuilds of the same tag. The gitleaks and Trivy images
@@ -34,3 +46,11 @@ updates:
     groups:
       docker-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Node's odd-numbered releases (e.g. 23, 25) are never LTS; only even-numbered ones are, and
+      # each becomes LTS in late October. Bump the major by hand once that happens, so CI keeps
+      # testing the same Node version the image builds with (see .github/workflows/ci.yml).
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "chore(deps)"
