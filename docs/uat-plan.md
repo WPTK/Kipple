@@ -100,7 +100,8 @@ code 0 clean, 1 findings, 2 a screen or the run could not be checked. Known and 
 (`{"check": "S3", "rule": "<axe rule id>", "screen"?, "theme"?, "viewport"?, "reason": "..."}`; a reason is
 required and an unused waiver is reported). axe results on the article body (the feed's own HTML), failed
 non-`/api/` requests (feed images) and S5 hits in feed text (a title that says "undefined behaviour"; a field that
-rendered as nothing but `undefined` still fails) are listed as notes, not failures.
+rendered as nothing but `undefined` still fails) are listed as notes, not failures. S5 also looks for `Invalid Date`
+and in form field values. A screen still loading after 15 s is an error, not a pass.
 
 ## Suite 2 — Agent-driven scenario walkthroughs
 

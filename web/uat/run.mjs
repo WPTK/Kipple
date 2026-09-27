@@ -10,7 +10,8 @@
 //   S2  no 4xx/5xx or failed requests to /api/*
 //   S3  axe-core, WCAG 2.0/2.1/2.2 A and AA rules
 //   S4  no sideways scroll (page or an unintended scroller) and nothing past the right edge (tablet and phone widths)
-//   S5  no literal "undefined", "NaN" or "[object Object]" in visible text or accessible names
+//   S5  no literal "undefined", "NaN", "[object Object]" or "Invalid Date" in visible text, field values or
+//       accessible names
 //   S6  scripts/contrast.mjs over all 20 schemes
 // Known, accepted issues are waived in uat/waivers.json, each with a reason.
 //
@@ -42,11 +43,25 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
 
+// Anything that stops the run before it can check a screen exits 2, never 1 ("findings").
+function setupError(message) {
+  console.error(message);
+  process.exit(2);
+}
+/** Runs `fn`, turning a throw into a setup error. */
+function orSetupError(what, fn) {
+  try {
+    return fn();
+  } catch (e) {
+    return setupError(`${what}: ${e.message.split("\n")[0]}`);
+  }
+}
+
 const require = createRequire(import.meta.url);
 const webDir = fileURLToPath(new URL("../", import.meta.url));
-const AXE_SOURCE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
+const AXE_SOURCE = orSetupError("axe-core not found (npm ci)", () => readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"));
 
-const { values: opt } = parseArgs({
+const { values: opt } = orSetupError("bad arguments (see --help)", () => parseArgs({
   options: {
     url: { type: "string", default: process.env.KIPPLE_UAT_URL || "http://127.0.0.1:7080" },
     user: { type: "string", default: process.env.KIPPLE_UAT_USER || "dev" },
@@ -59,7 +74,7 @@ const { values: opt } = parseArgs({
     "allow-remote": { type: "boolean", default: false },
     help: { type: "boolean", default: false },
   },
-});
+}));
 if (opt.help) {
   // The comment block at the top of this file is the usage text.
   const lines = readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/);
@@ -67,12 +82,13 @@ if (opt.help) {
   process.exit(0);
 }
 
-const base = new URL(opt.url);
+const base = orSetupError(`bad --url ${opt.url}`, () => new URL(opt.url));
 const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
 if (!LOOPBACK.has(base.hostname) && !opt["allow-remote"]) {
-  console.error(`refusing to run against ${base.origin}: the run marks articles read and adds devices.`);
-  console.error("Use a throwaway local instance (npm run seed), or pass --allow-remote if you really mean it.");
-  process.exit(2);
+  setupError(
+    `refusing to run against ${base.origin}: the run marks articles read and adds devices.\n` +
+      "Use a throwaway local instance (npm run seed), or pass --allow-remote if you really mean it.",
+  );
 }
 const origin = base.origin;
 const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -119,8 +135,12 @@ const screens = only ? SCREENS.filter((s) => only.has(s.id)) : SCREENS;
 
 // Waivers: [{ check: "S3", rule: "color-contrast", screen?: "stats", theme?: "dark", viewport?: "phone", reason }].
 // Every waiver needs a reason; one that matched nothing is reported so the list does not rot.
-const waivers = JSON.parse(readFileSync(new URL("./waivers.json", import.meta.url), "utf8"));
-for (const w of waivers) if (!w.reason) throw new Error(`waiver without a reason: ${JSON.stringify(w)}`);
+const waivers = orSetupError("uat/waivers.json", () => {
+  const list = JSON.parse(readFileSync(new URL("./waivers.json", import.meta.url), "utf8"));
+  if (!Array.isArray(list)) throw new Error("must be a JSON array");
+  for (const w of list) if (!w?.check || !w.reason) throw new Error(`every waiver needs a check and a reason: ${JSON.stringify(w)}`);
+  return list;
+});
 const used = new Set();
 function waived(check, rule, where) {
   const hits = waivers
@@ -153,12 +173,20 @@ function broken(where, message) {
 
 // ---- in-page probes (run in the page through page.evaluate) ----
 
+// Where the feed's own text shows. `body` is the article's HTML (the reader pane's .article-body only: Settings >
+// Appearance draws its preview with the same class, and that is Kipple's). `text` adds the feed-supplied fields of
+// list rows (title, excerpt) and the article title; the rows' times, badges and the article's byline are Kipple's.
+const FEED = {
+  body: 'article[aria-labelledby="article-title"] .article-body',
+  text: 'article[aria-labelledby="article-title"] .article-body, [data-item-id] h3, [data-item-id] p, #article-title',
+};
+
 // S4. The page must not scroll sideways, and no visible element may run past the right edge of the viewport. Content
 // wider than a scroll container that fits on screen is caught through that container: every screen scrolls in an
 // `overflow-y-auto` box, whose overflow-x computes to auto as well, so a container that actually scrolls sideways is
 // a finding unless it asks for it (a Tailwind overflow-x-auto/-scroll or overflow-auto/-scroll class) or holds the
 // feed's own article HTML (wide code blocks and tables scroll there on purpose).
-function overflowProbe() {
+function overflowProbe(feed) {
   const vw = document.documentElement.clientWidth;
   const out = { scrollWidth: document.documentElement.scrollWidth, vw, offenders: [], scrollers: [] };
   const describe = (el) => {
@@ -174,14 +202,20 @@ function overflowProbe() {
   };
   const deliberate = (el) =>
     /(^|\s)([\w-]+:)*overflow(-x)?-(auto|scroll)(\s|$)/.test(typeof el.className === "string" ? el.className : "") ||
-    !!el.closest(".article-body");
+    !!el.closest(feed.body);
   // Clipped by an ancestor that itself ends inside the viewport (overflow hidden, or a scroller: those are checked
-  // on their own below), or hidden the screen-reader-only way.
+  // on their own below), or hidden the screen-reader-only way. Only ancestors from the containing block up clip: a
+  // fixed element escapes every one, an absolute one those between it and its offset parent.
   const contained = (el) => {
     for (let a = el; a && a !== document.body; a = a.parentElement) {
       const cs = getComputedStyle(a);
       if (cs.clip === "rect(0px, 0px, 0px, 0px)" || cs.clipPath === "inset(50%)") return true;
-      if (a !== el && cs.overflowX !== "visible" && a.getBoundingClientRect().right <= vw + 1) return true;
+    }
+    const pos = getComputedStyle(el).position;
+    if (pos === "fixed") return false;
+    let a = pos === "absolute" ? el.offsetParent : el.parentElement;
+    for (; a && a !== document.body; a = a.parentElement) {
+      if (getComputedStyle(a).overflowX !== "visible" && a.getBoundingClientRect().right <= vw + 1) return true;
     }
     return false;
   };
@@ -201,17 +235,17 @@ function overflowProbe() {
   return out;
 }
 
-// S5. Visible text nodes and accessible-name attributes. Feed-sourced text (the article body, list rows, the article
-// header) can legitimately say "undefined behaviour" or "NaN-boxing", so there only a comma- or line-separated piece
-// that is nothing but the literal (a field that rendered as undefined) counts; other hits there are notes.
-function literalProbe() {
-  const bad = /\bundefined\b|\bNaN\b|\[object Object\]/;
-  const alone = /^\s*(undefined|NaN|\[object Object\])\s*$/;
-  const FEED = '.article-body, [data-item-id], article[aria-labelledby="article-title"] > header';
+// S5. Visible text nodes, form field values and accessible-name attributes: "undefined", "NaN" (also with a unit
+// stuck to it, as in "NaNm"), "[object Object]" and "Invalid Date". Feed text (see FEED) can legitimately say
+// "undefined behaviour" or "NaN-boxing", so there only a comma- or line-separated piece that is nothing but the
+// literal (a field that rendered as undefined) counts; other hits there are notes.
+function literalProbe(feed) {
+  const bad = /\bundefined\b|\bNaN(?![A-Za-z]{2})|\[object Object\]|\bInvalid Date\b/;
+  const alone = /^\s*(undefined|NaN|\[object Object\]|Invalid Date)\s*$/;
   const hits = [];
   const add = (el, where, text) => {
-    const feed = !!el.closest(FEED);
-    const own = !feed || text.split(/[,·|\n]/).some((part) => alone.test(part));
+    const inFeed = !!el.closest(feed.text);
+    const own = !inFeed || text.split(/[,·|\n]/).some((part) => alone.test(part));
     hits.push({ where, text: text.trim().replace(/\s+/g, " ").slice(0, 160), feed: !own });
   };
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -228,6 +262,10 @@ function literalProbe() {
       if (v && bad.test(v)) add(el, `${el.tagName.toLowerCase()}[${a}]`, v);
     }
   }
+  for (const el of document.body.querySelectorAll("input, textarea")) {
+    if (el.type === "hidden" || el.type === "password" || !el.checkVisibility({ visibilityProperty: true })) continue;
+    if (el.value && bad.test(el.value)) add(el, `${el.tagName.toLowerCase()}.value`, el.value);
+  }
   if (bad.test(document.title)) hits.push({ where: "title", text: document.title, feed: false });
   return hits.slice(0, 30);
 }
@@ -236,7 +274,7 @@ async function runAxe(page) {
   // Evaluated over the DevTools protocol rather than added as a <script>: Kipple's CSP (script-src 'self') would
   // block an inline script, and turning the CSP off would hide the app's own CSP violations from S1.
   if (!(await page.evaluate(() => typeof window.axe !== "undefined"))) await page.evaluate(AXE_SOURCE);
-  return page.evaluate(async () => {
+  return page.evaluate(async (feed) => {
     const r = await window.axe.run(document, {
       runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"] },
       resultTypes: ["violations"],
@@ -251,10 +289,10 @@ async function runAxe(page) {
         html: n.html.slice(0, 300),
         summary: n.failureSummary?.split("\n").slice(0, 3).join(" ").slice(0, 300),
         // Nodes inside the article body are the feed's own markup, reported apart from Kipple's.
-        feedContent: !!document.querySelector(n.target.join(" "))?.closest(".article-body"),
+        feedContent: !!document.querySelector(n.target.join(" "))?.closest(feed.body),
       })),
     }));
-  });
+  }, FEED);
 }
 
 // ---- navigation helpers ----
@@ -280,12 +318,17 @@ async function settle(page) {
       null,
       { timeout: 15000 },
     )
-    .catch(() => {});
+    .catch(() => {
+      // Checking a skeleton would pass a screen whose content was never seen.
+      throw new Error("still loading after 15 s");
+    });
   await page.waitForTimeout(700);
 }
 
 // ---- the run ----
-const browser = await chromium.launch({ headless: !opt.headed });
+const browser = await chromium
+  .launch({ headless: !opt.headed })
+  .catch((e) => setupError(`could not start Chromium (npx playwright install chromium): ${e.message.split("\n")[0]}`));
 let exitCode;
 try {
   await selfTest();
@@ -307,26 +350,34 @@ process.exit(exitCode);
 async function selfTest() {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.setContent(
-    `<main><p>Count: NaN</p><button aria-label="[object Object]">x</button><div id="wide" style="width:600px">wide</div>` +
-      `<div class="article-body"><p>undefined behaviour is fine in an article</p></div>` +
-      `<div data-item-id="1" aria-label="Unread, undefined, Some feed"><h3>NaN-boxing explained</h3></div>` +
+    `<main><p>Count: NaN</p><p>Updated NaNm ago</p><p>Invalid Date</p><button aria-label="[object Object]">x</button>` +
+      `<label>Night starts <input value="undefined"></label><div id="wide" style="width:600px">wide</div>` +
+      `<article aria-labelledby="article-title"><h1 id="article-title">NaN-boxing explained</h1><p>Tue · NaN min read</p>` +
+      `<div class="article-body"><p>undefined behaviour is fine in an article</p></div></article>` +
+      `<div class="article-body"><p>Preview: NaN</p></div>` +
+      `<div data-item-id="1"><h3><a href="#x" aria-label="Unread, undefined, Some feed">Some title</a></h3>` +
+      `<p>An excerpt about NaN-boxing</p><time>NaNm</time></div>` +
       `<div style="display:none"><span>NaN hidden</span></div>` +
       `<div id="pane" style="overflow-y:auto;height:100px"><div style="width:700px">too wide for its pane</div></div>` +
+      `<div style="overflow-y:auto;height:40px"><div id="fixed" style="position:fixed;left:0;bottom:0;width:500px">fixed bar</div></div>` +
       `<div class="overflow-x-auto" style="overflow-x:auto"><div style="width:900px">a scroller on purpose</div></div>` +
       `<span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">sr only</span></main>`,
   );
-  const o = await page.evaluate(overflowProbe);
-  const lit = await page.evaluate(literalProbe);
+  const o = await page.evaluate(overflowProbe, FEED);
+  const lit = await page.evaluate(literalProbe, FEED);
   const axeIds = (await runAxe(page)).map((v) => v.id);
   await page.close();
   const problems = [];
-  const own = lit.filter((h) => !h.feed).map((h) => h.text).sort();
-  const feed = lit.filter((h) => h.feed).map((h) => h.text).sort();
+  const same = (got, want) => JSON.stringify([...got].sort()) === JSON.stringify([...want].sort());
+  const own = lit.filter((h) => !h.feed).map((h) => h.text);
+  const feed = lit.filter((h) => h.feed).map((h) => h.text);
+  const wantOwn = ["Count: NaN", "Updated NaNm ago", "Invalid Date", "[object Object]", "undefined", "Tue · NaN min read", "Preview: NaN", "Unread, undefined, Some feed", "NaNm"];
+  const wantFeed = ["NaN-boxing explained", "undefined behaviour is fine in an article", "An excerpt about NaN-boxing"];
   if (!(o.scrollWidth > o.vw)) problems.push("S4 did not see the page scroll sideways");
-  if (o.offenders.length !== 1 || !o.offenders[0].desc.startsWith("div#wide")) problems.push(`S4 offenders ${JSON.stringify(o.offenders)}`);
-  if (o.scrollers.length !== 1 || !o.scrollers[0].desc.startsWith("div#pane")) problems.push(`S4 scrollers ${JSON.stringify(o.scrollers)}`);
-  if (JSON.stringify(own) !== JSON.stringify(["Count: NaN", "Unread, undefined, Some feed", "[object Object]"])) problems.push(`S5 hits ${JSON.stringify(own)}`);
-  if (JSON.stringify(feed) !== JSON.stringify(["NaN-boxing explained", "undefined behaviour is fine in an article"])) problems.push(`S5 feed notes ${JSON.stringify(feed)}`);
+  if (!same(o.offenders.map((x) => x.desc.split(" ")[0]), ["div#wide", "div#fixed"])) problems.push(`S4 offenders ${JSON.stringify(o.offenders)}`);
+  if (!same(o.scrollers.map((x) => x.desc.split(" ")[0]), ["div#pane"])) problems.push(`S4 scrollers ${JSON.stringify(o.scrollers)}`);
+  if (!same(own, wantOwn)) problems.push(`S5 hits ${JSON.stringify(own)}`);
+  if (!same(feed, wantFeed)) problems.push(`S5 feed notes ${JSON.stringify(feed)}`);
   // The fixture has no <title> and no lang: two violations axe always reports.
   if (!axeIds.includes("document-title") || !axeIds.includes("html-has-lang")) problems.push(`S3 missed a known violation (${axeIds.join(", ")})`);
   if (problems.length) throw new Error(`self-test failed: ${problems.join("; ")}`);
@@ -396,9 +447,10 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
   page.on("console", (msg) => {
     if (!current || msg.type() !== "error") return;
     const url = msg.location()?.url ?? "";
-    // "Failed to load resource" is the browser echoing a failed request; S2 reports /api/ ones from the response.
+    // "Failed to load resource" is the browser echoing a failed request. Same-origin ones are reported from the
+    // response below (S2 for /api/, a note otherwise); only other origins are known from this message alone.
     if (/^Failed to load resource/.test(msg.text())) {
-      if (!new URL(url || origin, origin).pathname.startsWith("/api/")) bucket.other.push({ url, text: msg.text() });
+      if (new URL(url || origin, origin).origin !== origin) bucket.other.push({ url, text: msg.text() });
       return;
     }
     bucket.console.push({ kind: "console", text: msg.text().slice(0, 600), url });
@@ -419,12 +471,26 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     if (u.origin === origin && u.pathname.startsWith("/api/")) bucket.api.push({ status: 0, method: req.method(), url: u.pathname + u.search, error: why });
   });
 
-  // An article to open: the first one in All.
-  if (ctxInfo.articlePath === undefined && screens.some((s) => s.id === "article")) {
-    await page.goto("/l/all");
-    await settle(page);
-    ctxInfo.articlePath = await page.locator('main article a[href^="/i/"]').first().getAttribute("href", { timeout: 5000 }).catch(() => null);
+  // An article to open: the first one in All. Looked for again in the next browser while none is found (the feeds may
+  // still be fetching).
+  if (!ctxInfo.articlePath && screens.some((s) => s.id === "article")) {
+    try {
+      await page.goto("/l/all");
+      await settle(page);
+      ctxInfo.articlePath = await page.locator('main article a[href^="/i/"]').first().getAttribute("href", { timeout: 5000 });
+    } catch {
+      ctxInfo.articlePath = null;
+    }
   }
+
+  // S1 and S2 events collected for the current screen, reported even when the screen could not be finished (they
+  // are often why).
+  const flush = (where) => {
+    for (const c of bucket.console) report("S1", where, c.kind, c.text, c.url);
+    for (const a of bucket.api) report("S2", where, String(a.status), `${a.method} ${a.url} -> ${a.status || a.error}`);
+    for (const o of bucket.other) note("S2", where, `non-API request failed: ${o.url} ${o.text}`);
+    bucket.console.length = bucket.api.length = bucket.other.length = 0;
+  };
 
   for (const screen of screens) {
     const where = { screen: screen.id, theme: theme.id, viewport: vp.id };
@@ -455,19 +521,17 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       // S4 before axe, so axe's injected script is not part of the layout.
       const s4 = [];
       if (vp.id !== "desktop") {
-        const o = await page.evaluate(overflowProbe);
+        const o = await page.evaluate(overflowProbe, FEED);
         if (o.scrollWidth > o.vw + 1) s4.push({ rule: "page-scroll-x", message: `page scrolls sideways: scrollWidth ${o.scrollWidth} > ${o.vw}` });
         for (const s of o.scrollers) s4.push({ rule: "scroller-x", message: `${s.desc} scrolls sideways (${s.scrollWidth} > ${s.clientWidth})` });
         for (const off of o.offenders) s4.push({ rule: "past-right-edge", message: `${off.desc} ends at ${off.right}px (viewport ${o.vw}px)` });
       }
-      const s5 = await page.evaluate(literalProbe);
+      const s5 = await page.evaluate(literalProbe, FEED);
       const axe = await runAxe(page);
       await page.waitForTimeout(200); // late console errors from the last render
       current = null;
 
-      for (const c of bucket.console) report("S1", where, c.kind, c.text, c.url);
-      for (const a of bucket.api) report("S2", where, String(a.status), `${a.method} ${a.url} -> ${a.status || a.error}`);
-      for (const o of bucket.other) note("S2", where, `non-API request failed: ${o.url} ${o.text}`);
+      flush(where);
       for (const v of axe) {
         const own = v.nodes.filter((n) => !n.feedContent);
         const feed = v.nodes.filter((n) => n.feedContent);
@@ -492,6 +556,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       current = null;
       row.ok = false;
       row.error = e.message.split("\n")[0];
+      flush(where);
       broken(where, `could not check the screen: ${row.error}`);
       console.log(`ERROR ${row.error}`);
       await page.screenshot({ path: join(outDir, `${screen.id}-${theme.id}-${vp.id}-error.png`), fullPage: true }).catch(() => {});
