@@ -36,6 +36,14 @@ export function choosePair(choice: "follow" | "schedule"): Partial<ThemeSettings
   return { mode: "follow", schedule: choice === "schedule" };
 }
 
+/**
+ * The settings change for picking one fixed theme. It turns the schedule off: an older client that later picks
+ * "Match my device" cannot see or clear the flag, and would otherwise resume a schedule its UI does not show.
+ */
+export function chooseFixed(id: string): Partial<ThemeSettings> {
+  return { mode: "fixed", fixed: id, schedule: false };
+}
+
 /** Whether the scheduled switch is in force. */
 export function onSchedule(s: ThemeSettings): boolean {
   return themeChoice(s) === "schedule";
@@ -106,10 +114,13 @@ export function resolveTheme(s: ThemeSettings, prefersDark: boolean, minutes: nu
 }
 
 /**
- * Milliseconds from `now` to the schedule's next switch (the next nightStart or dayStart on the local clock), at
- * least 1. Built with setHours so a daylight-saving change on the way is counted in wall-clock time. A time the clock
- * skips (02:30 on a spring-forward night) switches when the clock first passes it, at the end of the gap: setHours
- * lands after the gap (03:30), so the target is moved back to the start of that hour (03:00).
+ * Milliseconds from `now` to the schedule's next switch (the next time the local clock reads nightStart or dayStart),
+ * at least 1. Built with setHours so a daylight-saving change on the way is counted in wall-clock time, and the
+ * schedule follows the clock as it reads on those nights:
+ * - a time the clock skips (02:30 on a spring-forward night) switches when the clock first passes it, at the end of
+ *   the gap: setHours lands after the gap (03:30), so the target is moved back to the start of that hour (03:00);
+ * - a time the clock shows twice (01:30 on a fall-back night) switches both times, as isNightAt reads the clock: the
+ *   second showing is one hour after the first, which setHours (the first showing) would miss.
  */
 export function msUntilNextSwitch(s: Pick<ThemeSettings, "nightStart" | "dayStart">, now: Date): number {
   let best = Infinity;
@@ -122,8 +133,13 @@ export function msUntilNextSwitch(s: Pick<ThemeSettings, "nightStart" | "dayStar
     };
     place();
     if (at.getTime() <= now.getTime()) {
-      at.setDate(at.getDate() + 1);
-      place();
+      const again = new Date(at.getTime() + 3_600_000);
+      if (minutesOfDay(again) === m && again.getDate() === at.getDate() && again.getTime() > now.getTime()) {
+        at.setTime(again.getTime());
+      } else {
+        at.setDate(at.getDate() + 1);
+        place();
+      }
     }
     best = Math.min(best, at.getTime() - now.getTime());
   }

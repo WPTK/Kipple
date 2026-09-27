@@ -18,7 +18,7 @@ import {
 import { useStore } from "@/lib/store";
 import { useAllowedSchemes } from "@/theme/serverThemes";
 import { themeStore, updateTheme } from "@/theme/theme";
-import { choosePair, themeChoice } from "@/theme/settings";
+import { chooseFixed, choosePair, themeChoice } from "@/theme/settings";
 import { Segmented } from "@/ui/segmented";
 import { Disclosure, Switch, inputCls } from "@/ui/kit";
 import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
@@ -99,7 +99,7 @@ export function ThemeSelect() {
         value={value}
         onChange={(e) => {
           const v = e.target.value;
-          updateTheme(v === "__follow" ? choosePair("follow") : v === "__schedule" ? choosePair("schedule") : { mode: "fixed", fixed: v });
+          updateTheme(v === "__follow" ? choosePair("follow") : v === "__schedule" ? choosePair("schedule") : chooseFixed(v));
         }}
         className={inputCls}
       >

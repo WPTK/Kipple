@@ -56,16 +56,13 @@ export const SCHEDULE_RECHECK_MS = 15 * 60_000;
 /** Wire the store, the OS appearance listener and the schedule timer. Call once at startup. */
 export function initTheme(): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let shown: string | undefined;
   // Shows the theme in force (only touching the page when it changed) and, on a schedule, arms one timer for the next
   // switch, a little after it so the clock has passed the boundary when it fires, always from the real clock. Equal
   // times never switch, so there is nothing to wait for.
   function apply() {
     const id = currentThemeId();
-    if (id !== shown) {
-      applyTheme(id);
-      shown = id;
-    }
+    // The page (data-theme, which the boot script also sets) and the store must both show it.
+    if (id !== activeThemeStore.get() || id !== document.documentElement.dataset.theme) applyTheme(id);
     clearTimeout(timer);
     timer = undefined;
     const s = themeStore.get();
@@ -84,15 +81,10 @@ export function initTheme(): () => void {
     /* no matchMedia: day theme stays */
   }
   // A device waking from sleep, or a tab coming back to the front, may have slept through a switch or hold a timer
-  // that paused while it slept: apply() corrects the theme and re-arms from the clock. Coming back usually fires both
-  // visibilitychange and focus; the second one in the same moment is skipped.
-  let wokeAt = -Infinity;
+  // that paused while it slept: apply() corrects the theme and re-arms from the clock (cheap when nothing changed, so
+  // visibilitychange and focus arriving together need no guard).
   const wake = () => {
-    if (!onSchedule(themeStore.get()) || document.visibilityState !== "visible") return;
-    const now = performance.now();
-    if (now - wokeAt < 1000) return;
-    wokeAt = now;
-    apply();
+    if (onSchedule(themeStore.get()) && document.visibilityState === "visible") apply();
   };
   document.addEventListener("visibilitychange", wake);
   window.addEventListener("focus", wake);

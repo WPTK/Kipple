@@ -5,7 +5,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/cn";
 import { DEFAULT_DAY, DEFAULT_NIGHT, schemeById, type Scheme } from "./schemes";
 import { useAllowedSchemes } from "./serverThemes";
-import { choosePair, clockMinutes, themeChoice, toClockTime } from "./settings";
+import { chooseFixed, choosePair, clockMinutes, themeChoice, toClockTime } from "./settings";
 import { themeStore, updateTheme } from "./theme";
 
 const GROUP_LABEL: Record<Scheme["group"], string> = {
@@ -115,6 +115,17 @@ function PairOption({ title, detail, day, night, checked, onSelect }: { title: s
 }
 
 /**
+ * Whether a key edits the time in place (digits, AM/PM letters, deleting, stepping a part up or down), as opposed to
+ * moving between its parts, opening or closing the browser's picker (Space, Alt+Down, Escape) or a bare modifier.
+ */
+function editsValue(e: { key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): boolean {
+  if (e.ctrlKey || e.metaKey) return false;
+  if (e.key === "Backspace" || e.key === "Delete") return true;
+  if (e.key === "ArrowUp" || e.key === "ArrowDown") return !e.altKey;
+  return e.key.length === 1 && e.key !== " " && !e.altKey;
+}
+
+/**
  * A 24-hour "HH:MM" time field. The draft is local. A time chosen with the browser's picker (a wheel, a clock dialog)
  * is saved at once; a typed one is saved on Enter, on leaving the field, when Settings closes or when the page is
  * left, never on each keystroke (a browser reports a complete but unintended time part-way through typing one, such
@@ -168,7 +179,7 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
             // A committed typed time: a later pick from the browser's picker in this visit saves at once again.
             flush();
             typing.current = false;
-          } else if (e.key !== "Tab") typing.current = true;
+          } else if (editsValue(e)) typing.current = true;
         }}
         onChange={(e) => {
           setDraft(e.target.value);
@@ -215,7 +226,7 @@ export function ThemePicker() {
   const inAccess = t.mode === "fixed" && access.some((s) => s.id === t.fixed);
   const [moreOpen, setMoreOpen] = useState(inMore);
   const [accessOpen, setAccessOpen] = useState(inAccess);
-  const pick = (id: string) => updateTheme({ mode: "fixed", fixed: id });
+  const pick = (id: string) => updateTheme(chooseFixed(id));
   const dayName = schemeById(t.day).name;
   const nightName = schemeById(t.night).name;
   const choice = themeChoice(stored);

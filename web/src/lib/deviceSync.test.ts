@@ -128,7 +128,7 @@ describe("mapping between the local stores and the profile", () => {
     // A time this build cannot read keeps the local one.
     const odd = deriveLocal({ ...DEFAULTS, "ui.theme_schedule": "yes", "ui.theme_night_start": "9pm", "ui.theme_day_start": null }, local());
     expect(odd.theme).toMatchObject({ schedule: false, nightStart: "21:00", dayStart: "07:00" });
-    // A fixed theme keeps the schedule flag for when the pair is chosen again.
+    // A fixed theme on the server with the flag still set (an older client chose it) keeps the flag.
     expect(deriveLocal({ ...DEFAULTS, "ui.theme": "graphite", "ui.theme_schedule": true }, local()).theme).toMatchObject({ mode: "fixed", schedule: true });
   });
 
@@ -498,6 +498,8 @@ describe("another tab or device changed a different key (review finding 1)", () 
     const echo = { mode: "follow", fixed: "graphite", day: "paper", night: "midnight" };
     window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify(echo) }));
     expect(themeStore.get()).toMatchObject({ mode: "follow", schedule: true, nightStart: "22:00" });
+    // ...and the cache the next load paints from has them again.
+    expect(JSON.parse(localStorage.getItem("kipple.theme.v1")!)).toMatchObject({ schedule: true, nightStart: "22:00", dayStart: "06:30" });
     await vi.advanceTimersByTimeAsync(600);
     expect(s.patches.slice(before)).toEqual([]);
     // A build that knows the schedule turning it off is followed.

@@ -102,6 +102,19 @@ describe("ThemePicker schedule", () => {
     expect(themeStore.get().nightStart).toBe("23:45");
   });
 
+  it("keys that only move, open the picker or close it do not count as typing: a picker choice still saves at once", () => {
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true });
+    render(<ThemePicker />);
+    const night = screen.getByLabelText("Night starts");
+    for (const k of [{ key: "ArrowRight" }, { key: "ArrowDown", altKey: true }, { key: "Escape" }, { key: "Shift" }, { key: " " }, { key: "Tab" }]) fireEvent.keyDown(night, k);
+    fireEvent.change(night, { target: { value: "22:30" } });
+    expect(themeStore.get().nightStart).toBe("22:30");
+    // Stepping a part with the arrow keys is typing (it passes through times on the way).
+    fireEvent.keyDown(night, { key: "ArrowUp" });
+    fireEvent.change(night, { target: { value: "23:30" } });
+    expect(themeStore.get().nightStart).toBe("22:30");
+  });
+
   it("a typed time waiting when Settings closes, or the page is left, is saved", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true });
     const { unmount } = render(<ThemePicker />);
@@ -155,7 +168,7 @@ describe("ThemePicker schedule", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true, nightStart: "22:00" });
     render(<ThemePicker />);
     fireEvent.click(radio(/Graphite/));
-    expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "graphite", nightStart: "22:00" });
+    expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "graphite", schedule: false, nightStart: "22:00" });
     expect(screen.queryByLabelText("Night starts")).toBeNull();
     expect(screen.queryByLabelText("Day theme")).toBeNull();
   });

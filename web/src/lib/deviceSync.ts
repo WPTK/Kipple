@@ -3,7 +3,7 @@ import type { DeviceView } from "@/api/types";
 import { announce } from "@/shell/toasts";
 import { isSchemeId } from "@/theme/schemes";
 import { themeStore } from "@/theme/theme";
-import { DEFAULT_THEME_SETTINGS, THEME_STORAGE_KEY, isClockTime, parseThemeSettings } from "@/theme/settings";
+import { DEFAULT_THEME_SETTINGS, THEME_STORAGE_KEY, isClockTime, parseThemeSettings, saveThemeSettings } from "@/theme/settings";
 import type { ThemeSettings } from "@/theme/settings";
 import { FONTS } from "./fonts";
 import {
@@ -407,6 +407,8 @@ function onStorage(e: StorageEvent): void {
     // Missing fields keep this tab's values: a tab on an older build writes the cache without the schedule's fields.
     const n = parseThemeSettings(e.newValue, themeStore.get());
     if (stable(n) !== stable(themeStore.get())) themeStore.set(n);
+    // Such a write also dropped those fields from the cache the next page load paints from: put them back.
+    else if (e.newValue !== JSON.stringify(n)) saveThemeSettings(n);
   }
 }
 

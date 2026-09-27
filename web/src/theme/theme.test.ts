@@ -10,6 +10,7 @@ import {
   msUntilNextSwitch,
   parseThemeSettings,
   resolveTheme,
+  chooseFixed,
   choosePair,
   themeChoice,
   THEME_STORAGE_KEY,
@@ -139,6 +140,14 @@ describe("msUntilNextSwitch", () => {
       expect(isNightAt("21:00", "02:30", 180)).toBe(false);
       // A night that crosses the change: 22:00 EST to 07:00 EDT is 9 hours on the clock but 8 hours of real time.
       expect(msUntilNextSwitch({ nightStart: "21:00", dayStart: "07:00" }, new Date(2026, 2, 7, 22, 0))).toBe(8 * 3600_000);
+      // 2026-11-01: 02:00 EDT falls back to 01:00 EST, so 01:30 shows twice. At 01:10 EST (after 01:30 EDT has passed)
+      // the next switch is the second 01:30, 20 minutes away, not tomorrow.
+      const first = new Date(2026, 10, 1, 1, 30); // setHours picks the first showing (EDT)
+      const tenPastEst = new Date(first.getTime() + 40 * 60_000); // 01:30 EDT + 40 min = 01:10 EST
+      expect(tenPastEst.getHours() * 60 + tenPastEst.getMinutes()).toBe(70);
+      expect(msUntilNextSwitch({ nightStart: "01:30", dayStart: "07:00" }, tenPastEst)).toBe(20 * 60_000);
+      // Before the first showing, the first one is next.
+      expect(msUntilNextSwitch({ nightStart: "01:30", dayStart: "07:00" }, new Date(first.getTime() - 5 * 60_000))).toBe(5 * 60_000);
     } finally {
       if (tz === undefined) delete process.env.TZ;
       else process.env.TZ = tz;
@@ -193,6 +202,7 @@ describe("parseThemeSettings", () => {
     expect(themeChoice({ ...base, mode: "fixed", schedule: true })).toBe("fixed");
     expect(choosePair("schedule")).toEqual({ mode: "follow", schedule: true });
     expect(choosePair("follow")).toEqual({ mode: "follow", schedule: false });
+    expect(chooseFixed("graphite")).toEqual({ mode: "fixed", fixed: "graphite", schedule: false });
   });
   it("keeps a schedule and its times; a cache from before the schedule gets the default times", () => {
     expect(parseThemeSettings(JSON.stringify({ ...base, mode: "follow", schedule: true, nightStart: "22:15", dayStart: "06:45" }))).toEqual({
@@ -428,11 +438,8 @@ describe("initTheme on a schedule", () => {
     meta.content = "#123456";
     // The device slept with ten minutes left on the timer and wakes ten seconds before the switch.
     vi.setSystemTime(new Date(2026, 8, 27, 20, 59, 50));
-    const arm = vi.spyOn(globalThis, "setTimeout");
     document.dispatchEvent(new Event("visibilitychange"));
-    window.dispatchEvent(new Event("focus")); // the same return: handled once
-    expect(arm).toHaveBeenCalledTimes(1);
-    arm.mockRestore();
+    window.dispatchEvent(new Event("focus")); // the same return: both are harmless
     expect(theme()).toBe("linen");
     expect(meta.content).toBe("#123456");
     expect(vi.getTimerCount()).toBe(1);
