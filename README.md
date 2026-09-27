@@ -12,6 +12,34 @@ theme are merged for the next release, and a beta follows once testing is done (
 [docs/RELEASING.md](docs/RELEASING.md)). See [CHANGELOG.md](CHANGELOG.md). Design notes may link to planning and
 research documents that are not part of this repository.
 
+## Quickstart
+
+```
+git clone https://github.com/WPTK/Kipple.git
+cd Kipple
+cp .env.example .env
+cp docker-compose.example.yml docker-compose.yml
+```
+
+Edit `.env`: set `KIPPLE_PASSWORD` (5-256 characters) at minimum. Everything else has a working default.
+
+```
+docker compose build
+docker compose up -d
+```
+
+Open `http://localhost:7080` and sign in with `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` from `.env` (default
+username `owner`). That's the whole happy path — one image, one container, one port, no database to set up
+separately.
+
+To sync with Reeder Classic, NetNewsWire, or another Google Reader-API client, run
+`docker exec -it kipple /kipple api-password` once Kipple is running, to generate a Reader API password.
+
+For anything past this — backups, restoring, running behind a reverse proxy or tunnel, optional Cloudflare
+Access sign-in — see [docs/deploy.md](docs/deploy.md). It's written from the maintainer's own two-machine setup
+(one box running Kipple, one for admin/backups over SSH) but says up front how that collapses to a single
+machine, which is what most people running this will actually have.
+
 ## Configuration
 
 Kipple is configured with environment variables; [.env.example](.env.example) documents every one, and

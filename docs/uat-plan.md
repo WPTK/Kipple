@@ -322,6 +322,19 @@ that person: everything (clone, build, `.env`, `docker compose up`, first login,
 single box, no `ssh host-a` wrapper. If anything in `docs/deploy.md`'s two-host framing trips up a one-host
 walkthrough, that's a real finding, not a suite mismatch.
 
+**Executed 2026-09-27.** Fresh `git clone` of the public repo into an isolated throwaway location (a separate
+container name, image tag and volume, so it couldn't collide with or affect the real deployment), following
+only `README.md` as it existed before this run — no other context. Finding: `README.md` had no concrete
+clone-to-login sequence, and `docker-compose.example.yml`'s own top comment told the reader not to run it
+standalone and to see `CLAUDE.md` instead, which isn't written for outsiders. Working it out by convention
+(`cp .env.example .env`, `cp docker-compose.example.yml docker-compose.yml`, set `KIPPLE_PASSWORD`,
+`docker compose build && up -d`) worked cleanly — all 9 migrations applied, the account was created, `/healthz`
+passed, and a login (verified via the API directly: `Origin` header and `X-Kipple-Client: web` are required,
+same as a real browser sends) returned an authenticated session. So the underlying path was never broken, just
+undocumented for a newcomer. Fixed: `README.md` gained a Quickstart section with the exact sequence that
+worked, and the compose example's comment now says it works standalone. Everything (container, image, network,
+volume) was torn down afterward; the live production container was confirmed untouched throughout.
+
 ## Defect severity (borrowed scale)
 
 | Severity | Meaning | Exit criteria impact |

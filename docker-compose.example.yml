@@ -1,9 +1,10 @@
-# Example compose file for the `kipple` service in Host-A's stack compose
-# project. Copy the relevant bits into that project's docker-compose.yml
-# rather than running this file standalone — see CLAUDE.md "Deploy".
+# Works standalone: copy this to docker-compose.yml (as README.md's Quickstart does) and
+# `docker compose up -d`. If you're instead adding Kipple as one service inside a larger existing
+# compose project, copy just this service block in and merge the top-level `volumes:` entry —
+# see CLAUDE.md "Deploy" for that workflow specifically.
 #
-# Name the service explicitly when starting it: never a bare
-# `docker compose up -d` / `down` against the shared stack file.
+# Name the service explicitly when starting it: never a bare `docker compose up -d` / `down`
+# against a compose file with other services in it.
 
 services:
   kipple:
