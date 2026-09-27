@@ -159,3 +159,39 @@ Decisions are recorded in full in the private history repository. Summary of wha
 - **Sender:** 15 s flush, visibilitychange primary and pagehide backup, 2 minute idle cutoff, a random id on every event
   (unique index) for dedup, offline events queued, losses accepted.
 - **Delivery:** alpha.4 sender and settings, alpha.5 screen, alpha.6 export and data controls, alpha.7 Wrapped.
+
+## Phase 5 planning meeting (2026-09-27)
+
+Not a UI meeting — recorded here per the owner's instruction that all planning decisions land in this file plus
+`kipple-history`. Phases 1-4 are complete (v0.3.0-alpha.7 deployed, kipple.cc public). Six topics, one at a time
+with a recommendation each, same format as the phase 4 pre-meeting.
+
+1. **What phase 5 is.** Not release-steps-only, not parking-lot-only: the owner chose to **interleave** release
+   readiness (steps 8+) with the two parking-lot items that were explicitly gated on "planned work finished"
+   (Cloudflare Access JWT validation, passwordless login).
+2. **Sequencing.** The owner chose **fully parallel**: the code audit/changelog review and the Access
+   JWT/passwordless work happen on separate branches at the same time, accepting the risk that the audit could
+   flag something in the auth path and cause rework, rather than sequencing them.
+3. **Stale owner checklist (from the phase 3 handoff).** GitHub private vulnerability reporting toggle, approving
+   `audits/claude-md-proposed-edits.md`, and turning off Ceres debug logging (`KIPPLE_LOG_LEVEL`,
+   `KIPPLE_LOG_GREADER_FORMS`) were never marked closed. The owner will flip debug logging off himself (ssh to
+   Ceres, edit `.env`, restart `kipple`). The Ceres-side Proton Drive backup job for Kipple's own data (separate
+   from Gilead's `GileadProtonBackup`) is **not** being built in phase 5 — local `docker cp` snapshots stay the
+   only backup path for now.
+4. **Parking-lot scope boundary.** The owner's rule for phase 5: **only work directly related to Kipple and its
+   Docker image.** In: auto-night theme (small, self-contained, ships in phase 5). Out: the 1.5.0/2.0.0
+   setup-app/single-image roadmap, a design system, a static demo site, and user-chosen Google Fonts (all stay
+   parked, unchanged from the existing parking-lot timing).
+5. **Owner involvement.** The owner wants to be **involved as little as possible** in phase 5. Practical reading:
+   batch work into branches/PRs and only interrupt him for the things CLAUDE.md already reserves for him —
+   deploys, Cloudflare changes, and the final go/no-go — not for routine build decisions in between.
+
+**Phase 5 outline (final):**
+- (A) Full code audit + changelog review (Sonnet routine, Opus review/judging, per the existing model policy).
+- (B) Cloudflare Access JWT validation + passwordless login, on a branch, in parallel with (A). Needs the owner's
+  Cloudflare-side Access app config before the JWT work can be verified end-to-end.
+- (C) Auto-night theme.
+- (D) Documentation run, first-time Docker setup walkthrough, backup/restore-settings guide.
+- (E) Final go/no-go meeting.
+
+No deploys happen without asking first, per standing instruction; Cloudflare changes stay the owner's.
