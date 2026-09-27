@@ -21,6 +21,15 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node } },
   },
   {
+    // The UAT runner is Node; the probes it hands to page.evaluate run in the page and only see the page.
+    files: ["uat/run.mjs"],
+    languageOptions: { globals: { ...globals.node } },
+  },
+  {
+    files: ["uat/probes.mjs"],
+    languageOptions: { globals: { ...globals.browser } },
+  },
+  {
     rules: {
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },

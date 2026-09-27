@@ -7,6 +7,8 @@ docs
 # Frontend: built fresh by the "web" stage, node_modules never needed in-image
 web/node_modules
 web/dist
+# UAT Suite 1 output (reports and screenshots), local only
+web/uat/results
 
 # Go build output
 kipple

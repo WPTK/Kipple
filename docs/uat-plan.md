@@ -55,8 +55,12 @@ involvement" decision):
 
 ## Suite 1 — Scripted (Playwright + axe-core)
 
-Not built yet. A new script, `web/uat/run.mjs` (or similar; not the third-party `webapp-uat` npm skill — built in-repo, MIT-licensed
-dependencies only, so it's auditable and has no i18n/placeholder checks Kipple doesn't need). Navigates every
+In-repo script, `web/uat/run.mjs` (not the third-party `webapp-uat` npm skill: built in-repo so it's auditable and has
+no i18n/placeholder checks Kipple doesn't need). This plan first said "MIT-licensed dependencies only"; neither tool
+is MIT, so that wording is replaced here rather than quietly dropped: `@playwright/test` is Apache-2.0 (permissive)
+and `axe-core` MPL-2.0 (weak, file-level copyleft: obligations attach only to modified axe-core files, and Kipple
+neither modifies nor ships it). Both are dev-only and never in the image; `axe-core` was already a dev dependency
+for the Vitest accessibility tests. Navigates every
 screen (feed list in each of the 5 layouts, article view, search, settings, stats, Wrapped) and asserts:
 
 | ID | Check | Expected |
@@ -68,8 +72,55 @@ screen (feed list in each of the 5 layouts, article view, search, settings, stat
 | S5 | Data integrity | No literal `undefined`, `NaN`, or `[object Object]` rendered anywhere |
 | S6 | Theme contrast | Reuses the existing CI contrast check across all 20 schemes, not just the 2 spot-checked above |
 
-Once built, it runs as part of `scripts/ci-local.ps1 -UAT` (a new optional flag; `ci-local.ps1` has no such flag
-yet) and before every deploy, added then as a step in `docs/RELEASING.md`.
+A manual, pre-release tool (step 2 of `docs/RELEASING.md`): not part of CI or `scripts/ci-local.ps1`.
+`@playwright/test` is a dev dependency so its version is pinned in the lockfile and audited with the rest; it has no
+install scripts and downloads no browser on `npm ci`, so the image build and CI only unpack its JavaScript (about
+13 MB) and never ship it. To run it:
+
+```
+cd web
+npx playwright install chromium     # once per machine: the browser Playwright drives
+npm run build                       # the seed embeds web/dist, so build the UI first
+npm run seed                        # terminal 1: Kipple on 127.0.0.1:7080 with six sample feeds (needs Go and network)
+npm run uat                         # terminal 2, once the feeds have fetched (about a minute)
+```
+
+Options (`npm run uat -- --help`): `--url` (or `KIPPLE_UAT_URL`),
+`--user`/`--password` (default: the seed's throwaway account), `--only <screen ids>`, `--screenshots`, `--headed`,
+`--out`. Every screen is checked in Paper and Midnight (the browser's light and dark preference, which the default
+follow-system theme picks up) at 1280 px, 768 px and 390 px (the last two as touch devices); S4 applies to the two
+narrow widths. Before the run it checks its own probes against a page built to fail them, so a clean report means
+clean, not broken. A theme that does not come out as Paper and Midnight (an account defaulting to a fixed theme), an
+unknown `--only` id, or no article to open (feeds not fetched yet) stops that part of the run as an error rather than
+passing it.
+
+Every theme and width is a fresh browser sharing one session and one device of the run's own (its cookie is kept in
+`web/uat/results/.device-<host>-<port>.json`, so later runs reuse it instead of filling the server's device table), so
+existing devices' settings are never touched. The run still changes the instance: it switches that device's layout
+and opens an article (marking it read and recording reading stats). So it refuses any address that is not loopback
+or credentials other than the seed's (a port forward can put the real instance on loopback) unless `--allow-remote`
+is given: run it against a seeded or copied instance, never the one the owner reads on. The remembered device only
+matters with `npm run seed -- --keep` or a copied database; a fresh seed starts without it.
+
+Output: a line per screen, then `web/uat/results/<timestamp>/report.md` (findings grouped by check and rule, with the
+screens and elements each one was seen on), `report.json` (everything) and a screenshot of each failing screen. Exit
+code 0 clean, 1 findings, 2 a screen or the run could not be checked. Known and accepted issues go in `web/uat/waivers.json`
+(`{"check": "S3", "rule"?: "<axe rule id>", "match"?: "<text of the finding>", "screen"?, "theme"?, "viewport"?,
+"reason": "..."}`; a reason is required, keys and values are checked, S1/S2/S4/S5/S6 waivers need `match` since
+their rules are coarse (an S3 finding is already one element; `screen` may also be `boot`, a browser's first load),
+and an unused waiver is reported). axe results on the article body (the feed's own HTML), failed
+non-`/api/` requests (feed images) and S5 hits that are only there because of feed-supplied text (a title that says "undefined
+behaviour": the run collects feed, folder and saved-search names and item titles, excerpts, authors, sources and
+search snippets from the API and takes them out before judging; Kipple text next to them, such as a time or a "min
+read" line, still fails) are listed as notes, not failures, as is a scroller pushed wide only by the article HTML.
+That separation is done on content rather than by serving fixed fixture feeds because the run is also meant for a
+copy of the real database, whose feeds are whatever the owner reads.
+
+Screens after the first in each browser are reached the way a reader moves: the app's own link when one is on
+screen, otherwise a router history entry; each screen must show its expected heading, which proves the right screen
+was checked. The in-page probes live in `web/uat/probes.mjs` (linted with browser globals only), the runner in
+`web/uat/run.mjs`. S5 also looks for `Invalid Date`
+and in form field values. A screen still loading after 15 s is an error, not a pass.
 
 ## Suite 2 — Agent-driven scenario walkthroughs
 
