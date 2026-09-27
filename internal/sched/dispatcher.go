@@ -385,7 +385,7 @@ func (s *Scheduler) handleDone(r result) {
 		s.hub.Publish("feed.changed", map[string]any{"feed_id": idStr(r.feedID)})
 	}
 	for _, run := range f.runs {
-		if s.runs[run.Kind] == run && now.Sub(run.lastProgress) >= progressEvery {
+		if s.runs[run.ID] == run && now.Sub(run.lastProgress) >= progressEvery {
 			run.lastProgress = now
 			s.hub.Publish("run.progress", map[string]any{"run_id": idStr(run.ID), "done": run.Done, "total": run.Total,
 				"new_items": run.NewItems, "errors": run.Errors})
@@ -408,9 +408,11 @@ func (s *Scheduler) handleRun(req runReq) {
 		return
 	}
 	if req.kind == RunManual {
-		if r, ok := s.runs[RunManual]; ok {
-			reply(runReply{info: RunInfo{RunID: r.ID, Kind: r.Kind, Total: r.Total, Joined: true}})
-			return
+		for _, r := range s.runs {
+			if r.Kind == RunManual {
+				reply(runReply{info: RunInfo{RunID: r.ID, Kind: r.Kind, Total: r.Total, Joined: true}})
+				return
+			}
 		}
 	}
 
@@ -656,15 +658,16 @@ func (s *Scheduler) settleRunFeed(run *Run, isErr bool) {
 }
 
 // setRun and endRun change the active runs, keeping activeRuns (Busy) in step.
+// Runs are keyed by id, so overlapping runs of one kind (two imports, two
+// retention runs) are each listed, each report progress, and Busy stays true
+// until the last of them ends.
 func (s *Scheduler) setRun(run *Run) {
-	s.runs[run.Kind] = run
+	s.runs[run.ID] = run
 	s.activeRuns.Store(int32(len(s.runs)))
 }
 
 func (s *Scheduler) endRun(run *Run) {
-	if s.runs[run.Kind] == run {
-		delete(s.runs, run.Kind)
-	}
+	delete(s.runs, run.ID)
 	s.activeRuns.Store(int32(len(s.runs)))
 }
 

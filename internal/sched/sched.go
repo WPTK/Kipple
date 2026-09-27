@@ -216,7 +216,9 @@ type Scheduler struct {
 	// replays are the follow-ups (priority requests, run jobs) of flights dropped
 	// by tryStart, replayed once drainPending has finished rebuilding pending.
 	replays []*flight
-	runs    map[string]*Run
+	// runs are the active runs by id: every overlapping import or retention run is
+	// its own entry (only a manual run is joined rather than started twice).
+	runs map[int64]*Run
 	// activeRuns mirrors len(runs) for Busy, which must not wait on the
 	// dispatcher. Written only by the dispatcher (setRun, endRun).
 	activeRuns atomic.Int32
@@ -301,7 +303,7 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 		hostUntil:   map[string]time.Time{},
 		notBefore:   map[int64]time.Time{},
 		commitFails: map[int64]int{},
-		runs:        map[string]*Run{},
+		runs:        map[int64]*Run{},
 	}
 }
 
