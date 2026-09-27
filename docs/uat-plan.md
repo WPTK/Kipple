@@ -103,9 +103,10 @@ code 0 clean, 1 findings, 2 a screen or the run could not be checked. Known and 
 (`{"check": "S3", "rule"?: "<axe rule id>", "match"?: "<text of the finding>", "screen"?, "theme"?, "viewport"?,
 "reason": "..."}`; a reason is required, keys and values are checked, S1/S2/S4/S5 waivers need `match` since their
 rules are coarse, and an unused waiver is reported). axe results on the article body (the feed's own HTML), failed
-non-`/api/` requests (feed images) and S5 hits in feed text (a title that says "undefined behaviour"; a field that
-rendered as nothing but `undefined` still fails; elsewhere, a hit that is only there because of a feed, folder or
-saved-search name) are listed as notes, not failures. S5 also looks for `Invalid Date`
+non-`/api/` requests (feed images) and S5 hits that are only there because of feed-supplied text (a title that says "undefined
+behaviour": the run collects feed, folder and saved-search names and item titles, excerpts, authors, sources and
+search snippets from the API and takes them out before judging; Kipple text next to them, such as a time or a "min
+read" line, still fails) are listed as notes, not failures, as is a scroller pushed wide only by the article HTML. S5 also looks for `Invalid Date`
 and in form field values. A screen still loading after 15 s is an error, not a pass.
 
 ## Suite 2 — Agent-driven scenario walkthroughs

@@ -122,6 +122,8 @@ const LAYOUTS = [
   { id: "inbox", label: "Inbox" },
   { id: "headlines", label: "Email - Compact" },
 ];
+// The query the Search screen runs (a word every seeded feed has).
+const SEARCH_Q = "the";
 // Every screen. `layout` switches the list layout on the screen before it is checked; `path` may be a function of
 // the run's context. The Unread and later screens show whatever layout the last list screen left.
 const SCREENS = [
@@ -129,7 +131,7 @@ const SCREENS = [
   { id: "unread", title: "Unread list", path: "/l/unread" },
   { id: "starred", title: "Starred (empty)", path: "/l/starred" },
   { id: "article", title: "Article", path: (ctx) => ctx.articlePath },
-  { id: "search", title: "Search results", path: "/search?q=the" },
+  { id: "search", title: "Search results", path: `/search?q=${SEARCH_Q}` },
   { id: "search-empty", title: "Search, no query", path: "/search" },
   { id: "feeds", title: "Manage feeds", path: "/feeds" },
   { id: "health", title: "Feed health", path: "/health" },
@@ -203,23 +205,24 @@ function broken(where, message) {
 
 // ---- in-page probes (run in the page through page.evaluate) ----
 
-// Where the feed's own text shows. `body` is the article's HTML (the reader pane's .article-body only: Settings >
-// Appearance draws its preview with the same class, and that is Kipple's). `text` adds the feed-supplied fields of
-// list rows (title, excerpt) and the article title; the rows' times, badges and the article's byline are Kipple's.
+// What the feeds supplied, so findings in it are told apart from Kipple's own.
 const FEED = {
+  /** The article's own HTML: the reader pane's .article-body only (Settings > Appearance draws its preview with the
+   * same class, and that is Kipple's). */
   body: 'article[aria-labelledby="article-title"] .article-body',
-  text: 'article[aria-labelledby="article-title"] .article-body, [data-item-id] h3, [data-item-id] p, #article-title',
   /** The S5 literals (see literalProbe). */
   pattern: String.raw`\bundefined\b|\bNaN|\[object Object\]|\bInvalid Date\b`,
-  /** Feed, folder and saved-search names that themselves contain an S5 literal; filled in after sign-in. */
+  /** Feed-supplied strings that themselves contain an S5 literal: feed, folder and saved-search names and item titles,
+   * excerpts, authors, sources and search snippets, as the API returns them (collectFeedText). */
   names: [],
 };
 
 // S4. The page must not scroll sideways, and no visible element may run past the right edge of the viewport. Content
 // wider than a scroll container that fits on screen is caught through that container: every screen scrolls in an
 // `overflow-y-auto` box, whose overflow-x computes to auto as well, so a container that actually scrolls sideways is
-// a finding unless it asks for it (a Tailwind overflow-x-auto/-scroll or overflow-auto/-scroll class) or holds the
-// feed's own article HTML (wide code blocks and tables scroll there on purpose).
+// a finding unless it asks for it (a Tailwind overflow-x-auto/-scroll or overflow-auto/-scroll class) or is inside
+// the feed's own article HTML (wide code blocks and tables scroll there on purpose). A container pushed wide only by
+// the article HTML (the reader pane around a too-wide embed) is marked `feed`: a note, not a failure.
 function overflowProbe(feed) {
   const vw = document.documentElement.clientWidth;
   const out = { scrollWidth: document.documentElement.scrollWidth, vw, offenders: [], scrollers: [] };
@@ -253,9 +256,21 @@ function overflowProbe(feed) {
     }
     return false;
   };
+  // True when everything sticking out past the scroller's right edge is inside the article HTML.
+  const onlyFeedWide = (sc) => {
+    const edge = sc.getBoundingClientRect().left + sc.clientWidth + 1;
+    let any = false;
+    for (const d of sc.querySelectorAll("*")) {
+      if (d.getBoundingClientRect().right <= edge || !visible(d)) continue;
+      if (!d.closest(feed.body)) return false;
+      any = true;
+    }
+    return any;
+  };
   for (const el of document.body.querySelectorAll("*")) {
     if (scrolls(el) && el.scrollWidth > el.clientWidth + 1 && !deliberate(el) && visible(el)) {
-      if (out.scrollers.length < 10) out.scrollers.push({ desc: describe(el), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth });
+      if (out.scrollers.length < 10)
+        out.scrollers.push({ desc: describe(el), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, feed: onlyFeedWide(el) });
     }
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0 || r.right <= vw + 1) continue;
@@ -271,20 +286,26 @@ function overflowProbe(feed) {
 
 // S5. Visible text nodes, form field values (including a select's chosen option) and accessible-name attributes:
 // "undefined", "NaN" (also with a unit stuck to it, as in "NaNm" or "NaNkB"), "[object Object]" and "Invalid Date".
-// Feed text can legitimately say "undefined behaviour" or "NaN-boxing". In the FEED places only a comma- or
-// line-separated piece that is nothing but the literal (a field that rendered as undefined) counts; elsewhere, a hit
-// that goes away once the names of feeds, folders and saved searches (`feed.names`, from the bootstrap) are taken
-// out is theirs. Both kinds are notes.
+// Feeds can legitimately say "undefined behaviour" or "NaN-boxing", so a hit is the feed's (a note) when it is in the
+// article HTML, or when it goes away once the feed-supplied strings in `feed.names` are taken out of the text, or of
+// a nearby ancestor's text (a highlighted search term splits a title into several text nodes). A field that
+// rendered as undefined next to them is still Kipple's.
 function literalProbe(feed) {
   const bad = new RegExp(feed.pattern);
-  const alone = /^\s*(undefined|NaN|\[object Object\]|Invalid Date)\s*$/;
-  const hits = [];
-  const add = (el, where, text) => {
-    const inFeed = !!el.closest(feed.text);
-    let own = !inFeed || text.split(/[,·|\n]/).some((part) => alone.test(part));
-    if (own && !inFeed && feed.names.length) own = bad.test(feed.names.reduce((t, n) => t.split(n).join(" "), text));
-    hits.push({ where, text: text.trim().replace(/\s+/g, " ").slice(0, 160), feed: !own });
+  const norm = (t) => t.replace(/\s+/g, " ");
+  const strip = (t) => feed.names.reduce((s, n) => s.split(n).join(" "), norm(t));
+  const fromFeed = (el, text) => {
+    if (el.closest(feed.body)) return true;
+    if (!feed.names.length) return false;
+    if (!bad.test(strip(text))) return true;
+    for (let a = el, i = 0; a && a !== document.body && i < 4; a = a.parentElement, i++) {
+      const t = norm(a.textContent || "");
+      if (feed.names.some((n) => t.includes(n)) && !bad.test(strip(t))) return true;
+    }
+    return false;
   };
+  const hits = [];
+  const add = (el, where, text) => hits.push({ where, text: norm(text).trim().slice(0, 160), feed: fromFeed(el, text) });
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const el = n.parentElement;
@@ -364,7 +385,32 @@ async function settle(page) {
       // Checking a skeleton would pass a screen whose content was never seen.
       throw new Error("still loading after 15 s");
     });
-  await page.waitForTimeout(700);
+  // Then until no same-origin request has been in flight for 300 ms (the event stream never ends, so it is not
+  // counted), for at most 10 s: lazy chunks and the queries a screen fires once it mounts.
+  const inflight = pending.get(page);
+  if (inflight) {
+    let quietSince = Date.now();
+    for (const until = Date.now() + 10000; Date.now() < until; ) {
+      if (inflight.size) quietSince = Date.now();
+      else if (Date.now() - quietSince >= 300) break;
+      await page.waitForTimeout(50);
+    }
+  }
+  await page.waitForTimeout(150);
+}
+
+/** Same-origin requests in flight per page, except the event stream (see settle). */
+const pending = new WeakMap();
+function trackRequests(page) {
+  const set = new Set();
+  pending.set(page, set);
+  const done = (req) => set.delete(req);
+  page.on("request", (req) => {
+    const u = new URL(req.url());
+    if (u.origin === origin && u.pathname !== "/api/events") set.add(req);
+  });
+  page.on("requestfinished", done);
+  page.on("requestfailed", done);
 }
 
 // ---- the run ----
@@ -394,11 +440,14 @@ async function selfTest() {
   await page.setContent(
     `<main><p>Count: NaN</p><p>Updated NaNm ago</p><p>Invalid Date</p><button aria-label="[object Object]">x</button>` +
       `<label>Night starts <input value="undefined"></label><div id="wide" style="width:600px">wide</div>` +
-      `<article aria-labelledby="article-title"><h1 id="article-title">NaN-boxing explained</h1><p>Tue · NaN min read</p>` +
-      `<div class="article-body"><p>undefined behaviour is fine in an article</p></div></article>` +
+      `<div id="reader" style="overflow-y:auto;height:120px"><article aria-labelledby="article-title">` +
+      `<h1 id="article-title">NaN-boxing explained</h1><p>Tue · NaN min read</p><div class="article-body">` +
+      `<p>undefined behaviour is fine in an article</p><p><code>NaN</code></p><div style="width:800px">a wide embed</div></div>` +
+      `</article></div>` +
       `<div class="article-body"><p>Preview: NaN</p></div>` +
       `<div data-item-id="1"><h3><a href="#x" aria-label="Unread, undefined, Some feed">Some title</a></h3>` +
       `<p>An excerpt about NaN-boxing</p><time>NaNm</time></div>` +
+      `<p>The <mark>NaN</mark> trick</p>` +
       `<div style="display:none"><span>NaN hidden</span></div>` +
       `<div id="pane" style="overflow-y:auto;height:100px"><div style="width:700px">too wide for its pane</div></div>` +
       `<div style="overflow-y:auto;height:40px"><div id="fixed" style="position:fixed;left:0;bottom:0;width:500px">fixed bar</div></div>` +
@@ -407,7 +456,7 @@ async function selfTest() {
       `<p>Size NaNkB</p><label>Theme <select><option>Paper</option><option selected>undefined</option></select></label>` +
       `<nav><a href="#y">NaN Tech</a><button aria-label="Edit NaN Tech">e</button></nav></main>`,
   );
-  const probeFeed = { ...FEED, names: ["NaN Tech"] };
+  const probeFeed = { ...FEED, names: ["NaN Tech", "NaN-boxing explained", "An excerpt about NaN-boxing", "The NaN trick"] };
   const o = await page.evaluate(overflowProbe, probeFeed);
   const lit = await page.evaluate(literalProbe, probeFeed);
   const axeIds = (await runAxe(page)).map((v) => v.id);
@@ -420,15 +469,51 @@ async function selfTest() {
     "Count: NaN", "Updated NaNm ago", "Invalid Date", "[object Object]", "undefined", "Tue · NaN min read", "Preview: NaN",
     "Unread, undefined, Some feed", "NaNm", "Size NaNkB", "undefined",
   ];
-  const wantFeed = ["NaN-boxing explained", "undefined behaviour is fine in an article", "An excerpt about NaN-boxing", "NaN Tech", "Edit NaN Tech"];
+  const wantFeed = [
+    "NaN-boxing explained", "undefined behaviour is fine in an article", "NaN", "An excerpt about NaN-boxing", "NaN",
+    "NaN Tech", "Edit NaN Tech",
+  ];
   if (!(o.scrollWidth > o.vw)) problems.push("S4 did not see the page scroll sideways");
   if (!same(o.offenders.map((x) => x.desc.split(" ")[0]), ["div#wide", "div#fixed"])) problems.push(`S4 offenders ${JSON.stringify(o.offenders)}`);
-  if (!same(o.scrollers.map((x) => x.desc.split(" ")[0]), ["div#pane"])) problems.push(`S4 scrollers ${JSON.stringify(o.scrollers)}`);
+  if (!same(o.scrollers.map((x) => `${x.desc.split(" ")[0]}:${x.feed}`), ["div#pane:false", "div#reader:true"])) problems.push(`S4 scrollers ${JSON.stringify(o.scrollers)}`);
   if (!same(own, wantOwn)) problems.push(`S5 hits ${JSON.stringify(own)}`);
   if (!same(feed, wantFeed)) problems.push(`S5 feed notes ${JSON.stringify(feed)}`);
   // The fixture has no <title> and no lang: two violations axe always reports.
   if (!axeIds.includes("document-title") || !axeIds.includes("html-has-lang")) problems.push(`S3 missed a known violation (${axeIds.join(", ")})`);
   if (problems.length) throw new Error(`self-test failed: ${problems.join("; ")}`);
+}
+
+// Feed-supplied strings that contain an S5 literal (see FEED.names): names from the bootstrap, and the titles,
+// excerpts, authors and sources of every item in All plus the snippets of the search the run makes, as the API
+// returns them. Paged to at most MAX_ITEMS items per list, which covers a seeded instance many times over.
+async function collectFeedText(request) {
+  const MAX_ITEMS = 5000;
+  const headers = { Accept: "application/json", "X-Kipple-Client": "web" };
+  const get = async (path) => {
+    const r = await request.get(origin + path, { headers });
+    if (!r.ok()) throw new Error(`GET ${path.split("?")[0]} answered ${r.status()}`);
+    return r.json();
+  };
+  const b = await get("/api/bootstrap");
+  const out = [...(b.feeds ?? []).map((f) => f.title), ...(b.folders ?? []).map((f) => f.name ?? f.title), ...(b.saved_searches ?? []).map((s) => s.name)];
+  const decode = (h) =>
+    h.replace(/<[^>]*>/g, "").replace(/&(amp|lt|gt|quot|#39|#34);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#34": '"' })[e]);
+  for (const list of [{ view: "all" }, { view: "all", q: SEARCH_Q }]) {
+    let cursor = "";
+    for (let seen = 0; seen < MAX_ITEMS; ) {
+      const qs = new URLSearchParams({ ...list, limit: "100", ...(cursor ? { cursor } : {}) });
+      const page = await get(`/api/items?${qs}`);
+      for (const it of page.items ?? []) {
+        out.push(it.title, it.excerpt, it.author, it.source, it.origin_title, it.feed_title);
+        if (typeof it.snippet === "string") out.push(decode(it.snippet));
+      }
+      seen += page.items?.length ?? 0;
+      if (!page.next_cursor || !page.items?.length) break;
+      cursor = page.next_cursor;
+    }
+  }
+  const bad = new RegExp(FEED.pattern);
+  return [...new Set(out.filter((s) => typeof s === "string" && bad.test(s)).map((s) => s.replace(/\s+/g, " ").trim()))];
 }
 
 function loadDevice() {
@@ -460,12 +545,7 @@ async function signIn() {
       const alert = await page.getByRole("alert").first().textContent().catch(() => null);
       throw new Error(`sign-in failed${alert ? `: ${alert}` : ""}`);
     });
-    // Names users give or feeds bring that may contain an S5 literal (see literalProbe).
-    const boot = await page.request.get(origin + "/api/bootstrap", { headers: { Accept: "application/json", "X-Kipple-Client": "web" } });
-    if (!boot.ok()) throw new Error(`GET /api/bootstrap answered ${boot.status()}`);
-    const b = await boot.json();
-    const names = [...(b.feeds ?? []).map((f) => f.title), ...(b.folders ?? []).map((f) => f.name ?? f.title), ...(b.saved_searches ?? []).map((s) => s.name)];
-    FEED.names = [...new Set(names.filter((n) => typeof n === "string" && new RegExp(FEED.pattern).test(n)))];
+    FEED.names = await collectFeedText(page.request);
 
     const cookies = (await ctx.storageState()).cookies;
     if (!cookies.some((c) => c.name === "kipple_session")) throw new Error("signed in, but no kipple_session cookie");
@@ -497,7 +577,11 @@ async function checkScreens(cookies) {
           // Keep the run self-contained: no service worker answering from its cache between screens.
           serviceWorkers: "block",
         });
+        // axe-core in every document, over the DevTools protocol like page.evaluate (so Kipple's CSP does not block
+        // it, and stays on for S1), once per browser instead of once per screen.
+        await context.addInitScript({ content: AXE_SOURCE });
         const page = await context.newPage();
+        trackRequests(page);
         await checkCombo(page, theme, vp, ctxInfo, results);
       } catch (e) {
         broken(combo, `could not open a browser at ${vp.id}/${theme.id}: ${e.message.split("\n")[0]}`);
@@ -577,7 +661,6 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       continue;
     }
     try {
-      bucket.console.length = bucket.api.length = bucket.other.length = 0;
       current = screen.id;
       await page.goto(path);
       await settle(page);
@@ -595,12 +678,15 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       if (vp.id !== "desktop") {
         const o = await page.evaluate(overflowProbe, FEED);
         if (o.scrollWidth > o.vw + 1) s4.push({ rule: "page-scroll-x", message: `page scrolls sideways: scrollWidth ${o.scrollWidth} > ${o.vw}` });
-        for (const s of o.scrollers) s4.push({ rule: "scroller-x", message: `${s.desc} scrolls sideways (${s.scrollWidth} > ${s.clientWidth})` });
+        for (const s of o.scrollers) {
+          const message = `${s.desc} scrolls sideways (${s.scrollWidth} > ${s.clientWidth})`;
+          s4.push({ rule: "scroller-x", message: s.feed ? `${message}, pushed wide by the article HTML only` : message, feed: s.feed });
+        }
         for (const off of o.offenders) s4.push({ rule: "past-right-edge", message: `${off.desc} ends at ${off.right}px (viewport ${o.vw}px)` });
       }
       const s5 = await page.evaluate(literalProbe, FEED);
       const axe = await runAxe(page);
-      await page.waitForTimeout(200); // late console errors from the last render
+      await page.waitForTimeout(100); // late console errors from the last render
       current = null;
 
       flush(where);
@@ -610,7 +696,10 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         if (own.length) report("S3", where, v.id, `${v.id} (${v.impact}): ${v.help}`, own);
         if (feed.length) note("S3", where, `${v.id} in the feed's article HTML: ${v.help}`, feed);
       }
-      for (const s of s4) report("S4", where, s.rule, s.message);
+      for (const s of s4) {
+        if (s.feed) note("S4", where, s.message);
+        else report("S4", where, s.rule, s.message);
+      }
       for (const h of s5) {
         if (h.feed) note("S5", where, `feed text ${h.where}: "${h.text}"`);
         else report("S5", where, "literal", `${h.where}: "${h.text}"`);
@@ -620,8 +709,12 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       row.checks = Object.fromEntries(["S1", "S2", "S3", "S4", "S5"].map((c) => [c, mine.filter((f) => f.check === c).length]));
       row.ok = mine.length === 0;
       if (!row.ok || opt.screenshots) {
-        row.screenshot = `${screen.id}-${theme.id}-${vp.id}.png`;
-        await page.screenshot({ path: join(outDir, row.screenshot), fullPage: true });
+        // The screen is checked by now: a screenshot that fails (a page too tall to capture, a full disk) is a note.
+        const file = `${screen.id}-${theme.id}-${vp.id}.png`;
+        await page
+          .screenshot({ path: join(outDir, file), fullPage: true })
+          .then(() => (row.screenshot = file))
+          .catch((e) => note("run", where, `no screenshot: ${e.message.split("\n")[0]}`));
       }
       console.log(row.ok ? "ok" : Object.entries(row.checks).filter(([, n]) => n).map(([c, n]) => `${c}x${n}`).join(" "));
     } catch (e) {
@@ -646,7 +739,13 @@ function contrastCheck() {
 }
 
 function writeReport(results, s6) {
-  for (const [i, w] of waivers.entries()) if (!used.has(i)) note("waivers", {}, `unused waiver: ${JSON.stringify(w)}`);
+  // Unused only means something for a waiver whose screen ran (and, for S1 to S5 waivers with no screen, only on a
+  // full run): with --only, the rest simply were not exercised.
+  for (const [i, w] of waivers.entries()) {
+    if (used.has(i)) continue;
+    const exercised = w.screen ? screens.some((s) => s.id === w.screen) : w.check === "S6" || !only;
+    if (exercised) note("waivers", {}, `unused waiver: ${JSON.stringify(w)}`);
+  }
   const fails = findings.filter((f) => f.severity === "fail");
   const summary = Object.fromEntries(
     ["S1", "S2", "S3", "S4", "S5", "S6", "run"].map((c) => [
