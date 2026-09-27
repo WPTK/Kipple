@@ -23,8 +23,8 @@
 // in uat/results/.device-<host>-<port>.json, so repeated runs reuse it rather than filling the server's device
 // table), so the owner's own devices are never touched. The run still changes the instance: it switches that
 // device's list layout and opens an article (which marks it read and records reading stats). So it only runs against
-// a loopback address unless --allow-remote is given: point it at a throwaway or copied instance, never at the one
-// you read on.
+// a loopback address with the seed's credentials unless --allow-remote is given: point it at a throwaway or copied
+// instance, never at the one you read on.
 //
 // Options (environment variable in brackets):
 //   --url <base>        Kipple to test [KIPPLE_UAT_URL], default http://127.0.0.1:7080
@@ -34,7 +34,7 @@
 //   --only <ids>        comma-separated screen ids to run (see SCREENS below)
 //   --screenshots       save a full-page screenshot of every screen (failing screens are always saved)
 //   --headed            show the browser
-//   --allow-remote      allow a non-loopback --url
+//   --allow-remote      allow a non-loopback --url or credentials other than the seed's
 //   --help              this text
 //
 // First time on a machine: `npx playwright install chromium`. See docs/uat-plan.md, Suite 1.
@@ -93,10 +93,13 @@ if (opt.help) {
 
 const base = orSetupError(`bad --url ${opt.url}`, () => new URL(opt.url));
 const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
-if (!LOOPBACK.has(base.hostname) && !opt["allow-remote"]) {
+// A loopback address alone does not prove a throwaway instance (a port forward can put the real one there), so other
+// credentials than the seed's need the flag too: the seed's only work on a seeded instance.
+const seedCredentials = opt.user === "dev" && opt.password === "dev-password-only-for-local-testing";
+if ((!LOOPBACK.has(base.hostname) || !seedCredentials) && !opt["allow-remote"]) {
   setupError(
-    `refusing to run against ${base.origin}: the run marks articles read and adds devices.\n` +
-      "Use a throwaway local instance (npm run seed), or pass --allow-remote if you really mean it.",
+    `refusing to run against ${base.origin}${seedCredentials ? "" : ` as ${opt.user}`}: the run marks articles read and changes a device's layout.\n` +
+      "Use the seeded throwaway instance (npm run seed) with its default account, or pass --allow-remote for a copied instance.",
   );
 }
 const origin = base.origin;

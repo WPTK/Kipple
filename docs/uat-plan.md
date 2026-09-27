@@ -98,7 +98,9 @@ Every theme and width is a fresh browser sharing one session and one device of t
 `web/uat/results/.device-<host>-<port>.json`, so later runs reuse it instead of filling the server's device table), so
 existing devices' settings are never touched. The run still changes the instance: it switches that device's layout
 and opens an article (marking it read and recording reading stats). So it refuses any address that is not loopback
-unless `--allow-remote` is given: run it against a seeded or copied instance, never the one the owner reads on.
+or credentials other than the seed's (a port forward can put the real instance on loopback) unless `--allow-remote`
+is given: run it against a seeded or copied instance, never the one the owner reads on. The remembered device only
+matters with `npm run seed -- --keep` or a copied database; a fresh seed starts without it.
 
 Output: a line per screen, then `web/uat/results/<timestamp>/report.md` (findings grouped by check and rule, with the
 screens and elements each one was seen on), `report.json` (everything) and a screenshot of each failing screen. Exit
