@@ -30,6 +30,7 @@ const DEFAULTS: Record<string, unknown> = {
   "ui.theme": "system",
   "ui.theme_day": "paper",
   "ui.theme_night": "midnight",
+  "ui.theme_schedule": false,
   "ui.theme_night_start": "21:00",
   "ui.theme_day_start": "07:00",
   "ui.font_body": "",
@@ -118,15 +119,17 @@ describe("mapping between the local stores and the profile", () => {
     expect(deriveLocal({ ...DEFAULTS, "ui.theme": "brand-new" }, { ...local(), theme: { ...DEFAULT_THEME_SETTINGS } }).theme).toEqual(DEFAULT_THEME_SETTINGS);
   });
 
-  it("uses ui.theme:schedule plus the two start times for the schedule", () => {
-    updateTheme({ mode: "schedule", nightStart: "22:30", dayStart: "06:15" });
-    expect(profileOf(local())).toMatchObject({ "ui.theme": "schedule", "ui.theme_night_start": "22:30", "ui.theme_day_start": "06:15" });
+  it("uses ui.theme:system plus ui.theme_schedule and the two start times for the schedule", () => {
+    updateTheme({ mode: "follow", schedule: true, nightStart: "22:30", dayStart: "06:15" });
+    expect(profileOf(local())).toMatchObject({ "ui.theme": "system", "ui.theme_schedule": true, "ui.theme_night_start": "22:30", "ui.theme_day_start": "06:15" });
     themeStore.set({ ...DEFAULT_THEME_SETTINGS });
-    const back = deriveLocal({ ...DEFAULTS, "ui.theme": "schedule", "ui.theme_night_start": "20:00", "ui.theme_day_start": "05:30" }, local());
-    expect(back.theme).toMatchObject({ mode: "schedule", nightStart: "20:00", dayStart: "05:30", day: "paper", night: "midnight" });
+    const back = deriveLocal({ ...DEFAULTS, "ui.theme_schedule": true, "ui.theme_night_start": "20:00", "ui.theme_day_start": "05:30" }, local());
+    expect(back.theme).toMatchObject({ mode: "follow", schedule: true, nightStart: "20:00", dayStart: "05:30", day: "paper", night: "midnight" });
     // A time this build cannot read keeps the local one.
-    const odd = deriveLocal({ ...DEFAULTS, "ui.theme_night_start": "9pm", "ui.theme_day_start": null }, local());
-    expect(odd.theme).toMatchObject({ nightStart: "21:00", dayStart: "07:00" });
+    const odd = deriveLocal({ ...DEFAULTS, "ui.theme_schedule": "yes", "ui.theme_night_start": "9pm", "ui.theme_day_start": null }, local());
+    expect(odd.theme).toMatchObject({ schedule: false, nightStart: "21:00", dayStart: "07:00" });
+    // A fixed theme keeps the schedule flag for when the pair is chosen again.
+    expect(deriveLocal({ ...DEFAULTS, "ui.theme": "graphite", "ui.theme_schedule": true }, local()).theme).toMatchObject({ mode: "fixed", schedule: true });
   });
 
   it("maps the reading density names and the font names", () => {
@@ -295,11 +298,11 @@ describe("saving", () => {
     expect(s.patches[1]).toEqual({ "ui.theme": "tracing" });
   });
 
-  it("sends a schedule as ui.theme:schedule and only the times that changed", async () => {
+  it("sends the schedule as ui.theme_schedule and only the times that changed", async () => {
     const s = await ready();
-    updateTheme({ mode: "schedule" });
+    updateTheme({ mode: "follow", schedule: true });
     await vi.advanceTimersByTimeAsync(600);
-    expect(s.patches).toEqual([{ "ui.theme": "schedule" }]);
+    expect(s.patches).toEqual([{ "ui.theme_schedule": true }]);
     updateTheme({ nightStart: "22:00" });
     await vi.advanceTimersByTimeAsync(600);
     expect(s.patches[1]).toEqual({ "ui.theme_night_start": "22:00" });
@@ -483,24 +486,23 @@ describe("another tab or device changed a different key (review finding 1)", () 
 
   it("a cache written by a tab on an older build (no schedule times) does not reset this tab's times", async () => {
     const s = await ready();
-    updateTheme({ mode: "schedule", nightStart: "22:00", dayStart: "06:30" });
+    updateTheme({ mode: "follow", schedule: true, nightStart: "22:00", dayStart: "06:30" });
     await vi.advanceTimersByTimeAsync(600);
     const old = { mode: "fixed", fixed: "graphite", day: "paper", night: "midnight" };
     window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify(old) }));
     expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "graphite", nightStart: "22:00", dayStart: "06:30" });
-    // That build reads "schedule" as follow-system and writes it back: this tab keeps its schedule.
-    updateTheme({ mode: "schedule" });
+    // That build reads the schedule as follow-system; its whole-object write has no schedule fields: kept here.
+    updateTheme({ mode: "follow", schedule: true });
     await vi.advanceTimersByTimeAsync(600);
+    const before = s.patches.length;
     const echo = { mode: "follow", fixed: "graphite", day: "paper", night: "midnight" };
     window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify(echo) }));
-    expect(themeStore.get()).toMatchObject({ mode: "schedule", nightStart: "22:00" });
-    // ...and sends it again, since the older build sent ui.theme "system" for this device.
-    const before = s.patches.length;
+    expect(themeStore.get()).toMatchObject({ mode: "follow", schedule: true, nightStart: "22:00" });
     await vi.advanceTimersByTimeAsync(600);
-    expect(s.patches.slice(before)).toEqual([{ "ui.theme": "schedule" }]);
-    // A build that knows the schedule (its cache says so) leaving it is followed.
-    window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify({ ...themeStore.get(), mode: "follow", v: 2 }) }));
-    expect(themeStore.get().mode).toBe("follow");
+    expect(s.patches.slice(before)).toEqual([]);
+    // A build that knows the schedule turning it off is followed.
+    window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify({ ...themeStore.get(), schedule: false }) }));
+    expect(themeStore.get().schedule).toBe(false);
     await vi.advanceTimersByTimeAsync(600);
     for (const p of s.patches) {
       expect(p).not.toHaveProperty("ui.theme_night_start", "21:00");

@@ -18,6 +18,7 @@ import {
 import { useStore } from "@/lib/store";
 import { useAllowedSchemes } from "@/theme/serverThemes";
 import { themeStore, updateTheme } from "@/theme/theme";
+import { choosePair, themeChoice } from "@/theme/settings";
 import { Segmented } from "@/ui/segmented";
 import { Disclosure, Switch, inputCls } from "@/ui/kit";
 import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
@@ -80,7 +81,8 @@ export function ThemeSelect() {
   const id = useId();
   const schemes = useAllowedSchemes();
   const meta = useMeta("ui.theme", "Theme");
-  const value = t.mode === "follow" ? "__follow" : t.mode === "schedule" ? "__schedule" : t.fixed;
+  const choice = themeChoice(t);
+  const value = choice === "fixed" ? t.fixed : `__${choice}`;
   const groups = [
     ["light", "Light"],
     ["color", "Color"],
@@ -97,7 +99,7 @@ export function ThemeSelect() {
         value={value}
         onChange={(e) => {
           const v = e.target.value;
-          updateTheme(v === "__follow" ? { mode: "follow" } : v === "__schedule" ? { mode: "schedule" } : { mode: "fixed", fixed: v });
+          updateTheme(v === "__follow" ? choosePair("follow") : v === "__schedule" ? choosePair("schedule") : { mode: "fixed", fixed: v });
         }}
         className={inputCls}
       >

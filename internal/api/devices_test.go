@@ -178,7 +178,8 @@ func TestPatchDeviceValidation(t *testing.T) {
 		{"unknown client key", `{"client.nope":1}`, "client.nope"},
 		{"bad theme", `{"ui.theme":"neon"}`, "ui.theme"},
 		{"day theme system", `{"ui.theme_day":"system"}`, "ui.theme_day"},
-		{"night theme schedule", `{"ui.theme_night":"schedule"}`, "ui.theme_night"},
+		{"theme schedule is a flag", `{"ui.theme":"schedule"}`, "ui.theme"},
+		{"schedule flag type", `{"ui.theme_schedule":"yes"}`, "ui.theme_schedule"},
 		{"night start 24h", `{"ui.theme_night_start":"24:00"}`, "ui.theme_night_start"},
 		{"day start no pad", `{"ui.theme_day_start":"7:00"}`, "ui.theme_day_start"},
 		{"day start type", `{"ui.theme_day_start":700}`, "ui.theme_day_start"},
@@ -219,7 +220,7 @@ func TestPatchDeviceValidation(t *testing.T) {
 func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	h := newHarness(t)
 	d := h.newDev()
-	body := `{"ui.theme":"schedule","ui.theme_day":"linen","ui.theme_night":"carbon","ui.theme_night_start":"22:30","ui.theme_day_start":"06:15","ui.font_body":"Atkinson Hyperlegible Next",
+	body := `{"ui.theme":"system","ui.theme_schedule":true,"ui.theme_day":"linen","ui.theme_night":"carbon","ui.theme_night_start":"22:30","ui.theme_day_start":"06:15","ui.font_body":"Atkinson Hyperlegible Next",
 	 "ui.font_ui":"Inter","ui.font_size":19,"ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
 	 "ui.layouts":{"all":"cards"},
 	 "client.layout":"headlines","client.layout_overrides":{"feed":{"12":"inbox"},"folder":{"3":"compact"}},
@@ -232,7 +233,8 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, out)
 	m := out["merged"].(map[string]any)
 	require.Equal(t, "relevance", m["client.search_order"])
-	require.Equal(t, "schedule", m["ui.theme"])
+	require.Equal(t, "system", m["ui.theme"])
+	require.Equal(t, true, m["ui.theme_schedule"])
 	require.Equal(t, "22:30", m["ui.theme_night_start"])
 	require.Equal(t, "06:15", m["ui.theme_day_start"])
 	require.Equal(t, "headlines", m["client.layout"])
@@ -435,7 +437,7 @@ func TestSettingsMetadataScope(t *testing.T) {
 		m := x.(map[string]any)
 		by[m["key"].(string)] = m["scope"].(string)
 	}
-	for _, k := range []string{"ui.theme", "ui.theme_day", "ui.theme_night", "ui.theme_night_start", "ui.theme_day_start", "ui.font_body", "ui.font_ui", "ui.font_size",
+	for _, k := range []string{"ui.theme", "ui.theme_day", "ui.theme_night", "ui.theme_schedule", "ui.theme_night_start", "ui.theme_day_start", "ui.font_body", "ui.font_ui", "ui.font_size",
 		"ui.reading_density", "ui.list_density", "ui.mark_read_on_scroll", "ui.layouts"} {
 		require.Equal(t, "device", by[k], k)
 	}

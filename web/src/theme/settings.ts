@@ -1,24 +1,44 @@
 import { DEFAULT_DAY, DEFAULT_NIGHT, isSchemeId } from "./schemes.ts";
 
 /**
- * How the theme is chosen on this device. "follow" uses the OS light/dark preference, "schedule" switches
- * between the same day and night picks at two fixed times of day (the device's local clock), "fixed" is one scheme.
+ * Per-device appearance choice. `mode: "follow"` shows the day or night pick: by the OS light/dark preference, or,
+ * with `schedule` on, by two fixed times of day on the device's local clock. `mode: "fixed"` is one scheme.
+ *
+ * The schedule is a flag under follow rather than a third mode so a build that predates it passes it through: such a
+ * build reads the choice as follow-system and never writes the flag (a missing field keeps its value, see
+ * themeSettingsFrom), and the server holds it as its own key (`ui.theme_schedule`) next to `ui.theme: "system"`.
  */
-export type ThemeMode = "follow" | "fixed" | "schedule";
-
-/** Per-device appearance choice. */
 export interface ThemeSettings {
-  mode: ThemeMode;
+  mode: "follow" | "fixed";
   /** Used when mode is "fixed". */
   fixed: string;
   /** Day theme for follow-system and the schedule. Any scheme may be chosen. */
   day: string;
   /** Night theme for follow-system and the schedule. Any scheme may be chosen. */
   night: string;
+  /** With mode "follow": switch at nightStart and dayStart instead of following the OS. */
+  schedule: boolean;
   /** Schedule: local time ("HH:MM", 24-hour) the night theme starts. */
   nightStart: string;
   /** Schedule: local time ("HH:MM", 24-hour) the day theme starts again. */
   dayStart: string;
+}
+
+/** The three choices the pickers offer. */
+export type ThemeChoice = "follow" | "schedule" | "fixed";
+
+export function themeChoice(s: ThemeSettings): ThemeChoice {
+  return s.mode === "fixed" ? "fixed" : s.schedule ? "schedule" : "follow";
+}
+
+/** The settings change for picking Follow system or On a schedule (the day and night picks and the times are kept). */
+export function choosePair(choice: "follow" | "schedule"): Partial<ThemeSettings> {
+  return { mode: "follow", schedule: choice === "schedule" };
+}
+
+/** Whether the scheduled switch is in force. */
+export function onSchedule(s: ThemeSettings): boolean {
+  return themeChoice(s) === "schedule";
 }
 
 export const THEME_STORAGE_KEY = "kipple.theme.v1";
@@ -31,6 +51,7 @@ export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   fixed: DEFAULT_DAY,
   day: DEFAULT_DAY,
   night: DEFAULT_NIGHT,
+  schedule: false,
   nightStart: DEFAULT_NIGHT_START,
   dayStart: DEFAULT_DAY_START,
 };
@@ -80,23 +101,29 @@ export function isNightAt(nightStart: string, dayStart: string, minutes: number)
  */
 export function resolveTheme(s: ThemeSettings, prefersDark: boolean, minutes: number): string {
   if (s.mode === "fixed") return s.fixed;
-  if (s.mode === "schedule") return isNightAt(s.nightStart, s.dayStart, minutes) ? s.night : s.day;
-  return prefersDark ? s.night : s.day;
+  const night = s.schedule ? isNightAt(s.nightStart, s.dayStart, minutes) : prefersDark;
+  return night ? s.night : s.day;
 }
 
 /**
  * Milliseconds from `now` to the schedule's next switch (the next nightStart or dayStart on the local clock), at
- * least 1. Built with setHours so a daylight-saving change on the way is counted in wall-clock time.
+ * least 1. Built with setHours so a daylight-saving change on the way is counted in wall-clock time. A time the clock
+ * skips (02:30 on a spring-forward night) switches when the clock first passes it, at the end of the gap: setHours
+ * lands after the gap (03:30), so the target is moved back to the start of that hour (03:00).
  */
 export function msUntilNextSwitch(s: Pick<ThemeSettings, "nightStart" | "dayStart">, now: Date): number {
   let best = Infinity;
   for (const t of [s.nightStart, s.dayStart]) {
     const m = clockMinutes(t);
     const at = new Date(now.getTime());
-    at.setHours(Math.floor(m / 60), m % 60, 0, 0);
+    const place = () => {
+      at.setHours(Math.floor(m / 60), m % 60, 0, 0);
+      if (minutesOfDay(at) !== m) at.setMinutes(0, 0, 0);
+    };
+    place();
     if (at.getTime() <= now.getTime()) {
       at.setDate(at.getDate() + 1);
-      at.setHours(Math.floor(m / 60), m % 60, 0, 0);
+      place();
     }
     best = Math.min(best, at.getTime() - now.getTime());
   }
@@ -104,48 +131,33 @@ export function msUntilNextSwitch(s: Pick<ThemeSettings, "nightStart" | "dayStar
 }
 
 /**
- * The format of the theme cache. Version 2 added the schedule (the mode "schedule" and its two times); a cache
- * without `v` was written by an older build, which cannot hold the schedule and reads it as follow-system.
- */
-export const THEME_CACHE_VERSION = 2;
-
-/** The cache format version of a parsed theme cache (1 for one written before the field existed). */
-export function themeCacheVersion(v: unknown): number {
-  const n = typeof v === "object" && v !== null ? (v as { v?: unknown }).v : undefined;
-  return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : 1;
-}
-
-/**
  * The choice held by a parsed cache, with anything missing or unreadable taken from `base` (the defaults, or for a
  * cache another tab just wrote, this tab's current choice: a tab still on an older build writes the cache without
- * the schedule's times, and they must not be reset by that).
+ * the schedule's fields, and they must not be reset by that).
  */
 export function themeSettingsFrom(raw: unknown, base: ThemeSettings = DEFAULT_THEME_SETTINGS): ThemeSettings {
-  const v = (typeof raw === "object" && raw !== null ? raw : {}) as Partial<ThemeSettings>;
+  const v = (typeof raw === "object" && raw !== null ? raw : {}) as Partial<Record<keyof ThemeSettings, unknown>>;
   const d = base;
   return {
-    mode: v.mode === "fixed" || v.mode === "schedule" || v.mode === "follow" ? v.mode : d.mode,
+    mode: v.mode === "fixed" || v.mode === "follow" ? v.mode : d.mode,
     fixed: isSchemeId(v.fixed) ? v.fixed : d.fixed,
     day: isSchemeId(v.day) ? v.day : d.day,
     night: isSchemeId(v.night) ? v.night : d.night,
+    schedule: typeof v.schedule === "boolean" ? v.schedule : d.schedule,
     nightStart: isClockTime(v.nightStart) ? v.nightStart : d.nightStart,
     dayStart: isClockTime(v.dayStart) ? v.dayStart : d.dayStart,
   };
 }
 
-/** JSON text, or undefined when it is missing or not JSON. */
-export function parseJson(raw: string | null): unknown {
-  if (!raw) return undefined;
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
 /** The stored choice (see themeSettingsFrom), from the cache's JSON text. */
 export function parseThemeSettings(raw: string | null, base: ThemeSettings = DEFAULT_THEME_SETTINGS): ThemeSettings {
-  return themeSettingsFrom(parseJson(raw), base);
+  let v: unknown;
+  try {
+    v = raw ? (JSON.parse(raw) as unknown) : undefined;
+  } catch {
+    v = undefined;
+  }
+  return themeSettingsFrom(v, base);
 }
 
 export function loadThemeSettings(): ThemeSettings {
@@ -158,7 +170,7 @@ export function loadThemeSettings(): ThemeSettings {
 
 export function saveThemeSettings(s: ThemeSettings): void {
   try {
-    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ ...s, v: THEME_CACHE_VERSION }));
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(s));
   } catch {
     /* private mode or blocked storage: the choice just won't persist */
   }

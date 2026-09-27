@@ -128,8 +128,8 @@ func TestThemeOptionsAndAliases(t *testing.T) {
 	for _, o := range theme.Options {
 		got = append(got, o.Value.(string))
 	}
-	require.Len(t, got, len(Schemes)+2)
-	require.Equal(t, []string{"system", "schedule"}, got[len(got)-2:])
+	require.Len(t, got, len(Schemes)+1)
+	require.Equal(t, "system", got[len(got)-1])
 	require.Contains(t, theme.Description, "battery")
 	for old, want := range store.ThemeAliases {
 		v, msg := theme.check(old)
@@ -141,15 +141,17 @@ func TestThemeOptionsAndAliases(t *testing.T) {
 	day := settingDefByKey["ui.theme_day"]
 	_, msg = day.check("system")
 	require.NotEmpty(t, msg, "the day theme is always a scheme")
-	_, msg = day.check("schedule")
-	require.NotEmpty(t, msg, "the day theme is always a scheme")
-	v, msg := theme.check("schedule")
-	require.Empty(t, msg)
-	require.Equal(t, "schedule", v)
+	// The schedule is its own flag (ui.theme_schedule) next to "system", which older clients pass through.
+	_, msg = theme.check("schedule")
+	require.NotEmpty(t, msg)
 }
 
-// The schedule times are 24-hour HH:MM, 00:00 to 23:59, and nothing else.
+// The schedule is a hidden bool, and its times are 24-hour HH:MM, 00:00 to 23:59, and nothing else.
 func TestThemeScheduleTimes(t *testing.T) {
+	sched := settingDefByKey["ui.theme_schedule"]
+	require.Equal(t, "hidden", sched.Surface)
+	require.Equal(t, "bool", sched.Kind)
+	require.Equal(t, false, store.DefaultSettings["ui.theme_schedule"])
 	for _, k := range []string{"ui.theme_night_start", "ui.theme_day_start"} {
 		d := settingDefByKey[k]
 		require.Equal(t, "hidden", d.Surface, k)

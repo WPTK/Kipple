@@ -5,7 +5,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/cn";
 import { DEFAULT_DAY, DEFAULT_NIGHT, schemeById, type Scheme } from "./schemes";
 import { useAllowedSchemes } from "./serverThemes";
-import { clockMinutes, toClockTime } from "./settings";
+import { choosePair, clockMinutes, themeChoice, toClockTime } from "./settings";
 import { themeStore, updateTheme } from "./theme";
 
 const GROUP_LABEL: Record<Scheme["group"], string> = {
@@ -164,8 +164,11 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
         required
         value={draft}
         onKeyDown={(e) => {
-          if (e.key === "Enter") flush();
-          else if (e.key !== "Tab") typing.current = true;
+          if (e.key === "Enter") {
+            // A committed typed time: a later pick from the browser's picker in this visit saves at once again.
+            flush();
+            typing.current = false;
+          } else if (e.key !== "Tab") typing.current = true;
         }}
         onChange={(e) => {
           setDraft(e.target.value);
@@ -215,6 +218,7 @@ export function ThemePicker() {
   const pick = (id: string) => updateTheme({ mode: "fixed", fixed: id });
   const dayName = schemeById(t.day).name;
   const nightName = schemeById(t.night).name;
+  const choice = themeChoice(stored);
   // Equal times never switch: the card shows the day theme all day, and the note under the fields says why.
   const sameTimes = t.nightStart === t.dayStart;
 
@@ -228,16 +232,16 @@ export function ThemePicker() {
           detail={`${dayName} by day, ${nightName} by night`}
           day={t.day}
           night={t.night}
-          checked={t.mode === "follow"}
-          onSelect={() => updateTheme({ mode: "follow" })}
+          checked={choice === "follow"}
+          onSelect={() => updateTheme(choosePair("follow"))}
         />
         <PairOption
           title="On a schedule"
           detail={sameTimes ? `${dayName} all day` : `${nightName} from ${formatClock(t.nightStart)} to ${formatClock(t.dayStart)}`}
           day={t.day}
           night={t.night}
-          checked={t.mode === "schedule"}
-          onSelect={() => updateTheme({ mode: "schedule" })}
+          checked={choice === "schedule"}
+          onSelect={() => updateTheme(choosePair("schedule"))}
         />
         {featured.map((s) => (
           <Option key={s.id} s={s} checked={t.mode === "fixed" && t.fixed === s.id} onSelect={() => pick(s.id)} />
@@ -248,7 +252,7 @@ export function ThemePicker() {
         <div className="mt-3 grid grid-cols-2 gap-3">
           <SchemeSelect label="Day theme" value={t.day} onChange={(id) => updateTheme({ day: id })} schemes={schemes} />
           <SchemeSelect label="Night theme" value={t.night} onChange={(id) => updateTheme({ night: id })} schemes={schemes} />
-          {t.mode === "schedule" ? (
+          {choice === "schedule" ? (
             <>
               <TimeField label="Day starts" value={t.dayStart} onChange={(dayStart) => updateTheme({ dayStart })} />
               <TimeField label="Night starts" value={t.nightStart} onChange={(nightStart) => updateTheme({ nightStart })} />

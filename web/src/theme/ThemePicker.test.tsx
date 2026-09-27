@@ -57,7 +57,7 @@ describe("ThemePicker schedule", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, day: "linen", night: "carbon" });
     render(<ThemePicker />);
     fireEvent.click(radio(/On a schedule/));
-    expect(themeStore.get()).toMatchObject({ mode: "schedule", day: "linen", night: "carbon" });
+    expect(themeStore.get()).toMatchObject({ mode: "follow", schedule: true, day: "linen", night: "carbon" });
     expect(radio(/On a schedule/)).toBeChecked();
     expect(radio(/Follow system/)).not.toBeChecked();
     expect((screen.getByLabelText("Day theme") as HTMLSelectElement).value).toBe("linen");
@@ -68,7 +68,7 @@ describe("ThemePicker schedule", () => {
   });
 
   it("a typed time is saved on leaving the field, not on each keystroke; a cleared field restores the saved time", () => {
-    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true });
     render(<ThemePicker />);
     const night = screen.getByLabelText("Night starts") as HTMLInputElement;
     // Typing "22:30" over 21:00 passes through "02:00": nothing is saved yet, however long the pauses.
@@ -88,7 +88,7 @@ describe("ThemePicker schedule", () => {
   });
 
   it("Enter saves a typed time; a time from the browser's picker is saved at once", () => {
-    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true });
     render(<ThemePicker />);
     const day = screen.getByLabelText("Day starts") as HTMLInputElement;
     fireEvent.keyDown(day, { key: "6" });
@@ -103,7 +103,7 @@ describe("ThemePicker schedule", () => {
   });
 
   it("a typed time waiting when Settings closes, or the page is left, is saved", () => {
-    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true });
     const { unmount } = render(<ThemePicker />);
     const day = screen.getByLabelText("Day starts");
     fireEvent.keyDown(day, { key: "5" });
@@ -118,7 +118,7 @@ describe("ThemePicker schedule", () => {
   });
 
   it("a change made elsewhere while a typed time waits wins over the waiting time", () => {
-    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true });
     render(<ThemePicker />);
     const night = screen.getByLabelText("Night starts") as HTMLInputElement;
     fireEvent.keyDown(night, { key: "2" });
@@ -129,7 +129,7 @@ describe("ThemePicker schedule", () => {
     expect(themeStore.get().nightStart).toBe("23:00");
   });
   it("a browser that reports seconds still saves the time, in whole minutes", () => {
-    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true });
     render(<ThemePicker />);
     const day = screen.getByLabelText("Day starts") as HTMLInputElement;
     fireEvent.change(day, { target: { value: "06:45:00" } });
@@ -137,14 +137,14 @@ describe("ThemePicker schedule", () => {
     expect(themeStore.get().dayStart).toBe("06:45");
   });
   it("follows a change made elsewhere (another tab, the server)", () => {
-    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true });
     render(<ThemePicker />);
     act(() => themeStore.set((s) => ({ ...s, dayStart: "05:45" })));
     expect((screen.getByLabelText("Day starts") as HTMLInputElement).value).toBe("05:45");
   });
 
   it("says when equal times leave the day theme on", () => {
-    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule", nightStart: "08:00", dayStart: "08:00" });
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true, nightStart: "08:00", dayStart: "08:00" });
     render(<ThemePicker />);
     expect(screen.getByText(/same time, so the day theme stays on/)).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /On a schedule/ }).closest("label")?.textContent).toContain("Paper all day");
@@ -152,7 +152,7 @@ describe("ThemePicker schedule", () => {
   });
 
   it("picking a fixed theme leaves the schedule and hides its fields, keeping the times for later", () => {
-    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule", nightStart: "22:00" });
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true, nightStart: "22:00" });
     render(<ThemePicker />);
     fireEvent.click(radio(/Graphite/));
     expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "graphite", nightStart: "22:00" });

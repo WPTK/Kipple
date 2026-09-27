@@ -24,10 +24,10 @@ describe("the reading menu's theme select", () => {
     const sel = screen.getByLabelText("Theme") as HTMLSelectElement;
     expect(sel.value).toBe("graphite");
     fireEvent.change(sel, { target: { value: "__schedule" } });
-    expect(themeStore.get()).toMatchObject({ mode: "schedule", nightStart: "22:00", night: "carbon", fixed: "graphite" });
+    expect(themeStore.get()).toMatchObject({ mode: "follow", schedule: true, nightStart: "22:00", night: "carbon", fixed: "graphite" });
     expect(sel.value).toBe("__schedule");
     fireEvent.change(sel, { target: { value: "__follow" } });
-    expect(themeStore.get().mode).toBe("follow");
+    expect(themeStore.get()).toMatchObject({ mode: "follow", schedule: false });
     fireEvent.change(sel, { target: { value: "linen" } });
     expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "linen" });
   });

@@ -52,6 +52,7 @@ var DefaultSettings = map[string]any{
 	"ui.theme":               "system",
 	"ui.theme_day":           "paper",
 	"ui.theme_night":         "midnight",
+	"ui.theme_schedule":      false,
 	"ui.theme_night_start":   "21:00",
 	"ui.theme_day_start":     "07:00",
 	"ui.font_body":           "",

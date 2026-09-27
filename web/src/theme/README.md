@@ -10,12 +10,13 @@ from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per sch
 
 ## How it works
 
-- **Per device.** The choice is part of the server's device profile (`ui.theme`, `system`, `schedule` or a scheme
-  id, plus `ui.theme_day`, `ui.theme_night`, `ui.theme_night_start` and `ui.theme_day_start`; see `lib/deviceSync.ts`).
-  `localStorage` (`kipple.theme.v1`, `{mode: "follow" | "fixed" | "schedule", fixed, day, night, nightStart, dayStart, v}`)
-  is the instant-paint cache the boot script reads. `v` is the cache format (2 since the schedule); a cache without it
-  comes from an older build, which reads the schedule as follow-system, so another tab's such write does not end
-  this tab's schedule (`lib/deviceSync.ts`).
+- **Per device.** The choice is part of the server's device profile (`ui.theme`, `system` or a scheme id, plus
+  `ui.theme_day`, `ui.theme_night`, `ui.theme_schedule`, `ui.theme_night_start` and `ui.theme_day_start`; see
+  `lib/deviceSync.ts`). `localStorage` (`kipple.theme.v1`,
+  `{mode: "follow" | "fixed", fixed, day, night, schedule, nightStart, dayStart}`) is the instant-paint cache the boot
+  script reads. The schedule is a flag under follow, not a third mode, so an older build (in another tab, or a client
+  that syncs the profile) passes it through: it reads follow-system and never writes the flag, and a cache it writes
+  keeps this tab's schedule fields (missing fields keep the current values).
 - **Follow system** resolves `prefers-color-scheme`: default day Paper, night Midnight. The Day and Night
   pickers accept **any** scheme (a dark day theme or a light night theme is allowed).
 - **On a schedule** uses the same Day and Night pickers but switches at two times of day ("Night starts", default
@@ -23,7 +24,7 @@ from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per sch
   (inclusive) to the day start (exclusive), wrapping past midnight when needed; equal times mean the day theme stays.
   `isNightAt()` holds that rule; `initTheme()` arms a timer for the next switch (at most 15 minutes, re-armed) and
   re-checks when the tab is shown or focused, so the switch is live.
-- `resolveTheme()` in `settings.ts` is the one pure rule for all three modes.
+- `resolveTheme()` in `settings.ts` is the one pure rule for all three choices (`themeChoice()` names them).
 - **No flash.** A blocking classic script in `<head>` (`assets/theme-boot-<hash>.js`, built from
   `bootScript()`) reads the stored choice, resolves it, sets `data-theme` and a single
   `<meta name="theme-color">` before first paint (in dev the script is inlined by the Vite dev server). It is a hashed file rather than an inline script so a strict

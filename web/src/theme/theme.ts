@@ -1,8 +1,14 @@
 import { createStore } from "@/lib/store";
 import { schemeById } from "./schemes";
-import { loadThemeSettings, minutesOfDay, msUntilNextSwitch, resolveTheme, saveThemeSettings, type ThemeSettings } from "./settings";
+import { loadThemeSettings, minutesOfDay, msUntilNextSwitch, onSchedule, resolveTheme, saveThemeSettings, type ThemeSettings } from "./settings";
 
 export const themeStore = createStore<ThemeSettings>(loadThemeSettings());
+
+/**
+ * The scheme id showing on this page. It changes without the settings changing (the OS appearance, a scheduled
+ * switch), so what is drawn in the theme's colors outside CSS (the Wrapped card image) re-renders on this.
+ */
+export const activeThemeStore = createStore<string>("");
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
@@ -34,6 +40,7 @@ export function applyTheme(id: string, doc: Document = document): void {
   }
   meta.removeAttribute("media");
   meta.content = scheme.tokens.meta;
+  if (doc === document) activeThemeStore.set(scheme.id);
 }
 
 export function updateTheme(patch: Partial<ThemeSettings>): void {
@@ -49,17 +56,20 @@ export const SCHEDULE_RECHECK_MS = 15 * 60_000;
 /** Wire the store, the OS appearance listener and the schedule timer. Call once at startup. */
 export function initTheme(): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  // On a schedule, one timer for the next switch (a little after it, so the clock has passed the boundary when it
-  // fires), always computed from the real clock. Equal times never switch, so there is nothing to wait for.
-  const arm = () => {
+  let shown: string | undefined;
+  // Shows the theme in force (only touching the page when it changed) and, on a schedule, arms one timer for the next
+  // switch, a little after it so the clock has passed the boundary when it fires, always from the real clock. Equal
+  // times never switch, so there is nothing to wait for.
+  function apply() {
+    const id = currentThemeId();
+    if (id !== shown) {
+      applyTheme(id);
+      shown = id;
+    }
     clearTimeout(timer);
     timer = undefined;
     const s = themeStore.get();
-    if (s.mode === "schedule" && s.nightStart !== s.dayStart) timer = setTimeout(apply, Math.min(msUntilNextSwitch(s, new Date()) + 500, SCHEDULE_RECHECK_MS));
-  };
-  function apply() {
-    applyTheme(currentThemeId());
-    arm();
+    if (onSchedule(s) && s.nightStart !== s.dayStart) timer = setTimeout(apply, Math.min(msUntilNextSwitch(s, new Date()) + 500, SCHEDULE_RECHECK_MS));
   }
   apply();
   const off = themeStore.subscribe(() => {
@@ -73,18 +83,16 @@ export function initTheme(): () => void {
   } catch {
     /* no matchMedia: day theme stays */
   }
-  // A device waking from sleep, or a tab coming back to the front, may have slept through a switch (the theme is
-  // corrected) or be holding a timer that paused while it slept (it is re-armed from the clock).
-  // Coming back usually fires both visibilitychange and focus; the second one in the same moment is skipped.
+  // A device waking from sleep, or a tab coming back to the front, may have slept through a switch or hold a timer
+  // that paused while it slept: apply() corrects the theme and re-arms from the clock. Coming back usually fires both
+  // visibilitychange and focus; the second one in the same moment is skipped.
   let wokeAt = -Infinity;
   const wake = () => {
-    if (themeStore.get().mode !== "schedule" || document.visibilityState !== "visible") return;
+    if (!onSchedule(themeStore.get()) || document.visibilityState !== "visible") return;
     const now = performance.now();
     if (now - wokeAt < 1000) return;
     wokeAt = now;
-    const id = currentThemeId();
-    if (id !== document.documentElement.dataset.theme) applyTheme(id);
-    arm();
+    apply();
   };
   document.addEventListener("visibilitychange", wake);
   window.addEventListener("focus", wake);

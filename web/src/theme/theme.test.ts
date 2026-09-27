@@ -10,14 +10,13 @@ import {
   msUntilNextSwitch,
   parseThemeSettings,
   resolveTheme,
-  saveThemeSettings,
-  THEME_CACHE_VERSION,
-  themeCacheVersion,
+  choosePair,
+  themeChoice,
   THEME_STORAGE_KEY,
   type ThemeSettings,
 } from "./settings";
 import { bootScript, themesCss } from "./css";
-import { applyTheme, initTheme, SCHEDULE_RECHECK_MS, themeStore } from "./theme";
+import { activeThemeStore, applyTheme, initTheme, SCHEDULE_RECHECK_MS, themeStore } from "./theme";
 
 const at = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 const base: ThemeSettings = { ...DEFAULT_THEME_SETTINGS };
@@ -41,7 +40,7 @@ describe("resolveTheme", () => {
   });
 
   it("schedule mode follows the clock and ignores the OS setting", () => {
-    const s: ThemeSettings = { ...base, mode: "schedule", day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" };
+    const s: ThemeSettings = { ...base, mode: "follow", schedule: true, day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" };
     for (const dark of [false, true]) {
       expect(resolveTheme(s, dark, at("12:00"))).toBe("linen");
       expect(resolveTheme(s, dark, at("23:30"))).toBe("carbon");
@@ -128,6 +127,24 @@ describe("msUntilNextSwitch", () => {
     expect(msUntilNextSwitch(s, local(7, 0))).toBe(14 * 3600_000);
   });
 
+  it("a switch time the clock skips (spring forward) fires when the gap ends, not an hour after it", () => {
+    // Vitest runs each file in its own process, so the zone change stays in this file.
+    const tz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      // 2026-03-08: 02:00 EST jumps to 03:00 EDT, so 02:30 never happens. From 01:50 EST, 03:00 EDT is 10 minutes away.
+      const now = new Date(2026, 2, 8, 1, 50);
+      expect(msUntilNextSwitch({ nightStart: "21:00", dayStart: "02:30" }, now)).toBe(10 * 60_000);
+      // By then isNightAt says day (03:00 is past 02:30), so the timer and the rule agree.
+      expect(isNightAt("21:00", "02:30", 180)).toBe(false);
+      // A night that crosses the change: 22:00 EST to 07:00 EDT is 9 hours on the clock but 8 hours of real time.
+      expect(msUntilNextSwitch({ nightStart: "21:00", dayStart: "07:00" }, new Date(2026, 2, 7, 22, 0))).toBe(8 * 3600_000);
+    } finally {
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    }
+  });
+
   it("equal times: one day away at most, never zero", () => {
     const same = { nightStart: "08:00", dayStart: "08:00" };
     expect(msUntilNextSwitch(same, local(8, 0))).toBe(24 * 3600_000);
@@ -147,7 +164,7 @@ describe("parseThemeSettings", () => {
   });
 
   it("fills missing or unreadable fields from a base, not the defaults", () => {
-    const mine: ThemeSettings = { ...base, mode: "schedule", nightStart: "22:15", dayStart: "06:45" };
+    const mine: ThemeSettings = { ...base, mode: "follow", schedule: true, nightStart: "22:15", dayStart: "06:45" };
     // What an older build writes: no times.
     expect(parseThemeSettings(JSON.stringify({ mode: "follow", fixed: "paper", day: "linen", night: "carbon" }), mine)).toEqual({
       ...mine,
@@ -156,24 +173,31 @@ describe("parseThemeSettings", () => {
       night: "carbon",
     });
     expect(parseThemeSettings("{{{", mine)).toEqual(mine);
-    expect(parseThemeSettings(JSON.stringify({ mode: "sunset" }), mine).mode).toBe("schedule");
+    expect(parseThemeSettings(JSON.stringify({ mode: "sunset" }), mine)).toEqual(mine);
   });
 
-  it("the cache records its format version; an older cache reads as version 1", () => {
-    saveThemeSettings({ ...base, mode: "schedule" });
-    const raw = JSON.parse(localStorage.getItem(THEME_STORAGE_KEY)!) as unknown;
-    expect(themeCacheVersion(raw)).toBe(THEME_CACHE_VERSION);
-    expect(parseThemeSettings(JSON.stringify(raw))).toEqual({ ...base, mode: "schedule" });
-    expect(themeCacheVersion({ mode: "follow" })).toBe(1);
-    expect(themeCacheVersion({ v: "2" })).toBe(1);
-    expect(themeCacheVersion(null)).toBe(1);
-    localStorage.clear();
+  it("the schedule is a flag under follow: a cache without it (an older build's) keeps the base's", () => {
+    const mine: ThemeSettings = { ...base, schedule: true, nightStart: "22:15" };
+    const older = JSON.stringify({ mode: "follow", fixed: "paper", day: "linen", night: "carbon" });
+    expect(parseThemeSettings(older, mine)).toEqual({ ...mine, day: "linen", night: "carbon" });
+    expect(parseThemeSettings(JSON.stringify({ mode: "fixed", fixed: "graphite" }), mine)).toEqual({ ...mine, mode: "fixed", fixed: "graphite" });
+    expect(parseThemeSettings(JSON.stringify({ ...mine, schedule: false }), mine).schedule).toBe(false);
+    expect(parseThemeSettings(JSON.stringify({ ...mine, schedule: "yes" })).schedule).toBe(false);
+    // A mode this build does not know keeps the base's.
+    expect(parseThemeSettings(JSON.stringify({ mode: "schedule" }), mine).mode).toBe("follow");
   });
 
+  it("themeChoice and choosePair: Follow system and On a schedule keep the day and night picks and the times", () => {
+    expect(themeChoice(base)).toBe("follow");
+    expect(themeChoice({ ...base, schedule: true })).toBe("schedule");
+    expect(themeChoice({ ...base, mode: "fixed", schedule: true })).toBe("fixed");
+    expect(choosePair("schedule")).toEqual({ mode: "follow", schedule: true });
+    expect(choosePair("follow")).toEqual({ mode: "follow", schedule: false });
+  });
   it("keeps a schedule and its times; a cache from before the schedule gets the default times", () => {
-    expect(parseThemeSettings(JSON.stringify({ ...base, mode: "schedule", nightStart: "22:15", dayStart: "06:45" }))).toEqual({
+    expect(parseThemeSettings(JSON.stringify({ ...base, mode: "follow", schedule: true, nightStart: "22:15", dayStart: "06:45" }))).toEqual({
       ...base,
-      mode: "schedule",
+      mode: "follow", schedule: true,
       nightStart: "22:15",
       dayStart: "06:45",
     });
@@ -291,6 +315,8 @@ describe("meta theme-color and the boot script", () => {
     metas = document.querySelectorAll('meta[name="theme-color"]');
     expect(metas).toHaveLength(1);
     expect(metas[0]?.content).toBe("#13284f");
+    // What is drawn outside CSS (the Wrapped card) re-renders on the scheme showing, which a schedule changes alone.
+    expect(activeThemeStore.get()).toBe("fountain");
   });
 
   afterEach(() => {
@@ -298,7 +324,7 @@ describe("meta theme-color and the boot script", () => {
     localStorage.clear();
   });
 
-  const sched = (nightStart: string, dayStart: string): ThemeSettings => ({ ...base, mode: "schedule", day: "linen", night: "carbon", nightStart, dayStart });
+  const sched = (nightStart: string, dayStart: string): ThemeSettings => ({ ...base, mode: "follow", schedule: true, day: "linen", night: "carbon", nightStart, dayStart });
   const cases: { stored: ThemeSettings | object | null; dark: boolean; clock?: string }[] = [
     { stored: null, dark: false },
     { stored: null, dark: true },
@@ -361,32 +387,33 @@ describe("initTheme on a schedule", () => {
 
   it("switches to the night theme at the start time and back at the day time, with no reload", () => {
     vi.setSystemTime(new Date(2026, 8, 27, 20, 58));
-    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" });
+    themeStore.set({ ...base, mode: "follow", schedule: true, day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" });
     stop = initTheme();
     expect(theme()).toBe("linen");
     vi.advanceTimersByTime(60_000);
     expect(theme()).toBe("linen"); // 20:59
     vi.advanceTimersByTime(61_000);
     expect(theme()).toBe("carbon"); // just past 21:00
+    expect(activeThemeStore.get()).toBe("carbon");
     vi.advanceTimersByTime(10 * 3600_000);
     expect(theme()).toBe("linen"); // past 07:00 the next morning
   });
 
   it("re-arms when the times change, and stops when the mode leaves the schedule", () => {
     vi.setSystemTime(new Date(2026, 8, 27, 12, 0));
-    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon" });
+    themeStore.set({ ...base, mode: "follow", schedule: true, day: "linen", night: "carbon" });
     stop = initTheme();
     expect(theme()).toBe("linen");
     themeStore.set((s) => ({ ...s, nightStart: "11:00", dayStart: "13:00" }));
     expect(theme()).toBe("carbon");
-    themeStore.set((s) => ({ ...s, mode: "follow" }));
+    themeStore.set((s) => ({ ...s, schedule: false }));
     expect(theme()).toBe("linen");
     expect(vi.getTimerCount()).toBe(0);
   });
 
   it("equal times arm no timer (nothing ever switches)", () => {
     vi.setSystemTime(new Date(2026, 8, 27, 12, 0));
-    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon", nightStart: "08:00", dayStart: "08:00" });
+    themeStore.set({ ...base, mode: "follow", schedule: true, day: "linen", night: "carbon", nightStart: "08:00", dayStart: "08:00" });
     stop = initTheme();
     expect(theme()).toBe("linen");
     expect(vi.getTimerCount()).toBe(0);
@@ -394,7 +421,7 @@ describe("initTheme on a schedule", () => {
 
   it("focus with nothing to change leaves the theme alone but re-arms from the clock", () => {
     vi.setSystemTime(new Date(2026, 8, 27, 20, 50));
-    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" });
+    themeStore.set({ ...base, mode: "follow", schedule: true, day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" });
     stop = initTheme();
     // A meta tag the re-apply would replace the content of; it must stay untouched.
     const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')!;
@@ -415,7 +442,7 @@ describe("initTheme on a schedule", () => {
 
   it("never sleeps longer than the recheck interval, and a tab coming back re-checks the clock", () => {
     vi.setSystemTime(new Date(2026, 8, 27, 8, 0));
-    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" });
+    themeStore.set({ ...base, mode: "follow", schedule: true, day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" });
     stop = initTheme();
     expect(vi.getTimerCount()).toBe(1);
     expect(SCHEDULE_RECHECK_MS).toBeLessThanOrEqual(15 * 60_000);

@@ -24,7 +24,7 @@ import {
 import { CARD_TOKENS, canRenderImage, copyWrappedText, downloadBlob, renderCardPng, shareWrappedBlob } from "@/lib/wrappedShare";
 import { canNativeShare } from "@/lib/share";
 import { useStore } from "@/lib/store";
-import { themeStore } from "@/theme/theme";
+import { activeThemeStore } from "@/theme/theme";
 import { toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
@@ -158,8 +158,9 @@ function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boo
   const [problem, setProblem] = useState<string | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
-  // Not read directly: its identity changing is the signal to re-render the card in the current theme's colors.
-  const theme = useStore(themeStore);
+  // Not read directly: the scheme showing changing (a pick, the OS appearance, a scheduled switch) is the signal to
+  // re-render the card in the current theme's colors.
+  const theme = useStore(activeThemeStore);
   const text = useMemo(() => wrappedText(m, o), [m, o]);
 
   useEffect(() => {
