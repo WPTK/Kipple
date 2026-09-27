@@ -73,6 +73,8 @@ describe("Wrapped screen", () => {
     expect(within(screen.getByRole("region", { name: "Top sources" })).getByText("Secret Feed")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Longest read" })).getByText("Private Title")).toBeInTheDocument();
     expect(screen.queryByText(/Only \d+ days? of reading/)).toBeNull();
+    // The cards hold nothing focusable, so the scroll region itself takes focus (issue #49, axe scrollable-region-focusable).
+    expect(screen.getByRole("region", { name: "Your year" })).toHaveAttribute("tabindex", "0");
   });
 
   it("offers the years from the first event and refetches the chosen one", async () => {
@@ -102,6 +104,9 @@ describe("Wrapped screen", () => {
     expect(screen.getByText("No month stands out yet.")).toBeInTheDocument();
     expect(screen.getByText(/Sources appear here/)).toBeInTheDocument();
     expect(screen.getByText("No timed reads yet.")).toBeInTheDocument();
+    const region = screen.getByRole("region", { name: "Your year" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    expect(within(region).getByText("No items read in 2026.")).toBeInTheDocument();
   });
 
   it("shows a loading state, not the off message, while the bootstrap answer is still unknown", () => {

@@ -259,6 +259,41 @@ func TestStatsSourceTimedFields(t *testing.T) {
 	require.EqualValues(t, 44, s.ActiveSeconds)
 }
 
+// A statistics delete that commits after the summary chose its longest read, and before it looked
+// up that read's title, must not fail the summary: the longest read keeps its figures without a
+// title (issue #27).
+func TestStatsSummarySurvivesDeleteOfTheLongestRead(t *testing.T) {
+	e := newEnv(t)
+	e.putStat("open", "2026-09-19", 9, 1, "old", nil, "F") // legacy, so the timed rows below are not
+	e.putStat("open", "2026-09-20", 1, 1, "a", nil, "Feed A")
+	e.putStat("read_time", "2026-09-20", 1, 1, "a", 90, "Feed A")
+
+	// Without the delete the longest read has its title.
+	lr := e.summary("2026-09-15", "2026-09-24").Behavior.LongestRead
+	require.NotNil(t, lr)
+	require.Equal(t, "Item", lr.Title)
+	require.Equal(t, "Feed A", lr.FeedTitle)
+
+	calls := 0
+	statsLongestTitleHook = func() {
+		calls++
+		n, err := StatsDelete(e.ctx, e.db, "", "", nil)
+		require.NoError(t, err)
+		require.Equal(t, 3, n)
+	}
+	t.Cleanup(func() { statsLongestTitleHook = nil })
+	out := e.summary("2026-09-15", "2026-09-24") // fails the test on a summary error
+	require.Equal(t, 1, calls)
+	require.Zero(t, e.count("SELECT count(*) FROM stats_events"), "the delete ran inside the window")
+	lr = out.Behavior.LongestRead
+	require.NotNil(t, lr, "the figures computed before the delete are kept")
+	require.Equal(t, "1", lr.ItemID)
+	require.EqualValues(t, 90, lr.Seconds)
+	require.Equal(t, "2026-09-20", lr.Date)
+	require.Empty(t, lr.Title)
+	require.Empty(t, lr.FeedTitle)
+}
+
 // A read_time or scroll row without a session key must not fail the summary, and must not be
 // attributed to the sessions of opens that have no key either.
 func TestStatsSummaryToleratesNullSessionKeys(t *testing.T) {

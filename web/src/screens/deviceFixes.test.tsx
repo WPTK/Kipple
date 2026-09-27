@@ -509,7 +509,11 @@ describe("manage feeds", () => {
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Select/ }));
+    // The toggle keeps its name below 400px, where its text is hidden (issue #47).
+    const toggle = screen.getByRole("button", { name: /Select/ });
+    expect(toggle).toHaveAttribute("aria-label", "Select");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-label", "Done");
     expect(screen.getByText("0 selected")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Select Bravo" }));
     await user.keyboard("{Shift>}");

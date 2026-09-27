@@ -467,6 +467,10 @@ func (g *statsGroup) Wait() error {
 	return g.err
 }
 
+// statsLongestTitleHook, when set (tests only), runs in StatsSummaryFor after the longest read is
+// chosen and before its title is looked up: the window in which a statistics delete can remove it.
+var statsLongestTitleHook func()
+
 // maxConcurrentStatsQueries is the most reader connections one summary holds at once.
 const maxConcurrentStatsQueries = 3
 
@@ -732,6 +736,9 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		out.Behavior.AvgReadSeconds = &v
 	}
 	if longest != nil {
+		if h := statsLongestTitleHook; h != nil {
+			h()
+		}
 		l := &StatsLongest{ItemID: strconv.FormatInt(longest.item, 10), Seconds: longest.rt, Date: longest.date}
 		var it, ft sql.NullString
 		// A statistics delete can commit between the opens query and this one (the summary is not one read

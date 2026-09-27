@@ -362,7 +362,16 @@ export function WrappedScreen() {
           ) : null}
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{body}</div>
+      {/* Focusable so a keyboard can scroll it: the cards (and the empty year) hold nothing focusable of their own. The
+          outline is drawn inside, where the screen's edges cannot clip it. */}
+      <div
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-4 focus-visible:outline-offset-[-2px]"
+        tabIndex={0}
+        role="region"
+        aria-label="Your year"
+      >
+        {body}
+      </div>
       {model ? <WrappedShareDialog m={model} open={sharing} onOpenChange={setSharing} /> : null}
     </div>
   );

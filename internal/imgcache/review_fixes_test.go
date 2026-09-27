@@ -373,3 +373,29 @@ func TestNegPruneChecksEachCapOnItsOwn(t *testing.T) {
 		require.Zero(t, c.negN.Load())
 	})
 }
+
+// A reader that found the old file already evicted must not drop the fresh copy
+// a concurrent commit published before the reader took the lock (issue #28).
+func TestOpenFileKeepsACopyCommittedAfterTheMiss(t *testing.T) {
+	c, _ := newCache(t)
+	key := put(t, c, "race", 100)
+	file := filepath.Join(c.Dir(), "v1", key[:2], key)
+	require.NoError(t, os.Remove(file)) // evicted from disk under the reader
+
+	calls := 0
+	c.openMissHook = func(k string) {
+		calls++
+		require.Equal(t, key, k)
+		require.Equal(t, key, put(t, c, "race", 100)) // the concurrent commit lands in the window
+	}
+	f, err := c.OpenFile(key)
+	require.NoError(t, err, "the fresh copy is served, not reported missing")
+	require.NoError(t, f.Close())
+	require.Equal(t, 1, calls)
+
+	_, err = os.Stat(file)
+	require.NoError(t, err, "the fresh file is still on disk")
+	_, ok := lookupOK(t, c, key)
+	require.True(t, ok, "the fresh row is still in the index")
+	require.Equal(t, int64(1), c.Stats().Files)
+}
