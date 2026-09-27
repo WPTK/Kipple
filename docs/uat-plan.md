@@ -84,18 +84,23 @@ Options (`npm run uat -- --help`): `--url` (or `KIPPLE_UAT_URL`),
 `--out`. Every screen is checked in Paper and Midnight (the browser's light and dark preference, which the default
 follow-system theme picks up) at 1280 px, 768 px and 390 px (the last two as touch devices); S4 applies to the two
 narrow widths. Before the run it checks its own probes against a page built to fail them, so a clean report means
-clean, not broken.
+clean, not broken. A theme that does not come out as Paper and Midnight (an account defaulting to a fixed theme), an
+unknown `--only` id, or no article to open (feeds not fetched yet) stops that part of the run as an error rather than
+passing it.
 
-The run signs in, switches the list layout (and puts it back at the end) and opens an article, which marks it read and
-records reading stats. So it refuses any address that is not loopback unless `--allow-remote` is given: run it against
-a seeded or copied instance, never the one the owner reads on.
+Each theme and width is a fresh browser that reuses the session but registers as a new device, so existing devices'
+settings are never touched. The run still changes the instance: it switches those new devices' layout, opens an
+article (marking it read and recording reading stats) and leaves the device rows behind. So it refuses any address
+that is not loopback unless `--allow-remote` is given: run it against a seeded or copied instance, never the one the
+owner reads on.
 
 Output: a line per screen, then `web/uat/results/<timestamp>/report.md` (findings grouped by check and rule, with the
 screens and elements each one was seen on), `report.json` (everything) and a screenshot of each failing screen. Exit
-code 0 clean, 1 findings, 2 setup error. Known and accepted issues go in `web/uat/waivers.json`
+code 0 clean, 1 findings, 2 a screen or the run could not be checked. Known and accepted issues go in `web/uat/waivers.json`
 (`{"check": "S3", "rule": "<axe rule id>", "screen"?, "theme"?, "viewport"?, "reason": "..."}`; a reason is
-required and an unused waiver is reported). axe results on the article body (the feed's own HTML) and failed
-non-`/api/` requests (feed images) are listed as notes, not failures.
+required and an unused waiver is reported). axe results on the article body (the feed's own HTML), failed
+non-`/api/` requests (feed images) and S5 hits in feed text (a title that says "undefined behaviour"; a field that
+rendered as nothing but `undefined` still fails) are listed as notes, not failures.
 
 ## Suite 2 — Agent-driven scenario walkthroughs
 
