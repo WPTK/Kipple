@@ -6,6 +6,11 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-alpha.5] - 2026-09-27
+
+The Stats screen (phase 4, second step) and its summary endpoint. One schema migration (0009): a rollback goes through the
+pre-migration snapshot.
+
 ### Added
 
 - Reading statistics summary: `GET /api/stats/summary` returns totals, a daily series, streaks, a weekday and hour heatmap, reading behavior, per-source figures and feeds that were never opened, for the last week, month, year, all time or a custom date range, in the configured time zone. It is read-only.
@@ -552,7 +557,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.4...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.5...HEAD
+[0.3.0-alpha.5]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.4...v0.3.0-alpha.5
 [0.3.0-alpha.4]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.3...v0.3.0-alpha.4
 [0.3.0-alpha.3]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.2...v0.3.0-alpha.3
 [0.3.0-alpha.2]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.1...v0.3.0-alpha.2
