@@ -304,15 +304,20 @@ export function WrappedScreen() {
         .
       </p>
     );
-  } else if (q.isPending || !dataForYear) {
-    body = <Skeleton rows={4} label="Loading your year" />;
-  } else if (q.isError && !data) {
+  } else if (q.isError && !dataForYear) {
+    // Before the skeleton: a failed request (or a failed switch to another year, where `data` may still be the old
+    // year's) never becomes this year's data, so the skeleton would stay up for good with no way to retry.
     body = (
-      <div role="alert" className="flex flex-col items-start gap-3 py-6">
+      <div className="flex flex-col items-start gap-3 py-6">
+        {/* The error Notice is itself the alert; a second role="alert" around it would announce it twice. */}
         <Notice tone="error">{errorMessage(q.error)}</Notice>
-        <Button onClick={() => void q.refetch()}>Try again</Button>
+        <Button onClick={() => void q.refetch()} disabled={q.isFetching}>
+          Try again
+        </Button>
       </div>
     );
+  } else if (q.isPending || !dataForYear) {
+    body = <Skeleton rows={4} label="Loading your year" />;
   } else if (model) {
     body = (
       <div aria-busy={q.isPlaceholderData} className={q.isPlaceholderData ? "opacity-60" : undefined}>

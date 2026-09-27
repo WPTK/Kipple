@@ -402,11 +402,35 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     return () => t.forEach(clearTimeout);
   }, []);
 
+  // Read at commit time by hide(), which runs from timers.
+  const allItemsRef = useRef(allItems);
+  allItemsRef.current = allItems;
+  const selectionRef = useRef({ selectedId, activeId });
+  selectionRef.current = { selectedId, activeId };
+
   /** Take rows out of the list: collapse them, then remove; the still-visible rows stay put on screen. */
   const hide = useCallback((ids: string[]): (() => void) => {
     const commit = () => {
       const el = parentRef.current;
       pendingAnchor.current = el && el.scrollTop > 0 ? captureAnchor(el, ids) : null;
+      // The selected row is leaving (marked read in Unread): the selection moves to the row that takes its place, or
+      // the one before it at the end, so j/k carry on from there and m, s, o, x and Enter still have a row to act on.
+      const { selectedId: sel, activeId: open } = selectionRef.current;
+      if (sel && !open && ids.includes(sel)) {
+        const all = allItemsRef.current;
+        const gone = memoryFor(key).hidden;
+        const at = all.findIndex((i) => i.id === sel);
+        const stays = (i: Card) => !gone.has(i.id) && !ids.includes(i.id);
+        const next = at < 0 ? undefined : (all.slice(at + 1).find(stays) ?? all.slice(0, at).reverse().find(stays));
+        if (next) {
+          memoryFor(key).selectedId = next.id;
+          setSelectedId(next.id);
+          // Focus was on the leaving row: it follows the selection instead of dropping to the page.
+          const focused = document.activeElement;
+          const inRow = focused instanceof HTMLElement && ids.some((id) => focused.closest(`[data-item-id="${CSS.escape(id)}"]`));
+          if (inRow) requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, next.id)));
+        }
+      }
       setHidden((h) => new Set([...h, ...ids]));
       setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
     };

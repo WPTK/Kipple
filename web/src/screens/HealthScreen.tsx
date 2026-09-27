@@ -12,7 +12,7 @@ import {
   type HealthFeed,
 } from "@/api/admin";
 import { ApiError, api, errorMessage } from "@/api/client";
-import { useBootstrap } from "@/api/queries";
+import { invalidateLists, keys, useBootstrap } from "@/api/queries";
 import { STATUS_RANK, statusInfo } from "@/lib/feedStatus";
 import { bytesLabel, fullDate, whenLabel } from "@/lib/format";
 import { useWide } from "@/lib/useMedia";
@@ -71,7 +71,10 @@ function LogDialog({ feed, onClose }: { feed: HealthFeed; onClose: () => void })
       const r = await api<{ changed: number | string[] }>(`/api/feeds/${feed.id}/mark-fetch-read`, { method: "POST", body: { fetch_log_id: rowId } });
       const n = Array.isArray(r.changed) ? r.changed.length : r.changed;
       toast(`${n} article${n === 1 ? "" : "s"} marked read`);
-      void qc.invalidateQueries({ queryKey: ["bootstrap"] });
+      void qc.invalidateQueries({ queryKey: keys.bootstrap });
+      // The reply is only a count, and the items.state event that patches the rows in place can be missed (live
+      // updates down): the loaded lists reload the next time they are shown instead of keeping these articles unread.
+      invalidateLists(qc, () => true);
     } catch (e) {
       toast(errorMessage(e), "error");
     }
