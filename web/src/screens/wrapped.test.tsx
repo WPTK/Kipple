@@ -193,6 +193,8 @@ describe("Wrapped screen", () => {
     expect(await screen.findByText(/Wrapped is off\./)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings > Statistics" })).toHaveAttribute("href", "/settings");
     expect(calls(m)).toHaveLength(0);
+    // The link is the tab stop here; the region adds none of its own.
+    expect(screen.getByRole("region", { name: "Your year" })).not.toHaveAttribute("tabindex");
   });
 
   it("says Wrapped is off when statistics are off", async () => {

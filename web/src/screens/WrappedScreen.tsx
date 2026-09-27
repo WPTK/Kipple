@@ -283,6 +283,7 @@ export function WrappedScreen() {
   const today = todayString();
   const [year, setYear] = useState(currentYear(today));
   const [sharing, setSharing] = useState(false);
+  const headingId = useId();
   const on = state === "on";
   const q = useWrappedSummary(year, yearSpan(year, today), on);
   const data = q.data;
@@ -336,7 +337,7 @@ export function WrappedScreen() {
   return (
     <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
-        <h1 className="pt-2 pb-2 text-xl font-bold" tabIndex={-1} data-route-heading>
+        <h1 id={headingId} className="pt-2 pb-2 text-xl font-bold" tabIndex={-1} data-route-heading>
           Your year
         </h1>
         <div className="flex items-end gap-3">
@@ -362,13 +363,13 @@ export function WrappedScreen() {
           ) : null}
         </div>
       </header>
-      {/* Focusable so a keyboard can scroll it: the cards (and the empty year) hold nothing focusable of their own. The
-          outline is drawn inside, where the screen's edges cannot clip it. */}
+      {/* The cards (and an empty year's cards) hold nothing focusable, so with a model the region itself takes focus and
+          a keyboard can scroll it. The other states have their own link or button, or nothing to scroll. */}
       <div
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-4 focus-visible:outline-offset-[-2px]"
-        tabIndex={0}
+        className="kp-scroll-region min-h-0 flex-1 overflow-y-auto px-4 py-4"
+        tabIndex={model ? 0 : undefined}
         role="region"
-        aria-label="Your year"
+        aria-labelledby={headingId}
       >
         {body}
       </div>

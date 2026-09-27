@@ -514,6 +514,7 @@ describe("manage feeds", () => {
     expect(toggle).toHaveAttribute("aria-label", "Select");
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-label", "Done");
+    expect(toggle).not.toHaveAttribute("aria-pressed"); // the name carries the state
     expect(screen.getByText("0 selected")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Select Bravo" }));
     await user.keyboard("{Shift>}");

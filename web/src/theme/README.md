@@ -58,10 +58,10 @@ color-blind-safe schemes and Signal keep all three accent/star/danger pairs at d
 simulated deficiency, and Carbon and Fountain stay apart. `npm run contrast -- --markdown` prints the tables
 below. The script also requires 4.5:1 for text, text2, link and danger on the surface, for text on the selection color
 and for text2 on the selection color (a selected row's meta line, a selected option's hint; issue #48 found Midnight at 4.05:1,
-fixed with text2 `#9a9a9a` to `#a6a6a6`, and the check moved Carbon `#a3a8ae` to `#a7acb2` and Lamplight `#b89a72` to
-`#bda078`). Graphite (3.59) and Cocoa Mid (4.00) still miss it and need a design call rather than a nudge; they are listed
-in `TEXT2_SELECTION_KNOWN_GAPS` (`contrast.ts`), reported as known gaps, and the script fails once one of them passes so the
-entry is removed. It also checks text on the toast tint (18% accent into the surface) with accent and danger borders at 3:1, text on the
+fixed with text2 `#9a9a9a` to `#a6a6a6`, and the check moved Graphite `#a3a3a0` to `#b8b8b5`, Carbon `#a3a8ae` to
+`#a7acb2` and Lamplight `#b89a72` to `#bda078`). Cocoa Mid (4.00) still misses it and needs a design call rather than a
+nudge; it is listed in `TEXT2_SELECTION_KNOWN_GAPS` (`contrast.ts`) and reported as a known gap, and the script fails on a
+listed id that is not a scheme or that passes, so the list cannot rot. It also checks text on the toast tint (18% accent into the surface) with accent and danger borders at 3:1, text on the
 highlight tint (20% star into the background) with the star underline at 3:1, and for Carbon and Fountain a background
 delta E of 25 and an accent delta E of 40. `theme.test.ts` asserts the WCAG, toast, highlight, Signal and
 Carbon/Fountain checks; the per-deficiency color-blind check is `npm run contrast` only.
@@ -79,7 +79,7 @@ Carbon/Fountain checks; the per-deficiency color-blind check is `npm run contras
 | Airmail | light | color | #e2ecf5 | #d5e3f0 | #16212e | #435466 | #b8cbde | #1c5490 | #1c5490 | #1c5490 | #8f4a00 | #a82a20 | #c3d8ee | #e2ecf5 |
 | Stationery | light | color | #ece8f6 | #e0dbef | #211c2e | #52496a | #c9c1e0 | #5a3d9e | #4f3591 | #5a3d9e | #8a4f00 | #a82a3a | #d3c8ee | #ece8f6 |
 | Tissue | light | color | #f9e9e7 | #f1dbd8 | #3a2424 | #6e4a4a | #e3c3bf | #9b2f5e | #8a2856 | #9b2f5e | #8a4f00 | #b3261e | #f0c9cc | #f9e9e7 |
-| Graphite | dark | dark | #121212 | #1c1c1e | #e8e8e6 | #a3a3a0 | #2c2c2e | #7cb7ff | #8ec1ff | #7cb7ff | #f2c14e | #ff8a80 | #2b4a6f | #121212 |
+| Graphite | dark | dark | #121212 | #1c1c1e | #e8e8e6 | #b8b8b5 | #2c2c2e | #7cb7ff | #8ec1ff | #7cb7ff | #f2c14e | #ff8a80 | #2b4a6f | #121212 |
 | Midnight | dark | dark | #000000 | #0b0b0c | #e0e0e0 | #a6a6a6 | #232325 | #6db0ff | #7db9ff | #6db0ff | #f2c14e | #ff8a80 | #1f3b5c | #000000 |
 | Cocoa Mid | dark | dark | #58463a | #665244 | #f6eee3 | #e0d2c0 | #7a6552 | #f0b36a | #ffd0a0 | #f0b36a | #f5c85a | #ffc4b8 | #75604d | #58463a |
 | Fountain | dark | dark | #13284f | #1b3565 | #f3ead2 | #c6c9d6 | #2f4a80 | #f2a65a | #ffc888 | #f2a65a | #ffe27a | #ff9aa8 | #2f5296 | #13284f |
@@ -93,8 +93,8 @@ Carbon/Fountain checks; the per-deficiency color-blind check is `npm run contras
 
 ## WCAG contrast (ratio : 1)
 
-Thresholds: text, text2, link, danger 4.5; accent, unread, star 3 (non-text). All pass except text2/sel in the two known gaps
-(Graphite and Cocoa Mid, see Verify).
+Thresholds: text, text2, link, danger 4.5; accent, unread, star 3 (non-text). All pass except text2/sel in the one known gap
+(Cocoa Mid, see Verify).
 
 | Scheme | text | text2 | text2/surf | link | link/surf | danger | accent | star | text/sel | text2/sel |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -107,7 +107,7 @@ Thresholds: text, text2, link, danger 4.5; accent, unread, star 3 (non-text). Al
 | Airmail | 13.59 | 6.50 | 5.96 | 6.45 | 5.91 | 5.82 | 6.45 | 5.58 | 11.14 | 5.33 |
 | Stationery | 13.73 | 6.92 | 6.17 | 7.75 | 6.91 | 5.70 | 6.72 | 5.45 | 10.44 | 5.26 |
 | Tissue | 12.24 | 6.51 | 5.79 | 7.08 | 6.30 | 5.55 | 6.02 | 5.58 | 9.56 | 5.08 |
-| Graphite | 15.27 | 7.41 | 6.73 | 10.01 | 9.09 | 8.21 | 8.99 | 11.16 | 7.40 | 3.59 |
+| Graphite | 15.27 | 9.42 | 8.56 | 10.01 | 9.09 | 8.21 | 8.99 | 11.16 | 7.40 | 4.57 |
 | Midnight | 15.91 | 8.63 | 8.08 | 10.26 | 9.61 | 9.20 | 9.30 | 12.51 | 8.65 | 4.69 |
 | Cocoa Mid | 7.76 | 6.02 | 4.96 | 6.28 | 5.18 | 5.88 | 4.83 | 5.65 | 5.16 | 4.00 |
 | Fountain | 12.13 | 8.81 | 7.30 | 9.60 | 7.95 | 7.23 | 7.19 | 11.36 | 6.33 | 4.60 |

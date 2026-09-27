@@ -449,13 +449,9 @@ export function FeedsScreen() {
               "Saving"
             ) : null}
           </span>
-          {/* The text hides below 400px, so the name comes from aria-label (it matches the text when shown). */}
-          <Button
-            variant="ghost"
-            onClick={() => (selecting ? exitSelect() : setSelecting(true))}
-            aria-pressed={selecting}
-            aria-label={selecting ? "Done" : "Select"}
-          >
+          {/* The text hides below 400px, so the name comes from aria-label, matching the text when shown. The name
+              itself carries the state (Select, then Done), so there is no aria-pressed to announce it twice. */}
+          <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
             <CheckSquare aria-hidden="true" />
             <span className="hidden min-[400px]:inline">{selecting ? "Done" : "Select"}</span>
           </Button>

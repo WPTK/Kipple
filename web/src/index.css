@@ -157,6 +157,12 @@ body {
   outline-width: 3px;
 }
 
+/* A focusable scroll region that fills its pane (Your year): the ring goes inside, where the screen edges and
+   #root's overflow cannot clip it. Unlayered like the rules above, which a Tailwind utility could not override. */
+.kp-scroll-region:focus-visible {
+  outline-offset: -3px;
+}
+
 /* App frame: 100dvh with a scrolling region per pane, never the body. */
 #root {
   height: 100dvh;

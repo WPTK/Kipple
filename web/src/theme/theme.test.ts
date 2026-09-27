@@ -281,8 +281,11 @@ describe("scheme roster", () => {
       if (TEXT2_SELECTION_KNOWN_GAPS.includes(s.id)) expect(c, `${s.name} is fixed: unlist it`).toBeLessThan(4.5);
       else expect(c, `${s.name} text2/selection`).toBeGreaterThanOrEqual(4.5);
     }
-    // Midnight, the default night theme, is where axe-core found it (4.05:1 on #1f3b5c).
+    // Every listed id is a real scheme, so a rename cannot leave a dead entry behind.
+    for (const id of TEXT2_SELECTION_KNOWN_GAPS) expect(SCHEMES.map((s) => s.id), `known gap "${id}"`).toContain(id);
+    // Midnight, the default night theme, is where axe-core found it (4.05:1 on #1f3b5c); Graphite is the dark alias.
     expect(TEXT2_SELECTION_KNOWN_GAPS).not.toContain("midnight");
+    expect(TEXT2_SELECTION_KNOWN_GAPS).not.toContain("graphite");
   });
 
   it("toasts: text on the accent-tinted toast surface is AA in every scheme, and the borders are visible", () => {

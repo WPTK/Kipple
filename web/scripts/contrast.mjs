@@ -21,6 +21,9 @@ const heatRows = [];
 const failures = [];
 const gaps = [];
 const rows = [];
+for (const id of TEXT2_SELECTION_KNOWN_GAPS) {
+  if (!schemes.some((s) => s.id === id)) failures.push(`TEXT2_SELECTION_KNOWN_GAPS lists "${id}", which is not a scheme id`);
+}
 const cvdRows = [];
 
 for (const s of schemes) {
@@ -118,9 +121,9 @@ if (md) {
 } else {
   console.log(`${schemes.length} schemes checked. Carbon vs Fountain delta E:`, Object.entries(pair).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(", "));
 }
-if (gaps.length) console.warn("\nKNOWN GAPS (TEXT2_SELECTION_KNOWN_GAPS in src/theme/contrast.ts):\n" + gaps.join("\n") + "\n");
+if (gaps.length && !md) console.log("\nKNOWN GAPS (TEXT2_SELECTION_KNOWN_GAPS in src/theme/contrast.ts):\n" + gaps.join("\n") + "\n");
 if (failures.length) {
   console.error("\nFAILURES:\n" + failures.join("\n"));
   process.exit(1);
 }
-if (!md) console.log(`All contrast and separation thresholds met${gaps.length ? ` (${gaps.length} known gaps listed above)` : ""}.`);
+if (!md) console.log(`All contrast and separation thresholds met${gaps.length ? ", except the known gaps listed above" : ""}.`);
