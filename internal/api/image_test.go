@@ -63,8 +63,8 @@ func TestImageRewriteAtServeTimeOnly(t *testing.T) {
 	// imgproxy.mode = all (the default, so no row) proxies https too.
 	h.exec(`DELETE FROM settings WHERE key = 'imgproxy.mode'`)
 	_, det, _ = h.api(c, "GET", "/api/items/"+sid(id), "")
-	// s.example is not the feed's host (a.example): no private-network grant.
-	require.Contains(t, det["content_html"], `src="`+pathFor(2, "https://s.example/secure.png")+`"`)
+	// s.example is not the feed's host (a.example): neither the private-network nor the insecure-TLS grant.
+	require.Contains(t, det["content_html"], `src="`+pathFor(0, "https://s.example/secure.png")+`"`)
 	require.NotContains(t, det["content_html"], `"https://s.example`)
 }
 

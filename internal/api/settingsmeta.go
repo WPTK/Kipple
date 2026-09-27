@@ -376,7 +376,7 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "greader.subscribe_fetch_now", Label: "Fetch new feeds at once from sync apps", Description: "Fetch a feed immediately when a sync app subscribes to it.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
-	{Key: "stats.api_single_read_is_open", Label: "Count single reads from sync apps", Description: "Treat an article opened in a sync app as opened for reading statistics.",
+	{Key: "stats.api_single_read_is_open", Label: "Count single reads from sync apps", Description: "Reserved: stored but not used yet. Would treat an article opened in a sync app as opened for reading statistics.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "ui.layouts", Label: "Remembered list layouts", Description: "The list layout you chose for each folder or feed.",
 		Group: groupAdvanced, Kind: "json", Surface: surfaceHidden, check: func(v any) (any, string) {

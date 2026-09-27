@@ -551,7 +551,10 @@ export function sendStats(events: StatsEvent[]): void {
   const state = statsState();
   if (state === "off") return;
   const client = clientKind();
-  if (state === "unknown" || (typeof navigator !== "undefined" && navigator.onLine === false) || !offlineStore.get().online) {
+  // An expired access-proxy sign-in would swallow a beacon (the browser reports it accepted), so queue until the
+  // reload signs in again.
+  const off = offlineStore.get();
+  if (state === "unknown" || (typeof navigator !== "undefined" && navigator.onLine === false) || !off.online || off.sessionExpired) {
     return enqueue(client, events);
   }
   const body = JSON.stringify({ client, events });
@@ -675,7 +678,9 @@ async function doFlush(): Promise<void> {
   if (authStore.get() === "out") return;
   const state = statsState();
   if (state === "unknown") return; // wait: the next trigger looks again
-  if (state === "off") return wipeStatsQueue();
+  // Empty the queue but leave sending on: the sign-out wipe would keep every later event from being sent or
+  // queued until the next sign-in, which a switch back on in the same signed-in session never brings.
+  if (state === "off") return clearStatsQueue();
   const done = new Set<string>();
   for (;;) {
     // Read afresh each round: batches queued meanwhile join in order.

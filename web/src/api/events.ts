@@ -384,12 +384,20 @@ export function useServerEvents(enabled: boolean): void {
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
+    // Each poll loop owns a generation: a poll still awaiting when a newer loop starts (or polling stops)
+    // does not reschedule, so two loops can never run at once.
+    let pollGen = 0;
     const stopPolling = () => {
+      pollGen++;
       if (pollTimer) clearTimeout(pollTimer);
       pollTimer = undefined;
     };
-    const poll = async () => {
+    const poll = async (gen?: number) => {
       if (stopped) return;
+      if (gen === undefined) {
+        stopPolling();
+        gen = pollGen;
+      } else if (gen !== pollGen) return;
       let active = false;
       try {
         const st = await pollStatus(qc);
@@ -397,7 +405,10 @@ export function useServerEvents(enabled: boolean): void {
       } catch {
         /* 401 flips authStore; a network error just tries again */
       }
-      if (!stopped && liveStore.get().transport === "fallback") pollTimer = setTimeout(poll, pollInterval(active));
+      if (!stopped && gen === pollGen && liveStore.get().transport === "fallback") {
+        const g = gen;
+        pollTimer = setTimeout(() => void poll(g), pollInterval(active));
+      }
     };
     let openedAt = 0;
     // Older servers send no heartbeat; the watchdog only arms once one has been seen.

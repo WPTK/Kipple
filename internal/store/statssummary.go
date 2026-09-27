@@ -734,7 +734,9 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	if longest != nil {
 		l := &StatsLongest{ItemID: strconv.FormatInt(longest.item, 10), Seconds: longest.rt, Date: longest.date}
 		var it, ft sql.NullString
-		if err := q.QueryRowContext(ctx, "SELECT item_title, feed_title FROM stats_events WHERE id = ?", longest.id).Scan(&it, &ft); err != nil {
+		// A statistics delete can commit between the opens query and this one (the summary is not one read
+		// transaction): the longest read then keeps its figures without a title instead of failing the summary.
+		if err := q.QueryRowContext(ctx, "SELECT item_title, feed_title FROM stats_events WHERE id = ?", longest.id).Scan(&it, &ft); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
 		l.Title, l.FeedTitle = it.String, ft.String

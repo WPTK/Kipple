@@ -527,6 +527,15 @@ describe("sending", () => {
     expect(queuedStatsForTests()).toHaveLength(1);
   });
 
+  it("queues without a beacon while the access-proxy sign-in has expired", () => {
+    const beacon = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("navigator", { onLine: true, sendBeacon: beacon });
+    offlineStore.set((s) => ({ ...s, sessionExpired: true }));
+    sendStats(ev);
+    expect(beacon).not.toHaveBeenCalled();
+    expect(queuedStatsForTests()).toHaveLength(1);
+  });
+
   it.each([
     ["a network failure", () => Promise.reject(new TypeError("down")), true],
     ["429", () => Promise.resolve(new Response("", { status: 429 })), true],
@@ -811,6 +820,25 @@ describe("the offline queue", () => {
     qc.setQueryData(keys.bootstrap, { ...bootstrap, settings: { "stats.enabled": false } });
     await vi.advanceTimersByTimeAsync(0);
     expect(qKeys()).toEqual([]);
+    stop();
+  });
+
+  it("switched off and back on in one signed-in session, sending resumes", async () => {
+    const qc = client({});
+    setStatsClient(qc);
+    const stop = initStatsQueue(qc);
+    await vi.advanceTimersByTimeAsync(0);
+    qc.setQueryData(keys.bootstrap, { ...bootstrap, settings: { "stats.enabled": false } });
+    await vi.advanceTimersByTimeAsync(0);
+    qc.setQueryData(keys.bootstrap, { ...bootstrap, settings: {} });
+    await vi.advanceTimersByTimeAsync(0);
+    const beacon = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("navigator", { onLine: true, sendBeacon: beacon });
+    sendStats([ev(1)]);
+    expect(beacon).toHaveBeenCalledTimes(1);
+    refuseBeacon();
+    sendStats([ev(2)]);
+    expect(qKeys()).toHaveLength(1);
     stop();
   });
 
