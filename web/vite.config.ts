@@ -110,5 +110,12 @@ export default defineConfig({
     restoreMocks: true,
     // The screens are lazy chunks and jsdom renders large trees; on a busy machine the default 5 s is too tight.
     testTimeout: 20_000,
+    // Visibility only (SQA plan): reported in CI logs, not a gate. No thresholds are enforced.
+    coverage: {
+      provider: "v8",
+      reporter: ["text-summary"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/test/**", "src/**/*.d.ts", "src/main.tsx"],
+    },
   },
 });

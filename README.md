@@ -15,6 +15,7 @@ are not part of this repository.
 - `web/` is the React app, built into the Go binary.
 - `docs/design.md` is the source of truth for how it works;
   `docs/ui-decisions.md` records the design decisions; `docs/deploy.md` covers backups, recovery and deploys.
+  See [docs/README.md](docs/README.md) for a full index of everything under `docs/`.
 - `CLAUDE.md` holds the project rules used when working on the code with Claude.
 
 ## Build and test

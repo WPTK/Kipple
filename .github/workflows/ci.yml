@@ -41,7 +41,8 @@ jobs:
       # web/dist only has the committed .gitkeep placeholder here; the Go
       # build and tests must succeed against that (see web/embed.go).
       - run: go vet ./...
-      - run: go test -race -shuffle=on -timeout 15m ./...
+      # -cover is visibility only (SQA plan): printed per package, not a gate.
+      - run: go test -race -shuffle=on -timeout 15m -cover ./...
 
   security:
     runs-on: ubuntu-latest
@@ -95,6 +96,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      # Visibility only (SQA plan): a text summary in the log, no threshold gate.
+      - run: npm run test:coverage
       - run: npm run build
       - run: npm run contrast
       - run: npm audit --omit=dev --audit-level=high

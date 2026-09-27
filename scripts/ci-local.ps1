@@ -51,7 +51,7 @@ Step 'go' 'gofmt (LF-normalized)' {
   if ($bad) { Write-Host "gofmt needed on:`n$($bad -join "`n")"; $global:LASTEXITCODE = 1 } else { $global:LASTEXITCODE = 0 }
 }
 Step 'go' 'go vet' { go vet ./... }
-Step 'go' 'go test (shuffled, no -race)' { go test -shuffle=on -timeout 15m ./... }
+Step 'go' 'go test (shuffled, no -race)' { go test -shuffle=on -timeout 15m -cover ./... }
 
 # ---- security ----
 Step 'security' 'govulncheck' { go run "golang.org/x/vuln/cmd/govulncheck@$GovulncheckVersion" ./... }
@@ -78,6 +78,7 @@ Step 'security' 'gitleaks (git history)' {
 Step 'web' 'npm ci' { Push-Location web; npm ci --cache $npmCache --no-audit --no-fund; Pop-Location }
 Step 'web' 'lint' { Push-Location web; npm run lint; Pop-Location }
 Step 'web' 'test' { Push-Location web; npm test; Pop-Location }
+Step 'web' 'test coverage (visibility only)' { Push-Location web; npm run test:coverage; Pop-Location }
 Step 'web' 'build' { Push-Location web; npm run build; Pop-Location }
 Step 'web' 'theme contrast' { Push-Location web; npm run contrast; Pop-Location }
 Step 'web' 'npm audit (prod, high)' { Push-Location web; npm audit --omit=dev --audit-level=high; Pop-Location }

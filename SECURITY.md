@@ -1,6 +1,7 @@
 # Security policy
 
-Kipple is a private, single-user project and is not offered as a supported public service.
+Kipple is a single-user application, developed in the open. Anyone can self-host it, but it is maintained by
+one person and is not offered as a supported public service.
 
 ## Reporting a vulnerability
 
@@ -18,3 +19,9 @@ Only the latest release tag and the `main` branch receive fixes. Kipple is prere
 
 CI runs govulncheck, staticcheck, gosec (gates on high severity and high confidence), gitleaks, `npm audit --omit=dev` (high) and a Trivy image scan; Dependabot proposes
 weekly dependency updates.
+
+## Issue triage
+
+Kipple has a single maintainer. Security reports filed as above get a fast look. Other issues and pull
+requests are triaged best-effort, in whatever order the maintainer gets to them — there is no guaranteed
+response time or SLA. This is stated plainly rather than left unsaid now that the repository is public.
