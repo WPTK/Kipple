@@ -535,6 +535,27 @@ describe("Feed health", () => {
     const dlg = await screen.findByRole("dialog", { name: "Fetch log for NPR" });
     expect(await within(dlg).findByText("HTTP 404", { selector: "p.break-words" })).toBeInTheDocument();
   });
+
+  it("Mark this fetch read also marks the loaded article lists stale, not just the counts", async () => {
+    const { calls } = base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/health/feeds/1/log": () => json({ log: [{ id: "77", trigger: "schedule", started_at: 900, duration_ms: 120, outcome: "ok", http_status: 200, error_class: null, error: null, new_items: 2, updated_items: 0, trimmed_items: 0, first_item_id: "1001", last_item_id: "1002", bytes: null, final_url: null, note: null, keep: false }] }),
+      "POST /api/feeds/1/mark-fetch-read": () => json({ changed: 2 }),
+    });
+    const client = makeQueryClient({ retry: false });
+    client.setQueryData(["items", "unread"], { pages: [pageOf([card(1), card(2)])], pageParams: [undefined] });
+    window.history.replaceState({ idx: 0 }, "", "/health");
+    render(<App client={client} />);
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(await screen.findByRole("button", { name: "Actions for Zed Blog" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Fetch log" }));
+    const dlg = await screen.findByRole("dialog", { name: "Fetch log for Zed Blog" });
+    expect(client.getQueryState(["items", "unread"])?.isInvalidated).toBe(false);
+    await user.click(await within(dlg).findByRole("button", { name: "Mark this fetch read" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/feeds/1/mark-fetch-read")).toBe(true));
+    await waitFor(() => expect(client.getQueryState(["items", "unread"])?.isInvalidated).toBe(true));
+  });
 });
 
 describe("Account and backup", () => {
