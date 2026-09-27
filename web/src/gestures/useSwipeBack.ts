@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef } from "react";
 import { BackSwipe, prefersReducedMotion } from "./tracking";
 
 const CONTROL = "input,textarea,select,button,video,audio,iframe,[contenteditable='true'],[data-no-swipe]";
@@ -42,15 +42,17 @@ interface Opts {
  * Article swipe-back: a right-swipe starting at least 24 px from the left edge, mostly
  * horizontal, pops to the screen you came from. The article follows the finger and springs
  * back on cancel; with reduced motion there is no drag animation, only the commit.
+ *
+ * Takes the element itself (a callback ref kept in state), not a ref object: the article frame is replaced when the
+ * error screen's "Try again" brings the article back, and the listeners must move to the new frame.
  */
-export function useSwipeBack(ref: RefObject<HTMLElement | null>, { enabled, onBack }: Opts): void {
+export function useSwipeBack(el: HTMLElement | null, { enabled, onBack }: Opts): void {
   const cb = useRef(onBack);
   useEffect(() => {
     cb.current = onBack;
   });
 
   useEffect(() => {
-    const el = ref.current;
     if (!enabled || !el) return;
     const tracker = new BackSwipe();
     const touches = new Set<number>();
@@ -116,5 +118,5 @@ export function useSwipeBack(ref: RefObject<HTMLElement | null>, { enabled, onBa
       el.style.transform = "";
       el.style.transition = "";
     };
-  }, [ref, enabled]);
+  }, [el, enabled]);
 }

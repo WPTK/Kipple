@@ -19,6 +19,7 @@ const (
 	groupLibrary  = "library"
 	groupImages   = "images"
 	groupAccount  = "account"
+	groupStats    = "stats"
 	groupAdvanced = "advanced"
 
 	surfaceReader   = "reader_menu" // the Kindle-style reading appearance menu
@@ -355,6 +356,12 @@ var settingDefs = withScopes([]settingDef{
 			}
 			return s, ""
 		}},
+
+	// Statistics.
+	{Key: "stats.enabled", Label: "Reading statistics", Description: "Record which articles you open and how long you read them. Turning this off stops recording new statistics; what is already recorded is kept.",
+		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
+	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day weekly statistics start on. This only changes how they are shown.",
+		Group: groupStats, Kind: "enum", Options: opts("sunday", "Sunday", "monday", "Monday"), Surface: surfaceSettings, check: oneOf("sunday", "monday")},
 
 	// Advanced: shown in an Advanced section of the Settings screen.
 	{Key: "fetch.honor_publisher_ttl", Label: "Follow publisher refresh hints", Description: "Wait longer between checks when a site asks readers not to check too often.",

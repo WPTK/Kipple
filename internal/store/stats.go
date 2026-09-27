@@ -26,6 +26,7 @@ type StatRow struct {
 	ItemURL      string
 	Value        sql.NullInt64
 	SessionKey   string // "" = NULL
+	EventID      string // client event id; "" = NULL
 }
 
 // StatSnapshot is the identity snapshotted into a stats row.
@@ -78,14 +79,16 @@ func StatItemSnapshot(ctx context.Context, q Querier, itemID int64) (s StatSnaps
 	return s, err == nil, err
 }
 
-// InsertStat appends a stats row.
+// InsertStat appends a stats row. A row whose event_id already exists is skipped (the unique
+// index is the backstop for a race the caller's StatEventSeen check cannot see).
 func InsertStat(ctx context.Context, q Querier, r StatRow) error {
 	_, err := q.ExecContext(ctx, `INSERT INTO stats_events
 		(ts, local_date, local_hour, local_weekday, kind, client, inferred, item_id, feed_id, feed_title,
-		 folder_id, folder_name, item_title, item_url, value, session_key)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 folder_id, folder_name, item_title, item_url, value, session_key, event_id)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT DO NOTHING`,
 		r.TS, r.LocalDate, r.LocalHour, r.LocalWeekday, r.Kind, r.Client, boolInt(r.Inferred), r.ItemID, r.FeedID, r.FeedTitle,
-		r.FolderID, r.FolderName, nullStr(r.ItemTitle), nullStr(r.ItemURL), r.Value, nullStr(r.SessionKey))
+		r.FolderID, r.FolderName, nullStr(r.ItemTitle), nullStr(r.ItemURL), r.Value, nullStr(r.SessionKey), nullStr(r.EventID))
 	return err
 }
 
@@ -139,4 +142,20 @@ func StatFeedSnapshot(ctx context.Context, q Querier, feedID int64) (s StatSnaps
 	err = q.QueryRowContext(ctx, `SELECT `+statFeedTitle+`, f.folder_id, fo.name
 		FROM feeds f LEFT JOIN folders fo ON fo.id = f.folder_id WHERE f.id = ?`, feedID).Scan(&s.FeedTitle, &s.FolderID, &s.FolderName)
 	return s, err
+}
+
+// StatsEnabled reads the stats.enabled setting (default true) through q. A failed read is an
+// error, never a silent "on" or "off": the caller's transaction fails and nothing is recorded.
+func StatsEnabled(ctx context.Context, q Querier) (bool, error) {
+	return settingBoolErr(ctx, q, "stats.enabled", true)
+}
+
+// StatEventSeen reports whether a row with this client event_id already exists.
+func StatEventSeen(ctx context.Context, q Querier, eventID string) (bool, error) {
+	var one int
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM stats_events WHERE event_id = ?`, eventID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }

@@ -7,7 +7,7 @@ import type { Bootstrap, Feed, Folder } from "./types";
 // ---- Settings -----------------------------------------------------------------
 
 export type SettingKind = "bool" | "enum" | "int" | "text" | "json";
-export type SettingGroup = "reading" | "sync" | "library" | "images" | "account" | "advanced";
+export type SettingGroup = "reading" | "sync" | "library" | "images" | "stats" | "account" | "advanced";
 export type SettingSurface = "reader_menu" | "settings" | "hidden";
 
 export interface SettingOption {

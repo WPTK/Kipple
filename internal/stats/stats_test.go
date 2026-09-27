@@ -152,3 +152,109 @@ func TestLedgerItemsRecordWithStubSnapshot(t *testing.T) {
 	require.NoError(t, r.db.Reader().QueryRow("SELECT item_title FROM stats_events WHERE item_id = 77").Scan(&title))
 	require.Equal(t, "Old one", title)
 }
+
+func (r *rig) setSetting(k string, v any) {
+	r.t.Helper()
+	require.NoError(r.t, r.db.SetSettings(context.Background(), map[string]any{k: v}))
+}
+
+func TestStatsDisabledRecordsNothing(t *testing.T) {
+	r := newRig(t)
+	require.NoError(t, r.record(Event{Kind: KindOpen, Client: "web", ItemID: itemID, SessionKey: "sk"}))
+	r.clk.Advance(30 * time.Second)
+	r.setSetting("stats.enabled", false)
+	for _, ev := range []Event{
+		{Kind: KindOpen, Client: "web", ItemID: itemID, SessionKey: "sk2"},
+		{Kind: KindReadTime, Client: "web", ItemID: itemID, SessionKey: "sk", Value: 10, HasValue: true},
+		{Kind: KindScroll, Client: "web", ItemID: itemID, SessionKey: "sk", Value: 10, HasValue: true},
+		{Kind: KindStar, Client: "web", ItemID: itemID},
+		{Kind: KindUnstar, Client: "web", ItemID: itemID},
+		{Kind: KindShare, Client: "web", ItemID: itemID},
+		{Kind: KindOpenOriginal, Client: "web", ItemID: itemID},
+	} {
+		require.Equal(t, ErrDropped, r.record(ev), ev.Kind)
+	}
+	require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		return r.rec.RecordStars(tx, KindStar, "reeder", []int64{itemID})
+	}))
+	require.Equal(t, 1, r.count("1 = 1"), "only the row from before the switch")
+
+	// Back on: recording resumes, and the old session is still valid.
+	r.setSetting("stats.enabled", nil)
+	require.NoError(t, r.record(Event{Kind: KindReadTime, Client: "web", ItemID: itemID, SessionKey: "sk", Value: 10, HasValue: true}))
+	require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		return r.rec.RecordStars(tx, KindStar, "reeder", []int64{itemID})
+	}))
+	require.Equal(t, 3, r.count("1 = 1"))
+}
+
+func TestEventIDDedup(t *testing.T) {
+	r := newRig(t)
+	require.NoError(t, r.record(Event{Kind: KindOpen, Client: "web", ItemID: itemID, SessionKey: "sk"}))
+	r.clk.Advance(30 * time.Second)
+	mk := func(kind, id string, v int64) Event {
+		return Event{Kind: kind, Client: "web", ItemID: itemID, SessionKey: "sk", Value: v, HasValue: true, EventID: id}
+	}
+	require.NoError(t, r.record(mk(KindReadTime, "evt-read-1", 10)))
+	require.Equal(t, ErrDropped, r.record(mk(KindReadTime, "evt-read-1", 10)), "same id")
+	require.Equal(t, ErrDropped, r.record(mk(KindReadTime, "evt-read-1", 5)), "same id, different value")
+	// A duplicate must not consume the cumulative cap: 10 + 15 = 25 <= 30 + 5 still fits.
+	require.NoError(t, r.record(mk(KindReadTime, "evt-read-2", 15)))
+	require.Equal(t, 2, r.count("kind = 'read_time'"))
+	// Ids are global across kinds and sessions.
+	require.Equal(t, ErrDropped, r.record(Event{Kind: KindShare, Client: "web", ItemID: itemID, EventID: "evt-read-1"}))
+	for _, k := range []string{KindShare, KindOpenOriginal} {
+		id := "evt-" + k + "-1"
+		require.NoError(t, r.record(Event{Kind: k, Client: "web", ItemID: itemID, EventID: id}))
+		require.Equal(t, ErrDropped, r.record(Event{Kind: k, Client: "web", ItemID: itemID, EventID: id}), k)
+		require.Equal(t, 1, r.count("kind = ?", k))
+	}
+	require.NoError(t, r.record(mk(KindScroll, "evt-scroll-1", 20)))
+	require.Equal(t, ErrDropped, r.record(mk(KindScroll, "evt-scroll-1", 90)))
+	require.Equal(t, 1, r.count("kind = 'scroll' AND value = 20 AND event_id = 'evt-scroll-1'"))
+	// No id: works as before, any number may coexist.
+	require.NoError(t, r.record(Event{Kind: KindShare, Client: "web", ItemID: itemID}))
+	require.NoError(t, r.record(Event{Kind: KindShare, Client: "web", ItemID: itemID}))
+	// A malformed id counts as absent: stored NULL, and repeats land.
+	for i := 0; i < 2; i++ {
+		require.NoError(t, r.record(Event{Kind: KindShare, Client: "web", ItemID: itemID, EventID: "short"}))
+		require.NoError(t, r.record(Event{Kind: KindShare, Client: "web", ItemID: itemID, EventID: "has space in it"}))
+	}
+	require.Equal(t, 0, r.count("event_id IN ('short', 'has space in it')"))
+	require.Equal(t, 1+6, r.count("kind = 'share' AND event_id IS NULL")+r.count("kind = 'share' AND event_id IS NOT NULL"))
+	// The unique index is the backstop: a raced duplicate insert is skipped, never an error.
+	require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		row := store.StatRow{TS: 1, LocalDate: "2026-01-01", Kind: KindShare, Client: "web", ItemID: itemID, FeedID: 1, FeedTitle: "F", EventID: "evt-race-01"}
+		if err := store.InsertStat(ctx, tx, row); err != nil {
+			return err
+		}
+		return store.InsertStat(ctx, tx, row)
+	}))
+	require.Equal(t, 1, r.count("event_id = 'evt-race-01'"))
+}
+
+func TestRecordManyBatch(t *testing.T) {
+	r := newRig(t)
+	require.NoError(t, r.record(Event{Kind: KindOpen, Client: "web", ItemID: itemID, SessionKey: "sk"}))
+	r.clk.Advance(30 * time.Second)
+	many := func(evs ...Event) {
+		require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+			return r.rec.RecordMany(tx, evs)
+		}))
+	}
+	rt := func(id string, v int64) Event {
+		return Event{Kind: KindReadTime, Client: "web", ItemID: itemID, SessionKey: "sk", Value: v, HasValue: true, EventID: id}
+	}
+	share := Event{Kind: KindShare, Client: "web", ItemID: itemID, EventID: "evt-share-1"}
+	// In-batch duplicates of every kind, an invalid event and a bad kind in the middle: all fine.
+	many(rt("evt-rt-001", 10), rt("evt-rt-001", 10), Event{Kind: "bogus", Client: "web", ItemID: itemID},
+		rt("evt-rt-002", 15), share, share, Event{Kind: KindShare, Client: "web", ItemID: 42})
+	require.Equal(t, 2, r.count("kind = 'read_time'"))
+	require.Equal(t, 1, r.count("kind = 'share'"))
+	many() // empty batch is a no-op
+
+	r.setSetting("stats.enabled", false)
+	many(rt("evt-rt-003", 1), Event{Kind: KindShare, Client: "web", ItemID: itemID})
+	require.Equal(t, 2, r.count("kind = 'read_time'"))
+	require.Equal(t, 1, r.count("kind = 'share'"))
+}

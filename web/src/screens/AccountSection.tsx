@@ -233,6 +233,8 @@ export function AccountActions() {
       toast(errorMessage(e), "error");
       return;
     }
+    // Clearing the cache ends any reading session (the setting reads unknown); one that stops after the wipe below
+    // is dropped by the stats sender, which queues nothing from the wipe until the next sign-in.
     qc.clear();
     // Wait for the copies to be gone before the sign-in screen: the next person at this browser must not be able
     // to read them offline, and a request answered meanwhile must not find them still there.

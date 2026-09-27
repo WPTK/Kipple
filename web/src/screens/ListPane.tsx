@@ -28,18 +28,10 @@ import { Button } from "@/ui/button";
 import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
 import { announce, toast } from "@/shell/toasts";
-import { openExternal } from "@/lib/links";
-import { safeHttpUrl } from "@/lib/safeUrl";
-import { copyLink, shareLink } from "@/lib/share";
+import { copyLink } from "@/lib/share";
+import { openOriginalAndRecord, shareAndRecord } from "@/lib/statsSender";
 import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { useWidth } from "@/lib/useWidth";
-import type { LinkTarget } from "@/lib/devicePrefs";
-
-/** Open an article's original page, only when its address is plain http or https (it comes from the feed). */
-function openOriginalUrl(url: string, target?: LinkTarget): void {
-  const safe = safeHttpUrl(url);
-  if (safe) openExternal(safe, target);
-}
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
 export const SCROLL_RETRY_MS = 30_000;
@@ -566,9 +558,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       toggleStar: (item) => void act.toggleStar(item),
       markAbove: (item) => range(item, "above"),
       markBelow: (item) => range(item, "below"),
-      openOriginal: (item) => openOriginalUrl(item.url),
+      openOriginal: (item) => void openOriginalAndRecord(item),
       copyLink: (item) => void copyLink(item.url),
-      share: (item) => void shareLink(item),
+      share: (item) => void shareAndRecord(item),
       muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedById.get(item.feed_id)?.title) }),
       restore: restoreRow,
       editRule: (item) => item.muted_by && openFilterEditor({ mode: "edit", id: item.muted_by }),
@@ -597,9 +589,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         openItem(selectedItem);
         navigate(articleTo(selectedItem.id, scope), { state: { via: "key" } });
       },
-      original: () => selectedItem && openOriginalUrl(selectedItem.url),
+      original: () => selectedItem && openOriginalAndRecord(selectedItem),
       // A background tab is a browser decision; window.open is the best a page can do.
-      background: () => selectedItem && openOriginalUrl(selectedItem.url, "new"),
+      background: () => selectedItem && openOriginalAndRecord(selectedItem, "new"),
       star: () => {
         const t = targets();
         if (t.length === 0) return;

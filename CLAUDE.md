@@ -8,8 +8,9 @@ not localhost, name compose services explicitly).
 
 - **Stack:** Go backend, React + TypeScript + Vite + Tailwind + shadcn frontend, SQLite in WAL
   mode. Frontend build is embedded in the Go binary. One image, one container, one port.
-- **Sync API:** Google Reader API (FreshRSS/Miniflux flavor) only. **No Fever.** Primary client
-  Reeder Classic, secondary NetNewsWire. Test against both.
+- **Sync API:** Google Reader API (FreshRSS/Miniflux flavor) only. **No Fever.** The web app is the
+  intended and preferred client (reading stats are web-only). Reeder Classic and NetNewsWire are supported
+  secondary clients: test against both.
 - **Refresh:** background poll every 30 min (global + per-feed override), ETag/Last-Modified
   conditional requests, exponential backoff on failing feeds, manual refresh fetches all now.
   API clients never trigger fetches of existing feeds (the Reader API has no refresh-all call; if a client ever sends one, it is ignored); a feed added from a client is fetched on the next scheduler tick, which the add brings forward (the one opt-in exception is the setting `greader.subscribe_fetch_now`, default off: a bounded 8 s wait for the first fetch).
@@ -28,7 +29,7 @@ not localhost, name compose services explicitly).
   brown=Cocoa Kraft, dark=Graphite, OLED=Midnight.
 - **Look:** Feedly is the reference (magazine/cards with images up front). Not NewsBlur,
   FreshRSS or Miniflux.
-- **Non-goals:** no AI features, no notifications, no social, no monitoring, no multi-user. Per-device appearance profiles (one account, many browsers) are not multi-user.
+- **Non-goals:** no AI features, no notifications, no social (no other people's data, no comparisons; an opt-in share of the reader's own yearly summary, Wrapped, is allowed), no monitoring, no multi-user. Per-device appearance profiles (one account, many browsers) are not multi-user.
 
 ## Layout
 

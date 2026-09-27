@@ -53,6 +53,7 @@ const GROUPS: { id: SettingGroup; title: string }[] = [
   { id: "sync", title: "Sync" },
   { id: "library", title: "Library" },
   { id: "images", title: "Images" },
+  { id: "stats", title: "Statistics" },
 ];
 
 /** Number settings that get a row of presets ("Custom" opens the stepper). Everything else is drawn from the metadata alone. */

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
@@ -97,12 +97,37 @@ describe("row collapse in the Unread view", () => {
     });
     const { container } = go("/l/unread");
     await screen.findByText("Article number 1");
-    const user = userEvent.setup();
-    await user.keyboard("{Shift>}A{/Shift}");
-    await waitFor(() => expect(container.querySelector('.kp-row[data-leaving="true"]')).not.toBeNull());
-    await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull());
-    expect(screen.queryByText("Article number 2")).toBeNull();
-    expect(container.querySelector('.kp-row[data-leaving="true"]')).toBeNull();
+    // Mark-all hides at once: the row is "leaving" for only COLLAPSE_MS (180 ms). A real-time waitFor poll can miss that short
+    // window when the machine is loaded (both timers fire in one starved slice), so the clock is faked from here
+    // and stepped by hand: 50 ms steps can never skip over the 180 ms leaving state.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const step = async (ms: number) => {
+        await act(async () => {
+          vi.advanceTimersByTime(ms);
+          await Promise.resolve();
+        });
+      };
+      const leaving = () => container.querySelector('.kp-row[data-leaving="true"]');
+      // fireEvent, not userEvent: user-event's async wrapper waits on a real setTimeout, which is faked here.
+      await act(async () => {
+        fireEvent.keyDown(document.body, { key: "A", code: "KeyA", shiftKey: true });
+      });
+      let waited = 0;
+      while (!leaving() && waited < 5000) {
+        await step(50);
+        waited += 50;
+        await new Promise<void>((r) => setImmediate(r));
+      }
+      expect(leaving()).not.toBeNull();
+      expect(screen.getByText("Article number 1")).toBeInTheDocument();
+      await step(200);
+      expect(screen.queryByText("Article number 1")).toBeNull();
+      expect(screen.queryByText("Article number 2")).toBeNull();
+      expect(leaving()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

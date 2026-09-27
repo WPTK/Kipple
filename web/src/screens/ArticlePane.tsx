@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { DropdownMenu } from "radix-ui";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Share2, Star } from "lucide-react";
@@ -9,7 +9,7 @@ import { enhanceEmbeds, handleArticleClick } from "@/lib/articleDom";
 import { useItemActions } from "@/lib/itemActions";
 import { articleTo, listTo } from "@/lib/routes";
 import { sanitizeArticleHtml } from "@/lib/safeHtml";
-import { openExternal, resolveLinkTarget } from "@/lib/links";
+import { resolveLinkTarget } from "@/lib/links";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { ARTICLE_WIDTH_REM, useDevicePrefs } from "@/lib/devicePrefs";
 import { fullDate } from "@/lib/format";
@@ -17,7 +17,7 @@ import { useHotkeys } from "@/lib/keys";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
-import { shareLink } from "@/lib/share";
+import { openOriginalAndRecord, shareAndRecord, useReadingStats, useStatsEnabled } from "@/lib/statsSender";
 import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { clearMarks, wrapMarks } from "@/lib/highlight";
 import { Hl, useGroups } from "@/lib/useHighlights";
@@ -116,8 +116,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   };
 
   const openOriginal = () => {
-    const url = safeHttpUrl(item.data?.url);
-    if (url) openExternal(url);
+    if (item.data) openOriginalAndRecord({ id, url: item.data.url });
   };
   const toggleStar = () => {
     if (!item.data) return;
@@ -130,7 +129,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     void act.toggleRead(item.data, "key");
   };
   const share = () => {
-    if (item.data) void shareLink(item.data);
+    if (!item.data) return;
+    void shareAndRecord({ id, title: item.data.title, url: item.data.url });
   };
   const muteSimilar = () => {
     if (item.data) openFilterEditor({ mode: "create", seed: similarSeed(item.data, item.data.feed.title) });
@@ -163,14 +163,35 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     if (item.data && !pane) headingRef.current?.focus({ preventScroll: true });
   }, [item.data?.id, pane]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const scroller = useRef<HTMLDivElement>(null);
+  // The scroller and the pane frame are kept as elements too (callback refs into state): the error screen has
+  // neither, and "Try again" brings new ones, so the reading session must follow the element, not a stale ref.
+  const scroller = useRef<HTMLDivElement | null>(null);
+  const [scrollerEl, setScrollerEl] = useState<HTMLDivElement | null>(null);
+  const scrollerRef = useCallback((el: HTMLDivElement | null) => {
+    scroller.current = el;
+    setScrollerEl(el);
+  }, []);
   useEffect(() => {
     scroller.current?.scrollTo({ top: 0 });
   }, [id]);
 
-  // Right-swipe from the body (not the left 24 px) pops to the list you came from.
-  const frame = useRef<HTMLDivElement>(null);
-  useSwipeBack(frame, { enabled: !pane && !!item.data, onBack: back });
+  // Right-swipe from the body (not the left 24 px) pops to the list you came from. The element, not a ref: after
+  // "Try again" the frame is a new element and the gesture must move to it.
+  const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
+  const frameRef = useCallback((el: HTMLDivElement | null) => setFrameEl(el), []);
+  useSwipeBack(frameEl, { enabled: !pane && !!item.data, onBack: back });
+
+  // Reading stats (design 8, rule 5): one session per open, keyed by the open's answer. Only this article's own
+  // open counts: a result left over from the previous article in the wide pane has another id. Activity counts only
+  // inside this pane (never over the list beside it).
+  const statsOn = useStatsEnabled();
+  useReadingStats({
+    itemId: id,
+    sessionKey: open.data && open.variables?.id === id ? open.data.session_key : "",
+    enabled: statsOn,
+    scroller: scrollerEl,
+    pane: frameEl,
+  });
 
   // Embed placeholders get a real Play button once the HTML is in the DOM.
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -221,7 +242,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const ftBusy = fulltext.isPending && fulltext.variables?.id === id;
 
   return (
-    <div ref={frame} className="flex h-full min-h-0 flex-col bg-bg">
+    <div ref={frameRef} className="flex h-full min-h-0 flex-col bg-bg">
       {!pane && <TopBar onBack={back} />}
       {pane && (
         <Toolbar
@@ -241,7 +262,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           onMuteSimilar={muteSimilar}
         />
       )}
-      <div ref={scroller} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+      <div ref={scrollerRef} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <article className="px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title" style={{ "--kp-col": columnWidth(dp.articleWidth) } as CSSProperties}>
           <header className="mx-auto mb-5 max-w-[min(var(--kp-col),100%)]">
             <p className="text-sm text-fg2">
