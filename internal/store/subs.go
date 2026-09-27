@@ -31,7 +31,7 @@ func (d *DB) Subscriptions(ctx context.Context) ([]Subscription, error) {
 		SELECT f.id, COALESCE(f.custom_title, f.title), f.url, f.site_url, fo.name, COALESCE(fi.hash, '')
 		FROM feeds f JOIN folders fo ON fo.id = f.folder_id
 		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
-		WHERE f.disabled_reason IS NOT 'archive' OR EXISTS (SELECT 1 FROM items WHERE feed_id = f.id)
+		WHERE (f.disabled_reason IS NOT 'archive' OR EXISTS (SELECT 1 FROM items WHERE feed_id = f.id)) AND `+notDeletingSQL+`
 		ORDER BY fo.position, fo.name, f.position, COALESCE(f.custom_title, f.title)`)
 	if err != nil {
 		return nil, err
@@ -512,12 +512,18 @@ func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) error
 			if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ? WHERE folder_id = ?", target, oldID); err != nil {
 				return err
 			}
+			// A rename that merges folders keeps the old folder's filters: they
+			// follow its feeds to the target instead of cascading away with it.
+			if _, err := tx.ExecContext(ctx, `UPDATE filters SET folder_id = ? WHERE folder_id = ?
+				AND EXISTS (SELECT 1 FROM folders WHERE id = ? AND is_default = 0)`, target, oldID, oldID); err != nil {
+				return err
+			}
 			res, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", oldID)
 			if err != nil {
 				return err
 			}
 			if n, _ := res.RowsAffected(); n > 0 {
-				d.bumpFilters() // the folder's filters cascade away
+				d.bumpFilters() // the folder's filters moved to the target
 				return dropFavorite(ctx, tx, FavFolder, oldID)
 			}
 			return nil
@@ -568,6 +574,7 @@ func (d *DB) UnreadCounts(ctx context.Context, holdCut int64) ([]UnreadRow, erro
 		SELECT u.feed_id, fo.name, u.n, u.newest
 		FROM (SELECT feed_id, count(*) AS n, max(id) AS newest FROM items WHERE read = 0`+held+` GROUP BY feed_id) u
 		JOIN feeds f ON f.id = u.feed_id JOIN folders fo ON fo.id = f.folder_id
+		WHERE `+notDeletingSQL+`
 		ORDER BY fo.position, fo.name, f.position, u.feed_id`, args...)
 	if err != nil {
 		return nil, err

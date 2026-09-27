@@ -177,7 +177,7 @@ type UIFeed struct {
 // UIFeeds lists feeds in display order. The archive feed is listed only while
 // it holds items.
 func (d *DB) UIFeeds(ctx context.Context, env StatusEnv) ([]UIFeed, error) {
-	return d.uiFeeds(ctx, env, "f.disabled_reason IS NOT 'archive' OR EXISTS (SELECT 1 FROM items WHERE feed_id = f.id)")
+	return d.uiFeeds(ctx, env, "(f.disabled_reason IS NOT 'archive' OR EXISTS (SELECT 1 FROM items WHERE feed_id = f.id)) AND "+notDeletingSQL)
 }
 
 // uiFeeds runs the feed list query with a WHERE condition.

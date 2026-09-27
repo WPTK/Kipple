@@ -241,6 +241,11 @@ const maxInt64 = int64(^uint64(0) >> 1)
 // document again as new unread items under new ids.
 const deletingURLPrefix = "kipple:deleting:"
 
+// notDeletingSQL keeps a feed marked for deletion out of the feed lists (the
+// web bootstrap, Reader API subscription/list and unread-count): it is gone as
+// far as the reader is concerned while its items are purged.
+const notDeletingSQL = "f.url NOT LIKE '" + deletingURLPrefix + "%'"
+
 // markFeedsDeleting applies step 1 to ids inside tx. The archive feed (never
 // fetched) and ids that are gone are left alone; a feed already marked stays
 // marked.
