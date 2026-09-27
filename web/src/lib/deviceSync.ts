@@ -3,7 +3,7 @@ import type { DeviceView } from "@/api/types";
 import { announce } from "@/shell/toasts";
 import { isSchemeId } from "@/theme/schemes";
 import { themeStore } from "@/theme/theme";
-import { DEFAULT_THEME_SETTINGS, THEME_STORAGE_KEY, parseThemeSettings } from "@/theme/settings";
+import { DEFAULT_THEME_SETTINGS, THEME_STORAGE_KEY, isClockTime, parseThemeSettings } from "@/theme/settings";
 import type { ThemeSettings } from "@/theme/settings";
 import { FONTS } from "./fonts";
 import {
@@ -71,9 +71,11 @@ export function profileOf(l: LocalState): Profile {
   const { theme, prefs: p, dp } = l;
   const font = FONTS.find((f) => f.id === p.font)?.server ?? "";
   return {
-    "ui.theme": theme.mode === "follow" ? "system" : theme.fixed,
+    "ui.theme": theme.mode === "follow" ? "system" : theme.mode === "schedule" ? "schedule" : theme.fixed,
     "ui.theme_day": theme.day,
     "ui.theme_night": theme.night,
+    "ui.theme_night_start": theme.nightStart,
+    "ui.theme_day_start": theme.dayStart,
     "ui.font_body": font,
     "ui.list_density": p.listDensity,
     "ui.reading_density": p.readingDensity,
@@ -110,12 +112,15 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
   const t = g("ui.theme");
   const theme: ThemeSettings = { ...cur.theme };
   if (t === "system" || t === undefined) theme.mode = "follow";
+  else if (t === "schedule") theme.mode = "schedule";
   else if (typeof t === "string" && isSchemeId(t)) {
     theme.mode = "fixed";
     theme.fixed = t;
   }
   if (isSchemeId(g("ui.theme_day"))) theme.day = g("ui.theme_day") as string;
   if (isSchemeId(g("ui.theme_night"))) theme.night = g("ui.theme_night") as string;
+  if (isClockTime(g("ui.theme_night_start"))) theme.nightStart = g("ui.theme_night_start") as string;
+  if (isClockTime(g("ui.theme_day_start"))) theme.dayStart = g("ui.theme_day_start") as string;
 
   const fontName = g("ui.font_body");
   const fontId = typeof fontName === "string" ? FONTS.find((f) => (f.server ?? null) === fontName)?.id : undefined;
@@ -439,7 +444,8 @@ function legacyProfileKeys(): Set<string> {
     const d = defaults as Record<string, unknown>;
     if (o) for (const f of Object.keys(o)) if (!(f in d) || JSON.stringify(o[f]) !== JSON.stringify(d[f])) for (const k of map[f] ?? []) out.add(k);
   };
-  add(read("kipple.theme.v1"), { mode: ["ui.theme"], fixed: ["ui.theme"], day: ["ui.theme_day"], night: ["ui.theme_night"] }, DEFAULT_THEME_SETTINGS);
+  add(read("kipple.theme.v1"), { mode: ["ui.theme"], fixed: ["ui.theme"], day: ["ui.theme_day"], night: ["ui.theme_night"],
+    nightStart: ["ui.theme_night_start"], dayStart: ["ui.theme_day_start"] }, DEFAULT_THEME_SETTINGS);
   const p = read(PREFS_KEY);
   add(p, {
     font: ["ui.font_body"], textSize: ["client.text_size"], listDensity: ["ui.list_density"], readingDensity: ["ui.reading_density"],

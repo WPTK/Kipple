@@ -5,6 +5,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/cn";
 import { DEFAULT_DAY, DEFAULT_NIGHT, schemeById, type Scheme } from "./schemes";
 import { useAllowedSchemes } from "./serverThemes";
+import { isClockTime } from "./settings";
 import { themeStore, updateTheme } from "./theme";
 
 const GROUP_LABEL: Record<Scheme["group"], string> = {
@@ -85,10 +86,78 @@ function SchemeSelect({ label, value, onChange, schemes }: { label: string; valu
   );
 }
 
+/** A clock time ("HH:MM") in the reader's own format, e.g. 9:00 PM or 21:00. */
+function formatClock(t: string): string {
+  const d = new Date(2000, 0, 1, Number(t.slice(0, 2)), Number(t.slice(3, 5)));
+  try {
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  } catch {
+    return t;
+  }
+}
+
+/** A day/night pair entry (Follow system, On a schedule): a split swatch of the two picks. */
+function PairOption({ title, detail, day, night, checked, onSelect }: { title: string; detail: string; day: string; night: string; checked: boolean; onSelect: () => void }) {
+  return (
+    <label
+      className={cn(
+        "relative flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border p-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent",
+        checked ? "border-accent bg-selection" : "border-line bg-surface hover:bg-selection",
+      )}
+    >
+      <input type="radio" name="theme" className="sr-only-live" checked={checked} onChange={onSelect} />
+      <span aria-hidden="true" className="flex size-11 shrink-0 overflow-hidden rounded-lg border border-line">
+        <span className="flex-1" style={{ background: schemeById(day).tokens.bg }} />
+        <span className="flex-1" style={{ background: schemeById(night).tokens.bg }} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">{title}</span>
+        <span className="block text-xs text-fg2">{detail}</span>
+      </span>
+    </label>
+  );
+}
+
 /**
- * Follow system is the first entry (default pair Paper by day, Midnight by
- * night; both pickers accept any scheme). A short featured list sits on top,
- * the rest under "More themes", and the accessibility group is collapsed.
+ * A 24-hour "HH:MM" time field. The draft is local so a half-typed time is not snapped back; only a complete time
+ * is saved, and leaving the field with anything else restores the saved time.
+ */
+function TimeField({ label, value, onChange }: { label: string; value: string; onChange: (t: string) => void }) {
+  const id = useId();
+  const [draft, setDraft] = useState(value);
+  // A change from elsewhere (another tab, the server) replaces the draft; adjusted during render, not in an effect.
+  const [seen, setSeen] = useState(value);
+  if (seen !== value) {
+    setSeen(value);
+    setDraft(value);
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className="text-sm font-medium">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="time"
+        required
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          if (isClockTime(e.target.value)) onChange(e.target.value);
+        }}
+        onBlur={() => {
+          if (!isClockTime(draft)) setDraft(value);
+        }}
+        className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg"
+      />
+    </div>
+  );
+}
+
+/**
+ * Follow system and On a schedule are the first entries (default pair Paper by day, Midnight by night; both
+ * pickers accept any scheme, and both modes share them). The schedule switches at two local times of day. A short
+ * featured list sits after them, the rest under "More themes", and the accessibility group is collapsed.
  */
 export function ThemePicker() {
   const stored = useStore(themeStore);
@@ -114,39 +183,49 @@ export function ThemePicker() {
   const [moreOpen, setMoreOpen] = useState(inMore);
   const [accessOpen, setAccessOpen] = useState(inAccess);
   const pick = (id: string) => updateTheme({ mode: "fixed", fixed: id });
+  const dayName = schemeById(t.day).name;
+  const nightName = schemeById(t.night).name;
 
   return (
     <fieldset className="min-w-0">
       <legend className="mb-2 text-sm font-semibold">Theme</legend>
       {fellBack ? <p className="mb-2 text-xs text-fg2">The theme this device had is no longer offered, so the default is shown.</p> : null}
       <div className="grid grid-cols-2 gap-2">
-        <label
-          className={cn(
-            "relative flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border p-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent",
-            t.mode === "follow" ? "border-accent bg-selection" : "border-line bg-surface hover:bg-selection",
-          )}
-        >
-          <input type="radio" name="theme" className="sr-only-live" checked={t.mode === "follow"} onChange={() => updateTheme({ mode: "follow" })} />
-          <span aria-hidden="true" className="flex size-11 shrink-0 overflow-hidden rounded-lg border border-line">
-            <span className="flex-1" style={{ background: schemeById(t.day).tokens.bg }} />
-            <span className="flex-1" style={{ background: schemeById(t.night).tokens.bg }} />
-          </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-medium">Follow system</span>
-            <span className="block text-xs text-fg2">
-              {schemeById(t.day).name} by day, {schemeById(t.night).name} by night
-            </span>
-          </span>
-        </label>
+        <PairOption
+          title="Follow system"
+          detail={`${dayName} by day, ${nightName} by night`}
+          day={t.day}
+          night={t.night}
+          checked={t.mode === "follow"}
+          onSelect={() => updateTheme({ mode: "follow" })}
+        />
+        <PairOption
+          title="On a schedule"
+          detail={`${nightName} from ${formatClock(t.nightStart)} to ${formatClock(t.dayStart)}`}
+          day={t.day}
+          night={t.night}
+          checked={t.mode === "schedule"}
+          onSelect={() => updateTheme({ mode: "schedule" })}
+        />
         {featured.map((s) => (
           <Option key={s.id} s={s} checked={t.mode === "fixed" && t.fixed === s.id} onSelect={() => pick(s.id)} />
         ))}
       </div>
 
-      {t.mode === "follow" ? (
+      {t.mode !== "fixed" ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
           <SchemeSelect label="Day theme" value={t.day} onChange={(id) => updateTheme({ day: id })} schemes={schemes} />
           <SchemeSelect label="Night theme" value={t.night} onChange={(id) => updateTheme({ night: id })} schemes={schemes} />
+          {t.mode === "schedule" ? (
+            <>
+              <TimeField label="Day starts" value={t.dayStart} onChange={(dayStart) => updateTheme({ dayStart })} />
+              <TimeField label="Night starts" value={t.nightStart} onChange={(nightStart) => updateTheme({ nightStart })} />
+              <p className="col-span-2 text-xs text-fg2">
+                {t.dayStart === t.nightStart ? "Day and night start at the same time, so the day theme stays on. " : ""}
+                Uses this device&rsquo;s clock, whatever its light or dark setting.
+              </p>
+            </>
+          ) : null}
         </div>
       ) : null}
 

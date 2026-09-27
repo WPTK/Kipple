@@ -1,10 +1,22 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, beforeEach, vi } from "vitest";
 import { contrast, deltaE, mixHex } from "./contrast";
 import { SCHEMES, schemeById } from "./schemes";
-import { DEFAULT_THEME_SETTINGS, parseThemeSettings, resolveTheme, THEME_STORAGE_KEY, type ThemeSettings } from "./settings";
+import {
+  DEFAULT_THEME_SETTINGS,
+  isClockTime,
+  isNightAt,
+  msUntilNextSwitch,
+  parseThemeSettings,
+  resolveTheme,
+  THEME_STORAGE_KEY,
+  type ThemeSettings,
+} from "./settings";
 import { bootScript, themesCss } from "./css";
-import { applyTheme } from "./theme";
+import { applyTheme, initTheme, SCHEDULE_RECHECK_MS, themeStore } from "./theme";
+
+const at = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+const base: ThemeSettings = { ...DEFAULT_THEME_SETTINGS };
 
 describe("resolveTheme", () => {
   it("follow-system defaults to Paper by day and Midnight by night", () => {
@@ -13,15 +25,100 @@ describe("resolveTheme", () => {
   });
 
   it("custom pair: any scheme may be day or night, regardless of kind", () => {
-    const s: ThemeSettings = { mode: "follow", fixed: "paper", day: "inkwell", night: "linen" };
+    const s: ThemeSettings = { ...base, mode: "follow", day: "inkwell", night: "linen" };
     expect(resolveTheme(s, false)).toBe("inkwell"); // a dark scheme by day
     expect(resolveTheme(s, true)).toBe("linen"); // a light scheme by night
   });
 
   it("fixed mode ignores the OS setting", () => {
-    const s: ThemeSettings = { mode: "fixed", fixed: "fountain", day: "paper", night: "midnight" };
+    const s: ThemeSettings = { ...base, mode: "fixed", fixed: "fountain" };
     expect(resolveTheme(s, false)).toBe("fountain");
     expect(resolveTheme(s, true)).toBe("fountain");
+  });
+
+  it("schedule mode follows the clock and ignores the OS setting", () => {
+    const s: ThemeSettings = { ...base, mode: "schedule", day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" };
+    for (const dark of [false, true]) {
+      expect(resolveTheme(s, dark, at("12:00"))).toBe("linen");
+      expect(resolveTheme(s, dark, at("23:30"))).toBe("carbon");
+      expect(resolveTheme(s, dark, at("03:00"))).toBe("carbon");
+    }
+  });
+
+  it("follow and fixed modes ignore the time of day", () => {
+    for (const m of [0, at("12:00"), at("23:59")]) {
+      expect(resolveTheme({ ...base, mode: "follow" }, false, m)).toBe("paper");
+      expect(resolveTheme({ ...base, mode: "fixed", fixed: "tissue" }, true, m)).toBe("tissue");
+    }
+  });
+});
+
+describe("isNightAt", () => {
+  it("a window that crosses midnight (21:00 to 07:00): starts inclusive, ends exclusive", () => {
+    const night = (t: string) => isNightAt("21:00", "07:00", at(t));
+    expect(night("20:59")).toBe(false);
+    expect(night("21:00")).toBe(true);
+    expect(night("23:59")).toBe(true);
+    expect(night("00:00")).toBe(true);
+    expect(night("06:59")).toBe(true);
+    expect(night("07:00")).toBe(false);
+    expect(night("12:00")).toBe(false);
+  });
+
+  it("a window inside one day (01:00 to 06:00)", () => {
+    const night = (t: string) => isNightAt("01:00", "06:00", at(t));
+    expect(night("00:59")).toBe(false);
+    expect(night("01:00")).toBe(true);
+    expect(night("05:59")).toBe(true);
+    expect(night("06:00")).toBe(false);
+    expect(night("23:00")).toBe(false);
+  });
+
+  it("night starting at midnight and day at midnight", () => {
+    expect(isNightAt("00:00", "07:00", at("00:00"))).toBe(true);
+    expect(isNightAt("00:00", "07:00", at("23:59"))).toBe(false);
+    expect(isNightAt("20:00", "00:00", at("23:59"))).toBe(true);
+    expect(isNightAt("20:00", "00:00", at("00:00"))).toBe(false);
+    expect(isNightAt("20:00", "00:00", at("19:59"))).toBe(false);
+  });
+
+  it("equal times mean no night: the day theme stays all day", () => {
+    for (const t of ["00:00", "08:00", "08:01", "23:59"]) expect(isNightAt("08:00", "08:00", at(t))).toBe(false);
+  });
+
+  it("a one-minute night", () => {
+    expect(isNightAt("23:59", "00:00", at("23:59"))).toBe(true);
+    expect(isNightAt("23:59", "00:00", at("00:00"))).toBe(false);
+    expect(isNightAt("23:59", "00:00", at("23:58"))).toBe(false);
+  });
+});
+
+describe("isClockTime", () => {
+  it("accepts 24-hour HH:MM from 00:00 to 23:59 only", () => {
+    for (const t of ["00:00", "07:05", "19:30", "23:59"]) expect(isClockTime(t)).toBe(true);
+    for (const t of ["24:00", "7:00", "07:60", "07:00:00", "0700", "", " 07:00", "ab:cd", 700, null, undefined]) expect(isClockTime(t)).toBe(false);
+  });
+});
+
+describe("msUntilNextSwitch", () => {
+  const s = { nightStart: "21:00", dayStart: "07:00" };
+  const local = (h: number, m: number, sec = 0) => new Date(2026, 8, 27, h, m, sec);
+
+  it("counts to the nearer of the two switches", () => {
+    expect(msUntilNextSwitch(s, local(12, 0))).toBe(9 * 3600_000);
+    expect(msUntilNextSwitch(s, local(22, 0))).toBe(9 * 3600_000); // to 07:00 tomorrow
+    expect(msUntilNextSwitch(s, local(6, 59, 30))).toBe(30_000);
+  });
+
+  it("a switch exactly now counts as passed: the next one is the other boundary", () => {
+    expect(msUntilNextSwitch(s, local(21, 0))).toBe(10 * 3600_000);
+    expect(msUntilNextSwitch(s, local(7, 0))).toBe(14 * 3600_000);
+  });
+
+  it("equal times: one day away at most, never zero", () => {
+    const same = { nightStart: "08:00", dayStart: "08:00" };
+    expect(msUntilNextSwitch(same, local(8, 0))).toBe(24 * 3600_000);
+    expect(msUntilNextSwitch(same, local(7, 0))).toBe(3600_000);
   });
 });
 
@@ -32,6 +129,21 @@ describe("parseThemeSettings", () => {
     expect(parseThemeSettings(JSON.stringify({ mode: "fixed", fixed: "fern", day: "nope", night: 3 }))).toEqual({
       ...DEFAULT_THEME_SETTINGS,
       mode: "fixed",
+    });
+    expect(parseThemeSettings(JSON.stringify({ mode: "sunset", nightStart: "25:00", dayStart: 7 }))).toEqual(DEFAULT_THEME_SETTINGS);
+  });
+
+  it("keeps a schedule and its times; a cache from before the schedule gets the default times", () => {
+    expect(parseThemeSettings(JSON.stringify({ ...base, mode: "schedule", nightStart: "22:15", dayStart: "06:45" }))).toEqual({
+      ...base,
+      mode: "schedule",
+      nightStart: "22:15",
+      dayStart: "06:45",
+    });
+    expect(parseThemeSettings(JSON.stringify({ mode: "follow", fixed: "paper", day: "linen", night: "carbon" }))).toEqual({
+      ...base,
+      day: "linen",
+      night: "carbon",
     });
   });
 });
@@ -144,14 +256,38 @@ describe("meta theme-color and the boot script", () => {
     expect(metas[0]?.content).toBe("#13284f");
   });
 
-  const cases: { stored: ThemeSettings | null; dark: boolean }[] = [
+  afterEach(() => {
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+
+  const sched = (nightStart: string, dayStart: string): ThemeSettings => ({ ...base, mode: "schedule", day: "linen", night: "carbon", nightStart, dayStart });
+  const cases: { stored: ThemeSettings | object | null; dark: boolean; clock?: string }[] = [
     { stored: null, dark: false },
     { stored: null, dark: true },
-    { stored: { mode: "fixed", fixed: "teletype", day: "paper", night: "midnight" }, dark: false },
-    { stored: { mode: "follow", fixed: "paper", day: "directory", night: "fountain" }, dark: false },
+    { stored: { ...base, mode: "fixed", fixed: "teletype" }, dark: false },
+    { stored: { ...base, mode: "follow", day: "directory", night: "fountain" }, dark: false },
+    { stored: { ...base, mode: "follow", day: "directory", night: "fountain" }, dark: true },
+    // A cache written before the schedule existed (no times).
     { stored: { mode: "follow", fixed: "paper", day: "directory", night: "fountain" }, dark: true },
+    { stored: sched("21:00", "07:00"), dark: true, clock: "12:00" },
+    { stored: sched("21:00", "07:00"), dark: false, clock: "21:00" },
+    { stored: sched("21:00", "07:00"), dark: false, clock: "20:59" },
+    { stored: sched("21:00", "07:00"), dark: false, clock: "00:00" },
+    { stored: sched("21:00", "07:00"), dark: false, clock: "06:59" },
+    { stored: sched("21:00", "07:00"), dark: true, clock: "07:00" },
+    { stored: sched("01:00", "06:00"), dark: false, clock: "03:00" },
+    { stored: sched("01:00", "06:00"), dark: false, clock: "23:00" },
+    { stored: sched("08:00", "08:00"), dark: false, clock: "08:00" },
+    // Bad times fall back to the defaults (21:00 to 07:00) in both.
+    { stored: { ...sched("9pm", "25:00") }, dark: false, clock: "22:00" },
+    { stored: { ...sched("9pm", "25:00") }, dark: false, clock: "08:00" },
   ];
-  it.each(cases)("boot script matches resolveTheme: %j", ({ stored, dark }) => {
+  it.each(cases)("boot script matches resolveTheme: %j", ({ stored, dark, clock }) => {
+    if (clock) {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(2026, 8, 27, Number(clock.slice(0, 2)), Number(clock.slice(3, 5)), 30));
+    }
     if (stored) localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(stored));
     window.matchMedia = ((q: string) => ({ matches: dark && q.includes("dark"), media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
     document.documentElement.removeAttribute("data-theme");
@@ -168,5 +304,59 @@ describe("meta theme-color and the boot script", () => {
     localStorage.setItem(THEME_STORAGE_KEY, "{{{");
     new Function(bootScript())();
     expect(document.documentElement.dataset.theme).toBe("paper");
+  });
+});
+
+describe("initTheme on a schedule", () => {
+  let stop: (() => void) | undefined;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+  });
+  afterEach(() => {
+    stop?.();
+    stop = undefined;
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS });
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+  const theme = () => document.documentElement.dataset.theme;
+
+  it("switches to the night theme at the start time and back at the day time, with no reload", () => {
+    vi.setSystemTime(new Date(2026, 8, 27, 20, 58));
+    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" });
+    stop = initTheme();
+    expect(theme()).toBe("linen");
+    vi.advanceTimersByTime(60_000);
+    expect(theme()).toBe("linen"); // 20:59
+    vi.advanceTimersByTime(61_000);
+    expect(theme()).toBe("carbon"); // just past 21:00
+    vi.advanceTimersByTime(10 * 3600_000);
+    expect(theme()).toBe("linen"); // past 07:00 the next morning
+  });
+
+  it("re-arms when the times change, and stops when the mode leaves the schedule", () => {
+    vi.setSystemTime(new Date(2026, 8, 27, 12, 0));
+    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon" });
+    stop = initTheme();
+    expect(theme()).toBe("linen");
+    themeStore.set((s) => ({ ...s, nightStart: "11:00", dayStart: "13:00" }));
+    expect(theme()).toBe("carbon");
+    themeStore.set((s) => ({ ...s, mode: "follow" }));
+    expect(theme()).toBe("linen");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("never sleeps longer than the recheck interval, and a tab coming back re-checks the clock", () => {
+    vi.setSystemTime(new Date(2026, 8, 27, 8, 0));
+    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" });
+    stop = initTheme();
+    expect(vi.getTimerCount()).toBe(1);
+    expect(SCHEDULE_RECHECK_MS).toBeLessThanOrEqual(15 * 60_000);
+    // The device slept: the clock jumps past 21:00 without the timer firing.
+    vi.setSystemTime(new Date(2026, 8, 27, 22, 0));
+    expect(theme()).toBe("linen");
+    window.dispatchEvent(new Event("focus"));
+    expect(theme()).toBe("carbon");
   });
 });

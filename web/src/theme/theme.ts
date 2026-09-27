@@ -1,6 +1,6 @@
 import { createStore } from "@/lib/store";
 import { schemeById } from "./schemes";
-import { loadThemeSettings, resolveTheme, saveThemeSettings, type ThemeSettings } from "./settings";
+import { loadThemeSettings, msUntilNextSwitch, resolveTheme, saveThemeSettings, type ThemeSettings } from "./settings";
 
 export const themeStore = createStore<ThemeSettings>(loadThemeSettings());
 
@@ -14,7 +14,7 @@ export function systemPrefersDark(): boolean {
   }
 }
 
-/** The scheme currently showing (resolved from settings and the OS). */
+/** The scheme currently showing (resolved from settings, the OS and, on a schedule, the local time). */
 export function currentThemeId(): string {
   return resolveTheme(themeStore.get(), systemPrefersDark());
 }
@@ -40,9 +40,24 @@ export function updateTheme(patch: Partial<ThemeSettings>): void {
   themeStore.set((s) => ({ ...s, ...patch }));
 }
 
-/** Wire the store and the OS appearance listener. Call once at startup. */
+/**
+ * The longest the schedule timer sleeps before it looks at the clock again. Timers pause while a device sleeps
+ * and drift when the clock is changed, so a switch is never more than this late (waking the tab also re-checks).
+ */
+export const SCHEDULE_RECHECK_MS = 15 * 60_000;
+
+/** Wire the store, the OS appearance listener and the schedule timer. Call once at startup. */
 export function initTheme(): () => void {
-  const apply = () => applyTheme(currentThemeId());
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Applies the theme and, on a schedule, arms one timer for the next switch (a little after it, so the clock has
+  // passed the boundary when it fires).
+  const apply = () => {
+    applyTheme(currentThemeId());
+    clearTimeout(timer);
+    timer = undefined;
+    const s = themeStore.get();
+    if (s.mode === "schedule") timer = setTimeout(apply, Math.min(msUntilNextSwitch(s, new Date()) + 500, SCHEDULE_RECHECK_MS));
+  };
   apply();
   const off = themeStore.subscribe(() => {
     saveThemeSettings(themeStore.get());
@@ -55,8 +70,17 @@ export function initTheme(): () => void {
   } catch {
     /* no matchMedia: day theme stays */
   }
+  // A device waking from sleep, or a tab coming back to the front, may have slept through a scheduled switch.
+  const wake = () => {
+    if (themeStore.get().mode === "schedule" && document.visibilityState === "visible") apply();
+  };
+  document.addEventListener("visibilitychange", wake);
+  window.addEventListener("focus", wake);
   return () => {
     off();
+    clearTimeout(timer);
     mql?.removeEventListener("change", apply);
+    document.removeEventListener("visibilitychange", wake);
+    window.removeEventListener("focus", wake);
   };
 }

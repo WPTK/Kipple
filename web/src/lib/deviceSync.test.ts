@@ -30,6 +30,8 @@ const DEFAULTS: Record<string, unknown> = {
   "ui.theme": "system",
   "ui.theme_day": "paper",
   "ui.theme_night": "midnight",
+  "ui.theme_night_start": "21:00",
+  "ui.theme_day_start": "07:00",
   "ui.font_body": "",
   "ui.list_density": "standard",
   "ui.reading_density": "comfortable",
@@ -114,6 +116,17 @@ describe("mapping between the local stores and the profile", () => {
     expect(back.theme).toMatchObject({ mode: "fixed", fixed: "linen", day: "airmail" });
     // An id this build has no colors for is left alone rather than breaking the theme.
     expect(deriveLocal({ ...DEFAULTS, "ui.theme": "brand-new" }, { ...local(), theme: { ...DEFAULT_THEME_SETTINGS } }).theme).toEqual(DEFAULT_THEME_SETTINGS);
+  });
+
+  it("uses ui.theme:schedule plus the two start times for the schedule", () => {
+    updateTheme({ mode: "schedule", nightStart: "22:30", dayStart: "06:15" });
+    expect(profileOf(local())).toMatchObject({ "ui.theme": "schedule", "ui.theme_night_start": "22:30", "ui.theme_day_start": "06:15" });
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS });
+    const back = deriveLocal({ ...DEFAULTS, "ui.theme": "schedule", "ui.theme_night_start": "20:00", "ui.theme_day_start": "05:30" }, local());
+    expect(back.theme).toMatchObject({ mode: "schedule", nightStart: "20:00", dayStart: "05:30", day: "paper", night: "midnight" });
+    // A time this build cannot read keeps the local one.
+    const odd = deriveLocal({ ...DEFAULTS, "ui.theme_night_start": "9pm", "ui.theme_day_start": null }, local());
+    expect(odd.theme).toMatchObject({ nightStart: "21:00", dayStart: "07:00" });
   });
 
   it("maps the reading density names and the font names", () => {
@@ -280,6 +293,16 @@ describe("saving", () => {
     updateTheme({ mode: "fixed", fixed: "tracing" });
     await vi.advanceTimersByTimeAsync(600);
     expect(s.patches[1]).toEqual({ "ui.theme": "tracing" });
+  });
+
+  it("sends a schedule as ui.theme:schedule and only the times that changed", async () => {
+    const s = await ready();
+    updateTheme({ mode: "schedule" });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(s.patches).toEqual([{ "ui.theme": "schedule" }]);
+    updateTheme({ nightStart: "22:00" });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(s.patches[1]).toEqual({ "ui.theme_night_start": "22:00" });
   });
 
   it("a change made back to the confirmed value is not sent", async () => {
