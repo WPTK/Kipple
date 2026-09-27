@@ -244,7 +244,9 @@ func TestStatsSummaryNeverOpenedAndSnapshots(t *testing.T) {
 	arch := h.addFeed("Archive", 0)
 	h.exec("UPDATE feeds SET enabled = 0, disabled_reason = 'archive', retention = 0 WHERE id = ?", arch)
 	h.exec("UPDATE feeds SET created_at = 1700000000 WHERE id = ?", quiet)
+	h.exec("UPDATE feeds SET created_at = 1700000000 WHERE id = ?", opened)
 	fresh := h.addFeed("Fresh", 0)
+	h.exec("UPDATE feeds SET created_at = ? WHERE id = ?", time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC).Unix(), fresh)
 	h.stat("open", "2026-09-20", 9, 1, opened, "a", nil, "Old Name")
 	h.stat("open", "2026-09-22", 9, 2, opened, "b", nil, "New Name")
 	_, out := h.summary(nil, "?range=month")
@@ -259,4 +261,57 @@ func TestStatsSummaryNeverOpenedAndSnapshots(t *testing.T) {
 	// Outside the range the opened feed becomes never-opened too.
 	_, out = h.summary(nil, "?from=2026-09-23&to=2026-09-24")
 	require.Len(t, out["never_opened"], 3)
+}
+
+// 3660 days, both ends included, is the longest custom range: to minus from is at most 3659.
+func TestStatsSummaryCustomRangeCap(t *testing.T) {
+	h := newHarness(t)
+	from := time.Date(2016, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		diff int
+		code int
+	}{{3659, 200}, {3660, 400}, {3661, 400}} {
+		to := from.AddDate(0, 0, tc.diff)
+		code, out := h.summary(nil, "?from="+from.Format("2006-01-02")+"&to="+to.Format("2006-01-02"))
+		require.Equal(t, tc.code, code, "to-from = %d days", tc.diff)
+		if code == 200 {
+			require.EqualValues(t, 3660, num(out["range"].(map[string]any)["days"]))
+		}
+	}
+}
+
+// A feed subscribed after the end of the range was not there to be opened.
+func TestStatsSummaryNeverOpenedSkipsLaterSubscriptions(t *testing.T) {
+	h := newHarness(t)
+	early := h.addFeed("Early", 0)
+	late := h.addFeed("Late", 0)
+	h.exec("UPDATE feeds SET created_at = ? WHERE id = ?", time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC).Unix(), early)
+	h.exec("UPDATE feeds SET created_at = ? WHERE id = ?", time.Date(2026, 9, 25, 3, 0, 0, 0, time.UTC).Unix(), late) // 2026-09-24 23:00 in New York
+	ids := func(q string) []string {
+		_, out := h.summary(nil, q)
+		var r []string
+		for _, n := range out["never_opened"].([]any) {
+			r = append(r, n.(map[string]any)["feed_id"].(string))
+		}
+		return r
+	}
+	require.Equal(t, []string{sid(early), sid(late)}, ids("?from=2026-09-20&to=2026-09-24"), "the last local day of the range counts")
+	require.Equal(t, []string{sid(early)}, ids("?from=2026-09-10&to=2026-09-23"))
+	require.Empty(t, ids("?from=2026-08-01&to=2026-08-31"))
+}
+
+func TestStatsSummarySourceTimedFieldsAndTruncationFlag(t *testing.T) {
+	h := newHarness(t)
+	f := h.addFeed("A", 0)
+	h.stat("open", "2026-09-19", 9, 1, f, "old", nil)
+	h.stat("open", "2026-09-20", 9, 1, f, "a", nil)
+	h.stat("read_time", "2026-09-20", 9, 1, f, "a", 30)
+	h.stat("open", "2026-09-20", 9, 2, f, "b", nil)
+	h.stat("read_time", "2026-09-20", 9, 2, f, "b", 10)
+	_, out := h.summary(nil, "?range=month")
+	require.Equal(t, false, out["sources_truncated"])
+	s := out["sources"].([]any)[0].(map[string]any)
+	require.EqualValues(t, 40, num(s["timed_seconds"]))
+	require.EqualValues(t, 2, num(s["timed_items"]))
+	require.InDelta(t, 20, num(s["avg_read_seconds"]), 1e-9)
 }

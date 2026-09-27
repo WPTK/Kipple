@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"math"
 	"sort"
 	"strconv"
@@ -90,6 +91,8 @@ type (
 		Opens            int      `json:"opens"`
 		ActiveSeconds    int64    `json:"active_seconds"`
 		AvgReadSeconds   *float64 `json:"avg_read_seconds"`
+		TimedSeconds     int64    `json:"timed_seconds"` // read time of the read opens that have any (AvgReadSeconds numerator)
+		TimedItems       int      `json:"timed_items"`   // those opens (AvgReadSeconds denominator)
 		BounceRate       *float64 `json:"bounce_rate"`
 		OpenOriginalRate *float64 `json:"open_original_rate"`
 		TrackedOpens     int      `json:"tracked_opens"`
@@ -107,18 +110,20 @@ type (
 	}
 	// StatsSummary is the whole response.
 	StatsSummary struct {
-		Enabled        bool               `json:"enabled"`
-		TZ             string             `json:"tz"`
-		WeekStart      string             `json:"week_start"`
-		Range          *StatsRange        `json:"range,omitempty"`
-		FirstEventDate *string            `json:"first_event_date"`
-		Totals         StatsTotals        `json:"totals"`
-		Daily          []StatsDaily       `json:"daily"`
-		Streaks        StatsStreaks       `json:"streaks"`
-		Heatmap        []StatsHeat        `json:"heatmap"`
-		Behavior       StatsBehavior      `json:"behavior"`
-		Sources        []StatsSource      `json:"sources"`
-		NeverOpened    []StatsNeverOpened `json:"never_opened"`
+		Enabled        bool          `json:"enabled"`
+		TZ             string        `json:"tz"`
+		WeekStart      string        `json:"week_start"`
+		Range          *StatsRange   `json:"range,omitempty"`
+		FirstEventDate *string       `json:"first_event_date"`
+		Totals         StatsTotals   `json:"totals"`
+		Daily          []StatsDaily  `json:"daily"`
+		Streaks        StatsStreaks  `json:"streaks"`
+		Heatmap        []StatsHeat   `json:"heatmap"`
+		Behavior       StatsBehavior `json:"behavior"`
+		Sources        []StatsSource `json:"sources"`
+		// SourcesTruncated is true when more than statsSourcesMax feeds had activity and the list was cut.
+		SourcesTruncated bool               `json:"sources_truncated"`
+		NeverOpened      []StatsNeverOpened `json:"never_opened"`
 	}
 )
 
@@ -139,14 +144,11 @@ func StatsSettings(ctx context.Context, q Querier) (enabled bool, loc *time.Loca
 	return
 }
 
-// StatsFirstEventDate is the local date of the oldest stats row, or "" when there are none.
+// StatsFirstEventDate is the local date of the oldest stats row (the smallest local_date of any
+// row, not the date of the lowest id: a time zone change can leave older ids with later dates),
+// or "" when there are none.
 func StatsFirstEventDate(ctx context.Context, q Querier) (string, error) {
-	var d string
-	err := q.QueryRowContext(ctx, "SELECT local_date FROM stats_events ORDER BY id LIMIT 1").Scan(&d)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return d, err
+	return statsFirstDate(ctx, q, math.MaxInt64)
 }
 
 const dateLayout = "2006-01-02"
@@ -156,13 +158,107 @@ func parseLocalDate(s string) time.Time {
 	return t
 }
 
+// The summary queries. The three big ones name their covering index with INDEXED BY (migration
+// 0009), so the planner cannot fall back to a wide scan when it has no statistics, and a missing
+// index is a hard error rather than a slow answer. Any future rebuild of stats_events (a table
+// recreate for a new column or CHECK) must recreate the three 0009 indexes. TestStatsSummaryPlans
+// runs EXPLAIN QUERY PLAN over every hinted query below and fails if one stops using its index.
+// Every query is bounded by the newest row id captured when the summary started (rowid <= maxid),
+// so ingest that lands mid-summary cannot split a session (an open seen without its read time).
+const (
+	sqlFirstDate = `SELECT MIN(d) FROM (
+		SELECT MIN(local_date) AS d FROM stats_events INDEXED BY idx_stats_open_cov WHERE kind = 'open' AND rowid <= ?1
+		UNION ALL SELECT MIN(local_date) FROM stats_events INDEXED BY idx_stats_rt_cov WHERE kind = 'read_time' AND rowid <= ?1
+		UNION ALL SELECT MIN(local_date) FROM stats_events INDEXED BY idx_stats_scroll_cov WHERE kind = 'scroll' AND rowid <= ?1
+		UNION ALL SELECT MIN(local_date) FROM stats_events INDEXED BY idx_stats_kind_ts
+			WHERE kind IN ('star', 'unstar', 'open_original', 'share') AND rowid <= ?1)`
+	sqlLegacyCut = `SELECT MIN(ts) FROM stats_events INDEXED BY idx_stats_kind_ts WHERE kind = ?1 AND rowid <= ?2`
+	sqlOpens     = `SELECT rowid, local_date, local_hour, feed_id, item_id, COALESCE(session_key, ''), ts
+		FROM stats_events INDEXED BY idx_stats_open_cov
+		WHERE kind = 'open' AND inferred <= ?1 AND local_date BETWEEN ?2 AND ?3 AND rowid <= ?4`
+	sqlReadTime = `SELECT local_date, local_hour, feed_id, session_key, SUM(value)
+		FROM stats_events INDEXED BY idx_stats_rt_cov
+		WHERE kind = 'read_time' AND local_date BETWEEN ?1 AND ?2 AND rowid <= ?3
+		GROUP BY local_date, local_hour, feed_id, session_key`
+	sqlScroll = `SELECT session_key, value FROM stats_events INDEXED BY idx_stats_scroll_cov
+		WHERE kind = 'scroll' AND local_date BETWEEN ?1 AND ?2 AND rowid <= ?3`
+	sqlStars = `SELECT feed_id, COUNT(*), MAX(id) FROM stats_events INDEXED BY idx_stats_kind_ts
+		WHERE kind = 'star' AND inferred <= ?1 AND ts BETWEEN ?2 AND ?3 AND local_date BETWEEN ?4 AND ?5 AND id <= ?6 GROUP BY feed_id`
+	sqlOrig = `SELECT feed_id, COUNT(DISTINCT item_id) FROM stats_events INDEXED BY idx_stats_kind_ts
+		WHERE kind = 'open_original' AND inferred <= ?1 AND ts BETWEEN ?2 AND ?3 AND local_date BETWEEN ?4 AND ?5 AND id <= ?6 GROUP BY feed_id`
+	// sqlStreaks probes each distinct open date once and stops at its first qualifying open. Both
+	// the date list and the probe read idx_stats_open_cov; the session lookups read idx_stats_session.
+	sqlStreaks = `SELECT d.local_date FROM (
+		SELECT local_date FROM stats_events INDEXED BY idx_stats_open_cov WHERE kind = 'open' AND inferred <= ?2 AND rowid <= ?5 GROUP BY local_date) d
+		WHERE EXISTS (SELECT 1 FROM stats_events e INDEXED BY idx_stats_open_cov
+		 WHERE e.kind = 'open' AND e.inferred <= ?2 AND e.local_date = d.local_date AND e.rowid <= ?5 AND (e.ts < ?1
+		  OR EXISTS (SELECT 1 FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'scroll' AND r.value >= ?3 AND r.id <= ?5)
+		  OR (SELECT SUM(r.value) FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'read_time' AND r.id <= ?5) >= ?4))
+		ORDER BY d.local_date`
+	// sqlNameByReadTime names a feed that only has read time in the range from its newest read_time
+	// snapshot (feed_title is NOT NULL on every row).
+	sqlNameByReadTime = `SELECT feed_title, folder_id, folder_name FROM stats_events INDEXED BY idx_stats_feed
+		WHERE feed_id = ?1 AND kind = 'read_time' AND ts BETWEEN ?2 AND ?3 AND local_date BETWEEN ?4 AND ?5 AND id <= ?6
+		ORDER BY ts DESC, id DESC LIMIT 1`
+)
+
+// statsHinted is every INDEXED BY query of the summary with representative arguments (for the plan
+// test), keyed by name, with the index each must read.
+type statsHint struct {
+	name, sql, index string
+	hits             int // how many times the plan must read that index
+	args             []any
+}
+
+func statsHinted() []statsHint {
+	const lo, hi, max = "2026-01-01", "2026-12-31", int64(1) << 40
+	return []statsHint{
+		{"first_date", sqlFirstDate, "idx_stats_open_cov", 1, []any{max}},
+		{"first_date", sqlFirstDate, "idx_stats_rt_cov", 1, []any{max}},
+		{"first_date", sqlFirstDate, "idx_stats_scroll_cov", 1, []any{max}},
+		{"first_date", sqlFirstDate, "idx_stats_kind_ts", 1, []any{max}},
+		{"legacy_cut", sqlLegacyCut, "idx_stats_kind_ts", 1, []any{"scroll", max}},
+		{"opens", sqlOpens, "idx_stats_open_cov", 1, []any{0, lo, hi, max}},
+		{"read_time", sqlReadTime, "idx_stats_rt_cov", 1, []any{lo, hi, max}},
+		{"scroll", sqlScroll, "idx_stats_scroll_cov", 1, []any{lo, hi, max}},
+		{"stars", sqlStars, "idx_stats_kind_ts", 1, []any{0, 0, 1 << 40, lo, hi, max}},
+		{"open_original", sqlOrig, "idx_stats_kind_ts", 1, []any{0, 0, 1 << 40, lo, hi, max}},
+		{"streaks", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max}},
+		{"name by read time", sqlNameByReadTime, "idx_stats_feed", 1, []any{1, 0, 1 << 40, lo, hi, max}},
+	}
+}
+
+// eachRow runs scan for every row and fails on a mid-iteration error, so a broken read never
+// yields partial numbers. It always closes rows.
+func eachRow(rows *sql.Rows, scan func() error) error {
+	for rows.Next() {
+		if err := scan(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	return rows.Close()
+}
+
+func statsFirstDate(ctx context.Context, q Querier, maxID int64) (string, error) {
+	var d sql.NullString
+	if err := q.QueryRowContext(ctx, sqlFirstDate, maxID).Scan(&d); err != nil {
+		return "", err
+	}
+	return d.String, nil
+}
+
 // statsLegacyCutoff is the ts of the earliest read_time or scroll event; opens before it predate
 // the sender and count as reads. MaxInt64 when no such event exists (every open is legacy).
-func statsLegacyCutoff(ctx context.Context, q Querier) (int64, error) {
+func statsLegacyCutoff(ctx context.Context, q Querier, maxID int64) (int64, error) {
 	cut := int64(math.MaxInt64)
 	for _, k := range []string{"read_time", "scroll"} {
 		var ts sql.NullInt64
-		if err := q.QueryRowContext(ctx, "SELECT MIN(ts) FROM stats_events WHERE kind = ?", k).Scan(&ts); err != nil {
+		if err := q.QueryRowContext(ctx, sqlLegacyCut, k, maxID).Scan(&ts); err != nil {
 			return 0, err
 		}
 		if ts.Valid && ts.Int64 < cut {
@@ -179,28 +275,24 @@ type starAgg struct {
 
 // statsStarsOrig reads the per-feed star counts (with the newest star row) and the distinct items
 // with an open_original event for a range.
-func statsStarsOrig(ctx context.Context, q Querier, inc int, loTS, hiTS int64, from, to string) (stars map[int64]starAgg, origs map[int64]int, err error) {
+func statsStarsOrig(ctx context.Context, q Querier, inc int, loTS, hiTS int64, from, to string, maxID int64) (stars map[int64]starAgg, origs map[int64]int, err error) {
 	stars = map[int64]starAgg{}
-	stRows, err := q.QueryContext(ctx, `SELECT feed_id, COUNT(*), MAX(id) FROM stats_events
-		WHERE kind = 'star' AND inferred <= ? AND ts BETWEEN ? AND ? AND local_date BETWEEN ? AND ? GROUP BY feed_id`,
-		inc, loTS, hiTS, from, to)
+	stRows, err := q.QueryContext(ctx, sqlStars, inc, loTS, hiTS, from, to, maxID)
 	if err != nil {
 		return nil, nil, err
 	}
-	for stRows.Next() {
+	if err := eachRow(stRows, func() error {
 		var f int64
 		var a starAgg
 		if err := stRows.Scan(&f, &a.n, &a.maxID); err != nil {
-			_ = stRows.Close()
-			return nil, nil, err
+			return err
 		}
 		stars[f] = a
-	}
-	if err := stRows.Close(); err != nil {
+		return nil
+	}); err != nil {
 		return nil, nil, err
 	}
-	origs, err = statsCountByFeed(ctx, q, `SELECT feed_id, COUNT(DISTINCT item_id) FROM stats_events
-		WHERE kind = 'open_original' AND inferred <= ? AND ts BETWEEN ? AND ? AND local_date BETWEEN ? AND ? GROUP BY feed_id`, inc, loTS, hiTS, from, to)
+	origs, err = statsCountByFeed(ctx, q, sqlOrig, inc, loTS, hiTS, from, to, maxID)
 	return stars, origs, err
 }
 
@@ -212,57 +304,102 @@ type statsRTKey struct {
 }
 
 // statsScroll is the deepest scroll per session for a local date range.
-func statsScroll(ctx context.Context, q Querier, from, to string) (map[string]int64, error) {
+func statsScroll(ctx context.Context, q Querier, from, to string, maxID int64) (map[string]int64, error) {
 	sessScroll := map[string]int64{}
-	scRows, err := q.QueryContext(ctx, `SELECT session_key, value FROM stats_events INDEXED BY idx_stats_scroll_cov
-		WHERE kind = 'scroll' AND local_date BETWEEN ? AND ?`, from, to)
+	scRows, err := q.QueryContext(ctx, sqlScroll, from, to, maxID)
 	if err != nil {
 		return nil, err
 	}
-	for scRows.Next() {
+	if err := eachRow(scRows, func() error {
 		var sk string
 		var v int64
 		if err := scRows.Scan(&sk, &v); err != nil {
-			_ = scRows.Close()
-			return nil, err
+			return err
 		}
 		if v > sessScroll[sk] {
 			sessScroll[sk] = v
 		}
-	}
-	if err := scRows.Close(); err != nil {
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return sessScroll, nil
 }
 
-// statsReadTime reads the read time (by date, hour and feed, and by session) and the scroll depth
-// per session for a local date range. Both are streamed from covering indexes (migration 0009).
-func statsReadTime(ctx context.Context, q Querier, from, to string) (rt map[statsRTKey]int64, sessRT map[string]int64, err error) {
-	rtRows, err := q.QueryContext(ctx, `SELECT local_date, local_hour, feed_id, session_key, SUM(value)
-		FROM stats_events INDEXED BY idx_stats_rt_cov
-		WHERE kind = 'read_time' AND local_date BETWEEN ? AND ?
-		GROUP BY local_date, local_hour, feed_id, session_key`, from, to)
+// statsReadTime reads the read time (by date, hour and feed, and by session) for a local date
+// range, streamed from a covering index (migration 0009).
+func statsReadTime(ctx context.Context, q Querier, from, to string, maxID int64) (rt map[statsRTKey]int64, sessRT map[string]int64, err error) {
+	rtRows, err := q.QueryContext(ctx, sqlReadTime, from, to, maxID)
 	if err != nil {
 		return nil, nil, err
 	}
 	rt, sessRT = map[statsRTKey]int64{}, map[string]int64{}
-	for rtRows.Next() {
+	if err := eachRow(rtRows, func() error {
 		var k statsRTKey
 		var sk string
 		var v int64
 		if err := rtRows.Scan(&k.date, &k.hour, &k.feed, &sk, &v); err != nil {
-			_ = rtRows.Close()
-			return nil, nil, err
+			return err
 		}
 		rt[k] += v
 		sessRT[sk] += v
-	}
-	if err := rtRows.Close(); err != nil {
+		return nil
+	}); err != nil {
 		return nil, nil, err
 	}
 	return rt, sessRT, nil
 }
+
+// statsGroup runs the heavy queries of one summary with at most `limit` in flight, so one request
+// never takes more reader connections than that (the pool has four, and the UI's other reads must
+// not starve). The first error cancels the siblings' context; Wait returns that error, or the
+// caller's context error when its cancellation skipped a task, never partial numbers.
+type statsGroup struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	sem    chan struct{}
+	wg     sync.WaitGroup
+	once   sync.Once
+	err    error
+}
+
+func newStatsGroup(ctx context.Context, limit int) *statsGroup {
+	c, cancel := context.WithCancel(ctx)
+	return &statsGroup{ctx: c, cancel: cancel, sem: make(chan struct{}, limit)}
+}
+
+func (g *statsGroup) fail(err error) { g.once.Do(func() { g.err = err; g.cancel() }) }
+
+// Go starts fn once a slot is free (tasks start in call order).
+func (g *statsGroup) Go(fn func(ctx context.Context) error) {
+	if err := g.ctx.Err(); err != nil { // a ready slot must not win over a cancellation
+		g.fail(err)
+		return
+	}
+	select {
+	case g.sem <- struct{}{}:
+	case <-g.ctx.Done():
+		g.fail(g.ctx.Err())
+		return
+	}
+	g.wg.Add(1)
+	go func() {
+		defer g.wg.Done()
+		defer func() { <-g.sem }()
+		if err := fn(g.ctx); err != nil {
+			g.fail(err)
+		}
+	}()
+}
+
+func (g *statsGroup) Wait() error {
+	g.wg.Wait()
+	g.cancel()
+	return g.err
+}
+
+// maxConcurrentStatsQueries is the most reader connections one summary holds at once.
+const maxConcurrentStatsQueries = 3
 
 // StatsSummaryFor computes the summary (design §8). It uses only short read queries and holds
 // nothing across the caller's response write. p.From/p.To must already be resolved except for
@@ -284,7 +421,13 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	now := p.Now.In(loc)
 	today := now.Format(dateLayout)
 
-	first, err := StatsFirstEventDate(ctx, q)
+	// Snapshot boundary: every query below reads only rows up to this id.
+	var maxID int64
+	if err := q.QueryRowContext(ctx, "SELECT COALESCE(MAX(id), 0) FROM stats_events").Scan(&maxID); err != nil {
+		return nil, err
+	}
+
+	first, err := statsFirstDate(ctx, q, maxID)
 	if err != nil {
 		return nil, err
 	}
@@ -307,45 +450,10 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	loTS := fromT.Unix() - 2*86400
 	hiTS := toT.Unix() + 4*86400
 
-	cut, err := statsLegacyCutoff(ctx, q)
+	cut, err := statsLegacyCutoff(ctx, q, maxID)
 	if err != nil {
 		return nil, err
 	}
-
-	// The read-time scans and the all-time streaks run beside the opens on their own reader
-	// connections (the pool has four; two extra is the most this endpoint takes).
-	var (
-		rt           map[statsRTKey]int64
-		sessRT       map[string]int64
-		sessScroll   map[string]int64
-		streaks      StatsStreaks
-		rtErr, stErr error
-		wg           sync.WaitGroup
-	)
-	wg.Add(4)
-	defer wg.Wait() // never leave a query running after an early return
-	go func() {
-		defer wg.Done()
-		rt, sessRT, rtErr = statsReadTime(ctx, q, from, to)
-	}()
-	var scErr error
-	go func() {
-		defer wg.Done()
-		sessScroll, scErr = statsScroll(ctx, q, from, to)
-	}()
-	var (
-		stars map[int64]starAgg
-		origs map[int64]int
-		soErr error
-	)
-	go func() {
-		defer wg.Done()
-		stars, origs, soErr = statsStarsOrig(ctx, q, inc, loTS, hiTS, from, to)
-	}()
-	go func() {
-		defer wg.Done()
-		streaks, stErr = statsStreaks(ctx, q, cut, inc, today)
-	}()
 
 	// Opens in the range, from the covering index (migration 0009); no table rows are read.
 	type openRow struct {
@@ -356,39 +464,51 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		rt            int64
 		legacy, read  bool
 	}
-	rows, err := q.QueryContext(ctx, `SELECT rowid, local_date, local_hour, feed_id, item_id, COALESCE(session_key, ''), ts
-		FROM stats_events INDEXED BY idx_stats_open_cov
-		WHERE kind = 'open' AND inferred <= ? AND local_date BETWEEN ? AND ?`, inc, from, to)
-	if err != nil {
-		return nil, err
-	}
-	var opens []openRow
-	for rows.Next() {
-		var o openRow
-		var ts int64
-		if err := rows.Scan(&o.id, &o.date, &o.hour, &o.feed, &o.item, &o.session, &ts); err != nil {
-			_ = rows.Close()
-			return nil, err
+	var (
+		opens      []openRow
+		rt         map[statsRTKey]int64
+		sessRT     map[string]int64
+		sessScroll map[string]int64
+		streaks    StatsStreaks
+		stars      map[int64]starAgg
+		origs      map[int64]int
+	)
+	// The heaviest scans start first; at most three run at once (see statsGroup).
+	g := newStatsGroup(ctx, maxConcurrentStatsQueries)
+	g.Go(func(c context.Context) (e error) {
+		rt, sessRT, e = statsReadTime(c, q, from, to, maxID)
+		return
+	})
+	g.Go(func(c context.Context) (e error) {
+		streaks, e = statsStreaks(c, q, cut, inc, today, maxID)
+		return
+	})
+	g.Go(func(c context.Context) error {
+		rows, err := q.QueryContext(c, sqlOpens, inc, from, to, maxID)
+		if err != nil {
+			return err
 		}
-		o.legacy = ts < cut
-		opens = append(opens, o)
-	}
-	if err := rows.Close(); err != nil {
+		return eachRow(rows, func() error {
+			var o openRow
+			var ts int64
+			if err := rows.Scan(&o.id, &o.date, &o.hour, &o.feed, &o.item, &o.session, &ts); err != nil {
+				return err
+			}
+			o.legacy = ts < cut
+			opens = append(opens, o)
+			return nil
+		})
+	})
+	g.Go(func(c context.Context) (e error) {
+		sessScroll, e = statsScroll(c, q, from, to, maxID)
+		return
+	})
+	g.Go(func(c context.Context) (e error) {
+		stars, origs, e = statsStarsOrig(c, q, inc, loTS, hiTS, from, to, maxID)
+		return
+	})
+	if err := g.Wait(); err != nil {
 		return nil, err
-	}
-
-	wg.Wait()
-	if rtErr != nil {
-		return nil, rtErr
-	}
-	if stErr != nil {
-		return nil, stErr
-	}
-	if scErr != nil {
-		return nil, scErr
-	}
-	if soErr != nil {
-		return nil, soErr
 	}
 	for i := range opens {
 		o := &opens[i]
@@ -553,15 +673,14 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	if err != nil {
 		return nil, err
 	}
-	for fRows.Next() {
+	if err := eachRow(fRows, func() error {
 		var f int64
 		if err := fRows.Scan(&f); err != nil {
-			_ = fRows.Close()
-			return nil, err
+			return err
 		}
 		live[f] = struct{}{}
-	}
-	if err := fRows.Close(); err != nil {
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	latest := map[int64]int64{} // feed -> id of its latest open or star in range (the name snapshot)
@@ -578,7 +697,8 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	}
 	for id, a := range feeds {
 		s := StatsSource{FeedID: strconv.FormatInt(id, 10), ItemsRead: len(a.readItems), Opens: a.opens, ActiveSeconds: a.secs, Stars: stars[id].n,
-			TrackedOpens: a.nonLegacy, Bounces: a.bounces, ItemsOpened: len(a.openItems), ItemsOriginal: origs[id]}
+			TrackedOpens: a.nonLegacy, Bounces: a.bounces, ItemsOpened: len(a.openItems), ItemsOriginal: origs[id],
+			TimedSeconds: a.readSecs, TimedItems: a.readWithTime}
 		if a.readWithTime > 0 {
 			v := float64(a.readSecs) / float64(a.readWithTime)
 			s.AvgReadSeconds = &v
@@ -606,9 +726,22 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	})
 	if len(out.Sources) > statsSourcesMax {
 		out.Sources = out.Sources[:statsSourcesMax]
+		out.SourcesTruncated = true
 	}
 	// Names come from the newest snapshot row of each listed feed (one query for at most 300 ids).
+	setName := func(src *StatsSource, title string, folder sql.NullInt64, fname sql.NullString) {
+		src.FeedTitle = title
+		if folder.Valid {
+			f := strconv.FormatInt(folder.Int64, 10)
+			src.FolderID = &f
+		}
+		if fname.Valid {
+			n := fname.String
+			src.FolderName = &n
+		}
+	}
 	byRow := map[int64]int{}
+	named := make([]bool, len(out.Sources))
 	var args []any
 	for i := range out.Sources {
 		fid, _ := strconv.ParseInt(out.Sources[i].FeedID, 10, 64)
@@ -622,60 +755,73 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		if err != nil {
 			return nil, err
 		}
-		for idRows.Next() {
+		if err := eachRow(idRows, func() error {
 			var id int64
 			var title string
 			var folder sql.NullInt64
 			var fname sql.NullString
 			if err := idRows.Scan(&id, &title, &folder, &fname); err != nil {
-				_ = idRows.Close()
-				return nil, err
+				return err
 			}
-			src := &out.Sources[byRow[id]]
-			src.FeedTitle = title
-			if folder.Valid {
-				f := strconv.FormatInt(folder.Int64, 10)
-				src.FolderID = &f
-			}
-			if fname.Valid {
-				n := fname.String
-				src.FolderName = &n
-			}
-		}
-		if err := idRows.Close(); err != nil {
+			i := byRow[id]
+			setName(&out.Sources[i], title, folder, fname)
+			named[i] = true
+			return nil
+		}); err != nil {
 			return nil, err
+		}
+	}
+	for i := range out.Sources {
+		if named[i] {
+			continue
+		}
+		// Only read time fell in the range (a session that spanned its start): the snapshot of its
+		// newest read_time row in range, so the source never shows a blank name.
+		fid, _ := strconv.ParseInt(out.Sources[i].FeedID, 10, 64)
+		var title string
+		var folder sql.NullInt64
+		var fname sql.NullString
+		err := q.QueryRowContext(ctx, sqlNameByReadTime, fid, loTS, hiTS, from, to, maxID).Scan(&title, &folder, &fname)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		if err == nil {
+			setName(&out.Sources[i], title, folder, fname)
 		}
 	}
 	for i := range out.Sources {
 		if out.Sources[i].FeedTitle != "" {
 			continue
 		}
-		// Only read time fell in the range (a session that spanned its start): the current name.
-		var t string
-		_ = q.QueryRowContext(ctx, "SELECT COALESCE("+feedTitleSQL("f")+", '') FROM feeds f WHERE f.id = ?", out.Sources[i].FeedID).Scan(&t)
-		out.Sources[i].FeedTitle = t
+		// A snapshot written after the feed row was gone has an empty name: use the current one.
+		var t sql.NullString
+		err := q.QueryRowContext(ctx, "SELECT "+feedTitleSQL("f")+" FROM feeds f WHERE f.id = ?", out.Sources[i].FeedID).Scan(&t)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		out.Sources[i].FeedTitle = t.String
 	}
 
-	// never opened: current, non-archived feeds with no open in the range
+	// never opened: current, non-archived feeds subscribed by the end of the range with no open in it
+	toEnd := time.Date(toT.Year(), toT.Month(), toT.Day()+1, 0, 0, 0, 0, loc).Unix()
 	nRows, err := q.QueryContext(ctx, `SELECT f.id, `+feedTitleSQL("f")+`, fo.name, f.created_at
 		FROM feeds f LEFT JOIN folders fo ON fo.id = f.folder_id
-		WHERE f.disabled_reason IS NOT 'archive' ORDER BY f.created_at, f.id`)
+		WHERE f.disabled_reason IS NOT 'archive' AND f.created_at < ? ORDER BY f.created_at, f.id`, toEnd)
 	if err != nil {
 		return nil, err
 	}
-	for nRows.Next() {
+	if err := eachRow(nRows, func() error {
 		var id, created int64
 		var title string
 		var fname sql.NullString
 		if err := nRows.Scan(&id, &title, &fname, &created); err != nil {
-			_ = nRows.Close()
-			return nil, err
+			return err
 		}
 		if a := feeds[id]; a != nil && a.opens > 0 {
-			continue
+			return nil
 		}
 		if len(out.NeverOpened) >= statsNeverMax {
-			continue
+			return nil
 		}
 		n := StatsNeverOpened{FeedID: strconv.FormatInt(id, 10), Title: title, SubscribedOn: time.Unix(created, 0).In(loc).Format(dateLayout)}
 		if fname.Valid {
@@ -683,8 +829,8 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 			n.FolderName = &f
 		}
 		out.NeverOpened = append(out.NeverOpened, n)
-	}
-	if err := nRows.Close(); err != nil {
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -696,45 +842,43 @@ func statsCountByFeed(ctx context.Context, q Querier, query string, args ...any)
 		return nil, err
 	}
 	m := map[int64]int{}
-	for rows.Next() {
+	if err := eachRow(rows, func() error {
 		var f int64
 		var n int
 		if err := rows.Scan(&f, &n); err != nil {
-			_ = rows.Close()
-			return nil, err
+			return err
 		}
 		m[f] = n
-	}
-	if err := rows.Close(); err != nil {
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-// statsStreaks computes the all-time streaks over local dates with at least one read open. Each
-// distinct open date is one probe that stops at its first qualifying open.
-func statsStreaks(ctx context.Context, q Querier, cut int64, inc int, today string) (StatsStreaks, error) {
+// statsStreaks computes the all-time streaks over local dates with at least one read open (see
+// sqlStreaks). A date later than today (rows written under a different time zone, or a clock that
+// moved back) counts as today, so the current streak cannot drop to 0 because of it.
+func statsStreaks(ctx context.Context, q Querier, cut int64, inc int, today string, maxID int64) (StatsStreaks, error) {
 	var st StatsStreaks
-	rows, err := q.QueryContext(ctx, `SELECT d.local_date FROM (
-		SELECT local_date FROM stats_events INDEXED BY idx_stats_open_cov WHERE kind = 'open' AND inferred <= ?2 GROUP BY local_date) d
-		WHERE EXISTS (SELECT 1 FROM stats_events e INDEXED BY idx_stats_open_cov
-		 WHERE e.kind = 'open' AND e.inferred <= ?2 AND e.local_date = d.local_date AND (e.ts < ?1
-		  OR EXISTS (SELECT 1 FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'scroll' AND r.value >= ?3)
-		  OR (SELECT SUM(r.value) FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'read_time') >= ?4))
-		ORDER BY d.local_date`, cut, inc, StatsReadScroll, StatsReadSeconds)
+	rows, err := q.QueryContext(ctx, sqlStreaks, cut, inc, StatsReadScroll, StatsReadSeconds, maxID)
 	if err != nil {
 		return st, err
 	}
 	var dates []string
-	for rows.Next() {
+	if err := eachRow(rows, func() error {
 		var d string
 		if err := rows.Scan(&d); err != nil {
-			_ = rows.Close()
-			return st, err
+			return err
 		}
-		dates = append(dates, d)
-	}
-	if err := rows.Close(); err != nil {
+		if d > today {
+			d = today
+		}
+		if n := len(dates); n == 0 || dates[n-1] != d { // ascending, so clamped dates are adjacent
+			dates = append(dates, d)
+		}
+		return nil
+	}); err != nil {
 		return st, err
 	}
 	run := 0

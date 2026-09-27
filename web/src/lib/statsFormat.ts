@@ -114,7 +114,8 @@ const ratio = (n: number, d: number): number | null => (d > 0 ? n / d : null);
 
 /**
  * Feeds rolled up by folder: counts add up; exact from the raw counts: bounces over tracked opens, items opened
- * on the original over items opened, active seconds over items read.
+ * on the original over items opened, and the average read as timed seconds over timed items (the server's own
+ * definition; legacy items with no recorded time do not dilute it).
  */
 export function folderRows(sources: StatsSource[]): SourceRow[] {
   const groups = new Map<string, StatsSource[]>();
@@ -128,7 +129,7 @@ export function folderRows(sources: StatsSource[]): SourceRow[] {
     items_read: list.reduce((a, s) => a + s.items_read, 0),
     opens: list.reduce((a, s) => a + s.opens, 0),
     active_seconds: list.reduce((a, s) => a + s.active_seconds, 0),
-    avg_read_seconds: sum(list, (s) => s.items_read) > 0 ? sum(list, (s) => s.active_seconds) / sum(list, (s) => s.items_read) : null,
+    avg_read_seconds: ratio(sum(list, (s) => s.timed_seconds), sum(list, (s) => s.timed_items)),
     bounce_rate: ratio(sum(list, (s) => s.bounces ?? 0), sum(list, (s) => s.tracked_opens ?? 0)),
     open_original_rate: ratio(sum(list, (s) => s.items_original ?? 0), sum(list, (s) => s.items_opened ?? 0)),
     stars: list.reduce((a, s) => a + s.stars, 0),
@@ -157,4 +158,19 @@ export function heatLevel(value: number, max: number): 0 | 1 | 2 | 3 | 4 {
   if (value <= 0 || max <= 0) return 0;
   const r = value / max;
   return r > 0.75 ? 4 : r > 0.5 ? 3 : r > 0.25 ? 2 : 1;
+}
+
+/** Whole days from `from` to `to` (both "YYYY-MM-DD"), DST-proof. */
+export function daysBetween(from: string, to: string): number {
+  const u = (s: string) => {
+    const [y = 1970, m = 1, d = 1] = s.split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.round((u(to) - u(from)) / 86_400_000);
+}
+
+/** Today as "YYYY-MM-DD" in local time. */
+export function todayString(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

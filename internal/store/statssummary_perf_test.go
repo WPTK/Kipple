@@ -36,7 +36,7 @@ func seedStats(t testing.TB, e *env, n int, end time.Time) {
 			i++
 		}
 		sess++
-		key := fmt.Sprintf("s%08d", sess)
+		key := fmt.Sprintf("%016x%016x", rng.Uint64(), rng.Uint64()) // 32 hex characters, like production
 		ins("open", nil, key)
 		if ts >= first {
 			for k, m := 0, rng.Intn(14); k < m; k++ {
@@ -77,16 +77,27 @@ func TestStatsSummaryPerf(t *testing.T) {
 		seedStats(t, e, 1_000_000, end)
 	}
 	t.Logf("seeded %d rows in %v", e.count("SELECT count(*) FROM stats_events"), time.Since(t0))
+	// Build cost of migration 0009 at this size: drop the three indexes, then apply its SQL again.
+	used := func() int64 {
+		return int64(e.count("SELECT (SELECT page_count FROM pragma_page_count) - (SELECT freelist_count FROM pragma_freelist_count)")) *
+			int64(e.count("SELECT page_size FROM pragma_page_size"))
+	}
+	rows := e.count("SELECT count(*) FROM stats_events")
+	withIdx := used()
+	e.exec(undo0009)
+	without := used()
+	ms, err := loadMigrations()
+	require.NoError(t, err)
+	b0 := time.Now()
+	require.NoError(t, e.db.applyMigration(e.ctx, ms[8]))
+	t.Logf("migration 0009 index build: %v for %d rows; the indexes add %.1f MB (%.1f MB per million events); db %.0f MB with, %.0f MB without",
+		time.Since(b0), rows, float64(used()-without)/1e6, float64(used()-without)/1e6*1e6/float64(rows), float64(withIdx)/1e6, float64(without)/1e6)
 	if os.Getenv("KIPPLE_PERF_DB") == "" {
 		e.exec("ANALYZE")
 	}
-	for name, q := range map[string]string{
-		"opens":     `SELECT rowid, local_date, local_hour, feed_id, item_id, session_key, ts FROM stats_events INDEXED BY idx_stats_open_cov WHERE kind = 'open' AND inferred <= 0 AND local_date BETWEEN '2026-08-28' AND '2026-09-26'`,
-		"read_time": `SELECT local_date, local_hour, feed_id, session_key, SUM(value) FROM stats_events INDEXED BY idx_stats_rt_cov WHERE kind = 'read_time' AND local_date BETWEEN '2026-08-28' AND '2026-09-26' GROUP BY local_date, local_hour, feed_id, session_key`,
-		"scroll":    `SELECT session_key, value FROM stats_events INDEXED BY idx_stats_scroll_cov WHERE kind = 'scroll' AND local_date BETWEEN '2026-08-28' AND '2026-09-26'`,
-	} {
-		rows, err := e.db.Reader().Query("EXPLAIN QUERY PLAN " + q)
-		require.NoError(t, err)
+	for _, h := range statsHinted() { // the plans of every hinted query, after ANALYZE too
+		rows, err := e.db.Reader().Query("EXPLAIN QUERY PLAN "+h.sql, h.args...)
+		require.NoError(t, err, h.name)
 		var plan string
 		for rows.Next() {
 			var a, b, c int
@@ -95,8 +106,8 @@ func TestStatsSummaryPerf(t *testing.T) {
 			plan += d + "; "
 		}
 		require.NoError(t, rows.Close())
-		t.Logf("plan %s: %s", name, plan)
-		require.Contains(t, plan, "COVERING INDEX", name)
+		t.Logf("plan %s: %s", h.name, plan)
+		require.Contains(t, plan, "INDEX "+h.index, h.name)
 	}
 	for _, key := range []string{"week", "month", "year", "all"} {
 		from, to := "", end.Format(dateLayout)

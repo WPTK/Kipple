@@ -40,6 +40,8 @@ const src = (o: Partial<StatsSource>): StatsSource => ({
   items_read: 0,
   opens: 0,
   active_seconds: 0,
+  timed_seconds: 0,
+  timed_items: 0,
   avg_read_seconds: null,
   bounce_rate: null,
   open_original_rate: null,
@@ -50,18 +52,26 @@ const src = (o: Partial<StatsSource>): StatsSource => ({
 
 describe("rollup", () => {
   const list = [
-    src({ feed_id: "1", feed_title: "A", items_read: 30, opens: 40, active_seconds: 1800, avg_read_seconds: 60, bounce_rate: 0.5, open_original_rate: 0.1, stars: 2, tracked_opens: 40, bounces: 20, items_opened: 30, items_original: 3 }),
-    src({ feed_id: "2", feed_title: "B", items_read: 10, opens: 60, active_seconds: 3000, avg_read_seconds: 300, bounce_rate: 0.1, open_original_rate: 0.3, stars: 1, tracked_opens: 60, bounces: 6, items_opened: 10, items_original: 3 }),
+    src({ feed_id: "1", feed_title: "A", items_read: 30, opens: 40, active_seconds: 1800, timed_seconds: 1800, timed_items: 30, avg_read_seconds: 60, bounce_rate: 0.5, open_original_rate: 0.1, stars: 2, tracked_opens: 40, bounces: 20, items_opened: 30, items_original: 3 }),
+    src({ feed_id: "2", feed_title: "B", items_read: 10, opens: 60, active_seconds: 3000, timed_seconds: 3000, timed_items: 10, avg_read_seconds: 300, bounce_rate: 0.1, open_original_rate: 0.3, stars: 1, tracked_opens: 60, bounces: 6, items_opened: 10, items_original: 3 }),
     src({ feed_id: "3", feed_title: "C", folder_id: null, folder_name: null, items_read: 4, opens: 4, stars: 0 }),
   ];
   it("adds counts and weights the averages", () => {
     const rows = folderRows(list);
     const tech = rows.find((r) => r.name === "Tech")!;
     expect(tech).toMatchObject({ items_read: 40, opens: 100, active_seconds: 4800, stars: 3, count: 2 });
-    expect(tech.avg_read_seconds).toBeCloseTo(4800 / 40);
+    expect(tech.avg_read_seconds).toBeCloseTo(4800 / 40); // timed seconds over timed items
     expect(tech.bounce_rate).toBeCloseTo(26 / 100);
     expect(tech.open_original_rate).toBeCloseTo(6 / 40);
     expect(rows.find((r) => r.name === "No folder")?.bounce_rate).toBeNull();
+  });
+  it("rolls the average up as timed seconds over timed items, like the server", () => {
+    const legacyHeavy = [
+      src({ feed_id: "1", items_read: 100, active_seconds: 600, timed_seconds: 600, timed_items: 10, avg_read_seconds: 60 }),
+      src({ feed_id: "2", items_read: 5, active_seconds: 300, timed_seconds: 300, timed_items: 5, avg_read_seconds: 60 }),
+    ];
+    expect(folderRows(legacyHeavy)[0]?.avg_read_seconds).toBe(60); // not 900 / 105
+    expect(folderRows([src({ items_read: 4 })])[0]?.avg_read_seconds).toBeNull();
   });
   it("sorts by the chosen measure and lists most starred", () => {
     expect(sortRows(feedRows(list), "items").map((r) => r.name)).toEqual(["A", "B", "C"]);

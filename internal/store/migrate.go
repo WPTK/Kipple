@@ -135,9 +135,51 @@ func (d *DB) migrate(ctx context.Context) error {
 	return nil
 }
 
-func (d *DB) preMigrationSnapshot(ctx context.Context, from, to int) error {
+// migrationFreeBytes reports the free bytes on the volume holding a directory (a variable so a test
+// can fake a full disk).
+var migrationFreeBytes = diskFree
+
+// Free space a migration is allowed to start with, as a multiple of the database (file plus WAL):
+// the pre-migration snapshot is up to 1x, and a migration that rewrites a table or builds an index
+// holds up to 2x more in the WAL and in the growing database file (0009 peaks at about 2.5x). The
+// check is deliberately conservative: it refuses before anything is written, so a full volume ends
+// in a clear error and an untouched database rather than a failed snapshot or a rolled-back migration.
+const (
+	migrateFreeFactor  = 3.0
+	snapshotFreeFactor = 1.1
+)
+
+// checkMigrationSpace refuses to migrate when the volumes are too full for the snapshot and the migration.
+func (d *DB) checkMigrationSpace(from, to int) error {
+	var size int64
+	for _, p := range []string{d.path, d.path + "-wal"} {
+		if st, err := os.Stat(p); err == nil {
+			size += st.Size()
+		}
+	}
+	check := func(dir string, factor float64, what string) error {
+		free, err := migrationFreeBytes(dir)
+		if err != nil {
+			return nil // cannot tell: do not block the upgrade on the check itself
+		}
+		if need := uint64(float64(size) * factor); free < need {
+			return fmt.Errorf("store: not enough free disk space to migrate the database from schema %d to %d: %d bytes free where %s, about %d needed; free some space and start again (nothing was changed)",
+				from, to, free, what, need)
+		}
+		return nil
+	}
+	if err := check(filepath.Dir(d.path), migrateFreeFactor, "the database lives"); err != nil {
+		return err
+	}
 	if err := ensureDir(d.backupDir); err != nil {
 		return fmt.Errorf("store: backup dir: %w", err)
+	}
+	return check(d.backupDir, snapshotFreeFactor, "the pre-migration snapshot goes")
+}
+
+func (d *DB) preMigrationSnapshot(ctx context.Context, from, to int) error {
+	if err := d.checkMigrationSpace(from, to); err != nil {
+		return err
 	}
 	snap, err := d.openSnapshot()
 	if err != nil {

@@ -290,6 +290,9 @@ export interface StatsSource {
   open_original_rate: number | null;
   stars: number;
   subscribed: boolean;
+  /** Items with recorded read time and their seconds; avg read = timed_seconds / timed_items. */
+  timed_seconds: number;
+  timed_items: number;
   /** Raw counts behind the rates, for exact folder rollups. */
   tracked_opens?: number;
   bounces?: number;
@@ -314,5 +317,7 @@ export interface StatsSummary {
     longest_read: { item_id: string; title: string; feed_title: string; seconds: number; date: string } | null;
   };
   sources?: StatsSource[];
+  /** True when the server capped the sources list (folder totals then cover only the listed feeds). */
+  sources_truncated?: boolean;
   never_opened?: { feed_id: string; title: string; folder_name: string | null; subscribed_on: string }[];
 }

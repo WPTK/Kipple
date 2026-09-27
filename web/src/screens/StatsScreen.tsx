@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useStatsSummary } from "@/api/stats";
 import { errorMessage } from "@/api/client";
@@ -6,6 +6,7 @@ import type { StatsRange, StatsSummary } from "@/api/types";
 import {
   RANGES,
   dateWithYear,
+  daysBetween,
   durationLabel,
   feedRows,
   folderRows,
@@ -18,11 +19,13 @@ import {
   saveRange,
   shortDate,
   sortRows,
+  todayString,
   weekOrder,
   weekdayName,
   type SourceMetric,
   type SourceRow,
 } from "@/lib/statsFormat";
+import { HEAT_MIX } from "@/theme/contrast";
 import { useStatsEnabled } from "@/lib/statsSender";
 import { useMedia } from "@/lib/useMedia";
 import { Button } from "@/ui/button";
@@ -137,32 +140,39 @@ export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean
 export function Streaks({ data }: { data: StatsSummary }) {
   const s = data.streaks;
   if (!s || (s.current === 0 && s.longest === 0)) return <Empty>No streak yet. A streak counts consecutive days with something read.</Empty>;
+  const today = data.range?.to ?? todayString();
+  const running = s.current > 0 && (s.current >= s.longest || (s.longest_end != null && daysBetween(s.longest_end, today) <= 1));
+  const longestLabel = running ? "Longest streak, still going" : s.longest_end ? `Longest streak, ended ${shortDate(s.longest_end)}` : "Longest streak";
   return (
     <dl className="grid grid-cols-2 gap-2">
       <Stat label="Current streak" value={plural(s.current, "day")} />
-      <Stat label={s.longest_end ? `Longest streak, ended ${shortDate(s.longest_end)}` : "Longest streak"} value={plural(s.longest, "day")} />
+      <Stat label={longestLabel} value={plural(s.longest, "day")} />
     </dl>
   );
 }
 
 // ---- 4. Heatmap -------------------------------------------------------------------------------------------------
 
-const LEVEL_MIX = [0, 22, 42, 66, 90] as const;
-const cellFill = (level: number) =>
-  level === 0 ? "var(--color-surface)" : `color-mix(in srgb, var(--color-accent) ${LEVEL_MIX[level]}%, var(--color-surface))`;
+const heatStyle = (level: number) => ({ "--heat": HEAT_MIX[level] }) as CSSProperties;
 
 export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean }) {
   const cells = data.heatmap ?? [];
   if (empty || cells.length === 0) return <Empty>The heatmap fills in once there is some reading to place on it.</Empty>;
   const useTime = cells.some((c) => c.active_seconds > 0);
   const val = (c: { active_seconds: number; opens: number }) => (useTime ? c.active_seconds : c.opens);
+  // Legacy opens have no read time: in a range that also has timed reading they still show, at the lightest shade.
+  const untimed = (c: { active_seconds: number; opens: number }) => useTime && c.active_seconds <= 0 && c.opens > 0;
+  const mixed = cells.some(untimed);
   const by = new Map(cells.map((c) => [`${c.weekday}:${c.hour}`, c]));
   const max = Math.max(0, ...cells.map(val));
   const hours = Array.from({ length: 24 }, (_, h) => h);
   const days = weekOrder(data.week_start);
   return (
     <div>
-      <p className="mb-2 text-xs text-fg2">{useTime ? "Active reading time by weekday and hour." : "Articles opened by weekday and hour."}</p>
+      <p className="mb-2 text-xs text-fg2">
+        {useTime ? "Active reading time by weekday and hour." : "Articles opened by weekday and hour."}
+        {mixed ? " Shaded by reading time; cells with opens but no recorded time show the lightest shade." : ""}
+      </p>
       <div className="max-w-3xl">
         <table className="w-full table-fixed border-separate border-spacing-0.5">
           <caption className="sr-only">{useTime ? "Active reading time" : "Opens"} by weekday and hour</caption>
@@ -192,16 +202,14 @@ export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean })
                 {hours.map((h) => {
                   const c = by.get(`${wd}:${h}`);
                   const v = c ? val(c) : 0;
-                  const label = `${weekdayName(wd)} ${hourLabel(h)}: ${v > 0 ? (useTime ? durationLabel(v) : plural(v, "open")) : "none"}`;
+                  const legacy = c ? untimed(c) : false;
+                  const level = legacy ? 1 : heatLevel(v, max);
+                  const what = legacy ? `${plural(c!.opens, "open")}, no reading time recorded` : v > 0 ? (useTime ? durationLabel(v) : plural(v, "open")) : "none";
+                  const label = `${weekdayName(wd)} ${hourLabel(h)}: ${what}`;
                   return (
-                    <td
-                      key={h}
-                      title={label}
-                      aria-label={label}
-                      data-level={heatLevel(v, max)}
-                      className="h-5 rounded-sm border border-line p-0"
-                      style={{ background: cellFill(heatLevel(v, max)) }}
-                    />
+                    <td key={h} title={label} data-level={level} className="heat-cell h-5 rounded-sm border border-line p-0" style={heatStyle(level)}>
+                      <span className="sr-only">{label}</span>
+                    </td>
                   );
                 })}
               </tr>
@@ -212,7 +220,7 @@ export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean })
       <div aria-hidden="true" className="mt-2 flex items-center gap-1 text-xs text-fg2">
         Less
         {[0, 1, 2, 3, 4].map((l) => (
-          <span key={l} className="inline-block size-3 rounded-sm border border-line" style={{ background: cellFill(l) }} />
+          <span key={l} className="heat-cell inline-block size-3 rounded-sm border border-line" style={heatStyle(l)} />
         ))}
         More
       </div>
@@ -254,6 +262,19 @@ export function Behavior({ data, empty }: { data: StatsSummary; empty: boolean }
 
 const SHOWN = 25;
 
+function SourceName({ r, by }: { r: SourceRow; by: "feeds" | "folders" }) {
+  // The suffix sits outside the truncating span so a long title is clipped, never the suffix.
+  return (
+    <span className="flex min-w-0 items-baseline">
+      <span className="min-w-0 truncate font-medium" title={r.name}>
+        {r.name}
+      </span>
+      {by === "feeds" && !r.subscribed ? <span className="shrink-0 whitespace-pre font-normal text-fg2"> (unsubscribed)</span> : null}
+      {by === "folders" ? <span className="shrink-0 whitespace-pre font-normal text-fg2"> ({plural(r.count, "feed")})</span> : null}
+    </span>
+  );
+}
+
 export function Sources({ data }: { data: StatsSummary }) {
   const [metric, setMetric] = useState<SourceMetric>("items");
   const [by, setBy] = useState<"feeds" | "folders">("feeds");
@@ -291,12 +312,13 @@ export function Sources({ data }: { data: StatsSummary }) {
           ]}
         />
       </div>
+      {data.sources_truncated ? <p className="text-xs text-fg2">Showing the 300 most active feeds; folder totals cover only those.</p> : null}
       {starred.length > 0 ? (
         <p className="text-sm text-fg2">Most starred: {starred.map((r) => `${r.name} (${r.stars})`).join(", ")}.</p>
       ) : null}
       {wide ? (
       <div>
-        <table className="w-full text-left text-sm">
+        <table className="w-full table-fixed text-left text-sm">
           <caption className="sr-only">
             {by === "feeds" ? "Feeds" : "Folders"} by {metric === "items" ? "items read" : "reading time"}
           </caption>
@@ -305,16 +327,16 @@ export function Sources({ data }: { data: StatsSummary }) {
               <th scope="col" className="py-2 pr-2 font-medium">
                 {by === "feeds" ? "Feed" : "Folder"}
               </th>
-              <th scope="col" className="px-2 py-2 text-right font-medium">
+              <th scope="col" className="w-20 px-2 py-2 text-right font-medium">
                 Avg read
               </th>
-              <th scope="col" className="px-2 py-2 text-right font-medium">
+              <th scope="col" className="w-20 px-2 py-2 text-right font-medium">
                 Quick bounce
               </th>
-              <th scope="col" className="px-2 py-2 text-right font-medium">
+              <th scope="col" className="w-24 px-2 py-2 text-right font-medium">
                 Opened original
               </th>
-              <th scope="col" className="py-2 pl-2 text-right font-medium">
+              <th scope="col" className="w-14 py-2 pl-2 text-right font-medium">
                 Stars
               </th>
             </tr>
@@ -322,13 +344,9 @@ export function Sources({ data }: { data: StatsSummary }) {
           <tbody>
             {shown.map((r) => (
               <tr key={r.key} className="border-b border-line align-top">
-                <th scope="row" className="min-w-40 py-2 pr-2 text-left font-normal">
+                <th scope="row" className="min-w-0 py-2 pr-2 text-left font-normal">
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="min-w-0 truncate font-medium">
-                      {r.name}
-                      {by === "feeds" && !r.subscribed ? <span className="font-normal text-fg2"> (unsubscribed)</span> : null}
-                      {by === "folders" ? <span className="font-normal text-fg2"> ({plural(r.count, "feed")})</span> : null}
-                    </span>
+                    <SourceName r={r} by={by} />
                     <span className="shrink-0 tabular-nums">{metric === "items" ? r.items_read : durationLabel(r.active_seconds)}</span>
                   </div>
                   <div aria-hidden="true" className="mt-1 h-1.5 rounded-full bg-surface">
@@ -349,11 +367,7 @@ export function Sources({ data }: { data: StatsSummary }) {
         {shown.map((r) => (
           <li key={r.key} className="py-2 text-sm">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="min-w-0 truncate font-medium">
-                {r.name}
-                {by === "feeds" && !r.subscribed ? <span className="font-normal text-fg2"> (unsubscribed)</span> : null}
-                {by === "folders" ? <span className="font-normal text-fg2"> ({plural(r.count, "feed")})</span> : null}
-              </span>
+              <SourceName r={r} by={by} />
               <span className="shrink-0 tabular-nums">{metric === "items" ? r.items_read : durationLabel(r.active_seconds)}</span>
             </div>
             <div aria-hidden="true" className="mt-1 h-1.5 rounded-full bg-surface">
@@ -434,12 +448,23 @@ export function StatsScreen() {
   } else if (data) {
     const t = data.totals;
     const empty = !t || (t.items_read === 0 && t.opens === 0 && t.active_seconds === 0);
-    const days = t?.days_active ?? 0;
+    const today = data.range?.to ?? todayString();
+    const history = data.first_event_date ? daysBetween(data.first_event_date, today) + 1 : null;
     body = (
       <div aria-busy={q.isPlaceholderData} className={q.isPlaceholderData ? "opacity-60" : undefined}>
-        {range !== "all" && days > 0 && days < 7 ? (
+        {q.isError ? (
+          <div className="mt-3">
+            <Notice tone="warn">
+              <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                Couldn't refresh; showing earlier numbers.
+                <Button onClick={() => void q.refetch()}>Try again</Button>
+              </span>
+            </Notice>
+          </div>
+        ) : null}
+        {range !== "all" && !q.isPlaceholderData && history != null && history >= 1 && history < 7 ? (
           <p role="status" className="mt-3 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
-            Only {plural(days, "day")} of reading so far; charts fill in as you read.
+            Only {plural(history, "day")} of reading so far; charts fill in as you read.
           </p>
         ) : null}
         <SummaryStrip data={data} />
@@ -471,7 +496,7 @@ export function StatsScreen() {
         <h1 className="pt-2 pb-2 text-xl font-bold" tabIndex={-1} data-route-heading>
           Stats
         </h1>
-        {on ? (
+        {on && !(data && !data.enabled) ? (
           <Segmented
             legend="Range"
             value={range}

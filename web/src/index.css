@@ -448,3 +448,23 @@ a.sr-only-live:focus {
   margin-left: 0.25rem;
 }
 .article-body a[href^="#kp-"] { text-decoration-style: dotted; }
+
+/* Stats heatmap: level fill is --heat percent of the text color into the surface (ramp in src/theme/contrast.ts,
+   checked by scripts/contrast.mjs). Older browsers without color-mix get an opacity-based fill instead. */
+.heat-cell {
+  background: color-mix(in srgb, var(--kp-text) calc(var(--heat, 0) * 1%), var(--kp-surface));
+}
+@supports not (color-mix(in srgb, red 50%, blue)) {
+  .heat-cell {
+    position: relative;
+    background: var(--kp-surface);
+  }
+  .heat-cell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--kp-text);
+    opacity: calc(var(--heat, 0) / 100);
+  }
+}

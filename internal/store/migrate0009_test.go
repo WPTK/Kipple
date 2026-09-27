@@ -74,3 +74,32 @@ func TestOlderBinaryRefusesSchema9(t *testing.T) {
 	db.migrations = ms[:8]
 	require.ErrorContains(t, db.migrate(t.Context()), "newer than this binary")
 }
+
+// A nearly full volume refuses the upgrade before anything is written: no snapshot, the schema
+// version and the indexes untouched, and the same database migrates once there is room.
+func TestMigrationRefusesWhenDiskTooFull(t *testing.T) {
+	e := newEnv(t)
+	for i := 0; i < 5; i++ {
+		insertStatRow(e, "read_time", "sk", nil, 10+i)
+	}
+	e.exec(undo0009)
+	e.exec(`PRAGMA user_version = 8`)
+	path := scalar[string](t, e.db.Reader(), "SELECT file FROM pragma_database_list WHERE name = 'main'")
+	require.NoError(t, e.db.Close())
+
+	orig := migrationFreeBytes
+	t.Cleanup(func() { migrationFreeBytes = orig })
+	migrationFreeBytes = func(string) (uint64, error) { return 1024, nil }
+	_, err := Open(e.ctx, Options{Path: path, Clock: e.clk})
+	require.ErrorContains(t, err, "not enough free disk space")
+	snaps, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "backup", "pre-migration-*.db"))
+	require.Empty(t, snaps, "nothing was written")
+
+	migrationFreeBytes = orig
+	db, err := Open(e.ctx, Options{Path: path, Clock: e.clk})
+	require.NoError(t, err, "the refusal changed nothing: the retry migrates")
+	t.Cleanup(func() { _ = db.Close() })
+	v, err := db.Version(e.ctx)
+	require.NoError(t, err)
+	require.Equal(t, LatestVersion(), v)
+}

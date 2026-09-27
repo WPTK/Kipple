@@ -7,6 +7,7 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
+// maxStatsRangeDays is the longest custom range in days, both ends included (to minus from is at most one less).
 const maxStatsRangeDays = 3660
 
 // statsSummary answers GET /api/stats/summary (design §8): read-only, reader pool only, and no
@@ -31,7 +32,7 @@ func (s *Server) statsSummary(w http.ResponseWriter, r *http.Request) {
 	case fromQ != "" || toQ != "":
 		f, e1 := time.Parse("2006-01-02", fromQ)
 		t, e2 := time.Parse("2006-01-02", toQ)
-		if e1 != nil || e2 != nil || t.Before(f) || t.Sub(f) > maxStatsRangeDays*24*time.Hour {
+		if e1 != nil || e2 != nil || t.Before(f) || t.Sub(f) > (maxStatsRangeDays-1)*24*time.Hour {
 			writeError(w, http.StatusBadRequest, "bad_request")
 			return
 		}

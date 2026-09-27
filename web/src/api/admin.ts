@@ -82,6 +82,8 @@ export function usePatchSettings() {
     },
     onSuccess: (res) => {
       qc.setQueryData(settingsKey, res);
+      // Timezone, week start and the stats switch all change the summary; do not leave it stale for its 60 s.
+      void qc.invalidateQueries({ queryKey: ["stats"] });
       qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, settings: res.values } : old));
     },
   });

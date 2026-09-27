@@ -311,9 +311,10 @@ stars and statistics included, is lost on rollback.
 
 Migration 0009 adds three partial covering indexes on `stats_events` (`idx_stats_open_cov`,
 `idx_stats_rt_cov`, `idx_stats_scroll_cov`) for `GET /api/stats/summary`. It is not O(1): each index
-is built by one scan of `stats_events` inside the migration transaction, about 1.5 s per million rows
-for the three together (a few milliseconds at typical sizes), and the indexes add about 60 MB per
-million events. The first start writes `/data/backup/pre-migration-8-9-<ns>.db` (or
+is built by one scan of `stats_events` inside the migration transaction, about 2 s per million rows
+for the three together (measured; a few milliseconds at typical sizes), and the indexes add about 60 MB per
+million events (a 232 MB database grew to 300 MB at one million events). Kipple does not serve
+meanwhile. The first start writes `/data/backup/pre-migration-8-9-<ns>.db` (or
 `pre-migration-7-9-<ns>.db` and so on when coming from an older schema), then migrates. A binary
 without 0009 refuses the schema-9 database with `database schema version 9 is newer than this binary
 (8); refusing to start`, so a rollback is the same procedure: stop kipple, `restore
@@ -323,9 +324,24 @@ snapshot over `kipple.db` by hand, and never drop the indexes by hand to make an
 start. Everything recorded since the upgrade, reads, stars and statistics included, is lost on
 rollback.
 
+**Disk space during the upgrade.** The upgrade is transiently much bigger than the indexes it
+leaves. The pre-migration snapshot is a full copy of the database, and the whole index build is
+held in the WAL until it is committed and checkpointed into the database file, so the peak is
+about the database plus the snapshot plus twice the index size (database + database + 2 x index):
+about 580 MB for a 232 MB database with a million events, with the volume returning to about
+database + snapshot + index afterwards. Before the snapshot is written Kipple checks the free
+space: it refuses to start, with `not enough free disk space to migrate the database ... (nothing
+was changed)`, when the volume that holds the database has less than 3 times its size (file plus
+WAL) free, or the backup directory less than 1.1 times. Nothing has been written at that point, so
+free some space (older `backup/` files, exported archives, the image cache) and start again. If the
+volume fills up despite the check, the migration transaction fails and is rolled back (the
+database stays at schema 8 and an older binary keeps working); a full disk can also fail the
+snapshot itself, which likewise leaves the database untouched. The check is skipped when the free
+space cannot be read.
+
 ## Phase 1 to phase 2 (done 2026-09-25, v0.2.0-alpha.1)
 
-Historical: this applies to a schema-1 database. With a build after alpha 2 the snapshot is `pre-migration-1-<latest>-*` (schema 5 is the latest at the time of writing), not `pre-migration-1-3-*`. Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migrates the schema
+Historical: this applies to a schema-1 database. With a build after alpha 2 the snapshot is `pre-migration-1-<latest>-*` (schema 9 is the latest at the time of writing), not `pre-migration-1-3-*`. Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migrates the schema
 (0002, 0003) on its first start. So:
 
 1. **Take an off-box copy of the phase 1 data before building phase 2.** Stop the service so the
