@@ -644,12 +644,17 @@ describe("the offline queue", () => {
   it("clearStatsQueue drops queued batches and unsent counts but keeps sending on", () => {
     refuseBeacon();
     sendStats([ev(1)]);
-    sessionStateForTests("s").pending = 4;
     localStorage.setItem("kipple.stats.queue.v1", "[]");
+    const { send, stop } = session();
+    sec(7); // 7 s counted, none sent yet
     clearStatsQueue();
     expect(qKeys()).toEqual([]);
     expect(localStorage.getItem("kipple.stats.queue.v1")).toBeNull();
-    expect(sessionStateForTests("s").pending).toBe(0);
+    sec(3);
+    stop();
+    expect(seconds(send)).toBe(3); // only what was counted after the clear
+    sec(20);
+    expect(send).toHaveBeenCalledTimes(1);
     sendStats([ev(2)]); // not wiped: later events still queue
     expect(queuedStatsForTests().flatMap((b) => b.events.map((e) => e.item_id))).toEqual([2]);
   });

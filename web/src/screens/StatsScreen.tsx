@@ -429,8 +429,8 @@ export function StatsScreen() {
   let body: ReactNode;
   if (!on || (data && !data.enabled)) {
     body = (
-      <div className="py-8 text-center" role="status">
-        <p className="text-sm text-fg2">
+      <div className="py-8 text-center">
+        <p className="text-sm text-fg2" role="status">
           Statistics are off. Turn them on in{" "}
           <Link to="/settings" className="text-link underline underline-offset-2">
             Settings &gt; Statistics

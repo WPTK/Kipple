@@ -54,14 +54,14 @@ var statsConcepts = []dictConcept{
 	{"local_time", "local_date, local_hour and local_weekday are computed when the row is written in the time zone named by the tz setting (the export's tz field is the zone in force now). ts is always UTC unix seconds, so it stays exact even if the zone changed."},
 	{"range", "A range selects rows by local_date, inclusive on both ends. range=all is every row."},
 	{"summary_computation", "The summary is computed from the same rows. It is not stored, so it can be recomputed from a raw export."},
-	{"identifiers", "In JSON all ids are strings. Times are unix seconds. CSV and JSONL have no envelope, so their metadata is in response headers: X-Kipple-Rows (the row count at the start; fewer lines than that means the download was cut off), X-Kipple-Titles-Included (0 or 1), X-Kipple-TZ and X-Kipple-Include-Inferred; a titles=0 filename ends in -no-titles. JSON exports carry titles_included, include_inferred, recording_enabled, tz and, after the events, event_count. CSV text cells that start with = + - @ tab or carriage return are prefixed with a single quote so a spreadsheet does not run them as a formula; remove that leading quote when analysing. A line break inside a CSV text cell is one CRLF: CRLF, LF and a lone CR in the source all become one break."},
+	{"identifiers", "In JSON all ids are strings. Times are unix seconds. CSV and JSONL have no envelope, so their metadata is in response headers: X-Kipple-Rows (the number of records at the start, not lines, since a CSV title can contain line breaks: parse CSV with a CSV parser; JSONL has one record per line; for JSON event_count is authoritative; fewer records means the download was cut off or rows were deleted while it ran), X-Kipple-Rows-Sent (an HTTP trailer with the count actually written, best effort since a proxy may drop it), X-Kipple-Titles-Included (0 or 1), X-Kipple-TZ and X-Kipple-Include-Inferred; a titles=0 filename ends in -no-titles. JSON exports carry titles_included, include_inferred, recording_enabled, tz and, after the events, event_count. CSV text cells that start with = + - @ tab or carriage return are prefixed with a single quote so a spreadsheet does not run them as a formula; remove that leading quote when analysing. A line break inside a CSV text cell is one CRLF: CRLF, LF and a lone CR in the source all become one break."},
 }
 
 // dictSummary describes the summary fields (content=summary).
 var statsSummaryFields = [][2]string{
 	{"enabled", "Whether recording is on now. When false the rest is empty."},
 	{"tz / week_start", "The time zone in force and the first day of the week (sunday or monday)."},
-	{"range", "key (week, month, year, all or custom), from and to (inclusive local dates) and days."},
+	{"range", "key (week, month, year, all or custom), from and to (inclusive local dates; for all, the first date present through today), days, and last_event_date (the newest local_date of any row, which can be after today when rows were written under another time zone; null with no rows). A summary covers from..to only, so rows dated after today are not in the all summary; a raw all export has no end and includes them."},
 	{"first_event_date", "Smallest local_date of any row, or null."},
 	{"totals.opens", "Count of open rows."},
 	{"totals.items_read", "Distinct items with a read open (see read)."},

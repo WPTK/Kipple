@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/WPTK/kipple/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -472,6 +473,19 @@ func TestStatsExportPerf(t *testing.T) {
 		}))
 	}
 	t.Logf("seeded in %v", time.Since(t0))
+	// The start-of-export row count: the old walk of the wide rows against the index-only counts.
+	for i := 0; i < 3; i++ {
+		t1 := time.Now()
+		var old int
+		require.NoError(t, h.db.Reader().QueryRow(`SELECT COUNT(*) FROM stats_events WHERE id <= ? AND local_date BETWEEN ? AND ? AND inferred <= ?`,
+			int64(1)<<40, "0000-01-01", "9999-12-31", 0).Scan(&old))
+		dOld := time.Since(t1)
+		t1 = time.Now()
+		got, err := store.StatsCountUpTo(context.Background(), h.db.Reader(), "", "", false, int64(1)<<40)
+		require.NoError(t, err)
+		require.Equal(t, old, got)
+		t.Logf("count of %d rows: table walk %v, index-only %v", got, dOld, time.Since(t1))
+	}
 	cc := h.login()
 	var before, after runtime.MemStats
 	runtime.GC()

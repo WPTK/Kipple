@@ -118,7 +118,7 @@ export function ServerSettings({ settings }: { settings: SettingMeta[] }) {
   return (
     <>
       {GROUPS.map(({ id, title }) =>
-        by(id).length || id === "stats" ? (
+        by(id).length ? (
           <Section key={id} title={title}>
             {by(id).map((s) => (
               <div key={s.key} className="flex flex-col gap-3">
@@ -126,7 +126,6 @@ export function ServerSettings({ settings }: { settings: SettingMeta[] }) {
                 {extra(s)}
               </div>
             ))}
-            {id === "stats" ? <StatsDataSection defaultRange={loadRange()} /> : null}
           </Section>
         ) : null,
       )}
@@ -341,11 +340,10 @@ export function SettingsScreen() {
           </div>
         ) : null}
         {settings.data ? <ServerSettings settings={settings.data.settings} /> : null}
-        {!settings.data ? (
-          <Section title="Statistics">
-            <StatsDataSection defaultRange={loadRange()} />
-          </Section>
-        ) : null}
+        {/* One fixed slot, whether settings are loading, failed or loaded: it never remounts, so an open dialog survives. */}
+        <Section title="Your statistics data">
+          <StatsDataSection defaultRange={loadRange()} hideTitle />
+        </Section>
 
         <Section title="Filters">
           <FiltersSection />

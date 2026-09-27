@@ -103,6 +103,8 @@ interface SessionState {
 
 const sessions = new Map<string, SessionState>();
 const KEEP_SESSIONS = 50;
+/** One reset per running startReadingSession, so a delete can drop the counts those closures hold. */
+const liveSessions = new Set<() => void>();
 
 function stateFor(key: string, now: number): SessionState {
   let s = sessions.get(key);
@@ -191,6 +193,12 @@ export function startReadingSession(o: SessionOptions): () => void {
     const events = drain(o.itemId, o.sessionKey, s, maxScroll);
     if (events.length) send(events);
   };
+  // clearStatsQueue reaches into this live run: what it has counted and not sent is dropped.
+  const forget = () => {
+    s.pending = 0;
+    maxScroll = 0;
+  };
+  liveSessions.add(forget);
 
   const pastTtl = (now: number) => now - s.startedAt > SESSION_TTL_MS;
   // document.hasFocus() gates the count as the design says (rule 5). Still to be checked on an iOS device (a PWA and
@@ -310,6 +318,7 @@ export function startReadingSession(o: SessionOptions): () => void {
 
   return () => {
     stopped = true;
+    liveSessions.delete(forget);
     pause();
     clearRechecks();
     cancelFrame?.();
@@ -489,6 +498,7 @@ export function wipeStatsQueue(): void {
  * counts) goes too, so it can't bring them back. Unlike the sign-out wipe it leaves sending on.
  */
 export function clearStatsQueue(): void {
+  for (const forget of liveSessions) forget();
   sessions.clear();
   const ls = storage();
   if (!ls) return;

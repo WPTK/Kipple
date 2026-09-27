@@ -116,6 +116,9 @@ type exportRange struct {
 	Key  string `json:"key"`
 	From string `json:"from"`
 	To   string `json:"to"`
+	// LastEventDate is the newest local_date of any row, which can be after today (rows written
+	// under another time zone): a raw "all" export is unbounded and includes such rows.
+	LastEventDate *string `json:"last_event_date"`
 }
 
 // summaryExport is the summary envelope: the summary object as GET /api/stats/summary returns it,
@@ -206,10 +209,19 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The range echoed in the envelope. "all" runs from the first date present through today, or
-	// through the newest date present when that is later, so it names every row it holds.
+	// The range echoed in the envelope. "all" runs from the first date present through today (the
+	// server's local date, which the web takes as "today"); the raw "all" export itself is
+	// unbounded, so rows dated after today are in it and range.last_event_date names the newest.
 	rng := exportRange{Key: p.Key, From: p.From, To: p.To}
 	from, to := p.From, p.To
+	last, err := store.StatsLastEventDate(ctx, rd)
+	if err != nil {
+		s.serverError(w, "stats export", err)
+		return
+	}
+	if last != "" {
+		rng.LastEventDate = &last
+	}
 	if p.Key == "all" {
 		from, to = "", ""
 		first, err := store.StatsFirstEventDate(ctx, rd)
@@ -217,32 +229,37 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 			s.serverError(w, "stats export", err)
 			return
 		}
-		last, err := store.StatsLastEventDate(ctx, rd)
-		if err != nil {
-			s.serverError(w, "stats export", err)
-			return
-		}
 		today := now.In(loc).Format("2006-01-02")
-		if first == "" {
+		if first == "" || first > today {
 			first = today
 		}
-		rng.From, rng.To = first, max(today, last)
+		rng.From, rng.To = first, today
 	}
 	maxID, err := store.StatsMaxID(ctx, rd)
 	if err != nil {
 		s.serverError(w, "stats export", err)
 		return
 	}
-	total, err := store.StatsCountUpTo(ctx, rd, from, to, p.IncludeInferred, maxID)
-	if err != nil {
-		if ctx.Err() == nil {
-			s.serverError(w, "stats export", err)
+	total := 0
+	if r.Method != http.MethodHead { // the count costs a quarter of a second per million rows; a HEAD sends no body
+		var err error
+		if total, err = store.StatsCountUpTo(ctx, rd, from, to, p.IncludeInferred, maxID); err != nil {
+			if ctx.Err() == nil {
+				s.serverError(w, "stats export", err)
+			}
+			return
 		}
-		return
 	}
-	// The row count at the start (the same max id bounds the pages): a CSV or JSONL that has fewer
-	// lines than this was cut off.
-	h.Set("X-Kipple-Rows", strconv.Itoa(total))
+	// X-Kipple-Rows is the number of RECORDS the export holds at the start (the same max id bounds
+	// the pages), not lines: a CSV title may contain line breaks, so count CSV records with a CSV
+	// parser; JSONL has one record per line; the JSON export's event_count is authoritative. Fewer
+	// records than this means a cut-off download, or a delete that ran meanwhile (the rows it
+	// removed are gone from later pages). X-Kipple-Rows-Sent is a trailer set after the last page,
+	// the count actually written: best effort, since a proxy may drop trailers. It is absent on a
+	// download that stopped early.
+	if r.Method != http.MethodHead {
+		h.Set("X-Kipple-Rows", strconv.Itoa(total))
+	}
 	page, err := store.StatsExportPage(ctx, rd, from, to, p.IncludeInferred, 0, maxID, store.StatsExportPageSize)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -263,6 +280,7 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodHead {
 		return
 	}
+	h.Set("Trailer", "X-Kipple-Rows-Sent")
 	rc := http.NewResponseController(w)
 	extend := func() { _ = rc.SetWriteDeadline(time.Now().Add(statsWriteWindow)) }
 	extend()
@@ -357,6 +375,7 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 	if format == "json" {
 		_, _ = fmt.Fprintf(w, "\n],\"event_count\":%d}\n", written)
 	}
+	h.Set("X-Kipple-Rows-Sent", strconv.Itoa(written))
 }
 
 // exportSummary writes content=summary: the summary of the range as one JSON document.
@@ -463,8 +482,10 @@ func (s *Server) statsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rc := http.NewResponseController(w)
-	// Each window extends the write deadline, so a long delete is not cut by the server's 60 s
-	// WriteTimeout (a proxy in front may still give up sooner; a rerun finishes the job).
+	// Each window extends the write deadline, so the server's 60 s WriteTimeout does not cut a long
+	// delete. A proxy in front does give up (Cloudflare answers 524 after about 100 s) while the
+	// server keeps deleting; the client then sees an error and must re-check with a dry run. A rerun
+	// finishes the job.
 	n, err := store.StatsDelete(ctx, s.db, from, to, func() { _ = rc.SetWriteDeadline(time.Now().Add(statsWriteWindow)) })
 	if err != nil {
 		if ctx.Err() != nil {

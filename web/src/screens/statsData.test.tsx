@@ -128,7 +128,7 @@ describe("delete a date range", () => {
     const user = userEvent.setup();
     let n = 7;
     const m = mockFetch({ "POST /api/stats/delete": () => json({ count: n, deleted: 0 }) });
-    wrap(<DeleteRangeDialog open onOpenChange={() => {}} />);
+    wrap(<DeleteRangeDialog open onOpenChange={() => {}} onSettled={() => {}} />);
     expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
     await fill(user, "2026-09-01", "2026-09-05");
     expect(await screen.findByText("7 events will be deleted")).toBeInTheDocument();
@@ -150,24 +150,23 @@ describe("delete a date range", () => {
         return json({ count: 3, deleted: b.dry_run ? 0 : 3 });
       },
     });
-    const spy = vi.spyOn(client, "invalidateQueries");
+    const settled = vi.fn();
     const close = vi.fn();
-    wrap(<DeleteRangeDialog open onOpenChange={close} />);
+    wrap(<DeleteRangeDialog open onOpenChange={close} onSettled={settled} />);
     await fill(user, "2026-09-01", "2026-09-05");
     await screen.findByText("3 events will be deleted");
     await user.click(screen.getByRole("button", { name: "Delete" }));
     expect(m.calls.filter((c) => JSON.parse(String(c.init!.body)).dry_run === false)).toHaveLength(0); // first click only asks
     await user.click(screen.getByRole("button", { name: "Yes, delete 3 events" }));
-    await waitFor(() => expect(toasts.toast).toHaveBeenCalledWith("Deleted 3 events"));
+    await waitFor(() => expect(settled).toHaveBeenCalledWith({ scope: { from: "2026-09-01", to: "2026-09-05" }, deleted: 3, ok: true }));
     expect(JSON.parse(String(m.calls.at(-1)!.init!.body))).toEqual({ from: "2026-09-01", to: "2026-09-05", dry_run: false });
-    expect(spy).toHaveBeenCalledWith({ queryKey: ["stats"] });
     expect(close).toHaveBeenCalledWith(false);
   });
 
   it("shows the server's message for a rejected range", async () => {
     const user = userEvent.setup();
     mockFetch({ "POST /api/stats/delete": () => json({ error: "bad_range", message: "That range is too large." }, 400) });
-    wrap(<DeleteRangeDialog open onOpenChange={() => {}} />);
+    wrap(<DeleteRangeDialog open onOpenChange={() => {}} onSettled={() => {}} />);
     await fill(user, "2026-09-01", "2026-09-05");
     expect(await screen.findByText("That range is too large.")).toBeInTheDocument();
   });
@@ -177,8 +176,8 @@ describe("delete all statistics", () => {
   it("needs DELETE ALL typed exactly, then posts the exact body", async () => {
     const user = userEvent.setup();
     const m = mockFetch({ "POST /api/stats/delete": () => json({ count: 12, deleted: 12 }) });
-    const spy = vi.spyOn(client, "invalidateQueries");
-    wrap(<DeleteAllDialog open onOpenChange={() => {}} />);
+    const settled = vi.fn();
+    wrap(<DeleteAllDialog open onOpenChange={() => {}} onSettled={settled} />);
     const btn = screen.getByRole("button", { name: "Delete all statistics" });
     expect(screen.getByText(/does not remove articles or read state/)).toBeInTheDocument();
     expect(btn).toBeDisabled();
@@ -189,17 +188,16 @@ describe("delete all statistics", () => {
     await user.type(input, "DELETE ALL");
     expect(btn).toBeEnabled();
     await user.click(btn);
-    await waitFor(() => expect(toasts.toast).toHaveBeenCalledWith("Deleted 12 events"));
+    await waitFor(() => expect(settled).toHaveBeenCalledWith({ scope: { all: true }, deleted: 12, ok: true }));
     expect(m.calls).toHaveLength(1);
     expect(JSON.parse(String(m.calls[0]!.init!.body))).toEqual({ all: true, confirm: "DELETE ALL" });
-    expect(spy).toHaveBeenCalledWith({ queryKey: ["stats"] });
   });
 
   it("shows an error and keeps the dialog", async () => {
     const user = userEvent.setup();
     mockFetch({ "POST /api/stats/delete": () => json({ error: "boom" }, 500) });
     const close = vi.fn();
-    wrap(<DeleteAllDialog open onOpenChange={close} />);
+    wrap(<DeleteAllDialog open onOpenChange={close} onSettled={() => {}} />);
     await user.type(screen.getByLabelText(/Type DELETE ALL/), "DELETE ALL");
     await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
     expect(await screen.findByText("The server returned an error. Try again.")).toBeInTheDocument();

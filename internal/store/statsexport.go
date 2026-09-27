@@ -86,18 +86,32 @@ func StatsExportPage(ctx context.Context, q Querier, from, to string, includeInf
 	return out, err
 }
 
+// sqlExportCount counts the rows an export writes, one index-only count per big kind from the
+// covering indexes of migration 0009 (no table row is read for them) and the few star, unstar,
+// open_original and share rows through idx_stats_kind_ts. Read time and scroll rows are never
+// inferred, so their indexes carry no inferred column. TestStatsSummaryPlans checks each plan.
+const sqlExportCount = `SELECT SUM(n) FROM (
+	SELECT COUNT(*) AS n FROM stats_events INDEXED BY idx_stats_open_cov
+		WHERE kind = 'open' AND rowid <= ?1 AND local_date BETWEEN ?2 AND ?3 AND inferred <= ?4
+	UNION ALL SELECT COUNT(*) FROM stats_events INDEXED BY idx_stats_rt_cov
+		WHERE kind = 'read_time' AND rowid <= ?1 AND local_date BETWEEN ?2 AND ?3
+	UNION ALL SELECT COUNT(*) FROM stats_events INDEXED BY idx_stats_scroll_cov
+		WHERE kind = 'scroll' AND rowid <= ?1 AND local_date BETWEEN ?2 AND ?3
+	UNION ALL SELECT COUNT(*) FROM stats_events INDEXED BY idx_stats_kind_ts
+		WHERE kind IN ('star', 'unstar', 'open_original', 'share') AND rowid <= ?1 AND local_date BETWEEN ?2 AND ?3 AND inferred <= ?4)`
+
 // StatsCountUpTo counts the rows an export of this range would write: local_date in from..to
-// (empty = unbounded), id <= maxID, and inferred rows only when includeInferred.
+// (empty = unbounded), id <= maxID, and inferred rows only when includeInferred. It is a handful
+// of index-only counts, not a walk of the wide rows.
 func StatsCountUpTo(ctx context.Context, q Querier, from, to string, includeInferred bool, maxID int64) (int, error) {
 	from, to = dateBounds(from, to)
 	inc := 0
 	if includeInferred {
 		inc = 1
 	}
-	var n int
-	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM stats_events WHERE id <= ?1 AND local_date BETWEEN ?2 AND ?3 AND inferred <= ?4`,
-		maxID, from, to, inc).Scan(&n)
-	return n, err
+	var n sql.NullInt64
+	err := q.QueryRowContext(ctx, sqlExportCount, maxID, from, to, inc).Scan(&n)
+	return int(n.Int64), err
 }
 
 // StatsCount counts the stats rows whose local_date is in from..to (empty = every row).

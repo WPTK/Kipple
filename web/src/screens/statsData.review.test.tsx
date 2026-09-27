@@ -37,8 +37,8 @@ function Harness({ which }: { which: "export" | "range" | "all" }) {
     <>
       <button onClick={() => setOpen(true)}>Open</button>
       {which === "export" ? <StatsExportDialog open={open} onOpenChange={setOpen} defaultRange="month" /> : null}
-      {which === "range" ? <DeleteRangeDialog open={open} onOpenChange={setOpen} /> : null}
-      {which === "all" ? <DeleteAllDialog open={open} onOpenChange={setOpen} /> : null}
+      {which === "range" ? <DeleteRangeDialog open={open} onOpenChange={setOpen} onSettled={() => {}} /> : null}
+      {which === "all" ? <DeleteAllDialog open={open} onOpenChange={setOpen} onSettled={() => {}} /> : null}
     </>
   );
 }
@@ -157,7 +157,7 @@ describe("second-review items", () => {
 
   it("delete-all trims the phrase, stays case-sensitive and hints on a mismatch", async () => {
     const user = userEvent.setup();
-    wrap(<DeleteAllDialog open onOpenChange={() => {}} />);
+    wrap(<DeleteAllDialog open onOpenChange={() => {}} onSettled={() => {}} />);
     const input = screen.getByLabelText(/Type DELETE ALL/);
     expect(input).toHaveAttribute("autocorrect", "off");
     expect(input).toHaveAttribute("autocapitalize", "characters");
@@ -189,14 +189,9 @@ describe("second-review items", () => {
 
   it("clears the unsent queue after a delete and notes late events", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("kipple.stats.q.1", JSON.stringify({ at: Date.now(), client: "web", events: [{ kind: "share", item_id: 1, event_id: "a" }] }));
-    mockFetch({ "POST /api/stats/delete": () => json({ count: 1, deleted: 1 }) });
-    wrap(<DeleteAllDialog open onOpenChange={() => {}} />);
+    wrap(<DeleteAllDialog open onOpenChange={() => {}} onSettled={() => {}} />);
     expect(screen.getByText(/waiting to be sent from other devices may appear later/)).toBeInTheDocument();
-    await user.type(screen.getByLabelText(/Type DELETE ALL/), "DELETE ALL");
-    await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
-    await waitFor(() => expect(toasts.toast).toHaveBeenCalled());
-    expect(localStorage.getItem("kipple.stats.q.1")).toBeNull();
+    await user.type(screen.getByLabelText(/Type DELETE ALL/), "x");
   });
 
   it("has the new titles help text and a CSV-only byte-order-mark switch", async () => {

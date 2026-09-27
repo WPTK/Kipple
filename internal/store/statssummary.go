@@ -39,6 +39,9 @@ type (
 		From string `json:"from"`
 		To   string `json:"to"`
 		Days int    `json:"days"`
+		// LastEventDate is the newest local_date of any row: it can be after To (and after today)
+		// when rows were written under another time zone; nil when there are no rows.
+		LastEventDate *string `json:"last_event_date"`
 	}
 	StatsTotals struct {
 		ItemsRead     int   `json:"items_read"`
@@ -230,6 +233,10 @@ func statsHinted() []statsHint {
 		{"last_date", sqlLastDate, "idx_stats_rt_cov", 1, []any{max}},
 		{"last_date", sqlLastDate, "idx_stats_scroll_cov", 1, []any{max}},
 		{"last_date", sqlLastDate, "idx_stats_kind_ts", 1, []any{max}},
+		{"export count", sqlExportCount, "idx_stats_open_cov", 1, []any{max, lo, hi, 0}},
+		{"export count", sqlExportCount, "idx_stats_rt_cov", 1, []any{max, lo, hi, 0}},
+		{"export count", sqlExportCount, "idx_stats_scroll_cov", 1, []any{max, lo, hi, 0}},
+		{"export count", sqlExportCount, "idx_stats_kind_ts", 1, []any{max, lo, hi, 0}},
 		{"legacy_cut", sqlLegacyCut, "idx_stats_kind_ts", 1, []any{"scroll", max}},
 		{"opens", sqlOpens, "idx_stats_open_cov", 1, []any{0, lo, hi, max}},
 		{"read_time", sqlReadTime, "idx_stats_rt_cov", 1, []any{lo, hi, max}},
@@ -498,16 +505,10 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	}
 	from, to := p.From, p.To
 	if p.Key == "all" {
-		// Through today, or through the newest local date present when that is later (rows written
-		// under another time zone or a clock that moved back), so "all" covers every row.
+		// First date present through today. Rows dated after today (written under another time zone
+		// or by a clock that moved back) are not in this range, as the daily series and the streak
+		// clamping already assume; range.last_event_date reports them.
 		from, to = first, today
-		last, err := statsLastDate(ctx, q, maxID)
-		if err != nil {
-			return nil, err
-		}
-		if last > to {
-			to = last
-		}
 		if from == "" || from > to {
 			from = today
 		}
@@ -515,6 +516,11 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	fromT, toT := parseLocalDate(from), parseLocalDate(to)
 	days := int(toT.Sub(fromT).Hours()/24) + 1
 	out.Range = &StatsRange{Key: p.Key, From: from, To: to, Days: days}
+	if last, err := statsLastDate(ctx, q, maxID); err != nil {
+		return nil, err
+	} else if last != "" {
+		out.Range.LastEventDate = &last
+	}
 
 	// ts bounds narrow the (kind, ts) scans of the small kinds; local_date is the exact filter (the
 	// slack covers any zone offset and a tz change since the row was written).

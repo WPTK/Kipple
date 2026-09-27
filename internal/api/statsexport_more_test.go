@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -41,27 +43,72 @@ func TestStatsExportMetadataAndCSVOptions(t *testing.T) {
 	require.Equal(t, 400, h.export("?bom=2").Code)
 }
 
-func TestStatsExportAllRangeCoversFutureDates(t *testing.T) {
+func TestStatsExportAllRangeToIsToday(t *testing.T) {
 	h := newHarness(t)
 	f := h.addFeed("Alpha", 0)
 	h.stat("open", "2026-09-10", 9, 1, f, "a", nil)
 	h.stat("open", "2026-12-31", 9, 2, f, "b", nil) // after today (2026-09-24): a zone change or a clock that moved back
 	var doc struct {
-		Range map[string]string
+		Range struct {
+			Key, From, To string
+			LastEventDate *string `json:"last_event_date"`
+		}
 		Count int `json:"event_count"`
 	}
 	require.NoError(t, json.Unmarshal(h.export("?format=json").Body.Bytes(), &doc))
-	require.Equal(t, map[string]string{"key": "all", "from": "2026-09-10", "to": "2026-12-31"}, doc.Range)
-	require.Equal(t, 2, doc.Count)
+	require.Equal(t, "all", doc.Range.Key)
+	require.Equal(t, "2026-09-10", doc.Range.From)
+	require.Equal(t, "2026-09-24", doc.Range.To, "to is today, never the newest date present")
+	require.NotNil(t, doc.Range.LastEventDate)
+	require.Equal(t, "2026-12-31", *doc.Range.LastEventDate)
+	require.Equal(t, 2, doc.Count, "the raw all export is unbounded and includes the future-dated row")
+
 	_, sum := h.summary(nil, "?range=all")
 	rg := sum["range"].(map[string]any)
-	require.Equal(t, "2026-12-31", rg["to"], "the summary's all covers the same rows")
-	require.EqualValues(t, 2, num(sum["totals"].(map[string]any)["opens"]))
-	// Nothing recorded yet: today on both ends.
+	require.Equal(t, "2026-09-24", rg["to"])
+	require.Equal(t, "2026-12-31", rg["last_event_date"])
+	require.EqualValues(t, 15, num(rg["days"]))
+	require.EqualValues(t, 1, num(sum["totals"].(map[string]any)["opens"]), "the all summary covers first..today only")
+
+	// Nothing recorded yet: today on both ends, and no last event.
 	h2 := newHarness(t)
 	require.NoError(t, json.Unmarshal(h2.export("?format=json").Body.Bytes(), &doc))
-	require.Equal(t, "2026-09-24", doc.Range["from"])
-	require.Equal(t, "2026-09-24", doc.Range["to"])
+	require.Equal(t, "2026-09-24", doc.Range.From)
+	require.Equal(t, "2026-09-24", doc.Range.To)
+	require.Nil(t, doc.Range.LastEventDate)
+	_, sum = h2.summary(nil, "?range=all")
+	require.Nil(t, sum["range"].(map[string]any)["last_event_date"])
+}
+
+// The header count is the number of records, kind by kind, whatever the range and filters.
+func TestStatsExportRowsHeaderMatchesRecords(t *testing.T) {
+	h := newHarness(t)
+	f := h.addFeed("Alpha", 0)
+	for i, k := range []string{"open", "read_time", "scroll", "star", "unstar", "open_original", "share"} {
+		h.stat(k, "2026-09-20", 9, int64(i+1), f, "s"+k, 5)
+		h.stat(k, "2026-09-21", 9, int64(i+10), f, "t"+k, 5)
+	}
+	h.exec(`INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, inferred, item_id, feed_id, feed_title)
+		VALUES (1780000900, '2026-09-21', 9, 1, 'open', 'reeder', 1, 50, ?, 'F'), (1780000901, '2026-09-21', 9, 1, 'star', 'reeder', 1, 51, ?, 'F')`, f, f)
+	for _, q := range []string{"", "?include_inferred=1", "?from=2026-09-21&to=2026-09-21", "?from=2026-09-21&to=2026-09-21&include_inferred=1", "?range=week", "?from=2020-01-01&to=2020-01-02"} {
+		rec := h.export(q)
+		recs := readCSV(t, rec.Body.String())
+		require.Equal(t, fmt.Sprint(len(recs)-1), rec.Header().Get("X-Kipple-Rows"), q)
+		require.Equal(t, fmt.Sprint(len(recs)-1), rec.Result().Trailer.Get("X-Kipple-Rows-Sent"), q)
+	}
+}
+
+func TestStatsExportRowsSentTrailer(t *testing.T) {
+	h := newHarness(t)
+	h.bulkStats(5001, "2026-09-20")
+	for _, f := range []string{"csv", "json", "jsonl"} {
+		rec := h.export("?format=" + f)
+		require.Equal(t, "X-Kipple-Rows-Sent", rec.Header().Get("Trailer"), f)
+		require.Equal(t, "5001", rec.Result().Trailer.Get("X-Kipple-Rows-Sent"), f)
+		require.Equal(t, "5001", rec.Header().Get("X-Kipple-Rows"), f)
+	}
+	head := h.do("HEAD", "/api/stats/export", "", withCookie(h.login()), func(r *http.Request) { r.Header.Del("X-Kipple-Client") })
+	require.Empty(t, head.Header().Get("Trailer"))
 }
 
 // Deleting old data must not change how the data that stays is counted: the legacy-open cutoff is
