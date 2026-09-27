@@ -59,7 +59,7 @@ var statsConcepts = []dictConcept{
 
 // dictSummary describes the summary fields (content=summary).
 var statsSummaryFields = [][2]string{
-	{"enabled", "Whether recording is on now. When false the rest is empty."},
+	{"enabled", "Whether recording is on now. When false, GET /api/stats/summary returns the rest empty; a content=summary export still summarises the stored rows (see recording_enabled)."},
 	{"tz / week_start", "The time zone in force and the first day of the week (sunday or monday)."},
 	{"range", "key (week, month, year, all or custom), from and to (inclusive local dates; for all, the first date present through today), days, and last_event_date (the newest local_date of any row, which can be after today when rows were written under another time zone; null with no rows). A summary covers from..to only, so rows dated after today are not in the all summary; a raw all export has no end and includes them."},
 	{"first_event_date", "Smallest local_date of any row, or null."},

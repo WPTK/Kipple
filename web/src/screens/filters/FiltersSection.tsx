@@ -20,6 +20,8 @@ export function scopeText(f: Pick<Filter, "scope" | "folder_id" | "feed_id">, fo
 
 /** Most DELETE calls one deletion makes: each restores at least 500 articles, so this covers any library. */
 const MAX_DELETE_ROUNDS = 1000;
+/** Rounds in a row that restore nothing and are not done before the loop gives up (the rule is off after the first). */
+const MAX_IDLE_DELETE_ROUNDS = 3;
 
 /**
  * Delete a filter, repeating the call while the server answers `done: false`: a large restore is done in
@@ -28,11 +30,16 @@ const MAX_DELETE_ROUNDS = 1000;
 export async function deleteUntilDone(id: string, mode: Unmute): Promise<{ restored: number; madeUnread: number }> {
   let restored = 0;
   let madeUnread = 0;
+  // A round can end with nothing restored and still not done (the final row delete, or a first batch, ran out of
+  // budget on a busy writer): repeat it, but stop after a few rounds in a row that made no progress.
+  let idle = 0;
   for (let i = 0; i < MAX_DELETE_ROUNDS; i++) {
     const res = await deleteFilter(id, mode);
     restored += res.changed;
     madeUnread += res.made_unread;
-    if (res.done !== false || res.changed === 0) break;
+    if (res.done !== false) break;
+    idle = res.changed === 0 ? idle + 1 : 0;
+    if (idle >= MAX_IDLE_DELETE_ROUNDS) break;
   }
   return { restored, madeUnread };
 }

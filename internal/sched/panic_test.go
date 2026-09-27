@@ -69,3 +69,60 @@ func TestPanicInCommitBacksOffInMemory(t *testing.T) {
 	require.True(t, nb.After(r.clk.Now()), "not redispatched every tick")
 	require.Zero(t, running)
 }
+
+// Audit L4: a panic after the commit succeeded (queueing extraction, say) leaves
+// a written schedule and a healthy feed: no in-memory backoff, and the result
+// keeps what was committed.
+func TestPanicAfterCommitDoesNotBackOff(t *testing.T) {
+	r := newRig(t, Options{Workers: 1})
+	r.s.inDispatcher(func() {
+		r.s.afterCommit = func(int64) { panic("after the commit") }
+	})
+	srv := newSrv(t, serveOK)
+	id := r.add(srv.URL+"/f", nil)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	ev := r.events("fetch.done")[0]
+	require.Equal(t, "ok", ev["outcome"])
+	require.EqualValues(t, 2, ev["new_items"], "the committed items are reported")
+	require.Greater(t, r.next(id), r.clk.Now().Unix(), "the committed schedule stands")
+	var backedOff bool
+	var fails, running int
+	r.s.inDispatcher(func() {
+		_, backedOff = r.s.notBefore[id]
+		fails, running = r.s.commitFails[id], r.s.running
+	})
+	require.False(t, backedOff, "a healthy feed is not backed off")
+	require.Zero(t, fails)
+	require.Zero(t, running)
+}
+
+// Audit L4: a panicking trim job writes no schedule, so it must not back off the
+// feed's fetches either.
+func TestPanicInTrimDoesNotBackOff(t *testing.T) {
+	r := newRig(t, Options{Workers: 1})
+	r.s.inDispatcher(func() {
+		r.s.trimFn = func(context.Context, int64, store.TrimBudget) (int64, bool, error) { panic("trim exploded") }
+	})
+	srv := newSrv(t, serveOK)
+	id := r.add(srv.URL+"/f", func(f *store.NewFeed) { f.NextFetchAt = base.Add(9 * time.Hour).Unix() })
+	reply, err := r.s.Submit(Priority{FeedID: id, Kind: PriorityTrim})
+	require.NoError(t, err)
+	rep := <-reply
+	require.Equal(t, fetch.OutcomeError, rep.Outcome)
+	var backedOff bool
+	r.s.inDispatcher(func() { _, backedOff = r.s.notBefore[id] })
+	require.False(t, backedOff)
+}
+
+// A panicking skip job is not a failed commit either (no fetch schedule).
+func TestRecoveredSkipIsNotAFailedCommit(t *testing.T) {
+	r := newRig(t, Options{})
+	f := &flight{kind: kindSkip, snap: fetch.Snapshot{ID: 7, Host: "h.test"}}
+	out := r.s.recovered(f, "boom", nil, phaseFetch, result{})
+	require.False(t, out.commitFailed)
+	require.Equal(t, fetch.OutcomeError, out.outcome)
+	// A fetch panicking mid-commit still is.
+	f = &flight{kind: kindFetch, snap: fetch.Snapshot{ID: 7, Host: "h.test"}}
+	require.True(t, r.s.recovered(f, "boom", nil, phaseCommit, result{}).commitFailed)
+}

@@ -150,6 +150,38 @@ describe("Wrapped screen", () => {
     expect(screen.getByRole("button", { name: "Share" })).not.toBeDisabled();
   });
 
+  it("shows an error with Try again, not an endless skeleton, when the summary fails", async () => {
+    const user = userEvent.setup();
+    let fail = true;
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/stats/summary": () => (fail ? json({ error: "down" }, 500) : json(yearData)),
+      "GET /api/items": () => json({ items: [], next_cursor: null }),
+    });
+    go();
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    expect(within(retry.parentElement!).getByRole("alert")).toHaveTextContent(/error/i);
+    expect(screen.queryByText("Loading your year")).toBeNull();
+    fail = false;
+    await user.click(retry);
+    await screen.findByText("You read 12 items in 2026");
+  });
+
+  it("shows the error when switching to another year fails, even with the old year's data still cached", async () => {
+    const user = userEvent.setup();
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/stats/summary": (url) => (url.searchParams.get("to") === "2025-12-31" ? json({ error: "down" }, 500) : json(yearData)),
+      "GET /api/items": () => json({ items: [], next_cursor: null }),
+    });
+    go();
+    await screen.findByText("You read 12 items in 2026");
+    await user.selectOptions(screen.getByLabelText("Year") as HTMLSelectElement, "2025");
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByText("Loading your year")).toBeNull();
+    expect(screen.queryByText("You read 12 items in 2026")).toBeNull();
+  });
+
   it("says Wrapped is off, without fetching", async () => {
     const m = setup({ "stats.wrapped_enabled": false });
     go();

@@ -57,10 +57,10 @@ func (s *Scheduler) exec(f *flight) (out result) {
 	// A panic anywhere in the job (a parser bug on a hostile feed, a store bug)
 	// must not take the server down: it becomes an error result, so the worker
 	// still reports on doneCh and the dispatcher's counters stay balanced.
-	committing := false
+	phase := phaseFetch
 	defer func() {
 		if v := recover(); v != nil {
-			out = s.recovered(f, v, debug.Stack(), committing)
+			out = s.recovered(f, v, debug.Stack(), phase, out)
 		}
 	}()
 	if s.fetchCtx.Err() != nil {
@@ -118,7 +118,7 @@ func (s *Scheduler) exec(f *flight) (out result) {
 		// than one shared window. The small follow-up writes get their own
 		// bounded context, started after the item commit.
 		var err error
-		committing = true
+		phase = phaseCommit
 		if s.failCommit != nil {
 			err = s.failCommit(f.snap.ID)
 		} else if res.Success() {
@@ -137,6 +137,10 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			out.mutedIDs, out.muted = ci.MutedIDs, ci.Muted
 			out.trimPending = ci.TrimPending && cerr == nil
 			if cerr == nil {
+				phase = phaseCommitted
+				if s.afterCommit != nil {
+					s.afterCommit(f.snap.ID)
+				}
 				// ci.Held is what really committed: empty for a stale fetch, the
 				// early chunks for a large one cut short by a URL edit.
 				s.queueFulltext(f.snap.ID, cand, ci.Held)
@@ -158,6 +162,9 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			cctx, cancel := s.commitCtx()
 			defer cancel()
 			err = s.db.CommitFetchError(cctx, res)
+			if err == nil {
+				phase = phaseCommitted
+			}
 			out.gone = res.Gone && err == nil
 		}
 		if err != nil {
@@ -172,17 +179,39 @@ func (s *Scheduler) exec(f *flight) (out result) {
 // panicMsg is the fetch_log error of a job that panicked; the stack is logged.
 const panicMsg = "internal error while processing the feed (see the server log)"
 
-// recovered turns a job's panic into its result. The stack is logged. A panic
-// before the commit started (the fetch or the parse) is recorded as a parse
-// error through the normal error bookkeeping, so the feed backs off like any
-// failing feed and the user sees it in the fetch log; if that write fails too,
-// or the panic came during or after the commit (whose state is unknown), the
-// result is a failed commit, which the dispatcher backs off in memory.
-func (s *Scheduler) recovered(f *flight, v any, stack []byte, committing bool) (out result) {
-	s.log.Error("sched: job panicked", "feed", f.snap.ID, "kind", int(f.kind), "panic", fmt.Sprint(v), "stack", string(stack))
+// A fetch job's phase, for recovered: what a panic leaves behind depends on
+// whether the commit had started and whether it finished.
+const (
+	phaseFetch     = iota // fetching and parsing: nothing written yet
+	phaseCommit           // the commit is running: the stored state is unknown
+	phaseCommitted        // the commit succeeded: next_fetch_at is written
+)
+
+// recovered turns a job's panic into its result. The stack is logged.
+//   - A fetch that panicked before its commit (the fetch or the parse) is
+//     recorded as a parse error through the normal error bookkeeping, so the
+//     feed backs off like any failing feed and the user sees it in the fetch log.
+//     Only if that write fails too is the result a failed commit.
+//   - A fetch that panicked during its commit (state unknown) is a failed
+//     commit, which the dispatcher backs off in memory.
+//   - A fetch that panicked after a successful commit (queueing extraction,
+//     remembering the User-Agent) keeps the committed result (partial): its
+//     schedule is written and the feed is healthy, so no backoff.
+//   - A trim or skip job writes no schedule: it is an error result, never a
+//     failed commit, so the feed's fetches are not backed off for it.
+func (s *Scheduler) recovered(f *flight, v any, stack []byte, phase int, partial result) (out result) {
+	s.log.Error("sched: job panicked", "feed", f.snap.ID, "kind", int(f.kind), "phase", phase, "panic", fmt.Sprint(v), "stack", string(stack))
+	if f.kind == kindFetch && phase == phaseCommitted {
+		partial.commitFailed = false
+		return partial
+	}
 	out = result{feedID: f.snap.ID, host: f.snap.Host, trigger: f.snap.Trigger,
-		outcome: fetch.OutcomeError, errClass: "internal", errMsg: panicMsg, commitFailed: true}
-	if f.kind != kindFetch || committing {
+		outcome: fetch.OutcomeError, errClass: "internal", errMsg: panicMsg}
+	if f.kind != kindFetch {
+		return out
+	}
+	out.commitFailed = true
+	if phase == phaseCommit {
 		return out
 	}
 	defer func() {

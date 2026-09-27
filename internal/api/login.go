@@ -68,8 +68,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	now := s.now()
 	if err := s.db.CreateSession(r.Context(), sessionID(val), now.Unix(), now.Add(sessionTTL).Unix(), r.UserAgent(), ip); err != nil {
-		s.log.Error("api: create session", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "create session", err) // 503 maintenance during a search-index rebuild
 		return
 	}
 	s.setCookie(w, r, val)

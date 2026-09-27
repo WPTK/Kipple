@@ -352,6 +352,22 @@ describe("deleting a filter", () => {
     expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(2);
   });
 
+  it("repeats a round that restored nothing but is not done, and gives up after three idle rounds", async () => {
+    const { deleteUntilDone } = await import("./FiltersSection");
+    const answers = [
+      { changed: 0, made_unread: 0, done: false },
+      { changed: 0, made_unread: 0, done: true },
+    ];
+    let i = 0;
+    const { calls } = routes({ "DELETE /api/filters/4": () => json(answers[Math.min(i++, answers.length - 1)]) });
+    expect(await deleteUntilDone("4", "read")).toEqual({ restored: 0, madeUnread: 0 });
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(2);
+
+    const stuck = routes({ "DELETE /api/filters/5": () => json({ changed: 0, made_unread: 0, done: false }, 202) });
+    await deleteUntilDone("5", "read");
+    expect(stuck.calls.filter((c) => c.method === "DELETE")).toHaveLength(3);
+  });
+
   it("the toast only claims unread for what the server made unread", async () => {
     const { deletedMessage } = await import("./FiltersSection");
     expect(deletedMessage(0, 0, "read")).toBe("Filter deleted");

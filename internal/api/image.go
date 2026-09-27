@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/imgproxy"
 	"github.com/WPTK/kipple/internal/sanitize"
 	"github.com/WPTK/kipple/internal/store"
@@ -112,12 +113,16 @@ func (s *Server) imageRewriters(ctx context.Context, feedIDs []int64, thumb bool
 	}
 }
 
+// netExceptionFlags are the per-feed image flags that loosen the network rules
+// and so apply only to the feed's own host (see scopePrivateNet).
+const netExceptionFlags = imgproxy.FlagPrivateNet | imgproxy.FlagInsecureTLS
+
 // privateNetHosts returns the host of each feed in flags whose image flags
-// allow private networks (only those are looked up: they are rare).
+// allow private networks or insecure TLS (only those are looked up: they are rare).
 func (s *Server) privateNetHosts(ctx context.Context, flags map[int64]int) map[int64]string {
 	out := map[int64]string{}
 	for id, f := range flags {
-		if f&imgproxy.FlagPrivateNet == 0 {
+		if f&netExceptionFlags == 0 {
 			continue
 		}
 		fd, ok, err := s.db.FeedDetail(ctx, id, s.statusEnv())
@@ -135,21 +140,24 @@ func (s *Server) privateNetHosts(ctx context.Context, flags map[int64]int) map[i
 	return out
 }
 
-// scopePrivateNet limits a feed's allow_private_net to images on the feed's
-// own host (feedHost): a third-party image in the feed's items or in an
-// extracted page is signed without the private-network grant, so a feed
-// that is allowed to reach a LAN address cannot be used to point the proxy
-// at any other private address. The flag stays in the signature, and so in the
-// cache key, of the images it is granted to. An unknown feed host grants it
-// to nothing.
+// scopePrivateNet limits a feed's allow_private_net and allow_insecure_tls to
+// images on the feed's own host (feedHost, its subdomains and its bare/www
+// twin: fetch.FeedHostVariant, the rule full-text extraction and the favicon
+// finder use): a third-party image in the feed's items or in an extracted page
+// is signed without either grant, so a feed that is allowed to reach a LAN
+// address cannot be used to point the proxy at any other private address, and
+// its third-party images are fetched with TLS verified. The flags stay in the
+// signature, and so in the cache key, of the images they are granted to; the
+// proxy also re-checks every redirect hop against the image's host. An unknown
+// feed host grants them to nothing.
 func scopePrivateNet(rw imgproxy.Rewriter, feedHost string) func(string) string {
-	if rw.Flags&imgproxy.FlagPrivateNet == 0 {
+	if rw.Flags&netExceptionFlags == 0 {
 		return rw.Rewrite
 	}
 	return func(raw string) string {
 		r := rw
-		if u, err := url.Parse(strings.TrimSpace(raw)); err != nil || feedHost == "" || !strings.EqualFold(u.Hostname(), feedHost) {
-			r.Flags &^= imgproxy.FlagPrivateNet
+		if u, err := url.Parse(strings.TrimSpace(raw)); err != nil || feedHost == "" || !fetch.FeedHostVariant(feedHost, u.Hostname()) {
+			r.Flags &^= netExceptionFlags
 		}
 		return r.Rewrite(raw)
 	}

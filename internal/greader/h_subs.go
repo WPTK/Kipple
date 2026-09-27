@@ -320,8 +320,12 @@ func (c *call) subscriptionEdit() {
 	case "edit":
 		refs := feedRefs(ss)
 		opts := store.EditOpts{}
-		if len(ts) > 0 {
+		// One title applies to one feed; a batch needs one title per feed (below).
+		// A single title for several feeds renames none of them rather than all.
+		if len(ts) > 0 && len(refs) == 1 {
 			opts.Title = ts[0]
+		} else if len(ts) > 0 && len(ts) != len(refs) {
+			c.a.log.Warn("greader: subscription/edit titles do not match feeds; titles ignored", "titles", len(ts), "feeds", len(refs))
 		}
 		if name, ok, err := c.folderName(ctx, p.All("a"), p.AllRaw("a")); err != nil {
 			c.serverError("edit subscription", err)

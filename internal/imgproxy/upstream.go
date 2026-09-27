@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/imgcache"
 )
 
@@ -151,6 +152,22 @@ func (h *Handler) noteWinner(host string, p profile, hint imgcache.HostHint, hin
 	}
 }
 
+// hopScoped sends requests for host (its subdomains and bare/www twin) through
+// granted and every other request through guarded. http.Client calls RoundTrip
+// once per hop, redirects included, so each hop dials through the transport
+// chosen for the host it names.
+type hopScoped struct {
+	host             string
+	granted, guarded http.RoundTripper
+}
+
+func (s *hopScoped) RoundTrip(req *http.Request) (*http.Response, error) {
+	if fetch.FeedHostVariant(s.host, req.URL.Hostname()) {
+		return s.granted.RoundTrip(req)
+	}
+	return s.guarded.RoundTrip(req)
+}
+
 func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p profile, headerBudget time.Duration) (*http.Response, func(), error) {
 	actx, cancel := context.WithCancel(ctx)
 	// #nosec G704 -- URL is HMAC-signed by us; the transport dial guard blocks private ranges
@@ -179,8 +196,15 @@ func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p
 	// client (a relay writes to the client between upstream reads). Instead the
 	// headers get a deadline and the body a budget that only counts the time
 	// spent waiting on the source (budgetBody); together they are Timeout.
+	tr := h.opt.Transport(flags&FlagPrivateNet != 0, flags&FlagInsecureTLS != 0)
+	if flags&(FlagPrivateNet|FlagInsecureTLS) != 0 {
+		// The grants were signed for this image's host only: a redirect hop to any
+		// other host goes through the guarded transport (the rule full-text
+		// extraction and the favicon finder follow).
+		tr = &hopScoped{host: u.Hostname(), granted: tr, guarded: h.opt.Transport(false, false)}
+	}
 	client := &http.Client{
-		Transport: h.opt.Transport(flags&FlagPrivateNet != 0, flags&FlagInsecureTLS != 0),
+		Transport: tr,
 		// No cookie jar. Go adds a Referer on redirects; strip it.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > maxHops {

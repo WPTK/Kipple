@@ -51,6 +51,35 @@ func TestPickedItemsHeldWhenCommitReturns(t *testing.T) {
 	require.ElementsMatch(t, ids, p, "queued items keep their hold")
 }
 
+// Audit L2: more due feeds on a held host than one tick loads must not starve
+// feeds on other hosts. They used to fill the LIMIT, be skipped in Go and stay
+// oldest-due, so the free feed behind them was never loaded.
+func TestHeldHostBacklogDoesNotStarveOtherFeeds(t *testing.T) {
+	old := dueLimit
+	dueLimit = 2
+	t.Cleanup(func() { dueLimit = old })
+	r := newRig(t, Options{})
+	srv := newSrv(t, serveOK)
+	var held []int64
+	for i := range 3 {
+		id := r.add(srv.URL+"/held"+string(rune('a'+i)), nil)
+		r.setHost(id, "held.test")
+		r.sql("UPDATE feeds SET next_fetch_at = ? WHERE id = ?", base.Add(-time.Hour).Unix(), id)
+		held = append(held, id)
+	}
+	free := r.add(srv.URL+"/free", nil)
+	r.sql("UPDATE feeds SET next_fetch_at = ? WHERE id = ?", base.Add(-time.Minute).Unix(), free)
+	r.s.inDispatcher(func() { r.s.hostUntil["held.test"] = base.Add(24 * time.Hour) })
+
+	r.s.Wake()
+	waitFor(t, "the free feed fetched", func() bool { return srv.count("/free") == 1 })
+	r.waitEvents("fetch.done", 1)
+	require.Zero(t, srv.count("/helda")+srv.count("/heldb")+srv.count("/heldc"), "the held host is not fetched")
+	for _, id := range held {
+		require.Equal(t, base.Add(-time.Hour).Unix(), r.next(id), "held feeds stay due")
+	}
+}
+
 // When the queue refuses the held items (shut since the pick), their holds are
 // cleared: nothing is held that is not waiting for text.
 func TestRefusedHeldItemsAreReleased(t *testing.T) {

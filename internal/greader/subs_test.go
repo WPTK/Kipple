@@ -170,6 +170,22 @@ func TestEditMoveRenameAndDefaultFolder(t *testing.T) {
 	require.Equal(t, "OK", w.Body.String())
 }
 
+// A batch edit with one title for several feeds renames none of them; one title
+// per feed renames each.
+func TestBatchEditTitles(t *testing.T) {
+	h := newHarness(t)
+	a := feedID(h.addFeed("https://a.example/feed.xml", "Alpha", "Old"))
+	b := feedID(h.addFeed("https://b.example/feed.xml", "Beta", "Old"))
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+a+"&s="+b+"&t=Foo")
+	subs := subsOf(t, h)
+	require.Equal(t, "Alpha", findSub(subs, a)["title"])
+	require.Equal(t, "Beta", findSub(subs, b)["title"])
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+a+"&s="+b+"&t=One&t=Two")
+	subs = subsOf(t, h)
+	require.Equal(t, "One", findSub(subs, a)["title"])
+	require.Equal(t, "Two", findSub(subs, b)["title"])
+}
+
 func TestFolderNameWithSemicolonSurvives(t *testing.T) {
 	h := newHarness(t)
 	id := h.addFeed("https://a.example/feed.xml", "Alpha", "")

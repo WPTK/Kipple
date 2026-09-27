@@ -9,12 +9,15 @@ export class ApiError extends Error {
   readonly code: string;
   /** The parsed JSON error body, when there was one (settings 400s carry `keys` and `issues`). */
   readonly body: Record<string, unknown> | null;
-  constructor(status: number, code: string, body: Record<string, unknown> | null = null) {
+  /** Retry-After of an error answer, in milliseconds (0 when absent). */
+  readonly retryAfterMs: number;
+  constructor(status: number, code: string, body: Record<string, unknown> | null = null, retryAfterMs = 0) {
     super(`${status} ${code}`);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.body = body;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -55,12 +58,47 @@ export function buildPath(path: string, params?: RequestOptions["params"]): stri
   return qs ? `${path}?${qs}` : path;
 }
 
+/** How long a request keeps retrying while the server answers 503 maintenance (a search-index rebuild, up to 45 s). */
+export const MAINTENANCE_WAIT_MS = 60_000;
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException("Aborted", "AbortError"));
+    const t = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 /**
  * Same-origin JSON fetch. Adds X-Kipple-Client (required on every write, see
  * design section 7), returns parsed JSON (undefined for 204) and throws
  * ApiError. A 401 also flips authStore to "out", which shows the login screen.
+ * A 503 maintenance answer (the server's search index is being rebuilt) is
+ * retried after its Retry-After for up to MAINTENANCE_WAIT_MS, so a change made
+ * meanwhile is applied rather than lost.
  */
 export async function api<T = void>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const deadline = Date.now() + MAINTENANCE_WAIT_MS;
+  for (;;) {
+    try {
+      return await apiOnce<T>(path, opts);
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 503 || e.code !== "maintenance") throw e;
+      const wait = Math.min(Math.max(e.retryAfterMs || 5_000, 1_000), 15_000);
+      if (Date.now() + wait > deadline) throw e;
+      await sleep(wait, opts.signal);
+    }
+  }
+}
+
+async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
   const method = opts.method ?? "GET";
   const headers: Record<string, string> = { Accept: "application/json", "X-Kipple-Client": clientKind() };
   let body: string | FormData | undefined;
@@ -111,7 +149,8 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(res.status, code, body);
+    const ra = Number(res.headers.get("Retry-After"));
+    throw new ApiError(res.status, code, body, Number.isFinite(ra) && ra > 0 ? ra * 1000 : 0);
   }
   if (authStore.get() !== "in") authStore.set("in");
   if (res.status === 204) return undefined as T;
@@ -125,6 +164,7 @@ export function errorMessage(e: unknown): string {
     if (e.status === 0) return "Kipple couldn't reach the server.";
     if (e.code === SESSION_EXPIRED) return "Your sign-in has expired. Reload Kipple to sign in again.";
     if (e.status === 429) return "Too many attempts. Try again in a few minutes.";
+    if (e.code === "maintenance") return "Kipple is busy rebuilding its search index. Try again in a minute.";
     if (e.status >= 500) return "The server returned an error. Try again.";
     if (e.status === 404) return "That item is no longer available.";
     return "Something went wrong. Try again.";

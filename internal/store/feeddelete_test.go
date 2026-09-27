@@ -106,6 +106,22 @@ func TestUnsubscribeCancelledBetweenBatchesResumes(t *testing.T) {
 		"both are marked, including the one referenced by URL and not yet purged")
 	require.NotContains(t, e.dueIDs(), a)
 	require.NotContains(t, e.dueIDs(), b)
+	// Marked feeds are gone from every feed list while their purge is pending.
+	subs, err := e.db.Subscriptions(e.ctx)
+	require.NoError(t, err)
+	for _, s := range subs {
+		require.NotContains(t, []int64{a, b}, s.ID, "subscription/list")
+	}
+	ui, err := e.db.UIFeeds(e.ctx, StatusEnv{})
+	require.NoError(t, err)
+	for _, f := range ui {
+		require.NotContains(t, []int64{a, b}, f.ID, "web feed list")
+	}
+	unread, err := e.db.UnreadCounts(e.ctx, 0)
+	require.NoError(t, err)
+	for _, r := range unread {
+		require.NotContains(t, []int64{a, b}, r.FeedID, "unread-count")
+	}
 
 	done, err := e.db.ResumeFeedDeletes(e.ctx)
 	require.NoError(t, err)

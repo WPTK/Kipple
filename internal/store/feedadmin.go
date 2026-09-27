@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/WPTK/kipple/internal/fetch"
 )
 
 // Errors of the web UI's feed and folder management (design §7.1).
@@ -186,9 +188,20 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 			if v, ok := p.Cols["allow_private_net"]; ok {
 				allow = truthy(v)
 			}
+			_, setsPrivate := p.Cols["allow_private_net"]
 			norm, key, host, err := ValidateFeedURL(*p.URL, allow)
 			if err != nil {
 				return err
+			}
+			// A move to another site resets the network exceptions (the rule a
+			// permanent redirect follows, and what its held-redirect note promises):
+			// they were granted for the old host. So the new URL is validated
+			// without the kept private-network grant.
+			crossSite := norm != url && !fetch.SameSite(oldHost, host)
+			if crossSite && allow && !setsPrivate {
+				if norm, key, host, err = ValidateFeedURL(*p.URL, false); err != nil {
+					return err
+				}
 			}
 			if norm != url {
 				other, found, err := FindFeedByURL(ctx, tx, norm)
@@ -206,6 +219,14 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 				// http_auth in the same request wins.
 				if _, has := p.Cols["http_auth"]; !has && !strings.EqualFold(host, oldHost) {
 					sets = append(sets, "http_auth = NULL")
+				}
+				if crossSite {
+					if _, has := p.Cols["allow_insecure_tls"]; !has {
+						sets = append(sets, "allow_insecure_tls = 0")
+					}
+					if !setsPrivate {
+						sets = append(sets, "allow_private_net = 0")
+					}
 				}
 				sets = append(sets, "url_original = COALESCE(url_original, url)", "url_original_key = COALESCE(url_original_key, url_key)",
 					"etag = NULL", "last_modified = NULL", "body_hash = NULL", "ttl_hint_s = NULL",
