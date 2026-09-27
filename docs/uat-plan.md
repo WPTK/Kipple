@@ -69,7 +69,10 @@ screen (feed list in each of the 5 layouts, article view, search, settings, stat
 | S5 | Data integrity | No literal `undefined`, `NaN`, or `[object Object]` rendered anywhere |
 | S6 | Theme contrast | Reuses the existing CI contrast check across all 20 schemes, not just the 2 spot-checked above |
 
-A manual, pre-release tool: not part of CI or `scripts/ci-local.ps1`. To run it:
+A manual, pre-release tool (step 2 of `docs/RELEASING.md`): not part of CI or `scripts/ci-local.ps1`.
+`@playwright/test` is a dev dependency so its version is pinned in the lockfile and audited with the rest; it has no
+install scripts and downloads no browser on `npm ci`, so the image build and CI only unpack its JavaScript (about
+13 MB) and never ship it. To run it:
 
 ```
 cd web
@@ -88,19 +91,21 @@ clean, not broken. A theme that does not come out as Paper and Midnight (an acco
 unknown `--only` id, or no article to open (feeds not fetched yet) stops that part of the run as an error rather than
 passing it.
 
-Each theme and width is a fresh browser that reuses the session but registers as a new device, so existing devices'
-settings are never touched. The run still changes the instance: it switches those new devices' layout, opens an
-article (marking it read and recording reading stats) and leaves the device rows behind. So it refuses any address
-that is not loopback unless `--allow-remote` is given: run it against a seeded or copied instance, never the one the
-owner reads on.
+Every theme and width is a fresh browser sharing one session and one device of the run's own (its cookie is kept in
+`web/uat/results/.device-<host>-<port>.json`, so later runs reuse it instead of filling the server's device table), so
+existing devices' settings are never touched. The run still changes the instance: it switches that device's layout
+and opens an article (marking it read and recording reading stats). So it refuses any address that is not loopback
+unless `--allow-remote` is given: run it against a seeded or copied instance, never the one the owner reads on.
 
 Output: a line per screen, then `web/uat/results/<timestamp>/report.md` (findings grouped by check and rule, with the
 screens and elements each one was seen on), `report.json` (everything) and a screenshot of each failing screen. Exit
 code 0 clean, 1 findings, 2 a screen or the run could not be checked. Known and accepted issues go in `web/uat/waivers.json`
-(`{"check": "S3", "rule": "<axe rule id>", "screen"?, "theme"?, "viewport"?, "reason": "..."}`; a reason is
-required and an unused waiver is reported). axe results on the article body (the feed's own HTML), failed
+(`{"check": "S3", "rule"?: "<axe rule id>", "match"?: "<text of the finding>", "screen"?, "theme"?, "viewport"?,
+"reason": "..."}`; a reason is required, keys and values are checked, S1/S2/S4/S5 waivers need `match` since their
+rules are coarse, and an unused waiver is reported). axe results on the article body (the feed's own HTML), failed
 non-`/api/` requests (feed images) and S5 hits in feed text (a title that says "undefined behaviour"; a field that
-rendered as nothing but `undefined` still fails) are listed as notes, not failures. S5 also looks for `Invalid Date`
+rendered as nothing but `undefined` still fails; elsewhere, a hit that is only there because of a feed, folder or
+saved-search name) are listed as notes, not failures. S5 also looks for `Invalid Date`
 and in form field values. A screen still loading after 15 s is an error, not a pass.
 
 ## Suite 2 — Agent-driven scenario walkthroughs

@@ -30,6 +30,9 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
 1. **CI is green on the exact commit** you will deploy (not on a nearby one). Push first; nothing deploys from an unpushed tree.
 2. **Fuzz, by hand, not in CI:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean.
    A failure writes `testdata\fuzz\<Target>\<hash>` in the package: fix the bug, keep that file as a regression seed.
+   **UAT Suite 1, also by hand:** `npm run build`, `npm run seed`, then `npm run uat` in `web/` against that seeded
+   local instance (never the live one; see `docs/uat-plan.md`, Suite 1). It must finish with exit code 0, or every
+   remaining finding must be in `web/uat/waivers.json` with the owner's reason.
 3. **`/code-review high`** on the diff since the last deployed tag. Fix every finding.
 4. **CHANGELOG.md:** move `[Unreleased]` under `## [X.Y.Z] - date`, add a fresh empty `[Unreleased]`, update the
    compare links.

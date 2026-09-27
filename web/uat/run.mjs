@@ -13,15 +13,18 @@
 //   S5  no literal "undefined", "NaN", "[object Object]" or "Invalid Date" in visible text, field values or
 //       accessible names
 //   S6  scripts/contrast.mjs over all 20 schemes
-// Known, accepted issues are waived in uat/waivers.json, each with a reason.
+// Known, accepted issues are waived in uat/waivers.json:
+//   [{ "check": "S3", "rule"?: "<axe id>", "match"?: "<text in the finding>", "screen"?, "theme"?, "viewport"?,
+//      "reason": "why this is accepted" }]
 //
 // Exit code: 0 clean, 1 findings, 2 a screen or the run itself could not be checked.
 //
-// Each theme and width is a fresh browser that signs in with the same session but registers as a new device, so the
-// owner's own device settings are never touched. The run still changes the instance: it switches those devices'
-// list layout, opens an article (which marks it read and records reading stats) and leaves the new device rows
-// behind. So it only runs against a loopback address unless --allow-remote is given: point it at a throwaway or
-// copied instance, never at the one you read on.
+// Every theme and width is a fresh browser sharing one session and one device of the run's own (its cookie is kept
+// in uat/results/.device-<host>-<port>.json, so repeated runs reuse it rather than filling the server's device
+// table), so the owner's own devices are never touched. The run still changes the instance: it switches that
+// device's list layout and opens an article (which marks it read and records reading stats). So it only runs against
+// a loopback address unless --allow-remote is given: point it at a throwaway or copied instance, never at the one
+// you read on.
 //
 // Options (environment variable in brackets):
 //   --url <base>        Kipple to test [KIPPLE_UAT_URL], default http://127.0.0.1:7080
@@ -38,7 +41,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
@@ -91,8 +94,17 @@ if (!LOOPBACK.has(base.hostname) && !opt["allow-remote"]) {
   );
 }
 const origin = base.origin;
-const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+// Local time, for the results directory and the report (the offset is written out in the report).
+const started = new Date();
+const pad = (n) => String(n).padStart(2, "0");
+const stamp =
+  `${started.getFullYear()}-${pad(started.getMonth() + 1)}-${pad(started.getDate())}T` +
+  `${pad(started.getHours())}-${pad(started.getMinutes())}-${pad(started.getSeconds())}`;
+const startedText = started.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "long" });
 const outDir = opt.out ?? join(webDir, "uat", "results", stamp);
+// The run's own device, remembered per instance so repeated runs reuse it: the server caps new devices per session
+// and in total, and each new one would stay registered for a month.
+const deviceFile = join(webDir, "uat", "results", `.device-${base.hostname.replace(/[^\w.-]/g, "_")}-${base.port || "default"}.json`);
 
 const THEMES = [
   { id: "light", colorScheme: "light", scheme: "paper" },
@@ -125,7 +137,7 @@ const SCREENS = [
   { id: "stats", title: "Stats", path: "/stats" },
   { id: "wrapped", title: "Wrapped", path: "/stats/wrapped" },
 ];
-const only = opt.only ? new Set(opt.only.split(",").map((s) => s.trim()).filter(Boolean)) : null;
+const only = opt.only !== undefined ? new Set(opt.only.split(",").map((s) => s.trim()).filter(Boolean)) : null;
 const unknown = only ? [...only].filter((id) => !SCREENS.some((s) => s.id === id)) : [];
 if (unknown.length || (only && !only.size)) {
   console.error(`unknown screen id(s): ${unknown.join(", ") || "(none given)"}. Known: ${SCREENS.map((s) => s.id).join(", ")}`);
@@ -133,22 +145,40 @@ if (unknown.length || (only && !only.size)) {
 }
 const screens = only ? SCREENS.filter((s) => only.has(s.id)) : SCREENS;
 
-// Waivers: [{ check: "S3", rule: "color-contrast", screen?: "stats", theme?: "dark", viewport?: "phone", reason }].
-// Every waiver needs a reason; one that matched nothing is reported so the list does not rot.
+// Waivers (format in the header comment). Every waiver needs a reason, and every key and value is checked, so a typo
+// cannot widen one to everything. S1, S2, S4 and S5 have coarse rules (S5's is always "literal"), so a waiver for
+// them must also name the text of the one finding it accepts in `match`. One that matched nothing is reported so the
+// list does not rot.
 const waivers = orSetupError("uat/waivers.json", () => {
   const list = JSON.parse(readFileSync(new URL("./waivers.json", import.meta.url), "utf8"));
   if (!Array.isArray(list)) throw new Error("must be a JSON array");
-  for (const w of list) if (!w?.check || !w.reason) throw new Error(`every waiver needs a check and a reason: ${JSON.stringify(w)}`);
+  const allowed = {
+    check: ["S1", "S2", "S3", "S4", "S5", "S6"],
+    screen: SCREENS.map((s) => s.id),
+    theme: THEMES.map((t) => t.id),
+    viewport: VIEWPORTS.map((v) => v.id),
+  };
+  for (const w of list) {
+    const bad = (why) => new Error(`${why}: ${JSON.stringify(w)}`);
+    if (typeof w !== "object" || w === null) throw bad("a waiver is an object");
+    for (const k of Object.keys(w)) if (!["check", "rule", "match", "screen", "theme", "viewport", "reason"].includes(k)) throw bad(`unknown key "${k}"`);
+    for (const k of Object.keys(w)) if (typeof w[k] !== "string" || !w[k]) throw bad(`"${k}" must be a non-empty string`);
+    if (!w.check || !w.reason) throw bad("every waiver needs a check and a reason");
+    for (const [k, ok] of Object.entries(allowed)) if (w[k] !== undefined && !ok.includes(w[k])) throw bad(`"${k}" must be one of ${ok.join(", ")}`);
+    if (["S1", "S2", "S4", "S5"].includes(w.check) && !w.match) throw bad(`an ${w.check} waiver needs "match"`);
+  }
   return list;
 });
 const used = new Set();
-function waived(check, rule, where) {
+function waived(check, rule, where, message, detail) {
+  const text = `${message}\n${detail === undefined ? "" : JSON.stringify(detail)}`;
   const hits = waivers
     .map((w, i) => [w, i])
     .filter(
       ([w]) =>
         w.check === check &&
         (w.rule === undefined || w.rule === rule) &&
+        (w.match === undefined || text.includes(w.match)) &&
         (w.screen === undefined || w.screen === where.screen) &&
         (w.theme === undefined || w.theme === where.theme) &&
         (w.viewport === undefined || w.viewport === where.viewport),
@@ -160,7 +190,7 @@ function waived(check, rule, where) {
 // { check, severity: "fail" | "waived" | "note", screen?, theme?, viewport?, rule?, message, detail?, waiver? }
 const findings = [];
 function report(check, where, rule, message, detail) {
-  const w = waived(check, rule, where);
+  const w = waived(check, rule, where, message, detail);
   findings.push({ check, severity: w ? "waived" : "fail", ...where, rule, message, detail, waiver: w?.reason });
 }
 function note(check, where, message, detail) {
@@ -179,6 +209,10 @@ function broken(where, message) {
 const FEED = {
   body: 'article[aria-labelledby="article-title"] .article-body',
   text: 'article[aria-labelledby="article-title"] .article-body, [data-item-id] h3, [data-item-id] p, #article-title',
+  /** The S5 literals (see literalProbe). */
+  pattern: String.raw`\bundefined\b|\bNaN|\[object Object\]|\bInvalid Date\b`,
+  /** Feed, folder and saved-search names that themselves contain an S5 literal; filled in after sign-in. */
+  names: [],
 };
 
 // S4. The page must not scroll sideways, and no visible element may run past the right edge of the viewport. Content
@@ -235,23 +269,26 @@ function overflowProbe(feed) {
   return out;
 }
 
-// S5. Visible text nodes, form field values and accessible-name attributes: "undefined", "NaN" (also with a unit
-// stuck to it, as in "NaNm"), "[object Object]" and "Invalid Date". Feed text (see FEED) can legitimately say
-// "undefined behaviour" or "NaN-boxing", so there only a comma- or line-separated piece that is nothing but the
-// literal (a field that rendered as undefined) counts; other hits there are notes.
+// S5. Visible text nodes, form field values (including a select's chosen option) and accessible-name attributes:
+// "undefined", "NaN" (also with a unit stuck to it, as in "NaNm" or "NaNkB"), "[object Object]" and "Invalid Date".
+// Feed text can legitimately say "undefined behaviour" or "NaN-boxing". In the FEED places only a comma- or
+// line-separated piece that is nothing but the literal (a field that rendered as undefined) counts; elsewhere, a hit
+// that goes away once the names of feeds, folders and saved searches (`feed.names`, from the bootstrap) are taken
+// out is theirs. Both kinds are notes.
 function literalProbe(feed) {
-  const bad = /\bundefined\b|\bNaN(?![A-Za-z]{2})|\[object Object\]|\bInvalid Date\b/;
+  const bad = new RegExp(feed.pattern);
   const alone = /^\s*(undefined|NaN|\[object Object\]|Invalid Date)\s*$/;
   const hits = [];
   const add = (el, where, text) => {
     const inFeed = !!el.closest(feed.text);
-    const own = !inFeed || text.split(/[,·|\n]/).some((part) => alone.test(part));
+    let own = !inFeed || text.split(/[,·|\n]/).some((part) => alone.test(part));
+    if (own && !inFeed && feed.names.length) own = bad.test(feed.names.reduce((t, n) => t.split(n).join(" "), text));
     hits.push({ where, text: text.trim().replace(/\s+/g, " ").slice(0, 160), feed: !own });
   };
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const el = n.parentElement;
-    if (!el || !n.nodeValue || !bad.test(n.nodeValue) || el.closest("script, style, noscript, template")) continue;
+    if (!el || !n.nodeValue || !bad.test(n.nodeValue) || el.closest("script, style, noscript, template, select")) continue;
     if (!el.checkVisibility({ visibilityProperty: true })) continue;
     add(el, el.tagName.toLowerCase(), n.nodeValue);
   }
@@ -265,6 +302,11 @@ function literalProbe(feed) {
   for (const el of document.body.querySelectorAll("input, textarea")) {
     if (el.type === "hidden" || el.type === "password" || !el.checkVisibility({ visibilityProperty: true })) continue;
     if (el.value && bad.test(el.value)) add(el, `${el.tagName.toLowerCase()}.value`, el.value);
+  }
+  for (const el of document.body.querySelectorAll("select")) {
+    if (!el.checkVisibility({ visibilityProperty: true })) continue;
+    const label = el.selectedOptions[0]?.textContent ?? "";
+    if (bad.test(label)) add(el, "select", label);
   }
   if (bad.test(document.title)) hits.push({ where: "title", text: document.title, feed: false });
   return hits.slice(0, 30);
@@ -361,18 +403,24 @@ async function selfTest() {
       `<div id="pane" style="overflow-y:auto;height:100px"><div style="width:700px">too wide for its pane</div></div>` +
       `<div style="overflow-y:auto;height:40px"><div id="fixed" style="position:fixed;left:0;bottom:0;width:500px">fixed bar</div></div>` +
       `<div class="overflow-x-auto" style="overflow-x:auto"><div style="width:900px">a scroller on purpose</div></div>` +
-      `<span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">sr only</span></main>`,
+      `<span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">sr only</span>` +
+      `<p>Size NaNkB</p><label>Theme <select><option>Paper</option><option selected>undefined</option></select></label>` +
+      `<nav><a href="#y">NaN Tech</a><button aria-label="Edit NaN Tech">e</button></nav></main>`,
   );
-  const o = await page.evaluate(overflowProbe, FEED);
-  const lit = await page.evaluate(literalProbe, FEED);
+  const probeFeed = { ...FEED, names: ["NaN Tech"] };
+  const o = await page.evaluate(overflowProbe, probeFeed);
+  const lit = await page.evaluate(literalProbe, probeFeed);
   const axeIds = (await runAxe(page)).map((v) => v.id);
   await page.close();
   const problems = [];
   const same = (got, want) => JSON.stringify([...got].sort()) === JSON.stringify([...want].sort());
   const own = lit.filter((h) => !h.feed).map((h) => h.text);
   const feed = lit.filter((h) => h.feed).map((h) => h.text);
-  const wantOwn = ["Count: NaN", "Updated NaNm ago", "Invalid Date", "[object Object]", "undefined", "Tue · NaN min read", "Preview: NaN", "Unread, undefined, Some feed", "NaNm"];
-  const wantFeed = ["NaN-boxing explained", "undefined behaviour is fine in an article", "An excerpt about NaN-boxing"];
+  const wantOwn = [
+    "Count: NaN", "Updated NaNm ago", "Invalid Date", "[object Object]", "undefined", "Tue · NaN min read", "Preview: NaN",
+    "Unread, undefined, Some feed", "NaNm", "Size NaNkB", "undefined",
+  ];
+  const wantFeed = ["NaN-boxing explained", "undefined behaviour is fine in an article", "An excerpt about NaN-boxing", "NaN Tech", "Edit NaN Tech"];
   if (!(o.scrollWidth > o.vw)) problems.push("S4 did not see the page scroll sideways");
   if (!same(o.offenders.map((x) => x.desc.split(" ")[0]), ["div#wide", "div#fixed"])) problems.push(`S4 offenders ${JSON.stringify(o.offenders)}`);
   if (!same(o.scrollers.map((x) => x.desc.split(" ")[0]), ["div#pane"])) problems.push(`S4 scrollers ${JSON.stringify(o.scrollers)}`);
@@ -383,11 +431,22 @@ async function selfTest() {
   if (problems.length) throw new Error(`self-test failed: ${problems.join("; ")}`);
 }
 
-// Signs in through the form once. Every context reuses the session cookie only: without the device cookie each one
-// registers as a new device, as a new browser would, and the owner's devices keep their settings.
+function loadDevice() {
+  try {
+    const c = JSON.parse(readFileSync(deviceFile, "utf8"));
+    return c && c.name === "kipple_device" && typeof c.value === "string" ? c : null;
+  } catch {
+    return null;
+  }
+}
+
+// Signs in through the form once, with the remembered device cookie when there is one. Every context then reuses
+// the session and device cookies: one device of the run's own, never one of the owner's.
 async function signIn() {
   const ctx = await browser.newContext();
   try {
+    const saved = loadDevice();
+    if (saved) await ctx.addCookies([saved]).catch(() => {});
     const page = await ctx.newPage();
     const res = await page.goto(origin + "/", { waitUntil: "load" });
     if (!res || !res.ok()) throw new Error(`${origin} answered ${res?.status()}`);
@@ -401,8 +460,19 @@ async function signIn() {
       const alert = await page.getByRole("alert").first().textContent().catch(() => null);
       throw new Error(`sign-in failed${alert ? `: ${alert}` : ""}`);
     });
-    const cookies = (await ctx.storageState()).cookies.filter((c) => c.name !== "kipple_device");
+    // Names users give or feeds bring that may contain an S5 literal (see literalProbe).
+    const boot = await page.request.get(origin + "/api/bootstrap", { headers: { Accept: "application/json", "X-Kipple-Client": "web" } });
+    if (!boot.ok()) throw new Error(`GET /api/bootstrap answered ${boot.status()}`);
+    const b = await boot.json();
+    const names = [...(b.feeds ?? []).map((f) => f.title), ...(b.folders ?? []).map((f) => f.name ?? f.title), ...(b.saved_searches ?? []).map((s) => s.name)];
+    FEED.names = [...new Set(names.filter((n) => typeof n === "string" && new RegExp(FEED.pattern).test(n)))];
+
+    const cookies = (await ctx.storageState()).cookies;
     if (!cookies.some((c) => c.name === "kipple_session")) throw new Error("signed in, but no kipple_session cookie");
+    const device = cookies.find((c) => c.name === "kipple_device");
+    if (!device) throw new Error("signed in, but the server issued no device cookie");
+    mkdirSync(dirname(deviceFile), { recursive: true });
+    writeFileSync(deviceFile, JSON.stringify(device));
     return cookies;
   } finally {
     await ctx.close();
@@ -468,7 +538,9 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     const why = req.failure()?.errorText ?? "failed";
     // A navigation aborts whatever was in flight (the event stream, prefetches): that is not a failure.
     if (why.includes("ERR_ABORTED")) return;
-    if (u.origin === origin && u.pathname.startsWith("/api/")) bucket.api.push({ status: 0, method: req.method(), url: u.pathname + u.search, error: why });
+    if (u.origin !== origin) return; // other origins: the console message above
+    if (u.pathname.startsWith("/api/")) bucket.api.push({ status: 0, method: req.method(), url: u.pathname + u.search, error: why });
+    else bucket.other.push({ url: u.pathname + u.search, text: why });
   });
 
   // An article to open: the first one in All. Looked for again in the next browser while none is found (the feeds may
@@ -604,7 +676,7 @@ function writeReport(results, s6) {
   const md = [
     `# UAT Suite 1 report`,
     ``,
-    `${origin}, ${stamp}. ${checked} of ${screens.length * THEMES.length * VIEWPORTS.length} screen checks completed ` +
+    `${origin}, ${startedText}. ${checked} of ${screens.length * THEMES.length * VIEWPORTS.length} screen checks completed ` +
       `(${screens.length} screens x ${THEMES.length} themes x ${VIEWPORTS.length} widths).`,
     ``,
     `| Check | Failures | Waived |`,
