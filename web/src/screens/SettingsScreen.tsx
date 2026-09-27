@@ -341,6 +341,11 @@ export function SettingsScreen() {
           </div>
         ) : null}
         {settings.data ? <ServerSettings settings={settings.data.settings} /> : null}
+        {!settings.data ? (
+          <Section title="Statistics">
+            <StatsDataSection defaultRange={loadRange()} />
+          </Section>
+        ) : null}
 
         <Section title="Filters">
           <FiltersSection />

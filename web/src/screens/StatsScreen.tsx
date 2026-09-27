@@ -31,7 +31,7 @@ import { useMedia } from "@/lib/useMedia";
 import { Button } from "@/ui/button";
 import { Notice, Skeleton } from "@/ui/kit";
 import { Segmented } from "@/ui/segmented";
-import { StatsExportDialog } from "./StatsDataDialogs";
+import { StatsDataSection, StatsExportDialog } from "./StatsDataDialogs";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const id = useId();
@@ -437,12 +437,9 @@ export function StatsScreen() {
           </Link>
           .
         </p>
-        <p className="mt-3 text-sm">
-          <button type="button" onClick={() => setExporting(true)} className="text-link underline underline-offset-2">
-            Export or delete your data
-          </button>
-          <span className="block text-xs text-fg2">Recorded statistics are kept while this is off. Export opens here; deleting is in Settings.</span>
-        </p>
+        <div className="mt-6 text-left">
+          <StatsDataSection defaultRange={range} />
+        </div>
       </div>
     );
   } else if (q.isPending) {

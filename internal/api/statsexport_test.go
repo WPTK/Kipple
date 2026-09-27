@@ -2,7 +2,6 @@ package api
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/csv"
@@ -118,7 +117,7 @@ d', '@x', 12, 's1')`, f)
 func TestStatsExportPagingAndFormats(t *testing.T) {
 	h := newHarness(t)
 	h.addFeed("Alpha", 0)
-	const n = 12034 // two full pages and a partial one
+	const n = 25034 // five pages: four full and a partial one
 	h.bulkStats(n, "2026-09-20")
 	h.bulkStats(50, "2026-09-10")
 
@@ -147,19 +146,22 @@ func TestStatsExportPagingAndFormats(t *testing.T) {
 		lines++
 	}
 	require.Equal(t, n, lines)
+	require.Equal(t, fmt.Sprint(n), rec.Header().Get("X-Kipple-Rows"))
 
 	rec = h.export("?format=json&range=all")
 	require.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
 	var doc struct {
-		Format         string
-		ExportedAt     string `json:"exported_at"`
-		TZ             string
-		Version        int
-		Content        string
-		TitlesIncluded bool `json:"titles_included"`
-		Range          map[string]string
-		Dictionary     map[string]map[string]string
-		Events         []map[string]any
+		Format           string
+		ExportedAt       string `json:"exported_at"`
+		TZ               string
+		Version          int
+		Content          string
+		TitlesIncluded   bool `json:"titles_included"`
+		Range            map[string]string
+		Dictionary       map[string]any
+		Events           []map[string]any
+		EventCount       int  `json:"event_count"`
+		RecordingEnabled bool `json:"recording_enabled"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc), rec.Body.String()[:300])
 	require.Equal(t, "kipple-stats-export", doc.Format)
@@ -172,11 +174,18 @@ func TestStatsExportPagingAndFormats(t *testing.T) {
 	require.Equal(t, "all", doc.Range["key"])
 	require.Equal(t, "2026-09-10", doc.Range["from"])
 	require.Len(t, doc.Events, n+50)
-	for _, c := range csvHeader() {
-		require.Contains(t, doc.Dictionary, c)
-		require.NotEmpty(t, doc.Dictionary[c]["description"])
+	require.Equal(t, n+50, doc.EventCount)
+	require.True(t, doc.RecordingEnabled)
+	require.Equal(t, fmt.Sprint(n+50), rec.Header().Get("X-Kipple-Rows"))
+	for _, k := range []string{"columns", "kinds", "concepts", "summary_fields"} {
+		require.Contains(t, doc.Dictionary, k, "the full dictionary is embedded")
 	}
-	require.NotContains(t, doc.Dictionary, "event_id")
+	cols := doc.Dictionary["columns"].(map[string]any)
+	for _, c := range csvHeader() {
+		require.Contains(t, cols, c)
+		require.NotEmpty(t, cols[c].(map[string]any)["description"])
+	}
+	require.NotContains(t, cols, "event_id")
 	require.Len(t, doc.Events[0], len(csvHeader()))
 
 	// An empty database still gives valid JSON.
@@ -184,6 +193,8 @@ func TestStatsExportPagingAndFormats(t *testing.T) {
 	rec = h2.export("?format=json")
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc))
 	require.Empty(t, doc.Events)
+	require.Zero(t, doc.EventCount)
+	require.Equal(t, "0", rec.Header().Get("X-Kipple-Rows"))
 	require.Len(t, readCSV(t, h2.export("").Body.String()), 1)
 }
 
@@ -228,6 +239,8 @@ func TestStatsExportSummary(t *testing.T) {
 	require.Contains(t, out, "dictionary")
 	require.Contains(t, out, "exported_at")
 	require.Equal(t, true, out["titles_included"])
+	require.Equal(t, true, out["recording_enabled"])
+	require.Contains(t, out["dictionary"], "columns")
 	require.EqualValues(t, 30, num(out["totals"].(map[string]any)["active_seconds"]))
 	require.NotContains(t, out, "events")
 	lr := out["behavior"].(map[string]any)["longest_read"].(map[string]any)
@@ -424,9 +437,17 @@ func TestStatsExportAndDeleteWhileOff(t *testing.T) {
 	require.Equal(t, 200, code)
 	require.EqualValues(t, 5, num(out["deleted"]))
 	require.Equal(t, 0, h.count("SELECT count(*) FROM stats_events"))
+	// The summary export summarises the stored rows and says recording is off; the summary
+	// endpoint itself keeps its empty off shape.
+	h.bulkStats(4, "2026-09-20")
 	rec := h.export("?content=summary")
 	require.Equal(t, 200, rec.Code)
-	require.True(t, bytes.Contains(rec.Body.Bytes(), []byte(`"enabled": false`)))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Equal(t, false, out["recording_enabled"])
+	require.Equal(t, false, out["enabled"])
+	require.EqualValues(t, 4, num(out["totals"].(map[string]any)["opens"]))
+	_, sum := h.summary(nil, "?range=all")
+	require.EqualValues(t, 0, num(sum["totals"].(map[string]any)["opens"]))
 }
 
 // TestStatsExportPerf times a raw CSV export of a million rows through the handler; skipped unless
@@ -438,16 +459,18 @@ func TestStatsExportPerf(t *testing.T) {
 	h := newHarness(t)
 	const n = 1_000_000
 	t0 := time.Now()
-	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM c WHERE i < ?)
+	for base := 0; base < n; base += 100_000 { // chunks, each inside the 10 s write deadline
+		require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `WITH RECURSIVE c(i) AS (SELECT ?1 + 1 UNION ALL SELECT i+1 FROM c WHERE i < ?1 + ?2)
 			INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, item_id, feed_id, feed_title,
 			folder_id, folder_name, item_title, item_url, value, session_key)
 			SELECT 1780000000 + i, date('2026-01-01', '+' || (i % 300) || ' days'), i % 24, i % 7,
 			 CASE WHEN i % 5 = 0 THEN 'open' ELSE 'read_time' END, 'web', i % 500000, i % 200, 'Feed ' || (i % 200), 1, 'Uncategorized',
 			 'An article title number ' || i, 'https://example.com/a/' || i, CASE WHEN i % 5 = 0 THEN NULL ELSE 5 + i % 55 END,
-			 printf('%016x%016x', i, i * 7919) FROM c`, n)
-		return err
-	}))
+			 printf('%016x%016x', i, i * 7919) FROM c`, base, 100_000)
+			return err
+		}))
+	}
 	t.Logf("seeded in %v", time.Since(t0))
 	cc := h.login()
 	var before, after runtime.MemStats
@@ -483,6 +506,10 @@ func TestStatsExportPerf(t *testing.T) {
 	close(stop)
 	runtime.ReadMemStats(&after)
 	t.Logf("heap before %.1f MB, peak sampled %.1f MB", float64(before.HeapAlloc)/1e6, float64(peak)/1e6)
+	t2 := time.Now()
+	code, out := h.del(`{"all":true,"confirm":"DELETE ALL"}`)
+	require.Equal(t, 200, code)
+	t.Logf("delete all: %v rows in %v", out["deleted"], time.Since(t2))
 }
 
 // countingWriter counts and discards the body.

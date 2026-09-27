@@ -481,6 +481,14 @@ function enqueue(client: "web" | "pwa", events: StatsEvent[]): void {
  */
 export function wipeStatsQueue(): void {
   wiped = true;
+  clearStatsQueue();
+}
+
+/**
+ * The reader deleted recorded statistics: what this device still holds unsent (queued batches, sessions' unsent
+ * counts) goes too, so it can't bring them back. Unlike the sign-out wipe it leaves sending on.
+ */
+export function clearStatsQueue(): void {
   sessions.clear();
   const ls = storage();
   if (!ls) return;

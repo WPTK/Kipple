@@ -86,6 +86,20 @@ func StatsExportPage(ctx context.Context, q Querier, from, to string, includeInf
 	return out, err
 }
 
+// StatsCountUpTo counts the rows an export of this range would write: local_date in from..to
+// (empty = unbounded), id <= maxID, and inferred rows only when includeInferred.
+func StatsCountUpTo(ctx context.Context, q Querier, from, to string, includeInferred bool, maxID int64) (int, error) {
+	from, to = dateBounds(from, to)
+	inc := 0
+	if includeInferred {
+		inc = 1
+	}
+	var n int
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM stats_events WHERE id <= ?1 AND local_date BETWEEN ?2 AND ?3 AND inferred <= ?4`,
+		maxID, from, to, inc).Scan(&n)
+	return n, err
+}
+
 // StatsCount counts the stats rows whose local_date is in from..to (empty = every row).
 func StatsCount(ctx context.Context, q Querier, from, to string) (int, error) {
 	from, to = dateBounds(from, to)
@@ -100,7 +114,11 @@ func StatsCount(ctx context.Context, q Querier, from, to string) (int, error) {
 // window with no matches costs an index-bounded probe rather than a table scan. Rows recorded
 // after it starts are not considered. On an error part of the range may already be gone; running
 // it again finishes the job. A cancelled ctx stops it between windows.
-func StatsDelete(ctx context.Context, d *DB, from, to string) (int, error) {
+//
+// progress, when not nil, is called before each window (the API extends its write deadline with
+// it). Before the first window's rows go, the same transaction stores the earliest timed event's
+// ts (EnsureStatsTimedSince), so the summary's legacy cutoff survives the delete.
+func StatsDelete(ctx context.Context, d *DB, from, to string, progress func()) (int, error) {
 	from, to = dateBounds(from, to)
 	maxID, err := StatsMaxID(ctx, d.Reader())
 	if err != nil {
@@ -124,7 +142,13 @@ func StatsDelete(ctx context.Context, d *DB, from, to string) (int, error) {
 			upper = maxID
 		}
 		var n int64
+		if progress != nil {
+			progress()
+		}
 		err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			if err := EnsureStatsTimedSince(ctx, tx, d.Clock().Now().Unix()); err != nil {
+				return err
+			}
 			res, err := tx.ExecContext(ctx, `DELETE FROM stats_events WHERE id >= ?1 AND id <= ?2 AND local_date BETWEEN ?3 AND ?4`,
 				next.Int64, upper, from, to)
 			if err != nil {

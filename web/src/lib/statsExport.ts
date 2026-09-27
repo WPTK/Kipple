@@ -11,6 +11,8 @@ export interface ExportOptions {
   from: string;
   to: string;
   titles: boolean;
+  /** CSV only: a byte-order mark at the start, so Excel shows accents. */
+  bom?: boolean;
 }
 
 export const EXPORT_PATH = "/api/stats/export";
@@ -26,10 +28,19 @@ export function validDate(s: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
-/** Why the custom dates are not usable, or null. */
-export function rangeProblem(from: string, to: string): string | null {
+/** The longest custom export range the server accepts, in days, both ends counted. */
+export const MAX_EXPORT_DAYS = 3660;
+
+/** Whole days from a to b (both valid YYYY-MM-DD). */
+export function dayDiff(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+/** Why the custom dates are not usable, or null. `cap` is the export limit; deleting has none. */
+export function rangeProblem(from: string, to: string, cap = false): string | null {
   if (!validDate(from) || !validDate(to)) return "Choose both a start and an end date.";
   if (from > to) return "The start date must be on or before the end date.";
+  if (cap && dayDiff(from, to) > MAX_EXPORT_DAYS - 1) return "Choose a range of at most 3,660 days (about 10 years), or use All.";
   return null;
 }
 
@@ -43,6 +54,7 @@ export function exportUrl(o: ExportOptions): string {
     q.set("to", o.to);
   } else q.set("range", o.range);
   q.set("titles", o.titles ? "1" : "0");
+  if (o.bom && o.content === "raw" && o.format === "csv") q.set("bom", "1");
   return `${EXPORT_PATH}?${q.toString()}`;
 }
 

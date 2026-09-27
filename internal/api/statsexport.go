@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/WPTK/kipple/internal/store"
@@ -27,14 +30,20 @@ func csvHeader() []string {
 // csvText guards a text cell against spreadsheet formula injection: a cell that starts with
 // = + - @ tab or carriage return gets a single quote in front, so it is shown as text.
 func csvText(s string) string {
-	if s != "" {
-		switch s[0] {
-		case '=', '+', '-', '@', '\t', '\r':
-			return "'" + s
-		}
+	if s == "" {
+		return s
 	}
-	return s
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		s = "'" + s
+	}
+	return crNormalizer.Replace(s)
 }
+
+// crNormalizer turns CRLF and a lone CR inside a text cell into LF. encoding/csv drops a lone CR
+// from a quoted field without a word and writes each LF as CRLF, so normalising first keeps every
+// line break the title had.
+var crNormalizer = strings.NewReplacer("\r\n", "\n", "\r", "\n")
 
 // csvRecord is one raw row as CSV cells.
 func csvRecord(r *store.StatsExportRow, titles bool) []string {
@@ -118,6 +127,7 @@ type summaryExport struct {
 	ExportedAt      string `json:"exported_at"`
 	TitlesIncluded  bool   `json:"titles_included"`
 	IncludeInferred bool   `json:"include_inferred"`
+	RecordingOn     bool   `json:"recording_enabled"`
 	Dictionary      any    `json:"dictionary"`
 	*store.StatsSummary
 }
@@ -128,7 +138,8 @@ func badExport(w http.ResponseWriter, msg string) {
 
 // statsExport answers GET /api/stats/export (design section 8): a download of the raw events or of
 // the summary. Reader pool only, one short query per page, nothing held across a write. It works
-// with recording off.
+// with recording off, and content=summary then summarises the stored rows (recording_enabled says
+// recording is off), unlike GET /api/stats/summary, which answers its empty off shape.
 func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 	qv := r.URL.Query()
 	ctx := r.Context()
@@ -160,8 +171,14 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	titles := titlesQ != "0"
+	bomQ := qv.Get("bom")
+	if bomQ != "" && bomQ != "0" && bomQ != "1" {
+		badExport(w, "bom must be 0 or 1")
+		return
+	}
+	bom := bomQ == "1" && format == "csv"
 	rd := s.db.Reader()
-	_, loc, tz, weekStart, err := store.StatsSettings(ctx, rd)
+	recording, loc, tz, weekStart, err := store.StatsSettings(ctx, rd)
 	if err != nil {
 		s.serverError(w, "stats export", err)
 		return
@@ -172,16 +189,25 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 		badExport(w, "range must be week, month, year or all, or from and to dates (YYYY-MM-DD, to not before from, at most 3660 days)")
 		return
 	}
+	p.WhenOff = true // a data control: the stored rows are summarised whether or not recording is on
 	stamp := now.In(loc).Format("20060102")
+	if !titles {
+		stamp += "-no-titles"
+	}
 	h := w.Header()
 	h.Set("Cache-Control", "no-store")
+	// Metadata for a reader of the CSV or JSONL, which has no envelope.
+	h.Set("X-Kipple-Titles-Included", map[bool]string{true: "1", false: "0"}[titles])
+	h.Set("X-Kipple-TZ", tz)
+	h.Set("X-Kipple-Include-Inferred", map[bool]string{true: "1", false: "0"}[p.IncludeInferred])
 
 	if content == "summary" {
-		s.exportSummary(w, r, p, titles, stamp)
+		s.exportSummary(w, r, p, titles, stamp, recording)
 		return
 	}
 
-	// The range echoed in the envelope: "all" reads from the first event through today.
+	// The range echoed in the envelope. "all" runs from the first date present through today, or
+	// through the newest date present when that is later, so it names every row it holds.
 	rng := exportRange{Key: p.Key, From: p.From, To: p.To}
 	from, to := p.From, p.To
 	if p.Key == "all" {
@@ -191,13 +217,32 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 			s.serverError(w, "stats export", err)
 			return
 		}
-		rng.From, rng.To = first, now.In(loc).Format("2006-01-02")
+		last, err := store.StatsLastEventDate(ctx, rd)
+		if err != nil {
+			s.serverError(w, "stats export", err)
+			return
+		}
+		today := now.In(loc).Format("2006-01-02")
+		if first == "" {
+			first = today
+		}
+		rng.From, rng.To = first, max(today, last)
 	}
 	maxID, err := store.StatsMaxID(ctx, rd)
 	if err != nil {
 		s.serverError(w, "stats export", err)
 		return
 	}
+	total, err := store.StatsCountUpTo(ctx, rd, from, to, p.IncludeInferred, maxID)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.serverError(w, "stats export", err)
+		}
+		return
+	}
+	// The row count at the start (the same max id bounds the pages): a CSV or JSONL that has fewer
+	// lines than this was cut off.
+	h.Set("X-Kipple-Rows", strconv.Itoa(total))
 	page, err := store.StatsExportPage(ctx, rd, from, to, p.IncludeInferred, 0, maxID, store.StatsExportPageSize)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -225,6 +270,11 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 	var cw *csv.Writer
 	switch format {
 	case "csv":
+		if bom {
+			if _, err := w.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
+				return
+			}
+		}
 		cw = csv.NewWriter(w)
 		cw.UseCRLF = true
 		if err := cw.Write(csvHeader()); err != nil {
@@ -240,7 +290,8 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 		env.add("range", rng)
 		env.add("titles_included", titles)
 		env.add("include_inferred", p.IncludeInferred)
-		env.add("dictionary", exportDictionary())
+		env.add("recording_enabled", recording)
+		env.add("dictionary", fullDictionary())
 		b, err := json.Marshal(env)
 		if err != nil {
 			panic(http.ErrAbortHandler)
@@ -252,10 +303,12 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 
 	var buf bytes.Buffer
 	first := true
+	written := 0
 	for {
 		buf.Reset()
 		for i := range page {
 			row := &page[i]
+			written++
 			switch format {
 			case "csv":
 				if err := cw.Write(csvRecord(row, titles)); err != nil {
@@ -302,12 +355,12 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if format == "json" {
-		_, _ = w.Write([]byte("\n]}\n"))
+		_, _ = fmt.Fprintf(w, "\n],\"event_count\":%d}\n", written)
 	}
 }
 
 // exportSummary writes content=summary: the summary of the range as one JSON document.
-func (s *Server) exportSummary(w http.ResponseWriter, r *http.Request, p store.StatsSummaryParams, titles bool, stamp string) {
+func (s *Server) exportSummary(w http.ResponseWriter, r *http.Request, p store.StatsSummaryParams, titles bool, stamp string, recording bool) {
 	ctx := r.Context()
 	select {
 	case s.statsGate <- struct{}{}:
@@ -326,7 +379,7 @@ func (s *Server) exportSummary(w http.ResponseWriter, r *http.Request, p store.S
 		sum.Behavior.LongestRead.Title = ""
 	}
 	out := summaryExport{Format: "kipple-stats-export", Version: 1, Content: "summary", ExportedAt: p.Now.UTC().Format(time.RFC3339),
-		TitlesIncluded: titles, IncludeInferred: p.IncludeInferred, Dictionary: fullDictionary(), StatsSummary: sum}
+		TitlesIncluded: titles, IncludeInferred: p.IncludeInferred, RecordingOn: recording, Dictionary: fullDictionary(), StatsSummary: sum}
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Set("Content-Disposition", `attachment; filename="kipple-stats-summary-`+stamp+`.json"`)
@@ -409,13 +462,24 @@ func (s *Server) statsDelete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]int{"count": n, "deleted": 0})
 		return
 	}
-	n, err := store.StatsDelete(ctx, s.db, from, to)
+	rc := http.NewResponseController(w)
+	// Each window extends the write deadline, so a long delete is not cut by the server's 60 s
+	// WriteTimeout (a proxy in front may still give up sooner; a rerun finishes the job).
+	n, err := store.StatsDelete(ctx, s.db, from, to, func() { _ = rc.SetWriteDeadline(time.Now().Add(statsWriteWindow)) })
 	if err != nil {
-		s.log.Info("api: stats delete stopped", "deleted", n, "err", err)
 		if ctx.Err() != nil {
+			s.log.Info("api: stats delete cancelled", "deleted", n, "err", err)
 			return
 		}
-		s.serverError(w, "stats delete", err)
+		// Earlier windows may have committed: say how many, and that it is not complete.
+		s.log.Error("api: stats delete incomplete", "deleted", n, "all", b.All, "from", from, "to", to, "err", err)
+		status, kind := http.StatusInternalServerError, "internal"
+		if errors.Is(err, store.ErrMaintenance) {
+			status, kind = http.StatusServiceUnavailable, "maintenance"
+			w.Header().Set("Retry-After", strconv.Itoa(int(store.MaintenanceRetryAfter/time.Second)))
+		}
+		writeJSON(w, status, map[string]any{"error": kind, "complete": false, "deleted": n,
+			"message": fmt.Sprintf("the delete stopped after removing %d rows; run it again to finish", n)})
 		return
 	}
 	s.log.Info("api: stats delete", "deleted", n, "all", b.All, "from", from, "to", to)

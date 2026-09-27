@@ -28,8 +28,8 @@ var statsColumns = []dictColumn{
 	{"feed_title", "text", "", "The feed's name when the event was written (a snapshot: later renames do not change it). Empty when the feed was already gone."},
 	{"folder_id", "integer (string in JSON), may be empty", "", "The feed's folder id when written; empty for a feed in no folder."},
 	{"folder_name", "text, may be empty", "", "The folder's name when written; empty for no folder."},
-	{"item_title", "text, may be empty", "", "The article's title when written. Blank when the export was made with titles=0."},
-	{"item_url", "text, may be empty", "", "The article's URL when written. Blank when the export was made with titles=0."},
+	{"item_title", "text, may be empty", "", "The article's title when written. Blank in CSV and null in JSON and JSONL when the export was made with titles=0 (see the X-Kipple-Titles-Included header and titles_included)."},
+	{"item_url", "text, may be empty", "", "The article's URL when written. Blank in CSV and null in JSON and JSONL when the export was made with titles=0."},
 	{"value", "integer, may be empty", "seconds for read_time, percent for scroll", "read_time: seconds of active reading in this slice (at most 60 per event; sum by session_key for the total). scroll: deepest scroll position, 0-100. Empty for every other kind."},
 	{"session_key", "text, may be empty", "", "Ties the events of one opening of one article together: an open, its read_time slices and its scroll share the key. Empty for star, unstar, open_original and share."},
 }
@@ -49,12 +49,12 @@ type dictConcept struct{ Name, Text string }
 
 var statsConcepts = []dictConcept{
 	{"what_is_recorded", "One row per event. Marking articles read (one, many, everything, by scrolling or by keyboard) is not an event and is never recorded; only the kinds listed are. With recording off no new rows are written; rows already recorded are kept and can still be exported and deleted."},
-	{"read", "An open counts as a read when its session has at least 10 seconds of read_time in total or a scroll value of at least 25. Opens recorded before the first read_time or scroll row ever written (the timing feature did not exist yet) are legacy opens and count as reads."},
+	{"read", "An open counts as a read when its session has at least 10 seconds of read_time in total or a scroll value of at least 25. Opens recorded before the first read_time or scroll row ever written (the timing feature did not exist yet) are legacy opens and count as reads. That first timed row is the earliest ever recorded, remembered even if the rows are later deleted, so deleting old data never changes how kept opens are classified."},
 	{"bounce", "A non-legacy open that is not a read."},
 	{"local_time", "local_date, local_hour and local_weekday are computed when the row is written in the time zone named by the tz setting (the export's tz field is the zone in force now). ts is always UTC unix seconds, so it stays exact even if the zone changed."},
 	{"range", "A range selects rows by local_date, inclusive on both ends. range=all is every row."},
 	{"summary_computation", "The summary is computed from the same rows. It is not stored, so it can be recomputed from a raw export."},
-	{"identifiers", "In JSON all ids are strings. Times are unix seconds. CSV cells that are text and start with = + - @ tab or carriage return are prefixed with a single quote so a spreadsheet does not run them as a formula; remove that leading quote when analysing."},
+	{"identifiers", "In JSON all ids are strings. Times are unix seconds. CSV and JSONL have no envelope, so their metadata is in response headers: X-Kipple-Rows (the row count at the start; fewer lines than that means the download was cut off), X-Kipple-Titles-Included (0 or 1), X-Kipple-TZ and X-Kipple-Include-Inferred; a titles=0 filename ends in -no-titles. JSON exports carry titles_included, include_inferred, recording_enabled, tz and, after the events, event_count. CSV text cells that start with = + - @ tab or carriage return are prefixed with a single quote so a spreadsheet does not run them as a formula; remove that leading quote when analysing. A line break inside a CSV text cell is one CRLF: CRLF, LF and a lone CR in the source all become one break."},
 }
 
 // dictSummary describes the summary fields (content=summary).
