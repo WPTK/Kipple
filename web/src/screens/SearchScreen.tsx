@@ -144,6 +144,7 @@ export function SearchScreen() {
           <input
             id={inputId}
             ref={inputRef}
+            data-search-input
             type="search"
             enterKeyHint="search"
             autoComplete="off"

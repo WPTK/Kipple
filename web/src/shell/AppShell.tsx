@@ -216,7 +216,12 @@ export function AppShell() {
       goStarred: () => navigate(listTo({ view: "starred" })),
       goFeeds: () => navigate("/feeds"),
       goSettings: () => navigate("/settings"),
-      search: () => navigate("/search"),
+      // Already searching: back to the box, keeping the query and the saved search (navigating would drop both).
+      search: () => {
+        const box = pathname === "/search" ? document.querySelector<HTMLInputElement>("[data-search-input]") : null;
+        if (box) box.focus();
+        else navigate("/search");
+      },
       help: openHelp,
       undo: () => void undoLast(),
     },

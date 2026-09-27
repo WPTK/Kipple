@@ -35,6 +35,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("Search: the / key on the Search screen", () => {
+  it("focuses the box and keeps the query instead of navigating to a blank search", async () => {
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
+    go("/search?q=cats");
+    const box = await screen.findByRole("searchbox", { name: "Search articles" });
+    expect(box).toHaveValue("cats");
+    const row = (await screen.findByText("Cats")).closest("[data-item-id]")!.querySelector<HTMLElement>("a")!;
+    row.focus();
+    expect(box).not.toHaveFocus();
+    await userEvent.setup().keyboard("/");
+    await waitFor(() => expect(box).toHaveFocus());
+    expect(new URLSearchParams(window.location.search).get("q")).toBe("cats");
+    expect(box).toHaveValue("cats");
+  });
+});
+
 describe("Search: what is sent", () => {
   it("sends the text untrimmed with typing=1 while typing, and drops typing when submitted", async () => {
     const { calls } = mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
