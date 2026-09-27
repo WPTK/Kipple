@@ -9,6 +9,7 @@ import { initTheme } from "@/theme/theme";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
+import { emptyCopy } from "./ListPane";
 
 // jsdom has no EventSource; the shell subscribes to one.
 class NoES {
@@ -129,6 +130,15 @@ describe("Unread list (Magazine)", () => {
     routes({ "GET /api/items": () => json(pageOf([])) });
     go("/l/unread");
     expect(await screen.findByText("All caught up")).toBeInTheDocument();
+  });
+
+  it("unread empty copy doesn't claim new articles are pending when none have arrived", () => {
+    expect(emptyCopy({ view: "unread" })).toEqual({ title: "All caught up", body: "No unread articles. New ones appear after the next refresh." });
+  });
+
+  it("unread empty copy reflects new articles already waiting, instead of contradicting the pill", () => {
+    expect(emptyCopy({ view: "unread" }, 1).body).toBe("1 new article arrived. Load them above to continue reading.");
+    expect(emptyCopy({ view: "unread" }, 3).body).toBe("3 new articles arrived. Load them above to continue reading.");
   });
 
   it("shows a retryable error when the list fails", async () => {

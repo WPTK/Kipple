@@ -322,7 +322,7 @@ export function WrappedScreen() {
   } else if (model) {
     body = (
       <div aria-busy={q.isPlaceholderData} className={q.isPlaceholderData ? "opacity-60" : undefined}>
-        {isLowData(model) && !model.empty && !q.isPlaceholderData ? (
+        {isLowData(model) && !model.empty && model.daysActive > 0 && !q.isPlaceholderData ? (
           <p className="mb-4 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
             Only {plural(model.historyDays, "day")} of reading in {model.year} so far, so this is a small picture. It fills in as you read.
           </p>

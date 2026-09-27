@@ -115,11 +115,15 @@ export function clearListMemory(): void {
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
 export const LEAVE_MS = 1500;
 
-export function emptyCopy(scope: Scope): { title: string; body: string } {
+export function emptyCopy(scope: Scope, pendingNew = 0): { title: string; body: string } {
   if (scope.q) return { title: `No results for "${scope.q}"`, body: "Try fewer words, or search All instead of just this feed." };
   if (scope.view === "muted") return { title: "Nothing muted", body: "Articles that your filters mute are kept here, so you can restore any of them. Add a filter in Settings." };
   if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
-  if (scope.view === "unread") return { title: "All caught up", body: "No unread articles. New ones appear after the next refresh." };
+  if (scope.view === "unread") {
+    return pendingNew > 0
+      ? { title: "All caught up", body: `${pendingNew} new article${pendingNew === 1 ? "" : "s"} arrived. Load them above to continue reading.` }
+      : { title: "All caught up", body: "No unread articles. New ones appear after the next refresh." };
+  }
   return { title: "No articles yet", body: "Kipple hasn't fetched anything from these feeds yet." };
 }
 
@@ -804,7 +808,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
           <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
         );
       }
-      const c = emptyCopy(scope);
+      const c = emptyCopy(scope, pendingNew);
       return <StatusBlock role="status" title={c.title} body={c.body} />;
     }
     return (

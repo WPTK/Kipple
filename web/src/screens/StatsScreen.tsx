@@ -470,7 +470,7 @@ export function StatsScreen() {
             </Notice>
           </div>
         ) : null}
-        {range !== "all" && !q.isPlaceholderData && history != null && history >= 1 && history < 7 ? (
+        {range !== "all" && !q.isPlaceholderData && history != null && history >= 1 && history < 7 && (t?.days_active ?? 0) > 0 ? (
           <p className="mt-3 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
             Only {plural(history, "day")} of reading so far; charts fill in as you read.
           </p>
