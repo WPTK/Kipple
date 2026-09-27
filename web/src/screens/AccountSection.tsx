@@ -12,9 +12,6 @@ import { Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 
-/** The live account query (GET /api/auth/me) behind the password and Access controls. */
-const ME_KEY = ["auth-me"] as const;
-
 /** Message for a failed account or backup call. */
 export function accountError(e: unknown): string {
   if (e instanceof ApiError) {
@@ -257,11 +254,19 @@ export function AccountActions() {
   // Live account state (never the offline copy): the password and Access controls follow it. Until it answers, and
   // when it fails (offline), the bootstrap's password_set stands in and no Access sign-in is assumed. An older server
   // does not send password_set: treat the password as set.
-  const me = useQuery({ queryKey: ME_KEY, queryFn: fetchMe, staleTime: 0, retry: false });
+  // The server shows the email only once its cached Access key set can check the token (it never waits for Cloudflare),
+  // so a null right after a start or a key rotation is asked again a few times. Window focus does not refetch here.
+  const me = useQuery({
+    queryKey: keys.me,
+    queryFn: fetchMe,
+    staleTime: 0,
+    retry: false,
+    refetchInterval: (q) => (q.state.data?.access_enabled && !q.state.data.access_email && q.state.dataUpdateCount < 4 ? 5_000 : false),
+  });
   const hasPassword = (me.data?.password_set ?? user?.password_set) !== false;
   const accessEmail = me.data?.access_email ?? null;
   const refreshUser = () => {
-    void qc.invalidateQueries({ queryKey: ME_KEY });
+    void qc.invalidateQueries({ queryKey: keys.me });
     void qc.invalidateQueries({ queryKey: keys.bootstrap });
   };
   const [backup, setBackup] = useState<BackupInfo | null>(null);

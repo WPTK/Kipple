@@ -55,6 +55,19 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		// port may be reachable on the LAN without Access in front).
 		switch p := s.accessProof(r); {
 		case p == proofOK && userOK: // any password sent is ignored: there is none
+		case body.Password != "":
+			// A password sent to an account that has none, whatever token came
+			// with it: checked against the decoy hash and refused exactly like a
+			// wrong password on an account with one (same cost, same answer,
+			// counted), so a password guess cannot tell the two kinds apart.
+			if _, busy := s.verifier.VerifyBusy(r.Context(), "web", body.Password, decoyHash); busy {
+				s.lock.Release(ip)
+				w.Header().Set("Retry-After", "5")
+				writeError(w, http.StatusServiceUnavailable, "busy")
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+			return
 		case p == proofOK || p == proofRefused:
 			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
 			return
@@ -63,12 +76,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Retry-After", "5")
 			writeError(w, http.StatusServiceUnavailable, "access_unavailable")
 			return
-		default:
-			// No usable token. A password sent is checked against the decoy
-			// hash, so from outside this is exactly a wrong password on an
-			// account that has one (same cost, counted); an empty one is
-			// refused uncounted, as there.
-			s.refusePassword(w, r, ip, body.Password, decoyHash())
+		default: // no usable token and no password: nothing presented, not counted
+			s.lock.Release(ip)
+			writeError(w, http.StatusUnauthorized, "auth")
 			return
 		}
 	} else {
@@ -121,15 +131,6 @@ func (s *Server) passwordOK(w http.ResponseWriter, r *http.Request, ip, pw, hash
 		writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
 	}
 	return ok
-}
-
-// refusePassword is passwordOK for a hash that must never match (the decoy):
-// it always refuses, the same way a wrong password is refused.
-func (s *Server) refusePassword(w http.ResponseWriter, r *http.Request, ip, pw, hash string) {
-	if s.passwordOK(w, r, ip, pw, hash) {
-		// Unreachable (nobody knows the decoy's password); refuse all the same.
-		writeError(w, http.StatusUnauthorized, "auth")
-	}
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {

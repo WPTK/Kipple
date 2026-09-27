@@ -3,10 +3,8 @@ package api
 import (
 	"errors"
 	"net/http"
-	"sync"
 
 	"github.com/WPTK/kipple/internal/access"
-	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -23,13 +21,13 @@ const (
 	// for a password (the port may be reachable without Access in front).
 	proofNotConfigured
 	// proofNone: nothing verifiable was presented: no token, or one naming a
-	// key id the team's key set does not have (made up, or a rotation not yet
-	// fetched). Not counted against the login lockout: it cannot succeed, and
-	// the owner's own token must never lock them out.
+	// key id the team's key set does not have even after a fresh fetch. Not
+	// counted against the login lockout: it cannot succeed.
 	proofNone
-	// proofUnavailable: the team's key set cannot be loaded, so no token can
-	// be checked right now. Says nothing about the token: answered 503 and
-	// not counted, like a busy password verifier.
+	// proofUnavailable: the team's key set cannot be loaded, or the token's
+	// key id is not in it yet and a refetch is not due (a rotation), so the
+	// token cannot be checked right now. Says nothing about the token:
+	// answered 503 and not counted, like a busy password verifier.
 	proofUnavailable
 	// proofRefused: a token was presented and refused (bad signature, expired,
 	// for another application or team, or a service token with no email);
@@ -51,7 +49,9 @@ func (s *Server) accessProof(r *http.Request) accessProof {
 		return proofRefused // a service token: a machine, not the owner
 	case errors.Is(err, access.ErrNoToken), errors.Is(err, access.ErrUnknownKey):
 		return proofNone
-	case errors.Is(err, access.ErrNoKeys), r.Context().Err() != nil:
+	case errors.Is(err, access.ErrNoKeys), errors.Is(err, access.ErrKeyPending):
+		// Includes a request that ended while waiting for the fetch: it is gone,
+		// and nothing about its token was decided.
 		return proofUnavailable
 	default:
 		return proofRefused
@@ -109,18 +109,10 @@ func (s *Server) userInfo(r *http.Request, acct store.Account, withEmail bool) m
 	return m
 }
 
-// decoyHash is a real argon2id hash of a random password nobody knows. A
+// decoyHash is a real argon2id hash, with the parameters HashPassword uses, of
+// a random password that was thrown away when it was made: nobody knows it. A
 // password sent to an account without one is checked against it, so that
 // attempt costs and counts exactly like a wrong password on an account with
-// one: the answer's timing and the lockout do not reveal which kind of
-// account this is.
-var decoyHash = sync.OnceValue(func() string {
-	pw, err := auth.GeneratePassword(24)
-	if err == nil {
-		var h string
-		if h, err = auth.HashPassword(pw); err == nil {
-			return h
-		}
-	}
-	return "" // never matches (the verifier refuses an empty hash)
-})
+// one (a test keeps its parameters in step with HashPassword). It is a
+// constant, so there is no first-use cost and nothing that can fail.
+const decoyHash = "$argon2id$v=19$m=19456,t=2,p=1$8GXK7Fmv/IBLsFEZ+pCh3w$nKusdTHMYdD9Ero6pzliMlMxMWEd5+miRvkIbvsdw4A" // gitleaks:allow (a decoy; its password was never kept)

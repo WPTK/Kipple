@@ -207,6 +207,11 @@ var (
 	ErrExpired    = errors.New("access: token expired")
 	ErrNotYet     = errors.New("access: token not valid yet")
 	ErrNoKeys     = errors.New("access: signing keys unavailable")
+	// ErrKeyPending: the key id is not in the cached set and no fetch could be
+	// made for this request (one was attempted within MinRefetch, or the
+	// request ended while waiting), so it is not known to be unknown yet: a
+	// key rotation, most likely. Retry later.
+	ErrKeyPending = errors.New("access: signing key not loaded yet")
 )
 
 // warnEvery is the minimum gap between "token refused" warnings.
@@ -433,7 +438,7 @@ func (v *Verifier) key(ctx context.Context, kid string, wait bool) (*rsa.PublicK
 		}
 		return nil, ErrUnknownKey
 	}
-	_ = v.fetch(ctx)
+	ferr := v.fetch(ctx)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.fetchedAt.IsZero() || v.now().Sub(v.fetchedAt) >= v.maxStale {
@@ -441,6 +446,9 @@ func (v *Verifier) key(ctx context.Context, kid string, wait bool) (*rsa.PublicK
 	}
 	if k, ok := v.keys[kid]; ok {
 		return k, nil
+	}
+	if errors.Is(ferr, errSkipped) || ctx.Err() != nil {
+		return nil, ErrKeyPending
 	}
 	return nil, ErrUnknownKey
 }
@@ -452,7 +460,10 @@ func (v *Verifier) Prefetch(ctx context.Context) error {
 	if v == nil {
 		return nil
 	}
-	return v.fetch(ctx)
+	if err := v.fetch(ctx); !errors.Is(err, errSkipped) {
+		return err
+	}
+	return nil
 }
 
 // recentAttempt reports whether a fetch was attempted within MinRefetch.
@@ -481,9 +492,13 @@ func (v *Verifier) refreshAsync(ctx context.Context) {
 	}()
 }
 
+// errSkipped: fetchLocked made no attempt, one was made within MinRefetch.
+var errSkipped = errors.New("access: key-set fetch skipped (one was attempted within the last minute)")
+
 // fetch refreshes the key set unless another caller did (or tried) within
-// MinRefetch, waiting for a fetch already in flight. A caller whose context
-// ends while it waits gives up (ctx.Err()); the fetch in flight goes on.
+// MinRefetch (errSkipped), waiting for a fetch already in flight. A caller
+// whose context ends while it waits gives up (ctx.Err()); the fetch in flight
+// goes on.
 func (v *Verifier) fetch(ctx context.Context) error {
 	select {
 	case v.fetchSem <- struct{}{}:
@@ -499,7 +514,7 @@ func (v *Verifier) fetch(ctx context.Context) error {
 // request cannot fail it for everyone waiting.
 func (v *Verifier) fetchLocked(ctx context.Context) error {
 	if v.recentAttempt() {
-		return nil
+		return errSkipped
 	}
 	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultTimeout)
 	defer cancel()

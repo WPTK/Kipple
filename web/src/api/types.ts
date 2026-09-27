@@ -126,21 +126,17 @@ export interface Highlight {
 export interface Me {
   username: string;
   api_enabled: boolean;
+  /** False when the account has no web password (sign-in only through Cloudflare Access). */
   password_set: boolean;
+  /** Cloudflare Access token validation is configured on the server. */
   access_enabled: boolean;
   /** The email of this request's verified Cloudflare Access token, or null. */
   access_email: string | null;
 }
 
 export interface Bootstrap {
-  user: {
-    username: string;
-    api_enabled: boolean;
-    /** False when the account has no web password (sign-in only through Cloudflare Access). Absent from older servers. */
-    password_set?: boolean;
-    /** Cloudflare Access token validation is configured on the server. */
-    access_enabled?: boolean;
-  };
+  /** The account without the Access email (kept out of the offline-cached bootstrap); the flags are absent from older servers. */
+  user: Pick<Me, "username" | "api_enabled"> & Partial<Pick<Me, "password_set" | "access_enabled">>;
   settings: Record<string, unknown>;
   /** Absent only from a server older than device profiles: the per-device settings then stay local. */
   device?: DeviceView;

@@ -192,7 +192,7 @@ func TestVerifyRejects(t *testing.T) {
 		{"tampered signature", parts[0] + "." + parts[1] + "." + enc([]byte("not a signature")), ErrSignature},
 		{"alg none", enc([]byte(`{"alg":"none","kid":"a"}`)) + "." + parts[1] + ".", ErrAlg},
 		{"alg HS256", sign(t, a, map[string]any{"alg": "HS256", "kid": "a"}, claimsAt(now)), ErrAlg},
-		{"unknown kid", sign(t, a, rs("zzz"), claimsAt(now)), ErrUnknownKey},
+		{"unknown kid right after a fetch", sign(t, a, rs("zzz"), claimsAt(now)), ErrKeyPending},
 		{"two parts", parts[0] + "." + parts[1], ErrMalformed},
 		{"bad base64", "!!!." + parts[1] + "." + parts[2], ErrMalformed},
 		{"huge", strings.Repeat("a", maxTokenLen+1), ErrMalformed},
@@ -237,7 +237,7 @@ func TestKeyRotationAndRefetchLimit(t *testing.T) {
 	// refetch, but not within a minute of the previous fetch.
 	cs.set(http.StatusOK, jwk("a", &a.PublicKey), jwk("b", &b.PublicKey))
 	_, err = v.Verify(ctx, sign(t, b, rs("b"), claimsAt(clk.now())))
-	require.ErrorIs(t, err, ErrUnknownKey, "refetch is rate-limited")
+	require.ErrorIs(t, err, ErrKeyPending, "refetch is rate-limited: not known yet, not unknown")
 	require.Equal(t, int32(1), cs.hits.Load())
 	clk.add(61 * time.Second)
 	_, err = v.Verify(ctx, sign(t, b, rs("b"), claimsAt(clk.now())))
@@ -247,7 +247,7 @@ func TestKeyRotationAndRefetchLimit(t *testing.T) {
 	// A flood of unknown kids fetches at most once a minute.
 	for i := 0; i < 20; i++ {
 		_, err = v.Verify(ctx, sign(t, a, rs("nope"), claimsAt(clk.now())))
-		require.ErrorIs(t, err, ErrUnknownKey)
+		require.ErrorIs(t, err, ErrKeyPending)
 	}
 	require.Equal(t, int32(2), cs.hits.Load())
 
@@ -262,8 +262,13 @@ func TestKeyRotationAndRefetchLimit(t *testing.T) {
 	v.bg.Wait()
 	require.Equal(t, int32(3), cs.hits.Load())
 	_, err = v.Verify(ctx, sign(t, a, rs("a"), claimsAt(clk.now())))
-	require.ErrorIs(t, err, ErrUnknownKey)
+	require.ErrorIs(t, err, ErrKeyPending, "gone from the set, but the refetch is not due yet")
 	require.Equal(t, int32(3), cs.hits.Load())
+	// Once a refetch is due, a fresh fetch confirms the key is unknown.
+	clk.add(61 * time.Second)
+	_, err = v.Verify(ctx, sign(t, a, rs("a"), claimsAt(clk.now())))
+	require.ErrorIs(t, err, ErrUnknownKey)
+	require.Equal(t, int32(4), cs.hits.Load())
 }
 
 func TestStaleKeysWhenRefreshFails(t *testing.T) {
@@ -319,6 +324,7 @@ func TestKeySetFiltersUnusableKeys(t *testing.T) {
 	require.NoError(t, err)
 	for _, kid := range []string{"b", "c", "small", "ec"} {
 		k := map[string]*rsa.PrivateKey{"b": b, "c": c, "small": small, "ec": a}[kid]
+		clk.add(61 * time.Second) // each check gets a fresh fetch
 		_, err = v.Verify(ctx, sign(t, k, rs(kid), claimsAt(clk.now())))
 		require.ErrorIs(t, err, ErrUnknownKey, kid)
 	}
@@ -384,10 +390,15 @@ func TestRefusedTokenWarnsHourly(t *testing.T) {
 	require.NoError(t, err)
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set(Header, sign(t, a, rs("a"), claimsAt(clk.now())))
+	_, err = v.VerifyRequest(r)
+	require.ErrorIs(t, err, ErrUnknownKey, "a fresh fetch and still unknown: warn")
 	for i := 0; i < 5; i++ {
 		_, err = v.VerifyRequest(r)
-		require.ErrorIs(t, err, ErrUnknownKey)
+		require.ErrorIs(t, err, ErrKeyPending, "no fetch due: not a warning")
 	}
+	clk.add(2 * time.Minute)
+	_, err = v.VerifyRequest(r)
+	require.ErrorIs(t, err, ErrUnknownKey, "unknown again, but within the hour")
 	count := func() int { mu.Lock(); defer mu.Unlock(); return strings.Count(buf.String(), "token refused") }
 	require.Equal(t, 1, count())
 	// A forged signature is someone trying a token on: debug only.

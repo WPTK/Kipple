@@ -9,6 +9,8 @@ export const PAGE_SIZE = 50;
 
 export const keys = {
   bootstrap: ["bootstrap"] as const,
+  /** GET /api/auth/me, live (not "auth": the sign-out sweep must drop it). */
+  me: ["me"] as const,
   items: (scope: Scope) => ["items", scopeKey(scope)] as const,
   itemsAll: ["items"] as const,
   item: (id: string) => ["item", id] as const,

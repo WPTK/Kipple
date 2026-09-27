@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/access"
+	"github.com/WPTK/kipple/internal/auth"
 )
 
 const (
@@ -356,8 +358,14 @@ func TestPasswordlessPasswordGuessLooksLikeAWrongPassword(t *testing.T) {
 	k, _ := accessKeys(t)
 	// A password sent to an account without one, with no token: checked
 	// against the decoy hash and counted, exactly like a wrong password.
+	// With or without a (refused) token, a sent password takes the decoy path.
+	_, other := accessKeys(t)
 	for i := 0; i < 10; i++ {
-		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
+		var mod []func(*http.Request)
+		if i%2 == 1 {
+			mod = append(mod, withJWT(h.jwt(other, nil)))
+		}
+		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody(testPass), mod...).Code)
 	}
 	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil))).Code)
 }
@@ -367,11 +375,13 @@ func TestRemoveCountsRefusedTokensAfterReserving(t *testing.T) {
 	k, other := accessKeys(t)
 	c := h.login()
 	remove := `{"current":"` + testPass + `","remove":true}`
-	// A token naming an unknown key id is not counted (it cannot succeed).
+	// A token naming a key id the cached set lacks (a refetch is not due yet)
+	// cannot be judged: 503, not counted.
 	unknown := h.jwt(k, nil)
 	for i := 0; i < 12; i++ {
 		rec := h.do("POST", "/api/account/password", remove, withCookie(c), withJWT(tamperKid(t, unknown, "nope")))
-		require.Equal(t, http.StatusForbidden, rec.Code)
+		require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		require.Contains(t, rec.Body.String(), "access_unavailable")
 	}
 	// A forged token is, and the lockout then answers first.
 	for i := 0; i < 10; i++ {
@@ -417,4 +427,14 @@ func TestAccessKeysUnavailableIsNotAFailure(t *testing.T) {
 	_, other := accessKeys(t)
 	require.Equal(t, http.StatusServiceUnavailable, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(other, nil))).Code,
 		"with no keys nothing can be checked, forged or not")
+}
+
+// The decoy must cost what a real check costs: same algorithm and parameters
+// as HashPassword makes today.
+func TestDecoyHashMatchesHashPasswordParameters(t *testing.T) {
+	fresh, err := auth.HashPassword("anything")
+	require.NoError(t, err)
+	params := func(phc string) string { return strings.Join(strings.Split(phc, "$")[:4], "$") }
+	require.Equal(t, params(fresh), params(decoyHash))
+	require.False(t, auth.CheckPassword("", decoyHash))
 }
