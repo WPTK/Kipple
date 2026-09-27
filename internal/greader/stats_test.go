@@ -1,6 +1,7 @@
 package greader
 
 import (
+	"context"
 	"database/sql"
 	"runtime/debug"
 	"testing"
@@ -86,6 +87,10 @@ func TestEditTagBulkStarFinishesWellInsideWriteDeadline(t *testing.T) {
 type batchRecorder struct{ singles, batches, ids int }
 
 func (b *batchRecorder) Record(*sql.Tx, stats.Event) error { b.singles++; return nil }
+func (b *batchRecorder) RecordMany(_ *sql.Tx, evs []stats.Event) error {
+	b.singles += len(evs)
+	return nil
+}
 func (b *batchRecorder) RecordStars(_ *sql.Tx, _, _ string, ids []int64) error {
 	b.batches++
 	b.ids += len(ids)
@@ -125,4 +130,18 @@ func raceEnabled() bool {
 		}
 	}
 	return false
+}
+
+// With stats.enabled off, star edits still succeed and record nothing.
+func TestEditTagStarWithStatsOff(t *testing.T) {
+	h := newHarness(t)
+	h.api.opt.Stats = stats.New(h.clk.Now)
+	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"stats.enabled": false}))
+	f := h.addFeed("https://a.example/f", "A", "")
+	ids := seedN(h, f, 2, nil)
+	w := h.do("POST", base+rd+"edit-tag", editBody("a="+starred, FormatDecimal(ids[0]), FormatDecimal(ids[1])),
+		map[string]string{"User-Agent": "Reeder/5.4"})
+	require.Equal(t, 200, w.Code)
+	require.Equal(t, 2, q[int](h, "SELECT count(*) FROM items WHERE starred = 1"))
+	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM stats_events"))
 }

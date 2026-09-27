@@ -1035,6 +1035,8 @@ func TestBootstrap(t *testing.T) {
 	require.Equal(t, "America/New_York", set["tz"])
 	require.Equal(t, "all", set["imgproxy.mode"])
 	require.Equal(t, false, set["stats.api_single_read_is_open"])
+	require.Equal(t, true, set["stats.enabled"])
+	require.Equal(t, "sunday", set["stats.week_start"])
 	require.NotContains(t, set, "sys.id_high_water")
 	require.NotContains(t, set, "bogus.key")
 
@@ -1161,6 +1163,11 @@ func (c *countingRecorder) Record(*sql.Tx, stats.Event) error {
 	return nil
 }
 
+func (c *countingRecorder) RecordMany(_ *sql.Tx, evs []stats.Event) error {
+	c.n.Add(int64(len(evs)))
+	return nil
+}
+
 func (c *countingRecorder) RecordStars(_ *sql.Tx, _, _ string, ids []int64) error {
 	c.n.Add(int64(len(ids)))
 	return nil
@@ -1252,4 +1259,150 @@ func TestStarAtRecordsWhenItHappened(t *testing.T) {
 	for _, bad := range []string{`{"starred":true,"at":0}`, `{"starred":true,"at":-5}`, `{"starred":true,"at":"x"}`} {
 		require.Equal(t, 400, put(bad), bad)
 	}
+}
+
+// ---- stats.enabled and event_id ----
+
+func TestStatsDisabledOpenStarIngest(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	id := h.addItem(f, seedItem{Title: "Hello"})
+	_, opened, _ := h.api(c, "POST", "/api/items/"+sid(id)+"/open", `{}`)
+	key := opened["session_key"].(string)
+	h.clk.Advance(20 * time.Second)
+	require.Equal(t, 1, h.count("SELECT count(*) FROM stats_events"))
+
+	code, _, _ := h.api(c, "PATCH", "/api/settings", `{"stats.enabled":false}`)
+	require.Equal(t, 200, code)
+
+	code, body, _ := h.api(c, "POST", "/api/items/"+sid(id)+"/open", `{"via":"tap"}`)
+	require.Equal(t, 200, code)
+	require.Len(t, body["session_key"], 32, "open still returns a session key")
+	require.Equal(t, true, body["item"].(map[string]any)["read"])
+	code, _, rec := h.api(c, "POST", "/api/stats/events", jsonStr(map[string]any{"events": []any{
+		map[string]any{"kind": "read_time", "item_id": sid(id), "session_key": key, "value": 10, "event_id": "evt-0000001"},
+		map[string]any{"kind": "share", "item_id": sid(id)},
+	}}))
+	require.Equal(t, 204, code)
+	require.Empty(t, rec.Body.String())
+	code, body, _ = h.api(c, "PUT", "/api/items/"+sid(id)+"/star", `{"starred":true}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, true, body["starred"])
+	require.Equal(t, 1, h.count("SELECT starred FROM items WHERE id = ?", id))
+	require.Equal(t, 1, h.count("SELECT count(*) FROM stats_events"), "nothing new was recorded")
+}
+
+func TestStatsEventsEventID(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	id := h.addItem(f, seedItem{})
+	_, opened, _ := h.api(c, "POST", "/api/items/"+sid(id)+"/open", `{}`)
+	key := opened["session_key"].(string)
+	h.clk.Advance(50 * time.Second)
+	rt := func(value int, eid any) map[string]any {
+		m := map[string]any{"kind": "read_time", "item_id": sid(id), "session_key": key, "value": value}
+		if eid != nil {
+			m["event_id"] = eid
+		}
+		return m
+	}
+	post := func(evs ...any) {
+		code, _, _ := h.api(c, "POST", "/api/stats/events", jsonStr(map[string]any{"events": evs}))
+		require.Equal(t, 204, code)
+	}
+	post(rt(10, "evt-aaaa-1"), rt(10, "evt-aaaa-1")) // duplicate inside one batch
+	post(rt(10, "evt-aaaa-1"))                       // retried flush
+	require.Equal(t, 10, h.count("SELECT SUM(value) FROM stats_events WHERE kind = 'read_time'"))
+	post(rt(10, "evt-aaaa-2"))
+	require.Equal(t, 20, h.count("SELECT SUM(value) FROM stats_events WHERE kind = 'read_time'"))
+	require.Equal(t, 2, h.count("SELECT count(*) FROM stats_events WHERE kind = 'read_time' AND event_id IS NOT NULL"))
+
+	// Every other kind dedups too.
+	sh := map[string]any{"kind": "share", "item_id": sid(id), "event_id": "evt-share-1"}
+	oo := map[string]any{"kind": "open_original", "item_id": sid(id), "event_id": "evt-orig-01"}
+	sc := map[string]any{"kind": "scroll", "item_id": sid(id), "session_key": key, "value": 40, "event_id": "evt-scrl-01"}
+	post(sh, sh, oo, oo, sc, sc)
+	post(sh, oo, sc)
+	require.Equal(t, 1, h.count("SELECT count(*) FROM stats_events WHERE kind = 'share'"))
+	require.Equal(t, 1, h.count("SELECT count(*) FROM stats_events WHERE kind = 'open_original'"))
+	require.Equal(t, 1, h.count("SELECT count(*) FROM stats_events WHERE kind = 'scroll'"))
+
+	// Absent, non-string, too short, too long and badly-charactered ids all mean "no id": every one lands.
+	post(rt(1, nil), rt(1, 5), rt(1, "short"), rt(1, strings.Repeat("a", 65)), rt(1, "bad id here"), rt(1, "bad/id/here"))
+	require.Equal(t, 6, h.count("SELECT count(*) FROM stats_events WHERE kind = 'read_time' AND event_id IS NULL"))
+}
+
+func TestStatsEventsMalformedEventDropsOnlyThatEvent(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	id := h.addItem(f, seedItem{})
+	_, opened, _ := h.api(c, "POST", "/api/items/"+sid(id)+"/open", `{}`)
+	key := opened["session_key"].(string)
+	h.clk.Advance(50 * time.Second)
+	body := fmt.Sprintf(`{"client":"web","events":[
+		{"kind":"read_time","item_id":"%[1]s","session_key":"%[2]s","value":"5"},
+		{"kind":1,"item_id":"%[1]s"},
+		{"kind":"read_time","item_id":"%[1]s","session_key":"%[2]s","value":1e400},
+		"junk", 7, null,
+		{"kind":"read_time","item_id":"%[1]s","session_key":"%[2]s","value":10,"event_id":"evt-good-01"},
+		{"kind":"share","item_id":"%[1]s","event_id":"evt-good-02"}]}`, sid(id), key)
+	code, _, _ := h.api(c, "POST", "/api/stats/events", body)
+	require.Equal(t, 204, code)
+	require.Equal(t, 10, h.count("SELECT SUM(value) FROM stats_events WHERE kind = 'read_time'"))
+	require.Equal(t, 1, h.count("SELECT count(*) FROM stats_events WHERE kind = 'share'"))
+
+	// a non-object body and a mistyped client still answer 204
+	for _, b := range []string{`[1,2]`, `"x"`, `{"events":5}`, `{`} {
+		code, _, _ = h.api(c, "POST", "/api/stats/events", b)
+		require.Equal(t, 204, code, b)
+	}
+	code, _, _ = h.api(c, "POST", "/api/stats/events", fmt.Sprintf(`{"client":5,"events":[{"kind":"share","item_id":"%s"}]}`, sid(id)))
+	require.Equal(t, 204, code)
+	require.Equal(t, 2, h.count("SELECT count(*) FROM stats_events WHERE kind = 'share'"))
+}
+
+func TestStatsEventsDisabledAnswersBeforeParsing(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	id := h.addItem(f, seedItem{})
+	code, _, _ := h.api(c, "PATCH", "/api/settings", `{"stats.enabled":false}`)
+	require.Equal(t, 200, code)
+	before := h.count("SELECT count(*) FROM stats_events")
+	code, _, rec := h.api(c, "POST", "/api/stats/events", fmt.Sprintf(`{"events":[{"kind":"share","item_id":"%s"}, garbage`, sid(id)))
+	require.Equal(t, 204, code)
+	require.Empty(t, rec.Body.String())
+	code, _, _ = h.api(c, "POST", "/api/stats/events", fmt.Sprintf(`{"events":[{"kind":"share","item_id":"%s"}]}`, sid(id)))
+	require.Equal(t, 204, code)
+	require.Equal(t, before, h.count("SELECT count(*) FROM stats_events"))
+}
+
+// Dedup runs before the cumulative cap: a retried event at the cap is dropped silently and does not
+// change the sum, while a genuinely new event over the cap is still refused.
+func TestStatsEventsDedupBeforeCap(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	id := h.addItem(f, seedItem{})
+	_, opened, _ := h.api(c, "POST", "/api/items/"+sid(id)+"/open", `{}`)
+	key := opened["session_key"].(string)
+	h.clk.Advance(50 * time.Second) // cap = 50 + 5 seconds
+	rt := func(v int, eid string) map[string]any {
+		return map[string]any{"kind": "read_time", "item_id": sid(id), "session_key": key, "value": v, "event_id": eid}
+	}
+	post := func(evs ...any) {
+		code, _, _ := h.api(c, "POST", "/api/stats/events", jsonStr(map[string]any{"events": evs}))
+		require.Equal(t, 204, code)
+	}
+	sum := func() int { return h.count("SELECT SUM(value) FROM stats_events WHERE kind = 'read_time'") }
+	post(rt(55, "evt-cap-0001"))
+	require.Equal(t, 55, sum())
+	post(rt(55, "evt-cap-0001")) // duplicate that would exceed the cap if it were counted
+	require.Equal(t, 55, sum())
+	post(rt(1, "evt-cap-0002")) // genuinely new, over the cap
+	require.Equal(t, 55, sum())
+	require.Equal(t, 1, h.count("SELECT count(*) FROM stats_events WHERE kind = 'read_time'"))
 }

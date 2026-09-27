@@ -669,17 +669,28 @@ type statsEventIn struct {
 	ItemID     json.RawMessage `json:"item_id"`
 	SessionKey string          `json:"session_key"`
 	Value      *float64        `json:"value"`
+	EventID    json.RawMessage `json:"event_id"` // 8..64 of [A-Za-z0-9_-]; anything else = absent
 }
 
 // statsEvents ingests web-only events. Everything invalid is dropped and the
 // answer is 204 regardless (design §8): sendBeacon cannot read it anyway.
 func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
+	// Off means off: answer before reading the body's contents or opening a write transaction.
+	// RecordMany keeps its own check as the backstop for a switch flipped mid-request.
+	if on, err := store.StatsEnabled(r.Context(), s.db.Reader()); err != nil {
+		s.serverError(w, "stats events", err)
+		return
+	} else if !on {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, statsBodyMax))
 	var in struct {
 		// Client is the attribution for a sendBeacon flush, which cannot set X-Kipple-Client: "web" or
 		// "pwa"; anything else falls back to the header (and then to web).
-		Client string         `json:"client"`
-		Events []statsEventIn `json:"events"`
+		Client json.RawMessage `json:"client"`
+		// Each event decodes on its own, so one mistyped field drops that event and no other.
+		Events []json.RawMessage `json:"events"`
 	}
 	if err != nil || json.NewDecoder(bytes.NewReader(raw)).Decode(&in) != nil {
 		w.WriteHeader(http.StatusNoContent)
@@ -689,11 +700,18 @@ func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 		in.Events = in.Events[:maxStatsBatch]
 	}
 	cl := client(r)
-	if in.Client == "web" || in.Client == "pwa" {
-		cl = in.Client
+	var inClient string
+	_ = json.Unmarshal(in.Client, &inClient)
+	if inClient == "web" || inClient == "pwa" {
+		cl = inClient
 	}
-	err = s.db.WithWrite(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
-		for _, e := range in.Events {
+	evs := make([]stats.Event, 0, len(in.Events))
+	{
+		for _, rawEv := range in.Events {
+			var e statsEventIn
+			if json.Unmarshal(rawEv, &e) != nil {
+				continue // a mistyped field drops this event only
+			}
 			switch e.Kind {
 			case stats.KindReadTime, stats.KindScroll, stats.KindOpenOriginal, stats.KindShare:
 			default:
@@ -708,11 +726,19 @@ func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 				// Clamp before converting: a float beyond int64 converts to an implementation-defined value.
 				ev.Value, ev.HasValue = int64(max(-1e15, min(1e15, *e.Value))), true
 			}
-			if err := s.rec.Record(tx, ev); err != nil && !errors.Is(err, stats.ErrDropped) {
-				return err
+			var eid string
+			if json.Unmarshal(e.EventID, &eid) == nil && stats.ValidEventID(eid) {
+				ev.EventID = eid
 			}
+			evs = append(evs, ev)
 		}
-		return nil
+	}
+	if len(evs) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	err = s.db.WithWrite(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
+		return s.rec.RecordMany(tx, evs)
 	})
 	if err != nil {
 		s.serverError(w, "stats events", err)

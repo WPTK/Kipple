@@ -291,6 +291,22 @@ stop kipple, `restore /data/backup/pre-migration-6-7-<ns>.db --yes` with the new
 out, rebuild and start the old tag. Never copy the snapshot over `kipple.db` by hand, and never drop
 the column by hand to make an older binary start. Anything read or starred since the upgrade is lost.
 
+### Schema 7 -> 8 (stats event ids)
+
+Migration 0008 adds the nullable column `stats_events.event_id` and the partial unique index
+`idx_stats_event(event_id) WHERE event_id IS NOT NULL`, which lets the stats ingest drop a repeated
+event (a retried flush or a repeated beacon) of any kind. It is not O(1): the ALTER is instant, but
+the index build scans `stats_events` once inside the migration transaction (existing rows keep NULL,
+so the index starts empty; the scan is fast at expected sizes). The first start writes
+`/data/backup/pre-migration-7-8-<ns>.db` (or `pre-migration-6-8-<ns>.db` / `pre-migration-5-8-<ns>.db`
+when coming straight from schema 6 or 5), then migrates. A binary without 0008 refuses the schema-8
+database with `database schema version 8 is newer than this binary (7); refusing to start`, so a
+rollback is the same procedure: stop kipple, `restore /data/backup/pre-migration-7-8-<ns>.db --yes`
+with the new image (use the snapshot name that matches where the database came from), then check
+out, rebuild and start the old tag. Never copy the snapshot over `kipple.db` by hand, and never drop
+the column by hand to make an older binary start. Everything recorded since the upgrade, reads,
+stars and statistics included, is lost on rollback.
+
 ## Phase 1 to phase 2 (done 2026-09-25, v0.2.0-alpha.1)
 
 Historical: this applies to a schema-1 database. With a build after alpha 2 the snapshot is `pre-migration-1-<latest>-*` (schema 5 is the latest at the time of writing), not `pre-migration-1-3-*`. Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migrates the schema

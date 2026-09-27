@@ -12,9 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// undo0007 is the first step of every downgrade helper: a schema-6 database has no
+// undo0007 is the first step (after undoing 0008, which sits on top of it) of every downgrade helper: a schema-6 database has no
 // state_changed_at column and no index on it (the index goes first, it names the column).
-const undo0007 = `DROP INDEX idx_items_state_changed;
+const undo0007 = undo0008 + `;
+DROP INDEX idx_items_state_changed;
 ALTER TABLE items DROP COLUMN state_changed_at`
 
 // sca reads state_changed_at; 0 means NULL.

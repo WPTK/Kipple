@@ -6,6 +6,17 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Reading statistics sender: the web app now records `read_time` (active reading time only: the tab visible and focused, the article open, idle after 2 minutes), `scroll` (how far into an article a reader got, once per opening), `open_original` and `share` events. Every event carries a random `event_id`, and a repeated id is dropped by the server, so a retried or repeated send never counts twice. Unsent events wait in an offline queue that is cleared on sign-out.
+- Settings > Statistics: `stats.enabled` (reading statistics on or off) and `stats.week_start` (first day of the week).
+- Schema migration 0008: `stats_events.event_id` and a partial unique index on it. Building the index scans the table once during the upgrade. An older binary refuses the migrated database, so a rollback restores the pre-migration snapshot (docs/deploy.md).
+
+### Changed
+
+- With statistics off, the server records nothing, including star and unstar events from sync apps; starring itself still works. Existing statistics are kept, and turning the setting back on resumes recording.
+- The stats ingest endpoint reads the statistics setting and the time zone once per request instead of once per event.
+
 ## [0.3.0-alpha.3] - 2026-09-26
 
 Review fixes across ingestion, auth, images, filters, the web app and operations (from a local deep review of alpha.2), the

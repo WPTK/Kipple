@@ -46,11 +46,15 @@ type Event struct {
 	Value      int64 // read_time seconds, scroll percent
 	HasValue   bool
 	SessionKey string
+	EventID    string // client-generated id (see ValidEventID); "" = none. A repeated id is dropped
 }
 
 // Recorder writes one event inside the caller's write transaction.
 type Recorder interface {
 	Record(tx *sql.Tx, ev Event) error
+	// RecordMany records a batch of events from one request: it reads stats.enabled and the time
+	// zone once, and drops invalid events like Record. Only a database failure is an error.
+	RecordMany(tx *sql.Tx, evs []Event) error
 	// RecordStars records one star or unstar event per id (kind is KindStar or
 	// KindUnstar) for a bulk edit, in one pass; ErrDropped ids are skipped.
 	RecordStars(tx *sql.Tx, kind, client string, ids []int64) error
@@ -80,8 +84,65 @@ func NewSessionKey() string {
 // validation returns ErrDropped and writes nothing.
 func (r *SQL) Record(tx *sql.Tx, ev Event) error {
 	ctx := context.Background() // tx is already bound to the WithWrite deadline
+	if on, err := store.StatsEnabled(ctx, tx); err != nil {
+		return err
+	} else if !on {
+		return ErrDropped
+	}
+	return r.record(ctx, tx, ev, store.LoadLocation(ctx, tx))
+}
+
+// RecordMany records a batch in one transaction, reading stats.enabled and the time zone once.
+// Invalid and duplicate events are dropped; only a database failure is an error.
+func (r *SQL) RecordMany(tx *sql.Tx, evs []Event) error {
+	if len(evs) == 0 {
+		return nil
+	}
+	ctx := context.Background()
+	if on, err := store.StatsEnabled(ctx, tx); err != nil {
+		return err
+	} else if !on {
+		return nil
+	}
+	loc := store.LoadLocation(ctx, tx)
+	for _, ev := range evs {
+		if err := r.record(ctx, tx, ev, loc); err != nil && !errors.Is(err, ErrDropped) {
+			return err
+		}
+	}
+	return nil
+}
+
+// ValidEventID reports whether id is an acceptable client event id: 8 to 64 characters of
+// [A-Za-z0-9_-].
+func ValidEventID(id string) bool {
+	if len(id) < 8 || len(id) > 64 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// record is Record after the enabled check and the time-zone load.
+func (r *SQL) record(ctx context.Context, tx *sql.Tx, ev Event, loc *time.Location) error {
 	if !clients[ev.Client] {
 		return ErrDropped
+	}
+	if !ValidEventID(ev.EventID) {
+		ev.EventID = "" // a malformed id counts as absent
+	}
+	if ev.EventID != "" {
+		// A repeated event id is a retried flush: drop it before anything (the cap included) sees it.
+		if seen, err := store.StatEventSeen(ctx, tx, ev.EventID); err != nil {
+			return err
+		} else if seen {
+			return ErrDropped
+		}
 	}
 	now := r.now()
 	snap, ok, err := store.StatItemSnapshot(ctx, tx, ev.ItemID)
@@ -132,12 +193,12 @@ func (r *SQL) Record(tx *sql.Tx, ev Event) error {
 	default:
 		return ErrDropped
 	}
-	lt := now.In(store.LoadLocation(ctx, tx))
+	lt := now.In(loc)
 	return store.InsertStat(ctx, tx, store.StatRow{
 		TS: now.Unix(), LocalDate: lt.Format("2006-01-02"), LocalHour: lt.Hour(), LocalWeekday: int(lt.Weekday()),
 		Kind: ev.Kind, Client: ev.Client, Inferred: ev.Inferred, ItemID: ev.ItemID,
 		FeedID: snap.FeedID, FeedTitle: snap.FeedTitle, FolderID: snap.FolderID, FolderName: snap.FolderName,
-		ItemTitle: snap.ItemTitle, ItemURL: snap.ItemURL, Value: value, SessionKey: ev.SessionKey,
+		ItemTitle: snap.ItemTitle, ItemURL: snap.ItemURL, Value: value, SessionKey: ev.SessionKey, EventID: ev.EventID,
 	})
 }
 
@@ -149,6 +210,11 @@ func (r *SQL) RecordStars(tx *sql.Tx, kind, client string, ids []int64) error {
 		return nil
 	}
 	ctx := context.Background()
+	if on, err := store.StatsEnabled(ctx, tx); err != nil {
+		return err
+	} else if !on {
+		return nil
+	}
 	now := r.now()
 	lt := now.In(store.LoadLocation(ctx, tx))
 	feeds := map[int64]store.StatSnapshot{}

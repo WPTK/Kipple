@@ -32,6 +32,8 @@ var DefaultSettings = map[string]any{
 	"fetch.honor_publisher_ttl":     true,
 	"tz":                            "America/New_York",
 	"stats.api_single_read_is_open": false,
+	"stats.enabled":                 true,
+	"stats.week_start":              "sunday",
 	"imgproxy.mode":                 DefaultImgMode,
 	"imgproxy.cache_mb":             DefaultImgCacheMB,
 	"greader.icon_urls":             true,

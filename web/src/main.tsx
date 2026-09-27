@@ -5,6 +5,7 @@ import "./index.css";
 import App, { makeQueryClient } from "./App";
 import { initOffline } from "./lib/offline";
 import { initPrefs } from "./lib/prefs";
+import { initStatsQueue } from "./lib/statsSender";
 import { stripSignInReload } from "./lib/reload";
 import { initTheme } from "./theme/theme";
 
@@ -17,6 +18,7 @@ initTheme();
 initPrefs();
 const queryClient = makeQueryClient();
 initOffline(queryClient);
+initStatsQueue(queryClient);
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>

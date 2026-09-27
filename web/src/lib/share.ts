@@ -18,8 +18,8 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 
 /**
  * Share an article's link. Where the device has a share sheet (iOS, Android, some desktops) that opens with the
- * title and URL. Everywhere else the link is copied and a toast says so. Nothing is sent to Kipple: the share
- * stats event kind is defined on the server but no client sends it yet, and sharing needs none.
+ * title and URL. Everywhere else the link is copied and a toast says so. The app shares through
+ * shareAndRecord (lib/statsSender.ts), which records the stat for "shared" and "copied", never for "cancelled".
  */
 export async function shareLink(item: { title: string; url: string }): Promise<ShareResult> {
   if (canNativeShare()) {
