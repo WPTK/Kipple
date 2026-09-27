@@ -46,6 +46,11 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
 
+/** The first line of an error's message. */
+const firstLine = (e) => String(e?.message ?? e).split("\n")[0];
+/** `s` as a literal inside a RegExp. */
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // Anything that stops the run before it can check a screen exits 2, never 1 ("findings").
 function setupError(message) {
   console.error(message);
@@ -56,7 +61,7 @@ function orSetupError(what, fn) {
   try {
     return fn();
   } catch (e) {
-    return setupError(`${what}: ${e.message.split("\n")[0]}`);
+    return setupError(`${what}: ${firstLine(e)}`);
   }
 }
 
@@ -149,8 +154,9 @@ if (unknown.length || (only && !only.size)) {
 const screens = only ? SCREENS.filter((s) => only.has(s.id)) : SCREENS;
 
 // Waivers (format in the header comment). Every waiver needs a reason, and every key and value is checked, so a typo
-// cannot widen one to everything. S1, S2, S4 and S5 have coarse rules (S5's is always "literal"), so a waiver for
-// them must also name the text of the one finding it accepts in `match`. One that matched nothing is reported so the
+// cannot widen one to everything. S1, S2, S4, S5 and S6 have coarse rules (S5's is always "literal"), so a waiver
+// for them must also name the text of the one finding it accepts in `match` (S3 findings are one element each, so
+// a rule id alone is already narrow, and `match` can name the element). One that matched nothing is reported so the
 // list does not rot.
 const waivers = orSetupError("uat/waivers.json", () => {
   const list = JSON.parse(readFileSync(new URL("./waivers.json", import.meta.url), "utf8"));
@@ -168,7 +174,7 @@ const waivers = orSetupError("uat/waivers.json", () => {
     for (const k of Object.keys(w)) if (typeof w[k] !== "string" || !w[k]) throw bad(`"${k}" must be a non-empty string`);
     if (!w.check || !w.reason) throw bad("every waiver needs a check and a reason");
     for (const [k, ok] of Object.entries(allowed)) if (w[k] !== undefined && !ok.includes(w[k])) throw bad(`"${k}" must be one of ${ok.join(", ")}`);
-    if (["S1", "S2", "S4", "S5"].includes(w.check) && !w.match) throw bad(`an ${w.check} waiver needs "match"`);
+    if (["S1", "S2", "S4", "S5", "S6"].includes(w.check) && !w.match) throw bad(`an ${w.check} waiver needs "match"`);
   }
   return list;
 });
@@ -299,8 +305,10 @@ function overflowProbe(feed) {
     if (pos === "fixed") return null;
     for (let a = pos === "absolute" ? el.offsetParent : el.parentElement; a && a !== document.body; a = a.parentElement) {
       const cs = getComputedStyle(a);
-      if (cs.overflowX !== "hidden" && cs.overflowX !== "clip") continue;
-      if (cs.textOverflow === "ellipsis") return null;
+      if (cs.overflowX === "visible") continue;
+      // The nearest box that does anything with overflow decides: a scroller shows the rest on scroll (and is checked
+      // as a scroller above), an ellipsis truncates on purpose.
+      if (cs.overflowX === "auto" || cs.overflowX === "scroll" || cs.textOverflow === "ellipsis") return null;
       const ar = a.getBoundingClientRect();
       return r.right > ar.right + 1 && r.left < ar.right - 1 ? { a, ar } : null;
     }
@@ -339,7 +347,10 @@ function overflowProbe(feed) {
 function literalProbe(feed) {
   const bad = new RegExp(feed.pattern);
   const norm = (t) => t.replace(/\s+/g, " ");
-  const strip = (t) => feed.names.reduce((s, n) => s.split(n).join(" "), norm(t));
+  // Longest first, so a short name inside a longer string ("NaN Tech" in "NaN Tech Weekly: undefined results") does
+  // not break the longer one up before it is taken out.
+  const names = [...feed.names].sort((a, b) => b.length - a.length);
+  const strip = (t) => names.reduce((s, n) => s.split(n).join(" "), norm(t));
   const inBody = (el) => window.__uatInBody(el, feed.body, feed.ownText);
   const fromFeed = (el, text, isTextNode) => {
     if (inBody(el)) return true;
@@ -408,8 +419,12 @@ async function runAxe(page) {
         html: n.html.slice(0, 300),
         summary: n.failureSummary?.split("\n").slice(0, 3).join(" ").slice(0, 300),
         // Nodes inside the article body are the feed's own markup, reported apart from Kipple's, except what Kipple
-        // added there itself.
-        feedContent: window.__uatInBody(document.querySelector(top(n.target)), feed.body, feed.own),
+        // added there itself. Inside a frame in the article (a started embed: Kipple's frame, the provider's player)
+        // the markup is the provider's.
+        feedContent: ((el) =>
+          n.target.length > 1 && !Array.isArray(n.target[0])
+            ? !!el?.closest(feed.body)
+            : window.__uatInBody(el, feed.body, feed.own))(document.querySelector(top(n.target))),
       })),
     }));
   }, FEED);
@@ -423,7 +438,7 @@ async function setLayout(page, layout) {
   if ((await btn.getAttribute("aria-label")) === `Layout: ${layout.label}`) return;
   await btn.click();
   // The radio's name is the label plus its hint; anchor it so "Compact" does not match "Email - Compact".
-  const esc = layout.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const esc = escapeRe(layout.label);
   await page.getByRole("menuitemradio", { name: new RegExp(`^${esc}\\b`) }).click();
   await page.locator(`button[aria-label="Layout: ${layout.label}"]`).first().waitFor({ timeout: 10000 });
   if (await page.getByRole("menu").isVisible().catch(() => false)) await page.keyboard.press("Escape");
@@ -491,7 +506,7 @@ async function go(page, path) {
 // ---- the run ----
 const browser = await chromium
   .launch({ headless: !opt.headed })
-  .catch((e) => setupError(`could not start Chromium (npx playwright install chromium): ${e.message.split("\n")[0]}`));
+  .catch((e) => setupError(`could not start Chromium (npx playwright install chromium): ${firstLine(e)}`));
 let exitCode;
 try {
   await selfTest();
@@ -502,10 +517,10 @@ try {
   const s6 = contrastCheck();
   exitCode = writeReport(results, s6);
 } catch (e) {
-  console.error(`run aborted: ${e.message.split("\n")[0]}`);
+  console.error(`run aborted: ${firstLine(e)}`);
   exitCode = 2;
 } finally {
-  await browser.close().catch((e) => console.warn(`closing the browser failed: ${e.message.split("\n")[0]}`));
+  await browser.close().catch((e) => console.warn(`closing the browser failed: ${firstLine(e)}`));
 }
 // Set rather than process.exit(), so piped output is flushed before Node leaves.
 process.exitCode = exitCode;
@@ -536,10 +551,16 @@ async function selfTest() {
       `<svg width="20" height="20" role="img" aria-label="chart"><rect width="20" height="20"><title>Invalid Date: 3 items</title></rect></svg>` +
       `<div style="overflow:hidden;width:200px"><div id="clipped" style="white-space:nowrap;width:300px">a row cut off at its box</div></div>` +
       `<div style="overflow:hidden;width:200px;height:30px;position:relative"><button id="swipe" style="position:absolute;left:220px">Star</button></div>` +
-      `<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100px"><span>a long title that truncates</span></div></main>`,
+      `<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100px"><span>a long title that truncates</span></div>` +
+      `<div style="overflow:hidden;width:300px"><div class="overflow-x-auto" style="overflow-x:auto;width:200px">` +
+      `<div style="white-space:nowrap;width:400px">chips in a scroller</div></div></div>` +
+      `<p>NaN Tech Weekly: undefined results</p></main>`,
   );
   await page.evaluate(PAGE_SCRIPT);
-  const probeFeed = { ...FEED, names: ["NaN Tech", "NaN-boxing explained", "An excerpt about NaN-boxing", "The NaN trick"] };
+  const probeFeed = {
+    ...FEED,
+    names: ["NaN Tech", "NaN-boxing explained", "An excerpt about NaN-boxing", "The NaN trick", "NaN Tech Weekly: undefined results"],
+  };
   const o = await page.evaluate(overflowProbe, probeFeed);
   const lit = await page.evaluate(literalProbe, probeFeed);
   const axe = await runAxe(page);
@@ -556,7 +577,7 @@ async function selfTest() {
   ];
   const wantFeed = [
     "NaN-boxing explained", "undefined behaviour is fine in an article", "NaN", "An excerpt about NaN-boxing", "NaN",
-    "NaN Tech", "Edit NaN Tech", "NaN-boxing explained",
+    "NaN Tech", "Edit NaN Tech", "NaN-boxing explained", "NaN Tech Weekly: undefined results",
   ];
   const buttons = axe.find((v) => v.id === "button-name")?.nodes ?? [];
   const nodeSplit = buttons.map((n) => `${n.target}:${n.feedContent}`);
@@ -579,7 +600,7 @@ async function selfTest() {
 
 // Feed-supplied strings that contain an S5 literal (FEED.names). Two sources: every /api/ JSON answer a screen
 // loads (harvestFeedText, so items that arrive mid-run and titles only Stats still knows are covered), and, before
-// the first screen, the whole of All plus the search the run makes (collectFeedText). Only the fields feeds and the
+// the first screen, a head start (collectFeedText). Only the fields feeds and the
 // user fill (titles, names, excerpts, authors, sources, search snippets), and only on a record of an item, feed,
 // folder or saved search (an object with an id, item_id or feed_id): a summary or label the server composes itself
 // has none, so its text stays Kipple's.
@@ -606,26 +627,18 @@ function harvestFeedText(json) {
   FEED.names = [...feedStrings];
 }
 
+// The head start: the bootstrap and the first page of All and of the run's search (what the first screens show). The
+// screens' own API answers bring the rest. A search the server finds too broad (422 on a big instance) is skipped.
 async function collectFeedText(request) {
-  const MAX_ITEMS = 5000; // per list; a seeded instance has about a hundred
   const headers = { Accept: "application/json", "X-Kipple-Client": "web" };
-  const get = async (path) => {
+  const get = async (path, required) => {
     const r = await request.get(origin + path, { headers });
-    if (!r.ok()) throw new Error(`GET ${path.split("?")[0]} answered ${r.status()}`);
-    return r.json();
+    if (r.ok()) return harvestFeedText(await r.json());
+    if (required) throw new Error(`GET ${path.split("?")[0]} answered ${r.status()}`);
   };
-  harvestFeedText(await get("/api/bootstrap"));
-  for (const list of [{ view: "all" }, { view: "all", q: SEARCH_Q }]) {
-    let cursor = "";
-    for (let seen = 0; seen < MAX_ITEMS; ) {
-      const qs = new URLSearchParams({ ...list, limit: "100", ...(cursor ? { cursor } : {}) });
-      const page = await get(`/api/items?${qs}`);
-      harvestFeedText(page.items ?? []);
-      seen += page.items?.length ?? 0;
-      if (!page.next_cursor || !page.items?.length) break;
-      cursor = page.next_cursor;
-    }
-  }
+  await get("/api/bootstrap", true);
+  await get(`/api/items?${new URLSearchParams({ view: "all", limit: "100" })}`, true);
+  await get(`/api/items?${new URLSearchParams({ view: "all", q: SEARCH_Q, limit: "100" })}`, false);
 }
 
 function loadDevice() {
@@ -696,8 +709,8 @@ async function checkScreens(cookies) {
         trackRequests(page);
         await checkCombo(page, theme, vp, ctxInfo, results);
       } catch (e) {
-        broken(combo, `could not open a browser at ${vp.id}/${theme.id}: ${e.message.split("\n")[0]}`);
-        console.log(`${theme.id} ${vp.id}: ERROR ${e.message.split("\n")[0]}`);
+        broken(combo, `could not open a browser at ${vp.id}/${theme.id}: ${firstLine(e)}`);
+        console.log(`${theme.id} ${vp.id}: ERROR ${firstLine(e)}`);
       } finally {
         await context?.close().catch(() => {});
       }
@@ -748,9 +761,20 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     else bucket.other.push({ url: u.pathname + u.search, text: why });
   });
 
+  // S1 and S2 events collected for the current screen, reported even when the screen could not be finished (they
+  // are often why).
+  const flush = (where) => {
+    for (const c of bucket.console) report("S1", where, c.kind, c.text, c.url);
+    for (const a of bucket.api) report("S2", where, String(a.status), `${a.method} ${a.url} -> ${a.status || a.error}`);
+    for (const o of bucket.other) note("S2", where, `non-API request failed: ${o.url} ${o.text}`);
+    bucket.console.length = bucket.api.length = bucket.other.length = 0;
+  };
+
   // An article to open: the first one in All. Looked for again in the next browser while none is found (the feeds may
-  // still be fetching).
+  // still be fetching). When this is the browser's first load, it is where the app boots, so its errors are checked
+  // too (as the "boot" screen).
   if (!ctxInfo.articlePath && screens.some((s) => s.id === "article")) {
+    current = "boot";
     try {
       await go(page, "/l/all");
       await settle(page);
@@ -760,16 +784,9 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     } catch {
       ctxInfo.articlePath = null;
     }
+    current = null;
+    flush({ screen: "boot", theme: theme.id, viewport: vp.id });
   }
-
-  // S1 and S2 events collected for the current screen, reported even when the screen could not be finished (they
-  // are often why).
-  const flush = (where) => {
-    for (const c of bucket.console) report("S1", where, c.kind, c.text, c.url);
-    for (const a of bucket.api) report("S2", where, String(a.status), `${a.method} ${a.url} -> ${a.status || a.error}`);
-    for (const o of bucket.other) note("S2", where, `non-API request failed: ${o.url} ${o.text}`);
-    bucket.console.length = bucket.api.length = bucket.other.length = 0;
-  };
 
   for (const screen of screens) {
     const where = { screen: screen.id, theme: theme.id, viewport: vp.id };
@@ -786,23 +803,25 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     try {
       current = screen.id;
       await go(page, path);
-      await settle(page);
-      if (screen.layout) {
-        await setLayout(page, screen.layout);
-        await settle(page);
-      }
+      // The heading first: after an in-app navigation the screen before stays up until the router has rendered the
+      // new one, and waiting for "not busy" on the old screen would pass at once.
       const heading = typeof screen.heading === "function" ? screen.heading(ctxInfo) : screen.heading;
-      const esc = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const esc = escapeRe(heading);
       // The list headings are whole; the article's is the start of its title.
       const want = new RegExp(screen.id === "article" ? `^\\s*${esc}` : `^\\s*${esc}\\s*$`);
       await page
         .locator("h1")
         .filter({ hasText: want })
         .first()
-        .waitFor({ state: "visible", timeout: 5000 })
+        .waitFor({ state: "visible", timeout: 15000 })
         .catch(() => {
           throw new Error(`the screen did not render: no visible h1 "${heading}"`);
         });
+      await settle(page);
+      if (screen.layout) {
+        await setLayout(page, screen.layout);
+        await settle(page);
+      }
 
       const scheme = await page.evaluate(() => document.documentElement.dataset.theme);
       if (scheme !== theme.scheme)
@@ -829,7 +848,8 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       for (const v of axe) {
         const own = v.nodes.filter((n) => !n.feedContent);
         const feed = v.nodes.filter((n) => n.feedContent);
-        if (own.length) report("S3", where, v.id, `${v.id} (${v.impact}): ${v.help}`, own);
+        // One finding per element, so a waiver's `match` accepts that element and not every other one the rule flags.
+        for (const n of own) report("S3", where, v.id, `${v.id} (${v.impact}): ${v.help}`, [n]);
         if (feed.length) note("S3", where, `${v.id} in the feed's article HTML: ${v.help}`, feed);
       }
       for (const s of s4) {
@@ -850,13 +870,13 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         await page
           .screenshot({ path: join(outDir, file), fullPage: true })
           .then(() => (row.screenshot = file))
-          .catch((e) => note("run", where, `no screenshot: ${e.message.split("\n")[0]}`));
+          .catch((e) => note("run", where, `no screenshot: ${firstLine(e)}`));
       }
       console.log(row.ok ? "ok" : Object.entries(row.checks).filter(([, n]) => n).map(([c, n]) => `${c}x${n}`).join(" "));
     } catch (e) {
       current = null;
       row.ok = false;
-      row.error = e.message.split("\n")[0];
+      row.error = firstLine(e);
       flush(where);
       broken(where, `could not check the screen: ${row.error}`);
       console.log(`ERROR ${row.error}`);
@@ -869,7 +889,14 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
 function contrastCheck() {
   const r = spawnSync(process.execPath, [join(webDir, "scripts", "contrast.mjs")], { cwd: webDir, encoding: "utf8" });
   const s6 = { ok: r.status === 0, output: `${r.stdout ?? ""}${r.stderr ?? ""}${r.error ? String(r.error) : ""}`.trim() };
-  if (!s6.ok) report("S6", {}, "contrast", "theme contrast check failed", s6.output);
+  if (!s6.ok) {
+    // One finding per failed threshold (the lines after "FAILURES:"), so a waiver accepts one scheme's one miss.
+    const lines = (r.stderr ?? "").split(/\r?\n/);
+    const at = lines.findIndex((l) => l.trim() === "FAILURES:");
+    const misses = at >= 0 ? lines.slice(at + 1).map((l) => l.trim()).filter(Boolean) : [];
+    if (misses.length) for (const m of misses) report("S6", {}, "contrast", m);
+    else report("S6", {}, "contrast", "theme contrast check failed", s6.output);
+  }
   console.log(`\nS6 theme contrast (all schemes): ${s6.ok ? "ok" : "FAILED"}\n${s6.output}`);
   return s6;
 }
