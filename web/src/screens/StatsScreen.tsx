@@ -31,6 +31,7 @@ import { useMedia } from "@/lib/useMedia";
 import { Button } from "@/ui/button";
 import { Notice, Skeleton } from "@/ui/kit";
 import { Segmented } from "@/ui/segmented";
+import { useWrappedEnabled } from "@/lib/wrapped";
 import { StatsDataSection, StatsExportDialog } from "./StatsDataDialogs";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -417,6 +418,7 @@ export function NeverOpened({ data }: { data: StatsSummary }) {
 
 export function StatsScreen() {
   const on = useStatsEnabled();
+  const wrapped = useWrappedEnabled();
   const [range, setRange] = useState<StatsRange>(loadRange);
   const q = useStatsSummary(range, on);
   const data = q.data;
@@ -474,6 +476,16 @@ export function StatsScreen() {
           </p>
         ) : null}
         <SummaryStrip data={data} />
+        {wrapped ? (
+          <div className="border-b border-line py-4">
+            <Link to="/stats/wrapped" className="flex min-h-11 items-center justify-between gap-3 rounded-xl bg-surface px-4 py-3 text-sm font-medium">
+              <span>Your year</span>
+              <span aria-hidden="true" className="text-fg2">
+                &rarr;
+              </span>
+            </Link>
+          </div>
+        ) : null}
         <Section title="Daily activity">
           <DailyChart data={data} empty={empty} />
         </Section>

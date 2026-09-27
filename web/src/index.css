@@ -468,3 +468,12 @@ a.sr-only-live:focus {
     opacity: calc(var(--heat, 0) / 100);
   }
 }
+
+/* Wrapped cards: a soft fade-in, only when the reader has not asked for reduced motion. */
+@keyframes kp-wrapped-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion="on"]) .wrapped-card { animation: kp-wrapped-in 0.4s ease-out both; }
+}
