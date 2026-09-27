@@ -56,7 +56,8 @@ export function initTheme(): () => void {
     clearTimeout(timer);
     timer = undefined;
     const s = themeStore.get();
-    if (s.mode === "schedule") timer = setTimeout(apply, Math.min(msUntilNextSwitch(s, new Date()) + 500, SCHEDULE_RECHECK_MS));
+    // Equal times never switch (the day theme stays), so there is nothing to wait for.
+    if (s.mode === "schedule" && s.nightStart !== s.dayStart) timer = setTimeout(apply, Math.min(msUntilNextSwitch(s, new Date()) + 500, SCHEDULE_RECHECK_MS));
   };
   apply();
   const off = themeStore.subscribe(() => {
@@ -72,7 +73,7 @@ export function initTheme(): () => void {
   }
   // A device waking from sleep, or a tab coming back to the front, may have slept through a scheduled switch.
   const wake = () => {
-    if (themeStore.get().mode === "schedule" && document.visibilityState === "visible") apply();
+    if (themeStore.get().mode === "schedule" && document.visibilityState === "visible" && currentThemeId() !== document.documentElement.dataset.theme) apply();
   };
   document.addEventListener("visibilitychange", wake);
   window.addEventListener("focus", wake);

@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { SCHEMES } from "./schemes";
 import { DEFAULT_THEME_SETTINGS } from "./settings";
 import { themeStore } from "./theme";
-import { ThemePicker } from "./ThemePicker";
+import { ThemePicker, TIME_SAVE_DELAY_MS } from "./ThemePicker";
 
 const narrow = vi.hoisted(() => ({ ids: null as string[] | null }));
 vi.mock("./serverThemes", async (orig) => {
@@ -67,22 +67,50 @@ describe("ThemePicker schedule", () => {
     expect(screen.getByText(/this device.s clock/)).toBeInTheDocument();
   });
 
-  it("a complete time is saved; a cleared field is not, and leaving it restores the saved time", () => {
+  it("a time is saved on leaving the field, not on each keystroke; a cleared field restores the saved time", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
     render(<ThemePicker />);
     const night = screen.getByLabelText("Night starts") as HTMLInputElement;
+    // Typing "22:30" over 21:00 passes through "02:00": nothing is saved yet.
+    fireEvent.change(night, { target: { value: "02:00" } });
+    fireEvent.change(night, { target: { value: "22:00" } });
     fireEvent.change(night, { target: { value: "22:30" } });
+    expect(themeStore.get().nightStart).toBe("21:00");
+    fireEvent.blur(night);
     expect(themeStore.get().nightStart).toBe("22:30");
     fireEvent.change(night, { target: { value: "" } });
-    expect(themeStore.get().nightStart).toBe("22:30");
     expect(night.value).toBe("");
     fireEvent.blur(night);
+    expect(themeStore.get().nightStart).toBe("22:30");
     expect(night.value).toBe("22:30");
-    const day = screen.getByLabelText("Day starts") as HTMLInputElement;
-    fireEvent.change(day, { target: { value: "06:15" } });
-    expect(themeStore.get()).toMatchObject({ mode: "schedule", nightStart: "22:30", dayStart: "06:15" });
   });
 
+  it("a time is also saved after a pause in typing, and when Settings closes with one waiting", () => {
+    vi.useFakeTimers();
+    try {
+      themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+      const { unmount } = render(<ThemePicker />);
+      fireEvent.change(screen.getByLabelText("Day starts"), { target: { value: "06:15" } });
+      act(() => vi.advanceTimersByTime(TIME_SAVE_DELAY_MS - 1));
+      expect(themeStore.get().dayStart).toBe("07:00");
+      act(() => vi.advanceTimersByTime(1));
+      expect(themeStore.get().dayStart).toBe("06:15");
+      fireEvent.change(screen.getByLabelText("Night starts"), { target: { value: "23:45" } });
+      unmount();
+      expect(themeStore.get()).toMatchObject({ dayStart: "06:15", nightStart: "23:45" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a browser that reports seconds still saves the time, in whole minutes", () => {
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+    render(<ThemePicker />);
+    const day = screen.getByLabelText("Day starts") as HTMLInputElement;
+    fireEvent.change(day, { target: { value: "06:45:00" } });
+    fireEvent.blur(day);
+    expect(themeStore.get().dayStart).toBe("06:45");
+  });
   it("follows a change made elsewhere (another tab, the server)", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
     render(<ThemePicker />);
@@ -94,6 +122,7 @@ describe("ThemePicker schedule", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule", nightStart: "08:00", dayStart: "08:00" });
     render(<ThemePicker />);
     expect(screen.getByText(/same time, so the day theme stays on/)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /On a schedule/ }).closest("label")?.textContent).toContain("Paper all day");
   });
 
   it("picking a fixed theme leaves the schedule and hides its fields, keeping the times for later", () => {

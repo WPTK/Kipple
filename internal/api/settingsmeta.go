@@ -236,33 +236,34 @@ var Schemes = []Scheme{
 	{"carbon", "Carbon"}, {"lamplight", "Lamplight"}, {"inkwell", "Inkwell"}, {"teletype", "Teletype"},
 }
 
-func schemeOptions(system bool) []settingOption {
+// schemeOptions lists every scheme; with modes it adds the two modes ui.theme also takes ("system", "schedule").
+func schemeOptions(modes bool) []settingOption {
 	out := make([]settingOption, 0, len(Schemes)+1)
 	for _, sc := range Schemes {
 		out = append(out, settingOption{Value: sc.ID, Label: sc.Name})
 	}
-	if system {
+	if modes {
 		out = append(out, settingOption{Value: "system", Label: "Match my device"}, settingOption{Value: "schedule", Label: "On a schedule"})
 	}
 	return out
 }
 
-// checkTheme accepts a scheme id (plus "system" and "schedule" when allowed) or an old alias, and
-// returns the current id.
-func checkTheme(system bool) func(any) (any, string) {
+// checkTheme accepts a scheme id (plus the modes "system" and "schedule" when modes is set, for
+// ui.theme) or an old alias, and returns the current id.
+func checkTheme(modes bool) func(any) (any, string) {
 	ok := map[string]bool{}
 	for _, sc := range Schemes {
 		ok[sc.ID] = true
 	}
-	ok["system"] = system
-	ok["schedule"] = system
+	ok["system"] = modes
+	ok["schedule"] = modes
 	return func(v any) (any, string) {
 		if s, isStr := v.(string); isStr {
 			if c := store.CanonicalTheme(s); ok[c] {
 				return c, ""
 			}
 		}
-		if system {
+		if modes {
 			return nil, "must be a colour scheme id, \"system\" or \"schedule\""
 		}
 		return nil, "must be a colour scheme id"

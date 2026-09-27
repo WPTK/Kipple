@@ -6,6 +6,7 @@ import {
   DEFAULT_THEME_SETTINGS,
   isClockTime,
   isNightAt,
+  toClockTime,
   msUntilNextSwitch,
   parseThemeSettings,
   resolveTheme,
@@ -100,6 +101,15 @@ describe("isClockTime", () => {
   });
 });
 
+describe("toClockTime", () => {
+  it("drops seconds a browser may report, and refuses anything incomplete", () => {
+    expect(toClockTime("22:30")).toBe("22:30");
+    expect(toClockTime("22:30:00")).toBe("22:30");
+    expect(toClockTime("22:30:59.123")).toBe("22:30");
+    for (const v of ["", "2:30", "24:00:00", "22:3", "22:30:0", "22:30pm"]) expect(toClockTime(v)).toBeNull();
+  });
+});
+
 describe("msUntilNextSwitch", () => {
   const s = { nightStart: "21:00", dayStart: "07:00" };
   const local = (h: number, m: number, sec = 0) => new Date(2026, 8, 27, h, m, sec);
@@ -131,6 +141,19 @@ describe("parseThemeSettings", () => {
       mode: "fixed",
     });
     expect(parseThemeSettings(JSON.stringify({ mode: "sunset", nightStart: "25:00", dayStart: 7 }))).toEqual(DEFAULT_THEME_SETTINGS);
+  });
+
+  it("fills missing or unreadable fields from a base, not the defaults", () => {
+    const mine: ThemeSettings = { ...base, mode: "schedule", nightStart: "22:15", dayStart: "06:45" };
+    // What an older build writes: no times.
+    expect(parseThemeSettings(JSON.stringify({ mode: "follow", fixed: "paper", day: "linen", night: "carbon" }), mine)).toEqual({
+      ...mine,
+      mode: "follow",
+      day: "linen",
+      night: "carbon",
+    });
+    expect(parseThemeSettings("{{{", mine)).toEqual(mine);
+    expect(parseThemeSettings(JSON.stringify({ mode: "sunset" }), mine).mode).toBe("schedule");
   });
 
   it("keeps a schedule and its times; a cache from before the schedule gets the default times", () => {
@@ -345,6 +368,26 @@ describe("initTheme on a schedule", () => {
     themeStore.set((s) => ({ ...s, mode: "follow" }));
     expect(theme()).toBe("linen");
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("equal times arm no timer (nothing ever switches)", () => {
+    vi.setSystemTime(new Date(2026, 8, 27, 12, 0));
+    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon", nightStart: "08:00", dayStart: "08:00" });
+    stop = initTheme();
+    expect(theme()).toBe("linen");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("focus with nothing to change does not re-apply or re-arm", () => {
+    vi.setSystemTime(new Date(2026, 8, 27, 12, 0));
+    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon" });
+    stop = initTheme();
+    const arm = vi.spyOn(globalThis, "setTimeout");
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(arm).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+    arm.mockRestore();
   });
 
   it("never sleeps longer than the recheck interval, and a tab coming back re-checks the clock", () => {

@@ -403,7 +403,8 @@ function onStorage(e: StorageEvent): void {
     const n = parseDevicePrefs(e.newValue);
     if (stable(n) !== stable(devicePrefsStore.get())) replaceDevicePrefs(n);
   } else if (e.key === THEME_STORAGE_KEY) {
-    const n = parseThemeSettings(e.newValue);
+    // Missing fields keep this tab's values: a tab on an older build writes the cache without the schedule's times.
+    const n = parseThemeSettings(e.newValue, themeStore.get());
     if (stable(n) !== stable(themeStore.get())) themeStore.set(n);
   }
 }

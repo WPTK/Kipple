@@ -480,6 +480,20 @@ describe("another tab or device changed a different key (review finding 1)", () 
     window.dispatchEvent(new StorageEvent("storage", { key: DEVICE_PREFS_KEY, newValue: JSON.stringify(dp) }));
     expect(devicePrefsStore.get().order).toBe("oldest");
   });
+
+  it("a cache written by a tab on an older build (no schedule times) does not reset this tab's times", async () => {
+    const s = await ready();
+    updateTheme({ mode: "schedule", nightStart: "22:00", dayStart: "06:30" });
+    await vi.advanceTimersByTimeAsync(600);
+    const old = { mode: "fixed", fixed: "graphite", day: "paper", night: "midnight" };
+    window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify(old) }));
+    expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "graphite", nightStart: "22:00", dayStart: "06:30" });
+    await vi.advanceTimersByTimeAsync(600);
+    for (const p of s.patches) {
+      expect(p).not.toHaveProperty("ui.theme_night_start", "21:00");
+      expect(p).not.toHaveProperty("ui.theme_day_start", "07:00");
+    }
+  });
 });
 
 describe("migration only carries what the old caches held (review finding 3)", () => {

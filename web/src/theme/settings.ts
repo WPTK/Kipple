@@ -43,6 +43,15 @@ export function isClockTime(v: unknown): v is string {
   return typeof v === "string" && CLOCK_TIME.test(v);
 }
 
+/**
+ * A time input's value as "HH:MM", or null when it is not a complete time. Some browsers report seconds
+ * ("22:30:00" or "22:30:00.000"); they are dropped, since the schedule works in whole minutes.
+ */
+export function toClockTime(v: string): string | null {
+  const t = /^\d\d:\d\d:\d\d(\.\d{1,3})?$/.test(v) ? v.slice(0, 5) : v;
+  return isClockTime(t) ? t : null;
+}
+
 /** Minutes since midnight for a valid "HH:MM". */
 export function clockMinutes(t: string): number {
   return Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
@@ -82,24 +91,30 @@ export function resolveTheme(s: ThemeSettings, prefersDark: boolean, minutes: nu
 export function msUntilNextSwitch(s: Pick<ThemeSettings, "nightStart" | "dayStart">, now: Date): number {
   let best = Infinity;
   for (const t of [s.nightStart, s.dayStart]) {
+    const m = clockMinutes(t);
     const at = new Date(now.getTime());
-    at.setHours(Number(t.slice(0, 2)), Number(t.slice(3, 5)), 0, 0);
+    at.setHours(Math.floor(m / 60), m % 60, 0, 0);
     if (at.getTime() <= now.getTime()) {
       at.setDate(at.getDate() + 1);
-      at.setHours(Number(t.slice(0, 2)), Number(t.slice(3, 5)), 0, 0);
+      at.setHours(Math.floor(m / 60), m % 60, 0, 0);
     }
     best = Math.min(best, at.getTime() - now.getTime());
   }
   return Math.max(1, best);
 }
 
-export function parseThemeSettings(raw: string | null): ThemeSettings {
-  if (!raw) return { ...DEFAULT_THEME_SETTINGS };
+/**
+ * The stored choice, with anything missing or unreadable taken from `base` (the defaults, or for a cache another tab
+ * just wrote, this tab's current choice: a tab still on an older build writes the cache without the schedule's
+ * times, and they must not be reset by that).
+ */
+export function parseThemeSettings(raw: string | null, base: ThemeSettings = DEFAULT_THEME_SETTINGS): ThemeSettings {
+  if (!raw) return { ...base };
   try {
     const v = JSON.parse(raw) as Partial<ThemeSettings> | null;
-    const d = DEFAULT_THEME_SETTINGS;
+    const d = base;
     return {
-      mode: v?.mode === "fixed" || v?.mode === "schedule" ? v.mode : "follow",
+      mode: v?.mode === "fixed" || v?.mode === "schedule" || v?.mode === "follow" ? v.mode : d.mode,
       fixed: isSchemeId(v?.fixed) ? v.fixed : d.fixed,
       day: isSchemeId(v?.day) ? v.day : d.day,
       night: isSchemeId(v?.night) ? v.night : d.night,
@@ -107,7 +122,7 @@ export function parseThemeSettings(raw: string | null): ThemeSettings {
       dayStart: isClockTime(v?.dayStart) ? v.dayStart : d.dayStart,
     };
   } catch {
-    return { ...DEFAULT_THEME_SETTINGS };
+    return { ...base };
   }
 }
 

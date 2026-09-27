@@ -1,11 +1,11 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Collapsible } from "radix-ui";
 import { ChevronDown } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/cn";
 import { DEFAULT_DAY, DEFAULT_NIGHT, schemeById, type Scheme } from "./schemes";
 import { useAllowedSchemes } from "./serverThemes";
-import { isClockTime } from "./settings";
+import { toClockTime } from "./settings";
 import { themeStore, updateTheme } from "./theme";
 
 const GROUP_LABEL: Record<Scheme["group"], string> = {
@@ -88,12 +88,7 @@ function SchemeSelect({ label, value, onChange, schemes }: { label: string; valu
 
 /** A clock time ("HH:MM") in the reader's own format, e.g. 9:00 PM or 21:00. */
 function formatClock(t: string): string {
-  const d = new Date(2000, 0, 1, Number(t.slice(0, 2)), Number(t.slice(3, 5)));
-  try {
-    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  } catch {
-    return t;
-  }
+  return new Date(2000, 0, 1, Number(t.slice(0, 2)), Number(t.slice(3, 5))).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 /** A day/night pair entry (Follow system, On a schedule): a split swatch of the two picks. */
@@ -118,9 +113,13 @@ function PairOption({ title, detail, day, night, checked, onSelect }: { title: s
   );
 }
 
+/** How long a time field waits after the last change before saving it (typing "22:30" passes through "02:00"). */
+export const TIME_SAVE_DELAY_MS = 1000;
+
 /**
- * A 24-hour "HH:MM" time field. The draft is local so a half-typed time is not snapped back; only a complete time
- * is saved, and leaving the field with anything else restores the saved time.
+ * A 24-hour "HH:MM" time field. The draft is local: a time is saved after a pause in typing, when the field is left,
+ * or when the picker closes, never on each keystroke (a browser reports a complete but unintended time part-way
+ * through typing one). Leaving the field with an incomplete time restores the saved one.
  */
 function TimeField({ label, value, onChange }: { label: string; value: string; onChange: (t: string) => void }) {
   const id = useId();
@@ -131,6 +130,30 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
     setSeen(value);
     setDraft(value);
   }
+  const save = useRef(onChange);
+  useEffect(() => {
+    save.current = onChange;
+  });
+  const pending = useRef<{ t: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const flush = () => {
+    const p = pending.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pending.current = null;
+    save.current(p.t);
+  };
+  // Closing Settings with a change still waiting saves it.
+  useEffect(
+    () => () => {
+      const p = pending.current;
+      if (p) {
+        clearTimeout(p.timer);
+        pending.current = null;
+        save.current(p.t);
+      }
+    },
+    [],
+  );
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="text-sm font-medium">
@@ -143,10 +166,13 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value);
-          if (isClockTime(e.target.value)) onChange(e.target.value);
+          const t = toClockTime(e.target.value);
+          if (pending.current) clearTimeout(pending.current.timer);
+          pending.current = t && t !== value ? { t, timer: setTimeout(flush, TIME_SAVE_DELAY_MS) } : null;
         }}
         onBlur={() => {
-          if (!isClockTime(draft)) setDraft(value);
+          flush();
+          if (!toClockTime(draft)) setDraft(value);
         }}
         className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg"
       />
@@ -201,7 +227,7 @@ export function ThemePicker() {
         />
         <PairOption
           title="On a schedule"
-          detail={`${nightName} from ${formatClock(t.nightStart)} to ${formatClock(t.dayStart)}`}
+          detail={t.nightStart === t.dayStart ? `${dayName} all day (the two times are the same)` : `${nightName} from ${formatClock(t.nightStart)} to ${formatClock(t.dayStart)}`}
           day={t.day}
           night={t.night}
           checked={t.mode === "schedule"}
