@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -250,10 +251,16 @@ func TestKeyRotationAndRefetchLimit(t *testing.T) {
 	}
 	require.Equal(t, int32(2), cs.hits.Load())
 
-	// After the refresh interval the set is fetched again even for a known kid;
-	// key a has been retired upstream.
+	// After the refresh interval a known kid still verifies at once from the
+	// cache (stale-while-revalidate) while the set is refetched in the
+	// background; key a has been retired upstream, so once that refresh lands
+	// it no longer verifies.
 	cs.set(http.StatusOK, jwk("b", &b.PublicKey))
 	clk.add(time.Hour + time.Second)
+	_, err = v.Verify(ctx, sign(t, a, rs("a"), claimsAt(clk.now())))
+	require.NoError(t, err)
+	v.bg.Wait()
+	require.Equal(t, int32(3), cs.hits.Load())
 	_, err = v.Verify(ctx, sign(t, a, rs("a"), claimsAt(clk.now())))
 	require.ErrorIs(t, err, ErrUnknownKey)
 	require.Equal(t, int32(3), cs.hits.Load())
@@ -271,6 +278,8 @@ func TestStaleKeysWhenRefreshFails(t *testing.T) {
 	clk.add(2 * time.Hour)
 	_, err := v.Verify(ctx, sign(t, a, rs("a"), claimsAt(clk.now())))
 	require.NoError(t, err, "a cached set outlives a failed refresh")
+	v.bg.Wait()
+	require.Equal(t, int32(2), cs.hits.Load(), "the stale set was refreshed in the background")
 
 	clk.add(23 * time.Hour)
 	_, err = v.Verify(ctx, sign(t, a, rs("a"), claimsAt(clk.now())))
@@ -325,3 +334,71 @@ func TestNewValidates(t *testing.T) {
 	require.Equal(t, testIssuer, v.Issuer())
 	require.Equal(t, testIssuer+"/cdn-cgi/access/certs", v.certsURL)
 }
+
+// A display-only check never waits on a slow key-set endpoint.
+func TestVerifyRequestCachedNeverWaits(t *testing.T) {
+	a, _, _ := testKeys(t)
+	release := make(chan struct{})
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{jwk("a", &a.PublicKey)}})
+	}))
+	t.Cleanup(srv.Close)
+	clk := &clock{t: time.Unix(1_800_000_000, 0)}
+	v, err := New("myteam.cloudflareaccess.com", testAUD, Options{CertsURL: srv.URL, Client: srv.Client(), Now: clk.now})
+	require.NoError(t, err)
+	r := httptest.NewRequest("GET", "/api/bootstrap", nil)
+	r.Header.Set(Header, sign(t, a, rs("a"), claimsAt(clk.now())))
+
+	start := time.Now()
+	_, err = v.VerifyRequestCached(r)
+	require.ErrorIs(t, err, ErrNoKeys)
+	require.Less(t, time.Since(start), 2*time.Second, "no wait for the fetch")
+	// A second cached check while that fetch is in flight starts no other.
+	_, err = v.VerifyRequestCached(r)
+	require.ErrorIs(t, err, ErrNoKeys)
+	close(release)
+	v.bg.Wait()
+	require.Equal(t, int32(1), hits.Load())
+	id, err := v.VerifyRequestCached(r)
+	require.NoError(t, err, "the background fetch filled the cache")
+	require.Equal(t, "owner@example.com", id.Email)
+}
+
+// A wrong team domain (a real team, but not the one signing the tokens) shows
+// up as unknown key ids: that warns, at most once an hour.
+func TestRefusedTokenWarnsHourly(t *testing.T) {
+	a, b, _ := testKeys(t)
+	cs := newCertsServer(t, jwk("b", &b.PublicKey))
+	clk := &clock{t: time.Unix(1_800_000_000, 0)}
+	var buf strings.Builder
+	var mu sync.Mutex
+	logger := slog.New(slog.NewTextHandler(writerFunc(func(p []byte) (int, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return buf.Write(p)
+	}), &slog.HandlerOptions{Level: slog.LevelInfo}))
+	v, err := New("myteam.cloudflareaccess.com", testAUD, Options{CertsURL: cs.URL, Client: cs.Client(), Now: clk.now, Logger: logger})
+	require.NoError(t, err)
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set(Header, sign(t, a, rs("a"), claimsAt(clk.now())))
+	for i := 0; i < 5; i++ {
+		_, err = v.VerifyRequest(r)
+		require.ErrorIs(t, err, ErrUnknownKey)
+	}
+	count := func() int { mu.Lock(); defer mu.Unlock(); return strings.Count(buf.String(), "token refused") }
+	require.Equal(t, 1, count())
+	// A forged signature is someone trying a token on: debug only.
+	clk.add(2 * time.Hour)
+	r.Header.Set(Header, sign(t, a, rs("b"), claimsAt(clk.now())))
+	_, err = v.VerifyRequest(r)
+	require.ErrorIs(t, err, ErrSignature)
+	require.Equal(t, 1, count())
+	v.bg.Wait()
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }

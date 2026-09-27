@@ -42,13 +42,23 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 	if acct.PasswordHash == "" {
 		// No web password to prove (design §7.0): a verified Cloudflare Access
 		// token on this request stands in for it; nothing else does.
-		if _, ok := s.accessIdentity(r); !ok {
+		switch s.accessProof(r) {
+		case proofOK:
+			s.lock.Clear(ip)
+			return true
+		case proofNotConfigured:
+			s.lock.Release(ip)
+			writeErrorMsg(w, http.StatusForbidden, "access_not_configured",
+				"this account has no web password and Cloudflare Access validation is off: set a password on the host with `kipple password`")
+		case proofNoToken:
+			s.lock.Release(ip)
 			writeErrorMsg(w, http.StatusForbidden, "access_required",
 				"this account has no web password: open Kipple through Cloudflare Access to change it")
-			return false
+		default: // a refused token stays counted
+			writeErrorMsg(w, http.StatusForbidden, "access_required",
+				"this account has no web password: open Kipple through Cloudflare Access to change it")
 		}
-		s.lock.Clear(ip)
-		return true
+		return false
 	}
 	s.verifier.SetSecret([]byte(acct.Secret))
 	pwOK, busy := s.verifier.VerifyBusy(r.Context(), "web", current, acct.PasswordHash)
@@ -108,12 +118,27 @@ func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 			writeErrorMsg(w, http.StatusBadRequest, "bad_request", `send "new" or "remove": true, not both`)
 			return
 		}
-		if s.opt.Access == nil {
+		acct, ok, err := s.db.Account(r.Context())
+		if err != nil || !ok {
+			if err == nil {
+				err = errors.New("no account row")
+			}
+			s.serverError(w, "load account", err)
+			return
+		}
+		if acct.PasswordHash == "" {
+			// Already none: nothing to change, and no reason to sign anyone out.
+			w.Header().Set("Cache-Control", "private, no-store")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		switch s.accessProof(r) {
+		case proofOK:
+		case proofNotConfigured:
 			writeErrorMsg(w, http.StatusBadRequest, "access_not_configured",
 				"a web password can only be removed when Cloudflare Access validation is configured (KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD)")
 			return
-		}
-		if _, ok := s.accessIdentity(r); !ok {
+		default:
 			writeErrorMsg(w, http.StatusForbidden, "access_required",
 				"open Kipple through Cloudflare Access to remove the web password")
 			return

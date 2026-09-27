@@ -54,13 +54,26 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		// configured nothing verifies, so the account cannot sign in at all (the
 		// port may be reachable on the LAN without Access in front). Any password
 		// sent is ignored: there is none to check.
-		if _, ok := s.accessIdentity(r); !ok || !userOK {
+		switch p := s.accessProof(r); {
+		case p == proofOK && userOK:
+		case p == proofOK || p == proofRefused:
 			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+			return
+		default: // no token, or Access off: nothing was presented, nothing is counted
+			s.lock.Release(ip)
+			writeError(w, http.StatusUnauthorized, "auth")
 			return
 		}
 	} else {
 		// An account with a password always needs it: an Access token never
 		// stands in for a password that is set.
+		if body.Password == "" {
+			// Nothing presented (a submit before typing, a passwordless try on an
+			// account that has a password): refused without counting.
+			s.lock.Release(ip)
+			writeError(w, http.StatusUnauthorized, "auth")
+			return
+		}
 		s.verifier.SetSecret([]byte(acct.Secret))
 		pwOK, busy := s.verifier.VerifyBusy(r.Context(), "web", body.Password, acct.PasswordHash)
 		if busy {

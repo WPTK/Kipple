@@ -38,7 +38,7 @@ export function LoginScreen() {
         setError(
           password
             ? "That username or password didn't match."
-            : "Kipple needs a password. Signing in without one works only through Cloudflare Access, on an account with no password.",
+            : "Enter your password. Signing in without one works only through Cloudflare Access, for an account with no password.",
         );
       else if (err instanceof ApiError && err.status === 0) setError("Kipple couldn't reach the server.");
       else setError("Something went wrong. Try again.");

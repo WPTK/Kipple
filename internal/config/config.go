@@ -109,7 +109,8 @@ func (c Config) AccessEnabled() bool { return c.AccessTeamDomain != "" && c.Acce
 
 // parseAccess validates the Cloudflare Access pair: both unset (the feature is
 // off) or both set. One without the other stops startup, so a half-done setup
-// is never mistaken for a working one.
+// is never mistaken for a working one. The values are validated by the access
+// package's own rules (the same ones access.New applies).
 func parseAccess(team, aud string) (string, string, error) {
 	team, aud = strings.TrimSpace(team), strings.TrimSpace(aud)
 	switch {
@@ -124,8 +125,8 @@ func parseAccess(team, aud string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("KIPPLE_ACCESS_TEAM_DOMAIN: %w", err)
 	}
-	if strings.ContainsFunc(aud, func(r rune) bool { return r <= ' ' || r == 0x7f }) || len(aud) > 256 {
-		return "", "", fmt.Errorf("KIPPLE_ACCESS_AUD: must be the application's AUD tag (no spaces, at most 256 characters)")
+	if aud, err = access.CheckAUD(aud); err != nil {
+		return "", "", fmt.Errorf("KIPPLE_ACCESS_AUD: %w", err)
 	}
 	return host, aud, nil
 }

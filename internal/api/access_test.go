@@ -60,6 +60,7 @@ func withAccess(t *testing.T) func(*Options) {
 		t.Cleanup(srv.Close)
 		v, err := access.New(accTeam, accAUD, access.Options{CertsURL: srv.URL, Client: srv.Client(), Now: o.Now})
 		require.NoError(t, err)
+		require.NoError(t, v.Prefetch(context.Background())) // as serve does at startup
 		o.Access = v
 	}
 }
@@ -290,4 +291,60 @@ func TestPasswordlessAPIPasswordNeedsToken(t *testing.T) {
 	rec = h.do("POST", "/api/account/api-password", `{"current":"","generate":true}`, withCookie(c), withJWT(h.jwt(k, nil)))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.Contains(t, rec.Body.String(), "api_password")
+}
+
+func TestPasswordlessNothingPresentedIsNotCounted(t *testing.T) {
+	h := newHarness(t, withAccess(t))
+	k, _ := accessKeys(t)
+	// An empty password on an account that has one (a submit before typing):
+	// refused, never counted, so it cannot lock the owner out.
+	for i := 0; i < 15; i++ {
+		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", passwordlessLogin(testUser)).Code)
+	}
+	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
+
+	// A passwordless account tried without any token (the LAN): not counted
+	// either, while a valid token still gets in.
+	h.dropPassword()
+	for i := 0; i < 15; i++ {
+		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", passwordlessLogin(testUser)).Code)
+	}
+	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil))).Code)
+}
+
+func TestRemoveWhenAlreadyPasswordlessChangesNothing(t *testing.T) {
+	h := newHarness(t, withAccess(t))
+	h.dropPassword()
+	k, _ := accessKeys(t)
+	login := func() *http.Cookie {
+		rec := h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil)))
+		require.Equal(t, http.StatusNoContent, rec.Code)
+		return sessionCookie(t, rec)
+	}
+	c, other := login(), login()
+	rec := h.do("POST", "/api/account/password", `{"current":"","remove":true}`, withCookie(c), withJWT(h.jwt(k, nil)))
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Equal(t, http.StatusOK, h.do("GET", "/api/auth/me", "", withCookie(other)).Code, "no other session is signed out")
+}
+
+func TestPasswordlessWithAccessOffPointsToTheCLI(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	// The password was removed while Access was on; Access is now off.
+	require.NoError(t, h.db.SetPasswordHash(context.Background(), "", sessionID(c.Value)))
+	k, _ := accessKeys(t)
+	for _, path := range []string{"/api/account/password", "/api/account/api-password"} {
+		body := `{"current":"","new":"a new pass"}`
+		if path == "/api/account/api-password" {
+			body = `{"current":"","generate":true}`
+		}
+		rec := h.do("POST", path, body, withCookie(c), withJWT(h.jwt(k, nil)))
+		require.Equal(t, http.StatusForbidden, rec.Code, path)
+		require.Contains(t, rec.Body.String(), "access_not_configured", path)
+		require.Contains(t, rec.Body.String(), "kipple password", path)
+	}
+	// Not counted: the owner is never locked out by these.
+	for i := 0; i < 12; i++ {
+		require.Equal(t, http.StatusForbidden, h.do("POST", "/api/account/password", `{"current":"","new":"a new pass"}`, withCookie(c)).Code)
+	}
 }

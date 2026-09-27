@@ -1,64 +1,57 @@
 package api
 
 import (
-	"errors"
 	"net/http"
-	"sync"
-	"time"
 
 	"github.com/WPTK/kipple/internal/access"
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// accessWarnEvery is the minimum gap between "token present but refused" warnings.
-const accessWarnEvery = time.Hour
+// accessProof is what a request can show for an account without a web
+// password (design §7.0). It is the one place that rule lives: the login, the
+// account endpoints' current-password check and the password removal all ask
+// here.
+type accessProof int
 
-var accessWarn struct {
-	mu   sync.Mutex
-	last time.Time
-}
+const (
+	// proofOK: a verified Cloudflare Access token naming a user by email.
+	proofOK accessProof = iota
+	// proofNotConfigured: Access validation is off, so nothing can stand in
+	// for a password (the port may be reachable without Access in front).
+	proofNotConfigured
+	// proofNoToken: the request carries no token; nothing was presented, so
+	// nothing is counted against the login lockout.
+	proofNoToken
+	// proofRefused: a token was presented and refused (forged, expired, for
+	// another application or team, or a service token with no email); counted
+	// like a wrong password.
+	proofRefused
+)
 
-// accessIdentity verifies the request's Cloudflare Access token (design §7.0).
-// ok is true only when Access validation is configured, the token verifies
-// (signature, iss, aud, exp, nbf) and it names a user by email; a service
-// token has no email and never counts as a person signing in. With Access not
-// configured it is always false.
-func (s *Server) accessIdentity(r *http.Request) (access.Identity, bool) {
-	if s.opt.Access == nil || r.Header.Get(access.Header) == "" {
-		return access.Identity{}, false
+// accessProof verifies the request's Access token, waiting for a key-set fetch
+// when needed (a sign-in or an account change).
+func (s *Server) accessProof(r *http.Request) accessProof {
+	if s.opt.Access == nil {
+		return proofNotConfigured
+	}
+	if r.Header.Get(access.Header) == "" {
+		return proofNoToken
 	}
 	id, err := s.opt.Access.VerifyRequest(r)
-	if err != nil {
-		// A refused token is either someone trying one on (the header is just
-		// text) or a misconfigured AUD or team domain; warn now and then so the
-		// second case is visible without letting the first flood the log.
-		lvl := errors.Is(err, access.ErrIssuer) || errors.Is(err, access.ErrAudience) || errors.Is(err, access.ErrNoKeys)
-		accessWarn.mu.Lock()
-		now := s.now()
-		warn := lvl && (accessWarn.last.IsZero() || now.Sub(accessWarn.last) >= accessWarnEvery)
-		if warn {
-			accessWarn.last = now
-		}
-		accessWarn.mu.Unlock()
-		if warn {
-			s.log.Warn("Cloudflare Access token refused; if this keeps happening, check KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD", "err", err, "ip", s.clientIP(r))
-		} else {
-			s.log.Debug("Cloudflare Access token refused", "err", err, "ip", s.clientIP(r))
-		}
-		return access.Identity{}, false
+	if err != nil || id.Email == "" {
+		return proofRefused
 	}
-	if id.Email == "" {
-		return access.Identity{}, false
-	}
-	return id, true
+	return proofOK
 }
 
 // userInfo is the account summary of GET /api/auth/me and the bootstrap `user`
 // object. access_email is the email of this request's verified Access token,
-// null without one.
+// null without one. It is for display, so it never waits on the network: a
+// token the cached key set cannot verify shows as null while a background
+// refresh runs.
 func (s *Server) userInfo(r *http.Request, acct store.Account) map[string]any {
 	var email any
-	if id, ok := s.accessIdentity(r); ok {
+	if id, err := s.opt.Access.VerifyRequestCached(r); err == nil && id.Email != "" {
 		email = id.Email
 	}
 	return map[string]any{

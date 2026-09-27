@@ -11,24 +11,24 @@ import (
 	"github.com/WPTK/kipple/internal/config"
 )
 
-func TestEnsureAccountPasswordlessOnlyWithAccess(t *testing.T) {
+func TestEnsureAccountNeverPasswordlessOnFirstStart(t *testing.T) {
 	ctx := context.Background()
-
-	// Access off: an empty KIPPLE_PASSWORD creates nothing.
-	db := openDB(t)
-	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner"}, quiet))
-	_, ok, err := db.Account(ctx)
-	require.NoError(t, err)
-	require.False(t, ok, "no passwordless account without Access validation")
-
-	// Access on: the account is created without a web password.
-	db = openDB(t)
 	cfg := config.Config{Username: "owner", AccessTeamDomain: "myteam.cloudflareaccess.com", AccessAUD: "aud"}
-	require.NoError(t, ensureAccount(ctx, db, cfg, quiet))
-	acc, ok, err := db.Account(ctx)
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Empty(t, acc.PasswordHash)
+
+	// An empty KIPPLE_PASSWORD (the example file's default) creates nothing,
+	// with or without Access: removing the password is a deliberate later step.
+	for _, c := range []config.Config{{Username: "owner"}, cfg} {
+		db := openDB(t)
+		require.NoError(t, ensureAccount(ctx, db, c, quiet))
+		_, ok, err := db.Account(ctx)
+		require.NoError(t, err)
+		require.False(t, ok)
+	}
+
+	// An account whose password was removed later (Settings, through Access).
+	db := openDB(t)
+	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "web-pw"}, quiet))
+	require.NoError(t, db.SetPasswordHash(ctx, "", ""))
 
 	// A later start with Access switched off warns that web sign-in is impossible.
 	var buf bytes.Buffer

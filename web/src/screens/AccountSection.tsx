@@ -18,7 +18,8 @@ export function accountError(e: unknown): string {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.code === "bad_password") return "The current password isn't right.";
     if (e.code === "access_required") return "This needs your Cloudflare Access sign-in. Open Kipple through its Access address and try again.";
-    if (e.code === "access_not_configured") return "Removing the password needs Cloudflare Access validation set up on the server.";
+    if (e.code === "access_not_configured")
+      return "Cloudflare Access validation isn't set up on the server, so it can't stand in for a password. Set a password from the host with `kipple password`.";
     if (e.code === "bad_new_password") return msg || "The new password must be 5 to 256 characters.";
     if (e.status === 429) return "Too many attempts. Try again in a few minutes.";
     if (e.status === 409 && e.code === "busy") {

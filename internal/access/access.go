@@ -93,7 +93,11 @@ type Verifier struct {
 	now                   func() time.Time
 	log                   *slog.Logger
 
-	fetchMu sync.Mutex // one key-set fetch at a time
+	fetchMu sync.Mutex     // one key-set fetch at a time
+	bg      sync.WaitGroup // background refreshes (tests wait on it)
+
+	warnMu   sync.Mutex
+	lastWarn time.Time // last "token refused" warning
 
 	mu          sync.Mutex
 	keys        map[string]*rsa.PublicKey
@@ -129,16 +133,28 @@ func NormalizeTeamDomain(v string) (string, error) {
 	return h, nil
 }
 
+// CheckAUD validates and trims KIPPLE_ACCESS_AUD, the application's Audience
+// tag: required, no spaces or control characters, at most 256 characters.
+func CheckAUD(v string) (string, error) {
+	aud := strings.TrimSpace(v)
+	if aud == "" {
+		return "", errors.New("empty application AUD")
+	}
+	if len(aud) > 256 || strings.ContainsFunc(aud, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return "", errors.New("must be the application's AUD tag (no spaces, at most 256 characters)")
+	}
+	return aud, nil
+}
+
 // New returns a Verifier for the team domain (see NormalizeTeamDomain) and the
-// application's AUD tag. Both are required.
+// application's AUD tag (see CheckAUD). Both are required.
 func New(teamDomain, aud string, opt Options) (*Verifier, error) {
 	host, err := NormalizeTeamDomain(teamDomain)
 	if err != nil {
 		return nil, err
 	}
-	aud = strings.TrimSpace(aud)
-	if aud == "" {
-		return nil, errors.New("empty application AUD")
+	if aud, err = CheckAUD(aud); err != nil {
+		return nil, err
 	}
 	v := &Verifier{
 		issuer: "https://" + host, aud: aud, certsURL: "https://" + host + "/cdn-cgi/access/certs",
@@ -193,13 +209,60 @@ var (
 	ErrNoKeys     = errors.New("access: signing keys unavailable")
 )
 
-// VerifyRequest verifies the Cf-Access-Jwt-Assertion header of r. A nil
-// Verifier (Access not configured) never verifies anything.
+// warnEvery is the minimum gap between "token refused" warnings.
+const warnEvery = time.Hour
+
+// VerifyRequest verifies the Cf-Access-Jwt-Assertion header of r, fetching the
+// key set first when it has no usable key for the token (a sign-in waits for
+// that). A nil Verifier (Access not configured) never verifies anything.
 func (v *Verifier) VerifyRequest(r *http.Request) (Identity, error) {
+	return v.verifyRequest(r, true)
+}
+
+// VerifyRequestCached is VerifyRequest that never waits for the network: when
+// the cached key set cannot verify the token it starts a background refresh
+// and fails. For display only (the email shown in Settings).
+func (v *Verifier) VerifyRequestCached(r *http.Request) (Identity, error) {
+	return v.verifyRequest(r, false)
+}
+
+func (v *Verifier) verifyRequest(r *http.Request, wait bool) (Identity, error) {
 	if v == nil {
 		return Identity{}, ErrNoToken
 	}
-	return v.Verify(r.Context(), r.Header.Get(Header))
+	tok := r.Header.Get(Header)
+	if tok == "" {
+		return Identity{}, ErrNoToken
+	}
+	id, err := v.verify(r.Context(), tok, wait)
+	if err != nil {
+		v.noteRefused(err, r.RemoteAddr)
+	}
+	return id, err
+}
+
+// noteRefused logs a refused token. The header is just text, so a refusal may
+// be someone trying one on (debug level) or a wrong team domain or AUD, which
+// shows up as a wrong issuer or audience, a key id the configured team does
+// not have, or no keys at all: those warn, at most once an hour, so the
+// misconfiguration is visible at the default log level without letting a
+// stream of bad tokens flood the log.
+func (v *Verifier) noteRefused(err error, peer string) {
+	config := errors.Is(err, ErrIssuer) || errors.Is(err, ErrAudience) || errors.Is(err, ErrUnknownKey) || errors.Is(err, ErrNoKeys)
+	warn := false
+	if config {
+		v.warnMu.Lock()
+		now := v.now()
+		if v.lastWarn.IsZero() || now.Sub(v.lastWarn) >= warnEvery {
+			v.lastWarn, warn = now, true
+		}
+		v.warnMu.Unlock()
+	}
+	if warn {
+		v.log.Warn("Cloudflare Access token refused; if this keeps happening, check KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD", "err", err, "peer", peer)
+		return
+	}
+	v.log.Debug("Cloudflare Access token refused", "err", err, "peer", peer)
 }
 
 type jwtHeader struct {
@@ -217,8 +280,12 @@ type jwtClaims struct {
 }
 
 // Verify checks token: RS256 signature by a key of the team's key set, iss,
-// aud, exp (required) and nbf (when present).
+// aud, exp (required) and nbf (when present). It may wait for a key-set fetch.
 func (v *Verifier) Verify(ctx context.Context, token string) (Identity, error) {
+	return v.verify(ctx, token, true)
+}
+
+func (v *Verifier) verify(ctx context.Context, token string, wait bool) (Identity, error) {
 	if v == nil || token == "" {
 		return Identity{}, ErrNoToken
 	}
@@ -246,7 +313,7 @@ func (v *Verifier) Verify(ctx context.Context, token string) (Identity, error) {
 	if err != nil || len(sig) == 0 {
 		return Identity{}, ErrMalformed
 	}
-	key, err := v.key(ctx, hdr.Kid)
+	key, err := v.key(ctx, hdr.Kid, wait)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -335,20 +402,36 @@ func numericDate(n json.Number) (time.Time, error) {
 	return time.Unix(int64(f), 0), nil
 }
 
-// key returns the public key for kid. The cached set is used while it is
-// younger than Refresh; an older set, or a kid not in it, triggers a fetch
-// (single-flight, at most one attempt per MinRefetch). A set whose refreshes
-// keep failing stays usable for MaxStale after its last successful fetch.
-func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+// key returns the public key for kid. A cached set younger than MaxStale
+// answers at once (stale-while-revalidate): past Refresh it also starts a
+// background refresh, so an expired cache never stalls a request while
+// Cloudflare is slow. A kid not in the set, or no usable set, needs a fetch:
+// with wait the caller waits for it (single-flight, at most one attempt per
+// MinRefetch), without wait a background refresh starts and the key is
+// reported missing. A set whose refreshes keep failing stays usable for
+// MaxStale after its last successful fetch.
+func (v *Verifier) key(ctx context.Context, kid string, wait bool) (*rsa.PublicKey, error) {
 	now := v.now()
 	v.mu.Lock()
 	k, have := v.keys[kid]
-	fresh := !v.fetchedAt.IsZero() && now.Sub(v.fetchedAt) < v.refresh
+	loaded := !v.fetchedAt.IsZero()
+	age := now.Sub(v.fetchedAt)
 	v.mu.Unlock()
-	if have && fresh {
+	usable := loaded && age < v.maxStale
+	if have && usable {
+		if age >= v.refresh {
+			v.refreshAsync(ctx)
+		}
 		return k, nil
 	}
-	v.fetch(ctx)
+	if !wait {
+		v.refreshAsync(ctx)
+		if !usable {
+			return nil, ErrNoKeys
+		}
+		return nil, ErrUnknownKey
+	}
+	_ = v.fetch(ctx)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.fetchedAt.IsZero() || v.now().Sub(v.fetchedAt) >= v.maxStale {
@@ -370,13 +453,31 @@ func (v *Verifier) Prefetch(ctx context.Context) error {
 	return v.fetch(ctx)
 }
 
+// refreshAsync starts a background fetch unless one is already running.
+func (v *Verifier) refreshAsync(ctx context.Context) {
+	if !v.fetchMu.TryLock() {
+		return // a fetch is in flight; it refreshes the set for everyone
+	}
+	v.bg.Add(1)
+	go func() {
+		defer v.bg.Done()
+		defer v.fetchMu.Unlock()
+		_ = v.fetchLocked(ctx)
+	}()
+}
+
 // fetch refreshes the key set unless another caller did (or tried) within
-// MinRefetch. The fetch runs under its own timeout, detached from the request
-// that triggered it, so one cancelled request cannot fail it for everyone
-// waiting.
+// MinRefetch, waiting for a fetch already in flight.
 func (v *Verifier) fetch(ctx context.Context) error {
 	v.fetchMu.Lock()
 	defer v.fetchMu.Unlock()
+	return v.fetchLocked(ctx)
+}
+
+// fetchLocked is fetch with fetchMu held. The fetch runs under its own
+// timeout, detached from the request that triggered it, so one cancelled
+// request cannot fail it for everyone waiting.
+func (v *Verifier) fetchLocked(ctx context.Context) error {
 	v.mu.Lock()
 	recent := !v.attemptedAt.IsZero() && v.now().Sub(v.attemptedAt) < v.minRefetch
 	v.mu.Unlock()

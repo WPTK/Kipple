@@ -20,8 +20,6 @@ import (
 // then logged as an error and not applied: the server starts with the Reader
 // API disabled). Invalid passwords for a new account refuse the start. Without credentials configured the
 // account stays absent and the web login and Reader API stay disabled.
-// KIPPLE_PASSWORD may be empty only while Cloudflare Access validation is
-// configured: the account is then created without a web password.
 func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger *slog.Logger) error {
 	acc, exists, err := db.Account(ctx)
 	if err != nil {
@@ -49,28 +47,25 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 		warnPasswordless(acc, cfg, logger)
 		return nil
 	}
-	// The web password is optional only with Cloudflare Access validation on
-	// (design §7.0): the account then signs in through a verified Access token.
-	passwordless := cfg.Password == "" && cfg.AccessEnabled()
-	if cfg.Username == "" || (cfg.Password == "" && !passwordless) {
-		logger.Warn("no account yet: set KIPPLE_USERNAME and KIPPLE_PASSWORD (the password may be left empty only with KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD set); the web login and the Reader API stay disabled")
+	// A new account always gets a web password, Access or not: an empty
+	// KIPPLE_PASSWORD is the example file's default, so it must never quietly
+	// mean "no password". Removing it later is a deliberate step in Settings,
+	// made through a verified Access sign-in (design §7.0).
+	if cfg.Username == "" || cfg.Password == "" {
+		logger.Warn("no account yet: set KIPPLE_USERNAME and KIPPLE_PASSWORD; the web login and the Reader API stay disabled")
 		return nil
 	}
-	if !passwordless {
-		if err := checkEnvPassword("KIPPLE_PASSWORD", cfg.Password, auth.MinPasswordLen); err != nil {
-			return err
-		}
+	if err := checkEnvPassword("KIPPLE_PASSWORD", cfg.Password, auth.MinPasswordLen); err != nil {
+		return err
 	}
 	if cfg.APIPassword != "" {
 		if err := checkEnvPassword("KIPPLE_API_PASSWORD", cfg.APIPassword, auth.MinAPIPasswordLen); err != nil {
 			return err
 		}
 	}
-	var pwHash string // empty: no web password (passwordless, Access only)
-	if !passwordless {
-		if pwHash, err = auth.HashPassword(cfg.Password); err != nil {
-			return err
-		}
+	pwHash, err := auth.HashPassword(cfg.Password)
+	if err != nil {
+		return err
 	}
 	var apiHash string
 	if cfg.APIPassword != "" {
@@ -89,7 +84,7 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 		return fmt.Errorf("create account (KIPPLE_USERNAME must be 1-64 characters of A-Z a-z 0-9 . _ -): %w", err)
 	}
 	if created {
-		logger.Info("account created", "username", cfg.Username, "reader_api", apiHash != "", "web_password", !passwordless)
+		logger.Info("account created", "username", cfg.Username, "reader_api", apiHash != "")
 		if apiHash == "" {
 			logger.Info("Reader API is disabled until you run `kipple api-password`")
 		}
