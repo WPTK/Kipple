@@ -238,8 +238,18 @@ const FEED = {
 const PAGE_SCRIPT = `${AXE_SOURCE}\n(${installPageHelpers.toString()})();`;
 const FEED_KEYS = new Set(["title", "name", "excerpt", "author", "source", "origin_title", "feed_title", "folder_name", "snippet"]);
 const feedStrings = new Set();
-const decodeSnippet = (h) =>
-  h.replace(/<[^>]*>/g, "").replace(/&(amp|lt|gt|quot|#39|#34);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#34": '"' })[e]);
+const decodeSnippet = (h) => {
+  // Strip tags to a fixed point rather than one pass, so a malformed nested tag like "<scr<script>ipt>"
+  // can't survive a single regex sweep and reassemble into something tag-shaped. This output is only ever
+  // compared as plain text (feedStrings/FEED.names), never rendered as HTML, but a thorough strip costs
+  // nothing here and keeps the pattern honest.
+  let prev;
+  do {
+    prev = h;
+    h = h.replace(/<[^>]*>/g, "");
+  } while (h !== prev);
+  return h.replace(/&(amp|lt|gt|quot|#39|#34);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#34": '"' })[e]);
+};
 
 async function runAxe(page) {
   // The screen checks get axe from an init script (checkScreens); the self-test page, filled by setContent, gets it
@@ -311,7 +321,9 @@ async function go(page, path, { reload = false } = {}) {
     await page.goto(path);
     return;
   }
-  const link = page.locator(`a[href="${path.replace(/"/g, '\\"')}"]:visible`).first();
+  // Escape backslashes before quotes, so a backslash in path can't unescape the quote that follows it.
+  const cssEscaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const link = page.locator(`a[href="${cssEscaped}"]:visible`).first();
   if (await link.count().catch(() => 0)) {
     const clicked = await link
       .click({ timeout: 3000 })
