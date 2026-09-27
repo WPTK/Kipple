@@ -104,12 +104,20 @@ Output: a line per screen, then `web/uat/results/<timestamp>/report.md` (finding
 screens and elements each one was seen on), `report.json` (everything) and a screenshot of each failing screen. Exit
 code 0 clean, 1 findings, 2 a screen or the run could not be checked. Known and accepted issues go in `web/uat/waivers.json`
 (`{"check": "S3", "rule"?: "<axe rule id>", "match"?: "<text of the finding>", "screen"?, "theme"?, "viewport"?,
-"reason": "..."}`; a reason is required, keys and values are checked, S1/S2/S4/S5 waivers need `match` since their
-rules are coarse, and an unused waiver is reported). axe results on the article body (the feed's own HTML), failed
+"reason": "..."}`; a reason is required, keys and values are checked, S1/S2/S4/S5/S6 waivers need `match` since
+their rules are coarse (an S3 finding is already one element; `screen` may also be `boot`, a browser's first load),
+and an unused waiver is reported). axe results on the article body (the feed's own HTML), failed
 non-`/api/` requests (feed images) and S5 hits that are only there because of feed-supplied text (a title that says "undefined
 behaviour": the run collects feed, folder and saved-search names and item titles, excerpts, authors, sources and
 search snippets from the API and takes them out before judging; Kipple text next to them, such as a time or a "min
-read" line, still fails) are listed as notes, not failures, as is a scroller pushed wide only by the article HTML. S5 also looks for `Invalid Date`
+read" line, still fails) are listed as notes, not failures, as is a scroller pushed wide only by the article HTML.
+That separation is done on content rather than by serving fixed fixture feeds because the run is also meant for a
+copy of the real database, whose feeds are whatever the owner reads.
+
+Screens after the first in each browser are reached the way a reader moves: the app's own link when one is on
+screen, otherwise a router history entry; each screen must show its expected heading, which proves the right screen
+was checked. The in-page probes live in `web/uat/probes.mjs` (linted with browser globals only), the runner in
+`web/uat/run.mjs`. S5 also looks for `Invalid Date`
 and in form field values. A screen still loading after 15 s is an error, not a pass.
 
 ## Suite 2 — Agent-driven scenario walkthroughs

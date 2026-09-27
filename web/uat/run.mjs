@@ -39,12 +39,13 @@
 //
 // First time on a machine: `npx playwright install chromium`. See docs/uat-plan.md, Suite 1.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
+import { activeScheme, axeProbe, hasAxe, installPageHelpers, literalProbe, overflowProbe, pushRoute, screenReady } from "./probes.mjs";
 
 /** The first line of an error's message. */
 const firstLine = (e) => String(e?.message ?? e).split("\n")[0];
@@ -106,7 +107,9 @@ const stamp =
   `${started.getFullYear()}-${pad(started.getMonth() + 1)}-${pad(started.getDate())}T` +
   `${pad(started.getHours())}-${pad(started.getMinutes())}-${pad(started.getSeconds())}`;
 const startedText = started.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "long" });
-const outDir = opt.out ?? join(webDir, "uat", "results", stamp);
+// A second run in the same second gets its own directory rather than mixing its report into the first one's.
+let outDir = opt.out ?? join(webDir, "uat", "results", stamp);
+if (!opt.out) for (let n = 2; existsSync(outDir); n++) outDir = join(webDir, "uat", "results", `${stamp}-${n}`);
 // The run's own device, remembered per instance so repeated runs reuse it: the server caps new devices per session
 // and in total, and each new one would stay registered for a month.
 const deviceFile = join(webDir, "uat", "results", `.device-${base.hostname.replace(/[^\w.-]/g, "_")}-${base.port || "default"}.json`);
@@ -163,7 +166,7 @@ const waivers = orSetupError("uat/waivers.json", () => {
   if (!Array.isArray(list)) throw new Error("must be a JSON array");
   const allowed = {
     check: ["S1", "S2", "S3", "S4", "S5", "S6"],
-    screen: SCREENS.map((s) => s.id),
+    screen: [...SCREENS.map((s) => s.id), "boot"],
     theme: THEMES.map((t) => t.id),
     viewport: VIEWPORTS.map((v) => v.id),
   };
@@ -228,206 +231,19 @@ const FEED = {
    * excerpts, authors, sources and search snippets, as the API returns them (harvestFeedText). */
   names: [],
 };
-// Installed in every page next to axe (an init script, or page.evaluate for the self-test page), so the three probes
-// share one definition: is `el` the feed's article HTML, rather than something Kipple put inside it (`own`)?
-const PAGE_HELPERS = `window.__uatInBody = function (el, body, own) {
-  var b = el && el.closest(body);
-  if (!b) return false;
-  var k = el.closest(own);
-  return !(k && b.contains(k));
-};`;
-const PAGE_SCRIPT = `${AXE_SOURCE}\n${PAGE_HELPERS}`;
+// Installed in every page next to axe (an init script, or page.evaluate for the self-test page): see probes.mjs.
+const PAGE_SCRIPT = `${AXE_SOURCE}\n(${installPageHelpers.toString()})();`;
 const FEED_KEYS = new Set(["title", "name", "excerpt", "author", "source", "origin_title", "feed_title", "folder_name", "snippet"]);
 const feedStrings = new Set();
 const decodeSnippet = (h) =>
   h.replace(/<[^>]*>/g, "").replace(/&(amp|lt|gt|quot|#39|#34);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#34": '"' })[e]);
 
-// S4. The page must not scroll sideways, and no visible element may run past the right edge of the viewport. Content
-// wider than a scroll container that fits on screen is caught through that container: every screen scrolls in an
-// `overflow-y-auto` box, whose overflow-x computes to auto as well, so a container that actually scrolls sideways is
-// a finding unless it asks for it (a Tailwind overflow-x-auto/-scroll or overflow-auto/-scroll class) or is inside
-// the feed's own article HTML (wide code blocks and tables scroll there on purpose). A container pushed wide only by
-// the article HTML (the reader pane around a too-wide embed) is marked `feed`: a note, not a failure.
-function overflowProbe(feed) {
-  const vw = document.documentElement.clientWidth;
-  const out = { scrollWidth: document.documentElement.scrollWidth, vw, offenders: [], scrollers: [], clipped: [] };
-  const describe = (el) => {
-    const id = el.id ? `#${el.id}` : "";
-    const cls = typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).slice(0, 3).join(".") : "";
-    const name = el.getAttribute("aria-label") || (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 60);
-    return `${el.tagName.toLowerCase()}${id}${cls}${name ? ` "${name}"` : ""}`;
-  };
-  const visible = (el) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
-  const inBody = (el) => window.__uatInBody(el, feed.body, feed.own);
-  const scrolls = (el) => {
-    const ox = getComputedStyle(el).overflowX;
-    return ox === "auto" || ox === "scroll";
-  };
-  const deliberate = (el) =>
-    /(^|\s)([\w-]+:)*overflow(-x)?-(auto|scroll)(\s|$)/.test(typeof el.className === "string" ? el.className : "") ||
-    inBody(el);
-  // Clipped by an ancestor that itself ends inside the viewport (overflow hidden, or a scroller: those are checked
-  // on their own below), or hidden the screen-reader-only way. Only ancestors from the containing block up clip: a
-  // fixed element escapes every one, an absolute one those between it and its offset parent.
-  const srOnly = (el) => {
-    for (let a = el; a && a !== document.body; a = a.parentElement) {
-      const cs = getComputedStyle(a);
-      if (cs.clip === "rect(0px, 0px, 0px, 0px)" || cs.clipPath === "inset(50%)") return true;
-    }
-    return false;
-  };
-  const contained = (el) => {
-    if (srOnly(el)) return true;
-    const pos = getComputedStyle(el).position;
-    if (pos === "fixed") return false;
-    let a = pos === "absolute" ? el.offsetParent : el.parentElement;
-    for (; a && a !== document.body; a = a.parentElement) {
-      if (getComputedStyle(a).overflowX !== "visible" && a.getBoundingClientRect().right <= vw + 1) return true;
-    }
-    return false;
-  };
-  // True when everything sticking out past the scroller's right edge is inside the article HTML.
-  const onlyFeedWide = (sc) => {
-    const edge = sc.getBoundingClientRect().left + sc.clientWidth + 1;
-    let any = false;
-    for (const d of sc.querySelectorAll("*")) {
-      if (d.getBoundingClientRect().right <= edge || !visible(d)) continue;
-      if (!inBody(d)) return false;
-      any = true;
-    }
-    return any;
-  };
-  // Cut off: partly hidden past the right edge of the nearest ancestor (from the containing block up) that hides
-  // overflow without scrolling. Entirely outside it is hidden on purpose (swipe actions, off-canvas parts); an
-  // ancestor that truncates with an ellipsis does it on purpose too.
-  const clippedBy = (el, r) => {
-    const pos = getComputedStyle(el).position;
-    if (pos === "fixed") return null;
-    for (let a = pos === "absolute" ? el.offsetParent : el.parentElement; a && a !== document.body; a = a.parentElement) {
-      const cs = getComputedStyle(a);
-      if (cs.overflowX === "visible") continue;
-      // The nearest box that does anything with overflow decides: a scroller shows the rest on scroll (and is checked
-      // as a scroller above), an ellipsis truncates on purpose.
-      if (cs.overflowX === "auto" || cs.overflowX === "scroll" || cs.textOverflow === "ellipsis") return null;
-      const ar = a.getBoundingClientRect();
-      return r.right > ar.right + 1 && r.left < ar.right - 1 ? { a, ar } : null;
-    }
-    return null;
-  };
-  for (const el of document.body.querySelectorAll("*")) {
-    if (scrolls(el) && el.scrollWidth > el.clientWidth + 1 && !deliberate(el) && visible(el)) {
-      if (out.scrollers.length < 10)
-        out.scrollers.push({ desc: describe(el), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, feed: onlyFeedWide(el) });
-    }
-    const r = el.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0 && out.clipped.length < 10 && !out.clipped.some((c) => c.el.contains(el))) {
-      const c = clippedBy(el, r);
-      if (c && c.ar.right <= vw + 1 && visible(el) && !inBody(el) && !srOnly(el) &&
-        ((el.textContent || "").trim() !== "" || el.matches("button, a[href], input, select, textarea, [role=button], img, svg")))
-        out.clipped.push({ el, desc: describe(el), right: Math.round(r.right), edge: Math.round(c.ar.right) });
-    }
-    if (r.width === 0 || r.height === 0 || r.right <= vw + 1) continue;
-    if (r.left >= vw) continue; // entirely off screen: a closed drawer or an off-canvas panel
-    if (!visible(el) || contained(el)) continue;
-    // Report the outermost offender only.
-    if (out.offenders.some((o) => o.el.contains(el))) continue;
-    if (out.offenders.length < 10) out.offenders.push({ el, desc: describe(el), right: Math.round(r.right) });
-  }
-  out.offenders = out.offenders.map(({ desc, right }) => ({ desc, right }));
-  out.clipped = out.clipped.map(({ desc, right, edge }) => ({ desc, right, edge }));
-  return out;
-}
-
-// S5. Visible text nodes, form field values (including a select's chosen option) and accessible-name attributes:
-// "undefined", "NaN" (also with a unit stuck to it, as in "NaNm" or "NaNkB"), "[object Object]" and "Invalid Date".
-// Feeds can legitimately say "undefined behaviour" or "NaN-boxing", so a hit is the feed's (a note) when it is in the
-// article HTML, or when it goes away once the feed-supplied strings in `feed.names` are taken out of the text, or of
-// a nearby ancestor's text (only for a text node: a highlighted search term splits a title into several). A field
-// that rendered as undefined next to them is still Kipple's.
-function literalProbe(feed) {
-  const bad = new RegExp(feed.pattern);
-  const norm = (t) => t.replace(/\s+/g, " ");
-  // Longest first, so a short name inside a longer string ("NaN Tech" in "NaN Tech Weekly: undefined results") does
-  // not break the longer one up before it is taken out.
-  const names = [...feed.names].sort((a, b) => b.length - a.length);
-  const strip = (t) => names.reduce((s, n) => s.split(n).join(" "), norm(t));
-  const inBody = (el) => window.__uatInBody(el, feed.body, feed.ownText);
-  const fromFeed = (el, text, isTextNode) => {
-    if (inBody(el)) return true;
-    if (!feed.names.length) return false;
-    if (!bad.test(strip(text))) return true;
-    if (!isTextNode) return false;
-    for (let a = el, i = 0; a && a !== document.body && i < 4; a = a.parentElement, i++) {
-      const t = norm(a.textContent || "");
-      if (feed.names.some((n) => t.includes(n)) && !bad.test(strip(t))) return true;
-    }
-    return false;
-  };
-  const hits = [];
-  const add = (el, where, text, isTextNode = false) =>
-    hits.push({ where, text: norm(text).trim().slice(0, 160), feed: fromFeed(el, text, isTextNode) });
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    const el = n.parentElement;
-    if (!el || !n.nodeValue || !bad.test(n.nodeValue) || el.closest("script, style, noscript, template, select")) continue;
-    // An SVG <title> (a chart's tooltip) never has a box of its own: it is shown when its graphic is.
-    const box = el instanceof SVGTitleElement ? el.parentElement : el;
-    if (!box || !box.checkVisibility({ visibilityProperty: true })) continue;
-    add(el, el instanceof SVGTitleElement ? "svg title" : el.tagName.toLowerCase(), n.nodeValue, true);
-  }
-  for (const el of document.body.querySelectorAll("[aria-label],[title],[alt],[placeholder],[aria-valuetext]")) {
-    if (!el.checkVisibility({ visibilityProperty: true })) continue;
-    for (const a of ["aria-label", "title", "alt", "placeholder", "aria-valuetext"]) {
-      const v = el.getAttribute(a);
-      if (v && bad.test(v)) add(el, `${el.tagName.toLowerCase()}[${a}]`, v);
-    }
-  }
-  for (const el of document.body.querySelectorAll("input, textarea")) {
-    if (el.type === "hidden" || el.type === "password" || !el.checkVisibility({ visibilityProperty: true })) continue;
-    if (el.value && bad.test(el.value)) add(el, `${el.tagName.toLowerCase()}.value`, el.value);
-  }
-  for (const el of document.body.querySelectorAll("select")) {
-    if (!el.checkVisibility({ visibilityProperty: true })) continue;
-    const label = el.selectedOptions[0]?.textContent ?? "";
-    if (bad.test(label)) add(el, "select", label);
-  }
-  if (bad.test(document.title)) hits.push({ where: "title", text: document.title, feed: false });
-  return hits.slice(0, 30);
-}
-
 async function runAxe(page) {
   // The screen checks get axe from an init script (checkScreens); the self-test page, filled by setContent, gets it
   // here. Both go over the DevTools protocol rather than a <script>: Kipple's CSP (script-src 'self') would block an
   // inline script, and turning the CSP off would hide the app's own CSP violations from S1.
-  if (!(await page.evaluate(() => typeof window.axe !== "undefined"))) await page.evaluate(PAGE_SCRIPT);
-  return page.evaluate(async (feed) => {
-    // A target is a list of selectors, one per frame or shadow root on the way (a shadow step is itself a list):
-    // the first one names the element in this document, which says whose content it is.
-    const top = (t) => (Array.isArray(t[0]) ? t[0][0] : t[0]);
-    const flat = (t) => t.map((s) => (Array.isArray(s) ? s.join(" >>> ") : s)).join(" | ");
-    const r = await window.axe.run(document, {
-      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"] },
-      resultTypes: ["violations"],
-    });
-    return r.violations.map((v) => ({
-      id: v.id,
-      impact: v.impact,
-      help: v.help,
-      helpUrl: v.helpUrl,
-      nodes: v.nodes.map((n) => ({
-        target: flat(n.target),
-        html: n.html.slice(0, 300),
-        summary: n.failureSummary?.split("\n").slice(0, 3).join(" ").slice(0, 300),
-        // Nodes inside the article body are the feed's own markup, reported apart from Kipple's, except what Kipple
-        // added there itself. Inside a frame in the article (a started embed: Kipple's frame, the provider's player)
-        // the markup is the provider's.
-        feedContent: ((el) =>
-          n.target.length > 1 && !Array.isArray(n.target[0])
-            ? !!el?.closest(feed.body)
-            : window.__uatInBody(el, feed.body, feed.own))(document.querySelector(top(n.target))),
-      })),
-    }));
-  }, FEED);
+  if (!(await page.evaluate(hasAxe))) await page.evaluate(PAGE_SCRIPT);
+  return page.evaluate(axeProbe, FEED);
 }
 
 // ---- navigation helpers ----
@@ -446,17 +262,11 @@ async function setLayout(page, layout) {
 
 // Wait for the lazy screen and its queries: no busy skeleton, no boot splash, then a short beat for late renders.
 async function settle(page) {
-  await page
-    .waitForFunction(
-      () => !document.querySelector('[aria-busy="true"]') && !/^\s*Loading Kipple\s*$/.test(document.body.innerText),
-      null,
-      { timeout: 15000 },
-    )
-    .catch((e) => {
-      // Checking a skeleton would pass a screen whose content was never seen. Anything else (a crashed or closed
-      // page) keeps its own message.
-      throw e?.name === "TimeoutError" ? new Error("still loading after 15 s") : e;
-    });
+  await page.waitForFunction(screenReady, null, { timeout: 15000, polling: 100 }).catch((e) => {
+    // Checking a skeleton would pass a screen whose content was never seen. Anything else (a crashed or closed
+    // page) keeps its own message.
+    throw e?.name === "TimeoutError" ? new Error("still loading after 15 s") : e;
+  });
   // Then until no same-origin request has been in flight for 300 ms (the event stream never ends, so it is not
   // counted), for at most 10 s: lazy chunks and the queries a screen fires once it mounts.
   const inflight = pending.get(page);
@@ -486,21 +296,27 @@ function trackRequests(page) {
 }
 
 /**
- * Opens a screen the way a reader moves around: the first one in a browser is a full load, later ones go through the
- * app's router (a history push and popstate, which React Router follows), so the app is not booted again for every
- * screen. Each screen's heading check (SCREENS) confirms the route really rendered. Requests still counted from the
- * screen before (a beacon that never reports back) are forgotten.
+ * Opens a screen the way a reader moves around. The first one in a browser, or any with `reload`, is a full load.
+ * Later ones click the app's own link to that address when one is on screen (a real router push), and otherwise
+ * push a new history entry (a fresh key, the next index, as the router writes them) and announce it with popstate,
+ * which the router follows. The heading check per screen (SCREENS) confirms the route really rendered. Requests
+ * still counted from the screen before (a beacon that never reports back) are forgotten.
  */
-async function go(page, path) {
+async function go(page, path, { reload = false } = {}) {
   pending.get(page)?.clear();
-  if (new URL(page.url()).origin !== origin) {
+  if (reload || new URL(page.url()).origin !== origin) {
     await page.goto(path);
     return;
   }
-  await page.evaluate((p) => {
-    history.pushState(history.state, "", p);
-    window.dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
-  }, path);
+  const link = page.locator(`a[href="${path.replace(/"/g, '\\"')}"]:visible`).first();
+  if (await link.count().catch(() => 0)) {
+    const clicked = await link
+      .click({ timeout: 3000 })
+      .then(() => true)
+      .catch(() => false);
+    if (clicked) return;
+  }
+  await page.evaluate(pushRoute, path);
 }
 
 // ---- the run ----
@@ -720,11 +536,13 @@ async function checkScreens(cookies) {
 }
 
 async function checkCombo(page, theme, vp, ctxInfo, results) {
-  let current = null; // the screen being checked, for the event handlers below
+  // Events are always collected; each screen reports what arrived while it was checked, and what arrives after (a
+  // query that fails late, during the screenshot) is reported against it when the next screen starts.
+  let prev = null;
   const bucket = { console: [], api: [], other: [] };
-  page.on("pageerror", (err) => current && bucket.console.push({ kind: "pageerror", text: String(err.stack || err).slice(0, 600) }));
+  page.on("pageerror", (err) => bucket.console.push({ kind: "pageerror", text: String(err.stack || err).slice(0, 600) }));
   page.on("console", (msg) => {
-    if (!current || msg.type() !== "error") return;
+    if (msg.type() !== "error") return;
     const url = msg.location()?.url ?? "";
     // "Failed to load resource" is the browser echoing a failed request. Same-origin ones are reported from the
     // response below (S2 for /api/, a note otherwise); only other origins are known from this message alone.
@@ -746,12 +564,11 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         .finally(() => harvesting.delete(p));
       harvesting.add(p);
     }
-    if (!current || res.status() < 400) return;
+    if (res.status() < 400) return;
     if (u.pathname.startsWith("/api/")) bucket.api.push({ status: res.status(), method: res.request().method(), url: u.pathname + u.search });
     else bucket.other.push({ url: u.pathname + u.search, text: `HTTP ${res.status()}` });
   });
   page.on("requestfailed", (req) => {
-    if (!current) return;
     const u = new URL(req.url());
     const why = req.failure()?.errorText ?? "failed";
     // A navigation aborts whatever was in flight (the event stream, prefetches): that is not a failure.
@@ -774,7 +591,6 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
   // still be fetching). When this is the browser's first load, it is where the app boots, so its errors are checked
   // too (as the "boot" screen).
   if (!ctxInfo.articlePath && screens.some((s) => s.id === "article")) {
-    current = "boot";
     try {
       await go(page, "/l/all");
       await settle(page);
@@ -784,13 +600,18 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     } catch {
       ctxInfo.articlePath = null;
     }
-    current = null;
     flush({ screen: "boot", theme: theme.id, viewport: vp.id });
   }
 
+  // A full load for the next screen: after a screen that failed (the app may be stuck on an error page that ignores
+  // the router), or when the next screen has the same heading (Search after Search, the list layouts), where the
+  // heading check could not tell that the navigation happened.
+  let reloadNext = false;
+  let prevHeading = null;
   for (const screen of screens) {
     const where = { screen: screen.id, theme: theme.id, viewport: vp.id };
     const path = typeof screen.path === "function" ? screen.path(ctxInfo) : screen.path;
+    if (prev) flush(prev);
     process.stdout.write(`${theme.id.padEnd(5)} ${vp.id.padEnd(7)} ${screen.id.padEnd(15)} `);
     const row = { ...where, title: screen.title, path, checks: {} };
     results.push(row);
@@ -800,12 +621,13 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       console.log("ERROR no article to open");
       continue;
     }
+    // The heading first: after an in-app navigation the screen before stays up until the router has rendered the
+    // new one, and waiting for "not busy" on the old screen would pass at once.
+    const heading = typeof screen.heading === "function" ? screen.heading(ctxInfo) : screen.heading;
     try {
-      current = screen.id;
-      await go(page, path);
-      // The heading first: after an in-app navigation the screen before stays up until the router has rendered the
-      // new one, and waiting for "not busy" on the old screen would pass at once.
-      const heading = typeof screen.heading === "function" ? screen.heading(ctxInfo) : screen.heading;
+      await go(page, path, { reload: reloadNext || heading === prevHeading });
+      reloadNext = false;
+      prevHeading = heading;
       const esc = escapeRe(heading);
       // The list headings are whole; the article's is the start of its title.
       const want = new RegExp(screen.id === "article" ? `^\\s*${esc}` : `^\\s*${esc}\\s*$`);
@@ -823,7 +645,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         await settle(page);
       }
 
-      const scheme = await page.evaluate(() => document.documentElement.dataset.theme);
+      const scheme = await page.evaluate(activeScheme);
       if (scheme !== theme.scheme)
         throw new Error(`expected the ${theme.scheme} scheme, the page shows ${scheme} (does the account default to a fixed theme?)`);
 
@@ -842,9 +664,9 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       const s5 = await page.evaluate(literalProbe, FEED);
       const axe = await runAxe(page);
       await page.waitForTimeout(100); // late console errors from the last render
-      current = null;
 
       flush(where);
+      prev = where;
       for (const v of axe) {
         const own = v.nodes.filter((n) => !n.feedContent);
         const feed = v.nodes.filter((n) => n.feedContent);
@@ -874,15 +696,20 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       }
       console.log(row.ok ? "ok" : Object.entries(row.checks).filter(([, n]) => n).map(([c, n]) => `${c}x${n}`).join(" "));
     } catch (e) {
-      current = null;
       row.ok = false;
       row.error = firstLine(e);
       flush(where);
+      prev = where;
+      reloadNext = true;
+      prevHeading = null;
       broken(where, `could not check the screen: ${row.error}`);
       console.log(`ERROR ${row.error}`);
       await page.screenshot({ path: join(outDir, `${screen.id}-${theme.id}-${vp.id}-error.png`), fullPage: true }).catch(() => {});
     }
   }
+  // Whatever the last screen still had coming.
+  await page.waitForTimeout(300);
+  if (prev) flush(prev);
 }
 
 // S6: the theme contrast check over every scheme.
