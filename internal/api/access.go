@@ -1,16 +1,19 @@
 package api
 
 import (
+	"errors"
 	"net/http"
+	"sync"
 
 	"github.com/WPTK/kipple/internal/access"
+	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/store"
 )
 
 // accessProof is what a request can show for an account without a web
-// password (design §7.0). It is the one place that rule lives: the login, the
-// account endpoints' current-password check and the password removal all ask
-// here.
+// password (design §7.0). It is the one place that rule lives: the login and
+// the account endpoints' current-password check (which also gates removing
+// the password) ask here.
 type accessProof int
 
 const (
@@ -19,46 +22,105 @@ const (
 	// proofNotConfigured: Access validation is off, so nothing can stand in
 	// for a password (the port may be reachable without Access in front).
 	proofNotConfigured
-	// proofNoToken: the request carries no token; nothing was presented, so
-	// nothing is counted against the login lockout.
-	proofNoToken
-	// proofRefused: a token was presented and refused (forged, expired, for
-	// another application or team, or a service token with no email); counted
-	// like a wrong password.
+	// proofNone: nothing verifiable was presented: no token, or one naming a
+	// key id the team's key set does not have (made up, or a rotation not yet
+	// fetched). Not counted against the login lockout: it cannot succeed, and
+	// the owner's own token must never lock them out.
+	proofNone
+	// proofUnavailable: the team's key set cannot be loaded, so no token can
+	// be checked right now. Says nothing about the token: answered 503 and
+	// not counted, like a busy password verifier.
+	proofUnavailable
+	// proofRefused: a token was presented and refused (bad signature, expired,
+	// for another application or team, or a service token with no email);
+	// counted like a wrong password.
 	proofRefused
 )
 
 // accessProof verifies the request's Access token, waiting for a key-set fetch
-// when needed (a sign-in or an account change).
+// when needed (a sign-in or an account change; the wait ends with the request).
 func (s *Server) accessProof(r *http.Request) accessProof {
 	if s.opt.Access == nil {
 		return proofNotConfigured
 	}
-	if r.Header.Get(access.Header) == "" {
-		return proofNoToken
-	}
 	id, err := s.opt.Access.VerifyRequest(r)
-	if err != nil || id.Email == "" {
+	switch {
+	case err == nil && id.Email != "":
+		return proofOK
+	case err == nil:
+		return proofRefused // a service token: a machine, not the owner
+	case errors.Is(err, access.ErrNoToken), errors.Is(err, access.ErrUnknownKey):
+		return proofNone
+	case errors.Is(err, access.ErrNoKeys), r.Context().Err() != nil:
+		return proofUnavailable
+	default:
 		return proofRefused
 	}
-	return proofOK
 }
 
-// userInfo is the account summary of GET /api/auth/me and the bootstrap `user`
-// object. access_email is the email of this request's verified Access token,
-// null without one. It is for display, so it never waits on the network: a
-// token the cached key set cannot verify shows as null while a background
-// refresh runs.
-func (s *Server) userInfo(r *http.Request, acct store.Account) map[string]any {
-	var email any
-	if id, err := s.opt.Access.VerifyRequestCached(r); err == nil && id.Email != "" {
-		email = id.Email
+// writeProofError answers a proof other than proofOK for an account endpoint
+// (403 unless the keys are unavailable) and settles the lockout reservation:
+// only a refused token stays counted. removing selects the wording of the
+// Access-off case.
+func (s *Server) writeProofError(w http.ResponseWriter, ip string, p accessProof, removing bool) {
+	if p != proofRefused {
+		s.lock.Release(ip)
 	}
-	return map[string]any{
+	switch p {
+	case proofNotConfigured:
+		if removing {
+			writeErrorMsg(w, http.StatusBadRequest, "access_not_configured",
+				"a web password can only be removed when Cloudflare Access validation is configured (KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD)")
+			return
+		}
+		writeErrorMsg(w, http.StatusForbidden, "access_not_configured",
+			"this account has no web password and Cloudflare Access validation is off: set a password on the host with `kipple password`")
+	case proofUnavailable:
+		w.Header().Set("Retry-After", "5")
+		writeErrorMsg(w, http.StatusServiceUnavailable, "access_unavailable",
+			"the Cloudflare Access signing keys cannot be loaded right now; try again shortly")
+	default:
+		writeErrorMsg(w, http.StatusForbidden, "access_required",
+			"open Kipple through Cloudflare Access to do this")
+	}
+}
+
+// userInfo is the account summary of the bootstrap `user` object and, with
+// withEmail, of GET /api/auth/me. access_email (me only) is the email of this
+// request's verified Access token, or null. It is for display, so it never
+// waits on the network: a token the cached key set cannot verify shows as null
+// while a background refresh runs. The bootstrap leaves the email out: that
+// response is kept in the offline cache, where a sign-in identity has no
+// business, and the display needs it live anyway.
+func (s *Server) userInfo(r *http.Request, acct store.Account, withEmail bool) map[string]any {
+	m := map[string]any{
 		"username":       acct.Username,
 		"api_enabled":    acct.APIPasswordHash != "",
 		"password_set":   acct.PasswordHash != "",
 		"access_enabled": s.opt.Access != nil,
-		"access_email":   email,
 	}
+	if withEmail {
+		var email any
+		if id, err := s.opt.Access.VerifyRequestCached(r); err == nil && id.Email != "" {
+			email = id.Email
+		}
+		m["access_email"] = email
+	}
+	return m
 }
+
+// decoyHash is a real argon2id hash of a random password nobody knows. A
+// password sent to an account without one is checked against it, so that
+// attempt costs and counts exactly like a wrong password on an account with
+// one: the answer's timing and the lockout do not reveal which kind of
+// account this is.
+var decoyHash = sync.OnceValue(func() string {
+	pw, err := auth.GeneratePassword(24)
+	if err == nil {
+		var h string
+		if h, err = auth.HashPassword(pw); err == nil {
+			return h
+		}
+	}
+	return "" // never matches (the verifier refuses an empty hash)
+})

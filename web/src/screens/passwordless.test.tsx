@@ -12,11 +12,18 @@ class NoES {
   close() {}
 }
 
-type User = (typeof bootstrap)["user"];
+interface MeFields {
+  password_set: boolean;
+  access_enabled: boolean;
+  access_email: string | null;
+}
 
-function base(user: Partial<User>, extra: Parameters<typeof mockFetch>[0] = {}) {
+/** The bootstrap carries the password flags (never the email); /api/auth/me carries them live, with the email. */
+function base(me: MeFields, extra: Parameters<typeof mockFetch>[0] = {}) {
+  const { access_email: _email, ...flags } = me;
   return mockFetch({
-    "GET /api/bootstrap": () => json({ ...bootstrap, user: { ...bootstrap.user, ...user } }),
+    "GET /api/bootstrap": () => json({ ...bootstrap, user: { ...bootstrap.user, ...flags } }),
+    "GET /api/auth/me": () => json({ username: "dev", api_enabled: false, ...me }),
     "GET /api/items": () => json(pageOf([card(1)])),
     "GET /api/settings": () => json({ settings: [], values: {} }),
     "GET /api/filters": () => json({ filters: [] }),
@@ -113,7 +120,21 @@ describe("Login without a password", () => {
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("Username"), "dev");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("only through Cloudflare Access");
+    expect(await screen.findByRole("alert")).toHaveTextContent("open Kipple through Cloudflare Access");
     expect(body(calls.find((c) => c.url.pathname === "/api/auth/login") as never)).toEqual({ username: "dev", password: "" });
+  });
+});
+
+describe("Access keys unavailable", () => {
+  it("says the Access sign-in cannot be checked, not that the password is wrong", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json({ error: "auth" }, 401),
+      "POST /api/auth/login": () => json({ error: "access_unavailable" }, 503),
+    });
+    go("/");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Username"), "dev");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("can't check your Cloudflare Access sign-in");
   });
 });

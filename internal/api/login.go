@@ -52,40 +52,34 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		// A passwordless account (design §7.0): the one way in is a verified
 		// Cloudflare Access token on this very request. Without Access validation
 		// configured nothing verifies, so the account cannot sign in at all (the
-		// port may be reachable on the LAN without Access in front). Any password
-		// sent is ignored: there is none to check.
+		// port may be reachable on the LAN without Access in front).
 		switch p := s.accessProof(r); {
-		case p == proofOK && userOK:
+		case p == proofOK && userOK: // any password sent is ignored: there is none
 		case p == proofOK || p == proofRefused:
 			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
 			return
-		default: // no token, or Access off: nothing was presented, nothing is counted
-			s.lock.Release(ip)
-			writeError(w, http.StatusUnauthorized, "auth")
+		case p == proofUnavailable:
+			s.lock.Release(ip) // says nothing about the token
+			w.Header().Set("Retry-After", "5")
+			writeError(w, http.StatusServiceUnavailable, "access_unavailable")
+			return
+		default:
+			// No usable token. A password sent is checked against the decoy
+			// hash, so from outside this is exactly a wrong password on an
+			// account that has one (same cost, counted); an empty one is
+			// refused uncounted, as there.
+			s.refusePassword(w, r, ip, body.Password, decoyHash())
 			return
 		}
 	} else {
 		// An account with a password always needs it: an Access token never
 		// stands in for a password that is set.
-		if body.Password == "" {
-			// Nothing presented (a submit before typing, a passwordless try on an
-			// account that has a password): refused without counting.
-			s.lock.Release(ip)
-			writeError(w, http.StatusUnauthorized, "auth")
-			return
-		}
 		s.verifier.SetSecret([]byte(acct.Secret))
-		pwOK, busy := s.verifier.VerifyBusy(r.Context(), "web", body.Password, acct.PasswordHash)
-		if busy {
-			// says nothing about the password: not counted as a failure
-			s.lock.Release(ip)
-			w.Header().Set("Retry-After", "5")
-			writeError(w, http.StatusServiceUnavailable, "busy")
+		if !s.passwordOK(w, r, ip, body.Password, acct.PasswordHash) {
 			return
 		}
-		if !pwOK || !userOK {
-			// the reservation stays counted as the failure
-			writeError(w, http.StatusUnauthorized, "auth")
+		if !userOK {
+			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
 			return
 		}
 	}
@@ -105,6 +99,39 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// passwordOK checks a sign-in password against hash and, when it does not
+// match, writes the answer and settles the lockout reservation: an empty
+// password (nothing presented: a submit before typing) and a busy verifier are
+// not counted, a wrong password stays counted.
+func (s *Server) passwordOK(w http.ResponseWriter, r *http.Request, ip, pw, hash string) bool {
+	if pw == "" {
+		s.lock.Release(ip)
+		writeError(w, http.StatusUnauthorized, "auth")
+		return false
+	}
+	ok, busy := s.verifier.VerifyBusy(r.Context(), "web", pw, hash)
+	if busy {
+		// says nothing about the password: not counted as a failure
+		s.lock.Release(ip)
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusServiceUnavailable, "busy")
+		return false
+	}
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+	}
+	return ok
+}
+
+// refusePassword is passwordOK for a hash that must never match (the decoy):
+// it always refuses, the same way a wrong password is refused.
+func (s *Server) refusePassword(w http.ResponseWriter, r *http.Request, ip, pw, hash string) {
+	if s.passwordOK(w, r, ip, pw, hash) {
+		// Unreachable (nobody knows the decoy's password); refuse all the same.
+		writeError(w, http.StatusUnauthorized, "auth")
+	}
+}
+
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(cookieName); err == nil {
 		if err := s.db.DeleteSession(r.Context(), sessionID(c.Value)); err != nil {
@@ -122,5 +149,5 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.userInfo(r, acct))
+	writeJSON(w, http.StatusOK, s.userInfo(r, acct, true))
 }

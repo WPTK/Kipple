@@ -23,12 +23,18 @@ const (
 // prove the web password (the API password may not exist yet). An account
 // without a web password proves itself with a verified Cloudflare Access token
 // instead (design §7.0).
-func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current string) bool {
+//
+// removing (POST /api/account/password with remove:true) also requires a
+// verified Access token, checked after the reservation so a locked-out address
+// gets 429 and a refused token counts; on an account that already has no
+// password it reports alreadyNone without proving anything, as there is
+// nothing to change.
+func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current string, removing bool) (alreadyNone, ok bool) {
 	ip := s.clientIP(r)
 	if ok, left := s.lock.Reserve(ip); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
 		writeError(w, http.StatusTooManyRequests, "locked")
-		return false
+		return false, false
 	}
 	acct, ok, err := s.db.Account(r.Context())
 	if err != nil || !ok {
@@ -37,28 +43,30 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 			err = errors.New("no account row")
 		}
 		s.serverError(w, "load account", err)
-		return false
+		return false, false
 	}
 	if acct.PasswordHash == "" {
-		// No web password to prove (design §7.0): a verified Cloudflare Access
-		// token on this request stands in for it; nothing else does.
-		switch s.accessProof(r) {
-		case proofOK:
-			s.lock.Clear(ip)
-			return true
-		case proofNotConfigured:
+		if removing {
 			s.lock.Release(ip)
-			writeErrorMsg(w, http.StatusForbidden, "access_not_configured",
-				"this account has no web password and Cloudflare Access validation is off: set a password on the host with `kipple password`")
-		case proofNoToken:
-			s.lock.Release(ip)
-			writeErrorMsg(w, http.StatusForbidden, "access_required",
-				"this account has no web password: open Kipple through Cloudflare Access to change it")
-		default: // a refused token stays counted
-			writeErrorMsg(w, http.StatusForbidden, "access_required",
-				"this account has no web password: open Kipple through Cloudflare Access to change it")
+			return true, true
 		}
-		return false
+		// No web password to prove: a verified Access token on this request
+		// stands in for it; nothing else does.
+		if p := s.accessProof(r); p != proofOK {
+			s.writeProofError(w, ip, p, false)
+			return false, false
+		}
+		s.lock.Clear(ip)
+		return false, true
+	}
+	if removing {
+		// Proves passwordless sign-in works for the caller right now, so the
+		// removal can neither lock the owner out nor be made from an address
+		// that bypasses Access.
+		if p := s.accessProof(r); p != proofOK {
+			s.writeProofError(w, ip, p, true)
+			return false, false
+		}
 	}
 	s.verifier.SetSecret([]byte(acct.Secret))
 	pwOK, busy := s.verifier.VerifyBusy(r.Context(), "web", current, acct.PasswordHash)
@@ -66,14 +74,14 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 		s.lock.Release(ip)
 		w.Header().Set("Retry-After", "5")
 		writeError(w, http.StatusServiceUnavailable, "busy")
-		return false
+		return false, false
 	}
 	if !pwOK {
 		writeError(w, http.StatusForbidden, "bad_password")
-		return false
+		return false, false
 	}
 	s.lock.Clear(ip)
-	return true
+	return false, true
 }
 
 func badNewPassword(w http.ResponseWriter, pw string) bool {
@@ -118,35 +126,17 @@ func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 			writeErrorMsg(w, http.StatusBadRequest, "bad_request", `send "new" or "remove": true, not both`)
 			return
 		}
-		acct, ok, err := s.db.Account(r.Context())
-		if err != nil || !ok {
-			if err == nil {
-				err = errors.New("no account row")
-			}
-			s.serverError(w, "load account", err)
-			return
-		}
-		if acct.PasswordHash == "" {
-			// Already none: nothing to change, and no reason to sign anyone out.
-			w.Header().Set("Cache-Control", "private, no-store")
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		switch s.accessProof(r) {
-		case proofOK:
-		case proofNotConfigured:
-			writeErrorMsg(w, http.StatusBadRequest, "access_not_configured",
-				"a web password can only be removed when Cloudflare Access validation is configured (KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD)")
-			return
-		default:
-			writeErrorMsg(w, http.StatusForbidden, "access_required",
-				"open Kipple through Cloudflare Access to remove the web password")
-			return
-		}
 	} else if badNewPassword(w, body.New) {
 		return
 	}
-	if !s.checkCurrent(w, r, body.Current) {
+	alreadyNone, ok := s.checkCurrent(w, r, body.Current, body.Remove)
+	if !ok {
+		return
+	}
+	if alreadyNone {
+		// Nothing to change, and no reason to sign anyone out.
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	hash := "" // an empty hash is "no web password": the verifier never accepts it
@@ -188,7 +178,7 @@ func (s *Server) accountAPIPassword(w http.ResponseWriter, r *http.Request) {
 	if body.New != nil && badNewAPIPassword(w, *body.New) {
 		return
 	}
-	if !s.checkCurrent(w, r, body.Current) {
+	if _, ok := s.checkCurrent(w, r, body.Current, false); !ok {
 		return
 	}
 	var pw string

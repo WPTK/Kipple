@@ -38,8 +38,11 @@ export function LoginScreen() {
         setError(
           password
             ? "That username or password didn't match."
-            : "Enter your password. Signing in without one works only through Cloudflare Access, for an account with no password.",
+            : // The server does not say which: no password typed, a wrong username, or no Access sign-in.
+              "That didn't work. Enter your password, or, for an account without one, check the username and open Kipple through Cloudflare Access.",
         );
+      else if (err instanceof ApiError && err.code === "access_unavailable")
+        setError("Kipple can't check your Cloudflare Access sign-in right now. Try again in a moment.");
       else if (err instanceof ApiError && err.status === 0) setError("Kipple couldn't reach the server.");
       else setError("Something went wrong. Try again.");
     } finally {

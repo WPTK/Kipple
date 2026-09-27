@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, authStore, errorMessage } from "@/api/client";
-import { applyRetention, changePassword, exportBackup, generateApiPassword, removePassword, type BackupInfo } from "@/api/admin";
+import { applyRetention, changePassword, exportBackup, fetchMe, generateApiPassword, removePassword, type BackupInfo } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { keys } from "@/api/queryKeys";
 import { bytesLabel, fullDate } from "@/lib/format";
@@ -12,14 +12,19 @@ import { Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 
+/** The live account query (GET /api/auth/me) behind the password and Access controls. */
+const ME_KEY = ["auth-me"] as const;
+
 /** Message for a failed account or backup call. */
 export function accountError(e: unknown): string {
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.code === "bad_password") return "The current password isn't right.";
     if (e.code === "access_required") return "This needs your Cloudflare Access sign-in. Open Kipple through its Access address and try again.";
+    if (e.code === "access_unavailable") return "Kipple can't check your Cloudflare Access sign-in right now. Try again in a moment.";
     if (e.code === "access_not_configured")
-      return "Cloudflare Access validation isn't set up on the server, so it can't stand in for a password. Set a password from the host with `kipple password`.";
+      // The server words it for the case: removing a password, or an account without one.
+      return msg ? `${msg.charAt(0).toUpperCase()}${msg.slice(1)}.` : "Cloudflare Access validation isn't set up on the server.";
     if (e.code === "bad_new_password") return msg || "The new password must be 5 to 256 characters.";
     if (e.status === 429) return "Too many attempts. Try again in a few minutes.";
     if (e.status === 409 && e.code === "busy") {
@@ -249,10 +254,16 @@ export function AccountActions() {
   const qc = useQueryClient();
   const [dialog, setDialog] = useState<"password" | "remove" | "api" | null>(null);
   const user = boot.data?.user;
-  // An older server does not send password_set: treat the password as set.
-  const hasPassword = user?.password_set !== false;
-  const accessEmail = user?.access_email ?? null;
-  const refreshUser = () => void qc.invalidateQueries({ queryKey: keys.bootstrap });
+  // Live account state (never the offline copy): the password and Access controls follow it. Until it answers, and
+  // when it fails (offline), the bootstrap's password_set stands in and no Access sign-in is assumed. An older server
+  // does not send password_set: treat the password as set.
+  const me = useQuery({ queryKey: ME_KEY, queryFn: fetchMe, staleTime: 0, retry: false });
+  const hasPassword = (me.data?.password_set ?? user?.password_set) !== false;
+  const accessEmail = me.data?.access_email ?? null;
+  const refreshUser = () => {
+    void qc.invalidateQueries({ queryKey: ME_KEY });
+    void qc.invalidateQueries({ queryKey: keys.bootstrap });
+  };
   const [backup, setBackup] = useState<BackupInfo | null>(null);
   const [busy, setBusy] = useState<"backup" | "retention" | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);

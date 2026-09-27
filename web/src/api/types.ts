@@ -122,6 +122,16 @@ export interface Highlight {
   fold_diacritics: boolean;
 }
 
+/** GET /api/auth/me: the account, live (never from the offline cache), with the Access sign-in of this request. */
+export interface Me {
+  username: string;
+  api_enabled: boolean;
+  password_set: boolean;
+  access_enabled: boolean;
+  /** The email of this request's verified Cloudflare Access token, or null. */
+  access_email: string | null;
+}
+
 export interface Bootstrap {
   user: {
     username: string;
@@ -130,8 +140,6 @@ export interface Bootstrap {
     password_set?: boolean;
     /** Cloudflare Access token validation is configured on the server. */
     access_enabled?: boolean;
-    /** The email of this request's verified Cloudflare Access token, or null. */
-    access_email?: string | null;
   };
   settings: Record<string, unknown>;
   /** Absent only from a server older than device profiles: the per-device settings then stay local. */

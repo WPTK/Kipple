@@ -93,8 +93,8 @@ type Verifier struct {
 	now                   func() time.Time
 	log                   *slog.Logger
 
-	fetchMu sync.Mutex     // one key-set fetch at a time
-	bg      sync.WaitGroup // background refreshes (tests wait on it)
+	fetchSem chan struct{}  // one key-set fetch at a time (a slot waiters can give up on)
+	bg       sync.WaitGroup // background refreshes (tests wait on it)
 
 	warnMu   sync.Mutex
 	lastWarn time.Time // last "token refused" warning
@@ -159,7 +159,7 @@ func New(teamDomain, aud string, opt Options) (*Verifier, error) {
 	v := &Verifier{
 		issuer: "https://" + host, aud: aud, certsURL: "https://" + host + "/cdn-cgi/access/certs",
 		client: opt.Client, refresh: opt.Refresh, minRefetch: opt.MinRefetch, maxStale: opt.MaxStale,
-		leeway: opt.Leeway, now: opt.Now, log: opt.Logger,
+		leeway: opt.Leeway, now: opt.Now, log: opt.Logger, fetchSem: make(chan struct{}, 1),
 	}
 	if opt.CertsURL != "" {
 		v.certsURL = opt.CertsURL
@@ -236,19 +236,21 @@ func (v *Verifier) verifyRequest(r *http.Request, wait bool) (Identity, error) {
 	}
 	id, err := v.verify(r.Context(), tok, wait)
 	if err != nil {
-		v.noteRefused(err, r.RemoteAddr)
+		v.noteRefused(err, r.RemoteAddr, wait)
 	}
 	return id, err
 }
 
 // noteRefused logs a refused token. The header is just text, so a refusal may
 // be someone trying one on (debug level) or a wrong team domain or AUD, which
-// shows up as a wrong issuer or audience, a key id the configured team does
-// not have, or no keys at all: those warn, at most once an hour, so the
+// shows up as a wrong issuer or audience, or as a key id the configured team
+// does not have even after a fetch: those warn, at most once an hour, so the
 // misconfiguration is visible at the default log level without letting a
-// stream of bad tokens flood the log.
-func (v *Verifier) noteRefused(err error, peer string) {
-	config := errors.Is(err, ErrIssuer) || errors.Is(err, ErrAudience) || errors.Is(err, ErrUnknownKey) || errors.Is(err, ErrNoKeys)
+// stream of bad tokens flood the log. A missing key on the no-wait path is
+// only a cache not filled yet (startup, a key rotation), never a warning; a
+// key set that cannot be fetched is warned about by the fetch itself.
+func (v *Verifier) noteRefused(err error, peer string, waited bool) {
+	config := errors.Is(err, ErrIssuer) || errors.Is(err, ErrAudience) || (waited && errors.Is(err, ErrUnknownKey))
 	warn := false
 	if config {
 		v.warnMu.Lock()
@@ -453,35 +455,50 @@ func (v *Verifier) Prefetch(ctx context.Context) error {
 	return v.fetch(ctx)
 }
 
-// refreshAsync starts a background fetch unless one is already running.
+// recentAttempt reports whether a fetch was attempted within MinRefetch.
+func (v *Verifier) recentAttempt() bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return !v.attemptedAt.IsZero() && v.now().Sub(v.attemptedAt) < v.minRefetch
+}
+
+// refreshAsync starts a background fetch unless one is already running or one
+// was attempted within MinRefetch (then there is nothing to start).
 func (v *Verifier) refreshAsync(ctx context.Context) {
-	if !v.fetchMu.TryLock() {
+	if v.recentAttempt() {
+		return
+	}
+	select {
+	case v.fetchSem <- struct{}{}:
+	default:
 		return // a fetch is in flight; it refreshes the set for everyone
 	}
 	v.bg.Add(1)
 	go func() {
 		defer v.bg.Done()
-		defer v.fetchMu.Unlock()
+		defer func() { <-v.fetchSem }()
 		_ = v.fetchLocked(ctx)
 	}()
 }
 
 // fetch refreshes the key set unless another caller did (or tried) within
-// MinRefetch, waiting for a fetch already in flight.
+// MinRefetch, waiting for a fetch already in flight. A caller whose context
+// ends while it waits gives up (ctx.Err()); the fetch in flight goes on.
 func (v *Verifier) fetch(ctx context.Context) error {
-	v.fetchMu.Lock()
-	defer v.fetchMu.Unlock()
+	select {
+	case v.fetchSem <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-v.fetchSem }()
 	return v.fetchLocked(ctx)
 }
 
-// fetchLocked is fetch with fetchMu held. The fetch runs under its own
+// fetchLocked is fetch with the fetch slot held. The fetch runs under its own
 // timeout, detached from the request that triggered it, so one cancelled
 // request cannot fail it for everyone waiting.
 func (v *Verifier) fetchLocked(ctx context.Context) error {
-	v.mu.Lock()
-	recent := !v.attemptedAt.IsZero() && v.now().Sub(v.attemptedAt) < v.minRefetch
-	v.mu.Unlock()
-	if recent {
+	if v.recentAttempt() {
 		return nil
 	}
 	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultTimeout)

@@ -402,3 +402,29 @@ func TestRefusedTokenWarnsHourly(t *testing.T) {
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+// A caller waiting for a fetch in flight gives up when its request ends.
+func TestFetchWaitEndsWithTheRequest(t *testing.T) {
+	a, _, _ := testKeys(t)
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{jwk("a", &a.PublicKey)}})
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+	clk := &clock{t: time.Unix(1_800_000_000, 0)}
+	v, err := New("myteam.cloudflareaccess.com", testAUD, Options{CertsURL: srv.URL, Client: srv.Client(), Now: clk.now})
+	require.NoError(t, err)
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set(Header, sign(t, a, rs("a"), claimsAt(clk.now())))
+	_, err = v.VerifyRequestCached(r) // starts the (hanging) background fetch
+	require.ErrorIs(t, err, ErrNoKeys)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err = v.VerifyRequest(r.WithContext(ctx))
+	require.ErrorIs(t, err, ErrNoKeys)
+	require.Less(t, time.Since(start), 3*time.Second)
+}

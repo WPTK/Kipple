@@ -171,15 +171,16 @@ func TestAccessMeReportsVerifiedEmail(t *testing.T) {
 	// A token alone is never a session: /me still needs the cookie.
 	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/auth/me", "", withJWT(h.jwt(k, nil))).Code)
 
-	// The bootstrap user object carries the same fields.
+	// The bootstrap user object carries the same fields but the email.
 	rec := h.do("GET", "/api/bootstrap", "", withCookie(c), withJWT(h.jwt(k, nil)))
 	require.Equal(t, http.StatusOK, rec.Code)
 	var boot struct {
 		User map[string]any `json:"user"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &boot))
-	require.Equal(t, "owner@example.com", boot.User["access_email"])
+	require.NotContains(t, boot.User, "access_email", "the sign-in identity stays out of the offline-cached bootstrap")
 	require.Equal(t, true, boot.User["password_set"])
+	require.Equal(t, true, boot.User["access_enabled"])
 }
 
 func TestAccessTokenNeverReplacesASetPassword(t *testing.T) {
@@ -347,4 +348,73 @@ func TestPasswordlessWithAccessOffPointsToTheCLI(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		require.Equal(t, http.StatusForbidden, h.do("POST", "/api/account/password", `{"current":"","new":"a new pass"}`, withCookie(c)).Code)
 	}
+}
+
+func TestPasswordlessPasswordGuessLooksLikeAWrongPassword(t *testing.T) {
+	h := newHarness(t, withAccess(t))
+	h.dropPassword()
+	k, _ := accessKeys(t)
+	// A password sent to an account without one, with no token: checked
+	// against the decoy hash and counted, exactly like a wrong password.
+	for i := 0; i < 10; i++ {
+		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
+	}
+	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil))).Code)
+}
+
+func TestRemoveCountsRefusedTokensAfterReserving(t *testing.T) {
+	h := newHarness(t, withAccess(t))
+	k, other := accessKeys(t)
+	c := h.login()
+	remove := `{"current":"` + testPass + `","remove":true}`
+	// A token naming an unknown key id is not counted (it cannot succeed).
+	unknown := h.jwt(k, nil)
+	for i := 0; i < 12; i++ {
+		rec := h.do("POST", "/api/account/password", remove, withCookie(c), withJWT(tamperKid(t, unknown, "nope")))
+		require.Equal(t, http.StatusForbidden, rec.Code)
+	}
+	// A forged token is, and the lockout then answers first.
+	for i := 0; i < 10; i++ {
+		rec := h.do("POST", "/api/account/password", remove, withCookie(c), withJWT(h.jwt(other, nil)))
+		require.Equal(t, http.StatusForbidden, rec.Code)
+		require.Contains(t, rec.Body.String(), "access_required")
+	}
+	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/account/password", remove, withCookie(c), withJWT(h.jwt(k, nil))).Code)
+}
+
+// tamperKid re-signs nothing: it swaps the header's kid, which is enough for
+// a lookup miss (the signature is never reached).
+func tamperKid(t *testing.T, tok, kid string) string {
+	t.Helper()
+	b64 := base64.RawURLEncoding.EncodeToString
+	hb, _ := json.Marshal(map[string]string{"alg": "RS256", "kid": kid})
+	i := 0
+	for i < len(tok) && tok[i] != '.' {
+		i++
+	}
+	return b64(hb) + tok[i:]
+}
+
+func TestAccessKeysUnavailableIsNotAFailure(t *testing.T) {
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(down.Close)
+	h := newHarness(t, func(o *Options) {
+		v, err := access.New(accTeam, accAUD, access.Options{CertsURL: down.URL, Client: down.Client(), Now: o.Now})
+		require.NoError(t, err)
+		o.Access = v
+	})
+	h.dropPassword()
+	k, _ := accessKeys(t)
+	for i := 0; i < 12; i++ {
+		rec := h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil)))
+		require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		require.Contains(t, rec.Body.String(), "access_unavailable")
+		require.Equal(t, "5", rec.Header().Get("Retry-After"))
+	}
+	// Nothing was counted, and with no keys even a forged token is not judged.
+	_, other := accessKeys(t)
+	require.Equal(t, http.StatusServiceUnavailable, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(other, nil))).Code,
+		"with no keys nothing can be checked, forged or not")
 }

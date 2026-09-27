@@ -1021,7 +1021,7 @@ func TestBootstrap(t *testing.T) {
 
 	code, body, _ := h.api(c, "GET", "/api/bootstrap", "")
 	require.Equal(t, 200, code)
-	require.Equal(t, map[string]any{"username": testUser, "api_enabled": false, "password_set": true, "access_enabled": false, "access_email": nil}, body["user"])
+	require.Equal(t, map[string]any{"username": testUser, "api_enabled": false, "password_set": true, "access_enabled": false}, body["user"])
 	require.EqualValues(t, h.clk.Now().Unix(), body["server_time"])
 	require.Equal(t, "", body["version"])
 	require.Equal(t, map[string]any{"unread": float64(3), "starred": float64(1), "muted": float64(0)}, body["counts"])
