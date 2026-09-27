@@ -4,10 +4,19 @@ A self-hosted RSS reader for one person. It fetches feeds, keeps them in a small
 a web app plus a Google Reader-compatible sync API, so apps like Reeder Classic and NetNewsWire can sync
 with it. It builds to one container with one port.
 
-**Status:** work in progress, developed in phases. The fetch and sync core (phase 1), the reading UI (phase 2) and
-the installable app with offline reading (phase 3, shipped in `v0.3.0-alpha.2`) are done and run in daily use;
-reading statistics (phase 4) are next. See [CHANGELOG.md](CHANGELOG.md). Design notes may link to planning and research documents that
-are not part of this repository.
+**Status:** prerelease (alpha), developed in phases. The fetch and sync core (phase 1), the reading UI (phase 2),
+the installable app with offline reading (phase 3, `v0.3.0-alpha.2`) and reading statistics with the yearly Wrapped
+summary (phase 4, `v0.3.0-alpha.7`) are done and run in daily use. Phase 5, release readiness, is under way: a full
+code audit, optional Cloudflare Access sign-in (the web password can then be removed) and a scheduled day/night
+theme are merged for the next release, and a beta follows once testing is done (see
+[docs/RELEASING.md](docs/RELEASING.md)). See [CHANGELOG.md](CHANGELOG.md). Design notes may link to planning and
+research documents that are not part of this repository.
+
+## Configuration
+
+Kipple is configured with environment variables; [.env.example](.env.example) documents every one, and
+[docker-compose.example.yml](docker-compose.example.yml) shows a hardened container setup. Everything else is set in
+the app's Settings screen.
 
 ## Where things are
 

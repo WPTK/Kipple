@@ -1,4 +1,4 @@
-# Kipple: backups, recovery and phase 2 deploy
+# Kipple: deploy, backups and recovery
 
 Naming in these docs: **Host-A** is the machine that runs Kipple (the app host) and **Host-B** is the machine you run
 admin commands and backups from. Hostnames, addresses and paths are placeholders; substitute your own.
@@ -42,7 +42,7 @@ To look inside the volume (there is no shell in the Kipple image):
 
 ## Export a backup (the button)
 
-Settings, Export backup. The app calls `POST /api/backup`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
+Settings > Account > Export backup. The app calls `POST /api/backup`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
 then starts the download of `GET /api/backup/<token>`, which saves as
 `kipple-backup-YYYYMMDD-HHMMSS.zip`. Save it off Host-A, for example on Host-B in
 `<backup-dir>\kipple\`.
@@ -111,9 +111,10 @@ it). Use it for `docker ps`, monitoring and `depends_on: condition: service_heal
 If you run the image with plain `docker run`, the same flags are `--read-only --tmpfs /tmp --cap-drop ALL
 --security-opt no-new-privileges:true --pids-limit 200`.
 
-### Host-A compose diff to apply at the next deploy
+### Host-A compose options (applied)
 
-Nothing on Host-A has been changed yet. In the `kipple` service of `/home/user/stack/docker-compose.yml`:
+Host-A's `kipple` service has carried these since the 0.3.0-alpha.2 deploy. For a compose file from before
+0.3.0-alpha.1, the change to the `kipple` service of `/home/user/stack/docker-compose.yml` is:
 
     -    restart: always
     +    restart: unless-stopped
@@ -138,7 +139,7 @@ them the binary reports version `dev`, because `.git` is not in the build contex
     +        VERSION: ${KIPPLE_VERSION:-dev}
     +        VCS_REF: ${KIPPLE_VCS_REF:-unknown}
 
-No healthcheck line is needed: it comes from the image, so the rebuild picks it up. Before the deploy,
+No healthcheck line is needed: it comes from the image, so the rebuild picks it up. Before applying such a change,
 `docker compose ... config` shows the merged result; afterwards check `docker ps` reaches `(healthy)`
 within about a minute. To back out, remove the hardening lines and `up -d kipple` again.
 
@@ -170,6 +171,33 @@ memory: it clears when its 15-minute window ends or on a restart. If `KIPPLE_PAS
 `/home/user/stack/.env`, remove it: it is read only when the account is first created.
 
 When you can still sign in, change either password in Settings > Account instead; the CLI is the recovery path.
+It is also how to give the account a password again after it was removed through Cloudflare Access and Access
+validation was then turned off (see "Cloudflare Access (optional)" below).
+
+## Cloudflare Access (optional)
+
+If Cloudflare Access sits in front of Kipple, Kipple can verify the `Cf-Access-Jwt-Assertion` header Access adds
+to every request it lets through (design §7.0). In `/home/user/stack/.env` set both (or neither; one without the
+other stops startup):
+
+    KIPPLE_ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com   # Zero Trust > Settings > Custom Pages; https:// optional, no path
+    KIPPLE_ACCESS_AUD=<Application Audience (AUD) tag>          # Zero Trust > Access > Applications > your Kipple app > Overview
+
+then `ssh host-a 'cd /home/user/stack && docker compose up -d kipple'`. The startup log says
+`Cloudflare Access token validation on` with the issuer, and Settings > Account shows the Access email you are
+signed in with. Kipple checks the RS256 signature against `https://<team domain>/cdn-cgi/access/certs` (cached for
+an hour and refreshed in the background), the issuer, the audience and the expiry; a verified token never replaces
+the session cookie. The Reader API keeps its own API password either way, and its path (`/api/greader.php`) is
+normally left outside Access (a bypass), since sync apps cannot sign in to Access.
+
+With validation on, the web password becomes optional: Settings > Account > Remove web password (offered only when
+you are signed in through a verified Access token, and it asks for the current password). An account without a
+password signs in only on requests that carry a verified token, so the LAN or a published port cannot sign in.
+Anyone your Access policy admits can, so keep the policy to your own email.
+
+**Before you unset the two variables, set a password again**: Settings > Account > Set web password, or
+afterwards `kipple password` (see "Reset the web password" above). With Access off and no password, web sign-in
+is impossible and the startup log warns about it.
 
 ## Restore a backup
 
@@ -233,7 +261,10 @@ that were current when the backup was taken. `KIPPLE_USERNAME`, `KIPPLE_PASSWORD
 `KIPPLE_API_PASSWORD` in `.env` are ignored because the account already exists. The restore prints
 "There was no previous database to keep." on an empty volume. The Reader API answered ClientLogin
 and `unread-count` with the backup's password on the rehearsal; if Reeder or NetNewsWire reports an
-authentication error, sign in again in the app with that password.
+authentication error, sign in again in the app with that password. If the backed-up account had no web
+password (removed through Cloudflare Access), sign in through Access with the same `KIPPLE_ACCESS_*` values, or set
+one first with `kipple password` (it works on the stopped service:
+`docker compose run --rm -T --no-deps kipple password --stdin`).
 
 Do not start the server on the empty volume first: it would create a new, empty account, and the
 restore then replaces that database anyway (it is kept under `pre-restore-*`), so it only adds a
@@ -247,7 +278,7 @@ Anything read, starred or fetched since the upgrade is lost.
 
 If the old image is started on the migrated database without these steps, it does not start:
 `docker logs kipple` shows `kipple: store: store: database schema version 5 is newer than this
-binary (3); refusing to start` and the container exits with status 1 (with `restart: always`
+binary (3); refusing to start` and the container exits with status 1 (with `restart: unless-stopped`
 it keeps restarting). Nothing is changed on the volume. Stop it, then:
 
     # 1. Stop the service and find the newest pre-migration snapshot.

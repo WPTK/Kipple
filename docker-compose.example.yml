@@ -55,6 +55,10 @@ services:
       # see .env.example). Kipple logs a WARN if proxy headers arrive from any
       # other peer.
       # - KIPPLE_TRUSTED_PROXY_IPS=192.0.2.10
+      # Optional Cloudflare Access token validation (set both or neither; see
+      # .env.example and docs/deploy.md "Cloudflare Access (optional)"):
+      # - KIPPLE_ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
+      # - KIPPLE_ACCESS_AUD=<application AUD tag>
     logging:
       driver: json-file
       options:

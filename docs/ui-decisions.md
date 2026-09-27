@@ -76,7 +76,8 @@ were resolved in round 2 and what shipped; each is annotated below.
 ## Parking lot additions
 
 Design system / static demo site / pull-and-run image; Cloudflare Access JWT; passwordless login; scheduled
-auto-night. See memory `parking-lot`.
+auto-night. The parking lot itself is kept outside this repository. (Cloudflare Access JWT and passwordless login
+shipped in phase 5 as #40, the scheduled auto-night theme as #41; see "Phase 5 planning meeting" below.)
 
 ## Next chunks
 
@@ -163,7 +164,7 @@ Decisions are recorded in full in the private history repository. Summary of wha
 ## Phase 5 planning meeting (2026-09-27)
 
 Not a UI meeting — recorded here per the owner's instruction that all planning decisions land in this file plus
-`kipple-history`. Phases 1-4 are complete (v0.3.0-alpha.7 deployed, kipple.cc public). Six topics, one at a time
+`kipple-history`. Phases 1-4 are complete (v0.3.0-alpha.7 deployed, the repository public). Six topics, one at a time
 with a recommendation each, same format as the phase 4 pre-meeting.
 
 1. **What phase 5 is.** Not release-steps-only, not parking-lot-only: the owner chose to **interleave** release
@@ -173,11 +174,11 @@ with a recommendation each, same format as the phase 4 pre-meeting.
    JWT/passwordless work happen on separate branches at the same time, accepting the risk that the audit could
    flag something in the auth path and cause rework, rather than sequencing them.
 3. **Stale owner checklist (from the phase 3 handoff).** GitHub private vulnerability reporting toggle, approving
-   `audits/claude-md-proposed-edits.md`, and turning off Ceres debug logging (`KIPPLE_LOG_LEVEL`,
-   `KIPPLE_LOG_GREADER_FORMS`) were never marked closed. The owner will flip debug logging off himself (ssh to
-   Ceres, edit `.env`, restart `kipple`). The Ceres-side Proton Drive backup job for Kipple's own data (separate
-   from Gilead's `GileadProtonBackup`) is **not** being built in phase 5 — local `docker cp` snapshots stay the
-   only backup path for now.
+   a proposed CLAUDE.md edit list (kept in the private history repository), and turning off Host-A debug logging
+   (`KIPPLE_LOG_LEVEL`, `KIPPLE_LOG_GREADER_FORMS`) were never marked closed. The owner will flip debug logging
+   off himself (ssh to Host-A, edit `.env`, restart `kipple`). A Host-A-side off-site backup job for Kipple's own
+   data (separate from Host-B's own off-site backup job) is **not** being built in phase 5 — local `docker cp`
+   snapshots stay the only backup path for now. (Private vulnerability reporting has since been turned on.)
 4. **Parking-lot scope boundary.** The owner's rule for phase 5: **only work directly related to Kipple and its
    Docker image.** In: auto-night theme (small, self-contained, ships in phase 5). Out: the 1.5.0/2.0.0
    setup-app/single-image roadmap, a design system, a static demo site, and user-chosen Google Fonts (all stay
@@ -210,13 +211,13 @@ UAT plan, and to add these release-process gaps as phase 5 line items:
   test suites, defect severity scale, sign-off feeding the go/no-go meeting).
 - Reader API regression replay (Reeder Classic / NetNewsWire recorded sequences) against the actual deployed
   build, not just CI's unit-level contract tests.
-- Migration rehearsal against a copy of the live Ceres DB, made a standing checklist item rather than ad hoc.
+- Migration rehearsal against a copy of the live Host-A DB, made a standing checklist item rather than ad hoc.
 - An actual end-to-end `kipple restore` drill (not just documentation) — first real run this cycle.
 - The first-time Docker setup walkthrough treated as literal UAT (follow it verbatim on a clean machine, log
   every stuck point) rather than a documentation paraphrase exercise.
 
 **Phase 5 outline, updated:** (A) code audit + changelog review — DONE, PR #26; (B) Cloudflare Access JWT +
-passwordless, in parallel with A — in progress; (C) auto-night theme; (D) documentation run + Docker walkthrough
-(now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
+passwordless, in parallel with A — DONE, PR #40; (C) auto-night theme — DONE, PR #41; (D) documentation run
+(in progress) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
 Suites 1-4, migration rehearsal, restore drill, Reader API regression replay); (E) final go/no-go meeting, fed by
 D and F's sign-off.

@@ -10,17 +10,18 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
 
 ### Alpha → beta → rc → 1.0.0 (decided 2026-09-27)
 
-- **Alpha → beta.1:** only once phase 5 is fully closed — code audit fixes merged, Cloudflare Access JWT +
-  passwordless shipped, auto-night theme shipped, the documentation run done, and `docs/uat-plan.md` Suites
-  1-4 executed clean of open P0/P1 defects. Feature-complete means verified, not declared: no more planned
+- **Alpha → beta.1:** only once phase 5 is fully closed — code audit fixes merged (#26), Cloudflare Access JWT +
+  passwordless shipped (#40), auto-night theme shipped (#41), the documentation run done, and `docs/uat-plan.md`
+  Suites 1-4 executed clean of open P0/P1 defects. Feature-complete means verified, not declared: no more planned
   phases remain once beta cuts, and beta itself adds no new features, only fixes.
 - **Beta → rc.1:** every UAT suite has run at least once, including the owner-only device checks (Suite 3),
   with sign-off — plus a **1-week soak period** of the owner's real daily use on the beta build producing zero
   new P0/P1 defects. RC then means "only fixing what the soak period or UAT found," not starting a fresh test
   cycle.
 - **RC → 1.0.0:** a second, shorter soak (a few days) on the final rc build with zero regressions, GitHub
-  private vulnerability reporting turned on, the documentation run and the first-time Docker setup walkthrough
-  proven end-to-end, then the final go/no-go meeting (`docs/plan.md`) — its approval is what cuts 1.0.0.
+  private vulnerability reporting still turned on (it is on as of 2026-09-27; `SECURITY.md` depends on it), the
+  documentation run and the first-time Docker setup walkthrough proven end-to-end, then the final go/no-go
+  meeting — its approval is what cuts 1.0.0.
 - A regression found during a soak period resets that soak's clock (a new rc.N or a return to beta.N+1,
   whichever the defect's severity warrants) rather than being patched in place while the clock keeps running.
 
@@ -32,7 +33,7 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
 3. **`/code-review high`** on the diff since the last deployed tag. Fix every finding.
 4. **CHANGELOG.md:** move `[Unreleased]` under `## [X.Y.Z] - date`, add a fresh empty `[Unreleased]`, update the
    compare links.
-5. **THIRD_PARTY_NOTICES.md:** regenerate with `scripts/gen-notices.mjs` when present (after any dependency change at least).
+5. **THIRD_PARTY_NOTICES.md:** regenerate with `node scripts/gen-notices.mjs` (after `cd web && npm ci`; after any dependency change at least).
    Any dependency change also needs a govulncheck run.
 6. Commit `chore(release): X.Y.Z`, push, wait for CI on that commit.
 
@@ -55,7 +56,7 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
 10. **Verify:** `ssh host-a 'docker exec kipple /kipple version'` prints `vX.Y.Z`; container healthy; `docker logs kipple` shows the migrations that were expected and no errors;
     `/api/greader.php` answers with Reeder; a refresh completes; memory stays flat after a few minutes (`docker stats`).
 11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`-alpha/-beta/-rc` marked pre-release).
-    No Releases exist yet; they are required once the repo is public.
+    Every pushed tag has one; keep it that way.
 
 ## Rollback
 

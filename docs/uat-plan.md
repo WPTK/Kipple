@@ -4,7 +4,7 @@ Adapted from standard UAT methodology (entry/exit criteria, traceable test cases
 formal sign-off) to a single-owner, single-user project with no separate QA team. Functional testing (`go test`,
 Vitest, `/code-review`) already answers "does it work?" This plan answers "does it work for the owner, on his
 actual devices, doing his actual reading?" It is a phase 5 release-readiness step, feeding the final go/no-go
-meeting in `docs/plan.md`.
+meeting (`docs/RELEASING.md`, promotion criteria). Status: planned, not yet executed.
 
 ## Roles (mapped from the standard 5-role model)
 
@@ -22,10 +22,10 @@ triage scheme since it's a reasonable, well-known scale), each with steps to rep
 
 ## Entry criteria
 
-- Phase 5 code audit PR (#26) and the Access JWT/passwordless PR merged, or explicitly excluded from this UAT
-  pass with the owner's sign-off on what's deferred.
+- Phase 5 code audit (#26), Access JWT/passwordless (#40) and the scheduled auto-night theme (#41) merged (all
+  three are, as of 2026-09-27), and deployed to the test environment below.
 - CI green on the commit under test; `CHANGELOG.md` `[Unreleased]` reflects everything in scope.
-- A representative test environment: either the Ceres deployment on a pre-release build, or the local dev stack
+- A representative test environment: either the Host-A deployment on a pre-release build, or the local dev stack
   (`npm run seed` / `KIPPLE_ADDR`+`KIPPLE_DATA` per CLAUDE.md) seeded with a realistic OPML set (the existing
   138-feed NewsBlur export works, or a smaller fixture for faster runs).
 - Reeder Classic and NetNewsWire available on the owner's devices, already configured against the test instance.
@@ -55,7 +55,7 @@ involvement" decision):
 
 ## Suite 1 — Scripted (Playwright + axe-core)
 
-New script, `web/uat/run.mjs` (or similar; not the third-party `webapp-uat` npm skill — built in-repo, MIT-licensed
+Not built yet. A new script, `web/uat/run.mjs` (or similar; not the third-party `webapp-uat` npm skill — built in-repo, MIT-licensed
 dependencies only, so it's auditable and has no i18n/placeholder checks Kipple doesn't need). Navigates every
 screen (feed list in each of the 5 layouts, article view, search, settings, stats, Wrapped) and asserts:
 
@@ -68,7 +68,8 @@ screen (feed list in each of the 5 layouts, article view, search, settings, stat
 | S5 | Data integrity | No literal `undefined`, `NaN`, or `[object Object]` rendered anywhere |
 | S6 | Theme contrast | Reuses the existing CI contrast check across all 20 schemes, not just the 2 spot-checked above |
 
-Runs as part of `scripts/ci-local.ps1 -UAT` (new optional flag) and before every deploy per `docs/RELEASING.md`.
+Once built, it runs as part of `scripts/ci-local.ps1 -UAT` (a new optional flag; `ci-local.ps1` has no such flag
+yet) and before every deploy, added then as a step in `docs/RELEASING.md`.
 
 ## Suite 2 — Agent-driven scenario walkthroughs
 
@@ -86,14 +87,20 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
   real content, images load through the proxy.
 - TC-R2: Switch density (Dense/Snug/Standard/Relaxed/Airy) → list and reading text both change, live preview
   matches the applied result.
-- TC-R3: Every keyboard shortcut (j/k/s/o/r/m/c/z/Shift+A/`/`) does what `docs/ui-decisions.md` specifies,
+- TC-R3: Every keyboard shortcut (j/k/s/o/r/m/c/z/Shift+A/`/`, and the rest of the `?` overlay,
+  `web/src/lib/keys.ts`) does what the overlay and `docs/ui-decisions.md` specify,
   including the Unread-view dim-then-remove behavior and the 15s undo toast.
 - TC-R4: Theme picker — default short list plus "More themes"; each of the 20 schemes is legible (spot-check
   Signal's danger color and the Carbon/Fountain distinction called out in the UI decisions).
-- TC-R5: Follow-system switches at day/night boundary to the configured day and night picks.
+- TC-R5: Follow system switches to the configured day and night picks when the OS switches between light and
+  dark, live, without a reload.
 - TC-R6: Filters — mute, mark-read, auto-star, highlight, saved search, auto-read-after-N-days each behave as
   specified; a Muted view exists and is correct.
 - TC-R7: Mark-all-as-read only affects items present when the list loaded (Shift+A semantics).
+- TC-R8: On a schedule (Settings > Appearance, and the reading menu's theme select; shipped in #41) switches to
+  the night pick at "Night starts" (default 21:00) and back at "Day starts" (default 07:00) on the device's clock,
+  whatever the OS setting; a window across midnight works, equal times keep the day theme, the first paint is
+  already right, and picking a fixed theme ends the schedule. Per device: another browser keeps its own choice.
 
 **Search**
 - TC-S1: FTS search returns stemmed matches; a saved search re-runs identically later.
@@ -113,12 +120,16 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
   Reeder and confirm it appears in the web app within 60s, and vice versa.
 - TC-A2: NetNewsWire connects the same way; add a feed from NetNewsWire, confirm it appears after the next
   scheduler tick; `subscription/quickadd` re-list shows it immediately (ETag behavior).
-- TC-A3: `mark-all-as-read` from each client behaves correctly (the `ts` unit question flagged in `docs/plan.md`
+- TC-A3: `mark-all-as-read` from each client behaves correctly (the `ts` unit question; `docs/design.md` §3
   — confirm the digit-count parsing picks the right cut).
 
 **Settings and accounts**
-- TC-C1: Optional password login only succeeds passwordless when Access JWT validation is configured and a
-  valid JWT is present (from the parallel PR) — confirm the negative case (JWT unset) still requires a password.
+- TC-C1: Cloudflare Access sign-in (shipped in #40; design §7.0): with `KIPPLE_ACCESS_TEAM_DOMAIN` and
+  `KIPPLE_ACCESS_AUD` set, Settings shows the Access email and offers Remove web password (asking for the
+  current password); afterwards sign-in with an empty password succeeds only through Access with a verified
+  token, and a LAN request that bypasses Access is refused. Negative cases: with the variables unset a password is
+  always required, and an account that still has a password always needs it. Setting a password again (Settings,
+  or `kipple password`) restores normal sign-in.
 - TC-C2: API password generate-and-copy button works; the Reader API accepts the generated password.
 - TC-C3: Backup export → `kipple restore` on a copy of the volume restores identically (this is also Suite 4's
   backup/restore drill — one execution can satisfy both).
@@ -143,7 +154,7 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
 Standing checklist items (previously done ad hoc for past releases, now made explicit):
 
 - **Migration rehearsal:** before every deploy that changes the schema, run the migration against a *copy* of
-  the live Ceres database (not the live one) and confirm it applies cleanly, timed, with `PRAGMA integrity_check`
+  the live Host-A database (not the live one) and confirm it applies cleanly, timed, with `PRAGMA integrity_check`
   passing after.
 - **Restore drill:** actually execute `kipple restore` against a real snapshot at least once per release cycle
   (not just read the steps in `docs/deploy.md`) — this phase 5 cycle is when it gets its first real end-to-end
@@ -168,7 +179,7 @@ the same `uat-findings` doc, not a separate one.
 ## Reader API regression replay
 
 Separate from the client suites above, but part of the same release-readiness gap: replay the recorded Reeder
-Classic and NetNewsWire request sequences from `docs/plan.md`'s research findings (`stream/items/ids` paging,
-`edit-tag`, `subscription/quickadd`, `mark-all-as-read`) as a contract test against the build under test, not
-just the unit-level contract tests already in CI — this is the end-to-end version, run once per release against
-the actual deployed instance.
+Classic and NetNewsWire request sequences from the client research (kept outside this repository;
+`stream/items/ids` paging, `edit-tag`, `subscription/quickadd`, `mark-all-as-read`) as a contract test against
+the build under test, not just the unit-level contract tests already in CI (`internal/greader/contract_test.go`)
+— this is the end-to-end version, run once per release against the actual deployed instance.
