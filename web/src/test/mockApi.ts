@@ -37,7 +37,7 @@ export function detail(n: number, over: Partial<ItemDetail> = {}): ItemDetail {
 }
 
 export const bootstrap: Bootstrap = {
-  user: { username: "dev", api_enabled: false },
+  user: { username: "dev", api_enabled: false, password_set: true, access_enabled: false, access_email: null },
   settings: {},
   folders: [{ id: "1", name: "News", position: 0, is_default: true, unread: 3 }],
   feeds: [

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/WPTK/kipple/internal/access"
 )
 
 // Config holds every setting Kipple reads at startup. See .env.example for
@@ -31,6 +33,10 @@ type Config struct {
 	FetchPerHost    int           // KIPPLE_FETCH_PER_HOST, default 2
 	LogLevel        slog.Level    // KIPPLE_LOG_LEVEL, default info
 	LogGreaderForms bool          // KIPPLE_LOG_GREADER_FORMS, default false
+	// Cloudflare Access token validation (optional, both or neither): the team
+	// domain as a bare host (normalized) and the application AUD tag.
+	AccessTeamDomain string // KIPPLE_ACCESS_TEAM_DOMAIN
+	AccessAUD        string // KIPPLE_ACCESS_AUD
 }
 
 const (
@@ -91,7 +97,37 @@ func load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("KIPPLE_LOG_GREADER_FORMS: %w", err)
 	}
 
+	if cfg.AccessTeamDomain, cfg.AccessAUD, err = parseAccess(getenv("KIPPLE_ACCESS_TEAM_DOMAIN"), getenv("KIPPLE_ACCESS_AUD")); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
+}
+
+// AccessEnabled reports whether Cloudflare Access token validation is configured.
+func (c Config) AccessEnabled() bool { return c.AccessTeamDomain != "" && c.AccessAUD != "" }
+
+// parseAccess validates the Cloudflare Access pair: both unset (the feature is
+// off) or both set. One without the other stops startup, so a half-done setup
+// is never mistaken for a working one.
+func parseAccess(team, aud string) (string, string, error) {
+	team, aud = strings.TrimSpace(team), strings.TrimSpace(aud)
+	switch {
+	case team == "" && aud == "":
+		return "", "", nil
+	case team == "":
+		return "", "", fmt.Errorf("KIPPLE_ACCESS_TEAM_DOMAIN: required when KIPPLE_ACCESS_AUD is set (set both or neither)")
+	case aud == "":
+		return "", "", fmt.Errorf("KIPPLE_ACCESS_AUD: required when KIPPLE_ACCESS_TEAM_DOMAIN is set (set both or neither)")
+	}
+	host, err := access.NormalizeTeamDomain(team)
+	if err != nil {
+		return "", "", fmt.Errorf("KIPPLE_ACCESS_TEAM_DOMAIN: %w", err)
+	}
+	if strings.ContainsFunc(aud, func(r rune) bool { return r <= ' ' || r == 0x7f }) || len(aud) > 256 {
+		return "", "", fmt.Errorf("KIPPLE_ACCESS_AUD: must be the application's AUD tag (no spaces, at most 256 characters)")
+	}
+	return host, aud, nil
 }
 
 // checkPublicURL accepts an empty value or an absolute http(s) URL with a host

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, authStore, errorMessage } from "@/api/client";
-import { applyRetention, changePassword, exportBackup, generateApiPassword, type BackupInfo } from "@/api/admin";
+import { applyRetention, changePassword, exportBackup, generateApiPassword, removePassword, type BackupInfo } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
+import { keys } from "@/api/queryKeys";
 import { bytesLabel, fullDate } from "@/lib/format";
 import { wipeOfflineData } from "@/lib/offline";
 import { buttonVariants } from "@/ui/button";
@@ -16,6 +17,8 @@ export function accountError(e: unknown): string {
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.code === "bad_password") return "The current password isn't right.";
+    if (e.code === "access_required") return "This needs your Cloudflare Access sign-in. Open Kipple through its Access address and try again.";
+    if (e.code === "access_not_configured") return "Removing the password needs Cloudflare Access validation set up on the server.";
     if (e.code === "bad_new_password") return msg || "The new password must be 5 to 256 characters.";
     if (e.status === 429) return "Too many attempts. Try again in a few minutes.";
     if (e.status === 409 && e.code === "busy") {
@@ -30,7 +33,8 @@ export function accountError(e: unknown): string {
   return errorMessage(e);
 }
 
-function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+/** Change the web password, or set one when the account has none (the server then checks the Access sign-in instead). */
+function ChangePasswordDialog({ hasPassword, onDone, onClose }: { hasPassword: boolean; onDone: () => void; onClose: () => void }) {
   const [cur, setCur] = useState("");
   const [next, setNext] = useState("");
   const [again, setAgain] = useState("");
@@ -38,13 +42,14 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const tooShort = next.length > 0 && next.length < 5;
   const mismatch = again.length > 0 && again !== next;
-  const ok = cur && next.length >= 5 && next.length <= 256 && next === again;
+  const ok = (cur || !hasPassword) && next.length >= 5 && next.length <= 256 && next === again;
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
       await changePassword(cur, next);
-      toast("Password changed. Other devices are signed out.");
+      toast(hasPassword ? "Password changed. Other devices are signed out." : "Password set. Other devices are signed out.");
+      onDone();
       onClose();
     } catch (e) {
       setError(accountError(e));
@@ -56,19 +61,21 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
     <Modal
       open
       onOpenChange={(o) => !o && onClose()}
-      title="Change web password"
+      title={hasPassword ? "Change web password" : "Set web password"}
       description="This is the password you use to sign in to Kipple in a browser. Your sync apps use a separate API password."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="solid" disabled={!ok || busy} onClick={() => void submit()}>
-            Change password
+            {hasPassword ? "Change password" : "Set password"}
           </Button>
         </>
       }
     >
       {error ? <Notice tone="error">{error}</Notice> : null}
-      <Field label="Current password">{(a) => <input {...a} type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} className={inputCls} />}</Field>
+      {hasPassword ? (
+        <Field label="Current password">{(a) => <input {...a} type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} className={inputCls} />}</Field>
+      ) : null}
       <Field label="New password" help="5 to 256 characters." error={tooShort ? "Use at least 5 characters." : null}>
         {(a) => <input {...a} type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} className={inputCls} />}
       </Field>
@@ -79,7 +86,47 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ApiPasswordDialog({ username, onClose }: { username: string; onClose: () => void }) {
+/** Remove the web password: sign-in then works only through Cloudflare Access (the server insists on a verified Access sign-in). */
+function RemovePasswordDialog({ email, onDone, onClose }: { email: string; onDone: () => void; onClose: () => void }) {
+  const [cur, setCur] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await removePassword(cur);
+      toast("Password removed. Other devices are signed out.");
+      onDone();
+      onClose();
+    } catch (e) {
+      setError(accountError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Remove web password"
+      description={`You will sign in through Cloudflare Access (${email}) with no password. Signing in from an address that skips Access, such as your home network, won't work until you set a password again.`}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="solid" disabled={!cur || busy} onClick={() => void submit()}>
+            Remove password
+          </Button>
+        </>
+      }
+    >
+      {error ? <Notice tone="error">{error}</Notice> : null}
+      <Field label="Current password">{(a) => <input {...a} type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} className={inputCls} />}</Field>
+    </Modal>
+  );
+}
+
+function ApiPasswordDialog({ username, hasPassword, onClose }: { username: string; hasPassword: boolean; onClose: () => void }) {
   const [cur, setCur] = useState("");
   const [pw, setPw] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -120,7 +167,7 @@ function ApiPasswordDialog({ username, onClose }: { username: string; onClose: (
         ) : (
           <>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="solid" disabled={!cur || busy} onClick={() => void generate()}>
+            <Button variant="solid" disabled={(hasPassword && !cur) || busy} onClick={() => void generate()}>
               Generate
             </Button>
           </>
@@ -143,11 +190,11 @@ function ApiPasswordDialog({ username, onClose }: { username: string; onClose: (
             </p>
           </div>
         </>
-      ) : (
+      ) : hasPassword ? (
         <Field label="Your web password" help="Kipple asks for it before creating a new API password.">
           {(a) => <input {...a} type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} className={inputCls} />}
         </Field>
-      )}
+      ) : null}
     </Modal>
   );
 }
@@ -199,7 +246,12 @@ function BackupDialog({ info, onClose }: { info: BackupInfo; onClose: () => void
 export function AccountActions() {
   const boot = useBootstrap();
   const qc = useQueryClient();
-  const [dialog, setDialog] = useState<"password" | "api" | null>(null);
+  const [dialog, setDialog] = useState<"password" | "remove" | "api" | null>(null);
+  const user = boot.data?.user;
+  // An older server does not send password_set: treat the password as set.
+  const hasPassword = user?.password_set !== false;
+  const accessEmail = user?.access_email ?? null;
+  const refreshUser = () => void qc.invalidateQueries({ queryKey: keys.bootstrap });
   const [backup, setBackup] = useState<BackupInfo | null>(null);
   const [busy, setBusy] = useState<"backup" | "retention" | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
@@ -247,9 +299,12 @@ export function AccountActions() {
       <p className="text-sm text-fg2">
         {boot.data ? `Signed in as ${boot.data.user.username}.` : "Signed in."}
         {boot.data ? ` Kipple ${boot.data.version}.` : ""}
+        {accessEmail ? ` Cloudflare Access: ${accessEmail}.` : ""}
+        {hasPassword ? "" : " No web password: you sign in through Cloudflare Access."}
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => setDialog("password")}>Change web password</Button>
+        <Button onClick={() => setDialog("password")}>{hasPassword ? "Change web password" : "Set web password"}</Button>
+        {hasPassword && accessEmail ? <Button onClick={() => setDialog("remove")}>Remove web password</Button> : null}
         <Button onClick={() => setDialog("api")}>Generate API password</Button>
       </div>
       <div>
@@ -272,8 +327,9 @@ export function AccountActions() {
       <Button onClick={() => void signOut()} className="self-start">
         Sign out
       </Button>
-      {dialog === "password" ? <ChangePasswordDialog onClose={() => setDialog(null)} /> : null}
-      {dialog === "api" ? <ApiPasswordDialog username={boot.data?.user.username ?? ""} onClose={() => setDialog(null)} /> : null}
+      {dialog === "password" ? <ChangePasswordDialog hasPassword={hasPassword} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
+      {dialog === "remove" && accessEmail ? <RemovePasswordDialog email={accessEmail} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
+      {dialog === "api" ? <ApiPasswordDialog username={user?.username ?? ""} hasPassword={hasPassword} onClose={() => setDialog(null)} /> : null}
       {backup ? <BackupDialog info={backup} onClose={() => setBackup(null)} /> : null}
     </>
   );

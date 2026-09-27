@@ -20,7 +20,9 @@ const (
 // checkCurrent verifies the caller's current web password under the login
 // lockout: the attempt is reserved first, a failure stays counted, a success
 // clears the IP. It writes the error response itself. Both account endpoints
-// prove the web password (the API password may not exist yet).
+// prove the web password (the API password may not exist yet). An account
+// without a web password proves itself with a verified Cloudflare Access token
+// instead (design §7.0).
 func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current string) bool {
 	ip := s.clientIP(r)
 	if ok, left := s.lock.Reserve(ip); !ok {
@@ -36,6 +38,17 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 		}
 		s.serverError(w, "load account", err)
 		return false
+	}
+	if acct.PasswordHash == "" {
+		// No web password to prove (design §7.0): a verified Cloudflare Access
+		// token on this request stands in for it; nothing else does.
+		if _, ok := s.accessIdentity(r); !ok {
+			writeErrorMsg(w, http.StatusForbidden, "access_required",
+				"this account has no web password: open Kipple through Cloudflare Access to change it")
+			return false
+		}
+		s.lock.Clear(ip)
+		return true
 	}
 	s.verifier.SetSecret([]byte(acct.Secret))
 	pwOK, busy := s.verifier.VerifyBusy(r.Context(), "web", current, acct.PasswordHash)
@@ -73,20 +86,51 @@ func badLength(w http.ResponseWriter, pw string, min int) bool {
 	return false
 }
 
-// accountPassword is POST /api/account/password. Every other session is signed
-// out; the caller's stays.
+// accountPassword is POST /api/account/password: `{current, new}` sets the web
+// password, `{current, remove: true}` removes it (design §7.0). Every other
+// session is signed out; the caller's stays.
+//
+// Removing is allowed only while Cloudflare Access validation is configured
+// and this request carries a verified Access token: that proves passwordless
+// sign-in works for the caller right now, so it can neither lock the owner out
+// nor be done from a LAN address that bypasses Access.
 func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Current string `json:"current"`
 		New     string `json:"new"`
+		Remove  bool   `json:"remove"`
 	}
-	if !decodeBody(w, r, &body, false) || badNewPassword(w, body.New) || !s.checkCurrent(w, r, body.Current) {
+	if !decodeBody(w, r, &body, false) {
 		return
 	}
-	hash, err := auth.HashPassword(body.New)
-	if err != nil {
-		s.serverError(w, "hash password", err)
+	if body.Remove {
+		if body.New != "" {
+			writeErrorMsg(w, http.StatusBadRequest, "bad_request", `send "new" or "remove": true, not both`)
+			return
+		}
+		if s.opt.Access == nil {
+			writeErrorMsg(w, http.StatusBadRequest, "access_not_configured",
+				"a web password can only be removed when Cloudflare Access validation is configured (KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD)")
+			return
+		}
+		if _, ok := s.accessIdentity(r); !ok {
+			writeErrorMsg(w, http.StatusForbidden, "access_required",
+				"open Kipple through Cloudflare Access to remove the web password")
+			return
+		}
+	} else if badNewPassword(w, body.New) {
 		return
+	}
+	if !s.checkCurrent(w, r, body.Current) {
+		return
+	}
+	hash := "" // an empty hash is "no web password": the verifier never accepts it
+	if !body.Remove {
+		var err error
+		if hash, err = auth.HashPassword(body.New); err != nil {
+			s.serverError(w, "hash password", err)
+			return
+		}
 	}
 	keep := ""
 	if c, err := r.Cookie(cookieName); err == nil {

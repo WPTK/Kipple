@@ -260,6 +260,8 @@ export const useFeedLog = (id: string | null) =>
 
 export const changePassword = (current: string, next: string) =>
   api("/api/account/password", { method: "POST", body: { current, new: next } });
+/** Removes the web password; the server allows it only through a verified Cloudflare Access sign-in. */
+export const removePassword = (current: string) => api("/api/account/password", { method: "POST", body: { current, remove: true } });
 export const generateApiPassword = (current: string) =>
   api<{ api_password: string }>("/api/account/api-password", { method: "POST", body: { current, generate: true } });
 export const applyRetention = () => api<{ run_id: string; total: number }>("/api/retention/apply", { method: "POST" });

@@ -8,6 +8,15 @@ All notable changes to Kipple are documented here. The format follows
 
 Fixes from the phase 5 code audit. No schema migration.
 
+### Added
+
+- Optional Cloudflare Access token validation: with `KIPPLE_ACCESS_TEAM_DOMAIN` and `KIPPLE_ACCESS_AUD` both set, Kipple verifies the `Cf-Access-Jwt-Assertion` header (RS256 signature against the team's cached key set, issuer, audience, expiry and not-before). It is off when both are unset, and setting only one stops startup. A verified token never replaces the session cookie. `GET /api/auth/me` and the bootstrap `user` object gain `password_set`, `access_enabled` and `access_email` (the verified token's email, or null), and Settings shows the Access email.
+- Optional web password, only with Access validation on: Settings > Remove web password (offered only through a verified Access sign-in, and asking for the current password) leaves an account that signs in with an empty password, and only on requests that carry a verified Access token; a LAN request without one is refused, and failed attempts count toward the login lockout. First start may create the account without a password when `KIPPLE_PASSWORD` is empty and Access is configured. An account with a password always needs it. Set a password again from Settings (the Access sign-in stands in for the current one) or with `kipple password`. Startup warns when an account has no password while Access validation is off. The Reader API password is unchanged.
+
+### Changed
+
+- The sign-in form no longer requires the password field, so an account without a web password can sign in through Cloudflare Access; an empty password on an account that has one is refused as before.
+
 ### Security
 
 - Images: a feed's "allow insecure TLS" now applies, like "allow private network", only to images on the feed's own host (its subdomains and bare/www twin included); third-party images in that feed are fetched with TLS verified. The image proxy checks every redirect hop against the image's host, so a feed-host image that redirects to another private address or host is fetched through the guarded transport.

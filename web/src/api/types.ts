@@ -123,7 +123,16 @@ export interface Highlight {
 }
 
 export interface Bootstrap {
-  user: { username: string; api_enabled: boolean };
+  user: {
+    username: string;
+    api_enabled: boolean;
+    /** False when the account has no web password (sign-in only through Cloudflare Access). Absent from older servers. */
+    password_set?: boolean;
+    /** Cloudflare Access token validation is configured on the server. */
+    access_enabled?: boolean;
+    /** The email of this request's verified Cloudflare Access token, or null. */
+    access_email?: string | null;
+  };
   settings: Record<string, unknown>;
   /** Absent only from a server older than device profiles: the per-device settings then stay local. */
   device?: DeviceView;

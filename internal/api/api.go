@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/WPTK/kipple/internal/access"
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/backup"
 	"github.com/WPTK/kipple/internal/events"
@@ -75,6 +76,10 @@ type Options struct {
 	// OnAPIPasswordChange runs after the Reader API password changes (drops the
 	// Reader API cached token at once); optional.
 	OnAPIPasswordChange func()
+	// Access verifies Cloudflare Access tokens (design §7.0); nil when
+	// KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD are unset, and then no
+	// request ever counts as Access-verified.
+	Access *access.Verifier
 	// Backups builds and serves backup exports; nil builds one on DB (tests).
 	Backups *backup.Manager
 	// Stats records open and star events; nil builds the SQL recorder on Now.
