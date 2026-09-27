@@ -6,6 +6,10 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-alpha.6] - 2026-09-27
+
+Statistics export and data controls (phase 4, third step). No schema migration.
+
 ### Added
 
 - Stats screen: an Export button opens a dialog to choose the format (CSV, JSON, JSON Lines), the contents (raw events or a summary), the range, and whether article titles and links are included, with a link to the data dictionary. Settings > Statistics gets a "Your statistics data" section to export, delete a date range (with a count and a confirming click) and delete all statistics (typed confirmation). Both stay available when reading statistics are off.
@@ -567,7 +571,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.5...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.6...HEAD
+[0.3.0-alpha.6]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.5...v0.3.0-alpha.6
 [0.3.0-alpha.5]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.4...v0.3.0-alpha.5
 [0.3.0-alpha.4]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.3...v0.3.0-alpha.4
 [0.3.0-alpha.3]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.2...v0.3.0-alpha.3
