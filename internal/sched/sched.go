@@ -197,6 +197,7 @@ type Scheduler struct {
 	commitFetchFn func(ctx context.Context, res *fetch.Result, perChunk time.Duration) (store.CommitInfo, error) // test hook
 	fetchFn       func(ctx context.Context, snap fetch.Snapshot, now time.Time) *fetch.Result                    // test hook: replaces client.Fetch
 	trimFn        func(ctx context.Context, feedID int64, b store.TrimBudget) (int64, bool, error)               // test hook: replaces the trim job
+	afterCommit   func(feedID int64)                                                                             // test hook: runs once a fetch commit succeeded
 
 	fetchCtx    context.Context
 	cancelFetch context.CancelFunc
