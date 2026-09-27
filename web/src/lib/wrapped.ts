@@ -21,6 +21,14 @@ export function wrappedStateOf(qc: QueryClient | undefined): WrappedState {
 
 /** Whether Wrapped shows (statistics on and Wrapped on). Reads the cached bootstrap only; absent means hidden. */
 export function useWrappedEnabled(): boolean {
+  return useWrappedState() === "on";
+}
+
+/**
+ * The full tri-state, for callers that must tell "not known yet" apart from "off" (the Wrapped screen itself: an
+ * unknown bootstrap answer, such as a direct load of /stats/wrapped, is not the same as the setting being off).
+ */
+export function useWrappedState(): WrappedState {
   const qc = useQueryClient();
   const subscribe = useCallback(
     (notify: () => void) =>
@@ -29,7 +37,17 @@ export function useWrappedEnabled(): boolean {
       }),
     [qc],
   );
-  return useSyncExternalStore(subscribe, () => wrappedStateOf(qc) === "on");
+  return useSyncExternalStore(subscribe, () => wrappedStateOf(qc));
+}
+
+/**
+ * Whether a fetched summary actually belongs to the selected year. With `keepPreviousData`, the query can hand back
+ * the previous year's response while the new year's request is still in flight; a model must never be derived from
+ * that mismatched data (deriveWrapped(previousYearData, newYear) would silently mislabel it).
+ */
+export function summaryMatchesYear(data: StatsSummary | null | undefined, year: number): boolean {
+  const from = data?.range?.from;
+  return typeof from === "string" && from.startsWith(`${year}-`);
 }
 
 // ---- Years ------------------------------------------------------------------------------------------------------
@@ -63,7 +81,7 @@ export interface WrappedModel {
   /** 0 = January. */
   busiestMonth: number | null;
   avgReadSeconds: number | null;
-  topSources: { name: string; items: number }[];
+  topSources: { feedId: string; name: string; items: number }[];
   longestRead: { title: string; feed: string; seconds: number } | null;
   /** Days from the first recorded reading (or January 1) to the end of the span. */
   historyDays: number;
@@ -115,9 +133,12 @@ export function deriveWrapped(data: StatsSummary, year: number, today = todayStr
     for (const c of cells) t.set(key(c), (t.get(key(c)) ?? 0) + (useTime ? c.active_seconds : c.opens));
     return argMax(t);
   };
+  // The server already computes these correctly for the requested range (and is what the main Stats screen shows
+  // for the same range), so trust it over a client recompute — a tie can break differently between the two.
+  // Recompute from the heatmap only when there is no behavior block to ask at all.
   const b = data.behavior;
-  const weekday = cells.length ? by((c) => c.weekday) : (b?.busiest_weekday?.weekday ?? null);
-  const hour = cells.length ? by((c) => c.hour) : (b?.busiest_hour?.hour ?? null);
+  const weekday = b ? (b.busiest_weekday?.weekday ?? null) : cells.length ? by((c) => c.weekday) : null;
+  const hour = b ? (b.busiest_hour?.hour ?? null) : cells.length ? by((c) => c.hour) : null;
   const t = data.totals;
   const span = yearSpan(year, today);
   const start = data.first_event_date && data.first_event_date > span.from ? data.first_event_date : span.from;
@@ -125,7 +146,7 @@ export function deriveWrapped(data: StatsSummary, year: number, today = todayStr
     .filter((s) => s.items_read > 0)
     .sort((a, c) => c.items_read - a.items_read || a.feed_title.localeCompare(c.feed_title))
     .slice(0, TOP_SOURCES)
-    .map((s) => ({ name: s.feed_title, items: s.items_read }));
+    .map((s) => ({ feedId: s.feed_id, name: s.feed_title, items: s.items_read }));
   const l = b?.longest_read;
   return {
     year,
@@ -152,7 +173,19 @@ export const monthName = (month: number): string => new Date(2024, month, 1).toL
 export function hoursLabel(seconds: number): string {
   const h = seconds / 3600;
   if (h < 1) return durationLabel(seconds);
-  return h >= 10 ? `${Math.round(h)} hours` : `${Math.round(h * 10) / 10} hours`;
+  const rounded = h >= 10 ? Math.round(h) : Math.round(h * 10) / 10;
+  return `${rounded} ${rounded === 1 ? "hour" : "hours"}`;
+}
+
+/**
+ * Whether active-reading seconds are a real fact for this model, rather than a legacy gap: items were read (or
+ * opened) with no seconds ever recorded for them, which is not the same as zero reading having happened.
+ */
+export const activeSecondsKnown = (m: WrappedModel): boolean => m.activeSeconds > 0 || m.itemsRead === 0;
+
+/** The active-reading fact as it should read in the card and the text, consistently: a duration, or "not recorded". */
+export function activeReadingFact(m: WrappedModel): string {
+  return activeSecondsKnown(m) ? hoursLabel(m.activeSeconds) : "not recorded";
 }
 
 // ---- Share options, text and card -------------------------------------------------------------------------------
@@ -165,10 +198,12 @@ export const DEFAULT_OPTIONS: WrappedOptions = { topSources: false, longestRead:
 
 /** The facts as lines of plain text. Feed names and titles appear only when the options ask for them. */
 export function wrappedLines(m: WrappedModel, o: WrappedOptions): string[] {
-  const lines = [`I read ${plural(m.itemsRead, "item")} in ${m.year}.`, `${hoursLabel(m.activeSeconds)} of active reading.`];
+  const lines = [`I read ${plural(m.itemsRead, "item")} in ${m.year}.`];
+  lines.push(activeSecondsKnown(m) ? `${activeReadingFact(m)} of active reading.` : "Active reading time not recorded.");
   lines.push(`${plural(m.daysActive, "day")} with reading; longest streak ${plural(m.longestStreak, "day")}.`);
   if (m.busiestWeekday != null && m.busiestHour != null) lines.push(`Busiest day: ${weekdayName(m.busiestWeekday)}, busiest hour: ${hourLabel(m.busiestHour)}.`);
   else if (m.busiestWeekday != null) lines.push(`Busiest day: ${weekdayName(m.busiestWeekday)}.`);
+  else if (m.busiestHour != null) lines.push(`Busiest hour: ${hourLabel(m.busiestHour)}.`);
   if (m.busiestMonth != null) lines.push(`Busiest month: ${monthName(m.busiestMonth)}.`);
   if (o.topSources && m.topSources.length) lines.push(`Top sources: ${m.topSources.map((s) => `${s.name} (${s.items})`).join(", ")}.`);
   if (o.longestRead && m.longestRead) lines.push(`Longest read: ${m.longestRead.title}, ${durationLabel(m.longestRead.seconds)}.`);
@@ -188,7 +223,11 @@ export type CardOp =
 export const CARD_W = 1080;
 export const CARD_H = 1350;
 
-const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+/** Truncates on a code-point boundary, so a surrogate pair (an opted-in feed name or title with an emoji) is never split. */
+const clip = (s: string, n: number): string => {
+  const points = Array.from(s);
+  return points.length > n ? `${points.slice(0, n - 1).join("").trimEnd()}…` : s;
+};
 
 /** Draw instructions for the share card: pure, so the preview, the PNG and the tests all read the same list. */
 export function buildWrappedCard(m: WrappedModel, o: WrappedOptions): CardOp[] {
@@ -200,7 +239,7 @@ export function buildWrappedCard(m: WrappedModel, o: WrappedOptions): CardOp[] {
   text(String(m.itemsRead), X, 350, 190, 700, "accent");
   text(m.itemsRead === 1 ? "item read" : "items read", X, 410, 56);
   const tiles: [string, string][] = [
-    [hoursLabel(m.activeSeconds).replace(" hours", " h"), "active reading"],
+    [activeSecondsKnown(m) ? activeReadingFact(m).replace(" hours", " h").replace(" hour", " h") : "n/a", "active reading"],
     [String(m.daysActive), m.daysActive === 1 ? "day with reading" : "days with reading"],
     [String(m.longestStreak), m.longestStreak === 1 ? "day, longest streak" : "days, longest streak"],
   ];

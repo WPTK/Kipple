@@ -469,7 +469,8 @@ a.sr-only-live:focus {
   }
 }
 
-/* Wrapped cards: a soft fade-in, only when the reader has not asked for reduced motion. */
+/* Wrapped cards: a soft fade-in. Follows the OS setting unless the in-app control says On (always) or Off (never) —
+   same convention as the shared reduced-motion block above and .kp-row/.swipe-content. */
 @keyframes kp-wrapped-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -477,3 +478,4 @@ a.sr-only-live:focus {
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-motion="on"]) .wrapped-card { animation: kp-wrapped-in 0.4s ease-out both; }
 }
+:root[data-motion="off"] .wrapped-card { animation: kp-wrapped-in 0.4s ease-out both; }

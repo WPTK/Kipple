@@ -1,9 +1,8 @@
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useWrappedSummary } from "@/api/stats";
 import { errorMessage } from "@/api/client";
 import { durationLabel, hourLabel, plural, todayString, weekdayName } from "@/lib/statsFormat";
-import { useStatsEnabled } from "@/lib/statsSender";
 import {
   CARD_H,
   CARD_W,
@@ -14,15 +13,18 @@ import {
   hoursLabel,
   isLowData,
   monthName,
+  summaryMatchesYear,
+  useWrappedState,
   wrappedText,
   yearRange,
   yearSpan,
   type WrappedModel,
   type WrappedOptions,
 } from "@/lib/wrapped";
-import { useWrappedEnabled } from "@/lib/wrapped";
-import { CARD_TOKENS, canRenderImage, copyWrappedText, downloadWrappedImage, shareWrapped, type WrappedShareResult } from "@/lib/wrappedShare";
+import { CARD_TOKENS, canRenderImage, copyWrappedText, downloadBlob, renderCardPng, shareWrappedBlob } from "@/lib/wrappedShare";
 import { canNativeShare } from "@/lib/share";
+import { useStore } from "@/lib/store";
+import { themeStore } from "@/theme/theme";
 import { toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
@@ -86,7 +88,7 @@ export function WrappedCards({ m }: { m: WrappedModel }) {
         {m.topSources.length > 0 ? (
           <ol className="flex flex-col gap-1 text-lg">
             {m.topSources.map((s) => (
-              <li key={s.name} className="flex items-baseline justify-between gap-3">
+              <li key={s.feedId} className="flex items-baseline justify-between gap-3">
                 <span className="min-w-0 truncate font-medium">{s.name}</span>
                 <span className="shrink-0 tabular-nums text-fg2">{s.items}</span>
               </li>
@@ -136,24 +138,80 @@ export function CardPreview({ m, o }: { m: WrappedModel; o: WrappedOptions }) {
   );
 }
 
-/** Opt-in every time: the dialog opens with the aggregates only. */
+type RenderState = "loading" | "ready" | "error";
+
+/**
+ * Opt-in every time: the dialog opens with the aggregates only.
+ *
+ * The PNG is rendered as soon as the dialog opens (and again if the options or the theme change), never inside a
+ * button handler: iOS treats the click as a user gesture with a short activation window, and awaiting fonts plus a
+ * canvas encode there can outlast it, turning `navigator.share` into a silent `NotAllowedError`. Rendering ahead of
+ * time means every button just acts on the blob that is already sitting in memory.
+ */
 function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boolean) => void }) {
-  const [o, setO] = useState<WrappedOptions>(DEFAULT_OPTIONS);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
   const native = canNativeShare();
   const image = canRenderImage();
+  const [o, setO] = useState<WrappedOptions>(DEFAULT_OPTIONS);
+  const [renderState, setRenderState] = useState<RenderState>(() => (image ? "loading" : "ready"));
+  const [blob, setBlob] = useState<Blob | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+  // Not read directly: its identity changing is the signal to re-render the card in the current theme's colors.
+  const theme = useStore(themeStore);
+  const text = useMemo(() => wrappedText(m, o), [m, o]);
 
-  const run = async (f: () => Promise<WrappedShareResult>, failure: string) => {
+  useEffect(() => {
+    if (!image) return;
+    let cancelled = false;
+    const go = async () => {
+      setRenderState("loading");
+      const font = previewRef.current ? getComputedStyle(previewRef.current).fontFamily : undefined;
+      const png = await renderCardPng(m, o, font);
+      if (cancelled) return;
+      setBlob(png);
+      setRenderState(png ? "ready" : "error");
+    };
+    void go();
+    return () => {
+      cancelled = true;
+    };
+    // `theme` is a re-render trigger only, not read here — the exhaustive-deps rule is fine with that.
+  }, [m, o, image, theme]);
+
+  const preparing = renderState === "loading";
+
+  const doShare = async () => {
     setBusy(true);
     setProblem(null);
     try {
-      const r = await f();
-      if (r === "failed") setProblem(failure);
-      else if (r === "copied") toast("Copied");
-      else if (r === "downloaded") toast("Image saved");
+      const r = await shareWrappedBlob(blob, m, o);
+      if (r === "failed") setProblem("Couldn't share. Try Copy as text.");
       else if (r === "shared") onOpenChange(false);
       // "cancelled": the sheet was dismissed; nothing to say.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doDownload = () => {
+    if (!blob) {
+      setProblem("Couldn't make the image.");
+      return;
+    }
+    setProblem(null);
+    downloadBlob(blob, m.year);
+    toast("Image saved");
+  };
+
+  const doCopy = async () => {
+    setBusy(true);
+    setCopyFailed(false);
+    try {
+      const r = await copyWrappedText(m, o);
+      if (r === "failed") setCopyFailed(true);
+      else toast("Copied");
     } finally {
       setBusy(false);
     }
@@ -168,27 +226,48 @@ function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boo
       footer={
         <>
           <Button onClick={() => onOpenChange(false)}>Close</Button>
-          <Button disabled={busy} onClick={() => void run(() => copyWrappedText(m, o), "Couldn't copy. Select the text and copy it by hand.")}>
-            Copy as text
-          </Button>
-          {!native && image ? (
-            <Button disabled={busy} onClick={() => void run(() => downloadWrappedImage(m, o), "Couldn't make the image.")}>
-              Download image
-            </Button>
-          ) : null}
           {native ? (
-            <Button variant="solid" disabled={busy} onClick={() => void run(() => shareWrapped(m, o), "Couldn't share. Try Copy as text.")}>
+            <Button variant="solid" disabled={busy || preparing} onClick={() => void doShare()}>
               Share
             </Button>
           ) : null}
+          {image ? (
+            <Button disabled={busy || preparing || !blob} onClick={doDownload}>
+              Download image
+            </Button>
+          ) : null}
+          <Button disabled={busy} onClick={() => void doCopy()}>
+            Copy as text
+          </Button>
         </>
       }
     >
       <div className="flex flex-col gap-3">
-        <CardPreview m={m} o={o} />
+        <div ref={previewRef}>
+          <CardPreview m={m} o={o} />
+        </div>
+        {image && preparing ? (
+          <p className="text-sm text-fg2" role="status">
+            Preparing…
+          </p>
+        ) : null}
+        {image && renderState === "error" ? <Notice tone="error">Couldn't make the image. You can still share or copy the text.</Notice> : null}
         <Switch label="Include my top sources" help="Feed names." checked={o.topSources} onChange={(v) => setO((p) => ({ ...p, topSources: v }))} />
         <Switch label="Include my longest read" help="The article title." checked={o.longestRead} onChange={(v) => setO((p) => ({ ...p, longestRead: v }))} />
         {problem ? <Notice tone="error">{problem}</Notice> : null}
+        {copyFailed ? (
+          <div className="flex flex-col gap-2">
+            <Notice tone="error">Couldn't copy. Here's the text — select it and copy by hand.</Notice>
+            <textarea
+              readOnly
+              aria-label="Your year, as text"
+              value={text}
+              onFocus={(e) => e.currentTarget.select()}
+              rows={6}
+              className={`${inputCls} font-mono text-xs`}
+            />
+          </div>
+        ) : null}
       </div>
     </Modal>
   );
@@ -199,19 +278,23 @@ export function WrappedShareDialog({ m, open, onOpenChange }: { m: WrappedModel;
 }
 
 export function WrappedScreen() {
-  const statsOn = useStatsEnabled();
-  const wrappedOn = useWrappedEnabled();
+  const state = useWrappedState();
   const today = todayString();
   const [year, setYear] = useState(currentYear(today));
   const [sharing, setSharing] = useState(false);
-  const on = statsOn && wrappedOn;
+  const on = state === "on";
   const q = useWrappedSummary(year, yearSpan(year, today), on);
   const data = q.data;
+  // With `keepPreviousData`, `data` can still be the previously selected year's response while this year's request
+  // is in flight — never derive a model (or enable Share) from that until the response actually matches `year`.
+  const dataForYear = data && summaryMatchesYear(data, year) ? data : undefined;
   const years = yearRange(data?.first_event_date, today);
-  const model = data?.enabled ? deriveWrapped(data, year, today) : null;
+  const model = dataForYear?.enabled ? deriveWrapped(dataForYear, year, today) : null;
 
   let body: ReactNode;
-  if (!on || (data && !data.enabled)) {
+  if (state === "unknown") {
+    body = <Skeleton rows={4} label="Loading your year" />;
+  } else if (!on || (dataForYear && !dataForYear.enabled)) {
     body = (
       <p className="py-8 text-center text-sm text-fg2" role="status">
         Wrapped is off. Turn it on in{" "}
@@ -221,7 +304,7 @@ export function WrappedScreen() {
         .
       </p>
     );
-  } else if (q.isPending) {
+  } else if (q.isPending || !dataForYear) {
     body = <Skeleton rows={4} label="Loading your year" />;
   } else if (q.isError && !data) {
     body = (
