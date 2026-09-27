@@ -195,3 +195,28 @@ with a recommendation each, same format as the phase 4 pre-meeting.
 - (E) Final go/no-go meeting.
 
 No deploys happen without asking first, per standing instruction; Cloudflare changes stay the owner's.
+
+### Addendum (2026-09-27, later): UAT and release-process gaps
+
+The owner asked to evaluate a third-party Claude Code skill (`mecabots/webapp-uat`, GitHub `tsilverberg/webapp-uat`)
+for UAT. Recommendation given and accepted: don't install it (unverified npm scope mismatched from the GitHub repo
+owner, and its i18n/placeholder checks don't apply to Kipple), but build the useful parts — console/network error
+capture, WCAG audit, responsive checks — as an in-repo Playwright + axe-core script instead, so it stays auditable
+and dependency-light.
+
+The owner also asked to study general UAT methodology (testmonitor.com's UAT guide) and produce a Kipple-specific
+UAT plan, and to add these release-process gaps as phase 5 line items:
+- A Kipple-specific UAT plan, `docs/uat-plan.md` (roles, entry/exit criteria, scripted/agent-driven/owner-only
+  test suites, defect severity scale, sign-off feeding the go/no-go meeting).
+- Reader API regression replay (Reeder Classic / NetNewsWire recorded sequences) against the actual deployed
+  build, not just CI's unit-level contract tests.
+- Migration rehearsal against a copy of the live Ceres DB, made a standing checklist item rather than ad hoc.
+- An actual end-to-end `kipple restore` drill (not just documentation) — first real run this cycle.
+- The first-time Docker setup walkthrough treated as literal UAT (follow it verbatim on a clean machine, log
+  every stuck point) rather than a documentation paraphrase exercise.
+
+**Phase 5 outline, updated:** (A) code audit + changelog review — DONE, PR #26; (B) Cloudflare Access JWT +
+passwordless, in parallel with A — in progress; (C) auto-night theme; (D) documentation run + Docker walkthrough
+(now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
+Suites 1-4, migration rehearsal, restore drill, Reader API regression replay); (E) final go/no-go meeting, fed by
+D and F's sign-off.
