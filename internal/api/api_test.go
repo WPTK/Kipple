@@ -402,7 +402,7 @@ func TestStatusMeHealthRefresh(t *testing.T) {
 	require.Equal(t, 2, st.Inflight)
 
 	rec = h.do("GET", "/api/auth/me", "", withCookie(c))
-	require.JSONEq(t, `{"username":"owner","api_enabled":false}`, rec.Body.String())
+	require.JSONEq(t, `{"username":"owner","api_enabled":false,"password_set":true,"access_enabled":false,"access_email":null}`, rec.Body.String())
 
 	rec = h.do("POST", "/api/refresh", "", withCookie(c))
 	require.Equal(t, http.StatusAccepted, rec.Code)

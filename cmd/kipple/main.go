@@ -148,6 +148,10 @@ func runServe() error {
 	if err := ensureAccount(context.Background(), db, cfg, logger); err != nil {
 		return fmt.Errorf("account: %w", err)
 	}
+	accessV, err := accessVerifier(cfg, logger)
+	if err != nil {
+		return fmt.Errorf("access: %w", err)
+	}
 
 	// The image cache is optional: if it cannot open (a read-only volume, say), the
 	// proxy still works and streams every image straight from its source.
@@ -219,7 +223,7 @@ func runServe() error {
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
 		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
 		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
-		OnAPIPasswordChange: readerAPI.InvalidateAccount,
+		OnAPIPasswordChange: readerAPI.InvalidateAccount, Access: accessV,
 	})
 	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API

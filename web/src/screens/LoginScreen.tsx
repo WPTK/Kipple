@@ -4,7 +4,10 @@ import { ApiError, api, authStore, SESSION_EXPIRED } from "@/api/client";
 import { reloadToSignIn } from "@/lib/reload";
 import { Button } from "@/ui/button";
 
-/** Sign-in (POST /api/auth/login). A 401 anywhere in the app lands here. */
+/**
+ * Sign-in (POST /api/auth/login). A 401 anywhere in the app lands here. The password may be left empty: the server
+ * accepts that only for an account without a web password, reached through a verified Cloudflare Access sign-in.
+ */
 export function LoginScreen() {
   const qc = useQueryClient();
   const [username, setUsername] = useState("");
@@ -31,7 +34,15 @@ export function LoginScreen() {
         setExpired(true);
         setError("The sign-in in front of Kipple has expired. Reload to sign in again.");
       } else if (err instanceof ApiError && err.status === 429) setError("Too many attempts. Try again in a few minutes.");
-      else if (err instanceof ApiError && err.status === 401) setError("That username or password didn't match.");
+      else if (err instanceof ApiError && err.status === 401)
+        setError(
+          password
+            ? "That username or password didn't match."
+            : // The server does not say which: no password typed, a wrong username, or no Access sign-in.
+              "That didn't work. Enter your password, or, for an account without one, check the username and open Kipple through Cloudflare Access.",
+        );
+      else if (err instanceof ApiError && err.code === "access_unavailable")
+        setError("Kipple can't check your Cloudflare Access sign-in right now. Try again in a moment.");
       else if (err instanceof ApiError && err.status === 0) setError("Kipple couldn't reach the server.");
       else setError("Something went wrong. Try again.");
     } finally {
@@ -81,7 +92,6 @@ export function LoginScreen() {
             name="password"
             type="password"
             autoComplete="current-password"
-            required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg"

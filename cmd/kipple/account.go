@@ -44,8 +44,13 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 			}
 			logger.Info("Reader API password set from KIPPLE_API_PASSWORD")
 		}
+		warnPasswordless(acc, cfg, logger)
 		return nil
 	}
+	// A new account always gets a web password, Access or not: an empty
+	// KIPPLE_PASSWORD is the example file's default, so it must never quietly
+	// mean "no password". Removing it later is a deliberate step in Settings,
+	// made through a verified Access sign-in (design §7.0).
 	if cfg.Username == "" || cfg.Password == "" {
 		logger.Warn("no account yet: set KIPPLE_USERNAME and KIPPLE_PASSWORD; the web login and the Reader API stay disabled")
 		return nil
@@ -85,6 +90,16 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 		}
 	}
 	return nil
+}
+
+// warnPasswordless logs an account without a web password that cannot sign in
+// because Cloudflare Access validation is off (both variables unset): nothing
+// else can stand in for the password, so web sign-in is impossible until one
+// is set with `kipple password`.
+func warnPasswordless(acc store.Account, cfg config.Config, logger *slog.Logger) {
+	if acc.PasswordHash == "" && !cfg.AccessEnabled() {
+		logger.Warn("the account has no web password and Cloudflare Access validation is off (KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD unset): web sign-in is impossible; set a password with `kipple password` or configure Access")
+	}
 }
 
 // examplePassword is the placeholder an older .env.example shipped; it is

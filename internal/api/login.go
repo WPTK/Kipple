@@ -11,7 +11,8 @@ import (
 const maxLoginBody = 4 << 10
 
 // login is POST /api/auth/login. The password is verified even when the user
-// name is wrong (no timing oracle). Ten failures from one IP in 15 minutes lock
+// name is wrong (no timing oracle). An account without a password signs in only
+// with a verified Cloudflare Access token (design §7.0). Ten failures from one IP in 15 minutes lock
 // that IP out until the window ends (429); a success clears it.
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !s.sameOrigin(r) {
@@ -46,19 +47,51 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "auth")
 		return
 	}
-	s.verifier.SetSecret([]byte(acct.Secret))
-	pwOK, busy := s.verifier.VerifyBusy(r.Context(), "web", body.Password, acct.PasswordHash)
-	if busy {
-		// says nothing about the password: not counted as a failure
-		s.lock.Release(ip)
-		w.Header().Set("Retry-After", "5")
-		writeError(w, http.StatusServiceUnavailable, "busy")
-		return
-	}
-	if !pwOK || !strings.EqualFold(strings.TrimSpace(body.Username), acct.Username) {
-		// the reservation stays counted as the failure
-		writeError(w, http.StatusUnauthorized, "auth")
-		return
+	userOK := strings.EqualFold(strings.TrimSpace(body.Username), acct.Username)
+	if acct.PasswordHash == "" {
+		// A passwordless account (design §7.0): the one way in is a verified
+		// Cloudflare Access token on this very request. Without Access validation
+		// configured nothing verifies, so the account cannot sign in at all (the
+		// port may be reachable on the LAN without Access in front).
+		switch p := s.accessProof(r); {
+		case p == proofOK && userOK: // any password sent is ignored: there is none
+		case body.Password != "":
+			// A password sent to an account that has none, whatever token came
+			// with it: checked against the decoy hash and refused exactly like a
+			// wrong password on an account with one (same cost, same answer,
+			// counted), so a password guess cannot tell the two kinds apart.
+			if _, busy := s.verifier.VerifyBusy(r.Context(), "web", body.Password, decoyHash); busy {
+				s.lock.Release(ip)
+				w.Header().Set("Retry-After", "5")
+				writeError(w, http.StatusServiceUnavailable, "busy")
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+			return
+		case p == proofOK || p == proofRefused:
+			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+			return
+		case p == proofUnavailable:
+			s.lock.Release(ip) // says nothing about the token
+			w.Header().Set("Retry-After", "5")
+			writeError(w, http.StatusServiceUnavailable, "access_unavailable")
+			return
+		default: // no usable token and no password: nothing presented, not counted
+			s.lock.Release(ip)
+			writeError(w, http.StatusUnauthorized, "auth")
+			return
+		}
+	} else {
+		// An account with a password always needs it: an Access token never
+		// stands in for a password that is set.
+		s.verifier.SetSecret([]byte(acct.Secret))
+		if !s.passwordOK(w, r, ip, body.Password, acct.PasswordHash) {
+			return
+		}
+		if !userOK {
+			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+			return
+		}
 	}
 	s.lock.Clear(ip)
 	val, err := newCookieValue()
@@ -74,6 +107,30 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.setCookie(w, r, val)
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// passwordOK checks a sign-in password against hash and, when it does not
+// match, writes the answer and settles the lockout reservation: an empty
+// password (nothing presented: a submit before typing) and a busy verifier are
+// not counted, a wrong password stays counted.
+func (s *Server) passwordOK(w http.ResponseWriter, r *http.Request, ip, pw, hash string) bool {
+	if pw == "" {
+		s.lock.Release(ip)
+		writeError(w, http.StatusUnauthorized, "auth")
+		return false
+	}
+	ok, busy := s.verifier.VerifyBusy(r.Context(), "web", pw, hash)
+	if busy {
+		// says nothing about the password: not counted as a failure
+		s.lock.Release(ip)
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusServiceUnavailable, "busy")
+		return false
+	}
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+	}
+	return ok
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -93,5 +150,5 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"username": acct.Username, "api_enabled": acct.APIPasswordHash != ""})
+	writeJSON(w, http.StatusOK, s.userInfo(r, acct, true))
 }

@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
 import { keys } from "./queries";
-import type { Bootstrap, Feed, Folder } from "./types";
+import type { Bootstrap, Feed, Folder, Me } from "./types";
 
 // ---- Settings -----------------------------------------------------------------
 
@@ -260,6 +260,10 @@ export const useFeedLog = (id: string | null) =>
 
 export const changePassword = (current: string, next: string) =>
   api("/api/account/password", { method: "POST", body: { current, new: next } });
+/** The account as the server sees this request (live: the service worker never answers it from its cache). */
+export const fetchMe = () => api<Me>("/api/auth/me");
+/** Removes the web password; the server allows it only through a verified Cloudflare Access sign-in. */
+export const removePassword = (current: string) => api("/api/account/password", { method: "POST", body: { current, remove: true } });
 export const generateApiPassword = (current: string) =>
   api<{ api_password: string }>("/api/account/api-password", { method: "POST", body: { current, generate: true } });
 export const applyRetention = () => api<{ run_id: string; total: number }>("/api/retention/apply", { method: "POST" });

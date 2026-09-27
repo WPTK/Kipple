@@ -20,13 +20,21 @@ const (
 // checkCurrent verifies the caller's current web password under the login
 // lockout: the attempt is reserved first, a failure stays counted, a success
 // clears the IP. It writes the error response itself. Both account endpoints
-// prove the web password (the API password may not exist yet).
-func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current string) bool {
+// prove the web password (the API password may not exist yet). An account
+// without a web password proves itself with a verified Cloudflare Access token
+// instead (design §7.0).
+//
+// removing (POST /api/account/password with remove:true) also requires a
+// verified Access token, checked after the reservation so a locked-out address
+// gets 429 and a refused token counts; on an account that already has no
+// password it reports alreadyNone without proving anything, as there is
+// nothing to change.
+func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current string, removing bool) (alreadyNone, ok bool) {
 	ip := s.clientIP(r)
 	if ok, left := s.lock.Reserve(ip); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
 		writeError(w, http.StatusTooManyRequests, "locked")
-		return false
+		return false, false
 	}
 	acct, ok, err := s.db.Account(r.Context())
 	if err != nil || !ok {
@@ -35,7 +43,30 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 			err = errors.New("no account row")
 		}
 		s.serverError(w, "load account", err)
-		return false
+		return false, false
+	}
+	if acct.PasswordHash == "" {
+		if removing {
+			s.lock.Release(ip)
+			return true, true
+		}
+		// No web password to prove: a verified Access token on this request
+		// stands in for it; nothing else does.
+		if p := s.accessProof(r); p != proofOK {
+			s.writeProofError(w, ip, p, false)
+			return false, false
+		}
+		s.lock.Clear(ip)
+		return false, true
+	}
+	if removing {
+		// Proves passwordless sign-in works for the caller right now, so the
+		// removal can neither lock the owner out nor be made from an address
+		// that bypasses Access.
+		if p := s.accessProof(r); p != proofOK {
+			s.writeProofError(w, ip, p, true)
+			return false, false
+		}
 	}
 	s.verifier.SetSecret([]byte(acct.Secret))
 	pwOK, busy := s.verifier.VerifyBusy(r.Context(), "web", current, acct.PasswordHash)
@@ -43,14 +74,14 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 		s.lock.Release(ip)
 		w.Header().Set("Retry-After", "5")
 		writeError(w, http.StatusServiceUnavailable, "busy")
-		return false
+		return false, false
 	}
 	if !pwOK {
 		writeError(w, http.StatusForbidden, "bad_password")
-		return false
+		return false, false
 	}
 	s.lock.Clear(ip)
-	return true
+	return false, true
 }
 
 func badNewPassword(w http.ResponseWriter, pw string) bool {
@@ -73,20 +104,48 @@ func badLength(w http.ResponseWriter, pw string, min int) bool {
 	return false
 }
 
-// accountPassword is POST /api/account/password. Every other session is signed
-// out; the caller's stays.
+// accountPassword is POST /api/account/password: `{current, new}` sets the web
+// password, `{current, remove: true}` removes it (design §7.0). Every other
+// session is signed out; the caller's stays.
+//
+// Removing is allowed only while Cloudflare Access validation is configured
+// and this request carries a verified Access token: that proves passwordless
+// sign-in works for the caller right now, so it can neither lock the owner out
+// nor be done from a LAN address that bypasses Access.
 func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Current string `json:"current"`
 		New     string `json:"new"`
+		Remove  bool   `json:"remove"`
 	}
-	if !decodeBody(w, r, &body, false) || badNewPassword(w, body.New) || !s.checkCurrent(w, r, body.Current) {
+	if !decodeBody(w, r, &body, false) {
 		return
 	}
-	hash, err := auth.HashPassword(body.New)
-	if err != nil {
-		s.serverError(w, "hash password", err)
+	if body.Remove {
+		if body.New != "" {
+			writeErrorMsg(w, http.StatusBadRequest, "bad_request", `send "new" or "remove": true, not both`)
+			return
+		}
+	} else if badNewPassword(w, body.New) {
 		return
+	}
+	alreadyNone, ok := s.checkCurrent(w, r, body.Current, body.Remove)
+	if !ok {
+		return
+	}
+	if alreadyNone {
+		// Nothing to change, and no reason to sign anyone out.
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	hash := "" // an empty hash is "no web password": the verifier never accepts it
+	if !body.Remove {
+		var err error
+		if hash, err = auth.HashPassword(body.New); err != nil {
+			s.serverError(w, "hash password", err)
+			return
+		}
 	}
 	keep := ""
 	if c, err := r.Cookie(cookieName); err == nil {
@@ -119,7 +178,7 @@ func (s *Server) accountAPIPassword(w http.ResponseWriter, r *http.Request) {
 	if body.New != nil && badNewAPIPassword(w, *body.New) {
 		return
 	}
-	if !s.checkCurrent(w, r, body.Current) {
+	if _, ok := s.checkCurrent(w, r, body.Current, false); !ok {
 		return
 	}
 	var pw string

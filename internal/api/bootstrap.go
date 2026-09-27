@@ -100,7 +100,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		runs = append(runs, ar)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":           map[string]any{"username": acct.Username, "api_enabled": acct.APIPasswordHash != ""},
+		"user":           s.userInfo(r, acct, false),
 		"settings":       settings,
 		"device":         map[string]any{"id": dv.ID, "name": dv.Name, "profile": dview["profile"], "merged": dview["merged"]},
 		"folders":        folders,
