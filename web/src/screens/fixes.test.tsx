@@ -131,6 +131,29 @@ describe("row collapse in the Unread view", () => {
   });
 });
 
+describe("selection when the selected row leaves the Unread list", () => {
+  it("moves to the next row, so j carries on from there instead of jumping to the top", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf([card(1), card(2), card(3)])),
+      "POST /api/items/mark-read": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids, restored: [] }),
+    });
+    const { container } = go("/l/unread");
+    await screen.findByText("Article number 1");
+    const selected = () => container.querySelector("[data-item-id][data-selected]")?.getAttribute("data-item-id");
+    act(() => void fireEvent.keyDown(document.body, { key: "j" }));
+    await waitFor(() => expect(selected()).toBe("1001"));
+    act(() => void fireEvent.keyDown(document.body, { key: "m" }));
+    // The row leaves after LEAVE_MS and the collapse; the selection moves to the row that took its place.
+    await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(selected()).toBe("1002"));
+    act(() => void fireEvent.keyDown(document.body, { key: "j" }));
+    await waitFor(() => expect(selected()).toBe("1003"));
+    act(() => void fireEvent.keyDown(document.body, { key: "k" }));
+    await waitFor(() => expect(selected()).toBe("1002"));
+  }, 10000);
+});
+
 describe("previous and next feed controls", () => {
   it("shows labelled buttons with key hints on a feed list and navigates", async () => {
     const two = {
