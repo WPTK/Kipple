@@ -6,6 +6,26 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+Fixes from the phase 5 code audit. No schema migration.
+
+### Security
+
+- Images: a feed's "allow insecure TLS" now applies, like "allow private network", only to images on the feed's own host (its subdomains and bare/www twin included); third-party images in that feed are fetched with TLS verified. The image proxy checks every redirect hop against the image's host, so a feed-host image that redirects to another private address or host is fetched through the guarded transport.
+- Feed fetches: "allow private network" and "allow insecure TLS" apply to redirect hops on the feed's own site only; a redirect to another host (loopback, another LAN address, a metadata address) is refused by the address guard.
+- Editing a feed's URL to another site resets "allow private network" and "allow insecure TLS" unless the same edit sets them, as a redirect migration does and as the held-redirect note says.
+
+### Fixed
+
+- A failed session lookup (a busy database) answers a server error instead of 401, which signed the web app out although the session was valid. Signing in during a search-index rebuild answers 503 maintenance instead of 500.
+- The web app retries a change the server refused with 503 maintenance (a search-index rebuild) after its Retry-After, for up to a minute, instead of reverting it; if it still fails, the message says the server is busy rebuilding its search index.
+- Deleting a filter no longer stops with the rule disabled but still listed when one round restores nothing without finishing.
+- A feed being deleted no longer appears in the feed list, the Reader API subscription list or unread counts (with a `kipple:deleting:` address) while its items are purged.
+- A Reader API folder rename that merges into an existing folder moves the old folder's filters instead of deleting them. `subscription/edit` with one title for several feeds renames none of them instead of giving them all that title; an `ot`/`nt` beyond year 2100 (a millisecond value) is logged.
+- Scheduler: a second import or retention run no longer hides the first from the status, its progress or the busy signal (the favicon finder could resume mid-run); 500 or more due feeds on one held host (a 429 with a long Retry-After) no longer starve every other feed; a recovered panic in a trim job, or after a fetch committed, no longer backs off a healthy feed.
+- Statistics: switching statistics off and back on no longer stops the web app from sending reading statistics until a reload; statistics are kept on the device, not sent and lost, while the access-proxy sign-in has expired; the summary no longer fails with 500 when a statistics delete removes the longest read while it is computed; the data dictionary describes `enabled` correctly for summary exports; the hidden `stats.api_single_read_is_open` setting says it is reserved.
+- Web: Escape that closes a menu or dialog no longer also goes back (leaving the article or Search); after the selected row leaves the Unread list, the selection moves to the next row instead of j/k jumping to the top or bottom; Your year shows an error with Try again instead of an endless loading state; Mark this fetch read refreshes loaded article lists; `/` on the Search screen focuses the search box instead of clearing the search; the status fallback poll can no longer run twice at once.
+- The image cache no longer deletes a freshly cached copy when an earlier reader found the old file already evicted.
+
 ## [0.3.0-alpha.7] - 2026-09-27
 
 Wrapped, a yearly summary with an opt-in share sheet (phase 4, fourth and final step). No schema migration of its own.
