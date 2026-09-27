@@ -223,6 +223,11 @@ Kipple defect. Defects found: three fixed in PR #45, two copy questions filed as
 
 ## Suite 3 — Owner-only (real device required)
 
+**Not a promotion gate (decided 2026-09-27, see `docs/RELEASING.md`).** These stay open-ended: the owner checks
+them informally on his own devices as he uses each build, rather than closing them off as a one-time checklist
+before cutting a beta or rc. A real finding here becomes its own tracked fix on its own timeline; it doesn't
+hold up an otherwise-ready release.
+
 - TC-D1: Install the PWA on the iPhone from Safari; relaunch later, confirm still logged in.
 - TC-D2: Swipe right (toggle read/unread) and swipe left (star / More menu) match iOS Mail conventions; full
   swipe commits with the 15s undo toast.

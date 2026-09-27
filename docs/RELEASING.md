@@ -11,13 +11,17 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
 ### Alpha → beta → rc → 1.0.0 (decided 2026-09-27)
 
 - **Alpha → beta.1:** only once phase 5 is fully closed — code audit fixes merged (#26), Cloudflare Access JWT +
-  passwordless shipped (#40), auto-night theme shipped (#41), the documentation run done, and `docs/uat-plan.md`
-  Suites 1-4 executed clean of open P0/P1 defects. Feature-complete means verified, not declared: no more planned
-  phases remain once beta cuts, and beta itself adds no new features, only fixes.
-- **Beta → rc.1:** every UAT suite has run at least once, including the owner-only device checks (Suite 3),
-  with sign-off — plus a **1-week soak period** of the owner's real daily use on the beta build producing zero
-  new P0/P1 defects. RC then means "only fixing what the soak period or UAT found," not starting a fresh test
-  cycle.
+  passwordless shipped (#40), auto-night theme shipped (#41), the documentation run done (#42), and
+  `docs/uat-plan.md` Suites 1, 2 and 4 executed clean of open P0/P1 defects. Feature-complete means verified,
+  not declared: no more planned phases remain once beta cuts, and beta itself adds no new features, only fixes.
+- **Beta → rc.1:** Suites 1, 2 and 4 re-verified stable on the beta build, plus a **1-week soak period** of the
+  owner's real daily use producing zero new P0/P1 defects. RC then means "only fixing what the soak period or
+  UAT found," not starting a fresh test cycle.
+- **Suite 3 (owner-only device checks) is not a promotion gate at any step** (decided 2026-09-27, superseding
+  the original plan). It stays open-ended: the owner runs it informally on his own devices as he uses each
+  build, not as a one-time checklist to close before cutting beta or rc. If it surfaces something real (the
+  `document.hasFocus()` question, a gesture bug, an install/Share issue), that becomes its own tracked fix, on
+  its own timeline — it doesn't block a release that's otherwise ready.
 - **RC → 1.0.0:** a second, shorter soak (a few days) on the final rc build with zero regressions, GitHub
   private vulnerability reporting still turned on (it is on as of 2026-09-27; `SECURITY.md` depends on it), the
   documentation run and the first-time Docker setup walkthrough proven end-to-end, then the final go/no-go
