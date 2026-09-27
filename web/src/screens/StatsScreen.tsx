@@ -207,8 +207,9 @@ export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean })
                   const what = legacy ? `${plural(c!.opens, "open")}, no reading time recorded` : v > 0 ? (useTime ? durationLabel(v) : plural(v, "open")) : "none";
                   const label = `${weekdayName(wd)} ${hourLabel(h)}: ${what}`;
                   return (
-                    <td key={h} title={label} data-level={level} className="heat-cell h-5 rounded-sm border border-line p-0" style={heatStyle(level)}>
+                    <td key={h} data-level={level} className="heat-cell relative h-5 rounded-sm border border-line p-0" style={heatStyle(level)}>
                       <span className="sr-only">{label}</span>
+                      <span aria-hidden="true" title={label} className="absolute inset-0" />
                     </td>
                   );
                 })}
@@ -312,7 +313,7 @@ export function Sources({ data }: { data: StatsSummary }) {
           ]}
         />
       </div>
-      {data.sources_truncated ? <p className="text-xs text-fg2">Showing the 300 most active feeds; folder totals cover only those.</p> : null}
+      {data.sources_truncated ? <p className="text-xs text-fg2">Showing only the most active feeds; folder totals cover only those.</p> : null}
       {starred.length > 0 ? (
         <p className="text-sm text-fg2">Most starred: {starred.map((r) => `${r.name} (${r.stars})`).join(", ")}.</p>
       ) : null}
@@ -463,7 +464,7 @@ export function StatsScreen() {
           </div>
         ) : null}
         {range !== "all" && !q.isPlaceholderData && history != null && history >= 1 && history < 7 ? (
-          <p role="status" className="mt-3 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
+          <p className="mt-3 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
             Only {plural(history, "day")} of reading so far; charts fill in as you read.
           </p>
         ) : null}

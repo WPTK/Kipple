@@ -454,7 +454,7 @@ a.sr-only-live:focus {
 .heat-cell {
   background: color-mix(in srgb, var(--kp-text) calc(var(--heat, 0) * 1%), var(--kp-surface));
 }
-@supports not (color-mix(in srgb, red 50%, blue)) {
+@supports not (background: color-mix(in srgb, red 50%, blue)) {
   .heat-cell {
     position: relative;
     background: var(--kp-surface);

@@ -147,7 +147,7 @@ describe("Stats screen", () => {
     expect(await screen.findByText("Longest streak, still going")).toBeInTheDocument();
     expect(screen.queryByText(/Longest streak, ended/)).toBeNull();
     first.unmount();
-    setup(() => ({ ...richStats, streaks: { current: 3, longest: 9, longest_end: "2026-09-25" } })); // yesterday
+    setup(() => ({ ...richStats, streaks: { current: 9, longest: 9, longest_end: "2026-09-25" } })); // read yesterday, not yet today: the run is alive
     const second = go();
     expect(await screen.findByText("Longest streak, still going")).toBeInTheDocument();
     second.unmount();
@@ -193,7 +193,7 @@ describe("Stats screen", () => {
   it("says when the sources list was capped", async () => {
     setup(() => ({ ...richStats, sources_truncated: true }));
     go();
-    expect(await screen.findByText("Showing the 300 most active feeds; folder totals cover only those.")).toBeInTheDocument();
+    expect(await screen.findByText("Showing only the most active feeds; folder totals cover only those.")).toBeInTheDocument();
   });
 
   it("does not call an untimed opens cell empty when the range also has timed reading", async () => {
