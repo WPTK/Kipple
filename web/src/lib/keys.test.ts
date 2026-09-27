@@ -1,5 +1,35 @@
-import { describe, expect, it } from "vitest";
-import { interpretKey, isTypingTarget } from "./keys";
+import { renderHook } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { interpretKey, isTypingTarget, useHotkeys } from "./keys";
+
+describe("useHotkeys", () => {
+  it("an Escape someone already handled (Radix closing a menu) does not also go back", () => {
+    const up = vi.fn();
+    const { unmount } = renderHook(() => useHotkeys({ up }, { singleKeys: true }));
+    // Radix closes on Escape from a document capture listener with preventDefault; by the time the window
+    // bubble listener runs the menu content may be gone from the DOM.
+    const claim = (e: Event) => e.preventDefault();
+    document.addEventListener("keydown", claim, { capture: true });
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    document.removeEventListener("keydown", claim, { capture: true });
+    expect(up).not.toHaveBeenCalled();
+    // An unclaimed Escape still goes back.
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(up).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("ignores a defaultPrevented Escape even with no dialog in the DOM", () => {
+    const up = vi.fn();
+    const { unmount } = renderHook(() => useHotkeys({ up }, { singleKeys: true }));
+    const ev = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    ev.preventDefault();
+    document.body.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(up).not.toHaveBeenCalled();
+    unmount();
+  });
+});
 
 const on = { typing: false, singleKeys: true };
 

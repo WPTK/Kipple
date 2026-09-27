@@ -141,6 +141,10 @@ export function useHotkeys(handlers: Handlers, opts: { singleKeys: boolean; enab
     const onKey = (e: KeyboardEvent) => {
       const { handlers: h, opts: o } = ref.current;
       if (o.enabled === false) return;
+      // Someone already handled this key. Radix closes a menu or dialog on Escape from a document capture
+      // listener with preventDefault, and React may have removed the content before this bubble listener
+      // runs, so the DOM check below alone would let the same Esc also go "back".
+      if (e.defaultPrevented) return;
       // A modal dialog owns the keyboard (Radix handles Esc itself).
       if (document.querySelector('[role="dialog"],[role="menu"]')) return;
       // Enter on a focused control activates that control, not the list selection.
