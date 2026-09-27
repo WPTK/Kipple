@@ -78,7 +78,7 @@ export function isNightAt(nightStart: string, dayStart: string, minutes: number)
  * Pure: which scheme id is showing for these settings, the OS appearance and the local time of day (minutes since
  * midnight; only the schedule reads it).
  */
-export function resolveTheme(s: ThemeSettings, prefersDark: boolean, minutes: number = minutesOfDay(new Date())): string {
+export function resolveTheme(s: ThemeSettings, prefersDark: boolean, minutes: number): string {
   if (s.mode === "fixed") return s.fixed;
   if (s.mode === "schedule") return isNightAt(s.nightStart, s.dayStart, minutes) ? s.night : s.day;
   return prefersDark ? s.night : s.day;

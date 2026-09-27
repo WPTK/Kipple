@@ -103,6 +103,24 @@ describe("ThemePicker schedule", () => {
     }
   });
 
+  it("a change made elsewhere while a time waits to be saved wins over the waiting time", () => {
+    vi.useFakeTimers();
+    try {
+      themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+      render(<ThemePicker />);
+      const night = screen.getByLabelText("Night starts") as HTMLInputElement;
+      fireEvent.change(night, { target: { value: "22:30" } });
+      act(() => themeStore.set((s) => ({ ...s, nightStart: "23:00" })));
+      expect(night.value).toBe("23:00");
+      act(() => vi.advanceTimersByTime(TIME_SAVE_DELAY_MS));
+      expect(themeStore.get().nightStart).toBe("23:00");
+      fireEvent.blur(night);
+      expect(themeStore.get().nightStart).toBe("23:00");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a browser that reports seconds still saves the time, in whole minutes", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
     render(<ThemePicker />);

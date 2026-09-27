@@ -403,9 +403,22 @@ function onStorage(e: StorageEvent): void {
     const n = parseDevicePrefs(e.newValue);
     if (stable(n) !== stable(devicePrefsStore.get())) replaceDevicePrefs(n);
   } else if (e.key === THEME_STORAGE_KEY) {
-    // Missing fields keep this tab's values: a tab on an older build writes the cache without the schedule's times.
-    const n = parseThemeSettings(e.newValue, themeStore.get());
+    // Missing fields keep this tab's values: a tab on an older build writes the cache without the schedule's times,
+    // and reads "schedule" as follow-system. Such a cache (no times at all) cannot mean "leave the schedule".
+    const cur = themeStore.get();
+    const n = parseThemeSettings(e.newValue, cur);
+    if (cur.mode === "schedule" && n.mode === "follow" && !writtenWithSchedule(e.newValue)) n.mode = "schedule";
     if (stable(n) !== stable(themeStore.get())) themeStore.set(n);
+  }
+}
+
+/** Whether a theme cache was written by a build that knows the schedule (every such build writes its times). */
+function writtenWithSchedule(raw: string): boolean {
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return typeof v === "object" && v !== null && "nightStart" in v;
+  } catch {
+    return false;
   }
 }
 

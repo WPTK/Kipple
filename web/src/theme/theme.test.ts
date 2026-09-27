@@ -21,20 +21,20 @@ const base: ThemeSettings = { ...DEFAULT_THEME_SETTINGS };
 
 describe("resolveTheme", () => {
   it("follow-system defaults to Paper by day and Midnight by night", () => {
-    expect(resolveTheme(DEFAULT_THEME_SETTINGS, false)).toBe("paper");
-    expect(resolveTheme(DEFAULT_THEME_SETTINGS, true)).toBe("midnight");
+    expect(resolveTheme(DEFAULT_THEME_SETTINGS, false, 0)).toBe("paper");
+    expect(resolveTheme(DEFAULT_THEME_SETTINGS, true, 0)).toBe("midnight");
   });
 
   it("custom pair: any scheme may be day or night, regardless of kind", () => {
     const s: ThemeSettings = { ...base, mode: "follow", day: "inkwell", night: "linen" };
-    expect(resolveTheme(s, false)).toBe("inkwell"); // a dark scheme by day
-    expect(resolveTheme(s, true)).toBe("linen"); // a light scheme by night
+    expect(resolveTheme(s, false, 0)).toBe("inkwell"); // a dark scheme by day
+    expect(resolveTheme(s, true, 0)).toBe("linen"); // a light scheme by night
   });
 
   it("fixed mode ignores the OS setting", () => {
     const s: ThemeSettings = { ...base, mode: "fixed", fixed: "fountain" };
-    expect(resolveTheme(s, false)).toBe("fountain");
-    expect(resolveTheme(s, true)).toBe("fountain");
+    expect(resolveTheme(s, false, 0)).toBe("fountain");
+    expect(resolveTheme(s, true, 0)).toBe("fountain");
   });
 
   it("schedule mode follows the clock and ignores the OS setting", () => {
@@ -307,15 +307,15 @@ describe("meta theme-color and the boot script", () => {
     { stored: { ...sched("9pm", "25:00") }, dark: false, clock: "08:00" },
   ];
   it.each(cases)("boot script matches resolveTheme: %j", ({ stored, dark, clock }) => {
-    if (clock) {
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(new Date(2026, 8, 27, Number(clock.slice(0, 2)), Number(clock.slice(3, 5)), 30));
-    }
+    // The clock is always pinned, so the boot script and resolveTheme read the same minute.
+    const now = clock ?? "12:00";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 8, 27, Number(now.slice(0, 2)), Number(now.slice(3, 5)), 30));
     if (stored) localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(stored));
     window.matchMedia = ((q: string) => ({ matches: dark && q.includes("dark"), media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
     document.documentElement.removeAttribute("data-theme");
     new Function(bootScript())();
-    const want = resolveTheme(parseThemeSettings(localStorage.getItem(THEME_STORAGE_KEY)), dark);
+    const want = resolveTheme(parseThemeSettings(localStorage.getItem(THEME_STORAGE_KEY)), dark, at(now));
     expect(document.documentElement.dataset.theme).toBe(want);
     const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
     expect(metas).toHaveLength(1);
@@ -378,16 +378,21 @@ describe("initTheme on a schedule", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("focus with nothing to change does not re-apply or re-arm", () => {
-    vi.setSystemTime(new Date(2026, 8, 27, 12, 0));
-    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon" });
+  it("focus with nothing to change leaves the theme alone but re-arms from the clock", () => {
+    vi.setSystemTime(new Date(2026, 8, 27, 20, 50));
+    themeStore.set({ ...base, mode: "schedule", day: "linen", night: "carbon", nightStart: "21:00", dayStart: "07:00" });
     stop = initTheme();
-    const arm = vi.spyOn(globalThis, "setTimeout");
+    // A meta tag the re-apply would replace the content of; it must stay untouched.
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')!;
+    meta.content = "#123456";
+    // The device slept with ten minutes left on the timer and wakes ten seconds before the switch.
+    vi.setSystemTime(new Date(2026, 8, 27, 20, 59, 50));
     window.dispatchEvent(new Event("focus"));
-    document.dispatchEvent(new Event("visibilitychange"));
-    expect(arm).not.toHaveBeenCalled();
+    expect(theme()).toBe("linen");
+    expect(meta.content).toBe("#123456");
     expect(vi.getTimerCount()).toBe(1);
-    arm.mockRestore();
+    vi.advanceTimersByTime(11_000);
+    expect(theme()).toBe("carbon");
   });
 
   it("never sleeps longer than the recheck interval, and a tab coming back re-checks the clock", () => {

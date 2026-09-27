@@ -1,6 +1,6 @@
 import { createStore } from "@/lib/store";
 import { schemeById } from "./schemes";
-import { loadThemeSettings, msUntilNextSwitch, resolveTheme, saveThemeSettings, type ThemeSettings } from "./settings";
+import { loadThemeSettings, minutesOfDay, msUntilNextSwitch, resolveTheme, saveThemeSettings, type ThemeSettings } from "./settings";
 
 export const themeStore = createStore<ThemeSettings>(loadThemeSettings());
 
@@ -16,7 +16,7 @@ export function systemPrefersDark(): boolean {
 
 /** The scheme currently showing (resolved from settings, the OS and, on a schedule, the local time). */
 export function currentThemeId(): string {
-  return resolveTheme(themeStore.get(), systemPrefersDark());
+  return resolveTheme(themeStore.get(), systemPrefersDark(), minutesOfDay(new Date()));
 }
 
 /** Set data-theme and the single <meta name="theme-color">, live (no reload). */
@@ -49,16 +49,18 @@ export const SCHEDULE_RECHECK_MS = 15 * 60_000;
 /** Wire the store, the OS appearance listener and the schedule timer. Call once at startup. */
 export function initTheme(): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  // Applies the theme and, on a schedule, arms one timer for the next switch (a little after it, so the clock has
-  // passed the boundary when it fires).
-  const apply = () => {
-    applyTheme(currentThemeId());
+  // On a schedule, one timer for the next switch (a little after it, so the clock has passed the boundary when it
+  // fires), always computed from the real clock. Equal times never switch, so there is nothing to wait for.
+  const arm = () => {
     clearTimeout(timer);
     timer = undefined;
     const s = themeStore.get();
-    // Equal times never switch (the day theme stays), so there is nothing to wait for.
     if (s.mode === "schedule" && s.nightStart !== s.dayStart) timer = setTimeout(apply, Math.min(msUntilNextSwitch(s, new Date()) + 500, SCHEDULE_RECHECK_MS));
   };
+  function apply() {
+    applyTheme(currentThemeId());
+    arm();
+  }
   apply();
   const off = themeStore.subscribe(() => {
     saveThemeSettings(themeStore.get());
@@ -71,9 +73,13 @@ export function initTheme(): () => void {
   } catch {
     /* no matchMedia: day theme stays */
   }
-  // A device waking from sleep, or a tab coming back to the front, may have slept through a scheduled switch.
+  // A device waking from sleep, or a tab coming back to the front, may have slept through a switch (the theme is
+  // corrected) or be holding a timer that paused while it slept (it is re-armed from the clock).
   const wake = () => {
-    if (themeStore.get().mode === "schedule" && document.visibilityState === "visible" && currentThemeId() !== document.documentElement.dataset.theme) apply();
+    if (themeStore.get().mode !== "schedule" || document.visibilityState !== "visible") return;
+    const id = currentThemeId();
+    if (id !== document.documentElement.dataset.theme) applyTheme(id);
+    arm();
   };
   document.addEventListener("visibilitychange", wake);
   window.addEventListener("focus", wake);

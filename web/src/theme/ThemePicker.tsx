@@ -1,11 +1,11 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Collapsible } from "radix-ui";
 import { ChevronDown } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/cn";
 import { DEFAULT_DAY, DEFAULT_NIGHT, schemeById, type Scheme } from "./schemes";
 import { useAllowedSchemes } from "./serverThemes";
-import { toClockTime } from "./settings";
+import { clockMinutes, toClockTime } from "./settings";
 import { themeStore, updateTheme } from "./theme";
 
 const GROUP_LABEL: Record<Scheme["group"], string> = {
@@ -88,7 +88,8 @@ function SchemeSelect({ label, value, onChange, schemes }: { label: string; valu
 
 /** A clock time ("HH:MM") in the reader's own format, e.g. 9:00 PM or 21:00. */
 function formatClock(t: string): string {
-  return new Date(2000, 0, 1, Number(t.slice(0, 2)), Number(t.slice(3, 5))).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const m = clockMinutes(t);
+  return new Date(2000, 0, 1, Math.floor(m / 60), m % 60).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 /** A day/night pair entry (Follow system, On a schedule): a split swatch of the two picks. */
@@ -130,31 +131,23 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
     setSeen(value);
     setDraft(value);
   }
-  const save = useRef(onChange);
+  // The latest props, for the timer and the unmount save (both outlive the render that started them).
+  const latest = useRef({ value, onChange });
   useEffect(() => {
-    save.current = onChange;
+    latest.current = { value, onChange };
   });
-  const pending = useRef<{ t: string; timer: ReturnType<typeof setTimeout> } | null>(null);
-  const flush = () => {
+  // The time waiting to be saved, with the saved value it replaces: if that changed elsewhere meanwhile (another tab,
+  // the server), the newer value wins and the wait is dropped.
+  const pending = useRef<{ t: string; from: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const flush = useCallback(() => {
     const p = pending.current;
     if (!p) return;
     clearTimeout(p.timer);
     pending.current = null;
-    save.current(p.t);
-  };
+    if (p.from === latest.current.value) latest.current.onChange(p.t);
+  }, []);
   // Closing Settings with a change still waiting saves it.
-  useEffect(
-    () => () => {
-      const p = pending.current;
-      if (p) {
-        clearTimeout(p.timer);
-        pending.current = null;
-        save.current(p.t);
-      }
-    },
-    [],
-  );
-  return (
+  useEffect(() => flush, [flush]);  return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="text-sm font-medium">
         {label}
@@ -168,7 +161,7 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
           setDraft(e.target.value);
           const t = toClockTime(e.target.value);
           if (pending.current) clearTimeout(pending.current.timer);
-          pending.current = t && t !== value ? { t, timer: setTimeout(flush, TIME_SAVE_DELAY_MS) } : null;
+          pending.current = t && t !== value ? { t, from: value, timer: setTimeout(flush, TIME_SAVE_DELAY_MS) } : null;
         }}
         onBlur={() => {
           flush();

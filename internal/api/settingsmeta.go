@@ -238,7 +238,7 @@ var Schemes = []Scheme{
 
 // schemeOptions lists every scheme; with modes it adds the two modes ui.theme also takes ("system", "schedule").
 func schemeOptions(modes bool) []settingOption {
-	out := make([]settingOption, 0, len(Schemes)+1)
+	out := make([]settingOption, 0, len(Schemes)+2)
 	for _, sc := range Schemes {
 		out = append(out, settingOption{Value: sc.ID, Label: sc.Name})
 	}
