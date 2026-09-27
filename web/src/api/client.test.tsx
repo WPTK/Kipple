@@ -39,6 +39,26 @@ describe("api()", () => {
     expect(authStore.get()).toBe("out");
   });
 
+  it("retries a 503 maintenance answer after its Retry-After, and gives up after the wait budget", async () => {
+    vi.useFakeTimers();
+    try {
+      let n = 0;
+      const busy = () => new Response(JSON.stringify({ error: "maintenance" }), { status: 503, headers: { "Retry-After": "2" } });
+      const { calls } = mockFetch({ "PUT /api/items/1/star": () => (n++ < 2 ? busy() : new Response(null, { status: 204 })) });
+      const p = api("/api/items/1/star", { method: "PUT", body: { starred: true } });
+      await vi.advanceTimersByTimeAsync(4_100);
+      await expect(p).resolves.toBeUndefined();
+      expect(calls).toHaveLength(3);
+
+      mockFetch({ "PUT /api/items/2/star": busy });
+      const q = api("/api/items/2/star", { method: "PUT", body: { starred: true } }).catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(await q).toMatchObject({ status: 503, code: "maintenance" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("maps error bodies and network failures", async () => {
     mockFetch({ "GET /api/x": () => json({ error: "origin" }, 403) });
     await expect(api("/api/x")).rejects.toMatchObject({ status: 403, code: "origin" });
