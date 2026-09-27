@@ -23,7 +23,8 @@ from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per sch
   21:00; "Day starts", default 07:00) on the device's own clock, whatever the OS reports. Night runs from its start
   (inclusive) to the day start (exclusive), wrapping past midnight when needed; equal times mean the day theme stays.
   `isNightAt()` holds that rule; `initTheme()` arms a timer for the next switch (at most 15 minutes, re-armed) and
-  re-checks when the tab is shown or focused, so the switch is live.
+  re-checks when the tab is shown or focused, so the switch is live. Picking a fixed theme turns the schedule off (the
+  server does the same for a client that predates it).
 - `resolveTheme()` in `settings.ts` is the one pure rule for all three choices (`themeChoice()` names them).
 - **No flash.** A blocking classic script in `<head>` (`assets/theme-boot-<hash>.js`, built from
   `bootScript()`) reads the stored choice, resolves it, sets `data-theme` and a single

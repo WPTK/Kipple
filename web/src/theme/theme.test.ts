@@ -12,6 +12,7 @@ import {
   resolveTheme,
   chooseFixed,
   choosePair,
+  saveThemeSettings,
   themeChoice,
   THEME_STORAGE_KEY,
   type ThemeSettings,
@@ -154,10 +155,17 @@ describe("msUntilNextSwitch", () => {
     }
   });
 
-  it("equal times: one day away at most, never zero", () => {
+  it("equal times never switch: a day ahead", () => {
     const same = { nightStart: "08:00", dayStart: "08:00" };
     expect(msUntilNextSwitch(same, local(8, 0))).toBe(24 * 3600_000);
-    expect(msUntilNextSwitch(same, local(7, 0))).toBe(3600_000);
+    expect(msUntilNextSwitch(same, local(7, 0))).toBe(24 * 3600_000);
+  });
+
+  it("counts from mid-minute to the switch exactly, and a one-minute night", () => {
+    expect(msUntilNextSwitch(s, local(20, 59, 45))).toBe(15_000);
+    const blink = { nightStart: "23:59", dayStart: "00:00" };
+    expect(msUntilNextSwitch(blink, local(23, 58))).toBe(60_000);
+    expect(msUntilNextSwitch(blink, local(23, 59))).toBe(60_000);
   });
 });
 
@@ -189,11 +197,22 @@ describe("parseThemeSettings", () => {
     const mine: ThemeSettings = { ...base, schedule: true, nightStart: "22:15" };
     const older = JSON.stringify({ mode: "follow", fixed: "paper", day: "linen", night: "carbon" });
     expect(parseThemeSettings(older, mine)).toEqual({ ...mine, day: "linen", night: "carbon" });
-    expect(parseThemeSettings(JSON.stringify({ mode: "fixed", fixed: "graphite" }), mine)).toEqual({ ...mine, mode: "fixed", fixed: "graphite" });
+    // An older build's pick of a fixed theme (no flag) turns the schedule off, as picking one here does.
+    expect(parseThemeSettings(JSON.stringify({ mode: "fixed", fixed: "graphite" }), mine)).toEqual({ ...mine, mode: "fixed", fixed: "graphite", schedule: false });
     expect(parseThemeSettings(JSON.stringify({ ...mine, schedule: false }), mine).schedule).toBe(false);
     expect(parseThemeSettings(JSON.stringify({ ...mine, schedule: "yes" })).schedule).toBe(false);
     // A mode this build does not know keeps the base's.
     expect(parseThemeSettings(JSON.stringify({ mode: "schedule" }), mine).mode).toBe("follow");
+  });
+
+  it("saving keeps fields a newer build wrote", () => {
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ ...base, sunrise: true }));
+    saveThemeSettings({ ...base, night: "carbon" });
+    expect(JSON.parse(localStorage.getItem(THEME_STORAGE_KEY)!)).toEqual({ ...base, night: "carbon", sunrise: true });
+    localStorage.setItem(THEME_STORAGE_KEY, "{{{");
+    saveThemeSettings(base);
+    expect(JSON.parse(localStorage.getItem(THEME_STORAGE_KEY)!)).toEqual(base);
+    localStorage.clear();
   });
 
   it("themeChoice and choosePair: Follow system and On a schedule keep the day and night picks and the times", () => {

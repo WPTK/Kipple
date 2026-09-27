@@ -3,6 +3,7 @@ import { Collapsible } from "radix-ui";
 import { ChevronDown } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/cn";
+import { inputCls } from "@/ui/kit";
 import { DEFAULT_DAY, DEFAULT_NIGHT, schemeById, type Scheme } from "./schemes";
 import { useAllowedSchemes } from "./serverThemes";
 import { chooseFixed, choosePair, clockMinutes, themeChoice, toClockTime } from "./settings";
@@ -70,7 +71,7 @@ function SchemeSelect({ label, value, onChange, schemes }: { label: string; valu
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg"
+        className={inputCls}
       >
         {groups.map((g) => (
           <optgroup key={g} label={GROUP_LABEL[g]}>
@@ -115,21 +116,11 @@ function PairOption({ title, detail, day, night, checked, onSelect }: { title: s
 }
 
 /**
- * Whether a key edits the time in place (digits, AM/PM letters, deleting, stepping a part up or down), as opposed to
- * moving between its parts, opening or closing the browser's picker (Space, Alt+Down, Escape) or a bare modifier.
- */
-function editsValue(e: { key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): boolean {
-  if (e.ctrlKey || e.metaKey) return false;
-  if (e.key === "Backspace" || e.key === "Delete") return true;
-  if (e.key === "ArrowUp" || e.key === "ArrowDown") return !e.altKey;
-  return e.key.length === 1 && e.key !== " " && !e.altKey;
-}
-
-/**
- * A 24-hour "HH:MM" time field. The draft is local. A time chosen with the browser's picker (a wheel, a clock dialog)
- * is saved at once; a typed one is saved on Enter, on leaving the field, when Settings closes or when the page is
- * left, never on each keystroke (a browser reports a complete but unintended time part-way through typing one, such
- * as 02:00 on the way to 22:30). Leaving the field with an incomplete time restores the saved one.
+ * A 24-hour "HH:MM" time field. The draft is local, and a time is saved only when it is committed: Enter, leaving the
+ * field (closing the picker on a phone does that), Settings closing or the page being left. A browser reports complete
+ * but unintended times on the way to the one wanted (typing 22:30 passes 02:00; a desktop picker reports each column
+ * click), so saving each change would flip the theme and sync those. Leaving with an incomplete time restores the
+ * saved one.
  */
 function TimeField({ label, value, onChange }: { label: string; value: string; onChange: (t: string) => void }) {
   const id = useId();
@@ -148,14 +139,12 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
   // The time waiting to be saved, with the saved value it replaces: if that changed elsewhere meanwhile (another tab,
   // the server), the newer value wins and the waiting time is dropped.
   const pending = useRef<{ t: string; from: string } | null>(null);
-  // Whether the time in the field is being typed (a key went down since the field was focused).
-  const typing = useRef(false);
   const flush = useCallback(() => {
     const p = pending.current;
     pending.current = null;
     if (p && p.from === latest.current.value) latest.current.onChange(p.t);
   }, []);
-  // Closing Settings, or leaving the page, with a typed time still waiting saves it.
+  // Closing Settings, or leaving the page, with a time still waiting saves it.
   useEffect(() => {
     window.addEventListener("pagehide", flush);
     return () => {
@@ -175,24 +164,18 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
         required
         value={draft}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            // A committed typed time: a later pick from the browser's picker in this visit saves at once again.
-            flush();
-            typing.current = false;
-          } else if (editsValue(e)) typing.current = true;
+          if (e.key === "Enter") flush();
         }}
         onChange={(e) => {
           setDraft(e.target.value);
           const t = toClockTime(e.target.value);
           pending.current = t && t !== value ? { t, from: value } : null;
-          if (!typing.current) flush();
         }}
         onBlur={() => {
-          typing.current = false;
           flush();
           if (!toClockTime(draft)) setDraft(value);
         }}
-        className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg"
+        className={inputCls}
       />
     </div>
   );

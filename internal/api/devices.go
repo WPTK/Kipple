@@ -422,6 +422,28 @@ func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 	s.writeDevice(w, r, dv)
 }
 
+// fixedThemeEndsSchedule turns the theme schedule off when a patch picks a fixed theme without naming
+// ui.theme_schedule, as the web app does itself. A client that predates the schedule sends only ui.theme;
+// without this the hidden flag would stay on and bring the schedule back when that client later picks
+// "system" (Match my device), which it cannot show or clear.
+func (s *Server) fixedThemeEndsSchedule(r *http.Request, dv store.Device, set map[string]any) error {
+	th, ok := set["ui.theme"].(string)
+	if !ok || th == "system" {
+		return nil
+	}
+	if _, named := set["ui.theme_schedule"]; named {
+		return nil
+	}
+	view, err := s.deviceView(r, dv)
+	if err != nil {
+		return err
+	}
+	if on, _ := view["merged"].(map[string]any)["ui.theme_schedule"].(bool); on {
+		set["ui.theme_schedule"] = false
+	}
+	return nil
+}
+
 // patchDevice is PATCH /api/device: a partial profile update, all or nothing. A null
 // value clears the override.
 func (s *Server) patchDevice(w http.ResponseWriter, r *http.Request) {
@@ -467,6 +489,10 @@ func (s *Server) patchDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	dv, err := s.currentDevice(w, r)
 	if err != nil {
+		s.serverError(w, "device", err)
+		return
+	}
+	if err := s.fixedThemeEndsSchedule(r, dv, set); err != nil {
 		s.serverError(w, "device", err)
 		return
 	}

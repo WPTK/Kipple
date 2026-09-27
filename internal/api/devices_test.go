@@ -585,3 +585,28 @@ func TestDeviceCapNeverEvictsRecentDevices(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, store.MaxDevices)
 }
+
+// A fixed theme ends the schedule when the patch does not name it (a client that predates the schedule sends
+// only ui.theme), so a later "system" from that client is plain follow-system again.
+func TestFixedThemeEndsSchedule(t *testing.T) {
+	h := newHarness(t)
+	d := h.newDev()
+	code, out, _ := d.call("PATCH", "/api/device", `{"ui.theme":"graphite"}`)
+	require.Equal(t, http.StatusOK, code)
+	require.NotContains(t, out["profile"], "ui.theme_schedule", "nothing to end: no key added")
+
+	d.call("PATCH", "/api/device", `{"ui.theme":"system","ui.theme_schedule":true}`)
+	_, out, _ = d.call("PATCH", "/api/device", `{"ui.theme":"graphite"}`)
+	require.Equal(t, false, out["merged"].(map[string]any)["ui.theme_schedule"])
+	_, out, _ = d.call("PATCH", "/api/device", `{"ui.theme":"system"}`)
+	m := out["merged"].(map[string]any)
+	require.Equal(t, "system", m["ui.theme"])
+	require.Equal(t, false, m["ui.theme_schedule"])
+
+	// A patch that names the flag keeps what it says.
+	_, out, _ = d.call("PATCH", "/api/device", `{"ui.theme":"linen","ui.theme_schedule":true}`)
+	require.Equal(t, true, out["merged"].(map[string]any)["ui.theme_schedule"])
+	// Other keys leave it alone.
+	_, out, _ = d.call("PATCH", "/api/device", `{"ui.theme_day":"airmail"}`)
+	require.Equal(t, true, out["merged"].(map[string]any)["ui.theme_schedule"])
+}

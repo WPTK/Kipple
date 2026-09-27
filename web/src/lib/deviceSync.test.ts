@@ -502,6 +502,14 @@ describe("another tab or device changed a different key (review finding 1)", () 
     expect(JSON.parse(localStorage.getItem("kipple.theme.v1")!)).toMatchObject({ schedule: true, nightStart: "22:00", dayStart: "06:30" });
     await vi.advanceTimersByTimeAsync(600);
     expect(s.patches.slice(before)).toEqual([]);
+    // A newer build's write (every field this build knows, plus its own) is taken as it is and not rewritten.
+    const newer = { ...themeStore.get(), sunrise: true };
+    window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify(newer) }));
+    localStorage.setItem("kipple.theme.v1", JSON.stringify(newer));
+    const spy = vi.spyOn(Storage.prototype, "setItem");
+    window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify(newer) }));
+    expect(spy.mock.calls.filter(([k]) => k === "kipple.theme.v1")).toEqual([]);
+    spy.mockRestore();
     // A build that knows the schedule turning it off is followed.
     window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify({ ...themeStore.get(), schedule: false }) }));
     expect(themeStore.get().schedule).toBe(false);

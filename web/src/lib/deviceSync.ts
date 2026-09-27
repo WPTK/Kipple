@@ -407,8 +407,19 @@ function onStorage(e: StorageEvent): void {
     // Missing fields keep this tab's values: a tab on an older build writes the cache without the schedule's fields.
     const n = parseThemeSettings(e.newValue, themeStore.get());
     if (stable(n) !== stable(themeStore.get())) themeStore.set(n);
-    // Such a write also dropped those fields from the cache the next page load paints from: put them back.
-    else if (e.newValue !== JSON.stringify(n)) saveThemeSettings(n);
+    // Such a write also dropped those fields from the cache the next page load paints from: put them back (only
+    // when fields this build knows are missing, so builds that each know more never rewrite each other).
+    else if (lacksThemeFields(e.newValue)) saveThemeSettings(n);
+  }
+}
+
+/** Whether a theme cache lacks a field this build writes (it came from an older build). */
+function lacksThemeFields(raw: string): boolean {
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return typeof v !== "object" || v === null || Object.keys(DEFAULT_THEME_SETTINGS).some((k) => !(k in v));
+  } catch {
+    return false;
   }
 }
 

@@ -1,6 +1,6 @@
 import { createStore } from "@/lib/store";
 import { schemeById } from "./schemes";
-import { loadThemeSettings, minutesOfDay, msUntilNextSwitch, onSchedule, resolveTheme, saveThemeSettings, type ThemeSettings } from "./settings";
+import { loadThemeSettings, minutesOfDay, msUntilNextSwitch, resolveTheme, themeChoice, saveThemeSettings, type ThemeSettings } from "./settings";
 
 export const themeStore = createStore<ThemeSettings>(loadThemeSettings());
 
@@ -66,7 +66,7 @@ export function initTheme(): () => void {
     clearTimeout(timer);
     timer = undefined;
     const s = themeStore.get();
-    if (onSchedule(s) && s.nightStart !== s.dayStart) timer = setTimeout(apply, Math.min(msUntilNextSwitch(s, new Date()) + 500, SCHEDULE_RECHECK_MS));
+    if (themeChoice(s) === "schedule" && s.nightStart !== s.dayStart) timer = setTimeout(apply, Math.min(msUntilNextSwitch(s, new Date()) + 500, SCHEDULE_RECHECK_MS));
   }
   apply();
   const off = themeStore.subscribe(() => {
@@ -84,7 +84,7 @@ export function initTheme(): () => void {
   // that paused while it slept: apply() corrects the theme and re-arms from the clock (cheap when nothing changed, so
   // visibilitychange and focus arriving together need no guard).
   const wake = () => {
-    if (onSchedule(themeStore.get()) && document.visibilityState === "visible") apply();
+    if (themeChoice(themeStore.get()) === "schedule" && document.visibilityState === "visible") apply();
   };
   document.addEventListener("visibilitychange", wake);
   window.addEventListener("focus", wake);

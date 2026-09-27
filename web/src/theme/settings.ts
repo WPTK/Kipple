@@ -44,11 +44,6 @@ export function chooseFixed(id: string): Partial<ThemeSettings> {
   return { mode: "fixed", fixed: id, schedule: false };
 }
 
-/** Whether the scheduled switch is in force. */
-export function onSchedule(s: ThemeSettings): boolean {
-  return themeChoice(s) === "schedule";
-}
-
 export const THEME_STORAGE_KEY = "kipple.theme.v1";
 
 export const DEFAULT_NIGHT_START = "21:00";
@@ -113,37 +108,23 @@ export function resolveTheme(s: ThemeSettings, prefersDark: boolean, minutes: nu
   return night ? s.night : s.day;
 }
 
+/** How far ahead msUntilNextSwitch looks: a little over a day covers every switch of a valid schedule. */
+const SWITCH_HORIZON_MIN = 26 * 60;
+
 /**
- * Milliseconds from `now` to the schedule's next switch (the next time the local clock reads nightStart or dayStart),
- * at least 1. Built with setHours so a daylight-saving change on the way is counted in wall-clock time, and the
- * schedule follows the clock as it reads on those nights:
- * - a time the clock skips (02:30 on a spring-forward night) switches when the clock first passes it, at the end of
- *   the gap: setHours lands after the gap (03:30), so the target is moved back to the start of that hour (03:00);
- * - a time the clock shows twice (01:30 on a fall-back night) switches both times, as isNightAt reads the clock: the
- *   second showing is one hour after the first, which setHours (the first showing) would miss.
+ * Milliseconds from `now` to the schedule's next switch, at least 1: the first minute at which isNightAt, reading the
+ * local clock, gives the other answer. Stepping through real minutes (a day is about 1,500 of them) keeps the timer
+ * and the rule in step on daylight-saving nights in any zone: a time the clock skips switches when the gap ends, a
+ * time it shows twice switches both times, whatever the size of the shift. Equal times never switch: a day ahead.
  */
 export function msUntilNextSwitch(s: Pick<ThemeSettings, "nightStart" | "dayStart">, now: Date): number {
-  let best = Infinity;
-  for (const t of [s.nightStart, s.dayStart]) {
-    const m = clockMinutes(t);
-    const at = new Date(now.getTime());
-    const place = () => {
-      at.setHours(Math.floor(m / 60), m % 60, 0, 0);
-      if (minutesOfDay(at) !== m) at.setMinutes(0, 0, 0);
-    };
-    place();
-    if (at.getTime() <= now.getTime()) {
-      const again = new Date(at.getTime() + 3_600_000);
-      if (minutesOfDay(again) === m && again.getDate() === at.getDate() && again.getTime() > now.getTime()) {
-        at.setTime(again.getTime());
-      } else {
-        at.setDate(at.getDate() + 1);
-        place();
-      }
-    }
-    best = Math.min(best, at.getTime() - now.getTime());
+  const night = isNightAt(s.nightStart, s.dayStart, minutesOfDay(now));
+  const minute = Math.floor(now.getTime() / 60_000) * 60_000;
+  for (let i = 1; i <= SWITCH_HORIZON_MIN; i++) {
+    const at = new Date(minute + i * 60_000);
+    if (isNightAt(s.nightStart, s.dayStart, minutesOfDay(at)) !== night) return Math.max(1, at.getTime() - now.getTime());
   }
-  return Math.max(1, best);
+  return 24 * 60 * 60_000;
 }
 
 /**
@@ -159,7 +140,8 @@ export function themeSettingsFrom(raw: unknown, base: ThemeSettings = DEFAULT_TH
     fixed: isSchemeId(v.fixed) ? v.fixed : d.fixed,
     day: isSchemeId(v.day) ? v.day : d.day,
     night: isSchemeId(v.night) ? v.night : d.night,
-    schedule: typeof v.schedule === "boolean" ? v.schedule : d.schedule,
+    // No flag with a fixed theme is an older build's pick of that theme, which turns the schedule off (chooseFixed).
+    schedule: typeof v.schedule === "boolean" ? v.schedule : v.mode === "fixed" ? false : d.schedule,
     nightStart: isClockTime(v.nightStart) ? v.nightStart : d.nightStart,
     dayStart: isClockTime(v.dayStart) ? v.dayStart : d.dayStart,
   };
@@ -184,9 +166,20 @@ export function loadThemeSettings(): ThemeSettings {
   }
 }
 
+/**
+ * Writes the choice over the stored object, so fields this build does not know (a newer build's, in another tab)
+ * are kept rather than dropped.
+ */
 export function saveThemeSettings(s: ThemeSettings): void {
   try {
-    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(s));
+    let prev: unknown;
+    try {
+      prev = JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) ?? "null") as unknown;
+    } catch {
+      prev = null;
+    }
+    const keep = typeof prev === "object" && prev !== null && !Array.isArray(prev) ? prev : {};
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ ...keep, ...s }));
   } catch {
     /* private mode or blocked storage: the choice just won't persist */
   }
