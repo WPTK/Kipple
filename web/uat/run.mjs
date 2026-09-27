@@ -126,24 +126,25 @@ const LAYOUTS = [
 const SEARCH_Q = "the";
 // Every screen. `layout` switches the list layout on the screen before it is checked; `path` may be a function of
 // the run's context. The Unread and later screens show whatever layout the last list screen left.
+// `heading` must be the text of a visible h1 once the screen has settled, which proves the check looks at the right
+// screen (and that in-app navigation reached it).
 const SCREENS = [
-  ...LAYOUTS.map((l) => ({ id: `list-${l.id}`, title: `List: ${l.label}`, path: "/l/all", layout: l })),
-  { id: "unread", title: "Unread list", path: "/l/unread" },
-  { id: "starred", title: "Starred (empty)", path: "/l/starred" },
-  { id: "article", title: "Article", path: (ctx) => ctx.articlePath },
-  { id: "search", title: "Search results", path: `/search?q=${SEARCH_Q}` },
-  { id: "search-empty", title: "Search, no query", path: "/search" },
-  { id: "feeds", title: "Manage feeds", path: "/feeds" },
-  { id: "health", title: "Feed health", path: "/health" },
-  { id: "settings", title: "Settings", path: "/settings" },
-  { id: "stats", title: "Stats", path: "/stats" },
-  { id: "wrapped", title: "Wrapped", path: "/stats/wrapped" },
+  ...LAYOUTS.map((l) => ({ id: `list-${l.id}`, title: `List: ${l.label}`, path: "/l/all", layout: l, heading: "All articles" })),
+  { id: "unread", title: "Unread list", path: "/l/unread", heading: "Unread" },
+  { id: "starred", title: "Starred (empty)", path: "/l/starred", heading: "Starred" },
+  { id: "article", title: "Article", path: (ctx) => ctx.articlePath, heading: (ctx) => ctx.articleTitle },
+  { id: "search", title: "Search results", path: `/search?q=${SEARCH_Q}`, heading: "Search" },
+  { id: "search-empty", title: "Search, no query", path: "/search", heading: "Search" },
+  { id: "feeds", title: "Manage feeds", path: "/feeds", heading: "Feeds" },
+  { id: "health", title: "Feed health", path: "/health", heading: "Feed health" },
+  { id: "settings", title: "Settings", path: "/settings", heading: "Settings" },
+  { id: "stats", title: "Stats", path: "/stats", heading: "Stats" },
+  { id: "wrapped", title: "Wrapped", path: "/stats/wrapped", heading: "Your year" },
 ];
 const only = opt.only !== undefined ? new Set(opt.only.split(",").map((s) => s.trim()).filter(Boolean)) : null;
 const unknown = only ? [...only].filter((id) => !SCREENS.some((s) => s.id === id)) : [];
 if (unknown.length || (only && !only.size)) {
-  console.error(`unknown screen id(s): ${unknown.join(", ") || "(none given)"}. Known: ${SCREENS.map((s) => s.id).join(", ")}`);
-  process.exit(2);
+  setupError(`unknown screen id(s): ${unknown.join(", ") || "(none given)"}. Known: ${SCREENS.map((s) => s.id).join(", ")}`);
 }
 const screens = only ? SCREENS.filter((s) => only.has(s.id)) : SCREENS;
 
@@ -221,6 +222,15 @@ const FEED = {
    * excerpts, authors, sources and search snippets, as the API returns them (harvestFeedText). */
   names: [],
 };
+// Installed in every page next to axe (an init script, or page.evaluate for the self-test page), so the three probes
+// share one definition: is `el` the feed's article HTML, rather than something Kipple put inside it (`own`)?
+const PAGE_HELPERS = `window.__uatInBody = function (el, body, own) {
+  var b = el && el.closest(body);
+  if (!b) return false;
+  var k = el.closest(own);
+  return !(k && b.contains(k));
+};`;
+const PAGE_SCRIPT = `${AXE_SOURCE}\n${PAGE_HELPERS}`;
 const FEED_KEYS = new Set(["title", "name", "excerpt", "author", "source", "origin_title", "feed_title", "folder_name", "snippet"]);
 const feedStrings = new Set();
 const decodeSnippet = (h) =>
@@ -234,7 +244,7 @@ const decodeSnippet = (h) =>
 // the article HTML (the reader pane around a too-wide embed) is marked `feed`: a note, not a failure.
 function overflowProbe(feed) {
   const vw = document.documentElement.clientWidth;
-  const out = { scrollWidth: document.documentElement.scrollWidth, vw, offenders: [], scrollers: [] };
+  const out = { scrollWidth: document.documentElement.scrollWidth, vw, offenders: [], scrollers: [], clipped: [] };
   const describe = (el) => {
     const id = el.id ? `#${el.id}` : "";
     const cls = typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).slice(0, 3).join(".") : "";
@@ -242,12 +252,7 @@ function overflowProbe(feed) {
     return `${el.tagName.toLowerCase()}${id}${cls}${name ? ` "${name}"` : ""}`;
   };
   const visible = (el) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
-  // In the article HTML and not something Kipple added there.
-  const inBody = (el) => {
-    const b = el.closest(feed.body);
-    const k = b && el.closest(feed.own);
-    return !!b && !(k && b.contains(k));
-  };
+  const inBody = (el) => window.__uatInBody(el, feed.body, feed.own);
   const scrolls = (el) => {
     const ox = getComputedStyle(el).overflowX;
     return ox === "auto" || ox === "scroll";
@@ -258,11 +263,15 @@ function overflowProbe(feed) {
   // Clipped by an ancestor that itself ends inside the viewport (overflow hidden, or a scroller: those are checked
   // on their own below), or hidden the screen-reader-only way. Only ancestors from the containing block up clip: a
   // fixed element escapes every one, an absolute one those between it and its offset parent.
-  const contained = (el) => {
+  const srOnly = (el) => {
     for (let a = el; a && a !== document.body; a = a.parentElement) {
       const cs = getComputedStyle(a);
       if (cs.clip === "rect(0px, 0px, 0px, 0px)" || cs.clipPath === "inset(50%)") return true;
     }
+    return false;
+  };
+  const contained = (el) => {
+    if (srOnly(el)) return true;
     const pos = getComputedStyle(el).position;
     if (pos === "fixed") return false;
     let a = pos === "absolute" ? el.offsetParent : el.parentElement;
@@ -282,12 +291,33 @@ function overflowProbe(feed) {
     }
     return any;
   };
+  // Cut off: partly hidden past the right edge of the nearest ancestor (from the containing block up) that hides
+  // overflow without scrolling. Entirely outside it is hidden on purpose (swipe actions, off-canvas parts); an
+  // ancestor that truncates with an ellipsis does it on purpose too.
+  const clippedBy = (el, r) => {
+    const pos = getComputedStyle(el).position;
+    if (pos === "fixed") return null;
+    for (let a = pos === "absolute" ? el.offsetParent : el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if (cs.overflowX !== "hidden" && cs.overflowX !== "clip") continue;
+      if (cs.textOverflow === "ellipsis") return null;
+      const ar = a.getBoundingClientRect();
+      return r.right > ar.right + 1 && r.left < ar.right - 1 ? { a, ar } : null;
+    }
+    return null;
+  };
   for (const el of document.body.querySelectorAll("*")) {
     if (scrolls(el) && el.scrollWidth > el.clientWidth + 1 && !deliberate(el) && visible(el)) {
       if (out.scrollers.length < 10)
         out.scrollers.push({ desc: describe(el), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, feed: onlyFeedWide(el) });
     }
     const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && out.clipped.length < 10 && !out.clipped.some((c) => c.el.contains(el))) {
+      const c = clippedBy(el, r);
+      if (c && c.ar.right <= vw + 1 && visible(el) && !inBody(el) && !srOnly(el) &&
+        ((el.textContent || "").trim() !== "" || el.matches("button, a[href], input, select, textarea, [role=button], img, svg")))
+        out.clipped.push({ el, desc: describe(el), right: Math.round(r.right), edge: Math.round(c.ar.right) });
+    }
     if (r.width === 0 || r.height === 0 || r.right <= vw + 1) continue;
     if (r.left >= vw) continue; // entirely off screen: a closed drawer or an off-canvas panel
     if (!visible(el) || contained(el)) continue;
@@ -296,6 +326,7 @@ function overflowProbe(feed) {
     if (out.offenders.length < 10) out.offenders.push({ el, desc: describe(el), right: Math.round(r.right) });
   }
   out.offenders = out.offenders.map(({ desc, right }) => ({ desc, right }));
+  out.clipped = out.clipped.map(({ desc, right, edge }) => ({ desc, right, edge }));
   return out;
 }
 
@@ -309,11 +340,7 @@ function literalProbe(feed) {
   const bad = new RegExp(feed.pattern);
   const norm = (t) => t.replace(/\s+/g, " ");
   const strip = (t) => feed.names.reduce((s, n) => s.split(n).join(" "), norm(t));
-  const inBody = (el) => {
-    const b = el.closest(feed.body);
-    const k = b && el.closest(feed.ownText);
-    return !!b && !(k && b.contains(k));
-  };
+  const inBody = (el) => window.__uatInBody(el, feed.body, feed.ownText);
   const fromFeed = (el, text, isTextNode) => {
     if (inBody(el)) return true;
     if (!feed.names.length) return false;
@@ -361,8 +388,12 @@ async function runAxe(page) {
   // The screen checks get axe from an init script (checkScreens); the self-test page, filled by setContent, gets it
   // here. Both go over the DevTools protocol rather than a <script>: Kipple's CSP (script-src 'self') would block an
   // inline script, and turning the CSP off would hide the app's own CSP violations from S1.
-  if (!(await page.evaluate(() => typeof window.axe !== "undefined"))) await page.evaluate(AXE_SOURCE);
+  if (!(await page.evaluate(() => typeof window.axe !== "undefined"))) await page.evaluate(PAGE_SCRIPT);
   return page.evaluate(async (feed) => {
+    // A target is a list of selectors, one per frame or shadow root on the way (a shadow step is itself a list):
+    // the first one names the element in this document, which says whose content it is.
+    const top = (t) => (Array.isArray(t[0]) ? t[0][0] : t[0]);
+    const flat = (t) => t.map((s) => (Array.isArray(s) ? s.join(" >>> ") : s)).join(" | ");
     const r = await window.axe.run(document, {
       runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"] },
       resultTypes: ["violations"],
@@ -373,16 +404,12 @@ async function runAxe(page) {
       help: v.help,
       helpUrl: v.helpUrl,
       nodes: v.nodes.map((n) => ({
-        target: n.target.join(" "),
+        target: flat(n.target),
         html: n.html.slice(0, 300),
         summary: n.failureSummary?.split("\n").slice(0, 3).join(" ").slice(0, 300),
         // Nodes inside the article body are the feed's own markup, reported apart from Kipple's, except what Kipple
         // added there itself.
-        feedContent: ((el) => {
-          const b = el?.closest(feed.body);
-          const k = b && el.closest(feed.own);
-          return !!b && !(k && b.contains(k));
-        })(document.querySelector(n.target.join(" "))),
+        feedContent: window.__uatInBody(document.querySelector(top(n.target)), feed.body, feed.own),
       })),
     }));
   }, FEED);
@@ -404,16 +431,16 @@ async function setLayout(page, layout) {
 
 // Wait for the lazy screen and its queries: no busy skeleton, no boot splash, then a short beat for late renders.
 async function settle(page) {
-  await page.waitForLoadState("load");
   await page
     .waitForFunction(
       () => !document.querySelector('[aria-busy="true"]') && !/^\s*Loading Kipple\s*$/.test(document.body.innerText),
       null,
       { timeout: 15000 },
     )
-    .catch(() => {
-      // Checking a skeleton would pass a screen whose content was never seen.
-      throw new Error("still loading after 15 s");
+    .catch((e) => {
+      // Checking a skeleton would pass a screen whose content was never seen. Anything else (a crashed or closed
+      // page) keeps its own message.
+      throw e?.name === "TimeoutError" ? new Error("still loading after 15 s") : e;
     });
   // Then until no same-origin request has been in flight for 300 ms (the event stream never ends, so it is not
   // counted), for at most 10 s: lazy chunks and the queries a screen fires once it mounts.
@@ -441,6 +468,24 @@ function trackRequests(page) {
   });
   page.on("requestfinished", done);
   page.on("requestfailed", done);
+}
+
+/**
+ * Opens a screen the way a reader moves around: the first one in a browser is a full load, later ones go through the
+ * app's router (a history push and popstate, which React Router follows), so the app is not booted again for every
+ * screen. Each screen's heading check (SCREENS) confirms the route really rendered. Requests still counted from the
+ * screen before (a beacon that never reports back) are forgotten.
+ */
+async function go(page, path) {
+  pending.get(page)?.clear();
+  if (new URL(page.url()).origin !== origin) {
+    await page.goto(path);
+    return;
+  }
+  await page.evaluate((p) => {
+    history.pushState(history.state, "", p);
+    window.dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
+  }, path);
 }
 
 // ---- the run ----
@@ -488,8 +533,12 @@ async function selfTest() {
       `<p>Size NaNkB</p><label>Theme <select><option>Paper</option><option selected>undefined</option></select></label>` +
       `<nav><a href="#y">NaN Tech</a><button aria-label="Edit NaN Tech">e</button></nav>` +
       `<p>Updated undefinedm ago</p><a href="#z" aria-label="Unread, NaN-boxing explained, undefined">NaN-boxing explained</a>` +
-      `<svg width="20" height="20" role="img" aria-label="chart"><rect width="20" height="20"><title>Invalid Date: 3 items</title></rect></svg></main>`,
+      `<svg width="20" height="20" role="img" aria-label="chart"><rect width="20" height="20"><title>Invalid Date: 3 items</title></rect></svg>` +
+      `<div style="overflow:hidden;width:200px"><div id="clipped" style="white-space:nowrap;width:300px">a row cut off at its box</div></div>` +
+      `<div style="overflow:hidden;width:200px;height:30px;position:relative"><button id="swipe" style="position:absolute;left:220px">Star</button></div>` +
+      `<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100px"><span>a long title that truncates</span></div></main>`,
   );
+  await page.evaluate(PAGE_SCRIPT);
   const probeFeed = { ...FEED, names: ["NaN Tech", "NaN-boxing explained", "An excerpt about NaN-boxing", "The NaN trick"] };
   const o = await page.evaluate(overflowProbe, probeFeed);
   const lit = await page.evaluate(literalProbe, probeFeed);
@@ -513,13 +562,14 @@ async function selfTest() {
   const nodeSplit = buttons.map((n) => `${n.target}:${n.feedContent}`);
   if (!same(nodeSplit, ["#feedbtn:true", "#kpbtn:false"])) problems.push(`S3 feed/Kipple split ${JSON.stringify(nodeSplit)}`);
   // Harvesting keeps real feed text and drops a bare literal, which would otherwise excuse every hit of it.
-  harvestFeedText({ items: [{ author: "undefined", title: "Why NaN != NaN", url: "https://x/NaN" }] });
+  harvestFeedText({ summary: { title: "Your top NaN feeds" }, items: [{ id: "1", author: "undefined", title: "Why NaN != NaN", url: "https://x/NaN" }] });
   if (!same(FEED.names, ["Why NaN != NaN"])) problems.push(`harvest ${JSON.stringify(FEED.names)}`);
   feedStrings.clear();
   FEED.names = [];
   if (!(o.scrollWidth > o.vw)) problems.push("S4 did not see the page scroll sideways");
   if (!same(o.offenders.map((x) => x.desc.split(" ")[0]), ["div#wide", "div#fixed"])) problems.push(`S4 offenders ${JSON.stringify(o.offenders)}`);
   if (!same(o.scrollers.map((x) => `${x.desc.split(" ")[0]}:${x.feed}`), ["div#pane:false", "div#reader:true"])) problems.push(`S4 scrollers ${JSON.stringify(o.scrollers)}`);
+  if (!same(o.clipped.map((x) => x.desc.split(" ")[0]), ["div#clipped"])) problems.push(`S4 clipped ${JSON.stringify(o.clipped)}`);
   if (!same(own, wantOwn)) problems.push(`S5 hits ${JSON.stringify(own)}`);
   if (!same(feed, wantFeed)) problems.push(`S5 feed notes ${JSON.stringify(feed)}`);
   // The fixture has no <title> and no lang: two violations axe always reports.
@@ -530,21 +580,29 @@ async function selfTest() {
 // Feed-supplied strings that contain an S5 literal (FEED.names). Two sources: every /api/ JSON answer a screen
 // loads (harvestFeedText, so items that arrive mid-run and titles only Stats still knows are covered), and, before
 // the first screen, the whole of All plus the search the run makes (collectFeedText). Only the fields feeds and the
-// user fill: titles, names, excerpts, authors, sources and search snippets.
+// user fill (titles, names, excerpts, authors, sources, search snippets), and only on a record of an item, feed,
+// folder or saved search (an object with an id, item_id or feed_id): a summary or label the server composes itself
+// has none, so its text stays Kipple's.
 function harvestFeedText(json) {
   const bad = new RegExp(FEED.pattern);
   const badAll = new RegExp(FEED.pattern, "g");
-  const walk = (v, key) => {
-    if (typeof v === "string") {
-      if (!FEED_KEYS.has(key)) return;
-      const s = (key === "snippet" ? decodeSnippet(v) : v).replace(/\s+/g, " ").trim();
+  const walk = (v) => {
+    if (Array.isArray(v)) return v.forEach(walk);
+    if (!v || typeof v !== "object") return;
+    const record = "id" in v || "item_id" in v || "feed_id" in v;
+    for (const [k, x] of Object.entries(v)) {
+      if (typeof x !== "string") {
+        walk(x);
+        continue;
+      }
+      if (!record || !FEED_KEYS.has(k)) continue;
+      const s = (k === "snippet" ? decodeSnippet(x) : x).replace(/\s+/g, " ").trim();
       // A string that is little more than the literal ("undefined" as an author) would excuse every Kipple hit of
       // that literal on every screen, so it is not taken; it shows up as an S5 finding instead.
       if (bad.test(s) && s.replace(badAll, "").replace(/[\W_]/g, "").length >= 3) feedStrings.add(s);
-    } else if (Array.isArray(v)) for (const x of v) walk(x, key);
-    else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, k);
+    }
   };
-  walk(json, "");
+  walk(json);
   FEED.names = [...feedStrings];
 }
 
@@ -633,7 +691,7 @@ async function checkScreens(cookies) {
         });
         // axe-core in every document, over the DevTools protocol like page.evaluate (so Kipple's CSP does not block
         // it, and stays on for S1), once per browser instead of once per screen.
-        await context.addInitScript({ content: AXE_SOURCE });
+        await context.addInitScript({ content: PAGE_SCRIPT });
         const page = await context.newPage();
         trackRequests(page);
         await checkCombo(page, theme, vp, ctxInfo, results);
@@ -694,9 +752,11 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
   // still be fetching).
   if (!ctxInfo.articlePath && screens.some((s) => s.id === "article")) {
     try {
-      await page.goto("/l/all");
+      await go(page, "/l/all");
       await settle(page);
-      ctxInfo.articlePath = await page.locator('main article a[href^="/i/"]').first().getAttribute("href", { timeout: 5000 });
+      const link = page.locator('main article a[href^="/i/"]').first();
+      ctxInfo.articlePath = await link.getAttribute("href", { timeout: 5000 });
+      ctxInfo.articleTitle = ((await link.textContent()) ?? "").trim().slice(0, 40);
     } catch {
       ctxInfo.articlePath = null;
     }
@@ -725,12 +785,24 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     }
     try {
       current = screen.id;
-      await page.goto(path);
+      await go(page, path);
       await settle(page);
       if (screen.layout) {
         await setLayout(page, screen.layout);
         await settle(page);
       }
+      const heading = typeof screen.heading === "function" ? screen.heading(ctxInfo) : screen.heading;
+      const esc = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // The list headings are whole; the article's is the start of its title.
+      const want = new RegExp(screen.id === "article" ? `^\\s*${esc}` : `^\\s*${esc}\\s*$`);
+      await page
+        .locator("h1")
+        .filter({ hasText: want })
+        .first()
+        .waitFor({ state: "visible", timeout: 5000 })
+        .catch(() => {
+          throw new Error(`the screen did not render: no visible h1 "${heading}"`);
+        });
 
       const scheme = await page.evaluate(() => document.documentElement.dataset.theme);
       if (scheme !== theme.scheme)
@@ -744,6 +816,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
           const message = `${s.desc} scrolls sideways (${s.scrollWidth} > ${s.clientWidth})`;
           s4.push({ rule: "scroller-x", message: s.feed ? `${message}, pushed wide by the article HTML only` : message, feed: s.feed });
         }
+        for (const c of o.clipped) s4.push({ rule: "clipped", message: `${c.desc} is cut off at ${c.edge}px (it ends at ${c.right}px)` });
         for (const off of o.offenders) s4.push({ rule: "past-right-edge", message: `${off.desc} ends at ${off.right}px (viewport ${o.vw}px)` });
       }
       await Promise.all([...harvesting]); // this screen's API answers are in FEED.names
