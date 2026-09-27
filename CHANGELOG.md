@@ -8,7 +8,9 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [0.3.0-alpha.7] - 2026-09-27
 
-Wrapped, a yearly summary with an opt-in share sheet (phase 4, fourth and final step). No schema migration.
+Wrapped, a yearly summary with an opt-in share sheet (phase 4, fourth and final step). No schema migration of its own.
+The first deployed build after 0.3.0-alpha.4: it also ships 0.3.0-alpha.5 and 0.3.0-alpha.6, which were never deployed
+or tagged on their own, so an upgrade from alpha.4 runs migration 0009 (from alpha.5).
 
 ### Added
 
@@ -17,7 +19,8 @@ Wrapped, a yearly summary with an opt-in share sheet (phase 4, fourth and final 
 
 ## [0.3.0-alpha.6] - 2026-09-27
 
-Statistics export and data controls (phase 4, third step). No schema migration.
+Statistics export and data controls (phase 4, third step). No schema migration. Not deployed or tagged on its own:
+it shipped in 0.3.0-alpha.7.
 
 ### Added
 
@@ -32,7 +35,7 @@ Statistics export and data controls (phase 4, third step). No schema migration.
 ## [0.3.0-alpha.5] - 2026-09-27
 
 The Stats screen (phase 4, second step) and its summary endpoint. One schema migration (0009): a rollback goes through the
-pre-migration snapshot.
+pre-migration snapshot. Not deployed or tagged on its own: it shipped in 0.3.0-alpha.7.
 
 ### Added
 
@@ -57,6 +60,7 @@ migration (0008): a rollback goes through the pre-migration snapshot.
 
 - With statistics off, the server records nothing, including star and unstar events from sync apps; starring itself still works. Existing statistics are kept, and turning the setting back on resumes recording.
 - The stats ingest endpoint reads the statistics setting and the time zone once per request instead of once per event.
+- `POST /api/stats/events` decodes each event on its own: a malformed event is dropped instead of rejecting the whole batch.
 
 ## [0.3.0-alpha.3] - 2026-09-26
 
@@ -90,7 +94,6 @@ migrations: a rollback goes through the pre-migration snapshot.
 - Each feed body is decoded once instead of twice.
 - Docker images report the real version (`KIPPLE_VERSION` / `KIPPLE_VCS_REF` build args; CI passes `git describe`). Base images and the local CI's gitleaks and Trivy images are pinned by digest; deploys check out the release tag; rollback goes through `kipple restore` and never a copy over `kipple.db`.
 - `.dockerignore` keeps `.env` files in subdirectories out of the build context. `npm run seed` only deletes a data directory it created unless `--force` is given. SECURITY.md points to GitHub private vulnerability reporting.
-
 - Up to 50 enabled regex filters, with a set-wide cost cap that fits about 40 typical keyword alternations. A stored filter that no longer meets the limits is switched off with a visible reason (shown in Settings > Filters) instead of blocking other filters or being skipped silently.
 - Keyword filters are matched against a fetch's new items before its database write, so costly regex rules no longer hold the single writer; the write re-evaluates if a filter, the feed's folder or its title changed in between.
 - A permanent redirect within the same site (same registrable domain, or a LAN name gaining its domain) keeps the feed's credentials and network exceptions; a move to another site while any is set stays pending (`redirect_held_new_site`) instead of migrating.
@@ -114,6 +117,7 @@ migrations: a rollback goes through the pre-migration snapshot.
 - A basic-auth feed that redirects to a subdomain of its host keeps its credentials (never over an https to http downgrade). Full-text extraction applies a feed's network exceptions to the host's subdomains and its bare/www twin too, and says so when it withholds them.
 - Shutdown keeps 3 s for the database close alone; a panic while committing a fetch no longer leaves new items hidden from the Reader API; a queued feed edited or disabled while waiting is checked again before it runs; a panic in a password check no longer holds the only hashing slot; a leftover `KIPPLE_API_PASSWORD` that fails the length rules no longer stops the server (the Reader API stays disabled and the error is logged).
 - A large download burst can no longer make one eviction empty the image cache.
+- A star replayed from the offline queue can no longer restore a trimmed article whose restore window had already closed when the server received it; a restored read article gets the real time as its read time.
 - The sign-in screen says so when the sign-in in front of Kipple has expired (and Reload reaches it even on a slow network) instead of reporting a wrong password. A stalled request sending offline changes no longer holds up opening, starring or marking articles. Articles a bulk mark left unread come back instead of disappearing. Mark-read-on-scroll no longer retries with an error at every scroll pause. A failed background refresh keeps the reader on screen. The error screen clears when you navigate, and Try again re-downloads a screen that failed to load.
 
 ## [0.3.0-alpha.2] - 2026-09-26
@@ -581,9 +585,9 @@ Phase 1: fetch, store and Reader API.
 - Multi-stage Docker image and CI.
 
 [Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.7...HEAD
-[0.3.0-alpha.7]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.6...v0.3.0-alpha.7
-[0.3.0-alpha.6]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.5...v0.3.0-alpha.6
-[0.3.0-alpha.5]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.4...v0.3.0-alpha.5
+[0.3.0-alpha.7]: https://github.com/WPTK/Kipple/compare/271fd23...v0.3.0-alpha.7
+[0.3.0-alpha.6]: https://github.com/WPTK/Kipple/compare/5b0db7d...271fd23
+[0.3.0-alpha.5]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.4...5b0db7d
 [0.3.0-alpha.4]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.3...v0.3.0-alpha.4
 [0.3.0-alpha.3]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.2...v0.3.0-alpha.3
 [0.3.0-alpha.2]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.1...v0.3.0-alpha.2
