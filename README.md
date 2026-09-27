@@ -28,7 +28,7 @@ docker compose build
 docker compose up -d
 ```
 
-Open `http://localhost:7080` and sign in with `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` from `.env` (default
+Open `http://127.0.0.1:7080` and sign in with `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` from `.env` (default
 username `owner`). That's the whole happy path — one image, one container, one port, no database to set up
 separately.
 
