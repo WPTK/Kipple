@@ -149,6 +149,17 @@ Standing checklist items (previously done ad hoc for past releases, now made exp
   (not just read the steps in `docs/deploy.md`) — this phase 5 cycle is when it gets its first real end-to-end
   run, satisfying TC-C3 above.
 
+**Executed 2026-09-27.** Copied the live nightly snapshot (`kipple-snapshot.db`, taken 04:10 that day, schema 8,
+138 feeds, 6594 items) off the running container with `docker cp` (never touching `kipple.db` itself), restored
+it onto a brand-new throwaway volume with the currently-deployed image (`kipple:local`, v0.3.0-alpha.7):
+`kipple restore` reported the backup passed its integrity checks with no previous database to keep. Starting a
+throwaway container against that volume also exercised a real migration rehearsal for free — the snapshot was
+one migration behind the live schema, so startup applied `0009_stats_summary_indexes.sql` automatically,
+confirmed by the log line, and the container came up `(healthy)` on `/healthz` immediately after. The live
+`kipple` container was never stopped, restarted or otherwise touched throughout (verified via `docker ps`
+before and after). All throwaway artifacts (test container, test volume, copied snapshot file) were removed
+afterward. Both TC-C3 and the standing migration-rehearsal checklist item are satisfied by this one drill.
+
 ## Suite 5 — Fresh-machine Docker walkthrough as literal UAT
 
 The planned "first-time Docker setup walkthrough" release step doubles as UAT if followed literally rather than
