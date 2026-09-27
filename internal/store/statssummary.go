@@ -27,6 +27,9 @@ type StatsSummaryParams struct {
 	From, To        string // "" for all: from the first event through today
 	IncludeInferred bool
 	Now             time.Time
+	// WhenOff computes the summary from the stored rows even while recording is off (the export
+	// does; GET /api/stats/summary leaves it false and gets the empty off shape).
+	WhenOff bool
 }
 
 // The types below are the GET /api/stats/summary response.
@@ -36,6 +39,9 @@ type (
 		From string `json:"from"`
 		To   string `json:"to"`
 		Days int    `json:"days"`
+		// LastEventDate is the newest local_date of any row: it can be after To (and after today)
+		// when rows were written under another time zone; nil when there are no rows.
+		LastEventDate *string `json:"last_event_date"`
 	}
 	StatsTotals struct {
 		ItemsRead     int   `json:"items_read"`
@@ -172,6 +178,12 @@ const (
 		UNION ALL SELECT MIN(local_date) FROM stats_events INDEXED BY idx_stats_scroll_cov WHERE kind = 'scroll' AND rowid <= ?1
 		UNION ALL SELECT MIN(local_date) FROM stats_events INDEXED BY idx_stats_kind_ts
 			WHERE kind IN ('star', 'unstar', 'open_original', 'share') AND rowid <= ?1)`
+	sqlLastDate = `SELECT MAX(d) FROM (
+		SELECT MAX(local_date) AS d FROM stats_events INDEXED BY idx_stats_open_cov WHERE kind = 'open' AND rowid <= ?1
+		UNION ALL SELECT MAX(local_date) FROM stats_events INDEXED BY idx_stats_rt_cov WHERE kind = 'read_time' AND rowid <= ?1
+		UNION ALL SELECT MAX(local_date) FROM stats_events INDEXED BY idx_stats_scroll_cov WHERE kind = 'scroll' AND rowid <= ?1
+		UNION ALL SELECT MAX(local_date) FROM stats_events INDEXED BY idx_stats_kind_ts
+			WHERE kind IN ('star', 'unstar', 'open_original', 'share') AND rowid <= ?1)`
 	sqlLegacyCut = `SELECT MIN(ts) FROM stats_events INDEXED BY idx_stats_kind_ts WHERE kind = ?1 AND rowid <= ?2`
 	sqlOpens     = `SELECT rowid, local_date, local_hour, feed_id, item_id, COALESCE(session_key, ''), ts
 		FROM stats_events INDEXED BY idx_stats_open_cov
@@ -217,6 +229,14 @@ func statsHinted() []statsHint {
 		{"first_date", sqlFirstDate, "idx_stats_rt_cov", 1, []any{max}},
 		{"first_date", sqlFirstDate, "idx_stats_scroll_cov", 1, []any{max}},
 		{"first_date", sqlFirstDate, "idx_stats_kind_ts", 1, []any{max}},
+		{"last_date", sqlLastDate, "idx_stats_open_cov", 1, []any{max}},
+		{"last_date", sqlLastDate, "idx_stats_rt_cov", 1, []any{max}},
+		{"last_date", sqlLastDate, "idx_stats_scroll_cov", 1, []any{max}},
+		{"last_date", sqlLastDate, "idx_stats_kind_ts", 1, []any{max}},
+		{"export count", sqlExportCount, "idx_stats_open_cov", 1, []any{max, lo, hi, 0}},
+		{"export count", sqlExportCount, "idx_stats_rt_cov", 1, []any{max, lo, hi, 0}},
+		{"export count", sqlExportCount, "idx_stats_scroll_cov", 1, []any{max, lo, hi, 0}},
+		{"export count", sqlExportCount, "idx_stats_kind_ts", 1, []any{max, lo, hi, 0}},
 		{"legacy_cut", sqlLegacyCut, "idx_stats_kind_ts", 1, []any{"scroll", max}},
 		{"opens", sqlOpens, "idx_stats_open_cov", 1, []any{0, lo, hi, max}},
 		{"read_time", sqlReadTime, "idx_stats_rt_cov", 1, []any{lo, hi, max}},
@@ -252,8 +272,48 @@ func statsFirstDate(ctx context.Context, q Querier, maxID int64) (string, error)
 	return d.String, nil
 }
 
-// statsLegacyCutoff is the ts of the earliest read_time or scroll event; opens before it predate
-// the sender and count as reads. MaxInt64 when no such event exists (every open is legacy).
+// StatsLastEventDate is the newest local_date of any row (the newest date present, which a time
+// zone change or a clock that moved back can leave later than today), or "" when there are none.
+func StatsLastEventDate(ctx context.Context, q Querier) (string, error) {
+	return statsLastDate(ctx, q, math.MaxInt64)
+}
+
+func statsLastDate(ctx context.Context, q Querier, maxID int64) (string, error) {
+	var d sql.NullString
+	if err := q.QueryRowContext(ctx, sqlLastDate, maxID).Scan(&d); err != nil {
+		return "", err
+	}
+	return d.String, nil
+}
+
+// SettingStatsTimedSince is the hidden setting holding the ts of the earliest read_time or scroll
+// row ever recorded. The summary's legacy-open cutoff reads it, so deleting the earliest timed
+// rows never turns kept bounces into legacy reads. Not user-visible, not in settings.json.
+const SettingStatsTimedSince = "sys.stats_timed_since"
+
+// EnsureStatsTimedSince stores SettingStatsTimedSince from the rows when it is absent (a database
+// from before it existed, or the first timed row). It runs inside the caller's write transaction:
+// InsertStat calls it after a timed row goes in, and a delete calls it before removing anything.
+func EnsureStatsTimedSince(ctx context.Context, q Querier, now int64) error {
+	var one int
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM settings WHERE key = ?`, SettingStatsTimedSince).Scan(&one)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	_, err = q.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at)
+		SELECT ?1, CAST(t AS TEXT), ?2 FROM (SELECT MIN(t) AS t FROM (
+			SELECT MIN(ts) AS t FROM stats_events INDEXED BY idx_stats_kind_ts WHERE kind = 'read_time'
+			UNION ALL SELECT MIN(ts) FROM stats_events INDEXED BY idx_stats_kind_ts WHERE kind = 'scroll')) WHERE t IS NOT NULL
+		ON CONFLICT(key) DO NOTHING`, SettingStatsTimedSince, now)
+	return err
+}
+
+// statsLegacyCutoff is the ts of the earliest read_time or scroll event ever recorded (the stored
+// setting, which outlives deleted rows, or else the earliest row); opens before it predate the
+// sender and count as reads. MaxInt64 when there is none (every open is legacy).
 func statsLegacyCutoff(ctx context.Context, q Querier, maxID int64) (int64, error) {
 	cut := int64(math.MaxInt64)
 	for _, k := range []string{"read_time", "scroll"} {
@@ -263,6 +323,13 @@ func statsLegacyCutoff(ctx context.Context, q Querier, maxID int64) (int64, erro
 		}
 		if ts.Valid && ts.Int64 < cut {
 			cut = ts.Int64
+		}
+	}
+	if raw, ok, err := settingRawErr(ctx, q, SettingStatsTimedSince); err != nil {
+		return 0, err
+	} else if ok {
+		if n, ok := jsonInt(raw); ok && int64(n) < cut {
+			cut = int64(n)
 		}
 	}
 	return cut, nil
@@ -413,7 +480,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	}
 	out := &StatsSummary{Enabled: enabled, TZ: tz, WeekStart: ws,
 		Daily: []StatsDaily{}, Heatmap: []StatsHeat{}, Sources: []StatsSource{}, NeverOpened: []StatsNeverOpened{}}
-	if !enabled {
+	if !enabled && !p.WhenOff {
 		return out, nil
 	}
 	inc := 0
@@ -438,6 +505,9 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	}
 	from, to := p.From, p.To
 	if p.Key == "all" {
+		// First date present through today. Rows dated after today (written under another time zone
+		// or by a clock that moved back) are not in this range, as the daily series and the streak
+		// clamping already assume; range.last_event_date reports them.
 		from, to = first, today
 		if from == "" || from > to {
 			from = today
@@ -446,6 +516,11 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	fromT, toT := parseLocalDate(from), parseLocalDate(to)
 	days := int(toT.Sub(fromT).Hours()/24) + 1
 	out.Range = &StatsRange{Key: p.Key, From: from, To: to, Days: days}
+	if last, err := statsLastDate(ctx, q, maxID); err != nil {
+		return nil, err
+	} else if last != "" {
+		out.Range.LastEventDate = &last
+	}
 
 	// ts bounds narrow the (kind, ts) scans of the small kinds; local_date is the exact filter (the
 	// slack covers any zone offset and a tz change since the row was written).

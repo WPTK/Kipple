@@ -89,7 +89,15 @@ func InsertStat(ctx context.Context, q Querier, r StatRow) error {
 		ON CONFLICT DO NOTHING`,
 		r.TS, r.LocalDate, r.LocalHour, r.LocalWeekday, r.Kind, r.Client, boolInt(r.Inferred), r.ItemID, r.FeedID, r.FeedTitle,
 		r.FolderID, r.FolderName, nullStr(r.ItemTitle), nullStr(r.ItemURL), r.Value, nullStr(r.SessionKey), nullStr(r.EventID))
-	return err
+	if err != nil {
+		return err
+	}
+	if r.Kind == "read_time" || r.Kind == "scroll" {
+		// The first timed row ever recorded fixes the summary's legacy cutoff for good, in this same
+		// transaction (a no-op once stored).
+		return EnsureStatsTimedSince(ctx, q, r.TS)
+	}
+	return nil
 }
 
 // StatOpenTS returns the ts of the open event that issued sessionKey for

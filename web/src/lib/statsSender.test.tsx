@@ -11,6 +11,7 @@ import {
   FIT_AFTER_SECONDS,
   FLUSH_EVERY_MS,
   FLUSH_TIMEOUT_MS,
+  clearStatsQueue,
   IDLE_CUTOFF_MS,
   ITEM_EVENT_TTL_MS,
   QUEUE_MAX_EVENTS,
@@ -638,6 +639,24 @@ describe("the offline queue", () => {
     expect(qKeys()).toHaveLength(2);
     await wipeOfflineData();
     expect(qKeys()).toEqual([]);
+  });
+
+  it("clearStatsQueue drops queued batches and unsent counts but keeps sending on", () => {
+    refuseBeacon();
+    sendStats([ev(1)]);
+    localStorage.setItem("kipple.stats.queue.v1", "[]");
+    const { send, stop } = session();
+    sec(7); // 7 s counted, none sent yet
+    clearStatsQueue();
+    expect(qKeys()).toEqual([]);
+    expect(localStorage.getItem("kipple.stats.queue.v1")).toBeNull();
+    sec(3);
+    stop();
+    expect(seconds(send)).toBe(3); // only what was counted after the clear
+    sec(20);
+    expect(send).toHaveBeenCalledTimes(1);
+    sendStats([ev(2)]); // not wiped: later events still queue
+    expect(queuedStatsForTests().flatMap((b) => b.events.map((e) => e.item_id))).toEqual([2]);
   });
 
   it("joins queued batches into one request per client on reconnect, in order, then empties", async () => {

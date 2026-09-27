@@ -155,7 +155,7 @@ Decisions are recorded in full in the private history repository. Summary of wha
   Deferred: per-feed drill-down, period comparison, monthly charts, read rate per feed.
 - **Settings:** first day of week (Sunday or Monday, default Sunday); stats on/off (off stops recording and hides the
   screen, keeps data); Wrapped on/off; delete a range; delete all (typed confirmation).
-- **Export:** CSV and JSON (array or JSON Lines), raw or summary, range, titles/URLs toggle, data dictionary.
+- **Export:** raw events as CSV, JSON or JSON Lines; the summary is JSON only (a summary is several tables, so a CSV or JSON Lines summary was not built). Range, a toggle to leave out article titles and links (feed and folder names, times and the time zone stay), and a data dictionary. Export and delete stay available with statistics off.
 - **Sender:** 15 s flush, visibilitychange primary and pagehide backup, 2 minute idle cutoff, a random id on every event
   (unique index) for dedup, offline events queued, losses accepted.
 - **Delivery:** alpha.4 sender and settings, alpha.5 screen, alpha.6 export and data controls, alpha.7 Wrapped.

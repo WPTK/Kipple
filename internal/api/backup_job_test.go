@@ -136,7 +136,7 @@ func TestBackupHeadDoesNotSpendTheToken(t *testing.T) {
 	cross := func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }
 	require.Equal(t, http.StatusForbidden, head("/api/backup/"+tok, cross).Code, "the origin rule covers HEAD")
 	require.Equal(t, http.StatusForbidden, head("/api/opml", cross).Code)
-	require.Equal(t, http.StatusForbidden, head("/api/stats/export.csv", cross).Code)
+	require.Equal(t, http.StatusForbidden, head("/api/stats/export", cross).Code)
 	rec := head("/api/backup/" + tok)
 	require.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 	require.Equal(t, "GET", rec.Header().Get("Allow"))

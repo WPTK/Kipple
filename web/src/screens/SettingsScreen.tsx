@@ -32,6 +32,8 @@ import { AutoReadCatchUp } from "./AutoReadCatchUp";
 import { ImageCachePanel } from "./ImageCachePanel";
 import { SavedSearchesSection } from "./SavedSearchesSection";
 import { SettingField } from "./SettingField";
+import { StatsDataSection } from "./StatsDataDialogs";
+import { loadRange } from "@/lib/statsFormat";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const id = useId();
@@ -338,6 +340,10 @@ export function SettingsScreen() {
           </div>
         ) : null}
         {settings.data ? <ServerSettings settings={settings.data.settings} /> : null}
+        {/* One fixed slot, whether settings are loading, failed or loaded: it never remounts, so an open dialog survives. */}
+        <Section title="Your statistics data">
+          <StatsDataSection defaultRange={loadRange()} hideTitle />
+        </Section>
 
         <Section title="Filters">
           <FiltersSection />

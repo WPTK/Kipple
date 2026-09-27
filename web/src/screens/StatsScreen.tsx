@@ -31,6 +31,7 @@ import { useMedia } from "@/lib/useMedia";
 import { Button } from "@/ui/button";
 import { Notice, Skeleton } from "@/ui/kit";
 import { Segmented } from "@/ui/segmented";
+import { StatsDataSection, StatsExportDialog } from "./StatsDataDialogs";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const id = useId();
@@ -419,6 +420,7 @@ export function StatsScreen() {
   const [range, setRange] = useState<StatsRange>(loadRange);
   const q = useStatsSummary(range, on);
   const data = q.data;
+  const [exporting, setExporting] = useState(false);
   const pick = (r: StatsRange) => {
     setRange(r);
     saveRange(r);
@@ -427,14 +429,17 @@ export function StatsScreen() {
   let body: ReactNode;
   if (!on || (data && !data.enabled)) {
     body = (
-      <div className="py-8 text-center" role="status">
-        <p className="text-sm text-fg2">
+      <div className="py-8 text-center">
+        <p className="text-sm text-fg2" role="status">
           Statistics are off. Turn them on in{" "}
           <Link to="/settings" className="text-link underline underline-offset-2">
             Settings &gt; Statistics
           </Link>
           .
         </p>
+        <div className="mt-6 text-left">
+          <StatsDataSection defaultRange={range} />
+        </div>
       </div>
     );
   } else if (q.isPending) {
@@ -498,15 +503,16 @@ export function StatsScreen() {
           Stats
         </h1>
         {on && !(data && !data.enabled) ? (
-          <Segmented
-            legend="Range"
-            value={range}
-            onChange={pick}
-            options={RANGES}
-          />
+          <div className="flex items-end gap-3">
+            <div className="min-w-0 flex-1">
+              <Segmented legend="Range" value={range} onChange={pick} options={RANGES} />
+            </div>
+            <Button onClick={() => setExporting(true)}>Export</Button>
+          </div>
         ) : null}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">{body}</div>
+      <StatsExportDialog open={exporting} onOpenChange={setExporting} defaultRange={range} />
     </div>
   );
 }

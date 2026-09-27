@@ -249,6 +249,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/maintenance/fts-rebuild", s.authed(s.ftsRebuild))
 	handle("POST /api/stats/events", s.authed(s.statsEvents))
 	handle("GET /api/stats/summary", s.authed(s.statsSummary))
+	handle("GET /api/stats/export", s.authed(s.statsExport))
+	handle("GET /api/stats/dictionary", s.authed(s.statsDictionary))
+	handle("POST /api/stats/delete", s.authed(s.statsDelete))
 	handle("GET /api/settings", s.authed(s.getSettings))
 	handle("PATCH /api/settings", s.authed(s.patchSettings))
 	handle("GET /api/device", s.authed(s.getDevice))
@@ -341,7 +344,7 @@ func isDownload(r *http.Request) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		return false
 	}
-	return r.URL.Path == "/api/opml" || r.URL.Path == "/api/stats/export.csv" ||
+	return r.URL.Path == "/api/opml" || r.URL.Path == "/api/stats/export" ||
 		(strings.HasPrefix(r.URL.Path, "/api/backup/") && !strings.HasPrefix(r.URL.Path, "/api/backup/jobs/"))
 }
 

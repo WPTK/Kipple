@@ -206,6 +206,40 @@ describe("Stats screen", () => {
     expect(screen.getByText(/cells with opens but no recorded time show the lightest shade/)).toBeInTheDocument();
   });
 
+  it("keeps Export available when statistics are off", async () => {
+    const user = userEvent.setup();
+    setup(() => offStats, { "stats.enabled": false });
+    go();
+    expect(await screen.findByRole("button", { name: "Delete a date range…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete all statistics…" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Export…" }));
+    expect(await screen.findByRole("dialog", { name: "Export statistics" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+  });
+
+  it("keeps the data actions on Settings when the settings request fails", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/settings": () => json({ error: "boom" }, 500),
+      "GET /api/items": () => json({ items: [], next_cursor: null }),
+    });
+    go("/settings");
+    expect(await screen.findByText(/Couldn't load your settings/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete a date range…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete all statistics…" })).toBeInTheDocument();
+  });
+
+  it("opens the export dialog from the Export button beside the Range control", async () => {
+    const user = userEvent.setup();
+    setup(() => richStats);
+    go();
+    await screen.findByRole("heading", { name: "Daily activity" });
+    await user.click(screen.getByRole("button", { name: "Export" }));
+    expect(await screen.findByRole("dialog", { name: "Export statistics" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+  });
+
   it("hides the Range control when the server says stats are off", async () => {
     setup(() => offStats);
     go();
