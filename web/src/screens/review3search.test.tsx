@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
@@ -7,6 +7,7 @@ import { initialLive, liveStore } from "@/api/events";
 import { searchHighlightStore, setSearchHighlight } from "@/lib/searchTerms";
 import { setSearchOrder } from "@/lib/searchPrefs";
 import { bootstrap, card, detail, json, mockFetch } from "@/test/mockApi";
+import { navigateTo } from "@/test/nav";
 import type { ItemsPage } from "@/api/types";
 
 class NoES {
@@ -17,13 +18,6 @@ class NoES {
 function go(path: string) {
   window.history.replaceState({ idx: 0 }, "", path);
   return render(<App client={makeQueryClient({ retry: false })} />);
-}
-/** An in-app navigation (a sidebar link): the router hears a popstate. */
-function navigateTo(path: string) {
-  act(() => {
-    window.history.pushState({ idx: 1 }, "", path);
-    window.dispatchEvent(new PopStateEvent("popstate", { state: { idx: 1 } }));
-  });
 }
 function wide() {
   vi.stubGlobal("matchMedia", (query: string) => ({

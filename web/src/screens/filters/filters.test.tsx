@@ -5,8 +5,9 @@ import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { handleServerEvent, initialLive, liveStore } from "@/api/events";
-import type { Filter } from "@/api/filters";
+import { filterStatus, type Filter } from "@/api/filters";
 import type { Bootstrap } from "@/api/types";
+import { devicePrefsStore } from "@/lib/devicePrefs";
 import { closeFilterEditor } from "@/lib/similar";
 import { clearToasts } from "@/shell/toasts";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
@@ -115,6 +116,51 @@ describe("Settings > Filters list", () => {
     expect(body(calls.find((c) => c.method === "PATCH" && c.url.pathname === "/api/filters/2") as never)).toEqual({ enabled: true });
     await waitFor(() => expect(within(list).getAllByRole("switch")[1]).toBeChecked());
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("a highlight rule never claims it has not matched: its matches are not counted (UAT Suite 2, TC-R6)", async () => {
+    routes({
+      "GET /api/filters": () =>
+        json({
+          filters: [
+            filter(3, { name: "Hl lemur", action: "highlight", terms: ["lemur"], hits: 0 }),
+            filter(4, { name: "Hl off", action: "highlight", terms: ["otter"], hits: 0, enabled: false }),
+          ],
+        }),
+    });
+    go("/settings");
+    const list = await screen.findByRole("list", { name: "Your filters" });
+    const [on, off] = within(list).getAllByRole("listitem") as [HTMLElement, HTMLElement];
+    expect(on).toHaveTextContent("Marks matching words as you read");
+    expect(on).not.toHaveTextContent("Hasn't matched anything yet");
+    expect(off).not.toHaveTextContent("Marks matching words as you read"); // switched off: it marks nothing
+    expect(off).not.toHaveTextContent("Hasn't matched anything yet");
+    expect(off.querySelectorAll("p:empty")).toHaveLength(0);
+  });
+
+  it("filterStatus: counts for rules that act, a description for highlights, nothing for a switched-off highlight", () => {
+    const base = { enabled: true, disabled_reason: null, hits: 0, last_hit_at: null, muted_items: 0 };
+    expect(filterStatus({ ...base, action: "mute" }, true)).toBe("Hasn't matched anything yet");
+    expect(filterStatus({ ...base, action: "mute", hits: 1, last_hit_at: Math.floor(Date.now() / 1000), muted_items: 1 }, true)).toMatch(/^Matched 1 article, last .* · 1 muted now$/);
+    expect(filterStatus({ ...base, action: "highlight" }, true)).toBe("Marks matching words as you read");
+    expect(filterStatus({ ...base, action: "highlight" }, false)).toMatch(/^Highlighting is off on this device/);
+    expect(filterStatus({ ...base, action: "highlight", enabled: false }, true)).toBe("");
+    expect(filterStatus({ ...base, action: "highlight", disabled_reason: "bad pattern" }, true)).toBe("");
+  });
+
+  it("a highlight rule says so when this device has highlighting turned off", async () => {
+    const before = devicePrefsStore.get();
+    devicePrefsStore.set({ ...before, highlightKeywords: false });
+    try {
+      routes({ "GET /api/filters": () => json({ filters: [filter(3, { name: "Hl lemur", action: "highlight", terms: ["lemur"], hits: 0 })] }) });
+      go("/settings");
+      const list = await screen.findByRole("list", { name: "Your filters" });
+      const row = within(list).getAllByRole("listitem")[0] as HTMLElement;
+      expect(row).toHaveTextContent("Highlighting is off on this device");
+      expect(row).not.toHaveTextContent("Marks matching words as you read");
+    } finally {
+      devicePrefsStore.set(before);
+    }
   });
 
   it("says so when there are none", async () => {

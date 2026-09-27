@@ -220,7 +220,7 @@ export function AppShell() {
       search: () => {
         const box = pathname === "/search" ? document.querySelector<HTMLInputElement>("[data-search-input]") : null;
         if (box) box.focus();
-        else navigate("/search");
+        else navigate("/search", { state: { focusSearchBox: true } }); // pressed to type: arrive in the box
       },
       help: openHelp,
       undo: () => void undoLast(),
@@ -232,14 +232,20 @@ export function AppShell() {
   const mainRef = useRef<HTMLElement>(null);
   const first = useRef(true);
   const section = pathname.split("/")[1] ?? "";
+  // This is the one writer of arrival focus. A screen names its target instead of calling focus() itself, which
+  // this effect would overwrite since child effects run first: data-load-focus for a page load or reload,
+  // data-route-focus for an in-app arrival (else the heading, which also announces the new screen). A lazy screen
+  // still loading here has neither target nor heading yet.
   useEffect(() => {
     if (first.current) {
+      // The page load: focus stays where the browser put it unless the screen named a target.
       first.current = false;
+      mainRef.current?.querySelector<HTMLElement>("[data-load-focus]")?.focus({ preventScroll: true });
       return;
     }
     if (section === "i") return; // the article focuses its own title
-    const h = mainRef.current?.querySelector<HTMLElement>("[data-route-heading]");
-    (h ?? mainRef.current)?.focus({ preventScroll: true });
+    const target = mainRef.current?.querySelector<HTMLElement>("[data-route-focus]") ?? mainRef.current?.querySelector<HTMLElement>("[data-route-heading]");
+    (target ?? mainRef.current)?.focus({ preventScroll: true });
   }, [section, pathname]);
 
   const inArticle = pathname.startsWith("/i/");

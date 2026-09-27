@@ -9,6 +9,7 @@ import { setSearchHighlight } from "@/lib/searchTerms";
 import { setSearchOrder } from "@/lib/searchPrefs";
 import { devicePrefsStore } from "@/lib/devicePrefs";
 import { bootstrap, card, json, mockFetch } from "@/test/mockApi";
+import { navigateTo } from "@/test/nav";
 import type { ItemsPage } from "@/api/types";
 
 class NoES {
@@ -48,6 +49,50 @@ describe("Search: the / key on the Search screen", () => {
     await waitFor(() => expect(box).toHaveFocus());
     expect(new URLSearchParams(window.location.search).get("q")).toBe("cats");
     expect(box).toHaveValue("cats");
+  });
+});
+
+describe("Search: the / key from another screen", () => {
+  // Child effects run before the shell's: Search focused its box, then the shell's arrival focus moved it to the
+  // heading. The / key now asks for the box (router state), the box names itself the arrival target, and the shell
+  // is the only one that focuses.
+  it("lands in the search box, not on the screen heading (UAT Suite 2, TC-R3)", async () => {
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
+    go("/l/unread");
+    await screen.findByText("Cats");
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.setup().keyboard("/");
+    const box = await screen.findByRole("searchbox", { name: "Search articles" });
+    await waitFor(() => expect(box).toHaveFocus());
+    // Used once: Back or Forward to this entry later arrives at the heading like any other screen.
+    await waitFor(() => expect((window.history.state as { usr?: unknown } | null)?.usr ?? null).toBeNull());
+    expect(window.location.pathname).toBe("/search");
+  });
+
+  it("arriving from the Search link or tab still goes to the heading, which announces the screen", async () => {
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
+    go("/l/unread");
+    await screen.findByText("Cats");
+    navigateTo("/search");
+    const heading = await screen.findByRole("heading", { name: "Search", level: 1 });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it("a page load or reload of Search puts the caret in the box", async () => {
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
+    go("/search");
+    const box = await screen.findByRole("searchbox", { name: "Search articles" });
+    await waitFor(() => expect(box).toHaveFocus());
+  });
+
+  it("arriving back at results (a search with a query) still goes to the heading", async () => {
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
+    go("/l/unread");
+    await screen.findByText("Cats");
+    navigateTo("/search?q=cats"); // Back to results, or a saved search
+    const heading = await screen.findByRole("heading", { name: "Search", level: 1 });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(screen.getByRole("searchbox", { name: "Search articles" })).toHaveValue("cats");
   });
 });
 

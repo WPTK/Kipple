@@ -87,12 +87,14 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
           </li>
           {existing ? (
             <li>
-              {existing} feed{existing === 1 ? " was" : "s were"} already in Kipple and left as they are
+              {existing === 1 ? "1 feed was already in Kipple and was left as it is" : `${existing} feeds were already in Kipple and were left as they are`}
             </li>
           ) : null}
           {dropped ? (
             <li>
-              {dropped} feed{dropped === 1 ? " was" : "s were"} listed in more than one folder. Each stays in the first.
+              {dropped === 1
+                ? "1 feed was listed in more than one folder. It stays in the first."
+                : `${dropped} feeds were listed in more than one folder. Each stays in the first.`}
             </li>
           ) : null}
           {result.folders_merged_case.length ? <li>Folders that differed only by capital letters were merged: {result.folders_merged_case.map((m) => `${m.merged} into ${m.kept}`).join(", ")}</li> : null}
