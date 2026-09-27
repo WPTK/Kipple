@@ -2,6 +2,7 @@ import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
 import { noteFilterTouched } from "./filterEdits";
 import { keys } from "./queries";
+import { whenLabel } from "@/lib/format";
 import type { Card } from "./types";
 
 // Filters (docs/design.md 7.1b). A filter mutes, marks read, stars or highlights the articles its terms match.
@@ -74,6 +75,20 @@ export const ACTIONS: readonly { id: FilterAction; label: string; help: string }
   { id: "highlight", label: "Highlight", help: "Draws the matching words in a colored mark in lists and articles. Nothing is changed or hidden." },
 ];
 export const actionLabel = (a: string): string => ACTIONS.find((x) => x.id === a)?.label ?? a;
+
+/**
+ * The status line under a rule in Settings, or "" for none. A highlight changes nothing stored, so the server never
+ * counts its matches (a count would always read 0): it says what it does, or that this device has highlighting off,
+ * and nothing while the rule is off (the switch or the "Turned off" note already says so).
+ */
+export function filterStatus(f: Pick<Filter, "action" | "enabled" | "disabled_reason" | "hits" | "last_hit_at" | "muted_items">, highlightKeywords: boolean): string {
+  if (f.action === "highlight") {
+    if (!f.enabled || f.disabled_reason) return "";
+    return highlightKeywords ? "Marks matching words as you read" : "Highlighting is off on this device: turn on Highlight keywords with the Aa button above any list or article";
+  }
+  const hits = f.hits === 0 ? "Hasn't matched anything yet" : `Matched ${f.hits.toLocaleString()} article${f.hits === 1 ? "" : "s"}, last ${whenLabel(f.last_hit_at).toLowerCase()}`;
+  return hits + (f.action === "mute" && f.muted_items > 0 ? ` · ${f.muted_items.toLocaleString()} muted now` : "");
+}
 
 export function emptyDraft(over: Partial<FilterDraft> = {}): FilterDraft {
   return {

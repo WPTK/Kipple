@@ -425,8 +425,8 @@ describe("Folders and OPML", () => {
     await user.click(within(dlg).getByRole("button", { name: "Import" }));
     const done = await screen.findByRole("dialog", { name: "Import finished" });
     expect(within(done).getByText(/5 feeds added/)).toBeInTheDocument();
-    expect(within(done).getByText(/already in Kipple/)).toBeInTheDocument();
-    expect(within(done).getByText(/more than one folder/)).toBeInTheDocument();
+    expect(within(done).getByText("1 feed was already in Kipple and was left as it is")).toBeInTheDocument();
+    expect(within(done).getByText("1 feed was listed in more than one folder. It stays in the first.")).toBeInTheDocument();
     const post = calls.find((c) => c.url.pathname === "/api/opml");
     expect(post?.url.searchParams.get("mark_read_older_than_days")).toBe("7");
   });

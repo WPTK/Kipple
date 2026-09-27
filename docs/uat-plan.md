@@ -140,6 +140,87 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
 - TC-P2: Service worker precaches hashed assets; a reload after a deploy picks up the new version
   (`update()` on `visibilitychange`).
 
+**Executed 2026-09-27.** Driven by Claude in the desktop app's built-in browser pane against a throwaway local
+instance (`npm run seed` on 127.0.0.1:7092, its own temp data dir, build of `main` at `ffb48cb`), plus a local
+test feed served from the same temp dir so arrivals and filter matches could be controlled. The pane stayed
+hidden behind other windows for the whole run, which has side effects worth knowing before re-running this: the
+page reports `document.visibilityState` "hidden" and never has focus, CSS transitions, `ResizeObserver` and
+media-query change events only advance when a frame is actually drawn (a screenshot forces one), react-query
+pauses retries, and active reading time is never recorded. Where that mattered it is said below; none of it is a
+Kipple defect. Defects found: three fixed in PR #45, two copy questions filed as issues #43 and #44 for the owner.
+
+- TC-F1 **pass.** Adding `https://blog.rust-lang.org/` (a site, not a feed) discovered the feed and showed 10
+  items within about 3 s.
+- TC-F2 **pass, with a substitute fixture.** The 138-feed NewsBlur export was not available to the agent; a
+  6-feed OPML with two folders, a top-level feed and one duplicate was used instead. Result: 5 added, 2 folders
+  created, 1 already present and left in its original folder, top-level feed placed in Uncategorized. The
+  summary's "1 feed was already in Kipple and left as they are" mixed singular and plural (fixed, PR #45).
+- TC-F3 **pass.** Re-importing the export into the same instance added nothing; importing it into a second,
+  empty instance and exporting again gave a byte-identical file, including `kipple:interval` and
+  `kipple:retention` overrides.
+- TC-F4 **pass.** Poll interval (2 h), retention (newest 50) and layout (Cards, a per-device override) set on one
+  feed all survived a server restart, and the feed opened in Cards.
+- TC-F5 **pass.** Deleting a feed with 2 starred items (the dialog showed the count, keep-starred default)
+  moved them to "Unsubscribed (starred)"; both stayed in Starred with their original feed name, and Stats lists
+  the feed as "(unsubscribed)".
+- TC-R1 **pass.** All five layouts render real content with images through `/img/`, no horizontal overflow and
+  no `undefined`/`NaN` text. (Overlapping Editorial rows in one screenshot were the hidden-pane
+  `ResizeObserver` stall, gone once a frame was drawn.)
+- TC-R2 **pass.** Each density step changes both the list variables and the article line height and measure
+  (1.4 to 1.8); the Settings live preview matches the applied values exactly and the choice is saved to the
+  device profile.
+- TC-R3 **pass after a fix.** j/k, m (with the dim-then-leave behavior when moving off, and undo), s, o, c, r,
+  z, `?` and the 15 s undo toast behave as specified. `/` from another screen opened Search with the caret on
+  the heading instead of the search box (the shell's heading focus ran after Search focused its box); fixed in
+  PR #45 with regression tests. Other in-app arrivals at Search keep heading focus and a page load still puts the
+  caret in the box.
+- TC-R4 **pass.** Short list plus More themes and Accessibility themes groups; all 20 schemes apply, body text
+  contrast 7.8:1 or better on every one; Signal's danger is magenta (`#a0006a`), Carbon is neutral gray-black and
+  Fountain clearly navy with cream text.
+- TC-R5 **pass.** Follow system switches Paper/Midnight with the color scheme; On a schedule with custom picks
+  (Linen by day, Graphite by night) switched to Graphite at the night boundary and back to Linen at the day
+  boundary without a reload.
+- TC-R6 **pass, auto-read partly.** Mute (created in the UI), mark read, auto-star and highlight each acted on a
+  new matching item as it arrived; Muted lists the muted item with its rule and Restore brings it back unread; a
+  saved search is in the sidebar with its count. Auto-read after N days is measured from crawl time by design,
+  so on a fresh instance the preview correctly finds nothing (the catch-up path itself is covered by store
+  tests). The highlight rule always said "Hasn't matched anything yet" because highlights are never counted;
+  fixed in PR #45.
+- TC-R7 **pass.** With the list loaded, an item that arrived afterwards stayed unread after Shift+A while the
+  three loaded ones were marked read. The empty state then says new ones appear after the next refresh while
+  the "1 new article" pill is showing (issue #44).
+- TC-S1 **pass.** `runner` finds "runners", `run` finds "running"; the saved search re-runs to the same result
+  list later.
+- TC-T1 **pass (short session).** Opens and reads from the session show up with matching numbers in all four
+  ranges, the Items/Minutes toggle and folder rollup, never-opened feeds and streaks. A full day of the owner's
+  real reading is still worth a look in Suite 3.
+- TC-T2 **pass.** CSV, JSON and JSON Lines raw exports and the JSON summary all parse and carry the same event
+  count; with titles and links off, `item_title`/`item_url` are null and no URL or title appears anywhere; the
+  data dictionary downloads as Markdown.
+- TC-T3 **pass.** Delete a range showed "No events in that range" for a range without data and the right count
+  for today, then a second confirmation; Delete all only enables on the exact `DELETE ALL`; Stats shows the empty
+  state afterwards. Turning statistics off stopped recording and hid Stats, and on again resumed recording, both
+  without a reload.
+- TC-T4 **pass.** Your year gives a plausible summary, the share sheet copies the text (top sources only when
+  switched on) and saves a PNG; a failing summary request shows "Try again", which recovers. When a year has
+  opens but no reads, the "Only 1 day of reading" notice contradicts "No days with reading" (issue #43).
+- TC-A1, TC-A2, TC-A3 **skipped.** They need Reeder Classic and NetNewsWire on the owner's devices; not
+  executable by an agent.
+- TC-C1 **pass (negative case only).** Without Access configured the login form requires the password: an empty
+  password is refused, including with a forged `Cf-Access-Jwt-Assertion` header. The positive case needs a real
+  Cloudflare Access setup and was not testable here.
+- TC-C2 **pass.** Generate API password asks for the web password, shows the new one once and copies it; that
+  password signs in on `ClientLogin` and lists subscriptions, and the web password does not.
+- TC-C3 **pass.** The restore half is Suite 4's drill below; the web backup export here produced a valid zip
+  with the expected contents summary and warning.
+- TC-P1 **pass.** Manifest (standalone, scope and start `/`), 192/512/maskable icons and a 180 px
+  `apple-touch-icon` all load at their declared sizes; `viewport-fit=cover` with safe-area insets in the CSS; at
+  the mobile preset (375 px) no screen scrolls sideways and the bottom tab bar is in place.
+- TC-P2 **blocked in the pane, checked statically.** The built-in browser refuses every service worker
+  registration, even a one-line worker on another local origin, so the live update could not be exercised. The
+  built `sw.js` precaches the page's hashed `index-*.js`/`.css` and the lazy chunks, and `update()` runs on
+  `visibilitychange`. The live check belongs on a real browser in Suite 3.
+
 ## Suite 3 — Owner-only (real device required)
 
 - TC-D1: Install the PWA on the iPhone from Safari; relaunch later, confirm still logged in.

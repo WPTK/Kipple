@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { BookmarkPlus, CheckCheck, X } from "lucide-react";
 import { savedScopeOf, scopeFromSearchParams, useSavedSearches } from "@/api/savedSearches";
 import { useBootstrap } from "@/api/queries";
@@ -87,9 +87,16 @@ export function SearchScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, urlQ]);
 
+  // Where focus lands on arrival (the shell does the focusing, see AppShell): the box on a page load or reload, as
+  // before (data-load-focus), and when the / key asked for it (router state, data-route-focus); the heading for
+  // every other in-app arrival.
+  const location = useLocation();
+  const slashAsked = (location.state as { focusSearchBox?: unknown } | null)?.focusSearchBox === true;
+  // The / key's request is used once: cleared from the history entry so Back or Forward to it later arrives at the
+  // heading. The replace re-renders after the shell has already read the target.
   useEffect(() => {
-    inputRef.current?.focus({ preventScroll: true });
-  }, []);
+    if (slashAsked) void navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, { replace: true, state: null });
+  }, [slashAsked, location.pathname, location.search, location.hash, navigate]);
 
   useHotkeys({ up: () => navigate(-1) }, { singleKeys: prefs.shortcuts });
 
@@ -145,6 +152,8 @@ export function SearchScreen() {
             id={inputId}
             ref={inputRef}
             data-search-input
+            data-load-focus
+            data-route-focus={slashAsked ? "" : undefined}
             type="search"
             enterKeyHint="search"
             autoComplete="off"

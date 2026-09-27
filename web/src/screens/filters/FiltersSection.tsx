@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import { errorMessage } from "@/api/client";
-import { actionLabel, deleteFilter, fieldLabel, filtersKey, invalidateFilterData, setFilterEnabled, useFilters, type Filter, type Unmute } from "@/api/filters";
+import { actionLabel, deleteFilter, fieldLabel, filterStatus, filtersKey, invalidateFilterData, setFilterEnabled, useFilters, type Filter, type Unmute } from "@/api/filters";
 import { useBootstrap } from "@/api/queries";
-import { whenLabel } from "@/lib/format";
+import { devicePrefsStore } from "@/lib/devicePrefs";
+import { useStoreSelector } from "@/lib/store";
 import { openFilterEditor } from "@/lib/similar";
 import { emptyDraft } from "@/api/filters";
 import { announce, toast } from "@/shell/toasts";
@@ -129,7 +130,19 @@ export function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClos
   );
 }
 
-function FilterRow({ f, folders, feeds, onDelete }: { f: Filter; folders: { id: string; name: string }[]; feeds: { id: string; title: string }[]; onDelete: (f: Filter) => void }) {
+function FilterRow({
+  f,
+  folders,
+  feeds,
+  highlightKeywords,
+  onDelete,
+}: {
+  f: Filter;
+  folders: { id: string; name: string }[];
+  feeds: { id: string; title: string }[];
+  highlightKeywords: boolean;
+  onDelete: (f: Filter) => void;
+}) {
   const qc = useQueryClient();
   const toggle = async (enabled: boolean) => {
     qc.setQueryData<Filter[]>(filtersKey, (old) => old?.map((x) => (x.id === f.id ? { ...x, enabled } : x)));
@@ -143,6 +156,7 @@ function FilterRow({ f, folders, feeds, onDelete }: { f: Filter; folders: { id: 
     }
   };
   const terms = f.terms.slice(0, 4).join(", ") + (f.terms.length > 4 ? ` and ${f.terms.length - 4} more` : "");
+  const status = filterStatus(f, highlightKeywords);
   return (
     <li data-filter-id={f.id} className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
       <Switch label={f.name || "Untitled filter"} checked={f.enabled} onChange={(v) => void toggle(v)} />
@@ -157,10 +171,7 @@ function FilterRow({ f, folders, feeds, onDelete }: { f: Filter; folders: { id: 
             Turned off: {f.disabled_reason}
           </p>
         ) : null}
-        <p className="text-xs text-fg2">
-          {f.hits === 0 ? "Hasn't matched anything yet" : `Matched ${f.hits.toLocaleString()} article${f.hits === 1 ? "" : "s"}, last ${whenLabel(f.last_hit_at).toLowerCase()}`}
-          {f.action === "mute" && f.muted_items > 0 ? ` · ${f.muted_items.toLocaleString()} muted now` : ""}
-        </p>
+        {status ? <p className="text-xs text-fg2">{status}</p> : null}
       </div>
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => openFilterEditor({ mode: "edit", id: f.id })} aria-label={`Edit ${f.name || "filter"}`}>
@@ -179,6 +190,7 @@ function FilterRow({ f, folders, feeds, onDelete }: { f: Filter; folders: { id: 
 /** Settings > Filters: every rule with its scope, action, hits and last hit, an on/off switch, edit and delete. */
 export function FiltersSection() {
   const filters = useFilters();
+  const highlightKeywords = useStoreSelector(devicePrefsStore, (d) => d.highlightKeywords); // one subscription for the list
   const boot = useBootstrap();
   const [deleting, setDeleting] = useState<Filter | null>(null);
   const folders = boot.data?.folders ?? [];
@@ -200,7 +212,7 @@ export function FiltersSection() {
       {list.length ? (
         <ul aria-label="Your filters" className="flex flex-col gap-2">
           {list.map((f) => (
-            <FilterRow key={f.id} f={f} folders={folders} feeds={feeds} onDelete={setDeleting} />
+            <FilterRow key={f.id} f={f} folders={folders} feeds={feeds} highlightKeywords={highlightKeywords} onDelete={setDeleting} />
           ))}
         </ul>
       ) : null}
