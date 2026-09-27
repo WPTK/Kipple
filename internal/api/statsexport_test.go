@@ -19,23 +19,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// bulkStats inserts n open rows on date, in one transaction.
+// bulkStatsBatch is the most rows bulkStats puts in one WithWrite call. WithWrite has a fixed 10 s
+// deadline (store.writeTimeout); a single huge insert-per-exec transaction can trip it under
+// `-race`, which slows every exec down a lot even though the whole test runs fine without it. So
+// bulkStats commits in chunks, each its own transaction, however many rows it is asked for.
+const bulkStatsBatch = 5000
+
+// bulkStats inserts n open rows on date, in chunks of bulkStatsBatch, each its own transaction.
 func (h *harness) bulkStats(n int, date string) {
 	h.t.Helper()
-	require.NoError(h.t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
-		st, err := tx.PrepareContext(ctx, `INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, item_id, feed_id,
-			feed_title, item_title, session_key) VALUES (1780000000, ?, 9, 2, 'open', 'web', ?, 1, 'F', 'T', ?)`)
-		if err != nil {
-			return err
-		}
-		defer st.Close()
-		for i := 0; i < n; i++ {
-			if _, err := st.ExecContext(ctx, date, i+1, fmt.Sprintf("k%d", i)); err != nil {
+	for done := 0; done < n; {
+		batch := min(n-done, bulkStatsBatch)
+		start := done
+		require.NoError(h.t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+			st, err := tx.PrepareContext(ctx, `INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, item_id, feed_id,
+				feed_title, item_title, session_key) VALUES (1780000000, ?, 9, 2, 'open', 'web', ?, 1, 'F', 'T', ?)`)
+			if err != nil {
 				return err
 			}
-		}
-		return nil
-	}))
+			defer st.Close()
+			for i := 0; i < batch; i++ {
+				if _, err := st.ExecContext(ctx, date, start+i+1, fmt.Sprintf("k%d", start+i)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}))
+		done += batch
+	}
 }
 
 func (h *harness) export(q string, mod ...func(*http.Request)) *httptest.ResponseRecorder {
