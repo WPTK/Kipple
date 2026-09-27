@@ -114,6 +114,9 @@ type Server struct {
 	now  func() time.Time
 	lock *auth.Lockout
 
+	// statsGate admits one stats summary computation at a time (it holds up to three reader connections).
+	statsGate chan struct{}
+
 	verifier *auth.Verifier // shared with the Reader API (one argon2 slot per process)
 	rec      stats.Recorder
 
@@ -151,7 +154,7 @@ type Server struct {
 
 // New builds the API server.
 func New(opt Options) *Server {
-	s := &Server{opt: opt, db: opt.DB, log: opt.Logger, now: opt.Now, lock: opt.Lockout, verifier: opt.Verifier}
+	s := &Server{opt: opt, db: opt.DB, log: opt.Logger, now: opt.Now, lock: opt.Lockout, verifier: opt.Verifier, statsGate: make(chan struct{}, 1)}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -245,6 +248,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("PUT /api/items/{id}/star", s.authed(s.starItem))
 	handle("POST /api/maintenance/fts-rebuild", s.authed(s.ftsRebuild))
 	handle("POST /api/stats/events", s.authed(s.statsEvents))
+	handle("GET /api/stats/summary", s.authed(s.statsSummary))
 	handle("GET /api/settings", s.authed(s.getSettings))
 	handle("PATCH /api/settings", s.authed(s.patchSettings))
 	handle("GET /api/device", s.authed(s.getDevice))

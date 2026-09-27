@@ -76,3 +76,6 @@ export function deltaE(a: string, b: string, sim?: keyof typeof CVD): number {
   const lb = labOf(b, sim);
   return Math.hypot(la[0] - lb[0], la[1] - lb[1], la[2] - lb[2]);
 }
+
+/** Heatmap ramp: percent of the scheme's text color mixed into its surface, levels 0 to 4. Adjacent steps must keep 1.5:1. */
+export const HEAT_MIX = [0, 26, 48, 72, 100] as const;

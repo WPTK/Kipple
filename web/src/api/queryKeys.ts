@@ -12,6 +12,7 @@ export const keys = {
   items: (scope: Scope) => ["items", scopeKey(scope)] as const,
   itemsAll: ["items"] as const,
   item: (id: string) => ["item", id] as const,
+  stats: (range: string) => ["stats", range] as const,
 };
 
 /** Stable string for a scope; also used in the article route's `from` param. */

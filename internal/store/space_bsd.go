@@ -1,0 +1,17 @@
+//go:build darwin || freebsd
+
+package store
+
+import "syscall"
+
+// diskFree is the bytes available to an unprivileged process on the volume that holds dir.
+func diskFree(dir string) (uint64, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(dir, &st); err != nil {
+		return 0, err
+	}
+	if st.Bavail < 0 { // FreeBSD reports a negative count when the reserve is dipped into
+		return 0, nil
+	}
+	return uint64(st.Bavail) * uint64(st.Bsize), nil //nolint:unconvert // field types differ per OS
+}

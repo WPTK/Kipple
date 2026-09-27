@@ -4,7 +4,7 @@
 //   npm run contrast -- --markdown  print the tables used in src/theme/README.md
 // Needs Node >= 22.18 (built-in TypeScript type stripping).
 import { readFileSync } from "node:fs";
-import { contrast, deltaE, mixHex } from "../src/theme/contrast.ts";
+import { HEAT_MIX, contrast, deltaE, mixHex } from "../src/theme/contrast.ts";
 
 const schemes = JSON.parse(readFileSync(new URL("../src/theme/schemes.json", import.meta.url), "utf8"));
 const md = process.argv.includes("--markdown");
@@ -15,6 +15,9 @@ const UI_MIN = 3;
 // CIE76 delta E at or above this is "clearly separate" at icon size.
 const CVD_CLEAR = 15;
 
+// Stats heatmap ramp (--heat in src/index.css): each step, including level 1 against the empty cell, keeps this.
+const HEAT_MIN = 1.5;
+const heatRows = [];
 const failures = [];
 const rows = [];
 const cvdRows = [];
@@ -57,6 +60,13 @@ for (const s of schemes) {
   if (hl.underline < UI_MIN) failures.push(`${s.name}: highlight underline ${hl.underline.toFixed(2)} < ${UI_MIN}`);
   rows.push([s.name, ...["text", "text2", "text2s", "link", "links", "danger", "accent", "star", "sel"].map((k) => r[k].toFixed(2))]);
 
+  const heat = HEAT_MIX.map((p) => mixHex(t.text, t.surface, p));
+  const heatSteps = heat.slice(1).map((c, i) => contrast(c, heat[i]));
+  heatRows.push([s.name, ...heatSteps.map((v) => v.toFixed(2))]);
+  heatSteps.forEach((v, i) => {
+    if (v < HEAT_MIN) failures.push(`${s.name}: heatmap step ${i} to ${i + 1} ${v.toFixed(2)} < ${HEAT_MIN}`);
+  });
+
   const cvd = {};
   for (const sim of ["deuteranopia", "protanopia", "tritanopia"]) {
     cvd[sim] = Math.min(
@@ -92,6 +102,8 @@ const fmt = (head, body) =>
 
 if (md) {
   console.log(fmt(["Scheme", "text", "text2", "text2/surf", "link", "link/surf", "danger", "accent", "star", "text/sel"], rows));
+  console.log();
+  console.log(fmt(["Scheme", "heat 0-1", "1-2", "2-3", "3-4"], heatRows));
   console.log();
   console.log(fmt(["Scheme", "Deutan", "Protan", "Tritan"], cvdRows));
   console.log();

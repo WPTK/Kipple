@@ -9,8 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// undo0008 turns a current database into a schema-7 one: no stats_events.event_id and no index on it.
-const undo0008 = `DROP INDEX idx_stats_event;
+// undo0009 turns a current database into a schema-8 one: no stats summary covering indexes.
+const undo0009 = `DROP INDEX idx_stats_open_cov;
+DROP INDEX idx_stats_rt_cov;
+DROP INDEX idx_stats_scroll_cov`
+
+// undo0008 turns a current database into a schema-7 one: no stats_events.event_id and no index on it
+// (and, on top of it, none of the schema-9 indexes).
+const undo0008 = undo0009 + `;
+DROP INDEX idx_stats_event;
 ALTER TABLE stats_events DROP COLUMN event_id`
 
 func TestMigration0008FreshSchema(t *testing.T) {

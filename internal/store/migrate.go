@@ -135,9 +135,65 @@ func (d *DB) migrate(ctx context.Context) error {
 	return nil
 }
 
-func (d *DB) preMigrationSnapshot(ctx context.Context, from, to int) error {
+// migrationFreeBytes reports the free bytes on the volume holding a directory (a variable so a test
+// can fake a full disk).
+var migrationFreeBytes = diskFree
+
+// Extra free space (not peak total usage) a migration needs on top of what the database already
+// occupies: the pre-migration snapshot (VACUUM INTO) is a copy of about 1x the database file, taken
+// with 10% slack, and the migration itself needs headroom for its WAL and file growth (an index
+// build or table rewrite; 0009 adds about a quarter of the database), covered by a fixed
+// migrateHeadroom. When the backup directory is on the same volume as the database the two
+// requirements add up. The check refuses before anything is written, so a full volume ends in a
+// clear error and an untouched database; it fails open when free space cannot be read.
+const (
+	snapshotFreeFactor = 1.1
+	migrateHeadroom    = 64 << 20
+)
+
+// checkMigrationSpace refuses to migrate when the volumes are too full for the snapshot and the migration.
+func (d *DB) checkMigrationSpace(from, to int) error {
+	var size int64 // the database file alone, without the WAL
+	if st, err := os.Stat(d.path); err == nil {
+		size = st.Size()
+	}
 	if err := ensureDir(d.backupDir); err != nil {
 		return fmt.Errorf("store: backup dir: %w", err)
+	}
+	dbDir := filepath.Dir(d.path)
+	dbFree, err1 := migrationFreeBytes(dbDir)
+	snapFree, err2 := migrationFreeBytes(d.backupDir)
+	if err1 != nil || err2 != nil {
+		return nil // cannot tell: do not block the upgrade on the check itself
+	}
+	dbNeed := uint64(size) + migrateHeadroom
+	snapNeed := uint64(float64(size) * snapshotFreeFactor)
+	same := dbFree == snapFree
+	if rel, err := filepath.Rel(dbDir, d.backupDir); err == nil && !strings.HasPrefix(rel, "..") {
+		same = true
+	}
+	fail := func(free, need uint64, what string) error {
+		return fmt.Errorf("store: not enough free disk space to migrate the database from schema %d to %d: %d bytes free %s, at least %d more needed; free some space and start again (nothing was changed)",
+			from, to, free, what, need)
+	}
+	if same {
+		if need := dbNeed + snapNeed; dbFree < need {
+			return fail(dbFree, need, "on the volume holding the database and its pre-migration snapshot")
+		}
+		return nil
+	}
+	if dbFree < dbNeed {
+		return fail(dbFree, dbNeed, "on the volume holding the database")
+	}
+	if snapFree < snapNeed {
+		return fail(snapFree, snapNeed, "where the pre-migration snapshot goes")
+	}
+	return nil
+}
+
+func (d *DB) preMigrationSnapshot(ctx context.Context, from, to int) error {
+	if err := d.checkMigrationSpace(from, to); err != nil {
+		return err
 	}
 	snap, err := d.openSnapshot()
 	if err != nil {

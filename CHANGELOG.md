@@ -6,6 +6,14 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Reading statistics summary: `GET /api/stats/summary` returns totals, a daily series, streaks, a weekday and hour heatmap, reading behavior, per-source figures and feeds that were never opened, for the last week, month, year, all time or a custom date range, in the configured time zone. It is read-only.
+- Schema migration 0009: three covering indexes on the statistics table so the summary reads quickly. Building them scans the table once during the upgrade. An older binary refuses the migrated database, so a rollback restores the pre-migration snapshot (docs/deploy.md). The upgrade needs transient disk room (about twice the database plus the indexes at peak), documented in docs/deploy.md.
+- Stats screen: a Statistics entry in the navigation (hidden when reading statistics are off) opens `/stats`, with a summary strip, a daily activity chart, streaks, a weekday-by-hour heatmap, reading habits, per-source figures (Items or Minutes, by Feeds or Folders) and the feeds that were never opened, for the last week, month, year, all time or a custom range.
+- The summary reports `timed_seconds` and `timed_items` for each source, and `sources_truncated` when more than 300 sources had activity.
+- Before a schema migration, Kipple checks the free disk space and refuses to start with a clear message, changing nothing, when there is too little room for the pre-migration snapshot and the migration.
+
 ## [0.3.0-alpha.4] - 2026-09-26
 
 The reading statistics sender (phase 4, first step; the Stats screen follows in a later alpha) and its settings. One schema
