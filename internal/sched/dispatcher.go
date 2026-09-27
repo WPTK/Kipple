@@ -9,8 +9,10 @@ import (
 	"github.com/WPTK/kipple/internal/fetch"
 )
 
+// dueLimit caps the feeds one tick loads. A variable so tests can shorten it.
+var dueLimit = 500
+
 const (
-	dueLimit         = 500
 	tickQueryTimeout = 5 * time.Second
 	progressEvery    = 500 * time.Millisecond
 	maxEventIDs      = 50
@@ -78,7 +80,21 @@ func (s *Scheduler) tick() {
 	ctx, cancel := context.WithTimeout(context.Background(), tickQueryTimeout)
 	defer cancel()
 	set := s.db.FetchSettings(ctx)
-	due, err := s.db.DueFeeds(ctx, set, now.Unix(), dueLimit)
+	// Blocked feeds are left out in the query, not skipped after the LIMIT:
+	// otherwise more than dueLimit feeds on one held host (or in flight, or
+	// backed off) stay oldest-due and fill every page, starving the rest.
+	skipHosts := make([]string, 0, len(s.hostUntil))
+	for h := range s.hostUntil {
+		skipHosts = append(skipHosts, h)
+	}
+	skipIDs := make([]int64, 0, len(s.flights)+len(s.notBefore))
+	for id := range s.flights {
+		skipIDs = append(skipIDs, id)
+	}
+	for id := range s.notBefore {
+		skipIDs = append(skipIDs, id)
+	}
+	due, err := s.db.DueFeedsExcept(ctx, set, now.Unix(), dueLimit, skipHosts, skipIDs)
 	if err != nil {
 		s.log.Error("sched: due query", "err", err)
 		return

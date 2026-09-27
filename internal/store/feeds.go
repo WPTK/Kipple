@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -136,7 +137,36 @@ func (d *DB) feedSnapshots(ctx context.Context, set FetchSettings, where string,
 
 // DueFeeds returns enabled feeds with next_fetch_at <= now, oldest first.
 func (d *DB) DueFeeds(ctx context.Context, set FetchSettings, now int64, limit int) ([]fetch.Snapshot, error) {
-	return d.feedSnapshots(ctx, set, "WHERE enabled = 1 AND next_fetch_at <= ? ORDER BY next_fetch_at LIMIT ?", now, limit)
+	return d.DueFeedsExcept(ctx, set, now, limit, nil, nil)
+}
+
+// DueFeedsExcept is DueFeeds without the feeds on skipHosts or with an id in
+// skipIDs. The scheduler passes the hosts under a Retry-After hold and the feeds
+// it cannot start now (in flight, backed off): filtering them in the query, not
+// after the LIMIT, keeps a large batch of blocked feeds (hundreds of channels on
+// one held host) from filling every page and starving the rest.
+func (d *DB) DueFeedsExcept(ctx context.Context, set FetchSettings, now int64, limit int, skipHosts []string, skipIDs []int64) ([]fetch.Snapshot, error) {
+	if len(skipHosts) == 0 && len(skipIDs) == 0 {
+		return d.feedSnapshots(ctx, set, "WHERE enabled = 1 AND next_fetch_at <= ? ORDER BY next_fetch_at LIMIT ?", now, limit)
+	}
+	if skipHosts == nil {
+		skipHosts = []string{}
+	}
+	if skipIDs == nil {
+		skipIDs = []int64{}
+	}
+	hosts, err := json.Marshal(skipHosts)
+	if err != nil {
+		return nil, err
+	}
+	ids, err := json.Marshal(skipIDs)
+	if err != nil {
+		return nil, err
+	}
+	return d.feedSnapshots(ctx, set, `WHERE enabled = 1 AND next_fetch_at <= ?
+		AND host NOT IN (SELECT value FROM json_each(?))
+		AND id NOT IN (SELECT value FROM json_each(?))
+		ORDER BY next_fetch_at LIMIT ?`, now, string(hosts), string(ids), limit)
 }
 
 // EnabledFeeds returns every enabled feed (for refresh-all and retention runs).
