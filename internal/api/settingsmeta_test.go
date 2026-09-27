@@ -141,6 +141,30 @@ func TestThemeOptionsAndAliases(t *testing.T) {
 	day := settingDefByKey["ui.theme_day"]
 	_, msg = day.check("system")
 	require.NotEmpty(t, msg, "the day theme is always a scheme")
+	// The schedule is its own flag (ui.theme_schedule) next to "system", which older clients pass through.
+	_, msg = theme.check("schedule")
+	require.NotEmpty(t, msg)
+}
+
+// The schedule is a hidden bool, and its times are 24-hour HH:MM, 00:00 to 23:59, and nothing else.
+func TestThemeScheduleTimes(t *testing.T) {
+	sched := settingDefByKey["ui.theme_schedule"]
+	require.Equal(t, "hidden", sched.Surface)
+	require.Equal(t, "bool", sched.Kind)
+	require.Equal(t, false, store.DefaultSettings["ui.theme_schedule"])
+	for _, k := range []string{"ui.theme_night_start", "ui.theme_day_start"} {
+		d := settingDefByKey[k]
+		require.Equal(t, "hidden", d.Surface, k)
+		for _, good := range []string{"00:00", "07:00", "12:30", "21:00", "23:59"} {
+			v, msg := d.check(good)
+			require.Empty(t, msg, "%s %q", k, good)
+			require.Equal(t, good, v)
+		}
+		for _, bad := range []any{"24:00", "7:00", "07:60", "07:00:00", "0700", " 07:00", "07:0a", "+7:00", "", nil, 700, true} {
+			_, msg := d.check(bad)
+			require.NotEmpty(t, msg, "%s %v", k, bad)
+		}
+	}
 }
 
 // A stored row with an old theme id reads back as the current id, and is not rewritten.

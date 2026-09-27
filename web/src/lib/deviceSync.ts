@@ -3,7 +3,7 @@ import type { DeviceView } from "@/api/types";
 import { announce } from "@/shell/toasts";
 import { isSchemeId } from "@/theme/schemes";
 import { themeStore } from "@/theme/theme";
-import { DEFAULT_THEME_SETTINGS, THEME_STORAGE_KEY, parseThemeSettings } from "@/theme/settings";
+import { DEFAULT_THEME_SETTINGS, THEME_STORAGE_KEY, isClockTime, parseThemeSettings, saveThemeSettings } from "@/theme/settings";
 import type { ThemeSettings } from "@/theme/settings";
 import { FONTS } from "./fonts";
 import {
@@ -42,7 +42,7 @@ export const DEBOUNCE_MS = 500;
 /** localStorage keys: the one-time migration flag, and the unsent changes (so a reload does not lose them). */
 export const SYNC_FLAG_KEY = "kipple.deviceSync.v1";
 export const SYNC_DIRTY_KEY = "kipple.deviceSync.dirty.v1";
-const LEGACY_KEYS = [DEVICE_PREFS_KEY, PREFS_KEY, "kipple.theme.v1"];
+const LEGACY_KEYS = [DEVICE_PREFS_KEY, PREFS_KEY, THEME_STORAGE_KEY];
 
 const store = (): LocalState => ({ theme: themeStore.get(), prefs: prefsStore.get(), dp: devicePrefsStore.get() });
 
@@ -74,6 +74,9 @@ export function profileOf(l: LocalState): Profile {
     "ui.theme": theme.mode === "follow" ? "system" : theme.fixed,
     "ui.theme_day": theme.day,
     "ui.theme_night": theme.night,
+    "ui.theme_schedule": theme.schedule,
+    "ui.theme_night_start": theme.nightStart,
+    "ui.theme_day_start": theme.dayStart,
     "ui.font_body": font,
     "ui.list_density": p.listDensity,
     "ui.reading_density": p.readingDensity,
@@ -116,6 +119,9 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
   }
   if (isSchemeId(g("ui.theme_day"))) theme.day = g("ui.theme_day") as string;
   if (isSchemeId(g("ui.theme_night"))) theme.night = g("ui.theme_night") as string;
+  if (typeof g("ui.theme_schedule") === "boolean") theme.schedule = g("ui.theme_schedule") as boolean;
+  if (isClockTime(g("ui.theme_night_start"))) theme.nightStart = g("ui.theme_night_start") as string;
+  if (isClockTime(g("ui.theme_day_start"))) theme.dayStart = g("ui.theme_day_start") as string;
 
   const fontName = g("ui.font_body");
   const fontId = typeof fontName === "string" ? FONTS.find((f) => (f.server ?? null) === fontName)?.id : undefined;
@@ -398,8 +404,22 @@ function onStorage(e: StorageEvent): void {
     const n = parseDevicePrefs(e.newValue);
     if (stable(n) !== stable(devicePrefsStore.get())) replaceDevicePrefs(n);
   } else if (e.key === THEME_STORAGE_KEY) {
-    const n = parseThemeSettings(e.newValue);
+    // Missing fields keep this tab's values: a tab on an older build writes the cache without the schedule's fields.
+    const n = parseThemeSettings(e.newValue, themeStore.get());
     if (stable(n) !== stable(themeStore.get())) themeStore.set(n);
+    // Such a write also dropped those fields from the cache the next page load paints from: put them back (only
+    // when fields this build knows are missing, so builds that each know more never rewrite each other).
+    else if (lacksThemeFields(e.newValue)) saveThemeSettings(n);
+  }
+}
+
+/** Whether a theme cache lacks a field this build writes (it came from an older build). */
+function lacksThemeFields(raw: string): boolean {
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return typeof v !== "object" || v === null || Object.keys(DEFAULT_THEME_SETTINGS).some((k) => !(k in v));
+  } catch {
+    return false;
   }
 }
 
@@ -439,7 +459,8 @@ function legacyProfileKeys(): Set<string> {
     const d = defaults as Record<string, unknown>;
     if (o) for (const f of Object.keys(o)) if (!(f in d) || JSON.stringify(o[f]) !== JSON.stringify(d[f])) for (const k of map[f] ?? []) out.add(k);
   };
-  add(read("kipple.theme.v1"), { mode: ["ui.theme"], fixed: ["ui.theme"], day: ["ui.theme_day"], night: ["ui.theme_night"] }, DEFAULT_THEME_SETTINGS);
+  add(read(THEME_STORAGE_KEY), { mode: ["ui.theme"], fixed: ["ui.theme"], day: ["ui.theme_day"], night: ["ui.theme_night"],
+    schedule: ["ui.theme_schedule"], nightStart: ["ui.theme_night_start"], dayStart: ["ui.theme_day_start"] }, DEFAULT_THEME_SETTINGS);
   const p = read(PREFS_KEY);
   add(p, {
     font: ["ui.font_body"], textSize: ["client.text_size"], listDensity: ["ui.list_density"], readingDensity: ["ui.reading_density"],

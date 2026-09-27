@@ -172,7 +172,8 @@ recomputed from the local state against what the server last confirmed, so a bur
 each key wins, and values equal to the confirmed ones are never sent. A failure keeps the local value and shows
 "Couldn't save your settings" with Retry (`shell/SaveStatus.tsx`; also retried when the network returns and on the next
 change). A 400 names the refused keys: they keep their local value, are not sent again until they change, and the rest
-is resent. Mapping: `ui.theme` is `system` for follow-system (with `ui.theme_day` and `ui.theme_night`) or a scheme id;
+is resent. Mapping: `ui.theme` is `system` for the day/night pair (`ui.theme_day` and `ui.theme_night`; with `ui.theme_schedule`
+true it switches at `ui.theme_night_start` and `ui.theme_day_start` instead of following the OS) or a scheme id;
 `ui.font_body` is the font's server name; `ui.list_density` and `ui.reading_density` take the step names (the server's
 `compact`, `comfortable` and `relaxed` read as Snug, Standard and Relaxed); everything else is `client.*`. Theme ids are
 the server's, names and colors come from `schemes.json` (`theme/serverThemes.ts`). "Highlight keywords" syncs as `client.highlight_keywords`; only the local

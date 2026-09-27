@@ -422,6 +422,46 @@ func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 	s.writeDevice(w, r, dv)
 }
 
+// fixedThemeEndsSchedule turns the theme schedule off when a patch picks a fixed theme (or clears the
+// device's theme, leaving a fixed account default) without naming ui.theme_schedule, as the web app does
+// itself. The read and the write are separate steps, so a concurrent patch that turns the schedule on can
+// still land next to a fixed theme; the schedule then only shows if "system" is picked again. A client that predates the schedule sends only ui.theme;
+// without this the hidden flag would stay on and bring the schedule back when that client later picks
+// "system" (Match my device), which it cannot show or clear.
+func (s *Server) fixedThemeEndsSchedule(r *http.Request, dv store.Device, set map[string]any) error {
+	v, touched := set["ui.theme"]
+	if !touched {
+		return nil
+	}
+	if _, named := set["ui.theme_schedule"]; named {
+		return nil
+	}
+	// The flag in force: the device's own value, or the account default.
+	on, own := dv.Profile["ui.theme_schedule"].(bool)
+	var merged map[string]any
+	if !own || v == nil {
+		var err error
+		if merged, err = s.db.MergedSettings(r.Context()); err != nil {
+			return err
+		}
+		if !own {
+			on, _ = merged["ui.theme_schedule"].(bool)
+		}
+	}
+	if !on {
+		return nil
+	}
+	// Clearing the device's theme (null) leaves the account default in force, which may be a fixed theme too.
+	th, _ := v.(string)
+	if v == nil {
+		th, _ = merged["ui.theme"].(string)
+	}
+	if th != "" && th != "system" {
+		set["ui.theme_schedule"] = false
+	}
+	return nil
+}
+
 // patchDevice is PATCH /api/device: a partial profile update, all or nothing. A null
 // value clears the override.
 func (s *Server) patchDevice(w http.ResponseWriter, r *http.Request) {
@@ -467,6 +507,10 @@ func (s *Server) patchDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	dv, err := s.currentDevice(w, r)
 	if err != nil {
+		s.serverError(w, "device", err)
+		return
+	}
+	if err := s.fixedThemeEndsSchedule(r, dv, set); err != nil {
 		s.serverError(w, "device", err)
 		return
 	}

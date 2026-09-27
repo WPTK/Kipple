@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -267,6 +268,17 @@ func checkTheme(system bool) func(any) (any, string) {
 	}
 }
 
+// checkClockTime accepts a 24-hour local time of day, "HH:MM" from "00:00" to "23:59" (the value of an HTML
+// time input without seconds).
+func checkClockTime(v any) (any, string) {
+	if s, ok := v.(string); ok && clockTimeRE.MatchString(s) {
+		return s, ""
+	}
+	return nil, "must be a time of day as HH:MM (00:00 to 23:59)"
+}
+
+var clockTimeRE = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
+
 var (
 	themeOptions    = schemeOptions(true)
 	themeAnyOptions = schemeOptions(false)
@@ -281,12 +293,18 @@ var (
 // from store.DefaultSettings (one source of truth). Scope is filled by withScopes.
 var settingDefs = withScopes([]settingDef{
 	// Reading appearance menu.
-	{Key: "ui.theme", Label: "Theme", Description: "The color scheme. Midnight is true black, which saves battery on OLED screens.",
+	{Key: "ui.theme", Label: "Theme", Description: "The color scheme, or Match my device for the day and night themes (by the device's light or dark setting, or on a schedule). Midnight is true black, which saves battery on OLED screens.",
 		Group: groupReading, Kind: "enum", Options: themeOptions, Surface: surfaceReader, check: checkTheme(true)},
-	{Key: "ui.theme_day", Label: "Day theme", Description: "The color scheme used in daylight when the theme follows your device.",
+	{Key: "ui.theme_day", Label: "Day theme", Description: "The color scheme used in daylight when the theme follows your device or a schedule.",
 		Group: groupReading, Kind: "enum", Options: themeAnyOptions, Surface: surfaceSettings, check: checkTheme(false)},
-	{Key: "ui.theme_night", Label: "Night theme", Description: "The color scheme used at night when the theme follows your device.",
+	{Key: "ui.theme_night", Label: "Night theme", Description: "The color scheme used at night when the theme follows your device or a schedule.",
 		Group: groupReading, Kind: "enum", Options: themeAnyOptions, Surface: surfaceSettings, check: checkTheme(false)},
+	{Key: "ui.theme_schedule", Label: "Theme on a schedule", Description: "When the theme matches the device, switch between the day and night themes at set times of day instead of following the device's light or dark setting.",
+		Group: groupReading, Kind: "bool", Surface: surfaceHidden, check: boolVal},
+	{Key: "ui.theme_night_start", Label: "Night starts", Description: "On a schedule, the time of day (24-hour HH:MM, the device's own clock) the night theme starts.",
+		Group: groupReading, Kind: "text", Surface: surfaceHidden, check: checkClockTime},
+	{Key: "ui.theme_day_start", Label: "Day starts", Description: "On a schedule, the time of day (24-hour HH:MM, the device's own clock) the day theme comes back.",
+		Group: groupReading, Kind: "text", Surface: surfaceHidden, check: checkClockTime},
 	{Key: "ui.font_body", Label: "Reading font", Description: "The typeface used for article text.",
 		Group: groupReading, Kind: "enum", Options: fontOptions(), Surface: surfaceReader, check: oneOf(uiFonts...)},
 	{Key: "ui.font_size", Label: "Text size", Description: "How large article text is.",
@@ -403,7 +421,7 @@ var settingDefs = withScopes([]settingDef{
 // deviceScoped are the keys a device may override. The setting row is the default for
 // devices that have no override; make-default writes them.
 var deviceScoped = map[string]bool{
-	"ui.theme": true, "ui.theme_day": true, "ui.theme_night": true, "ui.font_body": true, "ui.font_ui": true,
+	"ui.theme": true, "ui.theme_day": true, "ui.theme_night": true, "ui.theme_schedule": true, "ui.theme_night_start": true, "ui.theme_day_start": true, "ui.font_body": true, "ui.font_ui": true,
 	"ui.font_size": true, "ui.reading_density": true, "ui.list_density": true, "ui.mark_read_on_scroll": true,
 	"ui.layouts": true,
 }

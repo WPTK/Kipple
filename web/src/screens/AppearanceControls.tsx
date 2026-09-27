@@ -18,6 +18,7 @@ import {
 import { useStore } from "@/lib/store";
 import { useAllowedSchemes } from "@/theme/serverThemes";
 import { themeStore, updateTheme } from "@/theme/theme";
+import { chooseFixed, choosePair, themeChoice } from "@/theme/settings";
 import { Segmented } from "@/ui/segmented";
 import { Disclosure, Switch, inputCls } from "@/ui/kit";
 import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
@@ -74,13 +75,14 @@ export function DensityPreview({ list, reading }: { list: Step; reading: Step })
   );
 }
 
-/** A compact theme picker for the reading menu: Match my device first, then every scheme by group. */
+/** A compact theme picker for the reading menu: Match my device and On a schedule first, then every scheme by group. */
 export function ThemeSelect() {
   const t = useStore(themeStore);
   const id = useId();
   const schemes = useAllowedSchemes();
   const meta = useMeta("ui.theme", "Theme");
-  const value = t.mode === "follow" ? "__follow" : t.fixed;
+  const choice = themeChoice(t);
+  const value = choice === "fixed" ? t.fixed : `__${choice}`;
   const groups = [
     ["light", "Light"],
     ["color", "Color"],
@@ -95,10 +97,14 @@ export function ThemeSelect() {
       <select
         id={id}
         value={value}
-        onChange={(e) => (e.target.value === "__follow" ? updateTheme({ mode: "follow" }) : updateTheme({ mode: "fixed", fixed: e.target.value }))}
+        onChange={(e) => {
+          const v = e.target.value;
+          updateTheme(v === "__follow" ? choosePair("follow") : v === "__schedule" ? choosePair("schedule") : chooseFixed(v));
+        }}
         className={inputCls}
       >
         <option value="__follow">Match my device</option>
+        <option value="__schedule">On a schedule</option>
         {groups.map(([g, label]) => (
           <optgroup key={g} label={label}>
             {schemes.filter((s) => s.group === g).map((s) => (
