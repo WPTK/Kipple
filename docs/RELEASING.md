@@ -8,6 +8,22 @@ SemVer. Prereleases are `-alpha.N`, `-beta.N`, `-rc.N` (in that order; `N` count
 anything, including the schema; beta is feature-complete; rc changes only fix bugs. Breaking changes to the
 Reader API, the backup format or the settings keys need a major bump once 1.0.0 is out, a minor bump before.
 
+### Alpha → beta → rc → 1.0.0 (decided 2026-09-27)
+
+- **Alpha → beta.1:** only once phase 5 is fully closed — code audit fixes merged, Cloudflare Access JWT +
+  passwordless shipped, auto-night theme shipped, the documentation run done, and `docs/uat-plan.md` Suites
+  1-4 executed clean of open P0/P1 defects. Feature-complete means verified, not declared: no more planned
+  phases remain once beta cuts, and beta itself adds no new features, only fixes.
+- **Beta → rc.1:** every UAT suite has run at least once, including the owner-only device checks (Suite 3),
+  with sign-off — plus a **1-week soak period** of the owner's real daily use on the beta build producing zero
+  new P0/P1 defects. RC then means "only fixing what the soak period or UAT found," not starting a fresh test
+  cycle.
+- **RC → 1.0.0:** a second, shorter soak (a few days) on the final rc build with zero regressions, GitHub
+  private vulnerability reporting turned on, the documentation run and the first-time Docker setup walkthrough
+  proven end-to-end, then the final go/no-go meeting (`docs/plan.md`) — its approval is what cuts 1.0.0.
+- A regression found during a soak period resets that soak's clock (a new rc.N or a return to beta.N+1,
+  whichever the defect's severity warrants) rather than being patched in place while the clock keeps running.
+
 ## Before the tag
 
 1. **CI is green on the exact commit** you will deploy (not on a nearby one). Push first; nothing deploys from an unpushed tree.
