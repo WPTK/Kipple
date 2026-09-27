@@ -609,4 +609,13 @@ func TestFixedThemeEndsSchedule(t *testing.T) {
 	// Other keys leave it alone.
 	_, out, _ = d.call("PATCH", "/api/device", `{"ui.theme_day":"airmail"}`)
 	require.Equal(t, true, out["merged"].(map[string]any)["ui.theme_schedule"])
+
+	// Clearing the device's theme leaves the account default in force: a fixed one ends the schedule too.
+	code, _, _ = h.api(d.sess, "PATCH", "/api/settings", `{"ui.theme":"paper"}`)
+	require.Equal(t, http.StatusOK, code)
+	d.call("PATCH", "/api/device", `{"ui.theme":"system","ui.theme_schedule":true}`)
+	_, out, _ = d.call("PATCH", "/api/device", `{"ui.theme":null}`)
+	m = out["merged"].(map[string]any)
+	require.Equal(t, "paper", m["ui.theme"])
+	require.Equal(t, false, m["ui.theme_schedule"])
 }

@@ -108,23 +108,28 @@ export function resolveTheme(s: ThemeSettings, prefersDark: boolean, minutes: nu
   return night ? s.night : s.day;
 }
 
-/** How far ahead msUntilNextSwitch looks: a little over a day covers every switch of a valid schedule. */
-const SWITCH_HORIZON_MIN = 26 * 60;
+/** How far ahead msUntilNextSwitch looks by default: a little over a day covers every switch of a valid schedule. */
+const SWITCH_HORIZON_MS = 26 * 60 * 60_000;
 
 /**
  * Milliseconds from `now` to the schedule's next switch, at least 1: the first minute at which isNightAt, reading the
  * local clock, gives the other answer. Stepping through real minutes (a day is about 1,500 of them) keeps the timer
  * and the rule in step on daylight-saving nights in any zone: a time the clock skips switches when the gap ends, a
  * time it shows twice switches both times, whatever the size of the shift. Equal times never switch: a day ahead.
+ * A caller that only waits up to `limitMs` passes it, and gets `limitMs` when no switch comes sooner.
  */
-export function msUntilNextSwitch(s: Pick<ThemeSettings, "nightStart" | "dayStart">, now: Date): number {
+export function msUntilNextSwitch(s: Pick<ThemeSettings, "nightStart" | "dayStart">, now: Date, limitMs?: number): number {
   const night = isNightAt(s.nightStart, s.dayStart, minutesOfDay(now));
   const minute = Math.floor(now.getTime() / 60_000) * 60_000;
-  for (let i = 1; i <= SWITCH_HORIZON_MIN; i++) {
+  const steps = Math.ceil((limitMs ?? SWITCH_HORIZON_MS) / 60_000) + 1;
+  for (let i = 1; i <= steps; i++) {
     const at = new Date(minute + i * 60_000);
-    if (isNightAt(s.nightStart, s.dayStart, minutesOfDay(at)) !== night) return Math.max(1, at.getTime() - now.getTime());
+    if (isNightAt(s.nightStart, s.dayStart, minutesOfDay(at)) !== night) {
+      const ms = Math.max(1, at.getTime() - now.getTime());
+      return limitMs === undefined ? ms : Math.min(ms, limitMs);
+    }
   }
-  return 24 * 60 * 60_000;
+  return limitMs ?? 24 * 60 * 60_000;
 }
 
 /**

@@ -66,7 +66,10 @@ export function initTheme(): () => void {
     clearTimeout(timer);
     timer = undefined;
     const s = themeStore.get();
-    if (themeChoice(s) === "schedule" && s.nightStart !== s.dayStart) timer = setTimeout(apply, Math.min(msUntilNextSwitch(s, new Date()) + 500, SCHEDULE_RECHECK_MS));
+    if (themeChoice(s) === "schedule" && s.nightStart !== s.dayStart) {
+      const wait = msUntilNextSwitch(s, new Date(), SCHEDULE_RECHECK_MS);
+      timer = setTimeout(apply, wait < SCHEDULE_RECHECK_MS ? wait + 500 : SCHEDULE_RECHECK_MS);
+    }
   }
   apply();
   const off = themeStore.subscribe(() => {

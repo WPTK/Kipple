@@ -155,6 +155,11 @@ describe("msUntilNextSwitch", () => {
     }
   });
 
+  it("with a limit, stops looking at it", () => {
+    expect(msUntilNextSwitch(s, local(12, 0), 15 * 60_000)).toBe(15 * 60_000);
+    expect(msUntilNextSwitch(s, local(20, 50), 15 * 60_000)).toBe(10 * 60_000);
+  });
+
   it("equal times never switch: a day ahead", () => {
     const same = { nightStart: "08:00", dayStart: "08:00" };
     expect(msUntilNextSwitch(same, local(8, 0))).toBe(24 * 3600_000);

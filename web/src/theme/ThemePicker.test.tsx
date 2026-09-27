@@ -109,13 +109,19 @@ describe("ThemePicker schedule", () => {
     const day = screen.getByLabelText("Day starts");
     fireEvent.keyDown(day, { key: "5" });
     fireEvent.change(day, { target: { value: "05:30" } });
-    window.dispatchEvent(new Event("pagehide"));
+    act(() => void window.dispatchEvent(new Event("pagehide")));
     expect(themeStore.get().dayStart).toBe("05:30");
+    // Going to the background saves too (a phone may discard the page without pagehide).
+    fireEvent.change(day, { target: { value: "05:45" } });
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    expect(themeStore.get().dayStart).toBe("05:45");
     const night = screen.getByLabelText("Night starts");
     fireEvent.keyDown(night, { key: "2" });
     fireEvent.change(night, { target: { value: "23:15" } });
     unmount();
-    expect(themeStore.get()).toMatchObject({ dayStart: "05:30", nightStart: "23:15" });
+    expect(themeStore.get()).toMatchObject({ dayStart: "05:45", nightStart: "23:15" });
   });
 
   it("a change made elsewhere while a typed time waits wins over the waiting time", () => {

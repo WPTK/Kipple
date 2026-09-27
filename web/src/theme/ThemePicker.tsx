@@ -117,7 +117,7 @@ function PairOption({ title, detail, day, night, checked, onSelect }: { title: s
 
 /**
  * A 24-hour "HH:MM" time field. The draft is local, and a time is saved only when it is committed: Enter, leaving the
- * field (closing the picker on a phone does that), Settings closing or the page being left. A browser reports complete
+ * field (closing the picker on a phone does that), Settings closing, the page going to the background or being left. A browser reports complete
  * but unintended times on the way to the one wanted (typing 22:30 passes 02:00; a desktop picker reports each column
  * click), so saving each change would flip the theme and sync those. Leaving with an incomplete time restores the
  * saved one.
@@ -144,11 +144,17 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
     pending.current = null;
     if (p && p.from === latest.current.value) latest.current.onChange(p.t);
   }, []);
-  // Closing Settings, or leaving the page, with a time still waiting saves it.
+  // Closing Settings, or leaving the page, with a time still waiting saves it. A phone may discard a page in the
+  // background without pagehide, so going to the background (visibility hidden) saves too.
   useEffect(() => {
+    const hidden = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
     window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", hidden);
     return () => {
       window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", hidden);
       flush();
     };
   }, [flush]);
