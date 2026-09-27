@@ -75,8 +75,13 @@ export function initTheme(): () => void {
   }
   // A device waking from sleep, or a tab coming back to the front, may have slept through a switch (the theme is
   // corrected) or be holding a timer that paused while it slept (it is re-armed from the clock).
+  // Coming back usually fires both visibilitychange and focus; the second one in the same moment is skipped.
+  let wokeAt = -Infinity;
   const wake = () => {
     if (themeStore.get().mode !== "schedule" || document.visibilityState !== "visible") return;
+    const now = performance.now();
+    if (now - wokeAt < 1000) return;
+    wokeAt = now;
     const id = currentThemeId();
     if (id !== document.documentElement.dataset.theme) applyTheme(id);
     arm();

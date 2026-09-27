@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { SCHEMES } from "./schemes";
 import { DEFAULT_THEME_SETTINGS } from "./settings";
 import { themeStore } from "./theme";
-import { ThemePicker, TIME_SAVE_DELAY_MS } from "./ThemePicker";
+import { ThemePicker } from "./ThemePicker";
 
 const narrow = vi.hoisted(() => ({ ids: null as string[] | null }));
 vi.mock("./serverThemes", async (orig) => {
@@ -67,17 +67,19 @@ describe("ThemePicker schedule", () => {
     expect(screen.getByText(/this device.s clock/)).toBeInTheDocument();
   });
 
-  it("a time is saved on leaving the field, not on each keystroke; a cleared field restores the saved time", () => {
+  it("a typed time is saved on leaving the field, not on each keystroke; a cleared field restores the saved time", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
     render(<ThemePicker />);
     const night = screen.getByLabelText("Night starts") as HTMLInputElement;
-    // Typing "22:30" over 21:00 passes through "02:00": nothing is saved yet.
+    // Typing "22:30" over 21:00 passes through "02:00": nothing is saved yet, however long the pauses.
+    fireEvent.keyDown(night, { key: "2" });
     fireEvent.change(night, { target: { value: "02:00" } });
     fireEvent.change(night, { target: { value: "22:00" } });
     fireEvent.change(night, { target: { value: "22:30" } });
     expect(themeStore.get().nightStart).toBe("21:00");
     fireEvent.blur(night);
     expect(themeStore.get().nightStart).toBe("22:30");
+    fireEvent.keyDown(night, { key: "Backspace" });
     fireEvent.change(night, { target: { value: "" } });
     expect(night.value).toBe("");
     fireEvent.blur(night);
@@ -85,42 +87,47 @@ describe("ThemePicker schedule", () => {
     expect(night.value).toBe("22:30");
   });
 
-  it("a time is also saved after a pause in typing, and when Settings closes with one waiting", () => {
-    vi.useFakeTimers();
-    try {
-      themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
-      const { unmount } = render(<ThemePicker />);
-      fireEvent.change(screen.getByLabelText("Day starts"), { target: { value: "06:15" } });
-      act(() => vi.advanceTimersByTime(TIME_SAVE_DELAY_MS - 1));
-      expect(themeStore.get().dayStart).toBe("07:00");
-      act(() => vi.advanceTimersByTime(1));
-      expect(themeStore.get().dayStart).toBe("06:15");
-      fireEvent.change(screen.getByLabelText("Night starts"), { target: { value: "23:45" } });
-      unmount();
-      expect(themeStore.get()).toMatchObject({ dayStart: "06:15", nightStart: "23:45" });
-    } finally {
-      vi.useRealTimers();
-    }
+  it("Enter saves a typed time; a time from the browser's picker is saved at once", () => {
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+    render(<ThemePicker />);
+    const day = screen.getByLabelText("Day starts") as HTMLInputElement;
+    fireEvent.keyDown(day, { key: "6" });
+    fireEvent.change(day, { target: { value: "06:15" } });
+    expect(themeStore.get().dayStart).toBe("07:00");
+    fireEvent.keyDown(day, { key: "Enter" });
+    expect(themeStore.get().dayStart).toBe("06:15");
+    // No key went down: a wheel or clock dialog.
+    const night = screen.getByLabelText("Night starts") as HTMLInputElement;
+    fireEvent.change(night, { target: { value: "23:45" } });
+    expect(themeStore.get().nightStart).toBe("23:45");
   });
 
-  it("a change made elsewhere while a time waits to be saved wins over the waiting time", () => {
-    vi.useFakeTimers();
-    try {
-      themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
-      render(<ThemePicker />);
-      const night = screen.getByLabelText("Night starts") as HTMLInputElement;
-      fireEvent.change(night, { target: { value: "22:30" } });
-      act(() => themeStore.set((s) => ({ ...s, nightStart: "23:00" })));
-      expect(night.value).toBe("23:00");
-      act(() => vi.advanceTimersByTime(TIME_SAVE_DELAY_MS));
-      expect(themeStore.get().nightStart).toBe("23:00");
-      fireEvent.blur(night);
-      expect(themeStore.get().nightStart).toBe("23:00");
-    } finally {
-      vi.useRealTimers();
-    }
+  it("a typed time waiting when Settings closes, or the page is left, is saved", () => {
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+    const { unmount } = render(<ThemePicker />);
+    const day = screen.getByLabelText("Day starts");
+    fireEvent.keyDown(day, { key: "5" });
+    fireEvent.change(day, { target: { value: "05:30" } });
+    window.dispatchEvent(new Event("pagehide"));
+    expect(themeStore.get().dayStart).toBe("05:30");
+    const night = screen.getByLabelText("Night starts");
+    fireEvent.keyDown(night, { key: "2" });
+    fireEvent.change(night, { target: { value: "23:15" } });
+    unmount();
+    expect(themeStore.get()).toMatchObject({ dayStart: "05:30", nightStart: "23:15" });
   });
 
+  it("a change made elsewhere while a typed time waits wins over the waiting time", () => {
+    themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
+    render(<ThemePicker />);
+    const night = screen.getByLabelText("Night starts") as HTMLInputElement;
+    fireEvent.keyDown(night, { key: "2" });
+    fireEvent.change(night, { target: { value: "22:30" } });
+    act(() => themeStore.set((s) => ({ ...s, nightStart: "23:00" })));
+    expect(night.value).toBe("23:00");
+    fireEvent.blur(night);
+    expect(themeStore.get().nightStart).toBe("23:00");
+  });
   it("a browser that reports seconds still saves the time, in whole minutes", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "schedule" });
     render(<ThemePicker />);
@@ -141,6 +148,7 @@ describe("ThemePicker schedule", () => {
     render(<ThemePicker />);
     expect(screen.getByText(/same time, so the day theme stays on/)).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /On a schedule/ }).closest("label")?.textContent).toContain("Paper all day");
+    expect(screen.queryByText(/two times are the same/)).toBeNull();
   });
 
   it("picking a fixed theme leaves the schedule and hides its fields, keeping the times for later", () => {

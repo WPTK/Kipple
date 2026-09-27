@@ -494,8 +494,12 @@ describe("another tab or device changed a different key (review finding 1)", () 
     const echo = { mode: "follow", fixed: "graphite", day: "paper", night: "midnight" };
     window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify(echo) }));
     expect(themeStore.get()).toMatchObject({ mode: "schedule", nightStart: "22:00" });
-    // A build that knows the schedule leaving it is followed.
-    window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify({ ...themeStore.get(), mode: "follow" }) }));
+    // ...and sends it again, since the older build sent ui.theme "system" for this device.
+    const before = s.patches.length;
+    await vi.advanceTimersByTimeAsync(600);
+    expect(s.patches.slice(before)).toEqual([{ "ui.theme": "schedule" }]);
+    // A build that knows the schedule (its cache says so) leaving it is followed.
+    window.dispatchEvent(new StorageEvent("storage", { key: "kipple.theme.v1", newValue: JSON.stringify({ ...themeStore.get(), mode: "follow", v: 2 }) }));
     expect(themeStore.get().mode).toBe("follow");
     await vi.advanceTimersByTimeAsync(600);
     for (const p of s.patches) {

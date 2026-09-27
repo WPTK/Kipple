@@ -295,7 +295,7 @@ var (
 // from store.DefaultSettings (one source of truth). Scope is filled by withScopes.
 var settingDefs = withScopes([]settingDef{
 	// Reading appearance menu.
-	{Key: "ui.theme", Label: "Theme", Description: "The color scheme. Midnight is true black, which saves battery on OLED screens.",
+	{Key: "ui.theme", Label: "Theme", Description: "The color scheme, or how it is chosen: Match my device follows the device's light or dark setting, On a schedule switches between the day and night themes at set times. Midnight is true black, which saves battery on OLED screens.",
 		Group: groupReading, Kind: "enum", Options: themeOptions, Surface: surfaceReader, check: checkTheme(true)},
 	{Key: "ui.theme_day", Label: "Day theme", Description: "The color scheme used in daylight when the theme follows your device or a schedule.",
 		Group: groupReading, Kind: "enum", Options: themeAnyOptions, Surface: surfaceSettings, check: checkTheme(false)},

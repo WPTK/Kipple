@@ -12,8 +12,10 @@ from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per sch
 
 - **Per device.** The choice is part of the server's device profile (`ui.theme`, `system`, `schedule` or a scheme
   id, plus `ui.theme_day`, `ui.theme_night`, `ui.theme_night_start` and `ui.theme_day_start`; see `lib/deviceSync.ts`).
-  `localStorage` (`kipple.theme.v1`, `{mode: "follow" | "fixed" | "schedule", fixed, day, night, nightStart, dayStart}`)
-  is the instant-paint cache the boot script reads.
+  `localStorage` (`kipple.theme.v1`, `{mode: "follow" | "fixed" | "schedule", fixed, day, night, nightStart, dayStart, v}`)
+  is the instant-paint cache the boot script reads. `v` is the cache format (2 since the schedule); a cache without it
+  comes from an older build, which reads the schedule as follow-system, so another tab's such write does not end
+  this tab's schedule (`lib/deviceSync.ts`).
 - **Follow system** resolves `prefers-color-scheme`: default day Paper, night Midnight. The Day and Night
   pickers accept **any** scheme (a dark day theme or a light night theme is allowed).
 - **On a schedule** uses the same Day and Night pickers but switches at two times of day ("Night starts", default

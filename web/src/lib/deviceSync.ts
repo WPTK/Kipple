@@ -3,7 +3,15 @@ import type { DeviceView } from "@/api/types";
 import { announce } from "@/shell/toasts";
 import { isSchemeId } from "@/theme/schemes";
 import { themeStore } from "@/theme/theme";
-import { DEFAULT_THEME_SETTINGS, THEME_STORAGE_KEY, isClockTime, parseThemeSettings } from "@/theme/settings";
+import {
+  DEFAULT_THEME_SETTINGS,
+  THEME_CACHE_VERSION,
+  THEME_STORAGE_KEY,
+  isClockTime,
+  parseJson,
+  themeCacheVersion,
+  themeSettingsFrom,
+} from "@/theme/settings";
 import type { ThemeSettings } from "@/theme/settings";
 import { FONTS } from "./fonts";
 import {
@@ -403,22 +411,20 @@ function onStorage(e: StorageEvent): void {
     const n = parseDevicePrefs(e.newValue);
     if (stable(n) !== stable(devicePrefsStore.get())) replaceDevicePrefs(n);
   } else if (e.key === THEME_STORAGE_KEY) {
-    // Missing fields keep this tab's values: a tab on an older build writes the cache without the schedule's times,
-    // and reads "schedule" as follow-system. Such a cache (no times at all) cannot mean "leave the schedule".
+    const raw = parseJson(e.newValue);
     const cur = themeStore.get();
-    const n = parseThemeSettings(e.newValue, cur);
-    if (cur.mode === "schedule" && n.mode === "follow" && !writtenWithSchedule(e.newValue)) n.mode = "schedule";
+    // Missing fields keep this tab's values: a cache from an older build has no schedule times.
+    const n = themeSettingsFrom(raw, cur);
+    if (cur.mode === "schedule" && n.mode === "follow" && themeCacheVersion(raw) < THEME_CACHE_VERSION) {
+      // An older build cannot hold the schedule: it reads "schedule" as follow-system, writes that back and sends
+      // ui.theme "system" to the server. This tab keeps the schedule and sends it again, so the device keeps it.
+      n.mode = "schedule";
+      if (hydratedFor !== null && "ui.theme" in synced) {
+        synced = { ...synced, "ui.theme": "system" };
+        onLocalChange();
+      }
+    }
     if (stable(n) !== stable(themeStore.get())) themeStore.set(n);
-  }
-}
-
-/** Whether a theme cache was written by a build that knows the schedule (every such build writes its times). */
-function writtenWithSchedule(raw: string): boolean {
-  try {
-    const v = JSON.parse(raw) as unknown;
-    return typeof v === "object" && v !== null && "nightStart" in v;
-  } catch {
-    return false;
   }
 }
 

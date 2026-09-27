@@ -114,13 +114,11 @@ function PairOption({ title, detail, day, night, checked, onSelect }: { title: s
   );
 }
 
-/** How long a time field waits after the last change before saving it (typing "22:30" passes through "02:00"). */
-export const TIME_SAVE_DELAY_MS = 1000;
-
 /**
- * A 24-hour "HH:MM" time field. The draft is local: a time is saved after a pause in typing, when the field is left,
- * or when the picker closes, never on each keystroke (a browser reports a complete but unintended time part-way
- * through typing one). Leaving the field with an incomplete time restores the saved one.
+ * A 24-hour "HH:MM" time field. The draft is local. A time chosen with the browser's picker (a wheel, a clock dialog)
+ * is saved at once; a typed one is saved on Enter, on leaving the field, when Settings closes or when the page is
+ * left, never on each keystroke (a browser reports a complete but unintended time part-way through typing one, such
+ * as 02:00 on the way to 22:30). Leaving the field with an incomplete time restores the saved one.
  */
 function TimeField({ label, value, onChange }: { label: string; value: string; onChange: (t: string) => void }) {
   const id = useId();
@@ -131,23 +129,31 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
     setSeen(value);
     setDraft(value);
   }
-  // The latest props, for the timer and the unmount save (both outlive the render that started them).
+  // The latest props, for the saves that outlive the render that started them (unmount, page hide).
   const latest = useRef({ value, onChange });
   useEffect(() => {
     latest.current = { value, onChange };
   });
   // The time waiting to be saved, with the saved value it replaces: if that changed elsewhere meanwhile (another tab,
-  // the server), the newer value wins and the wait is dropped.
-  const pending = useRef<{ t: string; from: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  // the server), the newer value wins and the waiting time is dropped.
+  const pending = useRef<{ t: string; from: string } | null>(null);
+  // Whether the time in the field is being typed (a key went down since the field was focused).
+  const typing = useRef(false);
   const flush = useCallback(() => {
     const p = pending.current;
-    if (!p) return;
-    clearTimeout(p.timer);
     pending.current = null;
-    if (p.from === latest.current.value) latest.current.onChange(p.t);
+    if (p && p.from === latest.current.value) latest.current.onChange(p.t);
   }, []);
-  // Closing Settings with a change still waiting saves it.
-  useEffect(() => flush, [flush]);  return (
+  // Closing Settings, or leaving the page, with a typed time still waiting saves it.
+  useEffect(() => {
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [flush]);
+
+  return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="text-sm font-medium">
         {label}
@@ -157,13 +163,18 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
         type="time"
         required
         value={draft}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") flush();
+          else if (e.key !== "Tab") typing.current = true;
+        }}
         onChange={(e) => {
           setDraft(e.target.value);
           const t = toClockTime(e.target.value);
-          if (pending.current) clearTimeout(pending.current.timer);
-          pending.current = t && t !== value ? { t, from: value, timer: setTimeout(flush, TIME_SAVE_DELAY_MS) } : null;
+          pending.current = t && t !== value ? { t, from: value } : null;
+          if (!typing.current) flush();
         }}
         onBlur={() => {
+          typing.current = false;
           flush();
           if (!toClockTime(draft)) setDraft(value);
         }}
@@ -204,6 +215,8 @@ export function ThemePicker() {
   const pick = (id: string) => updateTheme({ mode: "fixed", fixed: id });
   const dayName = schemeById(t.day).name;
   const nightName = schemeById(t.night).name;
+  // Equal times never switch: the card shows the day theme all day, and the note under the fields says why.
+  const sameTimes = t.nightStart === t.dayStart;
 
   return (
     <fieldset className="min-w-0">
@@ -220,7 +233,7 @@ export function ThemePicker() {
         />
         <PairOption
           title="On a schedule"
-          detail={t.nightStart === t.dayStart ? `${dayName} all day (the two times are the same)` : `${nightName} from ${formatClock(t.nightStart)} to ${formatClock(t.dayStart)}`}
+          detail={sameTimes ? `${dayName} all day` : `${nightName} from ${formatClock(t.nightStart)} to ${formatClock(t.dayStart)}`}
           day={t.day}
           night={t.night}
           checked={t.mode === "schedule"}
@@ -240,7 +253,7 @@ export function ThemePicker() {
               <TimeField label="Day starts" value={t.dayStart} onChange={(dayStart) => updateTheme({ dayStart })} />
               <TimeField label="Night starts" value={t.nightStart} onChange={(nightStart) => updateTheme({ nightStart })} />
               <p className="col-span-2 text-xs text-fg2">
-                {t.dayStart === t.nightStart ? "Day and night start at the same time, so the day theme stays on. " : ""}
+                {sameTimes ? "Day and night start at the same time, so the day theme stays on. " : ""}
                 Uses this device&rsquo;s clock, whatever its light or dark setting.
               </p>
             </>

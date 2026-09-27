@@ -104,26 +104,48 @@ export function msUntilNextSwitch(s: Pick<ThemeSettings, "nightStart" | "dayStar
 }
 
 /**
- * The stored choice, with anything missing or unreadable taken from `base` (the defaults, or for a cache another tab
- * just wrote, this tab's current choice: a tab still on an older build writes the cache without the schedule's
- * times, and they must not be reset by that).
+ * The format of the theme cache. Version 2 added the schedule (the mode "schedule" and its two times); a cache
+ * without `v` was written by an older build, which cannot hold the schedule and reads it as follow-system.
  */
-export function parseThemeSettings(raw: string | null, base: ThemeSettings = DEFAULT_THEME_SETTINGS): ThemeSettings {
-  if (!raw) return { ...base };
+export const THEME_CACHE_VERSION = 2;
+
+/** The cache format version of a parsed theme cache (1 for one written before the field existed). */
+export function themeCacheVersion(v: unknown): number {
+  const n = typeof v === "object" && v !== null ? (v as { v?: unknown }).v : undefined;
+  return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : 1;
+}
+
+/**
+ * The choice held by a parsed cache, with anything missing or unreadable taken from `base` (the defaults, or for a
+ * cache another tab just wrote, this tab's current choice: a tab still on an older build writes the cache without
+ * the schedule's times, and they must not be reset by that).
+ */
+export function themeSettingsFrom(raw: unknown, base: ThemeSettings = DEFAULT_THEME_SETTINGS): ThemeSettings {
+  const v = (typeof raw === "object" && raw !== null ? raw : {}) as Partial<ThemeSettings>;
+  const d = base;
+  return {
+    mode: v.mode === "fixed" || v.mode === "schedule" || v.mode === "follow" ? v.mode : d.mode,
+    fixed: isSchemeId(v.fixed) ? v.fixed : d.fixed,
+    day: isSchemeId(v.day) ? v.day : d.day,
+    night: isSchemeId(v.night) ? v.night : d.night,
+    nightStart: isClockTime(v.nightStart) ? v.nightStart : d.nightStart,
+    dayStart: isClockTime(v.dayStart) ? v.dayStart : d.dayStart,
+  };
+}
+
+/** JSON text, or undefined when it is missing or not JSON. */
+export function parseJson(raw: string | null): unknown {
+  if (!raw) return undefined;
   try {
-    const v = JSON.parse(raw) as Partial<ThemeSettings> | null;
-    const d = base;
-    return {
-      mode: v?.mode === "fixed" || v?.mode === "schedule" || v?.mode === "follow" ? v.mode : d.mode,
-      fixed: isSchemeId(v?.fixed) ? v.fixed : d.fixed,
-      day: isSchemeId(v?.day) ? v.day : d.day,
-      night: isSchemeId(v?.night) ? v.night : d.night,
-      nightStart: isClockTime(v?.nightStart) ? v.nightStart : d.nightStart,
-      dayStart: isClockTime(v?.dayStart) ? v.dayStart : d.dayStart,
-    };
+    return JSON.parse(raw) as unknown;
   } catch {
-    return { ...base };
+    return undefined;
   }
+}
+
+/** The stored choice (see themeSettingsFrom), from the cache's JSON text. */
+export function parseThemeSettings(raw: string | null, base: ThemeSettings = DEFAULT_THEME_SETTINGS): ThemeSettings {
+  return themeSettingsFrom(parseJson(raw), base);
 }
 
 export function loadThemeSettings(): ThemeSettings {
@@ -136,7 +158,7 @@ export function loadThemeSettings(): ThemeSettings {
 
 export function saveThemeSettings(s: ThemeSettings): void {
   try {
-    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(s));
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ ...s, v: THEME_CACHE_VERSION }));
   } catch {
     /* private mode or blocked storage: the choice just won't persist */
   }

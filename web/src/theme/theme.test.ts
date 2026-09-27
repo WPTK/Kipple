@@ -10,6 +10,9 @@ import {
   msUntilNextSwitch,
   parseThemeSettings,
   resolveTheme,
+  saveThemeSettings,
+  THEME_CACHE_VERSION,
+  themeCacheVersion,
   THEME_STORAGE_KEY,
   type ThemeSettings,
 } from "./settings";
@@ -154,6 +157,17 @@ describe("parseThemeSettings", () => {
     });
     expect(parseThemeSettings("{{{", mine)).toEqual(mine);
     expect(parseThemeSettings(JSON.stringify({ mode: "sunset" }), mine).mode).toBe("schedule");
+  });
+
+  it("the cache records its format version; an older cache reads as version 1", () => {
+    saveThemeSettings({ ...base, mode: "schedule" });
+    const raw = JSON.parse(localStorage.getItem(THEME_STORAGE_KEY)!) as unknown;
+    expect(themeCacheVersion(raw)).toBe(THEME_CACHE_VERSION);
+    expect(parseThemeSettings(JSON.stringify(raw))).toEqual({ ...base, mode: "schedule" });
+    expect(themeCacheVersion({ mode: "follow" })).toBe(1);
+    expect(themeCacheVersion({ v: "2" })).toBe(1);
+    expect(themeCacheVersion(null)).toBe(1);
+    localStorage.clear();
   });
 
   it("keeps a schedule and its times; a cache from before the schedule gets the default times", () => {
@@ -387,7 +401,11 @@ describe("initTheme on a schedule", () => {
     meta.content = "#123456";
     // The device slept with ten minutes left on the timer and wakes ten seconds before the switch.
     vi.setSystemTime(new Date(2026, 8, 27, 20, 59, 50));
-    window.dispatchEvent(new Event("focus"));
+    const arm = vi.spyOn(globalThis, "setTimeout");
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus")); // the same return: handled once
+    expect(arm).toHaveBeenCalledTimes(1);
+    arm.mockRestore();
     expect(theme()).toBe("linen");
     expect(meta.content).toBe("#123456");
     expect(vi.getTimerCount()).toBe(1);
