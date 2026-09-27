@@ -210,12 +210,21 @@ const FEED = {
   /** The article's own HTML: the reader pane's .article-body only (Settings > Appearance draws its preview with the
    * same class, and that is Kipple's). */
   body: 'article[aria-labelledby="article-title"] .article-body',
-  /** The S5 literals (see literalProbe). */
-  pattern: String.raw`\bundefined\b|\bNaN|\[object Object\]|\bInvalid Date\b`,
+  /** What Kipple itself adds inside the article body (embed frames and play buttons, highlight marks: articleDom.ts,
+   * highlight.ts), which stays Kipple's for S3 and S4. Highlight marks wrap the feed's own words, so S5 leaves them
+   * out of this (`ownText`). */
+  own: '[class^="kp-"], [class*=" kp-"]',
+  ownText: '[class^="kp-"]:not(.kp-hl), [class*=" kp-"]:not(.kp-hl)',
+  /** The S5 literals (see literalProbe). No word boundary after undefined and NaN: "undefinedm ago", "NaNkB". */
+  pattern: String.raw`\bundefined|\bNaN|\[object Object\]|\bInvalid Date\b`,
   /** Feed-supplied strings that themselves contain an S5 literal: feed, folder and saved-search names and item titles,
-   * excerpts, authors, sources and search snippets, as the API returns them (collectFeedText). */
+   * excerpts, authors, sources and search snippets, as the API returns them (harvestFeedText). */
   names: [],
 };
+const FEED_KEYS = new Set(["title", "name", "excerpt", "author", "source", "origin_title", "feed_title", "folder_name", "snippet"]);
+const feedStrings = new Set();
+const decodeSnippet = (h) =>
+  h.replace(/<[^>]*>/g, "").replace(/&(amp|lt|gt|quot|#39|#34);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#34": '"' })[e]);
 
 // S4. The page must not scroll sideways, and no visible element may run past the right edge of the viewport. Content
 // wider than a scroll container that fits on screen is caught through that container: every screen scrolls in an
@@ -233,13 +242,19 @@ function overflowProbe(feed) {
     return `${el.tagName.toLowerCase()}${id}${cls}${name ? ` "${name}"` : ""}`;
   };
   const visible = (el) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+  // In the article HTML and not something Kipple added there.
+  const inBody = (el) => {
+    const b = el.closest(feed.body);
+    const k = b && el.closest(feed.own);
+    return !!b && !(k && b.contains(k));
+  };
   const scrolls = (el) => {
     const ox = getComputedStyle(el).overflowX;
     return ox === "auto" || ox === "scroll";
   };
   const deliberate = (el) =>
     /(^|\s)([\w-]+:)*overflow(-x)?-(auto|scroll)(\s|$)/.test(typeof el.className === "string" ? el.className : "") ||
-    !!el.closest(feed.body);
+    inBody(el);
   // Clipped by an ancestor that itself ends inside the viewport (overflow hidden, or a scroller: those are checked
   // on their own below), or hidden the screen-reader-only way. Only ancestors from the containing block up clip: a
   // fixed element escapes every one, an absolute one those between it and its offset parent.
@@ -262,7 +277,7 @@ function overflowProbe(feed) {
     let any = false;
     for (const d of sc.querySelectorAll("*")) {
       if (d.getBoundingClientRect().right <= edge || !visible(d)) continue;
-      if (!d.closest(feed.body)) return false;
+      if (!inBody(d)) return false;
       any = true;
     }
     return any;
@@ -288,16 +303,22 @@ function overflowProbe(feed) {
 // "undefined", "NaN" (also with a unit stuck to it, as in "NaNm" or "NaNkB"), "[object Object]" and "Invalid Date".
 // Feeds can legitimately say "undefined behaviour" or "NaN-boxing", so a hit is the feed's (a note) when it is in the
 // article HTML, or when it goes away once the feed-supplied strings in `feed.names` are taken out of the text, or of
-// a nearby ancestor's text (a highlighted search term splits a title into several text nodes). A field that
-// rendered as undefined next to them is still Kipple's.
+// a nearby ancestor's text (only for a text node: a highlighted search term splits a title into several). A field
+// that rendered as undefined next to them is still Kipple's.
 function literalProbe(feed) {
   const bad = new RegExp(feed.pattern);
   const norm = (t) => t.replace(/\s+/g, " ");
   const strip = (t) => feed.names.reduce((s, n) => s.split(n).join(" "), norm(t));
-  const fromFeed = (el, text) => {
-    if (el.closest(feed.body)) return true;
+  const inBody = (el) => {
+    const b = el.closest(feed.body);
+    const k = b && el.closest(feed.ownText);
+    return !!b && !(k && b.contains(k));
+  };
+  const fromFeed = (el, text, isTextNode) => {
+    if (inBody(el)) return true;
     if (!feed.names.length) return false;
     if (!bad.test(strip(text))) return true;
+    if (!isTextNode) return false;
     for (let a = el, i = 0; a && a !== document.body && i < 4; a = a.parentElement, i++) {
       const t = norm(a.textContent || "");
       if (feed.names.some((n) => t.includes(n)) && !bad.test(strip(t))) return true;
@@ -305,13 +326,16 @@ function literalProbe(feed) {
     return false;
   };
   const hits = [];
-  const add = (el, where, text) => hits.push({ where, text: norm(text).trim().slice(0, 160), feed: fromFeed(el, text) });
+  const add = (el, where, text, isTextNode = false) =>
+    hits.push({ where, text: norm(text).trim().slice(0, 160), feed: fromFeed(el, text, isTextNode) });
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const el = n.parentElement;
     if (!el || !n.nodeValue || !bad.test(n.nodeValue) || el.closest("script, style, noscript, template, select")) continue;
-    if (!el.checkVisibility({ visibilityProperty: true })) continue;
-    add(el, el.tagName.toLowerCase(), n.nodeValue);
+    // An SVG <title> (a chart's tooltip) never has a box of its own: it is shown when its graphic is.
+    const box = el instanceof SVGTitleElement ? el.parentElement : el;
+    if (!box || !box.checkVisibility({ visibilityProperty: true })) continue;
+    add(el, el instanceof SVGTitleElement ? "svg title" : el.tagName.toLowerCase(), n.nodeValue, true);
   }
   for (const el of document.body.querySelectorAll("[aria-label],[title],[alt],[placeholder],[aria-valuetext]")) {
     if (!el.checkVisibility({ visibilityProperty: true })) continue;
@@ -334,8 +358,9 @@ function literalProbe(feed) {
 }
 
 async function runAxe(page) {
-  // Evaluated over the DevTools protocol rather than added as a <script>: Kipple's CSP (script-src 'self') would
-  // block an inline script, and turning the CSP off would hide the app's own CSP violations from S1.
+  // The screen checks get axe from an init script (checkScreens); the self-test page, filled by setContent, gets it
+  // here. Both go over the DevTools protocol rather than a <script>: Kipple's CSP (script-src 'self') would block an
+  // inline script, and turning the CSP off would hide the app's own CSP violations from S1.
   if (!(await page.evaluate(() => typeof window.axe !== "undefined"))) await page.evaluate(AXE_SOURCE);
   return page.evaluate(async (feed) => {
     const r = await window.axe.run(document, {
@@ -351,8 +376,13 @@ async function runAxe(page) {
         target: n.target.join(" "),
         html: n.html.slice(0, 300),
         summary: n.failureSummary?.split("\n").slice(0, 3).join(" ").slice(0, 300),
-        // Nodes inside the article body are the feed's own markup, reported apart from Kipple's.
-        feedContent: !!document.querySelector(n.target.join(" "))?.closest(feed.body),
+        // Nodes inside the article body are the feed's own markup, reported apart from Kipple's, except what Kipple
+        // added there itself.
+        feedContent: ((el) => {
+          const b = el?.closest(feed.body);
+          const k = b && el.closest(feed.own);
+          return !!b && !(k && b.contains(k));
+        })(document.querySelector(n.target.join(" "))),
       })),
     }));
   }, FEED);
@@ -430,9 +460,10 @@ try {
   console.error(`run aborted: ${e.message.split("\n")[0]}`);
   exitCode = 2;
 } finally {
-  await browser.close();
+  await browser.close().catch((e) => console.warn(`closing the browser failed: ${e.message.split("\n")[0]}`));
 }
-process.exit(exitCode);
+// Set rather than process.exit(), so piped output is flushed before Node leaves.
+process.exitCode = exitCode;
 
 // Each probe must flag a page built to fail it, so a quiet run means clean, not broken.
 async function selfTest() {
@@ -442,7 +473,8 @@ async function selfTest() {
       `<label>Night starts <input value="undefined"></label><div id="wide" style="width:600px">wide</div>` +
       `<div id="reader" style="overflow-y:auto;height:120px"><article aria-labelledby="article-title">` +
       `<h1 id="article-title">NaN-boxing explained</h1><p>Tue · NaN min read</p><div class="article-body">` +
-      `<p>undefined behaviour is fine in an article</p><p><code>NaN</code></p><div style="width:800px">a wide embed</div></div>` +
+      `<p>undefined behaviour is fine in an article</p><p><code>NaN</code></p><div style="width:800px">a wide embed</div>` +
+      `<button id="feedbtn"></button><figure><button class="kp-embed-play" id="kpbtn"></button></figure></div>` +
       `</article></div>` +
       `<div class="article-body"><p>Preview: NaN</p></div>` +
       `<div data-item-id="1"><h3><a href="#x" aria-label="Unread, undefined, Some feed">Some title</a></h3>` +
@@ -454,12 +486,15 @@ async function selfTest() {
       `<div class="overflow-x-auto" style="overflow-x:auto"><div style="width:900px">a scroller on purpose</div></div>` +
       `<span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">sr only</span>` +
       `<p>Size NaNkB</p><label>Theme <select><option>Paper</option><option selected>undefined</option></select></label>` +
-      `<nav><a href="#y">NaN Tech</a><button aria-label="Edit NaN Tech">e</button></nav></main>`,
+      `<nav><a href="#y">NaN Tech</a><button aria-label="Edit NaN Tech">e</button></nav>` +
+      `<p>Updated undefinedm ago</p><a href="#z" aria-label="Unread, NaN-boxing explained, undefined">NaN-boxing explained</a>` +
+      `<svg width="20" height="20" role="img" aria-label="chart"><rect width="20" height="20"><title>Invalid Date: 3 items</title></rect></svg></main>`,
   );
   const probeFeed = { ...FEED, names: ["NaN Tech", "NaN-boxing explained", "An excerpt about NaN-boxing", "The NaN trick"] };
   const o = await page.evaluate(overflowProbe, probeFeed);
   const lit = await page.evaluate(literalProbe, probeFeed);
-  const axeIds = (await runAxe(page)).map((v) => v.id);
+  const axe = await runAxe(page);
+  const axeIds = axe.map((v) => v.id);
   await page.close();
   const problems = [];
   const same = (got, want) => JSON.stringify([...got].sort()) === JSON.stringify([...want].sort());
@@ -467,12 +502,21 @@ async function selfTest() {
   const feed = lit.filter((h) => h.feed).map((h) => h.text);
   const wantOwn = [
     "Count: NaN", "Updated NaNm ago", "Invalid Date", "[object Object]", "undefined", "Tue · NaN min read", "Preview: NaN",
-    "Unread, undefined, Some feed", "NaNm", "Size NaNkB", "undefined",
+    "Unread, undefined, Some feed", "NaNm", "Size NaNkB", "undefined", "Updated undefinedm ago",
+    "Unread, NaN-boxing explained, undefined", "Invalid Date: 3 items",
   ];
   const wantFeed = [
     "NaN-boxing explained", "undefined behaviour is fine in an article", "NaN", "An excerpt about NaN-boxing", "NaN",
-    "NaN Tech", "Edit NaN Tech",
+    "NaN Tech", "Edit NaN Tech", "NaN-boxing explained",
   ];
+  const buttons = axe.find((v) => v.id === "button-name")?.nodes ?? [];
+  const nodeSplit = buttons.map((n) => `${n.target}:${n.feedContent}`);
+  if (!same(nodeSplit, ["#feedbtn:true", "#kpbtn:false"])) problems.push(`S3 feed/Kipple split ${JSON.stringify(nodeSplit)}`);
+  // Harvesting keeps real feed text and drops a bare literal, which would otherwise excuse every hit of it.
+  harvestFeedText({ items: [{ author: "undefined", title: "Why NaN != NaN", url: "https://x/NaN" }] });
+  if (!same(FEED.names, ["Why NaN != NaN"])) problems.push(`harvest ${JSON.stringify(FEED.names)}`);
+  feedStrings.clear();
+  FEED.names = [];
   if (!(o.scrollWidth > o.vw)) problems.push("S4 did not see the page scroll sideways");
   if (!same(o.offenders.map((x) => x.desc.split(" ")[0]), ["div#wide", "div#fixed"])) problems.push(`S4 offenders ${JSON.stringify(o.offenders)}`);
   if (!same(o.scrollers.map((x) => `${x.desc.split(" ")[0]}:${x.feed}`), ["div#pane:false", "div#reader:true"])) problems.push(`S4 scrollers ${JSON.stringify(o.scrollers)}`);
@@ -483,37 +527,47 @@ async function selfTest() {
   if (problems.length) throw new Error(`self-test failed: ${problems.join("; ")}`);
 }
 
-// Feed-supplied strings that contain an S5 literal (see FEED.names): names from the bootstrap, and the titles,
-// excerpts, authors and sources of every item in All plus the snippets of the search the run makes, as the API
-// returns them. Paged to at most MAX_ITEMS items per list, which covers a seeded instance many times over.
+// Feed-supplied strings that contain an S5 literal (FEED.names). Two sources: every /api/ JSON answer a screen
+// loads (harvestFeedText, so items that arrive mid-run and titles only Stats still knows are covered), and, before
+// the first screen, the whole of All plus the search the run makes (collectFeedText). Only the fields feeds and the
+// user fill: titles, names, excerpts, authors, sources and search snippets.
+function harvestFeedText(json) {
+  const bad = new RegExp(FEED.pattern);
+  const badAll = new RegExp(FEED.pattern, "g");
+  const walk = (v, key) => {
+    if (typeof v === "string") {
+      if (!FEED_KEYS.has(key)) return;
+      const s = (key === "snippet" ? decodeSnippet(v) : v).replace(/\s+/g, " ").trim();
+      // A string that is little more than the literal ("undefined" as an author) would excuse every Kipple hit of
+      // that literal on every screen, so it is not taken; it shows up as an S5 finding instead.
+      if (bad.test(s) && s.replace(badAll, "").replace(/[\W_]/g, "").length >= 3) feedStrings.add(s);
+    } else if (Array.isArray(v)) for (const x of v) walk(x, key);
+    else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, k);
+  };
+  walk(json, "");
+  FEED.names = [...feedStrings];
+}
+
 async function collectFeedText(request) {
-  const MAX_ITEMS = 5000;
+  const MAX_ITEMS = 5000; // per list; a seeded instance has about a hundred
   const headers = { Accept: "application/json", "X-Kipple-Client": "web" };
   const get = async (path) => {
     const r = await request.get(origin + path, { headers });
     if (!r.ok()) throw new Error(`GET ${path.split("?")[0]} answered ${r.status()}`);
     return r.json();
   };
-  const b = await get("/api/bootstrap");
-  const out = [...(b.feeds ?? []).map((f) => f.title), ...(b.folders ?? []).map((f) => f.name ?? f.title), ...(b.saved_searches ?? []).map((s) => s.name)];
-  const decode = (h) =>
-    h.replace(/<[^>]*>/g, "").replace(/&(amp|lt|gt|quot|#39|#34);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#34": '"' })[e]);
+  harvestFeedText(await get("/api/bootstrap"));
   for (const list of [{ view: "all" }, { view: "all", q: SEARCH_Q }]) {
     let cursor = "";
     for (let seen = 0; seen < MAX_ITEMS; ) {
       const qs = new URLSearchParams({ ...list, limit: "100", ...(cursor ? { cursor } : {}) });
       const page = await get(`/api/items?${qs}`);
-      for (const it of page.items ?? []) {
-        out.push(it.title, it.excerpt, it.author, it.source, it.origin_title, it.feed_title);
-        if (typeof it.snippet === "string") out.push(decode(it.snippet));
-      }
+      harvestFeedText(page.items ?? []);
       seen += page.items?.length ?? 0;
       if (!page.next_cursor || !page.items?.length) break;
       cursor = page.next_cursor;
     }
   }
-  const bad = new RegExp(FEED.pattern);
-  return [...new Set(out.filter((s) => typeof s === "string" && bad.test(s)).map((s) => s.replace(/\s+/g, " ").trim()))];
 }
 
 function loadDevice() {
@@ -545,7 +599,7 @@ async function signIn() {
       const alert = await page.getByRole("alert").first().textContent().catch(() => null);
       throw new Error(`sign-in failed${alert ? `: ${alert}` : ""}`);
     });
-    FEED.names = await collectFeedText(page.request);
+    await collectFeedText(page.request);
 
     const cookies = (await ctx.storageState()).cookies;
     if (!cookies.some((c) => c.name === "kipple_session")) throw new Error("signed in, but no kipple_session cookie");
@@ -609,10 +663,19 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     }
     bucket.console.push({ kind: "console", text: msg.text().slice(0, 600), url });
   });
+  const harvesting = new Set();
   page.on("response", (res) => {
-    if (!current || res.status() < 400) return;
     const u = new URL(res.url());
     if (u.origin !== origin) return;
+    if (res.ok() && u.pathname.startsWith("/api/") && (res.headers()["content-type"] ?? "").includes("json")) {
+      const p = res
+        .json()
+        .then(harvestFeedText)
+        .catch(() => {})
+        .finally(() => harvesting.delete(p));
+      harvesting.add(p);
+    }
+    if (!current || res.status() < 400) return;
     if (u.pathname.startsWith("/api/")) bucket.api.push({ status: res.status(), method: res.request().method(), url: u.pathname + u.search });
     else bucket.other.push({ url: u.pathname + u.search, text: `HTTP ${res.status()}` });
   });
@@ -673,7 +736,6 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       if (scheme !== theme.scheme)
         throw new Error(`expected the ${theme.scheme} scheme, the page shows ${scheme} (does the account default to a fixed theme?)`);
 
-      // S4 before axe, so axe's injected script is not part of the layout.
       const s4 = [];
       if (vp.id !== "desktop") {
         const o = await page.evaluate(overflowProbe, FEED);
@@ -684,6 +746,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         }
         for (const off of o.offenders) s4.push({ rule: "past-right-edge", message: `${off.desc} ends at ${off.right}px (viewport ${o.vw}px)` });
       }
+      await Promise.all([...harvesting]); // this screen's API answers are in FEED.names
       const s5 = await page.evaluate(literalProbe, FEED);
       const axe = await runAxe(page);
       await page.waitForTimeout(100); // late console errors from the last render
@@ -755,13 +818,15 @@ function writeReport(results, s6) {
   );
   writeFileSync(join(outDir, "report.json"), JSON.stringify({ origin, stamp, summary, results, findings, s6 }, null, 2));
 
-  // Findings grouped by check and message, so one issue seen on 30 screens reads as one entry listing where it was
-  // seen and each distinct element (axe nodes) once, with the screens it was on.
+  // Findings grouped by check, rule and message with its numbers taken out (S4 names pixel widths that differ per
+  // viewport), so one issue seen on 30 screens reads as one entry listing where it was seen and each distinct element
+  // (axe nodes) once, with the screens it was on.
   const groups = new Map();
   for (const f of findings) {
-    const key = `${f.severity}|${f.check}|${f.rule ?? ""}|${f.message}`;
-    if (!groups.has(key)) groups.set(key, { ...f, seen: [], nodes: new Map() });
+    const key = `${f.severity}|${f.check}|${f.rule ?? ""}|${f.message.replace(/\d+/g, "#")}`;
+    if (!groups.has(key)) groups.set(key, { ...f, seen: [], nodes: new Map(), variants: new Set() });
     const g = groups.get(key);
+    g.variants.add(f.message);
     if (f.screen) g.seen.push(`${f.screen}/${f.theme}/${f.viewport}`);
     else if (f.theme) g.seen.push(`${f.theme}/${f.viewport}`);
     if (Array.isArray(f.detail)) {
@@ -788,7 +853,7 @@ function writeReport(results, s6) {
     if (!list.length) continue;
     md.push(`## ${sev === "fail" ? "Failures" : sev === "waived" ? "Waived" : "Notes"}`, "");
     for (const g of list) {
-      md.push(`- **${g.check}** ${g.message}${g.waiver ? ` (waived: ${g.waiver})` : ""}`);
+      md.push(`- **${g.check}** ${g.message}${g.variants.size > 1 ? ` (and ${g.variants.size - 1} more with other numbers)` : ""}${g.waiver ? ` (waived: ${g.waiver})` : ""}`);
       if (g.seen.length) md.push(`  - seen on ${g.seen.length}: ${g.seen.slice(0, 12).join(", ")}${g.seen.length > 12 ? ", ..." : ""}`);
       const nodes = [...g.nodes.values()];
       for (const n of nodes.slice(0, 6)) {
