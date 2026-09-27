@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
 	"time"
 
@@ -314,4 +316,41 @@ func TestStatsSummarySourceTimedFieldsAndTruncationFlag(t *testing.T) {
 	require.EqualValues(t, 40, num(s["timed_seconds"]))
 	require.EqualValues(t, 2, num(s["timed_items"]))
 	require.InDelta(t, 20, num(s["avg_read_seconds"]), 1e-9)
+}
+
+// Only one summary is computed at a time; a waiter whose request is cancelled returns without querying.
+func TestStatsSummaryGateSerializes(t *testing.T) {
+	h := newHarness(t)
+	cc := h.login()
+	h.srv.statsGate <- struct{}{} // a computation in flight
+
+	done := make(chan int, 1)
+	go func() { done <- h.do("GET", "/api/stats/summary", "", withCookie(cc)).Code }()
+	select {
+	case <-done:
+		t.Fatal("the second request must wait for the first")
+	case <-time.After(150 * time.Millisecond):
+	}
+	<-h.srv.statsGate // the first finishes
+	select {
+	case code := <-done:
+		require.Equal(t, 200, code)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the waiter never ran")
+	}
+
+	h.srv.statsGate <- struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelled := make(chan struct{})
+	go func() {
+		defer close(cancelled)
+		h.do("GET", "/api/stats/summary", "", withCookie(cc), func(r *http.Request) { *r = *r.WithContext(ctx) })
+	}()
+	cancel()
+	select {
+	case <-cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cancelled waiter must return")
+	}
+	<-h.srv.statsGate
 }

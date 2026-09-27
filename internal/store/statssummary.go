@@ -176,11 +176,11 @@ const (
 	sqlOpens     = `SELECT rowid, local_date, local_hour, feed_id, item_id, COALESCE(session_key, ''), ts
 		FROM stats_events INDEXED BY idx_stats_open_cov
 		WHERE kind = 'open' AND inferred <= ?1 AND local_date BETWEEN ?2 AND ?3 AND rowid <= ?4`
-	sqlReadTime = `SELECT local_date, local_hour, feed_id, session_key, SUM(value)
+	sqlReadTime = `SELECT local_date, local_hour, feed_id, COALESCE(session_key, ''), SUM(value)
 		FROM stats_events INDEXED BY idx_stats_rt_cov
 		WHERE kind = 'read_time' AND local_date BETWEEN ?1 AND ?2 AND rowid <= ?3
 		GROUP BY local_date, local_hour, feed_id, session_key`
-	sqlScroll = `SELECT session_key, value FROM stats_events INDEXED BY idx_stats_scroll_cov
+	sqlScroll = `SELECT COALESCE(session_key, ''), value FROM stats_events INDEXED BY idx_stats_scroll_cov
 		WHERE kind = 'scroll' AND local_date BETWEEN ?1 AND ?2 AND rowid <= ?3`
 	sqlStars = `SELECT feed_id, COUNT(*), MAX(id) FROM stats_events INDEXED BY idx_stats_kind_ts
 		WHERE kind = 'star' AND inferred <= ?1 AND ts BETWEEN ?2 AND ?3 AND local_date BETWEEN ?4 AND ?5 AND id <= ?6 GROUP BY feed_id`
@@ -316,7 +316,7 @@ func statsScroll(ctx context.Context, q Querier, from, to string, maxID int64) (
 		if err := scRows.Scan(&sk, &v); err != nil {
 			return err
 		}
-		if v > sessScroll[sk] {
+		if sk != "" && v > sessScroll[sk] {
 			sessScroll[sk] = v
 		}
 		return nil
@@ -342,7 +342,9 @@ func statsReadTime(ctx context.Context, q Querier, from, to string, maxID int64)
 			return err
 		}
 		rt[k] += v
-		sessRT[sk] += v
+		if sk != "" { // a NULL key belongs to no session
+			sessRT[sk] += v
+		}
 		return nil
 	}); err != nil {
 		return nil, nil, err

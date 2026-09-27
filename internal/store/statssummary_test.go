@@ -258,3 +258,17 @@ func TestStatsSourceTimedFields(t *testing.T) {
 	require.InDelta(t, 20, *s.AvgReadSeconds, 1e-9)
 	require.EqualValues(t, 44, s.ActiveSeconds)
 }
+
+// A read_time or scroll row without a session key must not fail the summary, and must not be
+// attributed to the sessions of opens that have no key either.
+func TestStatsSummaryToleratesNullSessionKeys(t *testing.T) {
+	e := newEnv(t)
+	e.putStat("open", "2026-09-19", 9, 1, "old", nil, "F")
+	e.putStat("open", "2026-09-20", 1, 1, "", nil, "F") // an open without a key
+	e.putStat("read_time", "2026-09-20", 1, 1, "", 30, "F")
+	e.putStat("scroll", "2026-09-20", 1, 1, "", 90, "F")
+	out := e.summary("2026-09-15", "2026-09-24")
+	require.Equal(t, 2, out.Totals.Opens)
+	require.EqualValues(t, 30, out.Totals.ActiveSeconds, "the time still counts as active time")
+	require.Equal(t, 1, out.Totals.ItemsRead, "the keyless open is not made a read by the keyless rows")
+}

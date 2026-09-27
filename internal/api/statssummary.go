@@ -60,6 +60,14 @@ func (s *Server) statsSummary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// One computation at a time process-wide, so two tabs or a refetch during a range change never ask
+	// the four-connection reader pool for more than three connections. A waiter that goes away leaves.
+	select {
+	case s.statsGate <- struct{}{}:
+		defer func() { <-s.statsGate }()
+	case <-ctx.Done():
+		return
+	}
 	out, err := store.StatsSummaryFor(ctx, rd, p)
 	if err != nil {
 		s.serverError(w, "stats summary", err)

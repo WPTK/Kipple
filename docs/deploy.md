@@ -327,12 +327,14 @@ rollback.
 **Disk space during the upgrade.** The upgrade is transiently much bigger than the indexes it
 leaves. The pre-migration snapshot is a full copy of the database, and the whole index build is
 held in the WAL until it is committed and checkpointed into the database file, so the peak is
-about the database plus the snapshot plus twice the index size (database + database + 2 x index):
-about 580 MB for a 232 MB database with a million events, with the volume returning to about
+about the database plus the snapshot plus twice the index size (database + database + 2 x index; this is
+peak total usage): about 580 MB for a 232 MB database with a million events, with the volume returning to about
 database + snapshot + index afterwards. Before the snapshot is written Kipple checks the free
 space: it refuses to start, with `not enough free disk space to migrate the database ... (nothing
-was changed)`, when the volume that holds the database has less than 3 times its size (file plus
-WAL) free, or the backup directory less than 1.1 times. Nothing has been written at that point, so
+was changed)`, unless there is enough extra free space (as opposed to the peak total above): on the database's
+volume, the size of the database file (without the WAL) plus 64 MB of headroom for the migration's
+WAL and growth, and on the backup directory's volume, 1.1 times the database size for the snapshot;
+when both are on the same volume (the default `/data` layout) the two add up. Nothing has been written at that point, so
 free some space (older `backup/` files, exported archives, the image cache) and start again. If the
 volume fills up despite the check, the migration transaction fails and is rolled back (the
 database stays at schema 8 and an older binary keeps working); a full disk can also fail the

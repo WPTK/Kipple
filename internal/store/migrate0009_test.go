@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -94,6 +95,14 @@ func TestMigrationRefusesWhenDiskTooFull(t *testing.T) {
 	require.ErrorContains(t, err, "not enough free disk space")
 	snaps, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "backup", "pre-migration-*.db"))
 	require.Empty(t, snaps, "nothing was written")
+
+	// Everything on one volume: room for the database's own growth is not enough, the snapshot must fit too.
+	st, err := os.Stat(path)
+	require.NoError(t, err)
+	size := uint64(st.Size())
+	migrationFreeBytes = func(string) (uint64, error) { return size + migrateHeadroom, nil }
+	_, err = Open(e.ctx, Options{Path: path, Clock: e.clk})
+	require.ErrorContains(t, err, "not enough free disk space")
 
 	migrationFreeBytes = orig
 	db, err := Open(e.ctx, Options{Path: path, Clock: e.clk})
