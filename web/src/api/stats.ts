@@ -14,3 +14,18 @@ export function useStatsSummary(range: StatsRange, enabled = true) {
     placeholderData: keepPreviousData,
   });
 }
+
+/**
+ * Wrapped's data: the ordinary summary over one calendar year (to today for the current year). Its own key under the
+ * ["stats"] prefix, so a delete or a new event refreshes it like the rest.
+ */
+export function useWrappedSummary(year: number, span: { from: string; to: string }, enabled = true) {
+  return useQuery({
+    queryKey: ["stats", "wrapped", year] as const,
+    queryFn: ({ signal }) => api<StatsSummary>("/api/stats/summary", { params: { from: span.from, to: span.to }, signal }),
+    enabled,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+    placeholderData: keepPreviousData,
+  });
+}

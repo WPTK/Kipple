@@ -80,6 +80,7 @@ func TestPatchSettingsValidation(t *testing.T) {
 		{"imgproxy enum", `{"imgproxy.mode":"https_only"}`, "imgproxy.mode"},
 		{"bool type", `{"stats.api_single_read_is_open":"yes"}`, "stats.api_single_read_is_open"},
 		{"stats enabled type", `{"stats.enabled":"no"}`, "stats.enabled"},
+		{"wrapped enabled type", `{"stats.wrapped_enabled":"no"}`, "stats.wrapped_enabled"},
 		{"week start enum", `{"stats.week_start":"tuesday"}`, "stats.week_start"},
 		{"week start type", `{"stats.week_start":1}`, "stats.week_start"},
 		{"tz unknown", `{"tz":"Mars/Base"}`, "tz"},
@@ -161,6 +162,7 @@ func TestPatchSettingsAccepted(t *testing.T) {
 		{"stats.api_single_read_is_open", `true`, true},
 		{"stats.enabled", `false`, false},
 		{"stats.week_start", `"monday"`, "monday"},
+		{"stats.wrapped_enabled", `false`, false},
 		{"imgproxy.mode", `"all"`, "all"},
 		{"tz", `"UTC"`, "UTC"},
 		{"ui.theme", `"soft-green"`, "directory"}, // an old id is stored as its current alias

@@ -34,6 +34,7 @@ var DefaultSettings = map[string]any{
 	"stats.api_single_read_is_open": false,
 	"stats.enabled":                 true,
 	"stats.week_start":              "sunday",
+	"stats.wrapped_enabled":         true,
 	"imgproxy.mode":                 DefaultImgMode,
 	"imgproxy.cache_mb":             DefaultImgCacheMB,
 	"greader.icon_urls":             true,

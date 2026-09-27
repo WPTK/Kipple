@@ -362,6 +362,8 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day weekly statistics start on. This only changes how they are shown.",
 		Group: groupStats, Kind: "enum", Options: opts("sunday", "Sunday", "monday", "Monday"), Surface: surfaceSettings, check: oneOf("sunday", "monday")},
+	{Key: "stats.wrapped_enabled", Label: "Yearly Wrapped", Description: "Show a yearly summary of your reading that you can share as an image or text. Turning this off hides it; your statistics are kept.",
+		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Advanced: shown in an Advanced section of the Settings screen.
 	{Key: "fetch.honor_publisher_ttl", Label: "Follow publisher refresh hints", Description: "Wait longer between checks when a site asks readers not to check too often.",

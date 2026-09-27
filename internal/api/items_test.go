@@ -1037,6 +1037,7 @@ func TestBootstrap(t *testing.T) {
 	require.Equal(t, false, set["stats.api_single_read_is_open"])
 	require.Equal(t, true, set["stats.enabled"])
 	require.Equal(t, "sunday", set["stats.week_start"])
+	require.Equal(t, true, set["stats.wrapped_enabled"])
 	require.NotContains(t, set, "sys.id_high_water")
 	require.NotContains(t, set, "bogus.key")
 

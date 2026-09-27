@@ -23,6 +23,7 @@ import { Skeleton } from "@/ui/kit";
 const FeedsScreen = lazyScreen(() => import("@/screens/FeedsScreen").then((m) => ({ default: m.FeedsScreen })));
 const HealthScreen = lazyScreen(() => import("@/screens/HealthScreen").then((m) => ({ default: m.HealthScreen })));
 const StatsScreen = lazyScreen(() => import("@/screens/StatsScreen").then((m) => ({ default: m.StatsScreen })));
+const WrappedScreen = lazyScreen(() => import("@/screens/WrappedScreen").then((m) => ({ default: m.WrappedScreen })));
 const SettingsScreen = lazyScreen(() => import("@/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen })));
 
 /**
@@ -150,6 +151,7 @@ function Gate() {
         <Route path="health" element={<Lazy><HealthScreen /></Lazy>} />
         <Route path="search" element={<SearchScreen />} />
         <Route path="stats" element={<Lazy><StatsScreen /></Lazy>} />
+        <Route path="stats/wrapped" element={<Lazy><WrappedScreen /></Lazy>} />
         <Route path="settings" element={<Lazy><SettingsScreen /></Lazy>} />
         <Route path="*" element={<Navigate to="/l/unread" replace />} />
       </Route>
