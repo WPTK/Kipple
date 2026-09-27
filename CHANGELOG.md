@@ -6,6 +6,13 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Stats screen: an Export button opens a dialog to choose the format (CSV, JSON, JSON Lines), the contents (raw events or a summary), the range, and whether article titles and links are included, with a link to the data dictionary. Settings > Statistics gets a "Your statistics data" section to export, delete a date range (with a count and a confirming click) and delete all statistics (typed confirmation). Both stay available when reading statistics are off.
+- Statistics export: `GET /api/stats/export` downloads the raw events as CSV, JSON or JSON Lines, or a summary of a range as JSON, for a chosen range (default all time), with or without article titles and URLs. Text cells that start with `=`, `+`, `-` or `@` are prefixed with a single quote so a spreadsheet does not run them as formulas. It streams in pages and keeps memory small (a million rows in about three seconds).
+- `GET /api/stats/dictionary` returns a data dictionary (JSON, or Markdown with `?format=md`) that describes every exported column, the event kinds, what counts as a read, local-time handling and how the summary fields are computed. JSON exports embed the same dictionary.
+- `POST /api/stats/delete` deletes reading statistics events for a date range, or all of them with a typed confirmation, with a dry run that only counts. It touches only the statistics table, works in bounded batches, and is available while reading statistics are turned off, as are the exports.
+
 ## [0.3.0-alpha.5] - 2026-09-27
 
 The Stats screen (phase 4, second step) and its summary endpoint. One schema migration (0009): a rollback goes through the

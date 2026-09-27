@@ -5,7 +5,7 @@ interface Props<T extends string | number> {
   legend: string;
   hint?: string;
   value: T;
-  options: readonly { value: T; label: string }[];
+  options: readonly { value: T; label: string; disabled?: boolean }[];
   onChange: (v: T) => void;
   /** Long labels: let the options wrap onto a second row instead of squeezing into one. */
   wrap?: boolean;
@@ -77,6 +77,7 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
                 "relative flex min-h-11 min-w-0 flex-1 cursor-pointer items-center justify-center px-1 text-center text-xs font-medium select-none min-[380px]:text-sm",
                 "has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-accent",
                 wrap && "basis-[30%]",
+                o.disabled && "cursor-not-allowed opacity-50",
                 on ? "bg-accent font-semibold text-bg shadow-[inset_0_2px_5px_rgb(0_0_0/0.35)]" : "bg-surface text-fg hover:bg-selection",
               )}
             >
@@ -85,6 +86,7 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
                 name={name}
                 value={String(o.value)}
                 checked={on}
+                disabled={o.disabled}
                 ref={(el) => {
                   inputs.current[i] = el;
                 }}

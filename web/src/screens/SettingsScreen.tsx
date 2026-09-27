@@ -32,6 +32,8 @@ import { AutoReadCatchUp } from "./AutoReadCatchUp";
 import { ImageCachePanel } from "./ImageCachePanel";
 import { SavedSearchesSection } from "./SavedSearchesSection";
 import { SettingField } from "./SettingField";
+import { StatsDataSection } from "./StatsDataDialogs";
+import { loadRange } from "@/lib/statsFormat";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const id = useId();
@@ -116,7 +118,7 @@ export function ServerSettings({ settings }: { settings: SettingMeta[] }) {
   return (
     <>
       {GROUPS.map(({ id, title }) =>
-        by(id).length ? (
+        by(id).length || id === "stats" ? (
           <Section key={id} title={title}>
             {by(id).map((s) => (
               <div key={s.key} className="flex flex-col gap-3">
@@ -124,6 +126,7 @@ export function ServerSettings({ settings }: { settings: SettingMeta[] }) {
                 {extra(s)}
               </div>
             ))}
+            {id === "stats" ? <StatsDataSection defaultRange={loadRange()} /> : null}
           </Section>
         ) : null,
       )}

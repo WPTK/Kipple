@@ -281,9 +281,9 @@ func TestNewRoutesOriginRules(t *testing.T) {
 	})
 	require.Equal(t, http.StatusForbidden, code)
 
-	// The CSV export gets the same guard as the OPML download: the origin rule alone,
-	// so a cross-site request is refused before routing (the route itself is phase 4).
-	code, _, _ = h.api(c, "GET", "/api/stats/export.csv", "", crossSite)
+	// The stats export gets the same guard as the OPML download: the origin rule alone,
+	// so a cross-site request is refused before routing.
+	code, _, _ = h.api(c, "GET", "/api/stats/export", "", crossSite)
 	require.Equal(t, http.StatusForbidden, code)
 }
 

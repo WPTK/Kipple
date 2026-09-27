@@ -31,6 +31,7 @@ import { useMedia } from "@/lib/useMedia";
 import { Button } from "@/ui/button";
 import { Notice, Skeleton } from "@/ui/kit";
 import { Segmented } from "@/ui/segmented";
+import { StatsExportDialog } from "./StatsDataDialogs";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const id = useId();
@@ -419,6 +420,7 @@ export function StatsScreen() {
   const [range, setRange] = useState<StatsRange>(loadRange);
   const q = useStatsSummary(range, on);
   const data = q.data;
+  const [exporting, setExporting] = useState(false);
   const pick = (r: StatsRange) => {
     setRange(r);
     saveRange(r);
@@ -434,6 +436,12 @@ export function StatsScreen() {
             Settings &gt; Statistics
           </Link>
           .
+        </p>
+        <p className="mt-3 text-sm">
+          <button type="button" onClick={() => setExporting(true)} className="text-link underline underline-offset-2">
+            Export or delete your data
+          </button>
+          <span className="block text-xs text-fg2">Recorded statistics are kept while this is off. Export opens here; deleting is in Settings.</span>
         </p>
       </div>
     );
@@ -498,15 +506,16 @@ export function StatsScreen() {
           Stats
         </h1>
         {on && !(data && !data.enabled) ? (
-          <Segmented
-            legend="Range"
-            value={range}
-            onChange={pick}
-            options={RANGES}
-          />
+          <div className="flex items-end gap-3">
+            <div className="min-w-0 flex-1">
+              <Segmented legend="Range" value={range} onChange={pick} options={RANGES} />
+            </div>
+            <Button onClick={() => setExporting(true)}>Export</Button>
+          </div>
         ) : null}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">{body}</div>
+      <StatsExportDialog open={exporting} onOpenChange={setExporting} defaultRange={range} />
     </div>
   );
 }

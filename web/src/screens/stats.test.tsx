@@ -206,6 +206,25 @@ describe("Stats screen", () => {
     expect(screen.getByText(/cells with opens but no recorded time show the lightest shade/)).toBeInTheDocument();
   });
 
+  it("keeps Export available when statistics are off", async () => {
+    const user = userEvent.setup();
+    setup(() => offStats, { "stats.enabled": false });
+    go();
+    await user.click(await screen.findByRole("button", { name: "Export or delete your data" }));
+    expect(await screen.findByRole("dialog", { name: "Export statistics" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+  });
+
+  it("opens the export dialog from the Export button beside the Range control", async () => {
+    const user = userEvent.setup();
+    setup(() => richStats);
+    go();
+    await screen.findByRole("heading", { name: "Daily activity" });
+    await user.click(screen.getByRole("button", { name: "Export" }));
+    expect(await screen.findByRole("dialog", { name: "Export statistics" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+  });
+
   it("hides the Range control when the server says stats are off", async () => {
     setup(() => offStats);
     go();
