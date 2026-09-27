@@ -22,6 +22,7 @@ import { Skeleton } from "@/ui/kit";
 // A failed download can be tried again (lib/lazyScreen.ts): React.lazy alone would keep the failure for good.
 const FeedsScreen = lazyScreen(() => import("@/screens/FeedsScreen").then((m) => ({ default: m.FeedsScreen })));
 const HealthScreen = lazyScreen(() => import("@/screens/HealthScreen").then((m) => ({ default: m.HealthScreen })));
+const StatsScreen = lazyScreen(() => import("@/screens/StatsScreen").then((m) => ({ default: m.StatsScreen })));
 const SettingsScreen = lazyScreen(() => import("@/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen })));
 
 /**
@@ -148,6 +149,7 @@ function Gate() {
         <Route path="feeds" element={<Lazy><FeedsScreen /></Lazy>} />
         <Route path="health" element={<Lazy><HealthScreen /></Lazy>} />
         <Route path="search" element={<SearchScreen />} />
+        <Route path="stats" element={<Lazy><StatsScreen /></Lazy>} />
         <Route path="settings" element={<Lazy><SettingsScreen /></Lazy>} />
         <Route path="*" element={<Navigate to="/l/unread" replace />} />
       </Route>

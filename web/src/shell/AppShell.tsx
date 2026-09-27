@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
-import { BellOff, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
+import { BarChart3, BellOff, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
 import { useRefreshAll } from "@/api/refresh";
+import { useStatsEnabled } from "@/lib/statsSender";
 import { useHotkeys } from "@/lib/keys";
 import { useSyncHighlights } from "@/lib/useHighlights";
 import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, DEFAULT_DEVICE_PREFS, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
@@ -34,6 +35,7 @@ function UnreadBadge() {
 
 function TabBar() {
   const { pathname } = useLocation();
+  const stats = useStatsEnabled();
   const inReader = pathname.startsWith("/l/") || pathname.startsWith("/i/");
   const cls = ({ isActive }: { isActive: boolean }) => cn(tab, isActive ? "text-accent" : "text-fg2");
   return (
@@ -57,6 +59,12 @@ function TabBar() {
         <Search aria-hidden="true" className="size-6" />
         Search
       </NavLink>
+      {stats ? (
+        <NavLink to="/stats" className={cls}>
+          <BarChart3 aria-hidden="true" className="size-6" />
+          Stats
+        </NavLink>
+      ) : null}
       <NavLink to="/settings" className={cls}>
         <Settings aria-hidden="true" className="size-6" />
         Settings
@@ -67,6 +75,7 @@ function TabBar() {
 
 function Sidebar() {
   const boot = useBootstrap();
+  const stats = useStatsEnabled();
   const dp = useDevicePrefs();
   const c = boot.data?.counts;
   // The sidebar leaves the list and the article their minimums, so at the 900 px breakpoint it cannot squeeze them.
@@ -112,7 +121,13 @@ function Sidebar() {
         <div className="min-h-0 flex-1 overflow-y-auto pb-2">
           <FeedTree />
         </div>
-        <div className="shrink-0 border-t border-line py-2">
+        <div className="flex shrink-0 flex-col gap-1 border-t border-line py-2">
+          {stats ? (
+            <NavLink to="/stats" className={item}>
+              <BarChart3 aria-hidden="true" className="size-5" />
+              Stats
+            </NavLink>
+          ) : null}
           <NavLink to="/settings" className={item}>
             <Settings aria-hidden="true" className="size-5" />
             Settings

@@ -245,6 +245,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("PUT /api/items/{id}/star", s.authed(s.starItem))
 	handle("POST /api/maintenance/fts-rebuild", s.authed(s.ftsRebuild))
 	handle("POST /api/stats/events", s.authed(s.statsEvents))
+	handle("GET /api/stats/summary", s.authed(s.statsSummary))
 	handle("GET /api/settings", s.authed(s.getSettings))
 	handle("PATCH /api/settings", s.authed(s.patchSettings))
 	handle("GET /api/device", s.authed(s.getDevice))

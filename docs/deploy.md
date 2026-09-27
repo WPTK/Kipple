@@ -307,6 +307,22 @@ out, rebuild and start the old tag. Never copy the snapshot over `kipple.db` by 
 the column by hand to make an older binary start. Everything recorded since the upgrade, reads,
 stars and statistics included, is lost on rollback.
 
+### Schema 8 -> 9 (stats summary indexes)
+
+Migration 0009 adds three partial covering indexes on `stats_events` (`idx_stats_open_cov`,
+`idx_stats_rt_cov`, `idx_stats_scroll_cov`) for `GET /api/stats/summary`. It is not O(1): each index
+is built by one scan of `stats_events` inside the migration transaction, about 1.5 s per million rows
+for the three together (a few milliseconds at typical sizes), and the indexes add about 60 MB per
+million events. The first start writes `/data/backup/pre-migration-8-9-<ns>.db` (or
+`pre-migration-7-9-<ns>.db` and so on when coming from an older schema), then migrates. A binary
+without 0009 refuses the schema-9 database with `database schema version 9 is newer than this binary
+(8); refusing to start`, so a rollback is the same procedure: stop kipple, `restore
+/data/backup/pre-migration-8-9-<ns>.db --yes` with the new image (use the snapshot name that matches
+where the database came from), then check out, rebuild and start the old tag. Never copy the
+snapshot over `kipple.db` by hand, and never drop the indexes by hand to make an older binary
+start. Everything recorded since the upgrade, reads, stars and statistics included, is lost on
+rollback.
+
 ## Phase 1 to phase 2 (done 2026-09-25, v0.2.0-alpha.1)
 
 Historical: this applies to a schema-1 database. With a build after alpha 2 the snapshot is `pre-migration-1-<latest>-*` (schema 5 is the latest at the time of writing), not `pre-migration-1-3-*`. Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migrates the schema

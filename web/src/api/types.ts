@@ -271,3 +271,48 @@ export interface BulkMarkResponse extends MarkReadResponse {
   /** Trimmed-ledger rows a scope mark also flipped; undo sends them back with `changed`. */
   ledger_ids?: string[];
 }
+
+// ---- Statistics (GET /api/stats/summary) ----
+
+export type StatsRange = "week" | "month" | "year" | "all";
+export type WeekStart = "sunday" | "monday";
+
+export interface StatsSource {
+  feed_id: string;
+  feed_title: string;
+  folder_id: string | null;
+  folder_name: string | null;
+  items_read: number;
+  opens: number;
+  active_seconds: number;
+  avg_read_seconds: number | null;
+  bounce_rate: number | null;
+  open_original_rate: number | null;
+  stars: number;
+  subscribed: boolean;
+  /** Raw counts behind the rates, for exact folder rollups. */
+  tracked_opens?: number;
+  bounces?: number;
+  items_opened?: number;
+  items_original?: number;
+}
+
+export interface StatsSummary {
+  enabled: boolean;
+  tz: string;
+  week_start: WeekStart;
+  range?: { key: StatsRange; from: string; to: string; days: number };
+  first_event_date?: string | null;
+  totals?: { items_read: number; opens: number; active_seconds: number; days_active: number };
+  daily?: { date: string; items_read: number; active_seconds: number }[];
+  streaks?: { current: number; longest: number; longest_end: string | null };
+  heatmap?: { weekday: number; hour: number; active_seconds: number; opens: number }[];
+  behavior?: {
+    busiest_weekday: { weekday: number; active_seconds: number; opens: number } | null;
+    busiest_hour: { hour: number; active_seconds: number; opens: number } | null;
+    avg_read_seconds: number | null;
+    longest_read: { item_id: string; title: string; feed_title: string; seconds: number; date: string } | null;
+  };
+  sources?: StatsSource[];
+  never_opened?: { feed_id: string; title: string; folder_name: string | null; subscribed_on: string }[];
+}
