@@ -164,7 +164,7 @@ Decisions are recorded in full in the private history repository. Summary of wha
 ## Phase 5 planning meeting (2026-09-27)
 
 Not a UI meeting — recorded here per the owner's instruction that all planning decisions land in this file plus
-`kipple-history`. Phases 1-4 are complete (v0.3.0-alpha.7 deployed, the repository public). Six topics, one at a time
+`kipple-history`. Phases 1-4 are complete (v0.3.0-alpha.7 deployed, kipple.cc public). Six topics, one at a time
 with a recommendation each, same format as the phase 4 pre-meeting.
 
 1. **What phase 5 is.** Not release-steps-only, not parking-lot-only: the owner chose to **interleave** release
