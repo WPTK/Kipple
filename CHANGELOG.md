@@ -6,8 +6,12 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
-Phase 5 so far: fixes from the code audit, optional Cloudflare Access token validation with an optional web password,
-the scheduled auto-night theme, and a documentation accuracy pass. No schema migration.
+## [0.3.0-beta.1] - 2026-09-27
+
+Phase 5, release readiness: the full code audit and its follow-up review round, optional Cloudflare Access token
+validation with an optional web password, the scheduled auto-night theme, a documentation accuracy pass, and the
+UAT plan's scripted and scenario suites. No schema migration. Feature-complete for 1.0: this and any further
+`-beta.N`/`-rc.N` builds change only fixes, not features (see `docs/RELEASING.md`).
 
 ### Added
 
@@ -622,7 +626,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.7...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.1...HEAD
+[0.3.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.7...v0.3.0-beta.1
 [0.3.0-alpha.7]: https://github.com/WPTK/Kipple/compare/271fd23...v0.3.0-alpha.7
 [0.3.0-alpha.6]: https://github.com/WPTK/Kipple/compare/5b0db7d...271fd23
 [0.3.0-alpha.5]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.4...5b0db7d
