@@ -304,6 +304,7 @@ describe("Feed editor", () => {
     });
     const { container } = go("/feeds");
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(await screen.findByRole("button", { name: "Edit Example Feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit feed" });
     const url = await within(dlg).findByLabelText("Feed address");
@@ -327,6 +328,7 @@ describe("Feed editor", () => {
     base({ "GET /api/feeds/1": () => json(feedDetail()) });
     go("/feeds");
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(await screen.findByRole("button", { name: "Edit Example Feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit feed" });
     await within(dlg).findByLabelText("Feed address");
@@ -345,6 +347,7 @@ describe("Feed editor", () => {
     });
     go("/feeds");
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(await screen.findByRole("button", { name: "Edit Example Feed" }));
     await user.click(await screen.findByRole("button", { name: "Delete feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete Example Feed?" });
@@ -406,6 +409,7 @@ describe("Feed editor", () => {
     });
     go("/feeds");
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(await screen.findByRole("button", { name: "Edit Example Feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit feed" });
     const url = await within(dlg).findByLabelText("Feed address");
@@ -443,6 +447,7 @@ describe("Folders and OPML", () => {
     });
     go("/feeds");
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "New folder" }));
     await user.type(await screen.findByLabelText("Name"), "Fun");
@@ -463,6 +468,7 @@ describe("Folders and OPML", () => {
     });
     go("/feeds");
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Show move buttons" }));
     await user.click(await screen.findByRole("button", { name: "Move Second Feed up" }));

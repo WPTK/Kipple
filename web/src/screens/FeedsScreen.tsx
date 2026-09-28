@@ -3,12 +3,12 @@ import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
-import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderPlus, GripVertical, HeartPulse, MoreVertical, Pencil, Plus, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckSquare, ChevronDown, ChevronRight, Download, FolderPlus, GripVertical, HeartPulse, MoreVertical, Pencil, Plus, Upload } from "lucide-react";
 import { createFolder, deleteFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap, Feed, Folder } from "@/api/types";
-import { LAYOUT_IDS, LAYOUT_LABELS, setLayoutOverride, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
+import { LAYOUT_IDS, LAYOUT_LABELS, setLayoutOverride, updateDevicePrefs, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
 import type { Favorite } from "@/lib/devicePrefs";
 import {
   arrayMove,
@@ -35,6 +35,7 @@ import { announce, toast } from "@/shell/toasts";
 import { FirstRun } from "./FirstRun";
 import { StatusChip } from "./StatusChip";
 import { SavedSearchesNav } from "./SavedSearchesNav";
+import { toggleCollapsed } from "./FeedTree";
 import { DeleteDialog, MoveDialog } from "./feeds/BulkActions";
 
 // The dialogs load when first opened, not with the Feeds screen.
@@ -164,12 +165,16 @@ export function FeedsScreen() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const favs = useFavorites();
+  const dp = useDevicePrefs();
   const c = boot.data?.counts;
   const open = (useLocation().state as { open?: string } | null)?.open;
   const [adding, setAdding] = useState(open === "add");
   const [importing, setImporting] = useState(open === "import");
   const [editing, setEditing] = useState<Feed | null>(null);
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null);
+  // Off by default: the drag handle and each feed's edit (pencil) button only show once the user asks for
+  // them, so a plain visit to this screen is just a list of feeds, not a wall of reorder/edit affordances.
+  const [editMode, setEditMode] = useState(false);
   // Up and down buttons: the keyboard and screen reader alternative to dragging, off the row by default.
   const [buttons, setButtons] = useState(false);
   const [selecting, setSelecting] = useState(false);
@@ -299,7 +304,7 @@ export function FeedsScreen() {
     }
   };
 
-  const dnd = useRowDnd({ enabled: !selecting, onDrop: drop, scroller: () => scroller.current, onKeyMove: step });
+  const dnd = useRowDnd({ enabled: !selecting && editMode, onDrop: drop, scroller: () => scroller.current, onKeyMove: step });
   const dragging = dnd.state.source;
   const dropAt = dnd.state.target;
 
@@ -336,7 +341,7 @@ export function FeedsScreen() {
   );
 
   const moves = (src: DragSource, i: number, n: number, label: string) =>
-    buttons ? (
+    buttons && editMode ? (
       <>
         <Button variant="ghost" size="icon" data-move="up" aria-label={`Move ${label} up`} disabled={i === 0} onClick={() => step(src, -1)}>
           <ArrowUp aria-hidden="true" />
@@ -354,7 +359,7 @@ export function FeedsScreen() {
     return (
       <li
         key={f.id}
-        {...(selecting ? {} : dnd.rowProps(src))}
+        {...(selecting || !editMode ? {} : dnd.rowProps(src))}
         style={rowStyle("feed", f.id)}
         className={cn("flex items-center", DND_ROW_CLASS, dragCls("feed", f.id), before && "border-t-2 border-accent", atEnd && "border-b-2 border-accent")}
       >
@@ -367,9 +372,9 @@ export function FeedsScreen() {
             onClick={(e) => onCheck(f.id, e.shiftKey)}
             className="mx-3 size-5 shrink-0 accent-[var(--kp-accent)]"
           />
-        ) : (
+        ) : editMode ? (
           grip(src, f.title)
-        )}
+        ) : null}
         <Link
           to={listTo({ view: "unread", feed: f.id })}
           draggable={false}
@@ -391,9 +396,11 @@ export function FeedsScreen() {
           <>
             {moves(src, i, list.length, f.title)}
             <FavStar on={favs.has("feed", f.id)} name={f.title} onToggle={() => favs.toggle("feed", f.id)} />
-            <Button variant="ghost" size="icon" aria-label={`Edit ${f.title}`} onClick={() => setEditing(f)}>
-              <Pencil aria-hidden="true" />
-            </Button>
+            {editMode ? (
+              <Button variant="ghost" size="icon" aria-label={`Edit ${f.title}`} onClick={() => setEditing(f)}>
+                <Pencil aria-hidden="true" />
+              </Button>
+            ) : null}
           </>
         ) : null}
       </li>
@@ -409,11 +416,11 @@ export function FeedsScreen() {
     return (
       <li
         key={key}
-        {...(selecting ? {} : dnd.rowProps(src))}
+        {...(selecting || !editMode ? {} : dnd.rowProps(src))}
         style={rowStyle("fav", key)}
         className={cn("flex items-center", DND_ROW_CLASS, dragCls("fav", key), before && "border-t-2 border-accent", atEnd && "border-b-2 border-accent")}
       >
-        {!selecting ? grip(src, `favorite ${name ?? ""}`) : null}
+        {!selecting && editMode ? grip(src, `favorite ${name ?? ""}`) : null}
         <Link
           to={listTo(fav.t === "folder" ? { view: "unread", folder: fav.id } : { view: "unread", feed: fav.id })}
           draggable={false}
@@ -450,7 +457,13 @@ export function FeedsScreen() {
             ) : null}
           </span>
           {/* The text hides below 400px, so the name comes from aria-label, matching the text when shown. The name
-              itself carries the state (Select, then Done), so there is no aria-pressed to announce it twice. */}
+              itself carries the state (Select/Edit, then Done), so there is no aria-pressed to announce it twice. */}
+          {!selecting ? (
+            <Button variant="ghost" onClick={() => setEditMode((e) => !e)} aria-label={editMode ? "Done editing" : "Edit"}>
+              <Pencil aria-hidden="true" />
+              <span className="hidden min-[400px]:inline">{editMode ? "Done" : "Edit"}</span>
+            </Button>
+          ) : null}
           <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
             <CheckSquare aria-hidden="true" />
             <span className="hidden min-[400px]:inline">{selecting ? "Done" : "Select"}</span>
@@ -494,7 +507,11 @@ export function FeedsScreen() {
           </DropdownMenu.Root>
         </div>
         <p className="pb-1 text-xs text-fg2">
-          {selecting ? "Tick feeds to move or delete them. Shift-click ticks a range." : "Drag a feed or folder to reorder it. Changes are saved as you drop."}
+          {selecting
+            ? "Tick feeds to move or delete them. Shift-click ticks a range."
+            : editMode
+              ? "Drag a feed or folder to reorder it. Changes are saved as you drop."
+              : "Tap a folder to collapse it. Tap Edit to reorder, rename or delete a feed."}
           {favs.mode === "device" && favs.favorites.length > 0 ? " Favorites are kept on this device." : ""}
         </p>
       </header>
@@ -545,13 +562,15 @@ export function FeedsScreen() {
                 const folderEnd = dropAt?.kind === "folder" && dropAt.before === null && folders.filter((x) => x.id !== dragging?.id).at(-1)?.id === fo.id;
                 const intoFolder = dropAt?.kind === "feed" && dropAt.group === fo.id && inFolder.length === 0;
                 const state = groupState(inFolder.map((f) => f.id), sel);
+                const collapsed = dp.collapsedFolders.includes(fo.id);
+                const listId = `manage-folder-${fo.id}-feeds`;
                 return (
                   <li
                     key={fo.id}
                     style={rowStyle("folder", fo.id)}
                     className={cn(dragCls("folder", fo.id), folderBefore && "border-t-2 border-accent", folderEnd && "border-b-2 border-accent")}
                   >
-                    <div className={cn("flex items-center", DND_ROW_CLASS, intoFolder && "rounded-lg outline-2 outline-accent")} {...(selecting ? {} : dnd.rowProps(fsrc))}>
+                    <div className={cn("flex items-center", DND_ROW_CLASS, intoFolder && "rounded-lg outline-2 outline-accent")} {...(selecting || !editMode ? {} : dnd.rowProps(fsrc))}>
                       {selecting ? (
                         <input
                           type="checkbox"
@@ -566,8 +585,19 @@ export function FeedsScreen() {
                           }}
                           className="mx-3 size-5 shrink-0 accent-[var(--kp-accent)]"
                         />
-                      ) : (
+                      ) : editMode ? (
                         grip(fsrc, `folder ${fo.name}`)
+                      ) : (
+                        <button
+                          type="button"
+                          aria-expanded={!collapsed}
+                          aria-controls={listId}
+                          aria-label={`${collapsed ? "Expand" : "Collapse"} ${fo.name}`}
+                          onClick={() => updateDevicePrefs({ collapsedFolders: toggleCollapsed(dp.collapsedFolders, fo.id) })}
+                          className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
+                        >
+                          {collapsed ? <ChevronRight className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
+                        </button>
                       )}
                       <Link to={listTo({ view: "unread", folder: fo.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
                         <span className="truncate">{fo.name}</span>
@@ -600,7 +630,7 @@ export function FeedsScreen() {
                         </>
                       ) : null}
                     </div>
-                    <ul className="pl-6">{inFolder.map((f, i) => feedRow(f, i, inFolder, fo))}</ul>
+                    {collapsed ? null : <ul id={listId} className="pl-6">{inFolder.map((f, i) => feedRow(f, i, inFolder, fo))}</ul>}
                   </li>
                 );
               })}

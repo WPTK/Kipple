@@ -445,6 +445,7 @@ describe("manage feeds", () => {
     const { calls } = routes({ "POST /api/reorder": () => json({ changed_feeds: ["1", "2"], changed_folders: [] }) }, boot3);
     go("/feeds");
     await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     const grip = screen.getByRole("button", { name: /Reorder Alpha/ });
     fireEvent.keyDown(grip, { key: "ArrowDown" });
     await waitFor(() => expect(reorderCalls(calls)).toEqual([{ feeds: [{ folder_id: "1", ids: ["2", "1", "3"] }] }]));
@@ -455,6 +456,7 @@ describe("manage feeds", () => {
     routes({ "POST /api/reorder": () => json({ changed_feeds: ["1", "2"], changed_folders: [] }) }, boot3);
     go("/feeds");
     await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     const grip = screen.getByRole("button", { name: /Reorder Alpha/ });
     grip.focus();
     fireEvent.keyDown(grip, { key: "ArrowDown" });
@@ -481,6 +483,7 @@ describe("manage feeds", () => {
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Show move buttons" }));
     await user.click(screen.getByRole("button", { name: "Move Alpha down" }));
@@ -497,6 +500,7 @@ describe("manage feeds", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Favorite Delta" }));
     await user.click(screen.getByRole("button", { name: "Favorite News" }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
     const fav = await screen.findByRole("region", { name: "Favorites" });
     expect(within(fav).getAllByRole("link").map((l) => l.textContent)).toEqual([expect.stringContaining("Delta"), expect.stringContaining("News")]);
     // Move the second favorite up with its keyboard handle.
@@ -583,7 +587,9 @@ describe("manage feeds", () => {
     );
     go("/feeds");
     await screen.findByText("Alpha");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Edit Alpha" }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Edit Alpha" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit feed" });
     const sw = await within(dlg).findByRole("switch", { name: /Fetch full article text/ });
     expect(sw).toBeChecked();
