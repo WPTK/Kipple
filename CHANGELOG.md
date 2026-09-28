@@ -15,6 +15,7 @@ All notable changes to Kipple are documented here. The format follows
 ### Changed
 
 - Manage Feeds: the drag handle and each feed's edit (pencil) button are hidden by default and appear only in a new Edit mode (a header toggle next to Select), so a plain visit to the screen is just a list, not a wall of reorder/edit affordances. (#59)
+- Mobile bottom tab bar: a touch more breathing room above the icons and a soft top shadow in place of a flat hairline, so the boundary against image-forward list content reads as intentional rather than a stray line. First pass pending confirmation on a real device. (#62)
 
 ### Fixed
 
