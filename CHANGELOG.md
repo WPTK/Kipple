@@ -6,6 +6,10 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Cards now has a real card shell (raised surface, border, shadow, an inset lead image with its own rounded corners) so it reads as a card even in the single-column layout narrow viewports fall back to, where it previously looked identical to Editorial. Email - Compact drops its favicon entirely (it only showed past a width breakpoint before), so it stays the clearly terser option next to Compact, which always shows one. (#57)
+
 ### Added
 
 - Feed Health gains a Select mode: tick feeds (or Select all) to turn several on, off, or delete them at once, with per-feed progress and a failure list, same as Manage Feeds' existing bulk move/delete. (#61)

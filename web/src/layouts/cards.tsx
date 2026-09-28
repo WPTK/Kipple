@@ -5,9 +5,12 @@ import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 
 /**
- * Cards: a 16:9 lead image over source, title and a three-line excerpt, with the
- * actions in a footer. The list lays cards out in 1, 2 or 3 columns by its own
- * width, and opening one shows the article full width (no reader pane).
+ * Cards: a real card shell (raised surface, border, shadow, an inset lead image with its
+ * own rounded corners) so it reads as a card even in the single-column layout narrow
+ * viewports fall back to, where it would otherwise be indistinguishable from Editorial's
+ * full-bleed treatment. Source, title and a three-line excerpt sit in the card's padded
+ * body, with the actions in a footer. The list lays cards out in 1, 2 or 3 columns by its
+ * own width, and opening one shows the article full width (no reader pane).
  */
 function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
   const unread = !item.read;
@@ -16,22 +19,24 @@ function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, acti
       data-item-id={item.id}
       data-selected={selected || undefined}
       className={cn(
-        "row-host relative flex h-full flex-col overflow-hidden rounded-xl border border-line bg-bg",
+        "row-host relative flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-md",
         selected && "bg-selection outline-2 outline-accent",
       )}
     >
       <CheckBadge checked={checked} />
       {item.image ? (
-        <img
-          src={item.image}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className={cn("aspect-video w-full bg-surface object-cover", item.read && "opacity-60")}
-          onError={(e) => {
-            e.currentTarget.style.display = "none";
-          }}
-        />
+        <div className="p-2 pb-0">
+          <img
+            src={item.image}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className={cn("aspect-video w-full rounded-lg bg-bg object-cover", item.read && "opacity-60")}
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
+          />
+        </div>
       ) : null}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-3">
         <SourceTimeMeta item={item} icon={feed?.icon} dot={<UnreadDot unread={unread} />} />
