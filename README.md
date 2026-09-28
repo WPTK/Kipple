@@ -7,10 +7,13 @@
 [![Last commit](https://img.shields.io/github/last-commit/WPTK/Kipple)](https://github.com/WPTK/Kipple/commits/main)
 [![Open issues](https://img.shields.io/github/issues/WPTK/Kipple)](https://github.com/WPTK/Kipple/issues)
 
+> "Kipple drives out nonkipple."
+> (Philip K. Dick, *Do Androids Dream of Electric Sheep?*)
+
 A self-hosted RSS reader, built for one reader: yours. No ads, no algorithm, no tracking, nobody else's
 data mixed in, just your feeds, kept in a small SQLite database on a server you control, read the way
 you like to read. It builds to one Docker container with one port, and it talks the Google Reader sync API,
-so apps like Reeder Classic and NetNewsWire can act as a second client on the same account.
+so a Google Reader-API client can act as a second reader on the same account.
 
 > **Status: prerelease (beta).** The fetch and sync core, the reading UI, an installable offline-capable app,
 > and reading statistics with a yearly Wrapped summary are all done and in daily use; testing before 1.0 is
@@ -20,24 +23,22 @@ so apps like Reeder Classic and NetNewsWire can act as a second client on the sa
 <!-- TODO: drop in a real screenshot or GIF of the reading UI (e.g. docs/screenshots/reading.png).
      None exists in the repo yet; the Editorial or Cards layout would make the strongest first impression. -->
 
-## Why Kipple
-
-FreshRSS and Miniflux are built to look and feel like admin panels: dense lists, unread counts, sidebars.
-Kipple is built to look and feel like a reading app instead, closer to Feedly's magazine layouts, while
-still being a single Go binary with an embedded SQLite database and no dependency on anyone else's service.
-It speaks the same Google Reader sync API those tools do, so existing sync clients like Reeder Classic and
-NetNewsWire work against it unmodified.
-
 ## Contents
 
+- [Why Kipple](#why-kipple)
 - [What it's like to use](#what-its-like-to-use)
 - [Quickstart](#quickstart)
 - [Configuration](#configuration)
 - [Support](#support)
 - [Roadmap](#roadmap)
 - [For developers](#for-developers)
-- [About the name](#about-the-name)
 - [License](#license)
+
+## Why Kipple
+
+Kipple looks and feels like a reading app: magazine-style layouts, real images up front, five ways to view
+a feed. It's a single Go binary with an embedded SQLite database, nothing else to run. It speaks the Google
+Reader sync API, so existing sync clients work against it unmodified.
 
 ## What it's like to use
 
@@ -55,8 +56,8 @@ NetNewsWire work against it unmodified.
 - Reading stats stay on your server, including a yearly Wrapped summary of how much you read and which
   feeds you spent the most time on. Wrapped's share sheet is opt-in; nothing is shared or sent anywhere on
   its own.
-- Reeder Classic, NetNewsWire, and other apps that support the Google Reader sync API work against the same
-  account, keeping read and starred state in sync with the web app.
+- Any app that speaks the Google Reader sync API works against the same account, keeping read and starred
+  state in sync with the web app.
 - No ads, no tracking, no account anywhere else, no social features (no other people's data, no
   comparisons), no AI.
 
@@ -80,8 +81,8 @@ Open `http://127.0.0.1:7080` and sign in with `KIPPLE_USERNAME` / `KIPPLE_PASSWO
 username `owner`). That's the whole happy path: one image, one container, one port, no database to set up
 separately.
 
-To sync with Reeder Classic, NetNewsWire, or another Google Reader-API client, run
-`docker exec -it kipple /kipple api-password` once Kipple is running, to generate a Reader API password.
+To sync with a Google Reader-API client, run `docker exec -it kipple /kipple api-password` once Kipple is
+running, to generate a Reader API password.
 
 To put it on your phone, open Kipple's address in Safari (iPhone/iPad) or Chrome (Android), then use "Add
 to Home Screen" (Safari's share sheet) or "Install app" (Chrome's menu). It launches full-screen from your
@@ -137,18 +138,6 @@ Everything above is all a self-hoster needs. This section is for changing Kipple
 - Web app: `cd web && npm ci && npm test && npm run build`
 - Image: `docker build -t kipple:dev .`
 - Local development with sample feeds is described in `web/README.md`.
-
-## About the name
-
-"Kipple" is Philip K. Dick's word, from *Do Androids Dream of Electric Sheep?* (the novel *Blade Runner* is
-based on): junk that accumulates on its own when nobody's tending to it, gum wrappers, junk mail, yesterday's
-newspaper.
-
-> "Kipple drives out nonkipple."
-> (Philip K. Dick, *Do Androids Dream of Electric Sheep?*)
-
-An RSS reader is exactly the kind of thing that turns into kipple if you let it: thousands of unread items
-piling up, feeds nobody's pruned in years. The name's a reminder not to let that happen here.
 
 ## License
 
