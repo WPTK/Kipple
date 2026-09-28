@@ -6,14 +6,20 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Cards now has a real card shell (raised surface, border, shadow, an inset lead image with its own rounded corners) so it reads as a card even in the single-column layout narrow viewports fall back to, where it previously looked identical to Editorial. Email - Compact drops its favicon entirely (it only showed past a width breakpoint before), so it stays the clearly terser option next to Compact, which always shows one. (#57)
+
 ### Added
 
+- Manage Feeds: folders collapse (a chevron per folder, remembered per device, same as the desktop sidebar) — this was the only feed-browsing surface on narrow/mobile widths with no way to collapse a folder. (#58)
 - Feed Health gains a Select mode: tick feeds (or Select all) to turn several on, off, or delete them at once, with per-feed progress and a failure list, same as Manage Feeds' existing bulk move/delete. (#61)
 - An article's ⋯ menu gains "Manage this feed", opening the feed editor (address, folder, layout, check frequency, disable or delete) for that article's feed. (#60)
 
 ### Changed
 
 - Settings is no longer one long page. Its sections are sorted into six groups, each with its own address (`/settings/appearance`, `sync`, `statistics`, `filters`, `account`, `advanced`): Appearance & Reading (appearance, accessibility, lists and reading, keyboard, and the reading settings), Sync & Feeds (sync, library and images), Statistics (the statistics settings and your statistics data), Filters & Saved Searches, Account & Devices, and Advanced. On a wide screen a list of the groups stays on the left and the chosen group shows beside it; a bare `/settings` opens Appearance & Reading. On a phone, Settings opens on the list of groups, with the current theme and font, check interval and whether statistics are recorded under the groups they belong to, and a group opens on a page of its own with a back button. Moving between groups puts focus on the group's heading, and going back puts it on the group you came from. Advanced, now on its own page, no longer needs "Show advanced settings" to open. Every setting and its help text is unchanged. The "Settings > Statistics" links on Stats and Wrapped open the Statistics group directly. (#55)
+- Manage Feeds: the drag handle and each feed's edit (pencil) button are hidden by default and appear only in a new Edit mode (a header toggle next to Select), so a plain visit to the screen is just a list, not a wall of reorder/edit affordances. (#59)
 - Mobile bottom tab bar: a touch more breathing room above the icons and a soft top shadow in place of a flat hairline, so the boundary against image-forward list content reads as intentional rather than a stray line. First pass pending confirmation on a real device. (#62)
 
 ### Fixed

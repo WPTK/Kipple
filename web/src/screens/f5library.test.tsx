@@ -498,6 +498,7 @@ describe("Auto-read per feed", () => {
     });
     go("/feeds");
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(await screen.findByRole("button", { name: /Edit Example Feed|More actions for Example Feed|Example Feed options/i }).catch(async () => (await screen.findAllByRole("button", { name: /Example Feed/ }))[0] as HTMLElement));
     const sel = await screen.findByRole("combobox", { name: "Mark as read after" }, { timeout: 5000 });
     expect(sel).toHaveValue("");
