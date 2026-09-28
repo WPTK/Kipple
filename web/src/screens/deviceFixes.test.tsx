@@ -611,7 +611,7 @@ describe("Settings and the Aa menu", () => {
       default: false,
     });
     routes({ "GET /api/settings": () => json({ settings: [s], values: { [s.key]: false } }) });
-    go("/settings");
+    go("/settings/sync");
     const sw = await screen.findByRole("switch", { name: /Fetch the full article for every feed/ });
     expect(sw).not.toBeChecked();
     expect(screen.getByText(/more bandwidth and time on each refresh/)).toBeInTheDocument();
@@ -622,7 +622,10 @@ describe("Settings and the Aa menu", () => {
     media(WIDE);
     go("/settings");
     const user = userEvent.setup();
+    // Wide: the rail and the first group, Appearance & Reading, side by side.
     await screen.findByRole("heading", { name: "Settings" });
+    expect(await screen.findByRole("heading", { level: 2, name: "Appearance & Reading" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("link", { name: "Appearance & Reading" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("combobox", { name: /font/i })).toBeNull();
     expect(document.querySelector(".ui-font")).not.toBeNull(); // Settings keeps the system UI font
     expect(document.querySelector(".max-w-\\[720px\\]")).not.toBeNull();

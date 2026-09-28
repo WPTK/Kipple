@@ -13,6 +13,7 @@ import { useStore } from "@/lib/store";
 import { useWide } from "@/lib/useMedia";
 import { listTo } from "@/lib/routes";
 import { cn } from "@/lib/cn";
+import { navItemClass } from "@/ui/navItem";
 import { FeedTree } from "@/screens/FeedTree";
 import { undoLast } from "@/lib/undo";
 import { HelpDialog, openHelp } from "./HelpDialog";
@@ -82,8 +83,7 @@ function Sidebar() {
   const limit = maxFor(useViewportWidth(), LIST_MIN_FOR_SIDEBAR + ARTICLE_MIN, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
   const width = Math.min(limit, dp.sidebarWidth);
   const box = useRef<HTMLDivElement>(null);
-  const item = ({ isActive }: { isActive: boolean }) =>
-    cn("flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-selection", isActive && "bg-selection");
+  const item = navItemClass;
   return (
     <div ref={box} className="relative h-full shrink-0" style={{ width }}>
       <nav aria-label="Primary" className="pt-safe pl-safe flex h-full flex-col border-r border-line bg-surface px-2">

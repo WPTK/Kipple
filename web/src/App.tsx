@@ -152,7 +152,7 @@ function Gate() {
         <Route path="search" element={<SearchScreen />} />
         <Route path="stats" element={<Lazy><StatsScreen /></Lazy>} />
         <Route path="stats/wrapped" element={<Lazy><WrappedScreen /></Lazy>} />
-        <Route path="settings" element={<Lazy><SettingsScreen /></Lazy>} />
+        <Route path="settings/*" element={<Lazy><SettingsScreen /></Lazy>} />
         <Route path="*" element={<Navigate to="/l/unread" replace />} />
       </Route>
     </Routes>

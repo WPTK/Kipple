@@ -51,8 +51,8 @@ const me = row("me", { name: "the owner's laptop", current: true, user_agent: "M
 const phone = row("phone", { overrides: 4 });
 const tablet = row("tablet", { name: "Living room iPad", overrides: 0, user_agent: "Mozilla/5.0 (iPad) Safari/604.1", client: "pwa" });
 
-function go() {
-  window.history.replaceState({ idx: 0 }, "", "/settings");
+function go(path = "/settings/account") {
+  window.history.replaceState({ idx: 0 }, "", path);
   return render(<App client={makeQueryClient({ retry: false })} />);
 }
 
@@ -177,8 +177,8 @@ describe("the bootstrap device profile", () => {
       "GET /api/bootstrap": () => json({ ...boot, device: deviceView({ profile: { "ui.theme": "linen" }, merged: { ...DEFAULTS, "ui.theme": "linen" } }) }),
       "PATCH /api/device": () => new Response("no", { status: 500 }),
     });
-    go();
-    await screen.findByRole("heading", { name: "Settings" });
+    go("/settings/appearance");
+    await screen.findByRole("heading", { name: "Appearance & Reading" });
     await waitFor(() => expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "linen" }));
     expect(prefsStore.get().font).toBe("default"); // the server wins
     const user = userEvent.setup();

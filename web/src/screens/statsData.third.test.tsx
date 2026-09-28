@@ -198,7 +198,7 @@ describe("in the app", () => {
       "GET /api/settings": () => new Promise<Response>((r) => (release = r)),
       "GET /api/items": () => json({ items: [], next_cursor: null }),
     });
-    go("/settings");
+    go("/settings/statistics");
     await user.click(await screen.findByRole("button", { name: "Delete all statistics…" }));
     await user.type(screen.getByLabelText(/Type DELETE ALL/), "DELETE ALL");
     release(json({ settings: [] }));

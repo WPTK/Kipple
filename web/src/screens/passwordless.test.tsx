@@ -51,14 +51,14 @@ afterEach(() => {
 describe("Passwordless account (Cloudflare Access)", () => {
   it("offers Remove web password only with a verified Access sign-in", async () => {
     base({ password_set: true, access_enabled: true, access_email: null });
-    go("/settings");
+    go("/settings/account");
     await screen.findByRole("button", { name: "Change web password" });
     expect(screen.queryByRole("button", { name: "Remove web password" })).toBeNull();
   });
 
   it("removes the password after the current one is entered", async () => {
     const { calls } = base({ password_set: true, access_enabled: true, access_email: "owner@example.com" }, { "POST /api/account/password": () => new Response(null, { status: 204 }) });
-    go("/settings");
+    go("/settings/account");
     const user = userEvent.setup();
     expect(await screen.findByText(/Cloudflare Access: owner@example.com/)).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Remove web password" }));
@@ -72,7 +72,7 @@ describe("Passwordless account (Cloudflare Access)", () => {
 
   it("explains a removal refused for lack of an Access sign-in", async () => {
     base({ password_set: true, access_enabled: true, access_email: "owner@example.com" }, { "POST /api/account/password": () => json({ error: "access_required" }, 403) });
-    go("/settings");
+    go("/settings/account");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Remove web password" }));
     const dlg = await screen.findByRole("dialog", { name: "Remove web password" });
@@ -83,7 +83,7 @@ describe("Passwordless account (Cloudflare Access)", () => {
 
   it("sets a password without asking for a current one when there is none", async () => {
     const { calls } = base({ password_set: false, access_enabled: true, access_email: "owner@example.com" }, { "POST /api/account/password": () => new Response(null, { status: 204 }) });
-    go("/settings");
+    go("/settings/account");
     const user = userEvent.setup();
     expect(await screen.findByText(/No web password/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove web password" })).toBeNull();
@@ -99,7 +99,7 @@ describe("Passwordless account (Cloudflare Access)", () => {
 
   it("generates an API password without a web password field", async () => {
     base({ password_set: false, access_enabled: true, access_email: "owner@example.com" }, { "POST /api/account/api-password": () => json({ api_password: "fresh-api-password-xyz" }) });
-    go("/settings");
+    go("/settings/account");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Generate API password" }));
     const dlg = await screen.findByRole("dialog", { name: "Generate API password" });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
@@ -111,25 +111,39 @@ afterEach(() => {
 const body = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body));
 
 describe("Settings renderer", () => {
-  it("draws every kind from the metadata, groups them, and collapses Advanced", async () => {
+  // One test per group, each opened by its own URL: moving between groups is covered in settingsNav.test.tsx.
+  it("draws the reading settings under Appearance & Reading", async () => {
     base();
-    const { container } = go("/settings");
+    const { container } = go("/settings/appearance");
     // Settings is a lazy chunk: under a busy full run its first import can take longer than findBy's default.
-    await screen.findByRole("heading", { name: "Sync" }, { timeout: 5000 });
-    for (const h of ["Appearance", "Accessibility", "Lists and reading", "Keyboard", "Reading", "Sync", "Library", "Account", "Advanced"]) {
-      expect(screen.getByRole("heading", { name: h })).toBeInTheDocument();
-    }
+    await screen.findByRole("heading", { level: 1, name: "Appearance & Reading" }, { timeout: 5000 });
+    for (const h of ["Appearance", "Accessibility", "Lists and reading", "Keyboard"]) expect(screen.getByRole("heading", { level: 2, name: h })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: "Reading" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /Remove tracking from links/ })).toBeChecked();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("draws every kind from the metadata, in the group each server group belongs to", async () => {
+    base();
+    const { container } = go("/settings/sync");
+    await screen.findByRole("heading", { level: 2, name: "Sync" }, { timeout: 5000 });
+    expect(screen.getByRole("heading", { level: 2, name: "Library" })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: "How often to check feeds" })).toHaveValue(30);
     expect(screen.getByRole("radio", { name: "Always identify as Kipple" })).toBeInTheDocument(); // enum with 3 options: segmented
     expect(screen.getByRole("combobox", { name: "Articles to keep per feed" })).toHaveValue("500"); // enum with 6: select
-    expect(screen.getByRole("textbox", { name: "Time zone" })).toHaveValue("America/New_York");
-    expect(screen.queryByText("Remembered list layouts")).toBeNull(); // json is never shown
-    // Advanced is collapsed until opened.
-    expect(screen.queryByRole("switch", { name: /Send feed icons/ })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Show advanced settings" }));
-    expect(screen.getByRole("switch", { name: /Send feed icons/ })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Images" })).toBeNull(); // a server group with nothing in it is left out
     expect(await axe(container)).toHaveNoViolations();
+    cleanup();
+
+    go("/settings/account");
+    expect(await screen.findByRole("heading", { level: 2, name: "Account" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Time zone" })).toHaveValue("America/New_York");
+    cleanup();
+
+    // Advanced has a page of its own now, so its settings show without a second click.
+    go("/settings/advanced");
+    expect(await screen.findByRole("switch", { name: /Send feed icons/ })).toBeInTheDocument();
+    expect(screen.queryByText("Remembered list layouts")).toBeNull(); // json is never shown
   });
 
   it("patches optimistically, and puts a 400 message next to the control", async () => {
@@ -145,7 +159,7 @@ describe("Settings renderer", () => {
         return json(settingsBody());
       },
     });
-    go("/settings");
+    go("/settings/appearance");
     const user = userEvent.setup();
     const sw = await screen.findByRole("switch", { name: /Remove tracking from links/ });
     await user.click(sw);
@@ -156,7 +170,10 @@ describe("Settings renderer", () => {
     await user.click(reset);
     await waitFor(() => expect(calls.filter((c) => c.method === "PATCH").some((c) => body(c)["links.strip_tracking"] === null)).toBe(true));
 
-    await user.click(screen.getByRole("button", { name: "Increase How often to check feeds" }));
+    // The refresh interval is in another group: back to the list, then into Sync & Feeds.
+    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
+    await user.click(await screen.findByRole("link", { name: /^Sync & Feeds/ }));
+    await user.click(await screen.findByRole("button", { name: "Increase How often to check feeds" }));
     const alert = await screen.findByText("must be an integer from 5 to 1440", {}, { timeout: 3000 });
     expect(alert).toHaveAttribute("role", "alert");
     expect(interval).toBe(30);
@@ -166,7 +183,7 @@ describe("Settings renderer", () => {
 describe("Accessibility section", () => {
   it("has the six controls plus large targets and titles-only, and they drive the document", async () => {
     base();
-    go("/settings");
+    go("/settings/appearance");
     const user = userEvent.setup();
     const section = await screen.findByRole("region", { name: "Accessibility" });
     const w = within(section);
@@ -688,7 +705,7 @@ describe("Feed health", () => {
 describe("Account and backup", () => {
   it("shows a generated API password once with Copy and the sync app instructions", async () => {
     const { calls } = base({ "POST /api/account/api-password": () => json({ api_password: "maple river lantern 42" }) });
-    go("/settings");
+    go("/settings/account");
     const user = userEvent.setup();
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     await user.click(await screen.findByRole("button", { name: "Generate API password" }));
@@ -707,7 +724,7 @@ describe("Account and backup", () => {
 
   it("changes the password with inline validation", async () => {
     const { calls } = base({ "POST /api/account/password": () => json({ error: "bad_password" }, 403) });
-    go("/settings");
+    go("/settings/account");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Change web password" }));
     const dlg = await screen.findByRole("dialog", { name: "Change web password" });
@@ -739,7 +756,7 @@ describe("Account and backup", () => {
           contents: { kipple_version: "0.2.0", schema_version: 6, created_at: 1_790_000_000, feeds: 120, items: 30000, starred: 42, db_bytes: 4_000_000 },
         }),
     });
-    go("/settings");
+    go("/settings/account");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Export backup" }));
     const dlg = await screen.findByRole("dialog", { name: "Download backup" });
@@ -780,7 +797,7 @@ describe("Account and backup", () => {
     [413, { error: "too_large" }, /larger than 4 GiB/],
   ])("explains backup error %s", async (status, payload, re) => {
     base({ "POST /api/backup": () => json(payload, status as number) });
-    go("/settings");
+    go("/settings/account");
     await userEvent.click(await screen.findByRole("button", { name: "Export backup" }));
     await waitFor(() => expect(screen.getAllByRole("alert").some((a) => re.test(a.textContent ?? ""))).toBe(true));
   });

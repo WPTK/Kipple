@@ -96,7 +96,14 @@ undoable, ledger_ids?}` (docs/design.md 7.1). Undoing sends `{ids, ledger_ids?, 
 (`SettingField`): a switch for `bool`, segmented buttons (up to four options) or a select for `enum`, a stepper for
 `int` (no sliders), a text box for `text`; `json` is never shown. Changes are a `PATCH /api/settings` with an
 optimistic update that rolls back on error; a 400's `keys` and `issues` show under the control; "Reset to default"
-sends `null`; changes that `lib/settingGuards.ts` flags (a lower image cache, a lower retention) ask for confirmation first, and an enum can offer a preset row with "Custom". Groups: Reading, Sync, Library, Images, Statistics and Advanced (collapsed); then Your statistics data, Filters, Saved searches, Devices and Account. Keys the screen draws itself
+sends `null`; changes that `lib/settingGuards.ts` flags (a lower image cache, a lower retention) ask for confirmation first, and an enum can offer a preset row with "Custom". The screen is master-detail, six groups each at `/settings/<group>`: Appearance & Reading
+(`appearance`: Appearance, Accessibility, Lists and reading, Keyboard, and the server's Reading group), Sync & Feeds
+(`sync`: the Sync, Library and Images groups), Statistics (`statistics`: the Statistics group and Your statistics data),
+Filters & Saved Searches (`filters`), Account & Devices (`account`: Devices, and Account with the Account group) and
+Advanced (`advanced`: the Advanced group). At 900 px and up a rail of the groups sits beside the chosen group and a bare
+`/settings` opens the first; below that `/settings` is the list of groups (with the current theme and font, check
+interval and statistics state under theirs) and a group opens as its own page with a back button. Each group page has
+its own loading and error state for the server settings. Keys the screen draws itself
 or cannot honor yet (`ui.mark_read_on_scroll` sits in Accessibility; `ui.font_ui` is never shown: there is one font
 choice, in the Aa menu) are left out of the generic list. `fetch.fulltext_all` (fetch the full article for every
 feed, with its note about bandwidth and refresh time) appears under Library like any other bool; while it is on, the

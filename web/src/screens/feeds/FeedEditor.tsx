@@ -10,9 +10,9 @@ import { Button } from "@/ui/button";
 import { AutoReadCatchUp } from "../AutoReadCatchUp";
 import { Disclosure, Field, Modal, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
+import { intervalLabel } from "@/lib/interval";
 
 const INTERVALS = [15, 30, 60, 120, 360, 720, 1440, 10080];
-const intervalLabel = (m: number) => (m < 60 ? `${m} minutes` : m === 60 ? "1 hour" : m < 1440 ? `${m / 60} hours` : m === 1440 ? "1 day" : `${m / 1440} days`);
 const RETENTIONS = [50, 100, 250, 500, 1000, 0];
 const retentionLabel = (n: number) => (n === 0 ? "Unlimited" : `Newest ${n}`);
 
@@ -341,7 +341,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
           {fulltextAll ? (
             <Switch
               label="Fetch full article text"
-              help="On for all feeds. Settings > Library fetches the full article for every feed, so this switch has no effect until that is turned off."
+              help="On for all feeds. Settings > Sync & Feeds > Library fetches the full article for every feed, so this switch has no effect until that is turned off."
               checked
               disabled
               onChange={() => undefined}
