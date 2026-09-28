@@ -1,5 +1,5 @@
 import { DropdownMenu } from "radix-ui";
-import { BellOff, Check, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, RotateCcw, Share2, Star } from "lucide-react";
+import { BellOff, Check, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, Rss, RotateCcw, Share2, Star } from "lucide-react";
 import type { Card } from "@/api/types";
 import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
@@ -127,6 +127,10 @@ export function RowMenu({
             </>
           )}
           <DropdownMenu.Separator className="my-1 h-px bg-line" />
+          <DropdownMenu.Item className={menuItem} onSelect={() => actions.manageFeed(item)}>
+            <Rss className="size-5" aria-hidden="true" />
+            Manage this feed
+          </DropdownMenu.Item>
           <DropdownMenu.Item className={menuItem} onSelect={() => actions.openOriginal(item)}>
             <ExternalLink className="size-5" aria-hidden="true" />
             Open original

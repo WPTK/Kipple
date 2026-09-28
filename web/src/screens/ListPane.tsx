@@ -31,6 +31,7 @@ import { announce, toast } from "@/shell/toasts";
 import { copyLink } from "@/lib/share";
 import { openOriginalAndRecord, shareAndRecord } from "@/lib/statsSender";
 import { openFilterEditor, similarSeed } from "@/lib/similar";
+import { openFeedEditor } from "@/lib/feedEditor";
 import { useWidth } from "@/lib/useWidth";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
@@ -592,6 +593,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedById.get(item.feed_id)?.title) }),
       restore: restoreRow,
       editRule: (item) => item.muted_by && openFilterEditor({ mode: "edit", id: item.muted_by }),
+      manageFeed: (item) => (feedById.has(item.feed_id) ? openFeedEditor(item.feed_id) : toast("This feed no longer exists.", "error")),
       noRange: rank || !!scope.typing,
     }),
     [act, range, restoreRow, feedById, rank, scope.typing],

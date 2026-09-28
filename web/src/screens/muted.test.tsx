@@ -13,6 +13,7 @@ import { rowMenuStore } from "@/gestures/rowMenu";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
 import { closeFilterEditor } from "@/lib/similar";
+import { closeFeedEditor } from "@/lib/feedEditor";
 import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
@@ -90,12 +91,14 @@ beforeEach(() => {
   resetDevicePrefs();
   resetUndo();
   closeFilterEditor();
+  closeFeedEditor();
   prefsStore.set({ ...DEFAULT_PREFS });
   updateDevicePrefs({ peekSeen: true });
   vi.stubGlobal("EventSource", NoES);
 });
 afterEach(() => {
   closeFilterEditor();
+  closeFeedEditor();
   vi.unstubAllGlobals();
 });
 
@@ -280,5 +283,50 @@ describe("Mute similar…", () => {
     await user.click(dialog.getByRole("button", { name: "Add author Ada" }));
     expect(within(chips).getByText("Ada")).toBeInTheDocument();
     expect(dialog.getByRole("checkbox", { name: "Author" })).toBeChecked();
+  });
+});
+
+describe("Manage this feed", () => {
+  it("opens the feed editor for the article's feed from a row's menu", async () => {
+    routes({
+      "GET /api/feeds/1": () =>
+        json({
+          ...bootstrap.feeds[0],
+          url: "https://example.com/feed.xml",
+          url_original: null,
+          custom_title: null,
+          position: 0,
+          enabled: true,
+          disabled_reason: null,
+          dedup_mode: "auto",
+          rekey_pending: false,
+          user_agent: null,
+          has_http_auth: false,
+          ignore_http_cache: false,
+          disable_http2: false,
+          allow_insecure_tls: false,
+          allow_private_net: false,
+          next_fetch_at: 0,
+        }),
+    });
+    go("/l/unread");
+    const user = userEvent.setup();
+    const row = (await screen.findByText("Article number 1")).closest("[data-item-id]") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage this feed" }));
+    const dlg = await screen.findByRole("dialog", { name: "Edit feed", description: "Example Feed" });
+    expect(await within(dlg).findByLabelText("Feed address")).toHaveValue("https://example.com/feed.xml");
+  });
+
+  it("says the feed no longer exists rather than silently doing nothing", async () => {
+    // A muted article whose feed was since deleted: not in the bootstrap feed list.
+    routes({ "GET /api/items": (u) => json(pageOf(u.searchParams.get("view") === "muted" ? [muted(1, null, { feed_id: "gone" })] : [card(1)])) });
+    go("/l/muted");
+    const user = userEvent.setup();
+    const row = (await screen.findByText("Muted article 1")).closest("[data-item-id]") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage this feed" }));
+    expect(await screen.findByText("This feed no longer exists.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Edit feed" })).toBeNull();
   });
 });
