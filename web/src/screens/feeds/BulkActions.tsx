@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { deleteFeed, invalidateFeeds, reorder as reorderApi } from "@/api/admin";
+import { deleteFeed, invalidateFeeds, patchFeed, reorder as reorderApi } from "@/api/admin";
 import { errorMessage } from "@/api/client";
 import type { Feed, Folder } from "@/api/types";
 import { Button } from "@/ui/button";
@@ -77,6 +77,98 @@ export function MoveDialog({
           </select>
         )}
       </Field>
+    </Modal>
+  );
+}
+
+export interface ToggleReport {
+  done: number;
+  failed: { title: string; message: string }[];
+}
+
+/**
+ * Turn the selected feeds on or off, one at a time (a feed has no bulk endpoint of its own): progress and a
+ * per-feed error list, same shape as the delete dialog. One bad feed does not stop the rest.
+ */
+export function ToggleDialog({ feeds, enable, onClose, onDone }: { feeds: Feed[]; enable: boolean; onClose: () => void; onDone: () => void }) {
+  const qc = useQueryClient();
+  const count = feeds.length;
+  const [progress, setProgress] = useState<number | null>(null);
+  const [report, setReport] = useState<ToggleReport | null>(null);
+  const busy = progress !== null && report === null;
+  const verb = enable ? "Turn on" : "Turn off";
+
+  const run = async () => {
+    const failed: ToggleReport["failed"] = [];
+    let done = 0;
+    setProgress(0);
+    for (const [i, f] of feeds.entries()) {
+      try {
+        await patchFeed(f.id, { enabled: enable });
+        done += 1;
+      } catch (e) {
+        failed.push({ title: f.title, message: errorMessage(e) });
+      }
+      setProgress(i + 1);
+    }
+    invalidateFeeds(qc);
+    onDone();
+    if (failed.length === 0) {
+      toast(`${enable ? "Turned on" : "Turned off"} ${done} feed${done === 1 ? "" : "s"}`);
+      onClose();
+    } else {
+      announce(`${enable ? "Turned on" : "Turned off"} ${done}, ${failed.length} failed`);
+      setReport({ done, failed });
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => !o && !busy && onClose()}
+      title={report ? "Some feeds were not changed" : `${verb} ${count} feed${count === 1 ? "" : "s"}?`}
+      description={report ? `${report.done} changed, ${report.failed.length} failed.` : undefined}
+      footer={
+        report ? (
+          <Button variant="solid" onClick={onClose}>
+            Close
+          </Button>
+        ) : (
+          <>
+            <Button onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button variant="solid" disabled={busy} onClick={() => void run()}>
+              {busy ? `Working ${progress} of ${count}` : `${verb} ${count} feed${count === 1 ? "" : "s"}`}
+            </Button>
+          </>
+        )
+      }
+    >
+      {report ? (
+        <ul className="flex flex-col gap-2 text-sm" aria-label="Feeds that could not be changed">
+          {report.failed.map((f, i) => (
+            <li key={i}>
+              <span className="font-semibold">{f.title}</span>: {f.message}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <>
+          <ul className="max-h-40 overflow-y-auto text-sm text-fg2" aria-label={`Feeds to ${enable ? "turn on" : "turn off"}`}>
+            {feeds.map((f) => (
+              <li key={f.id} className="truncate">
+                {f.title}
+              </li>
+            ))}
+          </ul>
+          {busy ? (
+            <p role="status" className="text-sm">
+              Working {progress} of {count}
+            </p>
+          ) : null}
+        </>
+      )}
     </Modal>
   );
 }

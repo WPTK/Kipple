@@ -19,7 +19,7 @@ import { HelpDialog, openHelp } from "./HelpDialog";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { ARTICLE_MIN, LIST_MIN_FOR_SIDEBAR, maxFor, useViewportWidth } from "@/lib/useWidth";
 import { MutedCount, UnreadCount } from "@/ui/UnreadCount";
-import { ApplyProgress, FilterEditorHost } from "./FilterHost";
+import { ApplyProgress, FeedEditorHost, FilterEditorHost } from "./FilterHost";
 import { OfflineNotice } from "./OfflineNotice";
 import { DeviceSaveStatus } from "./SaveStatus";
 import { UndoToast } from "./UndoToast";
@@ -280,6 +280,7 @@ export function AppShell() {
       </Toasts>
       <HelpDialog />
       <FilterEditorHost />
+      <FeedEditorHost />
     </div>
   );
 }

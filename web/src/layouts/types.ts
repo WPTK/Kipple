@@ -21,6 +21,8 @@ export interface RowMenuActions {
   restore: (item: Card) => void;
   /** A muted article: open the filter that muted it. */
   editRule: (item: Card) => void;
+  /** Open the feed editor for this article's feed (how it is fetched, its interval, disable or delete it). */
+  manageFeed: (item: Card) => void;
   /** Mark above and below are unavailable: a relevance-sorted search has no above or below. */
   noRange?: boolean;
 }
