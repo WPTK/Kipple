@@ -41,24 +41,24 @@ NetNewsWire work against it unmodified.
 
 ## What it's like to use
 
-- **Five layouts to browse your feeds**, set per device or per feed: Editorial (a magazine layout with big
-  lead images), Cards (a photo grid), Compact and Email - Compact (dense, text-first views at two
-  densities), and Inbox (sender, subject, and snippet, like an email inbox). Switch anytime from the layout
-  button in the header.
-- **20 color themes**, plus "Follow system" and an optional day/night schedule that switches themes on its
-  own clock, 11 bundled reading fonts (serif and sans, including a dyslexia-friendly option) alongside your
-  device's own system fonts, five text sizes, and five density presets from Dense to Airy.
-- **Installable as a PWA.** Add Kipple to your phone's home screen and it opens full-screen with no browser
-  chrome, keeps already-read articles available offline, and updates itself in the background.
-- **Full-text extraction.** When a feed only publishes a summary, Kipple can fetch and extract the full
-  article automatically, so short feeds still read like full ones.
-- **Reading stats, kept on your server**, including a yearly Wrapped summary of how much you read and which
-  feeds you spent the most time on. Wrapped has its own opt-in share sheet if you want to show someone;
-  nothing is shared or sent anywhere on its own.
-- **Standard Google Reader sync.** Reeder Classic, NetNewsWire, and other apps that support the API work
-  against the same account, so read and starred state stays in sync between them and the web app.
-- **No ads, no tracking, no account anywhere else, no social features** (no other people's data, no
-  comparisons), and no AI. It's a reading app, not a platform.
+- Switch anytime, from the layout button in the header, between five ways of browsing a feed: Editorial (a
+  magazine layout with big lead images), Cards (a photo grid), Compact and Email - Compact (dense,
+  text-first views at two densities), or Inbox (sender, subject, and snippet, like an email inbox). Set per
+  device or per feed.
+- 20 color themes, "Follow system," and an optional day/night schedule that switches themes on its own
+  clock. 11 bundled reading fonts (serif and sans, including a dyslexia-friendly option), your device's own
+  system fonts, five text sizes, and five density presets from Dense to Airy.
+- Add Kipple to your phone's home screen and it runs as a PWA: full screen, no browser chrome, already-read
+  articles available offline, and it updates itself in the background.
+- When a feed only publishes a summary, Kipple can fetch and extract the full article automatically, so
+  short feeds still read like full ones.
+- Reading stats stay on your server, including a yearly Wrapped summary of how much you read and which
+  feeds you spent the most time on. Wrapped's share sheet is opt-in; nothing is shared or sent anywhere on
+  its own.
+- Reeder Classic, NetNewsWire, and other apps that support the Google Reader sync API work against the same
+  account, keeping read and starred state in sync with the web app.
+- No ads, no tracking, no account anywhere else, no social features (no other people's data, no
+  comparisons), no AI.
 
 ## Quickstart
 
@@ -83,9 +83,9 @@ separately.
 To sync with Reeder Classic, NetNewsWire, or another Google Reader-API client, run
 `docker exec -it kipple /kipple api-password` once Kipple is running, to generate a Reader API password.
 
-**Put it on your phone.** Open Kipple's address in Safari (iPhone/iPad) or Chrome (Android), then use
-"Add to Home Screen" (Safari's share sheet) or "Install app" (Chrome's menu). It launches full-screen from
-your home screen from then on, like any other app, and keeps already-read articles available without a
+To put it on your phone, open Kipple's address in Safari (iPhone/iPad) or Chrome (Android), then use "Add
+to Home Screen" (Safari's share sheet) or "Install app" (Chrome's menu). It launches full-screen from your
+home screen from then on, like any other app, and keeps already-read articles available without a
 connection.
 
 For anything past this (backups, restoring, running behind a reverse proxy or tunnel, optional Cloudflare
@@ -131,7 +131,7 @@ Everything above is all a self-hoster needs. This section is for changing Kipple
   See [docs/README.md](docs/README.md) for a full index of everything under `docs/`.
 - `CLAUDE.md` holds the project rules used when working on the code with Claude.
 
-**Build and test:**
+### Build and test
 
 - Go tests: `go test ./...`
 - Web app: `cd web && npm ci && npm test && npm run build`
