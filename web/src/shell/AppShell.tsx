@@ -42,7 +42,7 @@ function TabBar() {
   return (
     <nav
       aria-label="Primary"
-      className="pb-safe pl-safe pr-safe flex shrink-0 border-t border-line bg-bg"
+      className="pb-safe pt-2 pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-[0_-6px_10px_-8px_rgb(0_0_0/0.5)]"
       style={{ minHeight: "var(--tabbar-h)" }}
     >
       <NavLink to="/l/unread" className={() => cn(tab, inReader ? "text-accent" : "text-fg2")} aria-current={inReader ? "page" : undefined}>
