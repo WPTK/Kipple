@@ -93,7 +93,7 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
       return { ...s, runs: rest, finished: { ...Object.fromEntries(kept), [id]: done } };
     }
     case "fetch.done": {
-      if (!(ev.data.new_items > 0)) return s;
+      if (!(ev.data.new_items > 0) || !isManualTrigger(ev.data.trigger)) return s;
       const feed = String(ev.data.feed_id);
       const ids = (ev.data.new_item_ids ?? []).map(String);
       return {
@@ -122,6 +122,13 @@ const QUIET_KINDS: readonly string[] = ["retention", "filter_apply", "auto_read"
 
 /** Only refresh-like runs (manual, import) are "refreshing"; the retention sweep, a filter apply and auto-read are not. */
 export const isRefreshKind = (kind: string): boolean => !QUIET_KINDS.includes(kind);
+
+/**
+ * The "N new articles" pill and its announcement are for a refresh the user asked for: a manual refresh (all
+ * feeds or one feed). A periodic background poll, a newly subscribed feed's first fetch, an OPML import and a
+ * retention-only trim all bring in new items too, but silently — no pill, no toast.
+ */
+const isManualTrigger = (trigger: string | undefined): boolean => trigger === "manual" || trigger === "feed_manual";
 
 /**
  * New items that would appear in this list: the feeds the scope includes (a feed, a folder's feeds,
@@ -190,8 +197,9 @@ export function announcementFor(ev: ServerEvent, runKind?: string): string | nul
     // Kind unknown (its run.start was missed): an empty result is not worth a toast.
     return kind === undefined ? null : "No new articles";
   }
-  // A scheduled fetch outside any run: announce the new items.
-  if (ev.type === "fetch.done" && ev.data.new_items > 0 && !(ev.data.run_ids && ev.data.run_ids.length)) {
+  // A manual per-feed refresh outside any run (or one that arrives before its run.done announcement): announce
+  // the new items. A scheduled poll, a new feed's first fetch, an import or a retention trim never do.
+  if (ev.type === "fetch.done" && ev.data.new_items > 0 && isManualTrigger(ev.data.trigger)) {
     return plural(ev.data.new_items);
   }
   return null;

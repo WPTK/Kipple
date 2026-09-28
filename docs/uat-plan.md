@@ -286,6 +286,10 @@ hold up an otherwise-ready release.
 - TC-D4: Confirm whether `document.hasFocus()` reports true while the installed PWA is foregrounded but the
   phone is locked/backgrounded — resolves the open reading-time-on-iOS question from the phase 4 audit.
 
+**Passed 2026-09-27** (0.3.0-beta.1 feedback, item 10). Owner: "all Suite 3 testing seems to indicate 'pass'
+from my phone." Covers TC-D1 through TC-D4 as exercised in ordinary daily use of the beta build, not a
+one-time scripted pass. TC-D4 closes risk-register R1 (moved to Closed as C4) and issue #30.
+
 ## Suite 4 — Migration rehearsal and backup/restore drill
 
 Standing checklist items (previously done ad hoc for past releases, now made explicit):
