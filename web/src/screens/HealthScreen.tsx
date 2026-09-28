@@ -2,7 +2,7 @@ import { Suspense, useMemo, useState } from "react";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
-import { ArrowDown, ArrowUp, MoreVertical } from "lucide-react";
+import { ArrowDown, ArrowUp, CheckSquare, MoreVertical } from "lucide-react";
 import {
   invalidateFeeds,
   patchFeed,
@@ -13,6 +13,7 @@ import {
 } from "@/api/admin";
 import { ApiError, api, errorMessage } from "@/api/client";
 import { invalidateLists, keys, useBootstrap } from "@/api/queries";
+import type { Feed } from "@/api/types";
 import { STATUS_RANK, statusInfo } from "@/lib/feedStatus";
 import { bytesLabel, fullDate, whenLabel } from "@/lib/format";
 import { useWide } from "@/lib/useMedia";
@@ -20,6 +21,7 @@ import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { StatusChip } from "./StatusChip";
+import { DeleteDialog, ToggleDialog } from "./feeds/BulkActions";
 
 const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
 
@@ -215,9 +217,26 @@ export function HealthScreen() {
   const [q, setQ] = useState("");
   const [log, setLog] = useState<HealthFeed | null>(null);
   const [edit, setEdit] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [sel, setSel] = useState<ReadonlySet<string>>(new Set());
+  const [bulk, setBulk] = useState<null | "delete" | "enable" | "disable">(null);
 
   const feeds = useMemo(() => (h.data ? healthSort(healthFilter(h.data.feeds, filter, q), sort, dir) : []), [h.data, filter, q, sort, dir]);
   const editing = edit ? boot.data?.feeds.find((f) => f.id === edit) : undefined;
+  const exitSelect = () => {
+    setSelecting(false);
+    setSel(new Set());
+  };
+  const check = (id: string) =>
+    setSel((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  // Feed Health's own rows (HealthFeed) don't carry folder_id/starred_count; the bulk dialogs work on the
+  // full Feed from the bootstrap, matched by id.
+  const selectedFeeds: Feed[] = useMemo(() => (boot.data?.feeds ?? []).filter((f) => sel.has(f.id)), [boot.data?.feeds, sel]);
   const th = (k: SortKey) => (
     <th scope="col" aria-sort={sort === k ? (dir === 1 ? "ascending" : "descending") : "none"} className="px-3 py-2 text-left font-semibold">
       <button
@@ -245,9 +264,15 @@ export function HealthScreen() {
   return (
     <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-2">
-        <h1 className="pt-2 text-xl font-bold" tabIndex={-1} data-route-heading>
-          Feed health
-        </h1>
+        <div className="flex items-center gap-1 pt-2">
+          <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
+            Feed health
+          </h1>
+          <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
+            <CheckSquare aria-hidden="true" />
+            <span className="hidden min-[400px]:inline">{selecting ? "Done" : "Select"}</span>
+          </Button>
+        </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {h.isPending ? <Skeleton rows={5} label="Loading feed health" /> : null}
@@ -306,6 +331,17 @@ export function HealthScreen() {
                 <caption className="sr-only-live">Feed health</caption>
                 <thead>
                   <tr className="border-b border-line">
+                    {selecting ? (
+                      <th scope="col" className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all feeds"
+                          checked={feeds.length > 0 && feeds.every((f) => sel.has(f.id))}
+                          onChange={() => setSel(feeds.every((f) => sel.has(f.id)) ? new Set() : new Set(feeds.map((f) => f.id)))}
+                          className="size-5 accent-[var(--kp-accent)]"
+                        />
+                      </th>
+                    ) : null}
                     {th("title")}
                     {th("status")}
                     {th("last_success_at")}
@@ -318,6 +354,17 @@ export function HealthScreen() {
                 <tbody>
                   {feeds.map((f) => (
                     <tr key={f.id} className="border-b border-line align-top">
+                      {selecting ? (
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${f.title}`}
+                            checked={sel.has(f.id)}
+                            onChange={() => check(f.id)}
+                            className="size-5 accent-[var(--kp-accent)]"
+                          />
+                        </td>
+                      ) : null}
                       <th scope="row" className="max-w-[24rem] px-3 py-2 text-left font-medium">
                         <span className="block truncate">{f.title}</span>
                         <span className="block truncate text-xs font-normal text-fg2">{f.url}</span>
@@ -342,6 +389,15 @@ export function HealthScreen() {
                 {feeds.map((f) => (
                   <li key={f.id} className="rounded-xl border border-line bg-surface p-3">
                     <div className="flex items-start gap-2">
+                      {selecting ? (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${f.title}`}
+                          checked={sel.has(f.id)}
+                          onChange={() => check(f.id)}
+                          className="mt-1 size-5 shrink-0 accent-[var(--kp-accent)]"
+                        />
+                      ) : null}
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold">{f.title}</p>
                         <p className="truncate text-xs text-fg2">{f.url}</p>
@@ -371,11 +427,40 @@ export function HealthScreen() {
           </>
         ) : null}
       </div>
+      {selecting ? (
+        <div role="region" aria-label="Selected feeds" className="pb-safe flex shrink-0 flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-2">
+          <span className="mr-auto text-sm font-semibold" aria-live="polite">
+            {sel.size} selected
+          </span>
+          <Button onClick={() => setSel(new Set(feeds.map((f) => f.id)))} disabled={feeds.length === 0 || feeds.every((f) => sel.has(f.id))}>
+            Select all
+          </Button>
+          <Button onClick={() => setBulk("enable")} disabled={sel.size === 0}>
+            Turn on
+          </Button>
+          <Button onClick={() => setBulk("disable")} disabled={sel.size === 0}>
+            Turn off
+          </Button>
+          <Button variant="solid" onClick={() => setBulk("delete")} disabled={sel.size === 0}>
+            Delete
+          </Button>
+        </div>
+      ) : null}
       {log ? <LogDialog feed={log} onClose={() => setLog(null)} /> : null}
       {editing ? (
         <Suspense fallback={null}>
           <FeedEditor feed={editing} onClose={() => setEdit(null)} />
         </Suspense>
+      ) : null}
+      {bulk === "delete" ? (
+        <DeleteDialog
+          feeds={selectedFeeds}
+          onClose={() => setBulk(null)}
+          onDone={(ids) => setSel((s) => new Set([...s].filter((x) => !ids.includes(x))))}
+        />
+      ) : null}
+      {bulk === "enable" || bulk === "disable" ? (
+        <ToggleDialog feeds={selectedFeeds} enable={bulk === "enable"} onClose={() => setBulk(null)} onDone={exitSelect} />
       ) : null}
     </div>
   );
