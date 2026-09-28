@@ -6,6 +6,14 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Manage Feeds: folders collapse (a chevron per folder, remembered per device, same as the desktop sidebar) — this was the only feed-browsing surface on narrow/mobile widths with no way to collapse a folder. (#58)
+
+### Changed
+
+- Manage Feeds: the drag handle and each feed's edit (pencil) button are hidden by default and appear only in a new Edit mode (a header toggle next to Select), so a plain visit to the screen is just a list, not a wall of reorder/edit affordances. (#59)
+
 ## [0.3.0-beta.1] - 2026-09-27
 
 Phase 5, release readiness: the full code audit and its follow-up review round, optional Cloudflare Access token
