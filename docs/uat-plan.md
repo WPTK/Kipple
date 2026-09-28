@@ -61,7 +61,7 @@ is MIT, so that wording is replaced here rather than quietly dropped: `@playwrig
 and `axe-core` MPL-2.0 (weak, file-level copyleft: obligations attach only to modified axe-core files, and Kipple
 neither modifies nor ships it). Both are dev-only and never in the image; `axe-core` was already a dev dependency
 for the Vitest accessibility tests. Navigates every
-screen (feed list in each of the 5 layouts, article view, search, settings, stats, Wrapped) and asserts:
+screen (feed list in each of the 5 layouts, article view, search, settings (the group list and each of its six groups), stats, Wrapped) and asserts:
 
 | ID | Check | Expected |
 |---|---|---|

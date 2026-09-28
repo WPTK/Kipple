@@ -11,6 +11,10 @@ All notable changes to Kipple are documented here. The format follows
 - Feed Health gains a Select mode: tick feeds (or Select all) to turn several on, off, or delete them at once, with per-feed progress and a failure list, same as Manage Feeds' existing bulk move/delete. (#61)
 - An article's ⋯ menu gains "Manage this feed", opening the feed editor (address, folder, layout, check frequency, disable or delete) for that article's feed. (#60)
 
+### Changed
+
+- Settings is no longer one long page. Its sections are sorted into six groups, each with its own address (`/settings/appearance`, `sync`, `statistics`, `filters`, `account`, `advanced`): Appearance & Reading (appearance, accessibility, lists and reading, keyboard, and the reading settings), Sync & Feeds (sync, library and images), Statistics (the statistics settings and your statistics data), Filters & Saved Searches, Account & Devices, and Advanced. On a wide screen a list of the groups stays on the left and the chosen group shows beside it; a bare `/settings` opens Appearance & Reading. On a phone, Settings opens on the list of groups, with the current theme and font, check interval and whether statistics are recorded under the groups they belong to, and a group opens on a page of its own with a back button. Moving between groups puts focus on the group's heading, and going back puts it on the group you came from. Advanced, now on its own page, no longer needs "Show advanced settings" to open. Every setting and its help text is unchanged. The "Settings > Statistics" links on Stats and Wrapped open the Statistics group directly. (#55)
+
 ### Fixed
 
 - The "N new articles" pill and its screen-reader announcement no longer fire for a periodic background poll, a newly subscribed feed's first fetch, an OPML import or a retention trim — only for a manual refresh (all feeds or a single feed). (#56)

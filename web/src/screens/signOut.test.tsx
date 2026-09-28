@@ -41,7 +41,7 @@ describe("sign-out", () => {
         return true;
       },
     });
-    window.history.replaceState({ idx: 0 }, "", "/settings");
+    window.history.replaceState({ idx: 0 }, "", "/settings/account");
     render(<App client={makeQueryClient({ retry: false })} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Sign out" }, { timeout: 5000 }));

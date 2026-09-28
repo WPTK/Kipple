@@ -97,7 +97,7 @@ describe("Settings > Filters list", () => {
         return json({ filter: rules[1] });
       },
     });
-    const { container } = go("/settings");
+    const { container } = go("/settings/filters");
     const list = await screen.findByRole("list", { name: "Your filters" });
     const first = within(list).getAllByRole("listitem")[0] as HTMLElement;
     expect(within(first).getByText("No giveaways")).toBeInTheDocument();
@@ -128,7 +128,7 @@ describe("Settings > Filters list", () => {
           ],
         }),
     });
-    go("/settings");
+    go("/settings/filters");
     const list = await screen.findByRole("list", { name: "Your filters" });
     const [on, off] = within(list).getAllByRole("listitem") as [HTMLElement, HTMLElement];
     expect(on).toHaveTextContent("Marks matching words as you read");
@@ -153,7 +153,7 @@ describe("Settings > Filters list", () => {
     devicePrefsStore.set({ ...before, highlightKeywords: false });
     try {
       routes({ "GET /api/filters": () => json({ filters: [filter(3, { name: "Hl lemur", action: "highlight", terms: ["lemur"], hits: 0 })] }) });
-      go("/settings");
+      go("/settings/filters");
       const list = await screen.findByRole("list", { name: "Your filters" });
       const row = within(list).getAllByRole("listitem")[0] as HTMLElement;
       expect(row).toHaveTextContent("Highlighting is off on this device");
@@ -165,7 +165,7 @@ describe("Settings > Filters list", () => {
 
   it("says so when there are none", async () => {
     routes({ "GET /api/filters": () => json({ filters: [] }) });
-    go("/settings");
+    go("/settings/filters");
     expect(await screen.findByText(/No filters yet/)).toBeInTheDocument();
   });
 });
@@ -184,7 +184,7 @@ describe("filter editor", () => {
         json(previewOf(25, { warnings: [{ code: "category_new_items_only", message: "Articles without stored categories are skipped by category rules." }] })),
       "POST /api/filters": () => json({ filter: filter(9), applied: null }, 201),
     });
-    go("/settings");
+    go("/settings/filters");
     const { user, dialog } = await openNew();
     const w = within(dialog);
 
@@ -246,7 +246,7 @@ describe("filter editor", () => {
   it("picks a folder or a feed for the scope", async () => {
     const boot: Bootstrap = { ...bootstrap, folders: [{ id: "1", name: "News", position: 0, is_default: true, unread: 0 }, { id: "2", name: "Tech", position: 1, is_default: false, unread: 0 }] };
     const { calls } = routes({ "GET /api/filters": () => json({ filters: [] }), "POST /api/filters": () => json({ filter: filter(3), applied: null }, 201), "POST /api/filters/preview": () => json(previewOf(0)) }, boot);
-    go("/settings");
+    go("/settings/filters");
     const { user, dialog } = await openNew();
     const w = within(dialog);
     await user.click(w.getByRole("radio", { name: /A folder/ }));
@@ -259,7 +259,7 @@ describe("filter editor", () => {
 
   it("regular expressions: only patterns, no whole-word or accent options, highlight not offered a word list", async () => {
     routes({ "GET /api/filters": () => json({ filters: [] }) });
-    go("/settings");
+    go("/settings/filters");
     const { user, dialog } = await openNew();
     const w = within(dialog);
     await user.click(w.getByRole("radio", { name: /Regular expression/ }));
@@ -271,7 +271,7 @@ describe("filter editor", () => {
 
   it("enforces the API's limits before sending", async () => {
     routes({ "GET /api/filters": () => json({ filters: [] }) });
-    go("/settings");
+    go("/settings/filters");
     const { user, dialog } = await openNew();
     const w = within(dialog);
     const input = w.getByLabelText("Words or phrases");
@@ -288,7 +288,7 @@ describe("filter editor", () => {
       "POST /api/filters/preview": () => json(previewOf(0)),
       "POST /api/filters": () => json({ error: "bad_filter", field: "terms[0]", message: "must not be empty after trimming" }, 400),
     });
-    go("/settings");
+    go("/settings/filters");
     const { user, dialog } = await openNew();
     const w = within(dialog);
     await user.type(w.getByLabelText("Words or phrases"), "abc{Enter}");
@@ -305,7 +305,7 @@ describe("filter editor", () => {
       "POST /api/filters/preview": () => json(previewOf(3)),
       "POST /api/filters": () => json({ filter: filter(5), applied: { id: "77", kind: "filter_apply", filter_id: "5", done: 0, total: 400, changed: 0, errors: 0 } }, 201),
     });
-    go("/settings");
+    go("/settings/filters");
     const { user, dialog } = await openNew();
     const w = within(dialog);
     await user.type(w.getByLabelText("Words or phrases"), "giveaway{Enter}");
@@ -329,7 +329,7 @@ describe("filter editor", () => {
 
   it("apply to existing is not offered for Highlight, and a disabled rule cannot be applied", async () => {
     routes({ "GET /api/filters": () => json({ filters: [] }) });
-    go("/settings");
+    go("/settings/filters");
     const { user, dialog } = await openNew();
     const w = within(dialog);
     expect(w.getByRole("checkbox", { name: /Apply to existing articles/ })).toBeInTheDocument();
@@ -350,7 +350,7 @@ describe("deleting a filter", () => {
       "GET /api/filters": () => json({ filters: [withMuted()] }),
       "DELETE /api/filters/4": () => json({ changed: 7 }),
     });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete No giveaways" }));
     const dialog = await screen.findByRole("dialog", { name: "Delete this filter?" });
@@ -367,7 +367,7 @@ describe("deleting a filter", () => {
       "GET /api/filters": () => json({ filters: [withMuted()] }),
       "DELETE /api/filters/4": () => json({ changed: 7 }),
     });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete No giveaways" }));
     const w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
@@ -387,7 +387,7 @@ describe("deleting a filter", () => {
       "GET /api/filters": () => json({ filters: [withMuted({ muted_items: 700 })] }),
       "DELETE /api/filters/4": () => json(answers[Math.min(i++, answers.length - 1)], i === 1 ? 202 : 200),
     });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete No giveaways" }));
     const w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
@@ -430,7 +430,7 @@ describe("deleting a filter", () => {
       "DELETE /api/filters/4": () => json({ changed: 0 }),
       "DELETE /api/filters/5": () => json({ changed: 0 }),
     });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete No giveaways" }));
     let w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
@@ -474,7 +474,7 @@ describe("review findings 5, 6 and 9", () => {
 
   it("the name field checks bytes, not characters, and blocks Save (finding 5)", async () => {
     routes({ "GET /api/filters": () => json({ filters: [] }), "POST /api/filters/preview": () => json(previewOf(0)) });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "New filter" }));
     const w = within(await screen.findByRole("dialog", { name: "New filter" }));
@@ -491,7 +491,7 @@ describe("review findings 5, 6 and 9", () => {
       "GET /api/filters": () => json({ filters: [filter(4, { name: "Stale", muted_items: 0 })] }),
       "DELETE /api/filters/4": () => json({ changed: 2 }),
     });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete Stale" }));
     const w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
@@ -503,7 +503,7 @@ describe("review findings 5, 6 and 9", () => {
   it("the dialog looks at the count again when it opens (finding 6)", async () => {
     let n = 0;
     routes({ "GET /api/filters": () => json({ filters: [filter(4, { name: "Stale", muted_items: n })] }) });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     const trash = await screen.findByRole("button", { name: "Delete Stale" });
     n = 3; // three articles were muted since the list loaded
@@ -519,7 +519,7 @@ describe("review findings 5, 6 and 9", () => {
       "PATCH /api/filters/5": () => json({ filter: filter(5) }),
       "POST /api/filters/5/apply": () => json({ error: "busy" }, 409),
     });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Edit Editable" }));
     const w = within(await screen.findByRole("dialog", { name: "Edit filter" }));

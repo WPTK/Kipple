@@ -253,7 +253,7 @@ describe("events that carry muted", () => {
 
   it("filters.changed refetches the filters and the bootstrap (highlights and counts)", async () => {
     const { calls } = routes();
-    go("/settings");
+    go("/settings/filters");
     await screen.findByRole("list", { name: "Your filters" });
     const before = calls.filter((c) => c.url.pathname === "/api/filters").length;
     const bootBefore = calls.filter((c) => c.url.pathname === "/api/bootstrap").length;

@@ -148,7 +148,17 @@ const SCREENS = [
   { id: "search-empty", title: "Search, no query", path: "/search", heading: "Search" },
   { id: "feeds", title: "Manage feeds", path: "/feeds", heading: "Feeds" },
   { id: "health", title: "Feed health", path: "/health", heading: "Feed health" },
+  // Settings is master-detail: /settings is the group list on a narrow screen (and the first group beside the rail on
+  // a wide one), and each group is its own page, whose h1 is the group's name below 900 px and "Settings" beside the rail.
   { id: "settings", title: "Settings", path: "/settings", heading: "Settings" },
+  ...[
+    ["appearance", "Appearance & Reading"],
+    ["sync", "Sync & Feeds"],
+    ["statistics", "Statistics"],
+    ["filters", "Filters & Saved Searches"],
+    ["account", "Account & Devices"],
+    ["advanced", "Advanced"],
+  ].map(([g, label]) => ({ id: `settings-${g}`, title: `Settings: ${label}`, path: `/settings/${g}`, heading: (_ctx, vp) => (vp.width >= 900 ? "Settings" : label) })),
   { id: "stats", title: "Stats", path: "/stats", heading: "Stats" },
   { id: "wrapped", title: "Wrapped", path: "/stats/wrapped", heading: "Your year" },
 ];
@@ -638,7 +648,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     }
     // The heading first: after an in-app navigation the screen before stays up until the router has rendered the
     // new one, and waiting for "not busy" on the old screen would pass at once.
-    const heading = typeof screen.heading === "function" ? screen.heading(ctxInfo) : screen.heading;
+    const heading = typeof screen.heading === "function" ? screen.heading(ctxInfo, vp) : screen.heading;
     try {
       await go(page, path, { reload: reloadNext || heading === prevHeading });
       reloadNext = false;

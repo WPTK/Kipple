@@ -253,7 +253,7 @@ describe("Saved search events", () => {
 describe("Settings > Saved searches", () => {
   it("edits name, query, scope and order in one PATCH", async () => {
     const { calls } = base({ "PATCH /api/saved-searches/s1": () => json({ ...SAVED[0], name: "Rust!" }) });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
@@ -271,7 +271,7 @@ describe("Settings > Saved searches", () => {
 
   it("clears a scope with null", async () => {
     const { calls } = base({ "PATCH /api/saved-searches/s2": () => json(SAVED[1]) });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
     await user.click(within(list).getByRole("button", { name: "Edit Big feed cats" }));
@@ -284,7 +284,7 @@ describe("Settings > Saved searches", () => {
 
   it("deletes after a confirm", async () => {
     const { calls } = base({ "DELETE /api/saved-searches/s3": () => new Response(null, { status: 204 }) });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
     await user.click(within(list).getByRole("button", { name: "Delete Starred go" }));
@@ -303,7 +303,7 @@ describe("Settings > Saved searches", () => {
         return json({ saved_searches: order });
       },
     });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
     expect(within(list).getByRole("button", { name: "Move Rust news up" })).toBeDisabled();
@@ -316,7 +316,7 @@ describe("Settings > Saved searches", () => {
 
   it("reorders with the arrow keys on the grip", async () => {
     const { calls } = base({ "POST /api/saved-searches/reorder": () => json({ saved_searches: SAVED }) });
-    go("/settings");
+    go("/settings/filters");
     const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
     const grip = within(list).getByRole("button", { name: /Reorder Starred go/ });
     grip.focus();
@@ -346,7 +346,7 @@ describe("Auto-read (Settings > Library)", () => {
         return json(settingsBody(SETTINGS.map((s) => (s.key in b ? { ...s, value: b[s.key] } : s))));
       },
     });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     const field = (await screen.findByText("Mark old articles as read after…", { selector: "legend" }, { timeout: 5000 })).closest("fieldset") as HTMLElement;
     for (const l of ["Off", "30 days", "60 days", "90 days", "180 days", "365 days", "Custom"]) expect(within(field).getByRole("radio", { name: l })).toBeInTheDocument();
@@ -368,7 +368,7 @@ describe("Auto-read (Settings > Library)", () => {
           ? json({ id: "77", kind: "auto_read", done: 0, total: 250, changed: 0, new_items: 0, errors: 0 }, 202)
           : json({ error: "confirm_required", total: 250, confirm_above: 100, message: "confirm" }, 409),
     });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
     const box = await screen.findByTestId("auto-read-preview");
@@ -393,7 +393,7 @@ describe("Auto-read (Settings > Library)", () => {
       "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: 40, feeds: [{ feed_id: "1", title: "Example Feed", days: 90, count: 40 }] }),
       "POST /api/library/auto-read/run": () => json({ id: "78", kind: "auto_read", done: 0, total: 40, changed: 0, new_items: 0, errors: 0 }, 202),
     });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
@@ -422,7 +422,7 @@ describe("Auto-read (Settings > Library)", () => {
           : json({ error: "busy" }, 409);
       },
     });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
     await user.click(await screen.findByRole("button", { name: "Mark 60 older articles as read now" }));
@@ -443,7 +443,7 @@ describe("Auto-read (Settings > Library)", () => {
           : json({ id: "79", kind: "auto_read", done: 0, total: 400, changed: 0, new_items: 0, errors: 0 }, 202);
       },
     });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
     await user.click(await screen.findByRole("button", { name: "Mark 60 older articles as read now" }));
@@ -458,9 +458,9 @@ describe("Auto-read (Settings > Library)", () => {
 
   it("previews a what-if number of days without saving it", async () => {
     const { calls } = base({ "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: 5, feeds: [] }) });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Show advanced settings" }).catch(() => screen.findByRole("button", { name: "Try a different number of days" }, { timeout: 5000 })));
+    await user.click(await screen.findByRole("button", { name: "Try a different number of days" }, { timeout: 5000 }));
     await user.type(await screen.findByRole("textbox", { name: /Preview as if it were set to/ }), "60");
     await user.click(screen.getByRole("button", { name: "Preview" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/preview"))).toBe(true));
@@ -520,7 +520,7 @@ describe("Images (Settings)", () => {
         return json(settingsBody(SETTINGS.map((s) => (s.key in b ? { ...s, value: b[s.key] } : s))));
       },
     });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     const field = (await screen.findByText("Image cache size", { selector: "legend" }, { timeout: 5000 })).closest("fieldset") as HTMLElement;
     for (const l of ["256 MB", "512 MB", "1 GB", "2 GB", "Off", "Custom"]) expect(within(field).getByRole("radio", { name: l })).toBeInTheDocument();
@@ -538,7 +538,7 @@ describe("Images (Settings)", () => {
 
   it("shows used against the cap, files, hit rate, and refreshes when the section opens", async () => {
     const { calls } = base();
-    go("/settings");
+    go("/settings/sync");
     const card = await screen.findByTestId("imgcache-card", undefined, { timeout: 5000 });
     expect(within(card).getByText("256.0 MB")).toBeInTheDocument();
     expect(within(card).getByText(/of 1\.00 GB used/)).toBeInTheDocument();
@@ -550,14 +550,14 @@ describe("Images (Settings)", () => {
 
   it("warns when the disk is low", async () => {
     base({ "GET /api/imgcache": () => json({ ...CACHE, low_disk: true, disk_free_bytes: 3 * 1024 ** 3 }) });
-    go("/settings");
+    go("/settings/sync");
     const card = await screen.findByTestId("imgcache-card", undefined, { timeout: 5000 });
     expect(within(card).getByText(/disk is nearly full \(3\.00 GB free\)/)).toBeInTheDocument();
   });
 
   it("says when the cache is off", async () => {
     base({ "GET /api/imgcache": () => json({ ...CACHE, enabled: false, cache_mb: 0, max_bytes: 0, used_bytes: 0, entries: 0, neg_entries: 0 }) });
-    go("/settings");
+    go("/settings/sync");
     const card = await screen.findByTestId("imgcache-card", undefined, { timeout: 5000 });
     expect(within(card).getByText(/The image cache is off/)).toBeInTheDocument();
   });
@@ -571,7 +571,7 @@ describe("Images (Settings)", () => {
         return json({ cleared: 4321 });
       },
     });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     const card = await screen.findByTestId("imgcache-card", undefined, { timeout: 5000 });
     await user.click(within(card).getByRole("button", { name: "Clear image cache" }));
@@ -605,7 +605,7 @@ describe("The unsaved default device (id empty)", () => {
       "PATCH /api/device": () => json({ error: "not_found" }, 404),
       "GET /api/devices": () => json({ devices: [{ id: "d1", name: "Old phone", current: false, user_agent: "", client: "web", created_at: 1, last_seen_at: 2, overrides: 3 }] }),
     });
-    go("/settings");
+    go("/settings/account");
     await screen.findByText(/This browser can't save its own settings yet\. Older browsers will be forgotten automatically/, undefined, { timeout: 5000 });
     expect(syncStore.get().status).toBe("unsaved");
     // No writes to the device, and no actions that would 404.
@@ -613,8 +613,11 @@ describe("The unsaved default device (id empty)", () => {
     expect(screen.queryByRole("button", { name: "Reset this device to defaults" })).toBeNull();
     expect(screen.queryByRole("textbox", { name: "This device's name" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Copy settings from/ })).toBeNull();
-    // A local change is kept and still sends nothing.
-    await userEvent.setup().click(screen.getByRole("radio", { name: "Compact" }));
+    // A local change is kept and still sends nothing. The layout is in another group: back to the list, then in.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
+    await user.click(await screen.findByRole("link", { name: /^Appearance & Reading/ }));
+    await user.click(await screen.findByRole("radio", { name: "Compact" }));
     await new Promise((r) => setTimeout(r, 700));
     expect(calls.filter((c) => c.url.pathname === "/api/device")).toHaveLength(0);
   });
@@ -737,7 +740,7 @@ describe("Saved search reorder (review 3)", () => {
         return json({ saved_searches: SAVED });
       },
     });
-    go("/settings");
+    go("/settings/filters");
     const user = userEvent.setup();
     const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
     await user.click(within(list).getByRole("button", { name: "Move Rust news down" }));
@@ -759,7 +762,7 @@ describe("Auto-read catch-up (review 3)", () => {
 
   it("says how many the run marked from run.done, not from the throttled last progress", async () => {
     base({ "POST /api/library/auto-read/preview": () => json(preview40), "POST /api/library/auto-read/run": () => json(RUN, 202) });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
@@ -777,7 +780,7 @@ describe("Auto-read catch-up (review 3)", () => {
 
   it("shows the run at once from the 202 body, with no stream event: Preview is disabled and progress shows", async () => {
     base({ "POST /api/library/auto-read/preview": () => json(preview40), "POST /api/library/auto-read/run": () => json(RUN, 202) });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
@@ -792,7 +795,7 @@ describe("Auto-read catch-up (review 3)", () => {
       "POST /api/library/auto-read/run": () => json({ error: "busy" }, 409),
       "GET /api/status": () => json({ unread_total: 3, runs: [{ id: "5", kind: "auto_read", done: 7, total: 90, changed: 7, new_items: 0, errors: 0 }] }),
     });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
@@ -814,7 +817,7 @@ describe("Auto-read catch-up (review 3)", () => {
         "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: n++ === 0 ? 60 : 200, feeds: [] }),
         "POST /api/library/auto-read/run": () => json(RUN, 202),
       });
-      go("/settings");
+      go("/settings/sync");
       const user = userEvent.setup();
       await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
       const mark = await screen.findByRole("button", { name: "Mark 60 older articles as read now" });
@@ -834,7 +837,7 @@ describe("Auto-read catch-up (review 3)", () => {
         "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: n++ === 0 ? 60 : 62, feeds: [] }),
         "POST /api/library/auto-read/run": () => json(RUN, 202),
       });
-      go("/settings");
+      go("/settings/sync");
       const user = userEvent.setup();
       await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
       const mark = await screen.findByRole("button", { name: "Mark 60 older articles as read now" });
@@ -848,7 +851,7 @@ describe("Auto-read catch-up (review 3)", () => {
 
   it("will not mark with a what-if number that was never saved", async () => {
     base({ "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: 5, feeds: [] }) });
-    go("/settings");
+    go("/settings/sync");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Try a different number of days" }, { timeout: 5000 }));
     await user.type(await screen.findByRole("textbox", { name: /Preview as if it were set to/ }), "60");

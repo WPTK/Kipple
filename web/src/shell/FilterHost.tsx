@@ -47,7 +47,7 @@ export function ApplyProgress() {
   const run = Object.values(runs).find((r) => r.kind === "filter_apply");
   const autoRead = Object.values(runs).some((r) => r.kind === "auto_read");
   if (run) return <ApplyBar run={run} />;
-  // The server is marking old articles read (Settings, Reading): a quiet line, no count or progress bar.
+  // The server is marking old articles read (Settings, Sync & Feeds): a quiet line, no count or progress bar.
   if (autoRead) {
     return (
       <div data-testid="auto-read-status" role="status" className="pt-safe shrink-0 border-b border-line bg-surface px-4 py-2 text-sm text-fg2">

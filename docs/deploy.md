@@ -451,7 +451,7 @@ mind.
   is every existing one, therefore starts proxying and caching **all** article images on the first
   start, into `<data>/imgcache/` with a 1 GiB cap (`imgproxy.cache_mb`, default 1024). The cache is
   never part of a backup or snapshot, so the volume needs the room. To go back to the old
-  behavior: Settings > Images > "Load images through Kipple" = "Only insecure (http) images", or
+  behavior: Settings > Sync & Feeds > Images > "Load images through Kipple" = "Only insecure (http) images", or
   `PATCH /api/settings {"imgproxy.mode":"http_only"}`. Setting the cache size to 0 keeps proxying but
   turns the disk cache off.
 - **Search behavior changed.** An unfinished last word is no longer a prefix unless the UI sends

@@ -236,8 +236,8 @@ describe("Article view", () => {
 describe("Settings", () => {
   it("offers a short theme list, More themes, and a collapsed accessibility group; passes axe", async () => {
     routes();
-    const { container } = go("/settings");
-    await screen.findByRole("heading", { name: "Settings" });
+    const { container } = go("/settings/appearance");
+    await screen.findByRole("heading", { name: "Appearance & Reading" });
     expect(screen.getByRole("radio", { name: /Follow system.*by day/ })).toBeChecked();
     for (const n of ["Paper", "Linen", "Newsprint", "Graphite", "Midnight"]) expect(screen.getByRole("radio", { name: new RegExp("^" + n) })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: /^Fountain/ })).toBeNull();
@@ -253,8 +253,8 @@ describe("Settings", () => {
 
   it("picking a theme applies it and updates meta theme-color live", async () => {
     routes();
-    go("/settings");
-    await screen.findByRole("heading", { name: "Settings" });
+    go("/settings/appearance");
+    await screen.findByRole("heading", { name: "Appearance & Reading" });
     const off = initTheme();
     const user = userEvent.setup();
     await user.click(screen.getByRole("radio", { name: /^Newsprint/ }));
@@ -265,8 +265,8 @@ describe("Settings", () => {
 
   it("density steps drive list rows and reading text together", async () => {
     routes();
-    go("/settings");
-    await screen.findByRole("heading", { name: "Settings" });
+    go("/settings/appearance");
+    await screen.findByRole("heading", { name: "Appearance & Reading" });
     const user = userEvent.setup();
     await user.click(screen.getByRole("radio", { name: "Airy" }));
     initPrefs();

@@ -223,7 +223,7 @@ describe("Stats screen", () => {
       "GET /api/settings": () => json({ error: "boom" }, 500),
       "GET /api/items": () => json({ items: [], next_cursor: null }),
     });
-    go("/settings");
+    go("/settings/statistics");
     expect(await screen.findByText(/Couldn't load your settings/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Export…" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete a date range…" })).toBeInTheDocument();
