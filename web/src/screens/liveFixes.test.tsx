@@ -94,7 +94,7 @@ describe("live state in the list", () => {
     go("/l/unread");
     await screen.findByText("Article number 1");
     // Two arrivals, but one of them is already in the loaded list (id 1001).
-    act(() => handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, new_item_ids: ["1001", "9999"] } }));
+    act(() => handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, new_item_ids: ["1001", "9999"], trigger: "feed_manual" } }));
     expect(await screen.findByRole("button", { name: "1 new article" })).toBeInTheDocument();
     // Both already present: no pill.
     act(() => liveStore.set((s) => ({ ...s, pendingByFeed: { "1": 2 }, pendingIds: { "1": ["1001", "1002"] } })));

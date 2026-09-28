@@ -11,6 +11,10 @@ All notable changes to Kipple are documented here. The format follows
 - Feed Health gains a Select mode: tick feeds (or Select all) to turn several on, off, or delete them at once, with per-feed progress and a failure list, same as Manage Feeds' existing bulk move/delete. (#61)
 - An article's ⋯ menu gains "Manage this feed", opening the feed editor (address, folder, layout, check frequency, disable or delete) for that article's feed. (#60)
 
+### Fixed
+
+- The "N new articles" pill and its screen-reader announcement no longer fire for a periodic background poll, a newly subscribed feed's first fetch, an OPML import or a retention trim — only for a manual refresh (all feeds or a single feed). (#56)
+
 ## [0.3.0-beta.1] - 2026-09-27
 
 Phase 5, release readiness: the full code audit and its follow-up review round, optional Cloudflare Access token

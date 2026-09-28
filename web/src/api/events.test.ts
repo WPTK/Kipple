@@ -35,17 +35,25 @@ describe("reduceEvent", () => {
     vi.useRealTimers();
   });
 
-  it("accumulates new items from fetch.done and clears them on resync", () => {
-    let s = reduceEvent(initialLive, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 3 } });
-    s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "2", outcome: "ok", new_items: 2 } });
-    s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "3", outcome: "not_modified", new_items: 0 } });
+  it("accumulates new items from a manual fetch.done and clears them on resync", () => {
+    let s = reduceEvent(initialLive, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 3, trigger: "feed_manual" } });
+    s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "2", outcome: "ok", new_items: 2, trigger: "manual" } });
+    s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "3", outcome: "not_modified", new_items: 0, trigger: "feed_manual" } });
     expect(s.pendingByFeed).toEqual({ "1": 3, "2": 2 });
     s = reduceEvent(s, { type: "resync", data: {} });
     expect(s).toMatchObject({ pendingByFeed: {}, pendingIds: {} });
   });
 
+  it("ignores new items from a scheduled poll, a subscribe fetch or an import: no pill for those", () => {
+    let s = reduceEvent(initialLive, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 3, trigger: "scheduled" } });
+    s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "2", outcome: "ok", new_items: 2, trigger: "subscribe" } });
+    s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "3", outcome: "ok", new_items: 5, trigger: "import" } });
+    s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "4", outcome: "ok", new_items: 1 } });
+    expect(s.pendingByFeed).toEqual({});
+  });
+
   it("tracks the new item ids so the pill can skip ones the list already has", () => {
-    const s = reduceEvent(initialLive, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, new_item_ids: ["7", "8"] } });
+    const s = reduceEvent(initialLive, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, new_item_ids: ["7", "8"], trigger: "feed_manual" } });
     expect(s.pendingIds).toEqual({ "1": ["7", "8"] });
     expect(s.pendingByFeed).toEqual({ "1": 2 });
   });
@@ -85,9 +93,12 @@ describe("announcementFor", () => {
     expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } }, "import")).toBe("No new articles");
   });
 
-  it("announces a scheduled fetch but not one inside a run", () => {
-    expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2 } })).toBe("2 new articles");
-    expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, run_ids: ["4"] } })).toBeNull();
+  it("announces a manual per-feed refresh but stays quiet about anything else", () => {
+    expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, trigger: "feed_manual" } })).toBe("2 new articles");
+    expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2 } })).toBeNull();
+    expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, trigger: "scheduled" } })).toBeNull();
+    expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, trigger: "subscribe" } })).toBeNull();
+    expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, trigger: "feed_manual", run_ids: ["4"] } })).toBe("2 new articles");
     expect(announcementFor({ type: "counts", data: { unread_total: 0, feeds: {} } })).toBeNull();
   });
 });
