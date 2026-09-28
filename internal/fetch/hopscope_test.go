@@ -67,6 +67,7 @@ func TestSiteScopedBareNamePrefixDoesNotInheritGrant(t *testing.T) {
 		{"nas", "http://nas.internal/feed", "granted"},
 		{"nas.local", "http://nas/feed", "granted"},
 		{"nas.attacker.example", "http://nas/feed", "guarded"},
+		{"news", "http://evil.news/", "guarded"}, // a subdomain of a LAN name that is a public TLD
 	} {
 		var used string
 		s := &siteScoped{host: c.feed, granted: recordRT{"granted", &used}, guarded: recordRT{"guarded", &used}}

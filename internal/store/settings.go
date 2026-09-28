@@ -209,10 +209,11 @@ func (d *DB) SetSettings(ctx context.Context, set map[string]any) error {
 // "system" (follow the device, or the schedule when ui.theme_schedule is on).
 func FixedTheme(theme string) bool { return theme != "" && theme != "system" }
 
-// ScheduleOffForFixedTheme is the one place the rule "picking a fixed theme
-// turns the theme schedule off" is decided, for every write that can put a
-// theme in force (PATCH /api/device, and through SetSettingsFixedTheme PATCH
-// /api/settings and make-default): with the schedule flag on in force and a
+// ScheduleOffForFixedTheme is the rule "picking a fixed theme turns the theme
+// schedule off", shared by every write that can put a theme in force (PATCH
+// /api/device, and through SetSettingsFixedTheme PATCH /api/settings and
+// make-default, which on its own also never copies a device's fixed theme
+// together with a flag that is on): with the schedule flag on in force and a
 // write set that does not name ui.theme_schedule, a resulting fixed theme adds
 // ui.theme_schedule=false. theme is the ui.theme the write leaves in force; the
 // caller resolves a cleared (null) value.

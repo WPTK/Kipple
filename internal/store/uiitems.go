@@ -297,8 +297,10 @@ func (d *DB) listCardsPlain(ctx context.Context, q CardQuery) ([]Card, *Cursor, 
 
 // listHidesDeleting is the WHERE part that keeps a feed being deleted out of a
 // card list or search (items aliased i), as it is out of the counts. The
-// Starred view keeps its articles: starred items are never deleted with their
-// feed, they move to the archive feed when the deletion finishes.
+// Starred view keeps its articles: they normally move to the archive feed when
+// the deletion finishes. (A delete asked to remove starred articles too,
+// delete_starred, still lists them until its purge reaches them; the mark
+// does not record that choice.)
 func listHidesDeleting(view string) []string {
 	if view == "starred" {
 		return nil

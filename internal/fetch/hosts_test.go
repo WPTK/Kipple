@@ -14,6 +14,8 @@ func TestSameOrSubdomain(t *testing.T) {
 	require.True(t, SameOrSubdomain("::1", "[::1]"))
 	require.False(t, SameOrSubdomain("", ""))
 	require.False(t, SameOrSubdomain("1.2.3.4", "x.1.2.3.4"))
+	require.False(t, SameOrSubdomain("news", "evil.news"), "a single-label LAN name is also a public TLD")
+	require.True(t, SameOrSubdomain("news", "NEWS."))
 }
 
 func TestFeedHostVariant(t *testing.T) {
@@ -24,6 +26,8 @@ func TestFeedHostVariant(t *testing.T) {
 	require.False(t, FeedHostVariant("blog.example.com", "other.example.com"))
 	require.False(t, FeedHostVariant("192.168.1.5", "nas.lan"), "an IP and a name cannot be matched without DNS")
 	require.False(t, FeedHostVariant("", "example.com"))
+	require.False(t, FeedHostVariant("news", "evil.news"), "no subdomains of a single-label feed host")
+	require.False(t, FeedHostVariant("app", "www.app"))
 }
 
 func TestSameSite(t *testing.T) {

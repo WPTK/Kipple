@@ -435,7 +435,7 @@ func (s *Server) fixedThemeEndsSchedule(r *http.Request, dv store.Device, set ma
 		return nil
 	}
 	if _, named := set["ui.theme_schedule"]; named {
-		return nil
+		return nil // ScheduleOffForFixedTheme would do nothing; checked first to skip the settings read
 	}
 	// The flag in force: the device's own value, or the account default.
 	on, own := dv.Profile["ui.theme_schedule"].(bool)

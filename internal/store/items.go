@@ -169,13 +169,15 @@ func (d *DB) StreamIDs(ctx context.Context, f StreamFilter, p IDPage, fn func(id
 	f.HoldPending = d.HoldPending()
 	// Looked up here rather than as a subquery in the stream predicate, so the usual case (no feed being
 	// deleted) keeps its query text and covering-index plans exactly as they are.
-	deleting, err := deletingFeedIDs(ctx, d.reader)
-	if err != nil {
-		return 0, false, err
-	}
-	if len(deleting) > 0 {
-		if f.Deleting, err = idsJSON(deleting); err != nil {
+	if !slices.ContainsFunc(f.Starred, func(v int) bool { return v != 0 }) { // a starred stream keeps them anyway
+		deleting, err := deletingFeedIDs(ctx, d.reader)
+		if err != nil {
 			return 0, false, err
+		}
+		if len(deleting) > 0 {
+			if f.Deleting, err = idsJSON(deleting); err != nil {
+				return 0, false, err
+			}
 		}
 	}
 	q, args := streamIDsSQL(f, p)

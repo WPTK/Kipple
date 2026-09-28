@@ -12,7 +12,7 @@ import { devicePrefsStore, parseDevicePrefs, updateDevicePrefs } from "@/lib/dev
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { healthFilter, healthSort } from "./HealthScreen";
 import * as toasts from "@/shell/toasts";
-import { diffForm, grantNotice, grantsDropped } from "./feeds/FeedEditor";
+import { diffForm, grantNotice, grantsDropped, savedAddressMessage } from "./feeds/FeedEditor";
 
 class NoES {
   addEventListener() {}
@@ -388,6 +388,10 @@ describe("Feed editor", () => {
     expect(grantNotice({ privateNet: true, insecureTls: true })).toMatch(/own network and accept an invalid security certificate\./);
     expect(grantsDropped({ privateNet: true, insecureTls: false }, { allow_private_net: false, allow_insecure_tls: false })).toBe(true);
     expect(grantsDropped({ privateNet: true, insecureTls: false }, { allow_private_net: true, allow_insecure_tls: false })).toBe(false);
+    expect(savedAddressMessage({ has_http_auth: true }, { privateNet: false, insecureTls: false }, { allow_private_net: false, allow_insecure_tls: false, has_http_auth: false })).toBe(
+      "Feed address updated. It is on another site or host, so its saved login was removed. Kipple is fetching it now.",
+    );
+    expect(savedAddressMessage({ has_http_auth: false }, { privateNet: false, insecureTls: false }, { allow_private_net: false, allow_insecure_tls: false, has_http_auth: false })).toBe("Feed address updated. Kipple is fetching it now.");
   });
 
   it("editing a granted feed's address offers Keep for the new address and sends the grant when it is on", async () => {
@@ -424,7 +428,7 @@ describe("Feed editor", () => {
     await user.click(within(dlg2).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit feed" })).toBeNull());
     expect(calls.filter((c) => c.method === "PATCH").map(body).at(-1)).toEqual({ url: "https://elsewhere.example/feed" });
-    expect(toast).toHaveBeenLastCalledWith("Feed address updated. It is on another site, so its unsafe options were turned off. Kipple is fetching it now.");
+    expect(toast).toHaveBeenLastCalledWith("Feed address updated. It is on another site or host, so its unsafe options were turned off. Kipple is fetching it now.");
     toast.mockRestore();
   });
 });

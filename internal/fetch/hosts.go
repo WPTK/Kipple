@@ -21,7 +21,10 @@ func isIPHost(h string) bool {
 
 // SameOrSubdomain reports whether host is base or a subdomain of it: the rule
 // net/http uses to keep Authorization on a redirect (shouldCopyHeaderOnRedirect).
-// An IP literal matches only itself. Comparison ignores case and a trailing dot.
+// An IP literal matches only itself, and so does a single-label name: a LAN
+// host such as "news" or "app" is also a public TLD, and anyone can register
+// evil.news and point it at a private address. Comparison ignores case and a
+// trailing dot.
 func SameOrSubdomain(base, host string) bool {
 	base, host = normHost(base), normHost(host)
 	if base == "" || host == "" {
@@ -30,7 +33,7 @@ func SameOrSubdomain(base, host string) bool {
 	if base == host {
 		return true
 	}
-	if isIPHost(base) || isIPHost(host) {
+	if isIPHost(base) || isIPHost(host) || !strings.Contains(base, ".") {
 		return false
 	}
 	return strings.HasSuffix(host, "."+base)
@@ -39,14 +42,14 @@ func SameOrSubdomain(base, host string) bool {
 // FeedHostVariant reports whether host may use the per-feed network exceptions
 // of a feed on feedHost (full-text extraction, image proxying): the same host, a
 // subdomain of it, or its bare/www. twin (www.example.com and example.com). IP
-// literals match only themselves.
+// literals and single-label names match only themselves.
 func FeedHostVariant(feedHost, host string) bool {
 	if SameOrSubdomain(feedHost, host) {
 		return true
 	}
 	f, h := normHost(feedHost), normHost(host)
-	if f == "" || isIPHost(f) || isIPHost(h) {
-		return false
+	if f == "" || isIPHost(f) || isIPHost(h) || !strings.Contains(f, ".") {
+		return false // no www. twin of a single-label name either (www.app is a public name)
 	}
 	return strings.TrimPrefix(f, "www.") == strings.TrimPrefix(h, "www.")
 }

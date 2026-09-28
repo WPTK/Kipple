@@ -94,6 +94,16 @@ export function grantsDropped(f: Pick<Form, "privateNet" | "insecureTls">, saved
   return (f.privateNet && !saved.allow_private_net) || (f.insecureTls && !saved.allow_insecure_tls);
 }
 
+/** The confirmation after a new address, saying what the server dropped: the unsafe options (another site) or the saved login (another host). */
+export function savedAddressMessage(
+  before: Pick<FeedDetail, "has_http_auth">,
+  held: Pick<Form, "privateNet" | "insecureTls">,
+  saved: Pick<FeedDetail, "allow_private_net" | "allow_insecure_tls" | "has_http_auth">,
+): string {
+  const lost = [grantsDropped(held, saved) ? "its unsafe options were turned off" : "", before.has_http_auth && !saved.has_http_auth ? "its saved login was removed" : ""].filter(Boolean);
+  return lost.length ? `Feed address updated. It is on another site or host, so ${lost.join(" and ")}. Kipple is fetching it now.` : "Feed address updated. Kipple is fetching it now.";
+}
+
 /** Turn a failed save into a message next to the field it belongs to. */
 /** The preset numbers, plus the feed's own stored value when it is not one of them, in ascending order. */
 export function withCustom(presets: readonly number[], custom: string): number[] {
@@ -139,13 +149,9 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
     try {
       const saved = await patchFeed(feed.id, patch);
       invalidateFeeds(qc);
-      toast(
-        changedUrl && grantsDropped(heldGrants, saved)
-          ? "Feed address updated. It is on another site, so its unsafe options were turned off. Kipple is fetching it now."
-          : changedUrl
-            ? "Feed address updated. Kipple is fetching it now."
-            : "Feed saved",
-      );
+      // A login this edit replaced or removed itself is not news.
+      const loginBefore = { has_http_auth: q.data.has_http_auth && !("http_auth" in patch) };
+      toast(changedUrl ? savedAddressMessage(loginBefore, heldGrants, saved) : "Feed saved");
       onClose();
     } catch (e) {
       setErr(saveError(e));
