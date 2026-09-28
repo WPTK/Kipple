@@ -147,6 +147,61 @@ describe("useServerEvents", () => {
       vi.useRealTimers();
     }
   });
+
+  // Issue #29: a poll still awaiting /api/status when the stream recovers and fails again (starting a
+  // second loop) must not reschedule itself when it finally answers, or two loops poll at once.
+  it("never runs two fallback poll loops at once when a slow poll answers after a new loop started", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      let release: (() => void) | undefined;
+      let n = 0;
+      const { calls } = mockFetch({
+        "GET /api/status": () => {
+          const body = json({ runs: [], inflight: 0, unread_total: 0 });
+          if (++n > 1) return body;
+          // The first poll hangs until the test releases it.
+          return new Promise<Response>((resolve) => {
+            release = () => resolve(body);
+          });
+        },
+        "GET /api/bootstrap": () => json({}),
+      });
+      const status = () => calls.filter((c) => c.url.pathname === "/api/status").length;
+      const { unmount } = setup();
+      const es = FakeES.last!;
+
+      // Loop 1 starts and its first poll hangs.
+      act(() => es.onerror?.());
+      act(() => es.onerror?.());
+      expect(liveStore.get().transport).toBe("fallback");
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(status()).toBe(1);
+      expect(release).toBeDefined();
+
+      // The stream delivers (polling stops, the reconnect reconciles), then fails twice again: loop 2 starts.
+      act(() => es.emit("counts", { unread_total: 0, feeds: {} }));
+      expect(liveStore.get().transport).toBe("open");
+      act(() => es.onerror?.());
+      act(() => es.onerror?.());
+      expect(liveStore.get().transport).toBe("fallback");
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      const started = status(); // loop 1's hung poll, the reconcile, loop 2's first poll
+      expect(started).toBe(3);
+
+      // Loop 1's poll finally answers while the transport is fallback again: it must not reschedule.
+      await act(async () => {
+        release!();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      // Idle polling is every 60 s: one loop polls three times in three minutes, two loops would poll six.
+      await act(() => vi.advanceTimersByTimeAsync(3 * 60_000 + 500));
+      expect(status() - started).toBe(3);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("reconnect reconciliation", () => {

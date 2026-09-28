@@ -4,7 +4,7 @@
 //   npm run contrast -- --markdown  print the tables used in src/theme/README.md
 // Needs Node >= 22.18 (built-in TypeScript type stripping).
 import { readFileSync } from "node:fs";
-import { HEAT_MIX, contrast, deltaE, mixHex } from "../src/theme/contrast.ts";
+import { HEAT_MIX, TEXT2_SELECTION_KNOWN_GAPS, contrast, deltaE, mixHex } from "../src/theme/contrast.ts";
 
 const schemes = JSON.parse(readFileSync(new URL("../src/theme/schemes.json", import.meta.url), "utf8"));
 const md = process.argv.includes("--markdown");
@@ -19,7 +19,11 @@ const CVD_CLEAR = 15;
 const HEAT_MIN = 1.5;
 const heatRows = [];
 const failures = [];
+const gaps = [];
 const rows = [];
+for (const id of TEXT2_SELECTION_KNOWN_GAPS) {
+  if (!schemes.some((s) => s.id === id)) failures.push(`TEXT2_SELECTION_KNOWN_GAPS lists "${id}", which is not a scheme id`);
+}
 const cvdRows = [];
 
 for (const s of schemes) {
@@ -45,6 +49,12 @@ for (const s of schemes) {
   for (const [k, min] of Object.entries(need)) {
     if (r[k] < min) failures.push(`${s.name}: ${k} ${r[k].toFixed(2)} < ${min}`);
   }
+  // Secondary text on the selection color (a selected row's meta line, a selected option's hint): 4.5:1, except the
+  // listed known gaps, which are reported until fixed and must be unlisted once they pass.
+  const text2sel = contrast(t.text2, t.selection);
+  const knownGap = TEXT2_SELECTION_KNOWN_GAPS.includes(s.id);
+  if (text2sel < TEXT_MIN) (knownGap ? gaps : failures).push(`${s.name}: text2 on selection ${text2sel.toFixed(2)} < ${TEXT_MIN}`);
+  else if (knownGap) failures.push(`${s.name}: text2 on selection passes (${text2sel.toFixed(2)}); remove it from TEXT2_SELECTION_KNOWN_GAPS`);
   // Toasts (undo, help, errors): text on the accent-tinted surface (--kp-toast-bg in index.css: 18% accent into
   // the surface), and the accent and danger borders against the page.
   const toastBg = mixHex(t.accent, t.surface, 18);
@@ -58,7 +68,7 @@ for (const s of schemes) {
   const hl = { text: contrast(t.text, hlBg), underline: contrast(t.star, t.bg) };
   if (hl.text < TEXT_MIN) failures.push(`${s.name}: highlight text ${hl.text.toFixed(2)} < ${TEXT_MIN}`);
   if (hl.underline < UI_MIN) failures.push(`${s.name}: highlight underline ${hl.underline.toFixed(2)} < ${UI_MIN}`);
-  rows.push([s.name, ...["text", "text2", "text2s", "link", "links", "danger", "accent", "star", "sel"].map((k) => r[k].toFixed(2))]);
+  rows.push([s.name, ...["text", "text2", "text2s", "link", "links", "danger", "accent", "star", "sel"].map((k) => r[k].toFixed(2)), text2sel.toFixed(2)]);
 
   const heat = HEAT_MIX.map((p) => mixHex(t.text, t.surface, p));
   const heatSteps = heat.slice(1).map((c, i) => contrast(c, heat[i]));
@@ -101,7 +111,7 @@ const fmt = (head, body) =>
   [head, head.map(() => "---"), ...body].map((r) => "| " + r.join(" | ") + " |").join("\n");
 
 if (md) {
-  console.log(fmt(["Scheme", "text", "text2", "text2/surf", "link", "link/surf", "danger", "accent", "star", "text/sel"], rows));
+  console.log(fmt(["Scheme", "text", "text2", "text2/surf", "link", "link/surf", "danger", "accent", "star", "text/sel", "text2/sel"], rows));
   console.log();
   console.log(fmt(["Scheme", "heat 0-1", "1-2", "2-3", "3-4"], heatRows));
   console.log();
@@ -111,8 +121,9 @@ if (md) {
 } else {
   console.log(`${schemes.length} schemes checked. Carbon vs Fountain delta E:`, Object.entries(pair).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(", "));
 }
+if (gaps.length && !md) console.log("\nKNOWN GAPS (TEXT2_SELECTION_KNOWN_GAPS in src/theme/contrast.ts):\n" + gaps.join("\n") + "\n");
 if (failures.length) {
   console.error("\nFAILURES:\n" + failures.join("\n"));
   process.exit(1);
 }
-if (!md) console.log("All contrast and separation thresholds met.");
+if (!md) console.log(`All contrast and separation thresholds met${gaps.length ? ", except the known gaps listed above" : ""}.`);

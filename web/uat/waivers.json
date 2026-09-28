@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "check": "S3",
+    "rule": "target-size",
+    "match": "after:absolute after:inset-0",
+    "reason": "False positive (issue #50). A list row's title link is only its text box (19-21 px tall), but its ::after (after:absolute after:inset-0) covers the whole row: the containing block is the row's <article class=\"relative\"> (no positioned element in between, and the title's overflow:hidden does not clip it), so the tap target is the full row, at least 44 px on touch and 28 px (Email - Compact, dense) with a mouse. axe-core measures the <a> box and cannot see the pseudo-element. Matching on the overlay classes keeps the waiver to links that have it."
+  }
+]

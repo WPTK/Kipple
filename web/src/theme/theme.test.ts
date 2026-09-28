@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, beforeEach, vi } from "vitest";
-import { contrast, deltaE, mixHex } from "./contrast";
+import { TEXT2_SELECTION_KNOWN_GAPS, contrast, deltaE, mixHex } from "./contrast";
 import { SCHEMES, schemeById } from "./schemes";
 import {
   DEFAULT_THEME_SETTINGS,
@@ -273,6 +273,19 @@ describe("scheme roster", () => {
         expect(contrast(fg, t.bg), `${s.name} ${label}`).toBeGreaterThanOrEqual(3);
       }
     }
+  });
+
+  it("secondary text on the selection color is AA, except the listed known gaps (issue #48)", () => {
+    for (const s of SCHEMES) {
+      const c = contrast(s.tokens.text2, s.tokens.selection);
+      if (TEXT2_SELECTION_KNOWN_GAPS.includes(s.id)) expect(c, `${s.name} is fixed: unlist it`).toBeLessThan(4.5);
+      else expect(c, `${s.name} text2/selection`).toBeGreaterThanOrEqual(4.5);
+    }
+    // Every listed id is a real scheme, so a rename cannot leave a dead entry behind.
+    for (const id of TEXT2_SELECTION_KNOWN_GAPS) expect(SCHEMES.map((s) => s.id), `known gap "${id}"`).toContain(id);
+    // Midnight, the default night theme, is where axe-core found it (4.05:1 on #1f3b5c); Graphite is the dark alias.
+    expect(TEXT2_SELECTION_KNOWN_GAPS).not.toContain("midnight");
+    expect(TEXT2_SELECTION_KNOWN_GAPS).not.toContain("graphite");
   });
 
   it("toasts: text on the accent-tinted toast surface is AA in every scheme, and the borders are visible", () => {

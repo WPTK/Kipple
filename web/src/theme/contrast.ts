@@ -77,5 +77,14 @@ export function deltaE(a: string, b: string, sim?: keyof typeof CVD): number {
   return Math.hypot(la[0] - lb[0], la[1] - lb[1], la[2] - lb[2]);
 }
 
+/**
+ * Scheme ids whose secondary text (text2) on the selection color is still under 4.5:1 and need a design call, not a
+ * nudge. Cocoa Mid (4.00): its selection is lighter than its page and its text2 is already close to its text, so a
+ * lighter text2 erases the hierarchy and a darker selection all but vanishes against the surface. `npm run contrast` and
+ * theme.test.ts report these as known gaps instead of failing, hold every other scheme to 4.5:1, fail on an id that is
+ * not a scheme, and fail once a listed scheme passes (so the entry is removed).
+ */
+export const TEXT2_SELECTION_KNOWN_GAPS: readonly string[] = ["cocoa-mid"];
+
 /** Heatmap ramp: percent of the scheme's text color mixed into its surface, levels 0 to 4. Adjacent steps must keep 1.5:1. */
 export const HEAT_MIX = [0, 26, 48, 72, 100] as const;

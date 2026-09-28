@@ -189,6 +189,11 @@ type Cache struct {
 	fmu     sync.Mutex
 	flights map[string]chan struct{}
 
+	// openMissHook, when set (tests only), runs in OpenFile after the first open
+	// found no file and before mu is taken: the window in which a concurrent
+	// commit can publish a fresh copy of the key.
+	openMissHook func(key string)
+
 	closed atomic.Bool
 	cancel context.CancelFunc
 	ctx    context.Context // cancelled by Close; bounds every eviction
@@ -464,6 +469,9 @@ func (c *Cache) OpenFile(key string) (*os.File, error) {
 		return f, nil
 	}
 	if errors.Is(err, fs.ErrNotExist) {
+		if h := c.openMissHook; h != nil {
+			h(key)
+		}
 		c.mu.Lock()
 		// A commit (under mu) may have published a fresh file for this key since
 		// the open above: look again before dropping, or the new entry goes too.
