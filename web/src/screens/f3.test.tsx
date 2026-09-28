@@ -615,6 +615,68 @@ describe("Feed health", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/feeds/1/mark-fetch-read")).toBe(true));
     await waitFor(() => expect(client.getQueryState(["items", "unread"])?.isInvalidated).toBe(true));
   });
+
+  // Health's own rows come from HealthFeed (a diagnostics shape); the bulk dialogs need the real Feed, matched
+  // by id from the bootstrap. This mirrors HEALTH's ids and titles so both fixtures agree.
+  const HEALTH_BOOTSTRAP_FEEDS = HEALTH.feeds.map((f) => ({
+    id: f.id,
+    folder_id: "1",
+    title: f.title,
+    site_url: f.url,
+    icon: null,
+    unread: 0,
+    status: f.status,
+    fulltext: false,
+    retention: null,
+    interval_minutes: null,
+    is_archive: false,
+    starred_count: 0,
+  }));
+
+  it("selects feeds and bulk-deletes them, one bad feed does not stop the rest", async () => {
+    const { calls } = base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "DELETE /api/feeds/1": () => new Response(null, { status: 204 }),
+      "DELETE /api/feeds/2": () => json({ error: "server_error", message: "boom" }, 500),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Zed Blog" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select NPR" }));
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dlg = await screen.findByRole("dialog", { name: "Delete 2 feeds?" });
+    await user.click(within(dlg).getByRole("button", { name: "Delete 2 feeds" }));
+    await screen.findByRole("dialog", { name: "Some feeds were not deleted" });
+    expect(screen.getByText("1 deleted, 1 failed.")).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname)).toEqual(["/api/feeds/1", "/api/feeds/2"]);
+  });
+
+  it("bulk turns feeds off, then Done clears the selection", async () => {
+    const { calls } = base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "PATCH /api/feeds/1": () => json({ ...feedDetail(), enabled: false }),
+      "PATCH /api/feeds/2": () => json({ ...feedDetail(), enabled: false }),
+      "PATCH /api/feeds/3": () => json({ ...feedDetail(), enabled: false }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    expect(screen.getByText("3 selected")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Turn off" }));
+    const dlg = await screen.findByRole("dialog", { name: "Turn off 3 feeds?" });
+    await user.click(within(dlg).getByRole("button", { name: "Turn off 3 feeds" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(calls.filter((c) => c.method === "PATCH").map((c) => c.url.pathname).sort()).toEqual(["/api/feeds/1", "/api/feeds/2", "/api/feeds/3"]);
+    // Turning off a feed exits selection: Select is back to its starting state.
+    expect(screen.getByRole("button", { name: "Select" })).toBeInTheDocument();
+  });
 });
 
 describe("Account and backup", () => {
