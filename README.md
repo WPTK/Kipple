@@ -2,8 +2,11 @@
 
 [![CI](https://github.com/WPTK/Kipple/actions/workflows/ci.yml/badge.svg)](https://github.com/WPTK/Kipple/actions/workflows/ci.yml)
 [![Latest tag](https://img.shields.io/github/v/tag/WPTK/Kipple?label=release&sort=semver)](https://github.com/WPTK/Kipple/tags)
+[![SemVer](https://img.shields.io/badge/semver-2.0.0-blue)](https://semver.org/)
 [![License: Blue Oak 1.0.0](https://img.shields.io/badge/license-Blue%20Oak%201.0.0-blueviolet)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Repo size](https://img.shields.io/github/repo-size/WPTK/Kipple)](https://github.com/WPTK/Kipple)
+![Docker image size](https://img.shields.io/badge/docker%20image-coming%20soon-lightgrey)
 [![Last commit](https://img.shields.io/github/last-commit/WPTK/Kipple)](https://github.com/WPTK/Kipple/commits/main)
 [![Open issues](https://img.shields.io/github/issues/WPTK/Kipple)](https://github.com/WPTK/Kipple/issues)
 
