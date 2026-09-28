@@ -37,10 +37,10 @@ func TestFolderNameLimitsInStore(t *testing.T) {
 	id, found, err := db.FindLabel(ctx, []string{"News"})
 	require.NoError(t, err)
 	require.True(t, found)
-	require.ErrorIs(t, db.RenameLabel(ctx, id, strings.Repeat("y", 101)), ErrBadFolderName)
-	require.ErrorIs(t, db.RenameLabel(ctx, id, "a\x7fb"), ErrBadFolderName)
+	require.ErrorIs(t, renameLabel(ctx, db, id, strings.Repeat("y", 101)), ErrBadFolderName)
+	require.ErrorIs(t, renameLabel(ctx, db, id, "a\x7fb"), ErrBadFolderName)
 	names, err := db.FolderNames(ctx)
 	require.NoError(t, err)
 	require.Contains(t, names, "News", "unchanged")
-	require.NoError(t, db.RenameLabel(ctx, id, strings.Repeat("z", 100)))
+	require.NoError(t, renameLabel(ctx, db, id, strings.Repeat("z", 100)))
 }

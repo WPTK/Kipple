@@ -38,3 +38,44 @@ func TestPrivateNetExceptionIsScopedPerHop(t *testing.T) {
 		})
 	}
 }
+
+type recordRT struct {
+	name string
+	used *string
+}
+
+func (r recordRT) RoundTrip(*http.Request) (*http.Response, error) {
+	*r.used = r.name
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+}
+
+// The review exploit: a LAN feed on a bare hostname (http://nas/feed) with
+// allow_private_net redirects to a public name that merely starts with that
+// label (nas.attacker.example, whose DNS points at a private address). That hop
+// must go through the guarded transport; only the reserved local suffixes
+// (nas.lan, nas.home.arpa, ...) keep the grant.
+func TestSiteScopedBareNamePrefixDoesNotInheritGrant(t *testing.T) {
+	for _, c := range []struct {
+		feed, hop, want string
+	}{
+		{"nas", "http://nas.attacker.example/", "guarded"},
+		{"nas", "http://nas.evil.com:8080/feed", "guarded"},
+		{"nas", "http://nas.x.lan/", "guarded"},
+		{"nas", "http://nas/other", "granted"},
+		{"nas", "http://nas.lan/feed", "granted"},
+		{"nas", "http://NAS.home.arpa./feed", "granted"},
+		{"nas", "http://nas.internal/feed", "granted"},
+		{"nas.local", "http://nas/feed", "granted"},
+		{"nas.attacker.example", "http://nas/feed", "guarded"},
+		{"news", "http://evil.news/", "guarded"}, // a subdomain of a LAN name that is a public TLD
+	} {
+		var used string
+		s := &siteScoped{host: c.feed, granted: recordRT{"granted", &used}, guarded: recordRT{"guarded", &used}}
+		req, err := http.NewRequest(http.MethodGet, c.hop, nil)
+		require.NoError(t, err)
+		resp, err := s.RoundTrip(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.Equal(t, c.want, used, "%s -> %s", c.feed, c.hop)
+	}
+}

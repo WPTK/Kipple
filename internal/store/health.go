@@ -38,7 +38,10 @@ type FeedHealth struct {
 	CreatedAt int64  `json:"-"`
 }
 
-// FeedHealth lists every feed except the archive feed, by title.
+// FeedHealth lists every feed except the archive feed, by title. A feed marked
+// for deletion stays listed on purpose: after an interrupted delete the health
+// page is where it can be opened and deleted again before the next restart
+// (ResumeFeedDeletes) finishes it.
 func (d *DB) FeedHealth(ctx context.Context) ([]FeedHealth, error) {
 	rows, err := d.reader.QueryContext(ctx, `
 		SELECT id, COALESCE(NULLIF(custom_title,''), NULLIF(title,''), url), url, url_original, enabled, disabled_reason,
@@ -74,10 +77,11 @@ func (d *DB) FeedHealth(ctx context.Context) ([]FeedHealth, error) {
 	return out, rows.Err()
 }
 
-// UnreadTotal counts unread items (ledger rows are not in items).
+// UnreadTotal counts unread items (ledger rows are not in items), leaving out a
+// feed marked for deletion as Counts does.
 func (d *DB) UnreadTotal(ctx context.Context) (int64, error) {
 	var n int64
-	err := d.reader.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE read = 0").Scan(&n)
+	err := d.reader.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE read = 0 AND "+notDeletingItemSQL).Scan(&n)
 	return n, err
 }
 

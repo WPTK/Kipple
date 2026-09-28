@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 )
 
@@ -25,6 +26,9 @@ type StreamFilter struct {
 	// HeldSQL; StreamIDs fills them in.
 	FulltextAll bool
 	HoldPending string
+	// Deleting is the JSON array of the feeds marked for deletion, "" when there are none (the usual
+	// case, so the query and its index plan stay as they are); StreamIDs fills it in.
+	Deleting string
 }
 
 // HeldSQL is the predicate for an items row that the Reader API holds back
@@ -65,6 +69,12 @@ func (f StreamFilter) where() (string, []any) {
 		args = append(args, sql.Named("folder", f.FolderID))
 	}
 	w += intPreds("read", f.Read) + intPreds("starred", f.Starred)
+	if f.Deleting != "" && !slices.ContainsFunc(f.Starred, func(v int) bool { return v != 0 }) {
+		// A feed being deleted is gone from the streams as from subscription/list and unread-count; a
+		// starred stream keeps its items, which move to the archive feed when the deletion finishes.
+		w += " AND feed_id NOT IN (SELECT value FROM json_each(:deleting))"
+		args = append(args, sql.Named("deleting", f.Deleting))
+	}
 	if f.HoldCut > 0 {
 		w += " AND NOT " + HeldSQL(f.FulltextAll)
 		args = append(args, sql.Named("hold_cut", f.HoldCut), sql.Named("pending", f.HoldPending))
@@ -157,6 +167,19 @@ func (d *DB) StreamIDs(ctx context.Context, f StreamFilter, p IDPage, fn func(id
 	}
 	f.FulltextAll = d.FulltextAll(ctx)
 	f.HoldPending = d.HoldPending()
+	// Looked up here rather than as a subquery in the stream predicate, so the usual case (no feed being
+	// deleted) keeps its query text and covering-index plans exactly as they are.
+	if !slices.ContainsFunc(f.Starred, func(v int) bool { return v != 0 }) { // a starred stream keeps them anyway
+		deleting, err := deletingFeedIDs(ctx, d.reader)
+		if err != nil {
+			return 0, false, err
+		}
+		if len(deleting) > 0 {
+			if f.Deleting, err = idsJSON(deleting); err != nil {
+				return 0, false, err
+			}
+		}
+	}
 	q, args := streamIDsSQL(f, p)
 	rows, err := d.reader.QueryContext(ctx, q, args...)
 	if err != nil {

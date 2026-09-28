@@ -218,18 +218,40 @@ func (c *call) folderName(ctx context.Context, values, raws []string) (string, b
 func feedRefs(values []string) []store.FeedRef {
 	var out []store.FeedRef
 	for _, v := range values {
-		v = strings.TrimSpace(v)
-		rest, ok := strings.CutPrefix(v, "feed/")
-		if !ok || rest == "" {
-			continue
+		if ref, ok := feedRef(v); ok {
+			out = append(out, ref)
 		}
-		if id, err := strconv.ParseInt(rest, 10, 64); err == nil && id > 0 {
-			out = append(out, store.FeedRef{ID: id})
-			continue
-		}
-		out = append(out, store.FeedRef{URL: rest})
 	}
 	return out
+}
+
+// feedRef parses one s= value; ok is false for anything but feed/<id> or feed/<url>.
+func feedRef(v string) (store.FeedRef, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(v), "feed/")
+	if !ok || rest == "" {
+		return store.FeedRef{}, false
+	}
+	if id, err := strconv.ParseInt(rest, 10, 64); err == nil && id > 0 {
+		return store.FeedRef{ID: id}, true
+	}
+	return store.FeedRef{URL: rest}, true
+}
+
+// feedRefsTitled is feedRefs for s= values that come with one t= title each: the
+// titles are paired with the s= values as sent, before unusable ones are dropped,
+// so a skipped s= never shifts a title onto the next feed. titles is nil when the
+// counts differ.
+func feedRefsTitled(ss, ts []string) (refs []store.FeedRef, titles []string) {
+	paired := len(ts) == len(ss)
+	for i, v := range ss {
+		if ref, ok := feedRef(v); ok {
+			refs = append(refs, ref)
+			if paired {
+				titles = append(titles, ts[i])
+			}
+		}
+	}
+	return refs, titles
 }
 
 // ---- writes ----
@@ -318,13 +340,18 @@ func (c *call) subscriptionEdit() {
 			}
 		}
 	case "edit":
-		refs := feedRefs(ss)
+		refs, titles := feedRefsTitled(ss, ts)
 		opts := store.EditOpts{}
-		// One title applies to one feed; a batch needs one title per feed (below).
-		// A single title for several feeds renames none of them rather than all.
-		if len(ts) > 0 && len(refs) == 1 {
-			opts.Title = ts[0]
-		} else if len(ts) > 0 && len(ts) != len(refs) {
+		// Titles pair one to one with the s= values as sent, a batch in the same single transaction as the
+		// rest of the edit. Any other count (a single title for several s= values, including an unusable
+		// one it may have been meant for) renames nothing rather than guess.
+		switch {
+		case len(ts) == 0 || len(refs) == 0:
+		case titles != nil && len(refs) > 1:
+			opts.Titles = titles
+		case titles != nil:
+			opts.Title = titles[0]
+		default:
 			c.a.log.Warn("greader: subscription/edit titles do not match feeds; titles ignored", "titles", len(ts), "feeds", len(refs))
 		}
 		if name, ok, err := c.folderName(ctx, p.All("a"), p.AllRaw("a")); err != nil {
@@ -334,23 +361,6 @@ func (c *call) subscriptionEdit() {
 			opts.Folder, opts.SetFolder = name, true
 		} else if _, ok := labelName(firstOrEmpty(p.All("r"))); ok {
 			opts.MoveToDefault = true
-		}
-		// One title per feed when several are edited at once.
-		if len(refs) > 1 && len(ts) == len(refs) {
-			for i, ref := range refs {
-				o := opts
-				o.Title = ts[i]
-				ids, err := c.a.db.EditSubscription(ctx, []store.FeedRef{ref}, o)
-				if err != nil {
-					c.serverError("edit subscription", err)
-					return
-				}
-				c.publishFeeds(ids)
-				if len(ids) > 0 && (o.SetFolder || o.MoveToDefault) {
-					c.publishFolders()
-				}
-			}
-			break
 		}
 		ids, err := c.a.db.EditSubscription(ctx, refs, opts)
 		if err != nil {
@@ -446,12 +456,17 @@ func (c *call) renameTag() {
 		return
 	}
 	if found {
-		if err := c.a.db.RenameLabel(ctx, id, dest); err != nil {
+		filtersChanged, err := c.a.db.RenameLabel(ctx, id, dest)
+		if err != nil {
 			c.serverError("rename-tag", err)
 			return
 		}
 		c.a.publish("feed.changed", map[string]any{})
 		c.publishFolders()
+		if filtersChanged {
+			// A merge turned the old folder's filters into feed filters.
+			c.a.publish("filters.changed", map[string]any{})
+		}
 	}
 	c.ok()
 }

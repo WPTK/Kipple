@@ -38,6 +38,7 @@ func searchScope(q CardQuery) (where []string, args []any) {
 	case "muted":
 		where = append(where, "i.muted_by IS NOT NULL")
 	}
+	where = append(where, listHidesDeleting(q.View)...)
 	if q.FeedID != 0 {
 		where = append(where, "i.feed_id = ?")
 		args = append(args, q.FeedID)

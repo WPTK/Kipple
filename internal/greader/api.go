@@ -569,6 +569,14 @@ func (c *call) serverError(what string, err error) {
 		c.ok()
 		return
 	}
+	if errors.Is(err, store.ErrMergeTooManyFilters) {
+		// Refused like a bad name, and answered the same way for the same reason (a non-2xx wedges
+		// NetNewsWire's queue): nothing changed, the client sees the old folders again on its next sync,
+		// and the log says why.
+		c.a.log.Warn("greader: "+what+": folder merge refused", "err", err, "path", c.path, "ua", c.r.UserAgent())
+		c.ok()
+		return
+	}
 	if errors.Is(err, store.ErrMaintenance) {
 		// A search index rebuild owns the writer for up to 45 s. Reader clients
 		// retry a 503 (edit-tag and friends are queued and sent again).

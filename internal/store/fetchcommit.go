@@ -682,7 +682,7 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 				return err
 			}
 			if held {
-				st.note(fmt.Sprintf("redirect_held_new_site: %s is on another site; the feed's HTTP credentials or network exceptions apply only to %s, so the move is not automatic: edit the feed URL to accept it (they are then cleared)", dec.To, oldHost), false)
+				st.note(fmt.Sprintf("redirect_held_new_site: %s is on another site; the feed's HTTP credentials or network exceptions apply only to %s, so the move is not automatic: edit the feed URL to accept it (they are then cleared unless the edit keeps them on)", dec.To, oldHost), false)
 				_, err := tx.ExecContext(ctx, `UPDATE feeds SET redirect_to = ?, redirect_kind = 'permanent', redirect_count = ? WHERE id = ?`,
 					dec.To, min(dec.Count, 2), feedID)
 				return err

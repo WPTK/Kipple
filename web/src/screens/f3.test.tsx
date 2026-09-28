@@ -11,7 +11,8 @@ import { FONTS } from "@/lib/fonts";
 import { devicePrefsStore, parseDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { healthFilter, healthSort } from "./HealthScreen";
-import { diffForm } from "./feeds/FeedEditor";
+import * as toasts from "@/shell/toasts";
+import { diffForm, grantNotice, grantsDropped, savedAddressMessage } from "./feeds/FeedEditor";
 
 class NoES {
   addEventListener() {}
@@ -355,8 +356,8 @@ describe("Feed editor", () => {
 
   it("diffForm produces a minimal PATCH", () => {
     const d = feedDetail() as never;
-    expect(diffForm(d, { title: "", url: "https://example.com/feed.xml", folder: "1", interval: "", retention: "", autoRead: "", fulltext: false, enabled: true, dedup: "auto", userAgent: "", auth: "", clearAuth: false, ignoreCache: false, noHttp2: false, insecureTls: false, privateNet: false })).toEqual({});
-    expect(diffForm(d, { title: "Mine", url: "https://example.com/feed.xml", folder: "1", interval: "60", retention: "0", autoRead: "90", fulltext: true, enabled: false, dedup: "link", userAgent: "x", auth: "u:p", clearAuth: false, ignoreCache: true, noHttp2: true, insecureTls: true, privateNet: true })).toEqual({
+    expect(diffForm(d, { title: "", url: "https://example.com/feed.xml", folder: "1", interval: "", retention: "", autoRead: "", fulltext: false, enabled: true, dedup: "auto", userAgent: "", auth: "", clearAuth: false, ignoreCache: false, noHttp2: false, insecureTls: false, privateNet: false, keepGrants: false })).toEqual({});
+    expect(diffForm(d, { title: "Mine", url: "https://example.com/feed.xml", folder: "1", interval: "60", retention: "0", autoRead: "90", fulltext: true, enabled: false, dedup: "link", userAgent: "x", auth: "u:p", clearAuth: false, ignoreCache: true, noHttp2: true, insecureTls: true, privateNet: true, keepGrants: false })).toEqual({
       custom_title: "Mine",
       interval_minutes: 60,
       retention: 0,
@@ -371,6 +372,64 @@ describe("Feed editor", () => {
       allow_insecure_tls: true,
       allow_private_net: true,
     });
+  });
+
+  it("a new address keeps the unsafe options only when asked to, and says when the server turned them off", () => {
+    const d = feedDetail({ allow_private_net: true, allow_insecure_tls: true }) as never;
+    const base = { title: "", folder: "1", interval: "", retention: "", autoRead: "", fulltext: false, enabled: true, dedup: "auto" as const, userAgent: "", auth: "", clearAuth: false, ignoreCache: false, noHttp2: false, insecureTls: true, privateNet: true };
+    // Left to the server: kept on a move within the feed's site, cleared on a move to another site.
+    expect(diffForm(d, { ...base, url: "http://nas.lan/feed", keepGrants: false })).toEqual({ url: "http://nas.lan/feed" });
+    // Kept: both are sent as shown, so a URL-only edit of a LAN feed keeps its grant wherever it points.
+    expect(diffForm(d, { ...base, url: "http://nas2/feed", keepGrants: true })).toEqual({ url: "http://nas2/feed", allow_insecure_tls: true, allow_private_net: true });
+    expect(diffForm(d, { ...base, url: "http://nas2/feed", keepGrants: true, insecureTls: false })).toEqual({ url: "http://nas2/feed", allow_insecure_tls: false, allow_private_net: true });
+    // Unchanged address: the keep switch sends nothing.
+    expect(diffForm(d, { ...base, url: "https://example.com/feed.xml", keepGrants: true })).toEqual({});
+    expect(grantNotice({ privateNet: true, insecureTls: false })).toBe("This feed can reach addresses on your own network. If the new address is on another site, that is turned off unless you keep it.");
+    expect(grantNotice({ privateNet: true, insecureTls: true })).toMatch(/own network and accept an invalid security certificate\./);
+    expect(grantsDropped({ privateNet: true, insecureTls: false }, { allow_private_net: false, allow_insecure_tls: false })).toBe(true);
+    expect(grantsDropped({ privateNet: true, insecureTls: false }, { allow_private_net: true, allow_insecure_tls: false })).toBe(false);
+    expect(savedAddressMessage({ has_http_auth: true }, { privateNet: false, insecureTls: false }, { allow_private_net: false, allow_insecure_tls: false, has_http_auth: false })).toBe(
+      "Feed address updated. It is on another site or host, so its saved login was removed. Kipple is fetching it now.",
+    );
+    expect(savedAddressMessage({ has_http_auth: false }, { privateNet: false, insecureTls: false }, { allow_private_net: false, allow_insecure_tls: false, has_http_auth: false })).toBe("Feed address updated. Kipple is fetching it now.");
+  });
+
+  it("editing a granted feed's address offers Keep for the new address and sends the grant when it is on", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    const granted = feedDetail({ allow_private_net: true });
+    const { calls } = base({
+      "GET /api/feeds/1": () => json(granted),
+      "PATCH /api/feeds/1": (_u, init) => {
+        const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return json({ ...granted, url: b.url, allow_private_net: b.allow_private_net === true });
+      },
+    });
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit Example Feed" }));
+    const dlg = await screen.findByRole("dialog", { name: "Edit feed" });
+    const url = await within(dlg).findByLabelText("Feed address");
+    expect(within(dlg).queryByRole("switch", { name: /Keep for the new address/ })).toBeNull();
+    await user.clear(url);
+    await user.type(url, "http://nas2/feed");
+    expect(within(dlg).getByText(/This feed can reach addresses on your own network/)).toBeInTheDocument();
+    await user.click(within(dlg).getByRole("switch", { name: /Keep for the new address/ }));
+    await user.click(within(dlg).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit feed" })).toBeNull());
+    expect(calls.filter((c) => c.method === "PATCH").map(body).at(-1)).toEqual({ url: "http://nas2/feed", allow_private_net: true, allow_insecure_tls: false });
+    expect(toast).toHaveBeenLastCalledWith("Feed address updated. Kipple is fetching it now.");
+
+    // Without Keep, a server that turned the grant off (another site) is reported, not silent.
+    await user.click(await screen.findByRole("button", { name: "Edit Example Feed" }));
+    const dlg2 = await screen.findByRole("dialog", { name: "Edit feed" });
+    const url2 = await within(dlg2).findByLabelText("Feed address");
+    await user.clear(url2);
+    await user.type(url2, "https://elsewhere.example/feed");
+    await user.click(within(dlg2).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit feed" })).toBeNull());
+    expect(calls.filter((c) => c.method === "PATCH").map(body).at(-1)).toEqual({ url: "https://elsewhere.example/feed" });
+    expect(toast).toHaveBeenLastCalledWith("Feed address updated. It is on another site or host, so its unsafe options were turned off. Kipple is fetching it now.");
+    toast.mockRestore();
   });
 });
 

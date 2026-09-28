@@ -68,7 +68,7 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	before := s.db.FetchSettings(ctx)
-	if err := s.db.SetSettings(ctx, set); err != nil {
+	if err := s.writeAccountSettings(ctx, set); err != nil {
 		var ve *store.SavedSearchError
 		if errors.As(err, &ve) {
 			// A saved search names a feed or folder that does not exist (checked in the write).

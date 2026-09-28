@@ -63,6 +63,24 @@ func scanIDs(rows *sql.Rows) ([]int64, error) {
 	return out, rows.Err()
 }
 
+// queryIDs runs a query that selects one integer column (scanIDs reads (id, feed_id) pairs).
+func queryIDs(ctx context.Context, q Querier, query string, args ...any) ([]int64, error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // SetRead marks ids read or unread (design §6.7, §5). Unknown ids are ignored.
 // Marking read also updates the retention ledger; marking unread restores a
 // trimmed item from its stub when one exists, else clears the ledger flag.
@@ -253,6 +271,11 @@ func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now in
 		args = append(args, sql.Named("folder", scope.FolderID))
 	case scope.Starred:
 		where = " AND starred = 1"
+	}
+	if !scope.Starred {
+		// A feed being deleted is out of the streams and unread-count the client saw (a starred scope keeps
+		// its items, which move to the archive feed).
+		feedWhere += " AND " + notDeletingItemSQL
 	}
 	itemArgs, held := args, ""
 	if scope.HoldCut > 0 {
