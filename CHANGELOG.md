@@ -6,6 +6,10 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The "N new articles" pill and its screen-reader announcement no longer fire for a periodic background poll, a newly subscribed feed's first fetch, an OPML import or a retention trim — only for a manual refresh (all feeds or a single feed). (#56)
+
 ## [0.3.0-beta.1] - 2026-09-27
 
 Phase 5, release readiness: the full code audit and its follow-up review round, optional Cloudflare Access token
