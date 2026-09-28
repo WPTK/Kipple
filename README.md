@@ -4,6 +4,8 @@
 [![Latest tag](https://img.shields.io/github/v/tag/WPTK/Kipple?label=release&sort=semver)](https://github.com/WPTK/Kipple/tags)
 [![License: Blue Oak 1.0.0](https://img.shields.io/badge/license-Blue%20Oak%201.0.0-blueviolet)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Last commit](https://img.shields.io/github/last-commit/WPTK/Kipple)](https://github.com/WPTK/Kipple/commits/main)
+[![Open issues](https://img.shields.io/github/issues/WPTK/Kipple)](https://github.com/WPTK/Kipple/issues)
 
 A self-hosted RSS reader, built for one reader: yours. No ads, no algorithm, no tracking, nobody else's
 data mixed in, just your feeds, kept in a small SQLite database on a server you control, read the way
@@ -34,14 +36,15 @@ NetNewsWire work against it unmodified.
 - [Support](#support)
 - [Roadmap](#roadmap)
 - [For developers](#for-developers)
+- [About the name](#about-the-name)
 - [License](#license)
 
 ## What it's like to use
 
-- **Five layouts for your list**, per device or per feed: Editorial (a magazine layout with big lead
-  images), Cards (a photo grid), Compact and Email - Compact (dense, text-first lists at two densities),
-  and Inbox (sender, subject, and snippet, like an email inbox). Switch anytime from the layout button in
-  the list header.
+- **Five layouts to browse your feeds**, set per device or per feed: Editorial (a magazine layout with big
+  lead images), Cards (a photo grid), Compact and Email - Compact (dense, text-first views at two
+  densities), and Inbox (sender, subject, and snippet, like an email inbox). Switch anytime from the layout
+  button in the header.
 - **20 color themes**, plus "Follow system" and an optional day/night schedule that switches themes on its
   own clock, 11 bundled reading fonts (serif and sans, including a dyslexia-friendly option) alongside your
   device's own system fonts, five text sizes, and five density presets from Dense to Airy.
@@ -55,7 +58,7 @@ NetNewsWire work against it unmodified.
 - **Standard Google Reader sync.** Reeder Classic, NetNewsWire, and other apps that support the API work
   against the same account, so read and starred state stays in sync between them and the web app.
 - **No ads, no tracking, no account anywhere else, no social features** (no other people's data, no
-  comparisons), and no AI. It's a reading list, not a platform.
+  comparisons), and no AI. It's a reading app, not a platform.
 
 ## Quickstart
 
@@ -134,6 +137,18 @@ Everything above is all a self-hoster needs. This section is for changing Kipple
 - Web app: `cd web && npm ci && npm test && npm run build`
 - Image: `docker build -t kipple:dev .`
 - Local development with sample feeds is described in `web/README.md`.
+
+## About the name
+
+"Kipple" is Philip K. Dick's word, from *Do Androids Dream of Electric Sheep?* (the novel *Blade Runner* is
+based on): junk that accumulates on its own when nobody's tending to it, gum wrappers, junk mail, yesterday's
+newspaper.
+
+> "Kipple drives out nonkipple."
+> (Philip K. Dick, *Do Androids Dream of Electric Sheep?*)
+
+An RSS reader is exactly the kind of thing that turns into kipple if you let it: thousands of unread items
+piling up, feeds nobody's pruned in years. The name's a reminder not to let that happen here.
 
 ## License
 
