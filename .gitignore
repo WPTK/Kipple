@@ -1,6 +1,11 @@
 # Local Claude Code permission grants (per-machine)
 .claude/settings.local.json
 
+# npm run seed's own PID/log files (not the throwaway data dir, which lives outside the repo)
+web/.seed.log
+web/.seed.err.log
+web/.seed.pid
+
 # Secrets — only .env.example is committed
 .env
 .env.*

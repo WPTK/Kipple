@@ -16,6 +16,10 @@ All notable changes to Kipple are documented here. The format follows
 
 - Manage Feeds: the drag handle and each feed's edit (pencil) button are hidden by default and appear only in a new Edit mode (a header toggle next to Select), so a plain visit to the screen is just a list, not a wall of reorder/edit affordances. (#59)
 
+### Fixed
+
+- The "N new articles" pill and its screen-reader announcement no longer fire for a periodic background poll, a newly subscribed feed's first fetch, an OPML import or a retention trim — only for a manual refresh (all feeds or a single feed). (#56)
+
 ## [0.3.0-beta.1] - 2026-09-27
 
 Phase 5, release readiness: the full code audit and its follow-up review round, optional Cloudflare Access token
