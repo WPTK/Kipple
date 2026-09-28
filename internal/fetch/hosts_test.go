@@ -37,6 +37,17 @@ func TestSameSite(t *testing.T) {
 		{"nas", "nas.lan", true},
 		{"nas.lan", "nas", true},
 		{"nas", "nas2.lan", false},
+		{"nas", "nas.home.arpa", true},
+		{"nas", "nas.local", true},
+		{"nas.internal", "nas", true},
+		{"nas", "nas.localdomain", true},
+		{"nas", "nas.home", true},
+		{"nas", "nas.corp", true},
+		{"nas", "nas.fritz.box", false},        // under a real TLD
+		{"nas", "nas.attacker.example", false}, // bare-name prefix is not a site
+		{"nas.attacker.example", "nas", false},
+		{"nas", "nas.x.lan", false},
+		{"nas", "nas.localhost.example", false},
 		{"nas", "other", false},
 		{"example.com", "example.org", false},
 		{"a.github.io", "b.github.io", false}, // public suffix: different sites

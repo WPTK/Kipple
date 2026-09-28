@@ -33,6 +33,8 @@ interface Form {
   noHttp2: boolean;
   insecureTls: boolean;
   privateNet: boolean;
+  /** With a new address: send both unsafe options as shown, so the server keeps them even on another site. */
+  keepGrants: boolean;
 }
 
 const fromDetail = (d: FeedDetail): Form => ({
@@ -52,6 +54,7 @@ const fromDetail = (d: FeedDetail): Form => ({
   noHttp2: d.disable_http2,
   insecureTls: d.allow_insecure_tls,
   privateNet: d.allow_private_net,
+  keepGrants: false,
 });
 
 /** Only what changed, in the shape PATCH /api/feeds/{id} takes. */
@@ -72,9 +75,23 @@ export function diffForm(d: FeedDetail, f: Form): Record<string, unknown> {
   else if (f.auth.trim() !== "") out.http_auth = f.auth.trim();
   if (f.ignoreCache !== o.ignoreCache) out.ignore_http_cache = f.ignoreCache;
   if (f.noHttp2 !== o.noHttp2) out.disable_http2 = f.noHttp2;
-  if (f.insecureTls !== o.insecureTls) out.allow_insecure_tls = f.insecureTls;
-  if (f.privateNet !== o.privateNet) out.allow_private_net = f.privateNet;
+  // The server keeps the unsafe options on a move within the feed's site and clears the ones it is not sent on
+  // a move to another site. "Keep for the new address" sends both as shown, so they stay wherever it points.
+  const resend = "url" in out && f.keepGrants;
+  if (resend || f.insecureTls !== o.insecureTls) out.allow_insecure_tls = f.insecureTls;
+  if (resend || f.privateNet !== o.privateNet) out.allow_private_net = f.privateNet;
   return out;
+}
+
+/** What the unsafe options on for this feed allow, for the new-address notice. */
+export function grantNotice(f: Pick<Form, "privateNet" | "insecureTls">): string {
+  const what = [f.privateNet ? "reach addresses on your own network" : "", f.insecureTls ? "accept an invalid security certificate" : ""].filter(Boolean).join(" and ");
+  return `This feed can ${what}. If the new address is on another site, that is turned off unless you keep it.`;
+}
+
+/** Whether a save turned off an unsafe option the form still showed on (a new address on another site). */
+export function grantsDropped(f: Pick<Form, "privateNet" | "insecureTls">, saved: Pick<FeedDetail, "allow_private_net" | "allow_insecure_tls">): boolean {
+  return (f.privateNet && !saved.allow_private_net) || (f.insecureTls && !saved.allow_insecure_tls);
 }
 
 /** Turn a failed save into a message next to the field it belongs to. */
@@ -111,15 +128,24 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
   const patch = useMemo(() => (q.data ? diffForm(q.data, { ...fromDetail(q.data), ...edits }) : {}), [q.data, edits]);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setEdits((cur) => ({ ...cur, [k]: v }));
   const changedUrl = q.data && f && f.url.trim() !== q.data.url;
+  // The unsafe options the feed has now and the form still keeps on: what a new address could lose. One
+  // switched on in this edit is sent anyway (it changed), so it needs no notice.
+  const heldGrants = { privateNet: !!(q.data?.allow_private_net && f?.privateNet), insecureTls: !!(q.data?.allow_insecure_tls && f?.insecureTls) };
 
   const save = async () => {
     if (!q.data || Object.keys(patch).length === 0) return onClose();
     setBusy(true);
     setErr(null);
     try {
-      await patchFeed(feed.id, patch);
+      const saved = await patchFeed(feed.id, patch);
       invalidateFeeds(qc);
-      toast(changedUrl ? "Feed address updated. Kipple is fetching it now." : "Feed saved");
+      toast(
+        changedUrl && grantsDropped(heldGrants, saved)
+          ? "Feed address updated. It is on another site, so its unsafe options were turned off. Kipple is fetching it now."
+          : changedUrl
+            ? "Feed address updated. Kipple is fetching it now."
+            : "Feed saved",
+      );
       onClose();
     } catch (e) {
       setErr(saveError(e));
@@ -222,6 +248,17 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
           >
             {(a) => <input {...a} type="url" inputMode="url" autoCapitalize="none" spellCheck={false} value={f.url} onChange={(e) => set("url", e.target.value)} className={inputCls} />}
           </Field>
+          {changedUrl && (heldGrants.privateNet || heldGrants.insecureTls) ? (
+            <>
+              <Notice tone="warn">{grantNotice(heldGrants)}</Notice>
+              <Switch
+                label="Keep for the new address"
+                help="Only for an address you trust, such as another server in your home."
+                checked={f.keepGrants}
+                onChange={(v) => set("keepGrants", v)}
+              />
+            </>
+          ) : null}
           <Field label="Folder">
             {(a) => (
               <select {...a} value={f.folder} onChange={(e) => set("folder", e.target.value)} className={inputCls}>

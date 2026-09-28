@@ -202,38 +202,93 @@ func settingString(ctx context.Context, q Querier, key, def string) string {
 // SetSettings writes the given overrides in one transaction: a nil value
 // deletes the row (back to the default). Validation is the caller's job.
 func (d *DB) SetSettings(ctx context.Context, set map[string]any) error {
+	return d.setSettings(ctx, set, "")
+}
+
+// FixedTheme reports whether a ui.theme value is a fixed scheme rather than
+// "system" (follow the device, or the schedule when ui.theme_schedule is on).
+func FixedTheme(theme string) bool { return theme != "" && theme != "system" }
+
+// ScheduleOffForFixedTheme is the one place the rule "picking a fixed theme
+// turns the theme schedule off" is decided, for every write that can put a
+// theme in force (PATCH /api/device, and through SetSettingsFixedTheme PATCH
+// /api/settings and make-default): with the schedule flag on in force and a
+// write set that does not name ui.theme_schedule, a resulting fixed theme adds
+// ui.theme_schedule=false. theme is the ui.theme the write leaves in force; the
+// caller resolves a cleared (null) value.
+func ScheduleOffForFixedTheme(set map[string]any, theme string, on bool) {
+	if _, named := set["ui.theme_schedule"]; named || !on || !FixedTheme(theme) {
+		return
+	}
+	set["ui.theme_schedule"] = false
+}
+
+// SetSettingsFixedTheme is SetSettings for an account write that leaves a fixed
+// ui.theme in force. Inside the write transaction, against the stored account
+// flag (so a concurrent write cannot slip between the read and the write), it
+// applies ScheduleOffForFixedTheme to set, and when the write then leaves the
+// flag off while it is stored on, every device that shows the account's
+// schedule through its own "system" theme first gets the flag on its own
+// profile (pinInheritedThemeScheduleTx): the account's theme becoming a fixed
+// one does not end that device's schedule. theme is the ui.theme the write
+// leaves in force (the caller resolves a cleared value); set may be modified.
+func (d *DB) SetSettingsFixedTheme(ctx context.Context, set map[string]any, theme string) error {
+	return d.setSettings(ctx, set, theme)
+}
+
+// setSettings writes set; theme is the ui.theme the write leaves in force when
+// that matters (SetSettingsFixedTheme), else "". Only a fixed theme runs the
+// schedule rule.
+func (d *DB) setSettings(ctx context.Context, set map[string]any, theme string) error {
 	if _, ok := set[SettingFulltextAll]; ok {
 		defer d.ftAll.invalidate() // after the commit, whatever its outcome
 	}
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		for k, v := range set {
-			if v == nil {
-				if _, err := tx.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", k); err != nil {
-					return err
-				}
-				continue
-			}
-			b, err := json.Marshal(v)
+		if FixedTheme(theme) {
+			on, err := settingBoolErr(ctx, tx, "ui.theme_schedule", false)
 			if err != nil {
 				return err
 			}
-			if k == SettingSavedSearches {
-				// A replaced list: its new or changed scopes must exist (SavedSearchError).
-				var raw string
-				if err := tx.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", k).Scan(&raw); err != nil && !errors.Is(err, sql.ErrNoRows) {
-					return err
-				}
-				if err := checkNewSavedSearchScopes(ctx, tx, decodeSavedSearches(raw), decodeSavedSearches(string(b))); err != nil {
+			ScheduleOffForFixedTheme(set, theme, on)
+			if v := set["ui.theme_schedule"]; on && v != true {
+				if err := d.pinInheritedThemeScheduleTx(ctx, tx); err != nil {
 					return err
 				}
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)
-				ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()`, k, string(b)); err != nil {
+		}
+		return setSettingsTx(ctx, tx, set)
+	})
+}
+
+// setSettingsTx is SetSettings inside the caller's write transaction.
+func setSettingsTx(ctx context.Context, tx *sql.Tx, set map[string]any) error {
+	for k, v := range set {
+		if v == nil {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", k); err != nil {
+				return err
+			}
+			continue
+		}
+		b, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		if k == SettingSavedSearches {
+			// A replaced list: its new or changed scopes must exist (SavedSearchError).
+			var raw string
+			if err := tx.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", k).Scan(&raw); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if err := checkNewSavedSearchScopes(ctx, tx, decodeSavedSearches(raw), decodeSavedSearches(string(b))); err != nil {
 				return err
 			}
 		}
-		return nil
-	})
+		if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)
+			ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()`, k, string(b)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // PullInSchedule makes a lowered refresh.interval_minutes take effect now: every

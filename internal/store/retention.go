@@ -241,10 +241,37 @@ const maxInt64 = int64(^uint64(0) >> 1)
 // document again as new unread items under new ids.
 const deletingURLPrefix = "kipple:deleting:"
 
-// notDeletingSQL keeps a feed marked for deletion out of the feed lists (the
-// web bootstrap, Reader API subscription/list and unread-count): it is gone as
-// far as the reader is concerned while its items are purged.
-const notDeletingSQL = "f.url NOT LIKE '" + deletingURLPrefix + "%'"
+// notDeletingSQL keeps a feed marked for deletion out of every feed list and
+// count (the web bootstrap and its folder and feed counts, the counts event,
+// Reader API subscription/list and unread-count, the OPML export): it is gone
+// as far as the reader is concerned while its items are purged. The feeds table
+// is aliased f; NotDeletingSQL takes another alias. All three forms come from
+// deletingFeedSQL, the one place the mark is tested in a query.
+var notDeletingSQL = NotDeletingSQL("f")
+
+// notDeletingItemSQL is the same rule for a count over the items table alone
+// (its feed_id column): the unread total, the muted count.
+var notDeletingItemSQL = "feed_id NOT IN (SELECT d.id FROM feeds d WHERE " + deletingFeedSQL("d") + ")"
+
+// deletingItemSQL is its opposite, for subtracting a deleting feed's rows from
+// a count a partial index answers on its own (MutedCount).
+var deletingItemSQL = "feed_id IN (SELECT d.id FROM feeds d WHERE " + deletingFeedSQL("d") + ")"
+
+// deletingFeedSQL is true for a feeds row (under alias) marked for deletion.
+func deletingFeedSQL(alias string) string {
+	return alias + ".url LIKE '" + deletingURLPrefix + "%'"
+}
+
+// deletingFeedIDs lists the feeds marked for deletion, by id.
+func deletingFeedIDs(ctx context.Context, q Querier) ([]int64, error) {
+	return queryIDs(ctx, q, "SELECT d.id FROM feeds d WHERE "+deletingFeedSQL("d")+" ORDER BY d.id")
+}
+
+// NotDeletingSQL is the notDeletingSQL condition for the feeds table under
+// alias, for queries outside the package (the OPML export).
+func NotDeletingSQL(alias string) string {
+	return "NOT (" + deletingFeedSQL(alias) + ")"
+}
 
 // markFeedsDeleting applies step 1 to ids inside tx. The archive feed (never
 // fetched) and ids that are gone are left alone; a feed already marked stays
@@ -283,20 +310,8 @@ func DeleteContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // not stored). It returns the ids it removed. Call it at startup; deleting the
 // feed again does the same for one feed.
 func (d *DB) ResumeFeedDeletes(ctx context.Context) ([]int64, error) {
-	rows, err := d.reader.QueryContext(ctx, "SELECT id FROM feeds WHERE url LIKE ? || '%' ORDER BY id", deletingURLPrefix)
+	ids, err := deletingFeedIDs(ctx, d.reader)
 	if err != nil {
-		return nil, err
-	}
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Close(); err != nil {
 		return nil, err
 	}
 	var done []int64

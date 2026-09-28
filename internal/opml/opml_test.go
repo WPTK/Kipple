@@ -125,6 +125,27 @@ func TestHTTPAuthNeverExported(t *testing.T) {
 	require.NotContains(t, out, "http_auth")
 }
 
+// A feed marked for deletion (an interrupted delete: its URL is the
+// kipple:deleting:<id> placeholder) is left out of the export entirely; its
+// folder is still listed, and a default folder left empty by it is not.
+func TestExportLeavesOutDeletingFeed(t *testing.T) {
+	db := openDB(t)
+	importString(t, db, `<opml><body><outline text="F"><outline text="A" xmlUrl="http://a.test/rss"/>
+	<outline text="B" xmlUrl="http://b.test/rss"/></outline><outline text="Root" xmlUrl="http://r.test/rss"/></body></opml>`, ImportOptions{})
+	require.NoError(t, db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE feeds SET url = 'kipple:deleting:' || id, url_key = 'kipple:deleting:' || id
+			WHERE url IN ('http://a.test/rss', 'http://r.test/rss')`)
+		return err
+	}))
+	out := export(t, db)
+	require.NotContains(t, out, "kipple:deleting:")
+	require.NotContains(t, out, "a.test")
+	require.NotContains(t, out, "r.test")
+	require.Contains(t, out, `xmlUrl="http://b.test/rss"`)
+	require.Contains(t, out, `text="F"`)
+	require.NotContains(t, out, `text="Uncategorized"`, "the default folder is listed only while it has feeds")
+}
+
 func TestRoundTripFixedPoint(t *testing.T) {
 	src, err := os.ReadFile(filepath.Join("testdata", "synthetic.opml"))
 	require.NoError(t, err)

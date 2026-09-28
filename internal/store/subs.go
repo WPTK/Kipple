@@ -12,6 +12,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/filter"
 )
 
 // Subscription is one row of the Reader API subscription list.
@@ -301,19 +302,28 @@ func applyFeedEdit(ctx context.Context, tx *sql.Tx, id int64, folder string, set
 
 // EditOpts is subscription/edit ac=edit: a non-blank Title renames, a set
 // Folder (creating it if needed) moves, and MoveToDefault (r= without a=)
-// moves to Uncategorized.
+// moves to Uncategorized. Titles, when set, holds one title per ref (a batch
+// renaming several feeds at once) and replaces Title.
 type EditOpts struct {
 	Title         string
+	Titles        []string
 	Folder        string
 	SetFolder     bool
 	MoveToDefault bool
 }
 
-// EditSubscription applies EditOpts to each referenced feed; unknown feeds are ignored.
-// It returns the ids that exist.
+// ErrEditTitles is returned when EditOpts.Titles does not hold exactly one title per ref.
+var ErrEditTitles = errors.New("store: subscription edit needs one title per feed")
+
+// EditSubscription applies EditOpts to each referenced feed in one transaction
+// (all or nothing); unknown feeds are ignored. It returns the ids that exist.
 func (d *DB) EditSubscription(ctx context.Context, refs []FeedRef, o EditOpts) (feedIDs []int64, err error) {
+	if o.Titles != nil && len(o.Titles) != len(refs) {
+		return nil, ErrEditTitles
+	}
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		for _, ref := range refs {
+		feedIDs = feedIDs[:0]
+		for i, ref := range refs {
 			id, err := resolveFeed(ctx, tx, ref)
 			if err != nil {
 				return err
@@ -322,13 +332,17 @@ func (d *DB) EditSubscription(ctx context.Context, refs []FeedRef, o EditOpts) (
 				continue
 			}
 			feedIDs = append(feedIDs, id)
+			title := o.Title
+			if o.Titles != nil {
+				title = o.Titles[i]
+			}
 			switch {
 			case o.SetFolder:
-				err = applyFeedEdit(ctx, tx, id, o.Folder, true, o.Title)
+				err = applyFeedEdit(ctx, tx, id, o.Folder, true, title)
 			case o.MoveToDefault:
-				err = applyFeedEdit(ctx, tx, id, "", true, o.Title)
+				err = applyFeedEdit(ctx, tx, id, "", true, title)
 			default:
-				err = applyFeedEdit(ctx, tx, id, "", false, o.Title)
+				err = applyFeedEdit(ctx, tx, id, "", false, title)
 			}
 			if err != nil {
 				return err
@@ -494,36 +508,50 @@ func ensureArchiveFeed(ctx context.Context, tx *sql.Tx) (int64, error) {
 // RenameLabel renames folder oldID to newName; when a different folder already
 // has that name the two are merged (feeds move, the old folder is deleted). The
 // default folder may be renamed but never deleted. A name that fails
-// CheckFolderName is ErrBadFolderName and changes nothing.
-func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) error {
+// CheckFolderName is ErrBadFolderName and changes nothing. filtersChanged
+// reports whether a merge converted or dropped the old folder's filters, for
+// the filters.changed event.
+func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) (filtersChanged bool, err error) {
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
-		return nil
+		return false, nil
 	}
 	if err := CheckFolderName(newName); err != nil {
-		return err
+		return false, err
 	}
-	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	var convFilters, convFeeds int
+	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		convFilters, convFeeds, filtersChanged = 0, 0, false
 		target, found, err := FindLabel(ctx, tx, []string{newName})
 		if err != nil {
 			return err
 		}
 		if found && target != oldID {
-			if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ? WHERE folder_id = ?", target, oldID); err != nil {
+			// A rename that merges folders keeps the old folder's filters at the
+			// scope they had: each becomes one feed filter per feed that was in the
+			// folder. Re-pointing them at the target folder would make them match
+			// the target's own feeds as well.
+			if convFilters, convFeeds, err = d.scopeFolderFiltersToFeeds(ctx, tx, oldID); err != nil {
 				return err
 			}
-			// A rename that merges folders keeps the old folder's filters: they
-			// follow its feeds to the target instead of cascading away with it.
-			if _, err := tx.ExecContext(ctx, `UPDATE filters SET folder_id = ? WHERE folder_id = ?
-				AND EXISTS (SELECT 1 FROM folders WHERE id = ? AND is_default = 0)`, target, oldID, oldID); err != nil {
+			var left int // folder filters the folder's deletion cascades away (an empty folder's)
+			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM filters WHERE folder_id = ?", oldID).Scan(&left); err != nil {
+				return err
+			}
+			// The archive feed stays where it is (the default folder, which is never deleted).
+			if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ? WHERE folder_id = ? AND disabled_reason IS NOT 'archive'", target, oldID); err != nil {
 				return err
 			}
 			res, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", oldID)
 			if err != nil {
 				return err
 			}
-			if n, _ := res.RowsAffected(); n > 0 {
-				d.bumpFilters() // the folder's filters moved to the target
+			n, _ := res.RowsAffected()
+			filtersChanged = convFilters > 0 || (n > 0 && left > 0)
+			if filtersChanged {
+				d.bumpFilters()
+			}
+			if n > 0 {
 				return dropFavorite(ctx, tx, FavFolder, oldID)
 			}
 			return nil
@@ -531,6 +559,168 @@ func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) error
 		_, err = tx.ExecContext(ctx, "UPDATE folders SET name = ? WHERE id = ?", newName, oldID)
 		return err
 	})
+	if err == nil && convFilters > 0 {
+		d.log.Info("store: folder merge turned folder filters into feed filters", "folder", oldID, "filters", convFilters, "feeds", convFeeds)
+	}
+	return filtersChanged, err
+}
+
+// ErrMergeTooManyFilters refuses a folder merge whose feed-filter copies of the
+// merged-away folder's filters (see scopeFolderFiltersToFeeds) would take the
+// filter set past filter.MaxRules. Nothing is changed.
+var ErrMergeTooManyFilters = errors.New("store: merging the folders would create more filters than the limit allows")
+
+// scopeFolderFiltersToFeeds turns every folder filter of folderID into feed
+// filters for the feeds now in the folder (the archive feed and a feed being
+// deleted aside): the rule itself becomes the filter of the first feed, keeping
+// its id, match count, muted articles and any reason Kipple switched it off
+// for, and a copy (same rule, name, action, position and reason; no matches
+// yet) is added for each other feed, with those feeds' muted marks moved to it.
+// For the default folder, which is never deleted, the folder filter stays for
+// the feeds that land there later and every feed gets a copy. A non-default
+// folder with no feeds keeps its filters here; they go with the folder. Used by
+// a folder merge, so the merged-away folder's rules keep matching exactly the
+// feeds they matched before. A merge whose copies would not all run as their
+// rule runs now (past filter.MaxRules or another set-wide limit, see
+// checkMergeCopies) is ErrMergeTooManyFilters before anything changes. It
+// returns the number of folder filters converted (0 when nothing changed) and
+// the number of feeds they now cover.
+func (d *DB) scopeFolderFiltersToFeeds(ctx context.Context, tx *sql.Tx, folderID int64) (filters, feeds int, err error) {
+	filterIDs, err := queryIDs(ctx, tx, "SELECT id FROM filters WHERE scope = 'folder' AND folder_id = ? ORDER BY id", folderID)
+	if err != nil || len(filterIDs) == 0 {
+		return 0, 0, err
+	}
+	feedIDs, err := queryIDs(ctx, tx, "SELECT f.id FROM feeds f WHERE f.folder_id = ? AND f.disabled_reason IS NOT 'archive' AND "+
+		notDeletingSQL+" ORDER BY f.id", folderID)
+	if err != nil || len(feedIDs) == 0 {
+		return 0, 0, err
+	}
+	var isDefault bool
+	if err := tx.QueryRowContext(ctx, "SELECT is_default FROM folders WHERE id = ?", folderID).Scan(&isDefault); err != nil {
+		return 0, 0, err
+	}
+	if err := checkMergeCopies(ctx, tx, filterIDs, feedIDs, isDefault); err != nil {
+		return 0, 0, err
+	}
+	reasons, err := loadFilterReasons(ctx, tx)
+	if err != nil {
+		return 0, 0, err
+	}
+	now := d.clock.Now().Unix()
+	// (original filter, feed) -> copy, for moving the muted marks in one pass below.
+	var pairs []any
+	for _, fid := range filterIDs {
+		copyTo := feedIDs
+		if !isDefault {
+			// The rule itself stays with the first feed: its muted marks there need no move.
+			if _, err := tx.ExecContext(ctx, "UPDATE filters SET scope = 'feed', folder_id = NULL, feed_id = ?, updated_at = ? WHERE id = ?",
+				feedIDs[0], now, fid); err != nil {
+				return 0, 0, err
+			}
+			copyTo = feedIDs[1:]
+		}
+		for _, feed := range copyTo {
+			res, err := tx.ExecContext(ctx, `INSERT INTO filters (name, enabled, scope, folder_id, feed_id, kind, terms, fields,
+				case_sensitive, whole_word, fold_diacritics, invert, action, position, created_at, updated_at)
+				SELECT name, enabled, 'feed', NULL, ?, kind, terms, fields,
+				case_sensitive, whole_word, fold_diacritics, invert, action, position, created_at, ?
+				FROM filters WHERE id = ?`, feed, now, fid)
+			if err != nil {
+				return 0, 0, err
+			}
+			cp, err := res.LastInsertId()
+			if err != nil {
+				return 0, 0, err
+			}
+			pairs = append(pairs, fid, feed, cp)
+			if why, ok := reasons[fid]; ok {
+				reasons[cp] = why
+			}
+		}
+	}
+	if len(pairs) > 0 {
+		values := strings.TrimSuffix(strings.Repeat("(?,?,?),", len(pairs)/3), ",")
+		if _, err := tx.ExecContext(ctx, `WITH m(o, f, c) AS (VALUES `+values+`)
+			UPDATE items SET muted_by = (SELECT c FROM m WHERE o = items.muted_by AND f = items.feed_id)
+			WHERE muted_by IN (SELECT o FROM m) AND feed_id IN (SELECT f FROM m)`, pairs...); err != nil {
+			return 0, 0, err
+		}
+		if err := saveFilterReasons(ctx, tx, reasons, now); err != nil {
+			return 0, 0, err
+		}
+	}
+	return len(filterIDs), len(feedIDs), nil
+}
+
+// checkMergeCopies is scopeFolderFiltersToFeeds' dry run: the filter set as it
+// would be after the merge must stay within filter.MaxRules, and no feed filter
+// made from a rule that runs now may be one the set-wide limits (regex rules,
+// text terms, regex cost) would switch off. Otherwise ErrMergeTooManyFilters.
+func checkMergeCopies(ctx context.Context, q Querier, filterIDs, feedIDs []int64, isDefault bool) error {
+	cur, err := loadFilters(ctx, q)
+	if err != nil {
+		return err
+	}
+	type origRule struct {
+		f    Filter
+		runs bool
+	}
+	isOrig := make(map[int64]bool, len(filterIDs))
+	for _, id := range filterIDs {
+		isOrig[id] = true
+	}
+	orig := make(map[int64]origRule, len(filterIDs)) // filterIDs and cur come from the same transaction
+	flagged := filter.Sanitize(filterRules(cur))
+	var rules []filter.Rule
+	var mustRun []int // indexes in rules of feed filters made from a rule that runs today
+	for i, f := range cur {
+		if !isOrig[f.ID] {
+			rules = append(rules, f.Rule())
+			continue
+		}
+		_, bad := flagged[i]
+		o := origRule{f: f, runs: f.Enabled && !bad}
+		orig[f.ID] = o
+		if isDefault {
+			rules = append(rules, f.Rule()) // the folder filter stays
+			continue
+		}
+		r := f.Rule() // converted in place: same id
+		r.Scope, r.FolderID, r.FeedID = filter.ScopeFeed, 0, feedIDs[0]
+		if o.runs {
+			mustRun = append(mustRun, len(rules))
+		}
+		rules = append(rules, r)
+	}
+	// The copies, numbered in the order scopeFolderFiltersToFeeds inserts them (filterIDs ascending, then
+	// feeds): Sanitize applies the set-wide limits in id order, so the dry run cuts where the real set would.
+	copyTo := feedIDs
+	if !isDefault {
+		copyTo = feedIDs[1:]
+	}
+	next := unsavedFilterID
+	for _, id := range filterIDs {
+		o := orig[id]
+		for _, feed := range copyTo {
+			r := o.f.Rule()
+			r.ID, r.Scope, r.FolderID, r.FeedID = next, filter.ScopeFeed, 0, feed
+			next++
+			if o.runs {
+				mustRun = append(mustRun, len(rules))
+			}
+			rules = append(rules, r)
+		}
+	}
+	if len(rules) > filter.MaxRules {
+		return fmt.Errorf("%w (%d filters after the merge, limit %d)", ErrMergeTooManyFilters, len(rules), filter.MaxRules)
+	}
+	after := filter.Sanitize(rules)
+	for _, i := range mustRun {
+		if why, off := after[i]; off {
+			return fmt.Errorf("%w (a feed filter would be switched off: %s)", ErrMergeTooManyFilters, why)
+		}
+	}
+	return nil
 }
 
 // DisableLabel deletes a folder, moving its feeds to the default folder.

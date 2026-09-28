@@ -134,7 +134,7 @@ type UIFolder struct {
 // UIFolders lists folders in display order with unread counts.
 func (d *DB) UIFolders(ctx context.Context) ([]UIFolder, error) {
 	rows, err := d.reader.QueryContext(ctx, `SELECT fo.id, fo.name, fo.position, fo.is_default,
-		COALESCE((SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.folder_id = fo.id AND i.read = 0), 0)
+		COALESCE((SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.folder_id = fo.id AND i.read = 0 AND `+notDeletingSQL+`), 0)
 		FROM folders fo ORDER BY fo.position, fo.name`)
 	if err != nil {
 		return nil, err
@@ -226,9 +226,12 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 	return out, rows.Err()
 }
 
-// Counts returns the unread and starred item totals.
+// Counts returns the unread and starred item totals. Unread leaves out a feed
+// marked for deletion (notDeletingSQL), as the feed and folder counts do;
+// starred does not, because a deleted feed's starred items are kept (they move
+// to the archive feed when the deletion finishes).
 func (d *DB) Counts(ctx context.Context) (unread, starred int64, err error) {
-	err = d.reader.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM items WHERE read = 0),
+	err = d.reader.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM items WHERE read = 0 AND `+notDeletingItemSQL+`),
 		(SELECT count(*) FROM items WHERE starred = 1)`).Scan(&unread, &starred)
 	return
 }
@@ -248,10 +251,12 @@ func (d *DB) SnapshotStatus(ctx context.Context) SnapshotStatus {
 }
 
 // FeedUnreadCounts returns every feed's unread count, zeros included, so a
-// `counts` event can zero a feed that just emptied.
+// `counts` event can zero a feed that just emptied. A feed marked for deletion
+// is left out, as UIFeeds leaves it out.
 func (d *DB) FeedUnreadCounts(ctx context.Context) (map[int64]int64, error) {
 	rows, err := d.reader.QueryContext(ctx, `SELECT f.id, COALESCE(u.n, 0) FROM feeds f
-		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id`)
+		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id
+		WHERE `+notDeletingSQL)
 	if err != nil {
 		return nil, err
 	}

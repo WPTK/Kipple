@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -448,18 +449,35 @@ func (s *Server) fixedThemeEndsSchedule(r *http.Request, dv store.Device, set ma
 			on, _ = merged["ui.theme_schedule"].(bool)
 		}
 	}
-	if !on {
-		return nil
-	}
 	// Clearing the device's theme (null) leaves the account default in force, which may be a fixed theme too.
 	th, _ := v.(string)
 	if v == nil {
 		th, _ = merged["ui.theme"].(string)
 	}
-	if th != "" && th != "system" {
-		set["ui.theme_schedule"] = false
-	}
+	store.ScheduleOffForFixedTheme(set, th, on)
 	return nil
+}
+
+// writeAccountSettings writes the account defaults (PATCH /api/settings, make-default). A write that leaves
+// a fixed theme in force (a cleared ui.theme falls back to the built-in default) goes through
+// SetSettingsFixedTheme, which applies store.ScheduleOffForFixedTheme against the stored account flag
+// inside the write transaction and keeps the schedule on the devices that show it through their own
+// "system" theme. Without it the account could keep a fixed theme with the flag still on, which every
+// device without its own override inherits and an older client that later picks "system" could neither
+// show nor clear. A write that names the flag is taken as sent, as on a device ("a patch that names the
+// flag keeps what it says"): both a fixed theme and the flag on, or the flag alone next to a stored fixed
+// theme.
+func (s *Server) writeAccountSettings(ctx context.Context, set map[string]any) error {
+	if v, touched := set["ui.theme"]; touched {
+		th, _ := v.(string)
+		if v == nil {
+			th, _ = store.DefaultSettings["ui.theme"].(string)
+		}
+		if store.FixedTheme(th) {
+			return s.db.SetSettingsFixedTheme(ctx, set, th)
+		}
+	}
+	return s.db.SetSettings(ctx, set)
 }
 
 // patchDevice is PATCH /api/device: a partial profile update, all or nothing. A null
@@ -685,7 +703,20 @@ func (s *Server) makeDeviceDefault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	set["ui.device_defaults"] = dd
-	if err := s.db.SetSettings(r.Context(), set); err != nil {
+	// A device can hold its schedule flag on under a fixed theme (its own, or the account's it inherits:
+	// a patch naming both, or the race fixedThemeEndsSchedule describes). Make default never copies that
+	// pair into the account defaults: the flag is left out, to the fixed-theme rule when the theme is
+	// copied too.
+	if on, _ := set["ui.theme_schedule"].(bool); on {
+		th, own := set["ui.theme"].(string)
+		if !own {
+			th, _ = merged["ui.theme"].(string)
+		}
+		if store.FixedTheme(th) {
+			delete(set, "ui.theme_schedule")
+		}
+	}
+	if err := s.writeAccountSettings(r.Context(), set); err != nil {
 		s.serverError(w, "device", err)
 		return
 	}

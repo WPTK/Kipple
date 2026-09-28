@@ -619,3 +619,134 @@ func TestFixedThemeEndsSchedule(t *testing.T) {
 	require.Equal(t, "paper", m["ui.theme"])
 	require.Equal(t, false, m["ui.theme_schedule"])
 }
+
+// The account defaults follow the same rule: PATCH /api/settings with a fixed theme and no
+// ui.theme_schedule turns the account's schedule off, so devices without their own override never
+// inherit a fixed theme with the flag stuck on.
+func TestAccountFixedThemeEndsSchedule(t *testing.T) {
+	h := newHarness(t)
+	sess := h.login()
+	values := func(out map[string]any) map[string]any { return out["values"].(map[string]any) }
+
+	code, out, _ := h.api(sess, "PATCH", "/api/settings", `{"ui.theme":"system","ui.theme_schedule":true}`)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, true, values(out)["ui.theme_schedule"])
+	// A device with its own "system" theme that inherits the account's schedule flag.
+	inherits := h.newDev()
+	_, out, _ = inherits.call("PATCH", "/api/device", `{"ui.theme":"system"}`)
+	require.NotContains(t, out["profile"], "ui.theme_schedule")
+	require.Equal(t, true, out["merged"].(map[string]any)["ui.theme_schedule"])
+
+	// Another key leaves it alone.
+	_, out, _ = h.api(sess, "PATCH", "/api/settings", `{"ui.theme_day":"airmail"}`)
+	require.Equal(t, true, values(out)["ui.theme_schedule"])
+	// Resetting the theme to its default ("system") keeps the schedule.
+	_, out, _ = h.api(sess, "PATCH", "/api/settings", `{"ui.theme":null}`)
+	require.Equal(t, true, values(out)["ui.theme_schedule"])
+
+	code, out, _ = h.api(sess, "PATCH", "/api/settings", `{"ui.theme":"graphite"}`)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, "graphite", values(out)["ui.theme"])
+	require.Equal(t, false, values(out)["ui.theme_schedule"])
+	// That device keeps showing its schedule: the flag it inherited was pinned on its own profile.
+	_, out, _ = inherits.call("GET", "/api/device", "")
+	require.Equal(t, true, out["profile"].(map[string]any)["ui.theme_schedule"])
+	require.Equal(t, "system", out["merged"].(map[string]any)["ui.theme"])
+	require.Equal(t, true, out["merged"].(map[string]any)["ui.theme_schedule"])
+
+	// A patch that names the flag keeps what it says.
+	_, out, _ = h.api(sess, "PATCH", "/api/settings", `{"ui.theme":"linen","ui.theme_schedule":true}`)
+	require.Equal(t, true, values(out)["ui.theme_schedule"])
+
+	// A fixed theme sent with the flag reset (null, default off) keeps an inheriting device's schedule too.
+	nullDev := h.newDev()
+	nullDev.call("PATCH", "/api/device", `{"ui.theme":"system"}`)
+	_, out, _ = h.api(sess, "PATCH", "/api/settings", `{"ui.theme":"paper","ui.theme_schedule":null}`)
+	require.Equal(t, false, values(out)["ui.theme_schedule"])
+	_, out, _ = nullDev.call("GET", "/api/device", "")
+	require.Equal(t, true, out["merged"].(map[string]any)["ui.theme_schedule"])
+	_, _, _ = h.api(sess, "PATCH", "/api/settings", `{"ui.theme":"linen","ui.theme_schedule":true}`)
+
+	// A refused write pins nothing: the pin and the account write are one transaction.
+	other := h.newDev()
+	other.call("PATCH", "/api/device", `{"ui.theme":"system"}`)
+	code, _, _ = h.api(sess, "PATCH", "/api/settings", `{"ui.theme":"paper","library.saved_searches":[{"id":"a","name":"n","q":"x","scope":{"feed_id":"999999"}}]}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	_, out, _ = other.call("GET", "/api/device", "")
+	require.NotContains(t, out["profile"], "ui.theme_schedule")
+	merged, err := h.db.MergedSettings(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "linen", merged["ui.theme"])
+	require.Equal(t, true, merged["ui.theme_schedule"])
+
+	// A device without overrides sees the account's state.
+	d := h.newDev()
+	_, out, _ = d.call("PATCH", "/api/settings", `{"ui.theme":"paper"}`)
+	require.Equal(t, false, values(out)["ui.theme_schedule"])
+	_, out, _ = d.call("GET", "/api/device", "")
+	require.Equal(t, false, out["merged"].(map[string]any)["ui.theme_schedule"])
+}
+
+// Make-default copies the device's theme into the account defaults under the same rule: a fixed theme
+// ends the account's schedule unless the device carries its own schedule flag.
+func TestMakeDefaultFixedThemeEndsSchedule(t *testing.T) {
+	h := newHarness(t)
+	d := h.newDev()
+	// The device picks a fixed theme while the account's schedule is off: no flag of its own.
+	_, out, _ := d.call("PATCH", "/api/device", `{"ui.theme":"graphite"}`)
+	require.NotContains(t, out["profile"], "ui.theme_schedule")
+	code, _, _ := d.call("PATCH", "/api/settings", `{"ui.theme":"system","ui.theme_schedule":true}`)
+	require.Equal(t, http.StatusOK, code)
+
+	code, _, _ = d.call("POST", "/api/device/make-default", "")
+	require.Equal(t, http.StatusOK, code)
+	merged, err := h.db.MergedSettings(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "graphite", merged["ui.theme"])
+	require.Equal(t, false, merged["ui.theme_schedule"], "the account no longer has a fixed theme with the schedule on")
+
+	// A device that names the flag itself passes it on as it is.
+	_, _, _ = d.call("PATCH", "/api/device", `{"ui.theme":"system","ui.theme_schedule":true}`)
+	code, _, _ = d.call("POST", "/api/device/make-default", "")
+	require.Equal(t, http.StatusOK, code)
+	merged, err = h.db.MergedSettings(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "system", merged["ui.theme"])
+	require.Equal(t, true, merged["ui.theme_schedule"])
+
+	// A device holding a fixed theme with its own flag still on never passes that pair to the account.
+	_, out, _ = d.call("PATCH", "/api/device", `{"ui.theme":"paper","ui.theme_schedule":true}`)
+	require.Equal(t, true, out["profile"].(map[string]any)["ui.theme_schedule"])
+	code, _, _ = d.call("POST", "/api/device/make-default", "")
+	require.Equal(t, http.StatusOK, code)
+	merged, err = h.db.MergedSettings(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "paper", merged["ui.theme"])
+	require.Equal(t, false, merged["ui.theme_schedule"])
+
+	// The web app's own profile names the flag off with a fixed theme; Make default from it still keeps the
+	// schedule a device with its own "system" theme inherits from the account.
+	_, _, _ = d.call("PATCH", "/api/settings", `{"ui.theme":"system","ui.theme_schedule":true}`)
+	inherits := h.newDev()
+	_, _, _ = inherits.call("PATCH", "/api/device", `{"ui.theme":"system"}`)
+	_, _, _ = d.call("PATCH", "/api/device", `{"ui.theme":"graphite","ui.theme_schedule":false}`)
+	code, _, _ = d.call("POST", "/api/device/make-default", "")
+	require.Equal(t, http.StatusOK, code)
+	merged, err = h.db.MergedSettings(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "graphite", merged["ui.theme"])
+	require.Equal(t, false, merged["ui.theme_schedule"])
+	_, out, _ = inherits.call("GET", "/api/device", "")
+	require.Equal(t, true, out["merged"].(map[string]any)["ui.theme_schedule"], "pinned on the inheriting device")
+	_, _, _ = d.call("PATCH", "/api/device", `{"ui.theme":"paper","ui.theme_schedule":null}`)
+	_, _, _ = d.call("PATCH", "/api/settings", `{"ui.theme":"paper","ui.theme_schedule":false}`)
+
+	// Nor does a device whose own flag is on under the account's fixed theme it inherits.
+	_, _, _ = d.call("PATCH", "/api/device", `{"ui.theme":null,"ui.theme_schedule":true}`)
+	code, _, _ = d.call("POST", "/api/device/make-default", "")
+	require.Equal(t, http.StatusOK, code)
+	merged, err = h.db.MergedSettings(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "paper", merged["ui.theme"])
+	require.Equal(t, false, merged["ui.theme_schedule"])
+}

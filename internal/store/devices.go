@@ -229,6 +229,56 @@ func (d *DB) PatchDeviceProfile(ctx context.Context, id string, set map[string]a
 	return out, err
 }
 
+// pinInheritedThemeScheduleTx gives every device that has its own ui.theme
+// "system" but inherits ui.theme_schedule from the account an explicit
+// ui.theme_schedule=true, so turning the account's schedule off does not end a
+// schedule that device is showing. The caller checks that the account flag is
+// on, in the same transaction. A profile that would pass MaxDeviceProfileBytes
+// with the key is left as it is.
+func (d *DB) pinInheritedThemeScheduleTx(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `SELECT id, settings FROM devices
+		WHERE json_extract(settings, '$."ui.theme"') = 'system' AND json_type(settings, '$."ui.theme_schedule"') IS NULL`)
+	if err != nil {
+		return err
+	}
+	type row struct{ id, settings string }
+	var pin []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.settings); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		pin = append(pin, r)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, r := range pin {
+		p := map[string]any{}
+		if err := json.Unmarshal([]byte(r.settings), &p); err != nil {
+			continue // unreadable: nothing to preserve
+		}
+		p["ui.theme_schedule"] = true
+		s, err := marshalProfile(p)
+		if errors.Is(err, ErrDeviceProfileTooLarge) {
+			d.log.Warn("store: device profile too large to keep its theme schedule", "device", r.id)
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE devices SET settings = ? WHERE id = ?", s, r.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ReplaceDeviceProfile replaces the device's overrides wholesale.
 func (d *DB) ReplaceDeviceProfile(ctx context.Context, id string, profile map[string]any) error {
 	s, err := marshalProfile(profile)

@@ -323,11 +323,11 @@ func TestFavoritesDroppedByReaderLabelPaths(t *testing.T) {
 	}
 
 	// Merge A into B: A is deleted, so its favorite (legacy spelling) goes.
-	require.NoError(t, e.db.RenameLabel(e.ctx, a.ID, "B"))
+	require.NoError(t, renameLabel(e.ctx, e.db, a.ID, "B"))
 	require.JSONEq(t, fmt.Sprintf(`[{"t":"folder","id":"%d"},{"t":"folder","id":"%d"},{"t":"feed","id":"%d"}]`, b.ID, c.ID, a.ID), get())
 
 	// A plain rename deletes nothing.
-	require.NoError(t, e.db.RenameLabel(e.ctx, b.ID, "B2"))
+	require.NoError(t, renameLabel(e.ctx, e.db, b.ID, "B2"))
 	require.Contains(t, get(), fmt.Sprintf(`"id":"%d"`, b.ID))
 
 	require.NoError(t, e.db.DisableLabel(e.ctx, c.ID))

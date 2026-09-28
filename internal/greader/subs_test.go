@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/store"
 )
 
 func subsOf(t *testing.T, h *harness) []map[string]any {
@@ -184,6 +185,20 @@ func TestBatchEditTitles(t *testing.T) {
 	subs = subsOf(t, h)
 	require.Equal(t, "One", findSub(subs, a)["title"])
 	require.Equal(t, "Two", findSub(subs, b)["title"])
+
+	// Titles pair with the s= values as sent: an unusable s= does not shift its title onto the next feed.
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s=bogus&s="+a+"&s="+b+"&t=Skip&t=Uno&t=Dos")
+	subs = subsOf(t, h)
+	require.Equal(t, "Uno", findSub(subs, a)["title"])
+	require.Equal(t, "Dos", findSub(subs, b)["title"])
+	// Several titles that do not pair rename nothing, even when only one feed is usable.
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s=&s="+a+"&t=X&t=Y&t=Z")
+	subs = subsOf(t, h)
+	require.Equal(t, "Uno", findSub(subs, a)["title"])
+	// So does one title for two s= values, even when only one of them is usable: it may be meant for the other.
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s=user/-/label/X&s="+a+"&t=Other")
+	subs = subsOf(t, h)
+	require.Equal(t, "Uno", findSub(subs, a)["title"])
 }
 
 func TestFolderNameWithSemicolonSurvives(t *testing.T) {
@@ -535,6 +550,42 @@ func TestParseUserPath(t *testing.T) {
 // nnwEnc encodes a folder name the way NNW does for a=/r=/t=/rename-tag: percent
 // encoding with '&' and '+' encoded too (netnewswire.md section 4).
 func nnwEnc(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") }
+
+// A rename-tag merge that turns folder filters into feed filters announces
+// filters.changed, so an open Filters screen reloads; a plain rename does not.
+func TestRenameTagAnnouncesFiltersChanged(t *testing.T) {
+	h := newHarness(t)
+	hub := events.New()
+	h.api.opt.Events = hub
+	sub := hub.Subscribe(0)
+	defer sub.Close()
+	count := func() int {
+		n := 0
+		for {
+			select {
+			case ev := <-sub.C:
+				if ev.Type == "filters.changed" {
+					n++
+				}
+			default:
+				return n
+			}
+		}
+	}
+	h.addFeed("https://a.example/feed.xml", "Alpha", "Old")
+	h.addFeed("https://b.example/feed.xml", "Beta", "New")
+	old, found, err := h.db.FindLabel(t.Context(), []string{"Old"})
+	require.NoError(t, err)
+	require.True(t, found)
+	_, err = h.db.CreateFilter(t.Context(), store.Filter{Enabled: true, Scope: "folder", FolderID: &old, Kind: "text", Terms: []string{"x"},
+		Fields: []string{"title"}, WholeWord: true, FoldDiacritics: true, Action: "mute"})
+	require.NoError(t, err)
+	count()
+	h.post(rd+"rename-tag", "T="+h.tok+"&s=user/-/label/New&dest=user/-/label/Newer")
+	require.Equal(t, 0, count(), "a plain rename changes no filter")
+	h.post(rd+"rename-tag", "T="+h.tok+"&s=user/-/label/Old&dest=user/-/label/Newer")
+	require.Equal(t, 1, count(), "the merge converted the folder filter")
+}
 
 // Every folder mutation over the Reader API announces folder.changed.
 func TestFolderChangedEventsFromReaderAPI(t *testing.T) {

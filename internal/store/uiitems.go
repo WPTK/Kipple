@@ -295,6 +295,17 @@ func (d *DB) listCardsPlain(ctx context.Context, q CardQuery) ([]Card, *Cursor, 
 	return cards, nil, nil
 }
 
+// listHidesDeleting is the WHERE part that keeps a feed being deleted out of a
+// card list or search (items aliased i), as it is out of the counts. The
+// Starred view keeps its articles: starred items are never deleted with their
+// feed, they move to the archive feed when the deletion finishes.
+func listHidesDeleting(view string) []string {
+	if view == "starred" {
+		return nil
+	}
+	return []string{"i." + notDeletingItemSQL}
+}
+
 // listCardsSQL builds the non-search card query and returns the page limit.
 func listCardsSQL(q CardQuery) (string, []any, int, error) {
 	var where []string
@@ -323,6 +334,7 @@ func listCardsSQL(q CardQuery) (string, []any, int, error) {
 		case "muted":
 			where = append(where, "i.muted_by IS NOT NULL") // idx_items_muted
 		}
+		where = append(where, listHidesDeleting(q.View)...)
 		if q.FeedID != 0 {
 			where = append(where, "i.feed_id = ?")
 			args = append(args, q.FeedID)
@@ -548,7 +560,7 @@ func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilte
 		return res, err
 	}
 	if !scope.Starred && !scope.Muted && !f.any() {
-		lrows, err := tx.QueryContext(ctx, "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :max"+feedWhere+" RETURNING id, feed_id", base...)
+		lrows, err := tx.QueryContext(ctx, "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :max"+feedWhere+" AND "+notDeletingItemSQL+" RETURNING id, feed_id", base...)
 		if err != nil {
 			return res, fmt.Errorf("store: mark scope ledger: %w", err)
 		}
@@ -569,6 +581,8 @@ func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64, match string, pro
 	args = []any{sql.Named("max", maxID)}
 	if scope.Starred {
 		where = " AND starred = 1"
+	} else {
+		where = " AND " + notDeletingItemSQL // as the list and search (listHidesDeleting)
 	}
 	if scope.Muted {
 		where += " AND muted_by IS NOT NULL" // muted items are read already: this marks nothing, by invariant

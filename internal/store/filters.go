@@ -815,10 +815,13 @@ func scanUnmuted(rows *sql.Rows) (StateResult, error) {
 	return res, rows.Err()
 }
 
-// MutedCount is the number of muted items (the partial index answers it).
+// MutedCount is the number of muted items, leaving out a feed marked for
+// deletion. The partial index answers the total; the (usually absent) deleting
+// feeds' muted items are counted through their feed_id and subtracted.
 func (d *DB) MutedCount(ctx context.Context) (int64, error) {
 	var n int64
-	err := d.reader.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE muted_by IS NOT NULL").Scan(&n)
+	err := d.reader.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM items WHERE muted_by IS NOT NULL)
+		- (SELECT count(*) FROM items WHERE muted_by IS NOT NULL AND `+deletingItemSQL+`)`).Scan(&n)
 	return n, err
 }
 
@@ -1139,9 +1142,10 @@ func (d *DB) MutedUIDs(ctx context.Context, feedID int64, docTitle string, items
 	return out, nil
 }
 
-// MutedByFilter counts the muted items per filter id (orphans of deleted filters included).
+// MutedByFilter counts the muted items per filter id (orphans of deleted filters included), leaving
+// out a feed marked for deletion as MutedCount does.
 func (d *DB) MutedByFilter(ctx context.Context) (map[int64]int64, error) {
-	rows, err := d.reader.QueryContext(ctx, "SELECT muted_by, count(*) FROM items WHERE muted_by IS NOT NULL GROUP BY muted_by")
+	rows, err := d.reader.QueryContext(ctx, "SELECT muted_by, count(*) FROM items WHERE muted_by IS NOT NULL AND "+notDeletingItemSQL+" GROUP BY muted_by")
 	if err != nil {
 		return nil, err
 	}
