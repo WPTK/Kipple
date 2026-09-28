@@ -6,6 +6,10 @@ All notable changes to Kipple are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Mobile bottom tab bar: a touch more breathing room above the icons and a soft top shadow in place of a flat hairline, so the boundary against image-forward list content reads as intentional rather than a stray line. First pass pending confirmation on a real device. (#62)
+
 ## [0.3.0-beta.1] - 2026-09-27
 
 Phase 5, release readiness: the full code audit and its follow-up review round, optional Cloudflare Access token
