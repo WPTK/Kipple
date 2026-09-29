@@ -24,7 +24,7 @@ triage scheme since it's a reasonable, well-known scale), each with steps to rep
 
 - Phase 5 code audit (#26), Access JWT/passwordless (#40) and the scheduled auto-night theme (#41) merged (all
   three are, as of 2026-09-27), and deployed to the test environment below.
-- CI green on the commit under test; `CHANGELOG.md` `[Unreleased]` reflects everything in scope.
+- CI green on the commit under test; the pending `changes/` fragments (`node scripts/changelog.mjs preview`) reflect everything in scope.
 - A representative test environment: either the Host-A deployment on a pre-release build, or the local dev stack
   (`npm run seed` / `KIPPLE_ADDR`+`KIPPLE_DATA` per CLAUDE.md) seeded with a realistic OPML set (the existing
   138-feed NewsBlur export works, or a smaller fixture for faster runs).

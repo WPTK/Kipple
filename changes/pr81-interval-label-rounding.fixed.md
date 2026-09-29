@@ -1,0 +1,1 @@
+A check interval that isn't a clean multiple of an hour or a day (say, a custom 100-minute per-feed interval) showed as an unrounded decimal, like "Every 1.6666666666666667 hours", in Settings and the per-feed interval picker. It now reads "Every 1 hour 40 minutes." (#81)

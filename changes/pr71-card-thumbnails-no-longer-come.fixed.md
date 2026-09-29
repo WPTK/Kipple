@@ -1,0 +1,1 @@
+Card thumbnails no longer come out blurry on feeds whose content leads with a small fixed-size crop (a WordPress featured-image thumbnail, say 300x100) ahead of the real photo further down: the lead image is now picked by size — the largest `srcset` candidate or declared width/height — instead of "the first `<img>` found." (#71)

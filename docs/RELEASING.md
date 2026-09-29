@@ -38,8 +38,10 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
    in a second terminal, once the feeds have fetched (about a minute), `npm run uat` against that seeded local instance (never the live one; see `docs/uat-plan.md`, Suite 1). It must finish with exit code 0, or every
    remaining finding must be in `web/uat/waivers.json` with the owner's reason.
 3. **`/code-review high`** on the diff since the last deployed tag. Fix every finding.
-4. **CHANGELOG.md:** move `[Unreleased]` under `## [X.Y.Z] - date`, add a fresh empty `[Unreleased]`, update the
-   compare links.
+4. **CHANGELOG.md:** `node scripts/changelog.mjs preview` shows what is pending; add a one-paragraph
+   `changes/_intro.md` if the release needs an intro. `node scripts/changelog.mjs release X.Y.Z` (`--dry-run` first) folds
+   the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links and deletes the
+   fragments. Review the diff (`changes/README.md`).
 5. **THIRD_PARTY_NOTICES.md:** regenerate with `node scripts/gen-notices.mjs` (after `cd web && npm ci`; after any dependency change at least).
    Any dependency change also needs a govulncheck run.
 6. Commit `chore(release): X.Y.Z`, push, wait for CI on that commit.
@@ -62,7 +64,7 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
    the binary reports version `dev`. Never a bare `up`/`down`.
 10. **Verify:** `ssh host-a 'docker exec kipple /kipple version'` prints `vX.Y.Z`; container healthy; `docker logs kipple` shows the migrations that were expected and no errors;
     `/api/greader.php` answers with Reeder; a refresh completes; memory stays flat after a few minutes (`docker stats`).
-11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`-alpha/-beta/-rc` marked pre-release).
+11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`node scripts/changelog.mjs notes X.Y.Z > notes.md`, then `gh release create vX.Y.Z --notes-file notes.md`; `-alpha/-beta/-rc` marked pre-release).
     Every pushed tag has one; keep it that way.
 
 ## Rollback
