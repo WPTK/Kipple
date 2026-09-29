@@ -79,13 +79,15 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   useHotkeys({ prevFeed: () => go(prev), nextFeed: () => go(next) }, { singleKeys: prefs.shortcuts });
   return (
     <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-2">
-      {/* Never wider than 25rem and always left-aligned, so the controls sit in the same place in every layout
-          (a grid layout has no reader pane, and used to push them to the far right). */}
-      <div className="max-w-[25rem]">
-      <div className="flex items-center gap-0.5 pt-2">
-        <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
+      {/* The title row is 25rem wide and left-aligned, so the controls sit in the same place in every layout (a grid
+          layout has no reader pane, and used to push them to the far right). It grows past that only as far as a long
+          title needs, and where the pane is too narrow for title and controls together the controls drop to a line
+          of their own rather than squeeze the title to an ellipsis. */}
+      <div className="flex w-fit min-w-[min(100%,25rem)] max-w-full flex-wrap items-center gap-x-0.5 pt-2">
+        <h1 className="min-w-0 max-w-full grow truncate text-xl font-bold" tabIndex={-1} data-route-heading>
           {title}
         </h1>
+        <div className="ml-auto flex items-center gap-0.5">
         <Button
           variant="ghost"
           size="icon"
@@ -153,8 +155,9 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
+        </div>
       </div>
-      <div className="mt-1 flex items-center gap-1">
+      <div className="mt-1 flex max-w-[25rem] items-center gap-1">
       <nav aria-label="Show" className="flex gap-1">
         {views.map((v) => {
           const active = v.view === scope.view;
@@ -202,9 +205,8 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
         ) : null}
       </div>
       {scope.view === "muted" ? (
-        <p className="mt-1 text-xs text-fg2">Articles your filters muted. Restore brings one back as unread. Muting keeps them here instead of deleting them.</p>
+        <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as unread. Muting keeps them here instead of deleting them.</p>
       ) : null}
-      </div>
     </header>
   );
 }

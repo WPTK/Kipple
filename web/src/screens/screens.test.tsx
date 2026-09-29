@@ -137,7 +137,7 @@ describe("Unread list (Magazine)", () => {
   });
 
   it("unread empty copy reflects new articles already waiting, instead of contradicting the pill", () => {
-    expect(emptyCopy({ view: "unread" }, 1).body).toBe("1 new article arrived. Load them above to continue reading.");
+    expect(emptyCopy({ view: "unread" }, 1).body).toBe("1 new article arrived. Load it above to continue reading.");
     expect(emptyCopy({ view: "unread" }, 3).body).toBe("3 new articles arrived. Load them above to continue reading.");
   });
 
