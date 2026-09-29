@@ -411,6 +411,10 @@ export function FeedsScreen() {
     const key = favKey(fav);
     const src: DragSource = { kind: "fav", id: key, group: "fav" };
     const name = fav.t === "folder" ? folders.find((f) => f.id === fav.id)?.name : feeds.find((f) => f.id === fav.id)?.title;
+    const favFolder = fav.t === "folder" ? folders.find((f) => f.id === fav.id) : undefined;
+    const favFeeds = favFolder ? feeds.filter((f) => f.folder_id === favFolder.id) : [];
+    const favCollapsed = dp.collapsedFolders.includes(fav.id);
+    const favListId = `manage-fav-folder-${fav.id}-feeds`;
     const before = dropAt?.kind === "fav" && dropAt.before === key && !isDragged("fav", key);
     const atEnd = dropAt?.kind === "fav" && dropAt.before === null && favs.favorites.filter((x) => favKey(x) !== dragging?.id).at(-1) === fav;
     return (
@@ -418,22 +422,47 @@ export function FeedsScreen() {
         key={key}
         {...(selecting || !editMode ? {} : dnd.rowProps(src))}
         style={rowStyle("fav", key)}
-        className={cn("flex items-center", DND_ROW_CLASS, dragCls("fav", key), before && "border-t-2 border-accent", atEnd && "border-b-2 border-accent")}
+        className={cn(DND_ROW_CLASS, dragCls("fav", key), before && "border-t-2 border-accent", atEnd && "border-b-2 border-accent")}
       >
-        {!selecting && editMode ? grip(src, `favorite ${name ?? ""}`) : null}
-        <Link
-          to={listTo(fav.t === "folder" ? { view: "unread", folder: fav.id } : { view: "unread", feed: fav.id })}
-          draggable={false}
-          className={`${row} min-w-0 flex-1 text-sm`}
-        >
-          <span className="truncate">{name}</span>
-          <span className="ml-auto shrink-0 text-xs text-fg2">{fav.t === "folder" ? "Folder" : "Feed"}</span>
-        </Link>
-        {!selecting ? (
-          <>
-            {moves(src, i, favs.favorites.length, `favorite ${name ?? ""}`)}
-            <FavStar on name={name ?? "favorite"} onToggle={() => favs.toggle(fav.t, fav.id)} />
-          </>
+        <div className="flex items-center">
+          {!selecting && editMode ? grip(src, `favorite ${name ?? ""}`) : null}
+          {favFolder && favFeeds.length > 0 && !selecting && !editMode ? (
+            <button
+              type="button"
+              aria-expanded={!favCollapsed}
+              aria-controls={favListId}
+              aria-label={`${favCollapsed ? "Expand" : "Collapse"} ${favFolder.name}`}
+              onClick={() => updateDevicePrefs({ collapsedFolders: toggleCollapsed(dp.collapsedFolders, favFolder.id) })}
+              className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
+            >
+              {favCollapsed ? <ChevronRight className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
+            </button>
+          ) : null}
+          <Link
+            to={listTo(fav.t === "folder" ? { view: "unread", folder: fav.id } : { view: "unread", feed: fav.id })}
+            draggable={false}
+            className={`${row} min-w-0 flex-1 text-sm`}
+          >
+            <span className="truncate">{name}</span>
+            <span className="ml-auto shrink-0 text-xs text-fg2">{fav.t === "folder" ? "Folder" : "Feed"}</span>
+          </Link>
+          {!selecting ? (
+            <>
+              {moves(src, i, favs.favorites.length, `favorite ${name ?? ""}`)}
+              <FavStar on name={name ?? "favorite"} onToggle={() => favs.toggle(fav.t, fav.id)} />
+            </>
+          ) : null}
+        </div>
+        {favFolder && favFeeds.length > 0 && !favCollapsed && !selecting && !editMode ? (
+          <ul id={favListId} className="pl-6">
+            {favFeeds.map((f) => (
+              <li key={f.id}>
+                <Link to={listTo({ view: "unread", feed: f.id })} draggable={false} className={`${row} text-sm`}>
+                  <span className="truncate">{f.title}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         ) : null}
       </li>
     );

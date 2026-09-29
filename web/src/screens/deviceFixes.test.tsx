@@ -299,6 +299,26 @@ describe("sidebar", () => {
     expect(devicePrefsStore.get().collapsedFolders).toEqual([]);
   });
 
+  it("a favorited folder collapses and expands from Favorites, in step with its place in the Feeds list", async () => {
+    routes({}, boot3);
+    media(WIDE);
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    const user = userEvent.setup();
+    await user.click(within(nav).getByRole("button", { name: "Favorite News" }));
+    const fav = await within(nav).findByRole("region", { name: "Favorites" });
+    expect(within(fav).getByRole("link", { name: /Alpha/ })).toBeInTheDocument();
+    await user.click(within(fav).getByRole("button", { name: "Collapse News" }));
+    expect(within(fav).queryByRole("link", { name: /Alpha/ })).toBeNull();
+    expect(within(fav).getByRole("button", { name: "Expand News" })).toHaveAttribute("aria-expanded", "false");
+    expect(devicePrefsStore.get().collapsedFolders).toEqual(["1"]);
+    expect(within(nav).queryByRole("link", { name: /Alpha/ })).toBeNull(); // one state per folder, per device
+    await user.click(within(fav).getByRole("button", { name: "Expand News" }));
+    expect(within(fav).getByRole("link", { name: /Alpha/ })).toBeInTheDocument();
+    expect(devicePrefsStore.get().collapsedFolders).toEqual([]);
+  });
+
   it("favorites are pinned in a Favorites section (kept on this device when the server has no such setting)", async () => {
     routes({}, boot3);
     media(WIDE);
@@ -310,7 +330,8 @@ describe("sidebar", () => {
     await user.click(within(nav).getByRole("button", { name: "Favorite Delta" }));
     await user.click(within(nav).getByRole("button", { name: "Favorite News" }));
     const fav = await within(nav).findByRole("region", { name: "Favorites" });
-    expect(within(fav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Delta", "News"].map((t) => expect.stringContaining(t)));
+    // A favorited folder lists its feeds beneath it (the folder starts expanded).
+    expect(within(fav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Delta", "News", "Alpha", "Bravo", "Charlie"].map((t) => expect.stringContaining(t)));
     expect(devicePrefsStore.get().favoritesLocal).toEqual([
       { t: "feed", id: "4" },
       { t: "folder", id: "1" },
@@ -526,6 +547,24 @@ describe("manage feeds", () => {
     // Move the second favorite up with its keyboard handle.
     fireEvent.keyDown(within(fav).getByRole("button", { name: /Reorder favorite News/ }), { key: "ArrowUp" });
     await waitFor(() => expect(devicePrefsStore.get().favoritesLocal[0]).toEqual({ t: "folder", id: "1" }));
+  });
+
+  it("a favorited folder collapses and expands in Favorites, but is a plain row in Edit and Select", async () => {
+    routes({}, boot3);
+    go("/feeds");
+    await screen.findByText("Alpha");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Favorite News" }));
+    const fav = await screen.findByRole("region", { name: "Favorites" });
+    expect(within(fav).getByRole("link", { name: "Alpha" })).toBeInTheDocument();
+    await user.click(within(fav).getByRole("button", { name: "Collapse News" }));
+    expect(within(fav).queryByRole("link", { name: "Alpha" })).toBeNull();
+    expect(devicePrefsStore.get().collapsedFolders).toEqual(["1"]);
+    await user.click(within(fav).getByRole("button", { name: "Expand News" }));
+    expect(within(fav).getByRole("link", { name: "Alpha" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(within(await screen.findByRole("region", { name: "Favorites" })).queryByRole("button", { name: /^(Collapse|Expand) News$/ })).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Favorites" })).queryByRole("link", { name: "Alpha" })).toBeNull();
   });
 
   it("selects with checkboxes, shift-click ranges and whole folders, then bulk-moves in one reorder call", async () => {
