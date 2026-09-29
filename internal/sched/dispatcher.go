@@ -389,7 +389,7 @@ func (s *Scheduler) handleDone(r result) {
 		ids = append(ids, idStr(id))
 	}
 	ev := map[string]any{
-		"feed_id": idStr(r.feedID), "run_ids": runIDs, "trigger": r.trigger, "outcome": r.outcome,
+		"feed_id": idStr(r.feedID), "run_ids": runIDs, "trigger": effectiveTrigger(f, r.trigger), "outcome": r.outcome,
 		"new_items": r.newItems, "new_item_ids": ids, "muted_items": r.muted, "updated_items": r.updated, "trimmed_items": r.trimmed,
 		"error_class": r.errClass, "error": r.errMsg,
 	}
@@ -617,6 +617,29 @@ func runSatisfied(f *flight, runKind string) bool {
 		return f.kind == kindTrim || f.kind == kindFetch
 	}
 	return satisfies(f, Priority{Kind: PriorityRefresh})
+}
+
+// effectiveTrigger is the trigger a completed job's fetch.done event reports. The worker captures the job's
+// scheduling trigger the moment it starts (exec, worker.go) so mutating snap.Trigger afterward would not
+// change what already ran or what it reports — and would also risk changing scheduling decisions that read
+// snap.Trigger later (applyHostHold, forcesFetch). So a manual reply or a manual/import run that joined an
+// already-running scheduled job instead changes only what gets reported here, decided fresh from who actually
+// ended up attached to the job by the time it finished: a scheduled poll that a person's own refresh or a
+// "Refresh all" run joined is not silently "scheduled" to the client that asked for it, and would otherwise
+// show no pill and no announcement for new items the person explicitly asked to see.
+func effectiveTrigger(f *flight, trigger string) string {
+	if trigger != fetch.TriggerScheduled {
+		return trigger
+	}
+	for _, run := range f.runs {
+		if run.Kind == RunManual || run.Kind == RunImport {
+			return fetch.TriggerManual
+		}
+	}
+	if len(f.replies) > 0 {
+		return fetch.TriggerFeedManual
+	}
+	return trigger
 }
 
 // newRunFlight builds the job a run uses for one feed.

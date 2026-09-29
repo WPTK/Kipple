@@ -27,6 +27,7 @@ All notable changes to Kipple are documented here. The format follows
 - The "N new articles" pill and its screen-reader announcement no longer fire for a periodic background poll, a newly subscribed feed's first fetch, an OPML import or a retention trim — only for a manual refresh (all feeds or a single feed). (#56)
 - Card thumbnails no longer come out blurry on feeds whose content leads with a small fixed-size crop (a WordPress featured-image thumbnail, say 300x100) ahead of the real photo further down: the lead image is now picked by size — the largest `srcset` candidate or declared width/height — instead of "the first `<img>` found." (#71)
 - Entering a list whose data changed since you last scrolled it (new arrivals, a mark-all-read, a resync) no longer restores your old scroll position over the freshly loaded rows, and "mark as read while scrolling" no longer marks rows that a restored or jumped-to scroll position skipped past without ever actually rendering them on screen. (#72)
+- Fixed two edge cases in the #56 "N new articles" fix, caught in code review before they reached anyone: a "Refresh all" run announced every one of its own per-feed fetches to the screen reader in addition to its own run-level total, and a person's own refresh request that happened to join an already-running scheduled fetch for that feed was reported as "scheduled" and got no pill or announcement at all for the new items it found.
 
 ## [0.3.0-beta.1] - 2026-09-27
 

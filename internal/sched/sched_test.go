@@ -412,6 +412,62 @@ func TestManualRunAttachesToInFlightFetches(t *testing.T) {
 	require.Equal(t, fmt.Sprint(info.RunID), r.events("run.done")[0]["run_id"])
 }
 
+// A scheduled fetch a manual refresh joins must not report "scheduled" in its fetch.done: the client's pill and
+// screen-reader announcement key off the trigger, and "scheduled" means silently skip both, which is wrong for
+// new items a person explicitly asked to see (issue found in code review of #56).
+func TestManualJoinReportsManualTrigger(t *testing.T) {
+	r := newRig(t, Options{})
+	release := make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
+		select {
+		case <-release:
+			serveOK(p, w, req)
+		case <-req.Context().Done():
+		}
+	})
+	scheduled := r.add(srv.URL+"/scheduled", nil)
+	r.s.Wake()
+	waitFor(t, "the scheduled fetch is in flight", func() bool { return srv.total() == 1 })
+
+	_, err := r.s.RefreshAll()
+	require.NoError(t, err)
+	once.Do(func() { close(release) })
+	r.waitEvents("run.done", 1)
+	r.waitEvents("fetch.done", 1)
+	ev := r.events("fetch.done")[0]
+	require.Equal(t, fmt.Sprint(scheduled), ev["feed_id"])
+	require.Equal(t, "manual", ev["trigger"], "a scheduled fetch a manual run joined reports manual, not scheduled")
+}
+
+// The single-feed equivalent: a person's own refresh request joining an already-running scheduled fetch for
+// that feed must report feed_manual, not scheduled.
+func TestSingleFeedJoinReportsFeedManualTrigger(t *testing.T) {
+	r := newRig(t, Options{})
+	release := make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
+		select {
+		case <-release:
+			serveOK(p, w, req)
+		case <-req.Context().Done():
+		}
+	})
+	scheduled := r.add(srv.URL+"/scheduled", nil)
+	r.s.Wake()
+	waitFor(t, "the scheduled fetch is in flight", func() bool { return srv.total() == 1 })
+
+	ch, err := r.s.Submit(Priority{FeedID: scheduled})
+	require.NoError(t, err)
+	once.Do(func() { close(release) })
+	<-ch
+	r.waitEvents("fetch.done", 1)
+	ev := r.events("fetch.done")[0]
+	require.Equal(t, "feed_manual", ev["trigger"], "a scheduled fetch a person's own refresh joined reports feed_manual, not scheduled")
+}
+
 func TestRunKindsDoNotJoinAndEmptyRunFinishes(t *testing.T) {
 	r := newRig(t, Options{})
 	// total = 0 finishes immediately
