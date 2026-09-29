@@ -72,6 +72,10 @@ Before going public there is one more meeting, then the hostname/IP scrub of com
 uses each phase for a day before the next starts. Sonnet for routine code, Opus as advisor and
 reviewer. One writer on Host-A at a time. Verify iOS layout in the browser pane at the mobile
 preset before calling a UI phase done. Save decisions and gotchas to memory.
+**Update the history repository (`WPTK/kipple-history`, working copy `C:\kipple-history`) as part of the normal
+workflow, at the very least daily** and after every release, meeting or incident: diary, timeline, meetings,
+decisions, challenges, milestones, audits, human feedback, plan snapshots. `git fetch` first and never force-push;
+apply the same scrub rules as this repo (Host-A/Host-B, `rss.example.com`, no account names, IPs or emails).
 
 ## Releases and CI
 
