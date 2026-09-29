@@ -700,6 +700,31 @@ describe("Feed health", () => {
     expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname)).toEqual(["/api/feeds/1"]);
   });
 
+  it("after a bulk Delete Select mode ends and a feed ticked but hidden by the search is not left ticked (#96)", async () => {
+    base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "DELETE /api/feeds/1": () => new Response(null, { status: 204 }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select NPR" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search feeds" }), "zed");
+    await user.click(screen.getByRole("checkbox", { name: "Select Zed Blog" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dlg = await screen.findByRole("dialog", { name: "Delete 1 feed?" });
+    await user.click(within(dlg).getByRole("button", { name: "Delete 1 feed" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Same as Turn on/off: Select mode is over, so no selection bar is left for the toast to cover.
+    expect(screen.getByRole("button", { name: "Select" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Selected feeds" })).toBeNull();
+    await user.clear(screen.getByRole("searchbox", { name: "Search feeds" }));
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    expect(screen.getByText("0 selected")).toBeInTheDocument();
+  });
+
   it("bulk turns feeds off, then Done clears the selection", async () => {
     const { calls } = base({
       "GET /api/health/feeds": () => json(HEALTH),
