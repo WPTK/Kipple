@@ -15,6 +15,7 @@ import { ApiError, api, errorMessage } from "@/api/client";
 import { invalidateLists, keys, useBootstrap } from "@/api/queries";
 import type { Feed } from "@/api/types";
 import { STATUS_RANK, statusInfo } from "@/lib/feedStatus";
+import { groupState, toggleGroup, toggleIn } from "@/lib/selection";
 import { bytesLabel, fullDate, whenLabel } from "@/lib/format";
 import { useWide } from "@/lib/useMedia";
 import { Button } from "@/ui/button";
@@ -227,16 +228,15 @@ export function HealthScreen() {
     setSelecting(false);
     setSel(new Set());
   };
-  const check = (id: string) =>
-    setSel((s) => {
-      const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const check = (id: string) => setSel((s) => toggleIn(s, id));
+  const shownIds = useMemo(() => feeds.map((f) => f.id), [feeds]);
+  // A filter or search can hide feeds that are still ticked. Everything that counts or acts on the selection
+  // uses only the ticked feeds still on screen, so a bulk Delete or Turn off never touches a feed you can't see.
+  const shownSel = useMemo(() => new Set(shownIds.filter((id) => sel.has(id))), [shownIds, sel]);
+  const allShownSelected = groupState(shownIds, sel) === "all";
   // Feed Health's own rows (HealthFeed) don't carry folder_id/starred_count; the bulk dialogs work on the
   // full Feed from the bootstrap, matched by id.
-  const selectedFeeds: Feed[] = useMemo(() => (boot.data?.feeds ?? []).filter((f) => sel.has(f.id)), [boot.data?.feeds, sel]);
+  const selectedFeeds: Feed[] = useMemo(() => (boot.data?.feeds ?? []).filter((f) => shownSel.has(f.id)), [boot.data?.feeds, shownSel]);
   const th = (k: SortKey) => (
     <th scope="col" aria-sort={sort === k ? (dir === 1 ? "ascending" : "descending") : "none"} className="px-3 py-2 text-left font-semibold">
       <button
@@ -336,8 +336,8 @@ export function HealthScreen() {
                         <input
                           type="checkbox"
                           aria-label="Select all feeds"
-                          checked={feeds.length > 0 && feeds.every((f) => sel.has(f.id))}
-                          onChange={() => setSel(feeds.every((f) => sel.has(f.id)) ? new Set() : new Set(feeds.map((f) => f.id)))}
+                          checked={allShownSelected}
+                          onChange={() => setSel(toggleGroup(shownIds, sel))}
                           className="size-5 accent-[var(--kp-accent)]"
                         />
                       </th>
@@ -430,18 +430,18 @@ export function HealthScreen() {
       {selecting ? (
         <div role="region" aria-label="Selected feeds" className="pb-safe flex shrink-0 flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-2">
           <span className="mr-auto text-sm font-semibold" aria-live="polite">
-            {sel.size} selected
+            {shownSel.size} selected
           </span>
-          <Button onClick={() => setSel(new Set(feeds.map((f) => f.id)))} disabled={feeds.length === 0 || feeds.every((f) => sel.has(f.id))}>
+          <Button onClick={() => setSel(new Set([...sel, ...shownIds]))} disabled={feeds.length === 0 || allShownSelected}>
             Select all
           </Button>
-          <Button onClick={() => setBulk("enable")} disabled={sel.size === 0}>
+          <Button onClick={() => setBulk("enable")} disabled={shownSel.size === 0}>
             Turn on
           </Button>
-          <Button onClick={() => setBulk("disable")} disabled={sel.size === 0}>
+          <Button onClick={() => setBulk("disable")} disabled={shownSel.size === 0}>
             Turn off
           </Button>
-          <Button variant="solid" onClick={() => setBulk("delete")} disabled={sel.size === 0}>
+          <Button variant="solid" onClick={() => setBulk("delete")} disabled={shownSel.size === 0}>
             Delete
           </Button>
         </div>
