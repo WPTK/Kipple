@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import { remeasureMounted } from "@/lib/remeasure";
 import { useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
@@ -79,6 +79,10 @@ interface ListMemory {
    * mount) means the list was refetched since (new arrivals, a resync, mark-all) and `offset` no longer
    * points at the rows it used to. */
   offsetAsOf?: string;
+  /** Row heights measured on the last visit, and what they were measured for (layout, columns, width bucket, text
+   * size). `offset` was taken over these heights: without them the rows above it come back at their estimates, so
+   * the same offset lands rows away from where the reader was (#94). */
+  sizes?: { sig: string; items: VirtualItem[] };
   selectedId?: string;
   /** Rows swiped or marked away in Unread, so leaving the list and coming back keeps them gone. */
   hidden: ReadonlySet<string>;
@@ -280,6 +284,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     getItemKey: (i) => rows[i]?.key ?? i,
     overscan: 8,
     initialOffset: saved?.offset ?? 0,
+    // The heights from the last visit, so the restored offset points at the rows it was taken over.
+    initialMeasurementsCache: saved?.sizes?.items,
   });
 
   // `as_of` is a global watermark (it moves whenever any feed anywhere gets new items), and `staleTime:
@@ -308,17 +314,34 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const widthBucket = Math.round(width / 48);
   // The root font size changes with the text-size preference, so it is re-read (and rows re-measured) then too.
   const textSize = prefs.textSize;
+  const sizeSig = `${layout.id}|${cols}|${widthBucket}|${textSize}`;
+  // What the heights the virtualizer holds were measured for: the ones restored from the last visit, at first.
+  const measuredSig = useRef(saved?.sizes?.sig);
+  const unmeasured = width === 0;
   useEffect(() => {
     try {
       sizeCtx.current.rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     } catch {
       /* keep the last */
     }
+    // Nothing is laid out for real before the list has a width, and heights restored for this same layout, width
+    // and text size are still right: dropping them would put the rows above the restored offset back at their
+    // estimates and land the reader rows away from where they were.
+    if (unmeasured || measuredSig.current === sizeSig) return;
+    measuredSig.current = sizeSig;
     // measure() drops every cached size. Rows already on screen (the list came back from an article with its
     // data cached, so it renders at once) will not report again until they resize, so measure them now or they
     // keep the estimate and overlap the rows below.
     remeasureMounted(virtualizer, parentRef.current);
-  }, [layout.id, cols, widthBucket, virtualizer, textSize]);
+  }, [sizeSig, unmeasured, virtualizer]);
+  // Keep the measured heights for the way back, with what they were measured for.
+  useEffect(
+    () => () => {
+      const sig = measuredSig.current;
+      memoryFor(key).sizes = sig ? { sig, items: virtualizer.takeSnapshot() } : undefined;
+    },
+    [key, virtualizer],
+  );
 
   const rowIndexOf = useCallback(
     (id: string) => rows.findIndex((r) => (r.kind === "item" ? r.item.id === id : r.kind === "group" && r.items.some((i) => i.id === id))),
