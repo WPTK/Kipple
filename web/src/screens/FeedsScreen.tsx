@@ -3,12 +3,12 @@ import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
-import { ArrowDown, ArrowUp, Check, CheckSquare, ChevronDown, ChevronRight, Download, FolderPlus, GripVertical, HeartPulse, MoreVertical, Pencil, Plus, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderPlus, GripVertical, HeartPulse, MoreVertical, Pencil, Plus, Upload } from "lucide-react";
 import { createFolder, deleteFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap, Feed, Folder } from "@/api/types";
-import { LAYOUT_IDS, LAYOUT_LABELS, setLayoutOverride, updateDevicePrefs, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
+import { LAYOUT_IDS, LAYOUT_LABELS, setLayoutOverride, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
 import type { Favorite } from "@/lib/devicePrefs";
 import {
   arrayMove,
@@ -35,7 +35,7 @@ import { announce, toast } from "@/shell/toasts";
 import { FirstRun } from "./FirstRun";
 import { StatusChip } from "./StatusChip";
 import { SavedSearchesNav } from "./SavedSearchesNav";
-import { toggleCollapsed } from "./FeedTree";
+import { CollapseToggle } from "./FeedTree";
 import { DeleteDialog, MoveDialog } from "./feeds/BulkActions";
 
 // The dialogs load when first opened, not with the Feeds screen.
@@ -427,16 +427,7 @@ export function FeedsScreen() {
         <div className="flex items-center">
           {!selecting && editMode ? grip(src, `favorite ${name ?? ""}`) : null}
           {favFolder && favFeeds.length > 0 && !selecting && !editMode ? (
-            <button
-              type="button"
-              aria-expanded={!favCollapsed}
-              aria-controls={favListId}
-              aria-label={`${favCollapsed ? "Expand" : "Collapse"} ${favFolder.name}`}
-              onClick={() => updateDevicePrefs({ collapsedFolders: toggleCollapsed(dp.collapsedFolders, favFolder.id) })}
-              className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
-            >
-              {favCollapsed ? <ChevronRight className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
-            </button>
+            <CollapseToggle folder={favFolder} collapsed={favCollapsed} listId={favListId} collapsedIds={dp.collapsedFolders} />
           ) : null}
           <Link
             to={listTo(fav.t === "folder" ? { view: "unread", folder: fav.id } : { view: "unread", feed: fav.id })}
@@ -620,16 +611,7 @@ export function FeedsScreen() {
                       ) : editMode ? (
                         grip(fsrc, `folder ${fo.name}`)
                       ) : (
-                        <button
-                          type="button"
-                          aria-expanded={!collapsed}
-                          aria-controls={listId}
-                          aria-label={`${collapsed ? "Expand" : "Collapse"} ${fo.name}`}
-                          onClick={() => updateDevicePrefs({ collapsedFolders: toggleCollapsed(dp.collapsedFolders, fo.id) })}
-                          className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
-                        >
-                          {collapsed ? <ChevronRight className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
-                        </button>
+                        <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />
                       )}
                       <Link to={listTo({ view: "unread", folder: fo.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
                         <span className="truncate">{fo.name}</span>

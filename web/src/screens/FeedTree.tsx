@@ -21,7 +21,7 @@ export function toggleCollapsed(collapsed: readonly string[], id: string): strin
 const reveal = "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 [&[aria-pressed=true]]:opacity-100 [@media(pointer:coarse)]:opacity-100";
 
 /** The chevron that collapses or expands a folder's feeds; the state is per device, shared by every place the folder shows. */
-function CollapseToggle({ folder, collapsed, listId, collapsedIds }: { folder: Folder; collapsed: boolean; listId: string; collapsedIds: readonly string[] }) {
+export function CollapseToggle({ folder, collapsed, listId, collapsedIds }: { folder: Folder; collapsed: boolean; listId: string; collapsedIds: readonly string[] }) {
   return (
     <button
       type="button"
