@@ -775,7 +775,7 @@ describe("Account and backup", () => {
           expires_at: 0,
           expires_in: 300,
           warning: "This file contains your password hashes and secrets. Keep it private.",
-          contents: { kipple_version: "0.2.0", schema_version: 6, created_at: 1_790_000_000, feeds: 120, items: 30000, starred: 42, db_bytes: 4_000_000 },
+          contents: { kipple_version: "0.2.0", schema_version: 6, created_at: "2026-09-25T10:15:00Z", feeds: 120, items: 30000, starred: 42, db_bytes: 4_000_000 },
         }),
     });
     go("/settings/account");
@@ -784,6 +784,9 @@ describe("Account and backup", () => {
     const dlg = await screen.findByRole("dialog", { name: "Download backup" });
     expect(within(dlg).getByText(/password hashes and secrets/)).toBeInTheDocument();
     expect(within(dlg).getByText(/30000 \(42 starred\)/)).toBeInTheDocument();
+    // The manifest stamps created_at as RFC 3339 text, not Unix seconds (#92).
+    expect(within(dlg).getByText("Made").nextElementSibling).toHaveTextContent(/2026/);
+    expect(dlg).not.toHaveTextContent("Invalid Date");
     expect(within(dlg).getByRole("link", { name: /kipple-backup-20260925-101500\.zip/ })).toHaveAttribute("href", "/api/backup/t");
   });
 
@@ -795,7 +798,7 @@ describe("Account and backup", () => {
         polls += 1;
         return polls < 2
           ? json({ status: "building" })
-          : json({ status: "ready", token: "t2", url: "/api/backup/t2", filename: "kipple-backup-x.zip", bytes: 10, expires_at: 0, expires_in: 300, warning: "Keep it private.", contents: { kipple_version: "1", schema_version: 1, created_at: 1_790_000_000, feeds: 1, items: 2, starred: 0, db_bytes: 5 } });
+          : json({ status: "ready", token: "t2", url: "/api/backup/t2", filename: "kipple-backup-x.zip", bytes: 10, expires_at: 0, expires_in: 300, warning: "Keep it private.", contents: { kipple_version: "1", schema_version: 1, created_at: "2026-09-25T10:15:00Z", feeds: 1, items: 2, starred: 0, db_bytes: 5 } });
       },
     });
     const { exportBackup } = await import("@/api/admin");
