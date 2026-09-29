@@ -94,10 +94,9 @@ export function release(changelog, { version, date, intro = '', fragments }) {
   const problems = checkUnreleased(changelog);
   if (problems.length) throw new Error(problems.join('\n'));
   const text = changelog.replace(/\r\n/g, '\n');
-  if (text.split('
-').some((l) => l.startsWith(`## [${version}]`))) throw new Error(`CHANGELOG.md already has ${version}`);
 
   const lines = text.split('\n');
+  if (lines.some((l) => l.startsWith(`## [${version}]`))) throw new Error(`CHANGELOG.md already has ${version}`);
   const { start, end } = unreleasedBounds(lines);
   const introBlock = intro.trim() ? `${intro.trim()}
 
