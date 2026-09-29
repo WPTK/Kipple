@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
@@ -29,6 +29,7 @@ beforeEach(() => {
   prefsStore.set(DEFAULT_PREFS);
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
   prefsStore.set(DEFAULT_PREFS);
@@ -146,7 +147,7 @@ describe("stale scroll offset over refetched data", () => {
     // can't tell a restored offset from a reset one; spying on it directly proves whether the list asked to
     // scroll back to the top.
     const scrollTo = vi.spyOn(Element.prototype, "scrollTo");
-    await user.click(screen.getByRole("link", { name: /Unread/ }));
+    await user.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("link", { name: /Unread/ }));
     // First paint still serves the stale cached page (as_of "100", matching what the offset was saved against),
     // so the pixel offset is restored optimistically: the list comes back scrolled down, not at the top.
     await screen.findByTestId("list-scroll");
@@ -155,5 +156,64 @@ describe("stale scroll offset over refetched data", () => {
     await waitFor(() => {
       expect(scrollTo.mock.calls.some((c) => (c[0] as { top?: number })?.top === 0)).toBe(true);
     });
+  });
+
+  it("does not throw a reader back to the top when the list's data changes later in the visit", async () => {
+    const cards = Array.from({ length: 30 }, (_, i) => card(i + 1));
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf(cards, null, "100")),
+      "GET /api/feeds": () => json([]),
+    });
+    const qc = makeQueryClient({ retry: false });
+    window.history.replaceState({ idx: 0 }, "", "/l/unread");
+    render(<App client={qc} />);
+    await screen.findByText("Article number 1");
+    act(() => {
+      const s = screen.getByTestId("list-scroll");
+      s.scrollTop = 900;
+      s.dispatchEvent(new Event("scroll"));
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("link", { name: /Feeds/ }));
+    // Back with nothing changed: the offset is valid, so it is restored and the check must switch itself off.
+    const scrollTo = vi.spyOn(Element.prototype, "scrollTo");
+    await user.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("link", { name: /Unread/ }));
+    await screen.findByTestId("list-scroll");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    // Later in the same visit the list's watermark moves (a resync, a bulk mark elsewhere refetching the list).
+    act(() => {
+      qc.setQueryData(keys.items({ view: "unread" }), { pageParams: [""], pages: [pageOf(cards, null, "300")] });
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(scrollTo.mock.calls.some((c) => (c[0] as { top?: number })?.top === 0)).toBe(false);
+  });
+});
+
+describe("turning mark-read-on-scroll off", () => {
+  it("does not mark the pending scrolled-past rows read when the setting is switched off before the settle", async () => {
+    updatePrefs({ markReadOnScroll: true });
+    const cards = Array.from({ length: 30 }, (_, i) => card(i + 1));
+    const { calls } = mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf(cards)),
+      "POST /api/items/mark-read": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids, restored: [] }),
+    });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    act(() => {
+      const s = screen.getByTestId("list-scroll");
+      s.scrollTop = 6000;
+      s.dispatchEvent(new Event("scroll"));
+    });
+    act(() => updatePrefs({ markReadOnScroll: false }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 900));
+    });
+    expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")).toBe(false);
   });
 });

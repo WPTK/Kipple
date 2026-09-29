@@ -287,13 +287,20 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   // elsewhere (a mute, mark-all-read, a resync) with its own stale `as_of` — so checking the fingerprint only
   // once at mount can restore a pixel offset that is about to be pulled out from under it by the pending
   // refetch. Checking again whenever this scope's own data actually changes catches that: it fires only when
-  // this list's rows really did change since the offset was saved, not on every remount.
+  // this list's rows really did change since the offset was saved, not on every remount. The check only covers
+  // that first settling: once the query has no fetch in flight and still has the data the offset was saved
+  // against, the offset is known good and the check is switched off, so a later refetch (a resync, a bulk mark)
+  // never throws a reader back to the top mid-visit.
   const restoredAsOf = useRef(saved?.offsetAsOf);
   useEffect(() => {
-    if (restoredAsOf.current === undefined || restoredAsOf.current === currentAsOf) return;
-    restoredAsOf.current = undefined;
-    virtualizer.scrollToOffset(0);
-  }, [currentAsOf, virtualizer]);
+    if (restoredAsOf.current === undefined) return;
+    if (restoredAsOf.current !== currentAsOf) {
+      restoredAsOf.current = undefined;
+      virtualizer.scrollToOffset(0);
+    } else if (!q.isFetching) {
+      restoredAsOf.current = undefined;
+    }
+  }, [currentAsOf, virtualizer, q.isFetching]);
 
   // A different layout has different row heights: drop the sizes measured for the old one.
   // The same goes for a width that moves a row across a breakpoint or changes its image height: re-measure per
@@ -379,6 +386,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   // the list are marked read once scrolling settles. Goes through mark-read with reason "scroll": no stats,
   // no undo toast, and never on Starred or search.
   const markOnScroll = prefs.markReadOnScroll && scope.view !== "starred" && !scope.q;
+  const markOnScrollRef = useRef(markOnScroll);
+  markOnScrollRef.current = markOnScroll;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const sentByScroll = useRef(memoryFor(key).sentByScroll);
@@ -419,7 +428,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       // lose rows that were genuinely scrolled past just before.
       if (timer) {
         clearTimeout(timer);
-        flush();
+        // Not when the setting was just switched off: this cleanup also runs then, and rows must not be
+        // marked read after the reader turned the feature off.
+        if (markOnScrollRef.current) flush();
       }
       el.removeEventListener("scroll", onScroll);
     };
