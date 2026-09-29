@@ -17,6 +17,20 @@ var trackerHints = []string{
 // lazyAttrs are checked in order when src is missing or a data: placeholder.
 var lazyAttrs = []string{"data-src", "data-lazy-src", "data-original", "data-lazy"}
 
+// assumedWidth stands in for an image's score when nothing names its size. It sits above icon/avatar/share-button
+// widths (typically well under 100px) and below a real content photo, so a merely small-but-sized image (a 48px
+// avatar) does not automatically outrank an unsized image that is very likely the actual lead photo; two unsized
+// images tie, so the first one found wins between them, matching the pre-scoring behavior.
+const assumedWidth = 200
+
+// bannerScore ranks a wide, short image below an unsized one (assumedWidth) and below any real photo, but above
+// icons and avatars (well under 100px). A declared shape much wider than tall (a 728x90 leaderboard ad, a divider
+// strip) is almost never the article's picture, but a genuine panorama is not worth losing to a 16px icon either.
+const bannerScore = 100
+
+// bannerRatio is how many times wider than tall a declared size must be to count as a banner.
+const bannerRatio = 4
+
 // LeadImage returns the absolute URL of the best real image in an HTML
 // fragment, or "". Tracking pixels (width or height <= 2, known beacon URLs)
 // and data: URIs are skipped; lazy-load attributes are honoured. Relative URLs
@@ -37,6 +51,20 @@ func LeadImage(src string, bases ...string) string {
 	}
 	var best candidate
 	haveBest := false
+	// outranks reports whether a new candidate should replace best, treating an unknown size (0) as
+	// assumedWidth rather than 0 so it isn't beaten by any image that merely happens to declare a size.
+	outranks := func(score int) bool {
+		if !haveBest {
+			return true
+		}
+		effective := func(s int) int {
+			if s == 0 {
+				return assumedWidth
+			}
+			return s
+		}
+		return effective(score) > effective(best.score)
+	}
 	z := html.NewTokenizer(strings.NewReader(src))
 	for {
 		switch z.Next() {
@@ -64,7 +92,10 @@ func LeadImage(src string, bases ...string) string {
 			// srcset's widest candidate, if any, is preferred over plain src/lazy attrs: src is often the
 			// small default a JS-less client would get, while srcset lists the full range up to the original.
 			if u, w := bestSrcset(attrs["srcset"], bases); u != "" {
-				if !haveBest || w > best.score {
+				if isBanner(attrs) {
+					w = bannerScore
+				}
+				if outranks(w) {
 					best = candidate{url: u, score: w}
 					haveBest = true
 				}
@@ -87,7 +118,10 @@ func LeadImage(src string, bases ...string) string {
 					continue
 				}
 				score := attrWidth(attrs)
-				if !haveBest || score > best.score {
+				if isBanner(attrs) {
+					score = bannerScore
+				}
+				if outranks(score) {
 					best = candidate{url: abs, score: score}
 					haveBest = true
 				}
@@ -97,8 +131,16 @@ func LeadImage(src string, bases ...string) string {
 	}
 }
 
+// isBanner reports whether both dimensions are declared and the image is more than bannerRatio times wider than
+// it is tall (compared as w/ratio > h so a huge height cannot overflow).
+func isBanner(attrs map[string]string) bool {
+	w, errW := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(attrs["width"]), "px"))
+	h, errH := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(attrs["height"]), "px"))
+	return errW == nil && errH == nil && h > 0 && w/bannerRatio > h
+}
+
 // attrWidth is the declared pixel width of an <img>, from its `width` attribute, else its `height`, else 0
-// (unknown, so it never outranks a candidate whose size is actually known).
+// (unknown; LeadImage treats that as assumedWidth rather than 0 when ranking candidates).
 func attrWidth(attrs map[string]string) int {
 	if n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(attrs["width"]), "px")); err == nil {
 		return n
@@ -112,23 +154,24 @@ func attrWidth(attrs map[string]string) int {
 // bestSrcset resolves the widest usable candidate in a `srcset` attribute (e.g. "a.jpg 300w, b.jpg 1024w"
 // -> b.jpg, 1024), skipping trackers and unresolvable URLs. Density descriptors ("2x") say nothing about
 // absolute pixel size and are ignored. Returns ("", 0) if srcset is empty or names no usable, sized candidate.
+// Uses eachSrcsetCandidate (shared with Absolutize's own srcset rewriting) so a comma inside a URL, as in a
+// CDN transform like ".../w_300,h_200/a.jpg 300w", is not mistaken for a candidate separator.
 func bestSrcset(srcset string, bases []string) (string, int) {
 	bestURL, bestW := "", 0
-	for _, part := range strings.Split(srcset, ",") {
-		fields := strings.Fields(strings.TrimSpace(part))
-		if len(fields) != 2 || !strings.HasSuffix(fields[1], "w") {
-			continue
+	eachSrcsetCandidate(srcset, func(u, desc string) {
+		if !strings.HasSuffix(desc, "w") {
+			return
 		}
-		n, err := strconv.Atoi(strings.TrimSuffix(fields[1], "w"))
+		n, err := strconv.Atoi(strings.TrimSuffix(desc, "w"))
 		if err != nil || n <= bestW {
-			continue
+			return
 		}
-		abs := ResolveURL(fields[0], bases...)
+		abs := ResolveURL(u, bases...)
 		if abs == "" || isTracker(abs) {
-			continue
+			return
 		}
 		bestURL, bestW = abs, n
-	}
+	})
 	return bestURL, bestW
 }
 

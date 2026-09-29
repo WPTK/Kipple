@@ -99,6 +99,11 @@ describe("announcementFor", () => {
     expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, trigger: "scheduled" } })).toBeNull();
     expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, trigger: "subscribe" } })).toBeNull();
     expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, trigger: "feed_manual", run_ids: ["4"] } })).toBe("2 new articles");
+    // A "Refresh all" run's own per-feed fetches are stamped "manual" (never "feed_manual"), with or without
+    // run_ids: every one of them belongs to a run by construction, so its run.done announces the total once,
+    // not once per feed (previously unstamped, this used to double-announce — issue found in review of #56).
+    expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, trigger: "manual" } })).toBeNull();
+    expect(announcementFor({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, trigger: "manual", run_ids: ["4"] } })).toBeNull();
     expect(announcementFor({ type: "counts", data: { unread_total: 0, feeds: {} } })).toBeNull();
   });
 });

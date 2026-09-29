@@ -75,8 +75,9 @@ export async function markScrolledPast(qc: QueryClient, passed: Card[], sent: Se
 // (design 3.4: one restore path). Module scope: survives route changes.
 interface ListMemory {
   offset: number;
-  /** The list's `as_of` when `offset` was recorded: a mismatch means the list was refetched since (new arrivals,
-   * a resync, mark-all) and `offset` no longer points at the rows it used to. */
+  /** The list's `as_of` when `offset` was recorded: a mismatch (checked once the query settles, not only at
+   * mount) means the list was refetched since (new arrivals, a resync, mark-all) and `offset` no longer
+   * points at the rows it used to. */
   offsetAsOf?: string;
   selectedId?: string;
   /** Rows swiped or marked away in Unread, so leaving the list and coming back keeps them gone. */
@@ -84,13 +85,16 @@ interface ListMemory {
   checked: ReadonlySet<string>;
   /** Ids already sent by mark-read-on-scroll. */
   sentByScroll: Set<string>;
+  /** Rows actually rendered in the visible window at some point (not just overscan), so a mark-on-scroll
+   * settle after a remount still knows what was genuinely seen before the list was last unmounted. */
+  seenByScroll: Set<string>;
 }
 const MEMORY_CAP = 100;
 const memory = new Map<string, ListMemory>();
 const memoryFor = (key: string): ListMemory => {
   let m = memory.get(key);
   if (!m) {
-    m = { offset: 0, hidden: new Set(), checked: new Set(), sentByScroll: new Set() };
+    m = { offset: 0, hidden: new Set(), checked: new Set(), sentByScroll: new Set(), seenByScroll: new Set() };
     memory.set(key, m);
     // Bounded: every scope (each partial search string too) adds an entry. Map order is insertion order, so the
     // oldest go first; a touched entry is re-inserted below to stay recent.
@@ -252,14 +256,11 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   // "Only items present when the list loaded": the highest id the list knew about.
   // The server's own `as_of` for the first page (ids follow arrival, not sort order, so the page maximum is wrong).
+  const currentAsOf = q.data?.pages[0]?.as_of;
   const asOf = useRef<string | undefined>(undefined);
-  asOf.current = q.data?.pages[0]?.as_of;
+  asOf.current = currentAsOf;
 
   const saved = memory.get(key);
-  // A saved offset only means anything against the list it was recorded from. If the list was refetched since
-  // (new arrivals, a resync, mark-all-read touching this scope) `as_of` has moved on, and restoring the old
-  // pixel offset would land over rows that were never actually on screen.
-  const offsetValid = saved !== undefined && saved.offsetAsOf !== undefined && saved.offsetAsOf === asOf.current;
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
   const selected = activeId ?? selectedId;
 
@@ -278,8 +279,28 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     },
     getItemKey: (i) => rows[i]?.key ?? i,
     overscan: 8,
-    initialOffset: offsetValid ? (saved?.offset ?? 0) : 0,
+    initialOffset: saved?.offset ?? 0,
   });
+
+  // `as_of` is a global watermark (it moves whenever any feed anywhere gets new items), and `staleTime:
+  // Infinity` means the cache right after mount can still be the stale page from before an invalidation
+  // elsewhere (a mute, mark-all-read, a resync) with its own stale `as_of` — so checking the fingerprint only
+  // once at mount can restore a pixel offset that is about to be pulled out from under it by the pending
+  // refetch. Checking again whenever this scope's own data actually changes catches that: it fires only when
+  // this list's rows really did change since the offset was saved, not on every remount. The check only covers
+  // that first settling: once the query has no fetch in flight and still has the data the offset was saved
+  // against, the offset is known good and the check is switched off, so a later refetch (a resync, a bulk mark)
+  // never throws a reader back to the top mid-visit.
+  const restoredAsOf = useRef(saved?.offsetAsOf);
+  useEffect(() => {
+    if (restoredAsOf.current === undefined) return;
+    if (restoredAsOf.current !== currentAsOf) {
+      restoredAsOf.current = undefined;
+      virtualizer.scrollToOffset(0);
+    } else if (!q.isFetching) {
+      restoredAsOf.current = undefined;
+    }
+  }, [currentAsOf, virtualizer, q.isFetching]);
 
   // A different layout has different row heights: drop the sizes measured for the old one.
   // The same goes for a width that moves a row across a breakpoint or changes its image height: re-measure per
@@ -348,7 +369,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const lastIndex = virtualItems.length ? (virtualItems[virtualItems.length - 1]?.index ?? 0) : 0;
   useEffect(() => {
     // After a failed page the auto-fetch stops (offline would retry every render); the inline Retry row resumes it.
-    if (q.hasNextPage && !q.isFetchingNextPage && !q.isFetchNextPageError && rows.length > 0 && lastIndex >= rows.length - 10) void q.fetchNextPage();
+    // Not while the list itself is being refetched (an on-mount refetch of an invalidated list): fetchNextPage would
+    // cancel it and append a page to the stale rows, leaving both the stale rows and a restored offset in place.
+    if (q.hasNextPage && !q.isFetching && !q.isFetchNextPageError && rows.length > 0 && lastIndex >= rows.length - 10) void q.fetchNextPage();
   }, [lastIndex, rows.length, q]);
 
   // The selection is committed to memory before the route changes: on a phone the list unmounts in the
@@ -365,23 +388,26 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   // the list are marked read once scrolling settles. Goes through mark-read with reason "scroll": no stats,
   // no undo toast, and never on Starred or search.
   const markOnScroll = prefs.markReadOnScroll && scope.view !== "starred" && !scope.q;
+  const markOnScrollRef = useRef(markOnScroll);
+  markOnScrollRef.current = markOnScroll;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const sentByScroll = useRef(memoryFor(key).sentByScroll);
-  // Rows actually rendered in the visible window at some point, so a restored/jumped-to offset that puts rows
-  // "above the start index" without them ever having been on screen does not count as scrolled past.
-  const seenIds = useRef(new Set<string>());
+  // Rows actually rendered in the visible window at some point (not the overscan rows outside it), so a
+  // restored/jumped-to offset that puts rows "above the start index" without them ever having been on screen
+  // does not count as scrolled past. Persisted in ListMemory (like sentByScroll) so a quick unmount/remount
+  // (opening an article on a phone) does not forget rows that really were seen just before.
+  const seenIds = useRef(memoryFor(key).seenByScroll);
   useEffect(() => {
-    seenIds.current = new Set();
-  }, [key]);
-  useEffect(() => {
-    for (const v of virtualItems) {
-      const r = rowsRef.current[v.index];
-      if (!r) continue;
-      if (r.kind === "item") seenIds.current.add(r.item.id);
-      else if (r.kind === "group") for (const it of r.items) seenIds.current.add(it.id);
+    const r = virtualizer.range;
+    if (!r) return;
+    for (let i = r.startIndex; i <= r.endIndex; i++) {
+      const row = rowsRef.current[i];
+      if (!row) continue;
+      if (row.kind === "item") seenIds.current.add(row.item.id);
+      else if (row.kind === "group") for (const it of row.items) seenIds.current.add(it.id);
     }
-  }, [virtualItems]);
+  }, [virtualItems, virtualizer]);
   useEffect(() => {
     const el = parentRef.current;
     if (!markOnScroll || !el) return;
@@ -400,7 +426,14 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      if (timer) clearTimeout(timer);
+      // A pending settle is flushed rather than dropped: unmounting (opening an article on a phone) must not
+      // lose rows that were genuinely scrolled past just before.
+      if (timer) {
+        clearTimeout(timer);
+        // Not when the setting was just switched off: this cleanup also runs then, and rows must not be
+        // marked read after the reader turned the feature off.
+        if (markOnScrollRef.current) flush();
+      }
       el.removeEventListener("scroll", onScroll);
     };
   }, [markOnScroll, qc, virtualizer]);
@@ -766,7 +799,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     });
     memory.delete(key);
     sentByScroll.current = memoryFor(key).sentByScroll;
-    seenIds.current = new Set();
+    seenIds.current = memoryFor(key).seenByScroll;
     asOf.current = undefined;
     setHidden(new Set());
     setLeaving(new Set());
