@@ -437,6 +437,9 @@ Defects:
 - **B2-9 (P3)** The empty state after Shift+A says "1 new article arrived. Load them above" (plural pronoun for
   one); related to issue #44.
 
+Filed 2026-09-29 as issues #92 (B2-1), #93 (B2-2), #94 (B2-3), #95 (B2-4), #96 (B2-5), #97 (B2-6), #98 (B2-7), #99 (B2-9)
+and #100 (B2-8, the owner's call). None is P0 or P1, so the soak clock is not affected.
+
 ## Suite 3 — Owner-only (real device required)
 
 **Not a promotion gate (decided 2026-09-27, see `docs/RELEASING.md`).** These stay open-ended: the owner checks
