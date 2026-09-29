@@ -73,6 +73,10 @@ export function useItem(id: string | undefined) {
     queryFn: ({ signal }) => api<ItemDetail>(`/api/items/${id}`, { signal }),
     enabled: !!id,
     staleTime: 5 * 60_000,
+    // Always ask, even when the browser says it is offline: the service worker may hold this article (saved for
+    // offline), and when it does not the request fails at once and the article shows its error screen. Under the
+    // default ("online") the query would sit paused, a loading skeleton with no end.
+    networkMode: "always",
   });
 }
 
