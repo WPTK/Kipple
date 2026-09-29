@@ -129,7 +129,7 @@ export function emptyCopy(scope: Scope, pendingNew = 0): { title: string; body: 
   if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
   if (scope.view === "unread") {
     return pendingNew > 0
-      ? { title: "All caught up", body: `${pendingNew} new article${pendingNew === 1 ? "" : "s"} arrived. Load them above to continue reading.` }
+      ? { title: "All caught up", body: `${pendingNew} new article${pendingNew === 1 ? "" : "s"} arrived. Load ${pendingNew === 1 ? "it" : "them"} above to continue reading.` }
       : { title: "All caught up", body: "No unread articles. New ones appear after the next refresh." };
   }
   return { title: "No articles yet", body: "Kipple hasn't fetched anything from these feeds yet." };
