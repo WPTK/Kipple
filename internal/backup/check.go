@@ -27,12 +27,13 @@ func openFile(path string) (*sql.DB, error) {
 	return openDSN(path, url.Values{"_pragma": {"busy_timeout(5000)", "journal_mode(DELETE)"}})
 }
 
-// openFileUntouched opens a database file read-only and immutable: nothing is
-// written, no -wal or -shm is created or recovered, and only the main file is
-// read (a live database's WAL, if any, is not seen). For a glance at the live
-// database before a restore replaces it.
-func openFileUntouched(path string) (*sql.DB, error) {
-	return openDSN(path, url.Values{"mode": {"ro"}, "immutable": {"1"}})
+// openFileReadOnly opens a database file read-only: nothing is written or
+// created beside it, and a live database's committed WAL is read too (SQLite
+// reads a WAL without write access since 3.22). For a glance at the live
+// database before a restore replaces it; a file it cannot open that way is the
+// caller's "could not be read".
+func openFileReadOnly(path string) (*sql.DB, error) {
+	return openDSN(path, url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout(5000)", "query_only(1)"}})
 }
 
 func openDSN(path string, q url.Values) (*sql.DB, error) {

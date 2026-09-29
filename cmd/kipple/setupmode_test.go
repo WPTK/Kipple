@@ -304,6 +304,16 @@ func TestRestoreKeepsTheInstallationsPort(t *testing.T) {
 	require.Equal(t, ":7080", addrOf(fresh))
 	require.Contains(t, out, "old default port")
 
+	// A live database that was never set up (the container started once on a
+	// rebuilt host) is no installation to follow: the backup keeps its own.
+	unset := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.MkdirAll(unset, 0o700))
+	openDir(t, unset).Close()
+	out, err = doRestore(unset, legacyZip, true)
+	require.NoError(t, err)
+	require.Equal(t, ":7080", addrOf(unset))
+	require.Contains(t, out, "old default port")
+
 	// A live database too broken to read does not stop the restore.
 	broken := newData(t, 1)
 	require.NoError(t, os.WriteFile(filepath.Join(broken, "kipple.db"), []byte("not a database at all, just junk bytes"), 0o600))

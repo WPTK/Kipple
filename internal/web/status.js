@@ -168,17 +168,14 @@
   }
 
   var openTried = false; // one open-mode sign-in per page load, so a dropped cookie cannot loop
-  function openRefused(r) {
-    return r.json().then(function (e) { err("Kipple has no password, and " + (e.message || "this address may not use it") + "."); },
+  // refused shows a refusal's message after prefix (the status when there is none).
+  function refused(r, prefix) {
+    return r.json().then(function (e) { err(prefix + (e.message || e.error || r.status) + "."); },
       function () { err("Kipple refused this request (" + r.status + ")."); });
   }
   function boot() {
     api("GET", "/api/auth/me").then(function (r) {
-      if (r.status === 403) {
-        show(false); $("login").hidden = true;
-        return r.json().then(function (e) { err("Kipple refused this request: " + (e.message || e.error || r.status) + "."); },
-          function () { err("Kipple refused this request (403)."); });
-      }
+      if (r.status === 403) { show(false); $("login").hidden = true; return refused(r, "Kipple refused this request: "); }
       if (r.status === 401) {
         show(false);
         api("GET", "/api/instance").then(function (i) { return i.ok ? i.json() : null; }).then(function (d) {
@@ -191,7 +188,7 @@
           openTried = true;
           return api("POST", "/api/auth/open").then(function (o) {
             if (o.status === 204) { boot(); return; }
-            return openRefused(o);
+            return refused(o, "Kipple has no password, and ");
           });
         }).catch(function () { err("cannot reach the server"); });
         return;

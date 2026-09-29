@@ -1,11 +1,6 @@
 package backup
 
-import (
-	"context"
-	"errors"
-	"io/fs"
-	"os"
-)
+import "context"
 
 // RevokeSessions deletes every web session in the database file at path
 // (restore does this to the copy it is about to install), returning how many.
@@ -26,36 +21,39 @@ func RevokeSessions(ctx context.Context, path string) (int64, error) {
 // database with an account gets the flag when it migrates.
 const legacySchema = 10
 
-// DeploymentLegacyPort reports whether the database at path makes an unset
-// KIPPLE_ADDR listen on the pre-0.5 port 7080: sys.legacy_port is set, or it is
-// an older database with an account (migration 0010 will set it). A missing
-// file is false. Restore asks this of the live database before replacing it,
-// and of the copy when there is no readable live one. The file is opened
-// immutable: nothing next to it is created or changed.
-func DeploymentLegacyPort(ctx context.Context, path string) (bool, error) {
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	db, err := openFileUntouched(path)
+// PortSetting reads what the database at path says about the listen port:
+// installed is whether it holds an account (a database that was never set up
+// is no installation to follow), legacy whether an unset KIPPLE_ADDR then
+// listens on the pre-0.5 port 7080 (sys.legacy_port is set, or it is an older
+// database with an account, which migration 0010 will stamp). Restore asks this
+// of the live database before replacing it, and of the copy otherwise. The
+// file is opened read-only.
+func PortSetting(ctx context.Context, path string) (installed, legacy bool, err error) {
+	db, err := openFileReadOnly(path)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	defer db.Close()
 	var version int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return false, err
+		return false, false, err
 	}
 	if version == 0 {
-		return false, nil // never initialised
+		return false, false, nil // never initialised
+	}
+	var accounts int
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM account").Scan(&accounts); err != nil {
+		return false, false, err
+	}
+	if accounts == 0 {
+		return false, false, nil
 	}
 	if version < legacySchema {
-		var n int
-		err := db.QueryRowContext(ctx, "SELECT count(*) FROM account").Scan(&n)
-		return n > 0, err
+		return true, true, nil
 	}
 	var n int
 	err = db.QueryRowContext(ctx, "SELECT count(*) FROM settings WHERE key = 'sys.legacy_port' AND value = 'true'").Scan(&n)
-	return n > 0, err
+	return true, n > 0, err
 }
 
 // SetLegacyPort writes sys.legacy_port into the database at path (the copy

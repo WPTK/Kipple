@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -252,26 +253,26 @@ func restore(ctx context.Context, o restoreOptions) error {
 	return nil
 }
 
-// carryPort keeps the listen port with the installation (docs/setup-wizard-design.md
-// 8.3): a readable live database decides it (restoring any backup into a 7080
-// install keeps 7080, into a 1919 one keeps 1919). Without one (a new volume,
-// a live database too broken to read) the backup keeps its own, which is right
-// for a rebuilt host with the old configuration; restore then says so when that
-// is the old port, for anyone moving an old backup to a new install.
+// carryPort keeps the listen port with the installation (the setup wizard
+// design, docs/setup-wizard-design.md 8.3): a live database with an account
+// decides it (restoring any backup into a 7080 install keeps 7080, into a 1919
+// one keeps 1919). Without one (a new volume, a database that was never set up,
+// or one too broken to read) the backup keeps its own, which is right for a
+// rebuilt host with the old configuration; restore then says so when that is
+// the old port, for anyone moving an old backup to a new install.
 func carryPort(ctx context.Context, out io.Writer, live, tmp string) {
-	if _, err := os.Stat(live); err == nil {
-		legacy, err := backup.DeploymentLegacyPort(ctx, live)
-		if err == nil {
-			if err := backup.SetLegacyPort(ctx, tmp, legacy); err != nil {
-				fmt.Fprintf(out, "  Could not carry this installation's port setting into the restored copy (%v); the backup's own applies.\n", err)
-			} else {
+	if _, err := os.Stat(live); err == nil || !errors.Is(err, fs.ErrNotExist) {
+		installed, legacy, err := backup.PortSetting(ctx, live)
+		if err == nil && installed {
+			if err = backup.SetLegacyPort(ctx, tmp, legacy); err == nil {
 				return
 			}
-		} else {
+			fmt.Fprintf(out, "  Could not carry this installation's port setting into the restored copy (%v); the backup's own applies.\n", err)
+		} else if err != nil {
 			fmt.Fprintf(out, "  The current database could not be read for its port setting (%v); the backup's own applies.\n", err)
 		}
 	}
-	if legacy, err := backup.DeploymentLegacyPort(ctx, tmp); err == nil && legacy {
+	if _, legacy, err := backup.PortSetting(ctx, tmp); err == nil && legacy {
 		fmt.Fprintln(out, "  This backup comes from an install on the old default port: with KIPPLE_ADDR unset, Kipple will listen on 7080")
 		fmt.Fprintln(out, "  (and warn at every start). Set KIPPLE_ADDR=:1919 (or your port) to choose.")
 	}

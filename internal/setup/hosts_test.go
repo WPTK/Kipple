@@ -91,7 +91,7 @@ func TestCheckHostEntry(t *testing.T) {
 		require.Equal(t, want, got, in)
 	}
 	for _, in := range []string{"", "*", "*.", "https://rss.example.com", "rss.example.com:443", "a b", "*.*.example.com", "rss.example.com/path", "*.192.0.2.1x!",
-		"*.com", "*.io", "*.co.uk", "*.github.io", "*.1.2.3.4", "*.10"} {
+		"*.com", "*.io", "*.co.uk", "*.github.io", "*.1.2.3.4", "*.10", "*.newgtld", "*.zz"} {
 		_, err := CheckHostEntry(in)
 		require.Error(t, err, in)
 	}

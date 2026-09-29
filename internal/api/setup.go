@@ -96,14 +96,16 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request) {
 }
 
 // setupClaim is POST /api/setup/claim {token}: a matching token starts the
-// setup session (the kipple_setup cookie). Wrong tokens are counted per IP on
-// the setup lockout (never the login's) and towards the global rotation; past
-// the limit they are answered 429 and no longer count towards the rotation
-// (one noisy client cannot keep replacing the code). The right token is always accepted, even
-// from a locked address: behind Docker's port forwarding every client shares
-// the gateway's address, and one noisy device must not lock the owner out of
-// claiming. At 120 bits the lockout is about noise, not about guessing (design
-// 5.1), and checking a token costs one hash.
+// setup session (the kipple_setup cookie). Each attempt reserves a slot on the
+// per-IP setup lockout (never the login's) before the token is checked, as the
+// login does, so a parallel burst cannot exceed the limit; a wrong token keeps
+// its reservation and counts towards the global rotation. Past the limit wrong
+// tokens are answered 429 and no longer count towards the rotation (one noisy
+// client cannot keep replacing the code), while the right token is still
+// accepted: behind Docker's port forwarding every client shares the gateway's
+// address, and one noisy device must not lock the owner out of claiming. At 120
+// bits the lockout and the rotation are about noise, not about guessing
+// (design 5.1), and checking a token costs one hash.
 func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 	if s.setupGone(w) {
 		return
@@ -123,32 +125,28 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := s.clientIP(r)
+	reserved, left := s.setupLock.Reserve(ip)
 	claim := s.opt.Setup.Claim
-	locked, left := s.setupLock.Locked(ip)
-	if locked {
+	if !reserved {
 		claim = s.opt.Setup.ClaimUncounted // a locked address's noise never rotates the code
 	}
 	cookie, ok, err := claim(body.Token)
 	switch {
-	case errors.Is(err, setup.ErrNotPending):
-		writeError(w, http.StatusNotFound, "not_found")
-		return
 	case err != nil:
-		s.serverError(w, "setup claim", err)
-		return
-	case !ok:
-		if !locked {
-			// Count it; the reservation stays as the recorded failure. A burst
-			// from one address may cross the limit here.
-			var allowed bool
-			allowed, left = s.setupLock.Reserve(ip)
-			locked = !allowed
+		if reserved {
+			s.setupLock.Release(ip) // says nothing about the token
 		}
-		if locked {
-			w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
-			writeError(w, http.StatusTooManyRequests, "locked")
+		if errors.Is(err, setup.ErrNotPending) {
+			writeError(w, http.StatusNotFound, "not_found")
 			return
 		}
+		s.serverError(w, "setup claim", err)
+		return
+	case !ok && !reserved:
+		w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
+		writeError(w, http.StatusTooManyRequests, "locked")
+		return
+	case !ok:
 		writeErrorMsg(w, http.StatusForbidden, "bad_token", "that is not the current setup code (`kipple setup-token` shows it)") // the reservation stays counted
 		return
 	}

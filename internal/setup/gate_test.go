@@ -116,7 +116,14 @@ func TestTailnetCacheRefreshesInTheBackground(t *testing.T) {
 	up = true // tailscaled comes up later
 	now = now.Add(tailnetRecheck)
 	mu.Unlock()
-	require.False(t, c.get(), "the stale answer is served while the refresh runs")
+	require.False(t, c.get(), "the slightly stale answer is served while the refresh runs")
 	require.Eventually(t, c.get, 5*time.Second, 10*time.Millisecond)
+
+	// Long quiet: an old answer is never used, the scan happens first.
+	mu.Lock()
+	up = false // Tailscale went away
+	now = now.Add(time.Hour)
+	mu.Unlock()
+	require.False(t, c.get(), "an hour-old true does not admit anyone")
 	require.NotPanics(t, func() { _ = TailnetCheck()() })
 }

@@ -160,29 +160,40 @@ func newTailnetCache(now func() time.Time, scan func() bool) *tailnetCache {
 	return &tailnetCache{now: now, scan: scan}
 }
 
+// get answers from the cache while it is fresh (tailnetRecheck), from the cache
+// while a background refresh runs when it is a little older (up to twice
+// that), and otherwise only after a fresh scan: an answer from long ago never
+// admits anyone. A caller that finds another's fresh scan still running gets
+// false (fail closed) rather than an old true.
 func (c *tailnetCache) get() bool {
 	c.mu.Lock()
-	if c.at.IsZero() {
-		c.mu.Unlock()
-		v := c.scan()
-		c.mu.Lock()
-		if c.at.IsZero() {
-			c.last, c.at = v, c.now()
-		}
-		v = c.last
+	age := c.now().Sub(c.at)
+	switch {
+	case !c.at.IsZero() && age < tailnetRecheck:
+		v := c.last
 		c.mu.Unlock()
 		return v
+	case !c.at.IsZero() && age < 2*tailnetRecheck:
+		if !c.busy {
+			c.busy = true
+			go c.refresh()
+		}
+		v := c.last
+		c.mu.Unlock()
+		return v
+	case c.busy:
+		c.mu.Unlock()
+		return false
 	}
-	if !c.busy && c.now().Sub(c.at) >= tailnetRecheck {
-		c.busy = true
-		go func() {
-			v := c.scan()
-			c.mu.Lock()
-			c.last, c.at, c.busy = v, c.now(), false
-			c.mu.Unlock()
-		}()
-	}
-	v := c.last
+	c.busy = true
+	c.mu.Unlock()
+	return c.refresh()
+}
+
+func (c *tailnetCache) refresh() bool {
+	v := c.scan()
+	c.mu.Lock()
+	c.last, c.at, c.busy = v, c.now(), false
 	c.mu.Unlock()
 	return v
 }

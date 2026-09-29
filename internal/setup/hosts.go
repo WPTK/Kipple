@@ -15,6 +15,15 @@ var defaultHostSuffixes = []string{".localhost", ".local", ".lan", ".home.arpa",
 
 const maxHostLen = 253
 
+// privateZones are single-label zones used on private networks that are not
+// (and are not going to be) public top-level domains: the reserved names of
+// RFC 2606 and RFC 6761 plus the long-standing private-use ones ICANN has
+// declined to delegate. "*.home" or "*.corp" may be allowed; "*.com" may not.
+var privateZones = map[string]bool{
+	"home": true, "corp": true, "mail": true, "lan": true, "internal": true, "intranet": true, "private": true,
+	"local": true, "localdomain": true, "localhost": true, "test": true, "example": true, "invalid": true,
+}
+
 // NormalizeHost turns a Host header value into the bare host the gate judges:
 // the port is dropped, brackets come off an IPv6 literal (which is returned in
 // canonical form), letters are lowercased and one trailing dot is removed. ok
@@ -154,11 +163,14 @@ func CheckHostEntry(e string) (string, error) {
 		if last := labels[len(labels)-1]; strings.Trim(last, "0123456789") == "" {
 			return "", fmt.Errorf("%q: a wildcard needs a domain name after *., not an address", e)
 		}
-		// A listed suffix (ICANN's, or a multi-label private one such as
-		// github.io) is where anyone can register a name. A single label that is
-		// not listed at all (home, corp) only matched the list's default rule: a
-		// private LAN zone, which nobody outside can register under.
-		if ps, icann := publicsuffix.PublicSuffix(s); ps == s && (icann || strings.Contains(ps, ".")) {
+		// A public suffix is where anyone can register a name. A single label is
+		// accepted only when it is a known private LAN zone: an unlisted one may
+		// just be a top-level domain newer than the embedded suffix list.
+		if !strings.Contains(s, ".") {
+			if !privateZones[s] {
+				return "", fmt.Errorf("%q covers a whole top-level domain: list your own domain (*.example.com), or a private zone such as *.home", e)
+			}
+		} else if ps, _ := publicsuffix.PublicSuffix(s); ps == s {
 			return "", fmt.Errorf("%q covers a whole public suffix, where anyone can register a name: list your own domain (*.example.com)", e)
 		}
 		return "*." + s, nil

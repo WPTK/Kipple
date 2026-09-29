@@ -840,3 +840,24 @@ func TestSwitchToOpenNeedsAPassword(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Equal(t, "password_required", decode(t, rec)["error"])
 }
+
+// A parallel burst of wrong codes from one address counts at most the lockout's
+// ten towards the rotation: the owner's code survives it.
+func TestSetupClaimBurstDoesNotRotate(t *testing.T) {
+	h := newSetupHarness(t)
+	tok := h.token()
+	var wg sync.WaitGroup
+	for i := 0; i < 3*setup.DefaultRotateAfter; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			code := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code
+			if code != http.StatusForbidden && code != http.StatusTooManyRequests {
+				t.Errorf("status %d", code)
+			}
+		}()
+	}
+	wg.Wait()
+	require.Equal(t, tok, h.token(), "not rotated")
+	h.claim(tok)
+}
