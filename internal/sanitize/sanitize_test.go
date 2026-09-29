@@ -52,6 +52,12 @@ func TestLeadImage(t *testing.T) {
 	require.Equal(t, "https://a.com/post/hero.jpg",
 		LeadImage(`<img src="hero.jpg" width="640" height="427"><img src="ad.gif" width="728" height="90">`, base))
 	require.Equal(t, "https://a.com/post/ad.gif", LeadImage(`<img src="ad.gif" width="728" height="90">`, base))
+	// A real panorama, a little wider than 4:1, still beats a tiny icon; and an absurdly tall declared height
+	// cannot overflow the shape check into calling a tall image a banner.
+	require.Equal(t, "https://a.com/post/pano.jpg",
+		LeadImage(`<img src="pano.jpg" width="2000" height="450"><img src="icon.png" width="16" height="16">`, base))
+	require.Equal(t, "https://a.com/post/tall.jpg",
+		LeadImage(`<img src="tall.jpg" width="1000" height="3000000000000000000"><img src="small.png" width="50" height="50">`, base))
 	// Known trade-off of treating an unsized image as an average one: a large sized image later in the post (a
 	// "related article" thumbnail) still wins over an unsized hero.
 	require.Equal(t, "https://a.com/post/related.jpg",

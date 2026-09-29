@@ -23,10 +23,10 @@ var lazyAttrs = []string{"data-src", "data-lazy-src", "data-original", "data-laz
 // images tie, so the first one found wins between them, matching the pre-scoring behavior.
 const assumedWidth = 200
 
-// bannerScore ranks below every other candidate, sized or not. A declared shape much wider than tall (a 728x90
-// leaderboard ad, a divider strip) is almost never the article's picture and would be stretched into a card's
-// image box, so it is only used when the content has nothing else.
-const bannerScore = -1
+// bannerScore ranks a wide, short image below an unsized one (assumedWidth) and below any real photo, but above
+// icons and avatars (well under 100px). A declared shape much wider than tall (a 728x90 leaderboard ad, a divider
+// strip) is almost never the article's picture, but a genuine panorama is not worth losing to a 16px icon either.
+const bannerScore = 100
 
 // bannerRatio is how many times wider than tall a declared size must be to count as a banner.
 const bannerRatio = 4
@@ -132,11 +132,11 @@ func LeadImage(src string, bases ...string) string {
 }
 
 // isBanner reports whether both dimensions are declared and the image is more than bannerRatio times wider than
-// it is tall.
+// it is tall (compared as w/ratio > h so a huge height cannot overflow).
 func isBanner(attrs map[string]string) bool {
 	w, errW := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(attrs["width"]), "px"))
 	h, errH := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(attrs["height"]), "px"))
-	return errW == nil && errH == nil && h > 0 && w > bannerRatio*h
+	return errW == nil && errH == nil && h > 0 && w/bannerRatio > h
 }
 
 // attrWidth is the declared pixel width of an <img>, from its `width` attribute, else its `height`, else 0
