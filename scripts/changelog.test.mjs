@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFragments, renderSections, checkUnreleased, release, notes, POINTER } from './changelog.mjs';
+import { readFragments, renderSections, checkUnreleased, release, notes, parseReleaseArgs, localDate, POINTER } from './changelog.mjs';
 
 function dirWith(files) {
   const dir = mkdtempSync(join(tmpdir(), 'changes-'));
@@ -108,4 +108,17 @@ test('release refuses a bad version, a duplicate version, no fragments, and a ha
 test('notes returns one section and rejects a missing version', () => {
   assert.equal(notes(CHANGELOG, '0.3.0-beta.1'), 'Intro.\n\n### Fixed\n\n- Old thing.\n');
   assert.throws(() => notes(CHANGELOG, '9.9.9'), /no section/);
+});
+
+test('parseReleaseArgs takes the version and options in any order', () => {
+  assert.deepEqual(parseReleaseArgs(['0.3.0', '--date', '2026-10-01']), { version: '0.3.0', date: '2026-10-01', dryRun: false });
+  assert.deepEqual(parseReleaseArgs(['--dry-run', '--date', '2026-10-01', '0.3.0']), { version: '0.3.0', date: '2026-10-01', dryRun: true });
+  assert.equal(parseReleaseArgs(['0.3.0']).date, localDate());
+  assert.throws(() => parseReleaseArgs(['--dry-run']), /needs a version/);
+  assert.throws(() => parseReleaseArgs(['0.3.0', '0.4.0']), /unexpected/);
+  assert.throws(() => parseReleaseArgs(['0.3.0', '--bogus']), /unknown option/);
+});
+
+test('localDate uses local calendar fields', () => {
+  assert.equal(localDate(new Date(2026, 9, 1, 23, 30)), '2026-10-01');
 });

@@ -127,15 +127,34 @@ export function notes(changelog, version) {
   return `${lines.slice(start + 1, end).join('\n').trim()}\n`;
 }
 
+const pad = (n) => String(n).padStart(2, '0');
+
+/** Today in the machine's local time (toISOString would be UTC, a day ahead on an Eastern evening). */
+export function localDate(d = new Date()) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** `release` arguments in any order: one version, optional `--date YYYY-MM-DD`, optional `--dry-run`. */
+export function parseReleaseArgs(args) {
+  let version;
+  let date;
+  let dryRun = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--dry-run') dryRun = true;
+    else if (args[i] === '--date') date = args[++i];
+    else if (args[i].startsWith('--')) throw new Error(`unknown option ${args[i]}`);
+    else if (version === undefined) version = args[i];
+    else throw new Error(`unexpected argument ${args[i]}`);
+  }
+  if (!version) throw new Error('release needs a version, e.g. 0.3.0-beta.2');
+  return { version, date: date ?? localDate(), dryRun };
+}
+
 function main(argv) {
   const root = fileURLToPath(new URL('..', import.meta.url));
   const dir = join(root, 'changes');
   const changelogPath = join(root, 'CHANGELOG.md');
   const [cmd, ...rest] = argv;
-  const flag = (name) => {
-    const i = rest.indexOf(name);
-    return i < 0 ? undefined : rest[i + 1];
-  };
 
   if (cmd === 'check') {
     const { errors } = readFragments(dir);
@@ -156,8 +175,7 @@ function main(argv) {
     return 0;
   }
   if (cmd === 'release') {
-    const version = rest.find((a) => !a.startsWith('--') && a !== flag('--date'));
-    const date = flag('--date') ?? new Date().toISOString().slice(0, 10);
+    const { version, date, dryRun } = parseReleaseArgs(rest);
     const { fragments, errors } = readFragments(dir);
     if (errors.length) {
       console.error(errors.join('\n'));
@@ -166,7 +184,7 @@ function main(argv) {
     const introPath = join(dir, '_intro.md');
     const intro = existsSync(introPath) ? readFileSync(introPath, 'utf8').replace(/\r\n/g, '\n') : '';
     const next = release(readFileSync(changelogPath, 'utf8'), { version, date, intro, fragments });
-    if (rest.includes('--dry-run')) {
+    if (dryRun) {
       process.stdout.write(notes(next, version));
       return 0;
     }
