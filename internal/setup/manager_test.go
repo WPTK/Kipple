@@ -190,3 +190,30 @@ func TestConcurrentClaims(t *testing.T) {
 	}
 	require.Equal(t, 1, valid, "one setup session at a time")
 }
+
+// A flood of wrong tokens replaces the owner's code at most once an hour.
+func TestRotationIsCappedAtOncePerHour(t *testing.T) {
+	var out bytes.Buffer
+	m, dir, clk := newMgr(t, &out, nil)
+	m.Announce("1919")
+	flood := func(n int) {
+		for i := 0; i < n; i++ {
+			_, _, err := m.Claim("0000-0000-0000-0000-0000-0000")
+			require.NoError(t, err)
+		}
+	}
+	first, _, _ := ReadToken(dir)
+	flood(DefaultRotateAfter)
+	second, _, _ := ReadToken(dir)
+	require.NotEqual(t, first, second)
+	flood(5 * DefaultRotateAfter)
+	still, _, _ := ReadToken(dir)
+	require.Equal(t, second, still, "no second rotation within the hour")
+	_, ok, _ := m.Claim(still)
+	require.True(t, ok, "the owner's current code keeps working under the flood")
+	clk.add(RotateEvery)
+	flood(1)
+	third, _, _ := ReadToken(dir)
+	require.NotEqual(t, second, third, "the next failure after the hour rotates")
+	require.Len(t, bannerRE.FindAllString(out.String(), -1), 6, "three banners in all")
+}

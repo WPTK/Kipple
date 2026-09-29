@@ -103,17 +103,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.lock.Clear(ip)
-	val, err := newCookieValue()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
+	if !s.startSession(w, r) {
 		return
 	}
-	now := s.now()
-	if err := s.db.CreateSession(r.Context(), sessionID(val), now.Unix(), now.Add(sessionTTL).Unix(), r.UserAgent(), ip); err != nil {
-		s.serverError(w, "create session", err) // 503 maintenance during a search-index rebuild
-		return
-	}
-	s.setCookie(w, r, val)
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -237,6 +237,10 @@ func New(opt Options) *Server {
 	if s.opt.Heartbeat <= 0 {
 		s.opt.Heartbeat = heartbeatDefault
 	}
+	// Know the mode from the start, so a later failed read has a last known one.
+	if s.db != nil {
+		s.snapshot(context.Background())
+	}
 	return s
 }
 
@@ -365,6 +369,15 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		if needsOriginCheck(r) && !s.sameOrigin(r) {
 			writeError(w, http.StatusForbidden, "origin")
 			return
+		}
+		// Open mode: the session is only a convenience, the gate is the access
+		// check, so it applies to every request (a device that left the tailnet,
+		// or security.open_lan turned off, loses access at once).
+		if s.snapshot(r.Context()).mode == store.AuthOpen {
+			if reason := s.openRefusal(r); reason != "" {
+				writeOpenRefused(w, reason)
+				return
+			}
 		}
 		h(w, r)
 	}

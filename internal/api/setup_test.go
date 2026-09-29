@@ -53,7 +53,8 @@ func newSetupHarness(t *testing.T, tune ...func(*Options)) *setupHarness {
 	mgr.Announce("1919")
 
 	h := &harness{t: t, db: db, hub: events.NewWithClock(clk), sched: &fakeSched{}, clk: clk, mux: http.NewServeMux()}
-	opt := Options{DB: db, Sched: h.sched, Hub: h.hub, Now: clk.Now, Heartbeat: 20 * time.Millisecond, Setup: mgr}
+	opt := Options{DB: db, Sched: h.sched, Hub: h.hub, Now: clk.Now, Heartbeat: 20 * time.Millisecond, Setup: mgr,
+		Gate: setup.Gate{Tailnet: true}}
 	for _, f := range tune {
 		f(&opt)
 	}
@@ -72,6 +73,9 @@ func (h *setupHarness) req(method, path, body string, mod ...func(*http.Request)
 	r.RemoteAddr = setupPeer
 	r.Header.Set("Sec-Fetch-Site", "same-origin")
 	r.Header.Set("X-Kipple-Client", "web")
+	if method != "GET" && method != "HEAD" {
+		r.Header.Set("Origin", "http://"+setupHost) // browsers send it on every POST
+	}
 	for _, m := range mod {
 		m(r)
 	}
@@ -482,6 +486,23 @@ func TestSetupOpenMode(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, h.req("POST", "/api/auth/open", "", peer("192.168.1.20:5000")).Code)
 	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/auth/open", "", peer("203.0.113.9:5000")).Code, "public peers never")
 	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/auth/open", "", peer("192.168.1.20:5000"), hdr("X-Forwarded-For", "203.0.113.9")).Code, "a proxy on the LAN is still a proxy")
+	lanSess := cookieNamed(h.req("POST", "/api/auth/open", "", peer("192.168.1.20:5000")), cookieName)
+	require.NotNil(t, lanSess)
+	require.Equal(t, http.StatusOK, h.req("GET", "/api/auth/me", "", withCookies(lanSess), peer("192.168.1.20:5000")).Code)
+	// Turning the opt-in off again ends that device's access at once: in open
+	// mode the gate applies to every signed-in request, not only to sign-in.
+	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.open_lan":false}`, withCookies(first)).Code)
+	rec = h.req("GET", "/api/auth/me", "", withCookies(lanSess), peer("192.168.1.20:5000"))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, "peer", decode(t, rec)["reason"])
+	// And a session taken elsewhere, used through a proxy, is refused too.
+	require.Equal(t, http.StatusForbidden, h.req("GET", "/api/bootstrap", "", withCookies(first), hdr("X-Forwarded-For", "203.0.113.9")).Code)
+	// A same-machine proxy that sends no forwarding headers but rewrites Host
+	// (nginx's default proxy_pass) still forwards the browser's public Origin.
+	rec = h.req("POST", "/api/auth/open", "", hdr("Origin", "https://rss.example.com"))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, "forwarded", decode(t, rec)["reason"])
+	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/auth/open", "", func(r *http.Request) { r.Header.Del("Origin") }).Code, "no Origin, no session")
 
 	// A Reader API password in open mode: no current password, but the open gate.
 	rec = h.req("POST", "/api/account/api-password", `{"generate":true}`, withCookies(first), peer("203.0.113.9:5000"))
@@ -724,4 +745,29 @@ func TestHostGateLogsOnlyInPasswordMode(t *testing.T) {
 	h.clk.Advance(time.Hour)
 	require.Equal(t, http.StatusOK, get("rss.example.com"))
 	require.Equal(t, 2, strings.Count(logs.String(), "not in the allowed list"))
+}
+
+// A row that appears while setup is pending (a lost race, or an error reported
+// after the insert committed) still ends setup mode in this process.
+func TestSetupEndsWhenTheRowExistsWhateverTheAnswer(t *testing.T) {
+	h := newSetupHarness(t)
+	sc := h.claim(h.token())
+	_, err := h.db.CreateAccount(context.Background(), store.Account{Username: "first", PasswordHash: "h", Secret: testSecret, CreatedVia: store.CreatedViaWizard})
+	require.NoError(t, err)
+	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "second", "password": setupPass}), withCookies(sc))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, "already_set_up", decode(t, rec)["error"])
+	require.False(t, h.mgr.Pending())
+	require.JSONEq(t, `{"setup":false,"auth":"password"}`, h.req("GET", "/api/instance", "").Body.String())
+	_, ok, _ := setup.ReadToken(h.dir)
+	require.False(t, ok)
+}
+
+// A mode that could not be read does not turn a password deployment's Host gate
+// into a wall of 421s; setup mode (known in memory) always enforces.
+func TestHostGateFailedReadDoesNotEnforce(t *testing.T) {
+	h := newHarness(t)
+	require.False(t, h.srv.enforceHosts(&modeSnapshot{failed: true}))
+	s := newSetupHarness(t)
+	require.True(t, s.srv.enforceHosts(&modeSnapshot{failed: true}))
 }

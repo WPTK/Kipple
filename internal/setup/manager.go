@@ -31,6 +31,9 @@ const (
 	// SessionTTL is the life of the setup session a claim starts (the
 	// kipple_setup cookie's Max-Age).
 	SessionTTL = time.Hour
+	// RotateEvery caps rotations: a flood of wrong tokens from many addresses
+	// replaces the owner's code at most once an hour (and prints one banner).
+	RotateEvery = time.Hour
 )
 
 // Options configures a Manager.
@@ -61,6 +64,7 @@ type Manager struct {
 	issuedAt   time.Time
 	session    [32]byte // sha256 of the kipple_setup cookie value
 	sessionExp time.Time
+	rotatedAt  time.Time // the last rotation after failures (at most one per RotateEvery)
 	// unprinted is a token made before the port was known, held in plain text
 	// only until Announce prints it.
 	unprinted string
@@ -169,11 +173,13 @@ func (m *Manager) Claim(in string) (cookie string, ok bool, err error) {
 	}
 	if !tokenMatches(in, m.hash) {
 		m.failures++
-		if m.failures >= m.o.RotateAfter {
+		now := m.o.Now()
+		if m.failures >= m.o.RotateAfter && (m.rotatedAt.IsZero() || now.Sub(m.rotatedAt) >= RotateEvery) {
 			if _, err := m.newTokenLocked(); err != nil {
 				return "", false, err
 			}
-			m.o.Logger.Warn("setup token rotated after repeated failures; the new one is printed on standard error", "failures", m.o.RotateAfter)
+			m.rotatedAt = now
+			m.o.Logger.Warn("setup token rotated after repeated failures; the new one is printed on standard error (or run `kipple setup-token`)", "failures", m.o.RotateAfter)
 		}
 		return "", false, nil
 	}

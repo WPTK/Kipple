@@ -51,7 +51,7 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 		// open gate stand in, so a Reader API password can only be made from
 		// where open mode itself is allowed. Nothing to guess, so not counted.
 		s.lock.Release(ip)
-		if reason := s.openRefusal(r); reason != "" {
+		if reason := s.signInRefusal(r); reason != "" {
 			writeOpenRefused(w, reason)
 			return false, false
 		}
@@ -205,7 +205,7 @@ func (s *Server) switchToOpen(w http.ResponseWriter, r *http.Request, current st
 	if _, ok := s.checkCurrent(w, r, current, false); !ok {
 		return
 	}
-	if reason := s.openRefusal(r); reason != "" {
+	if reason := s.signInRefusal(r); reason != "" {
 		writeOpenRefused(w, reason)
 		return
 	}

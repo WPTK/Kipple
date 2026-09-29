@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -121,7 +122,7 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "setup claim", err)
 		return
 	case !ok:
-		writeErrorMsg(w, http.StatusForbidden, "bad_token", "that is not the setup code in the server log") // the reservation stays counted
+		writeErrorMsg(w, http.StatusForbidden, "bad_token", "that is not the current setup code (`kipple setup-token` shows it)") // the reservation stays counted
 		return
 	}
 	s.setupLock.Clear(ip)
@@ -179,7 +180,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 			writeErrorMsg(w, http.StatusBadRequest, "ack_required", "confirm that anyone who can reach this address can read and change everything")
 			return
 		}
-		if reason := s.openRefusal(r); reason != "" {
+		if reason := s.signInRefusal(r); reason != "" {
 			writeOpenRefused(w, reason)
 			return
 		}
@@ -204,22 +205,21 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, acct, err := setup.CreateAccount(r.Context(), s.db, na)
-	if err != nil {
-		s.serverError(w, "setup: create account", err)
-		return
-	}
-	if !created {
+	if err != nil || !created {
+		// Whatever happened, a row that exists ends setup mode here and now: a
+		// lost race, or an error reported after the insert committed.
+		if a, ok, rerr := s.db.Account(context.WithoutCancel(r.Context())); rerr == nil && ok {
+			s.finishSetup(a)
+		}
+		if err != nil {
+			s.serverError(w, "setup: create account", err)
+			return
+		}
 		// Lost the race to another token holder: the SPA reloads into sign-in.
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
 		return
 	}
-	s.opt.Setup.Finish()
-	s.verifier.SetSecret([]byte(acct.Secret))
-	s.verifier.ClearMemo()
-	if s.opt.OnAPIPasswordChange != nil {
-		s.opt.OnAPIPasswordChange()
-	}
-	s.invalidateMode()
+	s.finishSetup(acct)
 	mode := setup.DisplayMode(acct)
 	s.log.Info("account created", "username", acct.Username, "reader_api", false,
 		"created_via", store.CreatedViaWizard, "auth_mode", mode)
@@ -231,6 +231,18 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"username": acct.Username, "auth_mode": mode})
+}
+
+// finishSetup leaves setup mode once the account row exists: the flag flips,
+// the token goes, and every cache that keyed on "no account" is dropped.
+func (s *Server) finishSetup(acct store.Account) {
+	s.opt.Setup.Finish()
+	s.verifier.SetSecret([]byte(acct.Secret))
+	s.verifier.ClearMemo()
+	if s.opt.OnAPIPasswordChange != nil {
+		s.opt.OnAPIPasswordChange()
+	}
+	s.invalidateMode()
 }
 
 // decodeLimited decodes a JSON body of at most limit bytes (400 bad_request
@@ -277,7 +289,7 @@ func (s *Server) authOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
-	if reason := s.openRefusal(r); reason != "" {
+	if reason := s.signInRefusal(r); reason != "" {
 		writeOpenRefused(w, reason)
 		return
 	}
