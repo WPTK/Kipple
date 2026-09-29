@@ -9,6 +9,7 @@
 // colour-scheme setting. The list uses the device's default layout (Editorial), as the site's shots always have. With --site <dir> it also renders <dir>/design-system/social-preview.html to <dir>/og.png
 // (1280x640). Only a loopback address is accepted, with the seed's throwaway credentials. Needs Chromium
 // (`npx playwright install chromium`, as for `npm run uat`). Run by hand at each release (docs/RELEASING.md).
+/* global document, createImageBitmap, OffscreenCanvas -- used inside page.evaluate, which runs in the browser */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
