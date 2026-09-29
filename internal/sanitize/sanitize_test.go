@@ -32,6 +32,15 @@ func TestLeadImage(t *testing.T) {
 	require.Equal(t, "https://a.com/lazy.jpg", LeadImage(`<img src="data:image/gif;base64,R0lG" data-src="/lazy.jpg">`, base))
 	require.Equal(t, "", LeadImage(`<img src="http://feeds.feedburner.com/~r/x/~4/1">`, base))
 	require.Equal(t, "", LeadImage(`<p>no images</p>`, base))
+	// A small featured-image crop ahead of the real photo (WordPress "Bones" theme style, issue #71): the
+	// larger one wins even though it comes second, so cards don't stretch a 300x100 thumbnail.
+	require.Equal(t, "https://a.com/post/full.jpg",
+		LeadImage(`<img width="300" height="100" src="crop-300x100.jpg"><p>text</p><img width="1024" height="683" src="full.jpg">`, base))
+	// srcset's widest candidate counts too, even with no width attribute of its own.
+	require.Equal(t, "https://a.com/post/full.jpg",
+		LeadImage(`<img width="150" src="crop.jpg"><img srcset="small.jpg 300w, full.jpg 1200w">`, base))
+	// No image names a size anywhere: the first one found still wins, as before.
+	require.Equal(t, "https://a.com/post/first.jpg", LeadImage(`<img src="first.jpg"><img src="second.jpg">`, base))
 }
 
 func TestContentKeepsFragmentHrefs(t *testing.T) {
