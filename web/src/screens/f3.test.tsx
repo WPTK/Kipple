@@ -678,6 +678,28 @@ describe("Feed health", () => {
     expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname)).toEqual(["/api/feeds/1", "/api/feeds/2"]);
   });
 
+  it("a search that hides ticked feeds drops them from the count and from what a bulk action touches", async () => {
+    const { calls } = base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "DELETE /api/feeds/1": () => new Response(null, { status: 204 }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    expect(screen.getByText("3 selected")).toBeInTheDocument();
+    // Only Zed Blog is still on screen: the two hidden feeds stay ticked underneath, but must not be counted or deleted.
+    await user.type(screen.getByRole("searchbox", { name: "Search feeds" }), "zed");
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dlg = await screen.findByRole("dialog", { name: "Delete 1 feed?" });
+    await user.click(within(dlg).getByRole("button", { name: "Delete 1 feed" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
+    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname)).toEqual(["/api/feeds/1"]);
+  });
+
   it("bulk turns feeds off, then Done clears the selection", async () => {
     const { calls } = base({
       "GET /api/health/feeds": () => json(HEALTH),
