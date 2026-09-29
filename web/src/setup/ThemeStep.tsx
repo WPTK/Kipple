@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePatchSettings } from "@/api/admin";
 import { errorMessage } from "@/api/client";
 import { useStore } from "@/lib/store";
@@ -10,6 +10,7 @@ import { themeStore, updateTheme } from "@/theme/theme";
 import { Button } from "@/ui/button";
 import { Notice } from "@/ui/kit";
 import { StepActions, WizardFrame } from "./Frame";
+import { markThemeSaved, rememberTheme, themeBefore } from "./session";
 import { stepById } from "./steps";
 
 /** A small sample article in a scheme's own colors, so both picks can be seen at once whatever the page is showing. */
@@ -50,7 +51,8 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
   const t = useStore(themeStore);
   const schemes = useAllowedSchemes();
   const patch = usePatchSettings();
-  const before = useRef(t);
+  // The first visit remembers what this device had, so Skip (here or later) can put it back even after a Back and forth.
+  useEffect(() => rememberTheme(themeStore.get()), []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -70,6 +72,7 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
     setError(null);
     try {
       await patch.mutateAsync({ "ui.theme": "system", "ui.theme_day": day, "ui.theme_night": night });
+      markThemeSaved();
       onNext();
     } catch (e) {
       setError(errorMessage(e));
@@ -79,7 +82,8 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
   };
 
   const skip = () => {
-    updateTheme(before.current);
+    const before = themeBefore();
+    if (before) updateTheme(before);
     onNext();
   };
 
@@ -87,10 +91,7 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
     <WizardFrame
       step={stepById("theme")}
       description="Choose one look for the daytime and one for the evening. Kipple switches between them with your device's light or dark setting."
-      onSkipAll={() => {
-        updateTheme(before.current);
-        onSkipAll();
-      }}
+      onSkipAll={onSkipAll}
       skipAllBusy={skipAllBusy}
     >
       <div className="flex flex-1 flex-col gap-4">

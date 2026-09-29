@@ -3,7 +3,9 @@ import { settingsIssues, useSettings, usePatchSettings } from "@/api/admin";
 import { errorMessage } from "@/api/client";
 import { Button } from "@/ui/button";
 import { Notice, Skeleton, inputCls } from "@/ui/kit";
+import { toast } from "@/shell/toasts";
 import { StepActions, WizardFrame } from "./Frame";
+import { isRerun } from "./session";
 import { stepById } from "./steps";
 import { browserZone, offsetLabel, searchZones, zoneEntries, zoneNames } from "./zones";
 
@@ -39,9 +41,11 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
   const env = typeof meta?.env_override === "string" && meta.env_override !== "" ? meta.env_override : null;
   const saved = typeof meta?.value === "string" ? meta.value : "UTC";
   const isDefault = saved === (typeof meta?.default === "string" ? meta.default : "UTC");
-  // A zone somebody chose earlier (a repeat run, an upgraded install) stays; on a fresh install the browser's zone leads.
-  const suggested = !isDefault ? saved : browser && known.has(browser) ? browser : "UTC";
-  const unknownBrowser = isDefault && browser !== "" && !known.has(browser) ? browser : null;
+  // A zone somebody chose earlier (Run setup again, an upgraded install) stays, UTC included; on a fresh install the
+  // browser's zone leads.
+  const chosen = !isDefault || isRerun();
+  const suggested = chosen ? saved : browser && known.has(browser) ? browser : "UTC";
+  const unknownBrowser = !chosen && browser !== "" && !known.has(browser) ? browser : null;
   const selected = picked ?? suggested;
 
   const shown = useMemo(() => searchZones(entries, query), [entries, query]);
@@ -67,7 +71,8 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
     );
   }
 
-  const save = async () => {
+  /** `skipping`: the zone shown is kept as it would be by Continue, but a failure to save does not hold anyone here. */
+  const save = async (skipping = false) => {
     setError(null);
     if (env || selected === saved) {
       onNext();
@@ -78,6 +83,11 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
       await patch.mutateAsync({ tz: selected });
       onNext();
     } catch (e) {
+      if (skipping) {
+        toast("Kipple couldn't save the time zone. You can set it in Settings, Account & Devices.", "error");
+        onNext();
+        return;
+      }
       const bad = settingsIssues(e)?.issues.find((i) => i.key === "tz");
       if (bad) {
         // The server is the validator: a zone it doesn't know falls back to UTC, and says so.
@@ -121,7 +131,7 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
               <p className="text-xs font-semibold tracking-wide text-fg2 uppercase">Selected</p>
               <p className="text-lg font-semibold">{selectedLabel}</p>
               {time ? <p className="text-sm text-fg2">It's {time} there now.</p> : null}
-              {!isDefault ? <p className="mt-1 text-xs text-fg2">Kipple is already set to this zone.</p> : browser && known.has(browser) && selected === browser ? <p className="mt-1 text-xs text-fg2">Suggested from your browser.</p> : null}
+              {chosen && selected === saved ? <p className="mt-1 text-xs text-fg2">Kipple is already set to this zone.</p> : browser && known.has(browser) && selected === browser ? <p className="mt-1 text-xs text-fg2">Suggested from your browser.</p> : null}
             </div>
             <div className="flex flex-col gap-1">
               <label htmlFor={searchId} className="text-sm font-semibold">
@@ -151,7 +161,7 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
           </>
         )}
         <StepActions>
-          <Button disabled={busy} onClick={() => void save()}>
+          <Button disabled={busy} onClick={() => void save(true)}>
             Skip
           </Button>
           <Button variant="solid" disabled={busy} onClick={() => void save()}>

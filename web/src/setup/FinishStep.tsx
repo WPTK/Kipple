@@ -7,7 +7,7 @@ import { announce, toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Field, Notice, inputCls } from "@/ui/kit";
 import { StepActions, WizardFrame } from "./Frame";
-import { setupSecret } from "./secret";
+import { setupSecret } from "./session";
 import { stepById } from "./steps";
 
 /**

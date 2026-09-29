@@ -9,7 +9,7 @@ import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS } from "@/theme/settings";
 import { resetTakenSetupCode } from "./api";
-import { setupSecret } from "./secret";
+import { forgetWizardMemory, setupSecret } from "./session";
 
 // jsdom has no EventSource; the shell subscribes to one.
 class NoES {
@@ -117,7 +117,8 @@ function browserZoneIs(zone: string) {
 beforeEach(() => {
   authStore.set("unknown");
   openRefusedStore.set(null);
-  setupSecret.set(null);
+  forgetWizardMemory();
+  sessionStorage.clear();
   resetTakenSetupCode();
   liveStore.set(initialLive);
   themeStore.set({ ...DEFAULT_THEME_SETTINGS });
@@ -624,6 +625,28 @@ describe("Step 3: time zone", () => {
     expect(bodyOf(callTo(calls, "PATCH", "/api/settings")[0] as never)).toEqual({ tz: "Pacific/Auckland" });
   });
 
+  it("Skip moves on even when the zone cannot be saved", async () => {
+    browserZoneIs("Europe/Berlin");
+    server(signedIn(), { "PATCH /api/settings": () => json({ error: "internal" }, 500) });
+    go("/welcome/timezone");
+    await screen.findByTestId("selected-zone");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("Pick a look");
+  });
+
+  it("keeps a zone set to UTC on purpose when setup is run again", async () => {
+    browserZoneIs("Asia/Tokyo");
+    sessionStorage.setItem("kipple.setup.rerun", "1");
+    const { calls } = server(signedIn({ tz: "UTC" }));
+    go("/welcome/timezone");
+    const sel = await screen.findByTestId("selected-zone");
+    expect(sel).toHaveTextContent("UTC");
+    expect(sel).toHaveTextContent("Kipple is already set to this zone");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("Pick a look");
+    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
+  });
+
   it("falls back to UTC, and says so, for a browser zone that is not in the list", async () => {
     browserZoneIs("Mars/Olympus_Mons");
     const w = signedIn();
@@ -727,6 +750,34 @@ describe("Step 4: theme", () => {
     await headingIs("Bring your feeds along");
     expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
     expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
+  });
+
+  it("still puts the original theme back on Skip after going Back and forth", async () => {
+    server(signedIn());
+    go("/welcome/theme");
+    const user = userEvent.setup();
+    await heading();
+    await user.selectOptions(screen.getByLabelText("Night theme"), "carbon");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await headingIs("Choose your time zone");
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("Pick a look");
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("Bring your feeds along");
+    expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
+  });
+
+  it("puts an unsaved pick back when setup is ended from another step", async () => {
+    server(signedIn());
+    go("/welcome/theme");
+    const user = userEvent.setup();
+    await heading();
+    await user.selectOptions(screen.getByLabelText("Day theme"), "linen");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await headingIs("Choose your time zone");
+    await user.click(screen.getByRole("button", { name: "Skip the rest of setup" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
   });
 
   it("reports a failed save and stays", async () => {
@@ -1036,7 +1087,7 @@ describe("Settings: run setup again", () => {
     server(done(), { "POST /api/onboarding/restart": () => json({ error: "internal" }, 500) });
     go("/settings/account");
     await userEvent.setup().click(await screen.findByRole("button", { name: "Run setup again" }));
-    expect(await screen.findByText("The server returned an error. Try again.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText("The server returned an error. Try again.").length).toBeGreaterThan(0));
     expect(screen.getByRole("button", { name: "Run setup again" })).toBeEnabled();
   });
 
@@ -1049,6 +1100,22 @@ describe("Settings: run setup again", () => {
     expect(field).toHaveAttribute("readonly");
     expect(field).toHaveValue("Europe/Paris");
     expect(screen.getByText("Set by the TZ environment variable; remove it to choose here.")).toBeInTheDocument();
+  });
+
+  it("offers no Sign out without a password, where Kipple would sign the browser straight back in", async () => {
+    server({ ...done(), authMode: "open", passwordSet: false } as World);
+    go("/settings/account");
+    await screen.findByRole("button", { name: "Run setup again" });
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+  });
+
+  it("drops what the wizard remembered when the app signs out", async () => {
+    setupSecret.set("correct horse");
+    server(done());
+    go("/settings/account");
+    await screen.findByRole("button", { name: "Sign out" });
+    act(() => authStore.set("out"));
+    await waitFor(() => expect(setupSecret.get()).toBeNull());
   });
 
   it("starts at the recommended feeds from the empty state", async () => {

@@ -4,7 +4,7 @@ import { Button } from "@/ui/button";
 import { Field, Notice, inputCls } from "@/ui/kit";
 import { accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupState } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
-import { setupSecret } from "./secret";
+import { setupSecret } from "./session";
 import { stepById } from "./steps";
 
 type Choice = "password" | "access" | "open";

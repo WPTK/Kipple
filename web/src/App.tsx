@@ -12,10 +12,9 @@ import { ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { AppShell } from "@/shell/AppShell";
 import { RoutedErrorBoundary } from "@/shell/ErrorBoundary";
-import { isOpenRefused, openRefusedReason } from "@/setup/api";
+import { forgetWizardMemory, welcomeEntry } from "@/setup/session";
 import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
-import { Welcome } from "@/setup/Welcome";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { StatusBlock } from "@/screens/ListPane";
 import { Button } from "@/ui/button";
@@ -27,6 +26,7 @@ const FeedsScreen = lazyScreen(() => import("@/screens/FeedsScreen").then((m) =>
 const HealthScreen = lazyScreen(() => import("@/screens/HealthScreen").then((m) => ({ default: m.HealthScreen })));
 const StatsScreen = lazyScreen(() => import("@/screens/StatsScreen").then((m) => ({ default: m.StatsScreen })));
 const WrappedScreen = lazyScreen(() => import("@/screens/WrappedScreen").then((m) => ({ default: m.WrappedScreen })));
+const Welcome = lazyScreen(() => import("@/setup/Welcome").then((m) => ({ default: m.Welcome })));
 const SettingsScreen = lazyScreen(() => import("@/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen })));
 
 /**
@@ -61,7 +61,10 @@ function Gate() {
 
   // Signed out: drop everything cached so nothing from the last session shows.
   useEffect(() => {
-    if (auth === "out") qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
+    if (auth === "out") {
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
+      forgetWizardMemory();
+    }
   }, [auth, qc]);
 
   // The device profile is the truth for per-device settings; the local cache is reconciled with it once, from a live
@@ -136,9 +139,6 @@ function Gate() {
   // The full-screen errors are for a launch with nothing to show. A background refetch that fails later keeps its
   // data (and sets isError alongside it): the reader stays up and the notice at the top explains what happened.
   const failed = boot.isError && !boot.data;
-  if (failed && isOpenRefused(boot.error)) {
-    return <OpenRefusedScreen reason={openRefusedReason(boot.error)} busy={boot.isFetching} onRetry={() => void boot.refetch()} />;
-  }
   if (failed && boot.error instanceof ApiError && boot.error.code === SESSION_EXPIRED) {
     return (
       <StatusBlock role="alert" title="Your sign-in has expired" body="The sign-in in front of Kipple timed out. Reload to sign in again.">
@@ -162,10 +162,10 @@ function Gate() {
   }
   // First-run setup pending (a fresh account, or "Run setup again"): every screen but /welcome gives way to it. Not on a
   // stored copy of the bootstrap, which may still say so after setup was finished elsewhere.
-  if (boot.data?.user.setup_pending === true && !fromCache && pathname !== "/welcome" && !pathname.startsWith("/welcome/")) return <Navigate to="/welcome" replace />;
+  if (boot.data?.user.setup_pending === true && !fromCache && pathname !== "/welcome" && !pathname.startsWith("/welcome/")) return <Navigate to={welcomeEntry()} replace />;
   return (
     <Routes>
-      <Route path="welcome/*" element={<Welcome />} />
+      <Route path="welcome/*" element={<Lazy><Welcome /></Lazy>} />
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/l/unread" replace />} />
         <Route element={<ReaderRoute />}>

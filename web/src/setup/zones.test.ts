@@ -43,6 +43,12 @@ describe("zone list", () => {
     expect(names("+10:30")).toEqual(["Australia/Adelaide"]);
   });
 
+  it("takes a bare utc or gmt as the zero offset, not as every zone", () => {
+    expect(names("utc")).toEqual(["UTC"]);
+    expect(names("gmt")).toEqual(["UTC"]);
+    expect(names("UTC+9")).toEqual(["Asia/Tokyo"]);
+  });
+
   it("lists the browser's zones with UTC first, or the bundled list when the browser cannot list them", () => {
     const all = zoneNames();
     expect(all[0]).toBe("UTC");

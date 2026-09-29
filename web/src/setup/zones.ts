@@ -93,6 +93,8 @@ export function searchZones(entries: ZoneEntry[], query: string): ZoneEntry[] {
   if (words.length === 0) return entries;
   return entries.filter((e) =>
     words.every((w) => {
+      // "utc" or "gmt" alone means the zero offset (every haystack has an offset label, so a substring match would take all).
+      if (w === "utc" || w === "gmt") return e.offset === "UTC" || e.name.toLowerCase().includes(w);
       // "+9" must not match every zone that merely has a 9 in its offset: an offset query is compared as a whole word.
       if (/^(utc|gmt)?[+-]\d/.test(w)) {
         const bare = w.replace(/^(utc|gmt)/, "");

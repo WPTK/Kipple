@@ -1,9 +1,8 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router";
 import { keys, type BootstrapAnswer } from "@/api/queries";
 import { completeOnboarding, restartOnboarding } from "./api";
-import { setupSecret } from "./secret";
-import { welcomePath, type StepId } from "./steps";
+import { forgetWizardMemory, markRerun, revertUnsavedTheme, setWelcomeTarget } from "./session";
+import type { StepId } from "./steps";
 
 /** Records in the app's copy of the account that first-run setup is (or is not) pending, so the routing follows at once. */
 function setPending(qc: QueryClient, pending: boolean): void {
@@ -17,19 +16,21 @@ function setPending(qc: QueryClient, pending: boolean): void {
  */
 export function useSetupActions() {
   const qc = useQueryClient();
-  const navigate = useNavigate();
   return {
-    /** Ends the wizard. The password kept from step 2 is forgotten. */
+    /** Ends the wizard. The password kept from step 2 is forgotten, and a theme picked but never saved is put back. */
     finish: async () => {
       await completeOnboarding();
-      setupSecret.set(null);
+      revertUnsavedTheme();
+      forgetWizardMemory();
       setPending(qc, false);
     },
     /** Starts the first-run steps over (or at one of them) for an account that finished them. Nothing is changed by that. */
     restart: async (at: StepId = "timezone") => {
       await restartOnboarding();
+      markRerun();
+      setWelcomeTarget(at);
+      // The app shell sends an account with setup pending to the step named above.
       setPending(qc, true);
-      navigate(welcomePath(at));
     },
   };
 }

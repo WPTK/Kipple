@@ -358,9 +358,12 @@ export function AccountActions() {
         </Button>
         <p className="mt-1 text-xs text-fg2">Walks through the first-run steps again: time zone, look, importing feeds and recommended feeds. Your account and feeds stay as they are.</p>
       </div>
-      <Button onClick={() => void signOut()} className="self-start">
-        Sign out
-      </Button>
+      {/* Without a password there is nothing to sign out of: Kipple would sign this browser straight back in. */}
+      {user?.auth_mode === "open" ? null : (
+        <Button onClick={() => void signOut()} className="self-start">
+          Sign out
+        </Button>
+      )}
       {dialog === "password" ? <ChangePasswordDialog hasPassword={hasPassword} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
       {dialog === "remove" && accessEmail ? <RemovePasswordDialog email={accessEmail} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
       {dialog === "api" ? <ApiPasswordDialog username={user?.username ?? ""} hasPassword={hasPassword} onClose={() => setDialog(null)} /> : null}

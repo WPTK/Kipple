@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { importOpml, invalidateFeeds, type OpmlResult } from "@/api/admin";
 import { OpmlResultSummary, opmlError, opmlFileProblem } from "@/screens/feeds/OpmlDialog";
@@ -19,6 +19,8 @@ export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<OpmlResult | null>(null);
+  // The check of a file reads it, which takes a moment for a big one: only the latest pick may answer.
+  const pick = useRef(0);
 
   const daysNum = days.trim() === "" ? undefined : Number(days);
   const daysBad = daysNum !== undefined && (!Number.isInteger(daysNum) || daysNum < 1 || daysNum > 365);
@@ -63,10 +65,12 @@ export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack:
                   accept=".opml,.xml,text/xml,application/xml,text/x-opml,*/*"
                   onChange={(e) => {
                     const f = e.target.files?.[0] ?? null;
+                    const mine = ++pick.current;
                     setError(null);
                     setFile(null);
                     if (!f) return;
                     void opmlFileProblem(f).then((problem) => {
+                      if (mine !== pick.current) return;
                       if (problem) setError(problem);
                       else setFile(f);
                     });
