@@ -18,6 +18,8 @@ import type {
   Scope,
 } from "./types";
 import { isOffline, queueRead, queueStar, QueueWriteError, supersede } from "@/lib/offline";
+import { serverRebuilt } from "@/lib/buildInfo";
+import { setUpdateReady } from "@/lib/offlineState";
 import { toast } from "@/shell/toasts";
 import { itemsParams, keys } from "./queryKeys";
 
@@ -41,6 +43,8 @@ export function useBootstrap(enabled = true) {
     queryFn: async ({ signal }): Promise<BootstrapAnswer> => {
       const meta: { cached?: boolean } = {};
       const b = await api<Bootstrap>("/api/bootstrap", { signal, meta });
+      // Only an answer from the network says anything about the server: the worker's stored copy is old by design.
+      if (!meta.cached && serverRebuilt(b.web_build)) setUpdateReady();
       return meta.cached ? { ...b, fromCache: true } : b;
     },
     enabled,

@@ -1,4 +1,5 @@
 import { CloudOff, LogIn, RefreshCw } from "lucide-react";
+import { reloadForUpdate } from "@/lib/buildInfo";
 import { offlineStore, type OfflineState } from "@/lib/offlineState";
 import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
@@ -40,7 +41,7 @@ export function OfflineNotice() {
         <button
           type="button"
           className="hit rounded-lg px-2 font-medium text-link underline underline-offset-2"
-          onClick={() => (n.icon === "session" ? reloadToSignIn() : window.location.reload())}
+          onClick={() => (n.icon === "session" ? reloadToSignIn() : n.icon === "update" ? void reloadForUpdate() : window.location.reload())}
         >
           Reload
         </button>

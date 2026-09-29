@@ -57,6 +57,7 @@ type DB struct {
 
 	noMigrate    bool
 	noCheckpoint bool
+	version      string
 
 	holder atomic.Pointer[holder]
 
@@ -107,6 +108,9 @@ type Options struct {
 	// CLI opened next to a running server must not stall or truncate the
 	// server's WAL; SQLite's automatic checkpointing takes care of it.
 	NoCheckpoint bool
+	// Version is the release version of the running binary ("v0.5.0", "dev"). It only feeds the message of a
+	// refused downgrade; empty says "this binary".
+	Version string
 }
 
 var ofdOnce sync.Once
@@ -215,7 +219,7 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 		clk = clock.Real{}
 	}
 	d := &DB{path: opts.Path, backupDir: backup, log: log, gate: make(chan struct{}, 1), snap: make(chan struct{}, 1), clock: clk,
-		noMigrate: opts.NoMigrate, noCheckpoint: opts.NoCheckpoint}
+		noMigrate: opts.NoMigrate, noCheckpoint: opts.NoCheckpoint, version: opts.Version}
 
 	if err := checkForeign(ctx, opts.Path); err != nil {
 		return nil, err

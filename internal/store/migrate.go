@@ -105,7 +105,7 @@ func (d *DB) migrate(ctx context.Context) error {
 		return err
 	}
 	if cur > latest {
-		return fmt.Errorf("store: database schema version %d is newer than this binary (%d); refusing to start", cur, latest)
+		return d.downgradeError(ctx, cur, latest)
 	}
 
 	if d.noMigrate {

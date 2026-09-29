@@ -263,3 +263,13 @@ func TestRootFilesFromTheBuild(t *testing.T) {
 	require.Equal(t, "<html></html>", get("/nope.txt").Body.String())
 	require.Equal(t, "<html></html>", get("/_secret.txt").Body.String(), "a name that could shadow a server route is not registered")
 }
+
+func TestBuildIDReadsTheMetaTag(t *testing.T) {
+	mk := func(html string) fstest.MapFS {
+		return fstest.MapFS{"dist/index.html": {Data: []byte(html)}}
+	}
+	require.Equal(t, "3fa9c01b2d", buildIDOf(mk(`<head><meta charset="utf-8"><meta name="kipple-build" content="3fa9c01b2d"></head>`)))
+	require.Equal(t, "", buildIDOf(mk(`<head></head>`)), "no tag, no id")
+	require.Equal(t, "", buildIDOf(mk(`<meta name="kipple-build" content="a b">`)), "only plain characters")
+	require.Equal(t, "", buildIDOf(fstest.MapFS{}), "no index.html")
+}
