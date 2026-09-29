@@ -257,6 +257,28 @@ describe("refresh key", () => {
   });
 });
 
+describe("an article that fails to load", () => {
+  it("still offers the original link from the list's own cached card, and Try again refetches", async () => {
+    let fail = true;
+    const { calls } = routes({
+      "GET /api/items/1001": () => (fail ? new Response("", { status: 500 }) : json(detail(1))),
+    });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    await userEvent.setup().click(rowLink(1));
+    await screen.findByRole("heading", { name: "Couldn't open this article" });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Read the original" }));
+    expect(open).toHaveBeenCalledWith("https://example.com/a/1", "_blank", "noopener,noreferrer");
+
+    fail = false;
+    const before = calls.filter((c) => c.url.pathname === "/api/items/1001").length;
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/1001").length).toBeGreaterThan(before));
+    await screen.findByText("Body of article 1");
+  });
+});
+
 describe("CapsLock", () => {
   it("g a with CapsLock on goes to All and does not mark the list read", async () => {
     const { calls } = routes();
