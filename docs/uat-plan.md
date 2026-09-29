@@ -272,6 +272,171 @@ Kipple defect. Defects found: three fixed in PR #45, two copy questions filed as
   built `sw.js` precaches the page's hashed `index-*.js`/`.css` and the lazy chunks, and `update()` runs on
   `visibilitychange`. The live check belongs on a real browser in Suite 3.
 
+**Re-executed 2026-09-29 on v0.3.0-beta.2** (the rc.1 re-verification, `docs/RELEASING.md`). Build of `main` at
+`c4124c0`, whose product code is identical to the `v0.3.0-beta.2` tag (`0fa8450`; the one later commit only adds
+the website screenshot tool), with `web/dist` rebuilt first. Throwaway instance from `npm run seed` on port 7092 with
+its own temp data dir, plus a local test feed server in the same temp dir for controlled arrivals, lead-image and
+filter cases (added through OPML with `allow_private_net` turned on for those two feeds). Driven by Claude with
+headless Chromium through Playwright scripts rather than the desktop pane, so unlike 2026-09-27 the page was visible
+and focused (active reading time was recorded) and service workers could register. Screenshots were read for
+everything visual. Everything, scripts and data dir included, was deleted afterwards; nothing touched Host-A or the
+live instance. Result: 21 of the 26 cases pass, 1 fails (TC-C3, a P2 display bug), 4 skipped or blocked (TC-A1..A3,
+TC-P2 live update). Of the 11 checks for what changed since 2026-09-27, 8 pass and 3 fail (all P2). No P0 or P1.
+Defects are numbered B2-1 to B2-9 below for the findings doc.
+
+- TC-F1 **pass.** Add feed with a site address (not a feed URL) discovered the feed; "First fetch finished: 10
+  articles" about 1.5 s after Add.
+- TC-F2 **pass, with the substitute fixture.** Same shape as before (two folders, two top-level feeds, one feed
+  already present in another folder), imported from Manage Feeds > Import OPML: 5 added, 2 folders created, "1
+  feed was already in Kipple and was left as it is" (the PR #45 wording holds), top-level feeds in Uncategorized,
+  the duplicate left in its original folder.
+- TC-F3 **pass.** Re-import into the same instance: 0 added, 14 already present. Exported, imported into a second
+  empty instance with `kipple import`, exported again: identical except that the two loopback test feeds lose
+  `kipple:allow_private_net="1"`, which the import summary says it does on purpose (a private address is imported
+  with that switch off). `kipple:interval` and `kipple:retention` survive the round trip.
+- TC-F4 **pass.** Layout Cards, check every 2 hours and newest 50, set from the feed editor, plus a custom 100-minute
+  interval on another feed, all survived a server restart; the feed opened in Cards.
+- TC-F5 **pass.** Deleting a feed with 2 starred articles showed the count and the keep-starred default; both stayed
+  in Starred under the old feed name and Stats lists the feed as "(unsubscribed)". See B2-8 for where the archive
+  feed shows up.
+- TC-R1 **pass.** All five layouts at 1400 px and at a 390 px phone: images through `/img/` and all loaded, no
+  sideways scroll, no `undefined`/`NaN`/`Invalid Date` in lists. See the Cards and Email - Compact check below and
+  B2-7.
+- TC-R2 **pass.** Dense to Airy: the Settings preview's `--row-py`/`--row-min` equal the list row's values at every
+  step, and the reading pane's line height goes 1.4, 1.5, 1.6, 1.7, 1.8 with the measure narrowing (664 to 571 px).
+- TC-R3 **pass.** j/k select and open beside the list; s stars and unstars; m on the open article marks it read,
+  it stays while open and leaves when you move off (wide), or leaves after 1.5 s (phone); z undoes; c toggles
+  Compact and back; Enter opens; o/v opens the original in a new tab; u returns focus to the list; [ and ] change
+  feed; Shift+G and g g scroll to the bottom and top (they scroll, they do not move the selection); g i/a/s/f/,
+  navigate; `/` from Manage Feeds lands in the search box; `?` opens the overlay; r refreshes; { marks the rows above
+  with an undo toast. The undo toast stayed about 13 s after the action.
+- TC-R4 **pass.** Short list plus More themes and Accessibility themes, 20 radios matching `schemes.json`; every
+  scheme applies; heading text contrast 7.8:1 (Cocoa Mid) to 21:1, secondary text 5.4:1 or better; Signal's danger
+  token is `#a0006a`, Carbon is neutral near-black (18,19,21) and Fountain navy (19,40,79).
+- TC-R5 **pass.** Follow system with Linen/Graphite picks switched Linen, Graphite, Linen as the color scheme
+  changed, without a reload.
+- TC-R8 **pass.** With a controlled clock: Paper at 20:59:50, Midnight after 21:00 without a reload; the first
+  paint at 22:00 is already Midnight; across midnight it stays Midnight and turns Paper after 07:00 the next day;
+  equal times keep Paper all day; picking Paper ends the schedule; a second signed-in browser (a new device) kept
+  Follow system.
+- TC-R6 **pass, auto-read partly.** A mute rule created in the UI, and mark-read, star and highlight rules, each acted
+  on a new matching arrival (muted hidden from Unread and All, zebra read, walrus starred, "Pelican" marked in the
+  list); Muted lists the article with "Muted by" and Restore brings it back unread; Filters shows "Matched 1 article"
+  on the three counting rules. Auto-read preview on a fresh instance finds nothing, as expected (crawl time).
+- TC-R7 **pass.** With 9 unread rows loaded, an arrival from another tab's refresh stayed unread after Shift+A while
+  all 9 were marked read. The empty state reads "1 new article arrived. Load them above to continue reading." (B2-9).
+- TC-S1 **pass.** `runner` finds "runners", `run` finds "running" and "runs" (11 results); the saved search appears in
+  the sidebar with its count and re-runs to the same 11 results.
+- TC-T1 **pass (short session).** Five articles read with scrolling plus earlier opens: Stats shows 7 items and 3 min
+  in all four ranges, matching the API; per feed Go Blog 3, NASA 2, Ars Technica 1, UAT Local Two 1; folder rollup
+  Dev seed 6 (4 feeds), UAT Local 1; Minutes toggle, never-opened list (9 feeds) and a 1-day streak all agree.
+- TC-T2 **pass.** CSV, JSON and JSON Lines raw exports all carry the same 67 events and columns; the JSON summary's
+  totals match Stats; with titles and links off, `item_title`/`item_url` are null on every row and no URL appears in
+  the file; the data dictionary downloads as Markdown.
+- TC-T3 **pass.** Delete a date range: "No events in that range" for January, "67 events will be deleted" for today,
+  then a second "Yes, delete 67 events"; Delete all only enables on the exact `DELETE ALL`; Stats shows zeros after.
+  Statistics off stopped recording and removed Stats from the navigation, on resumed it, both without a reload.
+- TC-T4 **pass.** Your year shows a plausible summary; the share sheet copies the text (top sources and longest read
+  only when switched on) and downloads `kipple-2026.png`, which looks right; a failing summary request shows "The
+  server returned an error. Try again." and Try again recovers.
+- TC-A1, TC-A2, TC-A3 **skipped.** They need Reeder Classic and NetNewsWire on the owner's devices. As a substitute,
+  the Reader API regression replay (below) was run by hand with curl against the instance: ClientLogin with the API
+  password (the web password is refused), token, user-info, subscription/list with ETag (304 on a match, 200 after a
+  change), tag/list, unread-count (244, the same as the unread ids), stream/items/ids paging (6 pages of 50, 275 ids)
+  with `xt=read` and starred, stream/items/contents, edit-tag read/unread/star (seen by the web API at once),
+  quickadd (the new subscription is in the next list call), subscription/edit move and unsubscribe, and
+  mark-all-as-read on one feed with `ts` in seconds, milliseconds, microseconds and nanoseconds: each marked exactly
+  the 6 items up to the cut and none after. All as expected; it is not a substitute for the real clients.
+- TC-C1 **pass (negative case only).** An empty password is refused (401), also with a forged
+  `Cf-Access-Jwt-Assertion` header. The positive case needs a real Cloudflare Access setup: blocked.
+- TC-C2 **pass.** Generate API password asks for the web password, shows the new one once and copies it (24
+  characters); it signs in on ClientLogin and lists 15 subscriptions; the web password gets `BadAuthentication`.
+- TC-C3 **fail (P2, B2-1).** The export works: a zip with `kipple.db`, `feeds.opml`, `settings.json`, `RESTORE.txt`
+  and `manifest.json`, and `kipple restore --yes` into another empty data dir verified the checksums and integrity
+  (14 feeds, 252 items, 3 starred). But the Download backup dialog's "Made" row reads "Invalid Date".
+- TC-P1 **pass.** Manifest standalone with scope and start `/`; 192, 512 and maskable 512 icons and the 180 px
+  `apple-touch-icon` all load at their declared sizes; `viewport-fit=cover` and safe-area rules present; at 375 px
+  no screen scrolls sideways (lists, Feeds, Search, Stats, Wrapped, Settings and its groups, Feed Health, an article)
+  and the bottom tab bar sits at the bottom edge.
+- TC-P2 **blocked (live update), static checks pass.** The built `sw.js` precaches every hashed asset the page loads,
+  and `update()` runs on `visibilitychange` (`web/src/lib/offline.ts`). Headless Chromium does register and activate
+  the worker (the desktop pane could not), but a simulated deploy could not be observed from a script; the live check
+  stays with a real browser.
+
+What changed since 2026-09-27:
+
+- Settings in six groups **pass.** Bare `/settings` opens Appearance & Reading; each of the six addresses shows its
+  group with the rail's current item marked; a rail click puts focus on the group heading. On a phone, `/settings`
+  is the group list with "Paper / Midnight · Default font", the check interval and "Recording on" under their groups;
+  a group opens on its own page with a back button, focus on its heading, and back returns focus to the group row.
+  No sideways scroll in any group at 390 px.
+- Cards card shell and Email - Compact **pass.** Cards has the raised, bordered card with an inset rounded image at
+  1400 px and in the single phone column, where it is clearly different from Editorial. Email - Compact shows no
+  favicon at either width; Compact shows one.
+- Manage Feeds Edit and Select, folders **pass.** A plain visit shows no grips or pencils; Edit shows them, Select
+  shows checkboxes, a range hint and a Select all / Move to folder / Delete bar. A folder collapsed on this device
+  opens in Edit and Select and is collapsed again afterwards; collapsing is shared with the sidebar and works on a
+  phone. Bulk move of 2 feeds and bulk delete of 1 did what the dialogs said. A favorited folder gets a chevron in
+  Favorites in the sidebar and in Manage Feeds, sharing its state with the folder; Edit and Select show it as a plain
+  row.
+- Feed Health Select mode **pass.** With two feeds ticked and a search hiding one, the count reads 1 and Turn off,
+  Turn on and Delete each acted only on the visible ticked feed; the header checkbox cleared only the visible one.
+  See B2-5.
+- Manage this feed **pass.** A list row's ⋯ menu opens the feed editor for that article's feed. See B2-6.
+- Lead image by size **pass.** Test articles: a 300x100 crop before a 1200x800 photo, a `srcset` with 400w and 1600w,
+  a 728x90 banner before a photo, and a 48x48 avatar before an unsized photo; each picked the photo (or the 1600w
+  candidate), and the cards show them.
+- "N new articles" only for a manual refresh **fail (P2, B2-2).** No pill for a scheduled poll (a controlled arrival
+  fetched by the scheduler) or for a new feed's first fetch; a pill and announcement for a refresh from this or another
+  tab and for Refresh all. But an OPML import shows the pill.
+- Scroll restore **fail (P2, B2-3).** Coming back to a list you left does not restore where you were, and leaves gaps
+  between rows.
+- Mark as read while scrolling **pass.** Jumping from the top to the bottom marked only the 4 rows that were on
+  screen at the top, none of the 36 skipped; scrolling down gradually marked the 13 rows actually scrolled past.
+  Switching the setting off inside the 0.7 s settle window cannot be done from the UI with the list on screen (the
+  switch is only in Settings), so that edge case was not exercised here.
+- "Couldn't open this article" **fail (P2, B2-4).** With the server unreachable and the browser online, the screen
+  shows Try again and Read the original, which opens the article's address in a new tab (phone and wide). With the
+  browser itself offline it never gets there.
+- Check interval labels **pass.** A 100-minute per-feed interval reads "Every 1 hour 40 minutes" in the feed editor,
+  and a global 100 minutes shows the same under Sync & Feeds in the phone group list.
+- Hacker News showed "Having trouble" for most of the run: the feed timed out from here, which is not a Kipple defect.
+
+Defects:
+
+- **B2-1 (P2)** Backup dialog "Made: Invalid Date". Steps: Settings > Account & Devices > Export backup. Observed:
+  the summary's "Made" row says "Invalid Date". Expected: the time the backup was taken. Cause seen in the code:
+  `manifest.created_at` is an RFC 3339 string and `AccountSection.tsx` passes it to `fullDate()`, which expects Unix
+  seconds. Suite 1's S5 check never opens this dialog, so it cannot catch it.
+- **B2-2 (P2)** The "N new articles" pill fires for an OPML import. Steps: open All articles; import an OPML with one
+  new feed (Manage Feeds > Import OPML, or `POST /api/opml` from another tab). Observed: within about 1 s the list
+  shows "20 new articles" and the status region announces it; the only feed fetched in that window was the imported
+  one. Expected: no pill and no announcement for an import run (changelog #56 and #79).
+- **B2-3 (P2)** Returning to a list leaves gaps between rows and the wrong position. Steps: open a feed's list with
+  30 or more text-only rows (Editorial), scroll about 2200 px, go to Settings, then Back. Observed: rows measured 158 px
+  tall (170 px on a phone) are placed 190 px apart, so about 30 px of blank space shows between rows, and the row
+  that was at 154 px from the top is at 865 px (176 to 579 px on a phone), so the reader lands 2 to 4 rows above
+  where they were. The gaps stay on the rows mounted at return, even after scrolling; rows rendered later are spaced
+  correctly. It happens with or without new arrivals. Expected: the rows sit where they were, without gaps.
+- **B2-4 (P2)** Offline, an article not already loaded never finishes loading. Steps: with the browser offline (the
+  offline banner showing), open an article from the list. Observed: a loading skeleton for as long as it was watched
+  (25 s): no "Couldn't open this article", no Try again, and on a phone no top bar or back button, only the offline
+  banner, so an installed PWA has no visible way back. Expected: the error screen with its back button (Read the
+  original is moot offline, but Try again and back are not).
+- **B2-5 (P3)** Feed Health: after a bulk Delete, Select mode stays on and a feed ticked earlier but hidden by the
+  search stays ticked ("1 selected" when the search is cleared); after Turn on or Turn off, Select mode ends and the
+  ticks clear. The "Deleted 1 feed" toast also covers the middle of the selection bar.
+- **B2-6 (P3)** "Manage this feed" is only in a list row's ⋯ menu. The open article's own ⋯ menu (the reader
+  toolbar) has only Open original and Mute similar…, so on a phone it cannot be reached from the article you are
+  reading.
+- **B2-7 (P3)** The list header's title truncates at desktop widths: "Al…" for All articles in Email - Compact at
+  1400 px, "UAT Local …" in Editorial, and the same in Cards, where the list below is full width.
+- **B2-8 (P3)** The archive feed "Unsubscribed (starred)" is listed in the sidebar under the default folder with a
+  count, while Manage Feeds leaves it out and `docs/design.md` calls it hidden. Owner's call whether the sidebar row
+  is wanted as the way to reach it.
+- **B2-9 (P3)** The empty state after Shift+A says "1 new article arrived. Load them above" (plural pronoun for
+  one); related to issue #44.
+
 ## Suite 3 — Owner-only (real device required)
 
 **Not a promotion gate (decided 2026-09-27, see `docs/RELEASING.md`).** These stay open-ended: the owner checks
