@@ -25,6 +25,7 @@ All notable changes to Kipple are documented here. The format follows
 ### Fixed
 
 - The "N new articles" pill and its screen-reader announcement no longer fire for a periodic background poll, a newly subscribed feed's first fetch, an OPML import or a retention trim — only for a manual refresh (all feeds or a single feed). (#56)
+- Card thumbnails no longer come out blurry on feeds whose content leads with a small fixed-size crop (a WordPress featured-image thumbnail, say 300x100) ahead of the real photo further down: the lead image is now picked by size — the largest `srcset` candidate or declared width/height — instead of "the first `<img>` found." (#71)
 
 ## [0.3.0-beta.1] - 2026-09-27
 
