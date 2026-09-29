@@ -1,0 +1,1 @@
+Importing an OPML file no longer announces "N new articles" when the new feeds' first fetches finish: only a refresh you asked for (all feeds or one feed) announces new articles, as intended since #56. The server's `run.done` event now names the run's kind too, so a tab that missed the run's start still knows what it was. (#93)

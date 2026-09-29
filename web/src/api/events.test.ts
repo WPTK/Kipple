@@ -90,7 +90,28 @@ describe("announcementFor", () => {
   it("does not announce the retention sweep as a refresh", () => {
     expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } }, "retention")).toBeNull();
     expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } }, "manual")).toBe("No new articles");
-    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } }, "import")).toBe("No new articles");
+  });
+
+  // Issue #93: an OPML import run's run.done said "20 new articles" (its first fetches' items), although only a
+  // person's own refresh announces new articles.
+  it("does not announce an OPML import run, whatever it brought in", () => {
+    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 20, errors: 0 } }, "import")).toBeNull();
+    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } }, "import")).toBeNull();
+    expect(announcementFor({ type: "run.done", data: { run_id: "1", new_items: 3, errors: 1 } }, "import")).toBeNull();
+    expect(announcementFor({ type: "run.done", data: { run_id: "1", kind: "import", new_items: 20, errors: 0 } })).toBeNull();
+  });
+
+  it("an import run's events raise no pill and no announcement, end to end", async () => {
+    const toasts = await import("@/shell/toasts");
+    const spy = vi.spyOn(toasts, "announce");
+    liveStore.set(() => initialLive);
+    const qc = new QueryClient();
+    handleServerEvent(qc, { type: "run.start", data: { run_id: "77", kind: "import", total: 1 } });
+    handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "9", run_ids: ["77"], outcome: "ok", new_items: 20, trigger: "import" } });
+    handleServerEvent(qc, { type: "run.done", data: { run_id: "77", new_items: 20, errors: 0 } });
+    expect(liveStore.get().pendingByFeed).toEqual({});
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("announces a manual per-feed refresh but stays quiet about anything else", () => {
