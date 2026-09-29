@@ -41,6 +41,31 @@ func TestLeadImage(t *testing.T) {
 		LeadImage(`<img width="150" src="crop.jpg"><img srcset="small.jpg 300w, full.jpg 1200w">`, base))
 	// No image names a size anywhere: the first one found still wins, as before.
 	require.Equal(t, "https://a.com/post/first.jpg", LeadImage(`<img src="first.jpg"><img src="second.jpg">`, base))
+	// An unsized real photo is not beaten by a later, small, sized image (an avatar or share icon):
+	// scoring by declared size must not undo more than it fixes.
+	require.Equal(t, "https://a.com/post/hero.jpg",
+		LeadImage(`<img src="hero.jpg"><p>by</p><img src="avatar.png" width="48" height="48">`, base))
+	// A wide, short strip (a leaderboard ad, a divider) does not beat the article's picture, sized or not, but is
+	// still used when it is all there is.
+	require.Equal(t, "https://a.com/post/hero.jpg",
+		LeadImage(`<img src="hero.jpg"><img src="ad.gif" width="728" height="90">`, base))
+	require.Equal(t, "https://a.com/post/hero.jpg",
+		LeadImage(`<img src="hero.jpg" width="640" height="427"><img src="ad.gif" width="728" height="90">`, base))
+	require.Equal(t, "https://a.com/post/ad.gif", LeadImage(`<img src="ad.gif" width="728" height="90">`, base))
+	// A real panorama, a little wider than 4:1, still beats a tiny icon; and an absurdly tall declared height
+	// cannot overflow the shape check into calling a tall image a banner.
+	require.Equal(t, "https://a.com/post/pano.jpg",
+		LeadImage(`<img src="pano.jpg" width="2000" height="450"><img src="icon.png" width="16" height="16">`, base))
+	require.Equal(t, "https://a.com/post/tall.jpg",
+		LeadImage(`<img src="tall.jpg" width="1000" height="3000000000000000000"><img src="small.png" width="50" height="50">`, base))
+	// Known trade-off of treating an unsized image as an average one: a large sized image later in the post (a
+	// "related article" thumbnail) still wins over an unsized hero.
+	require.Equal(t, "https://a.com/post/related.jpg",
+		LeadImage(`<img src="hero.jpg"><img src="related.jpg" width="300" height="169">`, base))
+	// A srcset URL whose CDN transform contains a comma (Cloudinary/imgix style) is not split apart into a
+	// broken URL; the widest real candidate is still picked correctly, in full, with its comma intact.
+	require.Equal(t, "https://res.cloudinary.com/x/image/upload/w_1200,c_fill/a.jpg",
+		LeadImage(`<img srcset="https://res.cloudinary.com/x/image/upload/w_300,c_fill/a.jpg 300w, https://res.cloudinary.com/x/image/upload/w_1200,c_fill/a.jpg 1200w">`, base))
 }
 
 func TestContentKeepsFragmentHrefs(t *testing.T) {

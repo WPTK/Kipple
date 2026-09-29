@@ -452,6 +452,26 @@ describe("manage feeds", () => {
     expect(await screen.findByText("Saved")).toBeInTheDocument();
   });
 
+  it("a folder collapsed on this device still shows all its feeds in Edit and Select, and stays collapsed afterwards", async () => {
+    routes({}, boot3);
+    updateDevicePrefs({ collapsedFolders: ["1"] });
+    go("/feeds");
+    await screen.findByText("News");
+    expect(screen.queryByText("Alpha")).toBeNull();
+    const user = userEvent.setup();
+    // Edit swaps the folder's chevron for a grip, so a collapsed folder's feeds must be shown or they're unreachable.
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Done editing" }));
+    expect(screen.queryByText("Alpha")).toBeNull();
+    // Select all / shift-click range over every feed, so none may be hidden while selecting.
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByText("Alpha")).toBeNull();
+    expect(devicePrefsStore.get().collapsedFolders).toEqual(["1"]);
+  });
+
   it("keyboard reorder keeps focus on the moved row's grip (the keyed row is moved, which drops focus)", async () => {
     routes({ "POST /api/reorder": () => json({ changed_feeds: ["1", "2"], changed_folders: [] }) }, boot3);
     go("/feeds");
