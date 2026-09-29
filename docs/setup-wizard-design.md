@@ -4,8 +4,8 @@ Roadmap issue #33. Ships as **0.5.0-beta.1**, built on feature branches, merged 
 0.3.0-beta.2 soak (rc.1 not before 2026-10-06). This is a design, not a spec of shipped behavior: once a PR lands,
 `docs/design.md` gets the authoritative text and this file is trimmed to history.
 
-Decisions already made by the owner are stated as facts below and are not reopened. Section 12 lists what still
-needs a decision.
+Decisions already made by the owner are stated as facts below and are not reopened. Section 15 records the
+answers to this design's own open questions (2026-09-29).
 
 ## 1. Where things stand today (verified against `main` at c4124c0)
 
@@ -32,6 +32,7 @@ needs a decision.
 | Service worker | Build id `<stamp>-<hash>` baked into `dist/sw.js` at `closeBundle`; the bundle itself does not know the server version. | `web/vite.config.ts` `kippleSw` |
 | CI | `ci.yml` on push/PR: Go (vet, race tests), security (govulncheck, staticcheck, gosec gate, gitleaks), web, then a single-arch `docker` build + Trivy (HIGH/CRITICAL, ignore-unfixed). No release workflow, nothing is pushed anywhere. | `.github/workflows/ci.yml` |
 | Build context | `.dockerignore` excludes `*.md` (so `CHANGELOG.md`) and `docker-compose.example.yml`. | `.dockerignore` |
+| Time zones | **Two independent zones today.** The `TZ` env (default `America/New_York`) sets `time.Local` once at start. A separate in-app setting `tz` (Settings > Account, IANA name, validated; default `America/New_York`) drives stats and the nightly job and is re-read live. Section 7a lists every use. | `cmd/kipple/main.go:97-112`, `internal/api/settingsmeta.go:366`, `internal/store/stats.go:44` |
 | Parking lot | `docs/parking-lot.md` is gitignored and kept outside the repo; env-only settings moving in-app are tracked there. | `.gitignore:40` |
 
 ## 2. Goals and non-goals
@@ -85,7 +86,7 @@ No restart is needed when setup completes.
                  v
               NORMAL   (atomic flag flips once; token wiped; file removed; setup routes answer 404)
                  |
-   onboarding steps 3-6 run as an ordinary signed-in session until sys.setup_completed_at is set
+   onboarding steps 3-7 run as an ordinary signed-in session until sys.setup_completed_at is set
 ```
 
 - The flag is one-way inside a process. Nothing in the API or CLI deletes the account row, so normal mode never
@@ -108,7 +109,7 @@ new pre-auth call happens on that 401 path, so signed-in launches cost nothing e
 | `setup: false, auth: "password"` or `"access"` | `LoginScreen`, as today. |
 
 After sign-in, `bootstrap.user.setup_pending: true` (no `sys.setup_completed_at`) routes to `/welcome`, which is
-wizard steps 3-6. "Skip for now" on any step and "Finish" both call `POST /api/onboarding/complete`. Steps are
+wizard steps 3-7. "Skip for now" on any step and "Finish" both call `POST /api/onboarding/complete`. Steps are
 resumable after a reload because each one writes through ordinary endpoints as it goes.
 
 `/_status` (the embedded status page) gets one line in setup mode: "Setup is pending: open Kipple to finish it."
@@ -119,10 +120,11 @@ resumable after a reload because each one writes through ordinary endpoints as i
 |---|---|---|---|
 | 1 Token | setup | `POST /api/setup/claim` | no |
 | 2 Account | setup | `POST /api/setup/account` (signs the browser in) | no |
-| 3 Theme | normal | `PATCH /api/settings` `{ui.theme, ui.theme_day, ui.theme_night}` (global row = default for every future device); live preview by applying the scheme client-side before saving | yes |
-| 4 OPML | normal | `POST /api/opml` unchanged | yes |
-| 5 Recommended feeds | normal | `GET/POST /api/starter-feeds` | yes |
-| 6 Finish | normal | Reader API: `POST /api/account/api-password {generate:true}` (copy button, shown once); then `POST /api/onboarding/complete` | generating is optional |
+| 3 Time zone | normal | `PATCH /api/settings {tz}` (section 7a). Preselected from the browser's `Intl.DateTimeFormat().resolvedOptions().timeZone`, searchable list of IANA names. Read-only when the `TZ` env is set | skipping keeps the preselected zone, it never leaves UTC by accident |
+| 4 Theme | normal | `PATCH /api/settings` `{ui.theme, ui.theme_day, ui.theme_night}` (global row = default for every future device); live preview by applying the scheme client-side before saving | yes |
+| 5 OPML | normal | `POST /api/opml` unchanged | yes |
+| 6 Recommended feeds | normal | `GET/POST /api/starter-feeds` | yes |
+| 7 Finish | normal | Reader API: `POST /api/account/api-password {generate:true}` (copy button, shown once); then `POST /api/onboarding/complete` | generating is optional |
 
 Step 2 content: username (the existing rule: 1-64 of `A-Za-z0-9._-`), then a choice:
 
@@ -133,7 +135,7 @@ Step 2 content: username (the existing rule: 1-64 of `A-Za-z0-9._-`), then a cho
   read and change everything. Only choose this if Kipple is reachable only from this computer (localhost) or over
   Tailscale." A checkbox acknowledgement is required and sent as `acknowledge_open: true`.
 
-For step 6 with a password account, the wizard keeps the password typed in step 2 in component memory only and
+For step 7 with a password account, the wizard keeps the password typed in step 2 in component memory only and
 sends it as `current`; after a reload it asks for it again (the normal Settings flow). In open mode no `current` is
 needed (section 4.3).
 
@@ -169,12 +171,14 @@ today, plus the two new fields).
 | `GET /api/starter-feeds` | session | The embedded list (section 7) with `subscribed: bool` per feed (via `FindFeedByURL`). |
 | `POST /api/starter-feeds` | session, same-origin | `{ids:[...], folders: bool}`: subscribes **by id only** (the server never takes a URL here), one folder per category when `folders`. Same insert-then-`StartImport` path as OPML. `{added, existing, run_id}`. `400 unknown_id`. |
 | `POST /api/onboarding/complete` | session, same-origin | Sets `sys.setup_completed_at`. `204`. Idempotent. |
+| `POST /api/onboarding/restart` | session, same-origin | "Run setup again" (decision 4): clears `sys.setup_completed_at`. `204`. |
 
 ### 4.3 Changed
 
 | Route | Change |
 |---|---|
 | `GET /api/auth/me`, bootstrap `user` | Add `auth_mode: "password"\|"access"\|"open"` and `setup_pending: bool`. |
+| `GET /api/settings`, `PATCH /api/settings` | The `tz` entry gains `env_override: "<TZ value>"\|null`; a `PATCH` of `tz` while `TZ` is set is `400 invalid_settings` with the issue "set by the TZ environment variable" (7a). |
 | `GET /api/bootstrap` | Add `web_build` (the build id the server's embedded `index.html` carries, section 9). |
 | `POST /api/account/password` | New `{current, open: true}`: switch to open mode. Needs the current password **and** the request must pass the open gate, so it cannot be turned on from outside. In open mode `{new}` without `current` sets a password and returns to `standard` (the session plus same-origin are the proof; there is no credential to prove). Both sign out every other session (existing `SetPasswordHash` behavior). |
 | `POST /api/account/api-password` | In open mode `current` is not required (`checkCurrent` gains an open-mode branch that requires the open gate instead). |
@@ -250,7 +254,8 @@ The **open gate**, checked by `POST /api/auth/open`, by switching to open mode, 
 3. **Peer class.** The TCP peer must be loopback, Tailscale (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), or the
    container's own default gateway (Docker's userland proxy makes every `-p 127.0.0.1:...` connection arrive from the
    bridge gateway, read once from `/proc/net/route`). Other private-range peers (the LAN) are refused unless the
-   owner opts in; see open question 3.
+   owner opts in with `security.open_lan` (Settings: "Also allow devices on my local network", default off;
+   decision 3). With it on, RFC 1918 and ULA peers pass too.
 
 Existing sessions keep working after the gate fails (a session is a session), but they are revoked whenever the mode
 changes, as password changes already do.
@@ -264,7 +269,7 @@ changes, as password changes already do.
 | **Brute force** of the token or of logins | 120-bit token, separate per-IP lockout, global rotation; login lockout unchanged | None worth noting |
 | **DNS rebinding** against setup or open mode | Host gate (5.2) enforced in both; password mode unaffected (cookie is origin-bound) | A user who allowlists a public name they do not control |
 | **CSRF / login CSRF** | `sameOrigin` + `X-Kipple-Client` on every write; Strict setup cookie; no CORS | None beyond today |
-| **Passwordless on the LAN or the internet** | Explicit acknowledgement; open gate refuses forwarded requests and non-local peers; turning open mode on requires the password and the gate | A user who opts the LAN in (question 3) trusts every device on it, by choice |
+| **Passwordless on the LAN or the internet** | Explicit acknowledgement; open gate refuses forwarded requests and non-local peers; turning open mode on requires the password and the gate | A user who opts the LAN in (`security.open_lan`) trusts every device on it, by choice |
 | **Setup endpoints reopening** | Not registered when the row exists at start; flag checked per request; no API deletes the row | Direct SQLite surgery (out of scope) |
 | **SSRF via OPML or starter feeds** | Unchanged guarded transport, checked per dialed address; imported feeds have `allow_private_net` off; the starter list is validated at build time to public https hosts (7.3) and subscribed by id, never by client URL | Same as adding a feed today |
 | **Session fixation** | Setup cookie cleared and a fresh session minted at account creation | None |
@@ -299,15 +304,26 @@ ALTER TABLE account_new RENAME TO account;
 INSERT INTO settings (key, value)
   SELECT 'sys.setup_completed_at', CAST(unixepoch() AS TEXT) FROM account WHERE id = 1
   ON CONFLICT (key) DO NOTHING;
+-- Existing installs keep their old defaults (decisions 1 and 5): the stats zone stays America/New_York unless
+-- already set, and an unset KIPPLE_ADDR keeps listening on 7080 through 0.x.
+INSERT INTO settings (key, value)
+  SELECT 'tz', '"America/New_York"' FROM account WHERE id = 1
+  ON CONFLICT (key) DO NOTHING;
+INSERT INTO settings (key, value)
+  SELECT 'sys.legacy_port', 'true' FROM account WHERE id = 1
+  ON CONFLICT (key) DO NOTHING;
 ```
 
+- "Existing install" means "has an account row": a pre-0.5 database without one was never usable, so it is treated
+  as fresh (UTC, port 1919).
 - `auth_mode = 'standard'` covers both a password account and today's Access-only passwordless account (empty hash,
   Access configured). The API maps it to `password` or `access` for display.
 - New non-migration keys (Go defaults, as usual): `sys.setup_completed_at`, `sys.last_version` (written at every
-  start, section 9), `security.allowed_hosts` (global, JSON array, default `[]`), `security.open_lan` (question 3),
+  start, section 9), `security.allowed_hosts` (global, JSON array, default `[]`), `security.open_lan` (bool, default false),
   `ui.whats_new_seen` (hidden).
 - `migrate0010_test.go`: a schema-9 database with and without an account migrates; the row and hashes are intact;
-  the CHECK rejects `open` with a non-empty hash; `sys.setup_completed_at` exists only when the row does.
+  the CHECK rejects `open` with a non-empty hash; `sys.setup_completed_at`, `sys.legacy_port` and the `tz` row exist
+  only when the account does; an existing `tz` row is left untouched.
 - Downgrade: a 0.3.x binary meets `user_version = 10` and refuses to start (existing guard). Rolling back means
   restoring the pre-migration snapshot (RELEASING, Rollback), as for every schema change.
 
@@ -361,6 +377,63 @@ Liveness is **not** checked in CI (network flakiness would gate unrelated PRs). 
 fetches each URL through a running local Kipple (`POST /api/feeds` against a seed instance) and reports dead or
 redirected feeds; it becomes a line in RELEASING "Before the tag". At runtime a file that somehow fails to parse
 logs an error and the step shows "no recommendations available" rather than failing startup.
+
+## 7a. Time zone (wizard step 3, PR B owns the backend)
+
+### Where it is stored
+
+The setting **already exists**: key `tz` (Settings > Account, `internal/api/settingsmeta.go:366`), a global settings
+row holding an IANA name. It is reused rather than adding `server.timezone`: renaming would need a key migration and
+a backup-format note for no gain. What changes is its default (UTC for new installs, decision 5), its relationship
+to the `TZ` env, and the places that still read `time.Local` instead of it. The default literal
+`"America/New_York"` is repeated today in four places (`store/uibootstrap.go:33`, `store/stats.go:45`,
+`store/maint.go:293`, `store/statssummary.go:141`); they collapse into one constant, now `"UTC"`.
+
+### Every place a zone is used today (verified by grepping `time.Local`, `LoadLocation`, `.In(`, `TZ`)
+
+| Use | Zone today | After |
+|---|---|---|
+| Stats recording: `local_date`, `local_hour`, `local_weekday` snapshotted per row (`internal/stats/stats.go:92, 107, 196, 219`) | `tz` setting, read per transaction | `store.Zone`, per transaction |
+| Stats summary, Wrapped, streaks, "today" (`internal/store/statssummary.go:141, 494, 912`, `internal/api/statssummary.go:20, 51`) | `tz` setting | `store.Zone` |
+| Stats export ranges and filename stamp (`internal/api/statsexport.go:184, 196, 232`) | `tz` setting | `store.Zone` |
+| Nightly maintenance: run date, nightly time of day, Sunday weekly snapshot (`internal/maint/maint.go:126, 184-226, 298`) | `tz` setting, **re-read every tick**; instant-based, so a change neither repeats nor skips a date | `store.Zone`, same loop |
+| Backup download filename `kipple-backup-YYYYMMDD-HHMMSS` (`internal/backup/backup.go:289`) | `time.Local` (the `TZ` env), implicitly | explicit `now.In(store.Zone(...))` |
+| Parsing legacy zone-less `pre-restore-*` names (`cmd/kipple/restore.go:371`) | `time.Local` | unchanged: it must read names written by older versions in the zone they used; new names are UTC already (`restore.go:310`) |
+| Log timestamps (slog JSON) | `time.Local`, fixed at start | unchanged: `time.Local` is set once at start (env if set, else the effective zone at that moment); logs are the one thing that follows a change only after a restart. Mutating `time.Local` at runtime is a data race and is never done |
+| Scheduler, retention, auto-read days, backoff, sessions, Reader API | none (durations and unix seconds) | unchanged |
+| Web date display (`web/src/lib/format.ts:16`) | the **browser's** zone (`toLocaleString`) | unchanged: display follows the device, not the server |
+| Theme schedule | the device's own clock (settings text says so) | unchanged |
+| Digests | none exist (notifications are a non-goal) | n/a |
+
+### Precedence and runtime effect
+
+- `config` stops defaulting `TZ`: it records the env value and whether it was set.
+- `store.Zone(ctx, q)` is the one resolver: **`TZ` env if set, else the `tz` setting, else UTC.** The env location is
+  loaded once at start and passed to the store; the setting is read per call as today (one indexed point read,
+  already on every stats write).
+- Because every zone-dependent path above resolves per call or per tick, a `PATCH tz` takes effect on the next stats
+  write, the next summary request and the next maintenance tick. No restart, no `TZ` env.
+- When `TZ` is set, the settings meta reports `env_override` and a `PATCH` of `tz` is refused; the wizard step and
+  Settings show the env value read-only with "Set by the TZ environment variable; remove it to choose here." This
+  changes one existing behavior: today a set `TZ` does not govern stats. Changelog `changed` entry; the deploy
+  checklist compares Host-A's `TZ` and `tz` before the upgrade.
+
+### Validation
+
+Unchanged rule, one place (`settingsmeta.go:366`): a string, not empty, not `Local`, at most 64 bytes, and
+`time.LoadLocation` succeeds against the embedded tzdata (`time/tzdata` is imported in `cmd/kipple/main.go:21`, so
+this works in distroless). `UTC` is valid. The wizard's list is `Intl.supportedValuesOf("timeZone")` with a bundled
+fallback list for browsers without it; each entry shows its current UTC offset, search matches name and offset. A
+browser zone the server refuses (rare aliases) preselects `UTC` and says so. Go has no API to enumerate its embedded
+zones, so no server list endpoint is added; the server stays the validator.
+
+### Existing data
+
+Nothing stored is rewritten. `stats_events` keeps `ts` (unix UTC) and the local date, hour and weekday **as recorded
+in the zone in effect at the time**; summaries group by those stored columns. A zone change applies to new rows
+only, so a day recorded before the change stays on the date it had. This is today's behavior for a `tz` change and
+is documented beside the setting. Items, fetch logs and sessions are unix seconds and have no zone. Existing installs
+keep `America/New_York` through the `tz` row 0010 writes, so an upgrade changes nothing for them.
 
 ## 8. Distribution: GHCR release workflow
 
@@ -438,14 +511,16 @@ ownership (65532) from the image; a bind mount needs `chown 65532:65532` first, 
 - **Fallback 1138:** only when `KIPPLE_ADDR` is unset and binding `:1919` fails with `EADDRINUSE` (a bare binary on a
   machine where 1919 is taken). Logged as a WARN with the port chosen. `kipple healthcheck` with `KIPPLE_ADDR` unset
   probes 1919, then 1138. Inside a container this never triggers.
-- **Owner's live instance:** keeps 7080 by override. Before deploying 0.5.0-beta.1, confirm Host-A's env sets
-  `KIPPLE_ADDR=:7080`; if it relies on the default, the container would come up healthy on 1919 behind a
-  `7080:7080` mapping and be unreachable. This is a checklist line in the deploy notes.
-- **Breaking change for others:** anyone who copied `.env.example` has `KIPPLE_ADDR=:7080` set explicitly
-  (`.env.example:7`), so the README Quickstart path is unaffected. The break is limited to deployments with no
-  `KIPPLE_ADDR` and `-p 7080:7080`: after upgrading, the healthcheck passes (it probes inside) but the mapped port
-  answers nothing. Changelog `changed` entry marked **Breaking**, an "Upgrading to 0.5.0" note in `docs/deploy.md`,
-  and question 1 proposes a shim that removes the break entirely.
+- **Legacy shim (decision 1):** when `KIPPLE_ADDR` is unset and `sys.legacy_port` is set (0010 writes it for
+  databases that already had an account), `serve` keeps listening on `:7080` and logs a WARN once per start: "port
+  7080 is the pre-0.5 default and will stop being used at 1.0; set KIPPLE_ADDR=:7080 or move to 1919". Fresh installs
+  get 1919. The healthcheck cannot read the database cheaply, so with `KIPPLE_ADDR` unset it probes 1919, 7080, 1138
+  in that order (each loopback, same 3 s budget). The shim is deleted at 1.0 with a changelog `removed` entry.
+- **Owner's live instance:** keeps 7080 by override (and would keep it through the shim anyway). The deploy notes
+  still get a line to confirm Host-A sets `KIPPLE_ADDR=:7080`, so nothing depends on the shim.
+- **Others:** with the shim there is no break through 0.x; the scope that would break at 1.0 is deployments with no
+  `KIPPLE_ADDR` and `-p 7080:7080` (anyone who copied `.env.example` has it set explicitly, `.env.example:7`).
+  Changelog `changed` entry and an "Upgrading to 0.5.0" note in `docs/deploy.md` announce the 1.0 removal.
 
 ### 8.4 Rollback of a release
 
@@ -517,8 +592,6 @@ previous good digest with `imagetools create`, no rebuild. Signed digests are ne
   wins. This keeps scripted deploys authoritative.
 - **Restore from a backup during setup:** in setup mode there is nothing to lose, which makes a web restore far safer
   than in normal mode. The claim session is the natural gate. Parked; the step 1 screen links to the CLI procedure.
-- **Time zone:** the wizard reads the browser's `Intl` time zone and, if it differs from the server's `TZ`, shows the
-  line to add (see question 5).
 
 ## 12. Testing
 
@@ -533,7 +606,13 @@ previous good digest with `imagetools create`, no rebuild. Signed digests are ne
 - **Claim race:** N goroutines with the valid token and M with wrong ones hammer `claim` + `account` against one
   httptest server and one store; exactly one `201`, every other account call `409` or `401`, one row, one session
   for the winner. Run under `-race` in CI (not locally on Host-B, which has no gcc).
-- Migration 0010 test (section 6). Port: default, fallback on `EADDRINUSE`, healthcheck probing order.
+- Migration 0010 test (section 6). Port: default, legacy shim only with `sys.legacy_port` and no `KIPPLE_ADDR`,
+  fallback on `EADDRINUSE`, healthcheck probing order 1919, 7080, 1138.
+- Time zone (7a): `store.Zone` precedence (env, setting, UTC) with a table test; `PATCH tz` refused with
+  `env_override` when `TZ` is set; changing `tz` mid-process moves the next stats row's `local_date` and the nightly
+  run with no restart, and leaves every existing `stats_events` row byte-identical; `tz` across a DST boundary; the
+  backup filename follows the effective zone; `LoadLocation` never sees `Local` or an empty name.
+- `POST /api/onboarding/restart` clears `sys.setup_completed_at` only; `setup_pending` flips back.
 - Build info: ldflags wiring, `version` first line unchanged (guards RELEASING step 10), downgrade message with and
   without `sys.last_version`.
 
@@ -542,10 +621,13 @@ header parsing: ports, brackets, trailing dots, IDNA, case), `FuzzStarterFeeds` 
 accepts a non-https or IP-literal URL). `FuzzParse` for OPML already exists.
 
 **Web:** Vitest for each wizard step against `web/src/test/mockApi.ts`, the step registry guards, the fragment
-prefill and clearing, the mismatch banner (stored bootstrap vs network bootstrap), and axe on every step.
+prefill and clearing, the mismatch banner (stored bootstrap vs network bootstrap), and axe on every step. Time
+zone step: preselects the mocked `Intl` zone, falls back to UTC for a zone the server's list lacks, search filters by
+name and offset, and renders read-only with the env value when `env_override` is reported.
 
 **Playwright (UAT Suite 1 addition):** `KIPPLE_SEED_SET=fresh`: read the token from the seed's captured stderr,
-walk steps 1-6 with a password, then again with open mode on a second data dir; assert a second browser context
+walk steps 1-7 with a password (browser context with `timezoneId: "Asia/Tokyo"`, asserting the step preselects it
+and `GET /api/settings` then reports it), then again with open mode on a second data dir; assert a second browser context
 without the token cannot claim, and that after completion `/api/setup/*` answers 404. Run at the **mobile preset**
 in the browser pane as well (CLAUDE.md: UI phases are verified at the mobile preset before being called done).
 
@@ -560,7 +642,7 @@ The build-from-source path moves to a shorter "For developers" check.
 | PR | Scope | Depends on | Changelog fragment |
 |---|---|---|---|
 | **A** release workflow | `release.yml`, `ci.yml` `workflow_call`, Dockerfile cross-compile (`$BUILDPLATFORM`, `TARGETARCH`), metadata labels, `RELEASING.md` steps for GHCR, cosign verify text | none | `added` (signed multi-arch images on GHCR) |
-| **B** setup-mode backend | `internal/setup` (token, gates, shared account creation), migration 0010, new and changed routes, open mode, Host gate, port 1919 and fallback, healthcheck constant, CLI changes (`setup-token`, `password`, messages), starter-feeds endpoints (list embedded by C; B ships a two-feed placeholder file so it is testable alone) | none | `added` wizard backend, `changed` **Breaking** default port, `security` Host gate |
+| **B** setup-mode backend | `internal/setup` (token, gates, shared account creation), migration 0010, new and changed routes, open mode, Host gate, port 1919 and fallback, healthcheck constant, CLI changes (`setup-token`, `password`, messages), starter-feeds endpoints (list embedded by C; B ships a two-feed placeholder file so it is testable alone), **the time zone setting** (7a: `store.Zone`, env precedence, `env_override` in settings meta, `tz` default UTC, explicit zones replacing `time.Local`) and `onboarding/restart` | none | `added` wizard backend, `changed` default port 1919 (7080 kept for existing installs through 0.x), `changed` new installs default to UTC and a set `TZ` now also governs stats, `security` Host gate |
 | **E** build info | ldflags, `version -v`, `/api/about`, `sys.last_version` and downgrade message, `web_build`, mismatch banner, what's-new, About screen | A for the Dockerfile ldflags and web-stage `VERSION` (rebase on A) | `added` |
 | **C** wizard UI + feeds file | `web/src/setup/*`, `/welcome` route, `LoginScreen` open-mode branch, `starter/feeds.json` real content, `scripts/check-starter-feeds.mjs`, Playwright addition | B's API contract (this document); merges after B | `added` |
 | **D** docs | README Quickstart (pull-and-run first, build-from-source second), `docker-compose.example.yml` (port, image line), `.env.example` (port default, `KIPPLE_ALLOWED_HOSTS`, account variables now optional), `docs/deploy.md` upgrade notes, `docs/design.md` §7.0/§7.1, UAT Suite 5 rewrite | A, B, C, E merged | none (docs) |
@@ -574,7 +656,8 @@ One writer per PR; none touches Host-A. Nothing merges before the beta.2 soak en
 
 | Risk | Likelihood | Mitigation / rollback |
 |---|---|---|
-| Host-A relies on the default port and goes dark behind `7080:7080` | Low, but costly | Deploy checklist line (8.3); question 1's shim makes it impossible |
+| Host-A relies on the default port and goes dark behind `7080:7080` | Very low | Legacy shim (8.3) plus the deploy checklist line |
+| Host-A's `TZ` env and its `tz` setting differ, so stats switch zone on upgrade | Low | Deploy checklist: compare them before the upgrade; past rows are never rewritten either way (7a) |
 | Migration 0010 surprises the live database | Low (one-row rebuild) | Suite 4 rehearsal on a copy of the live snapshot before deploy; pre-migration snapshot; rollback per RELEASING |
 | Open mode ends up behind a tunnel | Medium for other users | Open gate refuses forwarded requests; Settings shows the mode prominently |
 | Host gate blocks a legitimate setup host | Medium | `421` body names `KIPPLE_ALLOWED_HOSTS`; IP literals always work, so `http://<ip>:1919` is always a way in |
@@ -588,23 +671,19 @@ snapshot the 0010 upgrade wrote and redeploying the previous tag (RELEASING, Rol
 upgrade (read state, new items) is lost with it, as with every schema rollback. A database created fresh by 0.5.0
 has no 0.3 snapshot and stays on 0.5.
 
-## 15. Open questions for the owner
+## 15. Decisions (owner, 2026-09-29)
 
-1. **Port shim for existing installs.** Should an existing database with `KIPPLE_ADDR` unset keep listening on 7080
-   (with a WARN pointing at the upgrade note) while fresh databases get 1919? *Recommendation: yes, through 0.x,
-   removed at 1.0.* It turns the only breaking change into a warning; the cost is a default that depends on state,
-   and the healthcheck probing 7080 as well.
-2. **Host-A deploy source.** Keep building from the tag on Host-A, or pull the signed GHCR digest? *Recommendation:
-   keep building for 0.5.0-beta.1; switch to pulling by digest from 0.5.0 onward*, so the owner runs the artifact
-   everyone else runs and the build-on-host path remains as the fallback.
-3. **Open mode and the LAN.** The notice says localhost or Tailscale only. Enforce that (default refuse other
-   private-range peers, with a Settings opt-in "Also allow devices on my local network", `security.open_lan`), or
-   allow private ranges by default? *Recommendation: refuse by default with the opt-in*: the notice then matches
-   what the code does, and a LAN user makes a second, explicit choice.
-4. **Onboarding for env-created accounts.** Scripted and existing accounts skip steps 3-6. Also offer "Run setup
-   again" in Settings? *Recommendation: yes, cheap* (it clears `sys.setup_completed_at`; steps 3-6 only).
-5. **Default time zone of the public image.** `TZ` defaults to `America/New_York` (`internal/config/config.go:45`),
-   which is the owner's zone, not a sensible public default; it affects stats day boundaries and schedules.
-   *Recommendation: default to `UTC` for new installs in 0.5.0, with the wizard showing the browser's zone and the
-   `TZ=` line to add; the owner's instance sets `TZ` explicitly before the upgrade.* Moving TZ in-app is a later
-   parking-lot item.
+All five recommendations were accepted, plus one new requirement.
+
+1. **Port shim.** Existing installs (an account row before 0010) with `KIPPLE_ADDR` unset keep listening on 7080 with
+   a WARN, through 0.x; removed at 1.0. Fresh installs get 1919. Design in 8.3, marker in 0010.
+2. **Host-A deploy source.** 0.5.0-beta.1 is built from the tag on Host-A as today; from 0.5.0 Host-A pulls the
+   signed GHCR image by digest, with build-from-tag kept as the fallback. `docs/RELEASING.md` changes in PR D.
+3. **Open mode and the LAN.** Refused by default; `security.open_lan` (Settings, "Also allow devices on my local
+   network") opts in. Design in 5.4.
+4. **Run setup again.** Settings > Account offers it for any account, including env-created ones:
+   `POST /api/onboarding/restart` (session, same-origin) clears `sys.setup_completed_at`, which routes the app to
+   `/welcome` for steps 3-7. It never touches the account, the token or setup mode.
+5. **Default time zone.** UTC for new installs; existing installs keep `America/New_York` (0010 writes their `tz` row).
+6. **New: the wizard asks for the time zone** (step 3), preselected from the browser, searchable IANA list. Design in
+   section 7a.
