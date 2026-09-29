@@ -197,9 +197,12 @@ export function announcementFor(ev: ServerEvent, runKind?: string): string | nul
     // Kind unknown (its run.start was missed): an empty result is not worth a toast.
     return kind === undefined ? null : "No new articles";
   }
-  // A manual per-feed refresh outside any run (or one that arrives before its run.done announcement): announce
-  // the new items. A scheduled poll, a new feed's first fetch, an import or a retention trim never do.
-  if (ev.type === "fetch.done" && ev.data.new_items > 0 && isManualTrigger(ev.data.trigger)) {
+  // A person's own single-feed refresh: announce the new items, even if a run happens to attach to the same
+  // fetch too (its run_ids is not empty). A "Refresh all" run's own per-feed fetches ("manual", never
+  // "feed_manual") do not announce here: every one of them belongs to a run by construction, and that run's
+  // own run.done announces the total once, not once per feed. A scheduled poll, a new feed's first fetch, an
+  // import or a retention trim never announce either.
+  if (ev.type === "fetch.done" && ev.data.new_items > 0 && ev.data.trigger === "feed_manual") {
     return plural(ev.data.new_items);
   }
   return null;
