@@ -80,6 +80,10 @@ docker compose build
 docker compose up -d
 ```
 
+The image reports its version as `dev` unless you pass it (it shows in `kipple version`, the startup log and
+backups). To stamp it with the release you cloned, set `KIPPLE_VERSION=$(git describe --tags --always)` and
+`KIPPLE_VCS_REF=$(git rev-parse HEAD)` in the environment of the build step.
+
 Open `http://127.0.0.1:7080` and sign in with `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` from `.env` (default
 username `owner`). That's the whole happy path: one image, one container, one port, no database to set up
 separately.

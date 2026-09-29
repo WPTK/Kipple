@@ -456,7 +456,7 @@ export function HealthScreen() {
         <DeleteDialog
           feeds={selectedFeeds}
           onClose={() => setBulk(null)}
-          onDone={(ids) => setSel((s) => new Set([...s].filter((x) => !ids.includes(x))))}
+          onDone={exitSelect}
         />
       ) : null}
       {bulk === "enable" || bulk === "disable" ? (

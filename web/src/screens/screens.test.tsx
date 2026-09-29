@@ -5,6 +5,7 @@ import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
 import { initPrefs, updatePrefs } from "@/lib/prefs";
 import { closeFilterEditor, filterEditorStore } from "@/lib/similar";
+import { feedEditorStore } from "@/lib/feedEditor";
 import { initTheme } from "@/theme/theme";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
@@ -137,7 +138,7 @@ describe("Unread list (Magazine)", () => {
   });
 
   it("unread empty copy reflects new articles already waiting, instead of contradicting the pill", () => {
-    expect(emptyCopy({ view: "unread" }, 1).body).toBe("1 new article arrived. Load them above to continue reading.");
+    expect(emptyCopy({ view: "unread" }, 1).body).toBe("1 new article arrived. Load it above to continue reading.");
     expect(emptyCopy({ view: "unread" }, 3).body).toBe("3 new articles arrived. Load them above to continue reading.");
   });
 
@@ -183,6 +184,17 @@ describe("Article view", () => {
     // The editor is opened through the shared store (its dialog is covered in filters.test.tsx).
     expect(filterEditorStore.get()).toMatchObject({ mode: "create" });
     closeFilterEditor();
+  });
+
+  it("offers Manage this feed in the open article's More menu, opening the editor for its feed (#97)", async () => {
+    routes();
+    go("/i/1001?from=unread");
+    const bar = await screen.findByRole("toolbar", { name: "Article actions" });
+    const user = userEvent.setup();
+    await user.click(within(bar).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage this feed" }));
+    expect(feedEditorStore.get()).toBe("1");
+    feedEditorStore.set(null);
   });
 
   it("moves to the next article with the button, replacing history", async () => {

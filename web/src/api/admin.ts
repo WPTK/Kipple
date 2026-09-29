@@ -277,7 +277,7 @@ export interface BackupInfo {
   expires_at: number;
   expires_in: number;
   warning: string;
-  contents: { kipple_version: string; schema_version: number; created_at: number; feeds: number; items: number; starred: number; db_bytes: number };
+  contents: { kipple_version: string; schema_version: number; created_at: string; feeds: number; items: number; starred: number; db_bytes: number };
 }
 
 type BackupAnswer = BackupInfo | { status: "building"; job_id?: string } | { status: "failed"; error: string; message?: string };

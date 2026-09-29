@@ -6,6 +6,7 @@ import { useBootstrap } from "@/api/queries";
 import { filterEditorStore } from "@/lib/similar";
 import { closeFeedEditor, feedEditorStore } from "@/lib/feedEditor";
 import { useStore, useStoreSelector } from "@/lib/store";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import type { RunStatus } from "@/api/types";
 
 // The editor is loaded the first time it is opened, so the main chunk does not carry it.
@@ -27,7 +28,8 @@ export function FilterEditorHost() {
 export function FeedEditorHost() {
   const feedId = useStore(feedEditorStore);
   const boot = useBootstrap();
-  const feed = feedId ? boot.data?.feeds.find((f) => f.id === feedId) : undefined;
+  // Never the archive feed: it has no editor (the server answers 409 archive_feed).
+  const feed = feedId ? visibleFeeds(boot.data?.feeds).find((f) => f.id === feedId) : undefined;
   if (!feed) return null;
   return (
     <Suspense fallback={null}>

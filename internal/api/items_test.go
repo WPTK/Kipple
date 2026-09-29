@@ -1066,18 +1066,35 @@ func TestBootstrap(t *testing.T) {
 func TestBootstrapWarningsAndArchive(t *testing.T) {
 	h := newHarness(t, func(o *Options) { o.Version = "v1.2.3" })
 	c := h.login()
-	// archive feed: hidden while empty, listed (is_archive) once it holds items
+	// archive feed: never listed, empty or not (an unsubscribed feed shows up nowhere), and its
+	// unread items are not in the default folder's count; the unread total and Starred keep them
 	h.exec(`INSERT INTO feeds (id, url, url_key, host, title, enabled, disabled_reason, retention, next_fetch_at)
 		VALUES (900, 'kipple:archive', 'kipple:archive', '', 'Archive', 0, 'archive', 0, 0)`)
 	_, body, _ := h.api(c, "GET", "/api/bootstrap", "")
 	require.Empty(t, body["feeds"])
 	require.Equal(t, "v1.2.3", body["version"])
-	h.addItem(900, seedItem{})
+	archived := h.addItem(900, seedItem{Title: "kept zebra", Starred: true})
+	listed := func(path string) []string {
+		_, out, _ := h.api(c, "GET", path, "")
+		var ids []string
+		for _, it := range out["items"].([]any) {
+			ids = append(ids, it.(map[string]any)["id"].(string))
+		}
+		return ids
+	}
+	for _, p := range []string{"/api/items?view=starred", "/api/items?view=unread", "/api/items?view=all", "/api/items?view=starred&q=zebra"} {
+		require.Equal(t, []string{sid(archived)}, listed(p), "the archived item stays reachable: %s", p)
+	}
+	for _, p := range []string{"/api/items?view=unread&folder=1", "/api/items?view=starred&folder=1", "/api/items?view=all&folder=1&q=zebra"} {
+		require.Empty(t, listed(p), "the default folder does not hold the archive feed: %s", p)
+	}
 	_, body, _ = h.api(c, "GET", "/api/bootstrap", "")
-	feeds := body["feeds"].([]any)
-	require.Len(t, feeds, 1)
-	require.Equal(t, true, feeds[0].(map[string]any)["is_archive"])
-	require.Equal(t, "archive", feeds[0].(map[string]any)["status"])
+	require.Empty(t, body["feeds"])
+	for _, fo := range body["folders"].([]any) {
+		require.EqualValues(t, 0, fo.(map[string]any)["unread"], "no folder counts the archive feed")
+	}
+	require.EqualValues(t, 1, body["counts"].(map[string]any)["unread"])
+	require.EqualValues(t, 1, body["counts"].(map[string]any)["starred"])
 
 	codes := func() []string {
 		_, body, _ := h.api(c, "GET", "/api/bootstrap", "")

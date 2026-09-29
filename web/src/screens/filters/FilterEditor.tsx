@@ -27,6 +27,7 @@ import { relativeTime } from "@/lib/format";
 import { closeFilterEditor, type EditorRequest, type SimilarSeed } from "@/lib/similar";
 import { announce, toast } from "@/shell/toasts";
 import { cn } from "@/lib/cn";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 
@@ -320,7 +321,7 @@ export function FilterEditor({ request }: FilterEditorProps) {
       <Modal open onOpenChange={(o) => !o && closeFilterEditor()} title="Filter not found" description="It may have been deleted on another device." footer={<Button onClick={closeFilterEditor}>Close</Button>} />
     );
   }
-  return <EditorForm key={editing?.id ?? "new"} initial={initial} id={editing?.id} seed={seed} folders={boot.data?.folders ?? []} feeds={(boot.data?.feeds ?? []).filter((f) => !f.is_archive)} qc={qc} />;
+  return <EditorForm key={editing?.id ?? "new"} initial={initial} id={editing?.id} seed={seed} folders={boot.data?.folders ?? []} feeds={visibleFeeds(boot.data?.feeds)} qc={qc} />;
 }
 
 function EditorForm({

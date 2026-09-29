@@ -236,7 +236,7 @@ function BackupDialog({ info, onClose }: { info: BackupInfo; onClose: () => void
           {c.kipple_version} (schema {c.schema_version})
         </dd>
         <dt className="text-fg2">Made</dt>
-        <dd>{fullDate(c.created_at)}</dd>
+        <dd>{fullDate(Date.parse(c.created_at) / 1000)}</dd>
       </dl>
       <p className="text-sm text-fg2">
         Your browser will ask where to save it. The link works once and expires in {Math.round(info.expires_in / 60)} minutes.

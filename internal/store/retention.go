@@ -242,8 +242,7 @@ const maxInt64 = int64(^uint64(0) >> 1)
 const deletingURLPrefix = "kipple:deleting:"
 
 // notDeletingSQL keeps a feed marked for deletion out of every feed list and
-// count (the web bootstrap and its folder and feed counts, the counts event,
-// Reader API subscription/list and unread-count, the OPML export): it is gone
+// count (listedFeedSQL builds on it for the lists): it is gone
 // as far as the reader is concerned while its items are purged. The feeds table
 // is aliased f; NotDeletingSQL takes another alias. All three forms come from
 // deletingFeedSQL, the one place the mark is tested in a query.
@@ -271,6 +270,31 @@ func deletingFeedIDs(ctx context.Context, q Querier) ([]int64, error) {
 // alias, for queries outside the package (the OPML export).
 func NotDeletingSQL(alias string) string {
 	return "NOT (" + deletingFeedSQL(alias) + ")"
+}
+
+// listedFeedSQL is the one rule for which feeds a reader sees: an unsubscribed
+// feed shows up nowhere. It is notDeletingSQL plus "not the archive feed", the
+// pseudo-feed that only holds starred items of unsubscribed feeds (§6.9). It
+// applies to every feed list and every per-feed or per-folder count (the web
+// bootstrap and its folder counts, the counts event, Reader API
+// subscription/list and unread-count, the OPML export). The archived items
+// themselves stay reachable: Starred, the All and Unread lists, search, and the
+// Reader API streams (under their origin_title). ListedFeedSQL takes another alias.
+var listedFeedSQL = ListedFeedSQL("f")
+
+// ListedFeedSQL is the listedFeedSQL condition for the feeds table under alias,
+// for queries outside the package (the OPML export).
+func ListedFeedSQL(alias string) string {
+	return alias + ".disabled_reason IS NOT 'archive' AND " + NotDeletingSQL(alias)
+}
+
+// inFolderSQL scopes items (col is their feed_id column) to a folder (param is
+// its bound parameter): the items of the folder's listed feeds, so a folder list,
+// its search, its mark-all-read and its Reader API label stream cover exactly
+// what its unread count counts. The archive feed sits in the default folder but
+// is not one of its feeds; a feed being deleted is left to the caller.
+func inFolderSQL(col, param string) string {
+	return col + " IN (SELECT id FROM feeds WHERE folder_id = " + param + " AND disabled_reason IS NOT 'archive')"
 }
 
 // markFeedsDeleting applies step 1 to ids inside tx. The archive feed (never

@@ -136,7 +136,7 @@ type UIFolder struct {
 // UIFolders lists folders in display order with unread counts.
 func (d *DB) UIFolders(ctx context.Context) ([]UIFolder, error) {
 	rows, err := d.reader.QueryContext(ctx, `SELECT fo.id, fo.name, fo.position, fo.is_default,
-		COALESCE((SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.folder_id = fo.id AND i.read = 0 AND `+notDeletingSQL+`), 0)
+		COALESCE((SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.folder_id = fo.id AND i.read = 0 AND `+listedFeedSQL+`), 0)
 		FROM folders fo ORDER BY fo.position, fo.name`)
 	if err != nil {
 		return nil, err
@@ -179,10 +179,10 @@ type UIFeed struct {
 	StarredCount int64 `json:"starred_count"`
 }
 
-// UIFeeds lists feeds in display order. The archive feed is listed only while
-// it holds items.
+// UIFeeds lists feeds in display order: the listed feeds (listedFeedSQL), so
+// never the archive feed.
 func (d *DB) UIFeeds(ctx context.Context, env StatusEnv) ([]UIFeed, error) {
-	return d.uiFeeds(ctx, env, "(f.disabled_reason IS NOT 'archive' OR EXISTS (SELECT 1 FROM items WHERE feed_id = f.id)) AND "+notDeletingSQL)
+	return d.uiFeeds(ctx, env, listedFeedSQL)
 }
 
 // uiFeeds runs the feed list query with a WHERE condition.
@@ -253,12 +253,12 @@ func (d *DB) SnapshotStatus(ctx context.Context) SnapshotStatus {
 }
 
 // FeedUnreadCounts returns every feed's unread count, zeros included, so a
-// `counts` event can zero a feed that just emptied. A feed marked for deletion
-// is left out, as UIFeeds leaves it out.
+// `counts` event can zero a feed that just emptied. Only listed feeds
+// (listedFeedSQL), as UIFeeds lists them.
 func (d *DB) FeedUnreadCounts(ctx context.Context) (map[int64]int64, error) {
 	rows, err := d.reader.QueryContext(ctx, `SELECT f.id, COALESCE(u.n, 0) FROM feeds f
 		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id
-		WHERE `+notDeletingSQL)
+		WHERE `+listedFeedSQL)
 	if err != nil {
 		return nil, err
 	}

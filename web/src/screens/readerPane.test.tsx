@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { onlineManager } from "@tanstack/react-query";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
@@ -276,6 +277,41 @@ describe("an article that fails to load", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/1001").length).toBeGreaterThan(before));
     await screen.findByText("Body of article 1");
+  });
+
+  it("offline on a phone: the error screen with Back and Try again, not a skeleton forever (#95)", async () => {
+    media();
+    let offline = false;
+    routes({
+      "GET /api/items/1001": () => {
+        if (offline) throw new TypeError("Failed to fetch");
+        return json(detail(1));
+      },
+    });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    offline = true;
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    onlineManager.setOnline(false);
+    try {
+      await userEvent.setup().click(screen.getByText("Article number 1"));
+      await screen.findByRole("heading", { name: "Couldn't open this article" });
+      expect(screen.getByRole("button", { name: "Back to list" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+      // The original is on the web: offline it cannot open either, so it is not offered.
+      expect(screen.queryByRole("button", { name: "Read the original" })).toBeNull();
+    } finally {
+      onlineManager.setOnline(true);
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("on a phone the Back button is there while the article is still loading", async () => {
+    media();
+    routes({ "GET /api/items/1001": () => new Promise<Response>(() => {}) });
+    go("/i/1001");
+    await screen.findByText("Loading article");
+    expect(screen.getByRole("button", { name: "Back to list" })).toBeInTheDocument();
   });
 });
 

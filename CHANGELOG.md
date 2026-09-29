@@ -8,6 +8,30 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.3.0-beta.3] - 2026-09-29
+
+Fixes from the beta.2 UAT re-run (Suites 1, 2, 4 and 5): the backup dialog date, the OPML-import announcement, returning to a long list, the offline article screen, Feed Health and list header details, Manage this feed from an open article, a wide row scrolling the list sideways on a phone, and, on the owner's decision, an unsubscribed feed's starred-articles archive is no longer listed anywhere (web and Reader API). No new features; no schema migration.
+
+### Added
+
+- Developer tooling: `web/scripts/site-shots.mjs` captures the four kipple.cc screenshots (and the social preview) from a local instance seeded with `KIPPLE_SEED_SET=site`, and `docs/RELEASING.md` step 12 makes updating the website part of every release.
+
+### Changed
+
+- Reader API: the "Unsubscribed (starred)" archive feed is no longer listed in subscription/list or given unread-count entries, and its articles are no longer in the default folder's label stream. Its starred articles are still served in the starred and reading-list streams with their original feed's name as the origin title, though an app that only shows starred articles of its own subscriptions may no longer show them. (#100)
+
+### Fixed
+
+- The Export backup dialog no longer shows "Invalid Date" for when the backup was made; it now shows the real date and time. (#92)
+- Feed Health: after a bulk Delete, Select mode now ends and the selection clears, the same as after Turn on and Turn off, so a feed you had ticked but hidden with the search is no longer left ticked and the Deleted message no longer covers the selection bar. (#96)
+- The "Unsubscribed (starred)" holder for starred articles of feeds you unsubscribed from no longer shows up as a feed anywhere: not in the sidebar (nor in its folder's unread count, and a folder holding only it is hidden), not when switching feeds with [ and ], and "Manage this feed" on one of its articles says the feed is gone. The starred articles themselves stay in Starred, All and search under their original feed's name. (#100)
+- Importing an OPML file no longer announces "N new articles" when the new feeds' first fetches finish: only a refresh you asked for (all feeds or one feed) announces new articles, as intended since #56. The server's `run.done` event now names the run's kind too, so a tab that missed the run's start still knows what it was. (#93)
+- The list header's title is no longer squeezed to an ellipsis ("Al…" for All articles in Email - Compact) beside its buttons: when the pane is too narrow for both, the buttons drop to their own line and the title gets the full width, and it truncates only when it alone is too long. The empty state after marking everything read now says "Load it above" for a single new article instead of "Load them above". (#98, #99)
+- Coming back to a long list (from Settings, an article or another screen) no longer leaves gaps between the rows, and puts you back on the row you left instead of a few rows above or below it: the list now remembers how tall its rows were, and measures the rows on screen even when it has just scrolled back into place. (#94)
+- A list row with an unbreakable wide piece of content (a long address or word in an article's text) no longer widens its whole column past the screen: on a phone in the Cards layout the list scrolled sideways.
+- Opening an article with the browser offline no longer shows a loading skeleton forever: an article saved on the device opens, and one that is not shows "Couldn't open this article" with Try again (without "Read the original", which cannot open offline either). On a phone the top bar with Back is now there while an article loads too, so an installed app always has a way back. (#95)
+- "Manage this feed" is now in the More menu of the article you are reading, not only in a list row's menu, so on a phone you can open the feed's settings without going back to the list. (#97)
+
 ## [0.3.0-beta.2] - 2026-09-29
 
 Fixes and polish from the beta.1 soak: the lead-image pick, the "N new articles" pill, scroll restore and mark-read-on-scroll, Feed Health and Manage Feeds selection and folders, a check-interval label, and the offline "read the original" button. Settings is split into six groups, Cards gets a real card shell, and a favorited folder can now be collapsed. No schema migration; the changelog is now assembled from `changes/` fragments (see `changes/README.md`).
@@ -660,7 +684,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.2...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.3...HEAD
+[0.3.0-beta.3]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.2...v0.3.0-beta.3
 [0.3.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.1...v0.3.0-beta.2
 [0.3.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.7...v0.3.0-beta.1
 [0.3.0-alpha.7]: https://github.com/WPTK/Kipple/compare/271fd23...v0.3.0-alpha.7

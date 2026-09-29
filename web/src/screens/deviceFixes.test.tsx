@@ -281,6 +281,47 @@ describe("sidebar", () => {
     expect(header.querySelector(".max-w-\\[25rem\\]")).not.toBeNull();
   });
 
+  // The archive feed ("Unsubscribed (starred)") holds starred articles of unsubscribed feeds. The server no
+  // longer lists it, but a bootstrap cached before that (offline) still can: it must show up nowhere.
+  const archive = feed("9", "3", "Unsubscribed (starred)", { is_archive: true, status: "archive", unread: 4, starred_count: 4 });
+  const withArchive: Bootstrap = {
+    ...boot3,
+    folders: [...boot3.folders, { id: "3", name: "Holding", position: 2, is_default: false, unread: 0 }],
+    feeds: [...boot3.feeds.slice(0, 1), { ...archive, folder_id: "1" }, ...boot3.feeds.slice(1), archive],
+  };
+
+  it("never lists the archive feed, nor a folder that only holds it", async () => {
+    routes({}, withArchive);
+    media(WIDE);
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(nav).getByRole("link", { name: /Alpha/ })).toBeInTheDocument();
+    expect(within(nav).queryByText("Unsubscribed (starred)")).toBeNull();
+    expect(within(nav).queryByRole("link", { name: /Holding/ })).toBeNull();
+    expect(within(nav).queryByRole("button", { name: "Collapse Holding" })).toBeNull();
+  });
+
+  it('says "No feeds yet" when the archive feed is the only feed', async () => {
+    routes({}, { ...bootstrap, feeds: [{ ...archive, folder_id: "1" }] });
+    media(WIDE);
+    go("/l/unread");
+    const nav = await screen.findByRole("navigation", { name: "Primary" });
+    expect(await within(nav).findByRole("heading", { name: "No feeds yet" })).toBeInTheDocument();
+    expect(within(nav).queryByText("Unsubscribed (starred)")).toBeNull();
+  });
+
+  it("[ and ] skip the archive feed and the folder that only holds it", async () => {
+    routes({}, withArchive);
+    media(WIDE);
+    go("/l/unread?feed=1");
+    const next = await screen.findByRole("button", { name: "Next feed" });
+    await userEvent.setup().click(next);
+    await waitFor(() => expect(window.location.search).toBe("?feed=2"));
+    go("/l/unread?folder=2");
+    expect(await screen.findByRole("button", { name: "Next folder" })).toBeDisabled();
+  });
+
   it("folders collapse and expand, and the choice is kept on this device", async () => {
     routes({}, boot3);
     media(WIDE);
