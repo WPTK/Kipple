@@ -23,6 +23,14 @@ var lazyAttrs = []string{"data-src", "data-lazy-src", "data-original", "data-laz
 // images tie, so the first one found wins between them, matching the pre-scoring behavior.
 const assumedWidth = 200
 
+// bannerScore ranks below every other candidate, sized or not. A declared shape much wider than tall (a 728x90
+// leaderboard ad, a divider strip) is almost never the article's picture and would be stretched into a card's
+// image box, so it is only used when the content has nothing else.
+const bannerScore = -1
+
+// bannerRatio is how many times wider than tall a declared size must be to count as a banner.
+const bannerRatio = 4
+
 // LeadImage returns the absolute URL of the best real image in an HTML
 // fragment, or "". Tracking pixels (width or height <= 2, known beacon URLs)
 // and data: URIs are skipped; lazy-load attributes are honoured. Relative URLs
@@ -84,6 +92,9 @@ func LeadImage(src string, bases ...string) string {
 			// srcset's widest candidate, if any, is preferred over plain src/lazy attrs: src is often the
 			// small default a JS-less client would get, while srcset lists the full range up to the original.
 			if u, w := bestSrcset(attrs["srcset"], bases); u != "" {
+				if isBanner(attrs) {
+					w = bannerScore
+				}
 				if outranks(w) {
 					best = candidate{url: u, score: w}
 					haveBest = true
@@ -107,6 +118,9 @@ func LeadImage(src string, bases ...string) string {
 					continue
 				}
 				score := attrWidth(attrs)
+				if isBanner(attrs) {
+					score = bannerScore
+				}
 				if outranks(score) {
 					best = candidate{url: abs, score: score}
 					haveBest = true
@@ -115,6 +129,14 @@ func LeadImage(src string, bases ...string) string {
 			}
 		}
 	}
+}
+
+// isBanner reports whether both dimensions are declared and the image is more than bannerRatio times wider than
+// it is tall.
+func isBanner(attrs map[string]string) bool {
+	w, errW := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(attrs["width"]), "px"))
+	h, errH := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(attrs["height"]), "px"))
+	return errW == nil && errH == nil && h > 0 && w > bannerRatio*h
 }
 
 // attrWidth is the declared pixel width of an <img>, from its `width` attribute, else its `height`, else 0

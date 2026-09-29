@@ -45,6 +45,17 @@ func TestLeadImage(t *testing.T) {
 	// scoring by declared size must not undo more than it fixes.
 	require.Equal(t, "https://a.com/post/hero.jpg",
 		LeadImage(`<img src="hero.jpg"><p>by</p><img src="avatar.png" width="48" height="48">`, base))
+	// A wide, short strip (a leaderboard ad, a divider) does not beat the article's picture, sized or not, but is
+	// still used when it is all there is.
+	require.Equal(t, "https://a.com/post/hero.jpg",
+		LeadImage(`<img src="hero.jpg"><img src="ad.gif" width="728" height="90">`, base))
+	require.Equal(t, "https://a.com/post/hero.jpg",
+		LeadImage(`<img src="hero.jpg" width="640" height="427"><img src="ad.gif" width="728" height="90">`, base))
+	require.Equal(t, "https://a.com/post/ad.gif", LeadImage(`<img src="ad.gif" width="728" height="90">`, base))
+	// Known trade-off of treating an unsized image as an average one: a large sized image later in the post (a
+	// "related article" thumbnail) still wins over an unsized hero.
+	require.Equal(t, "https://a.com/post/related.jpg",
+		LeadImage(`<img src="hero.jpg"><img src="related.jpg" width="300" height="169">`, base))
 	// A srcset URL whose CDN transform contains a comma (Cloudinary/imgix style) is not split apart into a
 	// broken URL; the widest real candidate is still picked correctly, in full, with its comma intact.
 	require.Equal(t, "https://res.cloudinary.com/x/image/upload/w_1200,c_fill/a.jpg",
