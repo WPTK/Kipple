@@ -75,6 +75,9 @@ export async function markScrolledPast(qc: QueryClient, passed: Card[], sent: Se
 // (design 3.4: one restore path). Module scope: survives route changes.
 interface ListMemory {
   offset: number;
+  /** The list's `as_of` when `offset` was recorded: a mismatch means the list was refetched since (new arrivals,
+   * a resync, mark-all) and `offset` no longer points at the rows it used to. */
+  offsetAsOf?: string;
   selectedId?: string;
   /** Rows swiped or marked away in Unread, so leaving the list and coming back keeps them gone. */
   hidden: ReadonlySet<string>;
@@ -253,6 +256,10 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   asOf.current = q.data?.pages[0]?.as_of;
 
   const saved = memory.get(key);
+  // A saved offset only means anything against the list it was recorded from. If the list was refetched since
+  // (new arrivals, a resync, mark-all-read touching this scope) `as_of` has moved on, and restoring the old
+  // pixel offset would land over rows that were never actually on screen.
+  const offsetValid = saved !== undefined && saved.offsetAsOf !== undefined && saved.offsetAsOf === asOf.current;
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
   const selected = activeId ?? selectedId;
 
@@ -271,7 +278,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     },
     getItemKey: (i) => rows[i]?.key ?? i,
     overscan: 8,
-    initialOffset: saved?.offset ?? 0,
+    initialOffset: offsetValid ? (saved?.offset ?? 0) : 0,
   });
 
   // A different layout has different row heights: drop the sizes measured for the old one.
@@ -302,7 +309,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     const el = parentRef.current;
     if (!el) return;
     const onScroll = () => {
-      memoryFor(key).offset = el.scrollTop;
+      const m = memoryFor(key);
+      m.offset = el.scrollTop;
+      m.offsetAsOf = asOf.current;
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
@@ -359,13 +368,30 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const sentByScroll = useRef(memoryFor(key).sentByScroll);
+  // Rows actually rendered in the visible window at some point, so a restored/jumped-to offset that puts rows
+  // "above the start index" without them ever having been on screen does not count as scrolled past.
+  const seenIds = useRef(new Set<string>());
+  useEffect(() => {
+    seenIds.current = new Set();
+  }, [key]);
+  useEffect(() => {
+    for (const v of virtualItems) {
+      const r = rowsRef.current[v.index];
+      if (!r) continue;
+      if (r.kind === "item") seenIds.current.add(r.item.id);
+      else if (r.kind === "group") for (const it of r.items) seenIds.current.add(it.id);
+    }
+  }, [virtualItems]);
   useEffect(() => {
     const el = parentRef.current;
     if (!markOnScroll || !el) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const flush = () => {
       const start = virtualizer.range?.startIndex ?? 0;
-      const passed = rowsRef.current.slice(0, start).flatMap((r) => (r.kind === "item" ? [r.item] : r.kind === "group" ? r.items : []));
+      const passed = rowsRef.current
+        .slice(0, start)
+        .flatMap((r) => (r.kind === "item" ? [r.item] : r.kind === "group" ? r.items : []))
+        .filter((i) => seenIds.current.has(i.id));
       void markScrolledPast(qc, passed, sentByScroll.current);
     };
     const onScroll = () => {
@@ -740,6 +766,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     });
     memory.delete(key);
     sentByScroll.current = memoryFor(key).sentByScroll;
+    seenIds.current = new Set();
     asOf.current = undefined;
     setHidden(new Set());
     setLeaving(new Set());
