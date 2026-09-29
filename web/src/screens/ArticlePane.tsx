@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { DropdownMenu } from "radix-ui";
-import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Share2, Star } from "lucide-react";
+import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
@@ -19,6 +19,7 @@ import { useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
 import { openOriginalAndRecord, shareAndRecord, useReadingStats, useStatsEnabled } from "@/lib/statsSender";
 import { openFilterEditor, similarSeed } from "@/lib/similar";
+import { openFeedEditor } from "@/lib/feedEditor";
 import { clearMarks, wrapMarks } from "@/lib/highlight";
 import { Hl, useGroups } from "@/lib/useHighlights";
 import { cn } from "@/lib/cn";
@@ -138,6 +139,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   };
   const muteSimilar = () => {
     if (item.data) openFilterEditor({ mode: "create", seed: similarSeed(item.data, item.data.feed.title) });
+  };
+  const manageFeed = () => {
+    if (item.data) openFeedEditor(item.data.feed_id);
   };
   const toggleFulltext = () => {
     if (!item.data) return;
@@ -272,6 +276,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           onOriginal={openOriginal}
           onShare={share}
           onMuteSimilar={muteSimilar}
+          onManageFeed={manageFeed}
         />
       )}
       <div ref={scrollerRef} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
@@ -355,6 +360,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           onOriginal={openOriginal}
           onShare={share}
           onMuteSimilar={muteSimilar}
+          onManageFeed={manageFeed}
         />
       )}
     </div>
@@ -387,6 +393,7 @@ interface ToolbarProps {
   onOriginal: () => void;
   onShare: () => void;
   onMuteSimilar: () => void;
+  onManageFeed: () => void;
 }
 
 const moreItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
@@ -449,6 +456,10 @@ function Toolbar(p: ToolbarProps) {
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+            <DropdownMenu.Item className={moreItem} onSelect={p.onManageFeed}>
+              <Rss className="size-5" aria-hidden="true" />
+              Manage this feed
+            </DropdownMenu.Item>
             <DropdownMenu.Item className={moreItem} onSelect={p.onOriginal}>
               <ExternalLink className="size-5" aria-hidden="true" />
               Open original
