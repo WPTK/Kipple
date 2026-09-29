@@ -81,9 +81,36 @@ export function MoveDialog({
   );
 }
 
-export interface ToggleReport {
+/** How a one-feed-at-a-time bulk action ended when some feeds failed. */
+export interface BulkReport {
   done: number;
   failed: { title: string; message: string }[];
+}
+
+/**
+ * The state and loop the bulk dialogs share: run `op` on each feed in turn (a feed has no bulk endpoint of its
+ * own), tracking progress; one bad feed does not stop the rest. Returns the ids that succeeded and the failures.
+ */
+function useBulkRun(feeds: readonly Feed[]) {
+  const [progress, setProgress] = useState<number | null>(null);
+  const [report, setReport] = useState<BulkReport | null>(null);
+  const busy = progress !== null && report === null;
+  const runEach = async (op: (f: Feed) => Promise<void>) => {
+    const failed: BulkReport["failed"] = [];
+    const succeeded: string[] = [];
+    setProgress(0);
+    for (const [i, f] of feeds.entries()) {
+      try {
+        await op(f);
+        succeeded.push(f.id);
+      } catch (e) {
+        failed.push({ title: f.title, message: errorMessage(e) });
+      }
+      setProgress(i + 1);
+    }
+    return { succeeded, failed };
+  };
+  return { progress, report, setReport, busy, runEach };
 }
 
 /**
@@ -93,24 +120,12 @@ export interface ToggleReport {
 export function ToggleDialog({ feeds, enable, onClose, onDone }: { feeds: Feed[]; enable: boolean; onClose: () => void; onDone: () => void }) {
   const qc = useQueryClient();
   const count = feeds.length;
-  const [progress, setProgress] = useState<number | null>(null);
-  const [report, setReport] = useState<ToggleReport | null>(null);
-  const busy = progress !== null && report === null;
+  const { progress, report, setReport, busy, runEach } = useBulkRun(feeds);
   const verb = enable ? "Turn on" : "Turn off";
 
   const run = async () => {
-    const failed: ToggleReport["failed"] = [];
-    let done = 0;
-    setProgress(0);
-    for (const [i, f] of feeds.entries()) {
-      try {
-        await patchFeed(f.id, { enabled: enable });
-        done += 1;
-      } catch (e) {
-        failed.push({ title: f.title, message: errorMessage(e) });
-      }
-      setProgress(i + 1);
-    }
+    const { succeeded, failed } = await runEach((f) => patchFeed(f.id, { enabled: enable }).then(() => undefined));
+    const done = succeeded.length;
     invalidateFeeds(qc);
     onDone();
     if (failed.length === 0) {
@@ -173,11 +188,6 @@ export function ToggleDialog({ feeds, enable, onClose, onDone }: { feeds: Feed[]
   );
 }
 
-export interface DeleteReport {
-  done: number;
-  failed: { title: string; message: string }[];
-}
-
 /**
  * Delete the selected feeds one at a time (DELETE /api/feeds/{id}), with progress and a per-feed error list:
  * one bad feed does not stop the rest. Starred articles move to the Archive unless the switch says otherwise.
@@ -186,23 +196,10 @@ export function DeleteDialog({ feeds, onClose, onDone }: { feeds: Feed[]; onClos
   const qc = useQueryClient();
   const { count, starred } = deleteSummary(feeds);
   const [alsoStarred, setAlsoStarred] = useState(false);
-  const [progress, setProgress] = useState<number | null>(null);
-  const [report, setReport] = useState<DeleteReport | null>(null);
-  const busy = progress !== null && report === null;
+  const { progress, report, setReport, busy, runEach } = useBulkRun(feeds);
 
   const run = async () => {
-    const failed: DeleteReport["failed"] = [];
-    const deleted: string[] = [];
-    setProgress(0);
-    for (const [i, f] of feeds.entries()) {
-      try {
-        await deleteFeed(f.id, alsoStarred);
-        deleted.push(f.id);
-      } catch (e) {
-        failed.push({ title: f.title, message: errorMessage(e) });
-      }
-      setProgress(i + 1);
-    }
+    const { succeeded: deleted, failed } = await runEach((f) => deleteFeed(f.id, alsoStarred).then(() => undefined));
     invalidateFeeds(qc);
     void qc.invalidateQueries({ queryKey: ["items"] });
     onDone(deleted);

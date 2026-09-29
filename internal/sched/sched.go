@@ -118,6 +118,9 @@ type flight struct {
 	waited  bool
 	runs    []*Run
 	replies []chan Reply
+	// personRefresh is set when a person's own refresh (not a subscribe-time fetch, say) joined this job
+	// while it was already in flight; effectiveTrigger reports that for the fetch.done event.
+	personRefresh bool
 	// followups are priority requests that arrived while this job was running
 	// and that it does not satisfy (a full refetch, a trim, a re-key). They are
 	// replayed, each as a fresh job on a fresh snapshot, once this one is done.
