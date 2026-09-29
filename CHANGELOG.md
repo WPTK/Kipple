@@ -27,6 +27,7 @@ All notable changes to Kipple are documented here. The format follows
 - The "N new articles" pill and its screen-reader announcement no longer fire for a periodic background poll, a newly subscribed feed's first fetch, an OPML import or a retention trim — only for a manual refresh (all feeds or a single feed). (#56)
 - Card thumbnails no longer come out blurry on feeds whose content leads with a small fixed-size crop (a WordPress featured-image thumbnail, say 300x100) ahead of the real photo further down: the lead image is now picked by size — the largest `srcset` candidate or declared width/height — instead of "the first `<img>` found." (#71)
 - Entering a list whose data changed since you last scrolled it (new arrivals, a mark-all-read, a resync) no longer restores your old scroll position over the freshly loaded rows, and "mark as read while scrolling" no longer marks rows that a restored or jumped-to scroll position skipped past without ever actually rendering them on screen. (#72)
+- Fixed two regressions in the #71 lead-image fix, caught in code review before they reached anyone: a real photo with no declared size could be beaten by a much smaller sized image (an avatar, a share icon) elsewhere in the same content, and a `srcset` candidate whose URL contained a comma (a common CDN transform pattern, e.g. Cloudinary's `w_300,h_200`) could be split apart into a broken URL. A wide, short strip in the article (a 728x90 ad or a divider) also no longer beats the article's picture as the lead image.
 
 ## [0.3.0-beta.1] - 2026-09-27
 
