@@ -368,7 +368,7 @@ func (s *Scheduler) handleDone(r result) {
 		run.Outstanding--
 		if run.Outstanding <= 0 {
 			s.endRun(run)
-			s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": run.NewItems, "errors": run.Errors})
+			s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "kind": run.Kind, "new_items": run.NewItems, "errors": run.Errors})
 		}
 	}
 
@@ -489,7 +489,7 @@ func (s *Scheduler) handleRun(req runReq) {
 	}
 	run.Total = run.Outstanding
 	if run.Total == 0 {
-		s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": 0, "errors": 0})
+		s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "kind": run.Kind, "new_items": 0, "errors": 0})
 		reply(runReply{info: RunInfo{RunID: run.ID, Kind: run.Kind}})
 		return
 	}
@@ -701,7 +701,7 @@ func (s *Scheduler) settleRunFeed(run *Run, isErr bool) {
 	run.Outstanding--
 	if run.Outstanding <= 0 {
 		s.endRun(run)
-		s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "new_items": run.NewItems, "errors": run.Errors})
+		s.hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "kind": run.Kind, "new_items": run.NewItems, "errors": run.Errors})
 	}
 }
 
