@@ -194,6 +194,112 @@ describe("stale scroll offset over refetched data", () => {
   });
 });
 
+describe("coming back to a long list (#94)", () => {
+  // jsdom has no layout, so the rows get the height Chromium measured for a text-only Editorial row at 1280 px (232),
+  // against the layout's estimate of 190, and the list an 800 px viewport. jsdom's scrollTo is a no-op (setup.ts);
+  // here it scrolls and fires "scroll" the way a browser does, because the bug needs the scroll event that restoring
+  // the offset causes. What this cannot show is paint: it reads the rows' transforms, not where a browser drew them.
+  const ROW = 232;
+  const VIEWPORT = 800;
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.dataset.testid === "list-scroll" ? VIEWPORT : ROW;
+      },
+    });
+    // Reports the same heights; setup.ts's own observer reports 800 for everything.
+    class SizedRO {
+      constructor(private cb: ResizeObserverCallback) {}
+      observe(el: HTMLElement) {
+        const h = el.offsetHeight;
+        this.cb([{ target: el, contentRect: { width: 375, height: h }, borderBoxSize: [{ inlineSize: 375, blockSize: h }] } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", SizedRO);
+  });
+  afterEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 800 });
+  });
+
+  const rowsOf = (scroller: HTMLElement) =>
+    [...scroller.querySelectorAll<HTMLElement>("[data-index]")]
+      .map((el) => ({
+        id: el.querySelector<HTMLElement>("[data-item-id]")?.dataset.itemId ?? `header ${el.dataset.index}`,
+        top: Number(/translateY\((-?[\d.]+)px\)/.exec(el.style.transform)?.[1]),
+      }))
+      .sort((a, b) => a.top - b.top);
+  const rowAt = (scroller: HTMLElement, offset: number) => rowsOf(scroller).find((r) => r.top <= offset && offset < r.top + ROW)?.id;
+  /** How far apart the mounted rows stand: all ROW when none kept its estimated height. */
+  const steps = (scroller: HTMLElement) => {
+    const rows = rowsOf(scroller);
+    expect(rows.length).toBeGreaterThan(2);
+    return [...new Set(rows.slice(1).map((r, i) => r.top - (rows[i] as { top: number }).top))];
+  };
+
+  /** Read about 2200 px down a 40-row list a row at a time, go to Feeds (`whileAway` runs there), and come back. */
+  async function readLeaveAndReturn(whileAway?: () => void) {
+    vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element, opts?: ScrollToOptions | number) {
+      if (typeof opts !== "object" || opts.top === undefined) return;
+      this.scrollTop = opts.top;
+      this.dispatchEvent(new Event("scroll"));
+    });
+    const cards = Array.from({ length: 40 }, (_, i) => card(i + 1));
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf(cards, null, "100")),
+      "GET /api/feeds": () => json([]),
+    });
+    window.history.replaceState({ idx: 0 }, "", "/l/unread");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    await screen.findByText("Article number 1");
+    // Read down the list a row at a time, so every row passed is measured.
+    const scroller = screen.getByTestId("list-scroll");
+    for (let y = ROW; y <= 2200; y += ROW) {
+      act(() => {
+        scroller.scrollTop = y;
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+    }
+    const offset = scroller.scrollTop;
+    const leftAt = rowAt(scroller, offset);
+    expect(leftAt).toBeDefined();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("link", { name: /Feeds/ }));
+    if (whileAway) act(whileAway);
+    await user.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("link", { name: /Unread/ }));
+    await screen.findByTestId("list-scroll");
+    // Longer than the virtualizer's 150 ms "is scrolling" window.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 250));
+    });
+    return { offset, leftAt, scroller: screen.getByTestId("list-scroll") };
+  }
+
+  it("puts the rows back without gaps and at the row the reader left", async () => {
+    const { offset, leftAt, scroller } = await readLeaveAndReturn();
+    // The rows mounted at the return are not left at their 190 px estimate...
+    expect(steps(scroller)).toEqual([ROW]);
+    // ...and the reader is back on the row they left, not rows above or below it: the rows above the offset keep the
+    // heights measured on the way down.
+    expect(scroller.scrollTop).toBe(offset);
+    expect(rowAt(scroller, scroller.scrollTop)).toBe(leftAt);
+  });
+
+  it("measures the rows again without gaps when the saved heights no longer apply (text size changed while away)", async () => {
+    // The heights from the way down are dropped, so the rows on screen are measured on the spot, straight after
+    // the restored offset scrolled the list (when the virtualizer's own measuring skips them).
+    const { scroller } = await readLeaveAndReturn(() => updatePrefs({ textSize: 1.25 }));
+    expect(steps(scroller)).toEqual([ROW]);
+  });
+});
+
 describe("turning mark-read-on-scroll off", () => {
   it("does not mark the pending scrolled-past rows read when the setting is switched off before the settle", async () => {
     updatePrefs({ markReadOnScroll: true });
