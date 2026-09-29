@@ -63,6 +63,7 @@ func (r *rig) count(where string, args ...any) int {
 
 func TestRecordSnapshotAndLocalTime(t *testing.T) {
 	r := newRig(t)
+	require.NoError(t, r.db.SetSettings(context.Background(), map[string]any{"tz": "America/New_York"}))
 	require.NoError(t, r.record(Event{Kind: KindOpen, Client: "web", ItemID: itemID, SessionKey: "sk1"}))
 	var date, feed, title, folder string
 	var hour, wd int
@@ -257,4 +258,43 @@ func TestRecordManyBatch(t *testing.T) {
 	many(rt("evt-rt-003", 1), Event{Kind: KindShare, Client: "web", ItemID: itemID})
 	require.Equal(t, 2, r.count("kind = 'read_time'"))
 	require.Equal(t, 1, r.count("kind = 'share'"))
+}
+
+// A new install records in UTC (the default); a tz change applies to the next row
+// without a restart and leaves every earlier row exactly as it was; a set TZ
+// environment variable wins over the setting.
+func TestZoneResolverDrivesNewRowsOnly(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	rows := func() string {
+		var s string
+		require.NoError(t, r.db.Reader().QueryRow(`SELECT group_concat(id || '|' || ts || '|' || local_date || '|' || local_hour || '|' || local_weekday, ';')
+			FROM (SELECT * FROM stats_events ORDER BY id)`).Scan(&s))
+		return s
+	}
+	lastDate := func() (string, int) {
+		var d string
+		var h int
+		require.NoError(t, r.db.Reader().QueryRow(`SELECT local_date, local_hour FROM stats_events ORDER BY id DESC LIMIT 1`).Scan(&d, &h))
+		return d, h
+	}
+	require.NoError(t, r.record(Event{Kind: KindOpen, Client: "web", ItemID: itemID, SessionKey: "a"}))
+	d, h := lastDate()
+	require.Equal(t, "2026-01-15", d, "UTC by default")
+	require.Equal(t, 3, h)
+	before := rows()
+
+	require.NoError(t, r.db.SetSettings(ctx, map[string]any{"tz": "America/New_York"}))
+	require.NoError(t, r.record(Event{Kind: KindOpen, Client: "web", ItemID: itemID, SessionKey: "b"}))
+	d, h = lastDate()
+	require.Equal(t, "2026-01-14", d, "the new zone applies to the next row at once")
+	require.Equal(t, 22, h)
+	require.True(t, len(rows()) > len(before) && rows()[:len(before)] == before, "earlier rows are untouched")
+
+	t.Cleanup(func() { _ = store.SetEnvZone("") })
+	require.NoError(t, store.SetEnvZone("Asia/Tokyo"))
+	require.NoError(t, r.record(Event{Kind: KindOpen, Client: "web", ItemID: itemID, SessionKey: "c"}))
+	d, h = lastDate()
+	require.Equal(t, "2026-01-15", d, "TZ wins over the setting")
+	require.Equal(t, 12, h)
 }

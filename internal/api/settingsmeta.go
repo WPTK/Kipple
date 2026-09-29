@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -61,6 +61,9 @@ type settingDef struct {
 	Scope       string          `json:"scope"` // global | device | both
 
 	check func(v any) (any, string)
+	// envOverride: an environment variable can override the setting (tz: TZ);
+	// the view then carries env_override and a PATCH is refused.
+	envOverride bool
 }
 
 // settingView is a settingDef with its current value and default.
@@ -68,6 +71,40 @@ type settingView struct {
 	settingDef
 	Value   any `json:"value"`
 	Default any `json:"default"`
+	// EnvOverride is present on settings an environment variable can override:
+	// the variable's value, or null when it is unset.
+	EnvOverride json.RawMessage `json:"env_override,omitempty"`
+}
+
+// maxAllowedHosts bounds security.allowed_hosts.
+const maxAllowedHosts = 64
+
+// checkAllowedHosts validates security.allowed_hosts: a list of at most 64
+// host names or *.suffix entries (setup.CheckHostEntry), returned normalized
+// and without repeats.
+func checkAllowedHosts(v any) (any, string) {
+	const msg = "must be a list (at most 64) of host names such as rss.example.com or *.example.com"
+	arr, ok := v.([]any)
+	if !ok || len(arr) > maxAllowedHosts {
+		return nil, msg
+	}
+	out := make([]any, 0, len(arr))
+	seen := map[string]bool{}
+	for _, x := range arr {
+		s, ok := x.(string)
+		if !ok {
+			return nil, msg
+		}
+		e, err := setup.CheckHostEntry(s)
+		if err != nil {
+			return nil, err.Error()
+		}
+		if !seen[e] {
+			seen[e] = true
+			out = append(out, e)
+		}
+	}
+	return out, ""
 }
 
 const maxLayoutsBytes = 4096
@@ -363,17 +400,21 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkSavedSearches},
 
 	// Account.
-	{Key: "tz", Label: "Time zone", Description: "Used for daily statistics and the nightly maintenance job.",
-		Group: groupAccount, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
+	{Key: store.SettingTZ, Label: "Time zone", Description: "Used for daily statistics and the nightly maintenance job.",
+		Group: groupAccount, Kind: "text", Surface: surfaceSettings, envOverride: true, check: func(v any) (any, string) {
 			s, ok := v.(string)
 			if !ok || s == "" || s == "Local" || len(s) > 64 {
 				return nil, "must be an IANA time zone name such as America/New_York"
 			}
-			if _, err := time.LoadLocation(s); err != nil {
+			if _, err := store.LoadZone(s); err != nil {
 				return nil, "unknown time zone"
 			}
 			return s, ""
 		}},
+	{Key: store.SettingOpenLAN, Label: "Also allow devices on my local network", Description: "Only matters when Kipple has no password (open mode). Normally only this computer and your Tailscale devices can use it then; with this on, every device on your local network can too, and can read and change everything.",
+		Group: groupAccount, Kind: "bool", Surface: surfaceSettings, check: boolVal},
+	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides IP addresses, localhost, single-word names and .local, .lan, .home.arpa, .internal and .ts.net names: exact names such as rss.example.com, or *.example.com.",
+		Group: groupAccount, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},
 
 	// Statistics.
 	{Key: "stats.enabled", Label: "Reading statistics", Description: "Record which articles you open and how long you read them. Turning this off stops recording new statistics; what is already recorded is kept.",

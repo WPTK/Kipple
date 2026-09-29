@@ -19,6 +19,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
+COPY starter/ ./starter/
 COPY web/embed.go ./web/embed.go
 COPY --from=web /app/web/dist ./web/dist
 
@@ -47,7 +48,7 @@ LABEL org.opencontainers.image.title="Kipple" \
 COPY --from=build /kipple /kipple
 COPY --from=build --chown=65532:65532 /data /data
 COPY --chown=65532:65532 LICENSE THIRD_PARTY_NOTICES.md /licenses/
-EXPOSE 7080
+EXPOSE 1919
 VOLUME /data
 # Runs the binary's own probe (no shell or curl in distroless).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 CMD ["/kipple","healthcheck"]

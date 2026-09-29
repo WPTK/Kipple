@@ -65,6 +65,19 @@ func TestResetPasswordNeedsAnAccount(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	require.ErrorContains(t, resetPassword(context.Background(), db, "long enough"), "no account yet")
+	require.ErrorContains(t, resetPassword(context.Background(), db, "long enough"), "finish setup in the browser")
+}
+
+// `kipple password` on an open-mode account sets a password and leaves open mode.
+func TestResetPasswordLeavesOpenMode(t *testing.T) {
+	dir := newData(t, 1)
+	db := openLive(t, dir)
+	ctx := context.Background()
+	require.NoError(t, db.SetPasswordHash(ctx, "", store.AuthOpen, ""))
+	require.NoError(t, resetPassword(ctx, db, "a brand new pass"))
+	after, _, _ := db.Account(ctx)
+	require.Equal(t, store.AuthStandard, after.AuthMode)
+	require.True(t, auth.CheckPassword("a brand new pass", after.PasswordHash))
 }
 
 func TestReadPasswordStdin(t *testing.T) {

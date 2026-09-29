@@ -29,6 +29,7 @@ import (
 	"github.com/WPTK/kipple/internal/imgcache"
 	"github.com/WPTK/kipple/internal/imgproxy"
 	"github.com/WPTK/kipple/internal/sched"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -109,15 +110,32 @@ type Options struct {
 	// Now defaults to the wall clock. Heartbeat defaults to 15 s.
 	Now       func() time.Time
 	Heartbeat time.Duration
+
+	// Setup is setup mode (docs/setup-wizard-design.md): when it is pending at
+	// Register, the setup routes are mounted. Nil means never in setup mode.
+	Setup *setup.Manager
+	// SetupLockout limits wrong setup tokens per IP (default 10 per 15 minutes),
+	// separate from the login lockout.
+	SetupLockout *auth.Lockout
+	// AllowedHosts are the Host gate's configured names (KIPPLE_ALLOWED_HOSTS and
+	// the host of KIPPLE_PUBLIC_URL), normalized by setup.CheckHostEntry.
+	AllowedHosts []string
+	// Gate is the open gate's fixed part; its Trusted defaults to TrustedProxies.
+	Gate setup.Gate
 }
 
 // Server holds the handlers.
 type Server struct {
-	opt  Options
-	db   *store.DB
-	log  *slog.Logger
-	now  func() time.Time
-	lock *auth.Lockout
+	opt       Options
+	db        *store.DB
+	log       *slog.Logger
+	now       func() time.Time
+	lock      *auth.Lockout
+	setupLock *auth.Lockout
+
+	mode       modeCache // the Host gate's cached auth mode and allowed hosts
+	hostWarnMu sync.Mutex
+	hostWarnAt time.Time
 
 	// statsGate admits one stats summary computation at a time (it holds up to three reader connections).
 	statsGate chan struct{}
@@ -168,6 +186,13 @@ func New(opt Options) *Server {
 	}
 	if s.lock == nil {
 		s.lock = auth.NewLockout(s.now)
+	}
+	s.setupLock = opt.SetupLockout
+	if s.setupLock == nil {
+		s.setupLock = auth.NewLockout(s.now)
+	}
+	if s.opt.Gate.Trusted == nil {
+		s.opt.Gate.Trusted = opt.TrustedProxies
 	}
 	if s.verifier == nil {
 		s.verifier = auth.NewVerifier(nil, auth.VerifierOptions{})
@@ -233,6 +258,9 @@ func (s *Server) bgStart() bool {
 func (s *Server) Register(mux *http.ServeMux) {
 	handle := mux.HandleFunc // security headers come from httpx.Secure around the root handler
 	handle("GET /healthz", s.healthz)
+	handle("GET /api/instance", s.instance)
+	s.registerSetup(mux)
+	handle("POST /api/auth/open", s.authOpen)
 	handle("POST /api/auth/login", s.login)
 	handle("POST /api/auth/logout", s.authed(s.logout))
 	handle("GET /api/auth/me", s.authed(s.me))
@@ -269,6 +297,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/retention/apply", s.authed(s.retentionApply))
 	handle("POST /api/account/password", s.authed(s.accountPassword))
 	handle("POST /api/account/api-password", s.authed(s.accountAPIPassword))
+	handle("POST /api/onboarding/complete", s.authed(s.onboardingComplete))
+	handle("POST /api/onboarding/restart", s.authed(s.onboardingRestart))
+	handle("GET /api/starter-feeds", s.authed(s.starterFeeds))
+	handle("POST /api/starter-feeds", s.authed(s.starterSubscribe))
 	handle("POST /api/backup", s.authed(s.backupCreate))
 	handle("GET /api/backup/jobs/{id}", s.authed(s.backupJob))
 	handle("GET /api/backup/{token}", s.authed(s.backupDownload))

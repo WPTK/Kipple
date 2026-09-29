@@ -169,7 +169,13 @@
 
   function boot() {
     api("GET", "/api/auth/me").then(function (r) {
-      if (r.status === 401) { show(false); return; }
+      if (r.status === 401) {
+        show(false);
+        api("GET", "/api/instance").then(function (i) { return i.ok ? i.json() : null; }).then(function (d) {
+          if (d && d.setup) { $("login").hidden = true; err("Setup is pending: open Kipple to finish it."); }
+        }).catch(function () {});
+        return;
+      }
       show(true); start(); loadFeeds(); loadStatus();
     }).catch(function () { err("cannot reach the server"); });
   }

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/config"
+	"github.com/WPTK/kipple/internal/store"
 )
 
 func TestEnsureAccountNeverPasswordlessOnFirstStart(t *testing.T) {
@@ -28,7 +29,7 @@ func TestEnsureAccountNeverPasswordlessOnFirstStart(t *testing.T) {
 	// An account whose password was removed later (Settings, through Access).
 	db := openDB(t)
 	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "web-pw"}, quiet))
-	require.NoError(t, db.SetPasswordHash(ctx, "", ""))
+	require.NoError(t, db.SetPasswordHash(ctx, "", store.AuthStandard, ""))
 
 	// A later start with Access switched off warns that web sign-in is impossible.
 	var buf bytes.Buffer

@@ -91,10 +91,11 @@ func (d *DB) DiskSize() int64 {
 // ResetPassword is the recovery path of `kipple password`: it replaces the web
 // password hash, rotates the account secret (which revokes every Reader API
 // token, since the token is an HMAC keyed by it) and deletes every session,
-// all in one transaction. The Reader API password is left as it is.
+// all in one transaction. The Reader API password is left as it is. A password
+// always means the standard auth mode, so an open-mode account leaves it.
 func (d *DB) ResetPassword(ctx context.Context, hash, newSecret string) error {
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, "UPDATE account SET password_hash = ?, secret = ?, updated_at = unixepoch() WHERE id = 1", hash, newSecret)
+		res, err := tx.ExecContext(ctx, "UPDATE account SET password_hash = ?, secret = ?, auth_mode = 'standard', updated_at = unixepoch() WHERE id = 1", hash, newSecret)
 		if err != nil {
 			return err
 		}

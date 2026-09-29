@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,6 +47,8 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 			issues = append(issues, settingIssue{k, "read-only setting"})
 		case !known:
 			issues = append(issues, settingIssue{k, "unknown setting"})
+		case spec.envOverride && envOverridden(k):
+			issues = append(issues, settingIssue{k, "set by the " + envVarOf(k) + " environment variable; remove it to choose here"})
 		case body[k] == nil:
 			set[k] = nil
 		default:
@@ -88,6 +91,11 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := set["imgproxy.mode"]; ok {
 		s.refreshImgMode(ctx) // the CSP img-src follows it
 	}
+	_, hosts := set[store.SettingAllowedHosts]
+	_, lan := set[store.SettingOpenLAN]
+	if hosts || lan {
+		s.invalidateMode() // the Host gate and the open gate read them
+	}
 	if _, ok := set["imgproxy.cache_mb"]; ok {
 		s.applyImgCacheCap(ctx) // a lower cap evicts, 0 turns the cache off and purges it
 	}
@@ -117,9 +125,42 @@ func (s *Server) writeSettings(w http.ResponseWriter, ctx context.Context, code 
 	}
 	out := make([]settingView, 0, len(settingDefs))
 	for _, d := range settingDefs {
-		out = append(out, settingView{settingDef: d, Value: merged[d.Key], Default: store.DefaultSettings[d.Key]})
+		v := settingView{settingDef: d, Value: merged[d.Key], Default: store.DefaultSettings[d.Key]}
+		if d.envOverride {
+			v.EnvOverride = json.RawMessage("null")
+			if name, ok := envValue(d.Key); ok {
+				b, err := json.Marshal(name)
+				if err != nil {
+					s.serverError(w, "settings", err)
+					return
+				}
+				v.EnvOverride = b
+			}
+		}
+		out = append(out, v)
 	}
 	writeJSON(w, code, map[string]any{"settings": out, "values": merged})
+}
+
+// envValue is the environment variable that overrides an envOverride setting,
+// when it is set. Only tz has one (TZ, docs/setup-wizard-design.md 7a).
+func envValue(key string) (string, bool) {
+	if key == store.SettingTZ {
+		return store.EnvZone()
+	}
+	return "", false
+}
+
+func envOverridden(key string) bool {
+	_, ok := envValue(key)
+	return ok
+}
+
+func envVarOf(key string) string {
+	if key == store.SettingTZ {
+		return "TZ"
+	}
+	return "an"
 }
 
 // retentionApply is POST /api/retention/apply: "Apply retention now" over every feed.

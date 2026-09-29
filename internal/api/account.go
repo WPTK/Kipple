@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/store"
 )
 
 const (
@@ -44,6 +45,17 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 		}
 		s.serverError(w, "load account", err)
 		return false, false
+	}
+	if acct.AuthMode == store.AuthOpen {
+		// Open mode has no credential to prove (design 4.3): the session plus the
+		// open gate stand in, so a Reader API password can only be made from
+		// where open mode itself is allowed. Nothing to guess, so not counted.
+		s.lock.Release(ip)
+		if reason := s.openRefusal(r); reason != "" {
+			writeOpenRefused(w, reason)
+			return false, false
+		}
+		return false, true
 	}
 	if acct.PasswordHash == "" {
 		if removing {
@@ -105,28 +117,48 @@ func badLength(w http.ResponseWriter, pw string, min int) bool {
 }
 
 // accountPassword is POST /api/account/password: `{current, new}` sets the web
-// password, `{current, remove: true}` removes it (design §7.0). Every other
-// session is signed out; the caller's stays.
+// password, `{current, remove: true}` removes it (design §7.0) and
+// `{current, open: true}` switches to open mode (no password at all). Every
+// other session is signed out; the caller's stays.
 //
 // Removing is allowed only while Cloudflare Access validation is configured
 // and this request carries a verified Access token: that proves passwordless
 // sign-in works for the caller right now, so it can neither lock the owner out
-// nor be done from a LAN address that bypasses Access.
+// nor be done from a LAN address that bypasses Access. Open mode needs the
+// current password and a request that passes the open gate, so it cannot be
+// turned on from outside. In open mode `{new}` alone sets a password and
+// returns to the standard mode (the session and same-origin are the proof).
 func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Current string `json:"current"`
 		New     string `json:"new"`
 		Remove  bool   `json:"remove"`
+		Open    bool   `json:"open"`
 	}
 	if !decodeBody(w, r, &body, false) {
 		return
 	}
-	if body.Remove {
-		if body.New != "" {
-			writeErrorMsg(w, http.StatusBadRequest, "bad_request", `send "new" or "remove": true, not both`)
-			return
+	if n := btoi(body.Remove) + btoi(body.Open) + btoi(body.New != ""); n > 1 {
+		writeErrorMsg(w, http.StatusBadRequest, "bad_request", `send one of "new", "remove": true or "open": true`)
+		return
+	}
+	acct, exists, err := s.db.Account(r.Context())
+	if err != nil || !exists {
+		if err == nil {
+			err = errors.New("no account row")
 		}
-	} else if badNewPassword(w, body.New) {
+		s.serverError(w, "load account", err)
+		return
+	}
+	if acct.AuthMode == store.AuthOpen {
+		s.accountPasswordOpen(w, r, body.New, body.Remove, body.Open)
+		return
+	}
+	if body.Open {
+		s.switchToOpen(w, r, body.Current)
+		return
+	}
+	if !body.Remove && badNewPassword(w, body.New) {
 		return
 	}
 	alreadyNone, ok := s.checkCurrent(w, r, body.Current, body.Remove)
@@ -147,17 +179,69 @@ func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.setPassword(w, r, hash, store.AuthStandard)
+}
+
+// setPassword stores the web password hash and auth mode, signing out every
+// other session, and answers 204.
+func (s *Server) setPassword(w http.ResponseWriter, r *http.Request, hash, mode string) {
 	keep := ""
 	if c, err := r.Cookie(cookieName); err == nil {
 		keep = sessionID(c.Value)
 	}
-	if err := s.db.SetPasswordHash(r.Context(), hash, keep); err != nil {
+	if err := s.db.SetPasswordHash(r.Context(), hash, mode, keep); err != nil {
 		s.serverError(w, "set password", err)
 		return
 	}
 	s.verifier.ClearMemo()
+	s.invalidateMode()
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// switchToOpen is `{current, open: true}` on a standard account: the current
+// password (or, without one, a verified Access token) and then the open gate.
+func (s *Server) switchToOpen(w http.ResponseWriter, r *http.Request, current string) {
+	if _, ok := s.checkCurrent(w, r, current, false); !ok {
+		return
+	}
+	if reason := s.openRefusal(r); reason != "" {
+		writeOpenRefused(w, reason)
+		return
+	}
+	s.setPassword(w, r, "", store.AuthOpen)
+	s.log.Info("account switched to open mode (no password)")
+}
+
+// accountPasswordOpen is POST /api/account/password on an open-mode account:
+// `{new}` sets a password and leaves open mode; `{open: true}` changes nothing.
+func (s *Server) accountPasswordOpen(w http.ResponseWriter, r *http.Request, newPW string, remove, open bool) {
+	switch {
+	case open:
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	case remove:
+		writeErrorMsg(w, http.StatusBadRequest, "bad_request", "open mode has no password to remove; set one first")
+		return
+	}
+	if badNewPassword(w, newPW) {
+		return
+	}
+	hash, err := auth.HashPassword(newPW)
+	if err != nil {
+		s.serverError(w, "hash password", err)
+		return
+	}
+	s.setPassword(w, r, hash, store.AuthStandard)
+	s.log.Info("account left open mode: a web password is set")
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // accountAPIPassword is POST /api/account/api-password: exactly one of `new`

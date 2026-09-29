@@ -287,12 +287,6 @@ func (d *DB) recordSnapshot(ctx context.Context, now int64, snapErr error) error
 
 func jsonString(s string) (string, error) { return jsonText(s) }
 
-// TZName is the `tz` setting as written (default America/New_York), without
-// resolving it: the caller decides what an unknown name means.
-func TZName(ctx context.Context, q Querier) string {
-	return settingString(ctx, q, "tz", "America/New_York")
-}
-
 // NightlyDate is the local calendar date (YYYY-MM-DD, in the zone that was
 // current then) of the last completed nightly run, or "" when there is none
 // (sys.last_nightly_date).

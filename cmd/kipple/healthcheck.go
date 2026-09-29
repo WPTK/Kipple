@@ -2,21 +2,27 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/WPTK/kipple/internal/config"
 )
 
 // healthcheckTimeout bounds the whole probe; Docker's own timeout is longer.
 const healthcheckTimeout = 3 * time.Second
 
-// healthURL turns a listen address (KIPPLE_ADDR style: ":7080", "0.0.0.0:7080",
-// "[::]:7080", "127.0.0.1:9090") into the loopback /healthz URL.
+// healthURL turns a listen address (KIPPLE_ADDR style: ":1919", "0.0.0.0:1919",
+// "[::]:1919", "127.0.0.1:9090") into the loopback /healthz URL. An empty
+// address is config.DefaultAddr.
 func healthURL(addr string) (string, error) {
 	if addr == "" {
-		addr = ":7080"
+		addr = config.DefaultAddr
 	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -31,21 +37,52 @@ func healthURL(addr string) (string, error) {
 	return "http://" + net.JoinHostPort(host, port) + "/healthz", nil
 }
 
-// runHealthcheck probes the local server: nil only on HTTP 200.
+// healthAddrs is what the probe tries, in order. With KIPPLE_ADDR unset the
+// server may be on the default port, the legacy port of an older database
+// (which the probe cannot read cheaply) or the fallback port.
+func healthAddrs(env string) []string {
+	if env != "" {
+		return []string{env}
+	}
+	return []string{config.DefaultAddr, config.LegacyAddr, config.FallbackAddr}
+}
+
+// runHealthcheck probes the local server: nil only on HTTP 200 "ok".
 func runHealthcheck(args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("healthcheck takes no arguments")
 	}
-	return probeHealth(os.Getenv("KIPPLE_ADDR"), healthcheckTimeout)
+	return probeHealthAny(healthAddrs(os.Getenv("KIPPLE_ADDR")), healthcheckTimeout)
+}
+
+// probeHealthAny probes each address in turn within one budget and succeeds on
+// the first healthy one.
+func probeHealthAny(addrs []string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var errs []error
+	for _, a := range addrs {
+		err := probeHealthCtx(ctx, a)
+		if err == nil {
+			return nil
+		}
+		errs = append(errs, err)
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func probeHealth(addr string, timeout time.Duration) error {
+	return probeHealthAny([]string{addr}, timeout)
+}
+
+func probeHealthCtx(ctx context.Context, addr string) error {
 	url, err := healthURL(addr)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil) // #nosec G704 -- loopback probe of this process's own listener; the host is forced to 127.0.0.1 and only the port comes from KIPPLE_ADDR
 	if err != nil {
 		return err
@@ -57,6 +94,11 @@ func probeHealth(addr string, timeout time.Duration) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unhealthy: %s returned %d", url, resp.StatusCode)
+	}
+	// Another program on a probed port may answer 200 too: Kipple says "ok".
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 16))
+	if strings.TrimSpace(string(b)) != "ok" {
+		return fmt.Errorf("unhealthy: %s did not answer like Kipple", url)
 	}
 	return nil
 }

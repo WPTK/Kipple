@@ -5,7 +5,26 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 )
+
+// Account auth modes (account.auth_mode, migration 0010). AuthStandard is a web
+// password, or none with Cloudflare Access (design §7.0); AuthOpen is no
+// password at all, reachable only through the open gate.
+const (
+	AuthStandard = "standard"
+	AuthOpen     = "open"
+)
+
+// How the account row was created (account.created_via).
+const (
+	CreatedViaEnv    = "env"
+	CreatedViaWizard = "wizard"
+)
+
+// SettingSetupCompleted is the instant onboarding finished (or was skipped), as
+// unix seconds. Absent means the signed-in app routes to the onboarding steps.
+const SettingSetupCompleted = "sys.setup_completed_at"
 
 // Account is the single account row (design §2.2). APIPasswordHash is empty
 // when the Reader API is disabled.
@@ -14,14 +33,19 @@ type Account struct {
 	PasswordHash    string
 	APIPasswordHash string
 	Secret          string
+	// AuthMode is AuthStandard or AuthOpen; empty means AuthStandard on create.
+	AuthMode string
+	// CreatedVia is CreatedViaEnv or CreatedViaWizard; empty means CreatedViaEnv
+	// on create.
+	CreatedVia string
 }
 
 // Account loads the account row; ok is false before first-start setup.
 func (d *DB) Account(ctx context.Context) (a Account, ok bool, err error) {
 	var api sql.NullString
 	err = d.reader.QueryRowContext(ctx,
-		"SELECT username, password_hash, api_password_hash, secret FROM account WHERE id = 1").
-		Scan(&a.Username, &a.PasswordHash, &api, &a.Secret)
+		"SELECT username, password_hash, api_password_hash, secret, auth_mode, created_via FROM account WHERE id = 1").
+		Scan(&a.Username, &a.PasswordHash, &api, &a.Secret, &a.AuthMode, &a.CreatedVia)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Account{}, false, nil
 	}
@@ -33,21 +57,37 @@ func (d *DB) Account(ctx context.Context) (a Account, ok bool, err error) {
 }
 
 // CreateAccount inserts the account row if none exists. It reports whether it
-// inserted one; an existing account is never modified.
+// inserted one; an existing account is never modified. Two concurrent calls
+// have exactly one winner (ON CONFLICT DO NOTHING under the single writer). An
+// account created from the environment is stamped as set up in the same
+// transaction, so scripted deploys never see onboarding.
 func (d *DB) CreateAccount(ctx context.Context, a Account) (created bool, err error) {
+	mode, via := a.AuthMode, a.CreatedVia
+	if mode == "" {
+		mode = AuthStandard
+	}
+	if via == "" {
+		via = CreatedViaEnv
+	}
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var api any
 		if a.APIPasswordHash != "" {
 			api = a.APIPasswordHash
 		}
-		res, err := tx.ExecContext(ctx, `INSERT INTO account (id, username, password_hash, api_password_hash, secret)
-			VALUES (1, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`, a.Username, a.PasswordHash, api, a.Secret)
+		res, err := tx.ExecContext(ctx, `INSERT INTO account (id, username, password_hash, api_password_hash, secret, auth_mode, created_via)
+			VALUES (1, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`, a.Username, a.PasswordHash, api, a.Secret, mode, via)
 		if err != nil {
 			return err
 		}
 		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
 		created = n > 0
-		return err
+		if created && via == CreatedViaEnv {
+			return stampSetupCompletedTx(ctx, tx, d.clock.Now().Unix())
+		}
+		return nil
 	})
 	return created, err
 }
@@ -72,12 +112,16 @@ func (d *DB) SetAPIPasswordHash(ctx context.Context, hash string) error {
 	})
 }
 
-// SetPasswordHash replaces the web password hash and, in the same transaction,
-// deletes every session except keepSession (the caller's), so a changed
-// password signs out every other browser.
-func (d *DB) SetPasswordHash(ctx context.Context, hash, keepSession string) error {
+// SetPasswordHash replaces the web password hash and the auth mode (AuthOpen
+// requires an empty hash: the table CHECK refuses anything else) and, in the
+// same transaction, deletes every session except keepSession (the caller's),
+// so a changed password or mode signs out every other browser.
+func (d *DB) SetPasswordHash(ctx context.Context, hash, mode, keepSession string) error {
+	if mode != AuthStandard && mode != AuthOpen {
+		return fmt.Errorf("store: unknown auth mode %q", mode)
+	}
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, "UPDATE account SET password_hash = ?, updated_at = unixepoch() WHERE id = 1", hash)
+		res, err := tx.ExecContext(ctx, "UPDATE account SET password_hash = ?, auth_mode = ?, updated_at = unixepoch() WHERE id = 1", hash, mode)
 		if err != nil {
 			return err
 		}
@@ -98,4 +142,42 @@ func (d *DB) AccountSecret(ctx context.Context) (secret string, ok bool, err err
 		return "", false, nil
 	}
 	return secret, err == nil, err
+}
+
+func stampSetupCompletedTx(ctx context.Context, tx *sql.Tx, now int64) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING`,
+		SettingSetupCompleted, strconv.FormatInt(now, 10))
+	return err
+}
+
+// SetupPending reports whether onboarding has not been finished or skipped yet
+// (no sys.setup_completed_at row). A failed read is an error, not "pending".
+func (d *DB) SetupPending(ctx context.Context) (bool, error) {
+	_, ok, err := settingRawErr(ctx, d.reader, SettingSetupCompleted)
+	return !ok, err
+}
+
+// CompleteOnboarding records that onboarding finished (or was skipped). It is
+// idempotent: an existing stamp is kept.
+func (d *DB) CompleteOnboarding(ctx context.Context) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		return stampSetupCompletedTx(ctx, tx, d.clock.Now().Unix())
+	})
+}
+
+// RestartOnboarding clears sys.setup_completed_at ("Run setup again"), which
+// routes the signed-in app back to the onboarding steps. It touches nothing
+// else: not the account, not setup mode.
+func (d *DB) RestartOnboarding(ctx context.Context) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", SettingSetupCompleted)
+		return err
+	})
+}
+
+// LegacyPort reports sys.legacy_port: migration 0010 sets it for databases that
+// already had an account, so an unset KIPPLE_ADDR keeps the pre-0.5 port 7080
+// through 0.x. A failed read is an error, not "no".
+func (d *DB) LegacyPort(ctx context.Context) (bool, error) {
+	return settingBoolErr(ctx, d.reader, "sys.legacy_port", false)
 }
