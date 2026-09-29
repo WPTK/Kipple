@@ -44,6 +44,18 @@ const FEEDS = [
   ["BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"],
 ];
 
+// KIPPLE_SEED_SET=site seeds the picture-forward set the kipple.cc screenshots are taken from (scripts/site-shots.mjs),
+// in a folder called "Less noise", instead of the default developer set.
+const SITE_FEEDS = [
+  ["Wikimedia Picture of the Day", "https://commons.wikimedia.org/w/api.php?action=featuredfeed&feed=potd&feedformat=atom"],
+  ["Wikipedia Featured Article", "https://en.wikipedia.org/w/api.php?action=featuredfeed&feed=featured&feedformat=atom"],
+  ["NASA Image of the Day", "https://www.nasa.gov/feeds/iotd-feed/"],
+  ["Go Blog", "https://go.dev/blog/feed.atom"],
+  ["Hacker News", "https://hnrss.org/frontpage"],
+];
+const site = process.env.KIPPLE_SEED_SET === "site";
+const SEED = site ? { folder: "Less noise", feeds: SITE_FEEDS } : { folder: "Dev seed", feeds: FEEDS };
+
 // The data dir is wiped on every run without --keep, so only ever delete a directory this script
 // created (it leaves a sentinel file; older runs are recognised by their seed.opml layout) or an
 // empty one. Anything else needs --force, and even then
@@ -82,8 +94,8 @@ const build = spawnSync("go", ["build", "-o", bin, "./cmd/kipple"], { cwd: root,
 if (build.status !== 0) process.exit(build.status ?? 1);
 
 const opmlPath = join(dataDir, "seed.opml");
-const outlines = FEEDS.map(([t, u]) => `    <outline type="rss" text="${t}" title="${t}" xmlUrl="${u}"/>`).join("\n");
-writeFileSync(opmlPath, `<?xml version="1.0"?>\n<opml version="2.0"><head><title>Kipple seed</title></head><body>\n  <outline text="Dev seed">\n${outlines}\n  </outline>\n</body></opml>\n`);
+const outlines = SEED.feeds.map(([t, u]) => `    <outline type="rss" text="${t}" title="${t}" xmlUrl="${u}"/>`).join("\n");
+writeFileSync(opmlPath, `<?xml version="1.0"?>\n<opml version="2.0"><head><title>Kipple seed</title></head><body>\n  <outline text="${SEED.folder}">\n${outlines}\n  </outline>\n</body></opml>\n`);
 
 const server = spawn(bin, ["serve"], { env, stdio: "inherit" });
 const stop = () => {
