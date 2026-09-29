@@ -477,6 +477,24 @@ confirmed by the log line, and the container came up `(healthy)` on `/healthz` i
 before and after). All throwaway artifacts (test container, test volume, copied snapshot file) were removed
 afterward. Both TC-C3 and the standing migration-rehearsal checklist item are satisfied by this one drill.
 
+**Re-executed 2026-09-29 on v0.3.0-beta.2** (image built from tag `v0.3.0-beta.2`, commit `0fa8450`). Two restores
+of real snapshots, each onto its own brand-new throwaway volume with the deployed image, each followed by a throwaway
+container on that volume (no published port, 128 MB cap). Nothing touched the live `kipple` container (same container
+id and start time before and after), the `kipple` volume or `kipple:local`; the snapshots were copied to a scratch file
+first (never `kipple.db`), and every throwaway container, volume and file was removed afterwards.
+
+- **Latest snapshot** (nightly, 04:10 that day): `kipple restore` reported schema 9, 135 feeds, 8,525 items, passes
+  the integrity checks, 3 web sessions signed out, no previous database to keep. Container healthy after about 8 s, no
+  migration needed (beta.1 to beta.2 has none), `kipple healthcheck` ok. The database read back out of the volume
+  passes `PRAGMA integrity_check` with 135 feeds and 8,525 items.
+- **Migration rehearsal** (the schema-8 copy taken before the beta.1 deploy): restored as schema 8, 138 feeds, 6,594
+  items. Starting the beta.2 image applied `0009_stats_summary_indexes.sql` in the startup log, wrote
+  `pre-migration-8-9-<ns>.db` (70,684,672 bytes, `0600`) into `/data/backup` first, and was healthy about 8 s later; the
+  migrated database passes the integrity check with the same counts.
+- **Restore over an existing database:** `kipple restore` onto a volume that already held a database moved the old one
+  to `/data/backup/pre-restore-20260929-194812Z`, restored, and printed how to undo it.
+- Result: TC-C3's restore half, the standing migration-rehearsal item and the restore drill all **pass** on beta.2.
+
 ## Suite 5 — Fresh-machine Docker walkthrough as literal UAT
 
 The planned "first-time Docker setup walkthrough" release step doubles as UAT if followed literally rather than
@@ -503,6 +521,26 @@ same as a real browser sends) returned an authenticated session. So the underlyi
 undocumented for a newcomer. Fixed: `README.md` gained a Quickstart section with the exact sequence that
 worked, and the compose example's comment now says it works standalone. Everything (container, image, network,
 volume) was torn down afterward; the live production container was confirmed untouched throughout.
+
+**Re-executed 2026-09-29 on `main` at `c4124c0` (beta.2 plus the screenshot tooling).**
+
+A fresh `git clone` of the public repository on a Docker host, following the README Quickstart verbatim
+(`cp .env.example .env`, `cp docker-compose.example.yml docker-compose.yml`, set `KIPPLE_PASSWORD`, `docker compose
+build`, `docker compose up -d`). The only departures are isolation from the real deployment on that host: a different
+container name, a loopback port, a different image tag and a compose project name (`-p`); the test password was a
+throwaway value.
+
+- **Pass.** Build succeeded; the container was healthy within about a minute of starting; `healthz` 200; a login with
+  the default username `owner` and the password from `.env` returned 204 (with the `Origin` and `X-Kipple-Client: web`
+  headers a browser sends) and `bootstrap` 200; `kipple import -` accepted an OPML on standard input (one folder, one
+  feed); `kipple api-password` printed a new Reader API password once; the backup export answered 200 with a summary of
+  the contents (schema 9, 1 feed); the container ran read-only as uid 65532 with the 256 MB cap from the compose file.
+- **Finding, P3:** a Quickstart build reports version `dev` (`kipple version`, the backup's `kipple_version`) because the
+  Quickstart does not pass `KIPPLE_VERSION`/`KIPPLE_VCS_REF`; the compose file's comment explains it, the README does not.
+  A newcomer cannot tell which release they are running. The planned published image would settle this; until then a
+  one-line note in the Quickstart is enough.
+- Torn down afterwards (`down -v`, image removed); the live container was untouched. Suite 5 must be run again once the
+  setup-wizard work changes the Quickstart.
 
 ## Defect severity (borrowed scale)
 
