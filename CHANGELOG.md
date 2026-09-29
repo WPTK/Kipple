@@ -8,6 +8,38 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.3.0-beta.2] - 2026-09-29
+
+Fixes and polish from the beta.1 soak: the lead-image pick, the "N new articles" pill, scroll restore and mark-read-on-scroll, Feed Health and Manage Feeds selection and folders, a check-interval label, and the offline "read the original" button. Settings is split into six groups, Cards gets a real card shell, and a favorited folder can now be collapsed. No schema migration; the changelog is now assembled from `changes/` fragments (see `changes/README.md`).
+
+### Added
+
+- Developer tooling: changelog entries are now one small file each under `changes/` instead of edits to `CHANGELOG.md`, so branches no longer conflict on it; `node scripts/changelog.mjs` checks them (in CI), previews them and folds them into `CHANGELOG.md` at release (`changes/README.md`).
+- Manage Feeds: folders collapse (a chevron per folder, remembered per device, same as the desktop sidebar) — this was the only feed-browsing surface on narrow/mobile widths with no way to collapse a folder. (#58)
+- An article's ⋯ menu gains "Manage this feed", opening the feed editor (address, folder, layout, check frequency, disable or delete) for that article's feed. (#60)
+- Feed Health gains a Select mode: tick feeds (or Select all) to turn several on, off, or delete them at once, with per-feed progress and a failure list, same as Manage Feeds' existing bulk move/delete. (#61)
+
+### Changed
+
+- Settings is no longer one long page. Its sections are sorted into six groups, each with its own address (`/settings/appearance`, `sync`, `statistics`, `filters`, `account`, `advanced`): Appearance & Reading (appearance, accessibility, lists and reading, keyboard, and the reading settings), Sync & Feeds (sync, library and images), Statistics (the statistics settings and your statistics data), Filters & Saved Searches, Account & Devices, and Advanced. On a wide screen a list of the groups stays on the left and the chosen group shows beside it; a bare `/settings` opens Appearance & Reading. On a phone, Settings opens on the list of groups, with the current theme and font, check interval and whether statistics are recorded under the groups they belong to, and a group opens on a page of its own with a back button. Moving between groups puts focus on the group's heading, and going back puts it on the group you came from. Advanced, now on its own page, no longer needs "Show advanced settings" to open. Every setting and its help text is unchanged. The "Settings > Statistics" links on Stats and Wrapped open the Statistics group directly. (#55)
+- Cards now has a real card shell (raised surface, border, shadow, an inset lead image with its own rounded corners) so it reads as a card even in the single-column layout narrow viewports fall back to, where it previously looked identical to Editorial. Email - Compact drops its favicon entirely (it only showed past a width breakpoint before), so it stays the clearly terser option next to Compact, which always shows one. (#57)
+- Manage Feeds: the drag handle and each feed's edit (pencil) button are hidden by default and appear only in a new Edit mode (a header toggle next to Select), so a plain visit to the screen is just a list, not a wall of reorder/edit affordances. (#59)
+- Mobile bottom tab bar: a touch more breathing room above the icons and a soft top shadow in place of a flat hairline, so the boundary against image-forward list content reads as intentional rather than a stray line. First pass pending confirmation on a real device. (#62)
+
+### Fixed
+
+- The "N new articles" pill and its screen-reader announcement no longer fire for a periodic background poll, a newly subscribed feed's first fetch, an OPML import or a retention trim — only for a manual refresh (all feeds or a single feed). (#56)
+- Manage Feeds: a folder collapsed on this device (here or in the sidebar) hid its feeds even in Edit and Select mode, where its chevron is replaced by a grip or checkbox, so those feeds could not be edited or ticked — yet Select all and shift-click ranges still included them, so a bulk Delete could remove feeds you never saw ticked. Edit and Select now show every folder open; the collapsed setting is untouched and applies again afterwards. (#58)
+- Feed Health: in Select mode, a search or filter that hid feeds you had already ticked left them selected, so "N selected" and Delete, Turn on or Turn off still counted and acted on feeds you could no longer see, and the header checkbox cleared them along with the visible ones. The count and every bulk action now use only the ticked feeds on screen. (#61)
+- Card thumbnails no longer come out blurry on feeds whose content leads with a small fixed-size crop (a WordPress featured-image thumbnail, say 300x100) ahead of the real photo further down: the lead image is now picked by size — the largest `srcset` candidate or declared width/height — instead of "the first `<img>` found." (#71)
+- Entering a list whose data changed since you last scrolled it (new arrivals, a mark-all-read, a resync) no longer restores your old scroll position over the freshly loaded rows, and "mark as read while scrolling" no longer marks rows that a restored or jumped-to scroll position skipped past without ever actually rendering them on screen. (#72)
+- Fixed two regressions in the #71 lead-image fix, caught in code review before they reached anyone: a real photo with no declared size could be beaten by a much smaller sized image (an avatar, a share icon) elsewhere in the same content, and a `srcset` candidate whose URL contained a comma (a common CDN transform pattern, e.g. Cloudinary's `w_300,h_200`) could be split apart into a broken URL. A wide, short strip in the article (a 728x90 ad or a divider) also no longer beats the article's picture as the lead image. (#76)
+- Fixed three edge cases in the #72 scroll fix, caught in code review before they reached anyone: the staleness check compared against a page that can itself still be stale right at the moment it's read, so a restored offset could still land over rows about to be replaced — it's now rechecked once the list's own data actually changes, not just once at mount; "seen" rows included the virtualizer's off-screen overscan buffer, which could still mark a few genuinely-unseen rows; and scrolled-past rows were forgotten if you opened an article before the mark-as-read settle timer fired, instead of being flushed immediately. The stale-offset check switches itself off once the list has settled, so a later refetch never scrolls you back to the top mid-read, and turning the setting off no longer marks the rows that were about to be marked. (#77)
+- "Couldn't open this article" (the server is unreachable, or the article failed to load) said "you can read the original instead" but had no way to actually do that — only a "Try again" button. It now offers a "Read the original" button, using the article's address from the list it was opened from. (#78)
+- Fixed two edge cases in the #56 "N new articles" fix, caught in code review before they reached anyone: a "Refresh all" run announced every one of its own per-feed fetches to the screen reader in addition to its own run-level total, and a person's own refresh request that happened to join an already-running scheduled fetch for that feed was reported as "scheduled" and got no pill or announcement at all for the new items it found. Only a person's own refresh or a "Refresh all" run counts for this: an OPML import run or a new feed's first fetch that joins a scheduled fetch still stays silent. (#79)
+- A check interval that isn't a clean multiple of an hour or a day (say, a custom 100-minute per-feed interval) showed as an unrounded decimal, like "Every 1.6666666666666667 hours", in Settings and the per-feed interval picker. It now reads "Every 1 hour 40 minutes." (#81)
+- A folder you have favorited can now be collapsed and expanded from the Favorites section, in the sidebar and in Manage Feeds: it gets the same chevron and lists its feeds beneath it, sharing the folder's collapsed state on this device. Edit and Select in Manage Feeds keep favorites as plain rows. (#86)
+
 ## [0.3.0-beta.1] - 2026-09-27
 
 Phase 5, release readiness: the full code audit and its follow-up review round, optional Cloudflare Access token
@@ -628,7 +660,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.1...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.2...HEAD
+[0.3.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.1...v0.3.0-beta.2
 [0.3.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.7...v0.3.0-beta.1
 [0.3.0-alpha.7]: https://github.com/WPTK/Kipple/compare/271fd23...v0.3.0-alpha.7
 [0.3.0-alpha.6]: https://github.com/WPTK/Kipple/compare/5b0db7d...271fd23

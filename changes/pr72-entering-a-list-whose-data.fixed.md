@@ -1,1 +1,0 @@
-Entering a list whose data changed since you last scrolled it (new arrivals, a mark-all-read, a resync) no longer restores your old scroll position over the freshly loaded rows, and "mark as read while scrolling" no longer marks rows that a restored or jumped-to scroll position skipped past without ever actually rendering them on screen. (#72)
