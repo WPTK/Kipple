@@ -516,12 +516,14 @@ func (s *Scheduler) handlePriority(req priorityReq) {
 	if f, busy := s.flights[req.p.FeedID]; busy {
 		if satisfies(f, req.p) {
 			f.replies = append(f.replies, req.reply) // it answers when the running job does
+			f.personRefresh = f.personRefresh || isPersonRefresh(req.p)
 		} else if !f.started && req.p.Kind == PriorityRefresh && req.p.Full && f.kind != kindTrim {
 			// Not started yet (waiting for a worker or host slot): upgrade it in
 			// place to the full refetch instead of queueing a follow-up behind a
 			// job that may never run.
 			f.snap.Full, f.kind, f.snap.HostUntil = true, kindFetch, time.Time{}
 			f.replies = append(f.replies, req.reply)
+			f.personRefresh = f.personRefresh || isPersonRefresh(req.p)
 		} else {
 			// The running job cannot honor this request's intent (a full refetch,
 			// a trim, a re-key that arrived after its snapshot). Keep the request
@@ -622,7 +624,7 @@ func runSatisfied(f *flight, runKind string) bool {
 // effectiveTrigger is the trigger a completed job's fetch.done event reports. The worker captures the job's
 // scheduling trigger the moment it starts (exec, worker.go) so mutating snap.Trigger afterward would not
 // change what already ran or what it reports — and would also risk changing scheduling decisions that read
-// snap.Trigger later (applyHostHold, forcesFetch). So a manual reply or a manual/import run that joined an
+// snap.Trigger later (applyHostHold, forcesFetch). So a person's refresh or a Refresh-all run that joined an
 // already-running scheduled job instead changes only what gets reported here, decided fresh from who actually
 // ended up attached to the job by the time it finished: a scheduled poll that a person's own refresh or a
 // "Refresh all" run joined is not silently "scheduled" to the client that asked for it, and would otherwise
@@ -631,15 +633,22 @@ func effectiveTrigger(f *flight, trigger string) string {
 	if trigger != fetch.TriggerScheduled {
 		return trigger
 	}
+	// Only a "Refresh all" run: an import run's items never raise the pill, and a retention run is housekeeping.
 	for _, run := range f.runs {
-		if run.Kind == RunManual || run.Kind == RunImport {
+		if run.Kind == RunManual {
 			return fetch.TriggerManual
 		}
 	}
-	if len(f.replies) > 0 {
+	if f.personRefresh {
 		return fetch.TriggerFeedManual
 	}
 	return trigger
+}
+
+// isPersonRefresh reports whether a priority request is a person's own refresh of a feed (the default trigger, or
+// feed_manual) rather than a subscribe-time fetch or a trim.
+func isPersonRefresh(p Priority) bool {
+	return p.Kind == PriorityRefresh && (p.Trigger == "" || p.Trigger == fetch.TriggerFeedManual)
 }
 
 // newRunFlight builds the job a run uses for one feed.

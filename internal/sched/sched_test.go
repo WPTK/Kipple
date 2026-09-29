@@ -468,6 +468,43 @@ func TestSingleFeedJoinReportsFeedManualTrigger(t *testing.T) {
 	require.Equal(t, "feed_manual", ev["trigger"], "a scheduled fetch a person's own refresh joined reports feed_manual, not scheduled")
 }
 
+// Only a person's own refresh counts as manual. An OPML import run or a subscribe-time fetch that joins a scheduled
+// fetch already in flight must stay "scheduled", or the new feed's first items would raise the "N new articles" pill
+// (found in an independent review of the fix above).
+func TestImportAndSubscribeJoinsStayScheduled(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		join func(r *rig, id int64) error
+	}{
+		{"import run", func(r *rig, id int64) error { _, err := r.s.StartImport([]int64{id}); return err }},
+		{"subscribe fetch", func(r *rig, id int64) error {
+			_, err := r.s.Submit(Priority{FeedID: id, Trigger: fetch.TriggerSubscribe})
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t, Options{})
+			release := make(chan struct{})
+			var once sync.Once
+			t.Cleanup(func() { once.Do(func() { close(release) }) })
+			srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
+				select {
+				case <-release:
+					serveOK(p, w, req)
+				case <-req.Context().Done():
+				}
+			})
+			id := r.add(srv.URL+"/scheduled", nil)
+			r.s.Wake()
+			waitFor(t, "the scheduled fetch is in flight", func() bool { return srv.total() == 1 })
+			require.NoError(t, tc.join(r, id))
+			once.Do(func() { close(release) })
+			r.waitEvents("fetch.done", 1)
+			require.Equal(t, "scheduled", r.events("fetch.done")[0]["trigger"])
+		})
+	}
+}
+
 func TestRunKindsDoNotJoinAndEmptyRunFinishes(t *testing.T) {
 	r := newRig(t, Options{})
 	// total = 0 finishes immediately
