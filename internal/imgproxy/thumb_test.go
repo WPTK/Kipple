@@ -547,26 +547,33 @@ func TestThumbFallbacksAreRememberedNotRetried(t *testing.T) {
 
 func TestThumbQueueFullTimeoutAndLateThumbnail(t *testing.T) {
 	tr := newThumbRig(t, "image/jpeg", sampleJPEG(t), func(o *Options) {
-		o.ThumbWorkers, o.ThumbQueue, o.ThumbWait = 1, 1, 300*time.Millisecond
+		o.ThumbWorkers, o.ThumbQueue, o.ThumbWait = 1, 1, time.Second
 	})
-	// Hold the whole decode allowance so the worker blocks inside its first job.
+	// Hold the whole decode allowance so the worker blocks inside its first job. The cleanup releases it on a
+	// failed assertion too: otherwise Close waits on the blocked worker and the failure is buried under a 15 minute
+	// timeout. It runs before the rig's Close (cleanups are last in, first out).
 	tr.h.lim.budget.acquire(defaultDecodeBudget)
+	var release sync.Once
+	releaseBudget := func() { release.Do(func() { tr.h.lim.budget.release(defaultDecodeBudget) }) }
+	t.Cleanup(releaseBudget)
 
+	// The bounds sit far from the one second wait on both sides: a loaded race-detector runner can add
+	// hundreds of milliseconds to the "at once" path, and that must not read as having waited.
 	slow := time.Now()
 	require.Equal(t, tr.src, read(t, tr.thumb("1.jpg")), "worker busy past the wait: the original")
-	require.GreaterOrEqual(t, time.Since(slow), 250*time.Millisecond)
+	require.GreaterOrEqual(t, time.Since(slow), 750*time.Millisecond)
 	require.Equal(t, tr.src, read(t, tr.thumb("2.jpg")), "queued behind it: the same")
 	// The worker holds job 1 and job 2 fills the queue: job 3 is refused at once.
 	fast := time.Now()
 	resp := tr.thumb("3.jpg")
 	require.Equal(t, 200, resp.StatusCode)
 	require.Equal(t, tr.src, read(t, resp), "queue full: the original, immediately")
-	require.Less(t, time.Since(fast), 250*time.Millisecond)
+	require.Less(t, time.Since(fast), 500*time.Millisecond)
 	_, ok := tr.thumbEntry("3.jpg")
 	require.False(t, ok, "a full queue is not remembered as a failure")
 
 	// Let the workers finish: the late thumbnails are there for the next request.
-	tr.h.lim.budget.release(defaultDecodeBudget)
+	releaseBudget()
 	require.Eventually(t, func() bool { e, ok := tr.thumbEntry("1.jpg"); return ok && e.OK }, 90*time.Second, 10*time.Millisecond)
 	cfg, _ := decodeCfg(t, read(t, tr.thumb("1.jpg")))
 	require.Equal(t, 800, cfg.Width)
