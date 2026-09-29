@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -61,23 +62,33 @@ func TestHealthAddrsOrder(t *testing.T) {
 }
 
 func TestProbeHealthAnyTakesTheFirstHealthy(t *testing.T) {
+	var mu sync.Mutex
 	var hits []string
 	mk := func(name, body string) string {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
 			hits = append(hits, name)
+			mu.Unlock()
 			_, _ = w.Write([]byte(body))
 		}))
 		t.Cleanup(srv.Close)
 		return srv.Listener.Addr().String()
 	}
+	seen := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), hits...)
+	}
+	other := mk("other", "hello") // another program answering 200 is not Kipple
+	kipple := mk("kipple", "ok")
+	never := mk("never", "ok")
+	// Take the dead port last: a port freed before the servers start can be
+	// handed straight back to one of them, making "down" answer as Kipple.
 	closed, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	down := closed.Addr().String()
 	require.NoError(t, closed.Close())
-	other := mk("other", "hello") // another program answering 200 is not Kipple
-	kipple := mk("kipple", "ok")
-	never := mk("never", "ok")
 	require.NoError(t, probeHealthAny([]string{down, other, kipple, never}, 2*time.Second))
-	require.Equal(t, []string{"other", "kipple"}, hits, "in order, stopping at the first healthy one")
+	require.Equal(t, []string{"other", "kipple"}, seen(), "in order, stopping at the first healthy one")
 	require.Error(t, probeHealthAny([]string{down, other}, time.Second))
 }
