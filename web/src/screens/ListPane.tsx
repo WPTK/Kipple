@@ -369,7 +369,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const lastIndex = virtualItems.length ? (virtualItems[virtualItems.length - 1]?.index ?? 0) : 0;
   useEffect(() => {
     // After a failed page the auto-fetch stops (offline would retry every render); the inline Retry row resumes it.
-    if (q.hasNextPage && !q.isFetchingNextPage && !q.isFetchNextPageError && rows.length > 0 && lastIndex >= rows.length - 10) void q.fetchNextPage();
+    // Not while the list itself is being refetched (an on-mount refetch of an invalidated list): fetchNextPage would
+    // cancel it and append a page to the stale rows, leaving both the stale rows and a restored offset in place.
+    if (q.hasNextPage && !q.isFetching && !q.isFetchNextPageError && rows.length > 0 && lastIndex >= rows.length - 10) void q.fetchNextPage();
   }, [lastIndex, rows.length, q]);
 
   // The selection is committed to memory before the route changes: on a phone the list unmounts in the
