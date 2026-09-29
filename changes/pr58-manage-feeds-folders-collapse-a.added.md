@@ -1,0 +1,1 @@
+Manage Feeds: folders collapse (a chevron per folder, remembered per device, same as the desktop sidebar) — this was the only feed-browsing surface on narrow/mobile widths with no way to collapse a folder. (#58)

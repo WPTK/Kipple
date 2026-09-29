@@ -122,7 +122,7 @@ There's no chat room or mailing list; issues are the one place to ask.
 ## Roadmap
 
 Kipple is working toward a 1.0 release; see [docs/RELEASING.md](docs/RELEASING.md) for what that involves
-and [CHANGELOG.md](CHANGELOG.md#unreleased) for what's landed since the last tag.
+and [CHANGELOG.md](CHANGELOG.md) (plus the pending entries in [changes/](changes/)) for what's landed.
 
 ## For developers
 

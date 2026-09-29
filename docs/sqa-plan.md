@@ -71,7 +71,7 @@ round. Standing rule: fix everything a review finds, no silent "not fixing" list
 
 GitHub Issues (now public). `SECURITY.md` for vulnerability reports, through GitHub private vulnerability
 reporting (turned on for the repository). Every behavior change,
-including a bug fix, gets a `CHANGELOG.md [Unreleased]` entry. Findings from reviews/audits/UAT go into
+including a bug fix, gets a changelog fragment under `changes/` (folded into `CHANGELOG.md` at release). Findings from reviews/audits/UAT go into
 `kipple-history/audits/*.md` with severity and resolution status; nothing is silently dropped.
 
 ## 9. Tools, techniques, and methodologies

@@ -77,8 +77,9 @@ preset before calling a UI phase done. Save decisions and gotchas to memory.
 
 - SemVer, with `-alpha.N`/`-beta.N`/`-rc.N` prereleases. Annotated tag `vX.Y.Z[-pre.N]` on the
   exact commit deployed to Host-A, made at deploy time; never move or reuse a pushed tag.
-- `CHANGELOG.md` is Keep a Changelog 1.1.0: every behavior change adds an entry under
-  `[Unreleased]`; a release moves it under the version heading.
+- `CHANGELOG.md` is Keep a Changelog 1.1.0: every behavior change adds a one-file entry under
+  `changes/` (`changes/README.md`), never an edit to `CHANGELOG.md`, so branches don't conflict; a release folds them in
+  with `node scripts/changelog.mjs release X.Y.Z`.
 - CI has govulncheck, staticcheck, gosec (fails on high/high only), gitleaks and Trivy. Any
   dependency change gets a govulncheck run. Suppress findings only with a written reason.
 - The web job runs lint, Vitest, the build, the theme contrast check and
