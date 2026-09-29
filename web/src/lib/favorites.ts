@@ -6,6 +6,7 @@ import type { Bootstrap } from "@/api/types";
 import { toast } from "@/shell/toasts";
 import { arrayMove } from "./dnd";
 import { cleanFavorites, updateDevicePrefs, useDevicePrefs, type Favorite } from "./devicePrefs";
+import { visibleFeeds } from "./visibleFeeds";
 
 // Sidebar favorites: folders and feeds pinned at the top. They are a library setting, so they follow you
 // to every device: the server keeps them in `library.favorites` (PATCH /api/settings, at most 500 items).
@@ -69,7 +70,7 @@ export function useFavorites(): FavoritesApi {
 
   const alive = useMemo(() => {
     const folders = new Set((boot.data?.folders ?? []).map((f) => f.id));
-    const feeds = new Set((boot.data?.feeds ?? []).filter((f) => !f.is_archive).map((f) => f.id));
+    const feeds = new Set(visibleFeeds(boot.data?.feeds).map((f) => f.id));
     return stored.filter((f) => (f.t === "folder" ? folders.has(f.id) : feeds.has(f.id)));
   }, [stored, boot.data?.folders, boot.data?.feeds]);
 

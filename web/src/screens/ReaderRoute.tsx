@@ -20,6 +20,7 @@ import { undoLast, undoStore } from "@/lib/undo";
 import { openHelp } from "@/shell/HelpDialog";
 import { Button, buttonVariants } from "@/ui/button";
 import { cn } from "@/lib/cn";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import { ArticlePane } from "./ArticlePane";
 import { LayoutMenu } from "./LayoutMenu";
 import { ReadingMenu } from "./AppearanceControls";
@@ -46,7 +47,12 @@ function useNeighbours(scope: Scope): { prev?: Scope; next?: Scope } {
     if (!d) return {};
     const kind = scope.feed ? "feed" : scope.folder ? "folder" : null;
     if (!kind) return {};
-    const order = kind === "feed" ? d.folders.flatMap((fo) => d.feeds.filter((f) => f.folder_id === fo.id).map((f) => f.id)) : d.folders.map((f) => f.id);
+    // The sidebar's order: its feeds, and only the folders it shows (those with a feed in them).
+    const feeds = visibleFeeds(d.feeds);
+    const order =
+      kind === "feed"
+        ? d.folders.flatMap((fo) => feeds.filter((f) => f.folder_id === fo.id).map((f) => f.id))
+        : d.folders.filter((fo) => feeds.some((f) => f.folder_id === fo.id)).map((f) => f.id);
     const at = order.indexOf((kind === "feed" ? scope.feed : scope.folder) as string);
     const to = (id: string | undefined): Scope | undefined => (id ? { view: scope.view, [kind]: id } : undefined);
     return at < 0 ? {} : { prev: to(order[at - 1]), next: to(order[at + 1]) };

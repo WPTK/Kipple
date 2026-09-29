@@ -26,13 +26,13 @@ type Subscription struct {
 }
 
 // Subscriptions lists feeds for subscription/list (design §6.9): disabled and
-// gone feeds included, the archive feed only while it holds items.
+// gone feeds included, never the archive feed (listedFeedSQL).
 func (d *DB) Subscriptions(ctx context.Context) ([]Subscription, error) {
 	rows, err := d.reader.QueryContext(ctx, `
 		SELECT f.id, COALESCE(f.custom_title, f.title), f.url, f.site_url, fo.name, COALESCE(fi.hash, '')
 		FROM feeds f JOIN folders fo ON fo.id = f.folder_id
 		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
-		WHERE (f.disabled_reason IS NOT 'archive' OR EXISTS (SELECT 1 FROM items WHERE feed_id = f.id)) AND `+notDeletingSQL+`
+		WHERE `+listedFeedSQL+`
 		ORDER BY fo.position, fo.name, f.position, COALESCE(f.custom_title, f.title)`)
 	if err != nil {
 		return nil, err
@@ -747,6 +747,10 @@ type UnreadRow struct {
 	Folder string
 	Count  int64
 	MaxID  int64
+	// Archive marks the archive feed's row: its unread items count toward the
+	// reading-list total (they are in that stream) but it is not a listed feed
+	// (listedFeedSQL), so it gets no feed or folder row of its own.
+	Archive bool
 }
 
 // UnreadCounts returns per-feed unread counts (never counting ledger rows).
@@ -761,7 +765,7 @@ func (d *DB) UnreadCounts(ctx context.Context, holdCut int64) ([]UnreadRow, erro
 		args = append(args, d.holdArgs(holdCut)...)
 	}
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT u.feed_id, fo.name, u.n, u.newest
+		SELECT u.feed_id, fo.name, u.n, u.newest, f.disabled_reason IS 'archive'
 		FROM (SELECT feed_id, count(*) AS n, max(id) AS newest FROM items WHERE read = 0`+held+` GROUP BY feed_id) u
 		JOIN feeds f ON f.id = u.feed_id JOIN folders fo ON fo.id = f.folder_id
 		WHERE `+notDeletingSQL+`
@@ -773,7 +777,7 @@ func (d *DB) UnreadCounts(ctx context.Context, holdCut int64) ([]UnreadRow, erro
 	var out []UnreadRow
 	for rows.Next() {
 		var r UnreadRow
-		if err := rows.Scan(&r.FeedID, &r.Folder, &r.Count, &r.MaxID); err != nil {
+		if err := rows.Scan(&r.FeedID, &r.Folder, &r.Count, &r.MaxID, &r.Archive); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

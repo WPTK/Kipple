@@ -65,7 +65,7 @@ func (f StreamFilter) where() (string, []any) {
 		args = append(args, sql.Named("feed", f.FeedID))
 	}
 	if f.FolderID != 0 {
-		w += " AND feed_id IN (SELECT id FROM feeds WHERE folder_id = :folder)"
+		w += " AND " + inFolderSQL("feed_id", ":folder")
 		args = append(args, sql.Named("folder", f.FolderID))
 	}
 	w += intPreds("read", f.Read) + intPreds("starred", f.Starred)
@@ -220,7 +220,7 @@ type ContentRow struct {
 	OriginTitle  string // "" unless re-parented to the archive feed
 	FeedTitle    string
 	SiteURL      string
-	Folder       string
+	Folder       string         // "" for an archived item: the archive feed is in no folder a client sees
 	UseFulltext  bool           // EffectiveFulltext = 1
 	FulltextHTML sql.NullString // extracted text, when one exists
 }
@@ -251,7 +251,7 @@ func (d *DB) StreamItems(ctx context.Context, ids []int64, asc bool, holdCut int
 	rows, err := d.reader.QueryContext(ctx, `
 SELECT i.id, i.feed_id, i.url, i.title, i.author, c.content_html, i.published_at, i.updated_at,
        i.read, i.starred, c.enclosures_json, i.origin_title,
-       COALESCE(f.custom_title, f.title), f.site_url, fo.name,
+       COALESCE(f.custom_title, f.title), f.site_url, CASE WHEN f.disabled_reason IS 'archive' THEN '' ELSE fo.name END,
        `+FulltextModeSQL("i.fulltext_mode", "f.fulltext", all)+`, ft.content_html
 FROM items i JOIN item_content c ON c.item_id = i.id
 JOIN feeds f ON f.id = i.feed_id JOIN folders fo ON fo.id = f.folder_id

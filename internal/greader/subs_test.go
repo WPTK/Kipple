@@ -245,8 +245,8 @@ func TestUnsubscribeArchivesStarredItems(t *testing.T) {
 	require.Equal(t, "archive", q[string](h, "SELECT disabled_reason FROM feeds WHERE id = ?", arch))
 	require.Equal(t, "Alpha", q[string](h, "SELECT origin_title FROM items WHERE id = ?", keep))
 	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM feeds WHERE id = ?", f))
-	// The archive feed is listed while it holds items.
-	require.NotNil(t, findSub(subsOf(t, h), feedID(arch)))
+	// The archive feed is never a subscription, even while it holds items.
+	require.Nil(t, findSub(subsOf(t, h), feedID(arch)))
 	require.NotNil(t, findSub(subsOf(t, h), feedID(other)))
 
 	// The archived starred item is still in the starred stream.
@@ -258,7 +258,66 @@ func TestUnsubscribeArchivesStarredItems(t *testing.T) {
 	w = h.post(rd+"subscription/edit", "T="+h.tok+"&ac=unsubscribe&s="+feedID(arch))
 	require.Equal(t, "OK", w.Body.String())
 	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM items WHERE id = ?", keep))
-	require.NotNil(t, findSub(subsOf(t, h), feedID(arch)))
+	require.Nil(t, findSub(subsOf(t, h), feedID(arch)))
+}
+
+// The archive feed shows up nowhere a client lists feeds (subscription/list,
+// unread-count, a folder's label stream), while its starred items stay in the
+// starred stream and in stream/items/contents under their original feed's name.
+func TestArchiveFeedIsNeverListed(t *testing.T) {
+	h := newHarness(t)
+	f := h.addFeed("https://a.example/feed.xml", "Alpha", "")
+	keep := h.addItem(f, itemSeed{Title: "starred unread", Starred: true})
+	other := h.addFeed("https://b.example/feed.xml", "Beta", "")
+	plain := h.addItem(other, itemSeed{Title: "plain unread"})
+	require.Equal(t, "OK", h.post(rd+"subscription/edit", "T="+h.tok+"&ac=unsubscribe&s="+feedID(f)).Body.String())
+	arch := q[int64](h, "SELECT feed_id FROM items WHERE id = ?", keep)
+	require.Equal(t, "archive", q[string](h, "SELECT disabled_reason FROM feeds WHERE id = ?", arch))
+	folder := q[string](h, "SELECT fo.name FROM feeds f JOIN folders fo ON fo.id = f.folder_id WHERE f.id = ?", other)
+	require.Equal(t, folder, q[string](h, "SELECT fo.name FROM feeds f JOIN folders fo ON fo.id = f.folder_id WHERE f.id = ?", arch),
+		"the archive feed shares the default folder with Beta")
+
+	subs := subsOf(t, h)
+	require.Len(t, subs, 1)
+	require.Equal(t, feedID(other), subs[0]["id"])
+
+	var uc struct {
+		Max          int64 `json:"max"`
+		UnreadCounts []struct {
+			ID    string `json:"id"`
+			Count int64  `json:"count"`
+		} `json:"unreadcounts"`
+	}
+	require.NoError(t, json.Unmarshal(h.get(rd+"unread-count?output=json").Body.Bytes(), &uc))
+	counts := map[string]int64{}
+	for _, r := range uc.UnreadCounts {
+		counts[r.ID] = r.Count
+	}
+	require.NotContains(t, counts, feedID(arch), "no unread-count row for the archive feed")
+	require.Equal(t, int64(1), counts[labelPrefix+folder], "the folder counts only its listed feeds")
+	require.Equal(t, int64(2), counts[stateReadingList], "reading-list still counts the archived unread item it serves")
+
+	label := h.get(rd + "stream/items/ids?output=json&n=100&s=" + url.QueryEscape(labelPrefix+folder)).Body.String()
+	require.Contains(t, label, `"`+FormatDecimal(plain)+`"`)
+	require.NotContains(t, label, `"`+FormatDecimal(keep)+`"`, "the folder's stream leaves the archived item out")
+
+	stars := h.get(rd + "stream/items/ids?output=json&s=" + starred).Body.String()
+	require.Contains(t, stars, `"`+FormatDecimal(keep)+`"`)
+	var body struct {
+		Items []struct {
+			Categories []string `json:"categories"`
+			Origin     struct {
+				Title string `json:"title"`
+			} `json:"origin"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(h.post(rd+"stream/items/contents", "T="+h.tok+"&i="+FormatLongID(keep)).Body.Bytes(), &body))
+	require.Len(t, body.Items, 1)
+	require.Equal(t, "Alpha", body.Items[0].Origin.Title, "the original feed's name")
+	require.Contains(t, body.Items[0].Categories, stateStarred)
+	for _, c := range body.Items[0].Categories {
+		require.False(t, strings.HasPrefix(c, labelPrefix), "an archived item is in no folder: %s", c)
+	}
 }
 
 func TestUnsubscribeStarredFeedAndArchiveTogether(t *testing.T) {

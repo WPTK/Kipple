@@ -33,6 +33,7 @@ import { openOriginalAndRecord, shareAndRecord } from "@/lib/statsSender";
 import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { openFeedEditor } from "@/lib/feedEditor";
 import { useWidth } from "@/lib/useWidth";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
 export const SCROLL_RETRY_MS = 30_000;
@@ -251,7 +252,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const fallback = !!scope.q && q.data?.pages[0]?.fallback === true;
   const markScope = useMemo<Scope>(() => (scope.q ? { ...scope, fallback } : scope), [scope, fallback]);
   useSearchHighlight(scope.q, { fallback, typing: scope.typing });
-  const feedById = useMemo(() => new Map((boot.data?.feeds ?? []).map((f) => [f.id, f])), [boot.data]);
+  // An archived article's feed (the archive feed) is not one of these, so "Manage this feed" says it is gone.
+  const feedById = useMemo(() => new Map(visibleFeeds(boot.data?.feeds).map((f) => [f.id, f])), [boot.data]);
   const unreadView = scope.view === "unread" && !scope.q;
 
   // "Only items present when the list loaded": the highest id the list knew about.
@@ -865,7 +867,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       );
     }
     if (rows.length === 0) {
-      if (boot.data && boot.data.feeds.every((f) => f.is_archive) && !scope.q) {
+      if (boot.data && visibleFeeds(boot.data.feeds).length === 0 && !scope.q) {
         return (
           <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
         );

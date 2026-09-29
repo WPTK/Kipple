@@ -534,6 +534,9 @@ func (c *call) unreadCount() {
 		if r.MaxID > totalMax {
 			totalMax = r.MaxID
 		}
+		if r.Archive {
+			continue // in reading-list, but not a subscription or part of a folder
+		}
 		feeds = append(feeds, unreadCountJSON{ID: feedID(r.FeedID), Count: r.Count, NewestItemTimestampUsec: strconv.FormatInt(r.MaxID, 10)})
 		f := perFolder[r.Folder]
 		if f == nil {
