@@ -1,1 +1,0 @@
-Manage Feeds: the drag handle and each feed's edit (pencil) button are hidden by default and appear only in a new Edit mode (a header toggle next to Select), so a plain visit to the screen is just a list, not a wall of reorder/edit affordances. (#59)

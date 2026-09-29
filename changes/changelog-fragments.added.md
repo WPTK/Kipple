@@ -1,1 +1,0 @@
-Developer tooling: changelog entries are now one small file each under `changes/` instead of edits to `CHANGELOG.md`, so branches no longer conflict on it; `node scripts/changelog.mjs` checks them (in CI), previews them and folds them into `CHANGELOG.md` at release (`changes/README.md`).

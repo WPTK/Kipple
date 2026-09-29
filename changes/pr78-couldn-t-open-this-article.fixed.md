@@ -1,1 +1,0 @@
-"Couldn't open this article" (the server is unreachable, or the article failed to load) said "you can read the original instead" but had no way to actually do that — only a "Try again" button. It now offers a "Read the original" button, using the article's address from the list it was opened from. (#78)
