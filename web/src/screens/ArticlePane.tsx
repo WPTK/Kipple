@@ -58,6 +58,10 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const fulltext = useFulltext();
 
   const ids = useMemo(() => flattenItems(list.data).map((i) => i.id), [list.data]);
+  // The article's own detail fetch can fail (offline, a server error) with no data at all, but the list this
+  // article was opened from often already has this item's card cached, url included: enough to still offer
+  // "read the original" even though the article body itself could not be loaded.
+  const cachedCard = useMemo(() => flattenItems(list.data).find((i) => i.id === id), [list.data, id]);
   const index = ids.indexOf(id);
   const prevId = index > 0 ? ids[index - 1] : undefined;
   const nextId = index >= 0 ? ids[index + 1] : undefined;
@@ -225,11 +229,19 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     );
   }
   if (item.isError || !item.data) {
+    const originalUrl = safeHttpUrl(cachedCard?.url);
     return (
       <div className="flex h-full flex-col">
         {!pane && <TopBar onBack={back} />}
-        <StatusBlock role="alert" title="Couldn't open this article" body="The article couldn't be loaded. You can read the original instead.">
-          <Button onClick={() => void item.refetch()}>Try again</Button>
+        <StatusBlock
+          role="alert"
+          title="Couldn't open this article"
+          body={originalUrl ? "The article couldn't be loaded. You can read the original instead." : "The article couldn't be loaded."}
+        >
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button onClick={() => void item.refetch()}>Try again</Button>
+            {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
+          </div>
         </StatusBlock>
       </div>
     );
