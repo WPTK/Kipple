@@ -1,9 +1,19 @@
-/** A feed check interval in minutes, as words ("30 minutes", "1 hour", "6 hours", "1 day"). */
-export const intervalLabel = (m: number): string =>
-  m < 60 ? `${m} minutes` : m === 60 ? "1 hour" : m < 1440 ? `${m / 60} hours` : m === 1440 ? "1 day" : `${m / 1440} days`;
+/** A feed check interval in minutes, as words ("30 minutes", "1 hour", "1 hour 40 minutes", "1 day"). Any
+ * minute count is handled, not just exact multiples of 60/1440 — a custom per-feed interval need not be one. */
+export function intervalLabel(m: number): string {
+  const days = Math.floor(m / 1440);
+  const hours = Math.floor((m % 1440) / 60);
+  const mins = m % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days} day${days === 1 ? "" : "s"}`);
+  if (hours > 0) parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+  if (mins > 0) parts.push(`${mins} minute${mins === 1 ? "" : "s"}`);
+  return parts.length ? parts.join(" ") : "0 minutes";
+}
 
 /** The same, as how often: "Every 30 minutes", "Every hour", "Every day". */
 export function everyLabel(m: number): string {
   const l = intervalLabel(m);
-  return l.startsWith("1 ") ? `Every ${l.slice(2)}` : `Every ${l}`;
+  const singular = /^1 (minute|hour|day)$/.exec(l);
+  return singular ? `Every ${singular[1]}` : `Every ${l}`;
 }
