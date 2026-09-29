@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -71,11 +70,24 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request) {
 		claimed = s.opt.Setup.SessionOK(c.Value)
 	}
 	issued := s.opt.Setup.IssuedAt().UTC()
+	// Whether open mode would work from where this browser is: reason is the
+	// open gate's answer as things are, lan_reason with "Also allow devices on
+	// my local network" on (in a container even this computer needs that).
+	orNull := func(reason string) any {
+		if reason == "" {
+			return nil
+		}
+		return reason
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"claimed": claimed,
 		"access": map[string]bool{
 			"enabled":  s.opt.Access != nil,
 			"verified": s.opt.Access != nil && s.accessProof(r) == proofOK,
+		},
+		"open": map[string]any{
+			"reason":     orNull(s.openRefusalWith(r, false)),
+			"lan_reason": orNull(s.openRefusalWith(r, true)),
 		},
 		"token_hint":      "printed in the server log (standard error) at " + issued.Format(time.RFC3339) + "; run `kipple setup-token` to show it again",
 		"token_issued_at": issued.Unix(),
@@ -102,7 +114,7 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Token string `json:"token"`
 	}
-	if !decodeLimited(w, r, &body, maxSetupBody) {
+	if !decodeJSON(w, r, &body, maxSetupBody, false) {
 		s.setupLock.Release(ip) // nothing presented: not counted
 		return
 	}
@@ -155,8 +167,9 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		Password        *string `json:"password"`
 		Passwordless    *string `json:"passwordless"`
 		AcknowledgeOpen bool    `json:"acknowledge_open"`
+		OpenLAN         bool    `json:"open_lan"`
 	}
-	if !decodeLimited(w, r, &body, maxSetupBody) {
+	if !decodeJSON(w, r, &body, maxSetupBody, false) {
 		return
 	}
 	if !setup.ValidUsername(body.Username) {
@@ -165,6 +178,10 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if (body.Password != nil) == (body.Passwordless != nil) {
 		writeErrorMsg(w, http.StatusBadRequest, "bad_request", `send exactly one of "password" or "passwordless"`)
+		return
+	}
+	if body.OpenLAN && (body.Passwordless == nil || *body.Passwordless != "open") {
+		writeErrorMsg(w, http.StatusBadRequest, "bad_request", `"open_lan" goes with "passwordless": "open" only`)
 		return
 	}
 	na := setup.NewAccount{Username: body.Username, AuthMode: store.AuthStandard, CreatedVia: store.CreatedViaWizard}
@@ -180,11 +197,11 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 			writeErrorMsg(w, http.StatusBadRequest, "ack_required", "confirm that anyone who can reach this address can read and change everything")
 			return
 		}
-		if reason := s.signInRefusal(r); reason != "" {
+		if reason := s.signInRefusalWith(r, body.OpenLAN); reason != "" {
 			writeOpenRefused(w, reason)
 			return
 		}
-		na.AuthMode = store.AuthOpen
+		na.AuthMode, na.OpenLAN = store.AuthOpen, body.OpenLAN
 	case *body.Passwordless == "access":
 		// Same rule as design §7.0: an Access-only account is created only by
 		// someone for whom Access sign-in demonstrably works on this request.
@@ -243,16 +260,6 @@ func (s *Server) finishSetup(acct store.Account) {
 		s.opt.OnAPIPasswordChange()
 	}
 	s.invalidateMode()
-}
-
-// decodeLimited decodes a JSON body of at most limit bytes (400 bad_request
-// otherwise, answered here).
-func decodeLimited(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(v); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request")
-		return false
-	}
-	return true
 }
 
 // startSession mints a fresh session and sets its cookie, or answers the error

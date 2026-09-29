@@ -118,3 +118,19 @@ func runSetupToken(args []string) error {
 	fmt.Println(tok)
 	return nil
 }
+
+// warnTZOverride says so at every start when TZ is set and differs from a time
+// zone chosen in Kipple: TZ now governs statistics and the nightly job too
+// (before 0.5 it only set the log zone), so an old TZ line left in an .env
+// would otherwise move them silently.
+func warnTZOverride(ctx context.Context, db *store.DB, cfg config.Config, logger *slog.Logger) {
+	if cfg.TZ == "" {
+		return
+	}
+	stored, ok, err := store.StoredZoneName(ctx, db.Reader())
+	if err != nil || !ok || stored == cfg.TZ {
+		return
+	}
+	logger.Warn("TZ overrides the time zone chosen in Kipple for statistics and the nightly job; unset TZ to use the chosen one",
+		"TZ", cfg.TZ, "tz_setting", stored)
+}

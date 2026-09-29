@@ -373,7 +373,7 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		// Open mode: the session is only a convenience, the gate is the access
 		// check, so it applies to every request (a device that left the tailnet,
 		// or security.open_lan turned off, loses access at once).
-		if s.snapshot(r.Context()).mode == store.AuthOpen {
+		if snap := s.snapshot(r.Context()); snap.mode == store.AuthOpen || snap.failed {
 			if reason := s.openRefusal(r); reason != "" {
 				writeOpenRefused(w, reason)
 				return

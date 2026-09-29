@@ -1,15 +1,10 @@
 package setup
 
 import (
-	"bufio"
-	"encoding/hex"
-	"io"
 	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
-	"os"
-	"strconv"
 	"strings"
 )
 
@@ -18,7 +13,7 @@ import (
 const (
 	RefuseHost      = "host"      // the Host header is not an allowed name (DNS rebinding)
 	RefuseForwarded = "forwarded" // a proxy or tunnel is in front
-	RefusePeer      = "peer"      // the TCP peer is not local (loopback, Tailscale, the container gateway)
+	RefusePeer      = "peer"      // the TCP peer is not this computer or the tailnet (nor the LAN, unless allowed)
 )
 
 // forwardHeaders mark a request that came through a proxy or tunnel. Any one of
@@ -41,13 +36,7 @@ type Gate struct {
 	// Trusted are the configured proxies: a request from one is forwarded by
 	// definition.
 	Trusted []netip.Addr
-	// Gateway is the default gateway of the container this process runs in when
-	// its default route is a veth (a bridge network), else the zero Addr. Docker
-	// delivers every -p 127.0.0.1:... connection from it, but on Docker Desktop,
-	// rootless setups and IPv6 without ip6tables it also delivers other hosts'
-	// connections, so it only counts as local together with a loopback Host (see
-	// OpenRefusal); in host networking it is the router and never special.
-	Gateway netip.Addr
+
 	// Tailnet reports that this machine has a Tailscale address. Only then does a
 	// peer in 100.64.0.0/10 count as a tailnet device: the range is shared
 	// carrier-grade NAT space elsewhere (other ISP subscribers, cloud networks).
@@ -58,6 +47,14 @@ type Gate struct {
 // every request of an open-mode account: "" when r may use open mode, else the
 // reason. host is the normalized Host (NormalizeHost) and hostOK whether it
 // passed the Host gate; openLAN is the security.open_lan setting.
+//
+// Only a loopback peer is this computer. In a container that is never the case:
+// Docker delivers even a -p 127.0.0.1:... connection from the bridge gateway,
+// and on Docker Desktop, rootless setups or IPv6 without ip6tables it delivers
+// other hosts' connections from that same address, so nothing at this end can
+// tell them apart; there the gateway is an ordinary LAN peer, admitted only with
+// security.open_lan (and the published port's bind address is what keeps the
+// LAN out).
 //
 // It fences accidents and well-behaved proxies, not a deliberate attacker who
 // can reach the port through something that forwards without saying so (a bare
@@ -96,9 +93,7 @@ func (g Gate) OpenRefusal(r *http.Request, host string, hostOK, openLAN bool) st
 			return "" // without a local tailnet address, only the owner's LAN opt-in admits the range
 		}
 		return RefusePeer
-	case g.Gateway.IsValid() && peer == g.Gateway && loopbackHost(host):
-		return "" // a browser on this computer through Docker's port forward
-	case openLAN && peer.IsPrivate(): // RFC 1918 and ULA (the gateway with any other Host too)
+	case openLAN && peer.IsPrivate(): // RFC 1918 and ULA, a container's gateway included
 		return ""
 	}
 	return RefusePeer
@@ -125,16 +120,6 @@ func (g Gate) SignInRefusal(r *http.Request, host string, hostOK, openLAN bool) 
 	return ""
 }
 
-// loopbackHost reports a Host that names this computer: localhost, *.localhost
-// or a loopback address.
-func loopbackHost(host string) bool {
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return true
-	}
-	a, err := netip.ParseAddr(host)
-	return err == nil && a.Unmap().IsLoopback()
-}
-
 func peerAddr(r *http.Request) (netip.Addr, bool) {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -145,80 +130,6 @@ func peerAddr(r *http.Request) (netip.Addr, bool) {
 		return netip.Addr{}, false
 	}
 	return a.WithZone("").Unmap(), true
-}
-
-// ContainerGateway is the default gateway of the container this process runs
-// in, or the zero Addr when it is not in a container (no /.dockerenv or
-// /run/.containerenv), when the default route is not a veth (host networking,
-// where the gateway is the LAN router; slirp-style rootless networking, where
-// every connection arrives from the gateway), or when the tables cannot be read.
-func ContainerGateway() netip.Addr {
-	inContainer := false
-	for _, p := range []string{"/.dockerenv", "/run/.containerenv"} {
-		if _, err := os.Stat(p); err == nil {
-			inContainer = true
-		}
-	}
-	if !inContainer {
-		return netip.Addr{}
-	}
-	f, err := os.Open("/proc/net/route")
-	if err != nil {
-		return netip.Addr{}
-	}
-	defer f.Close()
-	iface, gw := parseRouteGateway(f)
-	if !gw.IsValid() || !isVeth("/sys/class/net", iface) {
-		return netip.Addr{}
-	}
-	return gw
-}
-
-// isVeth reports whether iface is one end of a veth pair: its iflink (the peer's
-// index, in another namespace) differs from its own ifindex. A physical NIC or
-// a tap device links to itself.
-func isVeth(sysNet, iface string) bool {
-	if iface == "" || strings.ContainsAny(iface, `/\`) || iface == "." || iface == ".." {
-		return false
-	}
-	read := func(name string) (int, bool) {
-		b, err := os.ReadFile(sysNet + "/" + iface + "/" + name) // #nosec G304 -- a kernel interface name under /sys/class/net
-		if err != nil {
-			return 0, false
-		}
-		n, err := strconv.Atoi(strings.TrimSpace(string(b)))
-		return n, err == nil
-	}
-	idx, ok1 := read("ifindex")
-	link, ok2 := read("iflink")
-	return ok1 && ok2 && idx != link
-}
-
-// parseRouteGateway finds the default route's interface and gateway in a
-// /proc/net/route table (hex, little-endian IPv4).
-func parseRouteGateway(r io.Reader) (string, netip.Addr) {
-	sc := bufio.NewScanner(r)
-	first := true
-	for sc.Scan() {
-		if first {
-			first = false
-			continue // header
-		}
-		f := strings.Fields(sc.Text())
-		if len(f) < 3 || f[1] != "00000000" {
-			continue
-		}
-		b, err := hex.DecodeString(f[2])
-		if err != nil || len(b) != 4 {
-			continue
-		}
-		a := netip.AddrFrom4([4]byte{b[3], b[2], b[1], b[0]})
-		if a.IsUnspecified() {
-			continue
-		}
-		return f[0], a
-	}
-	return "", netip.Addr{}
 }
 
 // LocalTailnet reports whether this machine has a Tailscale address: one in

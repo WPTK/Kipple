@@ -152,6 +152,7 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	st := decode(t, h.req("GET", "/api/setup/state", ""))
 	require.Equal(t, false, st["claimed"])
 	require.Equal(t, map[string]any{"enabled": false, "verified": false}, st["access"])
+	require.Equal(t, map[string]any{"reason": nil, "lan_reason": nil}, st["open"])
 	require.Contains(t, st["token_hint"], "2026-09-24T12:00:00Z")
 
 	// Hand-typed: lower case, spaces for dashes.
@@ -763,11 +764,62 @@ func TestSetupEndsWhenTheRowExistsWhateverTheAnswer(t *testing.T) {
 	require.False(t, ok)
 }
 
-// A mode that could not be read does not turn a password deployment's Host gate
-// into a wall of 421s; setup mode (known in memory) always enforces.
-func TestHostGateFailedReadDoesNotEnforce(t *testing.T) {
+// A mode never read enforces (fail closed); a failed re-read after a change
+// keeps the last known mode instead of forgetting open mode.
+func TestModeSnapshotFailsClosed(t *testing.T) {
 	h := newHarness(t)
-	require.False(t, h.srv.enforceHosts(&modeSnapshot{failed: true}))
+	require.True(t, h.srv.enforceHosts(&modeSnapshot{failed: true}))
+	require.False(t, h.srv.enforceHosts(&modeSnapshot{mode: store.AuthStandard}))
+
 	s := newSetupHarness(t)
-	require.True(t, s.srv.enforceHosts(&modeSnapshot{failed: true}))
+	sc := s.claim(s.token())
+	require.Equal(t, http.StatusCreated, s.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}), withCookies(sc)).Code)
+	require.Equal(t, store.AuthOpen, s.srv.snapshot(context.Background()).mode)
+	s.srv.invalidateMode()
+	require.NoError(t, s.db.Close()) // every read fails from here on
+	snap := s.srv.snapshot(context.Background())
+	require.Equal(t, store.AuthOpen, snap.mode, "the last known mode, not a forgotten one")
+	require.Equal(t, http.StatusMisdirectedRequest, s.req("GET", "/api/instance", "", host("evil.example")).Code)
+}
+
+// In a container even this computer arrives from the bridge gateway, which the
+// gate cannot tell from the LAN: open mode then needs the LAN opt-in, chosen
+// with the account and stored in the same transaction.
+func TestSetupOpenModeFromAContainerGateway(t *testing.T) {
+	h := newSetupHarness(t)
+	gw := peer("172.17.0.1:40000")
+	st := decode(t, h.req("GET", "/api/setup/state", "", gw))
+	require.Equal(t, map[string]any{"reason": "peer", "lan_reason": nil}, st["open"])
+	st = decode(t, h.req("GET", "/api/setup/state", ""))
+	require.Equal(t, map[string]any{"reason": nil, "lan_reason": nil}, st["open"], "a bare binary on this computer")
+	st = decode(t, h.req("GET", "/api/setup/state", "", peer("203.0.113.9:1")))
+	require.Equal(t, map[string]any{"reason": "peer", "lan_reason": "peer"}, st["open"], "not from the internet at all")
+
+	sc := h.claim(h.token(), gw)
+	open := map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}
+	rec := h.req("POST", "/api/setup/account", accountBody(open), withCookies(sc), gw)
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, "peer", decode(t, rec)["reason"])
+	require.Equal(t, http.StatusBadRequest, h.req("POST", "/api/setup/account",
+		accountBody(map[string]any{"username": "reader", "password": setupPass, "open_lan": true}), withCookies(sc), gw).Code, "open_lan is for open mode only")
+	open["open_lan"] = true
+	rec = h.req("POST", "/api/setup/account", accountBody(open), withCookies(sc), gw)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	sess := cookieNamed(rec, cookieName)
+	vals := decode(t, h.req("GET", "/api/settings", "", withCookies(sess), gw))["values"].(map[string]any)
+	require.Equal(t, true, vals["security.open_lan"])
+	require.Equal(t, http.StatusNoContent, h.req("POST", "/api/auth/open", "", gw).Code)
+}
+
+// An Access-only account cannot switch to open mode: its proof is an Access
+// header, which the open gate refuses. It is told to set a password first.
+func TestSwitchToOpenNeedsAPassword(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	require.NoError(t, h.db.SetPasswordHash(context.Background(), "", store.AuthStandard, sessionID(c.Value)))
+	rec := h.do("POST", "/api/account/password", `{"open":true}`, withCookie(c), func(r *http.Request) {
+		r.Header.Set("Origin", "http://example.com")
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "password_required", decode(t, rec)["error"])
 }

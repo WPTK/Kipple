@@ -45,7 +45,9 @@ func TestCreateAccountModes(t *testing.T) {
 	_, _, err = CreateAccount(ctx, db, NewAccount{Username: "owner", AuthMode: "odd"})
 	require.Error(t, err)
 
-	created, acct, err := CreateAccount(ctx, db, NewAccount{Username: "owner", AuthMode: store.AuthOpen, CreatedVia: store.CreatedViaWizard})
+	_, _, err = CreateAccount(ctx, db, NewAccount{Username: "owner", Password: "pw-12345", AuthMode: store.AuthStandard, OpenLAN: true})
+	require.Error(t, err, "open_lan is for open mode only")
+	created, acct, err := CreateAccount(ctx, db, NewAccount{Username: "owner", AuthMode: store.AuthOpen, CreatedVia: store.CreatedViaWizard, OpenLAN: true})
 	require.NoError(t, err)
 	require.True(t, created)
 	require.Equal(t, "open", DisplayMode(acct))
@@ -54,6 +56,9 @@ func TestCreateAccountModes(t *testing.T) {
 	require.Equal(t, store.CreatedViaWizard, got.CreatedVia)
 	require.Empty(t, got.PasswordHash)
 	require.Len(t, got.Secret, 64)
+	sec, err := db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.True(t, sec.OpenLAN, "stored with the account")
 
 	require.Equal(t, "access", DisplayMode(store.Account{AuthMode: store.AuthStandard}))
 	require.Equal(t, "password", DisplayMode(store.Account{AuthMode: store.AuthStandard, PasswordHash: "h"}))

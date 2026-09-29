@@ -172,7 +172,15 @@
       if (r.status === 401) {
         show(false);
         api("GET", "/api/instance").then(function (i) { return i.ok ? i.json() : null; }).then(function (d) {
-          if (d && d.setup) { $("login").hidden = true; err("Setup is pending: open Kipple to finish it."); }
+          if (!d) return;
+          if (d.setup) { $("login").hidden = true; err("Setup is pending: open Kipple to finish it."); return; }
+          if (d.auth !== "open") return;
+          // Open mode (no password): sign in without one, from where that is allowed.
+          $("login").hidden = true;
+          api("POST", "/api/auth/open").then(function (o) {
+            if (o.status === 204) { boot(); return; }
+            return o.json().then(function (e) { err("Kipple has no password, and " + (e.message || "this address may not use it") + "."); });
+          }).catch(function () { err("cannot reach the server"); });
         }).catch(function () {});
         return;
       }

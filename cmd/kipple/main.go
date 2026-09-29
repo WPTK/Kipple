@@ -160,6 +160,7 @@ func runServe() error {
 	if err := ensureAccount(context.Background(), db, cfg, logger); err != nil {
 		return fmt.Errorf("account: %w", err)
 	}
+	warnTZOverride(context.Background(), db, cfg, logger)
 	if cfg.TZ == "" {
 		// Nothing but this goroutine runs yet (the pools keep no timers), so this
 		// is the one safe moment: log timestamps follow the effective zone as of
@@ -251,7 +252,7 @@ func runServe() error {
 		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount, Access: accessV,
 		Setup: setupMgr, AllowedHosts: allowedHosts(cfg),
-		Gate: setup.Gate{Trusted: cfg.TrustedProxyIPs, Gateway: setup.ContainerGateway(), Tailnet: setup.LocalTailnet()},
+		Gate: setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: setup.LocalTailnet()},
 	})
 	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API

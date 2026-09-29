@@ -1,13 +1,10 @@
 package api
 
 import (
-	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/WPTK/kipple/internal/opml"
-	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/store"
 	"github.com/WPTK/kipple/starter"
 )
@@ -41,16 +38,21 @@ func (s *Server) starterFeeds(w http.ResponseWriter, r *http.Request) {
 	f := s.loadStarter()
 	cats := []starterCategory{}
 	if f != nil {
-		rd := s.db.Reader()
+		var urls []string
+		for _, c := range f.Categories {
+			for _, fd := range c.Feeds {
+				urls = append(urls, fd.URL)
+			}
+		}
+		subscribed, err := store.SubscribedURLs(r.Context(), s.db.Reader(), urls)
+		if err != nil {
+			s.serverError(w, "starter feeds", err)
+			return
+		}
 		for _, c := range f.Categories {
 			sc := starterCategory{ID: c.ID, Title: c.Title, Feeds: make([]starterFeed, 0, len(c.Feeds))}
 			for _, fd := range c.Feeds {
-				_, found, err := store.FindFeedByURL(r.Context(), rd, fd.URL)
-				if err != nil {
-					s.serverError(w, "starter feeds", err)
-					return
-				}
-				sc.Feeds = append(sc.Feeds, starterFeed{Feed: fd, Subscribed: found})
+				sc.Feeds = append(sc.Feeds, starterFeed{Feed: fd, Subscribed: subscribed[fd.URL]})
 			}
 			cats = append(cats, sc)
 		}
@@ -127,19 +129,5 @@ func (s *Server) starterSubscribe(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "starter feeds", err)
 		return
 	}
-	if res.FoldersCreated > 0 {
-		s.publishFolderChanged(0)
-	}
-	var runID any
-	if len(res.NewFeedIDs) > 0 {
-		info, err := s.opt.Sched.StartImport(res.NewFeedIDs)
-		switch {
-		case err == nil:
-			runID = fmt.Sprint(info.RunID)
-		case errors.Is(err, sched.ErrStopped):
-		default:
-			s.log.Error("api: starter feeds import run", "err", err)
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"added": res.FeedsAdded, "existing": len(res.FeedsExisting), "run_id": runID})
+	writeJSON(w, http.StatusOK, map[string]any{"added": res.FeedsAdded, "existing": len(res.FeedsExisting), "run_id": s.afterImport(res)})
 }

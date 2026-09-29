@@ -3,17 +3,13 @@ package setup
 import (
 	"net/http/httptest"
 	"net/netip"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestOpenRefusal(t *testing.T) {
-	gw := netip.MustParseAddr("172.17.0.1")
-	g := Gate{Trusted: []netip.Addr{netip.MustParseAddr("192.0.2.20")}, Gateway: gw, Tailnet: true}
+	g := Gate{Trusted: []netip.Addr{netip.MustParseAddr("192.0.2.20")}, Tailnet: true}
 	type tc struct {
 		name    string
 		peer    string
@@ -28,10 +24,11 @@ func TestOpenRefusal(t *testing.T) {
 		{"mapped loopback", "[::ffff:127.0.0.1]:5000", "localhost", nil, false, ""},
 		{"tailscale v4", "100.101.102.103:5000", "nas", nil, false, ""},
 		{"tailscale v6", "[fd7a:115c:a1e0::1]:5000", "nas", nil, false, ""},
-		{"container gateway, this computer", "172.17.0.1:5000", "127.0.0.1", nil, false, ""},
-		{"container gateway, localhost name", "172.17.0.1:5000", "localhost", nil, false, ""},
-		{"container gateway, a LAN name", "172.17.0.1:5000", "192.168.1.10", nil, false, RefusePeer},
-		{"container gateway, a LAN name with open_lan", "172.17.0.1:5000", "192.168.1.10", nil, true, ""},
+		// In a container even this computer arrives from the bridge gateway, which
+		// cannot be told from the LAN: it needs the LAN opt-in, whatever Host it names.
+		{"container gateway naming localhost", "172.17.0.1:5000", "localhost", nil, false, RefusePeer},
+		{"container gateway with open_lan", "172.17.0.1:5000", "localhost", nil, true, ""},
+		{"docker desktop gateway with open_lan", "192.168.65.1:5000", "localhost", nil, true, ""},
 		{"another bridge peer", "172.17.0.5:5000", "127.0.0.1", nil, false, RefusePeer},
 		{"lan refused by default", "192.168.1.20:5000", "192.168.1.10", nil, false, RefusePeer},
 		{"lan with open_lan", "192.168.1.20:5000", "192.168.1.10", nil, true, ""},
@@ -67,9 +64,7 @@ func TestOpenRefusal(t *testing.T) {
 	r := httptest.NewRequest("POST", "/", nil)
 	r.RemoteAddr = "127.0.0.1:1"
 	require.Equal(t, RefuseHost, g.OpenRefusal(r, "evil.example", false, true), "the Host gate comes first")
-	// No gateway configured (not in a bridge network): the would-be gateway is a LAN peer.
-	r.RemoteAddr = "172.17.0.1:1"
-	require.Equal(t, RefusePeer, Gate{}.OpenRefusal(r, "127.0.0.1", true, false))
+
 	// Without a local tailnet address the CGNAT range is not the tailnet: only the LAN opt-in admits it.
 	r.RemoteAddr = "100.101.102.103:1"
 	require.Equal(t, RefusePeer, Gate{}.OpenRefusal(r, "nas", true, false))
@@ -100,37 +95,4 @@ func TestSignInRefusalChecksTheOrigin(t *testing.T) {
 	require.Equal(t, RefuseForwarded, req("127.0.0.1:1919", "http://127.0.0.1:8080"))
 	require.Equal(t, RefuseForwarded, req("127.0.0.1:1919", "::"))
 	require.Equal(t, RefuseHost, req("evil.example:1919", "http://evil.example:1919"))
-}
-
-func TestParseRouteGateway(t *testing.T) {
-	table := "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n" +
-		"eth0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n" +
-		"eth0\t00000000\t010011AC\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
-	iface, gw := parseRouteGateway(strings.NewReader(table))
-	require.Equal(t, "eth0", iface)
-	require.Equal(t, netip.MustParseAddr("172.17.0.1"), gw)
-	_, gw = parseRouteGateway(strings.NewReader("Iface\tDestination\tGateway\n"))
-	require.False(t, gw.IsValid())
-	_, gw = parseRouteGateway(strings.NewReader("h\neth0\t00000000\tzz\n"))
-	require.False(t, gw.IsValid())
-}
-
-// Only a veth default route (a bridge network) makes the gateway special.
-func TestIsVeth(t *testing.T) {
-	sys := t.TempDir()
-	mk := func(name, idx, link string) {
-		d := filepath.Join(sys, name)
-		require.NoError(t, os.MkdirAll(d, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(d, "ifindex"), []byte(idx+"\n"), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(d, "iflink"), []byte(link+"\n"), 0o644))
-	}
-	mk("eth0", "12", "13") // a container's end of a veth pair
-	mk("enp3s0", "2", "2") // a physical NIC (host networking)
-	mk("tap0", "3", "3")   // slirp-style rootless networking
-	require.True(t, isVeth(sys, "eth0"))
-	require.False(t, isVeth(sys, "enp3s0"))
-	require.False(t, isVeth(sys, "tap0"))
-	require.False(t, isVeth(sys, "missing"))
-	require.False(t, isVeth(sys, "../eth0"))
-	require.False(t, isVeth(sys, ""))
 }

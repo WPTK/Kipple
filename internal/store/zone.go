@@ -87,3 +87,10 @@ func Zone(ctx context.Context, q Querier) *time.Location {
 	}
 	return loc
 }
+
+// StoredZoneName is the `tz` setting as stored, ignoring TZ: ok is false when
+// no row exists (the default applies).
+func StoredZoneName(ctx context.Context, q Querier) (string, bool, error) {
+	s, err := settingStringErr(ctx, q, SettingTZ, "")
+	return s, err == nil && s != "", err
+}

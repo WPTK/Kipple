@@ -155,6 +155,13 @@ func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Open {
+		if acct.PasswordHash == "" {
+			// A Cloudflare Access account: its proof is an Access header, which the
+			// open gate refuses as forwarded, so the switch could never pass.
+			writeErrorMsg(w, http.StatusBadRequest, "password_required",
+				"set a web password first: open mode is switched on with the current password, from this computer or Tailscale")
+			return
+		}
 		s.switchToOpen(w, r, body.Current)
 		return
 	}
@@ -199,8 +206,8 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request, hash, mode 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// switchToOpen is `{current, open: true}` on a standard account: the current
-// password (or, without one, a verified Access token) and then the open gate.
+// switchToOpen is `{current, open: true}` on a password account: the current
+// password and then the open gate.
 func (s *Server) switchToOpen(w http.ResponseWriter, r *http.Request, current string) {
 	if _, ok := s.checkCurrent(w, r, current, false); !ok {
 		return

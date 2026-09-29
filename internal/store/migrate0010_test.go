@@ -159,9 +159,12 @@ func TestEnvAccountIsSetUp(t *testing.T) {
 	pending, err := e.db.SetupPending(ctx)
 	require.NoError(t, err)
 	require.False(t, pending)
-	again, err := e.db.CreateAccount(ctx, Account{Username: "other", PasswordHash: "x", Secret: fixtureKey})
+	again, err := e.db.CreateAccountWith(ctx, Account{Username: "other", PasswordHash: "x", Secret: fixtureKey},
+		map[string]any{SettingOpenLAN: true})
 	require.NoError(t, err)
 	require.False(t, again, "an existing row is never replaced")
+	_, ok := settingRow(t, e.db, SettingOpenLAN)
+	require.False(t, ok, "the loser's settings are not written either")
 }
 
 // Onboarding restart clears the stamp and nothing else; complete is idempotent.

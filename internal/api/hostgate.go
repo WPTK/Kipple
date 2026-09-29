@@ -23,13 +23,14 @@ type modeSnapshot struct {
 	allowed    []string // security.allowed_hosts plus Options.AllowedHosts
 	openLAN    bool
 	loaded     time.Time
-	failed     bool // the read failed and nothing was known before (not cached)
+	failed     bool // the read failed and nothing was known before (not cached): enforce
 }
 
 type modeCache struct {
-	mu   sync.Mutex
-	gen  uint64
-	snap *modeSnapshot
+	mu    sync.Mutex
+	gen   uint64
+	snap  *modeSnapshot
+	stale bool // invalidated: re-read before use, but keep snap for a failed read
 }
 
 // snapshot returns the cached mode, re-reading it when older than modeTTL. A
@@ -38,9 +39,9 @@ type modeCache struct {
 func (s *Server) snapshot(ctx context.Context) *modeSnapshot {
 	now := s.now()
 	s.mode.mu.Lock()
-	cur, gen := s.mode.snap, s.mode.gen
+	cur, gen, stale := s.mode.snap, s.mode.gen, s.mode.stale
 	s.mode.mu.Unlock()
-	if cur != nil && now.Sub(cur.loaded) < modeTTL && !now.Before(cur.loaded) {
+	if cur != nil && !stale && now.Sub(cur.loaded) < modeTTL && !now.Before(cur.loaded) {
 		return cur
 	}
 	acct, ok, err := s.db.Account(ctx)
@@ -62,7 +63,7 @@ func (s *Server) snapshot(ctx context.Context) *modeSnapshot {
 	}
 	s.mode.mu.Lock()
 	if s.mode.gen == gen {
-		s.mode.snap = snap
+		s.mode.snap, s.mode.stale = snap, false
 	}
 	s.mode.mu.Unlock()
 	return snap
@@ -80,23 +81,23 @@ func normalizeEntries(in []string) []string {
 	return out
 }
 
-// invalidateMode drops the cached snapshot (after a mode, account or
-// security-setting change made here).
+// invalidateMode makes the next request re-read the snapshot (after a mode,
+// account or security-setting change made here). The old one stays as the
+// fallback for a read that fails, so a failure never forgets open mode.
 func (s *Server) invalidateMode() {
 	s.mode.mu.Lock()
 	s.mode.gen++
-	s.mode.snap = nil
+	s.mode.stale = true
 	s.mode.mu.Unlock()
 }
 
 // enforceHosts reports whether the Host gate refuses (rather than only logs)
 // unlisted names: in setup mode (known in memory) and in open mode (design
-// 5.2). A mode that could not be read (a failed first read, before any was
-// known) does not enforce: every handler that could leak anything needs the
-// same database and fails too, while a password deployment on an unlisted name
-// would otherwise answer 421 to everything.
+// 5.2), and fail-closed when the mode is unknown: New reads it at start and a
+// later failed read keeps the last one, so that takes a database that could
+// not be read even once.
 func (s *Server) enforceHosts(snap *modeSnapshot) bool {
-	return s.opt.Setup.Pending() || snap.mode == store.AuthOpen
+	return s.opt.Setup.Pending() || snap.failed || snap.mode == store.AuthOpen
 }
 
 // hostAllowed normalizes r's Host and judges it.
@@ -157,18 +158,27 @@ func (s *Server) warnHost() {
 // signed-in request must pass it (authed), so a session never outlives the
 // network position or the security.open_lan setting that admitted it.
 func (s *Server) openRefusal(r *http.Request) string {
-	snap := s.snapshot(r.Context())
-	host, ok := s.hostAllowed(r, snap)
-	return s.opt.Gate.OpenRefusal(r, host, ok, snap.openLAN)
+	return s.openRefusalWith(r, s.snapshot(r.Context()).openLAN)
+}
+
+// openRefusalWith is openRefusal with a given security.open_lan.
+func (s *Server) openRefusalWith(r *http.Request, openLAN bool) string {
+	host, ok := s.hostAllowed(r, s.snapshot(r.Context()))
+	return s.opt.Gate.OpenRefusal(r, host, ok, openLAN)
 }
 
 // signInRefusal is the whole open gate, for the requests that grant open-mode
 // access (a session, the switch to open mode, a Reader API password): the
 // network part plus an Origin that names the host the request was sent to.
 func (s *Server) signInRefusal(r *http.Request) string {
-	snap := s.snapshot(r.Context())
-	host, ok := s.hostAllowed(r, snap)
-	return s.opt.Gate.SignInRefusal(r, host, ok, snap.openLAN)
+	return s.signInRefusalWith(r, s.snapshot(r.Context()).openLAN)
+}
+
+// signInRefusalWith is signInRefusal with a given security.open_lan (the
+// account step chooses it together with open mode).
+func (s *Server) signInRefusalWith(r *http.Request, openLAN bool) string {
+	host, ok := s.hostAllowed(r, s.snapshot(r.Context()))
+	return s.opt.Gate.SignInRefusal(r, host, ok, openLAN)
 }
 
 // writeOpenRefused answers a request that failed the open gate.
