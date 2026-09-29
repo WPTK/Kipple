@@ -27,6 +27,7 @@ import { useFavorites } from "@/lib/favorites";
 import { clickRow, groupState, toggleGroup } from "@/lib/selection";
 import { cn } from "@/lib/cn";
 import { listTo } from "@/lib/routes";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import { FavStar } from "@/ui/FavStar";
 import { MutedCount } from "@/ui/UnreadCount";
 import { Button } from "@/ui/button";
@@ -187,7 +188,7 @@ export function FeedsScreen() {
 
   const feeds = useMemo(() => boot.data?.feeds ?? [], [boot.data?.feeds]);
   const folders = useMemo(() => boot.data?.folders ?? [], [boot.data?.folders]);
-  const realFeeds = useMemo(() => feeds.filter((f) => !f.is_archive), [feeds]);
+  const realFeeds = useMemo(() => visibleFeeds(feeds), [feeds]);
   const byFolder = useMemo(() => {
     const m: Record<string, Feed[]> = {};
     for (const fo of folders) m[fo.id] = [];

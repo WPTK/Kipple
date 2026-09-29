@@ -5,6 +5,7 @@ import type { Feed, Folder } from "@/api/types";
 import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { useFavorites } from "@/lib/favorites";
 import { listTo } from "@/lib/routes";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import { cn } from "@/lib/cn";
 import { FavStar } from "@/ui/FavStar";
 import { SavedSearchesNav } from "./SavedSearchesNav";
@@ -54,7 +55,8 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
   const favs = useFavorites();
   if (boot.isPending) return <p className="px-3 py-2 text-sm text-fg2" role="status">Loading feeds</p>;
   if (boot.isError || !boot.data) return <p className="px-3 py-2 text-sm text-danger" role="alert">Couldn't load feeds.</p>;
-  const { folders, feeds } = boot.data;
+  const { folders } = boot.data;
+  const feeds = visibleFeeds(boot.data.feeds);
   if (feeds.length === 0) {
     return (
       <div role="status" className="px-3 py-8 text-center">

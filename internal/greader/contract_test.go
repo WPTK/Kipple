@@ -374,8 +374,11 @@ func TestContractNetNewsWireSequence(t *testing.T) {
 	sub := c.get("/reader/api/0/subscription/list?output=json").body
 	c2 := nnwContents(t, c.post("/reader/api/0/stream/items/contents", "T="+tok+"&i="+FormatLongID(starredID)).body)
 	require.Len(t, c2, 1)
-	require.Contains(t, sub, `"id":"`+c2[0].Origin.StreamID+`"`, "origin.streamId is the archive subscription")
+	// The archive feed is not a subscription (an unsubscribed feed shows up nowhere); the item keeps its
+	// original feed's name as origin.title.
+	require.NotContains(t, sub, `"id":"`+c2[0].Origin.StreamID+`"`, "the archive feed is never listed")
 	require.NotEqual(t, feedID(tech), c2[0].Origin.StreamID)
+	require.Equal(t, q[string](h, "SELECT origin_title FROM items WHERE id = ?", starredID), c2[0].Origin.Title)
 }
 
 // reederSequence replays the reconstructed Reeder Classic sync against one mount.

@@ -39,15 +39,15 @@ func TestDeleteFeedArchivesStarredByDefault(t *testing.T) {
 	require.Zero(t, h.count("SELECT count(*) FROM items WHERE feed_id = ?", f), "the unstarred item went with the feed")
 	require.Equal(t, []string{fmt.Sprintf(`{"feed_id":"%d"}`, f)}, feedChanged(t, sub))
 
-	// the archive feed appears in bootstrap and is deleted for real
+	// the archive feed is not in bootstrap (an unsubscribed feed shows up nowhere), and is deleted for real
+	var archID int64
+	require.NoError(t, h.db.Reader().QueryRow("SELECT id FROM feeds WHERE disabled_reason = 'archive'").Scan(&archID))
+	arch := sid(archID)
 	_, boot, _ = h.api(c, "GET", "/api/bootstrap", "")
-	var arch string
 	for _, fe := range boot["feeds"].([]any) {
-		if fe.(map[string]any)["is_archive"] == true {
-			arch = fe.(map[string]any)["id"].(string)
-		}
+		require.NotEqual(t, arch, fe.(map[string]any)["id"])
+		require.NotEqual(t, true, fe.(map[string]any)["is_archive"])
 	}
-	require.NotEmpty(t, arch)
 	code, body409, _ := h.api(c, "DELETE", "/api/feeds/"+arch, "")
 	require.Equal(t, 409, code)
 	require.Equal(t, "archive_has_starred", body409["error"])
