@@ -41,6 +41,80 @@ export function attrNote(s: string): string {
   return `${url}: ${what} was ignored`;
 }
 
+/** What an import did, in plain words: the counts, and everything that was skipped, merged or not applied. */
+export function OpmlResultSummary({ result }: { result: OpmlResult }) {
+  const existing = result.feeds_existing.length;
+  const dropped = result.memberships_dropped.length;
+  const skipped = result.skipped ?? [];
+  const invalid = result.invalid_attrs ?? [];
+  const ignored = result.ignored_attrs ?? [];
+  return (
+    <>
+    <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
+      <li>
+        {result.feeds_added} feed{result.feeds_added === 1 ? "" : "s"} added
+      </li>
+      <li>
+        {result.folders_created} folder{result.folders_created === 1 ? "" : "s"} created
+      </li>
+      {existing ? (
+        <li>
+          {existing === 1 ? "1 feed was already in Kipple and was left as it is" : `${existing} feeds were already in Kipple and were left as they are`}
+        </li>
+      ) : null}
+      {dropped ? (
+        <li>
+          {dropped === 1
+            ? "1 feed was listed in more than one folder. It stays in the first."
+            : `${dropped} feeds were listed in more than one folder. Each stays in the first.`}
+        </li>
+      ) : null}
+      {result.folders_merged_case.length ? <li>Folders that differed only by capital letters were merged: {result.folders_merged_case.map((m) => `${m.merged} into ${m.kept}`).join(", ")}</li> : null}
+    </ul>
+    {skipped.length ? (
+      <div className="text-sm">
+        <p className="font-semibold">
+          {skipped.length} feed{skipped.length === 1 ? " was" : "s were"} skipped
+        </p>
+        <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
+          {skipped.map((s, i) => (
+            <li key={i} className="break-all">
+              {s.url || "(no address)"}: {s.reason}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null}
+    {ignored.length ? (
+      <div className="text-sm">
+        <p className="font-semibold">Some settings in the file were not applied</p>
+        <p className="text-fg2">For safety, an import never lets a file allow private-network addresses or skip certificate checks. Set those on the feed itself if you need them.</p>
+        <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
+          {ignored.map((s, i) => (
+            <li key={i} className="break-all">
+              {attrNote(s)}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null}
+    {invalid.length ? (
+      <div className="text-sm">
+        <p className="font-semibold">Some settings in the file had values Kipple could not use</p>
+        <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
+          {invalid.map((s, i) => (
+            <li key={i} className="break-all">
+              {s}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null}
+    {result.run_id ? <p className="text-sm text-fg2">Kipple is fetching the new feeds now.</p> : null}
+    </>
+  );
+}
+
 /** Import an OPML file: file picker, the mark-older-as-read option, then the result summary. */
 export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -71,74 +145,9 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
   };
 
   if (result) {
-    const existing = result.feeds_existing.length;
-    const dropped = result.memberships_dropped.length;
-    const skipped = result.skipped ?? [];
-    const invalid = result.invalid_attrs ?? [];
-    const ignored = result.ignored_attrs ?? [];
     return (
       <Modal open onOpenChange={(o) => !o && onClose()} title="Import finished" footer={<Button variant="solid" onClick={onClose}>Done</Button>}>
-        <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
-          <li>
-            {result.feeds_added} feed{result.feeds_added === 1 ? "" : "s"} added
-          </li>
-          <li>
-            {result.folders_created} folder{result.folders_created === 1 ? "" : "s"} created
-          </li>
-          {existing ? (
-            <li>
-              {existing === 1 ? "1 feed was already in Kipple and was left as it is" : `${existing} feeds were already in Kipple and were left as they are`}
-            </li>
-          ) : null}
-          {dropped ? (
-            <li>
-              {dropped === 1
-                ? "1 feed was listed in more than one folder. It stays in the first."
-                : `${dropped} feeds were listed in more than one folder. Each stays in the first.`}
-            </li>
-          ) : null}
-          {result.folders_merged_case.length ? <li>Folders that differed only by capital letters were merged: {result.folders_merged_case.map((m) => `${m.merged} into ${m.kept}`).join(", ")}</li> : null}
-        </ul>
-        {skipped.length ? (
-          <div className="text-sm">
-            <p className="font-semibold">
-              {skipped.length} feed{skipped.length === 1 ? " was" : "s were"} skipped
-            </p>
-            <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
-              {skipped.map((s, i) => (
-                <li key={i} className="break-all">
-                  {s.url || "(no address)"}: {s.reason}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {ignored.length ? (
-          <div className="text-sm">
-            <p className="font-semibold">Some settings in the file were not applied</p>
-            <p className="text-fg2">For safety, an import never lets a file allow private-network addresses or skip certificate checks. Set those on the feed itself if you need them.</p>
-            <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
-              {ignored.map((s, i) => (
-                <li key={i} className="break-all">
-                  {attrNote(s)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {invalid.length ? (
-          <div className="text-sm">
-            <p className="font-semibold">Some settings in the file had values Kipple could not use</p>
-            <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
-              {invalid.map((s, i) => (
-                <li key={i} className="break-all">
-                  {s}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {result.run_id ? <p className="text-sm text-fg2">Kipple is fetching the new feeds now.</p> : null}
+        <OpmlResultSummary result={result} />
       </Modal>
     );
   }

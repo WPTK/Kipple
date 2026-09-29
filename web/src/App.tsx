@@ -1,18 +1,21 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
-import { ApiError, authStore, SESSION_EXPIRED } from "@/api/client";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
+import { ApiError, authStore, openRefusedStore, SESSION_EXPIRED } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
 import { prefetchUnread } from "@/lib/offline";
 import { offlineStore } from "@/lib/offlineState";
 import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
-import { LoginScreen } from "@/screens/LoginScreen";
 import { ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { AppShell } from "@/shell/AppShell";
 import { RoutedErrorBoundary } from "@/shell/ErrorBoundary";
+import { isOpenRefused, openRefusedReason } from "@/setup/api";
+import { OpenRefusedScreen } from "@/setup/OpenRefused";
+import { SignedOut } from "@/setup/SignedOut";
+import { Welcome } from "@/setup/Welcome";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { StatusBlock } from "@/screens/ListPane";
 import { Button } from "@/ui/button";
@@ -53,6 +56,8 @@ function Gate() {
   const { online } = useStore(offlineStore);
   const qc = useQueryClient();
   const boot = useBootstrap(auth !== "out");
+  const refused = useStore(openRefusedStore);
+  const { pathname } = useLocation();
 
   // Signed out: drop everything cached so nothing from the last session shows.
   useEffect(() => {
@@ -107,7 +112,20 @@ function Gate() {
     if (ready) void prefetchUnread();
   }, [ready]);
 
-  if (auth === "out") return <LoginScreen />;
+  if (auth === "out") return <SignedOut />;
+  // An account with no password, reached from somewhere the server does not allow: say why, and how to get in.
+  if (refused) {
+    return (
+      <OpenRefusedScreen
+        reason={(refused.reason as "host" | "peer" | "forwarded" | null) ?? null}
+        busy={boot.isFetching}
+        onRetry={() => {
+          openRefusedStore.set(null);
+          void qc.invalidateQueries();
+        }}
+      />
+    );
+  }
   if (boot.isPending) {
     return (
       <div className="flex h-full items-center justify-center" role="status">
@@ -118,6 +136,9 @@ function Gate() {
   // The full-screen errors are for a launch with nothing to show. A background refetch that fails later keeps its
   // data (and sets isError alongside it): the reader stays up and the notice at the top explains what happened.
   const failed = boot.isError && !boot.data;
+  if (failed && isOpenRefused(boot.error)) {
+    return <OpenRefusedScreen reason={openRefusedReason(boot.error)} busy={boot.isFetching} onRetry={() => void boot.refetch()} />;
+  }
   if (failed && boot.error instanceof ApiError && boot.error.code === SESSION_EXPIRED) {
     return (
       <StatusBlock role="alert" title="Your sign-in has expired" body="The sign-in in front of Kipple timed out. Reload to sign in again.">
@@ -139,8 +160,12 @@ function Gate() {
       </StatusBlock>
     );
   }
+  // First-run setup pending (a fresh account, or "Run setup again"): every screen but /welcome gives way to it. Not on a
+  // stored copy of the bootstrap, which may still say so after setup was finished elsewhere.
+  if (boot.data?.user.setup_pending === true && !fromCache && pathname !== "/welcome" && !pathname.startsWith("/welcome/")) return <Navigate to="/welcome" replace />;
   return (
     <Routes>
+      <Route path="welcome/*" element={<Welcome />} />
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/l/unread" replace />} />
         <Route element={<ReaderRoute />}>

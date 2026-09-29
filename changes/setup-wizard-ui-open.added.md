@@ -1,0 +1,1 @@
+Sign-in for an account without a password (open mode) is automatic from an address Kipple allows and otherwise explains, in plain words, why it refused and how to get in, instead of showing a broken screen. The time zone in Settings is read-only, with the reason, while the TZ environment variable is set.

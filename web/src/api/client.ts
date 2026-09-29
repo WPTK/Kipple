@@ -25,6 +25,13 @@ export class ApiError extends Error {
 export type AuthState = "unknown" | "in" | "out";
 export const authStore = createStore<AuthState>("unknown");
 
+/**
+ * Set when a signed-in request is refused by the open gate (an account with no password, reached from an address or
+ * network the server does not allow: 403 open_refused). The app then shows why instead of a broken screen. Cleared by
+ * the next request that goes through.
+ */
+export const openRefusedStore = createStore<{ reason: string | null } | null>(null);
+
 /** X-Kipple-Client doubles as the stats attribution: pwa when installed. */
 export function clientKind(): "web" | "pwa" {
   try {
@@ -44,6 +51,13 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** A background request: a network failure is not evidence that the app is offline. */
   quiet?: boolean;
+  /**
+   * A request made before there is a sign-in (the setup and sign-in screens): its answer never changes the sign-in
+   * state, so a 401 does not flip the app to signed out and a success does not flip it to signed in.
+   */
+  anon?: boolean;
+  /** With `anon`: a success is a sign-in (setup account creation, open-mode sign-in), so it does turn the app to signed in. */
+  signsIn?: boolean;
   /** Filled in with what the answer was: `cached` when the service worker served its stored copy (X-Kipple-Cache). */
   meta?: { cached?: boolean };
 }
@@ -136,7 +150,7 @@ async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
   // A live answer (not the worker's stored copy) proves the proxy lets requests through again.
   if (!cached) setSessionExpired(false);
   noteResponse(res, opts.quiet);
-  if (res.status === 401) {
+  if (res.status === 401 && !opts.anon) {
     authStore.set("out");
     throw new ApiError(401, "auth");
   }
@@ -149,10 +163,14 @@ async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
     } catch {
       /* non-JSON error body */
     }
+    if (res.status === 403 && code === "open_refused" && !opts.anon && !path.startsWith("/api/auth/open") && !path.startsWith("/api/setup/")) {
+      openRefusedStore.set({ reason: typeof body?.reason === "string" ? body.reason : null });
+    }
     const ra = Number(res.headers.get("Retry-After"));
     throw new ApiError(res.status, code, body, Number.isFinite(ra) && ra > 0 ? ra * 1000 : 0);
   }
-  if (authStore.get() !== "in") authStore.set("in");
+  if ((!opts.anon || opts.signsIn) && authStore.get() !== "in") authStore.set("in");
+  if ((!opts.anon || opts.signsIn) && openRefusedStore.get()) openRefusedStore.set(null);
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;

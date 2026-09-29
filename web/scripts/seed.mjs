@@ -8,12 +8,17 @@
 //                                .kipple-dev-seed file) and that is not empty is
 //                                never deleted unless you add -- --force
 //
+//   KIPPLE_SEED_SET=fresh npm run seed
+//                                a server with NO account and no feeds, so it starts in setup mode: the setup wizard
+//                                (docs/setup-wizard-design.md). Its stderr, with the setup code in the banner, is also
+//                                written to <data dir>/server-stderr.log. Nothing is imported.
+//
 // Then, in another terminal, `npm run dev` (Vite proxies /api and /img to
 // 127.0.0.1:7080) and sign in as dev / dev-password-only-for-local-testing.
 // The credentials below are for this throwaway local instance only; nothing
 // here is used in production. Needs Go on PATH and network access for the feeds.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +31,9 @@ const keep = process.argv.includes("--keep");
 const force = process.argv.includes("--force");
 const SENTINEL = ".kipple-dev-seed";
 
+// KIPPLE_SEED_SET=fresh: no account (so Kipple starts in setup mode) and no import.
+const fresh = process.env.KIPPLE_SEED_SET === "fresh";
+
 const env = {
   ...process.env,
   KIPPLE_ADDR: addr,
@@ -34,6 +42,11 @@ const env = {
   KIPPLE_PASSWORD: "dev-password-only-for-local-testing",
   KIPPLE_LOG_LEVEL: "warn",
 };
+if (fresh) {
+  delete env.KIPPLE_USERNAME;
+  delete env.KIPPLE_PASSWORD;
+  delete env.KIPPLE_API_PASSWORD;
+}
 
 const FEEDS = [
   ["Go Blog", "https://go.dev/blog/feed.atom"],
@@ -97,7 +110,15 @@ const opmlPath = join(dataDir, "seed.opml");
 const outlines = SEED.feeds.map(([t, u]) => `    <outline type="rss" text="${t}" title="${t}" xmlUrl="${u}"/>`).join("\n");
 writeFileSync(opmlPath, `<?xml version="1.0"?>\n<opml version="2.0"><head><title>Kipple seed</title></head><body>\n  <outline text="${SEED.folder}">\n${outlines}\n  </outline>\n</body></opml>\n`);
 
-const server = spawn(bin, ["serve"], { env, stdio: "inherit" });
+const server = spawn(bin, ["serve"], { env, stdio: fresh ? ["ignore", "inherit", "pipe"] : "inherit" });
+if (fresh) {
+  // The setup code is printed once, to stderr: keep a copy where a script (web/uat/wizard.mjs) or a person can read it.
+  const log = createWriteStream(join(dataDir, "server-stderr.log"));
+  server.stderr.on("data", (chunk) => {
+    process.stderr.write(chunk);
+    log.write(chunk);
+  });
+}
 const stop = () => {
   server.kill();
   process.exit(0);
@@ -120,7 +141,12 @@ async function waitReady() {
 }
 
 await waitReady();
-const imp = spawnSync(bin, ["import", opmlPath], { env, stdio: "inherit" });
-if (imp.status !== 0) console.error("import failed; feeds were not added");
-console.log(`\nKipple is running at http://${addr}  (sign in as dev / dev-password-only-for-local-testing)`);
-console.log("Feeds fetch over the next minute. Run `npm run dev` for the hot-reloading UI. Ctrl-C stops the server.");
+if (fresh) {
+  console.log(`\nKipple is running at http://${addr} in SETUP MODE (no account). The setup code is in ${join(dataDir, "server-stderr.log")}.`);
+  console.log("Open the address, or the #setup= link from the banner. Ctrl-C stops the server.");
+} else {
+  const imp = spawnSync(bin, ["import", opmlPath], { env, stdio: "inherit" });
+  if (imp.status !== 0) console.error("import failed; feeds were not added");
+  console.log(`\nKipple is running at http://${addr}  (sign in as dev / dev-password-only-for-local-testing)`);
+  console.log("Feeds fetch over the next minute. Run `npm run dev` for the hot-reloading UI. Ctrl-C stops the server.");
+}
