@@ -498,6 +498,10 @@ func TestImportAndSubscribeJoinsStayScheduled(t *testing.T) {
 			r.s.Wake()
 			waitFor(t, "the scheduled fetch is in flight", func() bool { return srv.total() == 1 })
 			require.NoError(t, tc.join(r, id))
+			// Submit only queues the request; give the dispatcher time to handle it against the running flight
+			// before the fetch is released, or the request could arrive after it and start a flight of its own.
+			time.Sleep(100 * time.Millisecond)
+			require.Equal(t, 1, srv.total(), "the join must not start a second fetch")
 			once.Do(func() { close(release) })
 			r.waitEvents("fetch.done", 1)
 			require.Equal(t, "scheduled", r.events("fetch.done")[0]["trigger"])
