@@ -24,21 +24,19 @@ type DBInfo struct {
 // mode is DELETE so that neither a -wal nor a -shm is left behind next to it
 // and a read-only directory copy still opens.
 func openFile(path string) (*sql.DB, error) {
-	u := url.URL{Path: filepath.ToSlash(path)}
-	q := url.Values{"_pragma": {"busy_timeout(5000)", "journal_mode(DELETE)"}}
-	db, err := sql.Open("sqlite", "file:"+u.EscapedPath()+"?"+q.Encode())
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	return db, nil
+	return openDSN(path, url.Values{"_pragma": {"busy_timeout(5000)", "journal_mode(DELETE)"}})
 }
 
-// openFileQuery opens a database file for reading only, leaving its journal
-// mode alone (a live database stays in WAL mode).
-func openFileQuery(path string) (*sql.DB, error) {
+// openFileUntouched opens a database file read-only and immutable: nothing is
+// written, no -wal or -shm is created or recovered, and only the main file is
+// read (a live database's WAL, if any, is not seen). For a glance at the live
+// database before a restore replaces it.
+func openFileUntouched(path string) (*sql.DB, error) {
+	return openDSN(path, url.Values{"mode": {"ro"}, "immutable": {"1"}})
+}
+
+func openDSN(path string, q url.Values) (*sql.DB, error) {
 	u := url.URL{Path: filepath.ToSlash(path)}
-	q := url.Values{"_pragma": {"busy_timeout(5000)", "query_only(1)"}}
 	db, err := sql.Open("sqlite", "file:"+u.EscapedPath()+"?"+q.Encode())
 	if err != nil {
 		return nil, err

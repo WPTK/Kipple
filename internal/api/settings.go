@@ -96,7 +96,7 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if hostsSet || lanSet {
 		// The Host gate and the open gate read them: re-read, with the new values
 		// already in the fallback.
-		s.noteMode(func(sn *modeSnapshot) {
+		s.noteMode(r.Context(), func(sn *modeSnapshot) {
 			if hostsSet {
 				var stored []string
 				if l, ok := hosts.([]any); ok {

@@ -779,8 +779,8 @@ func TestModeSnapshotFailsClosed(t *testing.T) {
 	sc := s.claim(s.token())
 	require.Equal(t, http.StatusCreated, s.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}), withCookies(sc)).Code)
 	require.Equal(t, store.AuthOpen, s.srv.snapshot(context.Background()).mode)
-	s.srv.noteMode(nil)
 	require.NoError(t, s.db.Close()) // every read fails from here on
+	s.srv.noteMode(context.Background(), nil)
 	snap := s.srv.snapshot(context.Background())
 	require.Equal(t, store.AuthOpen, snap.mode, "the last known mode, not a forgotten one")
 	require.Equal(t, http.StatusMisdirectedRequest, s.req("GET", "/api/instance", "", host("evil.example")).Code)
@@ -794,6 +794,7 @@ func TestModeSnapshotFailsClosed(t *testing.T) {
 	require.Equal(t, store.AuthStandard, p.srv.snapshot(context.Background()).mode)
 	require.Equal(t, http.StatusNoContent, p.req("POST", "/api/account/password", `{"current":"`+setupPass+`","open":true}`, withCookies(sess)).Code)
 	require.NoError(t, p.db.Close())
+	p.srv.noteMode(context.Background(), nil) // a re-read that fails keeps the switch
 	require.Equal(t, store.AuthOpen, p.srv.snapshot(context.Background()).mode)
 	require.Equal(t, http.StatusMisdirectedRequest, p.req("GET", "/api/instance", "", host("evil.example")).Code)
 }

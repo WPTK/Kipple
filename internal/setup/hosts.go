@@ -134,9 +134,9 @@ func HostAllowed(host string, extra []string) bool {
 // CheckHostEntry validates one allowed-host entry (KIPPLE_ALLOWED_HOSTS or the
 // security.allowed_hosts setting) and returns it normalized: an exact host
 // name or IP address, or "*." followed by a name that is not itself a public
-// suffix (so "*.example.com" but not "*.com", "*.co.uk" or "*.github.io",
-// where anyone can register a name) and does not end in a number. No scheme,
-// port, path or bare "*".
+// suffix (so "*.example.com" or "*.home", but not "*.com", "*.co.uk" or
+// "*.github.io", where anyone can register a name) and does not end in a
+// number. No scheme, port, path or bare "*".
 func CheckHostEntry(e string) (string, error) {
 	s := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(e)), ".")
 	wild := false
@@ -154,7 +154,11 @@ func CheckHostEntry(e string) (string, error) {
 		if last := labels[len(labels)-1]; strings.Trim(last, "0123456789") == "" {
 			return "", fmt.Errorf("%q: a wildcard needs a domain name after *., not an address", e)
 		}
-		if ps, _ := publicsuffix.PublicSuffix(s); ps == s {
+		// A listed suffix (ICANN's, or a multi-label private one such as
+		// github.io) is where anyone can register a name. A single label that is
+		// not listed at all (home, corp) only matched the list's default rule: a
+		// private LAN zone, which nobody outside can register under.
+		if ps, icann := publicsuffix.PublicSuffix(s); ps == s && (icann || strings.Contains(ps, ".")) {
 			return "", fmt.Errorf("%q covers a whole public suffix, where anyone can register a name: list your own domain (*.example.com)", e)
 		}
 		return "*." + s, nil

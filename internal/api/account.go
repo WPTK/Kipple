@@ -101,24 +101,19 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 // environment use too (setup.CheckPassword: the length, and never the old
 // example value) and answers 400 bad_new_password when it fails.
 func badNewPassword(w http.ResponseWriter, pw string) bool {
-	if pw == setup.ExamplePassword {
-		writeErrorMsg(w, http.StatusBadRequest, "bad_new_password", "that is the example password; choose a real one")
-		return true
-	}
-	return badLength(w, pw, minPasswordLen)
+	return badPassword(w, pw, minPasswordLen)
 }
 
 // badNewAPIPassword is badNewPassword for a chosen Reader API password, which
 // guards the public ClientLogin and so needs auth.MinAPIPasswordLen (the UI only
 // generates 24-character ones).
 func badNewAPIPassword(w http.ResponseWriter, pw string) bool {
-	return badLength(w, pw, auth.MinAPIPasswordLen)
+	return badPassword(w, pw, auth.MinAPIPasswordLen)
 }
 
-func badLength(w http.ResponseWriter, pw string, min int) bool {
-	if n := len(pw); n < min || n > maxPasswordLen {
-		writeErrorMsg(w, http.StatusBadRequest, "bad_new_password",
-			"the new password must be "+strconv.Itoa(min)+" to "+strconv.Itoa(maxPasswordLen)+" characters")
+func badPassword(w http.ResponseWriter, pw string, min int) bool {
+	if err := setup.CheckPassword("the new password", pw, min); err != nil {
+		writeErrorMsg(w, http.StatusBadRequest, "bad_new_password", err.Error())
 		return true
 	}
 	return false
@@ -209,7 +204,7 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request, hash, mode 
 		return
 	}
 	s.verifier.ClearMemo()
-	s.noteMode(func(sn *modeSnapshot) { sn.mode = mode })
+	s.noteMode(r.Context(), func(sn *modeSnapshot) { sn.mode = mode })
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusNoContent)
 }

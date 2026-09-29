@@ -29,12 +29,14 @@ const legacySchema = 10
 // DeploymentLegacyPort reports whether the database at path makes an unset
 // KIPPLE_ADDR listen on the pre-0.5 port 7080: sys.legacy_port is set, or it is
 // an older database with an account (migration 0010 will set it). A missing
-// file is false. Restore asks this of the live database before replacing it.
+// file is false. Restore asks this of the live database before replacing it,
+// and of the copy when there is no readable live one. The file is opened
+// immutable: nothing next to it is created or changed.
 func DeploymentLegacyPort(ctx context.Context, path string) (bool, error) {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
-	db, err := openFileQuery(path)
+	db, err := openFileUntouched(path)
 	if err != nil {
 		return false, err
 	}

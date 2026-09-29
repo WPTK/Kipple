@@ -98,7 +98,8 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request) {
 // setupClaim is POST /api/setup/claim {token}: a matching token starts the
 // setup session (the kipple_setup cookie). Wrong tokens are counted per IP on
 // the setup lockout (never the login's) and towards the global rotation; past
-// the limit they are answered 429. The right token is always accepted, even
+// the limit they are answered 429 and no longer count towards the rotation
+// (one noisy client cannot keep replacing the code). The right token is always accepted, even
 // from a locked address: behind Docker's port forwarding every client shares
 // the gateway's address, and one noisy device must not lock the owner out of
 // claiming. At 120 bits the lockout is about noise, not about guessing (design
@@ -122,7 +123,12 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := s.clientIP(r)
-	cookie, ok, err := s.opt.Setup.Claim(body.Token)
+	claim := s.opt.Setup.Claim
+	locked, left := s.setupLock.Locked(ip)
+	if locked {
+		claim = s.opt.Setup.ClaimUncounted // a locked address's noise never rotates the code
+	}
+	cookie, ok, err := claim(body.Token)
 	switch {
 	case errors.Is(err, setup.ErrNotPending):
 		writeError(w, http.StatusNotFound, "not_found")
@@ -131,7 +137,14 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "setup claim", err)
 		return
 	case !ok:
-		if allowed, left := s.setupLock.Reserve(ip); !allowed {
+		if !locked {
+			// Count it; the reservation stays as the recorded failure. A burst
+			// from one address may cross the limit here.
+			var allowed bool
+			allowed, left = s.setupLock.Reserve(ip)
+			locked = !allowed
+		}
+		if locked {
 			w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
 			writeError(w, http.StatusTooManyRequests, "locked")
 			return
@@ -228,7 +241,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		// Whatever happened, a row that exists ends setup mode here and now: a
 		// lost race, or an error reported after the insert committed.
 		if a, ok, rerr := s.db.Account(context.WithoutCancel(r.Context())); rerr == nil && ok {
-			s.finishSetup(a, false)
+			s.finishSetup(r.Context(), a, false)
 		}
 		if err != nil {
 			s.serverError(w, "setup: create account", err)
@@ -238,7 +251,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
 		return
 	}
-	s.finishSetup(acct, na.OpenLAN)
+	s.finishSetup(r.Context(), acct, na.OpenLAN)
 	mode := setup.DisplayMode(acct)
 	s.log.Info("account created", "username", acct.Username, "reader_api", false,
 		"created_via", store.CreatedViaWizard, "auth_mode", mode)
@@ -255,14 +268,14 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 // finishSetup leaves setup mode once the account row exists: the flag flips,
 // the token goes, and every cache that keyed on "no account" is dropped.
 // openLAN is whether this request turned security.open_lan on with the account.
-func (s *Server) finishSetup(acct store.Account, openLAN bool) {
+func (s *Server) finishSetup(ctx context.Context, acct store.Account, openLAN bool) {
 	s.opt.Setup.Finish()
 	s.verifier.SetSecret([]byte(acct.Secret))
 	s.verifier.ClearMemo()
 	if s.opt.OnAPIPasswordChange != nil {
 		s.opt.OnAPIPasswordChange()
 	}
-	s.noteMode(func(sn *modeSnapshot) {
+	s.noteMode(ctx, func(sn *modeSnapshot) {
 		sn.mode = acct.AuthMode
 		sn.openLAN = sn.openLAN || openLAN
 	})

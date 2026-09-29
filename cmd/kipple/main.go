@@ -245,6 +245,8 @@ func runServe() error {
 		},
 	})
 
+	tailnet := setup.TailnetCheck()
+	tailnet() // the first scan now, not on the first request
 	mux := http.NewServeMux()
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
@@ -252,7 +254,7 @@ func runServe() error {
 		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount, Access: accessV,
 		Setup: setupMgr, AllowedHosts: allowedHosts(cfg),
-		Gate: setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: setup.TailnetCheck()},
+		Gate: setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: tailnet},
 	})
 	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API

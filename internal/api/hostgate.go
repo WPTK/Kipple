@@ -80,13 +80,13 @@ func (s *Server) allowedWith(stored []string) []string {
 	return out
 }
 
-// noteMode records a mode, account or security-setting change made here: the
-// next request re-reads the snapshot, and the fallback kept for a read that
-// fails already carries the change (apply edits a copy; nil changes nothing),
-// so a failed re-read can neither forget open mode nor miss a switch to it.
-func (s *Server) noteMode(apply func(*modeSnapshot)) {
+// noteMode records a mode, account or security-setting change made here and
+// re-reads the snapshot at once from what was just committed. apply (nil: no
+// edit) puts the change into a copy of the old snapshot first, so if that
+// re-read fails the fallback still carries it and cannot forget open mode or
+// miss a switch to it.
+func (s *Server) noteMode(ctx context.Context, apply func(*modeSnapshot)) {
 	s.mode.mu.Lock()
-	defer s.mode.mu.Unlock()
 	s.mode.gen++
 	s.mode.stale = true
 	if s.mode.snap != nil && apply != nil {
@@ -95,6 +95,8 @@ func (s *Server) noteMode(apply func(*modeSnapshot)) {
 		apply(&c)
 		s.mode.snap = &c
 	}
+	s.mode.mu.Unlock()
+	s.snapshot(context.WithoutCancel(ctx))
 }
 
 // enforceHosts reports whether the Host gate refuses (rather than only logs)

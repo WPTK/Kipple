@@ -166,12 +166,26 @@ var ErrNotPending = errors.New("setup: not pending")
 // the cookie value. A mismatch counts towards the global rotation: after
 // RotateAfter wrong tokens the token is replaced and the new one printed.
 func (m *Manager) Claim(in string) (cookie string, ok bool, err error) {
+	return m.claim(in, true)
+}
+
+// ClaimUncounted is Claim for an address the caller has already locked out: a
+// match still starts the session, a mismatch does not count towards the
+// rotation (so one noisy client cannot keep replacing the owner's code).
+func (m *Manager) ClaimUncounted(in string) (cookie string, ok bool, err error) {
+	return m.claim(in, false)
+}
+
+func (m *Manager) claim(in string, count bool) (cookie string, ok bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.pending.Load() {
 		return "", false, ErrNotPending
 	}
 	if !tokenMatches(in, m.hash) {
+		if !count {
+			return "", false, nil
+		}
 		m.failures++
 		now := m.o.Now()
 		if m.failures >= m.o.RotateAfter && (m.rotatedAt.IsZero() || now.Sub(m.rotatedAt) >= RotateEvery) {

@@ -139,19 +139,52 @@ func peerAddr(r *http.Request) (netip.Addr, bool) {
 // come up after Kipple (boot order) or be installed later.
 const tailnetRecheck = 30 * time.Second
 
-// TailnetCheck returns LocalTailnet cached for tailnetRecheck, for Gate.Tailnet.
+// TailnetCheck returns a Gate.Tailnet for this machine: LocalTailnet, asked
+// once at the first call and then refreshed in the background at most every
+// tailnetRecheck, so no request waits on the interface scan after the first.
 func TailnetCheck() func() bool {
-	var mu sync.Mutex
-	var at time.Time
-	var last bool
-	return func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		if now := time.Now(); at.IsZero() || now.Sub(at) >= tailnetRecheck {
-			last, at = LocalTailnet(), now
+	return newTailnetCache(time.Now, LocalTailnet).get
+}
+
+type tailnetCache struct {
+	now  func() time.Time
+	scan func() bool
+
+	mu   sync.Mutex
+	at   time.Time
+	last bool
+	busy bool
+}
+
+func newTailnetCache(now func() time.Time, scan func() bool) *tailnetCache {
+	return &tailnetCache{now: now, scan: scan}
+}
+
+func (c *tailnetCache) get() bool {
+	c.mu.Lock()
+	if c.at.IsZero() {
+		c.mu.Unlock()
+		v := c.scan()
+		c.mu.Lock()
+		if c.at.IsZero() {
+			c.last, c.at = v, c.now()
 		}
-		return last
+		v = c.last
+		c.mu.Unlock()
+		return v
 	}
+	if !c.busy && c.now().Sub(c.at) >= tailnetRecheck {
+		c.busy = true
+		go func() {
+			v := c.scan()
+			c.mu.Lock()
+			c.last, c.at, c.busy = v, c.now(), false
+			c.mu.Unlock()
+		}()
+	}
+	v := c.last
+	c.mu.Unlock()
+	return v
 }
 
 // LocalTailnet reports whether this machine has a Tailscale address: one in

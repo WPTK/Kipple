@@ -3,7 +3,9 @@ package setup
 import (
 	"net/http/httptest"
 	"net/netip"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -97,9 +99,24 @@ func TestSignInRefusalChecksTheOrigin(t *testing.T) {
 	require.Equal(t, RefuseHost, req("evil.example:1919", "http://evil.example:1919"))
 }
 
-func TestTailnetCheckIsCached(t *testing.T) {
-	check := TailnetCheck()
-	first := check()
-	require.Equal(t, first, check(), "the same answer within the recheck window")
-	require.NotPanics(t, func() { _ = LocalTailnet() })
+// The tailnet answer is scanned once, then refreshed in the background after
+// the recheck window, so Tailscale coming up after Kipple is noticed without a
+// restart and no request waits on the scan.
+func TestTailnetCacheRefreshesInTheBackground(t *testing.T) {
+	var mu sync.Mutex
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	up, scans := false, 0
+	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	scan := func() bool { mu.Lock(); defer mu.Unlock(); scans++; return up }
+	c := newTailnetCache(clock, scan)
+	require.False(t, c.get())
+	require.False(t, c.get())
+	mu.Lock()
+	require.Equal(t, 1, scans, "cached")
+	up = true // tailscaled comes up later
+	now = now.Add(tailnetRecheck)
+	mu.Unlock()
+	require.False(t, c.get(), "the stale answer is served while the refresh runs")
+	require.Eventually(t, c.get, 5*time.Second, 10*time.Millisecond)
+	require.NotPanics(t, func() { _ = TailnetCheck()() })
 }

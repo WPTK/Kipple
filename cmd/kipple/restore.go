@@ -224,14 +224,7 @@ func restore(ctx context.Context, o restoreOptions) error {
 		fmt.Fprintf(out, "  %d web session(s) in the backup were signed out.\n", n)
 	}
 
-	// The listen port belongs to this installation, not to the backup.
-	legacy, err := backup.DeploymentLegacyPort(ctx, live)
-	if err != nil {
-		return fmt.Errorf("read the current database's port setting: %w", err)
-	}
-	if err := backup.SetLegacyPort(ctx, tmp, legacy); err != nil {
-		return fmt.Errorf("carry the port setting into the restored copy: %w", err)
-	}
+	carryPort(ctx, out, live, tmp)
 
 	if !backupExisted {
 		owned = append(owned, backupDir) // a swap creates it; chown ignores a missing path
@@ -257,6 +250,31 @@ func restore(ctx context.Context, o restoreOptions) error {
 		fmt.Fprintln(out, "To undo, stop Kipple and restore the file in that pre-restore directory (kipple.db, with its -wal if present).")
 	}
 	return nil
+}
+
+// carryPort keeps the listen port with the installation (docs/setup-wizard-design.md
+// 8.3): a readable live database decides it (restoring any backup into a 7080
+// install keeps 7080, into a 1919 one keeps 1919). Without one (a new volume,
+// a live database too broken to read) the backup keeps its own, which is right
+// for a rebuilt host with the old configuration; restore then says so when that
+// is the old port, for anyone moving an old backup to a new install.
+func carryPort(ctx context.Context, out io.Writer, live, tmp string) {
+	if _, err := os.Stat(live); err == nil {
+		legacy, err := backup.DeploymentLegacyPort(ctx, live)
+		if err == nil {
+			if err := backup.SetLegacyPort(ctx, tmp, legacy); err != nil {
+				fmt.Fprintf(out, "  Could not carry this installation's port setting into the restored copy (%v); the backup's own applies.\n", err)
+			} else {
+				return
+			}
+		} else {
+			fmt.Fprintf(out, "  The current database could not be read for its port setting (%v); the backup's own applies.\n", err)
+		}
+	}
+	if legacy, err := backup.DeploymentLegacyPort(ctx, tmp); err == nil && legacy {
+		fmt.Fprintln(out, "  This backup comes from an install on the old default port: with KIPPLE_ADDR unset, Kipple will listen on 7080")
+		fmt.Fprintln(out, "  (and warn at every start). Set KIPPLE_ADDR=:1919 (or your port) to choose.")
+	}
 }
 
 // swap moves the live database (and its -wal/-shm) into a new

@@ -285,12 +285,30 @@ func TestRestoreKeepsTheInstallationsPort(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ":7080", addrOf(live))
 
-	// A new installation (a fresh directory) restores a legacy backup: 1919.
+	// A new 1919 installation restores a legacy backup: still 1919.
 	src := newData(t, 2)
 	setLegacy(src, true)
+	legacyZip := export(t, src)
+	current := newData(t, 1)
+	out, err := doRestore(current, legacyZip, true)
+	require.NoError(t, err)
+	require.Equal(t, ":1919", addrOf(current))
+	require.NotContains(t, out, "old default port")
+
+	// No live database (a rebuilt host, a new volume): the backup keeps its own
+	// port, and restore says so.
 	fresh := filepath.Join(t.TempDir(), "data")
 	require.NoError(t, os.MkdirAll(fresh, 0o700))
-	_, err = doRestore(fresh, export(t, src), true)
+	out, err = doRestore(fresh, legacyZip, true)
 	require.NoError(t, err)
-	require.Equal(t, ":1919", addrOf(fresh))
+	require.Equal(t, ":7080", addrOf(fresh))
+	require.Contains(t, out, "old default port")
+
+	// A live database too broken to read does not stop the restore.
+	broken := newData(t, 1)
+	require.NoError(t, os.WriteFile(filepath.Join(broken, "kipple.db"), []byte("not a database at all, just junk bytes"), 0o600))
+	out, err = doRestore(broken, export(t, newData(t, 2)), true)
+	require.NoError(t, err, out)
+	require.Contains(t, out, "could not be read for its port setting")
+	require.Equal(t, ":1919", addrOf(broken))
 }

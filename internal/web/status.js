@@ -174,7 +174,11 @@
   }
   function boot() {
     api("GET", "/api/auth/me").then(function (r) {
-      if (r.status === 403) { show(false); $("login").hidden = true; return openRefused(r); }
+      if (r.status === 403) {
+        show(false); $("login").hidden = true;
+        return r.json().then(function (e) { err("Kipple refused this request: " + (e.message || e.error || r.status) + "."); },
+          function () { err("Kipple refused this request (403)."); });
+      }
       if (r.status === 401) {
         show(false);
         api("GET", "/api/instance").then(function (i) { return i.ok ? i.json() : null; }).then(function (d) {
