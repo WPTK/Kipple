@@ -1,0 +1,1 @@
+A list row with an unbreakable wide piece of content (a long address or word in an article's text) no longer widens its whole column past the screen: on a phone in the Cards layout the list scrolled sideways.
