@@ -562,7 +562,10 @@ export function FeedsScreen() {
                 const folderEnd = dropAt?.kind === "folder" && dropAt.before === null && folders.filter((x) => x.id !== dragging?.id).at(-1)?.id === fo.id;
                 const intoFolder = dropAt?.kind === "feed" && dropAt.group === fo.id && inFolder.length === 0;
                 const state = groupState(inFolder.map((f) => f.id), sel);
-                const collapsed = dp.collapsedFolders.includes(fo.id);
+                // Edit and Select need every feed on screen and reachable (a collapsed folder's chevron is replaced by
+                // the grip or checkbox in those modes, and Select all / shift-click range over every feed), so the
+                // saved collapsed state only applies outside them; it is not changed, and returns when the mode ends.
+                const collapsed = !selecting && !editMode && dp.collapsedFolders.includes(fo.id);
                 const listId = `manage-folder-${fo.id}-feeds`;
                 return (
                   <li

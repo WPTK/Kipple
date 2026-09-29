@@ -27,6 +27,7 @@ All notable changes to Kipple are documented here. The format follows
 - The "N new articles" pill and its screen-reader announcement no longer fire for a periodic background poll, a newly subscribed feed's first fetch, an OPML import or a retention trim — only for a manual refresh (all feeds or a single feed). (#56)
 - Card thumbnails no longer come out blurry on feeds whose content leads with a small fixed-size crop (a WordPress featured-image thumbnail, say 300x100) ahead of the real photo further down: the lead image is now picked by size — the largest `srcset` candidate or declared width/height — instead of "the first `<img>` found." (#71)
 - Entering a list whose data changed since you last scrolled it (new arrivals, a mark-all-read, a resync) no longer restores your old scroll position over the freshly loaded rows, and "mark as read while scrolling" no longer marks rows that a restored or jumped-to scroll position skipped past without ever actually rendering them on screen. (#72)
+- Manage Feeds: a folder collapsed on this device (here or in the sidebar) hid its feeds even in Edit and Select mode, where its chevron is replaced by a grip or checkbox, so those feeds could not be edited or ticked — yet Select all and shift-click ranges still included them, so a bulk Delete could remove feeds you never saw ticked. Edit and Select now show every folder open; the collapsed setting is untouched and applies again afterwards. (#58)
 
 ## [0.3.0-beta.1] - 2026-09-27
 
