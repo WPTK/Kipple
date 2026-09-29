@@ -115,11 +115,27 @@ func resolveSrcset(v string, bases []string) string {
 }
 
 // mapSrcset applies fn to each candidate URL of a srcset value and drops the
-// candidates for which it returns "". A comma inside a URL is tolerated: only a
-// comma after whitespace, or a trailing comma on the URL token, ends a
-// candidate.
+// candidates for which it returns "". Descriptors ("2x", "480w") are preserved.
 func mapSrcset(v string, fn func(string) string) string {
 	var out []string
+	eachSrcsetCandidate(v, func(u, desc string) {
+		abs := fn(u)
+		if abs == "" {
+			return
+		}
+		if desc != "" {
+			abs += " " + desc
+		}
+		out = append(out, abs)
+	})
+	return strings.Join(out, ", ")
+}
+
+// eachSrcsetCandidate calls fn(url, descriptor) for each candidate in a srcset
+// value. A comma inside a URL is tolerated: only a comma after whitespace, or
+// a trailing comma on the URL token, ends a candidate (so a CDN transform URL
+// like ".../w_300,h_200/a.jpg 300w" is not split apart).
+func eachSrcsetCandidate(v string, fn func(url, desc string)) {
 	i := 0
 	for i < len(v) {
 		for i < len(v) && (v[i] == ',' || isSpace(v[i])) {
@@ -143,16 +159,8 @@ func mapSrcset(v string, fn func(string) string) string {
 		if u == "" {
 			continue
 		}
-		abs := fn(u)
-		if abs == "" {
-			continue
-		}
-		if desc != "" {
-			abs += " " + desc
-		}
-		out = append(out, abs)
+		fn(u, desc)
 	}
-	return strings.Join(out, ", ")
 }
 
 func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' }

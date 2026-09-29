@@ -41,6 +41,14 @@ func TestLeadImage(t *testing.T) {
 		LeadImage(`<img width="150" src="crop.jpg"><img srcset="small.jpg 300w, full.jpg 1200w">`, base))
 	// No image names a size anywhere: the first one found still wins, as before.
 	require.Equal(t, "https://a.com/post/first.jpg", LeadImage(`<img src="first.jpg"><img src="second.jpg">`, base))
+	// An unsized real photo is not beaten by a later, small, sized image (an avatar or share icon):
+	// scoring by declared size must not undo more than it fixes.
+	require.Equal(t, "https://a.com/post/hero.jpg",
+		LeadImage(`<img src="hero.jpg"><p>by</p><img src="avatar.png" width="48" height="48">`, base))
+	// A srcset URL whose CDN transform contains a comma (Cloudinary/imgix style) is not split apart into a
+	// broken URL; the widest real candidate is still picked correctly, in full, with its comma intact.
+	require.Equal(t, "https://res.cloudinary.com/x/image/upload/w_1200,c_fill/a.jpg",
+		LeadImage(`<img srcset="https://res.cloudinary.com/x/image/upload/w_300,c_fill/a.jpg 300w, https://res.cloudinary.com/x/image/upload/w_1200,c_fill/a.jpg 1200w">`, base))
 }
 
 func TestContentKeepsFragmentHrefs(t *testing.T) {
