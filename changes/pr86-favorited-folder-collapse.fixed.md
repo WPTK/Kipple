@@ -1,0 +1,1 @@
+A folder you have favorited can now be collapsed and expanded from the Favorites section, in the sidebar and in Manage Feeds: it gets the same chevron and lists its feeds beneath it, sharing the folder's collapsed state on this device. Edit and Select in Manage Feeds keep favorites as plain rows. (#86)

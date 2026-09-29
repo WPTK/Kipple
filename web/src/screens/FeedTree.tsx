@@ -20,6 +20,22 @@ export function toggleCollapsed(collapsed: readonly string[], id: string): strin
 /** The star that shows on hover or focus for a plain entry, and always once it is a favorite. */
 const reveal = "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 [&[aria-pressed=true]]:opacity-100 [@media(pointer:coarse)]:opacity-100";
 
+/** The chevron that collapses or expands a folder's feeds; the state is per device, shared by every place the folder shows. */
+export function CollapseToggle({ folder, collapsed, listId, collapsedIds }: { folder: Folder; collapsed: boolean; listId: string; collapsedIds: readonly string[] }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={!collapsed}
+      aria-controls={listId}
+      aria-label={`${collapsed ? "Expand" : "Collapse"} ${folder.name}`}
+      onClick={() => updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder.id) })}
+      className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
+    >
+      {collapsed ? <ChevronRight className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
+    </button>
+  );
+}
+
 function FeedIcon({ feed }: { feed: Feed }) {
   return feed.icon ? (
     <img src={feed.icon} alt="" width={16} height={16} loading="lazy" className="size-4 shrink-0 rounded-sm" />
@@ -50,19 +66,38 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
   const folderById = new Map<string, Folder>(folders.map((f) => [f.id, f]));
   const feedById = new Map<string, Feed>(feeds.map((f) => [f.id, f]));
 
+  const feedRow = (f: Feed) => (
+    <li key={f.id} className="group/row flex items-center">
+      <Link to={listTo({ view: "unread", feed: f.id })} onClick={onNavigate} className={`${row} min-w-0 flex-1 pl-6 text-sm`}>
+        <FeedIcon feed={f} />
+        <span className="truncate">{f.title}</span>
+        <span className="ml-auto" />
+        <UnreadCount n={f.unread} />
+      </Link>
+      <FavStar on={favs.has("feed", f.id)} name={f.title} onToggle={() => favs.toggle("feed", f.id)} className={reveal} />
+    </li>
+  );
+
   const favoriteRows = favs.favorites.map((fav) => {
     if (fav.t === "folder") {
       const fo = folderById.get(fav.id);
       if (!fo) return null;
+      const inFolder = feeds.filter((f) => f.folder_id === fo.id);
+      const collapsed = dp.collapsedFolders.includes(fo.id);
+      const listId = `fav-folder-${fo.id}-feeds`;
       return (
-        <li key={`folder:${fo.id}`} className="group/row flex items-center">
-          <Link to={listTo({ view: "unread", folder: fo.id })} onClick={onNavigate} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
-            <FolderIcon aria-hidden="true" className="size-4 shrink-0 text-fg2" />
-            <span className="truncate">{fo.name}</span>
-            <span className="ml-auto" />
-            <UnreadCount n={fo.unread} />
-          </Link>
-          <FavStar on name={fo.name} onToggle={() => favs.toggle("folder", fo.id)} className={reveal} />
+        <li key={`folder:${fo.id}`}>
+          <div className="group/row flex items-center">
+            {inFolder.length > 0 ? <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} /> : null}
+            <Link to={listTo({ view: "unread", folder: fo.id })} onClick={onNavigate} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
+              <FolderIcon aria-hidden="true" className="size-4 shrink-0 text-fg2" />
+              <span className="truncate">{fo.name}</span>
+              <span className="ml-auto" />
+              <UnreadCount n={fo.unread} />
+            </Link>
+            <FavStar on name={fo.name} onToggle={() => favs.toggle("folder", fo.id)} className={reveal} />
+          </div>
+          {collapsed || inFolder.length === 0 ? null : <ul id={listId}>{inFolder.map(feedRow)}</ul>}
         </li>
       );
     }
@@ -100,16 +135,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
           return (
             <li key={fo.id}>
               <div className="group/row flex items-center">
-                <button
-                  type="button"
-                  aria-expanded={!collapsed}
-                  aria-controls={listId}
-                  aria-label={`${collapsed ? "Expand" : "Collapse"} ${fo.name}`}
-                  onClick={() => updateDevicePrefs({ collapsedFolders: toggleCollapsed(dp.collapsedFolders, fo.id) })}
-                  className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
-                >
-                  {collapsed ? <ChevronRight className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
-                </button>
+                <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />
                 <Link to={listTo({ view: "unread", folder: fo.id })} onClick={onNavigate} className={cn(row, "min-w-0 flex-1 pl-1 text-sm font-semibold")}>
                   <span className="truncate">{fo.name}</span>
                   <span className="ml-auto" />
@@ -119,19 +145,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
                 <FavStar on={favs.has("folder", fo.id)} name={fo.name} onToggle={() => favs.toggle("folder", fo.id)} className={reveal} />
               </div>
               {collapsed ? null : (
-                <ul id={listId}>
-                  {inFolder.map((f) => (
-                    <li key={f.id} className="group/row flex items-center">
-                      <Link to={listTo({ view: "unread", feed: f.id })} onClick={onNavigate} className={`${row} min-w-0 flex-1 pl-6 text-sm`}>
-                        <FeedIcon feed={f} />
-                        <span className="truncate">{f.title}</span>
-                        <span className="ml-auto" />
-                        <UnreadCount n={f.unread} />
-                      </Link>
-                      <FavStar on={favs.has("feed", f.id)} name={f.title} onToggle={() => favs.toggle("feed", f.id)} className={reveal} />
-                    </li>
-                  ))}
-                </ul>
+                <ul id={listId}>{inFolder.map(feedRow)}</ul>
               )}
             </li>
           );
