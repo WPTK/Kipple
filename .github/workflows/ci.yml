@@ -93,6 +93,9 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      # Changelog fragments (changes/): names and bodies valid, CHANGELOG.md [Unreleased] untouched, and the tooling's own tests.
+      - run: node ../scripts/changelog.mjs check
+      - run: node --test ../scripts/changelog.test.mjs
       - run: npm ci
       - run: npm run lint
       - run: npm test

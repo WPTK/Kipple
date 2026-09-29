@@ -1,0 +1,1 @@
+Feed Health: in Select mode, a search or filter that hid feeds you had already ticked left them selected, so "N selected" and Delete, Turn on or Turn off still counted and acted on feeds you could no longer see, and the header checkbox cleared them along with the visible ones. The count and every bulk action now use only the ticked feeds on screen. (#61)
