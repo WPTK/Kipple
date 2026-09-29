@@ -10,7 +10,7 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 
 ## [0.3.0-beta.3] - 2026-09-29
 
-Fixes from the beta.2 UAT re-run (Suites 1, 2, 4 and 5) and the owner's soak-period report: the backup dialog date, the OPML-import announcement, returning to a long list, the offline article screen, Feed Health and list header details, Manage this feed from an open article, a wide row scrolling the list sideways on a phone, and an unsubscribed feed's starred-articles archive no longer listed anywhere (web and Reader API). No new features; no schema migration.
+Fixes from the beta.2 UAT re-run (Suites 1, 2, 4 and 5): the backup dialog date, the OPML-import announcement, returning to a long list, the offline article screen, Feed Health and list header details, Manage this feed from an open article, a wide row scrolling the list sideways on a phone, and, on the owner's decision, an unsubscribed feed's starred-articles archive is no longer listed anywhere (web and Reader API). No new features; no schema migration.
 
 ### Added
 
