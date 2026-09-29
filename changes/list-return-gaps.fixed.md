@@ -1,1 +1,0 @@
-Coming back to a long list (from Settings, an article or another screen) no longer leaves gaps between the rows, and puts you back on the row you left instead of a few rows above or below it: the list now remembers how tall its rows were, and measures the rows on screen even when it has just scrolled back into place. (#94)
