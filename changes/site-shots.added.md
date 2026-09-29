@@ -1,1 +1,0 @@
-Developer tooling: `web/scripts/site-shots.mjs` captures the four kipple.cc screenshots (and the social preview) from a local instance seeded with `KIPPLE_SEED_SET=site`, and `docs/RELEASING.md` step 12 makes updating the website part of every release.

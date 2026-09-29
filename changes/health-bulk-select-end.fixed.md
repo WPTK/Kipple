@@ -1,1 +1,0 @@
-Feed Health: after a bulk Delete, Select mode now ends and the selection clears, the same as after Turn on and Turn off, so a feed you had ticked but hidden with the search is no longer left ticked and the Deleted message no longer covers the selection bar. (#96)
