@@ -18,12 +18,11 @@ const modeTTL = 5 * time.Second
 
 // modeSnapshot is what the Host gate needs on every request.
 type modeSnapshot struct {
-	hasAccount bool
-	mode       string   // store.AuthStandard or store.AuthOpen ("" without an account)
-	allowed    []string // security.allowed_hosts plus Options.AllowedHosts
-	openLAN    bool
-	loaded     time.Time
-	failed     bool // the read failed and nothing was known before (not cached): enforce
+	mode    string   // store.AuthStandard or store.AuthOpen ("" without an account)
+	allowed []string // security.allowed_hosts plus Options.AllowedHosts
+	openLAN bool
+	loaded  time.Time
+	failed  bool // the read failed and nothing was known before (not cached): enforce
 }
 
 type modeCache struct {
@@ -56,8 +55,7 @@ func (s *Server) snapshot(ctx context.Context) *modeSnapshot {
 		}
 		return &modeSnapshot{failed: true}
 	}
-	snap := &modeSnapshot{hasAccount: ok, openLAN: sec.OpenLAN, loaded: now,
-		allowed: append(append([]string(nil), s.opt.AllowedHosts...), normalizeEntries(sec.AllowedHosts)...)}
+	snap := &modeSnapshot{openLAN: sec.OpenLAN, loaded: now, allowed: s.allowedWith(sec.AllowedHosts)}
 	if ok {
 		snap.mode = acct.AuthMode
 	}
@@ -69,11 +67,12 @@ func (s *Server) snapshot(ctx context.Context) *modeSnapshot {
 	return snap
 }
 
-// normalizeEntries keeps the valid entries of a stored allowed-host list (the
-// PATCH validator already normalized them; a hand-edited row is filtered).
-func normalizeEntries(in []string) []string {
-	out := make([]string, 0, len(in))
-	for _, e := range in {
+// allowedWith is the configured names plus the valid entries of a stored
+// security.allowed_hosts list (the PATCH validator already normalized them; a
+// hand-edited row is filtered).
+func (s *Server) allowedWith(stored []string) []string {
+	out := append([]string(nil), s.opt.AllowedHosts...)
+	for _, e := range stored {
 		if n, err := setup.CheckHostEntry(e); err == nil {
 			out = append(out, n)
 		}
@@ -81,14 +80,21 @@ func normalizeEntries(in []string) []string {
 	return out
 }
 
-// invalidateMode makes the next request re-read the snapshot (after a mode,
-// account or security-setting change made here). The old one stays as the
-// fallback for a read that fails, so a failure never forgets open mode.
-func (s *Server) invalidateMode() {
+// noteMode records a mode, account or security-setting change made here: the
+// next request re-reads the snapshot, and the fallback kept for a read that
+// fails already carries the change (apply edits a copy; nil changes nothing),
+// so a failed re-read can neither forget open mode nor miss a switch to it.
+func (s *Server) noteMode(apply func(*modeSnapshot)) {
 	s.mode.mu.Lock()
+	defer s.mode.mu.Unlock()
 	s.mode.gen++
 	s.mode.stale = true
-	s.mode.mu.Unlock()
+	if s.mode.snap != nil && apply != nil {
+		c := *s.mode.snap
+		c.allowed = append([]string(nil), c.allowed...)
+		apply(&c)
+		s.mode.snap = &c
+	}
 }
 
 // enforceHosts reports whether the Host gate refuses (rather than only logs)
@@ -153,32 +159,25 @@ func (s *Server) warnHost() {
 	}
 }
 
-// openRefusal is the network part of the open gate for r ("" = passes): the
-// Host gate, not forwarded, and a local peer (design 5.4). In open mode every
-// signed-in request must pass it (authed), so a session never outlives the
-// network position or the security.open_lan setting that admitted it.
-func (s *Server) openRefusal(r *http.Request) string {
-	return s.openRefusalWith(r, s.snapshot(r.Context()).openLAN)
-}
-
-// openRefusalWith is openRefusal with a given security.open_lan.
-func (s *Server) openRefusalWith(r *http.Request, openLAN bool) string {
-	host, ok := s.hostAllowed(r, s.snapshot(r.Context()))
+// gateRefusal is the open gate for r against snap ("" = passes): the network
+// part (Host gate, not forwarded, a local peer; design 5.4) with the given
+// security.open_lan, and with signIn also the browser part (an Origin naming
+// the host the request was sent to) that granting open-mode access needs: a
+// session, the switch to open mode, a Reader API password. In open mode every
+// signed-in request passes the network part (authed), so a session never
+// outlives the network position or the setting that admitted it.
+func (s *Server) gateRefusal(r *http.Request, snap *modeSnapshot, openLAN, signIn bool) string {
+	host, ok := s.hostAllowed(r, snap)
+	if signIn {
+		return s.opt.Gate.SignInRefusal(r, host, ok, openLAN)
+	}
 	return s.opt.Gate.OpenRefusal(r, host, ok, openLAN)
 }
 
-// signInRefusal is the whole open gate, for the requests that grant open-mode
-// access (a session, the switch to open mode, a Reader API password): the
-// network part plus an Origin that names the host the request was sent to.
+// signInRefusal is gateRefusal for granting access, with the stored open_lan.
 func (s *Server) signInRefusal(r *http.Request) string {
-	return s.signInRefusalWith(r, s.snapshot(r.Context()).openLAN)
-}
-
-// signInRefusalWith is signInRefusal with a given security.open_lan (the
-// account step chooses it together with open mode).
-func (s *Server) signInRefusalWith(r *http.Request, openLAN bool) string {
-	host, ok := s.hostAllowed(r, s.snapshot(r.Context()))
-	return s.opt.Gate.SignInRefusal(r, host, ok, openLAN)
+	snap := s.snapshot(r.Context())
+	return s.gateRefusal(r, snap, snap.openLAN, true)
 }
 
 // writeOpenRefused answers a request that failed the open gate.

@@ -374,7 +374,7 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		// check, so it applies to every request (a device that left the tailnet,
 		// or security.open_lan turned off, loses access at once).
 		if snap := s.snapshot(r.Context()); snap.mode == store.AuthOpen || snap.failed {
-			if reason := s.openRefusal(r); reason != "" {
+			if reason := s.gateRefusal(r, snap, snap.openLAN, false); reason != "" {
 				writeOpenRefused(w, reason)
 				return
 			}

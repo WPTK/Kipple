@@ -6,6 +6,8 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Reasons the open gate refuses a request (answered as
@@ -37,10 +39,11 @@ type Gate struct {
 	// definition.
 	Trusted []netip.Addr
 
-	// Tailnet reports that this machine has a Tailscale address. Only then does a
-	// peer in 100.64.0.0/10 count as a tailnet device: the range is shared
-	// carrier-grade NAT space elsewhere (other ISP subscribers, cloud networks).
-	Tailnet bool
+	// Tailnet reports whether this machine has a Tailscale address (nil: never).
+	// Only then does a peer in Tailscale's ranges count as a tailnet device:
+	// 100.64.0.0/10 is shared carrier-grade NAT space elsewhere (other ISP
+	// subscribers, cloud networks). TailnetCheck asks the system, cached.
+	Tailnet func() bool
 }
 
 // OpenRefusal is the network part of the open gate (design 5.4), checked on
@@ -89,7 +92,7 @@ func (g Gate) OpenRefusal(r *http.Request, host string, hostOK, openLAN bool) st
 	case peer.IsLoopback():
 		return ""
 	case tailscaleV4.Contains(peer) || tailscaleV6.Contains(peer):
-		if g.Tailnet || openLAN {
+		if (g.Tailnet != nil && g.Tailnet()) || openLAN {
 			return "" // without a local tailnet address, only the owner's LAN opt-in admits the range
 		}
 		return RefusePeer
@@ -130,6 +133,25 @@ func peerAddr(r *http.Request) (netip.Addr, bool) {
 		return netip.Addr{}, false
 	}
 	return a.WithZone("").Unmap(), true
+}
+
+// tailnetRecheck is how long TailnetCheck trusts its last answer: Tailscale may
+// come up after Kipple (boot order) or be installed later.
+const tailnetRecheck = 30 * time.Second
+
+// TailnetCheck returns LocalTailnet cached for tailnetRecheck, for Gate.Tailnet.
+func TailnetCheck() func() bool {
+	var mu sync.Mutex
+	var at time.Time
+	var last bool
+	return func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if now := time.Now(); at.IsZero() || now.Sub(at) >= tailnetRecheck {
+			last, at = LocalTailnet(), now
+		}
+		return last
+	}
 }
 
 // LocalTailnet reports whether this machine has a Tailscale address: one in

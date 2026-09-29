@@ -91,10 +91,28 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := set["imgproxy.mode"]; ok {
 		s.refreshImgMode(ctx) // the CSP img-src follows it
 	}
-	_, hosts := set[store.SettingAllowedHosts]
-	_, lan := set[store.SettingOpenLAN]
-	if hosts || lan {
-		s.invalidateMode() // the Host gate and the open gate read them
+	hosts, hostsSet := set[store.SettingAllowedHosts]
+	lan, lanSet := set[store.SettingOpenLAN]
+	if hostsSet || lanSet {
+		// The Host gate and the open gate read them: re-read, with the new values
+		// already in the fallback.
+		s.noteMode(func(sn *modeSnapshot) {
+			if hostsSet {
+				var stored []string
+				if l, ok := hosts.([]any); ok {
+					for _, e := range l {
+						if h, ok := e.(string); ok {
+							stored = append(stored, h)
+						}
+					}
+				}
+				sn.allowed = s.allowedWith(stored)
+			}
+			if lanSet {
+				b, _ := lan.(bool) // nil (reset) is the default, false
+				sn.openLAN = b
+			}
+		})
 	}
 	if _, ok := set["imgproxy.cache_mb"]; ok {
 		s.applyImgCacheCap(ctx) // a lower cap evicts, 0 turns the cache off and purges it

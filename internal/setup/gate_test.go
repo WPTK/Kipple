@@ -9,7 +9,7 @@ import (
 )
 
 func TestOpenRefusal(t *testing.T) {
-	g := Gate{Trusted: []netip.Addr{netip.MustParseAddr("192.0.2.20")}, Tailnet: true}
+	g := Gate{Trusted: []netip.Addr{netip.MustParseAddr("192.0.2.20")}, Tailnet: func() bool { return true }}
 	type tc struct {
 		name    string
 		peer    string
@@ -95,4 +95,11 @@ func TestSignInRefusalChecksTheOrigin(t *testing.T) {
 	require.Equal(t, RefuseForwarded, req("127.0.0.1:1919", "http://127.0.0.1:8080"))
 	require.Equal(t, RefuseForwarded, req("127.0.0.1:1919", "::"))
 	require.Equal(t, RefuseHost, req("evil.example:1919", "http://evil.example:1919"))
+}
+
+func TestTailnetCheckIsCached(t *testing.T) {
+	check := TailnetCheck()
+	first := check()
+	require.Equal(t, first, check(), "the same answer within the recheck window")
+	require.NotPanics(t, func() { _ = LocalTailnet() })
 }

@@ -224,6 +224,15 @@ func restore(ctx context.Context, o restoreOptions) error {
 		fmt.Fprintf(out, "  %d web session(s) in the backup were signed out.\n", n)
 	}
 
+	// The listen port belongs to this installation, not to the backup.
+	legacy, err := backup.DeploymentLegacyPort(ctx, live)
+	if err != nil {
+		return fmt.Errorf("read the current database's port setting: %w", err)
+	}
+	if err := backup.SetLegacyPort(ctx, tmp, legacy); err != nil {
+		return fmt.Errorf("carry the port setting into the restored copy: %w", err)
+	}
+
 	if !backupExisted {
 		owned = append(owned, backupDir) // a swap creates it; chown ignores a missing path
 	}

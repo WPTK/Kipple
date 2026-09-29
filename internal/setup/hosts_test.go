@@ -15,7 +15,6 @@ func TestNormalizeHost(t *testing.T) {
 		"[::1]:1919":            "::1",
 		"[::1]":                 "::1",
 		"[::FFFF:127.0.0.1]":    "::ffff:127.0.0.1",
-		"[fe80::1%25eth0]:80":   "fe80::1%25eth0",
 		"::1":                   "::1",
 		"LOCALHOST:1919":        "localhost",
 		"localhost.":            "localhost",
@@ -31,7 +30,7 @@ func TestNormalizeHost(t *testing.T) {
 	}
 	for _, in := range []string{
 		"", ":1919", "a..b", "a.b..", "exa mple.com", "%65vil.com", "bücher.example", "evil.com:port",
-		"evil.com:123456", "[::1", "[::1]x", "[127.0.0.1]", "a/b", "a\\b", "evil.com:1919:1919",
+		"evil.com:123456", "[::1", "[::1]x", "[127.0.0.1]", "[fe80::1%25eth0]:80", "::%]", "fe80::1%eth0", "a/b", "a\\b", "evil.com:1919:1919",
 		strings.Repeat("a", 64) + ".com", strings.Repeat("a.", 130) + "com", "user@evil.com",
 	} {
 		_, ok := NormalizeHost(in)
@@ -79,17 +78,20 @@ func TestHostAllowedExtraEntries(t *testing.T) {
 
 func TestCheckHostEntry(t *testing.T) {
 	for in, want := range map[string]string{
-		" RSS.Example.com. ": "rss.example.com",
-		"*.Example.org":      "*.example.org",
-		"192.0.2.10":         "192.0.2.10",
-		"[2001:db8::1]":      "2001:db8::1",
-		"nas":                "nas",
+		" RSS.Example.com. ":  "rss.example.com",
+		"*.Example.org":       "*.example.org",
+		"*.home.corp":         "*.home.corp",
+		"*.a.b.example.co.uk": "*.a.b.example.co.uk",
+		"192.0.2.10":          "192.0.2.10",
+		"[2001:db8::1]":       "2001:db8::1",
+		"nas":                 "nas",
 	} {
 		got, err := CheckHostEntry(in)
 		require.NoError(t, err, in)
 		require.Equal(t, want, got, in)
 	}
-	for _, in := range []string{"", "*", "*.", "https://rss.example.com", "rss.example.com:443", "a b", "*.*.example.com", "rss.example.com/path", "*.192.0.2.1x!"} {
+	for _, in := range []string{"", "*", "*.", "https://rss.example.com", "rss.example.com:443", "a b", "*.*.example.com", "rss.example.com/path", "*.192.0.2.1x!",
+		"*.com", "*.io", "*.co.uk", "*.github.io", "*.lan", "*.1.2.3.4", "*.10"} {
 		_, err := CheckHostEntry(in)
 		require.Error(t, err, in)
 	}

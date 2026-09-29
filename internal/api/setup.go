@@ -70,6 +70,7 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request) {
 		claimed = s.opt.Setup.SessionOK(c.Value)
 	}
 	issued := s.opt.Setup.IssuedAt().UTC()
+	snap := s.snapshot(r.Context())
 	// Whether open mode would work from where this browser is: reason is the
 	// open gate's answer as things are, lan_reason with "Also allow devices on
 	// my local network" on (in a container even this computer needs that).
@@ -86,8 +87,8 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request) {
 			"verified": s.opt.Access != nil && s.accessProof(r) == proofOK,
 		},
 		"open": map[string]any{
-			"reason":     orNull(s.openRefusalWith(r, false)),
-			"lan_reason": orNull(s.openRefusalWith(r, true)),
+			"reason":     orNull(s.gateRefusal(r, snap, false, false)),
+			"lan_reason": orNull(s.gateRefusal(r, snap, true, false)),
 		},
 		"token_hint":      "printed in the server log (standard error) at " + issued.Format(time.RFC3339) + "; run `kipple setup-token` to show it again",
 		"token_issued_at": issued.Unix(),
@@ -96,7 +97,12 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request) {
 
 // setupClaim is POST /api/setup/claim {token}: a matching token starts the
 // setup session (the kipple_setup cookie). Wrong tokens are counted per IP on
-// the setup lockout (never the login's) and towards the global rotation.
+// the setup lockout (never the login's) and towards the global rotation; past
+// the limit they are answered 429. The right token is always accepted, even
+// from a locked address: behind Docker's port forwarding every client shares
+// the gateway's address, and one noisy device must not lock the owner out of
+// claiming. At 120 bits the lockout is about noise, not about guessing (design
+// 5.1), and checking a token costs one hash.
 func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 	if s.setupGone(w) {
 		return
@@ -105,35 +111,31 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "origin")
 		return
 	}
-	ip := s.clientIP(r)
-	if ok, left := s.setupLock.Reserve(ip); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
-		writeError(w, http.StatusTooManyRequests, "locked")
-		return
-	}
 	var body struct {
 		Token string `json:"token"`
 	}
 	if !decodeJSON(w, r, &body, maxSetupBody, false) {
-		s.setupLock.Release(ip) // nothing presented: not counted
-		return
+		return // nothing presented: not counted
 	}
 	if body.Token == "" {
-		s.setupLock.Release(ip)
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
+	ip := s.clientIP(r)
 	cookie, ok, err := s.opt.Setup.Claim(body.Token)
 	switch {
 	case errors.Is(err, setup.ErrNotPending):
-		s.setupLock.Release(ip)
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	case err != nil:
-		s.setupLock.Release(ip)
 		s.serverError(w, "setup claim", err)
 		return
 	case !ok:
+		if allowed, left := s.setupLock.Reserve(ip); !allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
+			writeError(w, http.StatusTooManyRequests, "locked")
+			return
+		}
 		writeErrorMsg(w, http.StatusForbidden, "bad_token", "that is not the current setup code (`kipple setup-token` shows it)") // the reservation stays counted
 		return
 	}
@@ -197,7 +199,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 			writeErrorMsg(w, http.StatusBadRequest, "ack_required", "confirm that anyone who can reach this address can read and change everything")
 			return
 		}
-		if reason := s.signInRefusalWith(r, body.OpenLAN); reason != "" {
+		if reason := s.gateRefusal(r, s.snapshot(r.Context()), body.OpenLAN, true); reason != "" {
 			writeOpenRefused(w, reason)
 			return
 		}
@@ -226,7 +228,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		// Whatever happened, a row that exists ends setup mode here and now: a
 		// lost race, or an error reported after the insert committed.
 		if a, ok, rerr := s.db.Account(context.WithoutCancel(r.Context())); rerr == nil && ok {
-			s.finishSetup(a)
+			s.finishSetup(a, false)
 		}
 		if err != nil {
 			s.serverError(w, "setup: create account", err)
@@ -236,7 +238,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
 		return
 	}
-	s.finishSetup(acct)
+	s.finishSetup(acct, na.OpenLAN)
 	mode := setup.DisplayMode(acct)
 	s.log.Info("account created", "username", acct.Username, "reader_api", false,
 		"created_via", store.CreatedViaWizard, "auth_mode", mode)
@@ -252,14 +254,18 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 
 // finishSetup leaves setup mode once the account row exists: the flag flips,
 // the token goes, and every cache that keyed on "no account" is dropped.
-func (s *Server) finishSetup(acct store.Account) {
+// openLAN is whether this request turned security.open_lan on with the account.
+func (s *Server) finishSetup(acct store.Account, openLAN bool) {
 	s.opt.Setup.Finish()
 	s.verifier.SetSecret([]byte(acct.Secret))
 	s.verifier.ClearMemo()
 	if s.opt.OnAPIPasswordChange != nil {
 		s.opt.OnAPIPasswordChange()
 	}
-	s.invalidateMode()
+	s.noteMode(func(sn *modeSnapshot) {
+		sn.mode = acct.AuthMode
+		sn.openLAN = sn.openLAN || openLAN
+	})
 }
 
 // startSession mints a fresh session and sets its cookie, or answers the error

@@ -34,6 +34,19 @@ func openFile(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+// openFileQuery opens a database file for reading only, leaving its journal
+// mode alone (a live database stays in WAL mode).
+func openFileQuery(path string) (*sql.DB, error) {
+	u := url.URL{Path: filepath.ToSlash(path)}
+	q := url.Values{"_pragma": {"busy_timeout(5000)", "query_only(1)"}}
+	db, err := sql.Open("sqlite", "file:"+u.EscapedPath()+"?"+q.Encode())
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
+}
+
 // Inspect verifies that path is a healthy Kipple database and reads its
 // counts. full runs PRAGMA integrity_check, foreign_key_check and the FTS
 // integrity-check (restore); otherwise PRAGMA quick_check (export). It refuses

@@ -167,8 +167,14 @@
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   }
 
+  var openTried = false; // one open-mode sign-in per page load, so a dropped cookie cannot loop
+  function openRefused(r) {
+    return r.json().then(function (e) { err("Kipple has no password, and " + (e.message || "this address may not use it") + "."); },
+      function () { err("Kipple refused this request (" + r.status + ")."); });
+  }
   function boot() {
     api("GET", "/api/auth/me").then(function (r) {
+      if (r.status === 403) { show(false); $("login").hidden = true; return openRefused(r); }
       if (r.status === 401) {
         show(false);
         api("GET", "/api/instance").then(function (i) { return i.ok ? i.json() : null; }).then(function (d) {
@@ -177,17 +183,19 @@
           if (d.auth !== "open") return;
           // Open mode (no password): sign in without one, from where that is allowed.
           $("login").hidden = true;
-          api("POST", "/api/auth/open").then(function (o) {
+          if (openTried) { err("Signing in without a password did not stick (are cookies blocked?)."); return; }
+          openTried = true;
+          return api("POST", "/api/auth/open").then(function (o) {
             if (o.status === 204) { boot(); return; }
-            return o.json().then(function (e) { err("Kipple has no password, and " + (e.message || "this address may not use it") + "."); });
-          }).catch(function () { err("cannot reach the server"); });
-        }).catch(function () {});
+            return openRefused(o);
+          });
+        }).catch(function () { err("cannot reach the server"); });
         return;
       }
+      if (!r.ok) { err("the server answered " + r.status); return; }
       show(true); start(); loadFeeds(); loadStatus();
     }).catch(function () { err("cannot reach the server"); });
   }
-
   $("loginForm").addEventListener("submit", function (e) {
     e.preventDefault();
     var f = e.target;

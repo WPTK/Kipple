@@ -54,7 +54,7 @@ func newSetupHarness(t *testing.T, tune ...func(*Options)) *setupHarness {
 
 	h := &harness{t: t, db: db, hub: events.NewWithClock(clk), sched: &fakeSched{}, clk: clk, mux: http.NewServeMux()}
 	opt := Options{DB: db, Sched: h.sched, Hub: h.hub, Now: clk.Now, Heartbeat: 20 * time.Millisecond, Setup: mgr,
-		Gate: setup.Gate{Tailnet: true}}
+		Gate: setup.Gate{Tailnet: func() bool { return true }}}
 	for _, f := range tune {
 		f(&opt)
 	}
@@ -231,10 +231,14 @@ func TestSetupClaimLockoutAndRotation(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, rec.Code, "attempt %d", i)
 		require.Equal(t, "bad_token", decode(t, rec)["error"])
 	}
-	// Locked: even the right token is refused from this address.
-	rec := h.req("POST", "/api/setup/claim", tokenBody(good))
+	// Locked: further wrong tokens get 429...
+	rec := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0001"))
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	require.NotEmpty(t, rec.Header().Get("Retry-After"))
+	// ...but the right one still works: behind Docker's forwarding every client
+	// shares one address, and a noisy device must not lock the owner out.
+	h.claim(good)
+	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code, "a success clears the address")
 	// The login lockout is separate: the same address can still sign in attempts.
 	require.Equal(t, http.StatusUnauthorized, h.req("POST", "/api/auth/login", loginBody("x")).Code, "no account yet, but not locked")
 	// Malformed bodies are not counted.
@@ -775,11 +779,23 @@ func TestModeSnapshotFailsClosed(t *testing.T) {
 	sc := s.claim(s.token())
 	require.Equal(t, http.StatusCreated, s.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}), withCookies(sc)).Code)
 	require.Equal(t, store.AuthOpen, s.srv.snapshot(context.Background()).mode)
-	s.srv.invalidateMode()
+	s.srv.noteMode(nil)
 	require.NoError(t, s.db.Close()) // every read fails from here on
 	snap := s.srv.snapshot(context.Background())
 	require.Equal(t, store.AuthOpen, snap.mode, "the last known mode, not a forgotten one")
 	require.Equal(t, http.StatusMisdirectedRequest, s.req("GET", "/api/instance", "", host("evil.example")).Code)
+
+	// A switch to open mode made here is in the fallback before any re-read.
+	p := newSetupHarness(t)
+	sc = p.claim(p.token())
+	rec := p.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass}), withCookies(sc))
+	require.Equal(t, http.StatusCreated, rec.Code)
+	sess := cookieNamed(rec, cookieName)
+	require.Equal(t, store.AuthStandard, p.srv.snapshot(context.Background()).mode)
+	require.Equal(t, http.StatusNoContent, p.req("POST", "/api/account/password", `{"current":"`+setupPass+`","open":true}`, withCookies(sess)).Code)
+	require.NoError(t, p.db.Close())
+	require.Equal(t, store.AuthOpen, p.srv.snapshot(context.Background()).mode)
+	require.Equal(t, http.StatusMisdirectedRequest, p.req("GET", "/api/instance", "", host("evil.example")).Code)
 }
 
 // In a container even this computer arrives from the bridge gateway, which the

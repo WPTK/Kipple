@@ -252,7 +252,7 @@ func runServe() error {
 		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount, Access: accessV,
 		Setup: setupMgr, AllowedHosts: allowedHosts(cfg),
-		Gate: setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: setup.LocalTailnet()},
+		Gate: setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: setup.TailnetCheck()},
 	})
 	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API

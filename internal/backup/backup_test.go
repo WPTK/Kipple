@@ -602,3 +602,36 @@ func TestBackupFilenameFollowsTheEffectiveZone(t *testing.T) {
 	require.NoError(t, store.SetEnvZone("Asia/Tokyo"))
 	require.Equal(t, "kipple-backup-20260115-123000.zip", name(), "TZ wins")
 }
+
+func TestDeploymentLegacyPort(t *testing.T) {
+	ctx := context.Background()
+	on, err := DeploymentLegacyPort(ctx, filepath.Join(t.TempDir(), "missing.db"))
+	require.NoError(t, err)
+	require.False(t, on, "no database, no legacy port")
+
+	path := filepath.Join(t.TempDir(), "kipple.db")
+	db, err := store.Open(ctx, store.Options{Path: path, Logger: quiet})
+	require.NoError(t, err)
+	_, err = db.CreateAccount(ctx, store.Account{Username: "owner", PasswordHash: "h", Secret: testSecret})
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	on, err = DeploymentLegacyPort(ctx, path)
+	require.NoError(t, err)
+	require.False(t, on, "a 0.5 account without the flag")
+	require.NoError(t, SetLegacyPort(ctx, path, true))
+	on, _ = DeploymentLegacyPort(ctx, path)
+	require.True(t, on)
+	require.NoError(t, SetLegacyPort(ctx, path, false))
+	on, _ = DeploymentLegacyPort(ctx, path)
+	require.False(t, on)
+
+	// An older database with an account is legacy: 0010 will stamp it.
+	raw, err := openFile(path)
+	require.NoError(t, err)
+	_, err = raw.ExecContext(ctx, "PRAGMA user_version = 9")
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
+	on, err = DeploymentLegacyPort(ctx, path)
+	require.NoError(t, err)
+	require.True(t, on)
+}

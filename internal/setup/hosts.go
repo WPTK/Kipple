@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 // defaultHostSuffixes are the private-use and tailnet name suffixes the Host gate
@@ -29,7 +31,7 @@ func NormalizeHost(h string) (string, bool) {
 			return "", false
 		}
 		a, err := netip.ParseAddr(h[1:end])
-		if err != nil || !a.Is6() {
+		if err != nil || !a.Is6() || a.Zone() != "" { // no browser sends a zone
 			return "", false
 		}
 		return strings.ToLower(a.String()), true
@@ -37,7 +39,7 @@ func NormalizeHost(h string) (string, bool) {
 	if strings.Count(h, ":") > 1 {
 		// A bare IPv6 literal (not valid in a Host header, but unambiguous).
 		a, err := netip.ParseAddr(h)
-		if err != nil {
+		if err != nil || a.Zone() != "" {
 			return "", false
 		}
 		return strings.ToLower(a.String()), true
@@ -131,21 +133,30 @@ func HostAllowed(host string, extra []string) bool {
 
 // CheckHostEntry validates one allowed-host entry (KIPPLE_ALLOWED_HOSTS or the
 // security.allowed_hosts setting) and returns it normalized: an exact host
-// name or IP address, or "*." followed by a name. No scheme, port, path or
-// bare "*".
+// name or IP address, or "*." followed by a name that is not itself a public
+// suffix (so "*.example.com" but not "*.com", "*.co.uk" or "*.github.io",
+// where anyone can register a name) and does not end in a number. No scheme,
+// port, path or bare "*".
 func CheckHostEntry(e string) (string, error) {
 	s := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(e)), ".")
 	wild := false
 	if rest, ok := strings.CutPrefix(s, "*."); ok {
 		wild, s = true, rest
 	}
-	if a, err := netip.ParseAddr(strings.Trim(s, "[]")); err == nil && !wild {
+	if a, err := netip.ParseAddr(strings.Trim(s, "[]")); err == nil && !wild && a.Zone() == "" {
 		return a.String(), nil
 	}
 	if !validName(s) {
 		return "", fmt.Errorf("%q is not a host name (use a name such as rss.example.com or *.example.com, without a scheme or port)", e)
 	}
 	if wild {
+		labels := strings.Split(s, ".")
+		if last := labels[len(labels)-1]; strings.Trim(last, "0123456789") == "" {
+			return "", fmt.Errorf("%q: a wildcard needs a domain name after *., not an address", e)
+		}
+		if ps, _ := publicsuffix.PublicSuffix(s); ps == s {
+			return "", fmt.Errorf("%q covers a whole public suffix, where anyone can register a name: list your own domain (*.example.com)", e)
+		}
 		return "*." + s, nil
 	}
 	return s, nil

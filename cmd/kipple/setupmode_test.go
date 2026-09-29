@@ -252,3 +252,45 @@ func TestWarnTZOverride(t *testing.T) {
 	require.Contains(t, logs.String(), "TZ overrides the time zone chosen in Kipple")
 	require.Contains(t, logs.String(), "Europe/Paris")
 }
+
+// The listen port belongs to the installation, not to the backup: restoring
+// keeps what the live database had (or a fresh directory's 1919).
+func TestRestoreKeepsTheInstallationsPort(t *testing.T) {
+	ctx := context.Background()
+	setLegacy := func(dir string, on bool) {
+		db := openDir(t, dir)
+		defer db.Close()
+		v := "false"
+		if on {
+			v = "true"
+		}
+		require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES ('sys.legacy_port', ?)
+				ON CONFLICT (key) DO UPDATE SET value = excluded.value`, v)
+			return err
+		}))
+	}
+	addrOf := func(dir string) string {
+		db := openDir(t, dir)
+		defer db.Close()
+		addr, _, err := serveAddr(ctx, db, config.Config{Addr: config.DefaultAddr}, quiet)
+		require.NoError(t, err)
+		return addr
+	}
+
+	// A legacy 7080 installation restores a backup made by a new one: still 7080.
+	live := newData(t, 1)
+	setLegacy(live, true)
+	_, err := doRestore(live, export(t, newData(t, 2)), true)
+	require.NoError(t, err)
+	require.Equal(t, ":7080", addrOf(live))
+
+	// A new installation (a fresh directory) restores a legacy backup: 1919.
+	src := newData(t, 2)
+	setLegacy(src, true)
+	fresh := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.MkdirAll(fresh, 0o700))
+	_, err = doRestore(fresh, export(t, src), true)
+	require.NoError(t, err)
+	require.Equal(t, ":1919", addrOf(fresh))
+}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -96,7 +97,14 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 	return false, true
 }
 
+// badNewPassword applies the one web password rule the wizard and the
+// environment use too (setup.CheckPassword: the length, and never the old
+// example value) and answers 400 bad_new_password when it fails.
 func badNewPassword(w http.ResponseWriter, pw string) bool {
+	if pw == setup.ExamplePassword {
+		writeErrorMsg(w, http.StatusBadRequest, "bad_new_password", "that is the example password; choose a real one")
+		return true
+	}
 	return badLength(w, pw, minPasswordLen)
 }
 
@@ -201,7 +209,7 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request, hash, mode 
 		return
 	}
 	s.verifier.ClearMemo()
-	s.invalidateMode()
+	s.noteMode(func(sn *modeSnapshot) { sn.mode = mode })
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusNoContent)
 }
