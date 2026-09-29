@@ -66,6 +66,16 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
     `/api/greader.php` answers with Reeder; a refresh completes; memory stays flat after a few minutes (`docker stats`).
 11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`node scripts/changelog.mjs notes X.Y.Z > notes.md`, then `gh release create vX.Y.Z --notes-file notes.md`; `-alpha/-beta/-rc` marked pre-release).
     Every pushed tag has one; keep it that way.
+12. **Website** (`WPTK/kipple-website`, kipple.cc, GitHub Pages from `main`), for every release, once the Release is published:
+    - **Version text:** update "Where it stands" in `index.html` to the new tag (`grep -n "v0\." index.html README.md` finds
+      every mention) and anything else on the site that says what is current.
+    - **Screenshots:** in the Kipple repo, `cd web`, then `KIPPLE_SEED_SET=site npm run seed` (foreground; wait about a
+      minute for the feeds), and in a second terminal
+      `node scripts/site-shots.mjs --out <site>/screenshots --site <site>`. It writes the four WebP files at the sizes the
+      site's design system names and re-renders `og.png`. Look at all five before committing. Update the capture note
+      in the site's `design-system/DESIGN-SYSTEM.md` (section 10, `screenshots/`) with the new commit and the article shown.
+      A release with no visible UI change may keep the old screenshots; the version text is never skipped.
+    - Open a PR in the site repo and merge it; the merge is what publishes.
 
 ## Rollback
 
