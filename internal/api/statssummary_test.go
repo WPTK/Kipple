@@ -57,7 +57,8 @@ func TestStatsSummaryDefinitions(t *testing.T) {
 	h.stat("open", "2026-09-21", 10, 4, f2, "sc24", nil)
 	h.stat("scroll", "2026-09-21", 10, 4, f2, "sc24", 24) // 24: not a read
 	h.stat("open", "2026-09-21", 11, 5, f2, "sc25", nil)
-	h.stat("scroll", "2026-09-21", 11, 5, f2, "sc25", 25) // 25: a read
+	h.stat("scroll", "2026-09-21", 11, 5, f2, "sc25", 25) // 25 with 3 s: a read
+	h.stat("read_time", "2026-09-21", 11, 5, f2, "sc25", 3)
 	h.stat("star", "2026-09-21", 11, 5, f2, "", nil)
 	h.stat("open_original", "2026-09-21", 11, 5, f2, "", nil)
 
@@ -75,8 +76,9 @@ func TestStatsSummaryDefinitions(t *testing.T) {
 	tot := out["totals"].(map[string]any)
 	require.EqualValues(t, 3, num(tot["items_read"]))
 	require.EqualValues(t, 5, num(tot["opens"]))
-	require.EqualValues(t, 19, num(tot["active_seconds"]))
+	require.EqualValues(t, 22, num(tot["active_seconds"]))
 	require.EqualValues(t, 3, num(tot["days_active"]))
+	require.EqualValues(t, 1, num(tot["legacy_opens"]))
 
 	daily := out["daily"].([]any)
 	require.Len(t, daily, 30)
@@ -91,6 +93,7 @@ func TestStatsSummaryDefinitions(t *testing.T) {
 	require.EqualValues(t, 1, num(byDate["2026-09-20"]["items_read"]))
 	require.EqualValues(t, 19, num(byDate["2026-09-20"]["active_seconds"]))
 	require.EqualValues(t, 1, num(byDate["2026-09-21"]["items_read"]))
+	require.EqualValues(t, 3, num(byDate["2026-09-21"]["active_seconds"]))
 	require.EqualValues(t, 0, num(byDate["2026-09-22"]["items_read"]))
 
 	src := out["sources"].([]any)
@@ -120,7 +123,7 @@ func TestStatsSummaryDefinitions(t *testing.T) {
 	require.EqualValues(t, 0, num(bh["busiest_weekday"].(map[string]any)["weekday"]), "2026-09-20 is a Sunday")
 	require.EqualValues(t, 19, num(bh["busiest_weekday"].(map[string]any)["active_seconds"]))
 	require.EqualValues(t, 9, num(bh["busiest_hour"].(map[string]any)["hour"]))
-	require.InDelta(t, 10, num(bh["avg_read_seconds"]), 1e-9)
+	require.InDelta(t, 6.5, num(bh["avg_read_seconds"]), 1e-9, "(10 + 3) / 2")
 	lr := bh["longest_read"].(map[string]any)
 	require.Equal(t, "Title 3", lr["title"])
 	require.EqualValues(t, 10, num(lr["seconds"]))

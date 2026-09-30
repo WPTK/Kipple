@@ -325,7 +325,8 @@ export interface StatsSummary {
   week_start: WeekStart;
   range?: { key: StatsRange; from: string; to: string; days: number };
   first_event_date?: string | null;
-  totals?: { items_read: number; opens: number; active_seconds: number; days_active: number };
+  /** `legacy_opens`: opens from before reading time was recorded, counted as reads with nothing measured. */
+  totals?: { items_read: number; opens: number; active_seconds: number; days_active: number; legacy_opens?: number };
   daily?: { date: string; items_read: number; active_seconds: number }[];
   streaks?: { current: number; longest: number; longest_end: string | null };
   heatmap?: { weekday: number; hour: number; active_seconds: number; opens: number }[];
