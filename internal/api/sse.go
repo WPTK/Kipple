@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/WPTK/kipple/internal/store"
 )
 
 // events is GET /api/events (design §4.10). The server's WriteTimeout (60 s)
@@ -50,6 +52,21 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An open stream must not outlive what admitted it: its session ("Sign out
+	// other sessions" deletes rows) and, in open mode, the open gate (a device
+	// that left the tailnet, or security.open_lan turned off). Checked at every
+	// heartbeat, and at once when the mode or a security setting changes here.
+	allowed := func() bool {
+		if ok, err := s.db.SessionActive(r.Context(), session, s.now().Unix()); err == nil && !ok {
+			return false
+		}
+		if snap := s.snapshot(r.Context()); snap.mode == store.AuthOpen || snap.failed {
+			return s.gateRefusal(r, snap, snap.openLAN, false) == ""
+		}
+		return true
+	}
+	changed := s.modeChanged()
+
 	tick := time.NewTicker(s.opt.Heartbeat)
 	defer tick.Stop()
 	for {
@@ -61,10 +78,13 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			if !write("event: %s\nid: %d\ndata: %s\n\n", ev.Type, ev.ID, ev.Data) {
 				return
 			}
+		case <-changed:
+			changed = s.modeChanged()
+			if !allowed() {
+				return
+			}
 		case <-tick.C:
-			// "Sign out other sessions" (password change) deletes session rows; an
-			// open stream must not outlive its session.
-			if ok, err := s.db.SessionActive(r.Context(), session, s.now().Unix()); err == nil && !ok {
+			if !allowed() {
 				return
 			}
 			// The comment keeps proxies open; the named event (no id, so it never

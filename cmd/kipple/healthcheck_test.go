@@ -92,3 +92,31 @@ func TestProbeHealthAnyTakesTheFirstHealthy(t *testing.T) {
 	require.Equal(t, []string{"other", "kipple"}, seen(), "in order, stopping at the first healthy one")
 	require.Error(t, probeHealthAny([]string{down, other}, time.Second))
 }
+
+// A KIPPLE_ADDR naming a host is probed at that host, with Host: 127.0.0.1 so
+// the setup- and open-mode Host gate (which may refuse the name with 421) lets
+// the probe through. An address given as an IP keeps it as the Host.
+func TestProbeHealthSendsAnIPHostForANamedAddress(t *testing.T) {
+	var mu sync.Mutex
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		got = r.Host
+		mu.Unlock()
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	_, port, err := net.SplitHostPort(srv.Listener.Addr().String())
+	require.NoError(t, err)
+	u, err := healthURL("localhost:" + port)
+	require.NoError(t, err)
+	require.Equal(t, "http://localhost:"+port+"/healthz", u, "the name is dialled")
+	require.NoError(t, probeHealth("localhost:"+port, 2*time.Second))
+	mu.Lock()
+	require.Equal(t, "127.0.0.1:"+port, got)
+	mu.Unlock()
+	require.NoError(t, probeHealth("127.0.0.1:"+port, 2*time.Second))
+	mu.Lock()
+	require.Equal(t, "127.0.0.1:"+port, got)
+	mu.Unlock()
+}

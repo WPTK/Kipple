@@ -263,7 +263,7 @@ func runServe() error {
 	})
 
 	tailnet := setup.TailnetCheck()
-	tailnet() // the first scan now, not on the first request
+	_ = tailnet() // the first scan now, not on the first request
 	mux := http.NewServeMux()
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,

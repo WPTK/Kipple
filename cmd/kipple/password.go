@@ -24,8 +24,10 @@ import (
 // password itself is kept). An open-mode account returns to the standard mode
 // (a password is set). A running server notices within a few seconds.
 func resetPassword(ctx context.Context, db *store.DB, pw string) error {
-	if n := len(pw); n < auth.MinPasswordLen || n > auth.MaxPasswordLen {
-		return fmt.Errorf("the password must be %d to %d characters", auth.MinPasswordLen, auth.MaxPasswordLen)
+	// The same rules as the wizard and KIPPLE_PASSWORD: the length limits, and
+	// never the example placeholder.
+	if err := setup.CheckPassword("the password", pw, auth.MinPasswordLen); err != nil {
+		return err
 	}
 	if _, ok, err := db.Account(ctx); err != nil {
 		return err

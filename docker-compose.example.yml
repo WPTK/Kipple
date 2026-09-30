@@ -34,8 +34,10 @@ services:
     # directory. Import an OPML with `kipple import -` and pipe the file in.
     # Optional: .env holds advanced overrides only (see .env.example). Compose 2.24 or newer
     # starts without the file; on an older Compose, create an empty .env or delete these lines.
-    # If a .env from before 0.5 sets KIPPLE_ADDR=:7080, change the container side of the port
-    # below to 7080 (or remove that line from .env).
+    # An install from before 0.5 keeps port 7080: when a .env sets KIPPLE_ADDR=:7080, and also
+    # when KIPPLE_ADDR is unset and the database dates from before 0.5 (it listens on 7080 through
+    # 0.x, and the healthcheck still passes). For such an install change the container side of the
+    # port below to 7080, or set KIPPLE_ADDR=:1919 in .env to move to 1919.
     env_file:
       - path: .env
         required: false

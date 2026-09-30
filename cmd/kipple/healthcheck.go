@@ -18,8 +18,9 @@ import (
 const healthcheckTimeout = 3 * time.Second
 
 // healthURL turns a listen address (KIPPLE_ADDR style: ":1919", "0.0.0.0:1919",
-// "[::]:1919", "127.0.0.1:9090") into the loopback /healthz URL. An empty
-// address is config.DefaultAddr.
+// "[::]:1919", "127.0.0.1:9090", "kipple-box:1919") into the /healthz URL: an
+// empty or unspecified host becomes 127.0.0.1, any other host is kept (the
+// server listens only there). An empty address is config.DefaultAddr.
 func healthURL(addr string) (string, error) {
 	if addr == "" {
 		addr = config.DefaultAddr
@@ -83,11 +84,20 @@ func probeHealthCtx(ctx context.Context, addr string) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil) // #nosec G704 -- loopback probe of this process's own listener; the host is forced to 127.0.0.1 and only the port comes from KIPPLE_ADDR
+	// A probe of this process's own listener: the address is the operator's KIPPLE_ADDR (127.0.0.1 for an empty or
+	// unspecified host, else the host it names, an IP or a name), never request input.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil) // #nosec G704 -- the operator's own KIPPLE_ADDR, see above
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req) // #nosec G704 -- same loopback probe, see above
+	// A KIPPLE_ADDR that names a host (kipple-box:1919) is dialled by that name,
+	// but the Host header says 127.0.0.1: in setup and open mode the Host gate
+	// answers 421 to a name it does not allow, which would make a healthy server
+	// report unhealthy. An IP literal always passes the gate.
+	if h, port, err := net.SplitHostPort(req.URL.Host); err == nil && net.ParseIP(h) == nil {
+		req.Host = net.JoinHostPort("127.0.0.1", port)
+	}
+	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req) // #nosec G704 -- same probe, see above
 	if err != nil {
 		return fmt.Errorf("unhealthy: %w", err)
 	}

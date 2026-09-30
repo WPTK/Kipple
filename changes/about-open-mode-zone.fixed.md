@@ -1,0 +1,1 @@
+Settings > About (and its debug text) reports open mode as "open (no password)" instead of "Cloudflare Access only", and shows the time zone in force now (`TZ`, else the zone chosen in Settings) instead of the one the server started with. (#131)

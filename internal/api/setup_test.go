@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -54,7 +55,7 @@ func newSetupHarness(t *testing.T, tune ...func(*Options)) *setupHarness {
 
 	h := &harness{t: t, db: db, hub: events.NewWithClock(clk), sched: &fakeSched{}, clk: clk, mux: http.NewServeMux()}
 	opt := Options{DB: db, Sched: h.sched, Hub: h.hub, Now: clk.Now, Heartbeat: 20 * time.Millisecond, Setup: mgr,
-		Gate: setup.Gate{Tailnet: func() bool { return true }}}
+		Gate: setup.Gate{Tailnet: func() []netip.Addr { return []netip.Addr{tailnetLocal} }}}
 	for _, f := range tune {
 		f(&opt)
 	}
@@ -235,8 +236,13 @@ func TestSetupClaimLockoutAndRotation(t *testing.T) {
 	rec := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0001"))
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	require.NotEmpty(t, rec.Header().Get("Retry-After"))
-	// ...but the right one still works: behind Docker's forwarding every client
-	// shares one address, and a noisy device must not lock the owner out.
+	// ...and a locked address gets one check a minute, not one per request...
+	rec = h.req("POST", "/api/setup/claim", tokenBody(good))
+	require.Equal(t, http.StatusTooManyRequests, rec.Code, "not even checked within the minute")
+	require.Equal(t, "60", rec.Header().Get("Retry-After"))
+	// ...but the right one still works in that check: behind Docker's forwarding
+	// every client shares one address, and a noisy device must not lock the owner out.
+	h.clk.Advance(lockedCheckEvery)
 	h.claim(good)
 	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code, "a success clears the address")
 	// The login lockout is separate: the same address can still sign in attempts.
@@ -474,7 +480,7 @@ func TestSetupOpenMode(t *testing.T) {
 	rec = h.req("POST", "/api/auth/open", "", hdr("X-Forwarded-For", "203.0.113.9"))
 	require.Equal(t, "forwarded", decode(t, rec)["reason"])
 	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/auth/open", "", hdr("Sec-Fetch-Site", "cross-site")).Code, "no login CSRF")
-	rec = h.req("POST", "/api/auth/open", "", peer("100.100.1.2:5000"))
+	rec = h.req("POST", "/api/auth/open", "", peer("100.100.1.2:5000"), arrivedOn("100.100.100.1:1919"))
 	require.Equal(t, http.StatusNoContent, rec.Code, "a Tailscale peer")
 	tsSess := cookieNamed(rec, cookieName)
 	require.NotNil(t, tsSess)
@@ -859,5 +865,6 @@ func TestSetupClaimBurstDoesNotRotate(t *testing.T) {
 	}
 	wg.Wait()
 	require.Equal(t, tok, h.token(), "not rotated")
+	h.clk.Advance(lockedCheckEvery) // the locked address's next check
 	h.claim(tok)
 }

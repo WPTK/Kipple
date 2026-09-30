@@ -1,0 +1,1 @@
+The statistics data dictionary shipped in every export now says that a set `TZ` decides the local date and hour fields and the export's `tz`, not only the time zone setting; the compose example and the design notes describe the current time zone and port rules. (#132)

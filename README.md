@@ -91,6 +91,7 @@ Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
 services:
   kipple:
     image: ghcr.io/wptk/kipple:0.5.0-beta.1
+    container_name: kipple
     restart: unless-stopped
     ports: ["127.0.0.1:1919:1919"]
     volumes: ["kipple_data:/data"]
@@ -107,7 +108,9 @@ Then:
 1. Open **http://127.0.0.1:1919**.
 2. Kipple says it isn't set up yet and asks for a **setup code**. Paste the one from the container's log with
    `docker logs kipple`: it is printed once at start, in a box, and looks like `ABCD-EFGH-JKMN-PQRS-TVWX-YZ23`. If the
-   log has scrolled away, `docker exec kipple /kipple setup-token` prints it again. The code is what stops whoever
+   log has scrolled away, `docker exec kipple /kipple setup-token` prints it again. (`kipple` is the container name both
+   example files set; with a compose file of your own that sets none, use `docker compose logs kipple` and
+   `docker compose exec kipple /kipple setup-token`.) The code is what stops whoever
    reaches the port first from claiming your Kipple: only someone who can read the container's log can.
 3. Follow the wizard. It takes about a minute, and every step after the account can be skipped:
    1. **Setup code**, as above.

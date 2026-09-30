@@ -56,6 +56,21 @@ func PortSetting(ctx context.Context, path string) (installed, legacy bool, err 
 	return true, n > 0, err
 }
 
+// Initialized reports whether the database at path was ever initialised by
+// Kipple (its schema version is set): a server has run on it. Read-only.
+func Initialized(ctx context.Context, path string) (bool, error) {
+	db, err := openFileReadOnly(path)
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	var version int
+	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return false, err
+	}
+	return version > 0, nil
+}
+
 // SetLegacyPort writes sys.legacy_port into the database at path (the copy
 // restore is about to install): the listen port belongs to the installation,
 // not to the backup, so restoring an old backup into a new 1919 install keeps

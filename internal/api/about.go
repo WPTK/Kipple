@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/buildinfo"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -28,10 +29,9 @@ func (s *Server) about(w http.ResponseWriter, r *http.Request) {
 	b := s.opt.Build
 	b.Version = s.opt.Version
 	b = b.Normalized()
-	authMode := "password"
-	if acct.PasswordHash == "" {
-		authMode = "access" // an account without a password signs in only through a verified Access token
-	}
+	// The mode as every other endpoint names it: "open" is its own mode, not an
+	// Access account that happens to have no password.
+	authMode := setup.DisplayMode(acct)
 	now := s.now()
 	uptime := int64(now.Sub(s.started).Seconds())
 	if uptime < 0 {
@@ -50,7 +50,7 @@ func (s *Server) about(w http.ResponseWriter, r *http.Request) {
 		"started_at":        s.started.UTC().Format(time.RFC3339),
 		"uptime_s":          uptime,
 		"data_dir_writable": dataDirWritable(s.opt.DataDir),
-		"tz":                time.Local.String(),
+		"tz":                store.Zone(ctx, s.db.Reader()).String(), // the zone in force now (TZ, else the setting), as statistics use it
 		"auth_mode":         authMode,
 		"access_enabled":    s.opt.Access != nil,
 		"public_url_set":    s.opt.PublicURL != "",
