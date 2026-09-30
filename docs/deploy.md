@@ -175,10 +175,10 @@ the browser shows the setup wizard instead of a sign-in screen, and nothing can 
   0600, and on Windows (where the mode does nothing) a protected access list that admits only the user Kipple runs as, SYSTEM and Administrators. Both example compose files and the
   README's one-line container command name the container `kipple`; with a compose file that sets no `container_name`,
   use `docker compose logs kipple` and `docker compose exec kipple /kipple setup-token` instead.
-- **Wrong codes.** Ten wrong codes from one address in 15 minutes lock that address: from then on it gets one code
-  checked per minute (the rest are answered 429 unchecked), and those checks no longer count towards replacing the
-  code. The right code still works in that check, so a noisy device behind the same Docker gateway delays you by a
-  minute at most. A hundred wrong codes in all replace the code (at most once an hour).
+- **Wrong codes.** Ten wrong codes from one address in 15 minutes lock that address: from then on its wrong codes are
+  answered 429 after a one-second pause and no longer count towards replacing the code. Every code from a locked
+  address is still checked, so the right code works at once, even while a noisy device behind the same Docker gateway
+  keeps sending wrong ones. A hundred wrong codes in all replace the code (at most once an hour).
 - **Lifetime.** The code lives until an account exists. A restart makes a new one. It is single use in effect: once the
   account row exists, the setup screens and routes are gone (they answer 404) for as long as that database is used, and
   the code and its file are deleted.

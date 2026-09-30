@@ -61,6 +61,7 @@ func newSetupHarness(t *testing.T, tune ...func(*Options)) *setupHarness {
 	}
 	h.srv = New(opt)
 	t.Cleanup(h.srv.Close)
+	h.srv.setupWrongDelay = 0 // tests that need the hold set it themselves
 	h.srv.Register(h.mux)
 	h.mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("spa")) }))
 	return &setupHarness{harness: h, mgr: mgr, dir: dir, banner: banner, root: h.srv.HostGate(h.mux)}
@@ -232,17 +233,16 @@ func TestSetupClaimLockoutAndRotation(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, rec.Code, "attempt %d", i)
 		require.Equal(t, "bad_token", decode(t, rec)["error"])
 	}
-	// Locked: further wrong tokens get 429...
-	rec := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0001"))
-	require.Equal(t, http.StatusTooManyRequests, rec.Code)
-	require.NotEmpty(t, rec.Header().Get("Retry-After"))
-	// ...and a locked address gets one check a minute, not one per request...
-	rec = h.req("POST", "/api/setup/claim", tokenBody(good))
-	require.Equal(t, http.StatusTooManyRequests, rec.Code, "not even checked within the minute")
-	require.Equal(t, "60", rec.Header().Get("Retry-After"))
-	// ...but the right one still works in that check: behind Docker's forwarding
-	// every client shares one address, and a noisy device must not lock the owner out.
-	h.clk.Advance(lockedCheckEvery)
+	// Locked: further wrong tokens get 429 (uncounted: see the rotation below)...
+	for i := 0; i < 50; i++ {
+		rec := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0001"))
+		require.Equal(t, http.StatusTooManyRequests, rec.Code)
+		require.Equal(t, "locked", decode(t, rec)["error"])
+		require.Equal(t, "901", rec.Header().Get("Retry-After"), "the lockout's time left")
+	}
+	// ...but the right one is checked and accepted at once, right after them:
+	// behind Docker's forwarding every client shares one address, and a noisy
+	// device must not lock the owner out.
 	h.claim(good)
 	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code, "a success clears the address")
 	// The login lockout is separate: the same address can still sign in attempts.
@@ -865,6 +865,118 @@ func TestSetupClaimBurstDoesNotRotate(t *testing.T) {
 	}
 	wg.Wait()
 	require.Equal(t, tok, h.token(), "not rotated")
-	h.clk.Advance(lockedCheckEvery) // the locked address's next check
-	h.claim(tok)
+	h.claim(tok) // the locked address's right code, checked at once
+}
+
+// Issue #156: behind a shared gateway address a device sends a wrong code every
+// second, for ten minutes, from the owner's own (locked) address; the owner
+// tries every 7 s. The owner's first attempt must succeed, wherever in the noise
+// it falls.
+func TestSetupClaimOwnerNeverStarvedByNoise(t *testing.T) {
+	for _, first := range []time.Duration{500 * time.Millisecond, 7500 * time.Millisecond, 61 * time.Second, 5*time.Minute + 500*time.Millisecond, 9*time.Minute + 59*time.Second} {
+		t.Run(first.String(), func(t *testing.T) {
+			h := newSetupHarness(t)
+			good := h.token()
+			start := h.clk.Now()
+			const step = 250 * time.Millisecond
+			owner := 0
+			for el := time.Duration(0); el <= 10*time.Minute; el += step {
+				if el%time.Second == 0 {
+					code := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code
+					require.Contains(t, []int{http.StatusForbidden, http.StatusTooManyRequests}, code, "noise at %v", el)
+				}
+				if el >= first && (el-first)%(7*time.Second) == 0 {
+					owner++
+					rec := h.req("POST", "/api/setup/claim", tokenBody(good))
+					require.Equal(t, http.StatusNoContent, rec.Code, "owner attempt %d at %v: %s", owner, el, rec.Body.String())
+					require.NotNil(t, cookieNamed(rec, setupCookieName))
+					break // the owner has the setup session
+				}
+				h.clk.Set(start.Add(el + step))
+			}
+			require.Equal(t, 1, owner, "the owner's first attempt succeeded")
+			require.Equal(t, good, h.token(), "the locked noise never rotated the code")
+		})
+	}
+}
+
+// Concurrent noise from the owner's address never makes the right code fail,
+// with the wrong-code hold on and the locked checks' slots contended.
+func TestSetupClaimRightCodeSurvivesConcurrentNoise(t *testing.T) {
+	h := newSetupHarness(t)
+	h.srv.setupWrongDelay = 2 * time.Millisecond
+	good := h.token()
+	for i := 0; i < 10; i++ { // lock the address first
+		require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code)
+	}
+	stop := make(chan struct{})
+	var noise sync.WaitGroup
+	for g := 0; g < 4*maxLockedChecks; g++ {
+		noise.Add(1)
+		go func() {
+			defer noise.Done()
+			for i := 0; ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				code := h.req("POST", "/api/setup/claim", tokenBody(fmt.Sprintf("0000-0000-0000-0000-0000-%04d", i%10000))).Code
+				if code != http.StatusForbidden && code != http.StatusTooManyRequests {
+					t.Errorf("noise got %d", code)
+					return
+				}
+			}
+		}()
+	}
+	// A success clears the address, so the noise counts again until it is
+	// locked again: at most ten counted per success, well under the rotation.
+	for i := 0; i < 5; i++ {
+		rec := h.req("POST", "/api/setup/claim", tokenBody(good))
+		require.Equal(t, http.StatusNoContent, rec.Code, "owner attempt %d: %s", i, rec.Body.String())
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(stop)
+	noise.Wait()
+	require.Equal(t, good, h.token(), "not rotated")
+}
+
+// A wrong code from a locked address is held for setupWrongDelay before its
+// 429; the right code is not held.
+func TestSetupClaimLockedWrongCodeIsHeld(t *testing.T) {
+	h := newSetupHarness(t)
+	good := h.token()
+	for i := 0; i < 10; i++ {
+		require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code)
+	}
+	h.srv.setupWrongDelay = 60 * time.Millisecond
+	began := time.Now()
+	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code)
+	require.GreaterOrEqual(t, time.Since(began), 60*time.Millisecond, "held")
+	// A cancelled request stops waiting (were it held, the test would time out).
+	h.srv.setupWrongDelay = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000"),
+		func(r *http.Request) { *r = *r.WithContext(ctx) }).Code)
+	h.claim(good) // still an hour's hold for a wrong code: the right one is not held
+}
+
+// Non-locked addresses: wrong codes still count and still rotate the code, and
+// the lockout still locks after ten.
+func TestSetupClaimCountingUnchangedForUnlockedAddresses(t *testing.T) {
+	h := newSetupHarness(t)
+	good := h.token()
+	for i := 0; i < setup.DefaultRotateAfter-1; i++ {
+		rec := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000"), peer(fmt.Sprintf("192.0.2.%d:1", i/10+1)))
+		require.Equal(t, http.StatusForbidden, rec.Code, "attempt %d", i)
+	}
+	// The eleventh from one address is locked and not counted...
+	for i := 0; i < 5; i++ {
+		require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000"), peer("192.0.2.1:1")).Code)
+	}
+	require.Equal(t, good, h.token(), "locked noise did not reach the rotation")
+	// ...and the hundredth counted one rotates.
+	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000"), peer("198.51.100.9:1")).Code)
+	require.NotEqual(t, good, h.token(), "rotated")
 }

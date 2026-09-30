@@ -167,10 +167,10 @@ func TestAboutReportsAccessAndPasswordModes(t *testing.T) {
 	require.Equal(t, "access", out["auth_mode"])
 }
 
-// A lockout that ends forgets its throttle: a new lockout of the same address
-// right after starts with its one check available, even within a minute of the
-// last check of the old one.
-func TestSetupClaimThrottleResetsWithTheLockout(t *testing.T) {
+// A lockout that ends counts wrong codes again (answered 403, not 429), and a
+// new lockout of the same address right after still checks the right code at
+// once, however many wrong ones came just before it.
+func TestSetupClaimLockoutEndsAndRelocks(t *testing.T) {
 	h := newSetupHarness(t)
 	good := h.token()
 	bad := tokenBody("0000-0000-0000-0000-0000-0000")
@@ -181,10 +181,11 @@ func TestSetupClaimThrottleResetsWithTheLockout(t *testing.T) {
 	}
 	lock() // the window starts now
 	h.clk.Advance(14*time.Minute + 50*time.Second)
-	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", bad).Code, "the one check this minute, spent on a wrong code")
-	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", tokenBody(good)).Code, "not checked")
-	h.clk.Advance(15 * time.Second) // the window has ended, 15 s after that check
+	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", bad).Code, "still locked")
+	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", bad).Code, "still locked")
+	h.clk.Advance(15 * time.Second) // the window has ended
 	lock()
+	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", bad).Code, "locked again")
 	h.claim(good)
 }
 

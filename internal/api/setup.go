@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
@@ -100,14 +99,26 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request) {
 // setup session (the kipple_setup cookie). Each attempt reserves a slot on the
 // per-IP setup lockout (never the login's) before the token is checked, as the
 // login does, so a parallel burst cannot exceed the limit; a wrong token keeps
-// its reservation and counts towards the global rotation. Past the limit an
-// address gets one check per lockedCheckEvery (the others are answered 429
-// unchecked), and a wrong token there no longer counts towards the rotation
-// (one noisy client cannot keep replacing the code). The right token is still
-// accepted in that one check: behind Docker's port forwarding every client
-// shares the gateway's address, and one noisy device must not lock the owner
-// out of claiming for good, only make them wait up to a minute. At 120 bits the
-// lockout and the rotation are about noise, not about guessing (design 5.1).
+// its reservation and counts towards the global rotation.
+//
+// Past the limit every attempt from the address is still checked: behind
+// Docker's port forwarding every client shares the gateway's address, and a
+// device that keeps sending wrong codes must never keep the owner's right code
+// from being accepted (issue #156: a check-per-minute slot went to whoever
+// asked first, so steady noise starved the owner). A check is one constant-time
+// hash compare against a 120-bit token, so checking everything costs nothing
+// and guessing stays infeasible; the lockout and the rotation are about noise,
+// not about guessing (design 5.1). What the lock changes is:
+//
+//   - a wrong token no longer counts towards the rotation (one noisy client
+//     cannot keep replacing the owner's code) and is answered 429 "locked",
+//     held for setupWrongDelay first, so each connection of a noisy client gets
+//     at most one answer per delay;
+//   - at most maxLockedChecks locked checks run at once; a check waits for a
+//     slot (only a cancelled request gives up), it is never refused.
+//
+// A right and a wrong token take the same path (slot, check) until the check
+// says which: only then does a match succeed at once and a mismatch wait.
 func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 	if s.setupGone(w) {
 		return
@@ -128,18 +139,16 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	ip := s.clientIP(r)
 	reserved, left := s.setupLock.Reserve(ip)
-	claim := s.opt.Setup.Claim
-	if !reserved {
-		if !s.setupSlow.allow(auth.RateKey(ip), s.now()) {
-			w.Header().Set("Retry-After", strconv.Itoa(int(lockedCheckEvery/time.Second)))
-			writeError(w, http.StatusTooManyRequests, "locked")
-			return
-		}
-		claim = s.opt.Setup.ClaimUncounted // a locked address's noise never rotates the code
+	var (
+		cookie string
+		ok     bool
+		err    error
+	)
+	if reserved {
+		cookie, ok, err = s.opt.Setup.Claim(body.Token)
 	} else {
-		s.setupSlow.forget(auth.RateKey(ip)) // not locked (any more): a later lockout starts with its check free
+		cookie, ok, err = s.lockedClaim(r.Context(), body.Token)
 	}
-	cookie, ok, err := claim(body.Token)
 	switch {
 	case err != nil:
 		if reserved {
@@ -152,6 +161,8 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "setup claim", err)
 		return
 	case !ok && !reserved:
+		// A cancelled wait for a check slot lands here too: nobody reads it.
+		s.holdWrong(r.Context())
 		w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
 		writeError(w, http.StatusTooManyRequests, "locked")
 		return
@@ -168,51 +179,42 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// lockedCheckEvery is how often a locked-out address may still have a setup
-// code checked.
-const lockedCheckEvery = time.Minute
+const (
+	// lockedWrongDelay holds the 429 for a wrong code from a locked-out
+	// address: a client sending codes one after another gets one answer per
+	// second per connection. Never applied before the check, so it never delays
+	// the right code.
+	lockedWrongDelay = time.Second
+	// maxLockedChecks is how many locked-out checks run at once (all addresses
+	// together). A check holds its slot only for the compare, so waiting for one
+	// is brief even under a flood.
+	maxLockedChecks = 4
+)
 
-// maxLockedTracked bounds lockedThrottle (like the lockout's own map).
-const maxLockedTracked = 4096
-
-// lockedThrottle spaces the checks of locked-out addresses: without it a
-// locked address could still have every guess checked, only uncounted.
-type lockedThrottle struct {
-	mu   sync.Mutex
-	last map[string]time.Time
+// lockedClaim checks token for a locked-out address without counting a
+// mismatch (setupClaim). It waits for a check slot and gives up only when ctx
+// ends (the client went away), reporting a mismatch then.
+func (s *Server) lockedClaim(ctx context.Context, token string) (cookie string, ok bool, err error) {
+	select {
+	case s.setupChecks <- struct{}{}:
+	case <-ctx.Done():
+		return "", false, nil
+	}
+	defer func() { <-s.setupChecks }()
+	return s.opt.Setup.ClaimUncounted(token)
 }
 
-// allow reports whether key may have one code checked now, and records it. A
-// full table is pruned of entries older than lockedCheckEvery; if it is still
-// full the check is refused (fail closed until entries age out).
-func (t *lockedThrottle) allow(key string, now time.Time) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.last == nil {
-		t.last = map[string]time.Time{}
+// holdWrong waits setupWrongDelay, or until ctx ends.
+func (s *Server) holdWrong(ctx context.Context) {
+	if s.setupWrongDelay <= 0 {
+		return
 	}
-	if at, ok := t.last[key]; ok && now.Sub(at) < lockedCheckEvery && !now.Before(at) {
-		return false
+	t := time.NewTimer(s.setupWrongDelay)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-ctx.Done():
 	}
-	if _, ok := t.last[key]; !ok && len(t.last) >= maxLockedTracked {
-		for k, at := range t.last {
-			if now.Sub(at) >= lockedCheckEvery || now.Before(at) {
-				delete(t.last, k)
-			}
-		}
-		if len(t.last) >= maxLockedTracked {
-			return false
-		}
-	}
-	t.last[key] = now
-	return true
-}
-
-// forget drops key (its lockout ended, or it was never locked).
-func (t *lockedThrottle) forget(key string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	delete(t.last, key)
 }
 
 // setupAccount is POST /api/setup/account: creates the one account and signs
