@@ -189,3 +189,19 @@ then check out the previous tag, rebuild with `KIPPLE_VERSION=<previous tag>`, s
 Never copy a snapshot over the volume's `kipple.db` by hand: the `-wal` and `-shm` files left beside it would be
 replayed onto the copy and corrupt it; `kipple restore` handles them. The database may have moved forward, so a rollback
 across a migration always goes through the snapshot. Record what happened in the CHANGELOG or the diary; ship the fix as the next version.
+
+## Badges and supply-chain checks
+
+The README badges are all live except two that need a one-time setup by the owner:
+
+- **Test coverage (Codecov).** Sign in to codecov.io with GitHub, add `WPTK/Kipple`, and put the upload token in the
+  repository secret `CODECOV_TOKEN` (Settings > Secrets and variables > Actions). CI uploads the Go profile and the web
+  lcov report (flags `go` and `web`) only when the secret exists, so fork PRs and the state before setup do not fail.
+  The badge is empty until the first upload on main. Coverage is visibility only (`codecov.yml`, `docs/sqa-plan.md`):
+  no status check gates a merge.
+- **OpenSSF Scorecard.** `.github/workflows/scorecard.yml` needs no secret. It publishes after its first run on main
+  (Actions > Scorecard > Run workflow to trigger it by hand); until then the badge says "invalid repo path". It then
+  reruns weekly and on branch protection changes.
+- **Views** is a hits.sh counter and is approximate.
+- The GHCR tags badge (ghcr-badge) lists the newest three non-`sha*` tags. Do not switch it to the `latest_tag` or
+  `size` endpoints: the first shows a signature tag and the second fails on a multi-arch image.
