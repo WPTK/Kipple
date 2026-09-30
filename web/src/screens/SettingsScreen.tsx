@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useMatch, useNavigate } from "react-router";
-import { BarChart3, ChevronLeft, ChevronRight, Filter, Palette, Rss, SlidersHorizontal, UserRound, type LucideIcon } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, Filter, Info, Palette, Rss, SlidersHorizontal, UserRound, type LucideIcon } from "lucide-react";
 import { useSettings, type SettingGroup, type SettingMeta } from "@/api/admin";
 import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { errorMessage } from "@/api/client";
@@ -35,6 +35,7 @@ import { Disclosure, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { DensityControl, SpacingControl, TextSizeControl } from "./AppearanceControls";
 import { DevicesSection } from "./DevicesSection";
 import { FiltersSection } from "./filters/FiltersSection";
+import { AboutSection } from "./AboutSection";
 import { AccountActions } from "./AccountSection";
 import { AutoReadCatchUp } from "./AutoReadCatchUp";
 import { ImageCachePanel } from "./ImageCachePanel";
@@ -44,12 +45,12 @@ import { StatsDataSection } from "./StatsDataDialogs";
 import { loadRange } from "@/lib/statsFormat";
 
 /*
- * Settings is master-detail (issue #55): six groups, each at its own URL (/settings/<group>). On a wide screen a rail
+ * Settings is master-detail (issue #55): seven groups, each at its own URL (/settings/<group>). On a wide screen a rail
  * of the groups sits beside the chosen group's page, and a bare /settings opens the first group. On a narrow screen
  * /settings is the list of groups and a group is a page of its own with a back button.
  */
 
-/** The six groups, in rail order. `id` is the URL segment. */
+/** The seven groups, in rail order. `id` is the URL segment. */
 export const SETTINGS_GROUPS = [
   { id: "appearance", label: "Appearance & Reading", icon: Palette },
   { id: "sync", label: "Sync & Feeds", icon: Rss },
@@ -57,6 +58,7 @@ export const SETTINGS_GROUPS = [
   { id: "filters", label: "Filters & Saved Searches", icon: Filter },
   { id: "account", label: "Account & Devices", icon: UserRound },
   { id: "advanced", label: "Advanced", icon: SlidersHorizontal },
+  { id: "about", label: "About", icon: Info },
 ] as const satisfies readonly { id: string; label: string; icon: LucideIcon }[];
 
 export type SettingsGroupId = (typeof SETTINGS_GROUPS)[number]["id"];
@@ -289,7 +291,7 @@ function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }
   );
 }
 
-/* ---------- The six group pages ---------- */
+/* ---------- The seven group pages ---------- */
 
 function AppearancePage() {
   const p = useStore(prefsStore);
@@ -444,6 +446,14 @@ function AdvancedPage() {
   );
 }
 
+function AboutPage() {
+  return (
+    <Section title="About Kipple">
+      <AboutSection />
+    </Section>
+  );
+}
+
 const PAGES: Record<SettingsGroupId, () => ReactNode> = {
   appearance: AppearancePage,
   sync: SyncPage,
@@ -451,6 +461,7 @@ const PAGES: Record<SettingsGroupId, () => ReactNode> = {
   filters: FiltersPage,
   account: AccountPage,
   advanced: AdvancedPage,
+  about: AboutPage,
 };
 
 /* ---------- Group list previews ---------- */

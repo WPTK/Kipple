@@ -17,6 +17,7 @@ import { navItemClass } from "@/ui/navItem";
 import { FeedTree } from "@/screens/FeedTree";
 import { undoLast } from "@/lib/undo";
 import { HelpDialog, openHelp } from "./HelpDialog";
+import { WhatsNewHost } from "./WhatsNew";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { ARTICLE_MIN, LIST_MIN_FOR_SIDEBAR, maxFor, useViewportWidth } from "@/lib/useWidth";
 import { MutedCount, UnreadCount } from "@/ui/UnreadCount";
@@ -279,6 +280,7 @@ export function AppShell() {
         <UndoToast />
       </Toasts>
       <HelpDialog />
+      <WhatsNewHost />
       <FilterEditorHost />
       <FeedEditorHost />
     </div>

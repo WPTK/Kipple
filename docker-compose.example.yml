@@ -19,6 +19,7 @@ services:
       args:
         VERSION: ${KIPPLE_VERSION:-dev}
         VCS_REF: ${KIPPLE_VCS_REF:-unknown}
+        BUILD_DATE: ${KIPPLE_BUILD_DATE:-unknown}
     image: kipple:latest
     container_name: kipple
     # Come back after a crash or reboot, but stay down if you stopped it on purpose.

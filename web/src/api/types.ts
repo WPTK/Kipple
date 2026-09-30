@@ -150,6 +150,8 @@ export interface Bootstrap {
   warnings: Warning[];
   server_time: number;
   version: string;
+  /** The id of the web build embedded in the server (absent on an older server). Compared with this bundle's own. */
+  web_build?: string;
 }
 
 export interface StatusResponse {

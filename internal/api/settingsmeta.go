@@ -414,6 +414,14 @@ var settingDefs = withScopes([]settingDef{
 			}
 			return m, ""
 		}},
+	{Key: "ui.whats_new_seen", Label: "Last version whose changes were shown", Description: "The newest Kipple version whose \"What's new\" was shown after an upgrade. Kept for the whole account so one reader does not dismiss it on every device.",
+		Group: groupAdvanced, Kind: "text", Surface: surfaceHidden, check: func(v any) (any, string) {
+			s, ok := v.(string)
+			if !ok || len(s) > 64 || hasControl(s) {
+				return nil, "must be a version string of at most 64 characters"
+			}
+			return strings.TrimSpace(s), ""
+		}},
 	{Key: "ui.device_defaults", Label: "Defaults for new devices", Description: "The client-side appearance and behavior choices new devices start from.",
 		Group: groupAdvanced, Kind: "json", Surface: surfaceHidden, check: checkDeviceDefaults},
 })

@@ -5,6 +5,52 @@ import { defineConfig, type Plugin } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { bootScript, themesCss } from "./src/theme/css.ts";
+import { parseChangelog } from "./src/lib/whatsNewParse.ts";
+
+// The release this bundle is built for (the Dockerfile passes VERSION to the web stage too) and an id for this
+// particular build. The id is written into index.html as <meta name="kipple-build"> and into the bundle as
+// __KIPPLE_BUILD__; the server reports the one in its embedded index.html as bootstrap.web_build, and a page
+// whose own id differs knows the server was rebuilt since it loaded. It comes from the version and the build time
+// (SOURCE_DATE_EPOCH when set, so a rebuild of the same commit gets the same id). "dev" outside a build.
+const VERSION = process.env.VERSION?.trim() || "dev";
+function buildId(): string {
+  const stamp = String(Math.floor(Number(process.env.SOURCE_DATE_EPOCH) * 1000) || Date.now());
+  return createHash("sha256").update(`${VERSION}:${stamp}`).digest("hex").slice(0, 10);
+}
+
+// The build id in index.html (a build only).
+function kippleBuildMeta(id: string): Plugin {
+  let isBuild = false;
+  return {
+    name: "kipple-build-meta",
+    configResolved: (c) => {
+      isBuild = c.command === "build";
+    },
+    transformIndexHtml: () => (isBuild ? [{ tag: "meta", attrs: { name: "kipple-build", content: id }, injectTo: "head" as const }] : []),
+  };
+}
+
+// The newest ten releases of CHANGELOG.md as a virtual module: a lazy chunk with a hashed name, loaded only when
+// "What's new" opens. The Docker web stage copies the changelog to ../CHANGELOG.md; a checkout without it gets [].
+function kippleWhatsNew(): Plugin {
+  const id = "virtual:kipple-whats-new";
+  const file = fileURLToPath(new URL("../CHANGELOG.md", import.meta.url));
+  return {
+    name: "kipple-whats-new",
+    resolveId: (s) => (s === id ? "\0" + id : null),
+    load(s) {
+      if (s !== "\0" + id) return null;
+      this.addWatchFile(file);
+      let text = "";
+      try {
+        text = readFileSync(file, "utf8");
+      } catch {
+        // no changelog next to the app: the panel simply has nothing to show
+      }
+      return `export default ${JSON.stringify(parseChangelog(text, 10))};`;
+    },
+  };
+}
 
 // Every scheme's CSS variables, as a virtual stylesheet.
 function kippleThemes(): Plugin {
@@ -90,32 +136,36 @@ function kippleSw(): Plugin {
 // KIPPLE_DEV_BACKEND points the dev proxy at another local server (a second instance, a worktree build).
 const backend = process.env.KIPPLE_DEV_BACKEND ?? "http://127.0.0.1:7080";
 
-export default defineConfig({
-  plugins: [react(), tailwindcss(), kippleThemes(), themeBoot(), keepGitkeep(), kippleSw()],
-  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
-  server: {
-    host: "127.0.0.1",
-    proxy: {
-      "/api": backend,
-      "/img": backend,
-      "/healthz": backend,
+export default defineConfig(({ command }) => {
+  const build = command === "build" ? buildId() : "dev";
+  return {
+    plugins: [react(), tailwindcss(), kippleThemes(), themeBoot(), kippleBuildMeta(build), kippleWhatsNew(), keepGitkeep(), kippleSw()],
+    define: { __KIPPLE_VERSION__: JSON.stringify(command === "build" ? VERSION : "dev"), __KIPPLE_BUILD__: JSON.stringify(build) },
+    resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+    server: {
+      host: "127.0.0.1",
+      proxy: {
+        "/api": backend,
+        "/img": backend,
+        "/healthz": backend,
+      },
     },
-  },
-  // Nothing is inlined as a data: URI: the page policy is font-src 'self', and small font subsets were being blocked.
-  build: { target: "es2022", assetsInlineLimit: 0 },
-  test: {
-    environment: "jsdom",
-    setupFiles: ["./src/test/setup.ts"],
-    css: false,
-    restoreMocks: true,
-    // The screens are lazy chunks and jsdom renders large trees; on a busy machine the default 5 s is too tight.
-    testTimeout: 20_000,
-    // Visibility only (SQA plan): reported in CI logs, not a gate. No thresholds are enforced.
-    coverage: {
-      provider: "v8",
-      reporter: ["text-summary"],
-      include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/test/**", "src/**/*.d.ts", "src/main.tsx"],
+    // Nothing is inlined as a data: URI: the page policy is font-src 'self', and small font subsets were being blocked.
+    build: { target: "es2022", assetsInlineLimit: 0 },
+    test: {
+      environment: "jsdom",
+      setupFiles: ["./src/test/setup.ts"],
+      css: false,
+      restoreMocks: true,
+      // The screens are lazy chunks and jsdom renders large trees; on a busy machine the default 5 s is too tight.
+      testTimeout: 20_000,
+      // Visibility only (SQA plan): reported in CI logs, not a gate. No thresholds are enforced.
+      coverage: {
+        provider: "v8",
+        reporter: ["text-summary"],
+        include: ["src/**/*.{ts,tsx}"],
+        exclude: ["src/test/**", "src/**/*.d.ts", "src/main.tsx"],
+      },
     },
-  },
+  };
 });
