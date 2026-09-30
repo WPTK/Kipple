@@ -136,6 +136,8 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		claim = s.opt.Setup.ClaimUncounted // a locked address's noise never rotates the code
+	} else {
+		s.setupSlow.forget(auth.RateKey(ip)) // not locked (any more): a later lockout starts with its check free
 	}
 	cookie, ok, err := claim(body.Token)
 	switch {
@@ -204,6 +206,13 @@ func (t *lockedThrottle) allow(key string, now time.Time) bool {
 	}
 	t.last[key] = now
 	return true
+}
+
+// forget drops key (its lockout ended, or it was never locked).
+func (t *lockedThrottle) forget(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.last, key)
 }
 
 // setupAccount is POST /api/setup/account: creates the one account and signs

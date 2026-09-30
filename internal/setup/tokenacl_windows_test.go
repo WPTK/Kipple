@@ -10,8 +10,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// On Windows the 0600 mode is ignored, so the token file gets a protected DACL
-// with a single entry: full access for the user Kipple runs as.
+// On Windows the 0600 mode is ignored, so the token file gets a protected DACL:
+// the user Kipple runs as, SYSTEM and Administrators, nobody else (no Users,
+// no Everyone, nothing inherited).
 func TestTokenFileIsOwnerOnlyOnWindows(t *testing.T) {
 	dir := t.TempDir()
 	want, err := NewToken()
@@ -25,15 +26,23 @@ func TestTokenFileIsOwnerOnlyOnWindows(t *testing.T) {
 	require.NotZero(t, ctl&windows.SE_DACL_PROTECTED, "nothing inherited from the data directory")
 	dacl, _, err := sd.DACL()
 	require.NoError(t, err)
-	require.EqualValues(t, 1, dacl.AceCount, "one entry only")
-
-	var ace *windows.ACCESS_ALLOWED_ACE
-	require.NoError(t, windows.GetAce(dacl, 0, &ace))
-	require.EqualValues(t, windows.ACCESS_ALLOWED_ACE_TYPE, ace.Header.AceType)
-	sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+	require.EqualValues(t, 3, dacl.AceCount)
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	require.NoError(t, err)
-	require.True(t, sid.Equals(user.User.Sid), "the entry is for the current user: %s", sid)
+	system, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	require.NoError(t, err)
+	admins, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	require.NoError(t, err)
+	var sawUser bool
+	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		require.NoError(t, windows.GetAce(dacl, i, &ace))
+		require.EqualValues(t, windows.ACCESS_ALLOWED_ACE_TYPE, ace.Header.AceType)
+		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+		sawUser = sawUser || sid.Equals(user.User.Sid)
+		require.True(t, sid.Equals(user.User.Sid) || sid.Equals(system) || sid.Equals(admins), "unexpected entry for %s", sid)
+	}
+	require.True(t, sawUser, "the current user has access")
 
 	// The owner can still read it back (kipple setup-token).
 	tok, ok, err := ReadToken(dir)

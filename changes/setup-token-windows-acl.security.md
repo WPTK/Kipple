@@ -1,1 +1,1 @@
-On Windows the setup code file (`setup-token` in the data directory) is now readable only by the user Kipple runs as: the 0600 mode it was created with does nothing there, so it could inherit a folder's access list that lets every local user read it.
+On Windows the setup code file (`setup-token` in the data directory) is now readable only by the user Kipple runs as (plus SYSTEM and Administrators): the 0600 mode it was created with does nothing there, so it could inherit a folder's access list that lets every local user read it.

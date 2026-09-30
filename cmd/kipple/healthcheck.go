@@ -80,24 +80,12 @@ func probeHealth(addr string, timeout time.Duration) error {
 }
 
 func probeHealthCtx(ctx context.Context, addr string) error {
-	url, err := healthURL(addr)
+	req, err := healthRequest(ctx, addr)
 	if err != nil {
 		return err
 	}
-	// A probe of this process's own listener: the address is the operator's KIPPLE_ADDR (127.0.0.1 for an empty or
-	// unspecified host, else the host it names, an IP or a name), never request input.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil) // #nosec G704 -- the operator's own KIPPLE_ADDR, see above
-	if err != nil {
-		return err
-	}
-	// A KIPPLE_ADDR that names a host (kipple-box:1919) is dialled by that name,
-	// but the Host header says 127.0.0.1: in setup and open mode the Host gate
-	// answers 421 to a name it does not allow, which would make a healthy server
-	// report unhealthy. An IP literal always passes the gate.
-	if h, port, err := net.SplitHostPort(req.URL.Host); err == nil && net.ParseIP(h) == nil {
-		req.Host = net.JoinHostPort("127.0.0.1", port)
-	}
-	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req) // #nosec G704 -- same probe, see above
+	url := req.URL.String()
+	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req) // #nosec G704 -- the operator's own KIPPLE_ADDR, see healthRequest
 	if err != nil {
 		return fmt.Errorf("unhealthy: %w", err)
 	}
@@ -111,4 +99,26 @@ func probeHealthCtx(ctx context.Context, addr string) error {
 		return fmt.Errorf("unhealthy: %s did not answer like Kipple", url)
 	}
 	return nil
+}
+
+// healthRequest is the probe request for addr.
+func healthRequest(ctx context.Context, addr string) (*http.Request, error) {
+	url, err := healthURL(addr)
+	if err != nil {
+		return nil, err
+	}
+	// A probe of this process's own listener: the address is the operator's KIPPLE_ADDR (127.0.0.1 for an empty or
+	// unspecified host, else the host it names, an IP or a name), never request input.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil) // #nosec G704 -- the operator's own KIPPLE_ADDR, see above
+	if err != nil {
+		return nil, err
+	}
+	// A KIPPLE_ADDR that names a host (kipple-box:1919) is dialled by that name,
+	// but the Host header says 127.0.0.1: in setup and open mode the Host gate
+	// answers 421 to a name it does not allow, which would make a healthy server
+	// report unhealthy. An IP literal always passes the gate.
+	if h, port, err := net.SplitHostPort(req.URL.Host); err == nil && net.ParseIP(h) == nil {
+		req.Host = net.JoinHostPort("127.0.0.1", port)
+	}
+	return req, nil
 }

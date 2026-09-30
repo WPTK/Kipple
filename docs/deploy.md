@@ -172,7 +172,7 @@ the browser shows the setup wizard instead of a sign-in screen, and nothing can 
   `http://<host>:<port>/#setup=<code>`, that pre-fills the code (a `#` fragment never leaves the browser, so it does not reach
   a proxy log). Log rotated away or the container restarted a while ago? `docker exec kipple /kipple setup-token` prints
   the current code again (it reads `/data/setup-token`), or says no setup is pending. The file is owner-only: mode
-  0600, and on Windows (where the mode does nothing) a protected access list that admits only the user Kipple runs as. Both example compose files and the
+  0600, and on Windows (where the mode does nothing) a protected access list that admits only the user Kipple runs as, SYSTEM and Administrators. Both example compose files and the
   README's one-line container command name the container `kipple`; with a compose file that sets no `container_name`,
   use `docker compose logs kipple` and `docker compose exec kipple /kipple setup-token` instead.
 - **Wrong codes.** Ten wrong codes from one address in 15 minutes lock that address: from then on it gets one code
