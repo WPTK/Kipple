@@ -138,13 +138,21 @@ export function FeedsStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
       step={stepById("feeds")}
       description="A few good feeds to start with, so Kipple isn't empty. Untick anything that isn't for you. You can add, remove or move feeds any time."
       onSkipAll={onSkipAll}
-      skipAllBusy={skipAllBusy}
+      skipAllBusy={skipAllBusy || busy}
     >
       <div className="flex flex-1 flex-col gap-4">
         {error ? <Notice tone="error">{error}</Notice> : null}
         {body}
-        <StepActions back={<Button onClick={onBack}>Back</Button>}>
-          <Button onClick={onNext}>Skip</Button>
+        <StepActions
+          back={
+            <Button disabled={busy} onClick={onBack}>
+              Back
+            </Button>
+          }
+        >
+          <Button disabled={busy} onClick={onNext}>
+            Skip
+          </Button>
           <Button variant="solid" disabled={busy || chosen.length === 0} onClick={() => void add()}>
             {busy ? "Adding" : chosen.length === 0 ? "Add feeds" : `Add ${chosen.length} feed${chosen.length === 1 ? "" : "s"}`}
           </Button>

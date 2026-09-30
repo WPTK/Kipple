@@ -42,9 +42,9 @@ export function TokenStep({ initialCode = "", issuedAt, notice, onClaimed }: { i
   return (
     <WizardFrame step={stepById("token")} description="Kipple has no account yet. To make sure only you can create it, it printed a one-time setup code when it started.">
       <form onSubmit={(e) => void submit(e)} className="flex flex-1 flex-col gap-4" noValidate>
-        {error ? <Notice tone="error">{error}</Notice> : notice ? <Notice tone="warn">{notice}</Notice> : null}
+        {!error && notice ? <Notice tone="warn">{notice}</Notice> : null}
         {fromLink && !error ? <Notice>The code from your link is filled in. Press Continue.</Notice> : null}
-        <Field label="Setup code" help={issued ? `Spaces, dashes and capital letters don't matter. This code was made ${issued}.` : "Spaces, dashes and capital letters don't matter."} error={null}>
+        <Field label="Setup code" help={issued ? `Spaces, dashes and capital letters don't matter. This code was made ${issued}.` : "Spaces, dashes and capital letters don't matter."} error={error}>
           {(a) => (
             <input
               {...a}

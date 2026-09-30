@@ -58,6 +58,7 @@ describe("Login", () => {
     let signedIn = false;
     mockFetch({
       "GET /api/bootstrap": () => (signedIn ? json(bootstrap) : json({ error: "auth" }, 401)),
+      "GET /api/instance": () => json({ setup: false, auth: "password" }),
       "POST /api/auth/login": () => {
         signedIn = true;
         return new Response(null, { status: 204 });
@@ -78,6 +79,7 @@ describe("Login", () => {
   it("explains a wrong password without leaking which field", async () => {
     mockFetch({
       "GET /api/bootstrap": () => json({ error: "auth" }, 401),
+      "GET /api/instance": () => json({ setup: false, auth: "password" }),
       "POST /api/auth/login": () => json({ error: "auth" }, 401),
     });
     go("/");

@@ -1,16 +1,16 @@
 import { Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ApiError } from "@/api/client";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { LoginScreen } from "@/screens/LoginScreen";
+import { Button } from "@/ui/button";
 import { Skeleton } from "@/ui/kit";
-import { fetchInstance, takeSetupFragment } from "./api";
+import { fetchInstance, INSTANCE_KEY, openReasonText, takeSetupFragment } from "./api";
 
 // The wizard's signed-out half loads only when Kipple has no account or has no password; everyone else gets the sign-in form.
 const SetupFlow = lazyScreen(() => import("./SetupFlow").then((m) => ({ default: m.SetupFlow })));
 const OpenSignIn = lazyScreen(() => import("./SetupFlow").then((m) => ({ default: m.OpenSignIn })));
 
-// The query key starts with "auth" so the app's sign-out cleanup (App.tsx) leaves it alone.
-const INSTANCE_KEY = ["auth", "instance"] as const;
 /**
  * What a signed-out browser sees. GET /api/instance says which: the setup wizard (no account yet), a silent sign-in
  * (open mode: no password), or the sign-in form. A server that predates the wizard has no such route; the form is
@@ -27,7 +27,30 @@ export function SignedOut() {
       </div>
     );
   }
-  if (inst.isError || !inst.data) return <LoginScreen />;
+  if (inst.isError || !inst.data) {
+    // Only an answer that says "this server has no such route" (or refuses it) means an older Kipple: the form, as it
+    // always was. Anything else (offline, a server error, a proxy refusing the address) says so; a password form there
+    // would send a no-password Kipple's owner to a screen that cannot let them in.
+    const status = inst.error instanceof ApiError ? inst.error.status : -1;
+    if (status === 401 || status === 404) return <LoginScreen />;
+    return (
+      <main className="flex h-full items-center justify-center px-4">
+        <div className="flex max-w-sm flex-col gap-3" role="alert">
+          <h1 className="text-xl font-bold">Kipple couldn't load</h1>
+          <p className="text-fg2">
+            {status === 0
+              ? "Kipple couldn't reach the server. Check your connection and try again."
+              : status === 421
+                ? openReasonText("host")
+                : "The server answered with something unexpected. Try again, and check the Kipple logs if it keeps happening."}
+          </p>
+          <Button variant="solid" className="self-start" onClick={() => void inst.refetch()}>
+            Try again
+          </Button>
+        </div>
+      </main>
+    );
+  }
   if (inst.data.setup) {
     return (
       <Suspense fallback={<Skeleton label="Loading setup" />}>

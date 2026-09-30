@@ -52,7 +52,7 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
 
   if (settings.isPending) {
     return (
-      <WizardFrame step={stepById("timezone")} onSkipAll={onSkipAll} skipAllBusy={skipAllBusy}>
+      <WizardFrame step={stepById("timezone")} onSkipAll={onSkipAll} skipAllBusy>
         <Skeleton rows={3} label="Loading time zones" />
       </WizardFrame>
     );
@@ -71,21 +71,24 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
     );
   }
 
-  /** `skipping`: the zone shown is kept as it would be by Continue, but a failure to save does not hold anyone here. */
-  const save = async (skipping = false) => {
+  /**
+   * `skipping`: the zone shown is kept as it would be by Continue, but a failure to save does not hold anyone here.
+   * `proceed` is where to go afterwards: the next step, or the end of setup ("Skip the rest of setup" keeps the zone too).
+   */
+  const save = async (skipping = false, proceed: () => void = onNext) => {
     setError(null);
     if (env || selected === saved) {
-      onNext();
+      proceed();
       return;
     }
     setBusy(true);
     try {
       await patch.mutateAsync({ tz: selected });
-      onNext();
+      proceed();
     } catch (e) {
       if (skipping) {
         toast("Kipple couldn't save the time zone. You can set it in Settings, Account & Devices.", "error");
-        onNext();
+        proceed();
         return;
       }
       const bad = settingsIssues(e)?.issues.find((i) => i.key === "tz");
@@ -108,8 +111,8 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
     <WizardFrame
       step={stepById("timezone")}
       description="Kipple uses this for your daily reading statistics and its nightly upkeep. Your devices still show times in their own zone."
-      onSkipAll={onSkipAll}
-      skipAllBusy={skipAllBusy}
+      onSkipAll={() => void save(true, onSkipAll)}
+      skipAllBusy={skipAllBusy || busy}
     >
       <div className="flex flex-1 flex-col gap-4">
         {error ? <Notice tone="error">{error}</Notice> : null}

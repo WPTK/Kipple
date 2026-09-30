@@ -114,6 +114,7 @@ describe("Login without a password", () => {
   it("submits an empty password and explains a refusal", async () => {
     const { calls } = mockFetch({
       "GET /api/bootstrap": () => json({ error: "auth" }, 401),
+      "GET /api/instance": () => json({ setup: false, auth: "password" }),
       "POST /api/auth/login": () => json({ error: "auth" }, 401),
     });
     go("/");
@@ -129,6 +130,7 @@ describe("Access keys unavailable", () => {
   it("says the Access sign-in cannot be checked, not that the password is wrong", async () => {
     mockFetch({
       "GET /api/bootstrap": () => json({ error: "auth" }, 401),
+      "GET /api/instance": () => json({ setup: false, auth: "password" }),
       "POST /api/auth/login": () => json({ error: "access_unavailable" }, 503),
     });
     go("/");

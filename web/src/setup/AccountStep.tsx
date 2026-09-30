@@ -63,9 +63,26 @@ function Option({
  * Cloudflare Access (only offered when Access is set up and this very request came through it), or no password at all
  * (open mode, which is only safe when Kipple can be reached from this computer or over Tailscale and nowhere else).
  */
-export function AccountStep({ state, onCreated, onRestart, onDone }: { state: SetupState; onCreated: () => void; onRestart: () => void; onDone: () => void }) {
+export function AccountStep({
+  state,
+  initialUsername = "",
+  onCreated,
+  onRestart,
+  onDone,
+}: {
+  state: SetupState;
+  /** The user name typed before the setup session ran out, so a second go at the code does not lose it. */
+  initialUsername?: string;
+  onCreated: () => void;
+  onRestart: (username: string) => void;
+  onDone: () => void;
+}) {
   const uid = useId();
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(initialUsername);
+  // The live checks (too short, no match) speak once a field has been left, not on every keystroke: each one is an
+  // alert, and a screen reader would read out a new one per character. Submitting shows them all regardless.
+  const [left, setLeft] = useState<{ username?: boolean; password?: boolean; again?: boolean }>({});
+  const leave = (k: "username" | "password" | "again") => setLeft((l) => (l[k] ? l : { ...l, [k]: true }));
   const [choice, setChoice] = useState<Choice>("password");
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
@@ -79,9 +96,9 @@ export function AccountStep({ state, onCreated, onRestart, onDone }: { state: Se
   const pwInput = useRef<HTMLInputElement>(null);
 
   const open = openAvailability(state.open);
-  const usernameBad = username !== "" && !USERNAME.test(username) ? "Use 1 to 64 letters, digits, dots, dashes or underscores." : null;
-  const pwBad = password !== "" ? passwordProblem(password) : null;
-  const mismatch = again !== "" && again !== password ? "The two passwords don't match." : null;
+  const usernameBad = left.username && username !== "" && !USERNAME.test(username) ? "Use 1 to 64 letters, digits, dots, dashes or underscores." : null;
+  const pwBad = left.password && password !== "" ? passwordProblem(password) : null;
+  const mismatch = left.again && again !== "" && again !== password ? "The two passwords don't match." : null;
 
   const ready =
     USERNAME.test(username) &&
@@ -92,6 +109,7 @@ export function AccountStep({ state, onCreated, onRestart, onDone }: { state: Se
     setFieldError(null);
     setFormError(null);
     if (!ready) {
+      setLeft({ username: true, password: true, again: true });
       if (!USERNAME.test(username)) {
         setFieldError({ field: "username", message: username === "" ? "Enter a user name." : "Use 1 to 64 letters, digits, dots, dashes or underscores." });
         userInput.current?.focus();
@@ -119,7 +137,7 @@ export function AccountStep({ state, onCreated, onRestart, onDone }: { state: Se
         setFieldError({ field: f.field, message: f.message });
         (f.field === "username" ? userInput : pwInput).current?.focus();
       } else if (f.kind === "restart") {
-        onRestart();
+        onRestart(username);
       } else if (f.kind === "done") {
         setDone(f.message);
       } else setFormError(f.message);
@@ -160,6 +178,7 @@ export function AccountStep({ state, onCreated, onRestart, onDone }: { state: Se
               spellCheck={false}
               required
               value={username}
+              onBlur={() => leave("username")}
               onChange={(e) => {
                 setUsername(e.target.value);
                 setFieldError(null);
@@ -185,6 +204,7 @@ export function AccountStep({ state, onCreated, onRestart, onDone }: { state: Se
                       type="password"
                       autoComplete="new-password"
                       value={password}
+                      onBlur={() => leave("password")}
                       onChange={(e) => {
                         setPassword(e.target.value);
                         setFieldError(null);
@@ -194,7 +214,7 @@ export function AccountStep({ state, onCreated, onRestart, onDone }: { state: Se
                   )}
                 </Field>
                 <Field label="Password again" error={mismatch}>
-                  {(a) => <input {...a} name="new-password-again" type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} className={inputCls} />}
+                  {(a) => <input {...a} name="new-password-again" type="password" autoComplete="new-password" value={again} onBlur={() => leave("again")} onChange={(e) => setAgain(e.target.value)} className={inputCls} />}
                 </Field>
               </div>
             ) : null}

@@ -9,7 +9,9 @@ import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS } from "@/theme/settings";
 import { resetTakenSetupCode } from "./api";
+import { flush, resetDeviceSync, syncStore } from "@/lib/deviceSync";
 import { forgetWizardMemory, setupSecret } from "./session";
+import { resetOpenSignInGuard } from "./SetupFlow";
 
 // jsdom has no EventSource; the shell subscribes to one.
 class NoES {
@@ -120,6 +122,8 @@ beforeEach(() => {
   forgetWizardMemory();
   sessionStorage.clear();
   resetTakenSetupCode();
+  resetOpenSignInGuard();
+  resetDeviceSync();
   liveStore.set(initialLive);
   themeStore.set({ ...DEFAULT_THEME_SETTINGS });
   vi.stubGlobal("EventSource", NoES);
@@ -1124,5 +1128,351 @@ describe("Settings: run setup again", () => {
     await userEvent.setup().click(await screen.findByRole("button", { name: "Recommended feeds" }));
     await headingIs("Recommended feeds");
     expect(window.location.pathname).toBe("/welcome/feeds");
+  });
+});
+
+// ---- review fixes: the signed-out screen, skip-all, the theme preview and the small things around them ----
+
+describe("Skip the rest of setup from step 3 keeps the time zone", () => {
+  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
+
+  it("saves the preselected zone before it ends setup", async () => {
+    browserZoneIs("America/New_York");
+    const w = signedIn();
+    const { calls } = server(w);
+    go("/welcome/timezone");
+    await headingIs("Choose your time zone");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(w.tz).toBe("America/New_York");
+    const order = calls.filter((c) => (c.method === "PATCH" && c.url.pathname === "/api/settings") || c.url.pathname === "/api/onboarding/complete").map((c) => c.url.pathname);
+    expect(order).toEqual(["/api/settings", "/api/onboarding/complete"]);
+  });
+
+  it("still ends setup when the zone cannot be saved", async () => {
+    browserZoneIs("America/New_York");
+    const { calls } = server(signedIn(), { "PATCH /api/settings": () => json({ error: "internal" }, 500) });
+    go("/welcome/timezone");
+    await headingIs("Choose your time zone");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
+  });
+});
+
+describe("a stale /welcome/<step> address before the account exists", () => {
+  const claimed = () => makeWorld({ state: { claimed: true, access: { enabled: false, verified: false }, open: { reason: null, lan_reason: null } } });
+
+  it("does not carry the new account past step 3", async () => {
+    server(claimed());
+    go("/welcome/theme");
+    const user = userEvent.setup();
+    await headingIs("Create your account");
+    expect(window.location.pathname).toBe("/");
+    await user.type(screen.getByLabelText("User name"), "reader");
+    await user.type(screen.getByLabelText("Password"), "correct horse");
+    await user.type(screen.getByLabelText("Password again"), "correct horse");
+    await user.click(screen.getByRole("button", { name: "Create my account" }));
+    await headingIs("Choose your time zone");
+    expect(window.location.pathname).toBe("/welcome/timezone");
+  });
+});
+
+describe("the signed-out screen when GET /api/instance does not answer", () => {
+  it.each([
+    ["a server error", () => json({ error: "internal" }, 500), /answered with something unexpected/],
+    ["a refused address", () => json({ error: "misdirected" }, 421), /KIPPLE_ALLOWED_HOSTS/],
+    ["no network", () => Promise.reject(new TypeError("offline")) as never, /couldn't reach the server/],
+  ])("says so, with Try again, instead of a password form (%s)", async (_n, answer, text) => {
+    const w = makeWorld({ instance: { setup: false, auth: "open" }, authMode: "open", pending: false, passwordSet: false });
+    let broken = true;
+    server(w, { "GET /api/instance": (() => (broken ? answer() : json(w.instance))) as Handler });
+    go("/");
+    expect(await findAlert()).toHaveTextContent(text);
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    broken = false;
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    // The instance is in open mode: it signs in by itself.
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+  });
+
+  it("still shows the sign-in form for a 401", async () => {
+    server(makeWorld(), { "GET /api/instance": () => json({ error: "auth" }, 401) });
+    go("/");
+    expect(await screen.findByRole("heading", { name: "Sign in to Kipple" })).toBeInTheDocument();
+  });
+});
+
+describe("the sign-in form meets an open-mode Kipple", () => {
+  it("moves to the silent sign-in on a 409 open_mode", async () => {
+    const w = makeWorld({ instance: { setup: false, auth: "password" }, authMode: "open", pending: false, passwordSet: false });
+    const { calls } = server(w, {
+      "POST /api/auth/login": () => {
+        // The mode changed since the form was drawn.
+        w.instance = { setup: false, auth: "open" };
+        return json({ error: "open_mode", message: "this Kipple has no password; it signs in without one" }, 409);
+      },
+    });
+    go("/");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Username"), "reader");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(callTo(calls, "POST", "/api/auth/open")).toHaveLength(1);
+  });
+});
+
+describe("open-mode sign-in edge cases", () => {
+  const openWorld = () => makeWorld({ instance: { setup: false, auth: "open" }, authMode: "open", pending: false, passwordSet: false });
+
+  it("stops after one try when the browser does not keep the session cookie, and says why", async () => {
+    // The sign-in "succeeds" but the next request is still a 401: nothing was stored.
+    const { calls } = server(openWorld(), { "POST /api/auth/open": () => new Response(null, { status: 204 }) });
+    go("/");
+    await headingIs("Kipple needs cookies to keep you signed in");
+    // Give a runaway loop time to show itself.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(callTo(calls, "POST", "/api/auth/open")).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Kipple needs cookies");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(callTo(calls, "POST", "/api/auth/open")).toHaveLength(2));
+  });
+
+  it("goes to the sign-in form when the account has left open mode, instead of failing the same way every time", async () => {
+    const w = openWorld();
+    server(w, {
+      "POST /api/auth/open": () => {
+        w.instance = { setup: false, auth: "password" };
+        return json({ error: "not_found" }, 404);
+      },
+    });
+    go("/");
+    expect(await screen.findByRole("heading", { name: "Sign in to Kipple" })).toBeInTheDocument();
+  });
+
+  it("asks again what the mode is when Try again is pressed after a failure", async () => {
+    const w = openWorld();
+    let fail = true;
+    const { calls } = server(w, {
+      "POST /api/auth/open": () => {
+        if (fail) return json({ error: "internal" }, 500);
+        w.signedIn = true;
+        return new Response(null, { status: 204 });
+      },
+    });
+    go("/");
+    await screen.findByText("Kipple couldn't sign you in");
+    const before = callTo(calls, "GET", "/api/instance").length;
+    fail = false;
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(callTo(calls, "GET", "/api/instance").length).toBeGreaterThan(before);
+  });
+});
+
+describe("a step that is saving cannot be left", () => {
+  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
+  const never = () => new Promise<Response>(() => undefined);
+
+  it("theme: Back, Skip and Skip the rest are disabled while Continue saves", async () => {
+    server(signedIn(), { "PATCH /api/settings": never as Handler });
+    go("/welcome/theme");
+    await heading();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Saving" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toBeDisabled();
+  });
+
+  it("feeds: Back, Skip and Skip the rest are disabled while Add saves", async () => {
+    const starter = { available: true, categories: [{ id: "c", title: "News", feeds: [{ id: "f1", title: "One", url: "https://one.example/feed", checked: true, subscribed: false }] }] };
+    server(signedIn({ starter }), { "POST /api/starter-feeds": never as Handler });
+    go("/welcome/feeds");
+    await screen.findByText("One");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Add 1 feed" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Adding" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toBeDisabled();
+  });
+
+  it("import: Back, Skip and Skip the rest are disabled while the file uploads", async () => {
+    server(signedIn(), { "POST /api/opml": never as Handler });
+    go("/welcome/import");
+    await heading();
+    const user = userEvent.setup();
+    await user.upload(screen.getByLabelText("OPML file"), new File(['<?xml version="1.0"?><opml/>'], "feeds.opml"));
+    await user.click(
+      await waitFor(() => {
+        const b = screen.getByRole("button", { name: "Import" });
+        expect(b).toBeEnabled();
+        return b;
+      }),
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importing" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toBeDisabled();
+  });
+
+  it("import: refuses a file over the server's 8 MB limit before uploading it", async () => {
+    const { calls } = server(signedIn());
+    go("/welcome/import");
+    await heading();
+    const big = new File(["<opml/>"], "huge.opml");
+    Object.defineProperty(big, "size", { value: 9 * 1024 * 1024 });
+    await userEvent.setup().upload(screen.getByLabelText("OPML file"), big);
+    expect(await findAlert()).toHaveTextContent(/too large.*8 MB/);
+    expect(screen.getByRole("button", { name: "Import" })).toBeDisabled();
+    expect(callTo(calls, "POST", "/api/opml")).toHaveLength(0);
+  });
+});
+
+describe("what the wizard keeps in memory", () => {
+  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
+
+  it("drops the step 2 password when setup turns out to be over", async () => {
+    setupSecret.set("correct horse");
+    server(signedIn({ pending: false }));
+    go("/welcome/finish");
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(setupSecret.get()).toBeNull();
+  });
+
+  it("warns before a second API password replaces the one shown once", async () => {
+    setupSecret.set("correct horse");
+    server(signedIn(), { "POST /api/account/api-password": () => json({ api_password: "abcd-efgh-ijkl" }) });
+    go("/welcome/finish");
+    await heading();
+    const user = userEvent.setup();
+    expect(screen.queryByText(/already made an API password/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Generate API password" }));
+    await screen.findByTestId("api-password");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await headingIs("Recommended feeds");
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("You're all set");
+    expect(screen.getByText(/already made an API password.*can't show it again/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Replace API password" })).toBeInTheDocument();
+  });
+
+  it("shows no web password field for an account whose password is not known yet", async () => {
+    mockFetch({ "GET /api/bootstrap": () => new Promise<Response>(() => undefined) });
+    const { FinishStep } = await import("./FinishStep");
+    const { QueryClientProvider } = await import("@tanstack/react-query");
+    render(
+      <QueryClientProvider client={makeQueryClient({ retry: false })}>
+        <FinishStep onBack={() => undefined} onFinish={() => undefined} />
+      </QueryClientProvider>,
+    );
+    await headingIs("You're all set");
+    expect(screen.queryByLabelText("Your web password")).toBeNull();
+    expect(screen.getByRole("button", { name: "Generate API password" })).toBeDisabled();
+  });
+});
+
+describe("steps 1 and 2: accessibility and small things", () => {
+  const claimed = () => makeWorld({ state: { claimed: true, access: { enabled: false, verified: false }, open: { reason: null, lan_reason: null } } });
+
+  it("ties a wrong-code message to the setup code input", async () => {
+    server(makeWorld(), { "POST /api/setup/claim": () => json({ error: "bad_token", message: "x" }, 403) });
+    go("/");
+    const user = userEvent.setup();
+    const input = await screen.findByLabelText("Setup code");
+    await user.type(input, "wrong");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await findAlert();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAccessibleDescription(/isn't the current setup code/);
+  });
+
+  it("checks the password while typing without announcing it on every keystroke", async () => {
+    server(claimed());
+    go("/");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Password"), "ab");
+    expect(screen.queryByText("Use at least 5 characters.")).toBeNull();
+    await user.type(screen.getByLabelText("Password again"), "x");
+    expect(screen.queryByText("The two passwords don't match.")).toBeNull();
+    await user.tab();
+    expect(await screen.findByText("The two passwords don't match.")).toBeInTheDocument();
+    expect(screen.getByText("Use at least 5 characters.")).toBeInTheDocument();
+  });
+
+  it("keeps the typed user name when the setup session ran out and the code is entered again", async () => {
+    server(claimed(), { "POST /api/setup/account": () => json({ error: "setup_session", message: "enter the setup code first" }, 401) });
+    go("/");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("User name"), "reader");
+    await user.type(screen.getByLabelText("Password"), "long enough");
+    await user.type(screen.getByLabelText("Password again"), "long enough");
+    await user.click(screen.getByRole("button", { name: "Create my account" }));
+    await headingIs("Enter your setup code");
+    await user.type(screen.getByLabelText("Setup code"), "abcd");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await headingIs("Create your account");
+    expect(screen.getByLabelText("User name")).toHaveValue("reader");
+  });
+});
+
+describe("previewing a theme does not write this device's profile", () => {
+  const signedIn = () => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true });
+  const d = DEFAULT_THEME_SETTINGS;
+  const merged = { "ui.theme": "system", "ui.theme_day": d.day, "ui.theme_night": d.night, "ui.theme_schedule": d.schedule, "ui.theme_night_start": d.nightStart, "ui.theme_day_start": d.dayStart };
+  const deviceRoutes = (w: World) => ({
+    "GET /api/bootstrap": () =>
+      json({ ...bootstrap, device: { id: "dev1", name: "This device", profile: {}, merged }, user: { ...bootstrap.user, username: "reader", password_set: true, auth_mode: "password", setup_pending: w.pending } }),
+    "PATCH /api/device": () => json({ id: "dev1", name: "This device", profile: {}, merged }),
+  });
+  const themeKeys = (calls: { method: string; url: URL; init?: RequestInit }[]) => callTo(calls, "PATCH", "/api/device").flatMap((c) => Object.keys(bodyOf(c as never)).filter((k) => k.startsWith("ui.theme")));
+  const hydrated = () => waitFor(() => expect(syncStore.get().status).toBe("idle"));
+
+  it("Skip after a preview leaves the profile without theme overrides", async () => {
+    const w = signedIn();
+    const { calls } = server(w, deviceRoutes(w));
+    go("/welcome/theme");
+    await heading();
+    await hydrated();
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Day theme"), "linen");
+    expect(themeStore.get().day).toBe("linen");
+    await flush();
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("Bring your feeds along");
+    await flush();
+    expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
+    expect(themeKeys(calls)).toEqual([]);
+  });
+
+  it("Continue saves the default and does not pin the device to it either", async () => {
+    const w = signedIn();
+    const { calls } = server(w, deviceRoutes(w));
+    go("/welcome/theme");
+    await heading();
+    await hydrated();
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Day theme"), "linen");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await headingIs("Bring your feeds along");
+    await flush();
+    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never))).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "midnight" });
+    expect(themeKeys(calls)).toEqual([]);
+    expect(themeStore.get().day).toBe("linen");
+  });
+
+  it("ending setup elsewhere with an unsaved preview leaves the profile alone too", async () => {
+    const w = signedIn();
+    const { calls } = server(w, deviceRoutes(w));
+    go("/welcome/theme");
+    await heading();
+    await hydrated();
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Night theme"), "carbon");
+    await user.click(screen.getByRole("button", { name: "Skip the rest of setup" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    await flush();
+    expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
+    expect(themeKeys(calls)).toEqual([]);
   });
 });

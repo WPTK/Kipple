@@ -7,7 +7,7 @@ import { announce, toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Field, Notice, inputCls } from "@/ui/kit";
 import { StepActions, WizardFrame } from "./Frame";
-import { setupSecret } from "./session";
+import { apiPasswordMade, setupSecret } from "./session";
 import { stepById } from "./steps";
 
 /**
@@ -18,7 +18,10 @@ import { stepById } from "./steps";
 export function FinishStep({ onBack, onFinish, busy }: { onBack: () => void; onFinish: () => void; busy?: boolean }) {
   const boot = useBootstrap();
   const remembered = useStore(setupSecret);
+  const madeBefore = useStore(apiPasswordMade);
   const user = boot.data?.user;
+  // Until the account is known nothing is asked: an account without a password (open mode) must not see the field flash by.
+  const known = user !== undefined;
   const hasPassword = user?.password_set !== false;
   const open = user?.auth_mode === "open";
   const [typed, setTyped] = useState("");
@@ -29,13 +32,14 @@ export function FinishStep({ onBack, onFinish, busy }: { onBack: () => void; onF
   const server = `${window.location.origin}/api/greader.php`;
 
   const current = hasPassword ? (remembered ?? typed) : open ? undefined : "";
-  const needsPassword = hasPassword && remembered === null;
+  const needsPassword = known && hasPassword && remembered === null;
 
   const generate = async () => {
     setWorking(true);
     setError(null);
     try {
       setPw((await generateApiPassword(current)).api_password);
+      apiPasswordMade.set(true);
     } catch (e) {
       setError(accountError(e));
     } finally {
@@ -79,13 +83,18 @@ export function FinishStep({ onBack, onFinish, busy }: { onBack: () => void; onF
             </div>
           ) : (
             <>
+              {madeBefore ? (
+                <Notice tone="warn">
+                  You already made an API password during this setup, and Kipple can't show it again. Making another one replaces it, and any app using the old one will need the new one.
+                </Notice>
+              ) : null}
               {needsPassword ? (
                 <Field label="Your web password" help="Kipple asks for it before making an API password.">
                   {(a) => <input {...a} type="password" autoComplete="current-password" value={typed} onChange={(e) => setTyped(e.target.value)} className={inputCls} />}
                 </Field>
               ) : null}
-              <Button className="self-start" disabled={working || (needsPassword && typed === "")} onClick={() => void generate()}>
-                {working ? "Generating" : "Generate API password"}
+              <Button className="self-start" disabled={working || !known || (needsPassword && typed === "")} onClick={() => void generate()}>
+                {working ? "Generating" : madeBefore ? "Replace API password" : "Generate API password"}
               </Button>
             </>
           )}

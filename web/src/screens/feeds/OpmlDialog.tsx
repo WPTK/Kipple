@@ -6,6 +6,9 @@ import { Button } from "@/ui/button";
 import { Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { announce } from "@/shell/toasts";
 
+/** The most the server accepts for an OPML upload (maxOPMLBody in internal/api/opml.go). */
+export const OPML_MAX_BYTES = 8 << 20;
+
 export function opmlError(e: unknown): string {
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
@@ -21,6 +24,8 @@ export function opmlError(e: unknown): string {
  * whether it opens like XML. Returns an error message, or null when it looks like OPML.
  */
 export async function opmlFileProblem(file: File): Promise<string | null> {
+  // The server takes at most 8 MiB (internal/api/opml.go): say so now rather than after a long upload.
+  if (file.size > OPML_MAX_BYTES) return "That file is too large to import (the limit is 8 MB). Check that it is the OPML export and not something else.";
   if (/\.(opml|xml)$/i.test(file.name)) return null;
   let head = "";
   try {
