@@ -245,14 +245,15 @@ function setStatus(status: SyncState["status"]): void {
 }
 
 /**
- * While the first-run wizard previews themes, the theme keys stay on this device: a preview is not a choice, so it is
- * neither sent to the profile nor kept as an unsent change (the profile would otherwise pin the device to values it
- * only tried). Released when the preview is settled, one way or the other.
+ * While the first-run wizard previews a look (the themes and the reading font), those keys stay on this device: a
+ * preview is not a choice, so it is neither sent to the profile nor kept as an unsent change (the profile would
+ * otherwise pin the device to values it only tried). Released when the preview is settled, one way or the other.
  */
 let themeHeld = false;
 /** The keys this device's profile holds an override for, as the server last said (an override is not moved by a changed default). */
 let overridden = new Set<string>();
-const isThemeKey = (k: string): boolean => k.startsWith("ui.theme");
+/** The keys the wizard's look step previews: the theme keys and the reading font. */
+const isLookKey =(k: string): boolean => k.startsWith("ui.theme") || k === "ui.font_body";
 
 /** Start or end the hold above. Ending it sends whatever the theme has since become, if it differs from the profile. */
 export function holdThemeSync(on: boolean): void {
@@ -271,7 +272,7 @@ export function adoptThemeDefaults(keys: readonly string[]): void {
   for (const k of keys) {
     // A key the device overrides keeps its override: the new default would not change what this device shows, so the
     // pick stays pending and is written to the profile.
-    if (!isThemeKey(k) || overridden.has(k)) continue;
+    if (!isLookKey(k) || overridden.has(k)) continue;
     synced[k] = want[k] ?? null;
     unsavedBase[k] = want[k] ?? null;
     if (preBase) preBase[k] = want[k] ?? null;
@@ -284,7 +285,7 @@ export function pendingChanges(): Profile {
   const want = profileOf(store());
   const out: Profile = {};
   for (const k of Object.keys(want)) {
-    if (themeHeld && isThemeKey(k)) continue;
+    if (themeHeld && isLookKey(k)) continue;
     const w = want[k] ?? null;
     if (eq(w, synced[k])) continue;
     if (refused[k] !== undefined && refused[k] === stable(w)) continue;
@@ -317,14 +318,14 @@ function onLocalChange(): void {
     if (preBase === null) return;
     const want = profileOf(store());
     const mine: Profile = { ...preDirty };
-    for (const k of Object.keys(want)) if (!(themeHeld && isThemeKey(k)) && !eq(want[k], preBase[k])) mine[k] = want[k] ?? null;
+    for (const k of Object.keys(want)) if (!(themeHeld && isLookKey(k)) && !eq(want[k], preBase[k])) mine[k] = want[k] ?? null;
     persistDirty(mine);
     return;
   }
   if (syncStore.get().status === "unsaved") {
     const want = profileOf(store());
     const mine: Profile = {};
-    for (const k of Object.keys(want)) if (!(themeHeld && isThemeKey(k)) && !eq(want[k], unsavedBase[k])) mine[k] = want[k] ?? null;
+    for (const k of Object.keys(want)) if (!(themeHeld && isLookKey(k)) && !eq(want[k], unsavedBase[k])) mine[k] = want[k] ?? null;
     persistDirty(mine);
     return;
   }

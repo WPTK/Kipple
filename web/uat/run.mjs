@@ -13,6 +13,8 @@
 //   S5  no literal "undefined", "NaN", "[object Object]" or "Invalid Date" in visible text, field values or
 //       accessible names
 //   S6  scripts/contrast.mjs over all 20 schemes
+//   S7  the reading-font choice is reachable: the Aa menu above every list and article, and Settings > Appearance &
+//       Reading, each offer a "Reading font" select with every font (it once went missing from Settings unnoticed)
 // Known, accepted issues are waived in uat/waivers.json:
 //   [{ "check": "S3", "rule"?: "<axe id>", "match"?: "<text in the finding>", "screen"?, "theme"?, "viewport"?,
 //      "reason": "why this is accepted" }]
@@ -140,11 +142,11 @@ const SEARCH_Q = "the";
 // `heading` must be the text of a visible h1 once the screen has settled, which proves the check looks at the right
 // screen (and that in-app navigation reached it).
 const SCREENS = [
-  ...LAYOUTS.map((l) => ({ id: `list-${l.id}`, title: `List: ${l.label}`, path: "/l/all", layout: l, heading: "All articles" })),
-  { id: "unread", title: "Unread list", path: "/l/unread", heading: "Unread" },
-  { id: "starred", title: "Starred (empty)", path: "/l/starred", heading: "Starred" },
-  { id: "article", title: "Article", path: (ctx) => ctx.articlePath, heading: (ctx) => ctx.articleTitle },
-  { id: "search", title: "Search results", path: `/search?q=${SEARCH_Q}`, heading: "Search" },
+  ...LAYOUTS.map((l) => ({ id: `list-${l.id}`, title: `List: ${l.label}`, path: "/l/all", layout: l, heading: "All articles", font: "menu" })),
+  { id: "unread", title: "Unread list", path: "/l/unread", heading: "Unread", font: "menu" },
+  { id: "starred", title: "Starred (empty)", path: "/l/starred", heading: "Starred", font: "menu" },
+  { id: "article", title: "Article", path: (ctx) => ctx.articlePath, heading: (ctx) => ctx.articleTitle, font: "menu" },
+  { id: "search", title: "Search results", path: `/search?q=${SEARCH_Q}`, heading: "Search", font: "menu" },
   { id: "search-empty", title: "Search, no query", path: "/search", heading: "Search" },
   { id: "feeds", title: "Manage feeds", path: "/feeds", heading: "Feeds" },
   { id: "health", title: "Feed health", path: "/health", heading: "Feed health" },
@@ -158,7 +160,7 @@ const SCREENS = [
     ["filters", "Filters & Saved Searches"],
     ["account", "Account & Devices"],
     ["advanced", "Advanced"],
-  ].map(([g, label]) => ({ id: `settings-${g}`, title: `Settings: ${label}`, path: `/settings/${g}`, heading: (_ctx, vp) => (vp.width >= 900 ? "Settings" : label) })),
+  ].map(([g, label]) => ({ id: `settings-${g}`, title: `Settings: ${label}`, path: `/settings/${g}`, heading: (_ctx, vp) => (vp.width >= 900 ? "Settings" : label), font: g === "appearance" ? "settings" : undefined })),
   { id: "stats", title: "Stats", path: "/stats", heading: "Stats" },
   { id: "wrapped", title: "Wrapped", path: "/stats/wrapped", heading: "Your year" },
 ];
@@ -688,6 +690,10 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       await Promise.all([...harvesting]); // this screen's API answers are in FEED.names
       const s5 = await page.evaluate(literalProbe, FEED);
       const axe = await runAxe(page);
+      if (screen.font) {
+        const s7 = await fontCheck(page, screen.font);
+        if (s7) report("S7", where, "font-choice", s7);
+      }
       await page.waitForTimeout(100); // late console errors from the last render
 
       flush(where);
@@ -709,7 +715,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       }
 
       const mine = findings.filter((f) => f.screen === screen.id && f.theme === theme.id && f.viewport === vp.id && f.severity === "fail");
-      row.checks = Object.fromEntries(["S1", "S2", "S3", "S4", "S5"].map((c) => [c, mine.filter((f) => f.check === c).length]));
+      row.checks = Object.fromEntries(["S1", "S2", "S3", "S4", "S5", "S7"].map((c) => [c, mine.filter((f) => f.check === c).length]));
       row.ok = mine.length === 0;
       if (!row.ok || opt.screenshots) {
         // The screen is checked by now: a screenshot that fails (a page too tall to capture, a full disk) is a note.
@@ -735,6 +741,33 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
   // Whatever the last screen still had coming.
   await page.waitForTimeout(300);
   if (prev) flush(prev);
+}
+
+/**
+ * S7: the reading-font select is on screen (Settings) or in the Aa menu (lists and articles), with every font: the
+ * default, the 11 bundled ones and those on the device. Returns what is wrong, or null. The menu is closed again.
+ */
+async function fontCheck(page, where) {
+  const MIN_FONTS = 12;
+  let scope = page;
+  if (where === "menu") {
+    const aa = page.getByRole("button", { name: "Reading appearance" }).first();
+    if (!(await aa.isVisible().catch(() => false))) return "no visible Aa (Reading appearance) button";
+    await aa.click();
+    scope = page.getByRole("dialog", { name: "Reading appearance" });
+    if (!(await scope.waitFor({ state: "visible", timeout: 3000 }).then(() => true, () => false))) return "the Aa button did not open the reading menu";
+  }
+  const select = scope.getByRole("combobox", { name: "Reading font" });
+  const n = await select.count();
+  let problem = null;
+  if (n !== 1) problem = `${n} "Reading font" selects ${where === "menu" ? "in the Aa menu" : "on the page"}, expected 1`;
+  else if (!(await select.isVisible())) problem = `the "Reading font" select is not visible`;
+  else {
+    const options = await select.locator("option").count();
+    if (options < MIN_FONTS) problem = `the "Reading font" select offers ${options} fonts, expected at least ${MIN_FONTS}`;
+  }
+  if (where === "menu") await page.keyboard.press("Escape");
+  return problem;
 }
 
 // S6: the theme contrast check over every scheme.
@@ -763,7 +796,7 @@ function writeReport(results, s6) {
   }
   const fails = findings.filter((f) => f.severity === "fail");
   const summary = Object.fromEntries(
-    ["S1", "S2", "S3", "S4", "S5", "S6", "run"].map((c) => [
+    ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "run"].map((c) => [
       c,
       { fail: fails.filter((f) => f.check === c).length, waived: findings.filter((f) => f.check === c && f.severity === "waived").length },
     ]),

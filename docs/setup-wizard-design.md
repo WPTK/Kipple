@@ -121,7 +121,7 @@ resumable after a reload because each one writes through ordinary endpoints as i
 | 1 Token | setup | `POST /api/setup/claim` | no |
 | 2 Account | setup | `POST /api/setup/account` (signs the browser in) | no |
 | 3 Time zone | normal | `PATCH /api/settings {tz}` (section 7a). Preselected from the browser's `Intl.DateTimeFormat().resolvedOptions().timeZone`, searchable list of IANA names. Read-only when the `TZ` env is set | skipping keeps the preselected zone, it never leaves UTC by accident |
-| 4 Theme | normal | `PATCH /api/settings` `{ui.theme, ui.theme_day, ui.theme_night}` (global row = default for every future device); live preview by applying the scheme client-side before saving | yes |
+| 4 Look and feel | normal | `PATCH /api/settings` `{ui.theme, ui.theme_day, ui.theme_night, ui.font_body}` (global row = default for every future device); live preview by applying the scheme and the reading font client-side before saving, held out of the device profile until Continue; Skip puts both back | yes |
 | 5 OPML | normal | `POST /api/opml` unchanged | yes |
 | 6 Recommended feeds | normal | `GET/POST /api/starter-feeds` | yes |
 | 7 Finish | normal | Reader API: `POST /api/account/api-password {generate:true}` (copy button, shown once); then `POST /api/onboarding/complete` | generating is optional |

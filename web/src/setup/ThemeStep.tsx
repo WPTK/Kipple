@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { usePatchSettings } from "@/api/admin";
 import { errorMessage } from "@/api/client";
+import { fontById } from "@/lib/fonts";
+import { prefsStore, updatePrefs } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
+import { FontPicker } from "@/screens/AppearanceControls";
 import { DEFAULT_DAY, DEFAULT_NIGHT, schemeById, type Scheme } from "@/theme/schemes";
 import { useAllowedSchemes } from "@/theme/serverThemes";
 import { SchemeSelect } from "@/theme/ThemePicker";
@@ -23,8 +26,10 @@ function Sample({ heading, scheme }: { heading: string; scheme: Scheme }) {
         <p className="text-xs" style={{ color: t.text2 }}>
           The Ubiquitous Gazette · 2h
         </p>
-        <p className="text-base leading-snug font-bold">Toaster files formal grievance against the kitchen</p>
-        <p className="text-sm leading-snug" style={{ color: t.text2 }}>
+        <p className="text-base leading-snug font-bold" style={{ fontFamily: "var(--kp-reading-font)" }}>
+          Toaster files formal grievance against the kitchen
+        </p>
+        <p className="text-sm leading-snug" style={{ color: t.text2, fontFamily: "var(--kp-reading-font)" }}>
           Officials confirm the appliance has hired counsel.
         </p>
         <div className="flex items-center gap-2 text-xs">
@@ -42,17 +47,19 @@ function Sample({ heading, scheme }: { heading: string; scheme: Scheme }) {
 }
 
 /**
- * Step 4: the look. A day theme and a night theme, which Kipple switches between with each device's own light or dark
- * setting (the same pair Settings calls "Follow system"). Picking applies at once on this device, so the page itself is
- * the preview (shown here, never written to this device's profile); Continue saves the pair as the default for every
- * device that has not chosen its own. Skip puts this device back the way it was.
+ * Step 4: look and feel. A day theme and a night theme, which Kipple switches between with each device's own light or
+ * dark setting (the same pair Settings calls "Follow system"), and the reading font. Picking applies at once on this
+ * device, so the page itself is the preview (shown here, never written to this device's profile); Continue saves the
+ * pair and the font as the default for every device that has not chosen its own. Skip puts this device back the way it
+ * was.
  */
 export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: () => void; onNext: () => void; onSkipAll: () => void; skipAllBusy?: boolean }) {
   const t = useStore(themeStore);
+  const font = useStore(prefsStore).font;
   const schemes = useAllowedSchemes();
   const patch = usePatchSettings();
   // The first visit remembers what this device had, so Skip (here or later) can put it back even after a Back and forth.
-  useEffect(() => rememberTheme(themeStore.get()), []);
+  useEffect(() => rememberTheme(themeStore.get(), prefsStore.get().font), []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -68,13 +75,21 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
     setError(null);
   };
 
+  const pickFont = (id: string) => {
+    previewTheme();
+    updatePrefs({ font: id });
+    setError(null);
+  };
+
   const save = async () => {
     setBusy(true);
     setError(null);
+    const fontName = fontById(font).server ?? "";
     try {
-      await patch.mutateAsync({ "ui.theme": "system", "ui.theme_day": day, "ui.theme_night": night });
+      await patch.mutateAsync({ "ui.theme": "system", "ui.theme_day": day, "ui.theme_night": night, "ui.font_body": fontName });
       const now = themeStore.get();
-      markThemeSaved(now, now.mode === "follow" && now.day === day && now.night === night);
+      const nowFont = prefsStore.get().font;
+      markThemeSaved(now, now.mode === "follow" && now.day === day && now.night === night, { id: nowFont, matchesLocal: (fontById(nowFont).server ?? "") === fontName });
       onNext();
     } catch (e) {
       setError(errorMessage(e));
@@ -91,7 +106,7 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
   return (
     <WizardFrame
       step={stepById("theme")}
-      description="Choose one look for the daytime and one for the evening. Kipple switches between them with your device's light or dark setting."
+      description="Choose one theme for the daytime and one for the evening, and the font you like to read in. Kipple switches themes with your device's light or dark setting."
       onSkipAll={onSkipAll}
       skipAllBusy={skipAllBusy || busy}
     >
@@ -105,7 +120,11 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
           <Sample heading="Day" scheme={schemeById(day)} />
           <Sample heading="Night" scheme={schemeById(night)} />
         </div>
-        <p className="text-xs text-fg2">This page already shows your pick for this device. You can also choose a schedule, or a single theme, in Settings, Appearance &amp; Reading, any time.</p>
+        <FontPicker value={font} onChange={pickFont} preview="large" help="Used for every list, article and the sidebar." />
+        <p className="text-xs text-fg2">
+          This page already shows your pick for this device. You can also choose a schedule, a single theme or another font in Settings, Appearance &amp; Reading, or from the Aa button above any list or
+          article, any time.
+        </p>
         <StepActions
           back={
             <Button disabled={busy} onClick={onBack}>

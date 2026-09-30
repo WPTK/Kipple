@@ -105,16 +105,17 @@ Advanced (`advanced`: the Advanced group). At 900 px and up a rail of the groups
 interval and statistics state under theirs) and a group opens as its own page with a back button. Each group page has
 its own loading and error state for the server settings. Keys the screen draws itself
 or cannot honor yet (`ui.mark_read_on_scroll` sits in Accessibility; `ui.font_ui` is never shown: there is one font
-choice, in the Aa menu) are left out of the generic list. `fetch.fulltext_all` (fetch the full article for every
+choice, `ui.font_body`, drawn by the screen itself as "Reading font") are left out of the generic list. `fetch.fulltext_all` (fetch the full article for every
 feed, with its note about bandwidth and refresh time) appears under Library like any other bool; while it is on, the
 feed editor shows that feed's own switch as "On for all feeds". The screen is capped at 720 px wide.
 
-**Reading appearance** (the "Aa" button in the list header and the article toolbar, and Settings > Appearance):
+**Reading appearance** (the "Aa" button in every list header, Search included, and the article toolbar, and Settings > Appearance):
 theme (including "Match my device" (Follow system in Settings) and "On a schedule", both with any day and night
 pair; the schedule switches at "Night starts" (default 21:00) and "Day starts" (default 07:00) on the device's
 clock, whatever the OS says), font, text size, one Density choice with an
-"Adjust separately" disclosure, and "Highlight keywords" (the Aa menu; Settings > Appearance has theme, text size and
-Density, and the font only in the Aa menu). The font is THE font: it applies at once to lists, the reader and the sidebar
+"Adjust separately" disclosure, and "Highlight keywords" (the Aa menu; Settings > Appearance has theme, the Reading
+font with a sample paragraph, text size and Density; the setup wizard's step 4, "Look and feel", has the theme pair and
+the Reading font). The font is THE font: it applies at once to lists, the reader and the sidebar
 (`--kp-app-font`, and `--kp-reading-font` for articles); Settings, Manage feeds, Health and every menu, popover and
 dialog keep the system UI font (`.ui-font` and the role selectors in `index.css`). "Default" leaves lists and chrome in
 the system font and articles in the reading serif. Segmented controls are pressed-style buttons over hidden native
@@ -254,7 +255,7 @@ Settings > Devices explains it and hides the actions that would 404.
 ## Accessibility
 
 `ACCESSIBILITY.md` is the checklist. Settings > Accessibility holds Text spacing (the WCAG 1.4.12 control: "Adds
-extra space between letters, words and lines"), a pointer to the Easy to read font in the Aa menu, Reduce motion (follow system, on, off), Mark as read while scrolling (off by default), Listen to articles (voice and
+extra space between letters, words and lines"), a pointer to the Easy to read font (the Reading font under Appearance), Reduce motion (follow system, on, off), Mark as read while scrolling (off by default), Listen to articles (voice and
 speed), plus Larger buttons and Titles only in lists. The OS settings for contrast, forced colors, text size and
 motion are followed without any setting.
 

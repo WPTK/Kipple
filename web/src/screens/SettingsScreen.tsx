@@ -32,7 +32,7 @@ import { navItemClass } from "@/ui/navItem";
 import { Segmented } from "@/ui/segmented";
 import { Button } from "@/ui/button";
 import { Disclosure, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
-import { DensityControl, SpacingControl, TextSizeControl } from "./AppearanceControls";
+import { DensityControl, FontSelect, SpacingControl, TextSizeControl } from "./AppearanceControls";
 import { DevicesSection } from "./DevicesSection";
 import { FiltersSection } from "./filters/FiltersSection";
 import { AboutSection } from "./AboutSection";
@@ -237,7 +237,7 @@ function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }
     <Section title="Accessibility">
       <p className="text-sm text-fg2">Kipple follows your device's text, motion and contrast settings. These are extra controls for this device.</p>
       <p className="text-sm text-fg2">
-        For a font designed for clear letter shapes, choose Atkinson Hyperlegible Next ("Easy to read") in the Aa menu.
+        For a font designed for clear letter shapes, choose Atkinson Hyperlegible Next ("Easy to read") as the Reading font under Appearance.
       </p>
       <SpacingControl />
       <Segmented<Motion>
@@ -302,8 +302,9 @@ function AppearancePage() {
   return (
     <>
       <Section title="Appearance">
-        <p className="text-sm text-fg2">Saved for this device. Change the font from the Aa button in any list or article.</p>
+        <p className="text-sm text-fg2">Saved for this device. The Aa button above any list or article has the same theme, font and text size.</p>
         <ThemePicker />
+        <FontSelect preview="large" />
         <TextSizeControl />
         <DensityControl />
       </Section>

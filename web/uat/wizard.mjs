@@ -10,8 +10,8 @@
 //     walks all seven steps with a password. Asserts the time zone step preselects Asia/Tokyo and that
 //     GET /api/settings then reports it, that a second browser context without the code cannot claim or create the
 //     account, and that after completion /api/setup/* answers 404.
-//   Run B (phone 375x812): the same wizard in open mode (no password), a theme preview + Skip that must leave no theme
-//     overrides in the device profile, then a fresh browser context signs in by itself
+//   Run B (phone 375x812): the same wizard in open mode (no password), a theme and reading-font preview + Skip that
+//     must leave no theme or font overrides in the device profile, then a fresh browser context signs in by itself
 //     (POST /api/auth/open), and a request that carries a forwarding header is refused with the plain-English screen.
 //   Run C (phone, time zone Asia/Tokyo): GET /api/instance unreachable (a Try again screen, never a password form), then
 //     "Skip the rest of setup" on step 3, which must still save the preselected zone.
@@ -157,9 +157,15 @@ try {
     await page.getByLabel("Search time zones").fill("");
     await page.getByRole("button", { name: "Continue" }).click();
 
-    await onStep(page, "A", "Pick a look", 4);
+    await onStep(page, "A", "Look and feel", 4);
     await page.getByLabel("Day theme").selectOption("linen");
     check("A step 4", (await page.evaluate(() => document.documentElement.dataset.theme)) === "linen", "the day theme was not applied at once (light browser)");
+    // The reading font is part of this step (it once went missing everywhere but the Aa menu): every font, applied at once.
+    const fontSelect = page.getByLabel("Reading font");
+    check("A step 4", (await fontSelect.count()) === 1 && (await fontSelect.locator("option").count()) >= 12, "no Reading font select with every font");
+    await fontSelect.selectOption("vollkorn");
+    check("A step 4", /Vollkorn/.test(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--kp-reading-font"))), "the reading font was not applied at once");
+    if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "A-step4-font.png"), fullPage: true });
     await page.getByRole("button", { name: "Continue" }).click();
 
     await onStep(page, "A", "Bring your feeds along", 5);
@@ -187,6 +193,7 @@ try {
     const settings = await page.evaluate(async () => (await fetch("/api/settings")).json());
     check("A settings", settings.values?.tz === "Asia/Tokyo", `tz is ${settings.values?.tz}, expected Asia/Tokyo`);
     check("A settings", settings.values?.["ui.theme_day"] === "linen", `ui.theme_day is ${settings.values?.["ui.theme_day"]}`);
+    check("A settings", settings.values?.["ui.font_body"] === "Vollkorn", `ui.font_body is ${settings.values?.["ui.font_body"]}, expected Vollkorn`);
     check("A setup routes", (await page.evaluate(async () => (await fetch("/api/setup/state")).status)) === 404, "/api/setup/state still answers after setup");
     check("A setup routes", (await call(sp, "/api/setup/claim", { token: code })) === 404, "/api/setup/claim still answers after setup");
     const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
@@ -219,18 +226,20 @@ try {
     await page.getByRole("button", { name: "Create my account" }).click();
     await onStep(page, "B", "Choose your time zone", 3);
     await page.getByRole("button", { name: "Continue" }).click();
-    await onStep(page, "B", "Pick a look", 4);
+    await onStep(page, "B", "Look and feel", 4);
     // A preview is not a choice: trying a theme and skipping must leave this device's profile without theme overrides.
     await page.getByLabel("Day theme").selectOption("linen");
+    await page.getByLabel("Reading font").selectOption("inter");
     await page.waitForTimeout(900); // longer than the 500 ms the app waits before it would send a change
     await page.getByRole("button", { name: "Skip", exact: true }).click();
     await onStep(page, "B", "Bring your feeds along", 5);
     await page.waitForTimeout(900);
     const dev = await page.evaluate(async () => (await fetch("/api/device")).json());
-    const pinned = Object.keys(dev.profile ?? {}).filter((k) => k.startsWith("ui.theme"));
-    check("B step 4", pinned.length === 0, `a preview and Skip left theme overrides in the device profile: ${pinned.join(", ")}`);
+    const pinned = Object.keys(dev.profile ?? {}).filter((k) => k.startsWith("ui.theme") || k === "ui.font_body");
+    check("B step 4", pinned.length === 0, `a preview and Skip left theme or font overrides in the device profile: ${pinned.join(", ")}`);
+    check("B step 4", !/Inter/.test(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--kp-reading-font"))), "Skip did not put the reading font back");
     await page.getByRole("button", { name: "Back" }).click();
-    await onStep(page, "B", "Pick a look", 4);
+    await onStep(page, "B", "Look and feel", 4);
     await page.getByRole("button", { name: "Continue" }).click();
     await onStep(page, "B", "Bring your feeds along", 5);
     await page.getByRole("button", { name: "Skip", exact: true }).click();

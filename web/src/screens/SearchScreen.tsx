@@ -10,6 +10,7 @@ import { SEARCH_ORDERS, SEARCH_ORDER_LABELS, scopeOrder, setSearchOrder, useSear
 import { useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
 import { inputCls } from "@/ui/kit";
+import { ReadingMenu } from "./AppearanceControls";
 import { ListPane, StatusBlock, type ListControls } from "./ListPane";
 import { SaveSearchDialog } from "./search/SaveSearchDialog";
 import { SearchHelp } from "./search/SearchHelp";
@@ -136,6 +137,7 @@ export function SearchScreen() {
           <h1 className="min-w-0 flex-1 text-xl font-bold" tabIndex={-1} data-route-heading>
             Search
           </h1>
+          <ReadingMenu />
           <SearchHelp />
         </div>
         <form
