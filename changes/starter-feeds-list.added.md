@@ -1,0 +1,1 @@
+The setup wizard's Recommended feeds step now offers a real starter list of ten feeds in six categories (Design & UI, Art, Tech, Automotive, Books, Aviation), all ticked by default and each one skippable; `starter/feeds.json` is the file to edit, and `scripts/check-starter-feeds.mjs` checks that every feed is still live.
