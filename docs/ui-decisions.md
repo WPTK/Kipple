@@ -218,6 +218,6 @@ UAT plan, and to add these release-process gaps as phase 5 line items:
 
 **Phase 5 outline, updated:** (A) code audit + changelog review — DONE, PR #26; (B) Cloudflare Access JWT +
 passwordless, in parallel with A — DONE, PR #40; (C) auto-night theme — DONE, PR #41; (D) documentation run
-(in progress) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
+— DONE, #42 (a further pass for the 0.5 setup wizard is PR D of `docs/setup-wizard-design.md`) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
 Suites 1-4, migration rehearsal, restore drill, Reader API regression replay); (E) final go/no-go meeting, fed by
 D and F's sign-off.

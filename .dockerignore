@@ -23,4 +23,5 @@ kipple.exe
 !.env.example
 !**/.env.example
 docker-compose.example.yml
+docker-compose.pull.example.yml
 .claude
