@@ -6,7 +6,7 @@
 [![License: Blue Oak 1.0.0](https://img.shields.io/badge/license-Blue%20Oak%201.0.0-blueviolet)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![Repo size](https://img.shields.io/github/repo-size/WPTK/Kipple)](https://github.com/WPTK/Kipple)
-![Docker image size](https://img.shields.io/badge/docker%20image-coming%20soon-lightgrey)
+![Docker image size](https://img.shields.io/badge/docker%20image-ghcr.io%2Fwptk%2Fkipple-blue)
 [![Last commit](https://img.shields.io/github/last-commit/WPTK/Kipple)](https://github.com/WPTK/Kipple/commits/main)
 [![Open issues](https://img.shields.io/github/issues/WPTK/Kipple)](https://github.com/WPTK/Kipple/issues)
 
@@ -69,12 +69,11 @@ Reader sync API, so existing sync clients work against it unmodified.
 Kipple is one container with one port. There are no configuration files to edit: Kipple asks for what it needs in
 your browser the first time you open it.
 
-> **Which image?** The published image, `ghcr.io/wptk/kipple`, first appears with release **0.5.0-beta.1**. It is
-> signed and built for `linux/amd64` and `linux/arm64`. Until that release exists, or if you would rather build it
-> yourself, use [Build from source](#build-from-source) below; the steps after starting the container are the same
-> either way. Releases before 1.0 are prereleases, and a prerelease is only ever tagged with its exact version
-> (`latest` moves only on a stable release), so the examples name a version: use the newest one on the
-> [releases page](https://github.com/WPTK/Kipple/releases).
+> **Which image?** The published image is `ghcr.io/wptk/kipple`. It is signed and built for `linux/amd64` and
+> `linux/arm64`. If you would rather build it yourself, use [Build from source](#build-from-source) below; the steps
+> after starting the container are the same either way. Releases before 1.0 are prereleases, and a prerelease is only
+> ever tagged with its exact version (`latest` moves only on a stable release), so the examples name a version: use
+> the newest one on the [releases page](https://github.com/WPTK/Kipple/releases).
 
 ### Run the published image
 
@@ -147,7 +146,7 @@ cosign verify ghcr.io/wptk/kipple:0.5.0-beta.1 \
 
 ### Build from source
 
-Use this until the published image exists, or to run your own changes. It needs Docker and Git only (no Go or Node).
+Use this to run your own changes, or if you would rather not pull the published image. It needs Docker and Git only (no Go or Node).
 
 ```
 git clone https://github.com/WPTK/Kipple.git
