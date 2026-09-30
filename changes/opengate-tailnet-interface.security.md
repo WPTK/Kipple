@@ -1,1 +1,0 @@
-In open mode a device in Tailscale's address range counts as a tailnet device only when its connection arrives on this machine's own Tailscale address; the same range arriving on the local network interface is treated as a LAN device.

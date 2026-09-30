@@ -1,1 +1,0 @@
-The default port is now 1919 (1138 when 1919 is taken and `KIPPLE_ADDR` is unset). An existing install with `KIPPLE_ADDR` unset keeps listening on 7080 through 0.x, with a warning at every start; that fallback goes away at 1.0, so set `KIPPLE_ADDR=:7080` or move to 1919. With `KIPPLE_ADDR` unset, `kipple healthcheck` tries 1919, 7080 and 1138.

@@ -8,6 +8,50 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.5.0-beta.1] - 2026-09-30
+
+### Added
+
+- Build info: Settings > About shows the version, commit, build date, Go and SQLite versions, database schema, uptime and sign-in mode of the server, plus this page's own build and service worker, with a "Copy debug info" button that puts the same facts (no username, address or data path) into a plain-text block for a bug report; `kipple version -v` prints the same details (plain `kipple version` still prints just the version); the image gains the OCI labels `created`, `url`, `documentation`, `base.name` and `base.digest`; a page loaded before the server was rebuilt now says "A newer version of Kipple is ready" with a Reload button (`GET /api/bootstrap` gains `web_build`, `GET /api/about` is new); after an upgrade "What's new" shows the changelog sections since the last version you saw, once for the whole account (new hidden setting `ui.whats_new_seen`); and a database written by a newer Kipple is still refused, but the message now names the version that last opened it and how to recover. Nothing checks for updates or contacts anything.
+- Signed multi-arch images: pushing a release tag now builds, scans and smoke-tests a linux/amd64 and linux/arm64 image and publishes it to `ghcr.io/wptk/kipple` with a cosign signature and build provenance; a prerelease never moves `latest`.
+- First-run setup without an `.env` file: a server started without an account prints a one-time setup code on standard error (`kipple setup-token` shows it again), and the browser uses it to create the account with a password, with Cloudflare Access, or with no password at all (open mode: only from this computer or Tailscale, or also the local network when you allow it, which Kipple in Docker needs because it cannot tell this computer from the network there). New endpoints back the setup wizard, onboarding ("Run setup again") and the recommended feeds. Creating the account from `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` works as before.
+- A first-run setup wizard in the web app: enter the setup code Kipple prints at start (or open its link), create the account with a password, no password behind Cloudflare Access, or no password at all (open mode, with a plain warning that it is only for this computer or Tailscale and the reasons a network is refused), then choose a time zone (preselected from the browser, searchable), a day and night theme with a live preview, import an OPML file, pick recommended feeds and optionally create the API password for sync apps. Every step after the account can be skipped, and Settings, Account & Devices has Run setup again.
+- Sign-in for an account without a password (open mode) is automatic from an address Kipple allows and otherwise explains, in plain words, why it refused and how to get in, instead of showing a broken screen; Settings no longer offers Sign out for such an account, since Kipple would sign the browser straight back in.
+- The setup wizard's Recommended feeds step now offers a real starter list of ten feeds in six categories (Design & UI, Art, Tech, Automotive, Books, Aviation), all ticked by default and each one skippable; `starter/feeds.json` is the file to edit, and `scripts/check-starter-feeds.mjs` checks that every feed is still live.
+
+### Changed
+
+- The default port is now 1919 (1138 when 1919 is taken and `KIPPLE_ADDR` is unset). An existing install with `KIPPLE_ADDR` unset keeps listening on 7080 through 0.x, with a warning at every start; that fallback goes away at 1.0, so set `KIPPLE_ADDR=:7080` or move to 1919. With `KIPPLE_ADDR` unset, `kipple healthcheck` tries 1919, 7080 and 1138.
+- New installs record reading statistics and run the nightly job in UTC until you choose a time zone; existing installs keep America/New_York. A `TZ` environment variable, when set, now governs statistics and the nightly job too, and the in-app time zone is then shown read-only. Backup download names use the same zone.
+- Settings, Account & Devices shows the time zone read-only, with the reason, while the TZ environment variable is set, as the setup wizard's time zone step does.
+- Statistics: a read now needs reading time, not just a scroll. An opened article counts as read after 10 seconds of active reading, or after a scroll past a quarter of it with at least 3 seconds of active reading; a quick flick through an article, or paging past it with next and previous, is now a bounce. The rule is applied whenever the statistics are computed, so your existing history is reclassified too: items read, days with reading, streaks, average read length and quick-bounce rates can go down, and nothing stored changes. Articles opened before reading time was recorded still count as read, since there is no way to tell, and the Stats screen and the data dictionary now say so. (#120)
+
+### Fixed
+
+- Settings > About (and its debug text) reports open mode as "open (no password)" instead of "Cloudflare Access only", and shows the time zone in force now (`TZ`, else the zone chosen in Settings) instead of the one the server started with. (#131)
+- The pull-and-run compose file (`docker-compose.pull.example.yml`, and its copy in the README) names the container `kipple`, so `docker logs kipple` and `docker exec kipple /kipple setup-token` from the quickstart work. (#124)
+- The statistics data dictionary shipped in every export now says that a set `TZ` decides the local date and hour fields and the export's `tz`, not only the time zone setting; the compose example and the design notes describe the current time zone and port rules. (#132)
+- `kipple healthcheck` with a `KIPPLE_ADDR` that names a host (such as `kipple-box:1919`) no longer reports a healthy server as unhealthy in setup or open mode, where the Host check answered it 421.
+- `kipple password` refuses the example password `change-me`, like the setup wizard and `KIPPLE_PASSWORD` already did.
+- Release images: `latest`, `X.Y` and `X` only move onto the highest stable tag (an older patch or a re-run no longer moves them backwards), a published `X.Y.Z` image can never be re-pointed at a new digest, tags with leading zeros are refused, the image's `version` label is the real release version instead of `sha-<commit>`, the binary in an official image now reports its build date, and the `base.digest` label is read from the Dockerfile's `FROM` line instead of a second copy that would go stale. (#125, #126, #127)
+- The reading font can be chosen again in Settings > Appearance & Reading (every font, grouped, with a sample paragraph in the chosen font), from the Aa button on the Search screen as well as above every other list and article, and in the setup wizard, whose step 4 is now "Look and feel": a day and night theme plus the reading font, previewed at once and saved as the default for every device, with Skip putting this device's font back. It had been left only in the Aa menu since 0.2.0-alpha.2.
+- Restoring a backup from an install on the old port 7080 into a new install that was not set up yet keeps port 1919, instead of moving the server to 7080 behind a 1919 port mapping while the health check still passed; restore says what it kept. (#139)
+- Setup: a wrong setup code is tied to its field for screen readers, the password checks on the account step speak once a field is left rather than on every keystroke, and an OPML file over the server's 8 MB limit is refused before it is uploaded (also in Import OPML). (#145, #146, #147)
+- Open mode: a browser that does not keep the session cookie now gets a message about cookies instead of signing in over and over, and Try again after the account got a password moves to the sign-in form. (#140, #141)
+- The signed-out screen no longer shows the password form when Kipple cannot be reached or answers with a server error: it says so and offers Try again (the form still appears for an older server), and the sign-in form follows a Kipple that has gone into open mode. (#134)
+- Setup: Back and Skip are disabled while a step is saving, a second API password warns before it replaces the one shown once, the step 2 password is dropped when setup ends elsewhere, the typed user name survives a timed-out setup session, and the step 7 password field no longer flashes for an account without a password. (#142, #143, #144, #148, #149)
+- Setup: trying themes in the look step is only a preview on this device and no longer writes theme overrides to the device profile, whether you continue, skip or end setup. (#135)
+- Setup: Skip the rest of setup on the time zone step now keeps the zone shown instead of leaving Kipple on UTC, and a stale /welcome address opened before the account exists no longer carries the new account past that step. (#133)
+
+### Security
+
+- In open mode an open live-update stream is closed as soon as "Also allow devices on my local network" is turned off (or another security setting stops admitting the device), and at the next heartbeat when the device moves, instead of staying open.
+- In open mode a device in Tailscale's address range counts as a tailnet device only when its connection arrives on this machine's own Tailscale address; the same range arriving on the local network interface is treated as a LAN device.
+- Open mode no longer takes a request for Tailscale Serve because its Host ends in `.ts.net`: a same-machine reverse proxy that passes the client's Host through could otherwise hand a remote client a session and a Reader API password. Serve is now recognised only by what `tailscaled` itself sends (one tailnet `X-Forwarded-For` address, a matching `X-Forwarded-Host`, `https`) on a machine that has a Tailscale address. (#128)
+- During setup Kipple answers only requests addressed to an IP address, localhost, a single-word name, a `.localhost`, `.local`, `.lan`, `.home.arpa`, `.internal` or `.ts.net` name, or a name listed in `KIPPLE_ALLOWED_HOSTS` or in Settings (421 otherwise), which blocks DNS rebinding. Open mode is stricter: an IP address, localhost, a `.localhost` or `.ts.net` name, or a listed name, since other devices on the network can answer single-word and `.local`-style names (#138). Open mode also refuses requests that arrive through a proxy or tunnel. With a password nothing is refused; an unlisted name is only logged.
+- An address locked out of the setup code screen after ten wrong codes now gets one code checked per minute instead of an unlimited number of uncounted checks; the right code still works in that check.
+- On Windows the setup code file (`setup-token` in the data directory) is now readable only by the user Kipple runs as (plus SYSTEM and Administrators): the 0600 mode it was created with does nothing there, so it could inherit a folder's access list that lets every local user read it.
+
 ## [0.3.0-beta.3] - 2026-09-29
 
 Fixes from the beta.2 UAT re-run (Suites 1, 2, 4 and 5): the backup dialog date, the OPML-import announcement, returning to a long list, the offline article screen, Feed Health and list header details, Manage this feed from an open article, a wide row scrolling the list sideways on a phone, and, on the owner's decision, an unsubscribed feed's starred-articles archive is no longer listed anywhere (web and Reader API). No new features; no schema migration.
@@ -684,7 +728,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.3...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.1...HEAD
+[0.5.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.3...v0.5.0-beta.1
 [0.3.0-beta.3]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.2...v0.3.0-beta.3
 [0.3.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.1...v0.3.0-beta.2
 [0.3.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.3.0-alpha.7...v0.3.0-beta.1

@@ -41,8 +41,10 @@ on that build. The exception is not a precedent: beta.2 onward adds no features 
 
 ### 0.5.0-beta.1: merge order and pre-deploy checklist
 
-Nothing below merges to `main` before the 0.3.0-beta.2 soak ends (2026-10-06). Merge in this order, each with green CI on
-the exact commit and the next PR rebased first (the PRs are stacked or overlap):
+Merged 2026-09-29 and 2026-09-30 on the owner's instruction, in this order, each with green CI on the exact commit and
+the next PR brought up to date first (the PRs were stacked or overlapped; D and C went into B's branch, then B into
+`main`). The review and fix PRs (#137, #150, #151), the real starter feeds (#152) and the font restore (#153) followed.
+The record, kept for reference:
 
 1. **#91**, the design document.
 2. **A**, the release workflow (#111): the Dockerfile cross-compile and `.github/workflows/release.yml`.

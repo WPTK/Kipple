@@ -1,1 +1,0 @@
-Restoring a backup from an install on the old port 7080 into a new install that was not set up yet keeps port 1919, instead of moving the server to 7080 behind a 1919 port mapping while the health check still passed; restore says what it kept. (#139)

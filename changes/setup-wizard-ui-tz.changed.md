@@ -1,1 +1,0 @@
-Settings, Account & Devices shows the time zone read-only, with the reason, while the TZ environment variable is set, as the setup wizard's time zone step does.
