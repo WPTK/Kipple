@@ -56,6 +56,8 @@ export interface StarterList {
   categories: StarterCategory[];
 }
 
+/** The query key of GET /api/instance. It starts with "auth" so the app's sign-out cleanup (App.tsx) leaves it alone. */
+export const INSTANCE_KEY = ["auth", "instance"] as const;
 export const fetchInstance = (signal?: AbortSignal) => api<InstanceInfo>("/api/instance", { signal, anon: true, quiet: true });
 export const fetchSetupState = (signal?: AbortSignal) => api<SetupState>("/api/setup/state", { signal, anon: true });
 export const claimSetup = (token: string) => api("/api/setup/claim", { method: "POST", body: { token }, anon: true });

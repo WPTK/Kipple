@@ -10,7 +10,7 @@ import { themeStore, updateTheme } from "@/theme/theme";
 import { Button } from "@/ui/button";
 import { Notice } from "@/ui/kit";
 import { StepActions, WizardFrame } from "./Frame";
-import { markThemeSaved, rememberTheme, themeBefore } from "./session";
+import { markThemeSaved, previewTheme, rememberTheme, settleThemePreview } from "./session";
 import { stepById } from "./steps";
 
 /** A small sample article in a scheme's own colors, so both picks can be seen at once whatever the page is showing. */
@@ -44,8 +44,8 @@ function Sample({ heading, scheme }: { heading: string; scheme: Scheme }) {
 /**
  * Step 4: the look. A day theme and a night theme, which Kipple switches between with each device's own light or dark
  * setting (the same pair Settings calls "Follow system"). Picking applies at once on this device, so the page itself is
- * the preview; Continue also saves the pair as the default for every device that has not chosen its own. Skip puts
- * this device back the way it was.
+ * the preview (shown here, never written to this device's profile); Continue saves the pair as the default for every
+ * device that has not chosen its own. Skip puts this device back the way it was.
  */
 export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: () => void; onNext: () => void; onSkipAll: () => void; skipAllBusy?: boolean }) {
   const t = useStore(themeStore);
@@ -63,6 +63,7 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
 
   const pick = (which: "day" | "night", id: string) => {
     // Follow system without a schedule: the two picks, whichever the device is showing now. Any earlier schedule or fixed pick gives way.
+    previewTheme();
     updateTheme({ ...choosePair("follow"), day, night, [which]: id });
     setError(null);
   };
@@ -72,7 +73,8 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
     setError(null);
     try {
       await patch.mutateAsync({ "ui.theme": "system", "ui.theme_day": day, "ui.theme_night": night });
-      markThemeSaved();
+      const now = themeStore.get();
+      markThemeSaved(now, now.mode === "follow" && now.day === day && now.night === night);
       onNext();
     } catch (e) {
       setError(errorMessage(e));
@@ -82,8 +84,7 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
   };
 
   const skip = () => {
-    const before = themeBefore();
-    if (before) updateTheme(before);
+    settleThemePreview();
     onNext();
   };
 
@@ -92,7 +93,7 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
       step={stepById("theme")}
       description="Choose one look for the daytime and one for the evening. Kipple switches between them with your device's light or dark setting."
       onSkipAll={onSkipAll}
-      skipAllBusy={skipAllBusy}
+      skipAllBusy={skipAllBusy || busy}
     >
       <div className="flex flex-1 flex-col gap-4">
         {error ? <Notice tone="error">{error}</Notice> : null}
@@ -107,12 +108,14 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
         <p className="text-xs text-fg2">This page already shows your pick for this device. You can also choose a schedule, or a single theme, in Settings, Appearance &amp; Reading, any time.</p>
         <StepActions
           back={
-            <Button onClick={onBack}>
+            <Button disabled={busy} onClick={onBack}>
               Back
             </Button>
           }
         >
-          <Button onClick={skip}>Skip</Button>
+          <Button disabled={busy} onClick={skip}>
+            Skip
+          </Button>
           <Button variant="solid" disabled={busy} onClick={() => void save()}>
             {busy ? "Saving" : "Continue"}
           </Button>

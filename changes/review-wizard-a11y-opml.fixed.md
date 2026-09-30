@@ -1,0 +1,1 @@
+Setup: a wrong setup code is tied to its field for screen readers, the password checks on the account step speak once a field is left rather than on every keystroke, and an OPML file over the server's 8 MB limit is refused before it is uploaded (also in Import OPML). (#145, #146, #147)

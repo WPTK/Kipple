@@ -46,7 +46,7 @@ export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack:
       step={stepById("import")}
       description="Coming from another feed reader? Export your feeds from it as an OPML file (most readers have an Export option in their settings) and add the file here. If you don't have one, skip this."
       onSkipAll={onSkipAll}
-      skipAllBusy={skipAllBusy}
+      skipAllBusy={skipAllBusy || busy}
     >
       <div className="flex flex-1 flex-col gap-4">
         {error ? <Notice tone="error">{error}</Notice> : null}
@@ -88,14 +88,22 @@ export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack:
             </Field>
           </>
         )}
-        <StepActions back={<Button onClick={onBack}>Back</Button>}>
+        <StepActions
+          back={
+            <Button disabled={busy} onClick={onBack}>
+              Back
+            </Button>
+          }
+        >
           {result ? (
             <Button variant="solid" onClick={onNext}>
               Continue
             </Button>
           ) : (
             <>
-              <Button onClick={onNext}>Skip</Button>
+              <Button disabled={busy} onClick={onNext}>
+                Skip
+              </Button>
               <Button variant="solid" disabled={!file || busy || daysBad} onClick={() => void run()}>
                 {busy ? "Importing" : "Import"}
               </Button>

@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, authStore, SESSION_EXPIRED } from "@/api/client";
 import { reloadToSignIn } from "@/lib/reload";
+import { INSTANCE_KEY } from "@/setup/api";
 import { Button } from "@/ui/button";
 
 /**
@@ -33,6 +34,12 @@ export function LoginScreen() {
       if (err instanceof ApiError && err.code === SESSION_EXPIRED) {
         setExpired(true);
         setError("The sign-in in front of Kipple has expired. Reload to sign in again.");
+      } else if (err instanceof ApiError && err.status === 409 && err.code === "open_mode") {
+        // This Kipple has no password (it went into open mode since the form was drawn): ask again what it is, and the
+        // app switches to the silent open-mode sign-in by itself.
+        setError("This Kipple doesn't use a password. Signing you in.");
+        // If the answer does not move the app on, say what to do rather than leave that message up.
+        void qc.invalidateQueries({ queryKey: INSTANCE_KEY }).then(() => setError("This Kipple doesn't use a password. Reload the page to sign in."));
       } else if (err instanceof ApiError && err.status === 429) setError("Too many attempts. Try again in a few minutes.");
       else if (err instanceof ApiError && err.status === 401)
         setError(

@@ -1,0 +1,1 @@
+Setup: Back and Skip are disabled while a step is saving, a second API password warns before it replaces the one shown once, the step 2 password is dropped when setup ends elsewhere, the typed user name survives a timed-out setup session, and the step 7 password field no longer flashes for an account without a password. (#142, #143, #144, #148, #149)

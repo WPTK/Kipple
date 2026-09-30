@@ -1,5 +1,6 @@
 // What the wizard remembers between its steps, in this page's memory only (a reload forgets all of it). Small on
 // purpose: it is imported by the app shell so a sign-out can drop it.
+import { adoptThemeDefaults, holdThemeSync } from "@/lib/deviceSync";
 import { createStore } from "@/lib/store";
 import { updateTheme } from "@/theme/theme";
 import type { ThemeSettings } from "@/theme/settings";
@@ -11,22 +12,46 @@ import type { StepId } from "./steps";
  */
 export const setupSecret = createStore<string | null>(null);
 
+/** An API password was made in step 7 during this setup (it is shown once, so a second one would silently replace it). */
+export const apiPasswordMade = createStore<boolean>(false);
+
 /** The theme this device had before the wizard touched it, so a Skip (or leaving setup unsaved) can put it back. */
 let themeBaseline: ThemeSettings | null = null;
-let themeSaved = false;
+/** The pick the theme step saved as the default for every device, once it has. */
+let themeSaved: ThemeSettings | null = null;
 
 /** Remembers the device's theme the first time the theme step opens; later visits keep the original. */
 export function rememberTheme(t: ThemeSettings): void {
   themeBaseline ??= t;
 }
-export const themeBefore = (): ThemeSettings | null => themeBaseline;
-/** The theme step saved a pick (as the default for every device): nothing to put back. */
-export function markThemeSaved(): void {
-  themeSaved = true;
+/** What Skip goes back to: the pick that was saved, else what this device had before the wizard. */
+export const themeBefore = (): ThemeSettings | null => themeSaved ?? themeBaseline;
+/**
+ * A pick is being previewed: it shows on this page but is not written to this device's profile (a preview is not a
+ * choice, and the profile would pin the device to values it only tried).
+ */
+export function previewTheme(): void {
+  holdThemeSync(true);
+}
+/**
+ * The theme step saved `t` as the default for every device without its own choice: nothing to put back, and this
+ * device follows that default rather than holding an override of it.
+ */
+export function markThemeSaved(t: ThemeSettings, matchesLocal = true): void {
+  themeSaved = t;
+  // Only when this device shows exactly what was saved; otherwise the difference stays pending and is written normally.
+  if (matchesLocal) adoptThemeDefaults(["ui.theme", "ui.theme_day", "ui.theme_night"]);
+  holdThemeSync(false);
+}
+/** A preview that is over (Skip, or setup ended): the theme is put back on this device and the profile is written normally again. */
+export function settleThemePreview(): void {
+  const back = themeBefore();
+  if (back) updateTheme(back);
+  holdThemeSync(false);
 }
 /** Setup ended without the theme step saving: put this device's theme back the way it was. */
 export function revertUnsavedTheme(): void {
-  if (themeBaseline && !themeSaved) updateTheme(themeBaseline);
+  settleThemePreview();
 }
 
 const RERUN_KEY = "kipple.setup.rerun";
@@ -56,8 +81,10 @@ export const welcomeEntry = (): string => `/welcome/${welcomeTarget ?? "timezone
 /** Setup is over, or the app signed out: forget everything above. */
 export function forgetWizardMemory(): void {
   setupSecret.set(null);
+  apiPasswordMade.set(false);
+  settleThemePreview();
   themeBaseline = null;
-  themeSaved = false;
+  themeSaved = null;
   welcomeTarget = null;
   try {
     sessionStorage.removeItem(RERUN_KEY);

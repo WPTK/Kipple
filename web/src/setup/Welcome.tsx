@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import { useBootstrap } from "@/api/queries";
 import { announce, LiveRegion, toast, Toasts } from "@/shell/toasts";
 import { errorMessage } from "@/api/client";
 import { useSetupActions } from "./actions";
+import { forgetWizardMemory, revertUnsavedTheme } from "./session";
 import { FeedsStep } from "./FeedsStep";
 import { FinishStep } from "./FinishStep";
 import { ImportStep } from "./ImportStep";
@@ -23,6 +24,16 @@ export function Welcome() {
   const boot = useBootstrap();
   const actions = useSetupActions();
   const [ending, setEnding] = useState(false);
+
+  const over = boot.data !== undefined && boot.data.user.setup_pending !== true;
+  // Setup ended somewhere else (another tab or device, or Skip here): drop what this page kept for it, the password
+  // typed in step 2 above all, and put a previewed theme back.
+  useEffect(() => {
+    if (over) {
+      revertUnsavedTheme();
+      forgetWizardMemory();
+    }
+  }, [over]);
 
   // Nothing pending (finished already, or a bookmark): the reader.
   if (boot.data && boot.data.user.setup_pending !== true) return <Navigate to="/l/unread" replace />;

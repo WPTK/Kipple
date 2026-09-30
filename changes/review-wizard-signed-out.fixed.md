@@ -1,0 +1,1 @@
+The signed-out screen no longer shows the password form when Kipple cannot be reached or answers with a server error: it says so and offers Try again (the form still appears for an older server), and the sign-in form follows a Kipple that has gone into open mode. (#134)
