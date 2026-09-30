@@ -38,3 +38,7 @@ docs/HANDOFF-PHASE3.md
 docs/HANDOFF-PHASE4.md
 docs/plan.md
 docs/parking-lot.md
+
+# Coverage output (uploaded by CI, never committed)
+/coverage.out
+web/coverage/

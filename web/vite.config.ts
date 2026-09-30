@@ -162,7 +162,7 @@ export default defineConfig(({ command }) => {
       // Visibility only (SQA plan): reported in CI logs, not a gate. No thresholds are enforced.
       coverage: {
         provider: "v8",
-        reporter: ["text-summary"],
+        reporter: ["text-summary", "lcov"],
         include: ["src/**/*.{ts,tsx}"],
         exclude: ["src/test/**", "src/**/*.d.ts", "src/main.tsx"],
       },
