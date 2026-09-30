@@ -169,6 +169,20 @@ body {
   overflow: hidden;
 }
 
+/* iOS Safari (and the installed app) tints and softens the status-bar strip from what is at the top edge of the page.
+   Give it one solid, fixed element in the page background colour so it has nothing else to sample. It is as tall as
+   the notch inset (zero where there is none), below dialogs and menus, and ignores touches. */
+#kp-top-cover {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 40;
+  height: env(safe-area-inset-top);
+  background: var(--kp-bg);
+  pointer-events: none;
+}
+
 .pt-safe { padding-top: env(safe-area-inset-top); }
 .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
 .pl-safe { padding-left: env(safe-area-inset-left); }

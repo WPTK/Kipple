@@ -1,0 +1,1 @@
+iOS Safari and the installed app tinted and softened the status-bar strip above the list header, which showed as a blur until you scrolled; a solid, fixed cover in the page colour now gives it one thing to sample. (#163)
