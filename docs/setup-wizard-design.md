@@ -341,6 +341,13 @@ the same pattern as `web/embed.go`. It is a top-level directory so the owner edi
 Go code. The Dockerfile's Go stage adds `COPY starter/ ./starter/`. The server parses it once at startup; the SPA
 gets it from `GET /api/starter-feeds`, so there is one source of truth and the server subscribes only ids it knows.
 
+The file ships the real recommended list (ten feeds in six categories: Design & UI, Art, Tech, Automotive, Books,
+Aviation), every feed ticked by default; a person unticks any of them in the wizard. To change the list, edit
+`starter/feeds.json` and rebuild the image: change `checked` to `false` to leave a feed unticked, add or remove
+entries, and update the pinned count in `TestEmbeddedListIsThePinnedSet`. Every URL was fetched and confirmed to be
+a live RSS or Atom feed with items when the list was written; `node scripts/check-starter-feeds.mjs` repeats that
+check on demand.
+
 ### 7.2 Schema
 
 ```json

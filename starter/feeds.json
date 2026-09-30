@@ -2,24 +2,127 @@
   "version": 1,
   "categories": [
     {
-      "id": "placeholder",
-      "title": "Placeholder",
+      "id": "design",
+      "title": "Design & UI",
       "feeds": [
         {
-          "id": "example-com",
-          "title": "Example feed one",
-          "url": "https://example.com/feed.xml",
-          "site": "https://example.com/",
-          "description": "A placeholder until the real recommended list lands.",
-          "checked": true
+          "id": "unsung",
+          "title": "Unsung",
+          "url": "https://unsung.aresluna.org/feed.xml",
+          "site": "https://unsung.aresluna.org/",
+          "description": "Small, well-observed details of interface and product design.",
+          "checked": true,
+          "lang": "en"
         },
         {
-          "id": "example-org",
-          "title": "Example feed two",
-          "url": "https://example.org/feed.xml",
-          "site": "https://example.org/",
-          "description": "A second placeholder.",
-          "checked": false,
+          "id": "jim-nielsens-blog",
+          "title": "Jim Nielsen's Blog",
+          "url": "https://blog.jim-nielsen.com/feed.xml",
+          "site": "https://www.jim-nielsen.com/",
+          "description": "Notes on design, the web and building interfaces.",
+          "checked": true,
+          "lang": "en"
+        },
+        {
+          "id": "basic-apple-guy",
+          "title": "Basic Apple Guy",
+          "url": "https://basicappleguy.com/basicappleblog?format=rss",
+          "site": "https://basicappleguy.com/",
+          "description": "Apple-focused design, wallpapers and tech.",
+          "checked": true,
+          "lang": "en"
+        }
+      ]
+    },
+    {
+      "id": "art",
+      "title": "Art",
+      "feeds": [
+        {
+          "id": "storied-colors",
+          "title": "Storied Colors",
+          "url": "https://storiedcolors.com/rss.xml",
+          "site": "https://storiedcolors.com/",
+          "description": "The stories behind colors and the art that uses them.",
+          "checked": true,
+          "lang": "en"
+        }
+      ]
+    },
+    {
+      "id": "tech",
+      "title": "Tech",
+      "feeds": [
+        {
+          "id": "hacker-noon",
+          "title": "Hacker Noon",
+          "url": "https://hackernoon.com/feed",
+          "site": "https://hackernoon.com/",
+          "description": "Technology stories written by its community.",
+          "checked": true,
+          "lang": "en"
+        },
+        {
+          "id": "9to5mac",
+          "title": "9to5Mac",
+          "url": "https://9to5mac.com/feed/",
+          "site": "https://9to5mac.com/",
+          "description": "Apple news, rumors and reviews.",
+          "checked": true,
+          "lang": "en"
+        }
+      ]
+    },
+    {
+      "id": "automotive",
+      "title": "Automotive",
+      "feeds": [
+        {
+          "id": "electrek",
+          "title": "Electrek",
+          "url": "https://electrek.co/feed/",
+          "site": "https://electrek.co/",
+          "description": "Electric vehicles, clean energy and transportation news.",
+          "checked": true,
+          "lang": "en"
+        }
+      ]
+    },
+    {
+      "id": "books",
+      "title": "Books",
+      "feeds": [
+        {
+          "id": "london-review-of-books",
+          "title": "London Review of Books",
+          "url": "https://www.lrb.co.uk/feeds/rss",
+          "site": "https://www.lrb.co.uk/",
+          "description": "Essays and reviews on books, ideas and culture.",
+          "checked": true,
+          "lang": "en"
+        }
+      ]
+    },
+    {
+      "id": "aviation",
+      "title": "Aviation",
+      "feeds": [
+        {
+          "id": "airport-spotting",
+          "title": "Airport Spotting",
+          "url": "https://www.airportspotting.com/feed/",
+          "site": "https://www.airportspotting.com/",
+          "description": "Airport and airline news for aviation fans.",
+          "checked": true,
+          "lang": "en"
+        },
+        {
+          "id": "airlinegeeks",
+          "title": "AirlineGeeks",
+          "url": "https://airlinegeeks.com/feed/",
+          "site": "https://airlinegeeks.com/",
+          "description": "Airline and commercial aviation news.",
+          "checked": true,
           "lang": "en"
         }
       ]

@@ -22,6 +22,40 @@ func TestEmbeddedListIsValid(t *testing.T) {
 	require.Positive(t, n)
 }
 
+// The list is the owner's curated set: this pins its size and shape so an
+// accidental edit (a dropped feed, an http URL, a duplicate id) fails here.
+// To change the list on purpose, edit starter/feeds.json and update wantFeeds.
+func TestEmbeddedListIsThePinnedSet(t *testing.T) {
+	const wantFeeds = 10
+	wantCategories := []string{"Design & UI", "Art", "Tech", "Automotive", "Books", "Aviation"}
+	f, err := Load()
+	require.NoError(t, err)
+	var cats []string
+	ids := map[string]bool{}
+	urls := map[string]bool{}
+	n := 0
+	for _, c := range f.Categories {
+		cats = append(cats, c.Title)
+		require.NotEmpty(t, c.Feeds, c.ID)
+		for _, fd := range c.Feeds {
+			n++
+			require.False(t, ids[fd.ID], "duplicate id %s", fd.ID)
+			ids[fd.ID] = true
+			require.False(t, urls[fd.URL], "duplicate url %s", fd.URL)
+			urls[fd.URL] = true
+			u, err := url.Parse(fd.URL)
+			require.NoError(t, err, fd.ID)
+			require.Equal(t, "https", u.Scheme, fd.ID)
+			require.NotEmpty(t, u.Hostname(), fd.ID)
+			require.NoError(t, CheckPublicHTTPS(fd.Site), fd.ID)
+			require.True(t, fd.Checked, "%s: every starter feed is ticked by default", fd.ID)
+			require.NotContains(t, fd.URL, "example.", fd.ID)
+		}
+	}
+	require.Equal(t, wantFeeds, n)
+	require.Equal(t, wantCategories, cats)
+}
+
 func doc(feeds ...string) string {
 	return `{"version":1,"categories":[{"id":"c","title":"C","feeds":[` + strings.Join(feeds, ",") + `]}]}`
 }
