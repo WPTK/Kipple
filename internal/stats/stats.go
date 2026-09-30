@@ -89,7 +89,7 @@ func (r *SQL) Record(tx *sql.Tx, ev Event) error {
 	} else if !on {
 		return ErrDropped
 	}
-	return r.record(ctx, tx, ev, store.LoadLocation(ctx, tx))
+	return r.record(ctx, tx, ev, store.Zone(ctx, tx))
 }
 
 // RecordMany records a batch in one transaction, reading stats.enabled and the time zone once.
@@ -104,7 +104,7 @@ func (r *SQL) RecordMany(tx *sql.Tx, evs []Event) error {
 	} else if !on {
 		return nil
 	}
-	loc := store.LoadLocation(ctx, tx)
+	loc := store.Zone(ctx, tx)
 	for _, ev := range evs {
 		if err := r.record(ctx, tx, ev, loc); err != nil && !errors.Is(err, ErrDropped) {
 			return err
@@ -216,7 +216,7 @@ func (r *SQL) RecordStars(tx *sql.Tx, kind, client string, ids []int64) error {
 		return nil
 	}
 	now := r.now()
-	lt := now.In(store.LoadLocation(ctx, tx))
+	lt := now.In(store.Zone(ctx, tx))
 	feeds := map[int64]store.StatSnapshot{}
 	for _, id := range ids {
 		feedID, title, url, ok, err := store.StatItemBasics(ctx, tx, id)

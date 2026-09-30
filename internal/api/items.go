@@ -32,7 +32,13 @@ const (
 // decodeBody reads a JSON body into v. An empty body leaves v untouched and
 // counts as success when allowEmpty is set. It writes 400 on failure.
 func decodeBody(w http.ResponseWriter, r *http.Request, v any, allowEmpty bool) bool {
-	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes)).Decode(v)
+	return decodeJSON(w, r, v, maxBodyBytes, allowEmpty)
+}
+
+// decodeJSON is decodeBody with its own size limit (the unauthenticated setup
+// routes take far less).
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any, limit int64, allowEmpty bool) bool {
+	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(v)
 	if err == nil || (allowEmpty && errors.Is(err, io.EOF)) {
 		return true
 	}

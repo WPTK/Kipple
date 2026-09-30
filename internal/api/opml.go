@@ -51,25 +51,32 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	if res.FoldersCreated > 0 {
-		s.publishFolderChanged(0)
-	}
-	var runID any
-	if len(res.NewFeedIDs) > 0 {
-		info, err := s.opt.Sched.StartImport(res.NewFeedIDs)
-		switch {
-		case err == nil:
-			runID = fmt.Sprint(info.RunID)
-		case errors.Is(err, sched.ErrStopped):
-			// imported; the scheduler will not run again this process
-		default:
-			s.log.Error("api: import run", "err", err)
-		}
-	}
 	writeJSON(w, http.StatusOK, struct {
 		opml.Result
 		RunID any `json:"run_id"`
-	}{res, runID})
+	}{res, s.afterImport(res)})
+}
+
+// afterImport is what follows every import (OPML, recommended feeds): the
+// folder event when folders were made, and an import run over the new feeds.
+// It returns the run id, or nil when nothing was started.
+func (s *Server) afterImport(res opml.Result) any {
+	if res.FoldersCreated > 0 {
+		s.publishFolderChanged(0)
+	}
+	if len(res.NewFeedIDs) == 0 {
+		return nil
+	}
+	info, err := s.opt.Sched.StartImport(res.NewFeedIDs)
+	switch {
+	case err == nil:
+		return fmt.Sprint(info.RunID)
+	case errors.Is(err, sched.ErrStopped):
+		// imported; the scheduler will not run again this process
+	default:
+		s.log.Error("api: import run", "err", err)
+	}
+	return nil
 }
 
 func readOPMLBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {

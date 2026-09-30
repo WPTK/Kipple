@@ -1,0 +1,1 @@
+New installs record reading statistics and run the nightly job in UTC until you choose a time zone; existing installs keep America/New_York. A `TZ` environment variable, when set, now governs statistics and the nightly job too, and the in-app time zone is then shown read-only. Backup download names use the same zone.

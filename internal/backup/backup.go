@@ -286,7 +286,9 @@ func (m *Manager) build(ctx context.Context, release func()) (Export, error) {
 		_ = os.Remove(final)
 		return Export{}, err
 	}
-	name := "kipple-backup-" + now.Format("20060102-150405") + ".zip"
+	// The download name reads in the effective zone (TZ, else the tz setting, else
+	// UTC), never time.Local, which is fixed at start.
+	name := "kipple-backup-" + now.In(store.Zone(ctx, m.o.DB.Reader())).Format("20060102-150405") + ".zip"
 	// The link is good for TTL from the moment it exists, not from the start of a
 	// build that may have taken most of BuildTimeout.
 	ready := m.o.Now()

@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -36,6 +37,7 @@ import (
 	"github.com/WPTK/kipple/internal/lock"
 	"github.com/WPTK/kipple/internal/maint"
 	"github.com/WPTK/kipple/internal/sched"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 	kweb "github.com/WPTK/kipple/internal/web"
@@ -96,10 +98,12 @@ func run(args []string) error {
 		return runImport(args[1:])
 	case "healthcheck":
 		return runHealthcheck(args[1:])
+	case "setup-token":
+		return runSetupToken(args[1:])
 	case "version":
 		return runVersion(args[1:], os.Stdout)
 	default:
-		return fmt.Errorf("unknown command %q (want serve, healthcheck, import, api-password, password, restore or version)", cmd)
+		return fmt.Errorf("unknown command %q (want serve, healthcheck, import, api-password, password, restore, setup-token or version)", cmd)
 	}
 }
 
@@ -120,8 +124,16 @@ func runServe() error {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	if err := applyTZ(cfg.TZ); err != nil {
-		return err
+	// TZ, when set, is the zone for everything (docs/setup-wizard-design.md 7a):
+	// time.Local for the logs and the zone store.Zone reports. Unset, the in-app
+	// tz setting governs, and time.Local follows it below, once the store is open.
+	if cfg.TZ != "" {
+		if err := applyTZ(cfg.TZ); err != nil {
+			return err
+		}
+	}
+	if err := store.SetEnvZone(cfg.TZ); err != nil {
+		return fmt.Errorf("TZ: %w", err)
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
@@ -164,6 +176,21 @@ func runServe() error {
 
 	if err := ensureAccount(context.Background(), db, cfg, logger); err != nil {
 		return fmt.Errorf("account: %w", err)
+	}
+	warnTZOverride(context.Background(), db, cfg, logger)
+	if cfg.TZ == "" {
+		// Nothing but this goroutine runs yet (the pools keep no timers), so this
+		// is the one safe moment: log timestamps follow the effective zone as of
+		// this start; a later change of the setting reaches them after a restart.
+		time.Local = store.Zone(context.Background(), db.Reader())
+	}
+	setupMgr, err := startSetupMode(context.Background(), db, cfg, logger)
+	if err != nil {
+		return fmt.Errorf("setup: %w", err)
+	}
+	addr, fallback, err := serveAddr(context.Background(), db, cfg, logger)
+	if err != nil {
+		return err
 	}
 	accessV, err := accessVerifier(cfg, logger)
 	if err != nil {
@@ -235,12 +262,16 @@ func runServe() error {
 		},
 	})
 
+	tailnet := setup.TailnetCheck()
+	tailnet() // the first scan now, not on the first request
 	mux := http.NewServeMux()
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
 		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
 		Stats: recorder, Version: version, Build: buildInfo(), WebBuild: kweb.BuildID(), DataDir: cfg.DataDir, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount, Access: accessV,
+		Setup: setupMgr, AllowedHosts: allowedHosts(cfg),
+		Gate: setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: tailnet},
 	})
 	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API
@@ -256,8 +287,8 @@ func runServe() error {
 	startBackground(scheduler, maintenance, icons)
 
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, cfg.TrustedProxyIPs, logger),
+		Addr:              addr,
+		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, cfg.TrustedProxyIPs, logger, uiAPI.HostGate),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
 		// WriteTimeout would kill /api/events; the SSE handler replaces it with a
@@ -271,8 +302,18 @@ func runServe() error {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		logger.Info("listening", "addr", cfg.Addr, "version", version, "commit", buildInfo().Commit)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		ln, err := listen(addr, fallback, logger)
+		if err != nil {
+			serveErr <- err
+			return
+		}
+		logger.Info("listening", "addr", ln.Addr().String(), "version", version, "commit", buildInfo().Commit)
+		if setupMgr.Pending() {
+			if _, port, err := net.SplitHostPort(ln.Addr().String()); err == nil {
+				setupMgr.Announce(port)
+			}
+		}
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
 			return
 		}
@@ -314,11 +355,16 @@ var startBackground = func(s *sched.Scheduler, m *maint.Maint, icons *favicon.Fi
 // httpx.Secure puts the security headers (frame-ancestors, X-Frame-Options,
 // CSP by content type, Permissions-Policy on pages) on every response, the SPA,
 // the UI API, the Reader API and the image proxy alike.
+//
+// hostGate (the UI API's HostGate, design 5.2) runs inside httpx.Secure, so a
+// refused request still carries the security headers; nil installs none.
 func rootHandler(readerFront func(http.Handler) http.Handler, mux http.Handler, imgMode func() string,
-	trusted []netip.Addr, logger *slog.Logger) http.Handler {
-	return httpx.Secure(
-		auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, logger, nil),
-		httpx.Options{ImgMode: imgMode, TrustedProxies: trusted})
+	trusted []netip.Addr, logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
+	h := auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, logger, nil)
+	if hostGate != nil {
+		h = hostGate(h)
+	}
+	return httpx.Secure(h, httpx.Options{ImgMode: imgMode, TrustedProxies: trusted})
 }
 
 // serveDrainWait bounds the wait for ListenAndServe to report after a shutdown.

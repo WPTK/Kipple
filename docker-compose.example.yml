@@ -1,7 +1,12 @@
-# Works standalone: copy this to docker-compose.yml (as README.md's Quickstart does) and
-# `docker compose up -d`. If you're instead adding Kipple as one service inside a larger existing
-# compose project, copy just this service block in and merge the top-level `volumes:` entry —
-# see CLAUDE.md "Deploy" for that workflow specifically.
+# The build-from-source variant: it builds the image from this checkout, with resource limits and
+# the full hardening. To pull the published image instead (from 0.5.0-beta.1), use
+# docker-compose.pull.example.yml.
+#
+# Works standalone: copy this to docker-compose.yml (as README.md's Quickstart does), build and
+# start it, open http://127.0.0.1:1919 and paste the setup code from `docker logs kipple`. No .env
+# is needed: everything is set in the browser. If you're instead adding Kipple as one service
+# inside a larger existing compose project, copy just this service block in and merge the
+# top-level `volumes:` entry — see CLAUDE.md "Deploy" for that workflow specifically.
 #
 # Name the service explicitly when starting it: never a bare `docker compose up -d` / `down`
 # against a compose file with other services in it.
@@ -27,10 +32,18 @@ services:
     # The image's own HEALTHCHECK (kipple healthcheck) is used as is; see docs/deploy.md.
     # No /import mount on purpose: the nonroot user cannot read a bind-mounted
     # directory. Import an OPML with `kipple import -` and pipe the file in.
+    # Optional: .env holds advanced overrides only (see .env.example). Compose 2.24 or newer
+    # starts without the file; on an older Compose, create an empty .env or delete these lines.
+    # If a .env from before 0.5 sets KIPPLE_ADDR=:7080, change the container side of the port
+    # below to 7080 (or remove that line from .env).
     env_file:
-      - .env
+      - path: .env
+        required: false
     ports:
-      - "7080:7080"
+      # This machine only. Use "1919:1919" to reach Kipple from your LAN, or your Tailscale
+      # address ("100.x.y.z:1919:1919"). See docs/deploy.md, "Open mode", before choosing
+      # "no password" together with a wider bind.
+      - "127.0.0.1:1919:1919"
     volumes:
       - kipple_data:/data
     # Kipple handles SIGTERM itself and finishes shutting down (HTTP drain, background
@@ -45,7 +58,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
-    # Drop every Linux capability; the app binds an unprivileged port as uid 65532.
+    # Drop every Linux capability; the app binds an unprivileged port (1919) as uid 65532.
     cap_drop:
       - ALL
     # Forbid gaining privileges through setuid binaries.

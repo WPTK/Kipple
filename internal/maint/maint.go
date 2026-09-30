@@ -123,7 +123,7 @@ func (m *Maint) Start() {
 	// The zone is read here too: the baseline depends on it, so reading it in the
 	// goroutine let a tz change made right after Start pick a different baseline.
 	start := m.clk.Now()
-	go m.run(ctx, m.done, tick, stopTick, start, store.LoadLocation(ctx, m.o.DB.Reader()))
+	go m.run(ctx, m.done, tick, stopTick, start, store.Zone(ctx, m.o.DB.Reader()))
 }
 
 // Stop cancels the maintenance context (interrupting a running purge or
@@ -178,12 +178,13 @@ func (m *Maint) lastRun(ctx context.Context, start time.Time, loc *time.Location
 	return baseline(start, m.o.NightlyAt, loc)
 }
 
-// zone resolves the `tz` setting (design 2.6). An unknown name keeps prev (the
-// zone in use) and is warned about once per distinct bad value; it is never
-// treated as a zone change.
+// zone resolves the effective zone (design 2.6; the TZ environment variable
+// when set, else the `tz` setting: store.ZoneName). An unknown name keeps prev
+// (the zone in use) and is warned about once per distinct bad value; it is
+// never treated as a zone change.
 func (m *Maint) zone(ctx context.Context, prev *time.Location, badTZ *string) *time.Location {
-	name := store.TZName(ctx, m.o.DB.Reader())
-	loc, err := time.LoadLocation(name)
+	name := store.ZoneName(ctx, m.o.DB.Reader())
+	loc, err := store.LoadZone(name)
 	if err != nil {
 		if *badTZ != name {
 			*badTZ = name

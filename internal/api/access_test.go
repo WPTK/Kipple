@@ -20,6 +20,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/access"
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/store"
 )
 
 const (
@@ -95,7 +96,7 @@ func withJWT(tok string) func(*http.Request) {
 
 func (h *harness) dropPassword() {
 	h.t.Helper()
-	require.NoError(h.t, h.db.SetPasswordHash(context.Background(), "", ""))
+	require.NoError(h.t, h.db.SetPasswordHash(context.Background(), "", store.AuthStandard, ""))
 }
 
 func (h *harness) me(mod ...func(*http.Request)) map[string]any {
@@ -334,7 +335,7 @@ func TestPasswordlessWithAccessOffPointsToTheCLI(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
 	// The password was removed while Access was on; Access is now off.
-	require.NoError(t, h.db.SetPasswordHash(context.Background(), "", sessionID(c.Value)))
+	require.NoError(t, h.db.SetPasswordHash(context.Background(), "", store.AuthStandard, sessionID(c.Value)))
 	k, _ := accessKeys(t)
 	for _, path := range []string{"/api/account/password", "/api/account/api-password"} {
 		body := `{"current":"","new":"a new pass"}`

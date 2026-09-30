@@ -3,8 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,22 +15,14 @@ import (
 
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/config"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// newAccountSecret is the 32 random bytes (hex) that key Reader tokens, the
-// login memo and image signatures.
-func newAccountSecret() (string, error) {
-	secret := make([]byte, 32)
-	if _, err := rand.Read(secret); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(secret), nil
-}
-
 // resetPassword sets the web password, signs out every web session and revokes
 // every Reader API token (by rotating the account secret; the Reader API
-// password itself is kept). A running server notices within a few seconds.
+// password itself is kept). An open-mode account returns to the standard mode
+// (a password is set). A running server notices within a few seconds.
 func resetPassword(ctx context.Context, db *store.DB, pw string) error {
 	if n := len(pw); n < auth.MinPasswordLen || n > auth.MaxPasswordLen {
 		return fmt.Errorf("the password must be %d to %d characters", auth.MinPasswordLen, auth.MaxPasswordLen)
@@ -40,13 +30,13 @@ func resetPassword(ctx context.Context, db *store.DB, pw string) error {
 	if _, ok, err := db.Account(ctx); err != nil {
 		return err
 	} else if !ok {
-		return errors.New("no account yet: start `kipple serve` once with KIPPLE_USERNAME and KIPPLE_PASSWORD set")
+		return errors.New(noAccountYet)
 	}
 	hash, err := auth.HashPassword(pw)
 	if err != nil {
 		return err
 	}
-	secret, err := newAccountSecret()
+	secret, err := setup.NewSecret()
 	if err != nil {
 		return err
 	}

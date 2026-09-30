@@ -500,17 +500,79 @@ first (never `kipple.db`), and every throwaway container, volume and file was re
 
 ## Suite 5 — Fresh-machine Docker walkthrough as literal UAT
 
-The planned "first-time Docker setup walkthrough" release step doubles as UAT if followed literally rather than
-paraphrased: on a machine with nothing Kipple-related installed, follow `README.md`/`docs/deploy.md` verbatim
-from `git clone` to a working login, noting every point where a real newcomer would get stuck. Findings go in
-the same `uat-findings` doc, not a separate one.
+The "first-time Docker setup walkthrough" release step doubles as UAT when it is followed literally rather than
+paraphrased: on a machine with nothing Kipple-related installed, do exactly what `README.md` says, from nothing to a
+claimed, working instance, and note every place a real newcomer would get stuck. Since 0.5 that walkthrough is the
+**setup wizard**, not a `.env` edit: there is no `.env` and no password in any file. Findings go in the same
+`uat-findings` doc as the other suites.
 
-**Simulate a single-host self-hoster, not the owner's own setup.** The owner runs Kipple across two machines
-(one running the app, one for admin/backups over SSH) because that's convenient for him, but most people
-following this walkthrough will have one machine with Docker on it and no SSH step at all. Run this suite as
-that person: everything (clone, build, `.env`, `docker compose up`, first login, a test backup export) on a
-single box, no `ssh host-a` wrapper. If anything in `docs/deploy.md`'s two-host framing trips up a one-host
-walkthrough, that's a real finding, not a suite mismatch.
+**Where and with what.**
+
+- **A Linux host with Docker Engine. Not the Windows dev box (Host-B).** Running containers there can take Docker Desktop
+  down and with it services other people use; this suite must never run on it. Use a separate Linux machine or VM (a
+  spare host, or a fresh cloud VM deleted afterwards). Simulate a **single-host self-hoster**, not the owner's own setup:
+  everything (Docker, the terminal, the browser or a browser on another machine that reaches it) with no `ssh host-a`
+  wrapper anywhere. If `docs/deploy.md`'s two-host framing trips up a one-host reader, that is a real finding, not a
+  suite mismatch.
+- **The image under test** is the pushed prerelease image `ghcr.io/wptk/kipple:<version>` (first `0.5.0-beta.1`), pulled
+  anonymously with no registry login, so the run also proves the package is public. Before the first image exists, and for
+  run E, use a source build of the tag under test. Say which one each run used.
+- **Isolation.** Use a container name, compose project name (`-p`), volume and port that cannot collide with anything else
+  on the host (the README examples publish `127.0.0.1:1919`; pick another left-hand port if 1919 is taken). Use throwaway
+  passwords. Tear everything down afterwards (`down -v` for the project, remove the image). The owner's live instance
+  never takes part.
+
+**Run A: pull-and-run on amd64, following the README literally.** Copy the README's compose file (or its one-line
+`docker run`) exactly as printed, with only the isolation changes above.
+
+| # | Do | Expected | Log |
+|---|---|---|---|
+| A1 | Start it as the README says (`up -d` on the compose file, or the one-liner). | The image pulls anonymously; the container reaches `(healthy)` within about a minute even though nothing is set up. | Pull time, `docker ps` health, image digest (`docker inspect --format '{{index .RepoDigests 0}}' <container>`). |
+| A2 | `docker logs <container>`. | A boxed message with a setup code in six groups of four and a `http://<host>:<port>/#setup=<code>` link, plus a `setup pending` log line without the code. | Whether the code was easy to find and copy. |
+| A3 | Open `http://127.0.0.1:<port>` in a browser. | The wizard's first step asks for the setup code; nothing is claimable without it. | Anything confusing in the wording. |
+| A4 | Enter the code in lower case with no dashes; separately, try a wrong code once. | The right code is accepted (case, spaces and dashes are ignored); the wrong one is refused with a clear message. | (The lockout after 10 wrong codes is covered by Suite 1.) |
+| A5 | Restart the container and read the log again. | A **new** setup code; the old one no longer works. `docker exec <container> /kipple setup-token` prints the current one. | |
+| A6 | Open the `#setup=` link from the log message. | The code is pre-filled and the fragment is cleared from the address bar. | |
+| A7 | Step 2: create the account with a password (try one that is too short first). | The short one is refused with a reason; a valid one signs you in and moves to the time zone step. | |
+| A8 | Step 3, time zone. | Preselected from the browser's zone (UTC with a note if the server does not know it); searchable; Continue saves it. `docker exec <container> /kipple version -v` and Settings > About agree with the tag and show the zone. | The zone shown. |
+| A9 | Steps 4 to 6: pick a theme, import a small OPML file (or skip), tick a few recommended feeds. | Each saves as you go; imported and subscribed feeds start fetching; "Skip" on each step works and lands on the next. | Feeds added, time to the first article. |
+| A10 | Step 7: generate the Reader API password and connect NetNewsWire (or Reeder) with the server address the wizard shows, the user name and that password. | The password is shown once with a copy button; the app signs in and lists the feeds. | Client and version. |
+| A11 | Finish, sign out and in again, Settings > Account & Devices > **Export backup** and save the zip, then `docker exec <container> /kipple healthcheck; echo $?`. | Lands on the feed list; the password works; the backup downloads; the health check exits 0. | Backup size, and the version and schema in its manifest. |
+| A12 | On a second throwaway volume, reload the page between steps 3 and 6 (or use Settings > Account & Devices > Run setup again). | The wizard resumes where it was; what was saved is kept. | |
+| A13 | After completion request `/api/setup/state` (a browser tab or `curl`). | `404`: the setup routes are gone. `docker exec <container> /kipple setup-token` says no setup is pending. | |
+| A14 | Stop and start the container. | It comes back in normal mode with its data, no setup screen and no new code. | |
+
+**Run B: open mode.** On a third throwaway volume: A1 to A3, then in step 2 choose **No password at all**.
+
+| # | Do | Expected |
+|---|---|---|
+| B1 | Read the notice; try to continue without ticking the acknowledgement. | The notice says anyone who can reach the address can read and change everything, and to use it only from this computer or over Tailscale; it cannot be skipped without ticking the box. |
+| B2 | Note the extra checkbox (this run is in Docker). | "Also allow devices on my local network" is offered and required, with the reason (a container never sees a loopback peer), and the account cannot be created without it. Tick both and continue. |
+| B3 | Finish the wizard, close the browser, reopen the address. | It opens straight into the app with no sign-in screen (a session is minted silently). Settings has no "Sign out". |
+| B4 | Send a request with an unexpected `Host`, for example `curl -H 'Host: evil.example' http://127.0.0.1:<port>/`; put a reverse proxy (or any request carrying `X-Forwarded-For`) in front and open the app through it. | The unexpected `Host` gets `421 Misdirected Request` naming `KIPPLE_ALLOWED_HOSTS`. The proxied request is refused as `forwarded`. With the default `127.0.0.1:` mapping another machine cannot reach the port at all. |
+| B5 | Settings > Account & Devices > Set web password. | Gives the account a password and signs every other session out; a reload shows the sign-in screen. |
+
+**Run C: verify.** `cosign verify ghcr.io/wptk/kipple:<version> ...` exactly as the README prints it succeeds and names the
+release workflow of this repository; the digest equals the one in the GitHub Release's notes and in A1.
+
+**Run D: arm64.** Repeat Run A (A1 to A11, briefly) on an arm64 machine or VM with the same published tag. Expected: the
+same tag pulls a `linux/arm64` variant and `kipple version -v` reports `linux/arm64`.
+
+**Run E: build from source (the shorter "For developers" check).** On a Linux host with Git and Docker only, follow the
+README's "Build from source": clone, `cp docker-compose.example.yml docker-compose.yml`, build, `up -d`, then A2, A3, A7 and
+A11, and create no `.env` at any point. Expected: the build succeeds with no Go or Node installed; the port is 1919;
+the version reads `dev` unless `KIPPLE_VERSION` was passed, which the README says.
+
+**Also check, on any run:** the container runs read-only as uid 65532 (`docker inspect`); a named volume (as in the
+README) works without a `chown`, while a bind mount without one fails with a permissions error that the README's
+`chown 65532:65532` line fixes.
+
+**Status.** Not yet run for 0.5.0-beta.1: it needs the published image and a Linux host, so it is an item on the
+0.5.0-beta.1 pre-deploy checklist in `docs/RELEASING.md`, executed once the tag has produced the first image.
+
+### Prior runs (the pre-wizard Quickstart)
+
+Kept as history; the steps above replace that walkthrough.
 
 **Executed 2026-09-27.** Fresh `git clone` of the public repo into an isolated throwaway location (a separate
 container name, image tag and volume, so it couldn't collide with or affect the real deployment), following

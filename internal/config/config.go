@@ -15,19 +15,22 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/access"
+	"github.com/WPTK/kipple/internal/setup"
 )
 
 // Config holds every setting Kipple reads at startup. See .env.example for
 // a full description of each field.
 type Config struct {
-	Addr            string        // KIPPLE_ADDR, default ":7080"
+	Addr            string        // KIPPLE_ADDR, default DefaultAddr (":1919")
+	AddrSet         bool          // KIPPLE_ADDR was set (the legacy port and the 1138 fallback apply only when it is not)
 	DataDir         string        // KIPPLE_DATA, default "/data"
 	Username        string        // KIPPLE_USERNAME
 	Password        string        // KIPPLE_PASSWORD, initial web password
 	APIPassword     string        // KIPPLE_API_PASSWORD, optional initial
 	PublicURL       string        // KIPPLE_PUBLIC_URL
 	TrustedProxyIPs []netip.Addr  // KIPPLE_TRUSTED_PROXY_IPS, comma-separated
-	TZ              string        // TZ, default "America/New_York"
+	TZ              string        // TZ: "" when unset (then the in-app tz setting governs, default UTC)
+	AllowedHosts    []string      // KIPPLE_ALLOWED_HOSTS, comma-separated host names or *.suffix (normalized)
 	SchedTick       time.Duration // KIPPLE_SCHED_TICK, default 30s
 	FetchWorkers    int           // KIPPLE_FETCH_WORKERS, default 8
 	FetchPerHost    int           // KIPPLE_FETCH_PER_HOST, default 2
@@ -39,10 +42,17 @@ type Config struct {
 	AccessAUD        string // KIPPLE_ACCESS_AUD
 }
 
+// Listen ports. DefaultAddr is the default of KIPPLE_ADDR; LegacyAddr is the
+// pre-0.5 default, kept for databases that already had an account (through
+// 0.x); FallbackAddr is used when KIPPLE_ADDR is unset and DefaultAddr is taken.
 const (
-	defaultAddr         = ":7080"
+	DefaultAddr  = ":1919"
+	LegacyAddr   = ":7080"
+	FallbackAddr = ":1138"
+)
+
+const (
 	defaultDataDir      = "/data"
-	defaultTZ           = "America/New_York"
 	defaultSchedTick    = 30 * time.Second
 	defaultFetchWorkers = 8
 	defaultFetchPerHost = 2
@@ -62,18 +72,22 @@ func Load() (Config, error) {
 // environment.
 func load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Addr:        orDefault(getenv("KIPPLE_ADDR"), defaultAddr),
+		Addr:        orDefault(getenv("KIPPLE_ADDR"), DefaultAddr),
+		AddrSet:     getenv("KIPPLE_ADDR") != "",
 		DataDir:     orDefault(getenv("KIPPLE_DATA"), defaultDataDir),
 		Username:    getenv("KIPPLE_USERNAME"),
 		Password:    getenv("KIPPLE_PASSWORD"),
 		APIPassword: getenv("KIPPLE_API_PASSWORD"),
 		PublicURL:   getenv("KIPPLE_PUBLIC_URL"),
-		TZ:          orDefault(getenv("TZ"), defaultTZ),
+		TZ:          getenv("TZ"),
 	}
 
 	var err error
 	if err = checkPublicURL(cfg.PublicURL); err != nil {
 		return Config{}, fmt.Errorf("KIPPLE_PUBLIC_URL: %w", err)
+	}
+	if cfg.AllowedHosts, err = setup.ParseAllowedHosts(getenv("KIPPLE_ALLOWED_HOSTS")); err != nil {
+		return Config{}, fmt.Errorf("KIPPLE_ALLOWED_HOSTS: %w", err)
 	}
 	if cfg.TrustedProxyIPs, err = parseIPList(getenv("KIPPLE_TRUSTED_PROXY_IPS")); err != nil {
 		return Config{}, fmt.Errorf("KIPPLE_TRUSTED_PROXY_IPS: %w", err)

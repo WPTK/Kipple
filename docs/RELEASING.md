@@ -29,6 +29,56 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
 - A regression found during a soak period resets that soak's clock (a new rc.N or a return to beta.N+1,
   whichever the defect's severity warrants) rather than being patched in place while the clock keeps running.
 
+### Exception: 0.5.0-beta.1 adds features (owner-approved 2026-09-29)
+
+The rule that a beta adds no new features is waived once, for 0.5.0-beta.1: the setup wizard (roadmap issue #33),
+the pull-and-run image on GHCR and the build-info screens land in the first beta of the 0.5 line, because they
+change how a newcomer meets Kipple and are only worth having verified together. The cost is that **the soak clock
+restarts**: the 1-week soak toward rc.1 starts when 0.5.0-beta.1 is deployed, not at the 0.3.0-beta.2 soak (rc.1 was
+not before 2026-10-06; it is now not before a week after the 0.5.0-beta.1 deploy), and Suites 1, 2 and 4 are re-verified
+on that build. The exception is not a precedent: beta.2 onward adds no features again. The design is
+`docs/setup-wizard-design.md` (its section 15 records the owner's decisions).
+
+### 0.5.0-beta.1: merge order and pre-deploy checklist
+
+Nothing below merges to `main` before the 0.3.0-beta.2 soak ends (2026-10-06). Merge in this order, each with green CI on
+the exact commit and the next PR rebased first (the PRs are stacked or overlap):
+
+1. **#91**, the design document.
+2. **A**, the release workflow (#111): the Dockerfile cross-compile and `.github/workflows/release.yml`.
+3. **E**, build info (#114), rebased on A, because both edit the Dockerfile's build stages.
+4. **B and C together**, the setup backend (#118) and the wizard UI (#119, stacked on it). Not B alone: the backend
+   without its UI leaves a fresh install with nothing in the browser to claim it with.
+5. **D**, the documentation (this PR), last, so every example it shows exists.
+
+Then cut 0.5.0-beta.1 through the normal steps above, plus:
+
+- **Changelog:** the `changes/` fragments of A, B, C and E are all there (`node scripts/changelog.mjs preview`); D adds
+  none (docs only). The `changed` entries (port 1919, new installs in UTC and `TZ` now governing statistics, Host gate)
+  are the ones an upgrader needs to read.
+- **Release commit:** `README.md`, `docker-compose.pull.example.yml` and the "published image" text in `docs/deploy.md`
+  name the image tag `0.5.0-beta.1` as an example of the version to pull: update them to the version being released
+  (`grep -rn "0\.5\.0-beta\.1" README.md docker-compose.pull.example.yml docs/deploy.md`), and once a stable release
+  exists, say `latest` works.
+- **One-time, owner, after the first image is pushed:** make the GHCR package `kipple` public and confirm it is linked to
+  `WPTK/Kipple` (step 11); until then anonymous pulls, and the README quickstart, fail.
+- **On Host-A, before the upgrade** (docs/deploy.md, "Schema 9 -> 10 and upgrading from 0.3 to 0.5"): confirm the `kipple`
+  service has `KIPPLE_ADDR=:7080` set (the legacy-port fallback would keep 7080 anyway, but nothing should rely on it);
+  compare Host-A's `TZ` with the in-app time zone, since a set `TZ` now also governs statistics and the nightly job; take
+  the off-box backup (step 7); rehearse migration 0010 on a copy of the latest snapshot (Suite 4).
+- **Deploy source.** 0.5.0-beta.1 is built from the tag on Host-A exactly as step 9 says (that step is unchanged; add
+  `KIPPLE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` to it if you want the build date on the About screen). From 0.5.0
+  Host-A pulls the signed image by digest instead: after `cosign verify` (step 11), set the service's `image:` to
+  `ghcr.io/wptk/kipple@sha256:<digest from the Release notes>` in place of its `build:` and `docker compose ... pull kipple`
+  then `up -d kipple` (named service); build-from-tag stays as the fallback.
+- **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and schema 10;
+  the log shows the port line (a WARN about 7080 if `KIPPLE_ADDR` were unset, none if it is set) and no setup banner;
+  Settings > About matches; the existing account signs in with no wizard; a `TZ` mismatch WARN is absent.
+- **UAT Suite 5** (`docs/uat-plan.md`, rewritten for the wizard) on a Linux host with Docker, not Host-B, against the pushed
+  prerelease image, and once on arm64. Findings go in the `uat-findings` doc; P0 and P1 block the promotion to rc.
+- **`kipple-history`, then the website (step 12):** record the exception and the decisions there; the site's quickstart text
+  and "Where it stands" follow the README.
+
 ## Before the tag
 
 1. **CI is green on the exact commit** you will deploy (not on a nearby one). Push first; nothing deploys from an unpushed tree.

@@ -17,14 +17,16 @@ func TestLoadDefaults(t *testing.T) {
 	cfg, err := load(env(nil))
 	require.NoError(t, err)
 
-	require.Equal(t, ":7080", cfg.Addr)
+	require.Equal(t, ":1919", cfg.Addr)
+	require.False(t, cfg.AddrSet, "the legacy port and the 1138 fallback apply only to an unset KIPPLE_ADDR")
 	require.Equal(t, "/data", cfg.DataDir)
 	require.Equal(t, "", cfg.Username)
 	require.Equal(t, "", cfg.Password)
 	require.Equal(t, "", cfg.APIPassword)
 	require.Equal(t, "", cfg.PublicURL)
 	require.Nil(t, cfg.TrustedProxyIPs)
-	require.Equal(t, "America/New_York", cfg.TZ)
+	require.Equal(t, "", cfg.TZ, "unset: the in-app tz setting governs")
+	require.Nil(t, cfg.AllowedHosts)
 	require.Equal(t, 30*time.Second, cfg.SchedTick)
 	require.Equal(t, 8, cfg.FetchWorkers)
 	require.Equal(t, 2, cfg.FetchPerHost)
@@ -47,10 +49,13 @@ func TestLoadOverrides(t *testing.T) {
 		"KIPPLE_FETCH_PER_HOST":    "1",
 		"KIPPLE_LOG_LEVEL":         "debug",
 		"KIPPLE_LOG_GREADER_FORMS": "1",
+		"KIPPLE_ALLOWED_HOSTS":     " RSS.example.com. , *.Example.org ",
 	}))
 	require.NoError(t, err)
 
 	require.Equal(t, "127.0.0.1:9090", cfg.Addr)
+	require.True(t, cfg.AddrSet)
+	require.Equal(t, []string{"rss.example.com", "*.example.org"}, cfg.AllowedHosts)
 	require.Equal(t, "/var/lib/kipple", cfg.DataDir)
 	require.Equal(t, "owner", cfg.Username)
 	require.Equal(t, "hunter2", cfg.Password)
@@ -117,4 +122,11 @@ func TestTrustedProxiesAreUnmapped(t *testing.T) {
 	cfg, err := load(env(map[string]string{"KIPPLE_TRUSTED_PROXY_IPS": "::ffff:192.0.2.10, 2001:db8::1"}))
 	require.NoError(t, err)
 	require.Equal(t, []netip.Addr{netip.MustParseAddr("192.0.2.10"), netip.MustParseAddr("2001:db8::1")}, cfg.TrustedProxyIPs)
+}
+
+func TestLoadRejectsBadAllowedHosts(t *testing.T) {
+	for _, v := range []string{"https://rss.example.com", "rss.example.com:443", "*", "a b", "*.", "exa%6dple.com"} {
+		_, err := load(env(map[string]string{"KIPPLE_ALLOWED_HOSTS": v}))
+		require.ErrorContains(t, err, "KIPPLE_ALLOWED_HOSTS", v)
+	}
 }

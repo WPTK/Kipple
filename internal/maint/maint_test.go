@@ -37,6 +37,8 @@ func newEnv(t *testing.T, at time.Time) *env {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	e := &env{t: t, db: db, clk: clk, jobs: make(chan Job, 64)}
+	// An existing install's zone (migration 0010 writes it); a new one defaults to UTC.
+	require.NoError(t, db.SetSettings(context.Background(), map[string]any{"tz": "America/New_York"}))
 	require.NoError(t, db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx, `INSERT INTO feeds (url, url_key, host) VALUES ('https://a/f','a/f','a') RETURNING id`).Scan(&e.feed)
 	}))
@@ -106,7 +108,7 @@ func (e *env) noJob(d time.Duration) {
 
 // local returns a local-zone time on a fixed 2026 date (23 Sep is a Wednesday,
 // 27 Sep a Sunday).
-// The default tz setting is America/New_York; the tests do not depend on the machine's TZ.
+// newEnv sets the tz setting to America/New_York; the tests do not depend on the machine's TZ.
 var newYork = func() *time.Location {
 	l, err := time.LoadLocation("America/New_York")
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/WPTK/kipple/internal/access"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -92,12 +93,21 @@ func (s *Server) writeProofError(w http.ResponseWriter, ip string, p accessProof
 // while a background refresh runs. The bootstrap leaves the email out: that
 // response is kept in the offline cache, where a sign-in identity has no
 // business, and the display needs it live anyway.
-func (s *Server) userInfo(r *http.Request, acct store.Account, withEmail bool) map[string]any {
+//
+// auth_mode is "password", "access" (no web password, Cloudflare Access) or
+// "open"; setup_pending is true until onboarding finished or was skipped.
+func (s *Server) userInfo(r *http.Request, acct store.Account, withEmail bool) (map[string]any, error) {
+	pending, err := s.db.SetupPending(r.Context())
+	if err != nil {
+		return nil, err
+	}
 	m := map[string]any{
 		"username":       acct.Username,
 		"api_enabled":    acct.APIPasswordHash != "",
 		"password_set":   acct.PasswordHash != "",
 		"access_enabled": s.opt.Access != nil,
+		"auth_mode":      setup.DisplayMode(acct),
+		"setup_pending":  pending,
 	}
 	if withEmail {
 		var email any
@@ -106,7 +116,7 @@ func (s *Server) userInfo(r *http.Request, acct store.Account, withEmail bool) m
 		}
 		m["access_email"] = email
 	}
-	return m
+	return m, nil
 }
 
 // decoyHash is a real argon2id hash, with the parameters HashPassword uses, of
