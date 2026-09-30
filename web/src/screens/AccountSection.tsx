@@ -11,6 +11,7 @@ import { Button } from "@/ui/button";
 import { Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
+import { useSetupActions } from "@/setup/actions";
 
 /** Message for a failed account or backup call. */
 export function accountError(e: unknown): string {
@@ -269,8 +270,9 @@ export function AccountActions() {
     void qc.invalidateQueries({ queryKey: keys.me });
     void qc.invalidateQueries({ queryKey: keys.bootstrap });
   };
+  const setupActions = useSetupActions();
   const [backup, setBackup] = useState<BackupInfo | null>(null);
-  const [busy, setBusy] = useState<"backup" | "retention" | null>(null);
+  const [busy, setBusy] = useState<"backup" | "retention" | "setup" | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
 
   const doBackup = async () => {
@@ -292,6 +294,15 @@ export function AccountActions() {
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
+      setBusy(null);
+    }
+  };
+  const runSetupAgain = async () => {
+    setBusy("setup");
+    try {
+      await setupActions.restart();
+    } catch (e) {
+      toast(errorMessage(e), "error");
       setBusy(null);
     }
   };
@@ -317,7 +328,7 @@ export function AccountActions() {
         {boot.data ? `Signed in as ${boot.data.user.username}.` : "Signed in."}
         {boot.data ? ` Kipple ${boot.data.version}.` : ""}
         {accessEmail ? ` Cloudflare Access: ${accessEmail}.` : ""}
-        {hasPassword ? "" : " No web password: you sign in through Cloudflare Access."}
+        {hasPassword ? "" : user?.auth_mode === "open" ? " No password: Kipple opens without signing in, from this computer and over Tailscale." : " No web password: you sign in through Cloudflare Access."}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => setDialog("password")}>{hasPassword ? "Change web password" : "Set web password"}</Button>
@@ -341,9 +352,18 @@ export function AccountActions() {
         </Button>
         <p className="mt-1 text-xs text-fg2">Trims every feed to its "articles to keep" limit right away. Starred articles are never removed.</p>
       </div>
-      <Button onClick={() => void signOut()} className="self-start">
-        Sign out
-      </Button>
+      <div>
+        <Button disabled={busy === "setup"} onClick={() => void runSetupAgain()}>
+          Run setup again
+        </Button>
+        <p className="mt-1 text-xs text-fg2">Walks through the first-run steps again: time zone, look, importing feeds and recommended feeds. Your account and feeds stay as they are.</p>
+      </div>
+      {/* Without a password there is nothing to sign out of: Kipple would sign this browser straight back in. */}
+      {user?.auth_mode === "open" ? null : (
+        <Button onClick={() => void signOut()} className="self-start">
+          Sign out
+        </Button>
+      )}
       {dialog === "password" ? <ChangePasswordDialog hasPassword={hasPassword} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
       {dialog === "remove" && accessEmail ? <RemovePasswordDialog email={accessEmail} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
       {dialog === "api" ? <ApiPasswordDialog username={user?.username ?? ""} hasPassword={hasPassword} onClose={() => setDialog(null)} /> : null}

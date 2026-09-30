@@ -1,0 +1,1 @@
+Sign-in for an account without a password (open mode) is automatic from an address Kipple allows and otherwise explains, in plain words, why it refused and how to get in, instead of showing a broken screen; Settings no longer offers Sign out for such an account, since Kipple would sign the browser straight back in.

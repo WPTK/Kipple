@@ -59,7 +59,7 @@ function Fold({ label, open, onOpenChange, children }: { label: string; open: bo
   );
 }
 
-function SchemeSelect({ label, value, onChange, schemes }: { label: string; value: string; onChange: (id: string) => void; schemes: Scheme[] }) {
+export function SchemeSelect({ label, value, onChange, schemes }: { label: string; value: string; onChange: (id: string) => void; schemes: Scheme[] }) {
   const id = useId();
   const groups = ["light", "color", "dark", "accessibility"] as const;
   return (

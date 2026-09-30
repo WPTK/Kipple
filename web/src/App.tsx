@@ -1,18 +1,20 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
-import { ApiError, authStore, SESSION_EXPIRED } from "@/api/client";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
+import { ApiError, authStore, openRefusedStore, SESSION_EXPIRED } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
 import { prefetchUnread } from "@/lib/offline";
 import { offlineStore } from "@/lib/offlineState";
 import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
-import { LoginScreen } from "@/screens/LoginScreen";
 import { ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { AppShell } from "@/shell/AppShell";
 import { RoutedErrorBoundary } from "@/shell/ErrorBoundary";
+import { forgetWizardMemory, welcomeEntry } from "@/setup/session";
+import { OpenRefusedScreen } from "@/setup/OpenRefused";
+import { SignedOut } from "@/setup/SignedOut";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { StatusBlock } from "@/screens/ListPane";
 import { Button } from "@/ui/button";
@@ -24,6 +26,7 @@ const FeedsScreen = lazyScreen(() => import("@/screens/FeedsScreen").then((m) =>
 const HealthScreen = lazyScreen(() => import("@/screens/HealthScreen").then((m) => ({ default: m.HealthScreen })));
 const StatsScreen = lazyScreen(() => import("@/screens/StatsScreen").then((m) => ({ default: m.StatsScreen })));
 const WrappedScreen = lazyScreen(() => import("@/screens/WrappedScreen").then((m) => ({ default: m.WrappedScreen })));
+const Welcome = lazyScreen(() => import("@/setup/Welcome").then((m) => ({ default: m.Welcome })));
 const SettingsScreen = lazyScreen(() => import("@/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen })));
 
 /**
@@ -53,10 +56,15 @@ function Gate() {
   const { online } = useStore(offlineStore);
   const qc = useQueryClient();
   const boot = useBootstrap(auth !== "out");
+  const refused = useStore(openRefusedStore);
+  const { pathname } = useLocation();
 
   // Signed out: drop everything cached so nothing from the last session shows.
   useEffect(() => {
-    if (auth === "out") qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
+    if (auth === "out") {
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
+      forgetWizardMemory();
+    }
   }, [auth, qc]);
 
   // The device profile is the truth for per-device settings; the local cache is reconciled with it once, from a live
@@ -107,7 +115,20 @@ function Gate() {
     if (ready) void prefetchUnread();
   }, [ready]);
 
-  if (auth === "out") return <LoginScreen />;
+  if (auth === "out") return <SignedOut />;
+  // An account with no password, reached from somewhere the server does not allow: say why, and how to get in.
+  if (refused) {
+    return (
+      <OpenRefusedScreen
+        reason={(refused.reason as "host" | "peer" | "forwarded" | null) ?? null}
+        busy={boot.isFetching}
+        onRetry={() => {
+          openRefusedStore.set(null);
+          void qc.invalidateQueries();
+        }}
+      />
+    );
+  }
   if (boot.isPending) {
     return (
       <div className="flex h-full items-center justify-center" role="status">
@@ -139,8 +160,12 @@ function Gate() {
       </StatusBlock>
     );
   }
+  // First-run setup pending (a fresh account, or "Run setup again"): every screen but /welcome gives way to it. Not on a
+  // stored copy of the bootstrap, which may still say so after setup was finished elsewhere.
+  if (boot.data?.user.setup_pending === true && !fromCache && pathname !== "/welcome" && !pathname.startsWith("/welcome/")) return <Navigate to={welcomeEntry()} replace />;
   return (
     <Routes>
+      <Route path="welcome/*" element={<Lazy><Welcome /></Lazy>} />
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/l/unread" replace />} />
         <Route element={<ReaderRoute />}>
