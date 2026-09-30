@@ -1,14 +1,17 @@
 # Kipple
 
 [![CI](https://github.com/WPTK/Kipple/actions/workflows/ci.yml/badge.svg)](https://github.com/WPTK/Kipple/actions/workflows/ci.yml)
-[![Latest tag](https://img.shields.io/github/v/tag/WPTK/Kipple?label=release&sort=semver)](https://github.com/WPTK/Kipple/tags)
-[![SemVer](https://img.shields.io/badge/semver-2.0.0-blue)](https://semver.org/)
+[![Release](https://img.shields.io/github/v/release/WPTK/Kipple?include_prereleases&label=release)](https://github.com/WPTK/Kipple/releases)
 [![License: Blue Oak 1.0.0](https://img.shields.io/badge/license-Blue%20Oak%201.0.0-blueviolet)](LICENSE)
-[![Go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Go](https://img.shields.io/github/go-mod/go-version/WPTK/Kipple?logo=go&logoColor=white&color=00ADD8)](go.mod)
+[![Container image](https://img.shields.io/badge/image-ghcr.io%2Fwptk%2Fkipple-blue?logo=docker&logoColor=white)](https://github.com/WPTK/Kipple/pkgs/container/kipple)
+[![Platforms](https://img.shields.io/badge/platforms-linux%2Famd64%20%7C%20linux%2Farm64-informational)](https://github.com/WPTK/Kipple/pkgs/container/kipple)
+[![Signed with cosign](https://img.shields.io/badge/signed-cosign%20(sigstore)-success)](#quickstart)
+[![Sync API](https://img.shields.io/badge/sync-Google%20Reader%20API-orange)](#what-its-like-to-use)
 [![Repo size](https://img.shields.io/github/repo-size/WPTK/Kipple)](https://github.com/WPTK/Kipple)
-![Docker image size](https://img.shields.io/badge/docker%20image-ghcr.io%2Fwptk%2Fkipple-blue)
 [![Last commit](https://img.shields.io/github/last-commit/WPTK/Kipple)](https://github.com/WPTK/Kipple/commits/main)
 [![Open issues](https://img.shields.io/github/issues/WPTK/Kipple)](https://github.com/WPTK/Kipple/issues)
+[![Views](https://hits.sh/github.com/WPTK/Kipple.svg?style=flat&label=views&color=lightgrey)](https://hits.sh/github.com/WPTK/Kipple/)
 
 > "Kipple drives out nonkipple."
 > (Philip K. Dick, *Do Androids Dream of Electric Sheep?*)
