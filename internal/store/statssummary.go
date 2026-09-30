@@ -152,8 +152,8 @@ func StatsSettings(ctx context.Context, q Querier) (enabled bool, loc *time.Loca
 	if enabled, err = StatsEnabled(ctx, q); err != nil {
 		return
 	}
-	tz = settingString(ctx, q, "tz", "America/New_York")
-	loc = LoadLocation(ctx, q)
+	tz = ZoneName(ctx, q)
+	loc = Zone(ctx, q)
 	if loc == time.UTC && tz != "UTC" {
 		tz = "UTC" // an unknown zone falls back to UTC, as at write time
 	}

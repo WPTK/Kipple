@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "placeholder",
+      "title": "Placeholder",
+      "feeds": [
+        {
+          "id": "example-com",
+          "title": "Example feed one",
+          "url": "https://example.com/feed.xml",
+          "site": "https://example.com/",
+          "description": "A placeholder until the real recommended list lands.",
+          "checked": true
+        },
+        {
+          "id": "example-org",
+          "title": "Example feed two",
+          "url": "https://example.org/feed.xml",
+          "site": "https://example.org/",
+          "description": "A second placeholder.",
+          "checked": false,
+          "lang": "en"
+        }
+      ]
+    }
+  ]
+}

@@ -37,14 +37,20 @@ func pendingRig(t *testing.T) (r *rig, srv *feedSrv, release func(), y, z int64)
 	})
 	r.add(srv.URL+"/x", nil)
 	r.s.Wake()
-	<-started
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("/x never started")
+	}
 	y = r.add(srv.URL+"/y", nil)
 	z = r.add(srv.URL+"/z", nil)
 	r.setHost(y, "y.test")
 	r.setHost(z, "z.test")
 	r.s.Wake()
 	r.barrier()
-	r.s.inDispatcher(func() { require.Len(t, r.s.pending, 2) })
+	var pending int
+	r.s.inDispatcher(func() { pending = len(r.s.pending) })
+	require.Equal(t, 2, pending)
 	return
 }
 
@@ -89,7 +95,15 @@ func TestFullRefreshUpgradesPendingFlight(t *testing.T) {
 	ch, err := r.s.Submit(Priority{FeedID: z, Full: true})
 	require.NoError(t, err)
 	r.barrier()
-	r.s.inDispatcher(func() { require.True(t, r.s.flights[z].snap.Full, "upgraded in place") })
+	var queued, full, started bool
+	r.s.inDispatcher(func() {
+		f := r.s.flights[z]
+		queued = f != nil
+		full, started = queued && f.snap.Full, queued && f.started
+	})
+	require.True(t, queued, "z still has its flight")
+	require.False(t, started, "z is still waiting for the worker")
+	require.True(t, full, "upgraded in place")
 	release()
 	rep := waitReply(t, ch, "full")
 	require.NoError(t, rep.Err)

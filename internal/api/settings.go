@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,6 +47,8 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 			issues = append(issues, settingIssue{k, "read-only setting"})
 		case !known:
 			issues = append(issues, settingIssue{k, "unknown setting"})
+		case spec.envVar != "" && envSet(spec.envVar):
+			issues = append(issues, settingIssue{k, "set by the " + spec.envVar + " environment variable; remove it to choose here"})
 		case body[k] == nil:
 			set[k] = nil
 		default:
@@ -88,6 +91,29 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := set["imgproxy.mode"]; ok {
 		s.refreshImgMode(ctx) // the CSP img-src follows it
 	}
+	hosts, hostsSet := set[store.SettingAllowedHosts]
+	lan, lanSet := set[store.SettingOpenLAN]
+	if hostsSet || lanSet {
+		// The Host gate and the open gate read them: re-read, with the new values
+		// already in the fallback.
+		s.noteMode(r.Context(), func(sn *modeSnapshot) {
+			if hostsSet {
+				var stored []string
+				if l, ok := hosts.([]any); ok {
+					for _, e := range l {
+						if h, ok := e.(string); ok {
+							stored = append(stored, h)
+						}
+					}
+				}
+				sn.allowed = s.allowedWith(stored)
+			}
+			if lanSet {
+				b, _ := lan.(bool) // nil (reset) is the default, false
+				sn.openLAN = b
+			}
+		})
+	}
 	if _, ok := set["imgproxy.cache_mb"]; ok {
 		s.applyImgCacheCap(ctx) // a lower cap evicts, 0 turns the cache off and purges it
 	}
@@ -117,9 +143,36 @@ func (s *Server) writeSettings(w http.ResponseWriter, ctx context.Context, code 
 	}
 	out := make([]settingView, 0, len(settingDefs))
 	for _, d := range settingDefs {
-		out = append(out, settingView{settingDef: d, Value: merged[d.Key], Default: store.DefaultSettings[d.Key]})
+		v := settingView{settingDef: d, Value: merged[d.Key], Default: store.DefaultSettings[d.Key]}
+		if d.envVar != "" {
+			v.EnvOverride = json.RawMessage("null")
+			if name, ok := envValue(d.envVar); ok {
+				b, err := json.Marshal(name)
+				if err != nil {
+					s.serverError(w, "settings", err)
+					return
+				}
+				v.EnvOverride = b
+			}
+		}
+		out = append(out, v)
 	}
 	writeJSON(w, code, map[string]any{"settings": out, "values": merged})
+}
+
+// envValue is the value of an environment variable that overrides a setting
+// (settingDef.envVar), when it is set. Only TZ does (docs/setup-wizard-design.md
+// 7a), and it was loaded once at start.
+func envValue(name string) (string, bool) {
+	if name == "TZ" {
+		return store.EnvZone()
+	}
+	return "", false
+}
+
+func envSet(name string) bool {
+	_, ok := envValue(name)
+	return ok
 }
 
 // retentionApply is POST /api/retention/apply: "Apply retention now" over every feed.

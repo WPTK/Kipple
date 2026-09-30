@@ -26,6 +26,11 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node } },
   },
   {
+    // Node, with functions that run in the page (page.evaluate) written inline.
+    files: ["uat/wizard.mjs"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  {
     files: ["uat/probes.mjs"],
     languageOptions: { globals: { ...globals.browser } },
   },

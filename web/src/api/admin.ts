@@ -30,6 +30,8 @@ export interface SettingMeta {
   step?: number;
   unit?: string;
   surface: SettingSurface;
+  /** The time zone setting only: the TZ environment variable's value while one is set (the setting is then read-only), else null. */
+  env_override?: string | null;
 }
 
 export interface SettingsResponse {
@@ -264,8 +266,9 @@ export const changePassword = (current: string, next: string) =>
 export const fetchMe = () => api<Me>("/api/auth/me");
 /** Removes the web password; the server allows it only through a verified Cloudflare Access sign-in. */
 export const removePassword = (current: string) => api("/api/account/password", { method: "POST", body: { current, remove: true } });
-export const generateApiPassword = (current: string) =>
-  api<{ api_password: string }>("/api/account/api-password", { method: "POST", body: { current, generate: true } });
+/** `current` is the web password; an account in open mode has none and sends nothing. */
+export const generateApiPassword = (current?: string) =>
+  api<{ api_password: string }>("/api/account/api-password", { method: "POST", body: current === undefined ? { generate: true } : { current, generate: true } });
 export const applyRetention = () => api<{ run_id: string; total: number }>("/api/retention/apply", { method: "POST" });
 
 export interface BackupInfo {

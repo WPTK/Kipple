@@ -85,6 +85,48 @@ func FindFeedByURL(ctx context.Context, q Querier, u string) (id int64, found bo
 	return id, err == nil, err
 }
 
+// SubscribedURLs reports, in one query, which of urls match a feed the way
+// FindFeedByURL does (url_key or url_original_key). A URL whose key cannot be
+// computed is not subscribed.
+func SubscribedURLs(ctx context.Context, q Querier, urls []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(urls))
+	byKey := make(map[string][]string, len(urls))
+	keys := make([]string, 0, len(urls))
+	for _, u := range urls {
+		k, err := feedurl.Key(u)
+		if err != nil {
+			continue
+		}
+		if _, seen := byKey[k]; !seen {
+			keys = append(keys, k)
+		}
+		byKey[k] = append(byKey[k], u)
+	}
+	if len(keys) == 0 {
+		return out, nil
+	}
+	b, err := json.Marshal(keys)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.QueryContext(ctx, `SELECT k.value FROM json_each(?) AS k
+		WHERE EXISTS (SELECT 1 FROM feeds WHERE url_key = k.value OR url_original_key = k.value)`, string(b))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		for _, u := range byKey[k] {
+			out[u] = true
+		}
+	}
+	return out, rows.Err()
+}
+
 const snapshotCols = `id, url, host, enabled, etag, last_modified, body_hash, user_agent, http_auth,
 	ignore_http_cache, disable_http2, allow_insecure_tls, allow_private_net, dedup_mode, rekey_pending,
 	interval_minutes, retention, fulltext, redirect_to, redirect_kind, redirect_count,

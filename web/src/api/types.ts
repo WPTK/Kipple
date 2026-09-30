@@ -132,11 +132,15 @@ export interface Me {
   access_enabled: boolean;
   /** The email of this request's verified Cloudflare Access token, or null. */
   access_email: string | null;
+  /** How this account signs in. Absent from a server older than the setup wizard. */
+  auth_mode?: "password" | "access" | "open";
+  /** True until the first-run steps (time zone, theme, import, recommended feeds) were finished or skipped. */
+  setup_pending?: boolean;
 }
 
 export interface Bootstrap {
   /** The account without the Access email (kept out of the offline-cached bootstrap); the flags are absent from older servers. */
-  user: Pick<Me, "username" | "api_enabled"> & Partial<Pick<Me, "password_set" | "access_enabled">>;
+  user: Pick<Me, "username" | "api_enabled"> & Partial<Pick<Me, "password_set" | "access_enabled" | "auth_mode" | "setup_pending">>;
   settings: Record<string, unknown>;
   /** Absent only from a server older than device profiles: the per-device settings then stay local. */
   device?: DeviceView;
@@ -150,6 +154,8 @@ export interface Bootstrap {
   warnings: Warning[];
   server_time: number;
   version: string;
+  /** The id of the web build embedded in the server (absent on an older server). Compared with this bundle's own. */
+  web_build?: string;
 }
 
 export interface StatusResponse {

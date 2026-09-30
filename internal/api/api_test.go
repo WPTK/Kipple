@@ -132,6 +132,9 @@ func newHarness(t *testing.T, tune ...func(*Options)) *harness {
 	t.Cleanup(func() { _ = db.Close() })
 	_, err = db.CreateAccount(context.Background(), store.Account{Username: testUser, PasswordHash: "web-hash", Secret: testSecret})
 	require.NoError(t, err)
+	// The zone of an install that predates 0.5 (migration 0010 writes it); a new
+	// install defaults to UTC (TestSettingsTZDefaultIsUTC).
+	require.NoError(t, db.SetSettings(context.Background(), map[string]any{"tz": "America/New_York"}))
 
 	h := &harness{t: t, db: db, hub: events.NewWithClock(clk), sched: &fakeSched{}, clk: clk, mux: http.NewServeMux()}
 	opt := Options{
@@ -402,7 +405,7 @@ func TestStatusMeHealthRefresh(t *testing.T) {
 	require.Equal(t, 2, st.Inflight)
 
 	rec = h.do("GET", "/api/auth/me", "", withCookie(c))
-	require.JSONEq(t, `{"username":"owner","api_enabled":false,"password_set":true,"access_enabled":false,"access_email":null}`, rec.Body.String())
+	require.JSONEq(t, `{"username":"owner","api_enabled":false,"password_set":true,"access_enabled":false,"access_email":null,"auth_mode":"password","setup_pending":false}`, rec.Body.String())
 
 	rec = h.do("POST", "/api/refresh", "", withCookie(c))
 	require.Equal(t, http.StatusAccepted, rec.Code)

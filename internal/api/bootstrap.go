@@ -74,6 +74,11 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
+	user, err := s.userInfo(r, acct, false)
+	if err != nil {
+		fail(err)
+		return
+	}
 	now := s.now()
 	warnings := []warning{}
 	if skew := s.db.IDs().Skew(); skew > clockWarnAfter {
@@ -100,7 +105,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		runs = append(runs, ar)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":           s.userInfo(r, acct, false),
+		"user":           user,
 		"settings":       settings,
 		"device":         map[string]any{"id": dv.ID, "name": dv.Name, "profile": dview["profile"], "merged": dview["merged"]},
 		"folders":        folders,
@@ -112,5 +117,6 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		"saved_searches": savedSearches,
 		"server_time":    now.Unix(),
 		"version":        s.opt.Version,
+		"web_build":      s.opt.WebBuild,
 	})
 }

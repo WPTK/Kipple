@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/WPTK/kipple/internal/store"
 )
 
 const maxLoginBody = 4 << 10
@@ -45,6 +47,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "auth")
+		return
+	}
+	if acct.AuthMode == store.AuthOpen {
+		// Open mode has no password: a stale login form must not look like a
+		// failed sign-in. The app calls POST /api/auth/open instead.
+		s.lock.Release(ip)
+		writeErrorMsg(w, http.StatusConflict, "open_mode", "this Kipple has no password; it signs in without one")
 		return
 	}
 	userOK := strings.EqualFold(strings.TrimSpace(body.Username), acct.Username)
@@ -94,17 +103,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.lock.Clear(ip)
-	val, err := newCookieValue()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
+	if !s.startSession(w, r) {
 		return
 	}
-	now := s.now()
-	if err := s.db.CreateSession(r.Context(), sessionID(val), now.Unix(), now.Add(sessionTTL).Unix(), r.UserAgent(), ip); err != nil {
-		s.serverError(w, "create session", err) // 503 maintenance during a search-index rebuild
-		return
-	}
-	s.setCookie(w, r, val)
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -150,5 +151,10 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.userInfo(r, acct, true))
+	info, err := s.userInfo(r, acct, true)
+	if err != nil {
+		s.serverError(w, "me", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
 }

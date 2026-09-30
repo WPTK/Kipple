@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 )
 
 // StatRow is one stats_events row (design §2.2, §8). The stats package builds
@@ -37,16 +36,6 @@ type StatSnapshot struct {
 	FolderName sql.NullString
 	ItemTitle  string
 	ItemURL    string
-}
-
-// LoadLocation returns the tz setting location (default America/New_York),
-// falling back to UTC when the name does not resolve.
-func LoadLocation(ctx context.Context, q Querier) *time.Location {
-	loc, err := time.LoadLocation(settingString(ctx, q, "tz", "America/New_York"))
-	if err != nil {
-		return time.UTC
-	}
-	return loc
 }
 
 // statFeedTitle is the feed name a stats row snapshots: feedTitleSQL (custom title, else title,

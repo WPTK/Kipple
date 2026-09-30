@@ -74,6 +74,8 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("message", (event) => {
+  // The page's "Reload" button asks a waiting worker to take over before it reloads.
+  if (event.data && event.data.type === "skip-waiting") self.skipWaiting();
   if (event.data && event.data.type === "clear-data") {
     generation++;
     event.waitUntil(Promise.all([caches.delete(DATA), caches.delete(IMAGES)]));

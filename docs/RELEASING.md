@@ -29,6 +29,56 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
 - A regression found during a soak period resets that soak's clock (a new rc.N or a return to beta.N+1,
   whichever the defect's severity warrants) rather than being patched in place while the clock keeps running.
 
+### Exception: 0.5.0-beta.1 adds features (owner-approved 2026-09-29)
+
+The rule that a beta adds no new features is waived once, for 0.5.0-beta.1: the setup wizard (roadmap issue #33),
+the pull-and-run image on GHCR and the build-info screens land in the first beta of the 0.5 line, because they
+change how a newcomer meets Kipple and are only worth having verified together. The cost is that **the soak clock
+restarts**: the 1-week soak toward rc.1 starts when 0.5.0-beta.1 is deployed, not at the 0.3.0-beta.2 soak (rc.1 was
+not before 2026-10-06; it is now not before a week after the 0.5.0-beta.1 deploy), and Suites 1, 2 and 4 are re-verified
+on that build. The exception is not a precedent: beta.2 onward adds no features again. The design is
+`docs/setup-wizard-design.md` (its section 15 records the owner's decisions).
+
+### 0.5.0-beta.1: merge order and pre-deploy checklist
+
+Nothing below merges to `main` before the 0.3.0-beta.2 soak ends (2026-10-06). Merge in this order, each with green CI on
+the exact commit and the next PR rebased first (the PRs are stacked or overlap):
+
+1. **#91**, the design document.
+2. **A**, the release workflow (#111): the Dockerfile cross-compile and `.github/workflows/release.yml`.
+3. **E**, build info (#114), rebased on A, because both edit the Dockerfile's build stages.
+4. **B and C together**, the setup backend (#118) and the wizard UI (#119, stacked on it). Not B alone: the backend
+   without its UI leaves a fresh install with nothing in the browser to claim it with.
+5. **D**, the documentation (this PR), last, so every example it shows exists.
+
+Then cut 0.5.0-beta.1 through the normal steps above, plus:
+
+- **Changelog:** the `changes/` fragments of A, B, C and E are all there (`node scripts/changelog.mjs preview`); D adds
+  none (docs only). The `changed` entries (port 1919, new installs in UTC and `TZ` now governing statistics, Host gate)
+  are the ones an upgrader needs to read.
+- **Release commit:** `README.md`, `docker-compose.pull.example.yml` and the "published image" text in `docs/deploy.md`
+  name the image tag `0.5.0-beta.1` as an example of the version to pull: update them to the version being released
+  (`grep -rn "0\.5\.0-beta\.1" README.md docker-compose.pull.example.yml docs/deploy.md`), and once a stable release
+  exists, say `latest` works.
+- **One-time, owner, after the first image is pushed:** make the GHCR package `kipple` public and confirm it is linked to
+  `WPTK/Kipple` (step 11); until then anonymous pulls, and the README quickstart, fail.
+- **On Host-A, before the upgrade** (docs/deploy.md, "Schema 9 -> 10 and upgrading from 0.3 to 0.5"): confirm the `kipple`
+  service has `KIPPLE_ADDR=:7080` set (the legacy-port fallback would keep 7080 anyway, but nothing should rely on it);
+  compare Host-A's `TZ` with the in-app time zone, since a set `TZ` now also governs statistics and the nightly job; take
+  the off-box backup (step 7); rehearse migration 0010 on a copy of the latest snapshot (Suite 4).
+- **Deploy source.** 0.5.0-beta.1 is built from the tag on Host-A exactly as step 9 says (that step is unchanged; add
+  `KIPPLE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` to it if you want the build date on the About screen). From 0.5.0
+  Host-A pulls the signed image by digest instead: after `cosign verify` (step 11), set the service's `image:` to
+  `ghcr.io/wptk/kipple@sha256:<digest from the Release notes>` in place of its `build:` and `docker compose ... pull kipple`
+  then `up -d kipple` (named service); build-from-tag stays as the fallback.
+- **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and schema 10;
+  the log shows the port line (a WARN about 7080 if `KIPPLE_ADDR` were unset, none if it is set) and no setup banner;
+  Settings > About matches; the existing account signs in with no wizard; a `TZ` mismatch WARN is absent.
+- **UAT Suite 5** (`docs/uat-plan.md`, rewritten for the wizard) on a Linux host with Docker, not Host-B, against the pushed
+  prerelease image, and once on arm64. Findings go in the `uat-findings` doc; P0 and P1 block the promotion to rc.
+- **`kipple-history`, then the website (step 12):** record the exception and the decisions there; the site's quickstart text
+  and "Where it stands" follow the README.
+
 ## Before the tag
 
 1. **CI is green on the exact commit** you will deploy (not on a nearby one). Push first; nothing deploys from an unpushed tree.
@@ -53,6 +103,8 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
    Host-A. Note the pre-migration snapshot name the app writes on start.
 8. **Tag the deployed commit:** `git tag -a vX.Y.Z -m "Kipple X.Y.Z"` on the exact commit, then `git push origin vX.Y.Z`.
    Never move, delete or reuse a pushed tag; a bad release gets a new version.
+   The tag push also starts `.github/workflows/release.yml`, which tests the tagged commit again, builds a multi-arch
+   (amd64 and arm64) image, scans and smoke-tests it, then tags and signs it on `ghcr.io/wptk/kipple` (below).
 9. **Deploy the tag, only the named service** (see CLAUDE.md, Deploy). The tag, not `main`, is what gets built:
 
        ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout vX.Y.Z && KIPPLE_VERSION=vX.Y.Z KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose -f /home/user/stack/docker-compose.yml build kipple && docker compose -f /home/user/stack/docker-compose.yml up -d kipple'
@@ -66,6 +118,20 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
     `/api/greader.php` answers with Reeder; a refresh completes; memory stays flat after a few minutes (`docker stats`).
 11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`node scripts/changelog.mjs notes X.Y.Z > notes.md`, then `gh release create vX.Y.Z --notes-file notes.md`; `-alpha/-beta/-rc` marked pre-release).
     Every pushed tag has one; keep it that way.
+
+    **Container image:** the Release workflow must be green first (Actions > Release). It publishes `X.Y.Z` (a stable
+    release also `X.Y`, `X` and `latest`; a prerelease never moves `latest` or a floating tag), signs the digest with
+    cosign (keyless) and writes an "image-notes" block (the digest and the verify command) to its job summary and an
+    artifact. If the Release already exists the workflow appends the block itself; otherwise append `image-notes.md`
+    to the notes before `gh release create`, so each version maps to exactly one digest. Check it by hand:
+
+        cosign verify ghcr.io/wptk/kipple:X.Y.Z \
+          --certificate-identity-regexp '^https://github.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v' \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+    **First image only (one time, owner):** the GHCR package starts private. In the repository's Packages, open
+    `kipple`, confirm it is linked to `WPTK/Kipple` (the `org.opencontainers.image.source` label does that) and change
+    its visibility to public; until then anonymous pulls fail.
 12. **Website** (`WPTK/kipple-website`, kipple.cc, GitHub Pages from `main`), for every release, once the Release is published:
     - **Version text:** update "Where it stands" in `index.html` to the new tag (`grep -n "v0\." index.html README.md` finds
       every mention) and anything else on the site that says what is current.
@@ -76,6 +142,13 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
       in the site's `design-system/DESIGN-SYSTEM.md` (section 10, `screenshots/`) with the new commit and the article shown.
       A release with no visible UI change may keep the old screenshots; the version text is never skipped.
     - Open a PR in the site repo and merge it; the merge is what publishes.
+
+## Rolling back `latest`
+
+Tags are never moved, so a bad stable image is superseded by the next patch version. Until that exists, run the
+Release workflow by hand (Actions > Release > Run workflow) with `repoint_latest` set to the last good stable tag
+(`vX.Y.Z`). It verifies that version's signature and re-points `latest`, `X.Y` and `X` at its digest without a
+rebuild. Prereleases are refused. Signed digests are never deleted.
 
 ## Rollback
 

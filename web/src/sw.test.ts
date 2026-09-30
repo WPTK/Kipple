@@ -75,10 +75,13 @@ function setup(precache: string[] = [], build = "0000000000001-aaaa", opts: { at
     },
   };
   const handlers = new Map<string, Handler>();
+  let skipped = 0;
   const self = {
     location: { origin: ORIGIN },
     addEventListener: (t: string, f: Handler) => handlers.set(t, f),
-    skipWaiting: async () => {},
+    skipWaiting: async () => {
+      skipped++;
+    },
     clients: { claim: async () => {} },
   };
   let network: (url: string) => Promise<Response> = async () => {
@@ -94,6 +97,7 @@ function setup(precache: string[] = [], build = "0000000000001-aaaa", opts: { at
   };
   return {
     stores,
+    skipped: () => skipped,
     setNetwork: (f: (url: string) => Promise<Response> | Response) => (network = async (u) => f(u)),
     lifecycle: async (type: "install" | "activate") => {
       handlers.get(type)!({ waitUntil: (p: Promise<unknown>) => waits.push(p) });
@@ -336,6 +340,16 @@ describe("read-only API answers", () => {
     w.stores.set("kipple-shell-0000000000001-aaaa", fakeCache());
     await w.message({ type: "clear-data" });
     expect([...w.stores.keys()]).toEqual(["kipple-shell-0000000000001-aaaa"]);
+  });
+});
+
+describe("skip-waiting", () => {
+  it("a waiting worker takes over when the page asks (the Reload button after a rebuild), and only then", async () => {
+    const w = setup();
+    await w.message({ type: "something-else" });
+    expect(w.skipped()).toBe(0);
+    await w.message({ type: "skip-waiting" });
+    expect(w.skipped()).toBe(1);
   });
 });
 

@@ -71,6 +71,13 @@ Status is what the code does today. Anything not verified on a real device is li
 - [x] The image cache bar is a `progressbar` with `aria-valuetext` ("312 MB of 1.00 GB"); the low-disk warning is text with an icon.
 - [x] The devices notice for a browser that cannot save its settings is a status message.
 
+## Setup wizard (`src/setup`)
+
+- [x] Every step is one page: "Step N of 7" as text (the bar is decorative), one `h1` that takes focus when the step appears, and errors in `role="alert"` regions (field errors beside their field, wired with `aria-describedby`). The step is in the address (`/welcome/<step>`), so Back and a reload land where you were.
+- [x] The time zone step is a labelled search box plus a native listbox (`select size`), so arrow keys, type-ahead and screen-reader list navigation work without a custom widget; the match count is a polite status line. The recommended feeds step is one `fieldset` per category with real checkboxes and per-category Select all / Select none buttons that name the category.
+- [x] The account step's sign-in choice is a native radio group; a choice Kipple cannot offer here (open mode from a proxied address, Access without an Access sign-in) is disabled with the reason as text, never colour alone. The open-mode warning and its confirmation checkbox are text.
+- [x] axe-core (WCAG 2.0, 2.1 and 2.2 A and AA) runs on every step in Vitest and in a real browser at the desktop and phone sizes (`web/uat/wizard.mjs`).
+
 ## Not verified here
 
 - VoiceOver, Larger Text and Increase Contrast on a real iPhone; Windows High Contrast; a real speech engine (jsdom has none, so the narrator is tested against a fake).

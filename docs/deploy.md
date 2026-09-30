@@ -34,6 +34,7 @@ Everything is on the `kipple_data` volume (`host-a_kipple_data`), mounted at `/d
 |---|---|---|
 | `/data/kipple.db` (+ `-wal`, `-shm`) | The database. Never copy it while the server runs | live |
 | `/data/kipple.lock` | Held by `serve` (an OS lock: it vanishes with the process, no stale lock) | live |
+| `/data/setup-token` | The one-time setup code (`0600`), present only while Kipple has no account; removed when setup finishes or at the next start with an account. Never in a backup or snapshot | while setup is pending |
 | `/data/backup/kipple-snapshot.db` | Nightly snapshot at 04:10 (`tz` setting), consistent, safe to copy | 1 |
 | `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration (`0600`; files written by 0.2.0 and earlier are `0644`) | newest 3 |
 | `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC; older versions wrote local time without the `Z`) | The database that `kipple restore` replaced | newest 3 |
@@ -82,16 +83,18 @@ That copies the snapshot only, never the live database or WAL.
 
 New feeds are fetched on the scheduler's next tick. `docker exec kipple /kipple version` prints the running build.
 
-Health: `ssh host-a 'curl -s http://127.0.0.1:7080/healthz'` answers `ok`.
+Health: `ssh host-a 'curl -s http://127.0.0.1:1919/healthz'` answers `ok` (use your published port, 7080 on an install that
+still uses the old default; see "Ports" below).
 
 ## Health check and container hardening
 
 The image carries a `HEALTHCHECK` (every 30 s, 5 s timeout, 40 s start period, 3 retries) that runs
 `/kipple healthcheck`. That subcommand does a GET on `http://127.0.0.1:<port>/healthz` (the port comes
-from `KIPPLE_ADDR`; a `0.0.0.0`, `::` or empty host becomes `127.0.0.1`), waits at most 3 s and exits 0 only
-on HTTP 200, otherwise printing one line and exiting 1. `/healthz` needs no login and touches no database:
-it answers `ok` as long as the HTTP server is serving. So "healthy" means the process is up and answering,
-not that feeds are fetching.
+from `KIPPLE_ADDR`; a `0.0.0.0`, `::` or empty host becomes `127.0.0.1`; with `KIPPLE_ADDR` unset it tries 1919,
+then 7080, then 1138), waits at most 3 s in all and exits 0 only on HTTP 200 `ok`, otherwise printing a line and exiting 1.
+`/healthz` needs no login and touches no database: it answers `ok` as long as the HTTP server is serving. So
+"healthy" means the process is up and answering, not that feeds are fetching, and not that Kipple has been set up:
+a container waiting for its setup code is healthy.
 
 See it:
 
@@ -113,12 +116,14 @@ it). Use it for `docker ps`, monitoring and `depends_on: condition: service_heal
 | `mem_limit: 256m` + `GOMEMLIMIT=64MiB` | Hard cap plus a Go soft limit so the GC works harder before the cap is hit. |
 | `pids_limit: 200` | Caps processes and threads. |
 | `read_only: true` + `tmpfs: /tmp` | Root filesystem is read-only; the app writes only to `/data` (the volume). `/tmp` is a small RAM disk in case anything needs scratch space. |
-| `cap_drop: [ALL]` | Removes all Linux capabilities; the app needs none (port 7080 is unprivileged). |
+| `cap_drop: [ALL]` | Removes all Linux capabilities; the app needs none (port 1919 is unprivileged). |
 | `security_opt: no-new-privileges:true` | Blocks privilege escalation through setuid binaries. |
 | logging `json-file` 10m x 3 | Bounded container logs. |
 
 If you run the image with plain `docker run`, the same flags are `--read-only --tmpfs /tmp --cap-drop ALL
---security-opt no-new-privileges:true --pids-limit 200`.
+--security-opt no-new-privileges:true --pids-limit 200`. The README's pull-and-run file
+(`docker-compose.pull.example.yml`) keeps the hardening that works without edits and leaves out the resource limits and
+log rotation, which stay in `docker-compose.example.yml`.
 
 ### Host-A compose options (applied)
 
@@ -147,10 +152,155 @@ them the binary reports version `dev`, because `.git` is not in the build contex
     +      args:
     +        VERSION: ${KIPPLE_VERSION:-dev}
     +        VCS_REF: ${KIPPLE_VCS_REF:-unknown}
+    +        BUILD_DATE: ${KIPPLE_BUILD_DATE:-unknown}
+
+`BUILD_DATE` is optional (it shows on the About screen and in `kipple version -v`); set `KIPPLE_BUILD_DATE` in the
+deploy command (for example `$(date -u +%Y-%m-%dT%H:%M:%SZ)`) to fill it in.
 
 No healthcheck line is needed: it comes from the image, so the rebuild picks it up. Before applying such a change,
 `docker compose ... config` shows the merged result; afterwards check `docker ps` reaches `(healthy)`
 within about a minute. To back out, remove the hardening lines and `up -d kipple` again.
+
+## First run: setup mode and the setup code
+
+A Kipple with no account starts in **setup mode**. It is the normal server (feeds, scheduler and sync API all run), but
+the browser shows the setup wizard instead of a sign-in screen, and nothing can be claimed without the **setup code**.
+
+- **Where the code is.** At start Kipple prints a boxed message to standard error, outside the log levels (so
+  `KIPPLE_LOG_LEVEL=error` cannot hide it): `docker logs kipple`. The code is 24 letters and digits in six groups, and
+  case, spaces and dashes do not matter when you type it. The message also gives a link,
+  `http://<host>:<port>/#setup=<code>`, that pre-fills the code (a `#` fragment never leaves the browser, so it does not reach
+  a proxy log). Log rotated away or the container restarted a while ago? `docker exec kipple /kipple setup-token` prints
+  the current code again (it reads `/data/setup-token`), or says no setup is pending.
+- **Lifetime.** The code lives until an account exists. A restart makes a new one. It is single use in effect: once the
+  account row exists, the setup screens and routes are gone (they answer 404) for as long as that database is used, and
+  the code and its file are deleted.
+- **Guessing.** Ten wrong codes from one address lock that address out for 15 minutes; a hundred wrong codes in all
+  replace the code (a new one is printed, at most once an hour). At 120 bits none of this is about feasibility.
+- **Who can claim.** Whoever can read the container's log, who already controls the host. Nobody else can create the
+  account, however early they reach the port.
+- **Setup is not health.** `/healthz` and the container's health check answer `ok` in setup mode: healthy means serving,
+  not configured. `/_status` says "Setup is pending" until an account exists.
+- **Env credentials skip it.** With both `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` set on a first start, Kipple creates the
+  account from them (as it always did) and starts in normal mode, with no wizard onboarding. A lone `KIPPLE_USERNAME` (the
+  default in old example files) is ignored and the wizard asks.
+- **Cloudflare Access and the code.** Even behind Access, the code is required: Access proves who may reach the app,
+  not who owns this instance. The wizard offers "No password, through Cloudflare Access" only on a request that came
+  through Access and carries a verified token.
+
+After the account step the wizard continues as an ordinary signed-in session (time zone, theme, OPML import,
+recommended feeds, an optional Reader API password). Each step saves as it goes, so a reload or "Skip for now" loses
+nothing. Settings > Account & Devices > Run setup again repeats those steps for any account (it never touches the
+account or the code).
+
+## Ports
+
+The default listen address is `:1919`. If it is taken and `KIPPLE_ADDR` is unset, Kipple listens on `:1138` instead and
+logs a WARN with the port it chose (this does not happen in a container, which has its own network). Set
+`KIPPLE_ADDR` to choose any port; it always wins.
+
+**Existing installs keep 7080.** A database that already had an account before 0.5 is marked, by the 0.5 migration,
+as belonging to an install on the old default. While `KIPPLE_ADDR` is unset it keeps listening on `:7080`, and logs
+a WARN at every start ("port 7080 is the pre-0.5 default and will stop being used at 1.0"). That fallback is removed at
+1.0. Fresh installs get 1919. Restoring a backup keeps the port of the installation you restore into, not the backup's.
+To stop relying on the fallback either way, set `KIPPLE_ADDR` explicitly (`:7080` to stay, `:1919` to move; a move also means
+changing the published port in the compose file and anything that connects to it: a reverse proxy, a tunnel, a bookmark,
+sync clients). The container's health check does not read the database, so with `KIPPLE_ADDR` unset it tries 1919, then
+7080, then 1138.
+
+The README's compose files publish `127.0.0.1:1919:1919`, this machine only. For the LAN use `1919:1919`, for Tailscale
+your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx) is what gives Kipple HTTPS; set
+`KIPPLE_TRUSTED_PROXY_IPS` to the address it connects from, and `KIPPLE_PUBLIC_URL` to the public address.
+
+## Open mode (no password)
+
+The wizard's account step offers **No password at all**. It is for a Kipple that only you can reach: this computer, or
+your tailnet. The screen shows the warning verbatim in substance: anyone who can reach the address can read and change
+everything. It needs a ticked acknowledgement, and it stores the account with no password hash and `auth_mode = open`.
+Sign-in then happens by itself when the app opens: it asks the server for a session, and the server grants one only if
+the request passes the **open gate**:
+
+1. **The name is expected.** The `Host` header must be an IP address, `localhost`, a single-word name, or a `.local`,
+   `.lan`, `.home.arpa`, `.internal` or `.ts.net` name, the host of `KIPPLE_PUBLIC_URL`, or in `KIPPLE_ALLOWED_HOSTS` /
+   Settings > Allowed host names. Anything else gets `421 Misdirected Request` naming those settings. This defeats DNS
+   rebinding, where a hostile web page tries to use your browser to reach a private address. `http://<ip>:1919` always
+   works. The check is enforced in setup mode and open mode; with a password it only logs, once an hour.
+2. **Not forwarded.** A request that came through a proxy or tunnel (a `CF-Connecting-IP`, `Cf-Access-Jwt-Assertion`,
+   `Forwarded`, `X-Real-IP` or `X-Forwarded-*` header, a `Tailscale-Funnel-Request`, or a peer listed in
+   `KIPPLE_TRUSTED_PROXY_IPS`) is refused, because a tunnel means the port is published to people you did not pick.
+   The one exception is Tailscale Serve (tailnet-only HTTPS to a `.ts.net` name), which is allowed.
+3. **A near peer.** The connection must come from this computer (loopback) or a Tailscale address (`100.64.0.0/10`,
+   `fd7a:115c:a1e0::/48`, and only when this machine actually has a Tailscale address). Devices on the local network
+   are refused unless you turn on **Settings > Account & Devices > Also allow devices on my local network**
+   (`security.open_lan`), which lets every private-range address in.
+4. **The browser says so.** The `Origin` must name the same host the request was sent to.
+
+A signed-in session in open mode keeps passing the network part of the gate on every request, so a session cannot
+outlive the position or the setting that admitted it.
+
+**The Docker caveat.** Inside a container the peer is never loopback: Docker delivers even a
+`-p 127.0.0.1:1919:1919` connection from its own bridge gateway, and on Docker Desktop, rootless Docker or IPv6 without
+ip6tables it delivers other machines' connections from that same address too, so Kipple cannot tell them apart. A
+container therefore treats that gateway as an ordinary LAN peer, and open mode works there only with "Also allow
+devices on my local network" on. The wizard notices this and shows that checkbox in the account step. What keeps other
+machines out then is the address you publish the port on, not Kipple: keep `127.0.0.1:` in the port mapping (or a
+Tailscale address) whenever you use open mode, and never `1919:1919` on a LAN you do not fully trust. For the same reason
+Tailscale devices reaching a container also need that checkbox, since Kipple cannot see your tailnet from inside it.
+A non-container Kipple (a plain binary) on the same machine as the browser needs neither.
+
+Changing your mind: **Settings > Set web password** (or `kipple password` on the host) gives the account a password and
+returns it to normal mode; either signs every other session out. Going from a password account to open mode is not in
+the Settings screen in 0.5 (it is `POST /api/account/password` with `{"current": ..., "open": true}`, which needs the current
+password and passes the same gate); choose open mode in the wizard on a new install. The Reader API is unaffected in
+open mode: sync apps still sign in with the API password, which is then the only credential that exists.
+
+## Time zone
+
+There are two settings, and they used to be independent:
+
+- **The `TZ` environment variable** (IANA name). When set it is the zone for everything: log timestamps, daily reading
+  statistics, the nightly 04:10 maintenance and the weekly snapshot, and backup file names. Settings then shows the time
+  zone read-only ("Set by the TZ environment variable; remove it to choose here") and a change through the API is
+  refused. Before 0.5 `TZ` only set the log timestamps.
+- **The in-app time zone** (setting `tz`, Settings > Account & Devices, and wizard step 3). When `TZ` is unset this
+  governs all of the above, is read live, and changes take effect at the next statistics write, summary request and
+  nightly tick, with no restart (log timestamps follow it at the next start). The default for a new install is UTC, and the
+  wizard preselects your browser's zone.
+
+Precedence: `TZ` if set, else the in-app setting, else UTC. A change applies to new statistics only: rows already
+recorded keep the local date and hour of the zone that was in effect when they were written, so a day never moves. Dates
+in the web app follow each device's own clock, whatever the server zone is.
+
+**Known limitation.** Kipple cannot tell an explicit choice of UTC from the untouched default, because both are stored as
+`UTC`. So the wizard's time zone step, when it opens with `UTC` saved, treats it as "not chosen yet" and suggests your
+browser's zone; that suggestion is only saved if you press Continue. (In a Run setup again session the saved zone is kept
+as the choice.) An install upgraded from before 0.5 is not affected by the default at all: the upgrade wrote its zone
+(`America/New_York`, or whatever it had already chosen). This was left as it is on purpose.
+
+## About, debug info and versions
+
+Settings > About shows the version, commit, build date, Go version, platform, database schema, uptime, whether the data
+directory is writable, the time zone, the sign-in mode and whether a public URL is set, and a **Copy debug info** button
+that shows the text before copying it. It contains no user name, host names, URLs, paths or secrets, so it is safe to
+paste into an issue. Nothing on it contacts GitHub or anything else: Kipple never checks for updates.
+
+On the host: `docker exec kipple /kipple version` prints the version alone; `docker exec kipple /kipple version -v`
+adds the commit, build date, Go version, platform, schema and web build id. The image digest is not knowable from
+inside (it is computed after the build); read it from the host with
+`docker inspect --format '{{index .RepoDigests 0}}' kipple`. The release notes of each version name its digest. After an
+upgrade Kipple shows what changed once ("What's new"), and an open browser tab that is running an older build shows
+"Kipple was updated. Reload".
+
+## The published image
+
+From 0.5.0-beta.1 a tag push publishes a signed, multi-arch (`linux/amd64`, `linux/arm64`) image at
+`ghcr.io/wptk/kipple:<version>` (`docker-compose.pull.example.yml` in the repository is the ready file). Stable releases
+also move `latest` and the `X.Y` and `X` tags; **a prerelease is tagged only with its exact version**, so until the first
+stable release name the version. Verify a pull with cosign (the command is in the README and in each release's notes);
+the signature identity is the release workflow of this repository. Upgrade by changing the tag and
+`docker compose pull kipple && docker compose up -d kipple` (name the service). The image is the same one the source
+build produces, so `kipple restore`, rollbacks and everything else in this file apply unchanged; for a rollback
+across a migration, start the previous tag's image only after restoring the pre-migration snapshot (see below).
 
 ## Installing the app and offline reading
 
@@ -177,9 +327,11 @@ Rules: 5 to 256 characters. It signs out every web session **and revokes every R
 Reader API password in Reeder and NetNewsWire (that password itself is unchanged; if you have lost
 it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login lockout is in
 memory: it clears when its 15-minute window ends or on a restart. If `KIPPLE_PASSWORD` is still in
-`/home/user/stack/.env`, remove it: it is read only when the account is first created.
+`/home/user/stack/.env`, remove it: it is read only when the account is first created. On an account in open mode
+(no password) this sets a password and returns it to normal sign-in ("Open mode" above). If the account does not exist
+yet, the command says so and points to the setup wizard.
 
-When you can still sign in, change either password in Settings > Account instead; the CLI is the recovery path.
+When you can still sign in, change either password in Settings > Account & Devices instead; the CLI is the recovery path.
 It is also how to give the account a password again after it was removed through Cloudflare Access and Access
 validation was then turned off (see "Cloudflare Access (optional)" below).
 
@@ -202,7 +354,10 @@ normally left outside Access (a bypass), since sync apps cannot sign in to Acces
 With validation on, the web password becomes optional: Settings > Account > Remove web password (offered only when
 you are signed in through a verified Access token, and it asks for the current password). An account without a
 password signs in only on requests that carry a verified token, so the LAN or a published port cannot sign in.
-Anyone your Access policy admits can, so keep the policy to your own email.
+Anyone your Access policy admits can, so keep the policy to your own email. The setup wizard offers the same choice
+("No password, through Cloudflare Access") on a fresh install, but only when Kipple is opened through Access and the
+request carries a verified token, and it still needs the setup code first. Open mode (see "Open mode" above)
+is a different thing: it has no Access involved and refuses requests that came through Access.
 
 **Before you unset the two variables, set a password again**: Settings > Account > Set web password, or
 afterwards `kipple password` (see "Reset the web password" above). With Access off and no password, web sign-in
@@ -232,6 +387,13 @@ Runbook, with the backup on Host-B (it is piped in; the container user cannot re
 
 An older schema is migrated on that start, after the usual `pre-migration-*` snapshot. Then sign in
 again. A restore never touches a backup `.zip`.
+
+**Restore leaves setup mode.** A backup that contains the account puts the instance in normal mode at the next start:
+the setup screens are gone and the leftover setup code file, if any, is deleted. A backup from before 0.5 that is
+migrated on that start is marked as already set up, so it never shows the wizard's onboarding. Only a backup taken
+in setup mode (no account in it) returns the instance to setup mode, with a fresh setup code in `docker logs kipple`.
+The listen port stays with the installation you restore into (a restore onto a 7080 install keeps 7080), and the
+restore says so when a backup from an old-default install is restored into one that has no port record yet.
 
 **Undo a restore.** Stop `kipple`, then restore the previous database from the volume (list it with
 the `alpine ls` command above):
@@ -275,9 +437,8 @@ password (removed through Cloudflare Access), sign in through Access with the sa
 one first with `kipple password` (it works on the stopped service:
 `docker compose run --rm -T --no-deps kipple password --stdin`).
 
-Do not start the server on the empty volume first: it would create a new, empty account, and the
-restore then replaces that database anyway (it is kept under `pre-restore-*`), so it only adds a
-step.
+Do not start the server on the empty volume first: it would start in setup mode with a new database and a new setup
+code, and the restore then replaces that database anyway (it is kept under `pre-restore-*`), so it only adds a step.
 
 ## Roll back an upgrade that migrated the schema
 
@@ -285,10 +446,15 @@ There are no down migrations. An older binary refuses a newer schema, so going b
 restoring the `pre-migration-<old>-<new>-<ns>.db` that the upgrade wrote before migrating.
 Anything read, starred or fetched since the upgrade is lost.
 
-If the old image is started on the migrated database without these steps, it does not start:
-`docker logs kipple` shows `kipple: store: store: database schema version 5 is newer than this
-binary (3); refusing to start` and the container exits with status 1 (with `restart: unless-stopped`
-it keeps restarting). Nothing is changed on the volume. Stop it, then:
+(This is the "Rolling back" procedure that a refused start points to.) If the old image is started on the migrated
+database without these steps, it does not start. A binary from 0.5.0 on names the Kipple that wrote the database and
+what to do: `docker logs kipple` shows `kipple: store: store: database schema version 11 is newer than this binary (10); refusing to
+start. This database was last opened by Kipple v0.6.0 (schema 11); this is Kipple v0.5.0 (schema 10). Run v0.6.0 or
+newer, or restore the pre-migration snapshot from the backup folder (docs/deploy.md, Rolling back).` (the version and
+schema numbers here are examples; a database from a build that never recorded its version says "It was written by a
+newer Kipple than this binary." instead). Older binaries, which is what a rollback to 0.3.x is, print the shorter
+`kipple: store: store: database schema version 10 is newer than this binary (9); refusing to start`. Either way the container exits with status
+1 (with `restart: unless-stopped` it keeps restarting) and nothing is changed on the volume. Stop it, then:
 
     # 1. Stop the service and find the newest pre-migration snapshot.
     ssh host-a 'cd /home/user/stack && docker compose stop kipple'
@@ -380,6 +546,36 @@ volume fills up despite the check, the migration transaction fails and is rolled
 database stays at schema 8 and an older binary keeps working); a full disk can also fail the
 snapshot itself, which likewise leaves the database untouched. The check is skipped when the free
 space cannot be read.
+
+### Schema 9 -> 10 and upgrading from 0.3 to 0.5 (the setup wizard)
+
+Migration 0010 rebuilds the one-row `account` table (adding `auth_mode` and `created_via`, with a check that open mode has
+no password hash) and, for a database that already has an account, writes three settings so that nothing changes for it:
+`sys.setup_completed_at` (an existing account never sees onboarding), `tz` set to `America/New_York` unless a time
+zone was already chosen, and `sys.legacy_port` (an unset `KIPPLE_ADDR` keeps 7080). It is quick (one row), and the first
+start writes `/data/backup/pre-migration-9-10-<ns>.db` before migrating. A 0.3.x binary refuses the schema-10 database, so a
+rollback is the procedure above with that snapshot, and a database created fresh by 0.5 has no 0.3 snapshot and stays on 0.5.
+
+**Before upgrading an existing install, check two things** (`docker inspect` shows the container's environment, since the
+image has no shell):
+
+    ssh host-a "docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' kipple" | grep -E '^(KIPPLE_ADDR|TZ)='
+
+1. **`KIPPLE_ADDR` is set.** Confirm it says `KIPPLE_ADDR=:7080` (or whatever port you publish). If it is unset the 0.5
+   migration keeps 7080 for you and logs a WARN at each start, but nothing should depend on that fallback, which goes away
+   at 1.0: set it explicitly. Your port mapping (for example `7080:7080`), reverse proxy, tunnel and sync clients keep
+   working untouched. Moving to 1919 is optional and changes all of those.
+2. **`TZ` and the in-app time zone agree, or you know which you want.** Before 0.5 a `TZ` environment variable set only
+   the log timestamps, and daily statistics and the nightly job followed the in-app time zone (Settings > Account &
+   Devices; `America/New_York` unless you changed it). From 0.5 a set `TZ` governs statistics and the nightly job too and
+   the in-app zone becomes read-only. If your `TZ` differs from the in-app zone, the upgrade would silently move new
+   statistics to `TZ`'s zone (Kipple logs a WARN naming both at every start). Either make `TZ` match, remove `TZ` from the
+   environment so the in-app zone keeps governing, or accept the change. Rows already recorded are never rewritten
+   either way; a day already counted stays on its date.
+
+What you will notice: nothing else. The setup wizard does not run for an existing account (Settings > Account & Devices >
+Run setup again is there if you want the tour), sign-in is unchanged, and `KIPPLE_USERNAME`, `KIPPLE_PASSWORD` and
+`KIPPLE_API_PASSWORD` left in `.env` remain harmless. Rehearse it first on a copy of a snapshot as UAT Suite 4 describes.
 
 ## Phase 1 to phase 2 (done 2026-09-25, v0.2.0-alpha.1)
 

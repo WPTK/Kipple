@@ -22,6 +22,7 @@ import (
 	"github.com/WPTK/kipple/internal/access"
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/backup"
+	"github.com/WPTK/kipple/internal/buildinfo"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
@@ -29,6 +30,7 @@ import (
 	"github.com/WPTK/kipple/internal/imgcache"
 	"github.com/WPTK/kipple/internal/imgproxy"
 	"github.com/WPTK/kipple/internal/sched"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -86,6 +88,14 @@ type Options struct {
 	Stats stats.Recorder
 	// Version is reported by /api/bootstrap and used in the proxy User-Agent.
 	Version string
+	// Build is the commit and build date the binary was built from (buildinfo), for /api/about; its Version
+	// is ignored in favor of Version.
+	Build buildinfo.Info
+	// WebBuild is the build id of the embedded web bundle (internal/web BuildID); /api/bootstrap reports it so
+	// a page can tell the server was rebuilt since it loaded. Empty for a build that carries none.
+	WebBuild string
+	// DataDir is the data directory; /api/about only reports whether it is writable, never where it is.
+	DataDir string
 	// PublicURL is the "+url" of the outgoing User-Agent; optional. Only used to
 	// build UserAgent when the caller leaves it empty.
 	PublicURL string
@@ -109,15 +119,33 @@ type Options struct {
 	// Now defaults to the wall clock. Heartbeat defaults to 15 s.
 	Now       func() time.Time
 	Heartbeat time.Duration
+
+	// Setup is setup mode (docs/setup-wizard-design.md): when it is pending at
+	// Register, the setup routes are mounted. Nil means never in setup mode.
+	Setup *setup.Manager
+	// SetupLockout limits wrong setup tokens per IP (default 10 per 15 minutes),
+	// separate from the login lockout.
+	SetupLockout *auth.Lockout
+	// AllowedHosts are the Host gate's configured names (KIPPLE_ALLOWED_HOSTS and
+	// the host of KIPPLE_PUBLIC_URL), normalized by setup.CheckHostEntry.
+	AllowedHosts []string
+	// Gate is the open gate's fixed part; its Trusted defaults to TrustedProxies.
+	Gate setup.Gate
 }
 
 // Server holds the handlers.
 type Server struct {
-	opt  Options
-	db   *store.DB
-	log  *slog.Logger
-	now  func() time.Time
-	lock *auth.Lockout
+	started   time.Time // when this server was built, for /api/about
+	opt       Options
+	db        *store.DB
+	log       *slog.Logger
+	now       func() time.Time
+	lock      *auth.Lockout
+	setupLock *auth.Lockout
+
+	mode       modeCache // the Host gate's cached auth mode and allowed hosts
+	hostWarnMu sync.Mutex
+	hostWarnAt time.Time
 
 	// statsGate admits one stats summary computation at a time (it holds up to three reader connections).
 	statsGate chan struct{}
@@ -159,7 +187,7 @@ type Server struct {
 
 // New builds the API server.
 func New(opt Options) *Server {
-	s := &Server{opt: opt, db: opt.DB, log: opt.Logger, now: opt.Now, lock: opt.Lockout, verifier: opt.Verifier, statsGate: make(chan struct{}, 1)}
+	s := &Server{started: time.Now(), opt: opt, db: opt.DB, log: opt.Logger, now: opt.Now, lock: opt.Lockout, verifier: opt.Verifier, statsGate: make(chan struct{}, 1)}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -168,6 +196,13 @@ func New(opt Options) *Server {
 	}
 	if s.lock == nil {
 		s.lock = auth.NewLockout(s.now)
+	}
+	s.setupLock = opt.SetupLockout
+	if s.setupLock == nil {
+		s.setupLock = auth.NewLockout(s.now)
+	}
+	if s.opt.Gate.Trusted == nil {
+		s.opt.Gate.Trusted = opt.TrustedProxies
 	}
 	if s.verifier == nil {
 		s.verifier = auth.NewVerifier(nil, auth.VerifierOptions{})
@@ -212,6 +247,10 @@ func New(opt Options) *Server {
 	if s.opt.Heartbeat <= 0 {
 		s.opt.Heartbeat = heartbeatDefault
 	}
+	// Know the mode from the start, so a later failed read has a last known one.
+	if s.db != nil {
+		s.snapshot(context.Background())
+	}
 	return s
 }
 
@@ -233,6 +272,9 @@ func (s *Server) bgStart() bool {
 func (s *Server) Register(mux *http.ServeMux) {
 	handle := mux.HandleFunc // security headers come from httpx.Secure around the root handler
 	handle("GET /healthz", s.healthz)
+	handle("GET /api/instance", s.instance)
+	s.registerSetup(mux)
+	handle("POST /api/auth/open", s.authOpen)
 	handle("POST /api/auth/login", s.login)
 	handle("POST /api/auth/logout", s.authed(s.logout))
 	handle("GET /api/auth/me", s.authed(s.me))
@@ -241,6 +283,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/refresh", s.authed(s.refresh))
 	handle("GET /api/events", s.authed(s.events))
 	handle("GET /api/bootstrap", s.authed(s.bootstrap))
+	handle("GET /api/about", s.authed(s.about))
 	handle("GET /img/{sig}/{flags}/{u}", s.authed(s.image))
 	handle("GET /api/feeds/{id}/icon", s.authed(s.feedIcon))
 	handle("GET /api/imgcache", s.authed(s.imgcacheStats))
@@ -269,6 +312,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/retention/apply", s.authed(s.retentionApply))
 	handle("POST /api/account/password", s.authed(s.accountPassword))
 	handle("POST /api/account/api-password", s.authed(s.accountAPIPassword))
+	handle("POST /api/onboarding/complete", s.authed(s.onboardingComplete))
+	handle("POST /api/onboarding/restart", s.authed(s.onboardingRestart))
+	handle("GET /api/starter-feeds", s.authed(s.starterFeeds))
+	handle("POST /api/starter-feeds", s.authed(s.starterSubscribe))
 	handle("POST /api/backup", s.authed(s.backupCreate))
 	handle("GET /api/backup/jobs/{id}", s.authed(s.backupJob))
 	handle("GET /api/backup/{token}", s.authed(s.backupDownload))
@@ -333,6 +380,15 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		if needsOriginCheck(r) && !s.sameOrigin(r) {
 			writeError(w, http.StatusForbidden, "origin")
 			return
+		}
+		// Open mode: the session is only a convenience, the gate is the access
+		// check, so it applies to every request (a device that left the tailnet,
+		// or security.open_lan turned off, loses access at once).
+		if snap := s.snapshot(r.Context()); snap.mode == store.AuthOpen || snap.failed {
+			if reason := s.gateRefusal(r, snap, snap.openLAN, false); reason != "" {
+				writeOpenRefused(w, reason)
+				return
+			}
 		}
 		h(w, r)
 	}

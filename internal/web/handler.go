@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -40,6 +41,29 @@ type handlerOpts struct{ imgMode func() string }
 // depends on it and a 304 cannot carry a new policy, so the mode is folded into
 // the ETag of every HTML page: a mode change invalidates cached copies.
 func WithImgMode(f func() string) Option { return func(o *handlerOpts) { o.imgMode = f } }
+
+// buildMeta finds the build id the Vite build writes into index.html (<meta name="kipple-build" content="...">).
+var buildMeta = regexp.MustCompile(`<meta\s+name="kipple-build"\s+content="([A-Za-z0-9._-]{1,64})"`)
+
+// BuildID is the id of the web build embedded in this binary, read once from the embedded index.html: the same
+// value the bundle carries as __KIPPLE_BUILD__, so a page can tell whether the server it talks to was rebuilt
+// since it loaded. "" when the build carries none (a fresh clone with the placeholder page, or a dev build).
+func BuildID() string { return buildIDOf(web.Dist) }
+
+func buildIDOf(fsys fs.FS) string {
+	dist, err := fs.Sub(fsys, "dist")
+	if err != nil {
+		return ""
+	}
+	b, err := fs.ReadFile(dist, "index.html")
+	if err != nil {
+		return ""
+	}
+	if m := buildMeta.FindSubmatch(b); m != nil {
+		return string(m[1])
+	}
+	return ""
+}
 
 // NewHandler returns an http.Handler serving the embedded frontend.
 func NewHandler(opts ...Option) (http.Handler, error) {

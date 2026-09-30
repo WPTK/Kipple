@@ -3,6 +3,7 @@
 docs
 *.md
 !THIRD_PARTY_NOTICES.md
+!CHANGELOG.md
 
 # Frontend: built fresh by the "web" stage, node_modules never needed in-image
 web/node_modules
@@ -23,4 +24,5 @@ kipple.exe
 !.env.example
 !**/.env.example
 docker-compose.example.yml
+docker-compose.pull.example.yml
 .claude
