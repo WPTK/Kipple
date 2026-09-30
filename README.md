@@ -220,6 +220,8 @@ The ones self-hosters most often want:
 Something broken or missing? Open an issue on [GitHub Issues](https://github.com/WPTK/Kipple/issues).
 There's no chat room or mailing list; issues are the one place to ask.
 
+Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Roadmap
 
 Kipple is working toward a 1.0 release; see [docs/RELEASING.md](docs/RELEASING.md) for what that involves
@@ -235,6 +237,7 @@ Everything above is all a self-hoster needs. This section is for changing Kipple
   `docs/ui-decisions.md` records the design decisions; `docs/deploy.md` covers backups, recovery and deploys.
   See [docs/README.md](docs/README.md) for a full index of everything under `docs/`.
 - `CLAUDE.md` holds the project rules used when working on the code with Claude.
+- [CONTRIBUTING.md](CONTRIBUTING.md) covers how to report a bug, propose a change and send a pull request.
 
 ### Build and test
 
