@@ -1,1 +1,0 @@
-Setup: Skip the rest of setup on the time zone step now keeps the zone shown instead of leaving Kipple on UTC, and a stale /welcome address opened before the account exists no longer carries the new account past that step. (#133)

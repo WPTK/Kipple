@@ -1,1 +1,0 @@
-Signed multi-arch images: pushing a release tag now builds, scans and smoke-tests a linux/amd64 and linux/arm64 image and publishes it to `ghcr.io/wptk/kipple` with a cosign signature and build provenance; a prerelease never moves `latest`.

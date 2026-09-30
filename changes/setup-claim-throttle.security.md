@@ -1,1 +1,0 @@
-An address locked out of the setup code screen after ten wrong codes still has every code checked, so the right code is accepted at once even while another device behind the same Docker gateway keeps sending wrong ones; its wrong codes no longer count towards replacing the code and are answered after a one-second pause. (#156)

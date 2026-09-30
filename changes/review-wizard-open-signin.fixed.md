@@ -1,1 +1,0 @@
-Open mode: a browser that does not keep the session cookie now gets a message about cookies instead of signing in over and over, and Try again after the account got a password moves to the sign-in form. (#140, #141)
