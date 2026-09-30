@@ -243,7 +243,9 @@ func (m *Manager) Finish() {
 func TokenPath(dataDir string) string { return filepath.Join(dataDir, TokenFile) }
 
 // writeTokenFile replaces the token file: a stale one is removed first and the
-// new one is created exclusively, owner-only.
+// new one is created exclusively, owner-only (mode 0600; on Windows, where the
+// mode means nothing, a protected DACL for the current user alone, set before
+// the token is written: restrictToOwner).
 func writeTokenFile(dataDir, tok string) error {
 	p := TokenPath(dataDir)
 	if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -251,6 +253,11 @@ func writeTokenFile(dataDir, tok string) error {
 	}
 	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- a fixed name in the data directory
 	if err != nil {
+		return err
+	}
+	if err := restrictToOwner(p); err != nil {
+		_ = f.Close()
+		_ = os.Remove(p)
 		return err
 	}
 	_, werr := f.WriteString(tok + "\n")

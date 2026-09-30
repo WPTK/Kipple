@@ -9,9 +9,20 @@ import (
 )
 
 // defaultHostSuffixes are the private-use and tailnet name suffixes the Host gate
-// accepts without configuration (design 5.2). A DNS-rebinding attack needs a
-// name its author controls in public DNS; none of these can be one.
+// accepts without configuration in setup mode (design 5.2). A DNS-rebinding
+// attack from the internet needs a name its author controls in public DNS;
+// none of these can be one.
 var defaultHostSuffixes = []string{".localhost", ".local", ".lan", ".home.arpa", ".internal", ".ts.net"}
+
+// openHostSuffixes are the only suffixes open mode accepts without
+// configuration. The other private-use names are answered by whoever is on the
+// local network: any device can claim a .local name over mDNS, a single-label
+// name over LLMNR or NetBIOS, and a DHCP hostname under .lan or .internal on
+// many routers. A LAN peer could then rebind such a name to this computer and
+// drive a browser here into an open-mode instance that only admits this
+// computer and the tailnet. .localhost never leaves the machine (RFC 6761) and
+// .ts.net names come from Tailscale, not from the LAN.
+var openHostSuffixes = []string{".localhost", ".ts.net"}
 
 const maxHostLen = 253
 
@@ -109,21 +120,42 @@ func validName(s string) bool {
 	return true
 }
 
-// HostAllowed reports whether a normalized host passes the Host gate: an IP
-// literal, localhost and *.localhost, a single-label name, a name under one of
-// the private-use or tailnet suffixes, or a match for one of extra (exact
-// names, or "*.suffix" for any name under suffix; see CheckHostEntry).
+// HostAllowed reports whether a normalized host passes the setup-mode Host
+// gate: an IP literal, localhost and *.localhost, a single-label name, a name
+// under one of the private-use or tailnet suffixes, or a match for one of
+// extra (exact names, or "*.suffix" for any name under suffix; see
+// CheckHostEntry).
 func HostAllowed(host string, extra []string) bool {
 	if host == "" {
 		return false
 	}
+	if !strings.Contains(host, ".") {
+		return true // localhost, and single-label names
+	}
+	return hostMatches(host, defaultHostSuffixes, extra)
+}
+
+// OpenHostAllowed is the narrower Host gate of open mode: an IP literal,
+// localhost and *.localhost, a *.ts.net name, or a match for one of extra.
+// Names any LAN device can answer (.local, .lan, .home.arpa, .internal and
+// single-label names; see openHostSuffixes) need to be listed explicitly.
+func OpenHostAllowed(host string, extra []string) bool {
+	if host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	return hostMatches(host, openHostSuffixes, extra)
+}
+
+// hostMatches is an IP literal, a name under one of suffixes, or a match for
+// one of extra.
+func hostMatches(host string, suffixes, extra []string) bool {
 	if _, err := netip.ParseAddr(host); err == nil {
 		return true
 	}
-	if host == "localhost" || !strings.Contains(host, ".") {
-		return true
-	}
-	for _, suf := range defaultHostSuffixes {
+	for _, suf := range suffixes {
 		if strings.HasSuffix(host, suf) {
 			return true
 		}

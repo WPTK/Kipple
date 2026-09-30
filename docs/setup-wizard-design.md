@@ -209,8 +209,10 @@ today, plus the two new fields).
   /kipple setup-token` shows it again". A structured `setup pending` INFO line without the token is logged too.
 - **Brute force:** its own `auth.Lockout` instance (so setup failures never lock the later login and vice versa):
   10 failures per IP (/64) per 15 minutes. Plus a global counter: after 100 failures in one process the token is
-  rotated, the new one printed with a WARN "setup token rotated after repeated failures". At 120 bits the lockout is
-  about noise and log volume, not feasibility.
+  rotated, the new one printed with a WARN "setup token rotated after repeated failures". A locked address still gets
+  one check per minute (so the owner behind a shared Docker gateway is delayed, never locked out), and those checks do
+  not count towards the rotation; every other attempt from it is answered 429 without a check. At 120 bits the lockout
+  is about noise and log volume, not feasibility.
 
 ### 5.2 Host gate (DNS rebinding)
 
@@ -224,8 +226,11 @@ cannot control is the `Host` header, which is `evil.example:1919`. So:
   cookie is bound to the real origin, so rebinding reads nothing there, and enforcing would break existing
   deployments whose hostname was never configured.
 - **Allowed by default:** IP literals (a rebinding attack always carries a name), `localhost` and `*.localhost`,
-  single-label names (`nas`), `*.local`, `*.lan`, `*.home.arpa`, `*.internal`, `*.ts.net` (Tailscale MagicDNS),
-  the host of `KIPPLE_PUBLIC_URL` when set.
+  `*.ts.net` (Tailscale MagicDNS), the host of `KIPPLE_PUBLIC_URL` when set. Setup mode also allows single-label names
+  (`nas`), `*.local`, `*.lan`, `*.home.arpa` and `*.internal`; open mode (and the open gate, including the switch to
+  open mode) does not: any LAN device can answer those names (mDNS, LLMNR/NetBIOS, a router's DHCP names) and rebind
+  one to this computer, which would let a LAN peer reach an open instance meant for this computer and the tailnet
+  only. They can be listed explicitly.
 - **Configurable:** `KIPPLE_ALLOWED_HOSTS` (comma list, for setup mode, before any UI exists) plus a global setting
   `security.allowed_hosts` (JSON array, editable in Settings after setup). Entries are exact hosts or `*.suffix`.
 
@@ -596,8 +601,8 @@ previous good digest with `imagetools create`, no rebuild. Signed digests are ne
 ## 12. Testing
 
 **Go unit and integration (PR B, E):**
-- Token: format, Crockford folding, constant-time compare, rotation after 100 failures, file created 0600 and
-  removed on claim and on a normal-mode start, `kipple setup-token` output.
+- Token: format, Crockford folding, constant-time compare, rotation after 100 failures, file created 0600 (an
+  owner-only protected DACL on Windows) and removed on claim and on a normal-mode start, `kipple setup-token` output.
 - Mode derivation: env creds create the row (normal); `KIPPLE_USERNAME` alone gives setup mode; existing row gives
   normal with setup routes answering 404; the flag never flips back.
 - Every new route through `rootHandler`: auth, same-origin, Host gate (`421`), open gate reasons, lockout counting,

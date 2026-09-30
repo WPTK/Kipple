@@ -142,6 +142,7 @@ type Server struct {
 	now       func() time.Time
 	lock      *auth.Lockout
 	setupLock *auth.Lockout
+	setupSlow lockedThrottle // one uncounted check per minute for a locked-out address
 
 	mode       modeCache // the Host gate's cached auth mode and allowed hosts
 	hostWarnMu sync.Mutex

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -91,4 +92,22 @@ func TestProbeHealthAnyTakesTheFirstHealthy(t *testing.T) {
 	require.NoError(t, probeHealthAny([]string{down, other, kipple, never}, 2*time.Second))
 	require.Equal(t, []string{"other", "kipple"}, seen(), "in order, stopping at the first healthy one")
 	require.Error(t, probeHealthAny([]string{down, other}, time.Second))
+}
+
+// A KIPPLE_ADDR naming a host is probed at that host, with Host: 127.0.0.1 so
+// the setup- and open-mode Host gate (which may refuse the name with 421) lets
+// the probe through. An address given as an IP keeps it as the Host. (Built,
+// not sent: a name would need resolving, and localhost stalls on some hosts.)
+func TestHealthRequestSendsAnIPHostForANamedAddress(t *testing.T) {
+	ctx := context.Background()
+	req, err := healthRequest(ctx, "kipple-box:1919")
+	require.NoError(t, err)
+	require.Equal(t, "kipple-box:1919", req.URL.Host, "the name is dialled")
+	require.Equal(t, "127.0.0.1:1919", req.Host)
+	for addr, host := range map[string]string{"": "127.0.0.1:1919", "192.168.1.10:9090": "192.168.1.10:9090", "[::1]:9090": "[::1]:9090"} {
+		req, err := healthRequest(ctx, addr)
+		require.NoError(t, err, addr)
+		require.Equal(t, host, req.URL.Host, addr)
+		require.Equal(t, host, req.Host, "an IP host is sent as is: %s", addr)
+	}
 }

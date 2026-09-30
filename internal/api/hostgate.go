@@ -30,6 +30,21 @@ type modeCache struct {
 	gen   uint64
 	snap  *modeSnapshot
 	stale bool // invalidated: re-read before use, but keep snap for a failed read
+	// changed is closed (and forgotten) by noteMode once the new snapshot is in
+	// place, so a long-lived request (an /api/events stream) re-checks the open
+	// gate at once rather than at its next heartbeat.
+	changed chan struct{}
+}
+
+// modeChanged is closed at the next mode, account or security-setting change
+// made through this API.
+func (s *Server) modeChanged() <-chan struct{} {
+	s.mode.mu.Lock()
+	defer s.mode.mu.Unlock()
+	if s.mode.changed == nil {
+		s.mode.changed = make(chan struct{})
+	}
+	return s.mode.changed
 }
 
 // snapshot returns the cached mode, re-reading it when older than modeTTL. A
@@ -97,6 +112,12 @@ func (s *Server) noteMode(ctx context.Context, apply func(*modeSnapshot)) {
 	}
 	s.mode.mu.Unlock()
 	s.snapshot(context.WithoutCancel(ctx))
+	s.mode.mu.Lock()
+	if s.mode.changed != nil {
+		close(s.mode.changed)
+		s.mode.changed = nil
+	}
+	s.mode.mu.Unlock()
 }
 
 // enforceHosts reports whether the Host gate refuses (rather than only logs)
@@ -108,17 +129,36 @@ func (s *Server) enforceHosts(snap *modeSnapshot) bool {
 	return s.opt.Setup.Pending() || snap.failed || snap.mode == store.AuthOpen
 }
 
-// hostAllowed normalizes r's Host and judges it.
+// hostAllowed normalizes r's Host and judges it: by open mode's narrower
+// list (setup.OpenHostAllowed) when open, and when the mode could not be read
+// (fail closed), else by the setup-mode list (setup.HostAllowed).
 func (s *Server) hostAllowed(r *http.Request, snap *modeSnapshot) (host string, ok bool) {
+	if s.openHosts(snap) {
+		return s.openHostAllowed(r, snap)
+	}
 	host, valid := setup.NormalizeHost(r.Host)
 	return host, valid && setup.HostAllowed(host, snap.allowed)
 }
 
+// openHostAllowed judges r's Host by open mode's list, whatever the mode:
+// the open gate always uses it, including for the switch to open mode.
+func (s *Server) openHostAllowed(r *http.Request, snap *modeSnapshot) (host string, ok bool) {
+	host, valid := setup.NormalizeHost(r.Host)
+	return host, valid && setup.OpenHostAllowed(host, snap.allowed)
+}
+
+// openHosts reports whether the Host gate uses open mode's list: an open-mode
+// account outside setup mode, or a mode that could not be read.
+func (s *Server) openHosts(snap *modeSnapshot) bool {
+	return snap.failed || (snap.mode == store.AuthOpen && !s.opt.Setup.Pending())
+}
+
 // hostRefusedText is the 421 body: what happened and the settings that fix it.
 const hostRefusedText = "Kipple refused this request because of the address it was sent to.\n\n" +
-	"While Kipple is being set up, and while it runs without a password (open mode), it only answers requests\n" +
-	"addressed to an IP address, localhost, a single-word name, or a .local, .lan, .home.arpa, .internal or\n" +
-	".ts.net name. This protects it against DNS rebinding from other web sites.\n\n" +
+	"While Kipple is being set up, it only answers requests addressed to an IP address, localhost, a single-word\n" +
+	"name, or a .local, .lan, .home.arpa, .internal or .ts.net name. While it runs without a password (open mode),\n" +
+	"it only answers an IP address, localhost, a .localhost name or a .ts.net name, because other devices on the\n" +
+	"local network can answer single-word, .local and similar names. This protects it against DNS rebinding.\n\n" +
 	"To use another name, add it to KIPPLE_ALLOWED_HOSTS (comma-separated, e.g. rss.example.com or *.example.com)\n" +
 	"and restart, or add it under Settings (security.allowed_hosts). Opening Kipple by its IP address always works.\n"
 
@@ -169,7 +209,7 @@ func (s *Server) warnHost() {
 // signed-in request passes the network part (authed), so a session never
 // outlives the network position or the setting that admitted it.
 func (s *Server) gateRefusal(r *http.Request, snap *modeSnapshot, openLAN, signIn bool) string {
-	host, ok := s.hostAllowed(r, snap)
+	host, ok := s.openHostAllowed(r, snap)
 	if signIn {
 		return s.opt.Gate.SignInRefusal(r, host, ok, openLAN)
 	}

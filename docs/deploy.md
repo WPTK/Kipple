@@ -171,7 +171,14 @@ the browser shows the setup wizard instead of a sign-in screen, and nothing can 
   case, spaces and dashes do not matter when you type it. The message also gives a link,
   `http://<host>:<port>/#setup=<code>`, that pre-fills the code (a `#` fragment never leaves the browser, so it does not reach
   a proxy log). Log rotated away or the container restarted a while ago? `docker exec kipple /kipple setup-token` prints
-  the current code again (it reads `/data/setup-token`), or says no setup is pending.
+  the current code again (it reads `/data/setup-token`), or says no setup is pending. The file is owner-only: mode
+  0600, and on Windows (where the mode does nothing) a protected access list that admits only the user Kipple runs as, SYSTEM and Administrators. Both example compose files and the
+  README's one-line container command name the container `kipple`; with a compose file that sets no `container_name`,
+  use `docker compose logs kipple` and `docker compose exec kipple /kipple setup-token` instead.
+- **Wrong codes.** Ten wrong codes from one address in 15 minutes lock that address: from then on it gets one code
+  checked per minute (the rest are answered 429 unchecked), and those checks no longer count towards replacing the
+  code. The right code still works in that check, so a noisy device behind the same Docker gateway delays you by a
+  minute at most. A hundred wrong codes in all replace the code (at most once an hour).
 - **Lifetime.** The code lives until an account exists. A restart makes a new one. It is single use in effect: once the
   account row exists, the setup screens and routes are gone (they answer 404) for as long as that database is used, and
   the code and its file are deleted.
@@ -220,23 +227,36 @@ everything. It needs a ticked acknowledgement, and it stores the account with no
 Sign-in then happens by itself when the app opens: it asks the server for a session, and the server grants one only if
 the request passes the **open gate**:
 
-1. **The name is expected.** The `Host` header must be an IP address, `localhost`, a single-word name, or a `.local`,
-   `.lan`, `.home.arpa`, `.internal` or `.ts.net` name, the host of `KIPPLE_PUBLIC_URL`, or in `KIPPLE_ALLOWED_HOSTS` /
-   Settings > Allowed host names. Anything else gets `421 Misdirected Request` naming those settings. This defeats DNS
-   rebinding, where a hostile web page tries to use your browser to reach a private address. `http://<ip>:1919` always
-   works. The check is enforced in setup mode and open mode; with a password it only logs, once an hour.
+1. **The name is expected.** The `Host` header must be an IP address, `localhost`, a `.localhost` or `.ts.net` name,
+   the host of `KIPPLE_PUBLIC_URL`, or in `KIPPLE_ALLOWED_HOSTS` / Settings > Allowed host names. Anything else gets
+   `421 Misdirected Request` naming those settings. This defeats DNS rebinding, where a hostile web page tries to use
+   your browser to reach a private address. `http://<ip>:1919` always works. Setup mode also accepts single-word names
+   and `.local`, `.lan`, `.home.arpa` and `.internal` names; open mode does not, because any device on your network can
+   answer those (a `.local` name over mDNS, a single word over LLMNR or NetBIOS, a DHCP host name under `.lan` on many
+   routers) and so point one at your computer and drive your browser into Kipple. List such a name explicitly
+   (`nas`, `*.local`) if you use one and trust every device on the network. The check is enforced in setup mode and
+   open mode; with a password it only logs, once an hour.
 2. **Not forwarded.** A request that came through a proxy or tunnel (a `CF-Connecting-IP`, `Cf-Access-Jwt-Assertion`,
    `Forwarded`, `X-Real-IP` or `X-Forwarded-*` header, a `Tailscale-Funnel-Request`, or a peer listed in
    `KIPPLE_TRUSTED_PROXY_IPS`) is refused, because a tunnel means the port is published to people you did not pick.
-   The one exception is Tailscale Serve (tailnet-only HTTPS to a `.ts.net` name), which is allowed.
+   The one exception is Tailscale Serve (tailnet-only HTTPS to a `.ts.net` name), recognised by exactly what
+   `tailscaled` sends and nothing a client can choose alone: a loopback peer, a `.ts.net` Host, one `X-Forwarded-For`
+   address in Tailscale's range, `X-Forwarded-Host` equal to the Host, `X-Forwarded-Proto` `https` if present, and a
+   Tailscale address on this machine. A reverse proxy in front that passes the Host through reports the real client
+   address in `X-Forwarded-For` and is refused.
 3. **A near peer.** The connection must come from this computer (loopback) or a Tailscale address (`100.64.0.0/10`,
-   `fd7a:115c:a1e0::/48`, and only when this machine actually has a Tailscale address). Devices on the local network
+   `fd7a:115c:a1e0::/48`) that reached this machine on its own Tailscale address. A packet from that range arriving on
+   the LAN interface is not the tailnet (`100.64.0.0/10` is also carrier-grade NAT space) and counts as a LAN peer.
+   What Kipple cannot check is a LAN device that routes a forged tailnet-range packet at this machine's Tailscale
+   address itself; on Linux Tailscale's own firewall rule drops those, on other systems keep open mode to machines on a
+   network you trust. Devices on the local network
    are refused unless you turn on **Settings > Account & Devices > Also allow devices on my local network**
    (`security.open_lan`), which lets every private-range address in.
 4. **The browser says so.** The `Origin` must name the same host the request was sent to.
 
 A signed-in session in open mode keeps passing the network part of the gate on every request, so a session cannot
-outlive the position or the setting that admitted it.
+outlive the position or the setting that admitted it. An open live-update stream (`/api/events`) is closed as soon as
+the setting changes, and at its next heartbeat when the device moves.
 
 **The Docker caveat.** Inside a container the peer is never loopback: Docker delivers even a
 `-p 127.0.0.1:1919:1919` connection from its own bridge gateway, and on Docker Desktop, rootless Docker or IPv6 without
@@ -392,8 +412,11 @@ again. A restore never touches a backup `.zip`.
 the setup screens are gone and the leftover setup code file, if any, is deleted. A backup from before 0.5 that is
 migrated on that start is marked as already set up, so it never shows the wizard's onboarding. Only a backup taken
 in setup mode (no account in it) returns the instance to setup mode, with a fresh setup code in `docker logs kipple`.
-The listen port stays with the installation you restore into (a restore onto a 7080 install keeps 7080), and the
-restore says so when a backup from an old-default install is restored into one that has no port record yet.
+The listen port stays with the installation you restore into: a restore onto a 7080 install keeps 7080, and one onto
+a 1919 install keeps 1919, also when that install was never set up (a fresh container still showing the setup code:
+it listens on 1919, and an old backup must not move it to 7080 behind a port mapping for 1919). The restore says so
+when it keeps 1919 for a backup from an old-default install. Only with no database at all yet (nothing ever started
+on the volume) does the backup bring its own port, and the restore then says to set `KIPPLE_ADDR` if you publish 1919.
 
 **Undo a restore.** Stop `kipple`, then restore the previous database from the volume (list it with
 the `alpine ls` command above):

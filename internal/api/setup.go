@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
@@ -99,13 +100,14 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request) {
 // setup session (the kipple_setup cookie). Each attempt reserves a slot on the
 // per-IP setup lockout (never the login's) before the token is checked, as the
 // login does, so a parallel burst cannot exceed the limit; a wrong token keeps
-// its reservation and counts towards the global rotation. Past the limit wrong
-// tokens are answered 429 and no longer count towards the rotation (one noisy
-// client cannot keep replacing the code), while the right token is still
-// accepted: behind Docker's port forwarding every client shares the gateway's
-// address, and one noisy device must not lock the owner out of claiming. At 120
-// bits the lockout and the rotation are about noise, not about guessing
-// (design 5.1), and checking a token costs one hash.
+// its reservation and counts towards the global rotation. Past the limit an
+// address gets one check per lockedCheckEvery (the others are answered 429
+// unchecked), and a wrong token there no longer counts towards the rotation
+// (one noisy client cannot keep replacing the code). The right token is still
+// accepted in that one check: behind Docker's port forwarding every client
+// shares the gateway's address, and one noisy device must not lock the owner
+// out of claiming for good, only make them wait up to a minute. At 120 bits the
+// lockout and the rotation are about noise, not about guessing (design 5.1).
 func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 	if s.setupGone(w) {
 		return
@@ -128,7 +130,14 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 	reserved, left := s.setupLock.Reserve(ip)
 	claim := s.opt.Setup.Claim
 	if !reserved {
+		if !s.setupSlow.allow(auth.RateKey(ip), s.now()) {
+			w.Header().Set("Retry-After", strconv.Itoa(int(lockedCheckEvery/time.Second)))
+			writeError(w, http.StatusTooManyRequests, "locked")
+			return
+		}
 		claim = s.opt.Setup.ClaimUncounted // a locked address's noise never rotates the code
+	} else {
+		s.setupSlow.forget(auth.RateKey(ip)) // not locked (any more): a later lockout starts with its check free
 	}
 	cookie, ok, err := claim(body.Token)
 	switch {
@@ -157,6 +166,53 @@ func (s *Server) setupClaim(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// lockedCheckEvery is how often a locked-out address may still have a setup
+// code checked.
+const lockedCheckEvery = time.Minute
+
+// maxLockedTracked bounds lockedThrottle (like the lockout's own map).
+const maxLockedTracked = 4096
+
+// lockedThrottle spaces the checks of locked-out addresses: without it a
+// locked address could still have every guess checked, only uncounted.
+type lockedThrottle struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+}
+
+// allow reports whether key may have one code checked now, and records it. A
+// full table is pruned of entries older than lockedCheckEvery; if it is still
+// full the check is refused (fail closed until entries age out).
+func (t *lockedThrottle) allow(key string, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.last == nil {
+		t.last = map[string]time.Time{}
+	}
+	if at, ok := t.last[key]; ok && now.Sub(at) < lockedCheckEvery && !now.Before(at) {
+		return false
+	}
+	if _, ok := t.last[key]; !ok && len(t.last) >= maxLockedTracked {
+		for k, at := range t.last {
+			if now.Sub(at) >= lockedCheckEvery || now.Before(at) {
+				delete(t.last, k)
+			}
+		}
+		if len(t.last) >= maxLockedTracked {
+			return false
+		}
+	}
+	t.last[key] = now
+	return true
+}
+
+// forget drops key (its lockout ended, or it was never locked).
+func (t *lockedThrottle) forget(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.last, key)
 }
 
 // setupAccount is POST /api/setup/account: creates the one account and signs

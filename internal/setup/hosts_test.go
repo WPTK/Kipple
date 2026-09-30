@@ -58,6 +58,35 @@ func TestHostAllowedRefusesRebindingShapes(t *testing.T) {
 	}
 }
 
+// Open mode's list is narrower: a .local name (mDNS), a single-label name
+// (LLMNR, NetBIOS) or a router's DHCP name (.lan, .internal, .home.arpa) can be
+// answered by any device on the LAN, which could rebind it to this computer and
+// reach an open-mode instance through the owner's browser. Listed names still
+// pass, and open mode never allows a name setup mode refuses.
+func TestOpenHostAllowedIsNarrower(t *testing.T) {
+	for _, in := range []string{
+		"nas", "nas:1919", "evil.local", "nas.local:1919", "box.lan", "box.home.arpa", "svc.internal",
+		"evil.example", "127.0.0.1.nip.io", "localhost.evil.example", "evilts.net",
+	} {
+		host, ok := NormalizeHost(in)
+		require.False(t, ok && OpenHostAllowed(host, nil), in)
+	}
+	for _, in := range []string{
+		"127.0.0.1:1919", "[::1]:1919", "192.168.1.20", "localhost:1919", "LOCALHOST", "app.localhost",
+		"machine.tailnet-abcd.ts.net",
+	} {
+		host, ok := NormalizeHost(in)
+		require.True(t, ok && OpenHostAllowed(host, nil), in)
+		require.True(t, HostAllowed(host, nil), "setup mode allows everything open mode does: %s", in)
+	}
+	extra := []string{"nas", "*.local", "rss.example.com"}
+	for _, in := range []string{"nas", "box.local", "rss.example.com"} {
+		require.True(t, OpenHostAllowed(in, extra), in)
+	}
+	require.False(t, OpenHostAllowed("box.lan", extra))
+	require.False(t, OpenHostAllowed("", extra))
+}
+
 func TestHostAllowedExtraEntries(t *testing.T) {
 	extra := []string{"rss.example.com", "*.example.org"}
 	for in, want := range map[string]bool{
@@ -130,6 +159,9 @@ func FuzzHostGate(f *testing.F) {
 			extra = []string{e}
 		}
 		allowed := HostAllowed(host, extra)
+		if OpenHostAllowed(host, extra) {
+			require.True(t, allowed, "open mode allows only what setup mode allows: %q", host)
+		}
 		if !ok {
 			require.False(t, HostAllowed("", extra))
 			return

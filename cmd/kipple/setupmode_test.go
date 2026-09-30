@@ -304,15 +304,32 @@ func TestRestoreKeepsTheInstallationsPort(t *testing.T) {
 	require.Equal(t, ":7080", addrOf(fresh))
 	require.Contains(t, out, "old default port")
 
-	// A live database that was never set up (the container started once on a
-	// rebuilt host) is no installation to follow: the backup keeps its own.
+	// A live database that a server ran on but that was never set up (a fresh
+	// 1919 install still in setup mode, whose container publishes 1919) keeps
+	// 1919: an old backup must not move the server to 7080 while the healthcheck,
+	// which also probes 7080, keeps reporting healthy. Restore says what it did.
 	unset := filepath.Join(t.TempDir(), "data")
 	require.NoError(t, os.MkdirAll(unset, 0o700))
-	openDir(t, unset).Close()
+	func() {
+		db := openDir(t, unset)
+		defer db.Close()
+		addr, _, err := serveAddr(ctx, db, config.Config{Addr: config.DefaultAddr}, quiet)
+		require.NoError(t, err)
+		require.Equal(t, ":1919", addr, "the fresh install listens on 1919")
+	}()
 	out, err = doRestore(unset, legacyZip, true)
 	require.NoError(t, err)
-	require.Equal(t, ":7080", addrOf(unset))
-	require.Contains(t, out, "old default port")
+	require.Equal(t, ":1919", addrOf(unset))
+	require.Contains(t, out, "never set up")
+	require.Contains(t, out, "KIPPLE_ADDR=:7080")
+	// The same for a backup from a new install: 1919, and nothing to say.
+	unset2 := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.MkdirAll(unset2, 0o700))
+	openDir(t, unset2).Close()
+	out, err = doRestore(unset2, export(t, newData(t, 2)), true)
+	require.NoError(t, err)
+	require.Equal(t, ":1919", addrOf(unset2))
+	require.NotContains(t, out, "7080")
 
 	// A live database too broken to read does not stop the restore.
 	broken := newData(t, 1)

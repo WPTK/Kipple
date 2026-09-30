@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -57,6 +58,18 @@ func TestResetPasswordLengthLimits(t *testing.T) {
 	require.Equal(t, before, after, "a refused password changes nothing")
 	require.NoError(t, resetPassword(ctx, db, "12345"))
 	require.NoError(t, resetPassword(ctx, db, strings.Repeat("x", 256)))
+}
+
+// The recovery command refuses the example placeholder, like the wizard and
+// KIPPLE_PASSWORD do.
+func TestResetPasswordRefusesTheExamplePassword(t *testing.T) {
+	dir := newData(t, 1)
+	db := openLive(t, dir)
+	ctx := context.Background()
+	before, _, _ := db.Account(ctx)
+	require.ErrorContains(t, resetPassword(ctx, db, setup.ExamplePassword), "example value")
+	after, _, _ := db.Account(ctx)
+	require.Equal(t, before, after, "a refused password changes nothing")
 }
 
 func TestResetPasswordNeedsAnAccount(t *testing.T) {

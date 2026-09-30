@@ -1,0 +1,1 @@
+In open mode an open live-update stream is closed as soon as "Also allow devices on my local network" is turned off (or another security setting stops admitting the device), and at the next heartbeat when the device moves, instead of staying open.

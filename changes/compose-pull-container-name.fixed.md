@@ -1,0 +1,1 @@
+The pull-and-run compose file (`docker-compose.pull.example.yml`, and its copy in the README) names the container `kipple`, so `docker logs kipple` and `docker exec kipple /kipple setup-token` from the quickstart work. (#124)
