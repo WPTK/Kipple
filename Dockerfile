@@ -57,10 +57,10 @@ LABEL org.opencontainers.image.title="Kipple" \
       org.opencontainers.image.licenses="BlueOak-1.0.0" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.url="https://github.com/WPTK/Kipple" \
-      org.opencontainers.image.documentation="https://github.com/WPTK/Kipple#readme" \
-      org.opencontainers.image.base.name="gcr.io/distroless/static-debian12:nonroot" \
-      org.opencontainers.image.base.digest="sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
-# base.digest repeats the digest pinned on the FROM line above: update both together.
+      org.opencontainers.image.documentation="https://github.com/WPTK/Kipple#readme"
+# org.opencontainers.image.base.name and .base.digest are deliberately not written here: they would repeat the FROM
+# line above and go stale on the first Dependabot bump. The release workflow reads them from that line
+# (scripts/release-tags.sh base-image) and stamps them on the official image; a local build simply has no such label.
 COPY --from=build /kipple /kipple
 COPY --from=build --chown=65532:65532 /data /data
 COPY --chown=65532:65532 LICENSE THIRD_PARTY_NOTICES.md /licenses/

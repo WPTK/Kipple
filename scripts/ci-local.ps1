@@ -76,6 +76,7 @@ Step 'security' 'gitleaks (git history)' {
 
 # ---- web ----
 Step 'web' 'changelog fragments' { node scripts/changelog.mjs check; if ($LASTEXITCODE -eq 0) { node --test scripts/changelog.test.mjs } }
+Step 'web' 'release tag rules (scripts/release-tags.test.sh)' { bash scripts/release-tags.test.sh }
 Step 'web' 'npm ci' { Push-Location web; npm ci --cache $npmCache --no-audit --no-fund; Pop-Location }
 Step 'web' 'lint' { Push-Location web; npm run lint; Pop-Location }
 Step 'web' 'test' { Push-Location web; npm test; Pop-Location }
