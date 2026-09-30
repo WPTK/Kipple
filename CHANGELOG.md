@@ -42,6 +42,7 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 - Setup: Back and Skip are disabled while a step is saving, a second API password warns before it replaces the one shown once, the step 2 password is dropped when setup ends elsewhere, the typed user name survives a timed-out setup session, and the step 7 password field no longer flashes for an account without a password. (#142, #143, #144, #148, #149)
 - Setup: trying themes in the look step is only a preview on this device and no longer writes theme overrides to the device profile, whether you continue, skip or end setup. (#135)
 - Setup: Skip the rest of setup on the time zone step now keeps the zone shown instead of leaving Kipple on UTC, and a stale /welcome address opened before the account exists no longer carries the new account past that step. (#133)
+- Feed icons: the favicon finder no longer tries an icon link whose resolved address is not a valid URL (such as an unbracketed IPv6-style host); it is skipped like any other unusable link. (#157)
 
 ### Security
 
@@ -49,7 +50,7 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 - In open mode a device in Tailscale's address range counts as a tailnet device only when its connection arrives on this machine's own Tailscale address; the same range arriving on the local network interface is treated as a LAN device.
 - Open mode no longer takes a request for Tailscale Serve because its Host ends in `.ts.net`: a same-machine reverse proxy that passes the client's Host through could otherwise hand a remote client a session and a Reader API password. Serve is now recognised only by what `tailscaled` itself sends (one tailnet `X-Forwarded-For` address, a matching `X-Forwarded-Host`, `https`) on a machine that has a Tailscale address. (#128)
 - During setup Kipple answers only requests addressed to an IP address, localhost, a single-word name, a `.localhost`, `.local`, `.lan`, `.home.arpa`, `.internal` or `.ts.net` name, or a name listed in `KIPPLE_ALLOWED_HOSTS` or in Settings (421 otherwise), which blocks DNS rebinding. Open mode is stricter: an IP address, localhost, a `.localhost` or `.ts.net` name, or a listed name, since other devices on the network can answer single-word and `.local`-style names (#138). Open mode also refuses requests that arrive through a proxy or tunnel. With a password nothing is refused; an unlisted name is only logged.
-- An address locked out of the setup code screen after ten wrong codes now gets one code checked per minute instead of an unlimited number of uncounted checks; the right code still works in that check.
+- An address locked out of the setup code screen after ten wrong codes still has every code checked, so the right code is accepted at once even while another device behind the same Docker gateway keeps sending wrong ones; its wrong codes no longer count towards replacing the code and are answered after a one-second pause. (#156)
 - On Windows the setup code file (`setup-token` in the data directory) is now readable only by the user Kipple runs as (plus SYSTEM and Administrators): the 0600 mode it was created with does nothing there, so it could inherit a folder's access list that lets every local user read it.
 
 ## [0.3.0-beta.3] - 2026-09-29

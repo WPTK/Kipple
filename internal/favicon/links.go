@@ -192,6 +192,19 @@ func abs(n int) int {
 	return n
 }
 
+// httpURL reports whether u is an absolute http(s) URL with a host, and still
+// is once written out and parsed back: ResolveReference (and a lenient Parse of
+// a scheme-relative href) can yield a URL whose string does not parse, such as
+// the unbracketed host in "http://::" (#157), and a candidate is fetched from
+// its string.
 func httpURL(u *url.URL) bool {
+	if !isHTTP(u) {
+		return false
+	}
+	back, err := url.Parse(u.String())
+	return err == nil && isHTTP(back)
+}
+
+func isHTTP(u *url.URL) bool {
 	return u != nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
