@@ -314,7 +314,7 @@ upgrade Kipple shows what changed once ("What's new"), and an open browser tab t
 
 ## The published image
 
-From 0.5.0-beta.1 a tag push publishes a signed, multi-arch (`linux/amd64`, `linux/arm64`) image at
+Since 0.5.0-beta.1 a tag push publishes a signed, multi-arch (`linux/amd64`, `linux/arm64`) image at
 `ghcr.io/wptk/kipple:<version>` (`docker-compose.pull.example.yml` in the repository is the ready file). Stable releases
 also move `latest` and the `X.Y` and `X` tags; **a prerelease is tagged only with its exact version**, so until the first
 stable release name the version. Verify a pull with cosign (the command is in the README and in each release's notes);

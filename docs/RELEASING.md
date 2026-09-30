@@ -116,6 +116,15 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
    is built (the running container is not affected). `KIPPLE_VERSION` and `KIPPLE_VCS_REF` reach the build through the
    service's `build.args` (as in `docker-compose.example.yml`); `.git` is not in the build context, so without them
    the binary reports version `dev`. Never a bare `up`/`down`.
+
+   Host-A's own compose file must pass all three build args, not only the version, or the About screen shows the
+   commit and build date as "unknown" (this happened on the 0.5.0-beta.1 deploy and was fixed by hand after a backup
+   copy of the file). Under the `kipple` service's `build.args`, next to `VERSION`, add:
+
+       VCS_REF: ${KIPPLE_VCS_REF:-unknown}
+       BUILD_DATE: ${KIPPLE_BUILD_DATE:-unknown}
+
+   and pass `KIPPLE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` on the build command line next to the other two.
 10. **Verify:** `ssh host-a 'docker exec kipple /kipple version'` prints `vX.Y.Z`; container healthy; `docker logs kipple` shows the migrations that were expected and no errors;
     `/api/greader.php` answers with Reeder; a refresh completes; memory stays flat after a few minutes (`docker stats`).
 11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`node scripts/changelog.mjs notes X.Y.Z > notes.md`, then `gh release create vX.Y.Z --notes-file notes.md`; `-alpha/-beta/-rc` marked pre-release).
