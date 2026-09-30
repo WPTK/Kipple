@@ -69,6 +69,26 @@ describe("Stats screen", () => {
     expect(screen.queryByText(/Only \d+ days? of reading/)).toBeNull(); // 12 active days
   });
 
+  it("says what counts as a read, and how many reads are unmeasured legacy opens", async () => {
+    setup(() => ({ ...richStats, totals: { ...richStats.totals!, legacy_opens: 0 } }));
+    const r = go();
+    const summary = await screen.findByRole("region", { name: "Summary" });
+    expect(within(summary).getByText(/counts as read after 10 seconds of active reading, or once you scroll past a quarter of it and read for at least 3 seconds\. A quick look does not count\./)).toBeInTheDocument();
+    expect(within(summary).queryByText(/before reading time was recorded/)).toBeNull();
+    r.unmount();
+
+    setup(() => ({ ...richStats, totals: { ...richStats.totals!, legacy_opens: 7 } }));
+    const r2 = go();
+    const s2 = await screen.findByRole("region", { name: "Summary" });
+    expect(within(s2).getByText(/7 opens in this range came before reading time was recorded, so they count as read without being measured\./)).toBeInTheDocument();
+    r2.unmount();
+
+    setup(() => ({ ...richStats, totals: { ...richStats.totals!, legacy_opens: 1 } }));
+    go();
+    const s3 = await screen.findByRole("region", { name: "Summary" });
+    expect(within(s3).getByText(/1 open in this range came before reading time was recorded, so it counts as read/)).toBeInTheDocument();
+  });
+
   it("shows friendly empty states, not blank charts", async () => {
     setup(() => emptyStats);
     go();

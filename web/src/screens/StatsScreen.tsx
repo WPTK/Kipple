@@ -61,8 +61,13 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** What makes an open a read (design §8, `store.statsIsRead`); the thresholds live on the server. */
+export const READ_RULE =
+  "An article counts as read after 10 seconds of active reading, or once you scroll past a quarter of it and read for at least 3 seconds. A quick look does not count.";
+
 export function SummaryStrip({ data }: { data: StatsSummary }) {
   const t = data.totals;
+  const legacy = t?.legacy_opens ?? 0;
   return (
     <Section title="Summary">
       <dl className="grid grid-cols-3 gap-2">
@@ -70,6 +75,12 @@ export function SummaryStrip({ data }: { data: StatsSummary }) {
         <Stat label="Active time" value={durationLabel(t?.active_seconds ?? 0)} />
         <Stat label="Days with reading" value={String(t?.days_active ?? 0)} />
       </dl>
+      <p className="mt-2 text-xs text-fg2">
+        {READ_RULE}
+        {legacy > 0
+          ? ` ${plural(legacy, "open")} in this range came before reading time was recorded, so ${legacy === 1 ? "it counts" : "they count"} as read without being measured.`
+          : ""}
+      </p>
     </Section>
   );
 }

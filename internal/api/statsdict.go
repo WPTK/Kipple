@@ -2,7 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
+
+	"github.com/WPTK/kipple/internal/store"
 )
 
 // The stats data dictionary: the single source of truth for the export envelope's "dictionary" and
@@ -49,8 +52,9 @@ type dictConcept struct{ Name, Text string }
 
 var statsConcepts = []dictConcept{
 	{"what_is_recorded", "One row per event. Marking articles read (one, many, everything, by scrolling or by keyboard) is not an event and is never recorded; only the kinds listed are. With recording off no new rows are written; rows already recorded are kept and can still be exported and deleted."},
-	{"read", "An open counts as a read when its session has at least 10 seconds of read_time in total or a scroll value of at least 25. Opens recorded before the first read_time or scroll row ever written (the timing feature did not exist yet) are legacy opens and count as reads. That first timed row is the earliest ever recorded, remembered even if the rows are later deleted, so deleting old data never changes how kept opens are classified."},
-	{"bounce", "A non-legacy open that is not a read."},
+	{"read", fmt.Sprintf("An open counts as a read when its session has at least %d seconds of read_time in total, or a scroll value of at least %d together with at least %d seconds of read_time.", store.StatsReadSeconds, store.StatsReadScroll, store.StatsReadScrollSeconds) + " A scroll alone is never a read: a quick flick through an opened article, or paging past it with next and previous, is a bounce. Marking articles read (one, many or everything, by scrolling the list or by keyboard) creates no open, so it is never a read. A session's read_time and scroll count only within the requested range. Legacy opens also count as reads (see legacy open)."},
+	{"legacy_open", "An open recorded before the first read_time or scroll row ever written, when the timing feature did not exist yet. Nothing was measured for it, so whether it was really read is unknowable; it is counted as a read, which means totals that include legacy opens can overstate real reading. Legacy opens are left out of tracked_opens and bounce_rate. That first timed row is the earliest ever recorded, remembered even if the rows are later deleted, so deleting old data never changes how kept opens are classified."},
+	{"bounce", fmt.Sprintf("A non-legacy open that is not a read: under %d seconds of read_time, and either under %d seconds or a scroll under %d.", store.StatsReadSeconds, store.StatsReadScrollSeconds, store.StatsReadScroll)},
 	{"local_time", "local_date, local_hour and local_weekday are computed when the row is written in the time zone named by the tz setting (the export's tz field is the zone in force now). ts is always UTC unix seconds, so it stays exact even if the zone changed."},
 	{"range", "A range selects rows by local_date, inclusive on both ends. range=all is every row."},
 	{"summary_computation", "The summary is computed from the same rows. It is not stored, so it can be recomputed from a raw export."},
@@ -64,9 +68,10 @@ var statsSummaryFields = [][2]string{
 	{"range", "key (week, month, year, all or custom), from and to (inclusive local dates; for all, the first date present through today), days, and last_event_date (the newest local_date of any row, which can be after today when rows were written under another time zone; null with no rows). A summary covers from..to only, so rows dated after today are not in the all summary; a raw all export has no end and includes them."},
 	{"first_event_date", "Smallest local_date of any row, or null."},
 	{"totals.opens", "Count of open rows."},
-	{"totals.items_read", "Distinct items with a read open (see read)."},
+	{"totals.items_read", "Distinct items with a read open (see read; legacy opens are included)."},
 	{"totals.active_seconds", "Sum of read_time values."},
 	{"totals.days_active", "Local dates with at least one read open."},
+	{"totals.legacy_opens", "Opens in the range that are legacy opens (see legacy open): counted as reads without any measured reading, so this many opens behind items_read and days_active are unverified."},
 	{"daily", "One entry per day of the range, zero-filled: date, items_read, active_seconds."},
 	{"streaks", "All time, not limited to the range. current: consecutive days with a read open ending today or yesterday; longest and longest_end: the longest run and its last day."},
 	{"heatmap", "Non-zero (weekday 0-6 Sunday first, hour 0-23) cells with active_seconds and opens."},

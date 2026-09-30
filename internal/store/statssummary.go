@@ -12,13 +12,24 @@ import (
 	"time"
 )
 
-// StatsReadSeconds and StatsReadScroll are the thresholds that make an open a read (design §8).
+// The thresholds that make an open a read (design §8): at least StatsReadSeconds of read time, or
+// a scroll of at least StatsReadScroll percent together with at least StatsReadScrollSeconds of
+// read time (a scroll alone, a quick flick through an opened article, is not a read).
 const (
-	StatsReadSeconds = 10
-	StatsReadScroll  = 25
-	statsSourcesMax  = 300
-	statsNeverMax    = 500
+	StatsReadSeconds       = 10
+	StatsReadScroll        = 25
+	StatsReadScrollSeconds = 3
+	statsSourcesMax        = 300
+	statsNeverMax          = 500
 )
+
+// statsIsRead is the read rule for one open (design §8), given its session's read time (seconds)
+// and deepest scroll (percent) within the range. A legacy open (recorded before any read_time or
+// scroll row existed) is counted as a read because its engagement is unknowable. sqlStreaks
+// carries the same rule in SQL; TestStatsReadRuleMatchesStreaks keeps the two in step.
+func statsIsRead(legacy bool, readSeconds, scroll int64) bool {
+	return legacy || readSeconds >= StatsReadSeconds || (scroll >= StatsReadScroll && readSeconds >= StatsReadScrollSeconds)
+}
 
 // StatsSummaryParams selects the range of a summary. From and To are inclusive local dates
 // (YYYY-MM-DD); the caller resolves the range key. Now is the current time.
@@ -48,6 +59,9 @@ type (
 		Opens         int   `json:"opens"`
 		ActiveSeconds int64 `json:"active_seconds"`
 		DaysActive    int   `json:"days_active"`
+		// LegacyOpens counts the opens in the range recorded before any read time or scroll existed:
+		// they count as reads (unknowable), so the UI can say how much of items_read rests on them.
+		LegacyOpens int `json:"legacy_opens"`
 	}
 	StatsDaily struct {
 		Date          string `json:"date"`
@@ -200,12 +214,16 @@ const (
 		WHERE kind = 'open_original' AND inferred <= ?1 AND ts BETWEEN ?2 AND ?3 AND local_date BETWEEN ?4 AND ?5 AND id <= ?6 GROUP BY feed_id`
 	// sqlStreaks probes each distinct open date once and stops at its first qualifying open. Both
 	// the date list and the probe read idx_stats_open_cov; the session lookups read idx_stats_session.
+	// The read rule is statsIsRead's: legacy (ts < ?1), or read time >= ?4, or a scroll >= ?3 with
+	// read time >= ?6. The scroll probe (one row per session) runs before the second read-time sum,
+	// so that sum is taken again only for a session that scrolled far enough and has under ?4.
 	sqlStreaks = `SELECT d.local_date FROM (
 		SELECT local_date FROM stats_events INDEXED BY idx_stats_open_cov WHERE kind = 'open' AND inferred <= ?2 AND rowid <= ?5 GROUP BY local_date) d
 		WHERE EXISTS (SELECT 1 FROM stats_events e INDEXED BY idx_stats_open_cov
 		 WHERE e.kind = 'open' AND e.inferred <= ?2 AND e.local_date = d.local_date AND e.rowid <= ?5 AND (e.ts < ?1
-		  OR EXISTS (SELECT 1 FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'scroll' AND r.value >= ?3 AND r.id <= ?5)
-		  OR (SELECT SUM(r.value) FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'read_time' AND r.id <= ?5) >= ?4))
+		  OR (SELECT SUM(r.value) FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'read_time' AND r.id <= ?5) >= ?4
+		  OR (EXISTS (SELECT 1 FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'scroll' AND r.value >= ?3 AND r.id <= ?5)
+		   AND (SELECT SUM(r.value) FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'read_time' AND r.id <= ?5) >= ?6)))
 		ORDER BY d.local_date`
 	// sqlNameByReadTime names a feed that only has read time in the range from its newest read_time
 	// snapshot (feed_title is NOT NULL on every row).
@@ -243,7 +261,8 @@ func statsHinted() []statsHint {
 		{"scroll", sqlScroll, "idx_stats_scroll_cov", 1, []any{lo, hi, max}},
 		{"stars", sqlStars, "idx_stats_kind_ts", 1, []any{0, 0, 1 << 40, lo, hi, max}},
 		{"open_original", sqlOrig, "idx_stats_kind_ts", 1, []any{0, 0, 1 << 40, lo, hi, max}},
-		{"streaks", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max}},
+		{"streaks", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
+		{"streaks sessions", sqlStreaks, "idx_stats_session", 3, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
 		{"name by read time", sqlNameByReadTime, "idx_stats_feed", 1, []any{1, 0, 1 << 40, lo, hi, max}},
 	}
 }
@@ -594,7 +613,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	for i := range opens {
 		o := &opens[i]
 		o.rt = sessRT[o.session]
-		o.read = o.legacy || o.rt >= StatsReadSeconds || sessScroll[o.session] >= StatsReadScroll
+		o.read = statsIsRead(o.legacy, o.rt, sessScroll[o.session])
 	}
 
 	// ---- aggregate ----
@@ -630,7 +649,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		return c
 	}
 	var readTimeSum int64
-	var readWithTime int
+	var readWithTime, legacyOpens int
 	var longest *openRow
 	for i := range opens {
 		o := &opens[i]
@@ -638,7 +657,9 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		a.opens++
 		a.openItems[o.item] = struct{}{}
 		heatCell(int(parseLocalDate(o.date).Weekday()), o.hour).Opens++
-		if !o.legacy {
+		if o.legacy {
+			legacyOpens++
+		} else {
 			a.nonLegacy++
 			if !o.read {
 				a.bounces++
@@ -673,7 +694,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		heatCell(int(parseLocalDate(k.date).Weekday()), k.hour).ActiveSeconds += v
 	}
 
-	out.Totals = StatsTotals{ItemsRead: len(allRead), Opens: len(opens), ActiveSeconds: active, DaysActive: len(readDays)}
+	out.Totals = StatsTotals{ItemsRead: len(allRead), Opens: len(opens), ActiveSeconds: active, DaysActive: len(readDays), LegacyOpens: legacyOpens}
 
 	// daily, zero-filled
 	out.Daily = make([]StatsDaily, 0, days)
@@ -947,7 +968,7 @@ func statsCountByFeed(ctx context.Context, q Querier, query string, args ...any)
 // moved back) counts as today, so the current streak cannot drop to 0 because of it.
 func statsStreaks(ctx context.Context, q Querier, cut int64, inc int, today string, maxID int64) (StatsStreaks, error) {
 	var st StatsStreaks
-	rows, err := q.QueryContext(ctx, sqlStreaks, cut, inc, StatsReadScroll, StatsReadSeconds, maxID)
+	rows, err := q.QueryContext(ctx, sqlStreaks, cut, inc, StatsReadScroll, StatsReadSeconds, maxID, StatsReadScrollSeconds)
 	if err != nil {
 		return st, err
 	}
