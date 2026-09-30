@@ -34,7 +34,10 @@ ARG BUILD_DATE=unknown
 # Cross-compile on the build platform instead of emulating the target (CGO is off; the SQLite driver is pure Go).
 ARG TARGETOS
 ARG TARGETARCH
-RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOFLAGS=-trimpath     go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${VCS_REF} -X main.buildDate=${BUILD_DATE}" -o /kipple ./cmd/kipple
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOFLAGS=-trimpath \
+    go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${VCS_REF} -X main.buildDate=${BUILD_DATE}" -o /kipple ./cmd/kipple
 
 # distroless has no shell to mkdir/chown at runtime, so pre-create /data
 # here, owned by the nonroot image's uid/gid (65532), and copy it over.
