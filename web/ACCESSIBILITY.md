@@ -33,7 +33,7 @@ Status is what the code does today. Anything not verified on a real device is li
 
 - [x] All text in `rem`; in-app text size (5 steps) scales `html` and follows browser zoom; pinch zoom is never disabled.
 - [x] Text spacing (Less, Default, More: "Adds extra space between letters, words and lines") and Density steps; no fixed-height text boxes, so WCAG 1.4.12 user overrides (line height 1.5, paragraph spacing 2x, letter 0.12em, word 0.16em) do not clip.
-- [x] One font choice (the Aa menu) for the whole app except Settings and menus: Atkinson Hyperlegible Next ("Easy to read") and 16 more, applied at once.
+- [x] One font choice (the Aa menu, Settings > Appearance & Reading and the setup wizard, all the same setting) for the whole app except Settings and menus: Atkinson Hyperlegible Next ("Easy to read") and 16 more, applied at once.
 - [x] Layouts reflow down to 320 CSS px; the article column follows Article width (Narrow 34rem, Medium the density's measure capped at 46rem, Wide 62rem, Full).
 
 ## Motion

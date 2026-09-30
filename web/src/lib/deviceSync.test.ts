@@ -6,7 +6,9 @@ import { json, mockFetch } from "@/test/mockApi";
 import {
   SYNC_DIRTY_KEY,
   SYNC_FLAG_KEY,
+  adoptThemeDefaults,
   copySettingsFrom,
+  holdThemeSync,
   deriveLocal,
   flush,
   hydrateDevice,
@@ -269,6 +271,20 @@ describe("saving", () => {
     hydrateDevice(s.view());
     return s;
   };
+
+  it("holds the reading font with the theme during a wizard preview, and sends other keys meanwhile", async () => {
+    const s = await ready();
+    holdThemeSync(true);
+    updatePrefs({ font: "vollkorn", textSize: 1.25 });
+    updateTheme({ day: "linen" });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(s.patches).toEqual([{ "client.text_size": 1.25 }]);
+    // Adopted as the account default: confirmed, never sent as an override.
+    adoptThemeDefaults(["ui.font_body", "ui.theme_day"]);
+    holdThemeSync(false);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(s.patches).toHaveLength(1);
+  });
 
   it("batches a burst of changes into one PATCH 500 ms after the last, latest value winning", async () => {
     const s = await ready();

@@ -10,6 +10,8 @@ import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS } from "@/theme/settings";
 import { resetTakenSetupCode } from "./api";
 import { flush, resetDeviceSync, syncStore } from "@/lib/deviceSync";
+import { FONTS } from "@/lib/fonts";
+import { prefsStore, updatePrefs } from "@/lib/prefs";
 import { forgetWizardMemory, setupSecret } from "./session";
 import { resetOpenSignInGuard } from "./SetupFlow";
 
@@ -126,6 +128,7 @@ beforeEach(() => {
   resetDeviceSync();
   liveStore.set(initialLive);
   themeStore.set({ ...DEFAULT_THEME_SETTINGS });
+  updatePrefs({ font: "default" });
   vi.stubGlobal("EventSource", NoES);
 });
 afterEach(() => {
@@ -575,7 +578,7 @@ describe("Step 3: time zone", () => {
     expect(sel).toHaveTextContent("Suggested from your browser");
     expect(await axe(container)).toHaveNoViolations();
     await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Pick a look");
+    await headingIs("Look and feel");
     expect(bodyOf(callTo(calls, "PATCH", "/api/settings")[0] as never)).toEqual({ tz: "Asia/Tokyo" });
     expect(w.tz).toBe("Asia/Tokyo");
   });
@@ -587,7 +590,7 @@ describe("Step 3: time zone", () => {
     go("/welcome/timezone");
     await screen.findByTestId("selected-zone");
     await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Pick a look");
+    await headingIs("Look and feel");
     expect(w.tz).toBe("Europe/Berlin");
   });
 
@@ -635,7 +638,7 @@ describe("Step 3: time zone", () => {
     go("/welcome/timezone");
     await screen.findByTestId("selected-zone");
     await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Pick a look");
+    await headingIs("Look and feel");
   });
 
   it("keeps a zone set to UTC on purpose when setup is run again", async () => {
@@ -647,7 +650,7 @@ describe("Step 3: time zone", () => {
     expect(sel).toHaveTextContent("UTC");
     expect(sel).toHaveTextContent("Kipple is already set to this zone");
     await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Pick a look");
+    await headingIs("Look and feel");
     expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
   });
 
@@ -710,7 +713,7 @@ describe("Step 3: time zone", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
     await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Pick a look");
+    await headingIs("Look and feel");
     expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
   });
 
@@ -719,7 +722,7 @@ describe("Step 3: time zone", () => {
     go("/welcome/timezone");
     expect(await findAlert()).toHaveTextContent("couldn't load its settings");
     await userEvent.setup().click(screen.getByRole("button", { name: "Skip this step" }));
-    await headingIs("Pick a look");
+    await headingIs("Look and feel");
   });
 });
 
@@ -741,7 +744,7 @@ describe("Step 4: theme", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await headingIs("Bring your feeds along");
     const patches = callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never));
-    expect(patches).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "graphite" });
+    expect(patches).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "graphite", "ui.font_body": "" });
   });
 
   it("Skip puts this device's theme back the way it was", async () => {
@@ -756,6 +759,56 @@ describe("Step 4: theme", () => {
     expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
   });
 
+  it("has a Reading font control with every font, grouped, and previews the pick at once (regression: font choice went missing)", async () => {
+    server(signedIn());
+    go("/welcome/theme");
+    const user = userEvent.setup();
+    await headingIs("Look and feel");
+    const select = screen.getByRole("combobox", { name: "Reading font" });
+    const values = within(select).getAllByRole("option").map((o) => (o as HTMLOptionElement).value);
+    expect(values).toEqual(FONTS.map((f) => f.id));
+    for (const g of ["Serif", "Sans-serif", "Monospace", "On this device"]) expect(select.querySelector(`optgroup[label="${g}"]`)).not.toBeNull();
+    await user.selectOptions(select, "vollkorn");
+    expect(prefsStore.get().font).toBe("vollkorn");
+    expect(screen.getByTestId("font-preview").style.fontFamily).toContain("Vollkorn");
+  });
+
+  it("Continue saves the reading font with the theme pair; Back shows it again (resumable)", async () => {
+    const { calls } = server(signedIn());
+    go("/welcome/theme");
+    const user = userEvent.setup();
+    await headingIs("Look and feel");
+    await user.selectOptions(screen.getByLabelText("Reading font"), "inter");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await headingIs("Bring your feeds along");
+    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never))).toContainEqual({ "ui.theme": "system", "ui.theme_day": "paper", "ui.theme_night": "midnight", "ui.font_body": "Inter" });
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await headingIs("Look and feel");
+    expect(screen.getByLabelText("Reading font")).toHaveValue("inter");
+    // Skip now keeps what was saved rather than going back to the font before the wizard.
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("Bring your feeds along");
+    expect(prefsStore.get().font).toBe("inter");
+  });
+
+  it("Skip puts this device's reading font back, even after Back and forth", async () => {
+    updatePrefs({ font: "gentium" });
+    const { calls } = server(signedIn());
+    go("/welcome/theme");
+    const user = userEvent.setup();
+    await headingIs("Look and feel");
+    expect(screen.getByLabelText("Reading font")).toHaveValue("gentium");
+    await user.selectOptions(screen.getByLabelText("Reading font"), "jetbrains-mono");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await headingIs("Choose your time zone");
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("Look and feel");
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("Bring your feeds along");
+    expect(prefsStore.get().font).toBe("gentium");
+    expect(callTo(calls, "PATCH", "/api/settings").filter((c) => "ui.font_body" in bodyOf(c as never))).toHaveLength(0);
+  });
+
   it("still puts the original theme back on Skip after going Back and forth", async () => {
     server(signedIn());
     go("/welcome/theme");
@@ -765,7 +818,7 @@ describe("Step 4: theme", () => {
     await user.click(screen.getByRole("button", { name: "Back" }));
     await headingIs("Choose your time zone");
     await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Pick a look");
+    await headingIs("Look and feel");
     await user.click(screen.getByRole("button", { name: "Skip" }));
     await headingIs("Bring your feeds along");
     expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
@@ -790,7 +843,7 @@ describe("Step 4: theme", () => {
     await heading();
     await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
     expect(await findAlert()).toHaveTextContent("The server returned an error");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Pick a look");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Look and feel");
   });
 
   it("goes back to the time zone", async () => {
@@ -1059,7 +1112,7 @@ describe("the whole run", () => {
     await headingIs("Choose your time zone");
     await screen.findByTestId("selected-zone");
     await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Pick a look");
+    await headingIs("Look and feel");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await headingIs("Bring your feeds along");
     await user.click(screen.getByRole("button", { name: "Skip" }));
@@ -1462,7 +1515,7 @@ describe("previewing a theme does not write this device's profile", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await headingIs("Bring your feeds along");
     await flush();
-    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never))).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "midnight" });
+    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never))).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "midnight", "ui.font_body": "" });
     expect(themeKeys(calls)).toEqual([]);
     expect(themeStore.get().day).toBe("linen");
   });
@@ -1485,6 +1538,56 @@ describe("previewing a theme does not write this device's profile", () => {
     expect(themeKeys(calls)).toEqual(["ui.theme_day"]);
   });
 
+  const fontKeys = (calls: { method: string; url: URL; init?: RequestInit }[]) => callTo(calls, "PATCH", "/api/device").flatMap((c) => Object.keys(bodyOf(c as never)).filter((k) => k === "ui.font_body"));
+
+  it("a reading-font preview and Skip leave no font override in the profile", async () => {
+    const w = signedIn();
+    const { calls } = server(w, deviceRoutes(w));
+    go("/welcome/theme");
+    await heading();
+    await hydrated();
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Reading font"), "manrope");
+    expect(prefsStore.get().font).toBe("manrope");
+    await flush();
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("Bring your feeds along");
+    await flush();
+    expect(prefsStore.get().font).toBe("default");
+    expect(fontKeys(calls)).toEqual([]);
+  });
+
+  it("Continue saves the font as the default and does not pin the device to it", async () => {
+    const w = signedIn();
+    const { calls } = server(w, deviceRoutes(w));
+    go("/welcome/theme");
+    await heading();
+    await hydrated();
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Reading font"), "source-serif");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await headingIs("Bring your feeds along");
+    await flush();
+    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never)["ui.font_body"])).toEqual(["Source Serif 4"]);
+    expect(fontKeys(calls)).toEqual([]);
+    expect(prefsStore.get().font).toBe("source-serif");
+  });
+
+  it("a font change outside the wizard still syncs normally once the preview is over", async () => {
+    const w = signedIn();
+    const { calls } = server(w, deviceRoutes(w));
+    go("/welcome/theme");
+    await heading();
+    await hydrated();
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Reading font"), "arvo");
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("Bring your feeds along");
+    act(() => updatePrefs({ font: "inter" }));
+    await flush();
+    expect(fontKeys(calls)).toEqual(["ui.font_body"]);
+  });
+
   it("ending setup elsewhere with an unsaved preview leaves the profile alone too", async () => {
     const w = signedIn();
     const { calls } = server(w, deviceRoutes(w));
@@ -1493,11 +1596,14 @@ describe("previewing a theme does not write this device's profile", () => {
     await hydrated();
     const user = userEvent.setup();
     await user.selectOptions(screen.getByLabelText("Night theme"), "carbon");
+    await user.selectOptions(screen.getByLabelText("Reading font"), "vollkorn");
     await flush();
     await user.click(screen.getByRole("button", { name: "Skip the rest of setup" }));
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     await flush();
     expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
+    expect(prefsStore.get().font).toBe("default");
     expect(themeKeys(calls)).toEqual([]);
+    expect(fontKeys(calls)).toEqual([]);
   });
 });

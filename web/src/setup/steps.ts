@@ -19,7 +19,7 @@ export const STEPS: readonly StepInfo[] = [
   { id: "token", n: 1, title: "Enter your setup code", phase: "setup", skippable: false },
   { id: "account", n: 2, title: "Create your account", phase: "setup", skippable: false },
   { id: "timezone", n: 3, title: "Choose your time zone", phase: "welcome", skippable: true },
-  { id: "theme", n: 4, title: "Pick a look", phase: "welcome", skippable: true },
+  { id: "theme", n: 4, title: "Look and feel", phase: "welcome", skippable: true },
   { id: "import", n: 5, title: "Bring your feeds along", phase: "welcome", skippable: true },
   { id: "feeds", n: 6, title: "Recommended feeds", phase: "welcome", skippable: true },
   { id: "finish", n: 7, title: "You're all set", phase: "welcome", skippable: false },

@@ -717,7 +717,7 @@ describe("Settings and the Aa menu", () => {
     expect(screen.getByText(/more bandwidth and time on each refresh/)).toBeInTheDocument();
   });
 
-  it("has the new device settings, narrower on a wide screen, and no second font control", async () => {
+  it("has the new device settings, narrower on a wide screen, and one Reading font control (the same setting as the Aa menu)", async () => {
     routes();
     media(WIDE);
     go("/settings");
@@ -726,7 +726,9 @@ describe("Settings and the Aa menu", () => {
     await screen.findByRole("heading", { name: "Settings" });
     expect(await screen.findByRole("heading", { level: 2, name: "Appearance & Reading" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("link", { name: "Appearance & Reading" })).toHaveAttribute("aria-current", "page");
-    expect(screen.queryByRole("combobox", { name: /font/i })).toBeNull();
+    // The Reading font is back in Settings (it had been dropped for the Aa menu only): one control, no Interface font.
+    expect(screen.getAllByRole("combobox", { name: /font/i })).toHaveLength(1);
+    expect(screen.getByRole("combobox", { name: "Reading font" })).toBeInTheDocument();
     expect(document.querySelector(".ui-font")).not.toBeNull(); // Settings keeps the system UI font
     expect(document.querySelector(".max-w-\\[720px\\]")).not.toBeNull();
     await user.click(screen.getByRole("radio", { name: "Wide" }));

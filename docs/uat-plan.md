@@ -71,6 +71,7 @@ screen (feed list in each of the 5 layouts, article view, search, settings (the 
 | S4 | Responsive | No horizontal scroll or clipped content at iPhone width (390px) and at a small-tablet width (768px) |
 | S5 | Data integrity | No literal `undefined`, `NaN`, or `[object Object]` rendered anywhere |
 | S6 | Theme contrast | Reuses the existing CI contrast check across all 20 schemes, not just the 2 spot-checked above |
+| S7 | Font choice reachable | The Aa menu above every list screen (each layout, Unread, Starred, Search) and the article, and Settings > Appearance & Reading, each have one visible "Reading font" select with every font (at least 12: Default and the 11 bundled). Not waivable |
 
 A manual, pre-release tool (step 2 of `docs/RELEASING.md`): not part of CI or `scripts/ci-local.ps1`.
 `@playwright/test` is a dev dependency so its version is pinned in the lockfile and audited with the rest; it has no

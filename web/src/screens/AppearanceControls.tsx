@@ -2,7 +2,7 @@ import { useId } from "react";
 import { Popover } from "radix-ui";
 import { CaseSensitive } from "lucide-react";
 import { useSettings } from "@/api/admin";
-import { FONTS, FONT_GROUPS } from "@/lib/fonts";
+import { FONTS, FONT_GROUPS, fontById } from "@/lib/fonts";
 import {
   SPACINGS,
   SPACING_LABELS,
@@ -119,16 +119,29 @@ export function ThemeSelect() {
   );
 }
 
-export function FontSelect() {
-  const p = useStore(prefsStore);
+/** The sentence every font preview shows: it has the letters that tell typefaces apart (1 I l 0 O, a g). */
+export const FONT_SAMPLE = "Pack my box with five dozen liquor jugs, 1 Il0O.";
+
+/**
+ * The reading-font list, grouped as everywhere else (Default, Easy to read, Serif, Sans-serif, Monospace, On this
+ * device), with a live preview. `value` and `onChange` are font ids from lib/fonts. The "large" preview is a sample
+ * paragraph in a box, for Settings and the setup wizard; the compact one is a single line, for the Aa menu.
+ */
+export function FontPicker({ value, onChange, label = "Reading font", help, preview = "compact" }: { value: string; onChange: (id: string) => void; label?: string; help?: string; preview?: "compact" | "large" }) {
   const id = useId();
-  const meta = useMeta("ui.font_body", "Reading font");
+  const helpId = useId();
+  const stack = fontById(value).stack ?? "var(--kp-reading-font)";
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1" data-testid="font-picker">
       <label htmlFor={id} className="text-sm font-semibold">
-        {meta.label}
+        {label}
       </label>
-      <select id={id} value={p.font} onChange={(e) => updatePrefs({ font: e.target.value })} className={inputCls}>
+      {help ? (
+        <p id={helpId} className="text-xs text-fg2">
+          {help}
+        </p>
+      ) : null}
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} aria-describedby={help ? helpId : undefined} className={inputCls}>
         {FONT_GROUPS.map((g) => {
           const fonts = FONTS.filter((f) => f.group === g);
           if (fonts.length === 0) return null;
@@ -150,10 +163,32 @@ export function FontSelect() {
           );
         })}
       </select>
-      <p className="text-xs text-fg2" style={{ fontFamily: "var(--kp-reading-font)" }}>
-        Sample: Pack my box with five dozen liquor jugs, 1 Il0O.
-      </p>
+      {preview === "large" ? (
+        <div data-testid="font-preview" aria-hidden="true" className="mt-1 flex flex-col gap-1 rounded-xl border border-line bg-surface px-3 py-2" style={{ fontFamily: stack }}>
+          <p className="text-lg leading-snug font-bold">Toaster files formal grievance against the kitchen</p>
+          <p className="text-base leading-snug">{FONT_SAMPLE}</p>
+        </div>
+      ) : (
+        <p data-testid="font-preview" className="text-xs text-fg2" style={{ fontFamily: stack }}>
+          Sample: {FONT_SAMPLE}
+        </p>
+      )}
     </div>
+  );
+}
+
+/** The reading font of this device: the one font of the app (lists, reader and sidebar; Settings and menus keep the system font). */
+export function FontSelect({ preview = "compact" }: { preview?: "compact" | "large" }) {
+  const p = useStore(prefsStore);
+  const meta = useMeta("ui.font_body", "Reading font");
+  return (
+    <FontPicker
+      value={p.font}
+      onChange={(font) => updatePrefs({ font })}
+      label={meta.label}
+      help={preview === "large" ? "Used for every list, article and the sidebar on this device. Settings and menus keep the system font." : undefined}
+      preview={preview}
+    />
   );
 }
 
@@ -231,15 +266,17 @@ export function HighlightToggle() {
 
 /**
  * The Kindle-style "Aa" panel: theme, font, text size and density. Everything applies at once (the page behind is
- * the live preview), is stored per device, and has no sliders. The font chosen here is THE font: it applies to
- * every list, the reader and the sidebar (Settings and menus keep the system font). Text spacing, an
- * accessibility control, lives in Settings so it never looks like a second density picker.
+ * the live preview), is stored per device, and has no sliders. The font chosen here is THE font (the same setting
+ * as Settings > Appearance & Reading > Reading font): it applies to every list, the reader and the sidebar
+ * (Settings and menus keep the system font). It sits above every list (feeds, folders, Unread, All, Starred,
+ * Search) and every article. Text spacing, an accessibility control, lives in Settings so it never looks like a
+ * second density picker.
  */
 export function ReadingMenu({ className }: { className?: string }) {
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" aria-label="Reading appearance" className={cn("hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection", className)}>
+        <button type="button" aria-label="Reading appearance" title="Theme, font and text size" className={cn("hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection", className)}>
           <CaseSensitive className="size-6" aria-hidden="true" />
         </button>
       </Popover.Trigger>
