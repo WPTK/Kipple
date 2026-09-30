@@ -182,7 +182,8 @@ the browser shows the setup wizard instead of a sign-in screen, and nothing can 
 - **Lifetime.** The code lives until an account exists. A restart makes a new one. It is single use in effect: once the
   account row exists, the setup screens and routes are gone (they answer 404) for as long as that database is used, and
   the code and its file are deleted.
-- **Guessing.** Ten wrong codes from one address lock that address out for 15 minutes; a hundred wrong codes in all
+- **Guessing.** Ten wrong codes from one address lock that address for 15 minutes (as above: the right code still
+  works); a hundred wrong codes in all
   replace the code (a new one is printed, at most once an hour). At 120 bits none of this is about feasibility.
 - **Who can claim.** Whoever can read the container's log, who already controls the host. Nobody else can create the
   account, however early they reach the port.
