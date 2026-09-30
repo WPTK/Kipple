@@ -32,7 +32,8 @@ export function SignedOut() {
     // always was. Anything else (offline, a server error, a proxy refusing the address) says so; a password form there
     // would send a no-password Kipple's owner to a screen that cannot let them in.
     const status = inst.error instanceof ApiError ? inst.error.status : -1;
-    if (status === 401 || status === 404) return <LoginScreen />;
+    // A 200 that is not JSON (a proxy or an older server answering with its page) is the same "no such route".
+    if (status === 401 || status === 404 || inst.error instanceof SyntaxError) return <LoginScreen />;
     return (
       <main className="flex h-full items-center justify-center px-4">
         <div className="flex max-w-sm flex-col gap-3" role="alert">

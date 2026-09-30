@@ -1196,6 +1196,12 @@ describe("the signed-out screen when GET /api/instance does not answer", () => {
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
   });
 
+  it("still shows the sign-in form when an older server answers with a page that is not JSON", async () => {
+    server(makeWorld(), { "GET /api/instance": () => new Response("<html></html>", { status: 200, headers: { "Content-Type": "text/html" } }) });
+    go("/");
+    expect(await screen.findByRole("heading", { name: "Sign in to Kipple" })).toBeInTheDocument();
+  });
+
   it("still shows the sign-in form for a 401", async () => {
     server(makeWorld(), { "GET /api/instance": () => json({ error: "auth" }, 401) });
     go("/");
@@ -1461,6 +1467,24 @@ describe("previewing a theme does not write this device's profile", () => {
     expect(themeStore.get().day).toBe("linen");
   });
 
+  it("Continue still writes a pick to a device that already overrides that theme (a changed default would not move it)", async () => {
+    const w = signedIn();
+    const own = { ...merged, "ui.theme_day": "graphite" };
+    const { calls } = server(w, {
+      "GET /api/bootstrap": () => json({ ...bootstrap, device: { id: "dev1", name: "This device", profile: { "ui.theme_day": "graphite" }, merged: own }, user: { ...bootstrap.user, username: "reader", password_set: true, auth_mode: "password", setup_pending: w.pending } }),
+      "PATCH /api/device": () => json({ id: "dev1", name: "This device", profile: { "ui.theme_day": "linen" }, merged: { ...own, "ui.theme_day": "linen" } }),
+    });
+    go("/welcome/theme");
+    await heading();
+    await hydrated();
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Day theme"), "linen");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await headingIs("Bring your feeds along");
+    await flush();
+    expect(themeKeys(calls)).toEqual(["ui.theme_day"]);
+  });
+
   it("ending setup elsewhere with an unsaved preview leaves the profile alone too", async () => {
     const w = signedIn();
     const { calls } = server(w, deviceRoutes(w));
@@ -1469,6 +1493,7 @@ describe("previewing a theme does not write this device's profile", () => {
     await hydrated();
     const user = userEvent.setup();
     await user.selectOptions(screen.getByLabelText("Night theme"), "carbon");
+    await flush();
     await user.click(screen.getByRole("button", { name: "Skip the rest of setup" }));
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     await flush();

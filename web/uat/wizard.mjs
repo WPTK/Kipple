@@ -2,7 +2,7 @@
 //
 //   npm run build && node uat/wizard.mjs [--headed] [--screenshots <dir>] [--bin <path to a kipple binary>]
 //
-// It builds Kipple (go build; needs Go on PATH) unless --bin is given, then starts two THROWAWAY servers on 127.0.0.1
+// It builds Kipple (go build; needs Go on PATH) unless --bin is given, then starts three THROWAWAY servers on 127.0.0.1
 // with fresh data directories under the system temp directory and NO account, so each starts in setup mode. It never
 // touches any other instance:
 //
@@ -10,8 +10,11 @@
 //     walks all seven steps with a password. Asserts the time zone step preselects Asia/Tokyo and that
 //     GET /api/settings then reports it, that a second browser context without the code cannot claim or create the
 //     account, and that after completion /api/setup/* answers 404.
-//   Run B (phone 375x812): the same wizard in open mode (no password), then a fresh browser context signs in by itself
+//   Run B (phone 375x812): the same wizard in open mode (no password), a theme preview + Skip that must leave no theme
+//     overrides in the device profile, then a fresh browser context signs in by itself
 //     (POST /api/auth/open), and a request that carries a forwarding header is refused with the plain-English screen.
+//   Run C (phone, time zone Asia/Tokyo): GET /api/instance unreachable (a Try again screen, never a password form), then
+//     "Skip the rest of setup" on step 3, which must still save the preselected zone.
 //
 // axe-core (WCAG 2.0/2.1/2.2 A and AA) runs on every step at both sizes. Exit code: 0 clean, 1 findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium`.
@@ -217,6 +220,17 @@ try {
     await onStep(page, "B", "Choose your time zone", 3);
     await page.getByRole("button", { name: "Continue" }).click();
     await onStep(page, "B", "Pick a look", 4);
+    // A preview is not a choice: trying a theme and skipping must leave this device's profile without theme overrides.
+    await page.getByLabel("Day theme").selectOption("linen");
+    await page.waitForTimeout(900); // longer than the 500 ms the app waits before it would send a change
+    await page.getByRole("button", { name: "Skip", exact: true }).click();
+    await onStep(page, "B", "Bring your feeds along", 5);
+    await page.waitForTimeout(900);
+    const dev = await page.evaluate(async () => (await fetch("/api/device")).json());
+    const pinned = Object.keys(dev.profile ?? {}).filter((k) => k.startsWith("ui.theme"));
+    check("B step 4", pinned.length === 0, `a preview and Skip left theme overrides in the device profile: ${pinned.join(", ")}`);
+    await page.getByRole("button", { name: "Back" }).click();
+    await onStep(page, "B", "Pick a look", 4);
     await page.getByRole("button", { name: "Continue" }).click();
     await onStep(page, "B", "Bring your feeds along", 5);
     await page.getByRole("button", { name: "Skip", exact: true }).click();
@@ -253,6 +267,46 @@ try {
       fail("B refused", "the refusal screen did not appear for a forwarded request");
     }
     await proxied.close();
+    await ctx.close();
+  }
+  // ---------------------------------------------------------------------------------------------- Run C
+  {
+    // Server trouble on the first screen, and "Skip the rest of setup" from step 3.
+    const { origin, code } = await startServer("c", 7193);
+    const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, timezoneId: "Asia/Tokyo" });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    // GET /api/instance cannot be reached: the screen says so and offers Try again, and never a password form.
+    await page.route("**/api/instance", (r) => r.abort());
+    await page.goto(origin);
+    try {
+      await page.getByRole("heading", { level: 1, name: "Kipple couldn't load" }).waitFor({ timeout: 10_000 });
+      check("C offline", await page.getByRole("button", { name: "Try again" }).isVisible(), "no Try again button");
+      check("C offline", (await page.getByLabel("Password").count()) === 0, "a password form was shown when the server could not be reached");
+      await overflowRun(page, "C offline");
+      if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "C-offline.png"), fullPage: true });
+    } catch {
+      fail("C offline", `no "couldn't load" screen when /api/instance was unreachable`);
+    }
+    await page.unroute("**/api/instance");
+    await page.getByRole("button", { name: "Try again" }).click();
+    await onStep(page, "C", "Enter your setup code", 1);
+    await page.getByLabel("Setup code").fill(code);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await onStep(page, "C", "Create your account", 2);
+    await page.getByLabel("User name").fill("skipper");
+    await page.getByLabel("Password", { exact: true }).fill("a long enough password");
+    await page.getByLabel("Password again").fill("a long enough password");
+    await page.getByRole("button", { name: "Create my account" }).click();
+    await onStep(page, "C", "Choose your time zone", 3);
+    await page.getByRole("button", { name: "Skip the rest of setup" }).click();
+    await page.waitForURL(/\/l\/unread/, { timeout: 10_000 }).catch(() => fail("C skip-all", `the reader did not open (at ${page.url()})`));
+    const settings = await page.evaluate(async () => (await fetch("/api/settings")).json());
+    check("C skip-all", settings.values?.tz === "Asia/Tokyo", `tz is ${settings.values?.tz} after "Skip the rest of setup" on step 3, expected Asia/Tokyo`);
+    const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
+    check("C skip-all", me.setup_pending === false, "setup is still pending after Skip the rest of setup");
+    check("C account", errors.length === 0, `page errors: ${errors.join(" | ")}`);
     await ctx.close();
   }
 } catch (e) {

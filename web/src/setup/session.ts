@@ -37,9 +37,10 @@ export function previewTheme(): void {
  * The theme step saved `t` as the default for every device without its own choice: nothing to put back, and this
  * device follows that default rather than holding an override of it.
  */
-export function markThemeSaved(t: ThemeSettings): void {
+export function markThemeSaved(t: ThemeSettings, matchesLocal = true): void {
   themeSaved = t;
-  adoptThemeDefaults(["ui.theme", "ui.theme_day", "ui.theme_night"]);
+  // Only when this device shows exactly what was saved; otherwise the difference stays pending and is written normally.
+  if (matchesLocal) adoptThemeDefaults(["ui.theme", "ui.theme_day", "ui.theme_night"]);
   holdThemeSync(false);
 }
 /** A preview that is over (Skip, or setup ended): the theme is put back on this device and the profile is written normally again. */

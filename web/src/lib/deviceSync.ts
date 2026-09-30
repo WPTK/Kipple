@@ -250,6 +250,8 @@ function setStatus(status: SyncState["status"]): void {
  * only tried). Released when the preview is settled, one way or the other.
  */
 let themeHeld = false;
+/** The keys this device's profile holds an override for, as the server last said (an override is not moved by a changed default). */
+let overridden = new Set<string>();
 const isThemeKey = (k: string): boolean => k.startsWith("ui.theme");
 
 /** Start or end the hold above. Ending it sends whatever the theme has since become, if it differs from the profile. */
@@ -261,12 +263,15 @@ export function holdThemeSync(on: boolean): void {
 
 /**
  * The wizard saved these theme keys as the account-wide defaults: the profile that would come back now holds the
- * values this device already shows, so they are confirmed rather than pending (and never become device overrides).
+ * values this device already shows, so they are confirmed rather than pending (and never become device overrides),
+ * except for a key the device already overrides.
  */
 export function adoptThemeDefaults(keys: readonly string[]): void {
   const want = profileOf(store());
   for (const k of keys) {
-    if (!isThemeKey(k)) continue;
+    // A key the device overrides keeps its override: the new default would not change what this device shows, so the
+    // pick stays pending and is written to the profile.
+    if (!isThemeKey(k) || overridden.has(k)) continue;
     synced[k] = want[k] ?? null;
     unsavedBase[k] = want[k] ?? null;
     if (preBase) preBase[k] = want[k] ?? null;
@@ -351,6 +356,7 @@ export function flush(): Promise<void> {
     try {
       const res = await api<DeviceView>("/api/device", { method: "PATCH", body: patch });
       reconcile(patch, res.merged);
+      overridden = new Set(Object.keys(res.profile ?? {}));
       setStatus("idle");
     } catch (e) {
       const keys = e instanceof ApiError && e.status === 400 && Array.isArray(e.body?.keys) ? (e.body.keys as string[]) : null;
@@ -553,6 +559,7 @@ export function hydrateDevice(device: DeviceView | undefined): void {
   }
   const emptyProfile = Object.keys(device.profile ?? {}).length === 0;
   synced = normalize(device.merged, cur);
+  overridden = new Set(Object.keys(device.profile ?? {}));
   refused = {};
   if (!done && emptyProfile && hasLegacy()) {
     // Migrate: the values the old caches held become the profile. Every other key takes the server's
@@ -637,5 +644,6 @@ export function resetDeviceSync(): void {
   inflight = null;
   again = false;
   themeHeld = false;
+  overridden = new Set();
   syncStore.set({ status: "off", refused: 0 });
 }

@@ -73,7 +73,8 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
     setError(null);
     try {
       await patch.mutateAsync({ "ui.theme": "system", "ui.theme_day": day, "ui.theme_night": night });
-      markThemeSaved(themeStore.get());
+      const now = themeStore.get();
+      markThemeSaved(now, now.mode === "follow" && now.day === day && now.night === night);
       onNext();
     } catch (e) {
       setError(errorMessage(e));
