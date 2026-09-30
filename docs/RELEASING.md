@@ -53,6 +53,8 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
    Host-A. Note the pre-migration snapshot name the app writes on start.
 8. **Tag the deployed commit:** `git tag -a vX.Y.Z -m "Kipple X.Y.Z"` on the exact commit, then `git push origin vX.Y.Z`.
    Never move, delete or reuse a pushed tag; a bad release gets a new version.
+   The tag push also starts `.github/workflows/release.yml`, which tests the tagged commit again, builds a multi-arch
+   (amd64 and arm64) image, scans and smoke-tests it, then tags and signs it on `ghcr.io/wptk/kipple` (below).
 9. **Deploy the tag, only the named service** (see CLAUDE.md, Deploy). The tag, not `main`, is what gets built:
 
        ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout vX.Y.Z && KIPPLE_VERSION=vX.Y.Z KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose -f /home/user/stack/docker-compose.yml build kipple && docker compose -f /home/user/stack/docker-compose.yml up -d kipple'
@@ -66,6 +68,20 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
     `/api/greader.php` answers with Reeder; a refresh completes; memory stays flat after a few minutes (`docker stats`).
 11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`node scripts/changelog.mjs notes X.Y.Z > notes.md`, then `gh release create vX.Y.Z --notes-file notes.md`; `-alpha/-beta/-rc` marked pre-release).
     Every pushed tag has one; keep it that way.
+
+    **Container image:** the Release workflow must be green first (Actions > Release). It publishes `X.Y.Z` (a stable
+    release also `X.Y`, `X` and `latest`; a prerelease never moves `latest` or a floating tag), signs the digest with
+    cosign (keyless) and writes an "image-notes" block (the digest and the verify command) to its job summary and an
+    artifact. If the Release already exists the workflow appends the block itself; otherwise append `image-notes.md`
+    to the notes before `gh release create`, so each version maps to exactly one digest. Check it by hand:
+
+        cosign verify ghcr.io/wptk/kipple:X.Y.Z \
+          --certificate-identity-regexp '^https://github.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v' \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+    **First image only (one time, owner):** the GHCR package starts private. In the repository's Packages, open
+    `kipple`, confirm it is linked to `WPTK/Kipple` (the `org.opencontainers.image.source` label does that) and change
+    its visibility to public; until then anonymous pulls fail.
 12. **Website** (`WPTK/kipple-website`, kipple.cc, GitHub Pages from `main`), for every release, once the Release is published:
     - **Version text:** update "Where it stands" in `index.html` to the new tag (`grep -n "v0\." index.html README.md` finds
       every mention) and anything else on the site that says what is current.
@@ -76,6 +92,13 @@ Reader API, the backup format or the settings keys need a major bump once 1.0.0 
       in the site's `design-system/DESIGN-SYSTEM.md` (section 10, `screenshots/`) with the new commit and the article shown.
       A release with no visible UI change may keep the old screenshots; the version text is never skipped.
     - Open a PR in the site repo and merge it; the merge is what publishes.
+
+## Rolling back `latest`
+
+Tags are never moved, so a bad stable image is superseded by the next patch version. Until that exists, run the
+Release workflow by hand (Actions > Release > Run workflow) with `repoint_latest` set to the last good stable tag
+(`vX.Y.Z`). It verifies that version's signature and re-points `latest`, `X.Y` and `X` at its digest without a
+rebuild. Prereleases are refused. Signed digests are never deleted.
 
 ## Rollback
 

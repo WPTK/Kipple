@@ -117,5 +117,6 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		"saved_searches": savedSearches,
 		"server_time":    now.Unix(),
 		"version":        s.opt.Version,
+		"web_build":      s.opt.WebBuild,
 	})
 }

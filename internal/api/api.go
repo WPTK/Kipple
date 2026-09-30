@@ -22,6 +22,7 @@ import (
 	"github.com/WPTK/kipple/internal/access"
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/backup"
+	"github.com/WPTK/kipple/internal/buildinfo"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/extract"
 	"github.com/WPTK/kipple/internal/fetch"
@@ -87,6 +88,14 @@ type Options struct {
 	Stats stats.Recorder
 	// Version is reported by /api/bootstrap and used in the proxy User-Agent.
 	Version string
+	// Build is the commit and build date the binary was built from (buildinfo), for /api/about; its Version
+	// is ignored in favor of Version.
+	Build buildinfo.Info
+	// WebBuild is the build id of the embedded web bundle (internal/web BuildID); /api/bootstrap reports it so
+	// a page can tell the server was rebuilt since it loaded. Empty for a build that carries none.
+	WebBuild string
+	// DataDir is the data directory; /api/about only reports whether it is writable, never where it is.
+	DataDir string
 	// PublicURL is the "+url" of the outgoing User-Agent; optional. Only used to
 	// build UserAgent when the caller leaves it empty.
 	PublicURL string
@@ -126,6 +135,7 @@ type Options struct {
 
 // Server holds the handlers.
 type Server struct {
+	started   time.Time // when this server was built, for /api/about
 	opt       Options
 	db        *store.DB
 	log       *slog.Logger
@@ -177,7 +187,7 @@ type Server struct {
 
 // New builds the API server.
 func New(opt Options) *Server {
-	s := &Server{opt: opt, db: opt.DB, log: opt.Logger, now: opt.Now, lock: opt.Lockout, verifier: opt.Verifier, statsGate: make(chan struct{}, 1)}
+	s := &Server{started: time.Now(), opt: opt, db: opt.DB, log: opt.Logger, now: opt.Now, lock: opt.Lockout, verifier: opt.Verifier, statsGate: make(chan struct{}, 1)}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -273,6 +283,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/refresh", s.authed(s.refresh))
 	handle("GET /api/events", s.authed(s.events))
 	handle("GET /api/bootstrap", s.authed(s.bootstrap))
+	handle("GET /api/about", s.authed(s.about))
 	handle("GET /img/{sig}/{flags}/{u}", s.authed(s.image))
 	handle("GET /api/feeds/{id}/icon", s.authed(s.feedIcon))
 	handle("GET /api/imgcache", s.authed(s.imgcacheStats))

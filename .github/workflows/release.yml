@@ -1,0 +1,356 @@
+name: Release
+
+# A pushed tag vX.Y.Z[-alpha|beta|rc.N] builds, scans, smoke-tests, tags and signs a multi-arch image on GHCR.
+# workflow_dispatch with repoint_latest is the rollback path (docs/RELEASING.md, "Rolling back latest").
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      repoint_latest:
+        description: "Stable tag (vX.Y.Z) to point latest, X.Y and X at, without a rebuild"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/wptk/kipple
+  # Same policy as ci.yml. Keep in step with the Trivy pin there.
+  COSIGN_IDENTITY_REGEXP: '^https://github.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v'
+  COSIGN_ISSUER: https://token.actions.githubusercontent.com
+
+# Two runs for the same ref never overlap, and a release is never cancelled half-way.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # 1. Gate: the tag is well formed, annotated, and its commit is on main.
+  gate:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+      commit: ${{ steps.check.outputs.commit }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag
+        id: check
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+            echo "::error::Tag '$TAG' is not vX.Y.Z or vX.Y.Z-(alpha|beta|rc).N"; exit 1
+          fi
+          # actions/checkout may leave an annotated tag looking lightweight; fetch the tag object itself.
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          if [ "$(git cat-file -t "refs/tags/$TAG")" != "tag" ]; then
+            echo "::error::Tag '$TAG' is not annotated (git tag -a)"; exit 1
+          fi
+          commit="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          git fetch --force origin main
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::Tagged commit $commit is not on main"; exit 1
+          fi
+          prerelease=false
+          if [[ "$TAG" == *-* ]]; then prerelease=true; fi
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "commit=$commit"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+  # 2. Tests: the same jobs as ci.yml, on the tagged commit.
+  ci:
+    needs: gate
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  # 3. Build: one multi-arch image, pushed by digest under a sha- tag that nobody should use.
+  build:
+    needs: [gate, ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Dynamic OCI labels (created, revision, url, ...). The static ones stay in the Dockerfile.
+      # Its only tag is sha-<commit>; the user-facing tags come from the publish job, after scan and smoke.
+      - name: Labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: type=sha,format=long,prefix=sha-
+          labels: |
+            org.opencontainers.image.url=https://github.com/WPTK/Kipple
+            org.opencontainers.image.documentation=https://github.com/WPTK/Kipple#readme
+
+      - name: Commit time (reproducible build date)
+        id: epoch
+        run: echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push by digest
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.epoch.outputs.epoch }}
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            VERSION=${{ needs.gate.outputs.tag }}
+            VCS_REF=${{ needs.gate.outputs.commit }}
+            SOURCE_DATE_EPOCH=${{ steps.epoch.outputs.epoch }}
+
+  # 4. Scan: Trivy per platform, same policy as ci.yml. A failure stops before any user-facing tag exists.
+  scan:
+    needs: [gate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - name: Trivy image scan (${{ matrix.platform }})
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: ${{ matrix.platform }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  # 5. Smoke: the image runs on both architectures (arm64 under QEMU), reports its tag, and serves /healthz.
+  smoke:
+    needs: [gate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run ${{ matrix.platform }}
+        env:
+          REF: ${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+          PLATFORM: ${{ matrix.platform }}
+          TAG: ${{ needs.gate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker pull --platform "$PLATFORM" "$REF"
+
+          got="$(docker run --rm --platform "$PLATFORM" "$REF" version)"
+          if [ "$got" != "$TAG" ]; then
+            echo "::error::kipple version printed '$got', expected '$TAG'"; exit 1
+          fi
+
+          # An empty named volume (inherits /data ownership from the image) and the hardened run flags the docs recommend.
+          # The port is whatever the image defaults to: `kipple healthcheck` probes the same address `serve` binds.
+          name="smoke-${PLATFORM//\//-}"
+          docker run -d --name "$name" --platform "$PLATFORM" \
+            -v "$name-data:/data" --read-only --tmpfs /tmp:size=64m,mode=1777 \
+            --cap-drop ALL --security-opt no-new-privileges "$REF" >/dev/null
+          ok=false
+          for _ in $(seq 1 60); do
+            if docker exec "$name" /kipple healthcheck >/dev/null 2>&1; then ok=true; break; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]; then break; fi
+            sleep 2
+          done
+          docker logs "$name" 2>&1 | tail -n 40
+          if [ "$ok" != true ]; then
+            echo "::error::$PLATFORM: serve on an empty volume never answered /healthz"; exit 1
+          fi
+
+  # 6-8. Tag, sign, attest, and write the digest into the release notes.
+  publish:
+    needs: [gate, build, scan, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+          PRERELEASE: ${{ needs.gate.outputs.prerelease }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          tags=("$VERSION")
+          if [ "$PRERELEASE" = false ]; then
+            major="${VERSION%%.*}"
+            minor="${VERSION#*.}"; minor="${minor%%.*}"
+            tags+=("$major.$minor" "$major" latest)
+          fi
+          # A prerelease must never move latest or a floating tag: exactly one tag, its own.
+          if [ "$PRERELEASE" = true ] && [ "${#tags[@]}" -ne 1 ]; then
+            echo "::error::prerelease would move a floating tag: ${tags[*]}"; exit 1
+          fi
+          args=()
+          for t in "${tags[@]}"; do args+=(-t "$IMAGE:$t"); done
+          echo "Tagging $IMAGE@$DIGEST as: ${tags[*]}"
+          docker buildx imagetools create "${args[@]}" "$IMAGE@$DIGEST"
+
+      # Keyless: the signature identity is this workflow at this tag.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+
+      - name: Check our own signature
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          cosign verify "$IMAGE@$DIGEST" \
+            --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
+            --certificate-oidc-issuer "$COSIGN_ISSUER" >/dev/null
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ needs.build.outputs.digest }}
+          push-to-registry: true
+
+      # The block a Release page needs so one version maps to exactly one digest. It goes in the job summary and an
+      # artifact always; when the GitHub Release already exists it is appended there too (once).
+      - name: Release notes block
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.gate.outputs.tag }}
+          VERSION: ${{ needs.gate.outputs.version }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Container image"
+            echo
+            echo '```'
+            echo "$IMAGE:$VERSION"
+            echo "$IMAGE@$DIGEST"
+            echo '```'
+            echo
+            echo "Verify the signature:"
+            echo
+            echo '```'
+            echo "cosign verify $IMAGE:$VERSION \\"
+            echo "  --certificate-identity-regexp '$COSIGN_IDENTITY_REGEXP' \\"
+            echo "  --certificate-oidc-issuer $COSIGN_ISSUER"
+            echo '```'
+          } > image-notes.md
+          cat image-notes.md >> "$GITHUB_STEP_SUMMARY"
+          if body="$(gh release view "$TAG" --json body --jq .body 2>/dev/null)"; then
+            if ! grep -qF "$DIGEST" <<<"$body"; then
+              printf '%s\n\n%s\n' "$body" "$(cat image-notes.md)" > release-body.md
+              gh release edit "$TAG" --notes-file release-body.md
+            fi
+          else
+            echo "No GitHub Release for $TAG yet; create it with the image-notes artifact appended (docs/RELEASING.md, step 11)."
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-notes
+          path: image-notes.md
+
+  # Rollback: point latest, X.Y and X back at an already-published stable version. No rebuild, nothing deleted.
+  repoint:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Repoint
+        env:
+          TAG: ${{ inputs.repoint_latest }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a stable tag (vX.Y.Z); a prerelease never becomes latest"; exit 1
+          fi
+          version="${TAG#v}"
+          digest="$(docker buildx imagetools inspect "$IMAGE:$version" --format '{{json .Manifest}}' | jq -r .digest)"
+          case "$digest" in sha256:*) ;; *) echo "::error::could not resolve $IMAGE:$version"; exit 1 ;; esac
+          # Only ever move latest onto something this workflow signed.
+          cosign verify "$IMAGE@$digest" \
+            --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
+            --certificate-oidc-issuer "$COSIGN_ISSUER" >/dev/null
+          major="${version%%.*}"
+          minor="${version#*.}"; minor="${minor%%.*}"
+          docker buildx imagetools create -t "$IMAGE:latest" -t "$IMAGE:$major.$minor" -t "$IMAGE:$major" "$IMAGE@$digest"
+          echo "latest, $major.$minor and $major now point at $IMAGE@$digest ($TAG)" | tee -a "$GITHUB_STEP_SUMMARY"

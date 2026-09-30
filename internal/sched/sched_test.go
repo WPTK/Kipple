@@ -10,6 +10,8 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -44,8 +46,27 @@ type rig struct {
 	evs []events.Event
 }
 
+// testBound is the longest one test that builds a rig may run, its cleanup
+// included. A hang then fails within minutes, with every goroutine's stack,
+// instead of holding the whole package until go test's -timeout.
+const testBound = 2 * time.Minute
+
+// watchdog crashes the test binary with all goroutine stacks when t outlives
+// d. It is registered first, so its cleanup runs last and the bound covers the
+// rig's own cleanup as well.
+func watchdog(t *testing.T, d time.Duration) {
+	timer := time.AfterFunc(d, func() {
+		buf := make([]byte, 8<<20)
+		buf = buf[:runtime.Stack(buf, true)]
+		fmt.Fprintf(os.Stderr, "%s still running after %v; all goroutines:\n%s\n", t.Name(), d, buf)
+		panic(fmt.Sprintf("%s exceeded its %v bound", t.Name(), d))
+	})
+	t.Cleanup(func() { timer.Stop() })
+}
+
 func newRig(t *testing.T, opt Options) *rig {
 	t.Helper()
+	watchdog(t, testBound)
 	r := &rig{t: t, clk: clock.NewFake(base), hub: events.New()}
 	r.setJitter(0.5) // factor exactly 1.0
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -81,8 +102,27 @@ func newRig(t *testing.T, opt Options) *rig {
 
 func (r *rig) setJitter(v float64) { r.jit.Store(math.Float64bits(v)) }
 
-// barrier makes sure a delivered tick has been processed.
-func (r *rig) barrier() { r.s.inDispatcher(func() {}) }
+// barrier returns once the dispatcher has handled everything already sent to
+// it: a delivered tick or wake, and every Submit, refresh-all, import or
+// retention request made before the call. Submit and startRun return as soon
+// as their request is in a buffered channel, and the dispatcher's select picks
+// at random among ready cases, so one syncCh round trip alone can run before a
+// request queued ahead of it. A request received is handled before the next
+// select, so empty request queues seen from the dispatcher mean all are done.
+func (r *rig) barrier() {
+	r.t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		var queued int
+		r.s.inDispatcher(func() { queued = len(r.s.priorityCh) + len(r.s.manualCh) })
+		if queued == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			r.t.Fatalf("barrier: %d requests still queued after 30s", queued)
+		}
+	}
+}
 
 func (r *rig) flights() (n int) {
 	r.s.inDispatcher(func() { n = len(r.s.flights) })
@@ -870,17 +910,20 @@ func TestOverlappingImportRunsKeepTheNewerRegistered(t *testing.T) {
 	release("/a") // the older run finishes first
 	r.waitEvents("run.done", 1)
 	var live int64
+	var runs int
 	r.s.inDispatcher(func() {
 		for id := range r.s.runs {
 			live = id
 		}
-		require.Len(t, r.s.runs, 1)
+		runs = len(r.s.runs)
 	})
+	require.Equal(t, 1, runs)
 	require.Equal(t, second.RunID, live, "finishing the older run must not unregister the newer one")
 
 	release("/b")
 	r.waitEvents("run.done", 2)
-	r.s.inDispatcher(func() { require.Empty(t, r.s.runs) })
+	r.s.inDispatcher(func() { runs = len(r.s.runs) })
+	require.Zero(t, runs)
 }
 
 func TestPriorityOnHeldHost(t *testing.T) {
@@ -959,7 +1002,9 @@ func TestCommitFailureBacksOffInMemory(t *testing.T) {
 	r.s.Wake()
 	r.waitEvents("fetch.done", 2)
 	require.Equal(t, 2, srv.count("/f"))
-	r.s.inDispatcher(func() { require.Empty(t, r.s.notBefore, "cleared by the next successful commit") })
+	var backedOff int
+	r.s.inDispatcher(func() { backedOff = len(r.s.notBefore) })
+	require.Zero(t, backedOff, "cleared by the next successful commit")
 }
 
 func TestPartialChunkedCommitStillReportsCommittedItems(t *testing.T) {

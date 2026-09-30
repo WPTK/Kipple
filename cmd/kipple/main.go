@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime"
 	"net"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/api"
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/buildinfo"
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/extract"
@@ -41,8 +43,18 @@ import (
 	kweb "github.com/WPTK/kipple/internal/web"
 )
 
-// version is set at build time via -ldflags "-X main.version=...".
-var version = "dev"
+// version, commit and buildDate are set at build time via -ldflags "-X main.version=..." (the Dockerfile
+// passes them from its build args, since .git is not in the build context).
+var (
+	version   = "dev"
+	commit    = ""
+	buildDate = ""
+)
+
+// buildInfo is what this binary was built from.
+func buildInfo() buildinfo.Info {
+	return buildinfo.Info{Version: version, Commit: commit, BuildDate: buildDate}.Normalized()
+}
 
 func init() {
 	// mime's built-in table (and /etc/mime.types, which distroless doesn't
@@ -89,8 +101,7 @@ func run(args []string) error {
 	case "setup-token":
 		return runSetupToken(args[1:])
 	case "version":
-		fmt.Println(version)
-		return nil
+		return runVersion(args[1:], os.Stdout)
 	default:
 		return fmt.Errorf("unknown command %q (want serve, healthcheck, import, api-password, password, restore, setup-token or version)", cmd)
 	}
@@ -144,7 +155,7 @@ func runServe() error {
 	// One shutdown budget (shutdown.go): started by the stop signal, drawn on by
 	// every stage and by the deferred closes below.
 	var budget shutdownBudget
-	db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(cfg.DataDir, "kipple.db"), Logger: logger})
+	db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(cfg.DataDir, "kipple.db"), Logger: logger, Version: version})
 	if err != nil {
 		return fmt.Errorf("store: %w", err)
 	}
@@ -155,6 +166,12 @@ func runServe() error {
 		logger.Warn("resuming interrupted feed deletes", "err", err)
 	} else if len(ids) > 0 {
 		logger.Info("finished interrupted feed deletes", "feeds", len(ids))
+	}
+
+	// The database is open and at this binary's schema: remember which release did that (the message of a later
+	// refused downgrade and the About screen use it). A failure must never keep Kipple from starting.
+	if err := db.RecordVersion(context.Background(), version); err != nil {
+		logger.Warn("recording the running version", "err", err)
 	}
 
 	if err := ensureAccount(context.Background(), db, cfg, logger); err != nil {
@@ -251,7 +268,7 @@ func runServe() error {
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
 		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
-		Stats: recorder, Version: version, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
+		Stats: recorder, Version: version, Build: buildInfo(), WebBuild: kweb.BuildID(), DataDir: cfg.DataDir, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount, Access: accessV,
 		Setup: setupMgr, AllowedHosts: allowedHosts(cfg),
 		Gate: setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: tailnet},
@@ -290,7 +307,7 @@ func runServe() error {
 			serveErr <- err
 			return
 		}
-		logger.Info("listening", "addr", ln.Addr().String(), "version", version)
+		logger.Info("listening", "addr", ln.Addr().String(), "version", version, "commit", buildInfo().Commit)
 		if setupMgr.Pending() {
 			if _, port, err := net.SplitHostPort(ln.Addr().String()); err == nil {
 				setupMgr.Announce(port)
@@ -383,4 +400,18 @@ func superviseServe(ctx context.Context, serveErr <-chan error, stopAll func() e
 			return nil
 		}
 	}
+}
+
+// runVersion prints the version alone (its output is read by docs/RELEASING.md step 10, so it never
+// changes), or with -v the full build info.
+func runVersion(args []string, out io.Writer) error {
+	switch {
+	case len(args) == 0:
+		_, err := fmt.Fprintln(out, version)
+		return err
+	case len(args) == 1 && (args[0] == "-v" || args[0] == "--verbose"):
+		_, err := fmt.Fprint(out, buildInfo().Report(store.LatestVersion(), kweb.BuildID()))
+		return err
+	}
+	return errors.New("usage: kipple version [-v]")
 }

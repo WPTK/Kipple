@@ -64,6 +64,8 @@ var DefaultSettings = map[string]any{
 	"ui.list_density":        "standard",
 	"ui.layouts":             map[string]any{},
 	"ui.mark_read_on_scroll": false,
+	// The newest version whose "What's new" the reader has seen ("" before any). Account-wide.
+	"ui.whats_new_seen": "",
 	// The account defaults of the client-only appearance keys (device profiles,
 	// internal/api/devices.go): an object of "client.*" overrides that make-default fills.
 	"ui.device_defaults": map[string]any{},

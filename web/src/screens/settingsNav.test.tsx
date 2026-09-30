@@ -68,7 +68,7 @@ function wide(on: boolean) {
   }));
 }
 
-const GROUPS = ["Appearance & Reading", "Sync & Feeds", "Statistics", "Filters & Saved Searches", "Account & Devices", "Advanced"];
+const GROUPS = ["Appearance & Reading", "Sync & Feeds", "Statistics", "Filters & Saved Searches", "Account & Devices", "Advanced", "About"];
 
 beforeEach(() => {
   authStore.set("unknown");
@@ -82,12 +82,12 @@ afterEach(() => {
 });
 
 describe("Settings on a narrow screen", () => {
-  it("opens on the list of the six groups, with a current value under the ones where it is cheap; passes axe", async () => {
+  it("opens on the list of the seven groups, with a current value under the ones where it is cheap; passes axe", async () => {
     routes();
     const { container } = go("/settings");
     const nav = await screen.findByRole("navigation", { name: "Settings sections" });
     const links = within(nav).getAllByRole("link");
-    expect(links.map((l) => l.getAttribute("href"))).toEqual(["appearance", "sync", "statistics", "filters", "account", "advanced"].map((g) => `/settings/${g}`));
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(["appearance", "sync", "statistics", "filters", "account", "advanced", "about"].map((g) => `/settings/${g}`));
     GROUPS.forEach((g, i) => expect(links[i]).toHaveTextContent(g));
     expect(links[0]).toHaveTextContent("Paper / Midnight · Default font");
     expect(await within(nav).findByText("Every 30 minutes")).toBeInTheDocument();
@@ -185,7 +185,7 @@ describe("Settings on a narrow screen", () => {
 });
 
 describe("Settings on a wide screen", () => {
-  it("opens the first group beside a rail of all six, and the rail switches groups in place", async () => {
+  it("opens the first group beside a rail of all seven, and the rail switches groups in place", async () => {
     wide(true);
     routes();
     const { container } = go("/settings");
