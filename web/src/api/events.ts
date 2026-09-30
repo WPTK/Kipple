@@ -192,6 +192,9 @@ export function announcementFor(ev: ServerEvent, runKind?: string): string | nul
     if (kind === "auto_read") return ev.data.error ? "Couldn't finish marking old articles as read" : null;
     // The retention sweep is housekeeping, not a refresh: nothing to announce.
     if (kind !== undefined && !isRefreshKind(kind)) return null;
+    // An OPML import run spins the refresh icon but is not a refresh the person asked for: its new feeds' first
+    // items arrive silently, like a new feed's first fetch (the import dialog has already said it is fetching them).
+    if (kind === "import") return null;
     if (ev.data.errors > 0) return `Couldn't refresh ${ev.data.errors} feed${ev.data.errors === 1 ? "" : "s"}. The rest updated.`;
     if (ev.data.new_items > 0) return plural(ev.data.new_items);
     // Kind unknown (its run.start was missed): an empty result is not worth a toast.

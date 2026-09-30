@@ -700,6 +700,31 @@ describe("Feed health", () => {
     expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname)).toEqual(["/api/feeds/1"]);
   });
 
+  it("after a bulk Delete Select mode ends and a feed ticked but hidden by the search is not left ticked (#96)", async () => {
+    base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "DELETE /api/feeds/1": () => new Response(null, { status: 204 }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select NPR" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search feeds" }), "zed");
+    await user.click(screen.getByRole("checkbox", { name: "Select Zed Blog" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dlg = await screen.findByRole("dialog", { name: "Delete 1 feed?" });
+    await user.click(within(dlg).getByRole("button", { name: "Delete 1 feed" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Same as Turn on/off: Select mode is over, so no selection bar is left for the toast to cover.
+    expect(screen.getByRole("button", { name: "Select" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Selected feeds" })).toBeNull();
+    await user.clear(screen.getByRole("searchbox", { name: "Search feeds" }));
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    expect(screen.getByText("0 selected")).toBeInTheDocument();
+  });
+
   it("bulk turns feeds off, then Done clears the selection", async () => {
     const { calls } = base({
       "GET /api/health/feeds": () => json(HEALTH),
@@ -775,7 +800,7 @@ describe("Account and backup", () => {
           expires_at: 0,
           expires_in: 300,
           warning: "This file contains your password hashes and secrets. Keep it private.",
-          contents: { kipple_version: "0.2.0", schema_version: 6, created_at: 1_790_000_000, feeds: 120, items: 30000, starred: 42, db_bytes: 4_000_000 },
+          contents: { kipple_version: "0.2.0", schema_version: 6, created_at: "2026-09-25T10:15:00Z", feeds: 120, items: 30000, starred: 42, db_bytes: 4_000_000 },
         }),
     });
     go("/settings/account");
@@ -784,6 +809,9 @@ describe("Account and backup", () => {
     const dlg = await screen.findByRole("dialog", { name: "Download backup" });
     expect(within(dlg).getByText(/password hashes and secrets/)).toBeInTheDocument();
     expect(within(dlg).getByText(/30000 \(42 starred\)/)).toBeInTheDocument();
+    // The manifest stamps created_at as RFC 3339 text, not Unix seconds (#92).
+    expect(within(dlg).getByText("Made").nextElementSibling).toHaveTextContent(/2026/);
+    expect(dlg).not.toHaveTextContent("Invalid Date");
     expect(within(dlg).getByRole("link", { name: /kipple-backup-20260925-101500\.zip/ })).toHaveAttribute("href", "/api/backup/t");
   });
 
@@ -795,7 +823,7 @@ describe("Account and backup", () => {
         polls += 1;
         return polls < 2
           ? json({ status: "building" })
-          : json({ status: "ready", token: "t2", url: "/api/backup/t2", filename: "kipple-backup-x.zip", bytes: 10, expires_at: 0, expires_in: 300, warning: "Keep it private.", contents: { kipple_version: "1", schema_version: 1, created_at: 1_790_000_000, feeds: 1, items: 2, starred: 0, db_bytes: 5 } });
+          : json({ status: "ready", token: "t2", url: "/api/backup/t2", filename: "kipple-backup-x.zip", bytes: 10, expires_at: 0, expires_in: 300, warning: "Keep it private.", contents: { kipple_version: "1", schema_version: 1, created_at: "2026-09-25T10:15:00Z", feeds: 1, items: 2, starred: 0, db_bytes: 5 } });
       },
     });
     const { exportBackup } = await import("@/api/admin");

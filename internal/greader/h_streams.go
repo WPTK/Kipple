@@ -230,7 +230,10 @@ func newItemJSON(r *store.ContentRow) itemJSON {
 	if r.Updated.Valid {
 		updated = r.Updated.Int64
 	}
-	cats := []string{stateReadingList, labelPrefix + r.Folder}
+	cats := []string{stateReadingList}
+	if r.Folder != "" { // an archived item is in no folder (its feed is not a subscription)
+		cats = append(cats, labelPrefix+r.Folder)
+	}
 	if r.Read {
 		cats = append(cats, stateRead)
 	}

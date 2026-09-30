@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { DropdownMenu } from "radix-ui";
-import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Share2, Star } from "lucide-react";
+import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
@@ -19,6 +19,7 @@ import { useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
 import { openOriginalAndRecord, shareAndRecord, useReadingStats, useStatsEnabled } from "@/lib/statsSender";
 import { openFilterEditor, similarSeed } from "@/lib/similar";
+import { openFeedEditor } from "@/lib/feedEditor";
 import { clearMarks, wrapMarks } from "@/lib/highlight";
 import { Hl, useGroups } from "@/lib/useHighlights";
 import { cn } from "@/lib/cn";
@@ -62,6 +63,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // article was opened from often already has this item's card cached, url included: enough to still offer
   // "read the original" even though the article body itself could not be loaded.
   const cachedCard = useMemo(() => flattenItems(list.data).find((i) => i.id === id), [list.data, id]);
+  const browserOnline = useSyncExternalStore(subscribeOnline, () => navigator.onLine !== false);
   const index = ids.indexOf(id);
   const prevId = index > 0 ? ids[index - 1] : undefined;
   const nextId = index >= 0 ? ids[index + 1] : undefined;
@@ -139,6 +141,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const muteSimilar = () => {
     if (item.data) openFilterEditor({ mode: "create", seed: similarSeed(item.data, item.data.feed.title) });
   };
+  const manageFeed = () => {
+    if (item.data) openFeedEditor(item.data.feed_id);
+  };
   const toggleFulltext = () => {
     if (!item.data) return;
     fulltext.mutate({ id, mode: item.data.fulltext.effective === 1 ? 0 : 1 });
@@ -215,21 +220,28 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   }, [html, bodyGroups, item.data?.trimmed]);
 
   if (item.isPending) {
+    // The way back is there from the first frame: on a phone (an installed app has no browser Back) a slow load
+    // must never be a screen with no exit.
     return (
-      <div className="p-6" aria-busy="true" role="status">
-        <span className="sr-only-live">Loading article</span>
-        <div aria-hidden="true" className="mx-auto max-w-[46rem] space-y-3">
-          <div className="h-7 w-4/5 rounded bg-surface" />
-          <div className="h-4 w-1/3 rounded bg-surface" />
-          <div className="h-4 w-full rounded bg-surface" />
-          <div className="h-4 w-full rounded bg-surface" />
-          <div className="h-4 w-2/3 rounded bg-surface" />
+      <div className="flex h-full flex-col">
+        {!pane && <TopBar onBack={back} />}
+        <div className="p-6" aria-busy="true" role="status">
+          <span className="sr-only-live">Loading article</span>
+          <div aria-hidden="true" className="mx-auto max-w-[46rem] space-y-3">
+            <div className="h-7 w-4/5 rounded bg-surface" />
+            <div className="h-4 w-1/3 rounded bg-surface" />
+            <div className="h-4 w-full rounded bg-surface" />
+            <div className="h-4 w-full rounded bg-surface" />
+            <div className="h-4 w-2/3 rounded bg-surface" />
+          </div>
         </div>
       </div>
     );
   }
   if (item.isError || !item.data) {
-    const originalUrl = safeHttpUrl(cachedCard?.url);
+    // The original is on the web: with the browser offline it cannot open either, so it is offered only online (the
+    // server alone being unreachable, #78, still leaves it).
+    const originalUrl = browserOnline ? safeHttpUrl(cachedCard?.url) : undefined;
     return (
       <div className="flex h-full flex-col">
         {!pane && <TopBar onBack={back} />}
@@ -272,6 +284,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           onOriginal={openOriginal}
           onShare={share}
           onMuteSimilar={muteSimilar}
+          onManageFeed={manageFeed}
         />
       )}
       <div ref={scrollerRef} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
@@ -355,10 +368,21 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           onOriginal={openOriginal}
           onShare={share}
           onMuteSimilar={muteSimilar}
+          onManageFeed={manageFeed}
         />
       )}
     </div>
   );
+}
+
+/** The browser's own online state (navigator.onLine), not the app's: a request failing sets the app offline too. */
+function subscribeOnline(cb: () => void): () => void {
+  window.addEventListener("online", cb);
+  window.addEventListener("offline", cb);
+  return () => {
+    window.removeEventListener("online", cb);
+    window.removeEventListener("offline", cb);
+  };
 }
 
 function TopBar({ onBack }: { onBack: () => void }) {
@@ -387,6 +411,7 @@ interface ToolbarProps {
   onOriginal: () => void;
   onShare: () => void;
   onMuteSimilar: () => void;
+  onManageFeed: () => void;
 }
 
 const moreItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
@@ -449,6 +474,10 @@ function Toolbar(p: ToolbarProps) {
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+            <DropdownMenu.Item className={moreItem} onSelect={p.onManageFeed}>
+              <Rss className="size-5" aria-hidden="true" />
+              Manage this feed
+            </DropdownMenu.Item>
             <DropdownMenu.Item className={moreItem} onSelect={p.onOriginal}>
               <ExternalLink className="size-5" aria-hidden="true" />
               Open original

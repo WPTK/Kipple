@@ -342,7 +342,7 @@ func listCardsSQL(q CardQuery) (string, []any, int, error) {
 			args = append(args, q.FeedID)
 		}
 		if q.FolderID != 0 {
-			where = append(where, "i.feed_id IN (SELECT id FROM feeds WHERE folder_id = ?)")
+			where = append(where, inFolderSQL("i.feed_id", "?"))
 			args = append(args, q.FolderID)
 		}
 		if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes); w != "" {
@@ -594,7 +594,7 @@ func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64, match string, pro
 		feedWhere = " AND feed_id = :feed"
 		args = append(args, sql.Named("feed", scope.FeedID))
 	case scope.FolderID != 0:
-		feedWhere = " AND feed_id IN (SELECT id FROM feeds WHERE folder_id = :folder)"
+		feedWhere = " AND " + inFolderSQL("feed_id", ":folder")
 		args = append(args, sql.Named("folder", scope.FolderID))
 	}
 	base = append([]any(nil), args...)

@@ -267,7 +267,7 @@ func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now in
 		feedWhere = " AND feed_id = :feed"
 		args = append(args, sql.Named("feed", scope.FeedID))
 	case scope.FolderID != 0:
-		feedWhere = " AND feed_id IN (SELECT id FROM feeds WHERE folder_id = :folder)"
+		feedWhere = " AND " + inFolderSQL("feed_id", ":folder")
 		args = append(args, sql.Named("folder", scope.FolderID))
 	case scope.Starred:
 		where = " AND starred = 1"

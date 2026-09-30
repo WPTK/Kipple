@@ -8,6 +8,7 @@ import { errorMessage } from "@/api/client";
 import { DND_ROW_CLASS, arrayMove, insertBefore, useRowDnd, type DragSource } from "@/lib/dnd";
 import { SEARCH_ORDER_LABELS } from "@/lib/searchPrefs";
 import { cn } from "@/lib/cn";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import { announce } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
@@ -44,7 +45,7 @@ function EditDialog({ search, onClose }: { search: SavedSearch; onClose: () => v
   const [order, setOrder] = useState<string>(search.order ?? "rank");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const feeds = (boot.data?.feeds ?? []).filter((f) => !f.is_archive);
+  const feeds = visibleFeeds(boot.data?.feeds);
   const folders = boot.data?.folders ?? [];
 
   const save = async () => {

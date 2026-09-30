@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"math/rand/v2"
+	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -406,12 +407,47 @@ func (s *Scheduler) Submit(p Priority) (<-chan Reply, error) {
 // inDispatcher runs fn on the dispatcher goroutine after any tick that has
 // already been delivered, and waits for it. Tests use it as a barrier and to
 // read dispatcher-owned state without racing.
+//
+// fn runs on a goroutine of its own while the dispatcher waits for it, so it
+// still owns the dispatcher's state, but a failed test assertion inside it
+// (t.FailNow is runtime.Goexit) or a panic ends only that goroutine: the
+// dispatcher lives on, and the caller re-raises the Goexit or the panic on its
+// own goroutine instead of waiting forever for a fn that never returned.
 func (s *Scheduler) inDispatcher(fn func()) {
-	done := make(chan struct{})
+	type outcome struct {
+		exited, panicked bool
+		val              any
+	}
+	done := make(chan outcome, 1)
+	run := func() {
+		inner := make(chan outcome, 1)
+		go func() {
+			normal := false
+			defer func() {
+				switch v := recover(); {
+				case normal:
+					inner <- outcome{}
+				case v != nil:
+					inner <- outcome{panicked: true, val: v}
+				default:
+					inner <- outcome{exited: true}
+				}
+			}()
+			fn()
+			normal = true
+		}()
+		done <- <-inner
+	}
 	select {
-	case s.syncCh <- func() { fn(); close(done) }:
-		<-done
+	case s.syncCh <- run:
 	case <-s.stopped:
+		return
+	}
+	switch o := <-done; {
+	case o.panicked:
+		panic(o.val)
+	case o.exited:
+		runtime.Goexit()
 	}
 }
 

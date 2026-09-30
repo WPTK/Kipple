@@ -4,6 +4,8 @@ on:
   push:
     branches: [main, phase-1, phase-2]
   pull_request:
+  # Called by release.yml so the exact tagged commit is tested again before an image is built.
+  workflow_call:
 
 permissions:
   contents: read
