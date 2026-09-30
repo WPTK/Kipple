@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -321,6 +322,36 @@ func TestIconLinksBounded(t *testing.T) {
 	}
 	require.Len(t, iconLinks([]byte(b.String()), "https://example.com/"), maxLinks)
 	require.Empty(t, iconLinks([]byte(`<link rel=icon href=/x.png>`), "ftp://example.com/"))
+}
+
+// Issue #157: a candidate is offered only if its string parses back as an
+// absolute http(s) URL. An unbracketed IPv6-style host from a scheme-relative
+// href resolved to "http://::", which url.Parse rejects.
+func TestIconLinksOnlyOfferURLsThatReparse(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, base string
+		want             []string
+	}{
+		{"fuzz seed", `<link rel=iCon href=//::>`, "http://0", nil},
+		{"https base", `<link rel=icon href=//::>`, "https://example.com/", nil},
+		{"with a path", `<link rel=icon href=//::/i.png>`, "https://example.com/", nil},
+		{"three colons", `<link rel=icon href=//:::>`, "https://example.com/", nil},
+		{"good sibling kept", `<link rel=icon href=//::><link rel=icon href=/i.png>`, "http://0", []string{"http://0/i.png"}},
+		{"bad base href ignored", `<base href=//::><link rel=icon href=/i.png>`, "https://example.com/p", []string{"https://example.com/i.png"}},
+		{"bad page URL", `<link rel=icon href=/i.png>`, "http://::", nil},
+		{"bracketed IPv6 is fine", `<link rel=icon href=//[::1]/i.png>`, "https://example.com/", []string{"https://[::1]/i.png"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			for _, c := range iconLinks([]byte(tc.body), tc.base) {
+				u, err := url.Parse(c.URL)
+				require.NoError(t, err, c.URL)
+				require.True(t, httpURL(u), c.URL)
+				got = append(got, c.URL)
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestParseSizes(t *testing.T) {

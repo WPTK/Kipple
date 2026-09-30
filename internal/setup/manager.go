@@ -171,7 +171,10 @@ func (m *Manager) Claim(in string) (cookie string, ok bool, err error) {
 
 // ClaimUncounted is Claim for an address the caller has already locked out: a
 // match still starts the session, a mismatch does not count towards the
-// rotation (so one noisy client cannot keep replacing the owner's code).
+// rotation (so one noisy client cannot keep replacing the owner's code). The
+// caller checks every attempt from such an address, never only some of them:
+// behind a shared Docker gateway the owner's right code arrives from the same
+// address as the noise (issue #156).
 func (m *Manager) ClaimUncounted(in string) (cookie string, ok bool, err error) {
 	return m.claim(in, false)
 }

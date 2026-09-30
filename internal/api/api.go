@@ -142,7 +142,11 @@ type Server struct {
 	now       func() time.Time
 	lock      *auth.Lockout
 	setupLock *auth.Lockout
-	setupSlow lockedThrottle // one uncounted check per minute for a locked-out address
+	// setupChecks caps the concurrent code checks of locked-out addresses
+	// (maxLockedChecks slots, waited for, never refused); setupWrongDelay holds
+	// a locked address's wrong answer (lockedWrongDelay; tests shorten it).
+	setupChecks     chan struct{}
+	setupWrongDelay time.Duration
 
 	mode       modeCache // the Host gate's cached auth mode and allowed hosts
 	hostWarnMu sync.Mutex
@@ -202,6 +206,8 @@ func New(opt Options) *Server {
 	if s.setupLock == nil {
 		s.setupLock = auth.NewLockout(s.now)
 	}
+	s.setupChecks = make(chan struct{}, maxLockedChecks)
+	s.setupWrongDelay = lockedWrongDelay
 	if s.opt.Gate.Trusted == nil {
 		s.opt.Gate.Trusted = opt.TrustedProxies
 	}

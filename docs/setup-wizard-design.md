@@ -209,10 +209,13 @@ today, plus the two new fields).
   /kipple setup-token` shows it again". A structured `setup pending` INFO line without the token is logged too.
 - **Brute force:** its own `auth.Lockout` instance (so setup failures never lock the later login and vice versa):
   10 failures per IP (/64) per 15 minutes. Plus a global counter: after 100 failures in one process the token is
-  rotated, the new one printed with a WARN "setup token rotated after repeated failures". A locked address still gets
-  one check per minute (so the owner behind a shared Docker gateway is delayed, never locked out), and those checks do
-  not count towards the rotation; every other attempt from it is answered 429 without a check. At 120 bits the lockout
-  is about noise and log volume, not feasibility.
+  rotated, the new one printed with a WARN "setup token rotated after repeated failures". A locked address still has
+  every code checked (one constant-time hash compare), so the owner behind a shared Docker gateway is never locked out
+  or delayed by a noisy device on the same address: the right code is accepted at once. Its wrong codes do not count
+  towards the rotation and are answered 429 `locked`, each held for one second first; at most four locked checks run
+  at once (a check waits for a slot, it is never refused). A right and a wrong code take the same path until the
+  compare decides. (A check-per-minute throttle here let steady noise take every slot and starve the owner: #156.)
+  At 120 bits the lockout is about noise and log volume, not feasibility.
 
 ### 5.2 Host gate (DNS rebinding)
 
