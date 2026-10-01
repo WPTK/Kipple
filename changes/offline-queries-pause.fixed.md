@@ -1,0 +1,1 @@
+Offline, lists and screens no longer sit loading forever after the connection drops: what the device kept opens, anything else shows its error with Try again and loads by itself when the connection is back, and opening or starring an article offline is saved and sent later instead of being lost on reload. (#167)

@@ -17,7 +17,7 @@ import type {
   OpenResponse,
   Scope,
 } from "./types";
-import { isOffline, queueRead, queueStar, QueueWriteError, supersede } from "@/lib/offline";
+import { failedWhileOffline, isOffline, queueRead, queueStar, QueueWriteError, supersede } from "@/lib/offline";
 import { serverRebuilt } from "@/lib/buildInfo";
 import { setUpdateReady } from "@/lib/offlineState";
 import { toast } from "@/shell/toasts";
@@ -48,7 +48,7 @@ export function useBootstrap(enabled = true) {
       return meta.cached ? { ...b, fromCache: true } : b;
     },
     enabled,
-    retry: (n, e) => (e as { status?: number }).status !== 401 && n < 2,
+    retry: (n, e) => (e as { status?: number }).status !== 401 && !failedWhileOffline(e) && n < 2,
     staleTime: 60_000,
   });
 }
@@ -63,7 +63,8 @@ export function useItems(scope: Scope, enabled = true) {
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled,
     // A search the server refuses (422 too broad) or a cursor it no longer takes (400) will not get better by asking again.
-    retry: (n, e) => !(e instanceof ApiError && (e.status === 422 || e.status === 400 || e.status === 401 || e.status === 404)) && n < 2,
+    retry: (n, e) =>
+      !(e instanceof ApiError && (e.status === 422 || e.status === 400 || e.status === 401 || e.status === 404)) && !failedWhileOffline(e) && n < 2,
     // A list is a snapshot: rows read in place stay visible (dimmed) until the
     // user refreshes or leaves. SSE never refetches it behind the user's back.
     staleTime: Infinity,
@@ -76,11 +77,9 @@ export function useItem(id: string | undefined) {
     queryKey: keys.item(id ?? ""),
     queryFn: ({ signal }) => api<ItemDetail>(`/api/items/${id}`, { signal }),
     enabled: !!id,
+    // Asked even when the browser says it is offline (networkMode "always", the client default in App.tsx): the
+    // service worker may hold this article, and when it does not the article shows its error screen (#95).
     staleTime: 5 * 60_000,
-    // Always ask, even when the browser says it is offline: the service worker may hold this article (saved for
-    // offline), and when it does not the request fails at once and the article shows its error screen. Under the
-    // default ("online") the query would sit paused, a loading skeleton with no end.
-    networkMode: "always",
   });
 }
 

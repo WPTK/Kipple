@@ -1,4 +1,4 @@
-import type { QueryClient } from "@tanstack/react-query";
+import { onlineManager, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, authStore, buildPath } from "@/api/client";
 import { itemsParams, keys, PAGE_SIZE } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
@@ -186,6 +186,15 @@ export function isOffline(e: unknown): boolean {
   return e instanceof ApiError && e.status === 0;
 }
 
+/**
+ * A read that never reached the server (not even the service worker had a copy) while the browser itself says it is
+ * offline. Asking again a second later cannot help, so queries do not retry it: the screen shows its error (with Try
+ * again) at once, and the query runs again when the browser comes back online.
+ */
+export function failedWhileOffline(e: unknown): boolean {
+  return isOffline(e) && typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
 async function refreshCount(): Promise<void> {
   setPending((await safe((b) => b.all(), [])).length);
 }
@@ -371,6 +380,10 @@ export function resetPrefetchForTests(): void {
  */
 export function initOffline(qc: QueryClient): () => void {
   const cleanups: Array<() => void> = [];
+  // TanStack Query assumes it starts online and learns otherwise only from an `offline` event, so an app launched
+  // offline never sees a change when the network comes back, and its failed screens would not load again by
+  // themselves (refetchOnReconnect). Start it from what the browser says.
+  onlineManager.setOnline(navigator.onLine !== false);
   const on = <K extends keyof WindowEventMap>(t: K, f: () => void) => {
     window.addEventListener(t, f);
     cleanups.push(() => window.removeEventListener(t, f));
