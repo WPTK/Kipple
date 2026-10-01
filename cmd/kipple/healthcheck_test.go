@@ -29,6 +29,7 @@ func TestHealthURL(t *testing.T) {
 }
 
 func TestProbeHealth(t *testing.T) {
+	quiesceHTTP(t)
 	status := http.StatusOK
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/healthz", r.URL.Path)
@@ -46,7 +47,26 @@ func TestProbeHealth(t *testing.T) {
 	require.ErrorContains(t, probeHealth(addr, time.Second), "unhealthy")
 }
 
+// The probe keeps no connection open after it returns, even against a server
+// that would keep it alive forever: a pooled keep-alive connection's read loop
+// calls time.Now, and one left behind raced a later test's change of time.Local
+// (issue #165).
+func TestProbeHealthLeavesNoConnection(t *testing.T) {
+	quiesceHTTP(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	for i := 0; i < 3; i++ {
+		require.NoError(t, probeHealth(srv.Listener.Addr().String(), time.Second))
+	}
+	// The server is still up (an httptest server never times an idle connection
+	// out), so only the probe itself can have closed its connections.
+	requireNoGoroutines(t, httpClientGoroutine, "the probe left a client connection open")
+}
+
 func TestProbeHealthTimeout(t *testing.T) {
+	quiesceHTTP(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0") // accepts, never answers
 	require.NoError(t, err)
 	defer ln.Close()
@@ -63,6 +83,7 @@ func TestHealthAddrsOrder(t *testing.T) {
 }
 
 func TestProbeHealthAnyTakesTheFirstHealthy(t *testing.T) {
+	quiesceHTTP(t)
 	var mu sync.Mutex
 	var hits []string
 	mk := func(name, body string) string {

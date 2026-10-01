@@ -411,7 +411,7 @@ func preRestoreKey(name string) (at time.Time, n int, ok bool) {
 	if !ok || len(rest) < len(preRestoreLayout) {
 		return time.Time{}, 0, false
 	}
-	loc := time.Local
+	loc := localZone()
 	stamp, suf := rest[:len(preRestoreLayout)], rest[len(preRestoreLayout):]
 	if after, utc := strings.CutPrefix(suf, preRestoreUTC); utc {
 		loc, suf = time.UTC, after
