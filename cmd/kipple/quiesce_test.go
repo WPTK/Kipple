@@ -8,17 +8,19 @@ import (
 	"time"
 )
 
-// Tests in this package change time.Local (TestApplyTZ, the restore tests,
-// runServe through TZ), a plain global that every time.Now reads. A write is
-// only safe when no other goroutine can read it: an HTTP keep-alive read loop
-// left over from an earlier test (it calls time.Now when it pools its
-// connection) is exactly such a reader (issue #165). So:
+// time.Local is a plain global that every time.Now reads. runServe sets it at
+// start-up, and in one test binary runServe runs many times while goroutines of
+// earlier tests (an HTTP keep-alive read loop pools its connection with
+// time.Now) may still be running: that raced in issue #165. Waiting for those
+// goroutines to exit is not enough for the race detector (a goroutine's exit
+// does not order its last time.Now before the write), so:
 //
+//   - no test writes the real time.Local: tests that need a zone, or run code
+//     that sets one, go through fakeLocalZone, which swaps the localZone and
+//     writeLocalZone seams and restores them with t.Cleanup;
 //   - tests that start an HTTP server or client call quiesceHTTP, which closes
-//     idle connections and waits for every HTTP goroutine before the test ends;
-//   - tests that change time.Local do it only through setLocalForTest, which
-//     first requires that no stray goroutine is left and puts the old zone back
-//     the same way.
+//     idle connections and requires every HTTP goroutine gone before the test
+//     ends, so none outlives its test.
 
 // quietWait bounds the wait for goroutines that are already on their way out
 // (a closed connection's read loop exits asynchronously).
@@ -105,18 +107,25 @@ func quiesceHTTP(t *testing.T, transports ...*http.Transport) {
 	})
 }
 
-// setLocalForTest makes loc time.Local for the test and puts the old zone back
-// when it ends. Both writes wait until no stray goroutine is left (and fail the
-// test if one stays), so nothing can read the clock while time.Local changes.
-// Call it first, before the test starts anything, so the restore runs after the
-// test's other cleanups. Never use it in a parallel test.
-func setLocalForTest(t *testing.T, loc *time.Location) {
+// fakeZone stands in for time.Local during a test (fakeLocalZone).
+type fakeZone struct {
+	loc    *time.Location // what localZone reports
+	writes int            // how many times setLocal wrote it
+}
+
+// fakeLocalZone points the localZone and writeLocalZone seams at a fake that
+// starts as loc, for the rest of the test, and puts the real ones back when it
+// ends: the code under test then never writes the real time.Local. It first
+// requires that no stray goroutine is left, so an earlier test that leaked one
+// fails here with its stack. Call it before the test starts anything (runServe
+// reads the seams). Never use it in a parallel test.
+func fakeLocalZone(t *testing.T, loc *time.Location) *fakeZone {
 	t.Helper()
 	requireQuiet(t)
-	old := time.Local
-	t.Cleanup(func() {
-		requireQuiet(t)
-		time.Local = old
-	})
-	time.Local = loc
+	z := &fakeZone{loc: loc}
+	oldGet, oldSet := localZone, writeLocalZone
+	t.Cleanup(func() { localZone, writeLocalZone = oldGet, oldSet })
+	localZone = func() *time.Location { return z.loc }
+	writeLocalZone = func(l *time.Location) { z.loc = l; z.writes++ }
+	return z
 }

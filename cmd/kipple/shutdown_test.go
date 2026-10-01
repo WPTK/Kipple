@@ -106,12 +106,12 @@ func TestRunServeStartsNothingWhenSetupFails(t *testing.T) {
 }
 
 // serveEnv sets the environment for a runServe test: a fresh data directory,
-// addr, no account, and TZ=UTC with time.Local already UTC (setLocalForTest), so
-// runServe's applyTZ is a no-op and never writes time.Local while it runs
-// (issue #165). Call it before starting anything.
-func serveEnv(t *testing.T, addr string) {
+// addr, no account, TZ=UTC, and a fake time.Local (fakeLocalZone, starting as
+// UTC) that runServe sets instead of the real one (issue #165). Call it before
+// starting anything.
+func serveEnv(t *testing.T, addr string) *fakeZone {
 	t.Helper()
-	setLocalForTest(t, time.UTC)
+	z := fakeLocalZone(t, time.UTC)
 	t.Setenv("KIPPLE_DATA", filepath.Join(t.TempDir(), "data"))
 	t.Setenv("KIPPLE_ADDR", addr)
 	t.Setenv("KIPPLE_LOG_LEVEL", "error")
@@ -122,28 +122,23 @@ func serveEnv(t *testing.T, addr string) {
 	t.Setenv("KIPPLE_TRUSTED_PROXY_IPS", "")
 	t.Setenv("KIPPLE_SCHED_TICK", "")
 	t.Setenv("TZ", "UTC")
+	return z
 }
 
-// runServe started and stopped again and again, each time while a client holds
-// an idle keep-alive connection to it, leaves nothing running when it returns
-// (no serve, scheduler, maintenance or connection goroutine) and never writes
-// time.Local when the zone is unchanged: a goroutine left behind, or a second
-// write, is what raced in issue #165. Deterministic: no -race needed.
+// runServe started and stopped again and again on one data directory, each time
+// while a client holds an idle keep-alive connection to it, leaves nothing
+// running when it returns (no serve, scheduler, maintenance or connection
+// goroutine) and sets the zone only on the first start: a goroutine left
+// behind, or a repeated write of time.Local, is what raced in issue #165.
+// Deterministic: no -race needed.
 func TestRunServeStartStopLeavesNothingRunning(t *testing.T) {
-	ny, err := time.LoadLocation("America/New_York")
-	require.NoError(t, err)
 	oldH, oldSig, oldListen, oldLog := newWebHandler, stopSignals, listenTCP, slog.Default()
 	t.Cleanup(func() { newWebHandler, stopSignals, listenTCP = oldH, oldSig, oldListen; slog.SetDefault(oldLog) })
 	newWebHandler = func(func() string) (http.Handler, error) { return http.NotFoundHandler(), nil }
+	z := serveEnv(t, "127.0.0.1:0")
+	t.Setenv("TZ", "America/New_York") // not the fake's UTC: the first start applies it
 
 	for i := 0; i < 3; i++ {
-		serveEnv(t, "127.0.0.1:0")
-		// A zone other than UTC, already in force: time.LoadLocation returns a new
-		// *Location for it on every call, so a write would show as a new pointer.
-		setLocalForTest(t, ny)
-		t.Setenv("TZ", "America/New_York")
-		zone := time.Local
-
 		ctx, cancel := context.WithCancel(context.Background())
 		stopSignals = func() (context.Context, context.CancelFunc) { return ctx, cancel }
 		lns := make(chan net.Listener, 1)
@@ -180,7 +175,8 @@ func TestRunServeStartStopLeavesNothingRunning(t *testing.T) {
 		case <-time.After(30 * time.Second):
 			t.Fatal("runServe did not stop")
 		}
-		require.Same(t, zone, time.Local, "runServe wrote time.Local although the zone was unchanged")
+		require.Equal(t, "America/New_York", z.loc.String(), "TZ is applied")
+		require.Equal(t, 1, z.writes, "only the first start wrote time.Local: the zone was unchanged after it")
 		// Shutdown closed the server's side of the idle connection; the client's
 		// side goes too, and then nothing at all may be left running.
 		tr.CloseIdleConnections()

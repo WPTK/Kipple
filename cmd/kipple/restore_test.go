@@ -174,8 +174,8 @@ func TestRestoreRefusesWhileTheServerHoldsTheLock(t *testing.T) {
 }
 
 func TestServeRefusesWhenTheLockIsHeld(t *testing.T) {
-	// TZ=UTC is already the zone, so runServe does not write time.Local (#165).
-	setLocalForTest(t, time.UTC)
+	// runServe applies TZ to a fake time.Local, never the real one (#165).
+	z := fakeLocalZone(t, time.UTC)
 	dir := t.TempDir()
 	t.Setenv("KIPPLE_DATA", dir)
 	t.Setenv("TZ", "UTC")
@@ -186,7 +186,7 @@ func TestServeRefusesWhenTheLockIsHeld(t *testing.T) {
 	require.ErrorContains(t, err, "already running")
 	_, statErr := os.Stat(filepath.Join(dir, "kipple.db"))
 	require.True(t, os.IsNotExist(statErr), "a refused serve never touched the database")
-	require.Same(t, time.UTC, time.Local, "runServe left the unchanged zone alone")
+	require.Zero(t, z.writes, "runServe left the unchanged zone alone")
 }
 
 // corruptDBEntry copies the zip with one byte of kipple.db's uncompressed content flipped and
@@ -413,7 +413,7 @@ func TestPreRestoreNamesAreUTC(t *testing.T) {
 // east of UTC the old names read as UTC would look hours newer than they are
 // and pruning would delete the new copy; they are read as local time instead.
 func TestPrunePreRestoreMixesLegacyLocalAndUTCNames(t *testing.T) {
-	setLocalForTest(t, time.FixedZone("UTC+3", 3*3600))
+	fakeLocalZone(t, time.FixedZone("UTC+3", 3*3600))
 
 	at, _, ok := preRestoreKey("pre-restore-20260926-120000")
 	require.True(t, ok)

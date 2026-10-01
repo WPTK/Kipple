@@ -12,31 +12,40 @@ import (
 )
 
 func TestApplyTZ(t *testing.T) {
-	setLocalForTest(t, time.Local)
+	z := fakeLocalZone(t, time.UTC)
 
 	require.NoError(t, applyTZ("America/New_York"))
 	noon := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
-	require.Equal(t, 8, noon.In(time.Local).Hour(), "EDT is UTC-4 (tzdata is embedded)")
-	require.Equal(t, 7, time.Date(2026, 1, 4, 12, 0, 0, 0, time.UTC).In(time.Local).Hour(), "EST is UTC-5")
+	require.Equal(t, 8, noon.In(z.loc).Hour(), "EDT is UTC-4 (tzdata is embedded)")
+	require.Equal(t, 7, time.Date(2026, 1, 4, 12, 0, 0, 0, time.UTC).In(z.loc).Hour(), "EST is UTC-5")
 
 	require.NoError(t, applyTZ("America/Chicago"))
-	require.Equal(t, 7, noon.In(time.Local).Hour())
+	require.Equal(t, 7, noon.In(z.loc).Hour())
+	require.Equal(t, 2, z.writes)
 
-	before := time.Local
+	before := z.loc
 	require.Error(t, applyTZ("Not/AZone"))
-	require.Same(t, before, time.Local, "a bad zone leaves time.Local alone")
+	require.Same(t, before, z.loc, "a bad zone leaves time.Local alone")
 
 	// The same zone again is not a write (issue #165): a repeated start leaves the
 	// global alone, even though LoadLocation returns a new *Location every time.
 	require.NoError(t, applyTZ("America/Chicago"))
-	require.Same(t, before, time.Local, "an unchanged zone leaves time.Local alone")
+	require.Same(t, before, z.loc, "an unchanged zone leaves time.Local alone")
 	other, err := time.LoadLocation("America/Chicago")
 	require.NoError(t, err)
 	require.NotSame(t, before, other, "the check above would pass without the name comparison otherwise")
 	setLocal(other)
-	require.Same(t, before, time.Local)
+	require.Same(t, before, z.loc)
+	require.Equal(t, 2, z.writes, "no write for an unchanged zone")
 	setLocal(time.UTC)
-	require.Same(t, time.UTC, time.Local, "a different zone is still applied")
+	require.Same(t, time.UTC, z.loc, "a different zone is still applied")
+	require.Equal(t, 3, z.writes)
+}
+
+// The real seams read and write time.Local itself. (Only the read is exercised:
+// a test never writes the real global, see quiesce_test.go.)
+func TestLocalZoneIsTimeLocal(t *testing.T) {
+	require.Same(t, time.Local, localZone())
 }
 
 func TestSuperviseServeExitCodes(t *testing.T) {

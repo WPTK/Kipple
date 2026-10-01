@@ -121,14 +121,22 @@ func applyTZ(tz string) error {
 // setLocal makes loc the process's local time zone (time.Local). It is called
 // only at start-up, before any goroutine that reads the clock exists: time.Local
 // is a plain global that every time.Now reads. A zone with the same name as the
-// current one is left alone, so a repeated start (tests run runServe many times
-// in one process) never writes the global again.
+// current one is left alone, so a repeated start never writes the global again.
 func setLocal(loc *time.Location) {
-	if loc.String() == time.Local.String() {
+	if loc.String() == localZone().String() {
 		return
 	}
-	time.Local = loc
+	writeLocalZone(loc)
 }
+
+// localZone and writeLocalZone read and write time.Local (seams for tests). The
+// tests replace both with a fake (fakeLocalZone): one test binary runs runServe
+// many times while goroutines of earlier tests still call time.Now, so a test
+// may never write the real global (issue #165).
+var (
+	localZone      = func() *time.Location { return time.Local }
+	writeLocalZone = func(loc *time.Location) { time.Local = loc }
+)
 
 func runServe() error {
 	cfg, err := config.Load()
