@@ -93,8 +93,8 @@ func TestShutdownBudgetLeft(t *testing.T) {
 // A setup failure after the store is open returns with no scheduler or
 // maintenance running: they start only once every handler is built.
 func TestRunServeStartsNothingWhenSetupFails(t *testing.T) {
-	oldH, oldS, oldLocal, oldLog := newWebHandler, startBackground, time.Local, slog.Default()
-	t.Cleanup(func() { newWebHandler, startBackground, time.Local = oldH, oldS, oldLocal; slog.SetDefault(oldLog) })
+	oldH, oldS, oldLog := newWebHandler, startBackground, slog.Default()
+	t.Cleanup(func() { newWebHandler, startBackground = oldH, oldS; slog.SetDefault(oldLog) })
 	started := false
 	startBackground = func(*sched.Scheduler, *maint.Maint, *favicon.Finder) { started = true }
 	newWebHandler = func(func() string) (http.Handler, error) { return nil, errors.New("no dist") }
@@ -105,8 +105,13 @@ func TestRunServeStartsNothingWhenSetupFails(t *testing.T) {
 	require.False(t, started, "nothing was started, so nothing is left running")
 }
 
+// serveEnv sets the environment for a runServe test: a fresh data directory,
+// addr, no account, and TZ=UTC with time.Local already UTC (setLocalForTest), so
+// runServe's applyTZ is a no-op and never writes time.Local while it runs
+// (issue #165). Call it before starting anything.
 func serveEnv(t *testing.T, addr string) {
 	t.Helper()
+	setLocalForTest(t, time.UTC)
 	t.Setenv("KIPPLE_DATA", filepath.Join(t.TempDir(), "data"))
 	t.Setenv("KIPPLE_ADDR", addr)
 	t.Setenv("KIPPLE_LOG_LEVEL", "error")
@@ -119,12 +124,76 @@ func serveEnv(t *testing.T, addr string) {
 	t.Setenv("TZ", "UTC")
 }
 
+// runServe started and stopped again and again, each time while a client holds
+// an idle keep-alive connection to it, leaves nothing running when it returns
+// (no serve, scheduler, maintenance or connection goroutine) and never writes
+// time.Local when the zone is unchanged: a goroutine left behind, or a second
+// write, is what raced in issue #165. Deterministic: no -race needed.
+func TestRunServeStartStopLeavesNothingRunning(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	oldH, oldSig, oldListen, oldLog := newWebHandler, stopSignals, listenTCP, slog.Default()
+	t.Cleanup(func() { newWebHandler, stopSignals, listenTCP = oldH, oldSig, oldListen; slog.SetDefault(oldLog) })
+	newWebHandler = func(func() string) (http.Handler, error) { return http.NotFoundHandler(), nil }
+
+	for i := 0; i < 3; i++ {
+		serveEnv(t, "127.0.0.1:0")
+		// A zone other than UTC, already in force: time.LoadLocation returns a new
+		// *Location for it on every call, so a write would show as a new pointer.
+		setLocalForTest(t, ny)
+		t.Setenv("TZ", "America/New_York")
+		zone := time.Local
+
+		ctx, cancel := context.WithCancel(context.Background())
+		stopSignals = func() (context.Context, context.CancelFunc) { return ctx, cancel }
+		lns := make(chan net.Listener, 1)
+		listenTCP = func(string) (net.Listener, error) {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err == nil {
+				lns <- ln
+			}
+			return ln, err
+		}
+		done := make(chan error, 1)
+		go func() { done <- runServe() }()
+		var ln net.Listener
+		select {
+		case ln = <-lns:
+		case err := <-done:
+			t.Fatalf("runServe returned before listening: %v", err)
+		case <-time.After(10 * time.Second):
+			t.Fatal("runServe did not listen")
+		}
+
+		// One request on a keep-alive connection, which then idles in the pool.
+		tr := &http.Transport{Proxy: nil}
+		resp, err := (&http.Client{Transport: tr}).Get("http://" + ln.Addr().String() + "/healthz")
+		require.NoError(t, err)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		cancel() // the stop signal
+		select {
+		case err := <-done:
+			require.NoError(t, err, "a signalled stop is a clean exit")
+		case <-time.After(30 * time.Second):
+			t.Fatal("runServe did not stop")
+		}
+		require.Same(t, zone, time.Local, "runServe wrote time.Local although the zone was unchanged")
+		// Shutdown closed the server's side of the idle connection; the client's
+		// side goes too, and then nothing at all may be left running.
+		tr.CloseIdleConnections()
+		requireQuiet(t)
+	}
+}
+
 // The favicon finder starts with the scheduler and, on any return from
 // runServe after it started (here the listener fails), has stopped before the
 // store closed: the deferred Stop and the budgeted stopAll both join it.
 func TestRunServeStopsTheFaviconFinder(t *testing.T) {
-	oldH, oldS, oldLocal, oldLog := newWebHandler, startBackground, time.Local, slog.Default()
-	t.Cleanup(func() { newWebHandler, startBackground, time.Local = oldH, oldS, oldLocal; slog.SetDefault(oldLog) })
+	oldH, oldS, oldLog := newWebHandler, startBackground, slog.Default()
+	t.Cleanup(func() { newWebHandler, startBackground = oldH, oldS; slog.SetDefault(oldLog) })
 	newWebHandler = func(func() string) (http.Handler, error) { return http.NotFoundHandler(), nil }
 	var finder *favicon.Finder
 	startBackground = func(s *sched.Scheduler, m *maint.Maint, icons *favicon.Finder) {

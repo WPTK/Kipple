@@ -12,8 +12,7 @@ import (
 )
 
 func TestApplyTZ(t *testing.T) {
-	old := time.Local
-	t.Cleanup(func() { time.Local = old })
+	setLocalForTest(t, time.Local)
 
 	require.NoError(t, applyTZ("America/New_York"))
 	noon := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
@@ -26,6 +25,18 @@ func TestApplyTZ(t *testing.T) {
 	before := time.Local
 	require.Error(t, applyTZ("Not/AZone"))
 	require.Same(t, before, time.Local, "a bad zone leaves time.Local alone")
+
+	// The same zone again is not a write (issue #165): a repeated start leaves the
+	// global alone, even though LoadLocation returns a new *Location every time.
+	require.NoError(t, applyTZ("America/Chicago"))
+	require.Same(t, before, time.Local, "an unchanged zone leaves time.Local alone")
+	other, err := time.LoadLocation("America/Chicago")
+	require.NoError(t, err)
+	require.NotSame(t, before, other, "the check above would pass without the name comparison otherwise")
+	setLocal(other)
+	require.Same(t, before, time.Local)
+	setLocal(time.UTC)
+	require.Same(t, time.UTC, time.Local, "a different zone is still applied")
 }
 
 func TestSuperviseServeExitCodes(t *testing.T) {

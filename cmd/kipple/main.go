@@ -114,8 +114,20 @@ func applyTZ(tz string) error {
 	if err != nil {
 		return fmt.Errorf("TZ %q: %w", tz, err)
 	}
-	time.Local = loc
+	setLocal(loc)
 	return nil
+}
+
+// setLocal makes loc the process's local time zone (time.Local). It is called
+// only at start-up, before any goroutine that reads the clock exists: time.Local
+// is a plain global that every time.Now reads. A zone with the same name as the
+// current one is left alone, so a repeated start (tests run runServe many times
+// in one process) never writes the global again.
+func setLocal(loc *time.Location) {
+	if loc.String() == time.Local.String() {
+		return
+	}
+	time.Local = loc
 }
 
 func runServe() error {
@@ -182,7 +194,7 @@ func runServe() error {
 		// Nothing but this goroutine runs yet (the pools keep no timers), so this
 		// is the one safe moment: log timestamps follow the effective zone as of
 		// this start; a later change of the setting reaches them after a restart.
-		time.Local = store.Zone(context.Background(), db.Reader())
+		setLocal(store.Zone(context.Background(), db.Reader()))
 	}
 	setupMgr, err := startSetupMode(context.Background(), db, cfg, logger)
 	if err != nil {
@@ -297,7 +309,7 @@ func runServe() error {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := stopSignals()
 	defer stop()
 
 	serveErr := make(chan error, 1)
@@ -335,6 +347,12 @@ func runServe() error {
 	}
 
 	return superviseServe(ctx, serveErr, stopAll, &budget, logger)
+}
+
+// stopSignals is the context the stop signal (SIGINT, SIGTERM) cancels (a seam
+// for tests, which stop runServe by cancelling it).
+var stopSignals = func() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }
 
 // newWebHandler builds the SPA handler (a seam for tests).

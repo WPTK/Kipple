@@ -85,7 +85,11 @@ func probeHealthCtx(ctx context.Context, addr string) error {
 		return err
 	}
 	url := req.URL.String()
-	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req) // #nosec G704 -- the operator's own KIPPLE_ADDR, see healthRequest
+	// A one-shot probe: no keep-alive, so no idle connection (and no read-loop
+	// goroutine calling time.Now) outlives the call.
+	tr := &http.Transport{Proxy: nil, DisableKeepAlives: true}
+	defer tr.CloseIdleConnections()
+	resp, err := (&http.Client{Transport: tr}).Do(req) // #nosec G704 -- the operator's own KIPPLE_ADDR, see healthRequest
 	if err != nil {
 		return fmt.Errorf("unhealthy: %w", err)
 	}
