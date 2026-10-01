@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { onlineManager, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
+import { useRefreshAll } from "@/api/refresh";
 import { ApiError, api, authStore } from "@/api/client";
 import { applyRead, applyStar, keys, useOpenItem, useToggleStar } from "@/api/queries";
 import { OfflineNotice } from "@/shell/OfflineNotice";
@@ -11,6 +12,7 @@ import { card, detail, json, mockFetch } from "@/test/mockApi";
 import {
   FLUSH_REQUEST_MS,
   flushQueue,
+  initOffline,
   isOffline,
   memoryBackendForTests,
   SUPERSEDE_WAIT_MS,
@@ -514,5 +516,108 @@ describe("new builds", () => {
     sw.change({}); // a new build takes over later
     expect(offlineStore.get().updateReady).toBe(true);
     stop();
+  });
+});
+
+// #108: under TanStack Query's default network mode ("online"), every query and mutation started after the browser's
+// `offline` event sat paused before sending anything, so the service worker never got to answer from its copies and
+// the offline queue never ran.
+describe("the query client offline", () => {
+  const offline = () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    onlineManager.setOnline(false);
+  };
+  afterEach(() => {
+    onlineManager.setOnline(true);
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const wrapperFor = (c: QueryClient) =>
+    function Wrapper({ children }: { children: ReactNode }) {
+      return <QueryClientProvider client={c}>{children}</QueryClientProvider>;
+    };
+  /** One plain read through the app's client: the article detail, which the worker keeps. */
+  const useArticle = () => useQuery({ queryKey: ["probe-108"], queryFn: ({ signal }) => api<{ title: string }>("/api/items/1001", { signal }) });
+
+  it("reads and writes always try the network, and a failed screen loads again on reconnect", () => {
+    const d = makeQueryClient().getDefaultOptions();
+    expect(d.queries?.networkMode).toBe("always");
+    expect(d.queries?.refetchOnReconnect).toBe(true);
+    expect(d.queries?.refetchOnWindowFocus).toBe(false);
+    expect(d.mutations?.networkMode).toBe("always");
+  });
+
+  it("a network failure is retried online, not while the browser says it is offline", () => {
+    const retry = makeQueryClient().getDefaultOptions().queries?.retry as (n: number, e: unknown) => boolean;
+    const net = new ApiError(0, "network");
+    expect(retry(0, net)).toBe(true);
+    expect(retry(1, new ApiError(503, "x"))).toBe(true);
+    expect(retry(2, net)).toBe(false);
+    expect(retry(0, new ApiError(401, "auth"))).toBe(false);
+    expect(retry(0, new ApiError(404, "not_found"))).toBe(false);
+    offline();
+    expect(retry(0, net)).toBe(false);
+    expect(retry(0, new ApiError(503, "x"))).toBe(true); // an answer from a struggling server is still worth another try
+    const never = makeQueryClient({ retry: false }).getDefaultOptions().queries?.retry as typeof retry;
+    expect(never(0, new ApiError(503, "x"))).toBe(false);
+  });
+
+  it("a read offline asks the service worker: its copy is shown, not a paused query", async () => {
+    offline();
+    const res = new Response(JSON.stringify(detail(1)), { headers: { "Content-Type": "application/json", "X-Kipple-Cache": "1" } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res));
+    const { result } = renderHook(useArticle, { wrapper: wrapperFor(makeQueryClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.title).toBe(detail(1).title);
+  });
+
+  it("a read nothing on the device can answer fails at once, without retries, and loads when the network is back", async () => {
+    offline();
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(useArticle, { wrapper: wrapperFor(makeQueryClient()) });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockResolvedValue(json(detail(1)));
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    act(() => onlineManager.setOnline(true));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("opening and starring offline are queued, not paused until the network returns", async () => {
+    offline();
+    netFail();
+    const c = makeQueryClient();
+    c.setQueryData(keys.item("1001"), detail(1));
+    const star = renderHook(() => useToggleStar(), { wrapper: wrapperFor(c) });
+    star.result.current.mutate({ id: "1001", starred: true });
+    await waitFor(() => expect(star.result.current.isSuccess).toBe(true));
+    const open = renderHook(() => useOpenItem(), { wrapper: wrapperFor(c) });
+    open.result.current.mutate({ id: "1001", via: "tap" });
+    await waitFor(() => expect(open.result.current.isSuccess).toBe(true));
+    expect(offlineStore.get().pending).toBe(2);
+  });
+
+  it("a write that is not queued fails with its usual error offline", async () => {
+    offline();
+    netFail();
+    const toast = vi.spyOn(toasts, "toast");
+    const refresh = renderHook(() => useRefreshAll(), { wrapper: wrapperFor(makeQueryClient()) });
+    refresh.result.current.mutate();
+    await waitFor(() => expect(refresh.result.current.isError).toBe(true));
+    expect(toast).toHaveBeenCalledWith("Kipple couldn't reach the server.", "error");
+  });
+
+  it("the online state starts from the browser's, so a launch offline still sees the network come back", () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    const stop = initOffline(new QueryClient());
+    try {
+      expect(onlineManager.isOnline()).toBe(false);
+    } finally {
+      stop();
+    }
   });
 });

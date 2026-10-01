@@ -123,6 +123,15 @@ was checked. The in-page probes live in `web/uat/probes.mjs` (linted with browse
 `web/uat/run.mjs`. S5 also looks for `Invalid Date`
 and in form field values. A screen still loading after 15 s is an error, not a pass.
 
+Offline reading (`npm run uat:offline`, `web/uat/offline.mjs`, against the same seeded instance): Suite 1 blocks the
+service worker, so offline is checked on its own, at 1280x800 and 375x812. A fresh browser signs in, lets the worker
+install and keep the first page of Unread, then goes offline with the app open (the page sees the `offline` event) and
+checks: a list and a screen the worker never kept (Starred, Stats) end in their error screen, not a skeleton (O1);
+opening and starring an article are queued and counted in the notice (O2); a reload offline shows the Unread list
+from the worker's copy with the offline notice (O3) and opens the article from it (O4); O1 again after the reload
+(O5); back online the queue is sent and Stats loads by itself (O6). It refuses non-loopback addresses and other
+credentials like the main run. Exit code 0 clean, 1 findings, 2 setup error.
+
 ## Suite 2 — Agent-driven scenario walkthroughs
 
 Test case format (per the standard guide): ID, title, precondition, steps, expected result.

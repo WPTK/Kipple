@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import { ApiError, authStore, openRefusedStore, SESSION_EXPIRED } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
-import { prefetchUnread } from "@/lib/offline";
+import { failedWhileOffline, prefetchUnread } from "@/lib/offline";
 import { offlineStore } from "@/lib/offlineState";
 import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
@@ -40,13 +40,26 @@ function Lazy({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<Skeleton label="Loading screen" />}>{children}</Suspense>;
 }
 
+/**
+ * Network mode "always" for reads and writes (#108). Under TanStack Query's default ("online") a query or mutation
+ * started after the browser's `offline` event is paused before it sends anything, so it never reaches the service
+ * worker, which answers the bootstrap, lists and articles from its copies (web/sw/sw.js), and a screen with nothing
+ * kept shows a skeleton that never ends instead of its error. Writes too: the offline queue (lib/offline.ts) only
+ * runs when the request is actually tried and fails, and a write it does not queue fails with its usual error.
+ */
 export function makeQueryClient(opts: { retry?: boolean } = {}): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        retry: (n, e) => opts.retry !== false && !(e instanceof ApiError && (e.status === 401 || e.status === 404)) && n < 2,
+        networkMode: "always",
+        retry: (n, e) =>
+          opts.retry !== false && !(e instanceof ApiError && (e.status === 401 || e.status === 404)) && !failedWhileOffline(e) && n < 2,
         refetchOnWindowFocus: false,
+        // TanStack Query turns this off by default under "always"; keep it, so a screen that failed offline loads
+        // again by itself when the network is back (lib/offline.ts starts the online state from the browser's).
+        refetchOnReconnect: true,
       },
+      mutations: { networkMode: "always" },
     },
   });
 }
