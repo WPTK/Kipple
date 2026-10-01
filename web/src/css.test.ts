@@ -34,3 +34,21 @@ describe("hit-row tap target", () => {
     expect(css).toMatch(/@media \(pointer: coarse\) \{\s*\.hit-row \{ min-width: 44px; min-height: 44px; \}/);
   });
 });
+
+describe("status-bar cover", () => {
+  it("is a solid, fixed, touch-through strip the height of the notch inset, in the page background", () => {
+    const r = rules().find((x) => x.sel.endsWith("#kp-top-cover"));
+    expect(r?.body).toMatch(/position:\s*fixed;/);
+    expect(r?.body).toMatch(/top:\s*0;/);
+    expect(r?.body).toMatch(/height:\s*env\(safe-area-inset-top\);/);
+    expect(r?.body).toMatch(/background:\s*var\(--kp-bg\);/);
+    expect(r?.body).toMatch(/pointer-events:\s*none;/);
+    // below dialogs and menus (z-50)
+    expect(Number(/z-index:\s*(\d+);/.exec(r?.body ?? "")?.[1])).toBeLessThan(50);
+  });
+
+  it("is in the page before the app root, hidden from assistive technology", () => {
+    const html = readFileSync("index.html", "utf8");
+    expect(html).toMatch(/<div id="kp-top-cover" aria-hidden="true"><\/div>\s*<div id="root">/);
+  });
+});
