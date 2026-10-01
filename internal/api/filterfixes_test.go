@@ -101,11 +101,14 @@ func TestPatchCancelsApplyOnlyOnMatchingChanges(t *testing.T) {
 }
 
 // An apply that runs past applyBudget ends with its own reason, counted as a failure.
+//
+// The budget is zero, not tiny: context.WithTimeoutCause cancels a context whose deadline has already
+// passed before it returns, so the run is out of time before the store reads anything. A budget of
+// a nanosecond (issue #154) armed a timer when the clock had not ticked since the deadline was set,
+// and a 50-item scan sometimes finished before that timer fired, ending the run with no error.
 func TestApplyBudgetEndsTheRun(t *testing.T) {
-	old := applyBudget
-	applyBudget = time.Nanosecond
-	t.Cleanup(func() { applyBudget = old })
 	h := newHarness(t)
+	h.srv.apply.budget = 0
 	c := h.login()
 	feed := h.addFeed("A", 0)
 	h.bulkItems(feed, 50)

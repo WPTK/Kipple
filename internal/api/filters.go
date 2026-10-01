@@ -29,7 +29,8 @@ var (
 )
 
 // applyBudget bounds one apply run (the store checks the context on every item, so it ends promptly).
-var applyBudget = 30 * time.Minute
+// New copies it into each server's apply.budget, which a test may set per server.
+const applyBudget = 30 * time.Minute
 
 // testApplyCountHook, when set by a test, runs where startApply counts the candidates.
 var testApplyCountHook func()
@@ -500,6 +501,9 @@ type applyState struct {
 	wg   sync.WaitGroup
 	stop context.CancelFunc
 	ctx  context.Context
+	// budget bounds one run (applyBudget). Set in New and read only by runApply, so a test sets it
+	// before it starts a run.
+	budget time.Duration
 	// cancelRun and done belong to the active run: cancelRun stops it, done is closed when its
 	// goroutine has finished (cancelApply waits on it).
 	cancelRun context.CancelCauseFunc
@@ -611,7 +615,7 @@ func (s *Server) runApply(ctx context.Context, cancel context.CancelCauseFunc, d
 	defer s.apply.wg.Done()
 	defer close(done)
 	defer cancel(nil)
-	ctx, stop := context.WithTimeoutCause(ctx, applyBudget, errApplyTimedOut)
+	ctx, stop := context.WithTimeoutCause(ctx, s.apply.budget, errApplyTimedOut)
 	defer stop()
 	var lastProgress time.Time
 	res, err := s.db.ApplyFilter(ctx, id, includeRead, total,

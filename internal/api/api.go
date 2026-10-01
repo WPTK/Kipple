@@ -242,6 +242,7 @@ func New(opt Options) *Server {
 	}
 	bgCtx, cancel := context.WithCancel(context.Background())
 	s.apply.ctx = bgCtx
+	s.apply.budget = applyBudget
 	s.apply.stop = func() {
 		s.bgMu.Lock()
 		s.bgClosed = true
