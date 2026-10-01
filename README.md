@@ -9,6 +9,7 @@
 [![Open issues](https://img.shields.io/github/issues/WPTK/Kipple)](https://github.com/WPTK/Kipple/issues)
 
 [![Test coverage](https://codecov.io/gh/WPTK/Kipple/graph/badge.svg)](https://codecov.io/gh/WPTK/Kipple)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15120/badge)](https://www.bestpractices.dev/projects/15120)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/WPTK/Kipple/badge)](https://scorecard.dev/viewer/?uri=github.com/WPTK/Kipple)
 [![Signed with cosign](https://img.shields.io/badge/signed-cosign%20(sigstore)-success)](#quickstart)
 [![Security policy](https://img.shields.io/badge/security-policy-success)](SECURITY.md)
