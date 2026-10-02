@@ -8,6 +8,13 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.5.0-beta.2] - 2026-10-01
+
+### Fixed
+
+- iOS Safari and the installed app tinted and softened the status-bar strip above the list header, which showed as a blur until you scrolled; a solid, fixed cover in the page colour now gives it one thing to sample. (#163)
+- Offline, lists and screens no longer sit loading forever after the connection drops: what the device kept opens, anything else shows its error with Try again and loads by itself when the connection is back, and opening or starring an article offline is saved and sent later instead of being lost on reload. (#167)
+
 ## [0.5.0-beta.1] - 2026-09-30
 
 ### Added
@@ -729,7 +736,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.1...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.2...HEAD
+[0.5.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.1...v0.5.0-beta.2
 [0.5.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.3...v0.5.0-beta.1
 [0.3.0-beta.3]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.2...v0.3.0-beta.3
 [0.3.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.1...v0.3.0-beta.2
