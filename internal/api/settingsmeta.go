@@ -60,9 +60,6 @@ type settingDef struct {
 	Scope       string          `json:"scope"` // global | device | both
 
 	check func(v any) (any, string)
-	// envVar names the environment variable that overrides the setting when set
-	// (tz: TZ); the view then carries env_override and a PATCH is refused.
-	envVar string
 }
 
 // settingView is a settingDef with its current value and default.
@@ -70,9 +67,6 @@ type settingView struct {
 	settingDef
 	Value   any `json:"value"`
 	Default any `json:"default"`
-	// EnvOverride is present on settings an environment variable can override:
-	// the variable's value, or null when it is unset.
-	EnvOverride json.RawMessage `json:"env_override,omitempty"`
 }
 
 // maxAllowedHosts bounds security.allowed_hosts.
@@ -380,7 +374,7 @@ var settingDefs = withScopes([]settingDef{
 
 	// Account.
 	{Key: store.SettingTZ, Label: "Time zone", Description: "Used for daily statistics and the nightly maintenance job.",
-		Group: groupAccount, Kind: "text", Surface: surfaceSettings, envVar: "TZ", check: func(v any) (any, string) {
+		Group: groupAccount, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
 			s, ok := v.(string)
 			if !ok || s == "" || s == "Local" || len(s) > 64 {
 				return nil, "must be an IANA time zone name such as America/New_York"

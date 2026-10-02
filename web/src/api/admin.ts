@@ -30,7 +30,7 @@ export interface SettingMeta {
   step?: number;
   unit?: string;
   surface: SettingSurface;
-  /** The time zone setting only: the TZ environment variable's value while one is set (the setting is then read-only), else null. */
+  /** No longer sent (the time zone setting is the only owner of the zone); the setup wizard's time zone step still reads it. */
   env_override?: string | null;
 }
 

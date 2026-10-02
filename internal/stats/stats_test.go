@@ -290,11 +290,4 @@ func TestZoneResolverDrivesNewRowsOnly(t *testing.T) {
 	require.Equal(t, "2026-01-14", d, "the new zone applies to the next row at once")
 	require.Equal(t, 22, h)
 	require.True(t, len(rows()) > len(before) && rows()[:len(before)] == before, "earlier rows are untouched")
-
-	t.Cleanup(func() { _ = store.SetEnvZone("") })
-	require.NoError(t, store.SetEnvZone("Asia/Tokyo"))
-	require.NoError(t, r.record(Event{Kind: KindOpen, Client: "web", ItemID: itemID, SessionKey: "c"}))
-	d, h = lastDate()
-	require.Equal(t, "2026-01-15", d, "TZ wins over the setting")
-	require.Equal(t, 12, h)
 }

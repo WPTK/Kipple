@@ -1148,17 +1148,6 @@ describe("Settings: run setup again", () => {
     expect(screen.getByRole("button", { name: "Run setup again" })).toBeEnabled();
   });
 
-  it("shows the time zone read-only in Settings when the TZ variable is set", async () => {
-    server(done(), {
-      "GET /api/settings": () => json({ settings: [tzMeta({ ...done(), envTz: "Europe/Paris" })], values: { tz: "Europe/Paris" } }),
-    });
-    go("/settings/account");
-    const field = await screen.findByLabelText("Time zone");
-    expect(field).toHaveAttribute("readonly");
-    expect(field).toHaveValue("Europe/Paris");
-    expect(screen.getByText("Set by the TZ environment variable; remove it to choose here.")).toBeInTheDocument();
-  });
-
   it("offers no Sign out without a password, where Kipple would sign the browser straight back in", async () => {
     server({ ...done(), authMode: "open", passwordSet: false } as World);
     go("/settings/account");

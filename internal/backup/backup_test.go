@@ -582,8 +582,8 @@ func TestInspectRefusesNewerSchemaAndForeignFiles(t *testing.T) {
 	require.ErrorContains(t, err, "not a Kipple database")
 }
 
-// The download name reads in the effective zone (TZ, else the tz setting, else
-// UTC), whatever zone the clock's time carries.
+// The download name reads in the time zone setting (UTC until chosen), whatever
+// zone the clock's time carries.
 func TestBackupFilenameFollowsTheEffectiveZone(t *testing.T) {
 	ctx := context.Background()
 	db := openDB(t)
@@ -598,9 +598,6 @@ func TestBackupFilenameFollowsTheEffectiveZone(t *testing.T) {
 	require.Equal(t, "kipple-backup-20260115-033000.zip", name(), "UTC by default")
 	require.NoError(t, db.SetSettings(ctx, map[string]any{"tz": "America/New_York"}))
 	require.Equal(t, "kipple-backup-20260114-223000.zip", name())
-	t.Cleanup(func() { _ = store.SetEnvZone("") })
-	require.NoError(t, store.SetEnvZone("Asia/Tokyo"))
-	require.Equal(t, "kipple-backup-20260115-123000.zip", name(), "TZ wins")
 }
 
 func TestPortSetting(t *testing.T) {

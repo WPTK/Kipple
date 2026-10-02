@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// #132: the dictionary that ships in every stats export says that a set TZ,
-// not only the tz setting, decides the local fields and the export's tz.
-func TestStatsDictionaryLocalTimeNamesTZ(t *testing.T) {
+// The dictionary that ships in every stats export says that the tz setting alone
+// decides the local fields and the export's tz.
+func TestStatsDictionaryLocalTimeNamesTheSetting(t *testing.T) {
 	var text string
 	for _, c := range statsConcepts {
 		if c.Name == "local_time" {
@@ -16,6 +16,6 @@ func TestStatsDictionaryLocalTimeNamesTZ(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, text)
-	require.Contains(t, text, "TZ environment variable")
-	require.Contains(t, text, "else the tz setting")
+	require.Contains(t, text, "the tz setting")
+	require.NotContains(t, text, "TZ environment variable")
 }

@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"time"
 )
 
@@ -13,41 +12,6 @@ const DefaultTZ = "UTC"
 
 // SettingTZ is the in-app time zone setting (an IANA name).
 const SettingTZ = "tz"
-
-type envZone struct {
-	name string
-	loc  *time.Location
-}
-
-// envTZ is the process's TZ environment variable, when set (SetEnvZone). It is
-// process-wide on purpose: TZ is one value for the whole process, loaded once
-// at start before anything reads a zone.
-var envTZ atomic.Pointer[envZone]
-
-// SetEnvZone records the TZ environment variable (an IANA name) as the zone
-// that overrides the `tz` setting everywhere (docs/setup-wizard-design.md 7a).
-// An empty name clears it. A name that does not resolve is an error and changes
-// nothing.
-func SetEnvZone(name string) error {
-	if name == "" {
-		envTZ.Store(nil)
-		return nil
-	}
-	loc, err := LoadZone(name)
-	if err != nil {
-		return err
-	}
-	envTZ.Store(&envZone{name: name, loc: loc})
-	return nil
-}
-
-// EnvZone is the TZ environment variable's zone name and whether it is set.
-func EnvZone() (string, bool) {
-	if z := envTZ.Load(); z != nil {
-		return z.name, true
-	}
-	return "", false
-}
 
 // LoadZone resolves an IANA zone name for Kipple: never "" or "Local" (which
 // would silently mean the process's own zone), at most 64 bytes, and known to
@@ -63,34 +27,45 @@ func LoadZone(name string) (*time.Location, error) {
 	return loc, nil
 }
 
-// ZoneName is the effective zone's name as configured: the TZ environment
-// variable when set, else the `tz` setting, else DefaultTZ. It is not resolved:
-// the caller decides what an unknown stored name means.
+// ZoneName is the `tz` setting's name, else DefaultTZ. It is not resolved: the
+// caller decides what an unknown stored name means.
 func ZoneName(ctx context.Context, q Querier) string {
-	if name, ok := EnvZone(); ok {
-		return name
-	}
 	return settingString(ctx, q, SettingTZ, DefaultTZ)
 }
 
-// Zone is the one time zone resolver (docs/setup-wizard-design.md 7a): the TZ
-// environment variable when set, else the `tz` setting (read per call, so a
+// Zone is the one time zone resolver: the `tz` setting (read per call, so a
 // change applies to the next stats write, summary and maintenance tick without
 // a restart), else UTC. A stored name that does not resolve is UTC.
 func Zone(ctx context.Context, q Querier) *time.Location {
-	if z := envTZ.Load(); z != nil {
-		return z.loc
-	}
-	loc, err := LoadZone(settingString(ctx, q, SettingTZ, DefaultTZ))
+	loc, err := LoadZone(ZoneName(ctx, q))
 	if err != nil {
 		return time.UTC
 	}
 	return loc
 }
 
-// StoredZoneName is the `tz` setting as stored, ignoring TZ: ok is false when
-// no row exists (the default applies).
+// StoredZoneName is the `tz` setting as stored: ok is false when no row exists
+// (the default applies).
 func StoredZoneName(ctx context.Context, q Querier) (string, bool, error) {
 	s, err := settingStringErr(ctx, q, SettingTZ, "")
 	return s, err == nil && s != "", err
+}
+
+// SeedZone gives a new install the zone of its TZ environment variable: when no
+// `tz` row exists yet it stores name (an IANA name) as the setting. From then on
+// the setting is the only owner of the zone; an install that already has a row,
+// from the wizard, Settings or migration 0010, keeps it and TZ is not read again.
+// An empty name seeds nothing; a name that does not resolve is an error, and only
+// when it would have been stored.
+func (d *DB) SeedZone(ctx context.Context, name string) error {
+	if name == "" {
+		return nil
+	}
+	if _, stored, err := StoredZoneName(ctx, d.reader); err != nil || stored {
+		return err
+	}
+	if _, err := LoadZone(name); err != nil {
+		return err
+	}
+	return d.SetSettings(ctx, map[string]any{SettingTZ: name})
 }
