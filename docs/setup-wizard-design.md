@@ -263,7 +263,12 @@ The **open gate**, checked by `POST /api/auth/open`, by switching to open mode, 
    container's own default gateway (Docker's userland proxy makes every `-p 127.0.0.1:...` connection arrive from the
    bridge gateway, read once from `/proc/net/route`). Other private-range peers (the LAN) are refused unless the
    owner opts in with `security.open_lan` (Settings: "Also allow devices on my local network", default off;
-   decision 3). With it on, RFC 1918 and ULA peers pass too.
+   decision 3). With it on, RFC 1918 and ULA peers pass too, and so does a Tailscale-range peer whose connection reached
+   a private-range local address (the address it was addressed to: a LAN address or a container's bridge); never one
+   that reached a CGNAT, public or unknown local address, because `100.64.0.0/10` is also shared carrier-grade NAT and
+   cloud overlay space. "Reached" is the destination address, not the interface: on a host with both a WAN or CGNAT
+   interface and a LAN address the OS may accept packets for the LAN address from the WAN side, which Kipple cannot
+   see.
 
 Existing sessions keep working after the gate fails (a session is a session), but they are revoked whenever the mode
 changes, as password changes already do.
@@ -313,7 +318,7 @@ INSERT INTO settings (key, value)
   SELECT 'sys.setup_completed_at', CAST(unixepoch() AS TEXT) FROM account WHERE id = 1
   ON CONFLICT (key) DO NOTHING;
 -- Existing installs keep their old defaults (decisions 1 and 5): the stats zone stays America/New_York unless
--- already set, and an unset KIPPLE_ADDR keeps listening on 7080 through 0.x.
+-- already set, and an unset KIPPLE_ADDR keeps listening on 7080 (removed in 0.6.0).
 INSERT INTO settings (key, value)
   SELECT 'tz', '"America/New_York"' FROM account WHERE id = 1
   ON CONFLICT (key) DO NOTHING;
@@ -522,17 +527,21 @@ ownership (65532) from the image; a bind mount needs `chown 65532:65532` first, 
 
 - `config.defaultAddr` becomes `:1919`; `healthURL` stops carrying its own `":7080"` fallback and uses the config
   constant (today they are two literals that must agree: a real drift risk). `EXPOSE 1919`.
-- **Fallback 1138:** only when `KIPPLE_ADDR` is unset and binding `:1919` fails with `EADDRINUSE` (a bare binary on a
+- **Fallback 1138 (removed in 0.6.0, owner decision 2026-10-02):** only when `KIPPLE_ADDR` is unset and binding `:1919` fails with `EADDRINUSE` (a bare binary on a
   machine where 1919 is taken). Logged as a WARN with the port chosen. `kipple healthcheck` with `KIPPLE_ADDR` unset
   probes 1919, then 1138. Inside a container this never triggers.
+  Now: an unset `KIPPLE_ADDR` is `:1919`; a taken port exits with an error naming the address and `KIPPLE_ADDR`, and
+  `kipple healthcheck` makes one probe of the address the server would use.
 - **Legacy shim (decision 1):** when `KIPPLE_ADDR` is unset and `sys.legacy_port` is set (0010 writes it for
   databases that already had an account), `serve` keeps listening on `:7080` and logs a WARN once per start: "port
-  7080 is the pre-0.5 default and will stop being used at 1.0; set KIPPLE_ADDR=:7080 or move to 1919". Fresh installs
+  7080 is the pre-0.5 default and will stop being used in 0.6.0; set KIPPLE_ADDR=:7080 or move to 1919". Fresh installs
   get 1919. The healthcheck cannot read the database cheaply, so with `KIPPLE_ADDR` unset it probes 1919, 7080, 1138
-  in that order (each loopback, same 3 s budget). The shim is deleted at 1.0 with a changelog `removed` entry.
+  in that order (each loopback, same 3 s budget). The shim is deleted in 0.6.0 with a changelog `removed` entry
+  (done: an unset `KIPPLE_ADDR` is always 1919, a taken port is an error, the healthcheck makes one probe, and
+  restore no longer carries the port; migration 0010 and the `sys.legacy_port` row are untouched but nothing reads it).
 - **Owner's live instance:** keeps 7080 by override (and would keep it through the shim anyway). The deploy notes
   still get a line to confirm Host-A sets `KIPPLE_ADDR=:7080`, so nothing depends on the shim.
-- **Others:** with the shim there is no break through 0.x; the scope that would break at 1.0 is deployments with no
+- **Others:** with the shim there is no break in 0.5; the scope that breaks in 0.6.0 is deployments with no
   `KIPPLE_ADDR` and `-p 7080:7080` (anyone who copied `.env.example` has it set explicitly, `.env.example:7`).
   Changelog `changed` entry and an "Upgrading to 0.5.0" note in `docs/deploy.md` announce the 1.0 removal.
 
@@ -620,8 +629,8 @@ previous good digest with `imagetools create`, no rebuild. Signed digests are ne
 - **Claim race:** N goroutines with the valid token and M with wrong ones hammer `claim` + `account` against one
   httptest server and one store; exactly one `201`, every other account call `409` or `401`, one row, one session
   for the winner. Run under `-race` in CI (not locally on Host-B, which has no gcc).
-- Migration 0010 test (section 6). Port: default, legacy shim only with `sys.legacy_port` and no `KIPPLE_ADDR`,
-  fallback on `EADDRINUSE`, healthcheck probing order 1919, 7080, 1138.
+- Migration 0010 test (section 6). Port: default, legacy shim only with `sys.legacy_port` and no `KIPPLE_ADDR`
+  (removed in 0.6.0), fallback on `EADDRINUSE`, healthcheck probing order 1919, 7080, 1138 (now one probe of the address in use; removed in 0.6.0).
 - Time zone (7a): `store.Zone` is the setting else UTC (table test); `SeedZone` stores `TZ` only when no row exists; changing `tz` mid-process moves the next stats row's `local_date` and the nightly
   run with no restart, and leaves every existing `stats_events` row byte-identical; `tz` across a DST boundary; the
   backup filename follows the effective zone; `LoadLocation` never sees `Local` or an empty name.
@@ -655,7 +664,7 @@ The build-from-source path moves to a shorter "For developers" check.
 | PR | Scope | Depends on | Changelog fragment |
 |---|---|---|---|
 | **A** release workflow | `release.yml`, `ci.yml` `workflow_call`, Dockerfile cross-compile (`$BUILDPLATFORM`, `TARGETARCH`), metadata labels, `RELEASING.md` steps for GHCR, cosign verify text | none | `added` (signed multi-arch images on GHCR) |
-| **B** setup-mode backend | `internal/setup` (token, gates, shared account creation), migration 0010, new and changed routes, open mode, Host gate, port 1919 and fallback, healthcheck constant, CLI changes (`setup-token`, `password`, messages), starter-feeds endpoints (list embedded by C; B ships a two-feed placeholder file so it is testable alone), **the time zone setting** (7a: `store.Zone`, env precedence, `env_override` in settings meta, `tz` default UTC, explicit zones replacing `time.Local`) and `onboarding/restart` | none | `added` wizard backend, `changed` default port 1919 (7080 kept for existing installs through 0.x), `changed` new installs default to UTC and a set `TZ` now also governs stats, `security` Host gate |
+| **B** setup-mode backend | `internal/setup` (token, gates, shared account creation), migration 0010, new and changed routes, open mode, Host gate, port 1919 and fallback, healthcheck constant, CLI changes (`setup-token`, `password`, messages), starter-feeds endpoints (list embedded by C; B ships a two-feed placeholder file so it is testable alone), **the time zone setting** (7a: `store.Zone`, env precedence, `env_override` in settings meta, `tz` default UTC, explicit zones replacing `time.Local`) and `onboarding/restart` | none | `added` wizard backend, `changed` default port 1919 (7080 kept for existing installs in 0.5; removed in 0.6.0), `changed` new installs default to UTC and a set `TZ` now also governs stats, `security` Host gate |
 | **E** build info | ldflags, `version -v`, `/api/about`, `sys.last_version` and downgrade message, `web_build`, mismatch banner, what's-new, About screen | A for the Dockerfile ldflags and web-stage `VERSION` (rebase on A) | `added` |
 | **C** wizard UI + feeds file | `web/src/setup/*`, `/welcome` route, `LoginScreen` open-mode branch, `starter/feeds.json` real content, `scripts/check-starter-feeds.mjs`, Playwright addition | B's API contract (this document); merges after B | `added` |
 | **D** docs | README Quickstart (pull-and-run first, build-from-source second), `docker-compose.example.yml` (port, image line), `.env.example` (port default, `KIPPLE_ALLOWED_HOSTS`, account variables now optional), `docs/deploy.md` upgrade notes, `docs/design.md` §7.0/§7.1, UAT Suite 5 rewrite | A, B, C, E merged | none (docs) |
@@ -669,7 +678,7 @@ One writer per PR; none touches Host-A. Nothing merges before the beta.2 soak en
 
 | Risk | Likelihood | Mitigation / rollback |
 |---|---|---|
-| Host-A relies on the default port and goes dark behind `7080:7080` | Very low | Legacy shim (8.3) plus the deploy checklist line |
+| Host-A relies on the default port and goes dark behind `7080:7080` | Very low | Legacy shim (8.3, removed in 0.6.0) plus the deploy checklist line |
 | Host-A's `TZ` env and its `tz` setting differ, so stats switch zone on upgrade | Low | Deploy checklist: compare them before the upgrade; past rows are never rewritten either way (7a) |
 | Migration 0010 surprises the live database | Low (one-row rebuild) | Suite 4 rehearsal on a copy of the live snapshot before deploy; pre-migration snapshot; rollback per RELEASING |
 | Open mode ends up behind a tunnel | Medium for other users | Open gate refuses forwarded requests; Settings shows the mode prominently |
@@ -689,7 +698,8 @@ has no 0.3 snapshot and stays on 0.5.
 All five recommendations were accepted, plus one new requirement.
 
 1. **Port shim.** Existing installs (an account row before 0010) with `KIPPLE_ADDR` unset keep listening on 7080 with
-   a WARN, through 0.x; removed at 1.0. Fresh installs get 1919. Design in 8.3, marker in 0010.
+   a WARN, in 0.5; removed in 0.6.0 (done). Fresh installs get 1919. Design in 8.3, marker in 0010.
+   Superseded 2026-10-02: removed in 0.6.0, owner decision.
 2. **Host-A deploy source.** 0.5.0-beta.1 is built from the tag on Host-A as today; from 0.5.0 Host-A pulls the
    signed GHCR image by digest, with build-from-tag kept as the fallback. `docs/RELEASING.md` changes in PR D.
 3. **Open mode and the LAN.** Refused by default; `security.open_lan` (Settings, "Also allow devices on my local

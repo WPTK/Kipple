@@ -186,10 +186,6 @@ func runServe() error {
 	if err != nil {
 		return fmt.Errorf("setup: %w", err)
 	}
-	addr, fallback, err := serveAddr(context.Background(), db, cfg, logger)
-	if err != nil {
-		return err
-	}
 	accessV, err := accessVerifier(cfg, logger)
 	if err != nil {
 		return fmt.Errorf("access: %w", err)
@@ -285,7 +281,7 @@ func runServe() error {
 	startBackground(scheduler, maintenance, icons)
 
 	srv := &http.Server{
-		Addr:              addr,
+		Addr:              cfg.Addr,
 		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, cfg.TrustedProxyIPs, logger, uiAPI.HostGate),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
@@ -300,7 +296,7 @@ func runServe() error {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		ln, err := listen(addr, fallback, logger)
+		ln, err := listen(cfg.Addr)
 		if err != nil {
 			serveErr <- err
 			return

@@ -172,8 +172,13 @@ func (g Gate) OpenRefusal(r *http.Request, host string, hostOK, openLAN bool) st
 	case tailscaleV4.Contains(peer) || tailscaleV6.Contains(peer):
 		// Arrived on this machine's own Tailscale address: a tailnet device. Any
 		// other way in (the LAN interface, a container's bridge), only the owner's
-		// LAN opt-in admits the range.
-		if g.arrivedOverTailnet(r) || openLAN {
+		// LAN opt-in admits the range, and then only when the connection arrived on
+		// a private-range address of this machine (a LAN or a container's bridge,
+		// where open_lan already trusts every device). 100.64.0.0/10 is also shared
+		// carrier-grade NAT, cloud and Kubernetes overlay space: a machine whose
+		// own address is there, or that is reached on a public one, would
+		// otherwise let strangers in. An unknown local address fails closed.
+		if g.arrivedOverTailnet(r) || (openLAN && localAddr(r).IsPrivate()) {
 			return ""
 		}
 		return RefusePeer

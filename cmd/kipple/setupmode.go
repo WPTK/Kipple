@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"syscall"
 
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/setup"
@@ -41,46 +40,17 @@ func startSetupMode(ctx context.Context, db *store.DB, cfg config.Config, logger
 	return m, nil
 }
 
-// serveAddr is the address serve listens on and whether the 1138 fallback
-// applies (docs/setup-wizard-design.md 8.3). KIPPLE_ADDR always wins. Unset, a
-// database that had an account before 0.5 (sys.legacy_port) keeps the old 7080
-// through 0.x, with a warning; anything else gets 1919.
-func serveAddr(ctx context.Context, db *store.DB, cfg config.Config, logger *slog.Logger) (addr string, fallback bool, err error) {
-	if cfg.AddrSet {
-		return cfg.Addr, false, nil
-	}
-	legacy, err := db.LegacyPort(ctx)
-	if err != nil {
-		return "", false, fmt.Errorf("read sys.legacy_port: %w", err)
-	}
-	if legacy {
-		logger.Warn("port 7080 is the pre-0.5 default and will stop being used at 1.0; set KIPPLE_ADDR=:7080 or move to 1919")
-		return config.LegacyAddr, false, nil
-	}
-	return config.DefaultAddr, true, nil
-}
-
 // listenTCP is net.Listen (a seam for tests).
 var listenTCP = func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }
 
-// listen binds addr; with fallback (KIPPLE_ADDR unset, not the legacy port) a
-// taken default port moves to config.FallbackAddr with a warning.
-func listen(addr string, fallback bool, logger *slog.Logger) (net.Listener, error) {
+// listen binds addr. A failure names the address and KIPPLE_ADDR, the one way
+// to choose another (there is no automatic fallback port).
+func listen(addr string) (net.Listener, error) {
 	ln, err := listenTCP(addr)
-	if err != nil && fallback && isAddrInUse(err) {
-		logger.Warn("port 1919 is in use; listening on 1138 instead (set KIPPLE_ADDR to choose the port)", "addr", config.FallbackAddr)
-		return listenTCP(config.FallbackAddr)
+	if err != nil {
+		return nil, fmt.Errorf("cannot listen on %q (set KIPPLE_ADDR to use another address): %w", addr, err)
 	}
-	return ln, err
-}
-
-// isAddrInUse reports EADDRINUSE (WSAEADDRINUSE, 10048, on Windows).
-func isAddrInUse(err error) bool {
-	var errno syscall.Errno
-	if !errors.As(err, &errno) {
-		return false
-	}
-	return errno == syscall.EADDRINUSE || errno == 10048
+	return ln, nil
 }
 
 // allowedHosts is the Host gate's configured list: KIPPLE_ALLOWED_HOSTS plus the

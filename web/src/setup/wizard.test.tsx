@@ -927,20 +927,25 @@ describe("Step 6: recommended feeds", () => {
     expect(within(tech).getByRole("checkbox", { name: /Feed c/ })).toBeDisabled();
     expect(within(tech).getByText("Already added")).toBeInTheDocument();
     expect(within(tech).getByText(/a\.example\.com/)).toBeInTheDocument();
+    expect(screen.queryByText(/^FR$/i)).not.toBeInTheDocument();
     expect(screen.getByRole("group", { name: "News" })).toBeInTheDocument();
     expect(screen.getByText("2 feeds selected.")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it("selects all or none in a category and sends the chosen ids with the folders choice", async () => {
+  it("has one select all or none for the whole list and sends the chosen ids with the folders choice", async () => {
     const { calls } = server(signedIn({ starter }), { "POST /api/starter-feeds": () => json({ added: 3, existing: 0, run_id: "r" }) });
     go("/welcome/feeds");
     const user = userEvent.setup();
     await screen.findByText("Feed a");
-    await user.click(screen.getByRole("button", { name: "Select all in Technology" }));
-    expect(screen.getByText("3 feeds selected.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Select none in News" }));
-    expect(screen.getByText("2 feeds selected.")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Select (all|none)$/ })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    expect(screen.getByText("4 feeds selected.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select none" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Select none" }));
+    expect(screen.getByText("No feeds selected.")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: /Feed a/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Feed b/ }));
     await user.click(screen.getByRole("checkbox", { name: /Feed e/ }));
     await user.click(screen.getByRole("switch", { name: /own folder/ }));
     await user.click(screen.getByRole("button", { name: "Add 3 feeds" }));
@@ -962,8 +967,8 @@ describe("Step 6: recommended feeds", () => {
     go("/welcome/feeds");
     const user = userEvent.setup();
     await screen.findByText("Feed a");
-    await user.click(screen.getByRole("button", { name: "Select none in Technology" }));
-    await user.click(screen.getByRole("button", { name: "Select none in News" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Select none" }));
     expect(screen.getByText("No feeds selected.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add feeds" })).toBeDisabled();
   });

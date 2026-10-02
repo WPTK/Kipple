@@ -1,0 +1,1 @@
+Offline: an article you read or starred while offline no longer comes back as unread or unstarred when the app is reopened offline, and once the queued changes are sent the open lists show them without waiting for the event stream.

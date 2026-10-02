@@ -2194,7 +2194,7 @@ cmd/kipple/*.go         import.go, account.go (api-password, ensureAccount), pas
                         (ensureDataDir), healthcheck.go (the healthcheck probe), shutdown.go (shutdown budget and
                         stages, §4.10); see §2.6
 web/embed.go            package web: //go:embed all:dist (web/dist from the Vite build)
-internal/config         KIPPLE_* env only: ADDR(:1919, legacy :7080 via sys.legacy_port), DATA(/data), USERNAME, PASSWORD, API_PASSWORD, ALLOWED_HOSTS; TZ
+internal/config         KIPPLE_* env only: ADDR(:1919), DATA(/data), USERNAME, PASSWORD, API_PASSWORD, ALLOWED_HOSTS; TZ
                         (optional initial), PUBLIC_URL, TRUSTED_PROXY_IPS, TZ, SCHED_TICK,
                         FETCH_WORKERS(8), FETCH_PER_HOST(2),
                         LOG_LEVEL, LOG_GREADER_FORMS, ACCESS_TEAM_DOMAIN + ACCESS_AUD (both or neither, §7.0).
@@ -2293,7 +2293,7 @@ internal/httpx          headers.go: Secure (security headers, CSP via PageCSP). 
 
 **Dockerfile.** Three stages: `node:22-alpine` (`npm ci && npm run build`) → `golang:1.27-alpine` (`CGO_ENABLED=0 go build -trimpath -ldflags="-s -w"`, with cache mounts) → `gcr.io/distroless/static-debian12:nonroot`.
 
-**Compose** (`host-a` project, service `kipple`): named volume `/data`, `stop_grace_period: 30s`, `GOMEMLIMIT=64MiB`, `mem_limit: 256m`, json-file logging 10m × 3, port 1919 (7080 on an install that predates 0.5 and leaves `KIPPLE_ADDR` unset). `http.Server` has `ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s, `WriteTimeout` 60 s (SSE, the backup download, the stats export and the stats delete extend it per write or batch with `http.ResponseController.SetWriteDeadline`), and `IdleTimeout` 120 s.
+**Compose** (`host-a` project, service `kipple`): named volume `/data`, `stop_grace_period: 30s`, `GOMEMLIMIT=64MiB`, `mem_limit: 256m`, json-file logging 10m × 3, port 1919 (7080 only where `KIPPLE_ADDR=:7080` is set). `http.Server` has `ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s, `WriteTimeout` 60 s (SSE, the backup download, the stats export and the stats delete extend it per write or batch with `http.ResponseController.SetWriteDeadline`), and `IdleTimeout` 120 s.
 
 **Long-lived goroutines:**
 
