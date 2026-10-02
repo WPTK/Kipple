@@ -95,7 +95,7 @@ export function WrappedCards({ m }: { m: WrappedModel }) {
             ))}
           </ol>
         ) : (
-          <Nothing>Sources appear here once you have read something.</Nothing>
+          <Nothing>Nothing read yet.</Nothing>
         )}
       </Card>
       <Card title="Longest read">
@@ -223,7 +223,7 @@ function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boo
       open
       onOpenChange={onOpenChange}
       title="Share your year"
-      description="Only the summary below is shared, and only when you choose to. Nothing is sent until then."
+      description="Only the summary below is shared, and only when you choose to share it."
       footer={
         <>
           <Button onClick={() => onOpenChange(false)}>Close</Button>
@@ -258,7 +258,7 @@ function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boo
         {problem ? <Notice tone="error">{problem}</Notice> : null}
         {copyFailed ? (
           <div className="flex flex-col gap-2">
-            <Notice tone="error">Couldn't copy. Here's the text — select it and copy by hand.</Notice>
+            <Notice tone="error">Couldn't copy. Select the text below and copy it yourself.</Notice>
             <textarea
               readOnly
               aria-label="Your year, as text"
@@ -325,7 +325,7 @@ export function WrappedScreen() {
       <div aria-busy={q.isPlaceholderData} className={q.isPlaceholderData ? "opacity-60" : undefined}>
         {isLowData(model) && !model.empty && model.daysActive > 0 && !q.isPlaceholderData ? (
           <p className="mb-4 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
-            Only {plural(model.historyDays, "day")} of reading in {model.year} so far, so this is a small picture. It fills in as you read.
+            Only {plural(model.historyDays, "day")} of reading in {model.year} so far.
           </p>
         ) : null}
         {model.empty ? <p className="mb-4 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">Nothing read in {model.year} yet.</p> : null}

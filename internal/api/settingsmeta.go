@@ -417,11 +417,11 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupAccount, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},
 
 	// Statistics.
-	{Key: "stats.enabled", Label: "Reading statistics", Description: "Record which articles you open and how long you read them. Turning this off stops recording new statistics; what is already recorded is kept.",
+	{Key: "stats.enabled", Label: "Reading statistics", Description: "Record which articles you open and how long you read them. Turning it off keeps what is already recorded.",
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
-	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day weekly statistics start on. This only changes how they are shown.",
+	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day the week starts on in your statistics.",
 		Group: groupStats, Kind: "enum", Options: opts("sunday", "Sunday", "monday", "Monday"), Surface: surfaceSettings, check: oneOf("sunday", "monday")},
-	{Key: "stats.wrapped_enabled", Label: "Yearly Wrapped", Description: "Show a yearly summary of your reading that you can share as an image or text. Turning this off hides it; your statistics are kept.",
+	{Key: "stats.wrapped_enabled", Label: "Yearly Wrapped", Description: "A yearly summary of your reading that you can share as an image or text. Turning it off hides it and keeps your statistics.",
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Advanced: shown in an Advanced section of the Settings screen.
@@ -435,7 +435,7 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "greader.subscribe_fetch_now", Label: "Fetch new feeds at once from sync apps", Description: "Fetch a feed immediately when a sync app subscribes to it.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
-	{Key: "stats.api_single_read_is_open", Label: "Count single reads from sync apps", Description: "Reserved: stored but not used yet. Would treat an article opened in a sync app as opened for reading statistics.",
+	{Key: "stats.api_single_read_is_open", Label: "Count single reads from sync apps", Description: "Not used yet. Would count an article opened in a sync app as opened in your statistics.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "ui.layouts", Label: "Remembered list layouts", Description: "The list layout you chose for each folder or feed.",
 		Group: groupAdvanced, Kind: "json", Surface: surfaceHidden, check: func(v any) (any, string) {

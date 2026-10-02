@@ -55,7 +55,7 @@ describe("what a delete does afterwards (run from the section)", () => {
     wrap(<StatsDataSection defaultRange="month" />);
     await openAll(user);
     await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
-    await waitFor(() => expect(toasts.toast).toHaveBeenCalledWith("Deleted 3 events"));
+    await waitFor(() => expect(toasts.toast).toHaveBeenCalledWith("Deleted 3 records"));
     expect(spy).toHaveBeenCalledWith({ queryKey: ["stats"] });
     expect(localStorage.getItem(QKEY)).toBeNull();
   });
@@ -66,16 +66,16 @@ describe("what a delete does afterwards (run from the section)", () => {
     mockFetch({ "POST /api/stats/delete": (_u, init) => json({ count: 2, deleted: JSON.parse(String(init!.body)).dry_run ? 0 : 2 }) });
     wrap(<StatsDataSection defaultRange="month" />);
     await openRange(user, "2020-01-01", "2020-01-05");
-    await screen.findByText("2 events will be deleted");
+    await screen.findByText("2 records will be deleted");
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(screen.getByRole("button", { name: "Yes, delete 2 events" }));
-    await waitFor(() => expect(toasts.toast).toHaveBeenCalledWith("Deleted 2 events"));
+    await user.click(screen.getByRole("button", { name: "Yes, delete 2 records" }));
+    await waitFor(() => expect(toasts.toast).toHaveBeenCalledWith("Deleted 2 records"));
     expect(localStorage.getItem(QKEY)).not.toBeNull();
 
     await openRange(user, "2020-01-01", todayString());
-    await screen.findByText("2 events will be deleted");
+    await screen.findByText("2 records will be deleted");
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(screen.getByRole("button", { name: "Yes, delete 2 events" }));
+    await user.click(screen.getByRole("button", { name: "Yes, delete 2 records" }));
     await waitFor(() => expect(localStorage.getItem(QKEY)).toBeNull());
   });
 
@@ -87,7 +87,7 @@ describe("what a delete does afterwards (run from the section)", () => {
     mockFetch({ "POST /api/stats/delete": (_u, init) => json({ count: 1, deleted: JSON.parse(String(init!.body)).dry_run ? 0 : 1 }) });
     wrap(<StatsDataSection defaultRange="month" />);
     await openRange(user, "2020-01-01", "2020-01-05");
-    await screen.findByText("1 event will be deleted");
+    await screen.findByText("1 record will be deleted");
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(screen.getByRole("button", { name: /Yes, delete/ }));
     await waitFor(() => expect(toasts.toast).toHaveBeenCalled());
@@ -104,7 +104,7 @@ describe("partial failures", () => {
     wrap(<StatsDataSection defaultRange="month" />);
     await openAll(user);
     await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
-    expect(await screen.findByText(/The database was busy\. Deleted 5 events before it stopped; run it again to finish\./)).toBeInTheDocument();
+    expect(await screen.findByText(/The database was busy\. Deleted 5 records before it stopped. Run it again to finish\./)).toBeInTheDocument();
     expect(spy).toHaveBeenCalledWith({ queryKey: ["stats"] });
     expect(localStorage.getItem(QKEY)).toBeNull(); // 5 were removed
     expect(toasts.toast).not.toHaveBeenCalled();
@@ -121,11 +121,11 @@ describe("partial failures", () => {
     });
     wrap(<StatsDataSection defaultRange="month" />);
     await openRange(user, "2020-01-01", "2020-01-05");
-    await screen.findByText("10 events will be deleted");
+    await screen.findByText("10 records will be deleted");
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(screen.getByRole("button", { name: "Yes, delete 10 events" }));
-    expect(await screen.findByText(/Stopped early\. Deleted 4 events before it stopped/)).toBeInTheDocument();
-    expect(await screen.findByText("6 events will be deleted")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Yes, delete 10 records" }));
+    expect(await screen.findByText(/Stopped early\. Deleted 4 records before it stopped/)).toBeInTheDocument();
+    expect(await screen.findByText("6 records will be deleted")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled(); // back to the first step
   });
 });

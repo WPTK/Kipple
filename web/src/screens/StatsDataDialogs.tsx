@@ -55,7 +55,7 @@ function shiftDay(date: string, days: number): string {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-const LATE_NOTE = "Events still waiting to be sent from other devices may appear later.";
+const LATE_NOTE = "Reading from other devices that hasn't synced yet can still show up later.";
 const ZONE_NOTE = "Days follow the statistics time zone.";
 
 interface DialogProps {
@@ -110,11 +110,11 @@ function ExportBody({ onOpenChange, defaultRange }: { onOpenChange: (o: boolean)
     >
       <Segmented<ExportContent>
         legend="Contents"
-        hint={summary ? "The totals, streaks and charts as JSON, like the Stats screen." : "One row per recorded event."}
+        hint={summary ? "Totals, streaks and charts, as on the Stats screen." : "One row per recorded action."}
         value={content}
         onChange={setContent}
         options={[
-          { value: "raw", label: "Raw events" },
+          { value: "raw", label: "Raw data" },
           { value: "summary", label: "Summary" },
         ]}
       />
@@ -144,7 +144,7 @@ function ExportBody({ onOpenChange, defaultRange }: { onOpenChange: (o: boolean)
       ) : null}
       <Switch
         label="Include article titles and links"
-        help="Turn off if you plan to share the file. Titles and links are removed; feed and folder names, times and your time zone stay."
+        help="Turn off before sharing the file. Feed and folder names, times and your time zone stay in."
         checked={titles}
         onChange={setTitles}
       />
@@ -152,7 +152,7 @@ function ExportBody({ onOpenChange, defaultRange }: { onOpenChange: (o: boolean)
         <a href={DICTIONARY_MD_URL} download className="text-link underline underline-offset-2">
           Download data dictionary
         </a>
-        <span className="mt-1 block text-xs text-fg2">Describes every column so a spreadsheet, script or AI tool can read the file.</span>
+        <span className="mt-1 block text-xs text-fg2">Explains every column in the file.</span>
       </p>
     </Modal>
   );
@@ -219,7 +219,7 @@ function DeleteRangeBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolea
     } catch (e) {
       const n = partialCount(e);
       onSettled({ scope: { from, to }, deleted: n, ok: false });
-      setFailed({ key, message: n > 0 ? `${serverMessage(e)} Deleted ${plural(n, "event")} before it stopped; run it again to finish.` : serverMessage(e) });
+      setFailed({ key, message: n > 0 ? `${serverMessage(e)} Deleted ${plural(n, "record")} before it stopped. Run it again to finish.` : serverMessage(e) });
       setConfirmKey(null);
       setFound(null); // the count above is out of date: ask again
       setRecount((c) => c + 1);
@@ -237,14 +237,14 @@ function DeleteRangeBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolea
         onOpenChange(o);
       }}
       title="Delete a date range"
-      description="Removes the recorded statistics for these days. Articles and read state are not affected."
+      description="Deletes the statistics for these days. Your articles and read state stay."
       footer={
         <>
           <Button disabled={busy} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button className={DANGER} disabled={busy || count == null || zero} onClick={() => (confirming ? void run() : setConfirmKey(key))}>
-            {busy ? "Deleting…" : confirming ? `Yes, delete ${plural(count ?? 0, "event")}` : "Delete"}
+            {busy ? "Deleting…" : confirming ? `Yes, delete ${plural(count ?? 0, "record")}` : "Delete"}
           </Button>
         </>
       }
@@ -257,9 +257,9 @@ function DeleteRangeBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolea
       </div>
       <p className="text-xs text-fg2">{ZONE_NOTE}</p>
       <p role="status" className="text-sm">
-        {busy ? "Deleting…" : countError ? null : !ready ? "Choose both dates to see how many events this removes." : count == null ? "Counting…" : zero ? "No events in that range" : `${plural(count, "event")} will be deleted`}
+        {busy ? "Deleting…" : countError ? null : !ready ? "Pick both dates to see how much will be deleted." : count == null ? "Counting…" : zero ? "No records in that range" : `${plural(count, "record")} will be deleted`}
       </p>
-      {confirming && count && !busy ? <p className="text-sm font-semibold">Delete {plural(count, "event")}? This can&apos;t be undone. Press the button again to confirm.</p> : null}
+      {confirming && count && !busy ? <p className="text-sm font-semibold">Delete {plural(count, "record")}? This can&apos;t be undone. Press again to confirm.</p> : null}
       <p className="text-xs text-fg2">{LATE_NOTE}</p>
       {countError ? <Notice tone="error">{countError}</Notice> : null}
       {error ? <Notice tone="error">{error}</Notice> : null}
@@ -294,7 +294,7 @@ function DeleteAllBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolean)
     } catch (e) {
       const n = partialCount(e);
       onSettled({ scope: { all: true }, deleted: n, ok: false });
-      setError(n > 0 ? `${serverMessage(e)} Deleted ${plural(n, "event")} before it stopped; run it again to finish.` : serverMessage(e));
+      setError(n > 0 ? `${serverMessage(e)} Deleted ${plural(n, "record")} before it stopped. Run it again to finish.` : serverMessage(e));
       setBusy(false);
     }
   };
@@ -306,7 +306,7 @@ function DeleteAllBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolean)
         onOpenChange(o);
       }}
       title="Delete all statistics"
-      description="This removes every recorded statistic: reading time, opens, stars and shares. It does not remove articles or read state. It can't be undone."
+      description="Deletes all your statistics: reading time, opens, stars and shares. Your articles and read state stay. This can't be undone."
       footer={
         <>
           <Button disabled={busy} onClick={() => onOpenChange(false)}>
@@ -363,12 +363,12 @@ export function StatsDataSection({ defaultRange, hideTitle }: { defaultRange: St
       const today = serverToday(qc);
       if ("all" in r.scope || (r.scope.from <= today && today <= r.scope.to)) clearStatsQueue();
     }
-    if (r.ok) toast(`Deleted ${plural(r.deleted, "event")}`);
+    if (r.ok) toast(`Deleted ${plural(r.deleted, "record")}`);
   };
   return (
     <section aria-label={hideTitle ? undefined : "Your statistics data"} className="flex flex-col gap-3">
       {hideTitle ? null : <h3 className="text-sm font-semibold">Your statistics data</h3>}
-      <p className="text-xs text-fg2">Export or delete what Kipple has recorded. This works whether statistics are on or off.</p>
+      <p className="text-xs text-fg2">Export or delete what Kipple has recorded. Works with statistics on or off.</p>
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => setDlg("export")}>Export…</Button>
         <Button onClick={() => setDlg("range")}>Delete a date range…</Button>
