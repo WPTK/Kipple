@@ -49,7 +49,7 @@ func newCacheRig(t *testing.T, tune ...func(*Options)) *cacheRig {
 	t.Helper()
 	clk := &testClock{t: time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)}
 	c, err := imgcache.Open(imgcache.Options{
-		Dir: filepath.Join(t.TempDir(), "imgcache"), MaxBytes: 64 << 20, Now: clk.Now, NoBackgound: true,
+		Dir: filepath.Join(t.TempDir(), "imgcache"), MaxBytes: 64 << 20, Now: clk.Now, NoBackground: true,
 		DiskSpace: func(string) (uint64, uint64, error) { return 500 << 30, 800 << 30, nil },
 	})
 	require.NoError(t, err)
@@ -436,6 +436,33 @@ type seen struct {
 	ua, referer, accept string
 }
 
+// The browser User-Agent of the retries is whatever the BrowserUA option returns (the custom
+// fetch.user_agent setting when there is one), read at request time.
+func TestHotlinkRetryUsesConfiguredBrowserUA(t *testing.T) {
+	custom := atomic.Value{}
+	custom.Store("Custom-UA/1")
+	cr := newCacheRig(t, func(o *Options) { o.BrowserUA = func() string { return custom.Load().(string) } })
+	var mu sync.Mutex
+	var uas []string
+	up := upstream(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		uas = append(uas, r.Header.Get("User-Agent"))
+		mu.Unlock()
+		if r.Header.Get("User-Agent") != "Custom-UA/1" {
+			w.WriteHeader(403)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngBytes)
+	})
+	resp := cr.fetchOrig(up.URL+"/one.png", FlagPrivateNet)
+	require.Equal(t, 200, resp.StatusCode)
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, uas, 2)
+	require.Equal(t, "Custom-UA/1", uas[1])
+}
+
 func TestHotlinkRetryLadderAndHostHint(t *testing.T) {
 	cr := newCacheRig(t, func(o *Options) { o.UserAgent = "Mozilla/5.0 (compatible; Kipple; +https://rss.example.org)" })
 	var mu sync.Mutex
@@ -464,8 +491,7 @@ func TestHotlinkRetryLadderAndHostHint(t *testing.T) {
 	require.Contains(t, log[0].ua, "Kipple")
 	require.Empty(t, log[0].referer)
 	require.Equal(t, "image/*", log[0].accept)
-	require.Contains(t, log[1].ua, "Chrome")
-	require.NotContains(t, log[1].ua, "Kipple")
+	require.Equal(t, fetch.BrowserUserAgent, log[1].ua, "the one browser string the feed fetcher uses")
 	require.Empty(t, log[1].referer)
 	require.Contains(t, log[1].accept, "image/avif")
 	mu.Unlock()
@@ -578,7 +604,7 @@ func TestDiskFloorStreamsUncached(t *testing.T) {
 	free.Store(500 << 30)
 	clk := &testClock{t: time.Now()}
 	c, err := imgcache.Open(imgcache.Options{
-		Dir: filepath.Join(t.TempDir(), "ic"), MaxBytes: 64 << 20, Now: clk.Now, NoBackgound: true,
+		Dir: filepath.Join(t.TempDir(), "ic"), MaxBytes: 64 << 20, Now: clk.Now, NoBackground: true,
 		DiskSpace: func(string) (uint64, uint64, error) { return free.Load(), 800 << 30, nil },
 	})
 	require.NoError(t, err)

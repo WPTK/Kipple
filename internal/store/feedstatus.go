@@ -1,6 +1,10 @@
 package store
 
-import "time"
+import (
+	"time"
+
+	"github.com/WPTK/kipple/internal/fetch"
+)
 
 // Feed status vocabulary (design §4.6). One function decides it for both
 // /api/bootstrap and /api/health/feeds.
@@ -14,7 +18,6 @@ const (
 	StatusRedirect   = "redirecting"
 	StatusSilent     = "silent"
 	StatusOK         = "ok"
-	failingAt        = 14 // consecutive failures at which "erroring" becomes "failing"
 	silentAfter      = 90 * 24 * time.Hour
 	reasonGone       = "gone"
 	reasonArchive    = "archive"
@@ -46,7 +49,7 @@ func FeedStatus(r StatusRow, hostUntil, now time.Time) string {
 		return StatusDead
 	case r.DisabledReason != nil || !r.Enabled:
 		return StatusDisabled // "user", any other reason, or enabled=0 without one
-	case r.ConsecutiveFailures >= failingAt:
+	case r.ConsecutiveFailures >= fetch.FailingThreshold:
 		return StatusFailing
 	case r.ConsecutiveFailures > 0:
 		return StatusErroring
