@@ -112,19 +112,43 @@ func allocated(f func()) uint64 {
 	return best
 }
 
+// steps reports the bytes the splitter scanned, copied and joined during f, as
+// counted by the workHook seam in form.go. Unlike a stopwatch it does not depend
+// on the machine, so it is exact under -race and on a loaded runner, and it sees
+// CPU-only work that allocates nothing (a rescan per part, say).
+func steps(f func()) uint64 {
+	var n uint64
+	workHook = func(b int) { n += uint64(b) }
+	defer func() { workHook = nil }()
+	f()
+	return n
+}
+
 // requireLinear proves a parse is linear in its input by comparing the work at n
-// and 2n units: linear work doubles (the bound allows 2.6x for fixed costs and
-// buffer growth), quadratic work quadruples. It also caps the work at perByte
-// times the input, so a constant-factor blowup fails too.
+// and 2n units, on two measures. Counted steps (exact) and bytes allocated both
+// double for linear work and quadruple for quadratic work, so the bound allows
+// 2.6x. Each is also capped per input byte, so a constant-factor blowup fails
+// too. Allocation covers copies the step counter does not see; steps cover
+// CPU-only work that allocates nothing. The wall-clock check is only a backstop
+// for work that is neither counted nor allocated: it is far above any honest run
+// (a few tens of ms, about a second under -race) and catches catastrophic
+// regressions only.
 func requireLinear(t *testing.T, name string, perByte uint64, n int, build func(n int) (input int, run func())) {
 	t.Helper()
 	in1, run1 := build(n)
 	in2, run2 := build(2 * n)
+	s1, s2 := steps(run1), steps(run2)
 	w1, w2 := allocated(run1), allocated(run2)
-	t.Logf("%s: %d bytes of input allocate %d, %d allocate %d", name, in1, w1, in2, w2)
-	require.LessOrEqual(t, w1, perByte*uint64(in1), "%s: work per input byte", name)
-	require.LessOrEqual(t, w2, perByte*uint64(in2), "%s: work per input byte", name)
-	require.LessOrEqual(t, float64(w2), 2.6*float64(w1), "%s: doubling the input must not more than double the work", name)
+	t.Logf("%s: %d bytes of input: %d steps, %d allocated; %d bytes: %d steps, %d allocated", name, in1, s1, w1, in2, s2, w2)
+	require.LessOrEqual(t, s1, 8*uint64(in1), "%s: steps per input byte", name)
+	require.LessOrEqual(t, s2, 8*uint64(in2), "%s: steps per input byte", name)
+	require.LessOrEqual(t, float64(s2), 2.6*float64(s1), "%s: doubling the input must not more than double the steps", name)
+	require.LessOrEqual(t, w1, perByte*uint64(in1), "%s: allocation per input byte", name)
+	require.LessOrEqual(t, w2, perByte*uint64(in2), "%s: allocation per input byte", name)
+	require.LessOrEqual(t, float64(w2), 2.6*float64(w1), "%s: doubling the input must not more than double the allocation", name)
+	start := time.Now()
+	run2()
+	require.Less(t, time.Since(start), time.Second, "%s: backstop against uncounted CPU-only blowups (catastrophic regressions only)", name)
 }
 
 func TestRepairIsLinearAndCapped(t *testing.T) {

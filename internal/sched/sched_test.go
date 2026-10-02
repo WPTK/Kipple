@@ -827,12 +827,16 @@ func TestShutdownDuringLargeRun(t *testing.T) {
 // TestCommitGateKeepsAPIWritesResponsive proves that API writes never queue behind
 // the commit gate, without measuring how long anything takes (a latency bound
 // measures the runner, and flaked under -race on a loaded one). The test holds the
-// gate itself as a controlled blocker, so a 138-feed run cannot commit anything,
-// and then requires every API write to complete while that run is demonstrably
-// parked on the gate: run.done cannot have been published, because the run is
-// done only once its last commit is. Had API writes taken the gate (or waited on
-// the commits that wait for it), they would block here until the test's hang
-// detector fires. Once the blocker is released the run commits everything.
+// gate itself as a controlled blocker and starts a 138-feed run. It waits until
+// every fetch worker is inside a commit (each of them then waits for the gate it
+// cannot get), and only then requires 200 API writes to complete while the run is
+// still unfinished: run.done cannot have been published, because the run is done
+// only once its last commit is. A commit that took the writer before the gate, or
+// an API write that took the gate, would block a write here. What ends such a
+// blocked write is WithWrite's own 10 s writeTimeout (store/tx.go), after which
+// the write returns an error and the test fails; the 1 minute context below is
+// only the outer bound. Neither is a latency measurement of a healthy write. Once
+// the blocker is released the run commits everything.
 func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
 	r := newRig(t, Options{PerHost: 8, CommitTimeout: 5 * time.Minute})
 	srv := newSrv(t, serveOK)
@@ -857,12 +861,18 @@ func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
 	}
 	t.Cleanup(releaseGate)
 
+	// Count the commits that have started: with the gate held, each one parks on it.
+	var inCommit atomic.Int32
+	r.s.commitFetchFn = func(ctx context.Context, res *fetch.Result, perChunk time.Duration) (store.CommitInfo, error) {
+		inCommit.Add(1)
+		return r.db.CommitFetchTimeout(ctx, res, perChunk)
+	}
+
 	_, err = r.s.RefreshAll()
 	require.NoError(t, err)
+	waitFor(t, "every fetch worker inside a commit", func() bool { return int(inCommit.Load()) >= 8 })
 
-	// The hang detector is the only clock in this test: a write that is blocked
-	// behind the gate never returns, so the context ends it and fails the test. It
-	// does not bound how long a healthy write may take.
+	// What ends a blocked write is writeTimeout (see above), not this context.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	for i := 0; i < 200; i++ {

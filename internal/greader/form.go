@@ -76,9 +76,11 @@ func splitPairsLimit(s string, repair bool) (out []pair, ok bool) {
 	if s == "" {
 		return nil, true
 	}
+	work(len(s))
 	if strings.Count(s, "&") >= maxPairs {
 		return nil, false
 	}
+	work(len(s))
 	parts := strings.Split(s, "&")
 	out = make([]pair, 0, len(parts))
 	for i := 0; i < len(parts); i++ {
@@ -86,6 +88,7 @@ func splitPairsLimit(s string, repair bool) (out []pair, ok bool) {
 		if part == "" {
 			continue
 		}
+		work(len(part))
 		k, v, _ := strings.Cut(part, "=")
 		e := pair{key: unescape(k), val: unescape(v), rawKey: k, rawVal: v}
 		if repair && labelKeys[e.key] {
@@ -96,10 +99,12 @@ func splitPairsLimit(s string, repair bool) (out []pair, ok bool) {
 				// Collect the whole run of tail parts, then join and decode once.
 				j := i + 1
 				for j < len(parts) && j-i <= maxGlueParts && isNameTail(parts[j]) && !(encoded && parts[j] == "") {
+					work(len(parts[j]))
 					j++
 				}
 				if j > i+1 {
 					e.rawVal = v + "&" + strings.Join(parts[i+1:j], "&")
+					work(len(e.rawVal))
 					e.val = lenientUnescape(e.rawVal)
 					i = j - 1
 				}
@@ -362,3 +367,14 @@ func (p *Params) keys(pairs []pair) []string {
 // bodyKeys and queryKeys list the parameter names present.
 func (p *Params) bodyKeys() []string  { return p.keys(p.body) }
 func (p *Params) queryKeys() []string { return p.keys(p.query) }
+
+// workHook is a test seam: when set, the splitter reports each scan, copy or join
+// it does as a byte count, so a test can prove its work is linear in the input
+// without a stopwatch. Nil in production: each call is one predictable branch.
+var workHook func(n int)
+
+func work(n int) {
+	if workHook != nil {
+		workHook(n)
+	}
+}
