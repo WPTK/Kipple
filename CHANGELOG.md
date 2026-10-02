@@ -10,7 +10,7 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 
 ## [0.6.0-beta.1] - 2026-10-02
 
-This release removes workarounds found in a review of the whole codebase and fixes what the review proved: the login lockout that a stranger could use to lock the owner out behind a proxy, offline reads that came back unread, and a release workflow that could leave an unsigned version tag. It is a minor bump because it removes things: the pre-0.5 and fallback listen ports, four unused settings keys and the time zone variable's hold on the setting. Read the Removed and Changed entries before upgrading from 0.5.
+**Before upgrading from 0.5: if your install publishes port 7080 and does not set `KIPPLE_ADDR`, set `KIPPLE_ADDR=:7080` in `.env` first** (or move your mapping to 1919). Without it Kipple listens on 1919 behind a mapping for 7080, the container still reports healthy (the health check probes 1919), and the service looks down with nothing in the log. This release removes workarounds found in a review of the whole codebase and fixes what the review proved: the login lockout that a stranger could use to lock the owner out behind a proxy, offline reads that came back unread, and a release workflow that could leave an unsigned version tag. It is a minor bump because it removes things: the pre-0.5 and fallback listen ports, four unused settings keys and the time zone variable's hold on the setting. Read the Removed and Changed entries before upgrading.
 
 ### Changed
 
