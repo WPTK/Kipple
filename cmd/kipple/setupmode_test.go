@@ -1,21 +1,17 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/config"
-	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -26,39 +22,35 @@ func openDir(t *testing.T, dir string) *store.DB {
 	return db
 }
 
-// Mode derivation: no account is setup mode (a token file), an account is
-// normal mode (a stale token file removed); env credentials create the row
-// first, a lone KIPPLE_USERNAME does not.
+// Mode derivation: no account is setup mode, an account is normal mode; a stale
+// token file of an older Kipple is removed in both; env credentials create the
+// row first, a lone KIPPLE_USERNAME does not.
 func TestStartSetupModeFollowsTheAccountRow(t *testing.T) {
 	ctx := context.Background()
-	var banner bytes.Buffer
-	old := setupOut
-	t.Cleanup(func() { setupOut = old })
-	setupOut = &banner
-
 	dir := t.TempDir()
+	stale := filepath.Join(dir, "setup-token")
+	require.NoError(t, os.WriteFile(stale, []byte("ABCD-EFGH-JKMN-PQRS-TVWX-YZ01\n"), 0o600))
 	db := openDir(t, dir)
 	defer db.Close()
 	cfg := config.Config{DataDir: dir, Username: "owner"} // the old example file's default, without a password
 	require.NoError(t, ensureAccount(ctx, db, cfg, quiet))
-	m, err := startSetupMode(ctx, db, cfg, quiet)
+	started := 0
+	m, err := startSetupMode(ctx, db, cfg, quiet, func() { started++ })
 	require.NoError(t, err)
 	require.True(t, m.Pending(), "KIPPLE_USERNAME alone is setup mode")
-	tok, ok, err := setup.ReadToken(dir)
-	require.NoError(t, err)
-	require.True(t, ok)
-	m.Announce("1919")
-	require.Contains(t, banner.String(), tok)
+	require.NoFileExists(t, stale, "a token file left by an older Kipple is removed")
+	require.Zero(t, started, "nothing starts before the account exists")
+	m.Finish()
+	m.Finish()
+	require.Equal(t, 1, started, "the background work starts once, when the account appears")
 
 	// A restart with env credentials: the row is created and setup mode is over.
 	cfg.Password = "web-pw-123"
 	require.NoError(t, ensureAccount(ctx, db, cfg, quiet))
-	m, err = startSetupMode(ctx, db, cfg, quiet)
+	m, err = startSetupMode(ctx, db, cfg, quiet, func() { t.Fatal("not pending: nothing to wait for") })
 	require.NoError(t, err)
 	require.Nil(t, m)
 	require.False(t, m.Pending())
-	_, ok, _ = setup.ReadToken(dir)
-	require.False(t, ok, "the stale token file is removed on a normal start")
 	pending, err := db.SetupPending(ctx)
 	require.NoError(t, err)
 	require.False(t, pending, "an env account never sees onboarding")
@@ -68,18 +60,13 @@ func TestStartSetupModeFollowsTheAccountRow(t *testing.T) {
 // start; restoring into setup mode's empty database keeps it.
 func TestRestoreLeavesSetupMode(t *testing.T) {
 	ctx := context.Background()
-	old := setupOut
-	t.Cleanup(func() { setupOut = old })
-	setupOut = io.Discard
-
 	dir := filepath.Join(t.TempDir(), "data")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	db := openDir(t, dir)
-	m, err := startSetupMode(ctx, db, config.Config{DataDir: dir}, quiet)
+	m, err := startSetupMode(ctx, db, config.Config{DataDir: dir}, quiet, nil)
 	require.NoError(t, err)
 	require.True(t, m.Pending())
 	require.NoError(t, db.Close())
-	require.FileExists(t, setup.TokenPath(dir))
 
 	zipPath := export(t, newData(t, 3))
 	_, err = doRestore(dir, zipPath, true)
@@ -87,30 +74,9 @@ func TestRestoreLeavesSetupMode(t *testing.T) {
 
 	db = openDir(t, dir)
 	defer db.Close()
-	m, err = startSetupMode(ctx, db, config.Config{DataDir: dir}, quiet)
+	m, err = startSetupMode(ctx, db, config.Config{DataDir: dir}, quiet, nil)
 	require.NoError(t, err)
 	require.Nil(t, m, "the restored account ends setup mode")
-	require.NoFileExists(t, setup.TokenPath(dir))
-}
-
-// The setup token never travels in a backup, even when the file sits next to
-// the database.
-func TestBackupNeverCarriesTheSetupToken(t *testing.T) {
-	dir := newData(t, 1)
-	require.NoError(t, os.WriteFile(setup.TokenPath(dir), []byte("ABCD-EFGH-JKMN-PQRS-TVWX-YZ01\n"), 0o600))
-	zr, err := zip.OpenReader(export(t, dir))
-	require.NoError(t, err)
-	defer zr.Close()
-	require.NotEmpty(t, zr.File)
-	for _, f := range zr.File {
-		require.NotContains(t, f.Name, "setup-token")
-		rc, err := f.Open()
-		require.NoError(t, err)
-		b, err := io.ReadAll(rc)
-		_ = rc.Close()
-		require.NoError(t, err)
-		require.NotContains(t, string(b), "ABCD-EFGH-JKMN-PQRS-TVWX-YZ01", f.Name)
-	}
 }
 
 // A failed bind says which address and how to change it; there is no fallback
@@ -138,32 +104,10 @@ func TestAllowedHostsIncludesThePublicURL(t *testing.T) {
 	require.Nil(t, allowedHosts(config.Config{}))
 }
 
-func TestRunSetupToken(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("KIPPLE_DATA", dir)
-	stdout := captureStdout(t, func() { require.NoError(t, runSetupToken(nil)) })
-	require.Empty(t, stdout, "nothing pending")
-	m := setup.New(setup.Options{DataDir: dir, Logger: quiet})
-	require.NoError(t, m.Begin())
-	tok, _, _ := setup.ReadToken(dir)
-	stdout = captureStdout(t, func() { require.NoError(t, runSetupToken(nil)) })
-	require.Equal(t, tok, strings.TrimSpace(stdout))
-	require.Error(t, runSetupToken([]string{"x"}))
-	m.Finish()
-	stdout = captureStdout(t, func() { require.NoError(t, runSetupToken(nil)) })
-	require.Empty(t, stdout)
-}
-
-func captureStdout(t *testing.T, f func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	old := os.Stdout
-	os.Stdout = w
-	defer func() { os.Stdout = old }()
-	f()
-	require.NoError(t, w.Close())
-	b, err := io.ReadAll(r)
-	require.NoError(t, err)
-	return string(b)
+// `kipple setup-token` is a stub until 1.0: it says no code is needed and exits 0.
+func TestRunSetupTokenIsAStub(t *testing.T) {
+	var out bytes.Buffer
+	require.NoError(t, runSetupToken(&out))
+	require.Contains(t, out.String(), "no setup code")
+	require.Contains(t, out.String(), "create your account")
 }

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -201,6 +202,8 @@ func TestRunServeStopsTheFaviconFinder(t *testing.T) {
 	t.Cleanup(func() { _ = taken.Close() })
 
 	serveEnv(t, taken.Addr().String())
+	t.Setenv("KIPPLE_USERNAME", "owner") // the background work starts only with an account
+	t.Setenv("KIPPLE_PASSWORD", "web-pw-123")
 	err = runServe()
 	require.Error(t, err, "the address is taken")
 	require.NotNil(t, finder, "it was started")
@@ -208,5 +211,77 @@ func TestRunServeStopsTheFaviconFinder(t *testing.T) {
 	case <-finder.Done():
 	default:
 		t.Fatal("the favicon finder is still running after runServe returned")
+	}
+}
+
+// Nothing fetches before an account exists: an unclaimed Kipple starts no
+// scheduler, maintenance or favicon finder, and the claim that creates the
+// account starts them, once. It also stops cleanly without ever having claimed.
+func TestRunServeStartsTheBackgroundOnlyAfterTheClaim(t *testing.T) {
+	oldH, oldSig, oldListen, oldBG, oldLog := newWebHandler, stopSignals, listenTCP, startBackground, slog.Default()
+	t.Cleanup(func() {
+		newWebHandler, stopSignals, listenTCP, startBackground = oldH, oldSig, oldListen, oldBG
+		slog.SetDefault(oldLog)
+	})
+	newWebHandler = func(func() string) (http.Handler, error) { return http.NotFoundHandler(), nil }
+	var started atomic.Int32
+	startBackground = func(*sched.Scheduler, *maint.Maint, *favicon.Finder) { started.Add(1) }
+	ctx, cancel := context.WithCancel(context.Background())
+	stopSignals = func() (context.Context, context.CancelFunc) { return ctx, cancel }
+	lns := make(chan net.Listener, 1)
+	listenTCP = func(string) (net.Listener, error) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err == nil {
+			lns <- ln
+		}
+		return ln, err
+	}
+	serveEnv(t, "127.0.0.1:0")
+	done := make(chan error, 1)
+	go func() { done <- runServe() }()
+	var ln net.Listener
+	select {
+	case ln = <-lns:
+	case err := <-done:
+		t.Fatalf("runServe returned before listening: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("runServe did not listen")
+	}
+	base := "http://" + ln.Addr().String()
+	tr := &http.Transport{Proxy: nil}
+	t.Cleanup(tr.CloseIdleConnections)
+	cl := &http.Client{Transport: tr}
+	post := func(path, body string) *http.Response {
+		req, err := http.NewRequest("POST", base+path, strings.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		req.Header.Set("X-Kipple-Client", "web")
+		resp, err := cl.Do(req)
+		require.NoError(t, err)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		require.NoError(t, resp.Body.Close())
+		return resp
+	}
+
+	resp, err := cl.Get(base + "/healthz")
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusConflict, post("/api/auth/login", `{"username":"a","password":"b"}`).StatusCode, "setup_required while unclaimed")
+	require.Zero(t, started.Load(), "nothing starts before the claim")
+
+	claim := post("/api/setup/account", `{"username":"owner","password":"web-pw-123"}`)
+	require.Equal(t, http.StatusCreated, claim.StatusCode)
+	require.EqualValues(t, 1, started.Load(), "the claim starts the background work")
+	require.Equal(t, http.StatusNotFound, post("/api/setup/account", `{"username":"x","password":"web-pw-456"}`).StatusCode, "no second claim")
+	require.EqualValues(t, 1, started.Load(), "and only once")
+
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("runServe did not stop")
 	}
 }

@@ -17,7 +17,7 @@ func readRepoFile(t *testing.T, name string) string {
 }
 
 // #124: the README and docs/deploy.md tell a newcomer to run `docker logs
-// kipple` and `docker exec kipple /kipple setup-token`, so the pull-and-run
+// kipple` and `docker exec kipple /kipple ...`, so the pull-and-run
 // compose file (and the README's copy of it) must name the container kipple.
 func TestPullAndRunComposeNamesTheContainer(t *testing.T) {
 	require.Contains(t, readRepoFile(t, "docker-compose.pull.example.yml"), "\n    container_name: kipple\n")
