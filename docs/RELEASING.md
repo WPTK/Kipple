@@ -109,7 +109,9 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 
 7. **Off-box database copy first:** take the in-app backup zip (or `docker cp` the nightly
    `/data/backup/kipple-snapshot.db`, never the live `kipple.db`; see docs/deploy.md) and store it somewhere other than
-   Host-A. Note the pre-migration snapshot name the app writes on start.
+   Host-A. Note the pre-migration snapshot name the app writes on start. From the dev machine:
+
+       ssh host-a 'docker cp kipple:/data/backup/kipple-snapshot.db /tmp/k.db' && scp host-a:/tmp/k.db '<backup-dir>\kipple\' && ssh host-a 'rm /tmp/k.db'
 8. **Tag the deployed commit:** `git tag -a vX.Y.Z -m "Kipple X.Y.Z"` on the exact commit, then `git push origin vX.Y.Z`.
    Never move, delete or reuse a pushed tag; a bad release gets a new version.
    The tag push also starts `.github/workflows/release.yml`, which tests the tagged commit again, builds a multi-arch
@@ -192,8 +194,17 @@ ships, later releases of that line do not move `latest` past the bad tag, becaus
 ## Rollback
 
 Follow docs/deploy.md, "Roll back an upgrade that migrated the schema": stop the service, restore the pre-migration
-snapshot with the still-built new image (`docker compose run --rm -T --no-deps kipple restore /data/backup/pre-migration-<old>-<new>-<ns>.db --yes`),
-then check out the previous tag, rebuild with `KIPPLE_VERSION=<previous tag>`, start it, and `git checkout main` again.
+snapshot with the still-built new image, then start the previous version. On Host-A that is (while the build-from-tag
+deploy of step 9 is in use):
+
+       ssh host-a 'cd /home/user/stack && docker compose stop kipple'
+       ssh host-a 'cd /home/user/stack && docker compose run --rm -T --no-deps kipple restore /data/backup/pre-migration-<old>-<new>-<ns>.db --yes'
+       ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout <previous tag>'
+       ssh host-a 'cd /home/user/stack && KIPPLE_VERSION=<previous tag> KIPPLE_VCS_REF=$(git -C /home/user/kipple rev-parse HEAD) docker compose build kipple && docker compose up -d kipple'
+       ssh host-a 'cd /home/user/kipple && git checkout main'
+
+With the pull-by-digest deploy, put the previous image's digest back in the `image:` line and `pull kipple` then `up -d kipple`
+instead of the three git/build lines.
 Never copy a snapshot over the volume's `kipple.db` by hand: the `-wal` and `-shm` files left beside it would be
 replayed onto the copy and corrupt it; `kipple restore` handles them. The database may have moved forward, so a rollback
 across a migration always goes through the snapshot. Record what happened in the CHANGELOG or the diary; ship the fix as the next version.
