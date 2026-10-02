@@ -276,20 +276,21 @@ The **open gate**, checked by `POST /api/auth/open`, by switching to open mode, 
    what the notice rules out. One exception: a loopback peer with a `*.ts.net` Host and no `Tailscale-Funnel-Request`
    is Tailscale Serve (tailnet-only HTTPS) and is allowed. (Verify the headers Tailscale Serve and Funnel actually
    send during PR B; the rule is written against their documented behavior.)
-3. **Peer class.** The TCP peer must be loopback, or Tailscale (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) arriving on
-   this machine's own Tailscale address. There is no gateway check: in a container Docker delivers even a
-   `-p 127.0.0.1:...` connection from the bridge gateway, which looks like any other LAN peer, so it is refused unless
-   `security.open_lan` is on. Other private-range peers (the LAN) are refused unless the owner opts in with
-   `security.open_lan` (Settings: "Also allow devices on my local network", default off; decision 3). With it on,
-   RFC 1918 and ULA peers pass too, and so does a Tailscale-range peer whose connection reached a private-range local
-   address (the address it was addressed to: a LAN address or a container's bridge); never one that reached a CGNAT,
-   public or unknown local address, because `100.64.0.0/10` is also shared carrier-grade NAT and cloud overlay space.
-   "Reached" is the destination address, not the interface: on a host with both a WAN or CGNAT interface and a LAN
-   address the OS may accept packets for the LAN address from the WAN side, which Kipple cannot see. The published
-   port's bind address is what keeps the LAN out.
+3. **Peer class.** One rule, no setting (superseded 2026-10-02: `security.open_lan` was removed; owner decision, "no
+   passwords on my network", as Sonarr and Radarr treat local addresses). The TCP peer must be loopback, link-local,
+   RFC 1918 or ULA, or Tailscale (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) arriving on this machine's own Tailscale
+   address or reaching a private-range local address (the address it was addressed to: a LAN address or a container's
+   bridge); never one that reached a CGNAT, public or unknown local address, because `100.64.0.0/10` is also shared
+   carrier-grade NAT and cloud overlay space. "Reached" is the destination address, not the interface: on a host with
+   both a WAN or CGNAT interface and a LAN address the OS may accept packets for the LAN address from the WAN side,
+   which Kipple cannot see. In a container Docker delivers even a `-p 127.0.0.1:...` connection from the bridge
+   gateway, a private address, so Kipple cannot tell the LAN from the world there: the published port's bind address is
+   what keeps others out. Forwarded and proxy headers are refused as in 2, never believed for the peer address
+   (Sonarr's CVE-2026-30975 was a header bypass of exactly this kind).
 
-Existing sessions keep working after the gate fails (a session is a session), but they are revoked whenever the mode
-changes, as password changes already do.
+In open mode the gate also runs on every signed-in request (and re-checks an open event stream), so a session never
+outlives the network position that admitted it; sessions are also revoked whenever the mode changes, as password
+changes already do.
 
 ### 5.5 Threat model
 
@@ -302,7 +303,7 @@ changes, as password changes already do.
 | **Brute force** of the token or of logins | 120-bit token, separate per-IP lockout, global rotation; login lockout unchanged | None worth noting |
 | **DNS rebinding** against setup or open mode | Host gate (5.2) enforced in both; password mode unaffected (cookie is origin-bound) | A user who allowlists a public name they do not control |
 | **CSRF / login CSRF** | `sameOrigin` + `X-Kipple-Client` on every write; Strict setup cookie; no CORS | None beyond today |
-| **Passwordless on the LAN or the internet** | Explicit acknowledgement; open gate refuses forwarded requests and non-local peers; turning open mode on requires the password and the gate | A user who opts the LAN in (`security.open_lan`) trusts every device on it, by choice |
+| **Passwordless on the LAN or the internet** | Explicit acknowledgement; open gate refuses forwarded requests and non-local peers; turning open mode on requires the password and the gate | Open mode trusts every device on the local network and the tailnet, by choice (0.7: one rule, no setting; superseded the `security.open_lan` opt-in) |
 | **Setup endpoints reopening** | Not registered when the row exists at start; flag checked per request; no API deletes the row | Direct SQLite surgery (out of scope) |
 | **SSRF via OPML or starter feeds** | Unchanged guarded transport, checked per dialed address; imported feeds have `allow_private_net` off; the starter list is validated at build time to public https hosts (7.3) and subscribed by id, never by client URL | Same as adding a feed today |
 | **Session fixation** | Setup cookie cleared and a fresh session minted at account creation | None |
@@ -352,7 +353,7 @@ INSERT INTO settings (key, value)
 - `auth_mode = 'standard'` covers both a password account and today's Access-only passwordless account (empty hash,
   Access configured). The API maps it to `password` or `access` for display.
 - New non-migration keys (Go defaults, as usual): `sys.setup_completed_at`, `sys.last_version` (written at every
-  start, section 9), `security.allowed_hosts` (global, JSON array, default `[]`), `security.open_lan` (bool, default false),
+  start, section 9), `security.allowed_hosts` (global, JSON array, default `[]`), (`security.open_lan`, bool, was here; removed in 0.7, an old row is ignored),
   `ui.whats_new_seen` (hidden).
 - `migrate0010_test.go`: a schema-9 database with and without an account migrates; the row and hashes are intact;
   the CHECK rejects `open` with a non-empty hash; `sys.setup_completed_at`, `sys.legacy_port` and the `tz` row exist
@@ -722,8 +723,8 @@ All five recommendations were accepted, plus one new requirement.
    Superseded 2026-10-02: removed in 0.6.0, owner decision.
 2. **Host-A deploy source.** 0.5.0-beta.1 is built from the tag on Host-A as today; from 0.5.0 Host-A pulls the
    signed GHCR image by digest, with build-from-tag kept as the fallback. `docs/RELEASING.md` changes in PR D.
-3. **Open mode and the LAN.** Refused by default; `security.open_lan` (Settings, "Also allow devices on my local
-   network") opts in. Design in 5.4.
+3. **Open mode and the LAN.** Superseded 2026-10-02: open mode admits the local network by one rule, with no
+   `security.open_lan` setting. Design in 5.4.
 4. **Run setup again.** Settings > Account offers it for any account, including env-created ones:
    `POST /api/onboarding/restart` (session, same-origin) clears `sys.setup_completed_at`, which routes the app to
    `/welcome` for steps 3-7. It never touches the account, the token or setup mode.

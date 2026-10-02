@@ -23,7 +23,7 @@ export function OpenRefusedScreen({ reason, onRetry, busy }: { reason: OpenReaso
           <p className="font-semibold">Ways in</p>
           <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-fg2">
             <li>Open Kipple on the computer that runs it, at localhost or its IP address.</li>
-            <li>Connect over Tailscale and open Kipple by its Tailscale address.</li>
+            <li>Connect from a device on the same local network, or over Tailscale, and open Kipple by its IP address.</li>
             <li>Or, from a place where you can get in, set a password in Settings so it works from anywhere you allow.</li>
           </ul>
         </div>

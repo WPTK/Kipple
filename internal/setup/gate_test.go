@@ -33,94 +33,76 @@ func arrivedOn(r *http.Request, local string) *http.Request {
 func TestOpenRefusal(t *testing.T) {
 	g := Gate{Trusted: []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")}, Tailnet: tailnetUp}
 	type tc struct {
-		name    string
-		peer    string
-		host    string
-		hdr     map[string]string
-		openLAN bool
-		want    string
-		local   string // the address the connection arrived on ("": unknown)
+		name  string
+		peer  string
+		host  string
+		hdr   map[string]string
+		want  string
+		local string // the address the connection arrived on ("": unknown)
 	}
 	for _, c := range []tc{
-		{"loopback v4", "127.0.0.1:5000", "127.0.0.1", nil, false, "", ""},
-		{"loopback v6", "[::1]:5000", "localhost", nil, false, "", ""},
-		{"mapped loopback", "[::ffff:127.0.0.1]:5000", "localhost", nil, false, "", ""},
-		{"tailscale v4", "100.101.102.103:5000", "nas", nil, false, "", "100.100.100.1:1919"},
-		{"tailscale v6", "[fd7a:115c:a1e0::1]:5000", "nas", nil, false, "", "[fd7a:115c:a1e0::100]:1919"},
-		{"tailscale v4 via a mapped listener", "[::ffff:100.101.102.103]:5000", "nas", nil, false, "", "[::ffff:100.100.100.1]:1919"},
-		// A CGNAT or tailnet-range source that reached this machine on another
-		// address (its LAN interface) did not come over the tailnet.
-		{"tailscale range on the lan address", "100.101.102.103:5000", "nas", nil, false, RefusePeer, "192.168.1.10:1919"},
-		{"tailscale v6 range on the lan address", "[fd7a:115c:a1e0::1]:5000", "nas", nil, false, RefusePeer, "[fd00::10]:1919"},
-		{"tailscale range, local address unknown", "100.101.102.103:5000", "nas", nil, false, RefusePeer, ""},
-		{"tailscale range on the lan address with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "192.168.1.10:1919"},
-		{"tailscale range on a container address with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "172.17.0.2:1919"},
-		// #175: 100.64.0.0/10 is also CGNAT, cloud and Kubernetes overlay space. When
-		// this machine's own address is there (and not a known Tailscale one), or is
-		// public, or is unknown, open_lan does not admit a peer from the range.
-		{"cgnat peer on a cgnat local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "100.127.0.7:1919"},
-		{"cgnat peer on a public local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "203.0.113.5:1919"},
-		{"cgnat peer, local address unknown, with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, ""},
-		{"tailscale v6 range on a public local address with open_lan", "[fd7a:115c:a1e0::1]:5000", "nas", nil, true, RefusePeer, "[2001:db8::10]:1919"},
-		{"cgnat peer on a mapped lan local address with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "[::ffff:192.168.1.10]:1919"},
-		{"cgnat peer on a link-local v4 local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "169.254.1.5:1919"},
-		{"cgnat peer on a link-local v6 local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "[fe80::1%eth0]:1919"},
-		{"cgnat peer on 172.15.255.255 with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "172.15.255.255:1919"},
-		{"cgnat peer on 172.32.0.0 with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "172.32.0.0:1919"},
-		{"cgnat peer on 172.16.0.0 with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "172.16.0.0:1919"},
-		{"cgnat peer on 172.31.255.255 with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "172.31.255.255:1919"},
-		{"peer 100.128.0.1 is not tailnet", "100.128.0.1:5000", "nas", nil, false, RefusePeer, "100.100.100.1:1919"},
-		{"peer 100.128.0.1 with open_lan on a private local address", "100.128.0.1:5000", "nas", nil, true, RefusePeer, "192.168.1.10:1919"},
-		{"peer 100.63.255.255 is not tailnet", "100.63.255.255:5000", "nas", nil, false, RefusePeer, "100.100.100.1:1919"},
-		{"peer 100.63.255.255 with open_lan on a private local address", "100.63.255.255:5000", "nas", nil, true, RefusePeer, "192.168.1.10:1919"},
-		{"public peer with open_lan on a private local address", "203.0.113.9:5000", "nas", nil, true, RefusePeer, "192.168.1.10:1919"},
-		{"tailscale v6 range on the lan address with open_lan", "[fd7a:115c:a1e0::1]:5000", "nas", nil, true, "", "[fd00::10]:1919"},
-		// In a container even this computer arrives from the bridge gateway, which
-		// cannot be told from the LAN: it needs the LAN opt-in, whatever Host it names.
-		{"container gateway naming localhost", "172.17.0.1:5000", "localhost", nil, false, RefusePeer, ""},
-		{"container gateway with open_lan", "172.17.0.1:5000", "localhost", nil, true, "", ""},
-		{"docker desktop gateway with open_lan", "192.168.65.1:5000", "localhost", nil, true, "", ""},
-		{"another bridge peer", "172.17.0.5:5000", "127.0.0.1", nil, false, RefusePeer, ""},
-		{"lan refused by default", "192.168.1.20:5000", "192.168.1.10", nil, false, RefusePeer, ""},
-		{"lan with open_lan", "192.168.1.20:5000", "192.168.1.10", nil, true, "", ""},
-		{"ula with open_lan", "[fd00::5]:5000", "nas", nil, true, "", ""},
-		{"public peer even with open_lan", "203.0.113.9:5000", "192.168.1.10", nil, true, RefusePeer, ""},
-		{"cgnat outside tailscale", "100.63.0.1:5000", "nas", nil, false, RefusePeer, ""},
-		{"trusted proxy", "192.0.2.20:5000", "127.0.0.1", nil, false, RefuseForwarded, ""},
-		{"cloudflared on loopback", "127.0.0.1:5000", "127.0.0.1", map[string]string{"CF-Connecting-IP": "203.0.113.9"}, false, RefuseForwarded, ""},
-		{"access jwt", "127.0.0.1:5000", "127.0.0.1", map[string]string{"Cf-Access-Jwt-Assertion": "x"}, false, RefuseForwarded, ""},
-		{"forwarded", "127.0.0.1:5000", "localhost", map[string]string{"Forwarded": "for=203.0.113.9"}, false, RefuseForwarded, ""},
-		{"xff", "127.0.0.1:5000", "localhost", map[string]string{"X-Forwarded-For": "203.0.113.9"}, false, RefuseForwarded, ""},
-		{"x-real-ip", "127.0.0.1:5000", "localhost", map[string]string{"X-Real-IP": "203.0.113.9"}, false, RefuseForwarded, ""},
-		{"xfh", "127.0.0.1:5000", "localhost", map[string]string{"X-Forwarded-Host": "rss.example.com"}, false, RefuseForwarded, ""},
-		{"empty header still counts", "127.0.0.1:5000", "localhost", map[string]string{"X-Forwarded-For": ""}, false, RefuseForwarded, ""},
+		// Local peers: this computer, link-local, RFC 1918 and ULA, whatever address
+		// they reached (a container's gateway is one of them).
+		{"loopback v4", "127.0.0.1:5000", "127.0.0.1", nil, "", ""},
+		{"loopback v6", "[::1]:5000", "localhost", nil, "", ""},
+		{"mapped loopback", "[::ffff:127.0.0.1]:5000", "localhost", nil, "", ""},
+		{"link-local v4", "169.254.7.7:5000", "nas", nil, "", ""},
+		{"link-local v6", "[fe80::1]:5000", "nas", nil, "", ""},
+		{"link-local v6 with a zone", "[fe80::1%eth0]:5000", "nas", nil, "", ""},
+		{"10/8 first", "10.0.0.0:5000", "nas", nil, "", ""},
+		{"10/8 last", "10.255.255.255:5000", "nas", nil, "", ""},
+		{"172.15.255.255 is public", "172.15.255.255:5000", "nas", nil, RefusePeer, ""},
+		{"172.16.0.0", "172.16.0.0:5000", "nas", nil, "", ""},
+		{"172.31.255.255", "172.31.255.255:5000", "nas", nil, "", ""},
+		{"172.32.0.0 is public", "172.32.0.0:5000", "nas", nil, RefusePeer, ""},
+		{"192.168/16", "192.168.1.20:5000", "192.168.1.10", nil, "", ""},
+		{"mapped lan peer", "[::ffff:192.168.1.20]:5000", "nas", nil, "", ""},
+		{"ula", "[fd00::5]:5000", "nas", nil, "", ""},
+		{"container gateway", "172.17.0.1:5000", "localhost", nil, "", ""},
+		{"docker desktop gateway", "192.168.65.1:5000", "localhost", nil, "", ""},
+		// Everything else is not local.
+		{"public v4", "203.0.113.9:5000", "192.168.1.10", nil, RefusePeer, "192.168.1.10:1919"},
+		{"public v6", "[2001:db8::9]:5000", "nas", nil, RefusePeer, ""},
+		{"cgnat just below tailscale", "100.63.255.255:5000", "nas", nil, RefusePeer, "100.100.100.1:1919"},
+		{"cgnat just above tailscale", "100.128.0.1:5000", "nas", nil, RefusePeer, "192.168.1.10:1919"},
+		{"unparsable peer", "pipe", "localhost", nil, RefusePeer, ""},
+		// Proxies and tunnels fail closed, whoever the peer is.
+		{"trusted proxy", "192.0.2.20:5000", "127.0.0.1", nil, RefuseForwarded, ""},
+		{"cloudflared on loopback", "127.0.0.1:5000", "127.0.0.1", map[string]string{"CF-Connecting-IP": "203.0.113.9"}, RefuseForwarded, ""},
+		{"lan peer with a forwarding header", "192.168.1.20:5000", "nas", map[string]string{"X-Forwarded-For": "203.0.113.9"}, RefuseForwarded, ""},
+		{"access jwt", "127.0.0.1:5000", "127.0.0.1", map[string]string{"Cf-Access-Jwt-Assertion": "x"}, RefuseForwarded, ""},
+		{"forwarded", "127.0.0.1:5000", "localhost", map[string]string{"Forwarded": "for=203.0.113.9"}, RefuseForwarded, ""},
+		{"xff", "127.0.0.1:5000", "localhost", map[string]string{"X-Forwarded-For": "203.0.113.9"}, RefuseForwarded, ""},
+		{"x-real-ip", "127.0.0.1:5000", "localhost", map[string]string{"X-Real-IP": "203.0.113.9"}, RefuseForwarded, ""},
+		{"xfh", "127.0.0.1:5000", "localhost", map[string]string{"X-Forwarded-Host": "rss.example.com"}, RefuseForwarded, ""},
+		{"empty header still counts", "127.0.0.1:5000", "localhost", map[string]string{"X-Forwarded-For": ""}, RefuseForwarded, ""},
+		// Tailscale Serve: the exact shape tailscaled sends, from loopback.
 		{"tailscale serve", "127.0.0.1:5000", "box.tail1234.ts.net",
-			map[string]string{"X-Forwarded-For": "100.101.102.103", "X-Forwarded-Proto": "https", "X-Forwarded-Host": "box.tail1234.ts.net"}, false, "", ""},
+			map[string]string{"X-Forwarded-For": "100.101.102.103", "X-Forwarded-Proto": "https", "X-Forwarded-Host": "box.tail1234.ts.net"}, "", ""},
 		{"tailscale serve over plain http", "127.0.0.1:5000", "box.tail1234.ts.net",
-			map[string]string{"X-Forwarded-For": "fd7a:115c:a1e0::5", "X-Forwarded-Host": "box.tail1234.ts.net"}, false, "", ""},
+			map[string]string{"X-Forwarded-For": "fd7a:115c:a1e0::5", "X-Forwarded-Host": "box.tail1234.ts.net"}, "", ""},
 		// #128: a Host ending in .ts.net is the client's choice. A proxy on this
 		// machine that passes Host through (nginx proxy_set_header Host $host,
 		// Caddy) says where the request really came from, and that is not the tailnet.
 		{"ts.net host through nginx", "127.0.0.1:5000", "anything.ts.net",
-			map[string]string{"X-Forwarded-For": "203.0.113.9", "X-Forwarded-Proto": "http"}, false, RefuseForwarded, ""},
+			map[string]string{"X-Forwarded-For": "203.0.113.9", "X-Forwarded-Proto": "http"}, RefuseForwarded, ""},
 		{"ts.net host through nginx over https", "127.0.0.1:5000", "anything.ts.net",
-			map[string]string{"X-Forwarded-For": "203.0.113.9", "X-Forwarded-Proto": "https"}, false, RefuseForwarded, ""},
+			map[string]string{"X-Forwarded-For": "203.0.113.9", "X-Forwarded-Proto": "https"}, RefuseForwarded, ""},
 		{"ts.net host, a tailnet xff appended to", "127.0.0.1:5000", "anything.ts.net",
-			map[string]string{"X-Forwarded-For": "100.101.102.103, 203.0.113.9"}, false, RefuseForwarded, ""},
+			map[string]string{"X-Forwarded-For": "100.101.102.103, 203.0.113.9"}, RefuseForwarded, ""},
 		{"ts.net host, xfh names another host", "127.0.0.1:5000", "anything.ts.net",
-			map[string]string{"X-Forwarded-For": "100.101.102.103", "X-Forwarded-Host": "rss.example.com"}, false, RefuseForwarded, ""},
+			map[string]string{"X-Forwarded-For": "100.101.102.103", "X-Forwarded-Host": "rss.example.com"}, RefuseForwarded, ""},
 		{"ts.net host, xfp http", "127.0.0.1:5000", "anything.ts.net",
-			map[string]string{"X-Forwarded-For": "100.101.102.103", "X-Forwarded-Proto": "http"}, false, RefuseForwarded, ""},
+			map[string]string{"X-Forwarded-For": "100.101.102.103", "X-Forwarded-Proto": "http"}, RefuseForwarded, ""},
 		{"ts.net host, xfh alone", "127.0.0.1:5000", "anything.ts.net",
-			map[string]string{"X-Forwarded-Host": "anything.ts.net"}, false, RefuseForwarded, ""},
+			map[string]string{"X-Forwarded-Host": "anything.ts.net"}, RefuseForwarded, ""},
 		{"ts.net host, unparsable xff", "127.0.0.1:5000", "anything.ts.net",
-			map[string]string{"X-Forwarded-For": "unknown"}, false, RefuseForwarded, ""},
+			map[string]string{"X-Forwarded-For": "unknown"}, RefuseForwarded, ""},
 		{"tailscale funnel", "127.0.0.1:5000", "box.tail1234.ts.net",
-			map[string]string{"X-Forwarded-For": "203.0.113.9", "Tailscale-Funnel-Request": "?1"}, false, RefuseForwarded, ""},
-		{"funnel header alone", "127.0.0.1:5000", "box.tail1234.ts.net", map[string]string{"Tailscale-Funnel-Request": "?1"}, false, RefuseForwarded, ""},
-		{"ts.net serve still refuses cloudflare", "127.0.0.1:5000", "box.tail1234.ts.net", map[string]string{"CF-Connecting-IP": "203.0.113.9"}, false, RefuseForwarded, ""},
-		{"ts.net from the lan is not serve", "192.168.1.20:5000", "box.tail1234.ts.net", map[string]string{"X-Forwarded-For": "1.2.3.4"}, true, RefuseForwarded, ""},
-		{"unparsable peer", "pipe", "localhost", nil, false, RefusePeer, ""},
+			map[string]string{"X-Forwarded-For": "203.0.113.9", "Tailscale-Funnel-Request": "?1"}, RefuseForwarded, ""},
+		{"funnel header alone", "127.0.0.1:5000", "box.tail1234.ts.net", map[string]string{"Tailscale-Funnel-Request": "?1"}, RefuseForwarded, ""},
+		{"ts.net serve still refuses cloudflare", "127.0.0.1:5000", "box.tail1234.ts.net", map[string]string{"CF-Connecting-IP": "203.0.113.9"}, RefuseForwarded, ""},
+		{"ts.net from the lan is not serve", "192.168.1.20:5000", "box.tail1234.ts.net", map[string]string{"X-Forwarded-For": "1.2.3.4"}, RefuseForwarded, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := arrivedOn(httptest.NewRequest("POST", "/api/auth/open", nil), c.local)
@@ -129,34 +111,66 @@ func TestOpenRefusal(t *testing.T) {
 			for k, v := range c.hdr {
 				r.Header.Set(k, v)
 			}
-			require.Equal(t, c.want, g.OpenRefusal(r, c.host, true, c.openLAN))
+			require.Equal(t, c.want, g.OpenRefusal(r, c.host, true))
 		})
 	}
+
+	// A peer in Tailscale's ranges is a tailnet device only on this machine's own
+	// Tailscale address, or when it reached a private address (a LAN or a
+	// container's bridge). Carrier-grade NAT, cloud and Kubernetes overlays share
+	// the range (#175): a CGNAT, public, link-local or unknown local address refuses.
+	peers := map[string]string{"v4": "100.101.102.103:5000", "v4 low edge": "100.64.0.0:5000", "v4 high edge": "100.127.255.255:5000",
+		"v6": "[fd7a:115c:a1e0::1]:5000", "mapped v4": "[::ffff:100.101.102.103]:5000"}
+	locals := []struct{ name, addr, want string }{
+		{"own tailscale v4", "100.100.100.1:1919", ""},
+		{"own tailscale v6", "[fd7a:115c:a1e0::100]:1919", ""},
+		{"own tailscale v4 mapped", "[::ffff:100.100.100.1]:1919", ""},
+		{"lan", "192.168.1.10:1919", ""},
+		{"mapped lan", "[::ffff:192.168.1.10]:1919", ""},
+		{"10/8", "10.1.2.3:1919", ""},
+		{"172.16.0.0", "172.16.0.0:1919", ""},
+		{"172.31.255.255", "172.31.255.255:1919", ""},
+		{"container bridge", "172.17.0.2:1919", ""},
+		{"ula", "[fd00::10]:1919", ""},
+		{"172.15.255.255", "172.15.255.255:1919", RefusePeer},
+		{"172.32.0.0", "172.32.0.0:1919", RefusePeer},
+		{"another cgnat address", "100.127.0.7:1919", RefusePeer},
+		{"public v4", "203.0.113.5:1919", RefusePeer},
+		{"public v6", "[2001:db8::10]:1919", RefusePeer},
+		{"link-local v4", "169.254.1.5:1919", RefusePeer},
+		{"link-local v6", "[fe80::1%eth0]:1919", RefusePeer},
+		{"unknown", "", RefusePeer},
+	}
+	for pn, peer := range peers {
+		for _, l := range locals {
+			t.Run("tailscale "+pn+" reaching "+l.name, func(t *testing.T) {
+				r := arrivedOn(httptest.NewRequest("POST", "/", nil), l.addr)
+				r.RemoteAddr = peer
+				require.Equal(t, l.want, g.OpenRefusal(r, "nas", true))
+			})
+		}
+	}
+	// Without a local Tailscale address (or with the scan empty), only a private address of this machine admits the range.
+	r := arrivedOn(httptest.NewRequest("POST", "/", nil), "100.100.100.1:1919")
+	r.RemoteAddr = "100.101.102.103:1"
+	require.Equal(t, RefusePeer, Gate{}.OpenRefusal(r, "nas", true), "arrived on a CGNAT address that is not this machine's tailnet one")
+	require.Equal(t, RefusePeer, Gate{Tailnet: func() []netip.Addr { return nil }}.OpenRefusal(r, "nas", true))
+	r = arrivedOn(r, "192.168.1.10:1919")
+	require.Equal(t, "", Gate{}.OpenRefusal(r, "nas", true))
+
 	// The Serve shape on a machine without any Tailscale address is not Serve.
 	serve := httptest.NewRequest("POST", "/", nil)
 	serve.Host, serve.RemoteAddr = "box.tail1234.ts.net", "127.0.0.1:1"
 	serve.Header.Set("X-Forwarded-For", "100.101.102.103")
-	require.Equal(t, RefuseForwarded, Gate{}.OpenRefusal(serve, "box.tail1234.ts.net", true, false))
-	require.Equal(t, RefuseForwarded, Gate{Tailnet: func() []netip.Addr { return nil }}.OpenRefusal(serve, "box.tail1234.ts.net", true, false))
-	require.Equal(t, "", g.OpenRefusal(serve, "box.tail1234.ts.net", true, false))
+	require.Equal(t, RefuseForwarded, Gate{}.OpenRefusal(serve, "box.tail1234.ts.net", true))
+	require.Equal(t, RefuseForwarded, Gate{Tailnet: func() []netip.Addr { return nil }}.OpenRefusal(serve, "box.tail1234.ts.net", true))
+	require.Equal(t, "", g.OpenRefusal(serve, "box.tail1234.ts.net", true))
 	serve.Header.Add("X-Forwarded-For", "100.101.102.104")
-	require.Equal(t, RefuseForwarded, g.OpenRefusal(serve, "box.tail1234.ts.net", true, false), "two X-Forwarded-For lines")
+	require.Equal(t, RefuseForwarded, g.OpenRefusal(serve, "box.tail1234.ts.net", true), "two X-Forwarded-For lines")
 
-	r := httptest.NewRequest("POST", "/", nil)
+	r = httptest.NewRequest("POST", "/", nil)
 	r.RemoteAddr = "127.0.0.1:1"
-	require.Equal(t, RefuseHost, g.OpenRefusal(r, "evil.example", false, true), "the Host gate comes first")
-
-	// Without a local tailnet address the CGNAT range is not the tailnet: only the LAN opt-in admits it.
-	r = arrivedOn(r, "100.100.100.1:1919")
-	r.RemoteAddr = "100.101.102.103:1"
-	require.Equal(t, RefusePeer, Gate{}.OpenRefusal(r, "nas", true, false))
-	require.Equal(t, RefusePeer, Gate{}.OpenRefusal(r, "nas", true, true), "arrived on a CGNAT address that is not this machine's tailnet one")
-	r = arrivedOn(r, "192.168.1.10:1919")
-	require.Equal(t, "", Gate{}.OpenRefusal(r, "nas", true, true))
-	r = arrivedOn(r, "100.100.100.1:1919")
-	require.Equal(t, RefusePeer, Gate{Tailnet: func() []netip.Addr { return nil }}.OpenRefusal(r, "nas", true, false))
-	r.RemoteAddr = "[fd7a:115c:a1e0::9]:1"
-	require.Equal(t, RefusePeer, Gate{}.OpenRefusal(r, "nas", true, false))
+	require.Equal(t, RefuseHost, g.OpenRefusal(r, "evil.example", false), "the Host gate comes first")
 }
 
 // Granting access also needs a browser Origin naming the host the request was
@@ -171,7 +185,7 @@ func TestSignInRefusalChecksTheOrigin(t *testing.T) {
 			r.Header.Set("Origin", origin)
 		}
 		h, ok := NormalizeHost(host)
-		return g.SignInRefusal(r, h, ok && HostAllowed(h, nil), false)
+		return g.SignInRefusal(r, h, ok && HostAllowed(h, nil))
 	}
 	require.Equal(t, "", req("127.0.0.1:1919", "http://127.0.0.1:1919"))
 	require.Equal(t, "", req("localhost:1919", "http://LOCALHOST:1919"))

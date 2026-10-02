@@ -265,8 +265,10 @@ Fix a shared address by listing the proxy, not by raising a limit.
 
 ## Open mode (no password)
 
-The wizard's account step offers **No password at all**. It is for a Kipple that only you can reach: this computer, or
-your tailnet. The screen shows the warning verbatim in substance: anyone who can reach the address can read and change
+The wizard's account step offers **No password at all**. It is for a Kipple that only you can reach: this computer, your
+local network and your tailnet. The rule is modeled on Sonarr's and Radarr's "Disabled for Local Addresses" (it is stricter: no
+`fec0::/10`, the Tailscale narrowing below, and every forwarding header refused): a request is allowed by where it comes
+from, and there is no setting to tune it. The screen shows the warning verbatim in substance: anyone who can reach the address can read and change
 everything. It needs a ticked acknowledgement, and it stores the account with no password hash and `auth_mode = open`.
 Sign-in then happens by itself when the app opens: it asks the server for a session, and the server grants one only if
 the request passes the **open gate**:
@@ -288,35 +290,39 @@ the request passes the **open gate**:
    address in Tailscale's range, `X-Forwarded-Host` equal to the Host, `X-Forwarded-Proto` `https` if present, and a
    Tailscale address on this machine. A reverse proxy in front that passes the Host through reports the real client
    address in `X-Forwarded-For` and is refused.
-3. **A near peer.** The connection must come from this computer (loopback) or a Tailscale address (`100.64.0.0/10`,
-   `fd7a:115c:a1e0::/48`) that reached this machine on its own Tailscale address. A packet from that range arriving on
-   the LAN interface is not the tailnet (`100.64.0.0/10` is also carrier-grade NAT space) and counts as a LAN peer.
-   What Kipple cannot check is a LAN device that routes a forged tailnet-range packet at this machine's Tailscale
-   address itself; on Linux Tailscale's own firewall rule drops those, on other systems keep open mode to machines on a
-   network you trust. Devices on the local network
-   are refused unless you turn on **Settings > Account & Devices > Also allow devices on my local network**
-   (`security.open_lan`), which lets every private-range address in. It also lets in a peer from the Tailscale range
-   that did not arrive on this machine's Tailscale address, but only when the connection reached a private-range
-   address of this machine (the LAN interface or a container's bridge). A peer from `100.64.0.0/10` that reached a
-   CGNAT, public or unknown local address is refused, since that range is also carrier-grade NAT, cloud and
-   Kubernetes overlay space. Inside Docker every connection reaches the container's private bridge address, so open_lan
-   cannot tell a CGNAT or overlay peer from a LAN peer there; the protection is the published port's bind address, so
-   publish the port only on the LAN or tailnet interface.
+3. **A local peer.** The connection must come from this computer (loopback), a link-local address, a private network
+   address (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, or IPv6 `fc00::/7`), or a Tailscale address
+   (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`). Anything else, a public address included, is refused. The address is the
+   one the connection really came from; Kipple never believes a header for it, which is also why a request with a
+   forwarding header is refused in rule 2. A Tailscale-range peer is let in only when it reached this machine on its own
+   Tailscale address or on a private address of this machine (the LAN interface or a container's bridge), because
+   `100.64.0.0/10` is also carrier-grade NAT, cloud and Kubernetes overlay space: one that reached a CGNAT, public or
+   unknown address of this machine is refused. What Kipple cannot check is a device on your own network that routes a
+   forged tailnet-range packet at this machine's Tailscale address; on Linux Tailscale's own firewall rule drops those,
+   on other systems keep open mode to a network you trust. Likewise, anything that forwards connections from a private
+   address without adding a header looks local: a Kubernetes Service with the Cluster traffic policy, a cloud layer-4
+   load balancer with IP targets, `socat`, Docker Desktop's port forwarding. An open-mode Kipple must never sit behind
+   one of those on a public listener.
 4. **The browser says so.** The `Origin` must name the same host the request was sent to.
 
 A signed-in session in open mode keeps passing the network part of the gate on every request, so a session cannot
-outlive the position or the setting that admitted it. An open live-update stream (`/api/events`) is closed as soon as
-the setting changes, and at its next heartbeat when the device moves.
+outlive the position that admitted it. An open live-update stream (`/api/events`) is closed at its next heartbeat when the
+device moves, and at once when a security setting such as the allowed host names changes.
 
-**The Docker caveat.** Inside a container the peer is never loopback: Docker delivers even a
-`-p 127.0.0.1:1919:1919` connection from its own bridge gateway, and on Docker Desktop, rootless Docker or IPv6 without
-ip6tables it delivers other machines' connections from that same address too, so Kipple cannot tell them apart. A
-container therefore treats that gateway as an ordinary LAN peer, and open mode works there only with "Also allow
-devices on my local network" on. The wizard notices this and shows that checkbox in the account step. What keeps other
-machines out then is the address you publish the port on, not Kipple: keep `127.0.0.1:` in the port mapping (or a
-Tailscale address) whenever you use open mode, and never `1919:1919` on a LAN you do not fully trust. For the same reason
-Tailscale devices reaching a container also need that checkbox, since Kipple cannot see your tailnet from inside it.
-A non-container Kipple (a plain binary) on the same machine as the browser needs neither.
+**The Docker caveat.** Inside a container every connection arrives from Docker's bridge gateway, a private address:
+Docker delivers even a `-p 127.0.0.1:1919:1919` connection that way, and on Docker Desktop, rootless Docker or IPv6
+without ip6tables it delivers other machines' connections from that same address too. Kipple therefore cannot tell your
+local network from the world there, and the protection is the address you publish the port on, not Kipple. Publish an
+open-mode Kipple only on the interface of your local network or your tailnet (the pull-and-run example binds
+`127.0.0.1`, this machine only), and never on a public interface; `1919:1919` binds every interface, so use it only on a
+machine that is not reachable from the internet. For the same reason Tailscale devices reach a container as ordinary
+private peers. A plain binary on the same machine as the browser sees the real address and needs nothing special.
+
+**If you used open mode before 0.7.** Earlier versions let in only this computer and your tailnet unless you turned on a
+setting, "Also allow devices on my local network" (`security.open_lan`). That setting is gone: an install already in open
+mode now also admits its local network, whatever the setting was. Check that nothing you do not trust shares that
+network before you upgrade, or set a password (**Settings > Set web password**). The old stored value stays in the
+database and is ignored; it is not listed in Settings and cannot be written.
 
 Changing your mind: **Settings > Set web password** (or `kipple password` on the host) gives the account a password and
 returns it to normal mode; either signs every other session out. Going from a password account to open mode is not in
@@ -533,7 +539,7 @@ Anything read, starred or fetched since the upgrade is lost.
 (This is the "Rolling back" procedure that a refused start points to.) If the old image is started on the migrated
 database without these steps, it does not start. A binary from 0.5.0 on names the Kipple that wrote the database and
 what to do: `docker logs kipple` shows `kipple: store: store: database schema version 11 is newer than this binary (10); refusing to
-start. This database was last opened by Kipple v0.6.0 (schema 11); this is Kipple v0.5.0 (schema 10). Run v0.6.0 or
+start. This database was last opened by Kipple v0.7.0 (schema 11); this is Kipple v0.6.0 (schema 10). Run v0.7.0 or
 newer, or restore the pre-migration snapshot from the backup folder (docs/deploy.md, Rolling back).` (the version and
 schema numbers here are examples; a database from a build that never recorded its version says "It was written by a
 newer Kipple than this binary." instead). Older binaries, which is what a rollback to 0.3.x is, print the shorter
@@ -653,3 +659,11 @@ image has no shell):
 What you will notice: nothing else. The setup wizard does not run for an existing account (Settings > Account & Devices >
 Run setup again is there if you want the tour), sign-in is unchanged, and `KIPPLE_USERNAME`, `KIPPLE_PASSWORD` and
 `KIPPLE_API_PASSWORD` left in `.env` remain harmless. Rehearse it first on a copy of a snapshot as UAT Suite 4 describes.
+
+### Schema 10 -> 11 (0.7)
+
+Migration 0011 is an internal cleanup: it deletes six settings rows nothing reads any more (`security.open_lan`,
+`ui.font_size`, `ui.font_ui`, `ui.layouts`, `stats.api_single_read_is_open` and `sys.legacy_port`). It is instant and
+changes nothing you can see. The first start writes `/data/backup/pre-migration-10-11-<ns>.db` (or `pre-migration-9-11-<ns>.db`
+from an older schema) before migrating. A 0.6 binary refuses the schema-11 database, so a rollback is the procedure above
+with that snapshot.

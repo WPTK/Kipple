@@ -20,7 +20,6 @@ const modeTTL = 5 * time.Second
 type modeSnapshot struct {
 	mode    string   // store.AuthStandard or store.AuthOpen ("" without an account)
 	allowed []string // security.allowed_hosts plus Options.AllowedHosts
-	openLAN bool
 	loaded  time.Time
 	failed  bool // the read failed and nothing was known before (not cached): enforce
 }
@@ -70,7 +69,7 @@ func (s *Server) snapshot(ctx context.Context) *modeSnapshot {
 		}
 		return &modeSnapshot{failed: true}
 	}
-	snap := &modeSnapshot{openLAN: sec.OpenLAN, loaded: now, allowed: s.allowedWith(sec.AllowedHosts)}
+	snap := &modeSnapshot{loaded: now, allowed: s.allowedWith(sec.AllowedHosts)}
 	if ok {
 		snap.mode = acct.AuthMode
 	}
@@ -202,36 +201,35 @@ func (s *Server) warnHost() {
 }
 
 // gateRefusal is the open gate for r against snap ("" = passes): the network
-// part (Host gate, not forwarded, a local peer; design 5.4) with the given
-// security.open_lan, and with signIn also the browser part (an Origin naming
-// the host the request was sent to) that granting open-mode access needs: a
-// session, the switch to open mode, a Reader API password. In open mode every
-// signed-in request passes the network part (authed), so a session never
-// outlives the network position or the setting that admitted it.
-func (s *Server) gateRefusal(r *http.Request, snap *modeSnapshot, openLAN, signIn bool) string {
+// part (Host gate, not forwarded, a local peer; design 5.4), and with signIn
+// also the browser part (an Origin naming the host the request was sent to)
+// that granting open-mode access needs: a session, the switch to open mode, a
+// Reader API password. In open mode every signed-in request passes the network
+// part (authed), so a session never outlives the network position that
+// admitted it.
+func (s *Server) gateRefusal(r *http.Request, snap *modeSnapshot, signIn bool) string {
 	host, ok := s.openHostAllowed(r, snap)
 	if signIn {
-		return s.opt.Gate.SignInRefusal(r, host, ok, openLAN)
+		return s.opt.Gate.SignInRefusal(r, host, ok)
 	}
-	return s.opt.Gate.OpenRefusal(r, host, ok, openLAN)
+	return s.opt.Gate.OpenRefusal(r, host, ok)
 }
 
-// signInRefusal is gateRefusal for granting access, with the stored open_lan.
+// signInRefusal is gateRefusal for granting access.
 func (s *Server) signInRefusal(r *http.Request) string {
-	snap := s.snapshot(r.Context())
-	return s.gateRefusal(r, snap, snap.openLAN, true)
+	return s.gateRefusal(r, s.snapshot(r.Context()), true)
 }
 
 // writeOpenRefused answers a request that failed the open gate.
 func writeOpenRefused(w http.ResponseWriter, reason string) {
-	msg := "open mode (no password) only works from this computer or over Tailscale"
+	msg := "open mode (no password) only works from this computer, your local network or Tailscale"
 	switch reason {
 	case setup.RefuseHost:
 		msg = "open mode refuses this address: open Kipple by its IP address, localhost or an allowed host name"
 	case setup.RefuseForwarded:
-		msg = "open mode refuses requests through a proxy or tunnel: reach Kipple directly (localhost or Tailscale), or set a password"
+		msg = "open mode refuses requests through a proxy or tunnel: reach Kipple directly (localhost, your local network or Tailscale), or set a password"
 	case setup.RefusePeer:
-		msg = "open mode only accepts this computer and Tailscale devices; allow the local network under Settings (security.open_lan), or set a password"
+		msg = "open mode only accepts this computer, devices on your local network and Tailscale devices; set a password to use Kipple from anywhere else"
 	}
 	writeJSON(w, http.StatusForbidden, map[string]string{"error": "open_refused", "reason": reason, "message": msg})
 }

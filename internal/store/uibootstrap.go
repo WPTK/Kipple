@@ -32,7 +32,6 @@ var DefaultSettings = map[string]any{
 	"fetch.honor_publisher_ttl": true,
 	SettingTZ:                   DefaultTZ,
 	SettingAllowedHosts:         []any{},
-	SettingOpenLAN:              false,
 	"stats.enabled":             true,
 	"stats.week_start":          "sunday",
 	"stats.wrapped_enabled":     true,

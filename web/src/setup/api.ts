@@ -9,9 +9,8 @@ export type OpenReason = "host" | "peer" | "forwarded";
 export interface SetupOptions {
   access: { enabled: boolean; verified: boolean };
   open: {
-    /** Null: open mode works from here. Set with `lan_reason` null: it works if `open_lan` is sent. Both set: not possible. */
+    /** Null: open mode works from here. */
     reason: OpenReason | null;
-    lan_reason: OpenReason | null;
   };
 }
 
@@ -25,7 +24,6 @@ export interface AccountBody {
   password?: string;
   passwordless?: Passwordless;
   acknowledge_open?: boolean;
-  open_lan?: boolean;
 }
 
 export interface StarterFeed {
@@ -69,11 +67,11 @@ export function openReasonText(reason: OpenReason | string | null | undefined): 
     case "host":
       return "Kipple doesn't recognize the address this page was opened with. Open Kipple by its IP address (for example http://192.168.1.20:1919) or by localhost, or add the name you use to KIPPLE_ALLOWED_HOSTS.";
     case "forwarded":
-      return "This page reached Kipple through a proxy or tunnel (such as a Cloudflare Tunnel). Without a password that would let anyone on the internet in, so it isn't allowed. Open Kipple directly from this computer or over Tailscale, or use a password.";
+      return "This page reached Kipple through a proxy or tunnel (such as a Cloudflare Tunnel). Without a password that would let anyone on the internet in, so it isn't allowed. Open Kipple directly from this computer, your local network or over Tailscale, or use a password.";
     case "peer":
-      return "You are connecting from a device that isn't this computer or on your Tailscale network. Without a password, only those two are allowed. You can also allow devices on your local network, or use a password.";
+      return "You are connecting from a device that isn't this computer, on your local network or on your Tailscale network. Without a password only those are allowed. Use a password to reach Kipple from anywhere else.";
     default:
-      return "Kipple only allows no-password sign-in from this computer or over Tailscale. Open it from one of those, or use a password.";
+      return "Kipple only allows no-password sign-in from this computer, your local network or over Tailscale. Open it from one of those, or use a password.";
   }
 }
 

@@ -68,9 +68,6 @@ type NewAccount struct {
 	APIPassword string // "" = the Reader API stays disabled
 	AuthMode    string // store.AuthStandard or store.AuthOpen
 	CreatedVia  string // store.CreatedViaEnv or store.CreatedViaWizard
-	// OpenLAN turns security.open_lan on with the account (open mode only): in a
-	// container even this computer can only reach open mode that way.
-	OpenLAN bool
 }
 
 // ErrBadUsername is CreateAccount's answer to a user name ValidUsername refuses.
@@ -92,13 +89,6 @@ func CreateAccount(ctx context.Context, db *store.DB, a NewAccount) (created boo
 	default:
 		return false, store.Account{}, fmt.Errorf("setup: unknown auth mode %q", a.AuthMode)
 	}
-	if a.OpenLAN && a.AuthMode != store.AuthOpen {
-		return false, store.Account{}, errors.New("setup: open_lan is for open mode only")
-	}
-	var settings map[string]any
-	if a.OpenLAN {
-		settings = map[string]any{store.SettingOpenLAN: true}
-	}
 	var pwHash, apiHash string
 	if a.Password != "" {
 		if pwHash, err = auth.HashPassword(a.Password); err != nil {
@@ -116,7 +106,7 @@ func CreateAccount(ctx context.Context, db *store.DB, a NewAccount) (created boo
 	}
 	acct = store.Account{Username: a.Username, PasswordHash: pwHash, APIPasswordHash: apiHash, Secret: secret,
 		AuthMode: a.AuthMode, CreatedVia: a.CreatedVia}
-	created, err = db.CreateAccountWith(ctx, acct, settings)
+	created, err = db.CreateAccount(ctx, acct)
 	if err != nil || !created {
 		return created, store.Account{}, err
 	}

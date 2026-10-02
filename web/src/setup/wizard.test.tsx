@@ -24,7 +24,7 @@ type Handler = Parameters<typeof mockFetch>[0][string];
 
 interface World {
   /** What GET /api/instance adds while Kipple has no account. */
-  state: { access: { enabled: boolean; verified: boolean }; open: { reason: string | null; lan_reason: string | null } };
+  state: { access: { enabled: boolean; verified: boolean }; open: { reason: string | null } };
   instance: { setup: boolean; auth: string | null };
   signedIn: boolean;
   pending: boolean;
@@ -36,7 +36,7 @@ interface World {
 
 function makeWorld(over: Partial<World> = {}): World {
   return {
-    state: { access: { enabled: false, verified: false }, open: { reason: null, lan_reason: null } },
+    state: { access: { enabled: false, verified: false }, open: { reason: null } },
     instance: { setup: true, auth: null },
     signedIn: false,
     pending: true,
@@ -263,7 +263,7 @@ describe("Step 1: account", () => {
       const { container } = go("/");
       const user = await choose();
       expect(screen.getByText("Anyone who can reach this address can read and change everything.")).toBeInTheDocument();
-      expect(screen.getByText(/reachable only from this computer \(localhost\) or over Tailscale/i, { selector: "p" })).toBeInTheDocument();
+      expect(screen.getByText(/reachable only from this computer, your local network or your Tailscale network/i, { selector: "p" })).toBeInTheDocument();
       expect(await axe(container)).toHaveNoViolations();
       await user.click(screen.getByRole("button", { name: "Create my account" }));
       expect(await screen.findByText("Tick the box to confirm you understand.")).toBeInTheDocument();
@@ -275,21 +275,17 @@ describe("Step 1: account", () => {
       expect(setupSecret.get()).toBeNull();
     });
 
-    it("asks for the local-network switch when only that lets it work, and sends open_lan", async () => {
+    it("says what open mode means: this computer, the local network and Tailscale, and the Docker bind rule", async () => {
       const w = claimed();
-      w.state.open = { reason: "peer", lan_reason: null };
       w.authMode = "open";
-      const { calls } = server(w);
+      server(w);
       go("/");
-      const user = await choose();
-      expect(screen.getByText(/only accepts this computer and Tailscale devices|isn't this computer or on your Tailscale network/)).toBeInTheDocument();
-      await user.click(screen.getByRole("checkbox", { name: /I understand/ }));
-      await user.click(screen.getByRole("button", { name: "Create my account" }));
-      expect(await findAlert()).toHaveTextContent(/Also allow devices on my local network/);
-      await user.click(screen.getByRole("checkbox", { name: "Also allow devices on my local network" }));
-      await user.click(screen.getByRole("button", { name: "Create my account" }));
-      await headingIs("Choose your time zone");
-      expect(bodyOf(callTo(calls, "POST", "/api/setup/account")[0] as never)).toEqual({ username: "reader", passwordless: "open", acknowledge_open: true, open_lan: true });
+      await choose();
+      const warn = screen.getByText(/Anyone who can reach this address/).parentElement as HTMLElement;
+      expect(warn).toHaveTextContent(/this computer, your local network or your Tailscale network/);
+      expect(warn).toHaveTextContent(/In Docker.*publish its port only on your local network or Tailscale address/);
+      expect(screen.queryByRole("checkbox", { name: /Also allow devices/ })).toBeNull();
+      expect(screen.getByRole("checkbox", { name: /my local network or Tailscale/ })).toBeInTheDocument();
     });
 
     it.each([
@@ -298,7 +294,7 @@ describe("Step 1: account", () => {
       ["peer", /Tailscale/],
     ])("cannot be chosen when the gate refuses it for good (%s), and says why", async (reason, text) => {
       const w = claimed();
-      w.state.open = { reason, lan_reason: reason };
+      w.state.open = { reason };
       server(w);
       go("/");
       await screen.findByLabelText("User name");

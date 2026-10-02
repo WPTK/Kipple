@@ -35,8 +35,7 @@ func (s *Server) setupGone(w http.ResponseWriter) bool {
 // first screen. No version, no user name. While Kipple has no account it also
 // says what the account form can offer from where this browser is: whether
 // Cloudflare Access sign-in works here, and whether open mode would (reason is
-// the open gate's answer as things are, lan_reason with "Also allow devices on
-// my local network" on; in a container even this computer needs that).
+// the open gate's answer as things are, null when it would let this browser in).
 func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if s.opt.Setup.Pending() {
 		snap := s.snapshot(r.Context())
@@ -53,8 +52,7 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 				"verified": s.opt.Access != nil && s.accessProof(r) == proofOK,
 			},
 			"open": map[string]any{
-				"reason":     orNull(s.gateRefusal(r, snap, false, false)),
-				"lan_reason": orNull(s.gateRefusal(r, snap, true, false)),
+				"reason": orNull(s.gateRefusal(r, snap, false)),
 			},
 		})
 		return
@@ -90,7 +88,6 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		Password        *string `json:"password"`
 		Passwordless    *string `json:"passwordless"`
 		AcknowledgeOpen bool    `json:"acknowledge_open"`
-		OpenLAN         bool    `json:"open_lan"`
 	}
 	if !decodeJSON(w, r, &body, maxSetupBody, false) {
 		return
@@ -101,10 +98,6 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if (body.Password != nil) == (body.Passwordless != nil) {
 		writeErrorMsg(w, http.StatusBadRequest, "bad_request", `send exactly one of "password" or "passwordless"`)
-		return
-	}
-	if body.OpenLAN && (body.Passwordless == nil || *body.Passwordless != "open") {
-		writeErrorMsg(w, http.StatusBadRequest, "bad_request", `"open_lan" goes with "passwordless": "open" only`)
 		return
 	}
 	na := setup.NewAccount{Username: body.Username, AuthMode: store.AuthStandard, CreatedVia: store.CreatedViaWizard}
@@ -120,11 +113,11 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 			writeErrorMsg(w, http.StatusBadRequest, "ack_required", "confirm that anyone who can reach this address can read and change everything")
 			return
 		}
-		if reason := s.gateRefusal(r, s.snapshot(r.Context()), body.OpenLAN, true); reason != "" {
+		if reason := s.gateRefusal(r, s.snapshot(r.Context()), true); reason != "" {
 			writeOpenRefused(w, reason)
 			return
 		}
-		na.AuthMode, na.OpenLAN = store.AuthOpen, body.OpenLAN
+		na.AuthMode = store.AuthOpen
 	case *body.Passwordless == "access":
 		// Same rule as design §7.0: an Access-only account is created only by
 		// someone for whom Access sign-in demonstrably works on this request.
@@ -164,7 +157,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		// Whatever happened, a row that exists ends setup mode here and now: a
 		// lost race, or an error reported after the insert committed.
 		if a, ok, rerr := s.db.Account(context.WithoutCancel(r.Context())); rerr == nil && ok {
-			s.finishSetup(r.Context(), a, false)
+			s.finishSetup(r.Context(), a)
 		}
 		if err != nil {
 			s.serverError(w, "setup: create account", err)
@@ -174,7 +167,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
 		return
 	}
-	s.finishSetup(r.Context(), acct, na.OpenLAN)
+	s.finishSetup(r.Context(), acct)
 	mode := setup.DisplayMode(acct)
 	s.log.Info("account created", "username", acct.Username, "reader_api", false,
 		"created_via", store.CreatedViaWizard, "auth_mode", mode, "client", s.clientIP(r))
@@ -187,8 +180,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 // finishSetup leaves setup mode once the account row exists: the flag flips (and
 // the background work starts), and every cache that keyed on "no account" is
 // dropped.
-// openLAN is whether this request turned security.open_lan on with the account.
-func (s *Server) finishSetup(ctx context.Context, acct store.Account, openLAN bool) {
+func (s *Server) finishSetup(ctx context.Context, acct store.Account) {
 	s.opt.Setup.Finish()
 	s.verifier.SetSecret([]byte(acct.Secret))
 	s.verifier.ClearMemo()
@@ -197,7 +189,6 @@ func (s *Server) finishSetup(ctx context.Context, acct store.Account, openLAN bo
 	}
 	s.noteMode(ctx, func(sn *modeSnapshot) {
 		sn.mode = acct.AuthMode
-		sn.openLAN = sn.openLAN || openLAN
 	})
 }
 
