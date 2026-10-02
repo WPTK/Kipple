@@ -221,15 +221,23 @@ your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy,
 `KIPPLE_TRUSTED_PROXY_IPS` to the address it connects from, and `KIPPLE_PUBLIC_URL` to the public address.
 
 `KIPPLE_TRUSTED_PROXY_IPS` is a comma-separated list of single addresses and CIDR ranges (`192.0.2.10`,
-`172.16.0.0/12`, `2001:db8::/32`), empty by default. Only a connection from a listed address is believed about who the
+`198.51.100.0/24`, `2001:db8::/32`), empty by default. Only a connection from a listed address is believed about who the
 client is: for such a peer the client is the rightmost `X-Forwarded-For` hop that is not itself listed (each proxy appends
 the address it received from, so the entries to its left are whatever the client chose to send), or `CF-Connecting-IP`
 when there is no `X-Forwarded-For`; for any other peer the forwarding headers are ignored and the client is the peer.
-List every proxy in the chain, and no range wider than your proxies: `0.0.0.0/0` would let anyone choose their own
-address. That address keys the per-client sign-in and Reader API budgets. Wrong web passwords are slowed (five free in ten
-minutes per client, then one attempt per two seconds), never refused, so a stranger cannot lock you out; behind Docker
-Desktop, rootless Docker or any proxy you did not list, every visitor shares one address and one budget, which can only
-delay your own sign-in during an attack.
+List every proxy in the chain and nothing wider: `0.0.0.0/0` would let anyone choose their own address. Trust a Docker
+network, or any range that clients can reach directly, only when the published port is reachable by the proxy alone;
+otherwise any client in the range can write its own `X-Forwarded-For` or `CF-Connecting-IP` and be believed. A trusted
+peer also makes open mode refuse the request as `forwarded` (it fails closed), so a trusted Docker gateway cannot be used
+with open mode.
+
+That address keys the per-client budgets of web sign-in and the Reader API. Wrong passwords are slowed, never counted
+against anyone else: five are free, then each wait doubles from two seconds to a minute, a correct password clears the
+count, and it is forgotten after an hour with no failure. With the list correct every visitor is a separate client and a
+stranger cannot affect your sign-in. If many people truly share one address (a proxy you did not list, Docker Desktop's
+gateway without listing it, carrier NAT), they share one budget: a flood from them can make your sign-in answer "busy,
+try again" (`503`, never a lockout) until it eases, and your own typos are slowed along with theirs. Fix that by listing
+the proxy, not by raising a limit.
 
 ## Open mode (no password)
 

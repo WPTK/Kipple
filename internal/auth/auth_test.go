@@ -67,9 +67,10 @@ func fail(f *FailureTracker, ip string) bool {
 	return true
 }
 
-// Only failures count; over budget an attempt waits out the delay instead of
-// being refused, and a success neither counts nor clears.
-func TestFailureTrackerBudget(t *testing.T) {
+// Only failures count. The first five are free, then the wait doubles from 2 s to
+// the 60 s cap; an attempt waits out its delay instead of being refused; a
+// verified success clears the client; the count fades only after a quiet hour.
+func TestFailureTrackerEscalatingDelay(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	waits := 0
 	f := NewFailureTracker()
@@ -78,28 +79,45 @@ func TestFailureTrackerBudget(t *testing.T) {
 		require.True(t, fail(f, "a"), "attempt %d", i+1)
 	}
 	require.Zero(t, waits, "inside the budget nothing waits")
-	start := now
-	require.True(t, f.Acquire(context.Background(), "a"), "over budget: admitted after the delay, not refused")
-	require.Equal(t, 1, waits)
-	require.Equal(t, 2*time.Second, now.Sub(start), "waited exactly the delay")
-	f.Finish("a", false) // a success
-	require.Equal(t, 5, f.Count("a"), "a success is not counted and clears nothing")
+	for _, want := range []time.Duration{2, 4, 8, 16, 32, 60, 60, 60} {
+		start := now
+		require.True(t, fail(f, "a"), "over budget: admitted after the delay, not refused")
+		require.Equal(t, want*time.Second, now.Sub(start))
+	}
+	require.Equal(t, 8, waits)
+	require.Equal(t, 13, f.Count("a"))
+
 	require.True(t, fail(f, "b"), "per IP")
-	require.Equal(t, 1, waits, "another client does not wait")
+	require.Equal(t, 8, waits, "another client does not wait")
 
-	// A busy verifier (Finish false) counts nothing either.
-	require.True(t, f.Acquire(context.Background(), "c"))
-	f.Finish("c", false)
-	require.Zero(t, f.Count("c"))
+	// A busy verifier (Finish false) counts nothing and clears nothing.
+	require.True(t, f.Acquire(context.Background(), "a"))
+	f.Finish("a", false)
+	require.Equal(t, 13, f.Count("a"))
+	// A verified success clears.
+	f.Forget("a")
+	require.Zero(t, f.Count("a"))
+	w := waits
+	require.True(t, fail(f, "a"))
+	require.Equal(t, w, waits, "a cleared client starts with a free budget")
 
+	// The count does not restart every few minutes: only a quiet hour fades it.
 	for i := 0; i < 10; i++ {
 		fail(f, "d")
 	}
+	now = now.Add(59 * time.Minute)
 	require.Equal(t, 10, f.Count("d"))
-	now = now.Add(11 * time.Minute)
-	w := waits
-	require.True(t, fail(f, "d"), "window expired")
-	require.Equal(t, w, waits, "a new window does not wait")
+	require.True(t, fail(f, "d"), "its delay has long passed")
+	require.Equal(t, 11, f.Count("d"), "59 quiet minutes later the count is still there")
+	w = waits
+	start := now
+	require.True(t, fail(f, "d"))
+	require.Equal(t, w+1, waits, "so the next attempt waits again")
+	require.Equal(t, time.Minute, now.Sub(start))
+	now = now.Add(61 * time.Minute)
+	w = waits
+	require.True(t, fail(f, "d"))
+	require.Equal(t, w, waits, "an hour with no failure forgets it")
 	require.Equal(t, 1, f.Count("d"))
 }
 

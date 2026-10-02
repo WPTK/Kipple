@@ -13,33 +13,50 @@ import (
 	"github.com/WPTK/kipple/internal/auth"
 )
 
-// Wrong passwords are slowed, never refused: the right password signs in however
-// many wrong ones came before it from the same client.
-func TestLoginWrongPasswordsSlowTheClientNeverLockIt(t *testing.T) {
+// Wrong passwords are slowed, not refused: five are free, then each wait doubles
+// (the fake clock advances instead of sleeping), and the right password still
+// signs in however many wrong ones came before it from the same client.
+func TestLoginWrongPasswordsEscalateButTheRightOneSignsIn(t *testing.T) {
 	h := newHarness(t)
 	for i := 0; i < 5; i++ {
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody("wrong")).Code, "attempt %d", i)
 	}
 	require.Zero(t, h.paced.Load(), "the first five failures are free")
-	for i := 0; i < 20; i++ {
+	start := h.clk.Now()
+	for i := 0; i < 8; i++ {
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody("wrong")).Code, "attempt %d", i)
 	}
-	require.Equal(t, int32(20), h.paced.Load(), "every attempt over budget waits its turn")
-	before := h.clk.Now()
-	rec := h.do("POST", "/api/auth/login", loginBody(testPass))
-	require.Equal(t, http.StatusNoContent, rec.Code, "the right password is never refused: %s", rec.Body.String())
-	require.True(t, h.clk.Now().After(before), "the right password waited for its turn")
-	require.NotEqual(t, http.StatusTooManyRequests, h.do("POST", "/api/auth/login", loginBody("wrong")).Code)
+	require.Equal(t, int32(8), h.paced.Load(), "every attempt over budget waits its turn")
+	require.Equal(t, (2+4+8+16+32+60+60+60)*time.Second, h.clk.Now().Sub(start), "doubling to the 60 s cap")
 
 	// another client has its own budget
 	paced := h.paced.Load()
 	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass), peer("10.20.30.11:1")).Code)
 	require.Equal(t, paced, h.paced.Load())
 
-	// the failures age out with the window
-	h.clk.Advance(11 * time.Minute)
-	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
-	require.Equal(t, paced, h.paced.Load())
+	// the right password waits its turn but is never refused, and clears the client
+	rec := h.do("POST", "/api/auth/login", loginBody(testPass))
+	require.Equal(t, http.StatusNoContent, rec.Code, "%s", rec.Body.String())
+	require.Equal(t, paced+1, h.paced.Load())
+	require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody("wrong")).Code)
+	require.Equal(t, paced+1, h.paced.Load(), "a verified sign-in clears the count")
+}
+
+// The count fades only after a quiet hour, not every few minutes.
+func TestLoginFailuresFadeAfterAQuietHour(t *testing.T) {
+	h := newHarness(t)
+	for i := 0; i < 8; i++ {
+		h.do("POST", "/api/auth/login", loginBody("wrong"))
+	}
+	h.clk.Advance(30 * time.Minute)
+	paced := h.paced.Load()
+	h.do("POST", "/api/auth/login", loginBody("wrong"))
+	h.do("POST", "/api/auth/login", loginBody("wrong"))
+	require.Greater(t, h.paced.Load(), paced, "half an hour later the client is still being paced")
+	h.clk.Advance(61 * time.Minute)
+	paced = h.paced.Load()
+	require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody("wrong")).Code)
+	require.Equal(t, paced, h.paced.Load(), "an hour with no failure starts it over")
 }
 
 // A parallel burst from one client never hashes more than one password at a time
@@ -120,16 +137,59 @@ func TestLoginBehindCloudflareKeysOnTheClient(t *testing.T) {
 	require.Equal(t, paced, h.paced.Load())
 }
 
-// Docker Desktop, rootless Docker, the userland proxy: every client arrives from
-// the bridge gateway, so they share one budget. The shared budget delays the
-// owner; it cannot refuse the owner's password.
-func TestLoginDockerGatewaySharedAddressStillSignsTheOwnerIn(t *testing.T) {
+// Docker Desktop, rootless Docker, an unlisted proxy: every client arrives from
+// one address and so shares one budget. Sequential noise from other people on
+// that address (a stale password manager) only slows the owner: the right
+// password is still checked and signs in. This covers sequential noise only;
+// the flood test below covers the case this cannot promise.
+func TestLoginSharedAddressSequentialNoiseOnlySlowsTheOwner(t *testing.T) {
 	h := newHarness(t)
 	gw := peer("172.17.0.1:50000")
 	for i := 0; i < 10; i++ {
 		h.do("POST", "/api/auth/login", loginBody("guess"), gw)
 	}
 	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass), gw).Code)
+}
+
+// The limit of the promise, pinned so it is never mistaken for a guarantee. When
+// many people really share one address key (an unlisted proxy, Docker's gateway,
+// CGNAT) and a flood keeps one hash running with the waiting room full, the
+// owner's attempt is not run: it answers 503 busy + Retry-After (never 429, and
+// nothing is counted), and signs in as soon as the flood eases. With the proxy
+// list correct each visitor is a separate key and this cannot happen.
+func TestLoginFloodOnASharedKeyMakesTheOwnerBusyNotLockedOut(t *testing.T) {
+	started := make(chan struct{}, 16)
+	release := make(chan struct{})
+	h := newHarness(t, func(o *Options) {
+		o.Verifier = auth.NewVerifier([]byte(testSecret), auth.VerifierOptions{Wait: 30 * time.Second, Check: func(pw, phc string) bool {
+			if pw == "wrong" {
+				started <- struct{}{}
+				<-release
+			}
+			return pw == testPass
+		}})
+	})
+	gw := peer("172.17.0.1:50000")
+	var wg sync.WaitGroup
+	// One attempt hashing, MaxWaiters (4) waiting behind it, and one more refused at once.
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.do("POST", "/api/auth/login", loginBody("wrong"), gw)
+		}()
+	}
+	<-started
+	time.Sleep(300 * time.Millisecond) // let the others reach the waiting room
+
+	rec := h.do("POST", "/api/auth/login", loginBody(testPass), gw)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code, "the owner on the flooded key is told to retry")
+	require.JSONEq(t, `{"error":"busy"}`, rec.Body.String())
+	require.NotEmpty(t, rec.Header().Get("Retry-After"))
+
+	close(release) // the flood ends
+	wg.Wait()
+	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass), gw).Code, "and the owner signs in once it has")
 }
 
 // A peer that is not a trusted proxy cannot pick its own client address: rotating

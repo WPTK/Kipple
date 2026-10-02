@@ -13,9 +13,12 @@ const maxLoginBody = 4 << 10
 // login is POST /api/auth/login. The password is verified even when the user
 // name is wrong (no timing oracle). An account without a password signs in only
 // with a verified Cloudflare Access token (design §7.0). Wrong passwords are
-// slowed, never refused: after five from one client in ten minutes its
-// attempts run one per two seconds (auth.FailureTracker), so a stranger sharing
-// the owner's address delays the owner but can never lock the right password out.
+// slowed per client, not counted against anyone else (auth.FailureTracker): five
+// are free, then each wait doubles from two seconds to a minute, and a right
+// password clears it. Clients are told apart by auth.ClientIP, so with the proxy
+// list set correctly a stranger cannot affect the owner at all; only people who
+// really share one address (an unlisted proxy, a Docker gateway, CGNAT) share a
+// budget, and a flood there can make sign-in answer 503 busy (never 429).
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !s.sameOrigin(r) {
 		writeError(w, http.StatusForbidden, "origin")
@@ -96,6 +99,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	t.prove()
 	if !s.startSession(w, r) {
 		return
 	}
@@ -131,6 +135,7 @@ type try struct {
 	s      *Server
 	ip     string
 	failed bool
+	proved bool
 }
 
 // admit waits (bounded) for the client's turn before any password is hashed.
@@ -151,8 +156,17 @@ func (s *Server) admit(w http.ResponseWriter, r *http.Request) (*try, bool) {
 // fail records that this attempt presented a wrong password (or token).
 func (t *try) fail() { t.failed = true }
 
-// end finishes the attempt; only a failed one is counted.
-func (t *try) end() { t.s.fails.Finish(t.ip, t.failed) }
+// prove records that the password (or Access token) was verified: the
+// client's failures are cleared.
+func (t *try) prove() { t.proved = true }
+
+// end finishes the attempt; only a failed one is counted, a proved one clears.
+func (t *try) end() {
+	t.s.fails.Finish(t.ip, t.failed)
+	if t.proved {
+		t.s.fails.Forget(t.ip)
+	}
+}
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(cookieName); err == nil {

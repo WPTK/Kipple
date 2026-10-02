@@ -62,6 +62,7 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 			s.writeProofError(w, t, p, false)
 			return false, false
 		}
+		t.prove()
 		return false, true
 	}
 	if removing {
@@ -85,6 +86,7 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 		writeError(w, http.StatusForbidden, "bad_password")
 		return false, false
 	}
+	t.prove()
 	return false, true
 }
 

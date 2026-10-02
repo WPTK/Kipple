@@ -199,29 +199,34 @@ func (v *Verifier) ClearMemo() {
 	v.mu.Unlock()
 }
 
-// FailureTracker paces ClientLogin password checks per client (design §6.3).
-// Only failures are counted, in a fixed Window started by the first one. Every
-// admitted attempt has its password verified, so the right password is never
+// FailureTracker paces password checks per client (design §6.3): the Reader
+// API's ClientLogin and the web sign-in. Only failures are counted, and the
+// count fades only once Window passes with no failure at all. Every admitted
+// attempt has its password verified, so an attempt that gets its turn is never
 // refused unchecked; the budget only slows a client down:
 //
 //   - At most one attempt per client hashes at a time. A second concurrent one
 //     (a client retrying a slow login) waits for the first instead of failing.
-//   - Once the window holds Threshold failures, an attempt starts only when
-//     Delay has passed since the client's previous attempt; it waits for that
-//     instead of being refused.
+//   - The first Threshold failures are free. After that an attempt starts only
+//     when a delay has passed since the client's previous attempt: Delay after
+//     the Threshold-th failure, doubling with each further failure up to
+//     MaxDelay. It waits for that instead of being refused.
 //   - Waiting is bounded: at most MaxWaiters attempts per client wait, for at
 //     most MaxWait (or until the request is cancelled). An attempt that cannot
-//     start is answered with the ordinary 401 and counts nothing (never a 429).
+//     start is not run and counts nothing; its caller answers with a retry
+//     (never a 429).
 //
-// So one client never runs more than one hash at a time, nor more than one per
-// Delay once over budget, and holds at most 1+MaxWaiters requests open. A
-// success changes nothing: it neither counts nor clears the failures, so a
-// client sharing the owner's address (carrier NAT) gains nothing from the
-// owner's logins. Clients are keyed by RateKey, so an IPv6 /64 is one client.
+// So one client never runs more than one hash at a time and holds at most
+// 1+MaxWaiters requests open. A verified success clears the client (Forget);
+// a busy verifier counts nothing. Clients are keyed by RateKey, so an IPv6 /64
+// is one client. Several people who truly share one key (an unlisted proxy,
+// Docker's gateway, carrier NAT) share one budget, so a flood from one of them
+// can make the others' attempts wait or answer busy.
 type FailureTracker struct {
 	Window     time.Duration
 	Threshold  int
 	Delay      time.Duration
+	MaxDelay   time.Duration
 	MaxWait    time.Duration
 	MaxWaiters int
 	Now        func() time.Time
@@ -234,7 +239,7 @@ type FailureTracker struct {
 }
 
 type failure struct {
-	start time.Time
+	start time.Time // Lockout: when the window began. FailureTracker: the client's last failure
 	n     int
 	last  time.Time // FailureTracker: when the client's last attempt started or failed
 }
@@ -246,21 +251,21 @@ type attempt struct {
 	done    chan struct{} // closed (and replaced) when an admitted attempt finishes
 }
 
-// NewFailureTracker returns the design defaults: 10 minute window, 5 failures,
-// then one attempt per 2 s; at most 4 waiting attempts per client, each waiting
-// at most 10 s.
+// NewFailureTracker returns the design defaults: failures fade after an hour
+// with none, 5 are free, then 2 s doubling per failure to 60 s; at most 4
+// waiting attempts per client, each waiting at most 10 s.
 func NewFailureTracker() *FailureTracker {
-	return &FailureTracker{Window: 10 * time.Minute, Threshold: 5, Delay: 2 * time.Second,
+	return &FailureTracker{Window: time.Hour, Threshold: 5, Delay: 2 * time.Second, MaxDelay: time.Minute,
 		MaxWait: 10 * time.Second, MaxWaiters: 4, Now: time.Now,
 		m: map[string]*failure{}, live: map[string]*attempt{}}
 }
 
 // Acquire admits one attempt for ip before its password is checked, waiting
 // (bounded) while ip has an attempt in flight or is inside its over-budget
-// Delay. It returns false when the attempt could not start: too many attempts
+// delay. It returns false when the attempt could not start: too many attempts
 // already waiting, MaxWait passed, or ctx ended; nothing is counted and the
-// caller answers 401 without hashing. After true the caller must call Finish
-// exactly once.
+// caller answers with a retry, without hashing. After true the caller must call
+// Finish exactly once.
 func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
 	k := RateKey(ip)
 	maxWait := f.MaxWait
@@ -301,7 +306,7 @@ func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
 			}
 			var pace time.Duration
 			if e != nil && e.n >= f.Threshold {
-				pace = e.last.Add(f.Delay).Sub(now)
+				pace = e.last.Add(f.delay(e.n)).Sub(now)
 			}
 			if pace <= 0 {
 				a.busy = true
@@ -353,8 +358,9 @@ func (f *FailureTracker) dropIdle(k string, a *attempt) {
 }
 
 // Finish ends an attempt admitted by Acquire. failed is true only for a wrong
-// password (or email): that is the one outcome counted. A success, or a busy
-// verifier that said nothing about the password, counts nothing.
+// password (or email): that is the one outcome counted. A busy
+// verifier that said nothing about the password counts nothing; a verified
+// success calls Forget as well.
 func (f *FailureTracker) Finish(ip string, failed bool) {
 	k := RateKey(ip)
 	f.mu.Lock()
@@ -376,7 +382,28 @@ func (f *FailureTracker) Finish(ip string, failed bool) {
 		f.m[k] = e
 	}
 	e.n++
+	e.start = now
 	e.last = now
+}
+
+// delay is how long the client must wait after its n-th failure (n >= Threshold):
+// Delay, doubling per further failure, never above MaxDelay.
+func (f *FailureTracker) delay(n int) time.Duration {
+	d := f.Delay
+	for i := f.Threshold; i < n && d < f.MaxDelay; i++ {
+		d *= 2
+	}
+	if f.MaxDelay > 0 && d > f.MaxDelay {
+		d = f.MaxDelay
+	}
+	return d
+}
+
+// Forget clears ip's failures: its owner just proved the password.
+func (f *FailureTracker) Forget(ip string) {
+	f.mu.Lock()
+	delete(f.m, RateKey(ip))
+	f.mu.Unlock()
 }
 
 // Count returns the failures currently recorded for ip.

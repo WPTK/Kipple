@@ -86,8 +86,8 @@ func ClientIP(r *http.Request, trusted []netip.Prefix) string {
 	if !contains(trusted, peer) {
 		return peer.String()
 	}
-	if vals := r.Header.Values("X-Forwarded-For"); len(vals) > 0 {
-		hops := strings.Split(strings.Join(vals, ","), ",")
+	if xff := strings.TrimSpace(strings.Join(r.Header.Values("X-Forwarded-For"), ",")); strings.Trim(xff, ", ") != "" {
+		hops := strings.Split(xff, ",")
 		for i := len(hops) - 1; i >= 0; i-- {
 			a, ok := parseHop(hops[i])
 			if !ok {
@@ -105,9 +105,13 @@ func ClientIP(r *http.Request, trusted []netip.Prefix) string {
 	return peer.String()
 }
 
-// parseHop reads one forwarded address, with or without a port.
+// parseHop reads one forwarded address, with or without a port, and an IPv6
+// address with or without its brackets.
 func parseHop(s string) (netip.Addr, bool) {
 	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		s = s[1 : len(s)-1]
+	}
 	a, err := netip.ParseAddr(s)
 	if err != nil {
 		ap, perr := netip.ParseAddrPort(s)

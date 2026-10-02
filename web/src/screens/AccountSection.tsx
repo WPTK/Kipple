@@ -24,7 +24,8 @@ export function accountError(e: unknown): string {
       // The server words it for the case: removing a password, or an account without one.
       return msg ? `${msg.charAt(0).toUpperCase()}${msg.slice(1)}.` : "Cloudflare Access validation isn't set up on the server.";
     if (e.code === "bad_new_password") return msg || "The new password must be 5 to 256 characters.";
-    if (e.status === 429) return "Too many attempts. Try again in a few minutes.";
+    // A sign-in or password check that could not get its turn (a busy verifier, or many people on one address): nothing was checked.
+    if (e.status === 503 && e.code === "busy") return "Kipple is busy. Try again in a moment.";
     if (e.status === 409 && e.code === "busy") {
       const s = typeof e.body?.retry_after === "number" ? ` Try again in about ${e.body.retry_after} seconds.` : " Try again in a moment.";
       return `Kipple is busy with a database snapshot or another export.${s}`;

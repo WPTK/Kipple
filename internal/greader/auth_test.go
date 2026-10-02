@@ -142,7 +142,7 @@ func TestClientLoginOverBudgetPacesButVerifies(t *testing.T) {
 	code, _ := login(h, "owner", testPass)
 	require.Equal(t, 200, code, "the correct password is verified, not refused")
 	require.Equal(t, int32(11), h.checks.Load())
-	require.Equal(t, 10, h.api.fails.Count("192.0.2.10"), "a success is not counted and clears nothing")
+	require.Zero(t, h.api.fails.Count("192.0.2.10"), "a verified success clears the client")
 
 	// The remembered password needs no hashing and no pacing.
 	paced := h.paced.Load()
@@ -205,7 +205,7 @@ func TestClientLoginConcurrentAttemptWaitsForTheFirst(t *testing.T) {
 	release <- struct{}{}
 	require.Equal(t, 200, <-second, "and its correct password is accepted")
 	require.EqualValues(t, 1, peak.Load(), "never two hashes for one client")
-	require.Equal(t, 1, h.api.fails.Count("2001:db8:1:2::1"), "only the wrong password counted")
+	require.Zero(t, h.api.fails.Count("2001:db8:1:2::1"), "the wrong password counted, then the right one cleared it")
 }
 
 func TestClientLoginIPv6BudgetIsPer64(t *testing.T) {

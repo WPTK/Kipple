@@ -462,14 +462,19 @@ func (c *call) clientLogin() {
 		return
 	}
 	// Admission before any hashing (design §6.3): one attempt per client hashes
-	// at a time and, over budget, one per 2 s; later ones wait (bounded) rather
-	// than fail. Only an attempt that could not start is refused unchecked.
+	// at a time and, over budget, waits its turn (auth.FailureTracker); later
+	// ones wait (bounded) rather than fail. Only an attempt that could not start is refused unchecked.
 	if !a.fails.Acquire(ctx, ip) {
 		bad()
 		return
 	}
-	failed := false
-	defer func() { a.fails.Finish(ip, failed) }()
+	failed, proved := false, false
+	defer func() {
+		a.fails.Finish(ip, failed)
+		if proved {
+			a.fails.Forget(ip)
+		}
+	}()
 	// The password is always verified, even when the email is wrong.
 	ok, busy := a.ver.VerifyBusy(ctx, "api", pass, s.hash)
 	if busy {
@@ -484,6 +489,7 @@ func (c *call) clientLogin() {
 		bad()
 		return
 	}
+	proved = true
 	c.loginOK(s)
 }
 
