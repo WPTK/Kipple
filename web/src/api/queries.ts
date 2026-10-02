@@ -17,13 +17,13 @@ import type {
   OpenResponse,
   Scope,
 } from "./types";
-import { failedWhileOffline, isOffline, queueRead, queueStar, QueueWriteError, supersede } from "@/lib/offline";
+import { failedWhileOffline, isOffline, queueRead, queueStar, QueueWriteError, overlayPending, supersede } from "@/lib/offline";
 import { serverRebuilt } from "@/lib/buildInfo";
 import { setUpdateReady } from "@/lib/offlineState";
 import { toast } from "@/shell/toasts";
-import { itemsParams, keys } from "./queryKeys";
+import { itemsParams, keys, patchItems } from "./queryKeys";
 
-export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams } from "./queryKeys";
+export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams, patchItems, type ItemPatch } from "./queryKeys";
 
 /** The toast for a failed change: one made offline that could not be stored says so, not "the server". */
 export function changeError(e: unknown): string {
@@ -57,8 +57,11 @@ export function useBootstrap(enabled = true) {
 export function useItems(scope: Scope, enabled = true) {
   return useInfiniteQuery({
     queryKey: keys.items(scope),
-    queryFn: ({ pageParam, signal }) =>
-      api<ItemsPage>("/api/items", { params: itemsParams(scope, pageParam || undefined), signal }),
+    queryFn: async ({ pageParam, signal }) => {
+      const meta: { cached?: boolean } = {};
+      const page = await api<ItemsPage>("/api/items", { params: itemsParams(scope, pageParam || undefined), signal, meta });
+      return meta.cached ? { ...page, items: await overlayPending(page.items) } : page;
+    },
     initialPageParam: "",
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled,
@@ -75,7 +78,11 @@ export function useItems(scope: Scope, enabled = true) {
 export function useItem(id: string | undefined) {
   return useQuery({
     queryKey: keys.item(id ?? ""),
-    queryFn: ({ signal }) => api<ItemDetail>(`/api/items/${id}`, { signal }),
+    queryFn: async ({ signal }) => {
+      const meta: { cached?: boolean } = {};
+      const d = await api<ItemDetail>(`/api/items/${id}`, { signal, meta });
+      return meta.cached ? (await overlayPending([d]))[0]! : d;
+    },
     enabled: !!id,
     // Asked even when the browser says it is offline (networkMode "always", the client default in App.tsx): the
     // service worker may hold this article, and when it does not the article shows its error screen (#95).
@@ -86,8 +93,6 @@ export function useItem(id: string | undefined) {
 export function flattenItems(data: InfiniteData<ItemsPage> | undefined): Card[] {
   return data?.pages.flatMap((p) => p.items) ?? [];
 }
-
-export type ItemPatch = Partial<Pick<Card, "read" | "starred" | "muted_by" | "muted_by_name">>;
 
 /** Take these ids out of the cached lists whose scope key passes `match` (a Muted list after a restore, All after a mute). */
 export function dropFromLists(qc: QueryClient, ids: string[], match: (scopeKey: string) => boolean): void {
@@ -101,24 +106,6 @@ export function dropFromLists(qc: QueryClient, ids: string[], match: (scopeKey: 
 /** Mark the cached lists whose scope key passes `match` stale without refetching: they reload when next shown. */
 export function invalidateLists(qc: QueryClient, match: (scopeKey: string) => boolean): void {
   void qc.invalidateQueries({ queryKey: keys.itemsAll, predicate: (q) => match(String(q.queryKey[1])), refetchType: "none" });
-}
-
-/** Apply a state patch to every cached list and detail that holds these ids. */
-export function patchItems(qc: QueryClient, ids: string[], patch: ItemPatch): void {
-  const set = new Set(ids);
-  qc.setQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll }, (old) => {
-    if (!old) return old;
-    let touched = false;
-    const pages = old.pages.map((p) => {
-      if (!p.items.some((i) => set.has(i.id))) return p;
-      touched = true;
-      return { ...p, items: p.items.map((i) => (set.has(i.id) ? { ...i, ...patch } : i)) };
-    });
-    return touched ? { ...old, pages } : old;
-  });
-  for (const id of ids) {
-    qc.setQueryData<ItemDetail>(keys.item(id), (old) => (old ? { ...old, ...patch } : old));
-  }
 }
 
 /** When the last optimistic count change was made (ms); `counts` events older than it are stale. */

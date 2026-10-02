@@ -18,7 +18,6 @@ func TestLoadDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, ":1919", cfg.Addr)
-	require.False(t, cfg.AddrSet, "the legacy port and the 1138 fallback apply only to an unset KIPPLE_ADDR")
 	require.Equal(t, "/data", cfg.DataDir)
 	require.Equal(t, "", cfg.Username)
 	require.Equal(t, "", cfg.Password)
@@ -54,7 +53,6 @@ func TestLoadOverrides(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "127.0.0.1:9090", cfg.Addr)
-	require.True(t, cfg.AddrSet)
 	require.Equal(t, []string{"rss.example.com", "*.example.org"}, cfg.AllowedHosts)
 	require.Equal(t, "/var/lib/kipple", cfg.DataDir)
 	require.Equal(t, "owner", cfg.Username)

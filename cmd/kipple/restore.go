@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -225,8 +224,6 @@ func restore(ctx context.Context, o restoreOptions) error {
 		fmt.Fprintf(out, "  %d web session(s) in the backup were signed out.\n", n)
 	}
 
-	carryPort(ctx, out, live, tmp)
-
 	if !backupExisted {
 		owned = append(owned, backupDir) // a swap creates it; chown ignores a missing path
 	}
@@ -251,46 +248,6 @@ func restore(ctx context.Context, o restoreOptions) error {
 		fmt.Fprintln(out, "To undo, stop Kipple and restore the file in that pre-restore directory (kipple.db, with its -wal if present).")
 	}
 	return nil
-}
-
-// carryPort keeps the listen port with the installation (the setup wizard
-// design, docs/setup-wizard-design.md 8.3): a live database decides it.
-// Restoring any backup into a 7080 install keeps 7080, into a 1919 one keeps
-// 1919, and so does restoring into a database that a server has run on but that
-// was never set up (no account: with KIPPLE_ADDR unset it listened on 1919, and
-// that is the port the container publishes; an old backup must not move it to
-// 7080 behind a healthcheck that still passes). Without a live database (a new
-// volume, nothing started yet) or with one too broken to read, the backup keeps
-// its own, which is right for a rebuilt host with the old configuration;
-// restore then says so when that is the old port.
-func carryPort(ctx context.Context, out io.Writer, live, tmp string) {
-	if _, err := os.Stat(live); err == nil || !errors.Is(err, fs.ErrNotExist) {
-		installed, legacy, err := backup.PortSetting(ctx, live)
-		var started bool
-		if err == nil && !installed {
-			started, err = backup.Initialized(ctx, live)
-		}
-		switch {
-		case err != nil:
-			fmt.Fprintf(out, "  The current database could not be read for its port setting (%v); the backup's own applies.\n", err)
-		case installed || started:
-			_, fromLegacy, berr := backup.PortSetting(ctx, tmp)
-			if err = backup.SetLegacyPort(ctx, tmp, installed && legacy); err == nil {
-				if !installed && berr == nil && fromLegacy {
-					fmt.Fprintln(out, "  This backup comes from an install on the old default port 7080. This installation was never set up and")
-					fmt.Fprintln(out, "  listens on 1919, so with KIPPLE_ADDR unset it keeps 1919 after the restore. If you publish 7080")
-					fmt.Fprintln(out, "  instead (an older compose file), set KIPPLE_ADDR=:7080.")
-				}
-				return
-			}
-			fmt.Fprintf(out, "  Could not carry this installation's port setting into the restored copy (%v); the backup's own applies.\n", err)
-		}
-	}
-	if _, legacy, err := backup.PortSetting(ctx, tmp); err == nil && legacy {
-		fmt.Fprintln(out, "  This backup comes from an install on the old default port: with KIPPLE_ADDR unset, Kipple will listen on 7080")
-		fmt.Fprintln(out, "  (and warn at every start). If you publish 1919 (the current examples), set KIPPLE_ADDR=:1919 or it will")
-		fmt.Fprintln(out, "  not be reachable; set KIPPLE_ADDR to your port in any case to choose.")
-	}
 }
 
 // swap moves the live database (and its -wal/-shm) into a new

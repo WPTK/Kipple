@@ -1,4 +1,5 @@
-import type { Scope } from "./types";
+import type { InfiniteData, QueryClient } from "@tanstack/react-query";
+import type { Card, ItemDetail, ItemsPage, Scope } from "./types";
 
 /**
  * Query keys, scope keys and list parameters. A leaf module (it imports only types) so that lib/offline.ts can use
@@ -68,4 +69,24 @@ export function itemsParams(scope: Scope, cursor?: string, limit = PAGE_SIZE) {
     cursor,
     limit,
   };
+}
+
+export type ItemPatch = Partial<Pick<Card, "read" | "starred" | "muted_by" | "muted_by_name">>;
+
+/** Apply a state patch to every cached list and detail that holds these ids. */
+export function patchItems(qc: QueryClient, ids: string[], patch: ItemPatch): void {
+  const set = new Set(ids);
+  qc.setQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll }, (old) => {
+    if (!old) return old;
+    let touched = false;
+    const pages = old.pages.map((p) => {
+      if (!p.items.some((i) => set.has(i.id))) return p;
+      touched = true;
+      return { ...p, items: p.items.map((i) => (set.has(i.id) ? { ...i, ...patch } : i)) };
+    });
+    return touched ? { ...old, pages } : old;
+  });
+  for (const id of ids) {
+    qc.setQueryData<ItemDetail>(keys.item(id), (old) => (old ? { ...old, ...patch } : old));
+  }
 }

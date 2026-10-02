@@ -114,7 +114,7 @@ describe("export dialog", () => {
     open();
     const a = screen.getByRole("link", { name: "Download data dictionary" });
     expect(a).toHaveAttribute("href", "/api/stats/dictionary?format=md");
-    expect(screen.getByText(/Describes every column/)).toBeInTheDocument();
+    expect(screen.getByText(/Explains every column/)).toBeInTheDocument();
   });
 });
 
@@ -131,14 +131,14 @@ describe("delete a date range", () => {
     wrap(<DeleteRangeDialog open onOpenChange={() => {}} onSettled={() => {}} />);
     expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
     await fill(user, "2026-09-01", "2026-09-05");
-    expect(await screen.findByText("7 events will be deleted")).toBeInTheDocument();
+    expect(await screen.findByText("7 records will be deleted")).toBeInTheDocument();
     expect(JSON.parse(String(m.calls.at(-1)!.init!.body))).toEqual({ from: "2026-09-01", to: "2026-09-05", dry_run: true });
     expect((m.calls.at(-1)!.init!.headers as Record<string, string>)["X-Kipple-Client"]).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
     n = 0;
     await user.clear(screen.getByLabelText("To"));
     await user.type(screen.getByLabelText("To"), "2026-09-06");
-    expect(await screen.findByText("No events in that range")).toBeInTheDocument();
+    expect(await screen.findByText("No records in that range")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
   });
 
@@ -154,10 +154,10 @@ describe("delete a date range", () => {
     const close = vi.fn();
     wrap(<DeleteRangeDialog open onOpenChange={close} onSettled={settled} />);
     await fill(user, "2026-09-01", "2026-09-05");
-    await screen.findByText("3 events will be deleted");
+    await screen.findByText("3 records will be deleted");
     await user.click(screen.getByRole("button", { name: "Delete" }));
     expect(m.calls.filter((c) => JSON.parse(String(c.init!.body)).dry_run === false)).toHaveLength(0); // first click only asks
-    await user.click(screen.getByRole("button", { name: "Yes, delete 3 events" }));
+    await user.click(screen.getByRole("button", { name: "Yes, delete 3 records" }));
     await waitFor(() => expect(settled).toHaveBeenCalledWith({ scope: { from: "2026-09-01", to: "2026-09-05" }, deleted: 3, ok: true }));
     expect(JSON.parse(String(m.calls.at(-1)!.init!.body))).toEqual({ from: "2026-09-01", to: "2026-09-05", dry_run: false });
     expect(close).toHaveBeenCalledWith(false);
@@ -179,7 +179,7 @@ describe("delete all statistics", () => {
     const settled = vi.fn();
     wrap(<DeleteAllDialog open onOpenChange={() => {}} onSettled={settled} />);
     const btn = screen.getByRole("button", { name: "Delete all statistics" });
-    expect(screen.getByText(/does not remove articles or read state/)).toBeInTheDocument();
+    expect(screen.getByText(/Your articles and read state stay/)).toBeInTheDocument();
     expect(btn).toBeDisabled();
     const input = screen.getByLabelText(/Type DELETE ALL/);
     await user.type(input, "delete all");

@@ -59,9 +59,9 @@ describe("dialogs start clean on every opening", () => {
       await user.click(screen.getByText("Open"));
       await user.type(screen.getByLabelText("From"), "2026-09-01");
       await user.type(screen.getByLabelText("To"), "2026-09-05");
-      await screen.findByText("4 events will be deleted");
+      await screen.findByText("4 records will be deleted");
       await user.click(screen.getByRole("button", { name: "Delete" }));
-      expect(screen.getByRole("button", { name: "Yes, delete 4 events" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Yes, delete 4 records" })).toBeEnabled();
       await close(user);
       await gone();
       const before = m.calls.length;
@@ -70,7 +70,7 @@ describe("dialogs start clean on every opening", () => {
       expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
       await user.type(screen.getByLabelText("From"), "2026-09-01");
       await user.type(screen.getByLabelText("To"), "2026-09-05");
-      await screen.findByText("4 events will be deleted");
+      await screen.findByText("4 records will be deleted");
       expect(m.calls.length).toBeGreaterThan(before);
       expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
       expect(screen.queryByRole("button", { name: /Yes, delete/ })).toBeNull();
@@ -101,7 +101,7 @@ describe("dialogs start clean on every opening", () => {
       await close(user);
       await gone();
       await user.click(screen.getByText("Open"));
-      expect(screen.getByRole("radio", { name: "Raw events" })).toBeChecked();
+      expect(screen.getByRole("radio", { name: "Raw data" })).toBeChecked();
       expect(screen.getByRole("radio", { name: "Month" })).toBeChecked();
     });
   }
@@ -113,9 +113,9 @@ describe("dialogs start clean on every opening", () => {
     await user.click(screen.getByText("Open"));
     await user.type(screen.getByLabelText("From"), "2026-09-01");
     await user.type(screen.getByLabelText("To"), "2026-09-05");
-    await screen.findByText("2 events will be deleted");
+    await screen.findByText("2 records will be deleted");
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(screen.getByRole("button", { name: "Yes, delete 2 events" }));
+    await user.click(screen.getByRole("button", { name: "Yes, delete 2 records" }));
     await gone();
     await user.click(screen.getByText("Open"));
     expect(screen.getByLabelText("From")).toHaveValue("");
@@ -190,14 +190,14 @@ describe("second-review items", () => {
   it("clears the unsent queue after a delete and notes late events", async () => {
     const user = userEvent.setup();
     wrap(<DeleteAllDialog open onOpenChange={() => {}} onSettled={() => {}} />);
-    expect(screen.getByText(/waiting to be sent from other devices may appear later/)).toBeInTheDocument();
+    expect(screen.getByText(/that hasn.t synced yet can still show up later/)).toBeInTheDocument();
     await user.type(screen.getByLabelText(/Type DELETE ALL/), "x");
   });
 
   it("has the new titles help text and a CSV-only byte-order-mark switch", async () => {
     const user = userEvent.setup();
     wrap(<StatsExportDialog open onOpenChange={() => {}} defaultRange="week" />);
-    expect(screen.getByText(/Titles and links are removed; feed and folder names, times and your time zone stay\./)).toBeInTheDocument();
+    expect(screen.getByText(/Feed and folder names, times and your time zone stay in./)).toBeInTheDocument();
     const bom = screen.getByRole("switch", { name: /byte-order mark/ });
     expect(bom).not.toBeChecked();
     await user.click(bom);
