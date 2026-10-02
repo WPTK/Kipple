@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -743,17 +745,88 @@ func TestRemovedOpenLANSettingIsIgnored(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/auth/open", "", peer("203.0.113.9:5000")).Code)
 }
 
-// Password-mode accounts never meet the open gate: a LAN or public peer
-// reaches the sign-in page the same, and open sign-in is refused as not open.
+// Password-mode accounts never meet the open gate: a signed-in session works
+// from a LAN or public peer, behind a forwarding header, and an anonymous
+// request there gets the plain 401 of password mode, never an open_refused.
 func TestPasswordModeIgnoresTheOpenGate(t *testing.T) {
 	h := newSetupHarness(t)
 	rec := h.createAccount(map[string]any{"username": "reader", "password": setupPass})
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	sess := cookieNamed(rec, cookieName)
+	require.NotNil(t, sess)
 	for _, p := range []string{"127.0.0.1:5000", "192.168.1.20:5000", "203.0.113.9:5000"} {
-		require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", peer(p)).Code, p)
-		require.NotEqual(t, http.StatusForbidden, h.req("GET", "/api/instance", "", peer(p), hdr("X-Forwarded-For", "198.51.100.1")).Code, p)
+		for _, mods := range [][]func(*http.Request){{peer(p)}, {peer(p), hdr("X-Forwarded-For", "198.51.100.1")}, {peer(p), hdr("CF-Connecting-IP", "198.51.100.1")}} {
+			rec := h.req("GET", "/api/auth/me", "", append(mods, withCookies(sess))...)
+			require.Equal(t, http.StatusOK, rec.Code, "%s: %s", p, rec.Body.String())
+			rec = h.req("GET", "/api/auth/me", "", mods...)
+			require.Equal(t, http.StatusUnauthorized, rec.Code, p)
+			require.Equal(t, "auth", decode(t, rec)["error"], p)
+		}
 	}
-	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", peer("203.0.113.9:5000")).Code)
+}
+
+// apiRoutes are the routes api.go registers, read from its source: the method
+// (empty for any), the path and whether the handler is wrapped in s.authed.
+func apiRoutes(t *testing.T) (routes []struct {
+	method, path string
+	authed       bool
+}) {
+	t.Helper()
+	src, err := os.ReadFile("api.go")
+	require.NoError(t, err)
+	re := regexp.MustCompile(`(?m)^\s*handle\("(?:([A-Z]+) )?(/[^"]*)", (s\.authed\()?`)
+	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+		routes = append(routes, struct {
+			method, path string
+			authed       bool
+		}{m[1], m[2], m[3] != ""})
+	}
+	return routes
+}
+
+// Every route that is not on the short documented list of non-authed ones is
+// behind `authed`, and `authed` runs the open gate on every request of an
+// open-mode account: with a valid session, a forwarded, proxied or public
+// request is refused on all of them. A route added later that skips `authed`
+// fails here unless it is added to the list on purpose.
+func TestOpenGateCoversEveryRoute(t *testing.T) {
+	h := newSetupHarness(t)
+	sess := h.openAccount(nil)
+	nonAuthed := map[string]bool{"GET /healthz": true, "GET /api/instance": true, "POST /api/auth/open": true, "POST /api/auth/login": true}
+	routes := apiRoutes(t)
+	require.Greater(t, len(routes), 70, "the route table was read")
+	subst := regexp.MustCompile(`\{[^}]*\}`)
+	variants := map[string][]func(*http.Request){
+		"forwarded":  {hdr("X-Forwarded-For", "203.0.113.9")},
+		"cloudflare": {hdr("CF-Connecting-IP", "203.0.113.9")},
+		"public":     {peer("203.0.113.9:5000")},
+		"lan proxy":  {peer("192.168.1.20:5000"), hdr("Forwarded", "for=203.0.113.9")},
+	}
+	for _, rt := range routes {
+		method := rt.method
+		if method == "" {
+			method = "GET"
+		}
+		key := method + " " + rt.path
+		if !rt.authed {
+			require.True(t, nonAuthed[key], "%s is registered without s.authed: add it to the documented list only if it must be open", key)
+			continue
+		}
+		path := subst.ReplaceAllString(rt.path, "1")
+		for name, mods := range variants {
+			rec := h.req(method, path, "", append(mods, withCookies(sess))...)
+			require.Equal(t, http.StatusForbidden, rec.Code, "%s (%s): %s", key, name, rec.Body.String())
+			require.Equal(t, "open_refused", decode(t, rec)["error"], "%s (%s)", key, name)
+		}
+	}
+	for key := range nonAuthed {
+		found := false
+		for _, rt := range routes {
+			m := rt.method
+			found = found || m+" "+rt.path == key
+		}
+		require.True(t, found, "%s is on the list but not registered", key)
+	}
 }
 
 // An Access-only account cannot switch to open mode: its proof is an Access

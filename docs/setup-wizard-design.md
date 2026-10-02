@@ -288,8 +288,9 @@ The **open gate**, checked by `POST /api/auth/open`, by switching to open mode, 
    what keeps others out. Forwarded and proxy headers are refused as in 2, never believed for the peer address
    (Sonarr's CVE-2026-30975 was a header bypass of exactly this kind).
 
-Existing sessions keep working after the gate fails (a session is a session), but they are revoked whenever the mode
-changes, as password changes already do.
+In open mode the gate also runs on every signed-in request (and re-checks an open event stream), so a session never
+outlives the network position that admitted it; sessions are also revoked whenever the mode changes, as password
+changes already do.
 
 ### 5.5 Threat model
 
@@ -302,7 +303,7 @@ changes, as password changes already do.
 | **Brute force** of the token or of logins | 120-bit token, separate per-IP lockout, global rotation; login lockout unchanged | None worth noting |
 | **DNS rebinding** against setup or open mode | Host gate (5.2) enforced in both; password mode unaffected (cookie is origin-bound) | A user who allowlists a public name they do not control |
 | **CSRF / login CSRF** | `sameOrigin` + `X-Kipple-Client` on every write; Strict setup cookie; no CORS | None beyond today |
-| **Passwordless on the LAN or the internet** | Explicit acknowledgement; open gate refuses forwarded requests and non-local peers; turning open mode on requires the password and the gate | A user who opts the LAN in (`security.open_lan`) trusts every device on it, by choice |
+| **Passwordless on the LAN or the internet** | Explicit acknowledgement; open gate refuses forwarded requests and non-local peers; turning open mode on requires the password and the gate | Open mode trusts every device on the local network and the tailnet, by choice (0.7: one rule, no setting; superseded the `security.open_lan` opt-in) |
 | **Setup endpoints reopening** | Not registered when the row exists at start; flag checked per request; no API deletes the row | Direct SQLite surgery (out of scope) |
 | **SSRF via OPML or starter feeds** | Unchanged guarded transport, checked per dialed address; imported feeds have `allow_private_net` off; the starter list is validated at build time to public https hosts (7.3) and subscribed by id, never by client URL | Same as adding a feed today |
 | **Session fixation** | Setup cookie cleared and a fresh session minted at account creation | None |

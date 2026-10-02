@@ -68,7 +68,7 @@ func settingRow(t *testing.T, db *DB, key string) (string, bool) {
 }
 
 // An existing install (an account before 0010) keeps its row and hashes, and is
-// stamped: onboarding done, the legacy port, and its old default zone.
+// stamped: onboarding done and its old default zone (and the legacy port 0011 deletes again).
 func TestMigration0010ExistingAccount(t *testing.T) {
 	ctx := context.Background()
 	db := reopen(t, schema9(t, true, ""))
@@ -86,9 +86,8 @@ func TestMigration0010ExistingAccount(t *testing.T) {
 	pending, err := db.SetupPending(ctx)
 	require.NoError(t, err)
 	require.False(t, pending, "an existing account never sees onboarding")
-	legacy, ok := settingRow(t, db, "sys.legacy_port")
-	require.True(t, ok)
-	require.Equal(t, "true", legacy, "the row is still stamped; nothing reads it since 0.6.0")
+	_, ok = settingRow(t, db, "sys.legacy_port")
+	require.False(t, ok, "stamped by 0010, deleted again by 0011: nothing reads it since 0.6.0")
 	tz, ok := settingRow(t, db, "tz")
 	require.True(t, ok)
 	require.Equal(t, `"America/New_York"`, tz)

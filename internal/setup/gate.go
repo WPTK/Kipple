@@ -140,9 +140,10 @@ func (g Gate) tailscaleServe(r *http.Request, peer netip.Addr, host string) bool
 // public or an unknown address is refused. Exact Tailscale Serve (see
 // tailscaleServe) counts as the tailnet peer it carries.
 //
-// Inside a container the peer is always the bridge gateway, a private address:
-// Kipple cannot tell the LAN from the world there, and the protection is the
-// bind address of the published port. It fences accidents and well-behaved
+// Inside a container the peer is often the bridge gateway (Docker Desktop,
+// rootless Docker, userland proxy, IPv6; native Linux DNAT keeps the real IPv4
+// client address), a private address: Kipple cannot tell the LAN from the world
+// there, and the protection is the bind address of the published port. It fences accidents and well-behaved
 // proxies, not a deliberate attacker who can reach the port through something
 // that forwards without saying so (a bare nginx proxy_pass, socat).
 func (g Gate) OpenRefusal(r *http.Request, host string, hostOK bool) string {
