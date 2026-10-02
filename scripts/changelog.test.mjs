@@ -1,7 +1,7 @@
 // node --test scripts/changelog.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -152,6 +152,14 @@ const DOC = (v) => `Run ghcr.io/wptk/kipple:${v} and\n    image: ghcr.io/wptk/ki
 test('topVersion is the first released heading under [Unreleased]', () => {
   assert.equal(topVersion(CHANGELOG), '0.3.0-beta.1');
   assert.throws(() => topVersion(`# C\n\n## [Unreleased]\n\n${POINTER}\n`), /no released version/);
+});
+
+test('the top subcommand prints the version the release gate compares the tag with', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const out = spawnSync(process.execPath, [fileURLToPath(new URL('./changelog.mjs', import.meta.url)), 'top'], { encoding: 'utf8' });
+  assert.equal(out.status, 0, out.stderr);
+  assert.equal(out.stdout, `${topVersion(readFileSync(join(root, 'CHANGELOG.md'), 'utf8'))}\n`);
+  assert.equal(isVersion(out.stdout.trim()), true);
 });
 
 test('pinExamples rewrites every image tag, prerelease or not, and nothing else', () => {

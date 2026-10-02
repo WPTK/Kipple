@@ -203,7 +203,7 @@
     err("");
     api("POST", "/api/auth/login", { username: f.username.value, password: f.password.value }).then(function (r) {
       if (r.status === 204) { f.password.value = ""; boot(); }
-      else if (r.status === 429) err("Too many failed attempts. Try again later.");
+      else if (r.status === 503) err("Kipple is busy. Try again in a moment.");
       else err("Sign-in failed.");
     });
   });

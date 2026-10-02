@@ -126,6 +126,19 @@ func (g Gate) tailscaleServe(r *http.Request, peer netip.Addr, host string) bool
 	return true
 }
 
+// TailscaleServeRequest reports whether r is a tailnet-only Tailscale Serve
+// request, by the one rule the open gate uses (tailscaleServe). The proxy-header
+// warning asks it so a legitimate Tailscale Serve setup is not reported as an
+// untrusted proxy.
+func (g Gate) TailscaleServeRequest(r *http.Request) bool {
+	peer, ok := auth.Peer(r)
+	if !ok {
+		return false
+	}
+	host, ok := NormalizeHost(r.Host)
+	return ok && g.tailscaleServe(r, peer, host)
+}
+
 // OpenRefusal is the network part of the open gate (design 5.4), checked on
 // every request of an open-mode account: "" when r may use open mode, else the
 // reason. host is the normalized Host (NormalizeHost) and hostOK whether it

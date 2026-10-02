@@ -258,6 +258,7 @@ func runServe() error {
 
 	tailnet := setup.TailnetCheck()
 	_ = tailnet() // the first scan now, not on the first request
+	openGate := setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: tailnet}
 	mux := http.NewServeMux()
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
@@ -265,7 +266,7 @@ func runServe() error {
 		Stats: recorder, Version: version, Build: buildInfo(), WebBuild: kweb.BuildID(), DataDir: cfg.DataDir, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount, Access: accessV,
 		Setup: setupMgr, AllowedHosts: allowedHosts(cfg),
-		Gate: setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: tailnet},
+		Gate: openGate,
 	})
 	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API
@@ -282,7 +283,7 @@ func runServe() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, cfg.TrustedProxyIPs, logger, uiAPI.HostGate),
+		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, cfg.TrustedProxyIPs, openGate.TailscaleServeRequest, logger, uiAPI.HostGate),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
 		// WriteTimeout would kill /api/events; the SSE handler replaces it with a
@@ -359,8 +360,8 @@ var startBackground = func(s *sched.Scheduler, m *maint.Maint, icons *favicon.Fi
 // hostGate (the UI API's HostGate, design 5.2) runs inside httpx.Secure, so a
 // refused request still carries the security headers; nil installs none.
 func rootHandler(readerFront func(http.Handler) http.Handler, mux http.Handler, imgMode func() string,
-	trusted []netip.Prefix, logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
-	h := auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, logger, nil)
+	trusted []netip.Prefix, tailscaleServe func(*http.Request) bool, logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
+	h := auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, tailscaleServe, logger, nil)
 	if hostGate != nil {
 		h = hostGate(h)
 	}

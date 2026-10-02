@@ -59,8 +59,8 @@ remove the lines after setup, and keep `.env` somewhere private either way.
 
 `security.allowed_hosts` has no precedence rule between the two places: the names in `KIPPLE_ALLOWED_HOSTS` and the
 names in the setting are added together, so a restore brings back the setting's names and your `.env` must bring back
-the rest. Where `TZ` is set it wins over the restored `tz`; if you lose `TZ` along with the old machine, the zone from the
-backup applies without any message.
+the rest. `TZ` only seeds the zone: it is stored when no `tz` setting exists yet, so a restored backup's zone wins, and
+`TZ` applies only when the backup has none.
 
 Checklist, for a rebuild to be a copy and paste:
 
