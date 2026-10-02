@@ -163,15 +163,6 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
       break;
     }
     default:
-      // The time zone while the TZ environment variable is set: it decides, so the field only shows it.
-      if (typeof meta.env_override === "string" && meta.env_override !== "") {
-        control = (
-          <Field label={meta.label} help="Set by the TZ environment variable; remove it to choose here.">
-            {(a) => <input {...a} type="text" readOnly value={meta.env_override ?? ""} className={inputCls} />}
-          </Field>
-        );
-        break;
-      }
       control = (
         <Field label={meta.label} help={help} error={error}>
           {(a) => (
@@ -220,7 +211,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
           }
         />
       ) : null}
-      {!isDefault && !(typeof meta.env_override === "string" && meta.env_override !== "") ? (
+      {!isDefault ? (
         <Button variant="link" className="min-h-11 self-start px-0" aria-label={`Reset ${meta.label} to default`} onClick={() => ask(null)}>
           Reset to default
         </Button>

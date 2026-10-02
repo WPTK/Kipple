@@ -6,9 +6,8 @@ import { keys } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { clearToasts } from "@/shell/toasts";
 import { bootstrap, json, mockFetch } from "@/test/mockApi";
-import { resetDevicePrefs, devicePrefsStore } from "./devicePrefs";
-import { FAVORITES_KEY, isUnknownSetting, resetFavoritesMode, useFavorites } from "./favorites";
-import { ApiError } from "@/api/client";
+import { resetDevicePrefs } from "./devicePrefs";
+import { FAVORITES_KEY, useFavorites } from "./favorites";
 
 const boot: Bootstrap = {
   ...bootstrap,
@@ -28,24 +27,13 @@ const patches = (calls: { method: string }[]) => calls.filter((c) => c.method ==
 const rejected = (message: string) => json({ error: "invalid_settings", issues: [{ key: FAVORITES_KEY, message }], keys: [FAVORITES_KEY] }, 400);
 
 beforeEach(() => {
-  resetFavoritesMode();
   resetDevicePrefs();
   clearToasts();
 });
 afterEach(() => vi.unstubAllGlobals());
 
 describe("favorites sync", () => {
-  it("only an unknown-setting answer (or a 404) means an older server", () => {
-    const err = (status: number, body: Record<string, unknown> | null) => new ApiError(status, "x", body);
-    expect(isUnknownSetting(err(400, { issues: [{ key: FAVORITES_KEY, message: "unknown setting" }] }))).toBe(true);
-    expect(isUnknownSetting(err(404, null))).toBe(true);
-    expect(isUnknownSetting(err(400, { issues: [{ key: FAVORITES_KEY, message: "too many items" }] }))).toBe(false);
-    expect(isUnknownSetting(err(400, null))).toBe(false);
-    expect(isUnknownSetting(err(500, null))).toBe(false);
-    expect(isUnknownSetting(new Error("offline"))).toBe(false);
-  });
-
-  it("another 400 is an error, not a permanent switch to this device: the next save still goes to the server", async () => {
+  it("a refused save is an error, not a switch to this device: the next save still goes to the server", async () => {
     let n = 0;
     const { hook, calls } = setup({
       "PATCH /api/settings": (_u, init) => (++n === 1 ? rejected("too many items") : json({ values: { [FAVORITES_KEY]: JSON.parse(String(init?.body))[FAVORITES_KEY] } })),
@@ -53,19 +41,21 @@ describe("favorites sync", () => {
     let ok = true;
     await act(async () => void (ok = await hook.result.current.set([{ t: "feed", id: "1" }])));
     expect(ok).toBe(false);
-    expect(devicePrefsStore.get().favoritesLocal).toEqual([]);
-    expect(hook.result.current.mode).toBe("server");
+    expect(hook.result.current.favorites).toEqual([]);
     await act(async () => void (ok = await hook.result.current.set([{ t: "feed", id: "2" }])));
     expect(ok).toBe(true);
     expect(patches(calls)).toHaveLength(2);
     expect(hook.result.current.favorites).toEqual([{ t: "feed", id: "2" }]);
   });
 
-  it("a server that does not know the setting still falls back to this device", async () => {
-    const { hook } = setup({ "PATCH /api/settings": () => rejected("unknown setting") });
+  it("an unknown-setting answer is just another refused save: undone, and the next save still goes to the server", async () => {
+    const { hook, calls } = setup({ "PATCH /api/settings": () => rejected("unknown setting") });
+    let ok = true;
+    await act(async () => void (ok = await hook.result.current.set([{ t: "feed", id: "1" }])));
+    expect(ok).toBe(false);
+    expect(hook.result.current.favorites).toEqual([]);
     await act(async () => void (await hook.result.current.set([{ t: "feed", id: "1" }])));
-    expect(devicePrefsStore.get().favoritesLocal).toEqual([{ t: "feed", id: "1" }]);
-    await waitFor(() => expect(hook.result.current.mode).toBe("device"));
+    expect(patches(calls)).toHaveLength(2);
   });
 
   it("refuses the 501st favorite instead of silently dropping it", async () => {

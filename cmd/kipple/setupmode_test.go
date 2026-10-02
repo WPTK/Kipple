@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -167,24 +166,4 @@ func captureStdout(t *testing.T, f func()) string {
 	b, err := io.ReadAll(r)
 	require.NoError(t, err)
 	return string(b)
-}
-
-// A set TZ that differs from the zone chosen in Kipple is warned about at start.
-func TestWarnTZOverride(t *testing.T) {
-	ctx := context.Background()
-	db := openDir(t, t.TempDir())
-	defer db.Close()
-	var logs bytes.Buffer
-	lg := slog.New(slog.NewTextHandler(&logs, nil))
-	warnTZOverride(ctx, db, config.Config{TZ: "America/Chicago"}, lg)
-	require.Empty(t, logs.String(), "nothing chosen in Kipple")
-	require.NoError(t, db.SetSettings(ctx, map[string]any{"tz": "America/Chicago"}))
-	warnTZOverride(ctx, db, config.Config{TZ: "America/Chicago"}, lg)
-	require.Empty(t, logs.String(), "the same zone")
-	warnTZOverride(ctx, db, config.Config{}, lg)
-	require.Empty(t, logs.String(), "TZ unset")
-	require.NoError(t, db.SetSettings(ctx, map[string]any{"tz": "Europe/Paris"}))
-	warnTZOverride(ctx, db, config.Config{TZ: "America/New_York"}, lg)
-	require.Contains(t, logs.String(), "TZ overrides the time zone chosen in Kipple")
-	require.Contains(t, logs.String(), "Europe/Paris")
 }

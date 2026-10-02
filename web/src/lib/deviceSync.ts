@@ -5,7 +5,7 @@ import { isSchemeId } from "@/theme/schemes";
 import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS, THEME_STORAGE_KEY, isClockTime, parseThemeSettings, saveThemeSettings } from "@/theme/settings";
 import type { ThemeSettings } from "@/theme/settings";
-import { FONTS } from "./fonts";
+import { isFontId } from "./fonts";
 import {
   DEFAULT_DEVICE_PREFS,
   DEVICE_PREFS_KEY,
@@ -61,15 +61,12 @@ export function stable(v: unknown): string {
 
 const eq = (a: unknown, b: unknown): boolean => stable(a ?? null) === stable(b ?? null);
 
-// The server's reading_density also knows the three first-draft names; they map onto the steps.
-const DENSITY_FROM_SERVER: Record<string, Step> = { compact: "snug", comfortable: "standard", relaxed: "relaxed" };
-const stepFrom = (v: unknown, fallback: Step): Step =>
-  typeof v === "string" ? ((STEPS as readonly string[]).includes(v) ? (v as Step) : (DENSITY_FROM_SERVER[v] ?? fallback)) : fallback;
+const stepFrom = (v: unknown, fallback: Step): Step => ((STEPS as readonly string[]).includes(v as string) ? (v as Step) : fallback);
 
 /** The profile keys for a local state: every mapped key, null where the device has no value of its own. */
 export function profileOf(l: LocalState): Profile {
   const { theme, prefs: p, dp } = l;
-  const font = FONTS.find((f) => f.id === p.font)?.server ?? "";
+  const font = p.font;
   return {
     "ui.theme": theme.mode === "follow" ? "system" : theme.fixed,
     "ui.theme_day": theme.day,
@@ -123,11 +120,10 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
   if (isClockTime(g("ui.theme_night_start"))) theme.nightStart = g("ui.theme_night_start") as string;
   if (isClockTime(g("ui.theme_day_start"))) theme.dayStart = g("ui.theme_day_start") as string;
 
-  const fontName = g("ui.font_body");
-  const fontId = typeof fontName === "string" ? FONTS.find((f) => (f.server ?? null) === fontName)?.id : undefined;
+  const fontId = g("ui.font_body");
   const has = (k: string) => m[k] !== undefined && m[k] !== null;
   const raw = {
-    font: fontId ?? cur.prefs.font,
+    font: isFontId(fontId) ? fontId : cur.prefs.font,
     textSize: g("client.text_size"),
     listDensity: stepFrom(g("ui.list_density"), cur.prefs.listDensity),
     readingDensity: stepFrom(g("ui.reading_density"), cur.prefs.readingDensity),
@@ -163,9 +159,8 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     unreadBadge: g("client.unread_badge"),
     highlightKeywords: g("client.highlight_keywords"),
   };
-  // Only the favorites fallback (kept when the server does not accept favorites) and the layout to return to from
-  // "Titles only" have no profile key.
-  const dp = { ...parseDevicePrefs(JSON.stringify(dpRaw)), favoritesLocal: cur.dp.favoritesLocal, layoutBeforeTitlesOnly: cur.dp.layoutBeforeTitlesOnly };
+  // Only the layout to return to from "Titles only" has no profile key.
+  const dp = { ...parseDevicePrefs(JSON.stringify(dpRaw)), layoutBeforeTitlesOnly: cur.dp.layoutBeforeTitlesOnly };
   return { theme, prefs, dp };
 }
 

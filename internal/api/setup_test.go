@@ -627,7 +627,7 @@ func TestNoCORSHeadersAnywhere(t *testing.T) {
 	}
 }
 
-func TestSettingsTZEnvOverrideAndDefault(t *testing.T) {
+func TestSettingsTZDefaultAndOwnedByTheSetting(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
 	tzView := func() map[string]any {
@@ -641,34 +641,14 @@ func TestSettingsTZEnvOverrideAndDefault(t *testing.T) {
 		return nil
 	}
 	v := tzView()
-	require.Contains(t, v, "env_override")
-	require.Nil(t, v["env_override"])
 	require.Equal(t, "UTC", v["default"], "new installs default to UTC")
+	require.NotContains(t, v, "env_override", "the setting is the only owner of the zone")
 
-	t.Cleanup(func() { _ = store.SetEnvZone("") })
-	require.NoError(t, store.SetEnvZone("America/Chicago"))
-	v = tzView()
-	require.Equal(t, "America/Chicago", v["env_override"])
-	for _, body := range []string{`{"tz":"Asia/Tokyo"}`, `{"tz":null}`} {
-		rec := h.do("PATCH", "/api/settings", body, withCookie(c))
-		require.Equal(t, http.StatusBadRequest, rec.Code)
-		out := decode(t, rec)
-		require.Equal(t, "invalid_settings", out["error"])
-		require.Contains(t, fmt.Sprint(out["issues"]), "set by the TZ environment variable")
-	}
-	// Other keys in the same PATCH are refused with it (all-or-nothing).
-	require.Equal(t, http.StatusBadRequest, h.do("PATCH", "/api/settings", `{"tz":"UTC","stats.enabled":false}`, withCookie(c)).Code)
-
-	require.NoError(t, store.SetEnvZone(""))
+	// Whatever TZ says at start, the setting can always be changed and reset.
 	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", `{"tz":"Asia/Tokyo"}`, withCookie(c)).Code)
 	require.Equal(t, "Asia/Tokyo", tzView()["value"])
-	// Other settings carry no env_override at all.
-	out := decode(t, h.do("GET", "/api/settings", "", withCookie(c)))
-	for _, s := range out["settings"].([]any) {
-		if m := s.(map[string]any); m["key"] != "tz" {
-			require.NotContains(t, m, "env_override", m["key"])
-		}
-	}
+	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", `{"tz":null}`, withCookie(c)).Code)
+	require.Equal(t, "UTC", tzView()["value"])
 }
 
 func TestSettingsSecurityKeys(t *testing.T) {

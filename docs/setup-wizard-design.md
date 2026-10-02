@@ -120,7 +120,7 @@ resumable after a reload because each one writes through ordinary endpoints as i
 |---|---|---|---|
 | 1 Token | setup | `POST /api/setup/claim` | no |
 | 2 Account | setup | `POST /api/setup/account` (signs the browser in) | no |
-| 3 Time zone | normal | `PATCH /api/settings {tz}` (section 7a). Preselected from the browser's `Intl.DateTimeFormat().resolvedOptions().timeZone`, searchable list of IANA names. Read-only when the `TZ` env is set | skipping keeps the preselected zone, it never leaves UTC by accident |
+| 3 Time zone | normal | `PATCH /api/settings {tz}` (section 7a). Preselected from the browser's `Intl.DateTimeFormat().resolvedOptions().timeZone`, searchable list of IANA names | skipping keeps the preselected zone, it never leaves UTC by accident |
 | 4 Look and feel | normal | `PATCH /api/settings` `{ui.theme, ui.theme_day, ui.theme_night, ui.font_body}` (global row = default for every future device); live preview by applying the scheme and the reading font client-side before saving, held out of the device profile until Continue; Skip puts both back | yes |
 | 5 OPML | normal | `POST /api/opml` unchanged | yes |
 | 6 Recommended feeds | normal | `GET/POST /api/starter-feeds` | yes |
@@ -178,7 +178,7 @@ today, plus the two new fields).
 | Route | Change |
 |---|---|
 | `GET /api/auth/me`, bootstrap `user` | Add `auth_mode: "password"\|"access"\|"open"` and `setup_pending: bool`. |
-| `GET /api/settings`, `PATCH /api/settings` | The `tz` entry gains `env_override: "<TZ value>"\|null`; a `PATCH` of `tz` while `TZ` is set is `400 invalid_settings` with the issue "set by the TZ environment variable" (7a). |
+| `GET /api/settings`, `PATCH /api/settings` | Nothing for `tz`: the setting is the only owner of the zone and `TZ` only seeds it (7a). (0.5 betas also sent `env_override` and refused a `PATCH` of `tz` while `TZ` was set; 0.6.0 removed both.) |
 | `GET /api/bootstrap` | Add `web_build` (the build id the server's embedded `index.html` carries, section 9). |
 | `POST /api/account/password` | New `{current, open: true}`: switch to open mode. Needs the current password **and** the request must pass the open gate, so it cannot be turned on from outside. In open mode `{new}` without `current` sets a password and returns to `standard` (the session plus same-origin are the proof; there is no credential to prove). Both sign out every other session (existing `SetPasswordHash` behavior). |
 | `POST /api/account/api-password` | In open mode `current` is not required (`checkCurrent` gains an open-mode branch that requires the open gate instead). |
@@ -420,7 +420,7 @@ to the `TZ` env, and the places that still read `time.Local` instead of it. The 
 | Nightly maintenance: run date, nightly time of day, Sunday weekly snapshot (`internal/maint/maint.go:126, 184-226, 298`) | `tz` setting, **re-read every tick**; instant-based, so a change neither repeats nor skips a date | `store.Zone`, same loop |
 | Backup download filename `kipple-backup-YYYYMMDD-HHMMSS` (`internal/backup/backup.go:289`) | `time.Local` (the `TZ` env), implicitly | explicit `now.In(store.Zone(...))` |
 | Parsing legacy zone-less `pre-restore-*` names (`cmd/kipple/restore.go:371`) | `time.Local` | unchanged: it must read names written by older versions in the zone they used; new names are UTC already (`restore.go:310`) |
-| Log timestamps (slog JSON) | `time.Local`, fixed at start | unchanged: `time.Local` is set once at start (env if set, else the effective zone at that moment); logs are the one thing that follows a change only after a restart. Mutating `time.Local` at runtime is a data race and is never done |
+| Log timestamps (slog JSON) | `time.Local`, fixed at start | unchanged: `time.Local` is set once at start (the effective zone at that moment, from the `tz` setting; Go reads `TZ` itself before that); logs are the one thing that follows a change only after a restart. Mutating `time.Local` at runtime is a data race and is never done |
 | Scheduler, retention, auto-read days, backoff, sessions, Reader API | none (durations and unix seconds) | unchanged |
 | Web date display (`web/src/lib/format.ts:16`) | the **browser's** zone (`toLocaleString`) | unchanged: display follows the device, not the server |
 | Theme schedule | the device's own clock (settings text says so) | unchanged |
@@ -428,16 +428,15 @@ to the `TZ` env, and the places that still read `time.Local` instead of it. The 
 
 ### Precedence and runtime effect
 
-- `config` stops defaulting `TZ`: it records the env value and whether it was set.
-- `store.Zone(ctx, q)` is the one resolver: **`TZ` env if set, else the `tz` setting, else UTC.** The env location is
-  loaded once at start and passed to the store; the setting is read per call as today (one indexed point read,
+- `config` stops defaulting `TZ`: it records the env value and whether it was set. **0.6.0 rule: `TZ` only seeds the `tz` setting** (`store.SeedZone`): on a start where no `tz` row exists it is stored as the setting, and it is never read for the zone again.
+- `store.Zone(ctx, q)` is the one resolver: **the `tz` setting, else UTC** (the 0.5 betas put the `TZ` env first; see the 0.6.0 rule above). The setting is read per call as today (one indexed point read,
   already on every stats write).
 - Because every zone-dependent path above resolves per call or per tick, a `PATCH tz` takes effect on the next stats
   write, the next summary request and the next maintenance tick. No restart, no `TZ` env.
-- When `TZ` is set, the settings meta reports `env_override` and a `PATCH` of `tz` is refused; the wizard step and
-  Settings show the env value read-only with "Set by the TZ environment variable; remove it to choose here." This
-  changes one existing behavior: today a set `TZ` does not govern stats. Changelog `changed` entry; the deploy
-  checklist compares Host-A's `TZ` and `tz` before the upgrade.
+- `TZ` is not an override: a `PATCH` of `tz` always works and there is no read-only state. An install that already has a
+  `tz` row (the wizard, Settings, or migration 0010 for a pre-0.5 database) keeps it whatever `TZ` says. Go itself still
+  reads `TZ` for `time.Local` at process start, so the first log lines and the CLI subcommands use it; once the store is
+  open, log time follows the setting.
 
 ### Validation
 
@@ -633,8 +632,7 @@ previous good digest with `imagetools create`, no rebuild. Signed digests are ne
   for the winner. Run under `-race` in CI (not locally on Host-B, which has no gcc).
 - Migration 0010 test (section 6). Port: default, legacy shim only with `sys.legacy_port` and no `KIPPLE_ADDR`
   (removed in 0.6.0), fallback on `EADDRINUSE`, healthcheck probing order 1919, 7080, 1138 (now one probe of the address in use; removed in 0.6.0).
-- Time zone (7a): `store.Zone` precedence (env, setting, UTC) with a table test; `PATCH tz` refused with
-  `env_override` when `TZ` is set; changing `tz` mid-process moves the next stats row's `local_date` and the nightly
+- Time zone (7a): `store.Zone` is the setting else UTC (table test); `SeedZone` stores `TZ` only when no row exists; changing `tz` mid-process moves the next stats row's `local_date` and the nightly
   run with no restart, and leaves every existing `stats_events` row byte-identical; `tz` across a DST boundary; the
   backup filename follows the effective zone; `LoadLocation` never sees `Local` or an empty name.
 - `POST /api/onboarding/restart` clears `sys.setup_completed_at` only; `setup_pending` flips back.
@@ -648,7 +646,7 @@ accepts a non-https or IP-literal URL). `FuzzParse` for OPML already exists.
 **Web:** Vitest for each wizard step against `web/src/test/mockApi.ts`, the step registry guards, the fragment
 prefill and clearing, the mismatch banner (stored bootstrap vs network bootstrap), and axe on every step. Time
 zone step: preselects the mocked `Intl` zone, falls back to UTC for a zone the server's list lacks, search filters by
-name and offset, and renders read-only with the env value when `env_override` is reported.
+name and offset, and keeps the saved zone on a repeat run.
 
 **Playwright (UAT Suite 1 addition):** `KIPPLE_SEED_SET=fresh`: read the token from the seed's captured stderr,
 walk steps 1-7 with a password (browser context with `timezoneId: "Asia/Tokyo"`, asserting the step preselects it

@@ -7,24 +7,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// store.Zone: TZ env > tz setting > UTC, and a stored name that does not
-// resolve (or "Local", which would silently mean the process zone) is UTC.
-func TestZonePrecedence(t *testing.T) {
+// store.Zone is the tz setting, else UTC; a stored name that does not resolve
+// (or "Local", which would silently mean the process zone) is UTC.
+func TestZoneIsTheSetting(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	t.Cleanup(func() { _ = SetEnvZone("") })
 	for _, tc := range []struct {
-		name, env, setting, want, wantName string
+		name, setting, want, wantName string
 	}{
-		{"default", "", "", "UTC", "UTC"},
-		{"setting", "", "Asia/Tokyo", "Asia/Tokyo", "Asia/Tokyo"},
-		{"env wins", "America/Chicago", "Asia/Tokyo", "America/Chicago", "America/Chicago"},
-		{"env alone", "Europe/Paris", "", "Europe/Paris", "Europe/Paris"},
-		{"unknown setting", "", "Mars/Base", "UTC", "Mars/Base"},
-		{"Local setting", "", "Local", "UTC", "Local"},
+		{"default", "", "UTC", "UTC"},
+		{"setting", "Asia/Tokyo", "Asia/Tokyo", "Asia/Tokyo"},
+		{"unknown setting", "Mars/Base", "UTC", "Mars/Base"},
+		{"Local setting", "Local", "UTC", "Local"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.NoError(t, SetEnvZone(tc.env))
 			set := map[string]any{"tz": nil}
 			if tc.setting != "" {
 				set["tz"] = tc.setting
@@ -32,22 +28,39 @@ func TestZonePrecedence(t *testing.T) {
 			require.NoError(t, e.db.SetSettings(ctx, set))
 			require.Equal(t, tc.want, Zone(ctx, e.db.Reader()).String())
 			require.Equal(t, tc.wantName, ZoneName(ctx, e.db.Reader()))
-			name, ok := EnvZone()
-			require.Equal(t, tc.env != "", ok)
-			require.Equal(t, tc.env, name)
 		})
 	}
-}
-
-func TestSetEnvZoneRefusesBadNames(t *testing.T) {
-	t.Cleanup(func() { _ = SetEnvZone("") })
-	require.NoError(t, SetEnvZone("Asia/Tokyo"))
-	for _, bad := range []string{"Local", "Not/AZone", string(make([]byte, 65))} {
-		require.Error(t, SetEnvZone(bad), bad)
-	}
-	name, ok := EnvZone()
-	require.True(t, ok)
-	require.Equal(t, "Asia/Tokyo", name, "a refused name changes nothing")
 	_, err := LoadZone("")
 	require.Error(t, err)
+	_, err = LoadZone("Local")
+	require.Error(t, err)
+}
+
+// TZ only gives a new install its zone: it is stored when no tz row exists and is
+// never read again once one does.
+func TestSeedZone(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	require.NoError(t, e.db.SeedZone(ctx, ""), "no TZ seeds nothing")
+	_, stored, err := StoredZoneName(ctx, e.db.Reader())
+	require.NoError(t, err)
+	require.False(t, stored)
+
+	require.NoError(t, e.db.SeedZone(ctx, "America/Chicago"))
+	require.Equal(t, "America/Chicago", ZoneName(ctx, e.db.Reader()))
+
+	require.NoError(t, e.db.SeedZone(ctx, "Europe/Paris"), "a stored zone is not replaced")
+	require.Equal(t, "America/Chicago", ZoneName(ctx, e.db.Reader()))
+	require.NoError(t, e.db.SeedZone(ctx, "Not/AZone"), "TZ is not even checked once a row exists")
+	require.Equal(t, "America/Chicago", ZoneName(ctx, e.db.Reader()))
+
+	require.NoError(t, e.db.SetSettings(ctx, map[string]any{"tz": "UTC"}))
+	require.NoError(t, e.db.SeedZone(ctx, "Asia/Tokyo"), "an explicit UTC is a stored choice too")
+	require.Equal(t, "UTC", ZoneName(ctx, e.db.Reader()))
+
+	require.NoError(t, e.db.SetSettings(ctx, map[string]any{"tz": nil}))
+	for _, bad := range []string{"Local", "Not/AZone", string(make([]byte, 65))} {
+		require.Error(t, e.db.SeedZone(ctx, bad), bad)
+	}
+	require.Equal(t, "UTC", ZoneName(ctx, e.db.Reader()), "a refused name stores nothing")
 }

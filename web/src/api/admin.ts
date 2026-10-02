@@ -30,8 +30,8 @@ export interface SettingMeta {
   step?: number;
   unit?: string;
   surface: SettingSurface;
-  /** The time zone setting only: the TZ environment variable's value while one is set (the setting is then read-only), else null. */
-  env_override?: string | null;
+  /** global: one value for the account. device: the row is only the default for devices; each device has its own control. */
+  scope?: "global" | "device" | "both";
 }
 
 export interface SettingsResponse {

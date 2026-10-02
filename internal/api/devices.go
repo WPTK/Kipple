@@ -582,6 +582,18 @@ func (s *Server) putDeviceName(w http.ResponseWriter, r *http.Request) {
 	s.writeDevice(w, r, dv)
 }
 
+// knownOverrides counts the profile keys this build still knows, as deviceView
+// keeps them; a key an older build stored and this one dropped is not an override.
+func knownOverrides(profile map[string]any) int {
+	n := 0
+	for k := range profile {
+		if profileKeyProblem(k) == "" {
+			n++
+		}
+	}
+	return n
+}
+
 // listDevices is GET /api/devices.
 func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	cur, err := s.currentDevice(w, r)
@@ -598,7 +610,7 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	for _, dv := range all {
 		out = append(out, map[string]any{
 			"id": dv.ID, "name": dv.Name, "current": dv.ID == cur.ID, "user_agent": dv.UserAgent, "client": dv.Client,
-			"created_at": dv.CreatedAt, "last_seen_at": dv.LastSeenAt, "overrides": len(dv.Profile),
+			"created_at": dv.CreatedAt, "last_seen_at": dv.LastSeenAt, "overrides": knownOverrides(dv.Profile),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"devices": out})

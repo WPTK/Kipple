@@ -148,13 +148,6 @@ export async function shareWrappedBlob(blob: Blob | null, model: WrappedModel, o
   return tryShare({ title, text });
 }
 
-/** @deprecated kept for callers that have not moved to the pre-rendered-blob flow (renders inline, so it should
- * only be used off the UI thread's click handler — see `shareWrappedBlob`). */
-export async function shareWrapped(model: WrappedModel, options: WrappedOptions): Promise<WrappedShareResult> {
-  const png = await renderCardPng(model, options);
-  return shareWrappedBlob(png, model, options);
-}
-
 export async function copyWrappedText(model: WrappedModel, options: WrappedOptions): Promise<WrappedShareResult> {
   return (await copyToClipboard(wrappedText(model, options))) ? "copied" : "failed";
 }
@@ -173,11 +166,4 @@ export function downloadBlob(blob: Blob, year: number): WrappedShareResult {
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
   return "downloaded";
-}
-
-/** @deprecated kept for callers that have not moved to the pre-rendered-blob flow — see `downloadBlob`. */
-export async function downloadWrappedImage(model: WrappedModel, options: WrappedOptions): Promise<WrappedShareResult> {
-  const png = await renderCardPng(model, options);
-  if (!png) return "failed";
-  return downloadBlob(png, model.year);
 }

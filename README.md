@@ -221,7 +221,7 @@ The ones self-hosters most often want:
 | `KIPPLE_TRUSTED_PROXY_IPS` | Required if Kipple sits behind a reverse proxy or tunnel. |
 | `KIPPLE_ALLOWED_HOSTS` | Extra host names Kipple answers to during setup and without a password. |
 | `KIPPLE_ACCESS_TEAM_DOMAIN` / `KIPPLE_ACCESS_AUD` | Optional Cloudflare Access integration. |
-| `TZ` | IANA time zone. When set it wins over the time zone chosen in Kipple. |
+| `TZ` | IANA time zone for a new install: stored as the time zone setting on the first start only. Choose it in Kipple afterwards. |
 | `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` | Create the account from the environment instead of the wizard (scripted deploys). |
 
 ## Support

@@ -11,26 +11,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestApplyTZ(t *testing.T) {
+func TestSetLocal(t *testing.T) {
 	z := fakeLocalZone(t, time.UTC)
 
-	require.NoError(t, applyTZ("America/New_York"))
+	ny, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	setLocal(ny)
 	noon := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
 	require.Equal(t, 8, noon.In(z.loc).Hour(), "EDT is UTC-4 (tzdata is embedded)")
 	require.Equal(t, 7, time.Date(2026, 1, 4, 12, 0, 0, 0, time.UTC).In(z.loc).Hour(), "EST is UTC-5")
 
-	require.NoError(t, applyTZ("America/Chicago"))
+	chicago, err := time.LoadLocation("America/Chicago")
+	require.NoError(t, err)
+	setLocal(chicago)
 	require.Equal(t, 7, noon.In(z.loc).Hour())
 	require.Equal(t, 2, z.writes)
 
-	before := z.loc
-	require.Error(t, applyTZ("Not/AZone"))
-	require.Same(t, before, z.loc, "a bad zone leaves time.Local alone")
-
 	// The same zone again is not a write (issue #165): a repeated start leaves the
 	// global alone, even though LoadLocation returns a new *Location every time.
-	require.NoError(t, applyTZ("America/Chicago"))
-	require.Same(t, before, z.loc, "an unchanged zone leaves time.Local alone")
+	before := z.loc
 	other, err := time.LoadLocation("America/Chicago")
 	require.NoError(t, err)
 	require.NotSame(t, before, other, "the check above would pass without the name comparison otherwise")
