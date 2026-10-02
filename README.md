@@ -140,11 +140,11 @@ account owns the instance, including its feed network settings, so if you ever f
 not do it, take the container down, delete its data volume and start again.
 
 **Going without a password.** The account step offers "No password at all". Read its notice: anyone who can reach
-Kipple's address can then read and change everything, so choose it only when Kipple is reachable from this computer
-only, or over [Tailscale](https://tailscale.com/). Kipple refuses open sign-in through a reverse proxy or tunnel. In
-Docker it asks you to tick "Also allow devices on my local network", because a container sees every connection as
-coming from Docker's own network; the address you publish the port on (`127.0.0.1:` in the examples above) is what
-keeps other machines out. You can set a password later in Settings, Account & Devices. Details:
+Kipple's address can then read and change everything, so choose it only when Kipple is reachable from this computer,
+your local network and [Tailscale](https://tailscale.com/) and nowhere else. Kipple refuses open sign-in through a reverse
+proxy or tunnel and from public addresses. In Docker every connection arrives from Docker's own network, so Kipple cannot
+tell your network from the internet: the address you publish the port on (`127.0.0.1:` in the examples above) is what
+keeps other machines out, so never publish an open-mode Kipple on a public interface. You can set a password later in Settings, Account & Devices. Details:
 [docs/deploy.md](docs/deploy.md), "Open mode".
 
 **Reaching Kipple from your phone or another computer.** The examples publish the port on `127.0.0.1`, which is this

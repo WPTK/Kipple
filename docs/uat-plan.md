@@ -556,8 +556,8 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 
 | # | Do | Expected |
 |---|---|---|
-| B1 | Read the notice; try to continue without ticking the acknowledgement. | The notice says anyone who can reach the address can read and change everything, and to use it only from this computer or over Tailscale; it cannot be skipped without ticking the box. |
-| B2 | Note the extra checkbox (this run is in Docker). | "Also allow devices on my local network" is offered and required, with the reason (a container never sees a loopback peer), and the account cannot be created without it. Tick both and continue. |
+| B1 | Read the notice; try to continue without ticking the acknowledgement. | The notice says anyone who can reach the address can read and change everything, and to use it only when Kipple is reachable from this computer, your local network or Tailscale and the Docker bind rule (publish only on a local or Tailscale address, never a public one); it cannot be skipped without ticking the box. |
+| B2 | Note that there is no extra checkbox (this run is in Docker). | Only the acknowledgement is asked: nothing about a local-network switch, because open mode has no such setting. Tick it and continue; the account is created. |
 | B3 | Finish the wizard, close the browser, reopen the address. | It opens straight into the app with no sign-in screen (a session is minted silently). Settings has no "Sign out". |
 | B4 | Send a request with an unexpected `Host`, for example `curl -H 'Host: evil.example' http://127.0.0.1:<port>/`; put a reverse proxy (or any request carrying `X-Forwarded-For`) in front and open the app through it. | The unexpected `Host` gets `421 Misdirected Request` naming `KIPPLE_ALLOWED_HOSTS`. The proxied request is refused as `forwarded`. With the default `127.0.0.1:` mapping another machine cannot reach the port at all. |
 | B5 | Settings > Account & Devices > Set web password. | Gives the account a password and signs every other session out; a reload shows the sign-in screen. |
