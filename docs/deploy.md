@@ -283,8 +283,9 @@ timestamps. It is read live, so a change takes effect at the next statistics wri
 with no restart. The default for a new install is UTC, and the wizard preselects your browser's zone.
 
 The `TZ` environment variable (IANA name) only gives a new install its first value: on a start where no `tz` setting
-exists yet, Kipple stores `TZ` as the setting. After that `TZ` is not read again for the zone, and changing it, or
-removing it, changes nothing; choose in Settings. An unknown name in `TZ` stops a start that would have stored it.
+exists yet, Kipple stores `TZ` as the setting. After that `TZ` is not read for the zone, so changing or removing it no
+longer moves statistics, the nightly job or backup names; choose in Settings. (Go itself still reads `TZ` for the first
+start-up log lines and for the CLI subcommands.) An unknown name in `TZ` stops a start that would have stored it.
 
 A change applies to new statistics only: rows already recorded keep the local date and hour of the zone that was in
 effect when they were written, so a day never moves. Dates in the web app follow each device's own clock, whatever the

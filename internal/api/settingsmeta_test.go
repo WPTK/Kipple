@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -171,6 +172,21 @@ func TestStoredOldThemeReadsAsAlias(t *testing.T) {
 	_, out, _ := h.api(h.login(), "GET", "/api/settings", "")
 	require.Equal(t, "cocoa-kraft", vals(out)["ui.theme"])
 	require.Equal(t, "midnight", vals(out)["ui.theme_night"])
+}
+
+// The Go font list and the web app's fonts.ts must agree (ids, in order).
+func TestFontsMatchWeb(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "lib", "fonts.ts"))
+	require.NoError(t, err)
+	var web []string
+	for _, m := range regexp.MustCompile(`(?m)^  \{ id: "([a-z-]+)"`).FindAllStringSubmatch(string(raw), -1) {
+		web = append(web, m[1])
+	}
+	var goIDs []string
+	for _, f := range store.Fonts {
+		goIDs = append(goIDs, f.ID)
+	}
+	require.Equal(t, web, goIDs)
 }
 
 // The Go scheme list and the web app's schemes.json must agree (ids and names, in order).
