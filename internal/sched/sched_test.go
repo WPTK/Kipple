@@ -12,7 +12,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -825,11 +824,21 @@ func TestShutdownDuringLargeRun(t *testing.T) {
 	require.GreaterOrEqual(t, int(completed.Load()), done-1)
 }
 
+// TestCommitGateKeepsAPIWritesResponsive proves that API writes never queue behind
+// the commit gate, without measuring how long anything takes (a latency bound
+// measures the runner, and flaked under -race on a loaded one). The test holds the
+// gate itself as a controlled blocker and starts a 138-feed run. It waits until
+// every fetch worker is inside a commit (each of them then waits for the gate it
+// cannot get), and only then requires 200 API writes to complete while the run is
+// still unfinished: run.done cannot have been published, because the run is done
+// only once its last commit is. A commit that took the writer before the gate, or
+// an API write that took the gate, would block a write here. What ends such a
+// blocked write is WithWrite's own 10 s writeTimeout (store/tx.go), after which
+// the write returns an error and the test fails; the 1 minute context below is
+// only the outer bound. Neither is a latency measurement of a healthy write. Once
+// the blocker is released the run commits everything.
 func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
-	if testing.Short() {
-		t.Skip("timing test")
-	}
-	r := newRig(t, Options{PerHost: 8})
+	r := newRig(t, Options{PerHost: 8, CommitTimeout: 5 * time.Minute})
 	srv := newSrv(t, serveOK)
 	for i := 0; i < 138; i++ {
 		id := r.add(fmt.Sprintf("%s/f%d", srv.URL, i), nil)
@@ -841,21 +850,40 @@ func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
 	       INSERT INTO items (id, feed_id, uid, url, title, published_at, sort_at, content_hash, text_hash)
 	       SELECT 5000+n, (SELECT id FROM feeds WHERE disabled_reason='archive'), 'u'||n, '', 't', 1, 1, 'c', 't' FROM seq`)
 
-	_, err := r.s.RefreshAll()
+	release, err := r.db.AcquireGate(context.Background())
 	require.NoError(t, err)
-	var lat []time.Duration
-	for i := 0; len(r.events("run.done")) == 0 && i < 20000; i++ {
-		start := time.Now()
-		require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sqlTx) error {
+	released := false
+	releaseGate := func() {
+		if !released {
+			released = true
+			release()
+		}
+	}
+	t.Cleanup(releaseGate)
+
+	// Count the commits that have started: with the gate held, each one parks on it.
+	var inCommit atomic.Int32
+	r.s.commitFetchFn = func(ctx context.Context, res *fetch.Result, perChunk time.Duration) (store.CommitInfo, error) {
+		inCommit.Add(1)
+		return r.db.CommitFetchTimeout(ctx, res, perChunk)
+	}
+
+	_, err = r.s.RefreshAll()
+	require.NoError(t, err)
+	waitFor(t, "every fetch worker inside a commit", func() bool { return int(inCommit.Load()) >= 8 })
+
+	// What ends a blocked write is writeTimeout (see above), not this context.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	for i := 0; i < 200; i++ {
+		require.NoError(t, r.db.WithWrite(ctx, func(ctx context.Context, tx *sqlTx) error {
 			_, err := tx.ExecContext(ctx, "UPDATE items SET read = 1 - read WHERE id = ?", 5001+i%50)
 			return err
-		}))
-		lat = append(lat, time.Since(start))
+		}), "API write %d must not wait for the commit gate", i)
+		require.Empty(t, r.events("run.done"), "the run is parked on the gate, so it cannot be done after write %d", i)
 	}
-	require.NotEmpty(t, lat)
-	sort.Slice(lat, func(i, j int) bool { return lat[i] < lat[j] })
-	p99 := lat[len(lat)*99/100]
-	require.LessOrEqual(t, p99, 250*time.Millisecond, "API write p99 during a 138-feed run (%d writes)", len(lat))
+
+	releaseGate()
 	r.waitEvents("run.done", 1)
 	require.EqualValues(t, 138*2, r.num("SELECT count(*) FROM items WHERE feed_id IN (SELECT id FROM feeds WHERE url LIKE 'http%')"))
 }
