@@ -1,7 +1,7 @@
 // Regression: the reading-font choice (one of the bundled fonts plus the ones on the device) must stay reachable from
 // Settings > Appearance & Reading, from the Aa menu above every list screen and every article, at phone and desktop
 // widths. It was dropped from Settings on 2026-09-25 (67d7685) and was never in the setup wizard; the wizard's own
-// check is in setup/wizard.test.tsx ("Step 4").
+// check is in setup/wizard.test.tsx ("Step 3").
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

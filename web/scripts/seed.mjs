@@ -10,7 +10,7 @@
 //
 //   KIPPLE_SEED_SET=fresh npm run seed
 //                                a server with NO account and no feeds, so it starts in setup mode: the setup wizard
-//                                (docs/setup-wizard-design.md). Its stderr, with the setup code in the banner, is also
+//                                (docs/setup-wizard-design.md): open the address and create the account. Its stderr is also
 //                                written to <data dir>/server-stderr.log. Nothing is imported.
 //
 // Then, in another terminal, `npm run dev` (Vite proxies /api and /img to
@@ -115,7 +115,7 @@ writeFileSync(opmlPath, `<?xml version="1.0"?>\n<opml version="2.0"><head><title
 
 const server = spawn(bin, ["serve"], { env, stdio: fresh ? ["ignore", "inherit", "pipe"] : "inherit" });
 if (fresh) {
-  // The setup code is printed once, to stderr: keep a copy where a script (web/uat/wizard.mjs) or a person can read it.
+  // Keep a copy of the server log where a script (web/uat/wizard.mjs) or a person can read it.
   const log = createWriteStream(join(dataDir, "server-stderr.log"));
   server.stderr.on("data", (chunk) => {
     process.stderr.write(chunk);
@@ -145,8 +145,8 @@ async function waitReady() {
 
 await waitReady();
 if (fresh) {
-  console.log(`\nKipple is running at http://${addr} in SETUP MODE (no account). The setup code is in ${join(dataDir, "server-stderr.log")}.`);
-  console.log("Open the address, or the #setup= link from the banner. Ctrl-C stops the server.");
+  console.log(`\nKipple is running at http://${addr} in SETUP MODE (no account). Its log is ${join(dataDir, "server-stderr.log")}.`);
+  console.log("Open the address and create the account. Ctrl-C stops the server.");
 } else {
   const imp = spawnSync(bin, ["import", opmlPath], { env, stdio: "inherit" });
   if (imp.status !== 0) console.error("import failed; feeds were not added");

@@ -17,7 +17,7 @@ function setPending(qc: QueryClient, pending: boolean): void {
 export function useSetupActions() {
   const qc = useQueryClient();
   return {
-    /** Ends the wizard. The password kept from step 2 is forgotten, and a theme picked but never saved is put back. */
+    /** Ends the wizard. The password kept from step 1 is forgotten, and a theme picked but never saved is put back. */
     finish: async () => {
       await completeOnboarding();
       revertUnsavedTheme();

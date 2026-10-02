@@ -8,7 +8,7 @@ import { Button } from "@/ui/button";
 export function FirstRun({ onAdd, onImport }: { onAdd: () => void; onImport: () => void }) {
   const setup = useSetupActions();
   const [busy, setBusy] = useState(false);
-  // The recommended feeds are step 6 of setup: opening them starts setup again at that step (it changes nothing else).
+  // The recommended feeds are step 5 of setup: opening them starts setup again at that step (it changes nothing else).
   const recommended = async () => {
     setBusy(true);
     try {

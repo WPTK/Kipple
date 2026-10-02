@@ -1,28 +1,27 @@
-// The wizard's step registry: the seven steps in order, which of them run before a sign-in (1 and 2, in setup mode)
-// and which after (3 to 7, at /welcome/<id>), and the guard that turns an unknown or unavailable step into a real one.
+// The wizard's step registry: the six steps in order, which of them runs before a sign-in (1, the account, in setup
+// mode) and which after (2 to 6, at /welcome/<id>), and the guard that turns an unknown or unavailable step into a real one.
 
-export type StepId = "token" | "account" | "timezone" | "theme" | "import" | "feeds" | "finish";
+export type StepId = "account" | "timezone" | "theme" | "import" | "feeds" | "finish";
 
 export interface StepInfo {
   id: StepId;
-  /** 1 to 7. */
+  /** 1 to 6. */
   n: number;
   /** The step's heading. */
   title: string;
   /** Before the account exists (setup mode) or after it (a signed-in session). */
   phase: "setup" | "welcome";
-  /** Whether "Skip" is offered. Steps 1 and 2 cannot be skipped; step 7 is the end. */
+  /** Whether "Skip" is offered. Step 1 cannot be skipped; step 6 is the end. */
   skippable: boolean;
 }
 
 export const STEPS: readonly StepInfo[] = [
-  { id: "token", n: 1, title: "Enter your setup code", phase: "setup", skippable: false },
-  { id: "account", n: 2, title: "Create your account", phase: "setup", skippable: false },
-  { id: "timezone", n: 3, title: "Choose your time zone", phase: "welcome", skippable: true },
-  { id: "theme", n: 4, title: "Look and feel", phase: "welcome", skippable: true },
-  { id: "import", n: 5, title: "Bring your feeds along", phase: "welcome", skippable: true },
-  { id: "feeds", n: 6, title: "Recommended feeds", phase: "welcome", skippable: true },
-  { id: "finish", n: 7, title: "You're all set", phase: "welcome", skippable: false },
+  { id: "account", n: 1, title: "Create your account", phase: "setup", skippable: false },
+  { id: "timezone", n: 2, title: "Choose your time zone", phase: "welcome", skippable: true },
+  { id: "theme", n: 3, title: "Look and feel", phase: "welcome", skippable: true },
+  { id: "import", n: 4, title: "Bring your feeds along", phase: "welcome", skippable: true },
+  { id: "feeds", n: 5, title: "Recommended feeds", phase: "welcome", skippable: true },
+  { id: "finish", n: 6, title: "You're all set", phase: "welcome", skippable: false },
 ];
 
 export const STEP_COUNT = STEPS.length;

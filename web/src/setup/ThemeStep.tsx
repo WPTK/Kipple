@@ -46,7 +46,7 @@ function Sample({ heading, scheme }: { heading: string; scheme: Scheme }) {
 }
 
 /**
- * Step 4: look and feel. A day theme and a night theme, which Kipple switches between with each device's own light or
+ * Step 3: look and feel. A day theme and a night theme, which Kipple switches between with each device's own light or
  * dark setting (the same pair Settings calls "Follow system"), and the reading font. Picking applies at once on this
  * device, so the page itself is the preview (shown here, never written to this device's profile); Continue saves the
  * pair and the font as the default for every device that has not chosen its own. Skip puts this device back the way it

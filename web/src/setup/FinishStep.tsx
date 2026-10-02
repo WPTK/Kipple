@@ -11,8 +11,8 @@ import { apiPasswordMade, setupSecret } from "./session";
 import { stepById } from "./steps";
 
 /**
- * Step 7: done. Optionally makes the API password that sync apps (Reeder, NetNewsWire) sign in with, shown once with a
- * copy button, then Finish ends the wizard. For a password account the web password typed in step 2 is still in memory
+ * Step 6: done. Optionally makes the API password that sync apps (Reeder, NetNewsWire) sign in with, shown once with a
+ * copy button, then Finish ends the wizard. For a password account the web password typed in step 1 is still in memory
  * and is used; after a reload it is asked for again, as Settings does. An account with no password (open mode) needs none.
  */
 export function FinishStep({ onBack, onFinish, busy }: { onBack: () => void; onFinish: () => void; busy?: boolean }) {

@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { byteLength, openReasonText, passwordProblem, resetTakenSetupCode, takeSetupFragment } from "./api";
+import { byteLength, openReasonText, passwordProblem } from "./api";
 import { openAvailability } from "./AccountStep";
 import { FIRST_WELCOME, STEPS, STEP_COUNT, nextWelcome, prevWelcome, welcomeGuard, welcomeStep } from "./steps";
 import { FALLBACK_ZONES, offsetLabel, searchZones, zoneEntries, zoneNames } from "./zones";
 
 afterEach(() => {
-  resetTakenSetupCode();
   vi.restoreAllMocks();
 });
 
@@ -66,31 +65,6 @@ describe("zone list", () => {
   });
 });
 
-describe("setup link fragment", () => {
-  const at = (hash: string) => ({ hash, pathname: "/", search: "?a=1" });
-  const hist = () => ({ state: { idx: 0 }, replaceState: vi.fn() });
-
-  it("reads the code and removes the whole fragment from the address", () => {
-    const h = hist();
-    expect(takeSetupFragment(at("#setup=ABCD-EFGH"), h)).toBe("ABCD-EFGH");
-    expect(h.replaceState).toHaveBeenCalledWith({ idx: 0 }, "", "/?a=1");
-  });
-
-  it("keeps a fragment that is not the setup code, and hands back the code taken earlier on a second look", () => {
-    const h = hist();
-    expect(takeSetupFragment(at("#top&setup=x%20y"), h)).toBe("x y");
-    expect(h.replaceState).toHaveBeenCalledWith({ idx: 0 }, "", "/?a=1#top");
-    expect(takeSetupFragment(at(""), h)).toBe("x y");
-  });
-
-  it("does nothing without a code", () => {
-    const h = hist();
-    expect(takeSetupFragment(at("#top"), h)).toBe("");
-    expect(takeSetupFragment(at(""), h)).toBe("");
-    expect(h.replaceState).not.toHaveBeenCalled();
-  });
-});
-
 describe("password rules", () => {
   it("counts bytes and refuses the example value", () => {
     expect(byteLength("é")).toBe(2);
@@ -113,11 +87,11 @@ describe("open mode availability", () => {
 });
 
 describe("step registry", () => {
-  it("has seven steps in order, two before sign-in and five after", () => {
-    expect(STEPS.map((s) => s.id)).toEqual(["token", "account", "timezone", "theme", "import", "feeds", "finish"]);
-    expect(STEPS.map((s) => s.n)).toEqual([1, 2, 3, 4, 5, 6, 7]);
-    expect(STEP_COUNT).toBe(7);
-    expect(STEPS.filter((s) => s.phase === "setup")).toHaveLength(2);
+  it("has six steps in order, the account first (before sign-in) and five after", () => {
+    expect(STEPS.map((s) => s.id)).toEqual(["account", "timezone", "theme", "import", "feeds", "finish"]);
+    expect(STEPS.map((s) => s.n)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(STEP_COUNT).toBe(6);
+    expect(STEPS.filter((s) => s.phase === "setup").map((s) => s.id)).toEqual(["account"]);
     expect(FIRST_WELCOME.id).toBe("timezone");
   });
 
@@ -126,7 +100,7 @@ describe("step registry", () => {
     expect(welcomeGuard(undefined)).toBe("/welcome/timezone");
     expect(welcomeGuard("nope")).toBe("/welcome/timezone");
     expect(welcomeGuard("account")).toBe("/welcome/timezone");
-    expect(welcomeStep("token")).toBeNull();
+    expect(welcomeStep("account")).toBeNull();
   });
 
   it("walks forward and back, with no way back from the first and none forward from the last", () => {
@@ -137,7 +111,7 @@ describe("step registry", () => {
     expect(prevWelcome("finish")?.id).toBe("feeds");
   });
 
-  it("only lets steps 3 to 6 be skipped", () => {
+  it("only lets steps 2 to 5 be skipped", () => {
     expect(STEPS.filter((s) => s.skippable).map((s) => s.id)).toEqual(["timezone", "theme", "import", "feeds"]);
   });
 });
