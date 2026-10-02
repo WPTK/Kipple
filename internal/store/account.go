@@ -62,13 +62,6 @@ func (d *DB) Account(ctx context.Context) (a Account, ok bool, err error) {
 // account created from the environment is stamped as set up in the same
 // transaction, so scripted deploys never see onboarding.
 func (d *DB) CreateAccount(ctx context.Context, a Account) (created bool, err error) {
-	return d.CreateAccountWith(ctx, a, nil)
-}
-
-// CreateAccountWith is CreateAccount that also writes settings (validated by
-// the caller) in the same transaction, only when the row is created: a caller
-// that loses the race changes nothing at all.
-func (d *DB) CreateAccountWith(ctx context.Context, a Account, settings map[string]any) (created bool, err error) {
 	mode, via := a.AuthMode, a.CreatedVia
 	if mode == "" {
 		mode = AuthStandard
@@ -93,9 +86,6 @@ func (d *DB) CreateAccountWith(ctx context.Context, a Account, settings map[stri
 		created = n > 0
 		if !created {
 			return nil
-		}
-		if err := setSettingsTx(ctx, tx, settings); err != nil {
-			return err
 		}
 		if via == CreatedViaEnv {
 			return stampSetupCompletedTx(ctx, tx, d.clock.Now().Unix())

@@ -17,7 +17,7 @@ import (
 const (
 	RefuseHost      = "host"      // the Host header is not an allowed name (DNS rebinding)
 	RefuseForwarded = "forwarded" // a proxy or tunnel is in front
-	RefusePeer      = "peer"      // the TCP peer is not this computer or the tailnet (nor the LAN, unless allowed)
+	RefusePeer      = "peer"      // the TCP peer is not local: not this computer, a private network or the tailnet
 )
 
 // forwardHeaders mark a request that came through a proxy or tunnel. Any one of
@@ -129,21 +129,23 @@ func (g Gate) tailscaleServe(r *http.Request, peer netip.Addr, host string) bool
 // OpenRefusal is the network part of the open gate (design 5.4), checked on
 // every request of an open-mode account: "" when r may use open mode, else the
 // reason. host is the normalized Host (NormalizeHost) and hostOK whether it
-// passed the Host gate; openLAN is the security.open_lan setting.
+// passed the Host gate.
 //
-// Only a loopback peer is this computer. In a container that is never the case:
-// Docker delivers even a -p 127.0.0.1:... connection from the bridge gateway,
-// and on Docker Desktop, rootless setups or IPv6 without ip6tables it delivers
-// other hosts' connections from that same address, so nothing at this end can
-// tell them apart; there the gateway is an ordinary LAN peer, admitted only with
-// security.open_lan (and the published port's bind address is what keeps the
-// LAN out).
+// The one rule: a request is allowed when its TCP peer is local (loopback,
+// link-local, RFC 1918, IPv6 ULA) or a tailnet device, and no proxy or tunnel
+// header says it came through something else. A peer in Tailscale's ranges
+// counts only when its connection arrived on this machine's own Tailscale
+// address or reached a private-range address of this machine: the range is also
+// carrier-grade NAT and cloud overlay space, so one that reached a CGNAT, a
+// public or an unknown address is refused. Exact Tailscale Serve (see
+// tailscaleServe) counts as the tailnet peer it carries.
 //
-// It fences accidents and well-behaved proxies, not a deliberate attacker who
-// can reach the port through something that forwards without saying so (a bare
-// nginx proxy_pass, socat): open mode's notice requires that nothing but this
-// computer and the tailnet can reach Kipple at all.
-func (g Gate) OpenRefusal(r *http.Request, host string, hostOK, openLAN bool) string {
+// Inside a container the peer is always the bridge gateway, a private address:
+// Kipple cannot tell the LAN from the world there, and the protection is the
+// bind address of the published port. It fences accidents and well-behaved
+// proxies, not a deliberate attacker who can reach the port through something
+// that forwards without saying so (a bare nginx proxy_pass, socat).
+func (g Gate) OpenRefusal(r *http.Request, host string, hostOK bool) string {
 	if !hostOK {
 		return RefuseHost
 	}
@@ -172,19 +174,12 @@ func (g Gate) OpenRefusal(r *http.Request, host string, hostOK, openLAN bool) st
 	case peer.IsLoopback():
 		return ""
 	case tailscaleV4.Contains(peer) || tailscaleV6.Contains(peer):
-		// Arrived on this machine's own Tailscale address: a tailnet device. Any
-		// other way in (the LAN interface, a container's bridge), only the owner's
-		// LAN opt-in admits the range, and then only when the connection arrived on
-		// a private-range address of this machine (a LAN or a container's bridge,
-		// where open_lan already trusts every device). 100.64.0.0/10 is also shared
-		// carrier-grade NAT, cloud and Kubernetes overlay space: a machine whose
-		// own address is there, or that is reached on a public one, would
-		// otherwise let strangers in. An unknown local address fails closed.
-		if g.arrivedOverTailnet(r) || (openLAN && localAddr(r).IsPrivate()) {
+		// Checked before IsPrivate: Tailscale's IPv6 range is inside the ULA range.
+		if g.arrivedOverTailnet(r) || localAddr(r).IsPrivate() {
 			return ""
 		}
 		return RefusePeer
-	case openLAN && peer.IsPrivate(): // RFC 1918 and ULA, a container's gateway included
+	case peer.IsPrivate() || peer.IsLinkLocalUnicast():
 		return ""
 	}
 	return RefusePeer
@@ -196,8 +191,8 @@ func (g Gate) OpenRefusal(r *http.Request, host string, hostOK, openLAN bool) st
 // sent to. A same-machine reverse proxy that rewrites Host to the upstream
 // address (nginx's default proxy_pass) forwards a browser's public Origin,
 // which then disagrees.
-func (g Gate) SignInRefusal(r *http.Request, host string, hostOK, openLAN bool) string {
-	if reason := g.OpenRefusal(r, host, hostOK, openLAN); reason != "" {
+func (g Gate) SignInRefusal(r *http.Request, host string, hostOK bool) string {
+	if reason := g.OpenRefusal(r, host, hostOK); reason != "" {
 		return reason
 	}
 	o := r.Header.Get("Origin")

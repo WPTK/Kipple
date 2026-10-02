@@ -156,12 +156,25 @@ func TestEnvAccountIsSetUp(t *testing.T) {
 	pending, err := e.db.SetupPending(ctx)
 	require.NoError(t, err)
 	require.False(t, pending)
-	again, err := e.db.CreateAccountWith(ctx, Account{Username: "other", PasswordHash: "x", Secret: fixtureKey},
-		map[string]any{SettingOpenLAN: true})
+	again, err := e.db.CreateAccount(ctx, Account{Username: "other", PasswordHash: "x", Secret: fixtureKey})
 	require.NoError(t, err)
 	require.False(t, again, "an existing row is never replaced")
-	_, ok := settingRow(t, e.db, SettingOpenLAN)
-	require.False(t, ok, "the loser's settings are not written either")
+}
+
+// security.open_lan was removed (open mode is one rule now). A row an older
+// version stored stays in the database and nothing reads it.
+func TestRemovedOpenLANRowIsIgnored(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	require.NoError(t, e.db.SetSettings(ctx, map[string]any{"security.open_lan": true, SettingAllowedHosts: []any{"rss.example.com"}}))
+	_, ok := settingRow(t, e.db, "security.open_lan")
+	require.True(t, ok, "the row is left alone")
+	sec, err := e.db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"rss.example.com"}, sec.AllowedHosts)
+	merged, err := e.db.MergedSettings(ctx)
+	require.NoError(t, err)
+	require.NotContains(t, merged, "security.open_lan")
 }
 
 // Onboarding restart clears the stamp and nothing else; complete is idempotent.
