@@ -42,6 +42,25 @@ func TestLoginWrongPasswordsEscalateButTheRightOneSignsIn(t *testing.T) {
 	require.Equal(t, paced+1, h.paced.Load(), "a verified sign-in clears the count")
 }
 
+// When a client's own wait is longer than the server will hold a request, it is
+// answered at once (503 busy) with that wait as Retry-After, not after 10 s with
+// a flat 5.
+func TestLoginOwnLongWaitAnswersAtOnceWithTheRealRetryAfter(t *testing.T) {
+	h := newHarness(t)
+	for i := 0; i < 8; i++ {
+		h.do("POST", "/api/auth/login", loginBody("wrong"))
+	}
+	h.srv.fails.MaxWait = 10 * time.Second // the real bound; the harness lifts it for the fake clock
+	paced := h.paced.Load()
+	rec := h.do("POST", "/api/auth/login", loginBody(testPass))
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.JSONEq(t, `{"error":"busy"}`, rec.Body.String())
+	require.Equal(t, "17", rec.Header().Get("Retry-After"), "16 s after the 8th failure, rounded up")
+	require.Equal(t, paced, h.paced.Load(), "answered at once, nothing waited")
+	h.clk.Advance(17 * time.Second)
+	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
+}
+
 // The count fades only after a quiet hour, not every few minutes.
 func TestLoginFailuresFadeAfterAQuietHour(t *testing.T) {
 	h := newHarness(t)

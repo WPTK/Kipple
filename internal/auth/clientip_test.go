@@ -55,6 +55,8 @@ func TestClientIP(t *testing.T) {
 		{"junk rightmost hop: the peer, nothing to its left is believed", "192.0.2.20:1", h{"X-Forwarded-For": {"198.51.100.1, junk"}}, "192.0.2.20"},
 		{"empty X-Forwarded-For falls back to CF-Connecting-IP", "192.0.2.20:1", h{"X-Forwarded-For": {""}, "Cf-Connecting-Ip": {"203.0.113.9"}}, "203.0.113.9"},
 		{"blank X-Forwarded-For falls back to the peer", "192.0.2.20:1", h{"X-Forwarded-For": {" , "}}, "192.0.2.20"},
+		{"trailing empty hop is ignored", "192.0.2.20:1", h{"X-Forwarded-For": {"198.51.100.1, 203.0.113.9, "}}, "203.0.113.9"},
+		{"trailing comma only", "192.0.2.20:1", h{"X-Forwarded-For": {"203.0.113.9,"}}, "203.0.113.9"},
 		{"bracketed IPv6 hop without a port", "192.0.2.20:1", h{"X-Forwarded-For": {"[2001:db8:1::9]"}}, "2001:db8:1::9"},
 		{"bracketed IPv6 hop with a port", "192.0.2.20:1", h{"X-Forwarded-For": {"[2001:db8:1::9]:443"}}, "2001:db8:1::9"},
 		{"hop with a port", "192.0.2.20:1", h{"X-Forwarded-For": {"203.0.113.9:5555"}}, "203.0.113.9"},

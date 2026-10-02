@@ -149,6 +149,7 @@ func newHarness(t *testing.T, tune ...func(*Options)) *harness {
 		f(&opt)
 	}
 	h.srv = New(opt)
+	h.srv.fails.MaxWait = time.Hour // the fake clock makes every wait instant
 	h.srv.fails.After = func(d time.Duration) <-chan time.Time {
 		h.paced.Add(1)
 		clk.Advance(d)

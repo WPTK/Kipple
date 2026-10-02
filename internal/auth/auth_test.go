@@ -44,6 +44,7 @@ func TestVerifierRealArgon2WithMemo(t *testing.T) {
 // sleeping, and counts the waits.
 func fakePacing(f *FailureTracker, now *time.Time, waits *int) {
 	var mu sync.Mutex
+	f.MaxWait = time.Hour // the fake clock makes every wait instant
 	f.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return *now }
 	f.After = func(d time.Duration) <-chan time.Time {
 		mu.Lock()
@@ -119,6 +120,28 @@ func TestFailureTrackerEscalatingDelay(t *testing.T) {
 	require.True(t, fail(f, "d"))
 	require.Equal(t, w, waits, "an hour with no failure forgets it")
 	require.Equal(t, 1, f.Count("d"))
+}
+
+// A wait longer than MaxWait is not held: Acquire says no at once and Wait says
+// how long the client's own failures still ask for.
+func TestFailureTrackerLongWaitIsAnsweredAtOnce(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	f := NewFailureTracker()
+	fakePacing(f, &now, nil)
+	for i := 0; i < 8; i++ {
+		fail(f, "a")
+	}
+	f.MaxWait = 10 * time.Second
+	begin := time.Now()
+	require.False(t, f.Acquire(context.Background(), "a"), "16 s is over the 10 s bound")
+	require.Less(t, time.Since(begin), time.Second, "and it says so at once")
+	require.Equal(t, 16*time.Second, f.Wait("a"))
+	now = now.Add(10 * time.Second)
+	require.Equal(t, 6*time.Second, f.Wait("a"))
+	require.True(t, f.Acquire(context.Background(), "a"), "6 s is within the bound")
+	f.Finish("a", false)
+	require.Zero(t, f.Wait("nobody"))
+	require.Empty(t, f.live, "a refused attempt leaves nothing behind")
 }
 
 // A second concurrent attempt from one client waits for the first instead of

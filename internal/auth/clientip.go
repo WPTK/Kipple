@@ -86,7 +86,8 @@ func ClientIP(r *http.Request, trusted []netip.Prefix) string {
 	if !contains(trusted, peer) {
 		return peer.String()
 	}
-	if xff := strings.TrimSpace(strings.Join(r.Header.Values("X-Forwarded-For"), ",")); strings.Trim(xff, ", ") != "" {
+	// Empty entries at the end ("1.2.3.4, ") are ignored; an empty header is absent.
+	if xff := strings.TrimRight(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ", \t"); strings.TrimSpace(xff) != "" {
 		hops := strings.Split(xff, ",")
 		for i := len(hops) - 1; i >= 0; i-- {
 			a, ok := parseHop(hops[i])

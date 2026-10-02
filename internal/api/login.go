@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -16,9 +18,11 @@ const maxLoginBody = 4 << 10
 // slowed per client, not counted against anyone else (auth.FailureTracker): five
 // are free, then each wait doubles from two seconds to a minute, and a right
 // password clears it. Clients are told apart by auth.ClientIP, so with the proxy
-// list set correctly a stranger cannot affect the owner at all; only people who
-// really share one address (an unlisted proxy, a Docker gateway, CGNAT) share a
-// budget, and a flood there can make sign-in answer 503 busy (never 429).
+// list set correctly a stranger cannot slow your key's pacing (all keys do share
+// one password-hashing slot, so enough distinct addresses can still make any
+// sign-in answer 503 busy); people who really share one address (an unlisted
+// proxy, a Docker gateway, CGNAT) share a budget, and even one persistent
+// guesser there can make sign-in answer 503 busy (never 429).
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !s.sameOrigin(r) {
 		writeError(w, http.StatusForbidden, "origin")
@@ -146,7 +150,13 @@ type try struct {
 func (s *Server) admit(w http.ResponseWriter, r *http.Request) (*try, bool) {
 	ip := s.clientIP(r)
 	if !s.fails.Acquire(r.Context(), ip) {
-		w.Header().Set("Retry-After", "5")
+		// Retry-After is the client's own remaining wait when its failures set one
+		// (up to a minute), else a short pause.
+		retry := 5
+		if d := s.fails.Wait(ip); d > 0 {
+			retry = int(d/time.Second) + 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(retry))
 		writeError(w, http.StatusServiceUnavailable, "busy")
 		return nil, false
 	}

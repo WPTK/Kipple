@@ -234,10 +234,13 @@ with open mode.
 That address keys the per-client budgets of web sign-in and the Reader API. Wrong passwords are slowed, never counted
 against anyone else: five are free, then each wait doubles from two seconds to a minute, a correct password clears the
 count, and it is forgotten after an hour with no failure. With the list correct every visitor is a separate client and a
-stranger cannot affect your sign-in. If many people truly share one address (a proxy you did not list, Docker Desktop's
-gateway without listing it, carrier NAT), they share one budget: a flood from them can make your sign-in answer "busy,
-try again" (`503`, never a lockout) until it eases, and your own typos are slowed along with theirs. Fix that by listing
-the proxy, not by raising a limit.
+stranger cannot slow your key's pacing. All keys do share one password-hashing slot (a 5 s wait, also used by the
+public Reader API login), so enough distinct addresses (one IPv6 /48 is 65,536 of them) can keep it full and make any
+sign-in answer "busy, try again". If several people truly share one address (a proxy you did not list, Docker Desktop's
+gateway without listing it, carrier NAT), they share one budget: even one persistent guesser among them can make your
+sign-in answer "busy, try again" (`503`, never a lockout) until it stops, and your own typos are slowed along with
+theirs. A client whose own failures ask for a long wait is answered at once with the remaining wait in `Retry-After`.
+Fix a shared address by listing the proxy, not by raising a limit.
 
 ## Open mode (no password)
 
@@ -366,7 +369,7 @@ Rules: 5 to 256 characters. It signs out every web session **and revokes every R
 (it rotates the account secret), so afterwards: sign in again in the browser, and re-enter the
 Reader API password in Reeder and NetNewsWire (that password itself is unchanged; if you have lost
 it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login pacing is in
-memory: it clears when its 10-minute window ends or on a restart. If `KIPPLE_PASSWORD` is still in
+memory: it clears after an hour with no failure or on a restart. If `KIPPLE_PASSWORD` is still in
 `/home/user/stack/.env`, remove it: it is read only when the account is first created. On an account in open mode
 (no password) this sets a password and returns it to normal sign-in ("Open mode" above). If the account does not exist
 yet, the command says so and points to the setup wizard.

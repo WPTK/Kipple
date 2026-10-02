@@ -220,8 +220,8 @@ func (v *Verifier) ClearMemo() {
 // 1+MaxWaiters requests open. A verified success clears the client (Forget);
 // a busy verifier counts nothing. Clients are keyed by RateKey, so an IPv6 /64
 // is one client. Several people who truly share one key (an unlisted proxy,
-// Docker's gateway, carrier NAT) share one budget, so a flood from one of them
-// can make the others' attempts wait or answer busy.
+// Docker's gateway, carrier NAT) share one budget, so even one persistent
+// guesser among them can make the others' attempts wait or answer busy.
 type FailureTracker struct {
 	Window     time.Duration
 	Threshold  int
@@ -299,25 +299,27 @@ func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
 			done = a.done
 		} else {
 			now := f.Now()
-			e := f.m[k]
-			if e != nil && now.Sub(e.start) > f.Window {
-				delete(f.m, k)
-				e = nil
-			}
-			var pace time.Duration
-			if e != nil && e.n >= f.Threshold {
-				pace = e.last.Add(f.delay(e.n)).Sub(now)
-			}
+			pace := f.paceLocked(k, now)
 			if pace <= 0 {
 				a.busy = true
 				if waiting {
 					a.waiters--
 				}
-				if e != nil {
+				if e := f.m[k]; e != nil {
 					e.last = now
 				}
 				f.mu.Unlock()
 				return true
+			}
+			if pace > maxWait {
+				// The turn cannot come within the bound: say so now instead of
+				// holding the request for MaxWait (Wait tells the caller how long).
+				if waiting {
+					a.waiters--
+				}
+				f.dropIdle(k, a)
+				f.mu.Unlock()
+				return false
 			}
 			wake = after(pace)
 		}
@@ -384,6 +386,28 @@ func (f *FailureTracker) Finish(ip string, failed bool) {
 	e.n++
 	e.start = now
 	e.last = now
+}
+
+// paceLocked is how much longer ip's next attempt must wait (0: none). An
+// expired entry is dropped. f.mu is held.
+func (f *FailureTracker) paceLocked(k string, now time.Time) time.Duration {
+	e := f.m[k]
+	if e != nil && now.Sub(e.start) > f.Window {
+		delete(f.m, k)
+		return 0
+	}
+	if e == nil || e.n < f.Threshold {
+		return 0
+	}
+	return e.last.Add(f.delay(e.n)).Sub(now)
+}
+
+// Wait is how much longer ip's next attempt must wait because of its own
+// failures (0 when none): what to tell a client whose Acquire returned false.
+func (f *FailureTracker) Wait(ip string) time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return max(f.paceLocked(RateKey(ip), f.Now()), 0)
 }
 
 // delay is how long the client must wait after its n-th failure (n >= Threshold):
