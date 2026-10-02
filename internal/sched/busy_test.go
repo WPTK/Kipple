@@ -47,9 +47,21 @@ func TestBusyIsReliableWhenTheDispatcherIsLoaded(t *testing.T) {
 	<-wedged
 	runs, _ := r.s.Status()
 	require.Empty(t, runs, "the old signal: a loaded dispatcher reads as idle")
-	start := time.Now()
-	require.True(t, r.s.Busy(), "a loaded dispatcher is not idle")
-	require.Less(t, time.Since(start), 10*time.Millisecond, "Busy never waits on the dispatcher")
+	// From here a Busy that consults the dispatcher (as Status does) would wait an
+	// hour for its answer, so it can only answer in time by not asking at all.
+	statusWait = time.Hour
+	// The dispatcher stays wedged until unwedge is closed below, after Busy has
+	// answered, so an answer proves Busy did not wait on it: no stopwatch needed.
+	// The 30 s timer only turns a Busy that does wait into a failure instead of a hang.
+	busy := make(chan bool, 1)
+	go func() { busy <- r.s.Busy() }()
+	select {
+	case got := <-busy:
+		require.True(t, got, "a loaded dispatcher is not idle")
+	case <-time.After(30 * time.Second):
+		close(unwedge)
+		t.Fatal("Busy waited on the wedged dispatcher")
+	}
 	close(unwedge)
 
 	open()

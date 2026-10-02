@@ -536,12 +536,14 @@ func makeRoom(m map[string]*failure, now time.Time, window time.Duration) {
 const proxyWarnEvery = time.Hour
 
 // WarnUntrustedProxyHeaders wraps next and logs a WARN, at most once an hour,
-// when CF-Connecting-IP or X-Forwarded-Proto arrives from a TCP peer that is
-// not in trusted (KIPPLE_TRUSTED_PROXY_IPS). Those headers are then ignored, so
-// the client IP is the proxy's address and the lockouts and failure delays of
+// when CF-Connecting-IP, X-Forwarded-For or X-Forwarded-Proto arrives from a TCP
+// peer that is not in trusted (KIPPLE_TRUSTED_PROXY_IPS). Those headers are then
+// ignored, so the client IP is the proxy's address and the failure delays of
 // every visitor collapse onto it; the log line is how that misconfiguration
-// becomes visible. now is time.Now when nil.
-func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Prefix, log *slog.Logger, now func() time.Time) http.Handler {
+// becomes visible. A request for which expected returns true (Tailscale Serve,
+// a loopback proxy that is meant to stay untrusted) is not a misconfiguration
+// and never warns; expected may be nil. now is time.Now when nil.
+func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Prefix, expected func(*http.Request) bool, log *slog.Logger, now func() time.Time) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
@@ -558,7 +560,7 @@ func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Prefix, log *s
 		if r.Header.Get("X-Forwarded-Proto") != "" {
 			hdrs = append(hdrs, "X-Forwarded-Proto")
 		}
-		if len(hdrs) > 0 && !PeerTrusted(r, trusted) {
+		if len(hdrs) > 0 && !PeerTrusted(r, trusted) && (expected == nil || !expected(r)) {
 			mu.Lock()
 			t := now()
 			warn := last.IsZero() || t.Sub(last) >= proxyWarnEvery

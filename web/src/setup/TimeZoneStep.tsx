@@ -114,44 +114,42 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
     >
       <div className="flex flex-1 flex-col gap-4">
         {error ? <Notice tone="error">{error}</Notice> : null}
-        <>
-            {unknownBrowser && !fellBack ? (
-              <Notice>
-                Your browser reported the time zone "{unknownBrowser}", which Kipple doesn't have in its list, so UTC is selected. Choose yours below.
-              </Notice>
-            ) : null}
-            <div className="rounded-xl border border-line bg-surface px-4 py-3" data-testid="selected-zone">
-              <p className="text-xs font-semibold tracking-wide text-fg2 uppercase">Selected</p>
-              <p className="text-lg font-semibold">{selectedLabel}</p>
-              {time ? <p className="text-sm text-fg2">It's {time} there now.</p> : null}
-              {chosen && selected === saved ? <p className="mt-1 text-xs text-fg2">Kipple is already set to this zone.</p> : browser && known.has(browser) && selected === browser ? <p className="mt-1 text-xs text-fg2">Suggested from your browser.</p> : null}
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor={searchId} className="text-sm font-semibold">
-                Search time zones
-              </label>
-              <input id={searchId} type="search" autoComplete="off" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="A city, a region or an offset, such as tokyo or +9" className={inputCls} aria-describedby={`${searchId}-h`} />
-              <p id={`${searchId}-h`} className="text-xs text-fg2">
-                <span role="status">{shown.length === 0 ? "No time zone matches." : `${shown.length} time zone${shown.length === 1 ? "" : "s"} ${query.trim() ? "match" : "in the list"}.`}</span> Use the arrow keys to move through the list.
-              </p>
-            </div>
-            <select
-              aria-label="Time zones"
-              size={7}
-              value={selected}
-              onChange={(e) => {
-                setPicked(e.target.value);
-                setError(null);
-              }}
-              className={`${inputCls} py-1`}
-            >
-              {shown.map((z) => (
-                <option key={z.name} value={z.name}>
-                  {z.label}
-                </option>
-              ))}
-            </select>
-        </>
+        {unknownBrowser && !fellBack ? (
+          <Notice>
+            Your browser reported the time zone "{unknownBrowser}", which Kipple doesn't have in its list, so UTC is selected. Choose yours below.
+          </Notice>
+        ) : null}
+        <div className="rounded-xl border border-line bg-surface px-4 py-3" data-testid="selected-zone">
+          <p className="text-xs font-semibold tracking-wide text-fg2 uppercase">Selected</p>
+          <p className="text-lg font-semibold">{selectedLabel}</p>
+          {time ? <p className="text-sm text-fg2">It's {time} there now.</p> : null}
+          {chosen && selected === saved ? <p className="mt-1 text-xs text-fg2">Kipple is already set to this zone.</p> : browser && known.has(browser) && selected === browser ? <p className="mt-1 text-xs text-fg2">Suggested from your browser.</p> : null}
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor={searchId} className="text-sm font-semibold">
+            Search time zones
+          </label>
+          <input id={searchId} type="search" autoComplete="off" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="A city, a region or an offset, such as tokyo or +9" className={inputCls} aria-describedby={`${searchId}-h`} />
+          <p id={`${searchId}-h`} className="text-xs text-fg2">
+            <span role="status">{shown.length === 0 ? "No time zone matches." : `${shown.length} time zone${shown.length === 1 ? "" : "s"} ${query.trim() ? "match" : "in the list"}.`}</span> Use the arrow keys to move through the list.
+          </p>
+        </div>
+        <select
+          aria-label="Time zones"
+          size={7}
+          value={selected}
+          onChange={(e) => {
+            setPicked(e.target.value);
+            setError(null);
+          }}
+          className={`${inputCls} py-1`}
+        >
+          {shown.map((z) => (
+            <option key={z.name} value={z.name}>
+              {z.label}
+            </option>
+          ))}
+        </select>
         <StepActions>
           <Button disabled={busy} onClick={() => void save(true)}>
             Skip

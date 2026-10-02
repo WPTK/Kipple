@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -92,25 +93,88 @@ func TestDisableTagTrailingAndDoubleAmpersand(t *testing.T) {
 	}
 }
 
+// allocated reports the least number of bytes f allocates over a few runs. Bytes
+// allocated follow the work the parser does (every copy, join and split is
+// counted) but not the speed of the machine, so a bound on them holds under
+// -race and on a loaded runner where a wall-clock bound does not.
+func allocated(f func()) uint64 {
+	best := ^uint64(0)
+	for i := 0; i < 3; i++ {
+		var a, b runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&a)
+		f()
+		runtime.ReadMemStats(&b)
+		if d := b.TotalAlloc - a.TotalAlloc; d < best {
+			best = d
+		}
+	}
+	return best
+}
+
+// steps reports the bytes the splitter scanned, copied and joined during f, as
+// counted by the workHook seam in form.go. Unlike a stopwatch it does not depend
+// on the machine, so it is exact under -race and on a loaded runner, and it sees
+// CPU-only work that allocates nothing (a rescan per part, say).
+func steps(f func()) uint64 {
+	var n uint64
+	workHook = func(b int) { n += uint64(b) }
+	defer func() { workHook = nil }()
+	f()
+	return n
+}
+
+// requireLinear proves a parse is linear in its input by comparing the work at n
+// and 2n units, on two measures. Counted steps (exact) and bytes allocated both
+// double for linear work and quadruple for quadratic work, so the bound allows
+// 2.6x. Each is also capped per input byte, so a constant-factor blowup fails
+// too. Allocation covers copies the step counter does not see; steps cover
+// CPU-only work that allocates nothing. The wall-clock check is only a backstop
+// for work that is neither counted nor allocated: it is far above any honest run
+// (a few tens of ms, about a second under -race) and catches catastrophic
+// regressions only.
+func requireLinear(t *testing.T, name string, perByte uint64, n int, build func(n int) (input int, run func())) {
+	t.Helper()
+	in1, run1 := build(n)
+	in2, run2 := build(2 * n)
+	s1, s2 := steps(run1), steps(run2)
+	w1, w2 := allocated(run1), allocated(run2)
+	t.Logf("%s: %d bytes of input: %d steps, %d allocated; %d bytes: %d steps, %d allocated", name, in1, s1, w1, in2, s2, w2)
+	require.LessOrEqual(t, s1, 8*uint64(in1), "%s: steps per input byte", name)
+	require.LessOrEqual(t, s2, 8*uint64(in2), "%s: steps per input byte", name)
+	require.LessOrEqual(t, float64(s2), 2.6*float64(s1), "%s: doubling the input must not more than double the steps", name)
+	require.LessOrEqual(t, w1, perByte*uint64(in1), "%s: allocation per input byte", name)
+	require.LessOrEqual(t, w2, perByte*uint64(in2), "%s: allocation per input byte", name)
+	require.LessOrEqual(t, float64(w2), 2.6*float64(w1), "%s: doubling the input must not more than double the allocation", name)
+	start := time.Now()
+	run2()
+	require.Less(t, time.Since(start), time.Second, "%s: backstop against uncounted CPU-only blowups (catastrophic regressions only)", name)
+}
+
 func TestRepairIsLinearAndCapped(t *testing.T) {
 	tail := strings.Repeat("x", 200)
-	body := "s=user/-/label/A" + strings.Repeat("&"+tail, 19000) // ~3.8 MB
-	start := time.Now()
-	p := repairParams(body)
-	require.Less(t, time.Since(start), 500*time.Millisecond)
-	require.False(t, p.tooMany)
-	require.LessOrEqual(t, len(p.All("s")[0]), len("user/-/label/A")+(maxGlueParts+1)*201)
+	// One long run of tail parts after a label: the glue is capped, the rest is linear.
+	requireLinear(t, "one long run", 16, 9500, func(n int) (int, func()) {
+		body := "s=user/-/label/A" + strings.Repeat("&"+tail, n) // ~3.8 MB at 19000
+		return len(body), func() {
+			p := repairParams(body)
+			require.False(t, p.tooMany)
+			require.LessOrEqual(t, len(p.All("s")[0]), len("user/-/label/A")+(maxGlueParts+1)*201)
+		}
+	})
 	// A 1 MB query is never repaired and parses at phase 1 cost.
-	qs := strings.Repeat("a&", 19000) + strings.Repeat("b", 1<<20)
-	r := httptest.NewRequest(http.MethodGet, "/x?"+qs, nil)
-	start = time.Now()
-	readParamsLimit(r, false, maxBody, true)
-	require.Less(t, time.Since(start), 500*time.Millisecond)
+	requireLinear(t, "plain query", 16, 9000, func(n int) (int, func()) {
+		qs := strings.Repeat("a&", n) + strings.Repeat("b", 58*n) // 1 MB at 18000
+		return len(qs), func() {
+			r := httptest.NewRequest(http.MethodGet, "/x?"+qs, nil)
+			readParamsLimit(r, false, maxBody, true)
+		}
+	})
 	// Many separate runs in one body stay linear.
-	body = strings.Repeat("s=user/-/label/A&"+tail+"&", 9000)
-	start = time.Now()
-	repairParams(body)
-	require.Less(t, time.Since(start), 500*time.Millisecond)
+	requireLinear(t, "many runs", 16, 4500, func(n int) (int, func()) {
+		body := strings.Repeat("s=user/-/label/A&"+tail+"&", n)
+		return len(body), func() { repairParams(body) }
+	})
 }
 
 var genKeys = []string{"T", "s", "a", "r", "t", "ac", "dest", "i", "n", "xt", "output", "ts", "includeAllDirectStreamIds", "_", "merge", "x1"}

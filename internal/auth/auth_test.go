@@ -302,7 +302,7 @@ func TestWarnUntrustedProxyHeaders(t *testing.T) {
 	trusted := []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")}
 	served := 0
 	h := WarnUntrustedProxyHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { served++ }),
-		trusted, log, func() time.Time { return now })
+		trusted, func(r *http.Request) bool { return r.Header.Get("X-Test-Expected") != "" }, log, func() time.Time { return now })
 	send := func(peer string, hdr map[string]string) {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.RemoteAddr = peer
@@ -323,11 +323,14 @@ func TestWarnUntrustedProxyHeaders(t *testing.T) {
 	require.NotContains(t, buf.String(), "203.0.113.5", "the spoofable value is not logged")
 
 	buf.Reset()
+	send("198.51.100.7:1", map[string]string{"X-Forwarded-For": "100.64.0.9", "X-Test-Expected": "1"})
+	require.Empty(t, buf.String(), "an expected proxy (Tailscale Serve) never warns")
+
 	now = now.Add(59 * time.Minute)
 	send("198.51.100.7:1", map[string]string{"X-Forwarded-Proto": "https"})
 	require.Empty(t, buf.String(), "rate limited")
 	now = now.Add(2 * time.Minute)
 	send("198.51.100.7:1", map[string]string{"X-Forwarded-Proto": "https"})
 	require.Contains(t, buf.String(), "X-Forwarded-Proto")
-	require.Equal(t, 5, served, "requests always pass through")
+	require.Equal(t, 6, served, "requests always pass through")
 }
