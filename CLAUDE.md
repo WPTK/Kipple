@@ -71,13 +71,13 @@ exact commands, backup, verification and GHCR steps are in `docs/RELEASING.md`; 
 
 ## Working economy (token use)
 
-Most of the cost is context re-read on every turn, so keep contexts small and agents few.
+Most of the cost is context re-read on every turn, so keep each context small.
 
 - **Models:** Sonnet for routine code, docs, release steps and checks; Opus only for review of a risky diff, root-causing,
   and design decisions. Never Haiku.
 - **Subagents:** use one only when the work is independent, large, or must not fill this context. Give it the files and
-  the question, a model, and a stop condition. Do not spawn a verifier for a fact one command can check. Maximum two
-  agents at once unless the owner asks for more.
+  the question, a model, and a stop condition. Do not spawn a verifier for a fact one command can check. There is no
+  limit on how many agents run at once.
 - **Do not re-verify what CI already proved.** A release or docs-only commit needs the CI run on that commit and nothing
   more. Fuzz, UAT suites and a delta review run once, on the commit being tagged, and only if code changed since the
   last run.
