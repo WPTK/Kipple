@@ -120,21 +120,24 @@ volumes:
 
 Then:
 
-1. Open **http://127.0.0.1:1919**.
-2. Kipple says it isn't set up yet and asks for a **setup code**. Paste the one from the container's log with
-   `docker logs kipple`: it is printed once at start, in a box, and looks like `ABCD-EFGH-JKMN-PQRS-TVWX-YZ23`. If the
-   log has scrolled away, `docker exec kipple /kipple setup-token` prints it again. (`kipple` is the container name both
-   example files set; with a compose file of your own that sets none, use `docker compose logs kipple` and
-   `docker compose exec kipple /kipple setup-token`.) The code is what stops whoever
-   reaches the port first from claiming your Kipple: only someone who can read the container's log can.
-3. Follow the wizard. It takes about a minute, and every step after the account can be skipped:
-   1. **Setup code**, as above.
-   2. **Account**: a user name, then a password (or one of the two ways to go without, below).
-   3. **Time zone**, preselected from your browser.
-   4. **Theme**: one look for day and one for night.
-   5. **Import** an OPML file from your old reader (or skip).
-   6. **Recommended feeds**, a few good ones to start with (or skip).
-   7. **Done**, with an optional Reader API password for Reeder or NetNewsWire.
+1. Open **http://127.0.0.1:1919**. A new Kipple has no account, so the first screen is the form that creates it: there is
+   no setup code and nothing to look up. (If something looks wrong, `docker logs kipple` shows what Kipple is doing;
+   `kipple` is the container name both example files set.)
+2. Follow the wizard. It takes about a minute, and every step after the account can be skipped:
+   1. **Account**: a user name, then a password (or one of the two ways to go without, below).
+   2. **Time zone**, preselected from your browser.
+   3. **Theme**: one look for day and one for night.
+   4. **Import** an OPML file from your old reader (or skip).
+   5. **Recommended feeds**, a few good ones to start with (or skip).
+   6. **Done**, with an optional Reader API password for Reeder or NetNewsWire.
+
+**Until you have created your account, anyone who can reach the port can create it.** That is how every
+self-hosted app that sets itself up in the browser works, and it is why the examples publish the port on `127.0.0.1`
+(this machine only): create your account first, then widen the port if you want to. A headless install that has to
+listen on a network before you can open a browser should create the account from the environment instead: set
+`KIPPLE_USERNAME` and `KIPPLE_PASSWORD` for the first start and Kipple never shows the form. Whoever creates the
+account owns the instance, including its feed network settings, so if you ever find Kipple already set up when you did
+not do it, take the container down, delete its data volume and start again.
 
 **Going without a password.** The account step offers "No password at all". Read its notice: anyone who can reach
 Kipple's address can then read and change everything, so choose it only when Kipple is reachable from this computer
@@ -172,7 +175,7 @@ docker compose build
 docker compose up -d
 ```
 
-Then open **http://127.0.0.1:1919** and paste the setup code from `docker logs kipple`, exactly as above. There is no
+Then open **http://127.0.0.1:1919** and create your account, exactly as above. There is no
 `.env` to create; [.env.example](.env.example) lists the optional overrides for people who want them, and the compose
 file reads it when it exists (Docker Compose 2.24 or newer).
 

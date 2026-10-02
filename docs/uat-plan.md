@@ -538,21 +538,21 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 | # | Do | Expected | Log |
 |---|---|---|---|
 | A1 | Start it as the README says (`up -d` on the compose file, or the one-liner). | The image pulls anonymously; the container reaches `(healthy)` within about a minute even though nothing is set up. | Pull time, `docker ps` health, image digest (`docker inspect --format '{{index .RepoDigests 0}}' <container>`). |
-| A2 | `docker logs <container>`. | A boxed message with a setup code in six groups of four and a `http://<host>:<port>/#setup=<code>` link, plus a `setup pending` log line without the code. | Whether the code was easy to find and copy. |
-| A3 | Open `http://127.0.0.1:<port>` in a browser. | The wizard's first step asks for the setup code; nothing is claimable without it. | Anything confusing in the wording. |
-| A4 | Enter the code in lower case with no dashes; separately, try a wrong code once. | The right code is accepted (case, spaces and dashes are ignored); the wrong one is refused with a clear message. | (The lockout after 10 wrong codes is covered by Suite 1.) |
-| A5 | Restart the container and read the log again. | A **new** setup code; the old one no longer works. `docker exec <container> /kipple setup-token` prints the current one. | |
-| A6 | Open the `#setup=` link from the log message. | The code is pre-filled and the fragment is cleared from the address bar. | |
-| A7 | Step 2: create the account with a password (try one that is too short first). | The short one is refused with a reason; a valid one signs you in and moves to the time zone step. | |
-| A8 | Step 3, time zone. | Preselected from the browser's zone (UTC with a note if the server does not know it); searchable; Continue saves it. `docker exec <container> /kipple version -v` and Settings > About agree with the tag and show the zone. | The zone shown. |
-| A9 | Steps 4 to 6: pick a theme, import a small OPML file (or skip), tick a few recommended feeds. | Each saves as you go; imported and subscribed feeds start fetching; "Skip" on each step works and lands on the next. | Feeds added, time to the first article. |
-| A10 | Step 7: generate the Reader API password and connect NetNewsWire (or Reeder) with the server address the wizard shows, the user name and that password. | The password is shown once with a copy button; the app signs in and lists the feeds. | Client and version. |
+| A2 | `docker logs <container>`. | One `no account yet: open Kipple in a browser to create it` line, and no setup code, banner or link anywhere. | Whether it was clear what to do next. |
+| A3 | Open `http://127.0.0.1:<port>` in a browser. | The wizard's first screen is **Create your account** (Step 1 of 6). No setup code is asked for. | Anything confusing in the wording. |
+| A4 | Before creating the account, from a second browser or `curl`: `GET /api/bootstrap`, then `POST /api/auth/login` with any body (same-origin headers). | `401` and `409 setup_required`. `docker logs` shows no feed fetch: nothing runs until an account exists. | |
+| A5 | Restart the container and open the address again. | The same account form: there is nothing to look up. `docker exec <container> /kipple setup-token` prints that no setup code exists any more. | |
+| A6 | Send two account requests at the same moment (two browsers, or two `curl` calls with `Sec-Fetch-Site: same-origin` and `X-Kipple-Client: web`). | Exactly one `201` with a session cookie; the other `409 already_set_up` and no cookie. | |
+| A7 | Step 1: create the account with a password (try one that is too short first). | The short one is refused with a reason; a valid one signs you in and moves to the time zone step. | |
+| A8 | Step 2, time zone. | Preselected from the browser's zone (UTC with a note if the server does not know it); searchable; Continue saves it. `docker exec <container> /kipple version -v` and Settings > About agree with the tag and show the zone. | The zone shown. |
+| A9 | Steps 3 to 5: pick a theme, import a small OPML file (or skip), tick a few recommended feeds. | Each saves as you go; imported and subscribed feeds start fetching; "Skip" on each step works and lands on the next. | Feeds added, time to the first article. |
+| A10 | Step 6: generate the Reader API password and connect NetNewsWire (or Reeder) with the server address the wizard shows, the user name and that password. | The password is shown once with a copy button; the app signs in and lists the feeds. | Client and version. |
 | A11 | Finish, sign out and in again, Settings > Account & Devices > **Export backup** and save the zip, then `docker exec <container> /kipple healthcheck; echo $?`. | Lands on the feed list; the password works; the backup downloads; the health check exits 0. | Backup size, and the version and schema in its manifest. |
-| A12 | On a second throwaway volume, reload the page between steps 3 and 6 (or use Settings > Account & Devices > Run setup again). | The wizard resumes where it was; what was saved is kept. | |
-| A13 | After completion request `/api/setup/state` (a browser tab or `curl`). | `404`: the setup routes are gone. `docker exec <container> /kipple setup-token` says no setup is pending. | |
-| A14 | Stop and start the container. | It comes back in normal mode with its data, no setup screen and no new code. | |
+| A12 | On a second throwaway volume, reload the page between steps 2 and 5 (or use Settings > Account & Devices > Run setup again). | The wizard resumes where it was; what was saved is kept. | |
+| A13 | After completion `POST /api/setup/account` again (a browser tab or `curl`). | `404`: the setup route is gone. | |
+| A14 | Stop and start the container. | It comes back in normal mode with its data, and no setup screen. | |
 
-**Run B: open mode.** On a third throwaway volume: A1 to A3, then in step 2 choose **No password at all**.
+**Run B: open mode.** On a third throwaway volume: A1 to A3, then in step 1 choose **No password at all**.
 
 | # | Do | Expected |
 |---|---|---|

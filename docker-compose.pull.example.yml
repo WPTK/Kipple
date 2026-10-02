@@ -1,6 +1,6 @@
 # Pull and run: the published, signed image from GHCR (first published with release 0.5.0-beta.1).
-# Save this as docker-compose.yml, run `docker compose up -d`, open http://127.0.0.1:1919 and paste
-# the setup code printed by `docker logs kipple`. No .env is needed: everything is set in the browser.
+# Save this as docker-compose.yml, run `docker compose up -d`, and open http://127.0.0.1:1919
+# to create your account. No .env is needed: everything is set in the browser.
 #
 # A prerelease is tagged only with its exact version, and `latest` moves only on a stable release, so
 # name the version you want (the newest is on https://github.com/WPTK/Kipple/releases). Once a stable
@@ -14,7 +14,7 @@
 services:
   kipple:
     image: ghcr.io/wptk/kipple:0.5.0-beta.2
-    # A fixed name, so `docker logs kipple` and `docker exec kipple /kipple setup-token` work
+    # A fixed name, so `docker logs kipple` and `docker exec kipple /kipple ...` work
     # (without it Compose names the container <project>-kipple-1).
     container_name: kipple
     restart: unless-stopped

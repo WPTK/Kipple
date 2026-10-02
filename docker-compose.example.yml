@@ -3,7 +3,7 @@
 # docker-compose.pull.example.yml.
 #
 # Works standalone: copy this to docker-compose.yml (as README.md's Quickstart does), build and
-# start it, open http://127.0.0.1:1919 and paste the setup code from `docker logs kipple`. No .env
+# start it and open http://127.0.0.1:1919 to create your account. No .env
 # is needed: everything is set in the browser. If you're instead adding Kipple as one service
 # inside a larger existing compose project, copy just this service block in and merge the
 # top-level `volumes:` entry — see CLAUDE.md "Deploy" for that workflow specifically.

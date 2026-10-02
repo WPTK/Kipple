@@ -1,0 +1,1 @@
+A new Kipple opens on the form that creates your account (step 1 of 6 of the setup wizard) instead of asking for a setup code first. Until the account exists only that form, `/api/instance` and `/healthz` answer, sign-in says setup is required, and nothing is fetched.
