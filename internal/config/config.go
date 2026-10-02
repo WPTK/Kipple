@@ -42,12 +42,10 @@ type Config struct {
 	AccessAUD        string // KIPPLE_ACCESS_AUD
 }
 
-// Listen ports. DefaultAddr is the default of KIPPLE_ADDR; LegacyAddr is the
-// pre-0.5 default, kept for databases that already had an account (through
-// 0.x); FallbackAddr is used when KIPPLE_ADDR is unset and DefaultAddr is taken.
+// Listen ports. DefaultAddr is the default of KIPPLE_ADDR; FallbackAddr is used
+// when KIPPLE_ADDR is unset and DefaultAddr is taken.
 const (
 	DefaultAddr  = ":1919"
-	LegacyAddr   = ":7080"
 	FallbackAddr = ":1138"
 )
 

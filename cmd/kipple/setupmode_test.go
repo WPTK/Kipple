@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"io"
 	"log/slog"
@@ -117,36 +116,16 @@ func TestBackupNeverCarriesTheSetupToken(t *testing.T) {
 }
 
 func TestServeAddr(t *testing.T) {
-	ctx := context.Background()
-	var logs bytes.Buffer
-	lg := slog.New(slog.NewTextHandler(&logs, nil))
-	db := openDir(t, t.TempDir())
-	defer db.Close()
-
-	addr, fallback, err := serveAddr(ctx, db, config.Config{Addr: config.DefaultAddr}, lg)
-	require.NoError(t, err)
+	addr, fallback := serveAddr(config.Config{Addr: config.DefaultAddr})
 	require.Equal(t, ":1919", addr)
 	require.True(t, fallback)
 
 	// KIPPLE_ADDR always wins, and never falls back.
-	addr, fallback, err = serveAddr(ctx, db, config.Config{Addr: ":7080", AddrSet: true}, lg)
-	require.NoError(t, err)
+	addr, fallback = serveAddr(config.Config{Addr: ":7080", AddrSet: true})
 	require.Equal(t, ":7080", addr)
 	require.False(t, fallback)
-
-	// A database that had an account before 0.5 keeps 7080 with a warning.
-	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES ('sys.legacy_port', 'true')`)
-		return err
-	}))
-	addr, fallback, err = serveAddr(ctx, db, config.Config{Addr: config.DefaultAddr}, lg)
-	require.NoError(t, err)
-	require.Equal(t, ":7080", addr)
-	require.False(t, fallback)
-	require.Contains(t, logs.String(), "port 7080 is the pre-0.5 default")
-	addr, _, err = serveAddr(ctx, db, config.Config{Addr: "127.0.0.1:9000", AddrSet: true}, lg)
-	require.NoError(t, err)
-	require.Equal(t, "127.0.0.1:9000", addr, "an explicit address beats the shim")
+	addr, _ = serveAddr(config.Config{Addr: "127.0.0.1:9000", AddrSet: true})
+	require.Equal(t, "127.0.0.1:9000", addr)
 }
 
 func TestListenFallsBackOnlyWhenTheDefaultIsTaken(t *testing.T) {
@@ -251,91 +230,4 @@ func TestWarnTZOverride(t *testing.T) {
 	warnTZOverride(ctx, db, config.Config{TZ: "America/New_York"}, lg)
 	require.Contains(t, logs.String(), "TZ overrides the time zone chosen in Kipple")
 	require.Contains(t, logs.String(), "Europe/Paris")
-}
-
-// The listen port belongs to the installation, not to the backup: restoring
-// keeps what the live database had (or a fresh directory's 1919).
-func TestRestoreKeepsTheInstallationsPort(t *testing.T) {
-	ctx := context.Background()
-	setLegacy := func(dir string, on bool) {
-		db := openDir(t, dir)
-		defer db.Close()
-		v := "false"
-		if on {
-			v = "true"
-		}
-		require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES ('sys.legacy_port', ?)
-				ON CONFLICT (key) DO UPDATE SET value = excluded.value`, v)
-			return err
-		}))
-	}
-	addrOf := func(dir string) string {
-		db := openDir(t, dir)
-		defer db.Close()
-		addr, _, err := serveAddr(ctx, db, config.Config{Addr: config.DefaultAddr}, quiet)
-		require.NoError(t, err)
-		return addr
-	}
-
-	// A legacy 7080 installation restores a backup made by a new one: still 7080.
-	live := newData(t, 1)
-	setLegacy(live, true)
-	_, err := doRestore(live, export(t, newData(t, 2)), true)
-	require.NoError(t, err)
-	require.Equal(t, ":7080", addrOf(live))
-
-	// A new 1919 installation restores a legacy backup: still 1919.
-	src := newData(t, 2)
-	setLegacy(src, true)
-	legacyZip := export(t, src)
-	current := newData(t, 1)
-	out, err := doRestore(current, legacyZip, true)
-	require.NoError(t, err)
-	require.Equal(t, ":1919", addrOf(current))
-	require.NotContains(t, out, "old default port")
-
-	// No live database (a rebuilt host, a new volume): the backup keeps its own
-	// port, and restore says so.
-	fresh := filepath.Join(t.TempDir(), "data")
-	require.NoError(t, os.MkdirAll(fresh, 0o700))
-	out, err = doRestore(fresh, legacyZip, true)
-	require.NoError(t, err)
-	require.Equal(t, ":7080", addrOf(fresh))
-	require.Contains(t, out, "old default port")
-
-	// A live database that a server ran on but that was never set up (a fresh
-	// 1919 install still in setup mode, whose container publishes 1919) keeps
-	// 1919: an old backup must not move the server to 7080 while the healthcheck,
-	// which also probes 7080, keeps reporting healthy. Restore says what it did.
-	unset := filepath.Join(t.TempDir(), "data")
-	require.NoError(t, os.MkdirAll(unset, 0o700))
-	func() {
-		db := openDir(t, unset)
-		defer db.Close()
-		addr, _, err := serveAddr(ctx, db, config.Config{Addr: config.DefaultAddr}, quiet)
-		require.NoError(t, err)
-		require.Equal(t, ":1919", addr, "the fresh install listens on 1919")
-	}()
-	out, err = doRestore(unset, legacyZip, true)
-	require.NoError(t, err)
-	require.Equal(t, ":1919", addrOf(unset))
-	require.Contains(t, out, "never set up")
-	require.Contains(t, out, "KIPPLE_ADDR=:7080")
-	// The same for a backup from a new install: 1919, and nothing to say.
-	unset2 := filepath.Join(t.TempDir(), "data")
-	require.NoError(t, os.MkdirAll(unset2, 0o700))
-	openDir(t, unset2).Close()
-	out, err = doRestore(unset2, export(t, newData(t, 2)), true)
-	require.NoError(t, err)
-	require.Equal(t, ":1919", addrOf(unset2))
-	require.NotContains(t, out, "7080")
-
-	// A live database too broken to read does not stop the restore.
-	broken := newData(t, 1)
-	require.NoError(t, os.WriteFile(filepath.Join(broken, "kipple.db"), []byte("not a database at all, just junk bytes"), 0o600))
-	out, err = doRestore(broken, export(t, newData(t, 2)), true)
-	require.NoError(t, err, out)
-	require.Contains(t, out, "could not be read for its port setting")
-	require.Equal(t, ":1919", addrOf(broken))
 }

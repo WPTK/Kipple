@@ -75,10 +75,9 @@ func TestProbeHealthTimeout(t *testing.T) {
 	require.Less(t, time.Since(start), 2*time.Second)
 }
 
-// With KIPPLE_ADDR unset the probe tries 1919, then the legacy 7080, then the
-// 1138 fallback; a set KIPPLE_ADDR is the only address tried.
+// With KIPPLE_ADDR unset the probe tries 1919, then the 1138 fallback; a set KIPPLE_ADDR is the only address tried.
 func TestHealthAddrsOrder(t *testing.T) {
-	require.Equal(t, []string{":1919", ":7080", ":1138"}, healthAddrs(""))
+	require.Equal(t, []string{":1919", ":1138"}, healthAddrs(""))
 	require.Equal(t, []string{"127.0.0.1:9090"}, healthAddrs("127.0.0.1:9090"))
 }
 

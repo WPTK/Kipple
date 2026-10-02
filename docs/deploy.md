@@ -84,14 +84,14 @@ That copies the snapshot only, never the live database or WAL.
 New feeds are fetched on the scheduler's next tick. `docker exec kipple /kipple version` prints the running build.
 
 Health: `ssh host-a 'curl -s http://127.0.0.1:1919/healthz'` answers `ok` (use your published port, 7080 on an install that
-still uses the old default; see "Ports" below).
+sets `KIPPLE_ADDR=:7080`; see "Ports" below).
 
 ## Health check and container hardening
 
 The image carries a `HEALTHCHECK` (every 30 s, 5 s timeout, 40 s start period, 3 retries) that runs
 `/kipple healthcheck`. That subcommand does a GET on `http://127.0.0.1:<port>/healthz` (the port comes
 from `KIPPLE_ADDR`; a `0.0.0.0`, `::` or empty host becomes `127.0.0.1`; with `KIPPLE_ADDR` unset it tries 1919,
-then 7080, then 1138), waits at most 3 s in all and exits 0 only on HTTP 200 `ok`, otherwise printing a line and exiting 1.
+then 1138), waits at most 3 s in all and exits 0 only on HTTP 200 `ok`, otherwise printing a line and exiting 1.
 `/healthz` needs no login and touches no database: it answers `ok` as long as the HTTP server is serving. So
 "healthy" means the process is up and answering, not that feeds are fetching, and not that Kipple has been set up:
 a container waiting for its setup code is healthy.
@@ -207,14 +207,13 @@ The default listen address is `:1919`. If it is taken and `KIPPLE_ADDR` is unset
 logs a WARN with the port it chose (this does not happen in a container, which has its own network). Set
 `KIPPLE_ADDR` to choose any port; it always wins.
 
-**Existing installs keep 7080.** A database that already had an account before 0.5 is marked, by the 0.5 migration,
-as belonging to an install on the old default. While `KIPPLE_ADDR` is unset it keeps listening on `:7080`, and logs
-a WARN at every start ("port 7080 is the pre-0.5 default and will stop being used at 1.0"). That fallback is removed at
-1.0. Fresh installs get 1919. Restoring a backup keeps the port of the installation you restore into, not the backup's.
-To stop relying on the fallback either way, set `KIPPLE_ADDR` explicitly (`:7080` to stay, `:1919` to move; a move also means
-changing the published port in the compose file and anything that connects to it: a reverse proxy, a tunnel, a bookmark,
-sync clients). The container's health check does not read the database, so with `KIPPLE_ADDR` unset it tries 1919, then
-7080, then 1138.
+**Installs that used 7080 must set it (1.0).** Through 0.x a database that already had an account before 0.5 kept
+listening on the old default `:7080` while `KIPPLE_ADDR` was unset, with a WARN at every start. That fallback was removed
+at 1.0: an unset `KIPPLE_ADDR` now always means `:1919` (then `:1138` if taken), whatever the database says, and a restore
+no longer carries a port with it. To stay on 7080 set `KIPPLE_ADDR=:7080` and keep the `7080:7080` mapping; to move, set
+`:1919` and change the published port in the compose file and anything that connects to it: a reverse proxy, a tunnel, a
+bookmark, sync clients. Without either, the container listens on 1919 behind a mapping for 7080 and looks dead. The
+container's health check with `KIPPLE_ADDR` unset tries 1919, then 1138.
 
 The README's compose files publish `127.0.0.1:1919:1919`, this machine only. For the LAN use `1919:1919`, for Tailscale
 your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx) is what gives Kipple HTTPS; set
@@ -413,11 +412,8 @@ again. A restore never touches a backup `.zip`.
 the setup screens are gone and the leftover setup code file, if any, is deleted. A backup from before 0.5 that is
 migrated on that start is marked as already set up, so it never shows the wizard's onboarding. Only a backup taken
 in setup mode (no account in it) returns the instance to setup mode, with a fresh setup code in `docker logs kipple`.
-The listen port stays with the installation you restore into: a restore onto a 7080 install keeps 7080, and one onto
-a 1919 install keeps 1919, also when that install was never set up (a fresh container still showing the setup code:
-it listens on 1919, and an old backup must not move it to 7080 behind a port mapping for 1919). The restore says so
-when it keeps 1919 for a backup from an old-default install. Only with no database at all yet (nothing ever started
-on the volume) does the backup bring its own port, and the restore then says to set `KIPPLE_ADDR` if you publish 1919.
+The listen port is never part of a backup: it comes from `KIPPLE_ADDR` (1919 when unset), so a restore does not
+change it.
 
 **Undo a restore.** Stop `kipple`, then restore the previous database from the volume (list it with
 the `alpine ls` command above):
@@ -576,7 +572,7 @@ space cannot be read.
 Migration 0010 rebuilds the one-row `account` table (adding `auth_mode` and `created_via`, with a check that open mode has
 no password hash) and, for a database that already has an account, writes three settings so that nothing changes for it:
 `sys.setup_completed_at` (an existing account never sees onboarding), `tz` set to `America/New_York` unless a time
-zone was already chosen, and `sys.legacy_port` (an unset `KIPPLE_ADDR` keeps 7080). It is quick (one row), and the first
+zone was already chosen, and `sys.legacy_port` (a marker of 0.5's 7080 fallback; since 1.0 nothing reads it). It is quick (one row), and the first
 start writes `/data/backup/pre-migration-9-10-<ns>.db` before migrating. A 0.3.x binary refuses the schema-10 database, so a
 rollback is the procedure above with that snapshot, and a database created fresh by 0.5 has no 0.3 snapshot and stays on 0.5.
 
@@ -585,9 +581,9 @@ image has no shell):
 
     ssh host-a "docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' kipple" | grep -E '^(KIPPLE_ADDR|TZ)='
 
-1. **`KIPPLE_ADDR` is set.** Confirm it says `KIPPLE_ADDR=:7080` (or whatever port you publish). If it is unset the 0.5
-   migration keeps 7080 for you and logs a WARN at each start, but nothing should depend on that fallback, which goes away
-   at 1.0: set it explicitly. Your port mapping (for example `7080:7080`), reverse proxy, tunnel and sync clients keep
+1. **`KIPPLE_ADDR` is set.** Confirm it says `KIPPLE_ADDR=:7080` (or whatever port you publish). 0.5 through 0.x kept
+   7080 for an unset value and logged a WARN at each start; 1.0 removed that fallback, so an unset value is 1919 and a
+   `7080:7080` mapping would point at nothing: set it explicitly before upgrading to 1.0. Your port mapping (for example `7080:7080`), reverse proxy, tunnel and sync clients keep
    working untouched. Moving to 1919 is optional and changes all of those.
 2. **`TZ` and the in-app time zone agree, or you know which you want.** Before 0.5 a `TZ` environment variable set only
    the log timestamps, and daily statistics and the nightly job followed the in-app time zone (Settings > Account &

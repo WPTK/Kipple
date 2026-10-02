@@ -42,28 +42,20 @@ func startSetupMode(ctx context.Context, db *store.DB, cfg config.Config, logger
 }
 
 // serveAddr is the address serve listens on and whether the 1138 fallback
-// applies (docs/setup-wizard-design.md 8.3). KIPPLE_ADDR always wins. Unset, a
-// database that had an account before 0.5 (sys.legacy_port) keeps the old 7080
-// through 0.x, with a warning; anything else gets 1919.
-func serveAddr(ctx context.Context, db *store.DB, cfg config.Config, logger *slog.Logger) (addr string, fallback bool, err error) {
+// applies (docs/setup-wizard-design.md 8.3). KIPPLE_ADDR always wins; unset, it
+// is 1919 with the 1138 fallback. Since 1.0 nothing else decides it (the pre-0.5
+// default 7080 is no longer kept for old databases).
+func serveAddr(cfg config.Config) (addr string, fallback bool) {
 	if cfg.AddrSet {
-		return cfg.Addr, false, nil
+		return cfg.Addr, false
 	}
-	legacy, err := db.LegacyPort(ctx)
-	if err != nil {
-		return "", false, fmt.Errorf("read sys.legacy_port: %w", err)
-	}
-	if legacy {
-		logger.Warn("port 7080 is the pre-0.5 default and will stop being used at 1.0; set KIPPLE_ADDR=:7080 or move to 1919")
-		return config.LegacyAddr, false, nil
-	}
-	return config.DefaultAddr, true, nil
+	return config.DefaultAddr, true
 }
 
 // listenTCP is net.Listen (a seam for tests).
 var listenTCP = func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }
 
-// listen binds addr; with fallback (KIPPLE_ADDR unset, not the legacy port) a
+// listen binds addr; with fallback (KIPPLE_ADDR unset) a
 // taken default port moves to config.FallbackAddr with a warning.
 func listen(addr string, fallback bool, logger *slog.Logger) (net.Listener, error) {
 	ln, err := listenTCP(addr)

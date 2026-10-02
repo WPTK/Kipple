@@ -208,10 +208,7 @@ func runServe() error {
 	if err != nil {
 		return fmt.Errorf("setup: %w", err)
 	}
-	addr, fallback, err := serveAddr(context.Background(), db, cfg, logger)
-	if err != nil {
-		return err
-	}
+	addr, fallback := serveAddr(cfg)
 	accessV, err := accessVerifier(cfg, logger)
 	if err != nil {
 		return fmt.Errorf("access: %w", err)

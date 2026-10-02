@@ -208,7 +208,7 @@ The ones self-hosters most often want:
 
 | Variable | Purpose |
 | --- | --- |
-| `KIPPLE_ADDR` | Listen address, default `:1919`. An install that predates 0.5 and leaves it unset keeps listening on 7080 through 0.x; see [docs/deploy.md](docs/deploy.md). |
+| `KIPPLE_ADDR` | Listen address, default `:1919`. Since 1.0 an unset value is always 1919; an install that used the old 7080 must set `KIPPLE_ADDR=:7080` (see [docs/deploy.md](docs/deploy.md)). |
 | `KIPPLE_PUBLIC_URL` | Public URL, used for feed icons in sync clients. |
 | `KIPPLE_TRUSTED_PROXY_IPS` | Required if Kipple sits behind a reverse proxy or tunnel. |
 | `KIPPLE_ALLOWED_HOSTS` | Extra host names Kipple answers to during setup and without a password. |

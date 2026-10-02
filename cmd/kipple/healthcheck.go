@@ -39,13 +39,12 @@ func healthURL(addr string) (string, error) {
 }
 
 // healthAddrs is what the probe tries, in order. With KIPPLE_ADDR unset the
-// server may be on the default port, the legacy port of an older database
-// (which the probe cannot read cheaply) or the fallback port.
+// server is on the default port or, when that was taken, the fallback port.
 func healthAddrs(env string) []string {
 	if env != "" {
 		return []string{env}
 	}
-	return []string{config.DefaultAddr, config.LegacyAddr, config.FallbackAddr}
+	return []string{config.DefaultAddr, config.FallbackAddr}
 }
 
 // runHealthcheck probes the local server: nil only on HTTP 200 "ok".

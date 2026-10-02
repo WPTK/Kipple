@@ -530,7 +530,9 @@ ownership (65532) from the image; a bind mount needs `chown 65532:65532` first, 
   databases that already had an account), `serve` keeps listening on `:7080` and logs a WARN once per start: "port
   7080 is the pre-0.5 default and will stop being used at 1.0; set KIPPLE_ADDR=:7080 or move to 1919". Fresh installs
   get 1919. The healthcheck cannot read the database cheaply, so with `KIPPLE_ADDR` unset it probes 1919, 7080, 1138
-  in that order (each loopback, same 3 s budget). The shim is deleted at 1.0 with a changelog `removed` entry.
+  in that order (each loopback, same 3 s budget). The shim is deleted at 1.0 with a changelog `removed` entry
+  (done: an unset `KIPPLE_ADDR` is always 1919 with the 1138 fallback, the healthcheck probes 1919 then 1138, and
+  restore no longer carries the port; migration 0010 and the `sys.legacy_port` row are untouched but nothing reads it).
 - **Owner's live instance:** keeps 7080 by override (and would keep it through the shim anyway). The deploy notes
   still get a line to confirm Host-A sets `KIPPLE_ADDR=:7080`, so nothing depends on the shim.
 - **Others:** with the shim there is no break through 0.x; the scope that would break at 1.0 is deployments with no

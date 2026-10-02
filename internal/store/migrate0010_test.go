@@ -86,9 +86,9 @@ func TestMigration0010ExistingAccount(t *testing.T) {
 	pending, err := db.SetupPending(ctx)
 	require.NoError(t, err)
 	require.False(t, pending, "an existing account never sees onboarding")
-	legacy, err := db.LegacyPort(ctx)
-	require.NoError(t, err)
-	require.True(t, legacy, "an unset KIPPLE_ADDR keeps 7080 through 0.x")
+	legacy, ok := settingRow(t, db, "sys.legacy_port")
+	require.True(t, ok)
+	require.Equal(t, "true", legacy, "the row is still stamped; nothing reads it since 1.0")
 	tz, ok := settingRow(t, db, "tz")
 	require.True(t, ok)
 	require.Equal(t, `"America/New_York"`, tz)
@@ -114,9 +114,6 @@ func TestMigration0010WithoutAccount(t *testing.T) {
 		_, ok := settingRow(t, db, k)
 		require.False(t, ok, k)
 	}
-	legacy, err := db.LegacyPort(ctx)
-	require.NoError(t, err)
-	require.False(t, legacy)
 	require.Equal(t, "UTC", Zone(ctx, db.Reader()).String())
 }
 
