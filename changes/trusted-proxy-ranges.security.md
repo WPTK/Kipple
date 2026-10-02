@@ -1,0 +1,1 @@
+`KIPPLE_TRUSTED_PROXY_IPS` now accepts CIDR ranges (for example a Docker network) as well as single addresses; forwarding headers from a peer outside the list are still ignored, and a forwarded `X-Forwarded-For` chain is read from the right, so a client cannot choose its own address by writing the leftmost entry.

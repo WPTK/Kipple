@@ -385,7 +385,7 @@ var startBackground = func(s *sched.Scheduler, m *maint.Maint, icons *favicon.Fi
 // hostGate (the UI API's HostGate, design 5.2) runs inside httpx.Secure, so a
 // refused request still carries the security headers; nil installs none.
 func rootHandler(readerFront func(http.Handler) http.Handler, mux http.Handler, imgMode func() string,
-	trusted []netip.Addr, logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
+	trusted []netip.Prefix, logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
 	h := auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, logger, nil)
 	if hostGate != nil {
 		h = hostGate(h)

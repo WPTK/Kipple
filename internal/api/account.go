@@ -3,8 +3,6 @@ package api
 import (
 	"errors"
 	"net/http"
-	"strconv"
-	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/setup"
@@ -19,28 +17,25 @@ const (
 	apiPasswordLen = 24 // design §1: the UI generates 24 characters
 )
 
-// checkCurrent verifies the caller's current web password under the login
-// lockout: the attempt is reserved first, a failure stays counted, a success
-// clears the IP. It writes the error response itself. Both account endpoints
+// checkCurrent verifies the caller's current web password under the same
+// per-client pacing as sign-in (admit): a wrong one is counted, a right one is
+// never refused. It writes the error response itself. Both account endpoints
 // prove the web password (the API password may not exist yet). An account
 // without a web password proves itself with a verified Cloudflare Access token
 // instead (design §7.0).
 //
 // removing (POST /api/account/password with remove:true) also requires a
-// verified Access token, checked after the reservation so a locked-out address
-// gets 429 and a refused token counts; on an account that already has no
-// password it reports alreadyNone without proving anything, as there is
-// nothing to change.
+// verified Access token, checked after admission so a refused token counts; on
+// an account that already has no password it reports alreadyNone without
+// proving anything, as there is nothing to change.
 func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current string, removing bool) (alreadyNone, ok bool) {
-	ip := s.clientIP(r)
-	if ok, left := s.lock.Reserve(ip); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
-		writeError(w, http.StatusTooManyRequests, "locked")
+	t, ok := s.admit(w, r)
+	if !ok {
 		return false, false
 	}
+	defer t.end()
 	acct, ok, err := s.db.Account(r.Context())
 	if err != nil || !ok {
-		s.lock.Release(ip)
 		if err == nil {
 			err = errors.New("no account row")
 		}
@@ -51,7 +46,6 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 		// Open mode has no credential to prove (design 4.3): the session plus the
 		// open gate stand in, so a Reader API password can only be made from
 		// where open mode itself is allowed. Nothing to guess, so not counted.
-		s.lock.Release(ip)
 		if reason := s.signInRefusal(r); reason != "" {
 			writeOpenRefused(w, reason)
 			return false, false
@@ -60,16 +54,14 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 	}
 	if acct.PasswordHash == "" {
 		if removing {
-			s.lock.Release(ip)
 			return true, true
 		}
 		// No web password to prove: a verified Access token on this request
 		// stands in for it; nothing else does.
 		if p := s.accessProof(r); p != proofOK {
-			s.writeProofError(w, ip, p, false)
+			s.writeProofError(w, t, p, false)
 			return false, false
 		}
-		s.lock.Clear(ip)
 		return false, true
 	}
 	if removing {
@@ -77,23 +69,22 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 		// removal can neither lock the owner out nor be made from an address
 		// that bypasses Access.
 		if p := s.accessProof(r); p != proofOK {
-			s.writeProofError(w, ip, p, true)
+			s.writeProofError(w, t, p, true)
 			return false, false
 		}
 	}
 	s.verifier.SetSecret([]byte(acct.Secret))
 	pwOK, busy := s.verifier.VerifyBusy(r.Context(), "web", current, acct.PasswordHash)
 	if busy {
-		s.lock.Release(ip)
 		w.Header().Set("Retry-After", "5")
 		writeError(w, http.StatusServiceUnavailable, "busy")
 		return false, false
 	}
 	if !pwOK {
+		t.fail()
 		writeError(w, http.StatusForbidden, "bad_password")
 		return false, false
 	}
-	s.lock.Clear(ip)
 	return false, true
 }
 

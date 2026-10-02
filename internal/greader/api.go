@@ -46,7 +46,7 @@ type Options struct {
 	Failures *auth.FailureTracker
 	Verifier *auth.Verifier
 	// TrustedProxies are the peers allowed to set CF-Connecting-IP.
-	TrustedProxies []netip.Addr
+	TrustedProxies []netip.Prefix
 	// PublicURL builds iconUrl when greader.icon_urls is on.
 	PublicURL string
 	// LogForms (KIPPLE_LOG_GREADER_FORMS) adds redacted, truncated form values to the debug log.

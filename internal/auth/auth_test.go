@@ -195,17 +195,6 @@ func TestRateKeyGroupsIPv6By64(t *testing.T) {
 	require.True(t, locked)
 }
 
-func TestClientIP(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "192.0.2.20:1234"
-	r.Header.Set("CF-Connecting-IP", "203.0.113.9")
-	require.Equal(t, "192.0.2.20", ClientIP(r, nil), "untrusted peer: header ignored")
-	trusted := []netip.Addr{netip.MustParseAddr("192.0.2.20")}
-	require.Equal(t, "203.0.113.9", ClientIP(r, trusted))
-	r.Header.Set("CF-Connecting-IP", "junk")
-	require.Equal(t, "192.0.2.20", ClientIP(r, trusted))
-}
-
 func TestGeneratePassword(t *testing.T) {
 	a, err := GeneratePassword(24)
 	require.NoError(t, err)
@@ -330,7 +319,7 @@ func TestWarnUntrustedProxyHeaders(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
-	trusted := []netip.Addr{netip.MustParseAddr("192.0.2.10")}
+	trusted := []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")}
 	served := 0
 	h := WarnUntrustedProxyHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { served++ }),
 		trusted, log, func() time.Time { return now })

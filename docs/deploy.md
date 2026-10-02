@@ -220,6 +220,17 @@ The README's compose files publish `127.0.0.1:1919:1919`, this machine only. For
 your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx) is what gives Kipple HTTPS; set
 `KIPPLE_TRUSTED_PROXY_IPS` to the address it connects from, and `KIPPLE_PUBLIC_URL` to the public address.
 
+`KIPPLE_TRUSTED_PROXY_IPS` is a comma-separated list of single addresses and CIDR ranges (`192.0.2.10`,
+`172.16.0.0/12`, `2001:db8::/32`), empty by default. Only a connection from a listed address is believed about who the
+client is: for such a peer the client is the rightmost `X-Forwarded-For` hop that is not itself listed (each proxy appends
+the address it received from, so the entries to its left are whatever the client chose to send), or `CF-Connecting-IP`
+when there is no `X-Forwarded-For`; for any other peer the forwarding headers are ignored and the client is the peer.
+List every proxy in the chain, and no range wider than your proxies: `0.0.0.0/0` would let anyone choose their own
+address. That address keys the per-client sign-in and Reader API budgets. Wrong web passwords are slowed (five free in ten
+minutes per client, then one attempt per two seconds), never refused, so a stranger cannot lock you out; behind Docker
+Desktop, rootless Docker or any proxy you did not list, every visitor shares one address and one budget, which can only
+delay your own sign-in during an attack.
+
 ## Open mode (no password)
 
 The wizard's account step offers **No password at all**. It is for a Kipple that only you can reach: this computer, or
@@ -346,8 +357,8 @@ From a script or a pipe (one line on standard input; mind shell history and the 
 Rules: 5 to 256 characters. It signs out every web session **and revokes every Reader API token**
 (it rotates the account secret), so afterwards: sign in again in the browser, and re-enter the
 Reader API password in Reeder and NetNewsWire (that password itself is unchanged; if you have lost
-it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login lockout is in
-memory: it clears when its 15-minute window ends or on a restart. If `KIPPLE_PASSWORD` is still in
+it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login pacing is in
+memory: it clears when its 10-minute window ends or on a restart. If `KIPPLE_PASSWORD` is still in
 `/home/user/stack/.env`, remove it: it is read only when the account is first created. On an account in open mode
 (no password) this sets a password and returns it to normal sign-in ("Open mode" above). If the account does not exist
 yet, the command says so and points to the setup wizard.

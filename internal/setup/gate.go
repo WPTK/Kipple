@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/WPTK/kipple/internal/auth"
 )
 
 // Reasons the open gate refuses a request (answered as
@@ -37,7 +39,7 @@ var (
 type Gate struct {
 	// Trusted are the configured proxies: a request from one is forwarded by
 	// definition.
-	Trusted []netip.Addr
+	Trusted []netip.Prefix
 
 	// Tailnet lists this machine's Tailscale addresses (nil or empty: none).
 	// A peer in Tailscale's ranges counts as a tailnet device only when its
@@ -145,12 +147,12 @@ func (g Gate) OpenRefusal(r *http.Request, host string, hostOK, openLAN bool) st
 	if !hostOK {
 		return RefuseHost
 	}
-	peer, ok := peerAddr(r)
+	peer, ok := auth.Peer(r)
 	if !ok {
 		return RefusePeer
 	}
 	for _, t := range g.Trusted {
-		if t == peer {
+		if t.Contains(peer) {
 			return RefuseForwarded
 		}
 	}
@@ -202,18 +204,6 @@ func (g Gate) SignInRefusal(r *http.Request, host string, hostOK, openLAN bool) 
 		return RefuseForwarded
 	}
 	return ""
-}
-
-func peerAddr(r *http.Request) (netip.Addr, bool) {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	a, err := netip.ParseAddr(host)
-	if err != nil {
-		return netip.Addr{}, false
-	}
-	return a.WithZone("").Unmap(), true
 }
 
 // tailnetRecheck is how long TailnetCheck trusts its last answer: Tailscale may

@@ -14,7 +14,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -411,30 +410,6 @@ func RateKey(ip string) string {
 	return p.String()
 }
 
-// ClientIP is CF-Connecting-IP when the TCP peer is a trusted proxy, else the peer.
-func ClientIP(r *http.Request, trusted []netip.Addr) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	peer, perr := netip.ParseAddr(host)
-	if perr != nil {
-		return host
-	}
-	peer = peer.Unmap()
-	for _, t := range trusted {
-		if t == peer {
-			if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
-				if a, err := netip.ParseAddr(cf); err == nil {
-					return a.Unmap().String()
-				}
-			}
-			break
-		}
-	}
-	return peer.String()
-}
-
 // passwordAlphabet has no look-alike characters (no 0/O, 1/l/I).
 const passwordAlphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -465,28 +440,9 @@ func GeneratePassword(n int) (string, error) {
 	return string(out), nil
 }
 
-// PeerTrusted reports whether the TCP peer of r is one of the trusted proxies.
-func PeerTrusted(r *http.Request, trusted []netip.Addr) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	peer, err := netip.ParseAddr(host)
-	if err != nil {
-		return false
-	}
-	peer = peer.Unmap()
-	for _, t := range trusted {
-		if t == peer {
-			return true
-		}
-	}
-	return false
-}
-
 // EffectiveScheme is "https" when the connection is TLS, or when a trusted
 // proxy says so with X-Forwarded-Proto (design §7); otherwise "http".
-func EffectiveScheme(r *http.Request, trusted []netip.Addr) string {
+func EffectiveScheme(r *http.Request, trusted []netip.Prefix) string {
 	if r.TLS != nil {
 		return "https"
 	}
@@ -624,7 +580,7 @@ const proxyWarnEvery = time.Hour
 // the client IP is the proxy's address and the lockouts and failure delays of
 // every visitor collapse onto it; the log line is how that misconfiguration
 // becomes visible. now is time.Now when nil.
-func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Addr, log *slog.Logger, now func() time.Time) http.Handler {
+func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Prefix, log *slog.Logger, now func() time.Time) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
@@ -634,6 +590,9 @@ func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Addr, log *slo
 		var hdrs []string
 		if r.Header.Get("CF-Connecting-IP") != "" {
 			hdrs = append(hdrs, "CF-Connecting-IP")
+		}
+		if r.Header.Get("X-Forwarded-For") != "" {
+			hdrs = append(hdrs, "X-Forwarded-For")
 		}
 		if r.Header.Get("X-Forwarded-Proto") != "" {
 			hdrs = append(hdrs, "X-Forwarded-Proto")

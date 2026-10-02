@@ -17,7 +17,7 @@ type Options struct {
 	ImgMode func() string
 	// TrustedProxies are the peers whose X-Forwarded-Proto is believed when
 	// deciding whether the effective scheme is https (HSTS, upgrade-insecure-requests).
-	TrustedProxies []netip.Addr
+	TrustedProxies []netip.Prefix
 }
 
 const (

@@ -3,9 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -14,34 +12,31 @@ const maxLoginBody = 4 << 10
 
 // login is POST /api/auth/login. The password is verified even when the user
 // name is wrong (no timing oracle). An account without a password signs in only
-// with a verified Cloudflare Access token (design §7.0). Ten failures from one IP in 15 minutes lock
-// that IP out until the window ends (429); a success clears it.
+// with a verified Cloudflare Access token (design §7.0). Wrong passwords are
+// slowed, never refused: after five from one client in ten minutes its
+// attempts run one per two seconds (auth.FailureTracker), so a stranger sharing
+// the owner's address delays the owner but can never lock the right password out.
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !s.sameOrigin(r) {
 		writeError(w, http.StatusForbidden, "origin")
 		return
 	}
-	ip := s.clientIP(r)
-	// The attempt is reserved before the password is checked (atomically with
-	// the lock test), so a parallel burst cannot exceed the limit.
-	if ok, left := s.lock.Reserve(ip); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(left/time.Second)+1))
-		writeError(w, http.StatusTooManyRequests, "locked")
+	t, ok := s.admit(w, r)
+	if !ok {
 		return
 	}
+	defer t.end()
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLoginBody)).Decode(&body); err != nil {
-		s.lock.Release(ip)
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
 	acct, ok, err := s.db.Account(r.Context())
 	if err != nil {
 		s.log.Error("api: load account", "err", err)
-		s.lock.Release(ip)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
@@ -52,7 +47,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if acct.AuthMode == store.AuthOpen {
 		// Open mode has no password: a stale login form must not look like a
 		// failed sign-in. The app calls POST /api/auth/open instead.
-		s.lock.Release(ip)
 		writeErrorMsg(w, http.StatusConflict, "open_mode", "this Kipple has no password; it signs in without one")
 		return
 	}
@@ -70,23 +64,22 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			// wrong password on an account with one (same cost, same answer,
 			// counted), so a password guess cannot tell the two kinds apart.
 			if _, busy := s.verifier.VerifyBusy(r.Context(), "web", body.Password, decoyHash); busy {
-				s.lock.Release(ip)
 				w.Header().Set("Retry-After", "5")
 				writeError(w, http.StatusServiceUnavailable, "busy")
 				return
 			}
-			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+			t.fail()
+			writeError(w, http.StatusUnauthorized, "auth")
 			return
 		case p == proofOK || p == proofRefused:
-			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+			t.fail()
+			writeError(w, http.StatusUnauthorized, "auth")
 			return
-		case p == proofUnavailable:
-			s.lock.Release(ip) // says nothing about the token
+		case p == proofUnavailable: // says nothing about the token: not counted
 			w.Header().Set("Retry-After", "5")
 			writeError(w, http.StatusServiceUnavailable, "access_unavailable")
 			return
 		default: // no usable token and no password: nothing presented, not counted
-			s.lock.Release(ip)
 			writeError(w, http.StatusUnauthorized, "auth")
 			return
 		}
@@ -94,15 +87,15 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		// An account with a password always needs it: an Access token never
 		// stands in for a password that is set.
 		s.verifier.SetSecret([]byte(acct.Secret))
-		if !s.passwordOK(w, r, ip, body.Password, acct.PasswordHash) {
+		if !s.passwordOK(w, r, t, body.Password, acct.PasswordHash) {
 			return
 		}
 		if !userOK {
-			writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+			t.fail()
+			writeError(w, http.StatusUnauthorized, "auth")
 			return
 		}
 	}
-	s.lock.Clear(ip)
 	if !s.startSession(w, r) {
 		return
 	}
@@ -111,28 +104,55 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 }
 
 // passwordOK checks a sign-in password against hash and, when it does not
-// match, writes the answer and settles the lockout reservation: an empty
-// password (nothing presented: a submit before typing) and a busy verifier are
-// not counted, a wrong password stays counted.
-func (s *Server) passwordOK(w http.ResponseWriter, r *http.Request, ip, pw, hash string) bool {
+// match, writes the answer and counts it: an empty password (nothing presented:
+// a submit before typing) and a busy verifier are not counted, a wrong password is.
+func (s *Server) passwordOK(w http.ResponseWriter, r *http.Request, t *try, pw, hash string) bool {
 	if pw == "" {
-		s.lock.Release(ip)
 		writeError(w, http.StatusUnauthorized, "auth")
 		return false
 	}
 	ok, busy := s.verifier.VerifyBusy(r.Context(), "web", pw, hash)
 	if busy {
 		// says nothing about the password: not counted as a failure
-		s.lock.Release(ip)
 		w.Header().Set("Retry-After", "5")
 		writeError(w, http.StatusServiceUnavailable, "busy")
 		return false
 	}
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "auth") // the reservation stays counted as the failure
+		t.fail()
+		writeError(w, http.StatusUnauthorized, "auth")
 	}
 	return ok
 }
+
+// try is one admitted password attempt of a client: the web sign-in and the
+// account endpoints that prove the current password share one budget per client.
+type try struct {
+	s      *Server
+	ip     string
+	failed bool
+}
+
+// admit waits (bounded) for the client's turn before any password is hashed.
+// When the turn does not come (too many of that client's attempts already
+// waiting, or the wait ran out) it answers 503 busy, the same answer as a busy
+// verifier, and counts nothing; the caller then returns. After true the caller
+// ends the attempt exactly once.
+func (s *Server) admit(w http.ResponseWriter, r *http.Request) (*try, bool) {
+	ip := s.clientIP(r)
+	if !s.fails.Acquire(r.Context(), ip) {
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusServiceUnavailable, "busy")
+		return nil, false
+	}
+	return &try{s: s, ip: ip}, true
+}
+
+// fail records that this attempt presented a wrong password (or token).
+func (t *try) fail() { t.failed = true }
+
+// end finishes the attempt; only a failed one is counted.
+func (t *try) end() { t.s.fails.Finish(t.ip, t.failed) }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(cookieName); err == nil {

@@ -122,6 +122,8 @@ type harness struct {
 	sched *fakeSched
 	clk   *clock.Fake
 	mux   *http.ServeMux
+	// paced counts sign-in pacing waits; each one advances clk instead of sleeping.
+	paced atomic.Int32
 }
 
 func newHarness(t *testing.T, tune ...func(*Options)) *harness {
@@ -147,6 +149,13 @@ func newHarness(t *testing.T, tune ...func(*Options)) *harness {
 		f(&opt)
 	}
 	h.srv = New(opt)
+	h.srv.fails.After = func(d time.Duration) <-chan time.Time {
+		h.paced.Add(1)
+		clk.Advance(d)
+		ch := make(chan time.Time, 1)
+		ch <- clk.Now()
+		return ch
+	}
 	t.Cleanup(h.srv.Close)
 	h.srv.Register(h.mux)
 	return h
@@ -200,8 +209,8 @@ func TestCookieAttributesHTTP(t *testing.T) {
 }
 
 func TestCookieAttributesHTTPSProxied(t *testing.T) {
-	trusted := netip.MustParseAddr("192.0.2.20")
-	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Addr{trusted} })
+	trusted := netip.MustParsePrefix("192.0.2.20/32")
+	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Prefix{trusted} })
 
 	// trusted proxy saying https: Secure
 	rec := h.do("POST", "/api/auth/login", loginBody(testPass), func(r *http.Request) {
@@ -239,57 +248,6 @@ func TestCookieAttributesHTTPSProxied(t *testing.T) {
 	// the session is gone
 	rec = h.do("GET", "/api/status", "", withCookie(c))
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
-}
-
-func TestLoginLockout(t *testing.T) {
-	h := newHarness(t)
-	for i := 0; i < 10; i++ {
-		rec := h.do("POST", "/api/auth/login", loginBody("wrong"))
-		require.Equal(t, http.StatusUnauthorized, rec.Code, "attempt %d", i)
-	}
-	// locked: even the right password is refused
-	rec := h.do("POST", "/api/auth/login", loginBody(testPass))
-	require.Equal(t, http.StatusTooManyRequests, rec.Code)
-	require.NotEmpty(t, rec.Header().Get("Retry-After"))
-
-	// another IP is unaffected
-	rec = h.do("POST", "/api/auth/login", loginBody(testPass), func(r *http.Request) { r.RemoteAddr = "10.20.30.11:1" })
-	require.Equal(t, http.StatusNoContent, rec.Code)
-
-	// still locked just before the window ends, open just after
-	h.clk.Advance(15*time.Minute - time.Second)
-	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
-	h.clk.Advance(2 * time.Second)
-	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
-}
-
-func TestLoginFailuresBelowLimitAndSuccessClears(t *testing.T) {
-	h := newHarness(t)
-	for i := 0; i < 9; i++ {
-		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody("wrong")).Code)
-	}
-	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
-	// success cleared the count: nine more failures still are not a lockout
-	for i := 0; i < 9; i++ {
-		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody("wrong")).Code)
-	}
-	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
-}
-
-func TestLockoutUsesTrustedProxyClientIP(t *testing.T) {
-	trusted := netip.MustParseAddr("192.0.2.20")
-	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Addr{trusted} })
-	viaProxy := func(ip string) func(*http.Request) {
-		return func(r *http.Request) {
-			r.RemoteAddr = "192.0.2.20:4000"
-			r.Header.Set("CF-Connecting-IP", ip)
-		}
-	}
-	for i := 0; i < 10; i++ {
-		h.do("POST", "/api/auth/login", loginBody("wrong"), viaProxy("203.0.113.9"))
-	}
-	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/auth/login", loginBody(testPass), viaProxy("203.0.113.9")).Code)
-	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass), viaProxy("203.0.113.10")).Code)
 }
 
 func TestUnauthenticatedIs401(t *testing.T) {
@@ -370,8 +328,8 @@ func TestCrossOriginRejected(t *testing.T) {
 }
 
 func TestOriginUsesEffectiveScheme(t *testing.T) {
-	trusted := netip.MustParseAddr("192.0.2.20")
-	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Addr{trusted} })
+	trusted := netip.MustParsePrefix("192.0.2.20/32")
+	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Prefix{trusted} })
 	c := h.login()
 	via := func(origin string) func(*http.Request) {
 		return func(r *http.Request) {
@@ -618,39 +576,7 @@ func itoa(n uint64) string {
 	return string(b)
 }
 
-func TestLoginBurstCannotExceedLockoutLimit(t *testing.T) {
-	var checks atomic.Int32
-	h := newHarness(t, func(o *Options) {
-		o.Verifier = auth.NewVerifier([]byte(testSecret), auth.VerifierOptions{Wait: 30 * time.Second, Check: func(pw, phc string) bool {
-			checks.Add(1)
-			time.Sleep(5 * time.Millisecond) // slow enough that the burst overlaps
-			return pw == testPass
-		}})
-	})
-	var wg sync.WaitGroup
-	var wrong, locked atomic.Int32
-	for i := 0; i < 40; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			switch h.do("POST", "/api/auth/login", loginBody("wrong")).Code {
-			case http.StatusUnauthorized:
-				wrong.Add(1)
-			case http.StatusTooManyRequests:
-				locked.Add(1)
-			}
-		}()
-	}
-	wg.Wait()
-	require.EqualValues(t, 10, checks.Load(), "only Max passwords were ever verified")
-	require.EqualValues(t, 10, wrong.Load())
-	require.EqualValues(t, 30, locked.Load())
-	// the right password is refused while locked, and never reaches the verifier
-	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
-	require.EqualValues(t, 10, checks.Load())
-}
-
-func TestBusyAndMalformedLoginsAreNotCountedAgainstLockout(t *testing.T) {
+func TestMalformedLoginsAreNotCounted(t *testing.T) {
 	h := newHarness(t)
 	for i := 0; i < 15; i++ {
 		require.Equal(t, http.StatusBadRequest, h.do("POST", "/api/auth/login", "{not json").Code)
