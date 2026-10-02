@@ -62,6 +62,18 @@ func TestOpenRefusal(t *testing.T) {
 		{"cgnat peer on a public local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "203.0.113.5:1919"},
 		{"cgnat peer, local address unknown, with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, ""},
 		{"tailscale v6 range on a public local address with open_lan", "[fd7a:115c:a1e0::1]:5000", "nas", nil, true, RefusePeer, "[2001:db8::10]:1919"},
+		{"cgnat peer on a mapped lan local address with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "[::ffff:192.168.1.10]:1919"},
+		{"cgnat peer on a link-local v4 local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "169.254.1.5:1919"},
+		{"cgnat peer on a link-local v6 local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "[fe80::1%eth0]:1919"},
+		{"cgnat peer on 172.15.255.255 with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "172.15.255.255:1919"},
+		{"cgnat peer on 172.32.0.0 with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "172.32.0.0:1919"},
+		{"cgnat peer on 172.16.0.0 with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "172.16.0.0:1919"},
+		{"cgnat peer on 172.31.255.255 with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "172.31.255.255:1919"},
+		{"peer 100.128.0.1 is not tailnet", "100.128.0.1:5000", "nas", nil, false, RefusePeer, "100.100.100.1:1919"},
+		{"peer 100.128.0.1 with open_lan on a private local address", "100.128.0.1:5000", "nas", nil, true, RefusePeer, "192.168.1.10:1919"},
+		{"peer 100.63.255.255 is not tailnet", "100.63.255.255:5000", "nas", nil, false, RefusePeer, "100.100.100.1:1919"},
+		{"peer 100.63.255.255 with open_lan on a private local address", "100.63.255.255:5000", "nas", nil, true, RefusePeer, "192.168.1.10:1919"},
+		{"public peer with open_lan on a private local address", "203.0.113.9:5000", "nas", nil, true, RefusePeer, "192.168.1.10:1919"},
 		{"tailscale v6 range on the lan address with open_lan", "[fd7a:115c:a1e0::1]:5000", "nas", nil, true, "", "[fd00::10]:1919"},
 		// In a container even this computer arrives from the bridge gateway, which
 		// cannot be told from the LAN: it needs the LAN opt-in, whatever Host it names.

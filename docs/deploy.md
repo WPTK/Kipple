@@ -256,7 +256,9 @@ the request passes the **open gate**:
    that did not arrive on this machine's Tailscale address, but only when the connection reached a private-range
    address of this machine (the LAN interface or a container's bridge). A peer from `100.64.0.0/10` that reached a
    CGNAT, public or unknown local address is refused, since that range is also carrier-grade NAT, cloud and
-   Kubernetes overlay space.
+   Kubernetes overlay space. Inside Docker every connection reaches the container's private bridge address, so open_lan
+   cannot tell a CGNAT or overlay peer from a LAN peer there; the protection is the published port's bind address, so
+   publish the port only on the LAN or tailnet interface.
 4. **The browser says so.** The `Origin` must name the same host the request was sent to.
 
 A signed-in session in open mode keeps passing the network part of the gate on every request, so a session cannot
