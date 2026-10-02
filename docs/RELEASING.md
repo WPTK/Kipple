@@ -84,7 +84,9 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 ## Before the tag
 
 1. **CI is green on the exact commit** you will deploy (not on a nearby one). Push first; nothing deploys from an unpushed tree.
-2. **Fuzz, by hand, not in CI:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean.
+2. **Fuzz, by hand:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean. The weekly
+   `Fuzz` workflow runs the same script on the default branch, but until it has run green for several weeks the
+   manual run stays the gate.
    A failure writes `testdata\fuzz\<Target>\<hash>` in the package: fix the bug, keep that file as a regression seed.
    **UAT Suite 1, also by hand:** in `web/`, `npm run build`, then `npm run seed` (it stays in the foreground), then
    in a second terminal, once the feeds have fetched (about a minute), `npm run uat` against that seeded local instance (never the live one; see `docs/uat-plan.md`, Suite 1). It must finish with exit code 0, or every
@@ -92,8 +94,10 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 3. **`/code-review high`** on the diff since the last deployed tag. Fix every finding.
 4. **CHANGELOG.md:** `node scripts/changelog.mjs preview` shows what is pending; add a one-paragraph
    `changes/_intro.md` if the release needs an intro. `node scripts/changelog.mjs release X.Y.Z` (`--dry-run` first) folds
-   the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links and deletes the
-   fragments. Review the diff (`changes/README.md`).
+   the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links, deletes the
+   fragments and sets the example image tag in `README.md`, `docker-compose.pull.example.yml` and `docs/deploy.md` to
+   X.Y.Z (`changelog.mjs check`, run by CI, fails when one differs from the top CHANGELOG version). Review the diff
+   (`changes/README.md`).
 5. **THIRD_PARTY_NOTICES.md:** regenerate with `node scripts/gen-notices.mjs` (after `cd web && npm ci`; after any dependency change at least).
    Any dependency change also needs a govulncheck run.
 6. Commit `chore(release): X.Y.Z`, push, wait for CI on that commit.
@@ -145,14 +149,15 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
     The image's `org.opencontainers.image.version` is `X.Y.Z` (the tag without its `v`, the string you pull), `created`
     is the commit time and `kipple version` prints `vX.Y.Z`. The `X.Y.Z` image tag is immutable: the workflow refuses
     to publish if it already exists with another digest. So **if a run fails part-way, use "Re-run failed jobs", never
-    "Re-run all jobs"**: a full re-run rebuilds, gets a new digest and is refused at the Tag step. A tag whose image was
+    "Re-run all jobs"**: a full re-run rebuilds, gets a new digest and is refused at the Tag step (the last step before the release notes block: the digest is already signed and attested by
+    then, so a pullable `X.Y.Z` always has its signature). A tag whose image was
     never published and whose commit is wrong gets a new version, as ever.
 
     **Who may create `v*` tags is not something the workflow can enforce**: it signs whatever tag reaches it, and the
-    signature identity only says "this workflow at some `v*` tag". The repository therefore needs a **ruleset
-    restricting who can create (and update or delete) `v*` tags** to the owner; check it under Settings > Rules
-    before the first release, and treat a missing ruleset as a blocker. The workflow itself checks that the tag is
-    annotated, well formed (no leading zeros) and on `main`.
+    signature identity only says "this workflow at some `v*` tag". The repository therefore has a **ruleset,
+    "Protect Release Tags", active on `refs/tags/v*`**, with rules for creation, update, deletion and non-fast-forward
+    (Settings > Rules). The workflow itself checks that the tag is annotated, well formed (no leading zeros) and on
+    `main`.
 
     The floating-tag job and the rollback share one lock, so two releases cannot interleave their tag moves. GitHub
     keeps only one pending run per lock: if you push several tags in quick succession, a run of the floating-tag job that

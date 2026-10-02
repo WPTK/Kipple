@@ -396,8 +396,8 @@ Since 0.5.0-beta.1 a tag push publishes a signed, multi-arch (`linux/amd64`, `li
 also move `latest` and the `X.Y` and `X` tags; **a prerelease is tagged only with its exact version**, so until the first
 stable release name the version. Verify a pull with cosign (the command is in the README and in each release's notes);
 the signature identity is the release workflow of this repository. Upgrade by changing the tag and
-`docker compose pull kipple && docker compose up -d kipple` (name the service). The image is the same one the source
-build produces, so `kipple restore`, rollbacks and everything else in this file apply unchanged; for a rollback
+`docker compose pull kipple && docker compose up -d kipple` (name the service). It is built from the same source
+as a source build (a different build: single-architecture there, no provenance), so `kipple restore`, rollbacks and everything else in this file apply unchanged; for a rollback
 across a migration, start the previous tag's image only after restoring the pre-migration snapshot (see below).
 
 ## Installing the app and offline reading
@@ -695,7 +695,7 @@ Run setup again is there if you want the tour), sign-in is unchanged, and `KIPPL
 
 ## Phase 1 to phase 2 (done 2026-09-25, v0.2.0-alpha.1)
 
-Historical: this applies to a schema-1 database. With a build after alpha 2 the snapshot is `pre-migration-1-<latest>-*` (schema 9 is the latest at the time of writing), not `pre-migration-1-3-*`. Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migrates the schema
+Historical: this applies to a schema-1 database. With a build after alpha 2 the snapshot is `pre-migration-1-<latest>-*`, not `pre-migration-1-3-*`. Phase 1 (`v0.1.0`) has no export button and no restore command, and phase 2 migrates the schema
 (0002, 0003) on its first start. So:
 
 1. **Take an off-box copy of the phase 1 data before building phase 2.** Stop the service so the

@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-  Runs every Go fuzz target for a fixed time each. Run by hand before a release; it is not in CI.
+  Runs every Go fuzz target for a fixed time each. Run by hand before a release; the weekly Fuzz workflow
+  (.github/workflows/fuzz.yml) runs this same script on Linux.
 .EXAMPLE
   scripts\fuzz.ps1                     # every target, 60 s each
   scripts\fuzz.ps1 -Seconds 10         # quick smoke
