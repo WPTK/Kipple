@@ -119,7 +119,7 @@ the Reading font). The font is THE font: it applies at once to lists, the reader
 dialog keep the system UI font (`.ui-font` and the role selectors in `index.css`). "Default" leaves lists and chrome in
 the system font and articles in the reading serif. Segmented controls are pressed-style buttons over hidden native
 radios (arrow keys work); choosing one holds the control where it was on screen even when the page above reflows
-(text size scales every rem), which is what used to fling Settings around. Everything is stored per device
+(text size scales every rem), so Settings does not jump while you choose. Everything is stored per device
 (`prefs.ts`, `devicePrefs.ts`, `theme/`) and syncs to the server's device profile (see Device profile sync); the
 server's `ui.*` metadata also supplies the labels.
 
@@ -162,7 +162,7 @@ top of the sidebar and Manage feeds (drag those to order them). Favorites live i
 `library.favorites` (at most 500 `{t, id}` items); a save the server refuses is taken back and shown as an error. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move to folder (one
 reorder call) and Delete (a confirm with the count, the total starred articles, "delete starred too", progress, and a
 per-feed error list). The sidebar's folders collapse (remembered per device). Feed health is reached from the Feeds
-menu (it is no longer in the sidebar).
+menu.
 
 **Feed health** (`/health`): a sortable, filterable table on wide screens and cards on phones, plain-English
 statuses (`lib/feedStatus.ts`), the one-tap "Update to new URL" for a pending permanent redirect, the 14-day fetch
@@ -180,7 +180,7 @@ sign out.
 
 **Device profile sync** (`lib/deviceSync.ts`). The bootstrap carries `device:{id,name,profile,merged}`. On load the
 effective values (`merged`) replace the local cache (the server wins); unsent changes from a reload or a failed save
-are put back on top. The first run on a browser with an empty profile and old `kipple.*` values sends them up once
+are put back on top. A browser with an empty profile that holds `kipple.*` localStorage values sends them up once
 (`kipple.deviceSync.v1` remembers it). Every write goes through one `PATCH /api/device`, debounced 500 ms: the patch is
 recomputed from the local state against what the server last confirmed, so a burst is batched and the latest value of
 each key wins, and values equal to the confirmed ones are never sent. A failure keeps the local value and shows
@@ -227,7 +227,7 @@ background) with the theme's text and a star underline, checked in every theme b
 user is typing (250 ms debounce); Enter, a saved-search run and a URL load are submitted searches without it (`Scope.typing`, part of the scope key,
 never sent otherwise). `fallback:true` shows the quiet banner "No exact matches: showing partial matches" and is echoed as `scope.fallback` in
 "Mark all results as read" (`Scope.fallback` is not part of the key; off while typing). `422 search_too_broad` shows the server message inline (no
-retry); a `400 bad_cursor` on a later page restarts the search (at most twice; other 400s show their message). The ordering (Relevance, Newest, Oldest) is per device in the device profile (`client.search_order`; the old `kipple.searchOrder.v1` value migrates once). Relevance shows one "Best matches first" header instead of day headers and disables
+retry); a `400 bad_cursor` on a later page restarts the search (at most twice; other 400s show their message). The ordering (Relevance, Newest, Oldest) is per device in the device profile (`client.search_order`; a `kipple.searchOrder.v1` localStorage value is adopted once). Relevance shows one "Best matches first" header instead of day headers and disables
 mark above/below. Query words are drawn with the highlight module: a client copy of the server parser (phrases, `-x`, `NOT x`, `title:`, `author:`,
 `x*`) with a rough stem (`approxStem`), marks from the start of a word to its end; in fallback mode the words the fallback used.
 
@@ -260,7 +260,7 @@ motion are followed without any setting.
 
 | Command | What |
 |---|---|
-| `npm run dev` | Vite on 127.0.0.1:5173, proxying `/api`, `/img`, `/healthz` to 127.0.0.1:7080 (`KIPPLE_DEV_BACKEND` points the proxy at another local server) |
+| `npm run dev` | Vite on 127.0.0.1:5173, proxying `/api`, `/img`, `/healthz` to 127.0.0.1:1919 (`KIPPLE_DEV_BACKEND` points the proxy at another local server) |
 | `npm run seed` | Build and run a throwaway local Kipple with a few real feeds imported (below) |
 | `npm run preview` | `vite preview` of the production build |
 | `npm run typecheck` | `tsc --noEmit` |
@@ -280,12 +280,12 @@ Use `127.0.0.1`, never `localhost` (it resolves to `::1` first on this machine a
 ```
 cd web
 npm install --cache <some-dir>   # if the shared npm cache throws EPERM, point --cache at a private directory
-npm run seed                     # terminal 1: Kipple on 127.0.0.1:7080, feeds fetching in the background
+npm run seed                     # terminal 1: Kipple on 127.0.0.1:1919, feeds fetching in the background
 npm run dev                      # terminal 2: http://127.0.0.1:5173
 ```
 
 Sign in as `dev` with `dev-password-only-for-local-testing`. Those credentials belong to the throwaway data
-directory only (`%TEMP%\kipple-dev`, override with `KIPPLE_DEV_DATA`; `KIPPLE_DEV_PORT` changes the port; `KIPPLE_DEV_HOST` binds another local address, such as this machine's Tailscale address, to look at a build on a phone (never a public address: the dev account's password is fixed and public); `npm run seed -- --keep` reuses it).
+directory only (`%TEMP%\kipple-dev`, override with `KIPPLE_DEV_DATA`; `KIPPLE_DEV_PORT` changes the port, and the seed refuses to start when something already answers on it; `KIPPLE_DEV_HOST` binds another local address, such as this machine's Tailscale address, to look at a build on a phone (never a public address: the dev account's password is fixed and public); `npm run seed -- --keep` reuses it).
 Without `--keep` the directory is deleted and recreated, but only if the script made it (it leaves a
 `.kipple-dev-seed` file) or it is empty; any other `KIPPLE_DEV_DATA` directory is refused unless you add `-- --force`,
 and the temp directory, home directory or a drive root are always refused. Needs Go on PATH and network access for the feeds.
@@ -293,7 +293,7 @@ and the temp directory, home directory or a drive root are always refused. Needs
 **By hand**, without the script:
 
 ```
-set KIPPLE_ADDR=127.0.0.1:7080
+set KIPPLE_ADDR=127.0.0.1:1919
 set KIPPLE_DATA=%TEMP%\kipple-dev
 set KIPPLE_USERNAME=dev
 set KIPPLE_PASSWORD=<any local test password>

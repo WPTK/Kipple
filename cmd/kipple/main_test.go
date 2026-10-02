@@ -78,7 +78,7 @@ func TestSuperviseServeExitCodes(t *testing.T) {
 
 	// a listener that failed on its own is returned, after stopAll ran
 	serveErr = make(chan error, 1)
-	serveErr <- errors.New("listen tcp :7080: address already in use")
+	serveErr <- errors.New("listen tcp :8080: address already in use")
 	stopped = false
 	err = superviseServe(context.Background(), serveErr, func() error { stopped = true; return nil }, nil, quietLog)
 	require.ErrorContains(t, err, "address already in use")

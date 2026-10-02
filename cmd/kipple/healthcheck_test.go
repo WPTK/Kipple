@@ -15,7 +15,7 @@ import (
 func TestHealthURL(t *testing.T) {
 	for in, want := range map[string]string{
 		"":               "http://127.0.0.1:1919/healthz",
-		":7080":          "http://127.0.0.1:7080/healthz",
+		":8080":          "http://127.0.0.1:8080/healthz",
 		"0.0.0.0:9090":   "http://127.0.0.1:9090/healthz",
 		"[::]:9090":      "http://127.0.0.1:9090/healthz",
 		"127.0.0.1:7090": "http://127.0.0.1:7090/healthz",

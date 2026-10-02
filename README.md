@@ -120,8 +120,7 @@ volumes:
 
 Then:
 
-1. Open **http://127.0.0.1:1919**. A new Kipple has no account, so the first screen is the form that creates it: there is
-   no setup code and nothing to look up. (If something looks wrong, `docker logs kipple` shows what Kipple is doing;
+1. Open **http://127.0.0.1:1919**. A new Kipple has no account, so the first screen is the form that creates it. (If something looks wrong, `docker logs kipple` shows what Kipple is doing;
    `kipple` is the container name both example files set.)
 2. Follow the wizard. It takes about a minute, and every step after the account can be skipped:
    1. **Account**: a user name, then a password (or one of the two ways to go without, below).
@@ -202,7 +201,7 @@ which does not survive losing the volume, so copy it off the machine on a schedu
 verifies). The backup holds your account, settings and feeds but not your compose file or `.env` (port, public URL, proxy
 and Access settings, `TZ`): keep those too. The full checklist is in [docs/deploy.md](docs/deploy.md#what-to-back-up).
 
-For anything past this (backups, restoring, upgrading from an older version, running behind a reverse proxy or
+For anything past this (backups, restoring, upgrading, running behind a reverse proxy or
 tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md).
 
 ## Configuration
@@ -217,7 +216,7 @@ The ones self-hosters most often want:
 
 | Variable | Purpose |
 | --- | --- |
-| `KIPPLE_ADDR` | Listen address, default `:1919`. Since 0.6.0 an unset value is always 1919; an install that used the old 7080 must set `KIPPLE_ADDR=:7080` (see [docs/deploy.md](docs/deploy.md)). |
+| `KIPPLE_ADDR` | Listen address, default `:1919`. Change the container side of the port mapping with it (see [docs/deploy.md](docs/deploy.md#ports)). |
 | `KIPPLE_PUBLIC_URL` | Public URL, used for feed icons in sync clients. |
 | `KIPPLE_TRUSTED_PROXY_IPS` | Required if Kipple sits behind a reverse proxy or tunnel. |
 | `KIPPLE_ALLOWED_HOSTS` | Extra host names Kipple answers to during setup and without a password. |

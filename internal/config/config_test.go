@@ -105,7 +105,7 @@ func TestLoadInvalid(t *testing.T) {
 }
 
 func TestLoadAcceptsPublicURLsAndMinimumTick(t *testing.T) {
-	for _, u := range []string{"https://rss.example.com", "https://rss.example.com/", "http://192.0.2.10:7080", "https://example.com/kipple"} {
+	for _, u := range []string{"https://rss.example.com", "https://rss.example.com/", "http://192.0.2.10:8080", "https://example.com/kipple"} {
 		cfg, err := load(env(map[string]string{"KIPPLE_PUBLIC_URL": u}))
 		require.NoError(t, err, u)
 		require.Equal(t, u, cfg.PublicURL)

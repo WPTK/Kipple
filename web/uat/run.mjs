@@ -1,6 +1,6 @@
 // UAT Suite 1 (docs/uat-plan.md): a scripted pass over every screen of a running Kipple.
 //
-//   npm run build && npm run seed      in one terminal (the seed serves the embedded build on 127.0.0.1:7080)
+//   npm run build && npm run seed      in one terminal (the seed serves the embedded build on 127.0.0.1:1919)
 //   npm run uat                        in another, once the feeds have fetched
 //   npm run uat -- --url http://127.0.0.1:7091 --screenshots --headed
 //
@@ -29,7 +29,7 @@
 // instance, never at the one you read on.
 //
 // Options (environment variable in brackets):
-//   --url <base>        Kipple to test [KIPPLE_UAT_URL], default http://127.0.0.1:7080
+//   --url <base>        Kipple to test [KIPPLE_UAT_URL], default http://127.0.0.1:1919
 //   --user <name>       [KIPPLE_UAT_USER], default the seed's user
 //   --password <pw>     [KIPPLE_UAT_PASSWORD], default the seed's password
 //   --out <dir>         report directory, default uat/results/<timestamp>
@@ -74,7 +74,7 @@ const AXE_SOURCE = orSetupError("axe-core not found (npm ci)", () => readFileSyn
 
 const { values: opt } = orSetupError("bad arguments (see --help)", () => parseArgs({
   options: {
-    url: { type: "string", default: process.env.KIPPLE_UAT_URL || "http://127.0.0.1:7080" },
+    url: { type: "string", default: process.env.KIPPLE_UAT_URL || "http://127.0.0.1:1919" },
     user: { type: "string", default: process.env.KIPPLE_UAT_USER || "dev" },
     // The seed's throwaway local credentials (web/scripts/seed.mjs), not a secret.
     password: { type: "string", default: process.env.KIPPLE_UAT_PASSWORD || "dev-password-only-for-local-testing" },

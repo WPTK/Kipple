@@ -1,6 +1,5 @@
 # The build-from-source variant: it builds the image from this checkout, with resource limits and
-# the full hardening. To pull the published image instead (from 0.5.0-beta.1), use
-# docker-compose.pull.example.yml.
+# the full hardening. To pull the published image instead, use docker-compose.pull.example.yml.
 #
 # Works standalone: copy this to docker-compose.yml (as README.md's Quickstart does), build and
 # start it and open http://127.0.0.1:1919 to create your account. No .env
@@ -34,8 +33,8 @@ services:
     # directory. Import an OPML with `kipple import -` and pipe the file in.
     # Optional: .env holds advanced overrides only (see .env.example). Compose 2.24 or newer
     # starts without the file; on an older Compose, create an empty .env or delete these lines.
-    # An install that still uses the old port 7080 must set KIPPLE_ADDR=:7080 in .env and keep
-    # the container side of the port below at 7080; an unset KIPPLE_ADDR is always 1919 since 0.6.0.
+    # Kipple listens on 1919 unless KIPPLE_ADDR in .env says otherwise; keep the container side of
+    # the port below equal to it.
     env_file:
       - path: .env
         required: false

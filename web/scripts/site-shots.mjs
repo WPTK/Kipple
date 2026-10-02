@@ -18,7 +18,7 @@ import { chromium } from "@playwright/test";
 
 const { values: opt } = parseArgs({
   options: {
-    url: { type: "string", default: "http://127.0.0.1:7080" },
+    url: { type: "string", default: "http://127.0.0.1:1919" },
     out: { type: "string" },
     site: { type: "string" },
     feed: { type: "string", default: "Wikimedia Picture of the Day" },
