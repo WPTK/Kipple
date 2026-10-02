@@ -193,7 +193,7 @@ func (h *Handler) leadThumb(w http.ResponseWriter, r *http.Request, u *url.URL, 
 	}
 	if !h.thumbnailable(oe) {
 		h.rememberNoThumb(tkey, orig, flags, "the source is served as it is")
-		return original(refusalCC(negPermanentTTL))
+		return original(refusalCC(imgcache.NegPermanentTTL))
 	}
 	var unmarked atomic.Bool
 	job := func() { h.runThumb(tkey, okey, orig, flags, oe, release, &unmarked) }
@@ -220,9 +220,6 @@ func (h *Handler) leadThumb(w http.ResponseWriter, r *http.Request, u *url.URL, 
 		return true
 	}
 }
-
-// negPermanentTTL is how long a refusal is remembered (imgcache: NegPermanent).
-const negPermanentTTL = 24 * time.Hour
 
 // thumbnailable is the cheap pre-check: the type and the size, no decoding.
 func (h *Handler) thumbnailable(oe imgcache.Entry) bool {

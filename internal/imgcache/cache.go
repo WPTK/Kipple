@@ -55,7 +55,6 @@ const (
 	freshDefault       = 7 * 24 * time.Hour
 	negTransientBase   = 10 * time.Minute
 	negMax             = 24 * time.Hour
-	negPermanent       = 24 * time.Hour
 	hostHintExpiry     = 90 * 24 * time.Hour
 	lowDiskWarnEvery   = time.Hour
 	lowDiskEvictEvery  = time.Minute
@@ -87,14 +86,14 @@ type Options struct {
 	MaxBytes int64  // the cap; 0 disables the cache (nothing is written or served)
 	Logger   *slog.Logger
 
-	MaxObject   int64         // per-image limit; default DefaultMaxObject
-	MinFree     int64         // free-space floor in bytes; default DefaultMinFree (also 5% of the volume, whichever is larger)
-	IdleExpiry  time.Duration // default 60 days
-	FlushEvery  time.Duration // access-time flush interval; default 60 s
-	SweepEvery  time.Duration // background eviction interval; default 10 min
-	Now         func() time.Time
-	DiskSpace   func(dir string) (free, total uint64, err error) // tests inject; default is the OS call
-	NoBackgound bool                                             // tests: no background goroutine (flush and sweep by hand)
+	MaxObject    int64         // per-image limit; default DefaultMaxObject
+	MinFree      int64         // free-space floor in bytes; default DefaultMinFree (also 5% of the volume, whichever is larger)
+	IdleExpiry   time.Duration // default 60 days
+	FlushEvery   time.Duration // access-time flush interval; default 60 s
+	SweepEvery   time.Duration // background eviction interval; default 10 min
+	Now          func() time.Time
+	DiskSpace    func(dir string) (free, total uint64, err error) // tests inject; default is the OS call
+	NoBackground bool                                             // tests: no background goroutine (flush and sweep by hand)
 	// ByteAccounting charges each entry its file size alone against the cap
 	// (tests of the eviction arithmetic). By default an entry costs its size
 	// rounded up to whole 4 KiB blocks plus its URL (the index row), and the
@@ -283,7 +282,7 @@ func Open(o Options) (*Cache, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 	c.ctx = ctx
-	if !o.NoBackgound {
+	if !o.NoBackground {
 		c.wg.Add(1)
 		go c.loop(ctx)
 	}
@@ -932,6 +931,9 @@ const (
 	NegPermanent
 )
 
+// NegPermanentTTL is how long a NegPermanent refusal is remembered.
+const NegPermanentTTL = 24 * time.Hour
+
 // PutNeg remembers a failure so the source is not contacted again until the
 // retry-after passes. It replaces whatever the key held (an ok entry loses its file).
 func (c *Cache) PutNeg(key, url string, flags int, kind NegKind, status int, reason string) error {
@@ -978,7 +980,7 @@ func (c *Cache) putNeg(key, url string, flags int, variant string, kind NegKind,
 		return err
 	}
 	count := 0
-	ttl := negPermanent
+	ttl := NegPermanentTTL
 	if kind == NegTransient {
 		switch {
 		case exists && oldStatus == statusNeg && oldReason == InProgress && reason != InProgress:

@@ -259,16 +259,17 @@ The **open gate**, checked by `POST /api/auth/open`, by switching to open mode, 
    what the notice rules out. One exception: a loopback peer with a `*.ts.net` Host and no `Tailscale-Funnel-Request`
    is Tailscale Serve (tailnet-only HTTPS) and is allowed. (Verify the headers Tailscale Serve and Funnel actually
    send during PR B; the rule is written against their documented behavior.)
-3. **Peer class.** The TCP peer must be loopback, Tailscale (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), or the
-   container's own default gateway (Docker's userland proxy makes every `-p 127.0.0.1:...` connection arrive from the
-   bridge gateway, read once from `/proc/net/route`). Other private-range peers (the LAN) are refused unless the
-   owner opts in with `security.open_lan` (Settings: "Also allow devices on my local network", default off;
-   decision 3). With it on, RFC 1918 and ULA peers pass too, and so does a Tailscale-range peer whose connection reached
-   a private-range local address (the address it was addressed to: a LAN address or a container's bridge); never one
-   that reached a CGNAT, public or unknown local address, because `100.64.0.0/10` is also shared carrier-grade NAT and
-   cloud overlay space. "Reached" is the destination address, not the interface: on a host with both a WAN or CGNAT
-   interface and a LAN address the OS may accept packets for the LAN address from the WAN side, which Kipple cannot
-   see.
+3. **Peer class.** The TCP peer must be loopback, or Tailscale (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) arriving on
+   this machine's own Tailscale address. There is no gateway check: in a container Docker delivers even a
+   `-p 127.0.0.1:...` connection from the bridge gateway, which looks like any other LAN peer, so it is refused unless
+   `security.open_lan` is on. Other private-range peers (the LAN) are refused unless the owner opts in with
+   `security.open_lan` (Settings: "Also allow devices on my local network", default off; decision 3). With it on,
+   RFC 1918 and ULA peers pass too, and so does a Tailscale-range peer whose connection reached a private-range local
+   address (the address it was addressed to: a LAN address or a container's bridge); never one that reached a CGNAT,
+   public or unknown local address, because `100.64.0.0/10` is also shared carrier-grade NAT and cloud overlay space.
+   "Reached" is the destination address, not the interface: on a host with both a WAN or CGNAT interface and a LAN
+   address the OS may accept packets for the LAN address from the WAN side, which Kipple cannot see. The published
+   port's bind address is what keeps the LAN out.
 
 Existing sessions keep working after the gate fails (a session is a session), but they are revoked whenever the mode
 changes, as password changes already do.

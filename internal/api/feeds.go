@@ -18,14 +18,12 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	schedRuns, inflight := s.opt.Sched.Status()
 	unread, err := s.db.UnreadTotal(r.Context())
 	if err != nil {
-		s.log.Error("api: unread total", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "unread total", err)
 		return
 	}
 	muted, err := s.db.MutedCount(r.Context())
 	if err != nil {
-		s.log.Error("api: muted count", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "muted count", err)
 		return
 	}
 	// Like bootstrap `runs`: the scheduler's runs plus the active filter apply run.
@@ -93,8 +91,7 @@ func decorate(h store.FeedHealth, env store.StatusEnv) healthFeed {
 func (s *Server) healthFeeds(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.FeedHealth(r.Context())
 	if err != nil {
-		s.log.Error("api: feed health", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "feed health", err)
 		return
 	}
 	env := s.statusEnv()
@@ -104,7 +101,7 @@ func (s *Server) healthFeeds(w http.ResponseWriter, r *http.Request) {
 	}
 	unread, err := s.db.UnreadTotal(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "unread total", err)
 		return
 	}
 	type client struct {
@@ -147,8 +144,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, "shutting_down")
 			return
 		}
-		s.log.Error("api: refresh", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "refresh", err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"run_id": fmt.Sprint(info.RunID), "total": info.Total, "joined": info.Joined})

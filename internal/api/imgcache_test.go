@@ -24,7 +24,7 @@ func cacheHarness(t *testing.T, maxMB int64) (*harness, *imgcache.Cache) {
 		var err error
 		c, err = imgcache.Open(imgcache.Options{
 			Dir:      filepath.Join(filepath.Dir(o.DB.BackupDir()), "imgcache"),
-			MaxBytes: maxMB << 20, NoBackgound: true,
+			MaxBytes: maxMB << 20, NoBackground: true,
 			DiskSpace: func(string) (uint64, uint64, error) { return 500 << 30, 800 << 30, nil },
 		})
 		require.NoError(t, err)

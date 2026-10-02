@@ -17,8 +17,6 @@ import (
 	"github.com/WPTK/kipple/internal/imgcache"
 )
 
-const defaultBrowserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-
 const browserAccept = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
 
 // cond is the conditional-request state to send upstream.
@@ -178,7 +176,7 @@ func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p
 	}
 	if p.ua == "browser" {
 		req.Header.Set("Accept", browserAccept)
-		req.Header.Set("User-Agent", h.opt.BrowserUA)
+		req.Header.Set("User-Agent", h.opt.BrowserUA())
 	} else {
 		req.Header.Set("Accept", "image/*")
 		req.Header.Set("User-Agent", h.opt.UserAgent)
@@ -366,8 +364,6 @@ func negKindFor(status int) imgcache.NegKind {
 	}
 	return imgcache.NegPermanent
 }
-
-func negKindForErr(error) imgcache.NegKind { return imgcache.NegTransient }
 
 // sink is where a leader's outcome goes in the cache. A nil sink (no cache)
 // ignores everything.
