@@ -200,9 +200,7 @@ verifies). The backup holds your account, settings and feeds but not your compos
 and Access settings, `TZ`): keep those too. The full checklist is in [docs/deploy.md](docs/deploy.md#what-to-back-up).
 
 For anything past this (backups, restoring, upgrading from an older version, running behind a reverse proxy or
-tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md). It's written from the maintainer's own two-machine
-setup (one box running Kipple, one for admin/backups over SSH), but says up front how that collapses to a
-single machine, which is what most people running this will actually have.
+tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md).
 
 ## Configuration
 
