@@ -50,7 +50,7 @@ func (s *Server) about(w http.ResponseWriter, r *http.Request) {
 		"started_at":        s.started.UTC().Format(time.RFC3339),
 		"uptime_s":          uptime,
 		"data_dir_writable": dataDirWritable(s.opt.DataDir),
-		"tz":                store.Zone(ctx, s.db.Reader()).String(), // the zone in force now (TZ, else the setting), as statistics use it
+		"tz":                store.Zone(ctx, s.db.Reader()).String(), // the zone in force now (the tz setting), as statistics use it
 		"auth_mode":         authMode,
 		"access_enabled":    s.opt.Access != nil,
 		"public_url_set":    s.opt.PublicURL != "",

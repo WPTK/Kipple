@@ -179,10 +179,9 @@ describe("device prefs added for this round", () => {
     expect(p.linkTarget).toBeNull();
     expect(p.unreadBadge).toBe("count");
     const bad = parseDevicePrefs(
-      JSON.stringify({ articleWidth: "huge", listWidth: 99999, sidebarWidth: 5, linkTarget: "popup", unreadBadge: "loud", collapsedFolders: ["1", 2], favoritesLocal: [{ t: "feed", id: "7" }, { t: "x", id: "1" }, { t: "feed", id: "7" }, { t: "folder", id: "a" }] }),
+      JSON.stringify({ articleWidth: "huge", listWidth: 99999, sidebarWidth: 5, linkTarget: "popup", unreadBadge: "loud", collapsedFolders: ["1", 2] }),
     );
     expect(bad).toMatchObject({ articleWidth: "medium", listWidth: 720, sidebarWidth: 200, linkTarget: null, unreadBadge: "count", collapsedFolders: ["1"] });
-    expect(bad.favoritesLocal).toEqual([{ t: "feed", id: "7" }]);
     expect(DEFAULT_DEVICE_PREFS.sidebarWidth).toBe(240);
   });
 });

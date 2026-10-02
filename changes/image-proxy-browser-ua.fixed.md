@@ -1,0 +1,1 @@
+Images that a site refuses unless the request looks like a browser are now retried with the same browser User-Agent as feeds, including your custom one if you set it, instead of a separate older built-in string.

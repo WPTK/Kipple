@@ -35,9 +35,9 @@ const DEFAULTS: Record<string, unknown> = {
   "ui.theme_schedule": false,
   "ui.theme_night_start": "21:00",
   "ui.theme_day_start": "07:00",
-  "ui.font_body": "",
+  "ui.font_body": "default",
   "ui.list_density": "standard",
-  "ui.reading_density": "comfortable",
+  "ui.reading_density": "standard",
   "ui.mark_read_on_scroll": false,
   "client.layout": "magazine",
   "client.layout_overrides": { feed: {}, folder: {} },
@@ -106,7 +106,7 @@ describe("mapping between the local stores and the profile", () => {
     const back = deriveLocal(DEFAULTS, l);
     expect(back.theme).toEqual(DEFAULT_THEME_SETTINGS);
     expect(back.prefs.font).toBe("default");
-    expect(back.prefs.readingDensity).toBe("standard"); // the server's "comfortable"
+    expect(back.prefs.readingDensity).toBe("standard");
     expect(back.dp.layout).toBe("magazine");
     expect(normalize(DEFAULTS, l)).toEqual(profileOf(back));
   });
@@ -134,14 +134,15 @@ describe("mapping between the local stores and the profile", () => {
     expect(deriveLocal({ ...DEFAULTS, "ui.theme": "graphite", "ui.theme_schedule": true }, local()).theme).toMatchObject({ mode: "fixed", schedule: true });
   });
 
-  it("maps the reading density names and the font names", () => {
-    expect(deriveLocal({ ...DEFAULTS, "ui.reading_density": "compact" }, local()).prefs.readingDensity).toBe("snug");
-    expect(deriveLocal({ ...DEFAULTS, "ui.reading_density": "relaxed" }, local()).prefs.readingDensity).toBe("relaxed");
-    expect(deriveLocal({ ...DEFAULTS, "ui.reading_density": "airy" }, local()).prefs.readingDensity).toBe("airy");
-    expect(deriveLocal({ ...DEFAULTS, "ui.font_body": "Atkinson Hyperlegible Next" }, local()).prefs.font).toBe("easy");
-    expect(deriveLocal({ ...DEFAULTS, "ui.font_body": "Source Serif 4" }, local()).prefs.font).toBe("source-serif");
+  it("carries the spacing steps and the font ids as they are, and keeps the local value for anything else", () => {
+    for (const step of ["dense", "snug", "standard", "relaxed", "airy"]) {
+      expect(deriveLocal({ ...DEFAULTS, "ui.reading_density": step }, local()).prefs.readingDensity).toBe(step);
+    }
+    expect(deriveLocal({ ...DEFAULTS, "ui.reading_density": "huge" }, local()).prefs.readingDensity).toBe(local().prefs.readingDensity);
+    expect(deriveLocal({ ...DEFAULTS, "ui.font_body": "source-serif" }, local()).prefs.font).toBe("source-serif");
+    expect(deriveLocal({ ...DEFAULTS, "ui.font_body": "Comic Sans" }, local()).prefs.font).toBe(local().prefs.font);
     updatePrefs({ font: "easy" });
-    expect(profileOf(local())["ui.font_body"]).toBe("Atkinson Hyperlegible Next");
+    expect(profileOf(local())["ui.font_body"]).toBe("easy");
   });
 
   it("leaves keys without a device value unset: shortcuts, list width, link target", () => {
@@ -186,7 +187,7 @@ describe("hydrating from the bootstrap", () => {
     expect(s.patches).toHaveLength(1);
     expect(s.patches[0]).toEqual({
       "ui.theme": "cocoa-kraft",
-      "ui.font_body": "Literata",
+      "ui.font_body": "literata",
       "ui.list_density": "airy",
       "ui.reading_density": "airy",
       "client.text_size": 1.25,
@@ -297,7 +298,7 @@ describe("saving", () => {
     await vi.advanceTimersByTimeAsync(499);
     expect(s.patches).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(2);
-    expect(s.patches).toEqual([{ "ui.font_body": "Manrope", "client.text_size": 1.25, "client.order": "oldest" }]);
+    expect(s.patches).toEqual([{ "ui.font_body": "manrope", "client.text_size": 1.25, "client.order": "oldest" }]);
     expect(syncStore.get().status).toBe("idle");
     // Nothing more is sent once the server has confirmed it.
     await vi.advanceTimersByTimeAsync(2000);
@@ -347,7 +348,7 @@ describe("saving", () => {
     mockFetch({
       "PATCH /api/device": (_u, init) => {
         patches.push(JSON.parse(String(init?.body)));
-        return fail ? new Response("nope", { status: 500 }) : json(device({ profile: { "ui.font_body": "Inter" }, merged: { ...DEFAULTS, "ui.font_body": "Inter" } }));
+        return fail ? new Response("nope", { status: 500 }) : json(device({ profile: { "ui.font_body": "inter" }, merged: { ...DEFAULTS, "ui.font_body": "inter" } }));
       },
     });
     hydrateDevice(device());
@@ -388,18 +389,18 @@ describe("saving", () => {
 
   it("puts unsent changes back after a reload, on top of the server values, and sends them", async () => {
     localStorage.setItem(SYNC_FLAG_KEY, "1");
-    localStorage.setItem(SYNC_DIRTY_KEY, JSON.stringify({ "ui.font_body": "Inter", "client.order": "oldest" }));
+    localStorage.setItem(SYNC_DIRTY_KEY, JSON.stringify({ "ui.font_body": "inter", "client.order": "oldest" }));
     const s = server();
     hydrateDevice(s.view());
     expect(prefsStore.get().font).toBe("inter");
     expect(devicePrefsStore.get().order).toBe("oldest");
     await vi.advanceTimersByTimeAsync(600);
-    expect(s.patches).toEqual([{ "ui.font_body": "Inter", "client.order": "oldest" }]);
+    expect(s.patches).toEqual([{ "ui.font_body": "inter", "client.order": "oldest" }]);
     expect(localStorage.getItem(SYNC_DIRTY_KEY)).toBeNull();
   });
 
   it("reset to defaults asks the server to clear the overrides and adopts what it answers", async () => {
-    const s = await ready({ "ui.font_body": "Inter", "client.layout": "cards" });
+    const s = await ready({ "ui.font_body": "inter", "client.layout": "cards" });
     expect(prefsStore.get().font).toBe("inter");
     await copySettingsFrom("defaults");
     expect(s.calls.some((c) => c.method === "POST" && c.url.pathname === "/api/device/copy-from/defaults")).toBe(true);
@@ -426,7 +427,7 @@ describe("every device pref is carried both ways (review finding 2)", () => {
 
   it("round-trips a non-default value of every mapped key through the profile and back", () => {
     const changed: Record<string, unknown> = {
-      "ui.theme": "graphite", "ui.theme_day": "linen", "ui.theme_night": "carbon", "ui.font_body": "Inter",
+      "ui.theme": "graphite", "ui.theme_day": "linen", "ui.theme_night": "carbon", "ui.font_body": "inter",
       "ui.list_density": "airy", "ui.reading_density": "airy", "ui.mark_read_on_scroll": true,
       "client.layout": "cards", "client.layout_overrides": { feed: { "5": "compact" }, folder: { "7": "inbox" } },
       "client.order": "oldest", "client.search_order": "newest", "client.inbox_thumbs": "off", "client.peek_seen": true, "client.article_width": "wide",
@@ -544,7 +545,7 @@ describe("migration only carries what the old caches held (review finding 3)", (
     const s = server({}, { "ui.mark_read_on_scroll": true });
     hydrateDevice(s.view());
     await flush();
-    expect(s.patches).toEqual([{ "ui.font_body": "Literata" }]);
+    expect(s.patches).toEqual([{ "ui.font_body": "literata" }]);
     expect(prefsStore.get().markReadOnScroll).toBe(true);
   });
 
@@ -554,7 +555,7 @@ describe("migration only carries what the old caches held (review finding 3)", (
     const s = server({}, { "client.sidebar_width": 300, "client.unread_badge": "dot" });
     hydrateDevice(s.view());
     await flush();
-    expect(s.patches).toEqual([{ "ui.font_body": "Literata" }]);
+    expect(s.patches).toEqual([{ "ui.font_body": "literata" }]);
     expect(devicePrefsStore.get().sidebarWidth).toBe(300);
     expect(devicePrefsStore.get().unreadBadge).toBe("dot");
   });
@@ -567,7 +568,7 @@ describe("migration ignores untouched defaults in a fully written store", () => 
     const s = server({}, { "client.text_size": 1.25 });
     hydrateDevice(s.view());
     await flush();
-    expect(s.patches).toEqual([{ "ui.font_body": "Literata" }]);
+    expect(s.patches).toEqual([{ "ui.font_body": "literata" }]);
     expect(prefsStore.get().textSize).toBe(1.25);
   });
 });

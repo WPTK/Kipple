@@ -32,7 +32,6 @@ interface World {
   authMode: string;
   passwordSet: boolean;
   tz: string;
-  envTz: string | null;
   starter: unknown;
 }
 
@@ -45,13 +44,12 @@ function makeWorld(over: Partial<World> = {}): World {
     authMode: "password",
     passwordSet: true,
     tz: "UTC",
-    envTz: null,
     starter: { available: true, categories: [] },
     ...over,
   };
 }
 
-const tzMeta = (w: World) => ({ key: "tz", value: w.envTz ?? w.tz, default: "UTC", label: "Time zone", description: "Used for statistics.", group: "account", kind: "text", surface: "settings", env_override: w.envTz });
+const tzMeta = (w: World) => ({ key: "tz", value: w.tz, default: "UTC", label: "Time zone", description: "Used for statistics.", group: "account", kind: "text", surface: "settings" });
 
 /** A tiny fake Kipple: every route the wizard touches, with the state it changes. Extra routes win over these. */
 function server(w: World, extra: Record<string, Handler> = {}) {
@@ -70,7 +68,7 @@ function server(w: World, extra: Record<string, Handler> = {}) {
     },
     "GET /api/bootstrap": () => (w.signedIn ? json({ ...bootstrap, user: { ...bootstrap.user, username: "reader", password_set: w.passwordSet, auth_mode: w.authMode, setup_pending: w.pending } }) : json({ error: "auth" }, 401)),
     "GET /api/auth/me": () => json({ username: "reader", api_enabled: false, password_set: w.passwordSet, access_enabled: false, access_email: null, auth_mode: w.authMode, setup_pending: w.pending }),
-    "GET /api/settings": () => json({ settings: [tzMeta(w)], values: { tz: w.envTz ?? w.tz } }),
+    "GET /api/settings": () => json({ settings: [tzMeta(w)], values: { tz: w.tz } }),
     "PATCH /api/settings": (_u, init) => {
       const patch = JSON.parse(String(init?.body)) as Record<string, unknown>;
       if (typeof patch.tz === "string") w.tz = patch.tz;
@@ -703,20 +701,6 @@ describe("Step 3: time zone", () => {
     expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
   });
 
-  it("is read-only and says why when the TZ environment variable is set", async () => {
-    browserZoneIs("Asia/Tokyo");
-    const { calls } = server(signedIn({ envTz: "Europe/Paris" }));
-    const { container } = go("/welcome/timezone");
-    expect(await screen.findByText("Set by the TZ environment variable; remove it to choose here.")).toBeInTheDocument();
-    expect(screen.getByText("Europe/Paris")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Search time zones")).toBeNull();
-    expect(screen.queryByRole("listbox")).toBeNull();
-    expect(await axe(container)).toHaveNoViolations();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Look and feel");
-    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
-  });
-
   it("lets you move on when the settings cannot be loaded", async () => {
     server(signedIn(), { "GET /api/settings": () => json({ error: "internal" }, 500) });
     go("/welcome/timezone");
@@ -744,7 +728,7 @@ describe("Step 4: theme", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await headingIs("Bring your feeds along");
     const patches = callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never));
-    expect(patches).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "graphite", "ui.font_body": "" });
+    expect(patches).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "graphite", "ui.font_body": "default" });
   });
 
   it("Skip puts this device's theme back the way it was", async () => {
@@ -781,7 +765,7 @@ describe("Step 4: theme", () => {
     await user.selectOptions(screen.getByLabelText("Reading font"), "inter");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await headingIs("Bring your feeds along");
-    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never))).toContainEqual({ "ui.theme": "system", "ui.theme_day": "paper", "ui.theme_night": "midnight", "ui.font_body": "Inter" });
+    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never))).toContainEqual({ "ui.theme": "system", "ui.theme_day": "paper", "ui.theme_night": "midnight", "ui.font_body": "inter" });
     await user.click(screen.getByRole("button", { name: "Back" }));
     await headingIs("Look and feel");
     expect(screen.getByLabelText("Reading font")).toHaveValue("inter");
@@ -1153,17 +1137,6 @@ describe("Settings: run setup again", () => {
     expect(screen.getByRole("button", { name: "Run setup again" })).toBeEnabled();
   });
 
-  it("shows the time zone read-only in Settings when the TZ variable is set", async () => {
-    server(done(), {
-      "GET /api/settings": () => json({ settings: [tzMeta({ ...done(), envTz: "Europe/Paris" })], values: { tz: "Europe/Paris" } }),
-    });
-    go("/settings/account");
-    const field = await screen.findByLabelText("Time zone");
-    expect(field).toHaveAttribute("readonly");
-    expect(field).toHaveValue("Europe/Paris");
-    expect(screen.getByText("Set by the TZ environment variable; remove it to choose here.")).toBeInTheDocument();
-  });
-
   it("offers no Sign out without a password, where Kipple would sign the browser straight back in", async () => {
     server({ ...done(), authMode: "open", passwordSet: false } as World);
     go("/settings/account");
@@ -1520,7 +1493,7 @@ describe("previewing a theme does not write this device's profile", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await headingIs("Bring your feeds along");
     await flush();
-    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never))).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "midnight", "ui.font_body": "" });
+    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never))).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "midnight", "ui.font_body": "default" });
     expect(themeKeys(calls)).toEqual([]);
     expect(themeStore.get().day).toBe("linen");
   });
@@ -1573,7 +1546,7 @@ describe("previewing a theme does not write this device's profile", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await headingIs("Bring your feeds along");
     await flush();
-    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never)["ui.font_body"])).toEqual(["Source Serif 4"]);
+    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never)["ui.font_body"])).toEqual(["source-serif"]);
     expect(fontKeys(calls)).toEqual([]);
     expect(prefsStore.get().font).toBe("source-serif");
   });

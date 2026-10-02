@@ -192,7 +192,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	acct, _, err := s.db.Account(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "me", err)
 		return
 	}
 	info, err := s.userInfo(r, acct, true)

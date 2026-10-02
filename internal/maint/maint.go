@@ -178,8 +178,7 @@ func (m *Maint) lastRun(ctx context.Context, start time.Time, loc *time.Location
 	return baseline(start, m.o.NightlyAt, loc)
 }
 
-// zone resolves the effective zone (design 2.6; the TZ environment variable
-// when set, else the `tz` setting: store.ZoneName). An unknown name keeps prev
+// zone resolves the time zone (design 2.6; the `tz` setting: store.ZoneName). An unknown name keeps prev
 // (the zone in use) and is warned about once per distinct bad value; it is
 // never treated as a zone change.
 func (m *Maint) zone(ctx context.Context, prev *time.Location, badTZ *string) *time.Location {

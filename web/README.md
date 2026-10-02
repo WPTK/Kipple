@@ -104,8 +104,7 @@ Advanced (`advanced`: the Advanced group). At 900 px and up a rail of the groups
 `/settings` opens the first; below that `/settings` is the list of groups (with the current theme and font, check
 interval and statistics state under theirs) and a group opens as its own page with a back button. Each group page has
 its own loading and error state for the server settings. Keys the screen draws itself
-or cannot honor yet (`ui.mark_read_on_scroll` sits in Accessibility; `ui.font_ui` is never shown: there is one font
-choice, `ui.font_body`, drawn by the screen itself as "Reading font") are left out of the generic list. `fetch.fulltext_all` (fetch the full article for every
+(`ui.mark_read_on_scroll` sits in Accessibility; the one font choice, `ui.font_body`, is drawn as "Reading font") are left out of the generic list. `fetch.fulltext_all` (fetch the full article for every
 feed, with its note about bandwidth and refresh time) appears under Library like any other bool; while it is on, the
 feed editor shows that feed's own switch as "On for all feeds". The screen is capped at 720 px wide.
 
@@ -160,8 +159,7 @@ press and hold, or touch the grip at once; `lib/dnd.ts`); the grip also moves wi
 buttons" in the menu adds Move up and Move down buttons. A drop is one `POST /api/reorder` (a feed dropped in another
 folder moves there), painted at once and confirmed with "Saved". The star on a folder or feed pins it to Favorites at the
 top of the sidebar and Manage feeds (drag those to order them). Favorites live in the server setting
-`library.favorites` (at most 500 `{t, id}` items); a server that rejects the setting gets them kept on this device
-instead. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move to folder (one
+`library.favorites` (at most 500 `{t, id}` items); a save the server refuses is taken back and shown as an error. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move to folder (one
 reorder call) and Delete (a confirm with the count, the total starred articles, "delete starred too", progress, and a
 per-feed error list). The sidebar's folders collapse (remembered per device). Feed health is reached from the Feeds
 menu (it is no longer in the sidebar).
@@ -190,10 +188,9 @@ each key wins, and values equal to the confirmed ones are never sent. A failure 
 change). A 400 names the refused keys: they keep their local value, are not sent again until they change, and the rest
 is resent. Mapping: `ui.theme` is `system` for the day/night pair (`ui.theme_day` and `ui.theme_night`; with `ui.theme_schedule`
 true it switches at `ui.theme_night_start` and `ui.theme_day_start` instead of following the OS) or a scheme id;
-`ui.font_body` is the font's server name; `ui.list_density` and `ui.reading_density` take the step names (the server's
-`compact`, `comfortable` and `relaxed` read as Snug, Standard and Relaxed); everything else is `client.*`. Theme ids are
-the server's, names and colors come from `schemes.json` (`theme/serverThemes.ts`). "Highlight keywords" syncs as `client.highlight_keywords`; only the local
-favorites fallback has no profile key and stays on the device.
+`ui.font_body` is the font's id (`fonts.ts`; the server also reads a display name such as "Inter" as its id); `ui.list_density` and
+`ui.reading_density` take the step names (the server reads the first-draft `compact` and `comfortable` as Snug and Standard); everything else is `client.*`. Theme ids are
+the server's, names and colors come from `schemes.json` (`theme/serverThemes.ts`). "Highlight keywords" syncs as `client.highlight_keywords`; only the layout to return to from "Titles only" has no profile key and stays on the device.
 
 **Settings > Devices** (`screens/DevicesSection.tsx`): this device's name (`PUT /api/device/name`), every device with
 when it was last seen and how many settings it has of its own, Copy its settings here, Forget, "Use this device's

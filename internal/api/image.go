@@ -73,6 +73,7 @@ func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 		s.imgHSecret = secret
 		s.imgH = imgproxy.New(imgproxy.Options{
 			Secret: secret, UserAgent: s.outgoingUA(), Logger: s.log, Cache: s.opt.ImgCache,
+			BrowserUA: func() string { return store.BrowserUA(s.db.FetchSettings(context.Background())) },
 			Transport: func(allowPrivate, insecure bool) http.RoundTripper { return s.opt.Guard(allowPrivate, insecure, false) },
 		})
 	}

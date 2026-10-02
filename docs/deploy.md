@@ -375,26 +375,25 @@ open mode: sync apps still sign in with the API password, which is then the only
 
 ## Time zone
 
-There are two settings, and they used to be independent:
+The time zone is one setting, `tz` (Settings > Account & Devices, and wizard step 3). It is the zone for daily reading
+statistics, the nightly 04:10 maintenance and the weekly snapshot, backup file names and, from the next start, log
+timestamps. It is read live, so a change takes effect at the next statistics write, summary request and nightly tick,
+with no restart. The default for a new install is UTC, and the wizard preselects your browser's zone.
 
-- **The `TZ` environment variable** (IANA name). When set it is the zone for everything: log timestamps, daily reading
-  statistics, the nightly 04:10 maintenance (which writes the snapshot, and checks it on Sundays), and backup file names. Settings then shows the time
-  zone read-only ("Set by the TZ environment variable; remove it to choose here") and a change through the API is
-  refused. Before 0.5 `TZ` only set the log timestamps.
-- **The in-app time zone** (setting `tz`, Settings > Account & Devices, and wizard step 3). When `TZ` is unset this
-  governs all of the above, is read live, and changes take effect at the next statistics write, summary request and
-  nightly tick, with no restart (log timestamps follow it at the next start). The default for a new install is UTC, and the
-  wizard preselects your browser's zone.
+The `TZ` environment variable (IANA name) only gives a new install its first value: on a start where no `tz` setting
+exists yet, Kipple stores `TZ` as the setting. After that `TZ` is not read for the zone, so changing or removing it no
+longer moves statistics, the nightly job or backup names; choose in Settings. (Go itself still reads `TZ` for the first
+start-up log lines and for the CLI subcommands.) An unknown name in `TZ` stops a start that would have stored it.
 
-Precedence: `TZ` if set, else the in-app setting, else UTC. A change applies to new statistics only: rows already
-recorded keep the local date and hour of the zone that was in effect when they were written, so a day never moves. Dates
-in the web app follow each device's own clock, whatever the server zone is.
+A change applies to new statistics only: rows already recorded keep the local date and hour of the zone that was in
+effect when they were written, so a day never moves. Dates in the web app follow each device's own clock, whatever the
+server zone is.
 
 **Known limitation.** Kipple cannot tell an explicit choice of UTC from the untouched default, because both are stored as
 `UTC`. So the wizard's time zone step, when it opens with `UTC` saved, treats it as "not chosen yet" and suggests your
 browser's zone; that suggestion is only saved if you press Continue. (In a Run setup again session the saved zone is kept
 as the choice.) An install upgraded from before 0.5 is not affected by the default at all: the upgrade wrote its zone
-(`America/New_York`, or whatever it had already chosen). This was left as it is on purpose.
+(`America/New_York`, or whatever it had already chosen). This was left as it is on purpose. (A `TZ` of `UTC` on a new install is stored as `UTC`, so it behaves the same way.)
 
 ## About, debug info and versions
 
@@ -699,13 +698,6 @@ image has no shell):
    7080 for an unset value and logged a WARN at each start; 0.6.0 removed that fallback, so an unset value is 1919 and a
    `7080:7080` mapping would point at nothing: set it explicitly before upgrading to 0.6.0. Your port mapping (for
    example `7080:7080`), reverse proxy, tunnel and sync clients keep working untouched. Moving to 1919 is optional and changes all of those.
-2. **`TZ` and the in-app time zone agree, or you know which you want.** Before 0.5 a `TZ` environment variable set only
-   the log timestamps, and daily statistics and the nightly job followed the in-app time zone (Settings > Account &
-   Devices; `America/New_York` unless you changed it). From 0.5 a set `TZ` governs statistics and the nightly job too and
-   the in-app zone becomes read-only. If your `TZ` differs from the in-app zone, the upgrade would silently move new
-   statistics to `TZ`'s zone (Kipple logs a WARN naming both at every start). Either make `TZ` match, remove `TZ` from the
-   environment so the in-app zone keeps governing, or accept the change. Rows already recorded are never rewritten
-   either way; a day already counted stays on its date.
 
 What you will notice: nothing else. The setup wizard does not run for an existing account (Settings > Account & Devices >
 Run setup again is there if you want the tour), sign-in is unchanged, and `KIPPLE_USERNAME`, `KIPPLE_PASSWORD` and

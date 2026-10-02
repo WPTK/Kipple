@@ -41,7 +41,7 @@ func newCache(t *testing.T, tune ...func(*Options)) (*Cache, *fakeClock) {
 	t.Helper()
 	clk := &fakeClock{t: time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)}
 	o := Options{
-		Dir: filepath.Join(t.TempDir(), "imgcache"), MaxBytes: 1 << 20, Now: clk.Now, NoBackgound: true,
+		Dir: filepath.Join(t.TempDir(), "imgcache"), MaxBytes: 1 << 20, Now: clk.Now, NoBackground: true,
 		DiskSpace: func(string) (uint64, uint64, error) { return 500 << 30, 800 << 30, nil },
 		// The eviction tests use small files and exact byte counts; the block
 		// and URL charge has its own tests.

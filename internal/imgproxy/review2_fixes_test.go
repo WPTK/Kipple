@@ -36,7 +36,7 @@ func newFullRig(t *testing.T, co func(*imgcache.Options), tune ...func(*Options)
 	free := &atomic.Uint64{}
 	free.Store(500 << 30)
 	o := imgcache.Options{
-		Dir: filepath.Join(t.TempDir(), "ic"), MaxBytes: 64 << 20, Now: clk.Now, NoBackgound: true,
+		Dir: filepath.Join(t.TempDir(), "ic"), MaxBytes: 64 << 20, Now: clk.Now, NoBackground: true,
 		DiskSpace: func(string) (uint64, uint64, error) { return free.Load(), 800 << 30, nil },
 	}
 	if co != nil {

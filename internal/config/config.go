@@ -29,7 +29,7 @@ type Config struct {
 	APIPassword     string         // KIPPLE_API_PASSWORD, optional initial
 	PublicURL       string         // KIPPLE_PUBLIC_URL
 	TrustedProxyIPs []netip.Prefix // KIPPLE_TRUSTED_PROXY_IPS, comma-separated addresses or CIDR ranges
-	TZ              string         // TZ: "" when unset (then the in-app tz setting governs, default UTC)
+	TZ              string         // TZ: "" when unset. Only seeds the tz setting of a new install (store.SeedZone)
 	AllowedHosts    []string       // KIPPLE_ALLOWED_HOSTS, comma-separated host names or *.suffix (normalized)
 	SchedTick       time.Duration  // KIPPLE_SCHED_TICK, default 30s
 	FetchWorkers    int            // KIPPLE_FETCH_WORKERS, default 8

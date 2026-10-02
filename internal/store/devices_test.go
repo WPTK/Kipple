@@ -49,9 +49,9 @@ func TestDeviceRegisterTouchAndProfile(t *testing.T) {
 	_, err = e.db.PatchDeviceProfile(e.ctx, devID(9), map[string]any{"a": 1})
 	require.ErrorIs(t, err, ErrDeviceNotFound)
 
-	require.NoError(t, e.db.ReplaceDeviceProfile(e.ctx, devID(1), map[string]any{"ui.font_size": 20}))
+	require.NoError(t, e.db.ReplaceDeviceProfile(e.ctx, devID(1), map[string]any{"ui.list_density": "dense"}))
 	got, _, _ = e.db.GetDevice(e.ctx, devID(1))
-	require.Equal(t, map[string]any{"ui.font_size": float64(20)}, got.Profile)
+	require.Equal(t, map[string]any{"ui.list_density": "dense"}, got.Profile)
 	require.ErrorIs(t, e.db.ReplaceDeviceProfile(e.ctx, devID(9), nil), ErrDeviceNotFound)
 
 	require.NoError(t, e.db.SetDeviceName(e.ctx, devID(1), "Phone"))

@@ -69,8 +69,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 - **One-time, owner, after the first image is pushed:** make the GHCR package `kipple` public and confirm it is linked to
   `WPTK/Kipple` (step 11); until then anonymous pulls, and the README quickstart, fail.
 - **On Host-A, before the upgrade** (docs/deploy.md, "Schema 9 -> 10 and upgrading from 0.3 to 0.5"): confirm the `kipple`
-  service has `KIPPLE_ADDR=:7080` set (from 0.6.0 an unset value is 1919, so a `7080:7080` mapping needs it);
-  compare Host-A's `TZ` with the in-app time zone, since a set `TZ` now also governs statistics and the nightly job; take
+  service has `KIPPLE_ADDR=:7080` set (from 0.6.0 an unset value is 1919, so a `7080:7080` mapping needs it); take
   the off-box backup (step 7); rehearse migration 0010 on a copy of the latest snapshot (Suite 4).
 - **Deploy source.** 0.5.0-beta.1 is built from the tag on Host-A exactly as step 9 says (that step is unchanged; add
   `KIPPLE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` to it if you want the build date on the About screen). From 0.5.0
@@ -79,7 +78,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
   then `up -d kipple` (named service); build-from-tag stays as the fallback.
 - **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and schema 10;
   the log shows the port line (listening on the port `KIPPLE_ADDR` names, 1919 if unset) and no setup banner;
-  Settings > About matches; the existing account signs in with no wizard; a `TZ` mismatch WARN is absent.
+  Settings > About matches; the existing account signs in with no wizard.
 - **UAT Suite 5** (`docs/uat-plan.md`, rewritten for the wizard) on a Linux host with Docker, not Host-B, against the pushed
   prerelease image, and once on arm64. Findings go in the `uat-findings` doc; P0 and P1 block the promotion to rc.
 - **`kipple-history`, then the website (step 12):** record the exception and the decisions there; the site's quickstart text

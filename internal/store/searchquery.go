@@ -42,12 +42,11 @@ import (
 // no trigram index.
 const (
 	maxSearchTerms    = 12
-	maxSearchTokens   = maxSearchTerms // kept for the old name
-	maxSearchTokenLen = 64             // runes
-	maxSearchInput    = 512            // bytes
-	minPrefixRunes    = 3              // shortest word that may be a prefix
-	minPrefixCJK      = 2              // ... for Han, Kana and Hangul
-	maxPrefixTerms    = 3              // prefixes per query
+	maxSearchTokenLen = 64  // runes
+	maxSearchInput    = 512 // bytes
+	minPrefixRunes    = 3   // shortest word that may be a prefix
+	minPrefixCJK      = 2   // ... for Han, Kana and Hangul
+	maxPrefixTerms    = 3   // prefixes per query
 )
 
 // searchTerm is one parsed unit of user text.
