@@ -411,7 +411,7 @@ var settingDefs = withScopes([]settingDef{
 			}
 			return s, ""
 		}},
-	{Key: store.SettingOpenLAN, Label: "Also allow devices on my local network", Description: "Only matters when Kipple has no password (open mode). Normally only this computer and your Tailscale devices can use it then; with this on, every device on your local network can too, and can read and change everything. In Docker, where Kipple cannot see your tailnet, Tailscale devices need this too.",
+	{Key: store.SettingOpenLAN, Label: "Also allow devices on my local network", Description: "Only matters when Kipple has no password (open mode). Normally only this computer and your Tailscale devices can use it then; with this on, every device that reaches Kipple over a private network address (a home LAN, or a Docker network) can too, and can read and change everything. A Tailscale-range address (100.64.0.0/10, which is also carrier-grade NAT and cloud overlay space) is let in this way only when it reaches a private address of this computer. In Docker, where Kipple cannot see your tailnet, Tailscale devices need this too.",
 		Group: groupAccount, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides IP addresses, localhost and .localhost and .ts.net names (and, during setup only, single-word names and .local, .lan, .home.arpa and .internal names): exact names such as rss.example.com, nas or *.local, or *.example.com.",
 		Group: groupAccount, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},
