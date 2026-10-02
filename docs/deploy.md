@@ -187,6 +187,14 @@ the browser shows the setup wizard instead of a sign-in screen, and nothing can 
   replace the code (a new one is printed, at most once an hour). At 120 bits none of this is about feasibility.
 - **Who can claim.** Whoever can read the container's log, who already controls the host. Nobody else can create the
   account, however early they reach the port.
+- **The code is in the log.** The boxed message puts the setup code and the `#setup=` link in the container's standard
+  error, so anyone who can read that log can complete setup until it finishes. That includes login-less log viewers on
+  your LAN (Dozzle without authentication, for example). Finish setup promptly after the first start, and keep the
+  container's logs private until you have.
+- **What signed-out visitors can see.** `GET /api/instance` and, in setup mode, `GET /api/setup/state` answer without
+  signing in (from an address the host gate admits). They reveal only the instance's state: whether setup is pending,
+  the sign-in mode (`open`, `access` or `password`), whether Cloudflare Access is configured and when the setup code was
+  issued. No version, username or feed data.
 - **Setup is not health.** `/healthz` and the container's health check answer `ok` in setup mode: healthy means serving,
   not configured. `/_status` says "Setup is pending" until an account exists.
 - **Env credentials skip it.** With both `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` set on a first start, Kipple creates the

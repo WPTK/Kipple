@@ -26,6 +26,9 @@ concurrency:
 jobs:
   go:
     runs-on: ubuntu-latest
+    env:
+      # Job-level so the step-level `if` below can see it (a step's own env is not in scope for its `if`).
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -52,8 +55,6 @@ jobs:
       # Skipped without the CODECOV_TOKEN secret (fork PRs, or before it is set); never fails the build.
       - name: Upload Go coverage to Codecov
         if: env.CODECOV_TOKEN != ''
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -98,6 +99,8 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     defaults:
       run:
         working-directory: web
@@ -123,8 +126,6 @@ jobs:
 
       - name: Upload web coverage to Codecov
         if: env.CODECOV_TOKEN != ''
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
