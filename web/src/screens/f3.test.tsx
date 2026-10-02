@@ -57,7 +57,6 @@ const SETTINGS: SettingMeta[] = [
   }),
   meta({ key: "tz", kind: "text", group: "account", label: "Time zone", value: "America/New_York", default: "America/New_York" }),
   meta({ key: "greader.icon_urls", kind: "bool", group: "advanced", label: "Send feed icons to sync apps", value: true, default: true }),
-  meta({ key: "ui.layouts", kind: "json", group: "advanced", surface: "hidden", value: {}, default: {} }),
 ];
 
 const settingsBody = (list = SETTINGS) => ({ settings: list, values: Object.fromEntries(list.map((s) => [s.key, s.value])) });

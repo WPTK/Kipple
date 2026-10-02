@@ -10,7 +10,7 @@ export interface FontDef {
   group: FontGroup;
   /** CSS font-family list, or null for the built-in default. */
   stack: string | null;
-  /** The name the server's `ui.font_body` setting uses, when it has one. */
+  /** The display name the server also accepts for this font (the setup wizard still sends it; the server stores the id). */
   server?: string;
 }
 

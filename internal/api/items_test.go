@@ -1035,7 +1035,6 @@ func TestBootstrap(t *testing.T) {
 	require.EqualValues(t, 90, set["retention.restore_days"])
 	require.Equal(t, "America/New_York", set["tz"])
 	require.Equal(t, "all", set["imgproxy.mode"])
-	require.Equal(t, false, set["stats.api_single_read_is_open"])
 	require.Equal(t, true, set["stats.enabled"])
 	require.Equal(t, "sunday", set["stats.week_start"])
 	require.Equal(t, true, set["stats.wrapped_enabled"])

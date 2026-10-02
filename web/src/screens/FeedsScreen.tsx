@@ -533,7 +533,6 @@ export function FeedsScreen() {
             : editMode
               ? "Drag a feed or folder to reorder it. Changes are saved as you drop."
               : "Tap a folder to collapse it. Tap Edit to reorder, rename or delete a feed."}
-          {favs.mode === "device" && favs.favorites.length > 0 ? " Favorites are kept on this device." : ""}
         </p>
       </header>
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">

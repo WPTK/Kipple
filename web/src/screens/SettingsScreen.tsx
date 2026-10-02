@@ -84,7 +84,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /** Keys the screen draws itself (or does not honor yet), so the generic renderer skips them. */
-const SPECIAL = new Set(["ui.mark_read_on_scroll", "ui.font_ui"]);
+const SPECIAL = new Set(["ui.mark_read_on_scroll"]);
 
 /** Number settings that get a row of presets ("Custom" opens the stepper). Everything else is drawn from the metadata alone. */
 export const PRESETS: Record<string, readonly { value: number; label: string }[]> = {

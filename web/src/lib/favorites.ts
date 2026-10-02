@@ -1,17 +1,15 @@
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, errorMessage } from "@/api/client";
+import { api, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { toast } from "@/shell/toasts";
 import { arrayMove } from "./dnd";
-import { cleanFavorites, updateDevicePrefs, useDevicePrefs, type Favorite } from "./devicePrefs";
+import { cleanFavorites, type Favorite } from "./devicePrefs";
 import { visibleFeeds } from "./visibleFeeds";
 
 // Sidebar favorites: folders and feeds pinned at the top. They are a library setting, so they follow you
 // to every device: the server keeps them in `library.favorites` (PATCH /api/settings, at most 500 items).
-// If a server does not know that setting (an older build answers 400 "unknown setting"), they are kept on this device instead
-// and the UI still works; `mode` says which one is in use.
 
 export const FAVORITES_KEY = "library.favorites";
 export const MAX_FAVORITES = 500;
@@ -31,42 +29,19 @@ export function moveFavorite(list: readonly Favorite[], from: number, to: number
 export interface FavoritesApi {
   /** Favorites whose folder or feed still exists, in the saved order. */
   favorites: Favorite[];
-  mode: "server" | "device";
   has: (t: Favorite["t"], id: string) => boolean;
   toggle: (t: Favorite["t"], id: string) => void;
   set: (next: Favorite[]) => Promise<boolean>;
 }
 
-/** Where the server answered "not a setting I know": remembered for the session so we stop asking. */
-let serverRejects = false;
 /** Numbers the saves, so a slow older reply cannot overwrite a newer one. */
 let sent = 0;
-export function resetFavoritesMode(): void {
-  serverRejects = false;
-  sent = 0;
-}
-
-/**
- * The server saying it has no such setting (an older build): a 404, or a 400 whose issue for this key is "unknown
- * setting". Any other failure (a bad value, a busy server, being offline) is an error to show, not a reason to give
- * up on syncing for the rest of the session.
- */
-export function isUnknownSetting(e: unknown): boolean {
-  if (!(e instanceof ApiError)) return false;
-  if (e.status === 404) return true;
-  if (e.status !== 400) return false;
-  const issues = e.body?.issues;
-  return Array.isArray(issues) && issues.some((i) => i && i.key === FAVORITES_KEY && /unknown setting/i.test(String(i.message)));
-}
 
 export function useFavorites(): FavoritesApi {
   const qc = useQueryClient();
   const boot = useBootstrap();
-  const dp = useDevicePrefs();
   const raw = boot.data?.settings?.[FAVORITES_KEY];
-  const serverList = Array.isArray(raw) ? cleanFavorites(raw) : null;
-  const mode: "server" | "device" = serverList && !serverRejects ? "server" : "device";
-  const stored = mode === "server" ? (serverList as Favorite[]) : dp.favoritesLocal;
+  const stored = useMemo(() => (Array.isArray(raw) ? cleanFavorites(raw) : []), [raw]);
 
   const alive = useMemo(() => {
     const folders = new Set((boot.data?.folders ?? []).map((f) => f.id));
@@ -82,10 +57,6 @@ export function useFavorites(): FavoritesApi {
         return false;
       }
       const list = cleanFavorites(next);
-      if (mode === "device") {
-        updateDevicePrefs({ favoritesLocal: list });
-        return true;
-      }
       const readFavs = () => qc.getQueryData<Bootstrap>(keys.bootstrap)?.settings?.[FAVORITES_KEY];
       const patchBoot = (value: unknown) =>
         qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, settings: { ...old.settings, [FAVORITES_KEY]: value } } : old));
@@ -100,22 +71,15 @@ export function useFavorites(): FavoritesApi {
       } catch (e) {
         // Undo only the favorites slice, and only if nothing newer has been applied since: the rest of the
         // bootstrap (counts, feeds) may have changed while this was in flight.
-        const unknown = isUnknownSetting(e);
         if (mine === sent) patchBoot(before);
-        if (unknown) {
-          // An older server that has no such setting: keep them on this device from now on.
-          serverRejects = true;
-          updateDevicePrefs({ favoritesLocal: list });
-          return true;
-        }
         toast(errorMessage(e), "error");
         return false;
       }
     },
-    [mode, qc],
+    [qc],
   );
 
   const has = useCallback((t: Favorite["t"], id: string) => isFav(alive, t, id), [alive]);
   const toggle = useCallback((t: Favorite["t"], id: string) => void set(toggleFavorite(stored, t, id)), [set, stored]);
-  return { favorites: alive, mode, has, toggle, set };
+  return { favorites: alive, has, toggle, set };
 }

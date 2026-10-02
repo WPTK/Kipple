@@ -24,27 +24,26 @@ func (d *DB) IntSetting(ctx context.Context, key string, def int) int {
 // §2.2: a row exists only for an overridden key). System keys (sys.*) are never
 // listed.
 var DefaultSettings = map[string]any{
-	"refresh.interval_minutes":      30,
-	"retention.default":             250,
-	"retention.restore_days":        90,
-	"fetch.user_agent":              "",
-	"fetch.user_agent_mode":         UAModeOnFailure,
-	"fetch.honor_publisher_ttl":     true,
-	SettingTZ:                       DefaultTZ,
-	SettingAllowedHosts:             []any{},
-	SettingOpenLAN:                  false,
-	"stats.api_single_read_is_open": false,
-	"stats.enabled":                 true,
-	"stats.week_start":              "sunday",
-	"stats.wrapped_enabled":         true,
-	"imgproxy.mode":                 DefaultImgMode,
-	"imgproxy.cache_mb":             DefaultImgCacheMB,
-	"greader.icon_urls":             true,
-	"fetch.fulltext_all":            false,
-	"library.favorites":             []any{},
-	"library.auto_read_days":        0,
-	"library.saved_searches":        []any{},
-	"links.strip_tracking":          true,
+	"refresh.interval_minutes":  30,
+	"retention.default":         250,
+	"retention.restore_days":    90,
+	"fetch.user_agent":          "",
+	"fetch.user_agent_mode":     UAModeOnFailure,
+	"fetch.honor_publisher_ttl": true,
+	SettingTZ:                   DefaultTZ,
+	SettingAllowedHosts:         []any{},
+	SettingOpenLAN:              false,
+	"stats.enabled":             true,
+	"stats.week_start":          "sunday",
+	"stats.wrapped_enabled":     true,
+	"imgproxy.mode":             DefaultImgMode,
+	"imgproxy.cache_mb":         DefaultImgCacheMB,
+	"greader.icon_urls":         true,
+	"fetch.fulltext_all":        false,
+	"library.favorites":         []any{},
+	"library.auto_read_days":    0,
+	"library.saved_searches":    []any{},
+	"links.strip_tracking":      true,
 
 	// Named by design §2.2, read by the Reader API (ot user changes, synchronous first fetch on subscribe).
 	"greader.ot_includes_user_changes": false,
@@ -57,12 +56,9 @@ var DefaultSettings = map[string]any{
 	"ui.theme_schedule":      false,
 	"ui.theme_night_start":   "21:00",
 	"ui.theme_day_start":     "07:00",
-	"ui.font_body":           "",
-	"ui.font_ui":             "",
-	"ui.font_size":           18,
-	"ui.reading_density":     "comfortable",
+	"ui.font_body":           "default",
+	"ui.reading_density":     "standard",
 	"ui.list_density":        "standard",
-	"ui.layouts":             map[string]any{},
 	"ui.mark_read_on_scroll": false,
 	// The newest version whose "What's new" the reader has seen ("" before any). Account-wide.
 	"ui.whats_new_seen": "",
@@ -88,8 +84,69 @@ func CanonicalTheme(id string) string {
 	return id
 }
 
-func isThemeKey(k string) bool {
-	return k == "ui.theme" || k == "ui.theme_day" || k == "ui.theme_night"
+// DensityAliases maps the first-draft reading densities to the spacing steps both density settings use.
+var DensityAliases = map[string]string{"compact": "snug", "comfortable": "standard"}
+
+// CanonicalDensity returns the step for a density name or alias; anything else is unchanged.
+func CanonicalDensity(v string) string {
+	if c, ok := DensityAliases[v]; ok {
+		return c
+	}
+	return v
+}
+
+// Font is one reading font: its id (what the setting stores and the web prefs use) and its display name.
+type Font struct{ ID, Name string }
+
+// Fonts are the bundled and system reading faces of CLAUDE.md, in menu order. "default" is the platform default.
+var Fonts = []Font{
+	{"default", "Default"}, {"easy", "Atkinson Hyperlegible Next"}, {"literata", "Literata"}, {"vollkorn", "Vollkorn"},
+	{"gentium", "Gentium Book Plus"}, {"source-serif", "Source Serif 4"}, {"arvo", "Arvo"}, {"inter", "Inter"},
+	{"manrope", "Manrope"}, {"source-sans", "Source Sans 3"}, {"jetbrains-mono", "JetBrains Mono"},
+	{"source-code", "Source Code Pro"}, {"new-york", "New York"}, {"charter", "Charter"}, {"sf-pro", "SF Pro"},
+	{"sf-mono", "SF Mono"}, {"georgia", "Georgia"}, {"menlo", "Menlo"},
+}
+
+// IsFontID reports whether id is one of Fonts.
+func IsFontID(id string) bool {
+	for _, f := range Fonts {
+		if f.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// CanonicalFont returns the font id for an id or a display name ("" means the default); anything else is unchanged.
+// Display names were the setting's values before ids; rows stored with one are read as the id.
+func CanonicalFont(v string) string {
+	if v == "" {
+		return "default"
+	}
+	for _, f := range Fonts {
+		if v == f.Name {
+			return f.ID
+		}
+	}
+	return v
+}
+
+// canonicalSetting rewrites an old spelling of a stored value to the current one. Stored rows are never
+// rewritten: the change is applied when a value is read.
+func canonicalSetting(k string, v any) any {
+	s, ok := v.(string)
+	if !ok {
+		return v
+	}
+	switch k {
+	case "ui.theme", "ui.theme_day", "ui.theme_night":
+		return CanonicalTheme(s)
+	case "ui.reading_density", "ui.list_density":
+		return CanonicalDensity(s)
+	case "ui.font_body":
+		return CanonicalFont(s)
+	}
+	return v
 }
 
 // MergedSettings returns DefaultSettings overlaid with the stored rows for
@@ -117,10 +174,7 @@ func (d *DB) MergedSettings(ctx context.Context) (map[string]any, error) {
 			if k == SettingFavorites {
 				val = readFavorites(val) // legacy spellings ("007") and repeats never reach the UI
 			}
-			if sv, ok := val.(string); ok && isThemeKey(k) {
-				val = CanonicalTheme(sv)
-			}
-			out[k] = val
+			out[k] = canonicalSetting(k, val)
 		}
 	}
 	return out, rows.Err()

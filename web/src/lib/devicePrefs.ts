@@ -82,11 +82,9 @@ export interface DevicePrefs {
   linkTarget: LinkTarget | null;
   /** The unread badge on the tab bar and sidebar. */
   unreadBadge: UnreadBadge;
-  /** Favorites kept on this device when the server does not accept them. */
-  favoritesLocal: Favorite[];
   /** Draw the words of Highlight filters in lists and articles (the reading menu's "Highlight keywords"). */
   highlightKeywords: boolean;
-  /** The layout to go back to when "Titles only in lists" is turned off. Local to this device (no profile key), like favoritesLocal. */
+  /** The layout to go back to when "Titles only in lists" is turned off. Local to this device (no profile key). */
   layoutBeforeTitlesOnly: LayoutId | null;
 }
 
@@ -106,7 +104,6 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   collapsedFolders: [],
   linkTarget: null,
   unreadBadge: "count",
-  favoritesLocal: [],
   highlightKeywords: true,
   layoutBeforeTitlesOnly: null,
 };
@@ -161,7 +158,6 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       collapsedFolders: Array.isArray(v?.collapsedFolders) ? v.collapsedFolders.filter((x): x is string => typeof x === "string") : [],
       linkTarget: v?.linkTarget === "new" || v?.linkTarget === "same" ? v.linkTarget : null,
       unreadBadge: UNREAD_BADGES.includes(v?.unreadBadge as UnreadBadge) ? (v?.unreadBadge as UnreadBadge) : d.unreadBadge,
-      favoritesLocal: cleanFavorites(v?.favoritesLocal),
       highlightKeywords: v?.highlightKeywords !== false,
       layoutBeforeTitlesOnly: isLayoutId(v?.layoutBeforeTitlesOnly) && v.layoutBeforeTitlesOnly !== "headlines" ? v.layoutBeforeTitlesOnly : null,
     };
