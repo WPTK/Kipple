@@ -572,8 +572,8 @@ space cannot be read.
 Migration 0010 rebuilds the one-row `account` table (adding `auth_mode` and `created_via`, with a check that open mode has
 no password hash) and, for a database that already has an account, writes three settings so that nothing changes for it:
 `sys.setup_completed_at` (an existing account never sees onboarding), `tz` set to `America/New_York` unless a time
-zone was already chosen, and `sys.legacy_port` (a marker of 0.5's 7080 fallback; since 1.0 nothing reads it). It is quick (one row), and the first
-start writes `/data/backup/pre-migration-9-10-<ns>.db` before migrating. A 0.3.x binary refuses the schema-10 database, so a
+zone was already chosen, and `sys.legacy_port` (a marker of 0.5's 7080 fallback; since 1.0 nothing reads it). It is quick (one row), and
+the first start writes `/data/backup/pre-migration-9-10-<ns>.db` before migrating. A 0.3.x binary refuses the schema-10 database, so a
 rollback is the procedure above with that snapshot, and a database created fresh by 0.5 has no 0.3 snapshot and stays on 0.5.
 
 **Before upgrading an existing install, check two things** (`docker inspect` shows the container's environment, since the

@@ -602,6 +602,3 @@ func TestBackupFilenameFollowsTheEffectiveZone(t *testing.T) {
 	require.NoError(t, store.SetEnvZone("Asia/Tokyo"))
 	require.Equal(t, "kipple-backup-20260115-123000.zip", name(), "TZ wins")
 }
-
-// The live database is read with its committed WAL, and nothing is created
-// beside it.

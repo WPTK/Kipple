@@ -623,8 +623,8 @@ previous good digest with `imagetools create`, no rebuild. Signed digests are ne
 - **Claim race:** N goroutines with the valid token and M with wrong ones hammer `claim` + `account` against one
   httptest server and one store; exactly one `201`, every other account call `409` or `401`, one row, one session
   for the winner. Run under `-race` in CI (not locally on Host-B, which has no gcc).
-- Migration 0010 test (section 6). Port: default, legacy shim only with `sys.legacy_port` and no `KIPPLE_ADDR`,
-  fallback on `EADDRINUSE`, healthcheck probing order 1919, 7080, 1138.
+- Migration 0010 test (section 6). Port: default, legacy shim only with `sys.legacy_port` and no `KIPPLE_ADDR`
+  (removed at 1.0), fallback on `EADDRINUSE`, healthcheck probing order 1919, 7080, 1138 (now 1919, 1138; removed at 1.0).
 - Time zone (7a): `store.Zone` precedence (env, setting, UTC) with a table test; `PATCH tz` refused with
   `env_override` when `TZ` is set; changing `tz` mid-process moves the next stats row's `local_date` and the nightly
   run with no restart, and leaves every existing `stats_events` row byte-identical; `tz` across a DST boundary; the
@@ -659,7 +659,7 @@ The build-from-source path moves to a shorter "For developers" check.
 | PR | Scope | Depends on | Changelog fragment |
 |---|---|---|---|
 | **A** release workflow | `release.yml`, `ci.yml` `workflow_call`, Dockerfile cross-compile (`$BUILDPLATFORM`, `TARGETARCH`), metadata labels, `RELEASING.md` steps for GHCR, cosign verify text | none | `added` (signed multi-arch images on GHCR) |
-| **B** setup-mode backend | `internal/setup` (token, gates, shared account creation), migration 0010, new and changed routes, open mode, Host gate, port 1919 and fallback, healthcheck constant, CLI changes (`setup-token`, `password`, messages), starter-feeds endpoints (list embedded by C; B ships a two-feed placeholder file so it is testable alone), **the time zone setting** (7a: `store.Zone`, env precedence, `env_override` in settings meta, `tz` default UTC, explicit zones replacing `time.Local`) and `onboarding/restart` | none | `added` wizard backend, `changed` default port 1919 (7080 kept for existing installs through 0.x), `changed` new installs default to UTC and a set `TZ` now also governs stats, `security` Host gate |
+| **B** setup-mode backend | `internal/setup` (token, gates, shared account creation), migration 0010, new and changed routes, open mode, Host gate, port 1919 and fallback, healthcheck constant, CLI changes (`setup-token`, `password`, messages), starter-feeds endpoints (list embedded by C; B ships a two-feed placeholder file so it is testable alone), **the time zone setting** (7a: `store.Zone`, env precedence, `env_override` in settings meta, `tz` default UTC, explicit zones replacing `time.Local`) and `onboarding/restart` | none | `added` wizard backend, `changed` default port 1919 (7080 kept for existing installs through 0.x; removed at 1.0), `changed` new installs default to UTC and a set `TZ` now also governs stats, `security` Host gate |
 | **E** build info | ldflags, `version -v`, `/api/about`, `sys.last_version` and downgrade message, `web_build`, mismatch banner, what's-new, About screen | A for the Dockerfile ldflags and web-stage `VERSION` (rebase on A) | `added` |
 | **C** wizard UI + feeds file | `web/src/setup/*`, `/welcome` route, `LoginScreen` open-mode branch, `starter/feeds.json` real content, `scripts/check-starter-feeds.mjs`, Playwright addition | B's API contract (this document); merges after B | `added` |
 | **D** docs | README Quickstart (pull-and-run first, build-from-source second), `docker-compose.example.yml` (port, image line), `.env.example` (port default, `KIPPLE_ALLOWED_HOSTS`, account variables now optional), `docs/deploy.md` upgrade notes, `docs/design.md` §7.0/§7.1, UAT Suite 5 rewrite | A, B, C, E merged | none (docs) |
@@ -673,7 +673,7 @@ One writer per PR; none touches Host-A. Nothing merges before the beta.2 soak en
 
 | Risk | Likelihood | Mitigation / rollback |
 |---|---|---|
-| Host-A relies on the default port and goes dark behind `7080:7080` | Very low | Legacy shim (8.3) plus the deploy checklist line |
+| Host-A relies on the default port and goes dark behind `7080:7080` | Very low | Legacy shim (8.3, removed at 1.0) plus the deploy checklist line |
 | Host-A's `TZ` env and its `tz` setting differ, so stats switch zone on upgrade | Low | Deploy checklist: compare them before the upgrade; past rows are never rewritten either way (7a) |
 | Migration 0010 surprises the live database | Low (one-row rebuild) | Suite 4 rehearsal on a copy of the live snapshot before deploy; pre-migration snapshot; rollback per RELEASING |
 | Open mode ends up behind a tunnel | Medium for other users | Open gate refuses forwarded requests; Settings shows the mode prominently |
@@ -693,7 +693,7 @@ has no 0.3 snapshot and stays on 0.5.
 All five recommendations were accepted, plus one new requirement.
 
 1. **Port shim.** Existing installs (an account row before 0010) with `KIPPLE_ADDR` unset keep listening on 7080 with
-   a WARN, through 0.x; removed at 1.0. Fresh installs get 1919. Design in 8.3, marker in 0010.
+   a WARN, through 0.x; removed at 1.0 (done). Fresh installs get 1919. Design in 8.3, marker in 0010.
 2. **Host-A deploy source.** 0.5.0-beta.1 is built from the tag on Host-A as today; from 0.5.0 Host-A pulls the
    signed GHCR image by digest, with build-from-tag kept as the fallback. `docs/RELEASING.md` changes in PR D.
 3. **Open mode and the LAN.** Refused by default; `security.open_lan` (Settings, "Also allow devices on my local
