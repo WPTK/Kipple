@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,10 +29,9 @@ import (
 // through the Host gate like the real handler chain.
 type setupHarness struct {
 	*harness
-	mgr    *setup.Manager
-	dir    string
-	banner *bytes.Buffer
-	root   http.Handler
+	mgr     *setup.Manager
+	started *atomic.Int32 // how many times the background work was started
+	root    http.Handler
 }
 
 const (
@@ -48,10 +47,8 @@ func newSetupHarness(t *testing.T, tune ...func(*Options)) *setupHarness {
 	db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(dir, "kipple.db"), Clock: clk})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	banner := &bytes.Buffer{}
-	mgr := setup.New(setup.Options{DataDir: dir, Out: banner, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: clk.Now})
-	require.NoError(t, mgr.Begin())
-	mgr.Announce("1919")
+	started := &atomic.Int32{}
+	mgr := setup.NewPending(func() { started.Add(1) })
 
 	h := &harness{t: t, db: db, hub: events.NewWithClock(clk), sched: &fakeSched{}, clk: clk, mux: http.NewServeMux()}
 	opt := Options{DB: db, Sched: h.sched, Hub: h.hub, Now: clk.Now, Heartbeat: 20 * time.Millisecond, Setup: mgr,
@@ -61,10 +58,9 @@ func newSetupHarness(t *testing.T, tune ...func(*Options)) *setupHarness {
 	}
 	h.srv = New(opt)
 	t.Cleanup(h.srv.Close)
-	h.srv.setupWrongDelay = 0 // tests that need the hold set it themselves
 	h.srv.Register(h.mux)
 	h.mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("spa")) }))
-	return &setupHarness{harness: h, mgr: mgr, dir: dir, banner: banner, root: h.srv.HostGate(h.mux)}
+	return &setupHarness{harness: h, mgr: mgr, started: started, root: h.srv.HostGate(h.mux)}
 }
 
 // req sends a same-origin request from loopback to 127.0.0.1:1919 through the
@@ -84,14 +80,6 @@ func (h *setupHarness) req(method, path, body string, mod ...func(*http.Request)
 	rec := httptest.NewRecorder()
 	h.root.ServeHTTP(rec, r)
 	return rec
-}
-
-func (h *setupHarness) token() string {
-	h.t.Helper()
-	tok, ok, err := setup.ReadToken(h.dir)
-	require.NoError(h.t, err)
-	require.True(h.t, ok)
-	return tok
 }
 
 func host(v string) func(*http.Request) { return func(r *http.Request) { r.Host = v } }
@@ -116,18 +104,9 @@ func cookieNamed(rec *httptest.ResponseRecorder, name string) *http.Cookie {
 	return nil
 }
 
-func tokenBody(tok string) string {
-	b, _ := json.Marshal(map[string]string{"token": tok})
-	return string(b)
-}
-
-func (h *setupHarness) claim(tok string, mod ...func(*http.Request)) *http.Cookie {
-	h.t.Helper()
-	rec := h.req("POST", "/api/setup/claim", tokenBody(tok), mod...)
-	require.Equal(h.t, http.StatusNoContent, rec.Code, rec.Body.String())
-	c := cookieNamed(rec, setupCookieName)
-	require.NotNil(h.t, c)
-	return c
+// createAccount posts the account form (no setup code: the first request wins).
+func (h *setupHarness) createAccount(fields map[string]any, mod ...func(*http.Request)) *httptest.ResponseRecorder {
+	return h.req("POST", "/api/setup/account", accountBody(fields), mod...)
 }
 
 func accountBody(fields map[string]any) string {
@@ -144,38 +123,28 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 
 func TestSetupHappyPathWithPassword(t *testing.T) {
 	h := newSetupHarness(t)
-	require.Contains(t, h.banner.String(), h.token(), "the banner shows the code")
 
+	// The first screen asks one thing: is there an account? Nothing else is
+	// asked before it exists.
 	rec := h.req("GET", "/api/instance", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Header().Get("Cache-Control"), "no-store")
-	require.JSONEq(t, `{"setup":true,"auth":null}`, rec.Body.String())
-
-	st := decode(t, h.req("GET", "/api/setup/state", ""))
-	require.Equal(t, false, st["claimed"])
+	st := decode(t, rec)
+	require.Equal(t, true, st["setup"])
+	require.Nil(t, st["auth"])
 	require.Equal(t, map[string]any{"enabled": false, "verified": false}, st["access"])
 	require.Equal(t, map[string]any{"reason": nil, "lan_reason": nil}, st["open"])
-	require.Contains(t, st["token_hint"], "2026-09-24T12:00:00Z")
+	require.Zero(t, h.started.Load())
 
-	// Hand-typed: lower case, spaces for dashes.
-	sc := h.claim(strings.ToLower(strings.ReplaceAll(h.token(), "-", " ")))
-	require.True(t, sc.HttpOnly)
-	require.Equal(t, http.SameSiteStrictMode, sc.SameSite)
-	require.Equal(t, "/api/setup", sc.Path)
-	require.Equal(t, 3600, sc.MaxAge)
-	require.False(t, sc.Secure)
-	st = decode(t, h.req("GET", "/api/setup/state", "", withCookies(sc)))
-	require.Equal(t, true, st["claimed"])
-
-	rec = h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass}), withCookies(sc))
+	rec = h.createAccount(map[string]any{"username": "reader", "password": setupPass})
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.JSONEq(t, `{"username":"reader","auth_mode":"password"}`, rec.Body.String())
 	sess := cookieNamed(rec, cookieName)
-	require.NotNil(t, sess)
+	require.NotNil(t, sess, "the claim signs this browser in with the normal session cookie")
 	require.Equal(t, 90*24*3600, sess.MaxAge)
-	cleared := cookieNamed(rec, setupCookieName)
-	require.NotNil(t, cleared)
-	require.Equal(t, -1, cleared.MaxAge, "the setup cookie is cleared")
+	for _, c := range rec.Result().Cookies() {
+		require.Equal(t, cookieName, c.Name, "no other cookie: there is no setup session")
+	}
 
 	acct, ok, err := h.db.Account(context.Background())
 	require.NoError(t, err)
@@ -183,15 +152,12 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	require.Equal(t, store.CreatedViaWizard, acct.CreatedVia)
 	require.True(t, auth.CheckPassword(setupPass, acct.PasswordHash))
 
-	// Setup is over: the routes answer 404 forever, the token file is gone.
+	// Setup is over: the route answers 404 forever, and the background work started once.
 	require.False(t, h.mgr.Pending())
-	for _, p := range [][2]string{{"GET", "/api/setup/state"}, {"POST", "/api/setup/claim"}, {"POST", "/api/setup/account"}} {
-		rec := h.req(p[0], p[1], tokenBody(h.token0()), withCookies(sc))
-		require.Equal(t, http.StatusNotFound, rec.Code, p[1])
-		require.JSONEq(t, `{"error":"not_found"}`, rec.Body.String())
-	}
-	_, ok, _ = setup.ReadToken(h.dir)
-	require.False(t, ok)
+	require.EqualValues(t, 1, h.started.Load())
+	rec = h.createAccount(map[string]any{"username": "other", "password": setupPass})
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.JSONEq(t, `{"error":"not_found"}`, rec.Body.String())
 	require.JSONEq(t, `{"setup":false,"auth":"password"}`, h.req("GET", "/api/instance", "").Body.String())
 
 	// The session is a normal one, and onboarding is pending until finished.
@@ -210,14 +176,45 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, h.req("POST", "/api/auth/login", string(b)).Code)
 }
 
-// token0 is any well-formed token (for bodies sent after setup ended).
-func (h *setupHarness) token0() string { return "0000-0000-0000-0000-0000-0000" }
+// While Kipple has no account, only /api/instance, the account route, /healthz
+// and the app shell answer; everything else says there is nobody to sign in as.
+func TestUnclaimedRouteTable(t *testing.T) {
+	h := newSetupHarness(t)
+	// The authenticated API: 401, whatever is asked.
+	for _, rt := range [][2]string{
+		{"GET", "/api/auth/me"}, {"POST", "/api/auth/logout"}, {"GET", "/api/bootstrap"}, {"GET", "/api/items"},
+		{"GET", "/api/settings"}, {"PATCH", "/api/settings"}, {"GET", "/api/status"}, {"POST", "/api/refresh"},
+		{"GET", "/api/events"}, {"POST", "/api/account/password"}, {"POST", "/api/backup"}, {"GET", "/api/starter-feeds"},
+		{"POST", "/api/starter-feeds"}, {"POST", "/api/onboarding/complete"}, {"GET", "/api/stats/summary"},
+		{"GET", "/api/feeds/1/icon"}, {"GET", "/img/x/y/z"},
+	} {
+		rec := h.req(rt[0], rt[1], `{}`)
+		require.Equal(t, http.StatusUnauthorized, rec.Code, "%s %s: %s", rt[0], rt[1], rec.Body.String())
+		require.Empty(t, rec.Result().Cookies(), "%s %s", rt[0], rt[1])
+	}
+	// A sign-in has nobody to sign in as: 409 setup_required, not "wrong password".
+	for _, path := range []string{"/api/auth/login", "/api/auth/open"} {
+		rec := h.req("POST", path, `{"username":"a","password":"b"}`)
+		require.Equal(t, http.StatusConflict, rec.Code, path)
+		require.Equal(t, "setup_required", decode(t, rec)["error"], path)
+		require.Nil(t, cookieNamed(rec, cookieName), path)
+	}
+	// What does answer.
+	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "").Code)
+	require.Equal(t, http.StatusOK, h.req("GET", "/healthz", "").Code)
+	require.Equal(t, "spa", h.req("GET", "/", "").Body.String())
+	require.Equal(t, http.StatusBadRequest, h.createAccount(map[string]any{"username": "bad name", "password": setupPass}).Code, "the claim route is mounted")
+	// Nothing has started and nothing was created.
+	require.Zero(t, h.started.Load())
+	require.Zero(t, h.count("SELECT count(*) FROM account"))
+	require.Zero(t, h.count("SELECT count(*) FROM sessions"))
+}
 
 // A process that started with an account never registers the setup routes.
 func TestSetupRoutesAbsentWithAccount(t *testing.T) {
 	h := newHarness(t)
 	for _, p := range [][2]string{{"GET", "/api/setup/state"}, {"POST", "/api/setup/claim"}, {"POST", "/api/setup/account"}} {
-		rec := h.do(p[0], p[1], `{"token":"x"}`)
+		rec := h.do(p[0], p[1], `{"username":"x","password":"abcdefgh"}`)
 		require.Contains(t, []int{http.StatusNotFound, http.StatusUnauthorized}, rec.Code, p[1])
 		require.NotEqual(t, http.StatusNoContent, rec.Code)
 	}
@@ -225,66 +222,8 @@ func TestSetupRoutesAbsentWithAccount(t *testing.T) {
 	require.JSONEq(t, `{"setup":false,"auth":"password"}`, rec.Body.String())
 }
 
-func TestSetupClaimLockoutAndRotation(t *testing.T) {
-	h := newSetupHarness(t)
-	good := h.token()
-	for i := 0; i < 10; i++ {
-		rec := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000"))
-		require.Equal(t, http.StatusForbidden, rec.Code, "attempt %d", i)
-		require.Equal(t, "bad_token", decode(t, rec)["error"])
-	}
-	// Locked: further wrong tokens get 429 (uncounted: see the rotation below)...
-	for i := 0; i < 50; i++ {
-		rec := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0001"))
-		require.Equal(t, http.StatusTooManyRequests, rec.Code)
-		require.Equal(t, "locked", decode(t, rec)["error"])
-		require.Equal(t, "901", rec.Header().Get("Retry-After"), "the lockout's time left")
-	}
-	// ...but the right one is checked and accepted at once, right after them:
-	// behind Docker's forwarding every client shares one address, and a noisy
-	// device must not lock the owner out.
-	h.claim(good)
-	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code, "a success clears the address")
-	// The login lockout is separate: the same address can still sign in attempts.
-	require.Equal(t, http.StatusUnauthorized, h.req("POST", "/api/auth/login", loginBody("x")).Code, "no account yet, but not locked")
-	// Malformed bodies are not counted.
-	h.clk.Advance(15 * time.Minute)
-	for i := 0; i < 20; i++ {
-		require.Equal(t, http.StatusBadRequest, h.req("POST", "/api/setup/claim", `{"token":""}`).Code)
-		require.Equal(t, http.StatusBadRequest, h.req("POST", "/api/setup/claim", `not json`).Code)
-	}
-	// 100 wrong tokens in all (from many addresses) rotate the token.
-	for i := 0; i < 90; i++ {
-		rec := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000"), peer(fmt.Sprintf("192.0.2.%d:1", i%10+1)))
-		require.Equal(t, http.StatusForbidden, rec.Code, "attempt %d", i)
-	}
-	now := h.token()
-	require.NotEqual(t, good, now, "rotated after 100 failures")
-	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody(good), peer("198.51.100.1:1")).Code, "the old token is dead")
-	h.claim(now, peer("198.51.100.2:1"))
-}
-
-func TestSetupAccountNeedsTheSetupSession(t *testing.T) {
-	h := newSetupHarness(t)
-	body := accountBody(map[string]any{"username": "reader", "password": setupPass})
-	rec := h.req("POST", "/api/setup/account", body)
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	require.Equal(t, "setup_session", decode(t, rec)["error"])
-	forged := &http.Cookie{Name: setupCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
-	require.Equal(t, http.StatusUnauthorized, h.req("POST", "/api/setup/account", body, withCookies(forged)).Code)
-
-	first := h.claim(h.token())
-	second := h.claim(h.token())
-	require.Equal(t, http.StatusUnauthorized, h.req("POST", "/api/setup/account", body, withCookies(first)).Code, "a new claim replaces the old session")
-	h.clk.Advance(time.Hour)
-	require.Equal(t, http.StatusUnauthorized, h.req("POST", "/api/setup/account", body, withCookies(second)).Code, "the setup session expires")
-	_, ok, _ := h.db.Account(context.Background())
-	require.False(t, ok)
-}
-
 func TestSetupAccountValidation(t *testing.T) {
 	h := newSetupHarness(t)
-	sc := h.claim(h.token())
 	for _, tc := range []struct {
 		body map[string]any
 		code int
@@ -303,38 +242,37 @@ func TestSetupAccountValidation(t *testing.T) {
 		{map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": false}, 400, "ack_required"},
 		{map[string]any{"username": "reader", "passwordless": "access"}, 403, "access_required"},
 	} {
-		rec := h.req("POST", "/api/setup/account", accountBody(tc.body), withCookies(sc))
+		rec := h.req("POST", "/api/setup/account", accountBody(tc.body))
 		require.Equal(t, tc.code, rec.Code, "%v: %s", tc.body, rec.Body.String())
 		require.Equal(t, tc.err, decode(t, rec)["error"], "%v", tc.body)
 	}
-	require.Equal(t, http.StatusBadRequest, h.req("POST", "/api/setup/account", "{", withCookies(sc)).Code)
-	require.Equal(t, http.StatusBadRequest, h.req("POST", "/api/setup/account", `{"username":"a","password":"`+strings.Repeat("x", 5000)+`"}`, withCookies(sc)).Code, "the body is bounded")
+	require.Equal(t, http.StatusBadRequest, h.req("POST", "/api/setup/account", "{").Code)
+	require.Equal(t, http.StatusBadRequest, h.req("POST", "/api/setup/account", `{"username":"a","password":"`+strings.Repeat("x", 5000)+`"}`).Code, "the body is bounded")
 	_, ok, _ := h.db.Account(context.Background())
 	require.False(t, ok, "nothing was created")
 	require.True(t, h.mgr.Pending())
 }
 
-// Cross-site and header-less writes are refused before anything else, and no
-// setup route ever answers with CORS headers.
+// Cross-site and header-less writes are refused before anything else: the claim
+// has no secret, so these (plus the Host gate) are what keep a page in the
+// owner's browser from creating the account.
 func TestSetupCSRF(t *testing.T) {
 	h := newSetupHarness(t)
 	crossSite := hdr("Sec-Fetch-Site", "cross-site")
 	noClient := func(r *http.Request) { r.Header.Del("X-Kipple-Client") }
 	legacyOrigin := func(r *http.Request) { r.Header.Del("Sec-Fetch-Site"); r.Header.Set("Origin", "http://evil.example") }
-	for _, mod := range []func(*http.Request){crossSite, noClient, legacyOrigin} {
-		rec := h.req("POST", "/api/setup/claim", tokenBody(h.token()), mod)
+	noOrigin := func(r *http.Request) { r.Header.Del("Sec-Fetch-Site"); r.Header.Del("Origin") }
+	for _, mod := range []func(*http.Request){crossSite, noClient, legacyOrigin, noOrigin} {
+		rec := h.createAccount(map[string]any{"username": "reader", "password": setupPass}, mod)
 		require.Equal(t, http.StatusForbidden, rec.Code)
 		require.Equal(t, "origin", decode(t, rec)["error"])
-		require.Nil(t, cookieNamed(rec, setupCookieName))
+		require.Nil(t, cookieNamed(rec, cookieName))
 	}
-	sc := h.claim(h.token())
-	for _, mod := range []func(*http.Request){crossSite, noClient, legacyOrigin} {
-		rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass}), withCookies(sc), mod)
-		require.Equal(t, http.StatusForbidden, rec.Code)
-	}
+	require.Zero(t, h.count("SELECT count(*) FROM account"), "no refused request created the account")
+	require.True(t, h.mgr.Pending())
 	// A matching Origin (no Sec-Fetch-Site, an older browser) is fine.
 	okOrigin := func(r *http.Request) { r.Header.Del("Sec-Fetch-Site"); r.Header.Set("Origin", "http://"+setupHost) }
-	h.claim(h.token(), okOrigin)
+	require.Equal(t, http.StatusCreated, h.createAccount(map[string]any{"username": "reader", "password": setupPass}, okOrigin).Code)
 }
 
 // The Host gate refuses DNS-rebinding shapes on every route in setup mode.
@@ -342,103 +280,101 @@ func TestSetupHostGate(t *testing.T) {
 	h := newSetupHarness(t, func(o *Options) { o.AllowedHosts = []string{"rss.example.com"} })
 	for _, hv := range []string{"evil.example:1919", "evil.example.", "EVIL.EXAMPLE:1919", "127.0.0.1.nip.io:1919",
 		"localhost.evil.example", "", "evil.example:1919:1", "127.1:1919", "rss.example.com.evil.example"} {
-		for _, path := range []string{"/api/instance", "/api/setup/state", "/", "/healthz", "/api/greader.php/accounts/ClientLogin"} {
+		for _, path := range []string{"/api/instance", "/", "/healthz", "/api/greader.php/accounts/ClientLogin"} {
 			rec := h.req("GET", path, "", host(hv))
 			require.Equal(t, http.StatusMisdirectedRequest, rec.Code, "%q %s", hv, path)
 			require.Contains(t, rec.Body.String(), "KIPPLE_ALLOWED_HOSTS")
 			require.NotContains(t, rec.Body.String(), "evil", "the refused name is not echoed")
 		}
-		rec := h.req("POST", "/api/setup/claim", tokenBody(h.token()), host(hv))
+		rec := h.createAccount(map[string]any{"username": "reader", "password": setupPass}, host(hv))
 		require.Equal(t, http.StatusMisdirectedRequest, rec.Code, hv)
 	}
+	require.Zero(t, h.count("SELECT count(*) FROM account"), "a rebinding page cannot create the account")
 	for _, hv := range []string{"127.0.0.1:1919", "[::1]:1919", "localhost:1919", "nas:1919", "nas.local", "box.tail1.ts.net", "rss.example.com", "192.168.1.10:1919"} {
 		require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host(hv)).Code, hv)
 	}
 	// Once the account exists with a password, unlisted names are only logged.
-	sc := h.claim(h.token())
-	require.Equal(t, http.StatusCreated, h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass}), withCookies(sc)).Code)
+	require.Equal(t, http.StatusCreated, h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass})).Code)
 	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host("evil.example")).Code)
 }
 
-// N token holders and M guessers race claim+account on one server and store:
-// exactly one account, created once, with exactly one session.
+// Many browsers claim at once on one server and store: exactly one 201 with
+// exactly one session; every loser gets 409 already_set_up and no session.
 func TestSetupClaimRaceHasExactlyOneWinner(t *testing.T) {
 	h := newSetupHarness(t)
-	tok := h.token()
-	const n, m = 12, 12
+	const n = 24
 	var wg sync.WaitGroup
-	codes := make(chan int, n+m)
+	recs := make(chan *httptest.ResponseRecorder, n)
 	start := make(chan struct{})
-	for i := 0; i < n+m; i++ {
+	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			try := tok
-			if i >= n {
-				try = "0000-0000-0000-0000-0000-000" + string("0123456789ABCDEFGHJKMNPQRSTVWXYZ"[i%32])
-			}
-			p := peer(fmt.Sprintf("192.0.2.%d:1", i+1))
-			rec := h.req("POST", "/api/setup/claim", tokenBody(try), p)
-			c := cookieNamed(rec, setupCookieName)
-			var cs []*http.Cookie
-			if c != nil {
-				cs = append(cs, c)
-			}
-			body := accountBody(map[string]any{"username": fmt.Sprintf("user%d", i), "password": setupPass})
-			codes <- h.req("POST", "/api/setup/account", body, withCookies(cs...), p).Code
+			recs <- h.createAccount(map[string]any{"username": fmt.Sprintf("user%d", i), "password": setupPass}, peer(fmt.Sprintf("192.0.2.%d:1", i+1)))
 		}(i)
 	}
 	close(start)
 	wg.Wait()
-	close(codes)
-	created := 0
-	for c := range codes {
-		switch c {
+	close(recs)
+	created, lost := 0, 0
+	for rec := range recs {
+		switch rec.Code {
 		case http.StatusCreated:
 			created++
-		case http.StatusConflict, http.StatusUnauthorized, http.StatusNotFound:
+			require.NotNil(t, cookieNamed(rec, cookieName))
+		case http.StatusConflict:
+			lost++
+			require.Equal(t, "already_set_up", decode(t, rec)["error"])
+			require.Empty(t, rec.Result().Cookies(), "a loser is never signed in")
+		case http.StatusNotFound: // arrived after the winner finished
+			lost++
+			require.Empty(t, rec.Result().Cookies())
 		default:
-			t.Fatalf("unexpected status %d", c)
+			t.Fatalf("unexpected status %d: %s", rec.Code, rec.Body.String())
 		}
 	}
 	require.Equal(t, 1, created)
+	require.Equal(t, n-1, lost)
 	require.Equal(t, 1, h.count("SELECT count(*) FROM account"))
 	require.Equal(t, 1, h.count("SELECT count(*) FROM sessions"), "one session, the winner's")
 	require.False(t, h.mgr.Pending())
+	require.EqualValues(t, 1, h.started.Load(), "the background work started once")
 }
 
-// The same setup session replayed in parallel still creates one account.
-func TestSetupAccountReplayRace(t *testing.T) {
+// Account creation is one at a time (a flood costs one hash, not one per
+// request): a claim waits while another holds the slot, and one whose client
+// went away creates nothing.
+func TestSetupClaimsAreOneAtATime(t *testing.T) {
 	h := newSetupHarness(t)
-	sc := h.claim(h.token())
-	var wg sync.WaitGroup
-	codes := make(chan int, 16)
-	for i := 0; i < 16; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			body := accountBody(map[string]any{"username": fmt.Sprintf("user%d", i), "password": setupPass})
-			codes <- h.req("POST", "/api/setup/account", body, withCookies(sc)).Code
-		}(i)
+	h.srv.setupSlot <- struct{}{} // another claim is mid-hash
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- h.createAccount(map[string]any{"username": "reader", "password": setupPass})
+	}()
+	select {
+	case rec := <-done:
+		t.Fatalf("the claim did not wait for the slot: %d", rec.Code)
+	case <-time.After(100 * time.Millisecond):
 	}
-	wg.Wait()
-	close(codes)
-	created := 0
-	for c := range codes {
-		if c == http.StatusCreated {
-			created++
-		} else {
-			require.Contains(t, []int{http.StatusConflict, http.StatusUnauthorized, http.StatusNotFound}, c)
-		}
-	}
-	require.Equal(t, 1, created)
-	require.Equal(t, 1, h.count("SELECT count(*) FROM sessions"))
+	require.Zero(t, h.count("SELECT count(*) FROM account"))
+	<-h.srv.setupSlot
+	rec := <-done
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	// A client that went away while queued gives up without creating anything.
+	g := newSetupHarness(t)
+	g.srv.setupSlot <- struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec = g.createAccount(map[string]any{"username": "reader", "password": setupPass}, func(r *http.Request) { *r = *r.WithContext(ctx) })
+	require.Equal(t, http.StatusOK, rec.Code, "nothing is written for a cancelled request")
+	require.Zero(t, g.count("SELECT count(*) FROM account"))
+	require.True(t, g.mgr.Pending())
 }
 
 func TestSetupOpenMode(t *testing.T) {
 	h := newSetupHarness(t)
-	sc := h.claim(h.token())
 	open := accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true})
 
 	// Choosing open mode must happen from where open mode would work.
@@ -453,13 +389,13 @@ func TestSetupOpenMode(t *testing.T) {
 		{hdr("Cf-Access-Jwt-Assertion", "x"), "forwarded"},
 		{hdr("Forwarded", "for=203.0.113.9"), "forwarded"},
 	} {
-		rec := h.req("POST", "/api/setup/account", open, withCookies(sc), tc.mod)
+		rec := h.req("POST", "/api/setup/account", open, tc.mod)
 		require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 		out := decode(t, rec)
 		require.Equal(t, "open_refused", out["error"])
 		require.Equal(t, tc.reason, out["reason"])
 	}
-	rec := h.req("POST", "/api/setup/account", open, withCookies(sc))
+	rec := h.req("POST", "/api/setup/account", open)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.JSONEq(t, `{"username":"reader","auth_mode":"open"}`, rec.Body.String())
 	first := cookieNamed(rec, cookieName)
@@ -541,8 +477,7 @@ func TestSetupOpenMode(t *testing.T) {
 // Switching a password account to open mode needs the password and the open gate.
 func TestSwitchToOpenMode(t *testing.T) {
 	h := newSetupHarness(t)
-	sc := h.claim(h.token())
-	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass}), withCookies(sc))
+	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass}))
 	require.Equal(t, http.StatusCreated, rec.Code)
 	sess := cookieNamed(rec, cookieName)
 	b, _ := json.Marshal(map[string]string{"username": "reader", "password": setupPass})
@@ -574,24 +509,20 @@ func TestSwitchToOpenMode(t *testing.T) {
 	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host("evil.example")).Code, "the Host gate enforces at once")
 }
 
-// Setup behind Cloudflare Access still needs the token; the Access-only
-// account needs a verified token on the account request itself.
+// Setup behind Cloudflare Access: the Access-only account needs a verified token
+// on the account request itself; the first screen says whether one is present.
 func TestSetupWithAccess(t *testing.T) {
 	h := newSetupHarness(t, withAccess(t))
 	k, other := accessKeys(t)
-	st := decode(t, h.req("GET", "/api/setup/state", ""))
+	st := decode(t, h.req("GET", "/api/instance", ""))
 	require.Equal(t, map[string]any{"enabled": true, "verified": false}, st["access"])
-	st = decode(t, h.req("GET", "/api/setup/state", "", withJWT(h.jwt(k, nil))))
+	st = decode(t, h.req("GET", "/api/instance", "", withJWT(h.jwt(k, nil))))
 	require.Equal(t, map[string]any{"enabled": true, "verified": true}, st["access"])
-	// Access proves an identity, not ownership: no claim without the token.
-	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "access"}), withJWT(h.jwt(k, nil)))
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
 
-	sc := h.claim(h.token())
 	acc := accountBody(map[string]any{"username": "reader", "passwordless": "access"})
-	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/account", acc, withCookies(sc)).Code)
-	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/account", acc, withCookies(sc), withJWT(h.jwt(other, nil))).Code)
-	rec = h.req("POST", "/api/setup/account", acc, withCookies(sc), withJWT(h.jwt(k, nil)))
+	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/account", acc).Code)
+	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/account", acc, withJWT(h.jwt(other, nil))).Code)
+	rec := h.req("POST", "/api/setup/account", acc, withJWT(h.jwt(k, nil)))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.JSONEq(t, `{"username":"reader","auth_mode":"access"}`, rec.Body.String())
 	acct, _, _ := h.db.Account(context.Background())
@@ -602,13 +533,12 @@ func TestSetupWithAccess(t *testing.T) {
 // No route, new or old, ever answers with CORS headers, preflight included.
 func TestNoCORSHeadersAnywhere(t *testing.T) {
 	h := newSetupHarness(t)
-	sc := h.claim(h.token())
 	routes := [][2]string{
-		{"GET", "/api/instance"}, {"GET", "/api/setup/state"}, {"POST", "/api/setup/claim"}, {"POST", "/api/setup/account"},
+		{"GET", "/api/instance"}, {"POST", "/api/setup/account"},
 		{"POST", "/api/auth/open"}, {"POST", "/api/auth/login"}, {"GET", "/api/auth/me"}, {"GET", "/api/bootstrap"},
 		{"POST", "/api/onboarding/complete"}, {"POST", "/api/onboarding/restart"}, {"GET", "/api/starter-feeds"},
 		{"POST", "/api/starter-feeds"}, {"GET", "/api/settings"}, {"PATCH", "/api/settings"}, {"POST", "/api/account/password"},
-		{"GET", "/healthz"}, {"GET", "/"}, {"OPTIONS", "/api/setup/claim"}, {"OPTIONS", "/api/auth/open"},
+		{"GET", "/healthz"}, {"GET", "/"}, {"OPTIONS", "/api/setup/account"}, {"OPTIONS", "/api/auth/open"},
 	}
 	for _, rt := range routes {
 		for _, mod := range []func(*http.Request){
@@ -619,7 +549,7 @@ func TestNoCORSHeadersAnywhere(t *testing.T) {
 				r.Header.Set("Access-Control-Request-Headers", "x-kipple-client, content-type")
 			},
 		} {
-			rec := h.req(rt[0], rt[1], `{}`, withCookies(sc), mod)
+			rec := h.req(rt[0], rt[1], `{}`, mod)
 			for k := range rec.Header() {
 				require.False(t, strings.HasPrefix(strings.ToLower(k), "access-control-"), "%s %s answered %s", rt[0], rt[1], k)
 			}
@@ -673,8 +603,7 @@ func TestSettingsSecurityKeys(t *testing.T) {
 // A name added in Settings passes the Host gate at once (the cache is dropped).
 func TestAllowedHostsSettingReachesTheGate(t *testing.T) {
 	h := newSetupHarness(t)
-	sc := h.claim(h.token())
-	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}), withCookies(sc))
+	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}))
 	require.Equal(t, http.StatusCreated, rec.Code)
 	sess := cookieNamed(rec, cookieName)
 	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host("reader.example.net")).Code)
@@ -739,19 +668,18 @@ func TestHostGateLogsOnlyInPasswordMode(t *testing.T) {
 }
 
 // A row that appears while setup is pending (a lost race, or an error reported
-// after the insert committed) still ends setup mode in this process.
+// after the insert committed) still ends setup mode in this process, and the
+// loser gets no session.
 func TestSetupEndsWhenTheRowExistsWhateverTheAnswer(t *testing.T) {
 	h := newSetupHarness(t)
-	sc := h.claim(h.token())
 	_, err := h.db.CreateAccount(context.Background(), store.Account{Username: "first", PasswordHash: "h", Secret: testSecret, CreatedVia: store.CreatedViaWizard})
 	require.NoError(t, err)
-	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "second", "password": setupPass}), withCookies(sc))
+	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "second", "password": setupPass}))
 	require.Equal(t, http.StatusConflict, rec.Code)
 	require.Equal(t, "already_set_up", decode(t, rec)["error"])
 	require.False(t, h.mgr.Pending())
 	require.JSONEq(t, `{"setup":false,"auth":"password"}`, h.req("GET", "/api/instance", "").Body.String())
-	_, ok, _ := setup.ReadToken(h.dir)
-	require.False(t, ok)
+	require.EqualValues(t, 1, h.started.Load(), "an account that appeared elsewhere still starts the background work")
 }
 
 // A mode never read enforces (fail closed); a failed re-read after a change
@@ -762,8 +690,7 @@ func TestModeSnapshotFailsClosed(t *testing.T) {
 	require.False(t, h.srv.enforceHosts(&modeSnapshot{mode: store.AuthStandard}))
 
 	s := newSetupHarness(t)
-	sc := s.claim(s.token())
-	require.Equal(t, http.StatusCreated, s.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}), withCookies(sc)).Code)
+	require.Equal(t, http.StatusCreated, s.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true})).Code)
 	require.Equal(t, store.AuthOpen, s.srv.snapshot(context.Background()).mode)
 	require.NoError(t, s.db.Close()) // every read fails from here on
 	s.srv.noteMode(context.Background(), nil)
@@ -773,8 +700,7 @@ func TestModeSnapshotFailsClosed(t *testing.T) {
 
 	// A switch to open mode made here is in the fallback before any re-read.
 	p := newSetupHarness(t)
-	sc = p.claim(p.token())
-	rec := p.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass}), withCookies(sc))
+	rec := p.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass}))
 	require.Equal(t, http.StatusCreated, rec.Code)
 	sess := cookieNamed(rec, cookieName)
 	require.Equal(t, store.AuthStandard, p.srv.snapshot(context.Background()).mode)
@@ -791,22 +717,20 @@ func TestModeSnapshotFailsClosed(t *testing.T) {
 func TestSetupOpenModeFromAContainerGateway(t *testing.T) {
 	h := newSetupHarness(t)
 	gw := peer("172.17.0.1:40000")
-	st := decode(t, h.req("GET", "/api/setup/state", "", gw))
+	st := decode(t, h.req("GET", "/api/instance", "", gw))
 	require.Equal(t, map[string]any{"reason": "peer", "lan_reason": nil}, st["open"])
-	st = decode(t, h.req("GET", "/api/setup/state", ""))
+	st = decode(t, h.req("GET", "/api/instance", ""))
 	require.Equal(t, map[string]any{"reason": nil, "lan_reason": nil}, st["open"], "a bare binary on this computer")
-	st = decode(t, h.req("GET", "/api/setup/state", "", peer("203.0.113.9:1")))
+	st = decode(t, h.req("GET", "/api/instance", "", peer("203.0.113.9:1")))
 	require.Equal(t, map[string]any{"reason": "peer", "lan_reason": "peer"}, st["open"], "not from the internet at all")
 
-	sc := h.claim(h.token(), gw)
 	open := map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}
-	rec := h.req("POST", "/api/setup/account", accountBody(open), withCookies(sc), gw)
+	rec := h.createAccount(open, gw)
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	require.Equal(t, "peer", decode(t, rec)["reason"])
-	require.Equal(t, http.StatusBadRequest, h.req("POST", "/api/setup/account",
-		accountBody(map[string]any{"username": "reader", "password": setupPass, "open_lan": true}), withCookies(sc), gw).Code, "open_lan is for open mode only")
+	require.Equal(t, http.StatusBadRequest, h.createAccount(map[string]any{"username": "reader", "password": setupPass, "open_lan": true}, gw).Code, "open_lan is for open mode only")
 	open["open_lan"] = true
-	rec = h.req("POST", "/api/setup/account", accountBody(open), withCookies(sc), gw)
+	rec = h.createAccount(open, gw)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	sess := cookieNamed(rec, cookieName)
 	vals := decode(t, h.req("GET", "/api/settings", "", withCookies(sess), gw))["values"].(map[string]any)
@@ -825,138 +749,4 @@ func TestSwitchToOpenNeedsAPassword(t *testing.T) {
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Equal(t, "password_required", decode(t, rec)["error"])
-}
-
-// A parallel burst of wrong codes from one address counts at most the lockout's
-// ten towards the rotation: the owner's code survives it.
-func TestSetupClaimBurstDoesNotRotate(t *testing.T) {
-	h := newSetupHarness(t)
-	tok := h.token()
-	var wg sync.WaitGroup
-	for i := 0; i < 3*setup.DefaultRotateAfter; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			code := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code
-			if code != http.StatusForbidden && code != http.StatusTooManyRequests {
-				t.Errorf("status %d", code)
-			}
-		}()
-	}
-	wg.Wait()
-	require.Equal(t, tok, h.token(), "not rotated")
-	h.claim(tok) // the locked address's right code, checked at once
-}
-
-// Issue #156: behind a shared gateway address a device sends a wrong code every
-// second, for ten minutes, from the owner's own (locked) address; the owner
-// tries every 7 s. The owner's first attempt must succeed, wherever in the noise
-// it falls.
-func TestSetupClaimOwnerNeverStarvedByNoise(t *testing.T) {
-	for _, first := range []time.Duration{500 * time.Millisecond, 7500 * time.Millisecond, 61 * time.Second, 5*time.Minute + 500*time.Millisecond, 9*time.Minute + 59*time.Second} {
-		t.Run(first.String(), func(t *testing.T) {
-			h := newSetupHarness(t)
-			good := h.token()
-			start := h.clk.Now()
-			const step = 250 * time.Millisecond
-			owner := 0
-			for el := time.Duration(0); el <= 10*time.Minute; el += step {
-				if el%time.Second == 0 {
-					code := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code
-					require.Contains(t, []int{http.StatusForbidden, http.StatusTooManyRequests}, code, "noise at %v", el)
-				}
-				if el >= first && (el-first)%(7*time.Second) == 0 {
-					owner++
-					rec := h.req("POST", "/api/setup/claim", tokenBody(good))
-					require.Equal(t, http.StatusNoContent, rec.Code, "owner attempt %d at %v: %s", owner, el, rec.Body.String())
-					require.NotNil(t, cookieNamed(rec, setupCookieName))
-					break // the owner has the setup session
-				}
-				h.clk.Set(start.Add(el + step))
-			}
-			require.Equal(t, 1, owner, "the owner's first attempt succeeded")
-			require.Equal(t, good, h.token(), "the locked noise never rotated the code")
-		})
-	}
-}
-
-// Concurrent noise from the owner's address never makes the right code fail,
-// with the wrong-code hold on and the locked checks' slots contended.
-func TestSetupClaimRightCodeSurvivesConcurrentNoise(t *testing.T) {
-	h := newSetupHarness(t)
-	h.srv.setupWrongDelay = 2 * time.Millisecond
-	good := h.token()
-	for i := 0; i < 10; i++ { // lock the address first
-		require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code)
-	}
-	stop := make(chan struct{})
-	var noise sync.WaitGroup
-	for g := 0; g < 4*maxLockedChecks; g++ {
-		noise.Add(1)
-		go func() {
-			defer noise.Done()
-			for i := 0; ; i++ {
-				select {
-				case <-stop:
-					return
-				default:
-				}
-				code := h.req("POST", "/api/setup/claim", tokenBody(fmt.Sprintf("0000-0000-0000-0000-0000-%04d", i%10000))).Code
-				if code != http.StatusForbidden && code != http.StatusTooManyRequests {
-					t.Errorf("noise got %d", code)
-					return
-				}
-			}
-		}()
-	}
-	// A success clears the address, so the noise counts again until it is
-	// locked again: at most ten counted per success, well under the rotation.
-	for i := 0; i < 5; i++ {
-		rec := h.req("POST", "/api/setup/claim", tokenBody(good))
-		require.Equal(t, http.StatusNoContent, rec.Code, "owner attempt %d: %s", i, rec.Body.String())
-		time.Sleep(5 * time.Millisecond)
-	}
-	close(stop)
-	noise.Wait()
-	require.Equal(t, good, h.token(), "not rotated")
-}
-
-// A wrong code from a locked address is held for setupWrongDelay before its
-// 429; the right code is not held.
-func TestSetupClaimLockedWrongCodeIsHeld(t *testing.T) {
-	h := newSetupHarness(t)
-	good := h.token()
-	for i := 0; i < 10; i++ {
-		require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code)
-	}
-	h.srv.setupWrongDelay = 60 * time.Millisecond
-	began := time.Now()
-	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000")).Code)
-	require.GreaterOrEqual(t, time.Since(began), 60*time.Millisecond, "held")
-	// A cancelled request stops waiting (were it held, the test would time out).
-	h.srv.setupWrongDelay = time.Hour
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000"),
-		func(r *http.Request) { *r = *r.WithContext(ctx) }).Code)
-	h.claim(good) // still an hour's hold for a wrong code: the right one is not held
-}
-
-// Non-locked addresses: wrong codes still count and still rotate the code, and
-// the lockout still locks after ten.
-func TestSetupClaimCountingUnchangedForUnlockedAddresses(t *testing.T) {
-	h := newSetupHarness(t)
-	good := h.token()
-	for i := 0; i < setup.DefaultRotateAfter-1; i++ {
-		rec := h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000"), peer(fmt.Sprintf("192.0.2.%d:1", i/10+1)))
-		require.Equal(t, http.StatusForbidden, rec.Code, "attempt %d", i)
-	}
-	// The eleventh from one address is locked and not counted...
-	for i := 0; i < 5; i++ {
-		require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000"), peer("192.0.2.1:1")).Code)
-	}
-	require.Equal(t, good, h.token(), "locked noise did not reach the rotation")
-	// ...and the hundredth counted one rotates.
-	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", tokenBody("0000-0000-0000-0000-0000-0000"), peer("198.51.100.9:1")).Code)
-	require.NotEqual(t, good, h.token(), "rotated")
 }

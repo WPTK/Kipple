@@ -269,6 +269,14 @@ func TestRunServeStartsTheBackgroundOnlyAfterTheClaim(t *testing.T) {
 	_ = resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Equal(t, http.StatusConflict, post("/api/auth/login", `{"username":"a","password":"b"}`).StatusCode, "setup_required while unclaimed")
+	// The Reader API has no credentials to match, whatever a client sends.
+	for _, path := range []string{"/api/greader.php/reader/api/0/user-info", "/api/greader.php/reader/api/0/subscription/list?output=json"} {
+		resp, err := cl.Get(base + path)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.Equal(t, http.StatusUnauthorized, resp.StatusCode, path)
+	}
+	require.Equal(t, http.StatusUnauthorized, post("/api/greader.php/accounts/ClientLogin", "Email=a&Passwd=b").StatusCode)
 	require.Zero(t, started.Load(), "nothing starts before the claim")
 
 	claim := post("/api/setup/account", `{"username":"owner","password":"web-pw-123"}`)

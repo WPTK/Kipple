@@ -145,15 +145,15 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// One claim is hashed and inserted at a time: the hash is the expensive part,
-	// so a flood of claims fails fast instead of burning CPU. No per-address
-	// counting (behind a shared gateway that would lock the owner out, #156).
+	// so a flood of claims costs one hash, not one per request: the first
+	// creates the account and every claim queued behind it finds setup over and
+	// answers 409 at once. No per-address counting (behind a shared gateway that
+	// would lock the owner out, #156).
 	select {
 	case s.setupSlot <- struct{}{}:
 		defer func() { <-s.setupSlot }()
-	default:
-		w.Header().Set("Retry-After", "1")
-		writeErrorMsg(w, http.StatusTooManyRequests, "busy", "another account is being created; try again in a moment")
-		return
+	case <-r.Context().Done():
+		return // the client went away; nobody reads an answer
 	}
 	if !s.opt.Setup.Pending() { // the slot's previous holder won
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
