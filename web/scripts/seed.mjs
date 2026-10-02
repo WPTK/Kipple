@@ -1,6 +1,6 @@
 // Local dev backend with content.
 //
-//   npm run seed                 build and start Kipple on 127.0.0.1:7080 with a
+//   npm run seed                 build and start Kipple on 127.0.0.1:1919 with a
 //                                throwaway data dir, then import a few real feeds
 //   npm run seed -- --keep       reuse the data dir from the last run
 //   KIPPLE_DEV_DATA=D:\tmp\k npm run seed
@@ -14,7 +14,7 @@
 //                                written to <data dir>/server-stderr.log. Nothing is imported.
 //
 // Then, in another terminal, `npm run dev` (Vite proxies /api and /img to
-// 127.0.0.1:7080) and sign in as dev / dev-password-only-for-local-testing.
+// 127.0.0.1:1919) and sign in as dev / dev-password-only-for-local-testing.
 // The credentials below are for this throwaway local instance only; nothing
 // here is used in production. Needs Go on PATH and network access for the feeds.
 import { spawn, spawnSync } from "node:child_process";
@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const dataDir = process.env.KIPPLE_DEV_DATA || join(tmpdir(), "kipple-dev");
-const port = process.env.KIPPLE_DEV_PORT || "7080";
+const port = process.env.KIPPLE_DEV_PORT || "1919";
 // KIPPLE_DEV_HOST: bind another local address, for example this machine's Tailscale address, to look at a build on a
 // phone. Never a public address: the dev account's password is fixed and public.
 const host = process.env.KIPPLE_DEV_HOST || "127.0.0.1";

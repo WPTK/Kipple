@@ -82,7 +82,7 @@ install scripts and downloads no browser on `npm ci`, so the image build and CI 
 cd web
 npx playwright install chromium     # once per machine: the browser Playwright drives
 npm run build                       # the seed embeds web/dist, so build the UI first
-npm run seed                        # terminal 1: Kipple on 127.0.0.1:7080 with six sample feeds (needs Go and network)
+npm run seed                        # terminal 1: Kipple on 127.0.0.1:1919 with six sample feeds (needs Go and network)
 npm run uat                         # terminal 2, once the feeds have fetched (about a minute)
 ```
 

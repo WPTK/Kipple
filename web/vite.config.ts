@@ -134,7 +134,7 @@ function kippleSw(): Plugin {
 }
 
 // KIPPLE_DEV_BACKEND points the dev proxy at another local server (a second instance, a worktree build).
-const backend = process.env.KIPPLE_DEV_BACKEND ?? "http://127.0.0.1:7080";
+const backend = process.env.KIPPLE_DEV_BACKEND ?? "http://127.0.0.1:1919";
 
 export default defineConfig(({ command }) => {
   const build = command === "build" ? buildId() : "dev";

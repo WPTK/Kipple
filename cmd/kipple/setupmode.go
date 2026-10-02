@@ -65,6 +65,6 @@ func allowedHosts(cfg config.Config) []string {
 // runSetupToken is the `kipple setup-token` command of Kipple before 0.7, kept
 // as a stub so an old script or doc fails softly. Removed at 1.0.
 func runSetupToken(out io.Writer) error {
-	_, err := fmt.Fprintln(out, "Kipple has no setup code any more: open Kipple in a browser and create your account there (or set KIPPLE_USERNAME and KIPPLE_PASSWORD). `kipple setup-token` is removed in 1.0.")
+	_, err := fmt.Fprintln(out, "Kipple needs no setup code: open Kipple in a browser and create your account there (or set KIPPLE_USERNAME and KIPPLE_PASSWORD). `kipple setup-token` is removed in 1.0.")
 	return err
 }

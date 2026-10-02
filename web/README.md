@@ -119,7 +119,7 @@ the Reading font). The font is THE font: it applies at once to lists, the reader
 dialog keep the system UI font (`.ui-font` and the role selectors in `index.css`). "Default" leaves lists and chrome in
 the system font and articles in the reading serif. Segmented controls are pressed-style buttons over hidden native
 radios (arrow keys work); choosing one holds the control where it was on screen even when the page above reflows
-(text size scales every rem), which is what used to fling Settings around. Everything is stored per device
+(text size scales every rem), so Settings does not jump while you choose. Everything is stored per device
 (`prefs.ts`, `devicePrefs.ts`, `theme/`) and syncs to the server's device profile (see Device profile sync); the
 server's `ui.*` metadata also supplies the labels.
 
@@ -162,7 +162,7 @@ top of the sidebar and Manage feeds (drag those to order them). Favorites live i
 `library.favorites` (at most 500 `{t, id}` items); a save the server refuses is taken back and shown as an error. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move to folder (one
 reorder call) and Delete (a confirm with the count, the total starred articles, "delete starred too", progress, and a
 per-feed error list). The sidebar's folders collapse (remembered per device). Feed health is reached from the Feeds
-menu (it is no longer in the sidebar).
+menu.
 
 **Feed health** (`/health`): a sortable, filterable table on wide screens and cards on phones, plain-English
 statuses (`lib/feedStatus.ts`), the one-tap "Update to new URL" for a pending permanent redirect, the 14-day fetch
@@ -260,7 +260,7 @@ motion are followed without any setting.
 
 | Command | What |
 |---|---|
-| `npm run dev` | Vite on 127.0.0.1:5173, proxying `/api`, `/img`, `/healthz` to 127.0.0.1:7080 (`KIPPLE_DEV_BACKEND` points the proxy at another local server) |
+| `npm run dev` | Vite on 127.0.0.1:5173, proxying `/api`, `/img`, `/healthz` to 127.0.0.1:1919 (`KIPPLE_DEV_BACKEND` points the proxy at another local server) |
 | `npm run seed` | Build and run a throwaway local Kipple with a few real feeds imported (below) |
 | `npm run preview` | `vite preview` of the production build |
 | `npm run typecheck` | `tsc --noEmit` |
@@ -280,7 +280,7 @@ Use `127.0.0.1`, never `localhost` (it resolves to `::1` first on this machine a
 ```
 cd web
 npm install --cache <some-dir>   # if the shared npm cache throws EPERM, point --cache at a private directory
-npm run seed                     # terminal 1: Kipple on 127.0.0.1:7080, feeds fetching in the background
+npm run seed                     # terminal 1: Kipple on 127.0.0.1:1919, feeds fetching in the background
 npm run dev                      # terminal 2: http://127.0.0.1:5173
 ```
 
@@ -293,7 +293,7 @@ and the temp directory, home directory or a drive root are always refused. Needs
 **By hand**, without the script:
 
 ```
-set KIPPLE_ADDR=127.0.0.1:7080
+set KIPPLE_ADDR=127.0.0.1:1919
 set KIPPLE_DATA=%TEMP%\kipple-dev
 set KIPPLE_USERNAME=dev
 set KIPPLE_PASSWORD=<any local test password>

@@ -20,6 +20,9 @@ the issue, the tests). Do not over-decompose either: prefer deeper modules with 
 removal is announced in the changelog, not in runtime code. Every PR description states the root cause, what the change
 removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no root fix was possible.
 
+- Write for a stranger. User-facing text (UI, docs, errors, release notes' top paragraph) describes the product as it
+  is, with no earlier versions, old ports or past decisions; history lives in CHANGELOG.md and the decision records.
+
 ## Decisions (do not relitigate)
 
 - **Stack:** Go backend, React + TypeScript + Vite + Tailwind + shadcn frontend, SQLite in WAL
@@ -57,9 +60,9 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 
 ## Commands
 
-- Dev: `cd web && npm run seed` (Kipple on 127.0.0.1:7080 with sample feeds in `%TEMP%\kipple-dev`), or set
-  `KIPPLE_ADDR=127.0.0.1:7080` and `KIPPLE_DATA=%TEMP%\kipple-dev` and run `go run ./cmd/kipple serve`; then
-  `cd web && npm run dev` (Vite on 127.0.0.1:5173 proxies to 7080).
+- Dev: `cd web && npm run seed` (Kipple on 127.0.0.1:1919 with sample feeds in `%TEMP%\kipple-dev`), or set
+  `KIPPLE_ADDR=127.0.0.1:1919` and `KIPPLE_DATA=%TEMP%\kipple-dev` and run `go run ./cmd/kipple serve`; then
+  `cd web && npm run dev` (Vite on 127.0.0.1:5173 proxies to 1919).
 - Test: `go test ./...` and `cd web && npm test`.
 - Local CI: `pwsh scripts/ci-local.ps1` (add `-Docker` for the image build and Trivy). It mirrors the CI workflow with the same pinned tools; GitHub Actions is on (the repository is public) and its run on the exact commit is what "CI green" means; the local run is the fast check before pushing. Fuzz targets: `scripts/fuzz.ps1` before each release (see `docs/RELEASING.md`).
 - Build image locally: `docker build -t kipple:dev .`
