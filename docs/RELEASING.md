@@ -39,6 +39,10 @@ not before 2026-10-06; it is now not before a week after the 0.5.0-beta.1 deploy
 on that build. The exception is not a precedent: beta.2 onward adds no features again. The design is
 `docs/setup-wizard-design.md` (its section 15 records the owner's decisions).
 
+**2026-10-02 (owner):** the soak toward 0.5.0-rc.1 was abandoned. 0.6.0-beta.1 carries breaking cleanup (the removed
+7080 fallback), which is a minor bump under Versioning, and the soak restarts at its own deploy. 0.5.0 never ships as
+a stable release.
+
 ### 0.5.0-beta.1: merge order and pre-deploy checklist
 
 Merged 2026-09-29 and 2026-09-30 on the owner's instruction, in this order, each with green CI on the exact commit and
@@ -65,7 +69,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 - **One-time, owner, after the first image is pushed:** make the GHCR package `kipple` public and confirm it is linked to
   `WPTK/Kipple` (step 11); until then anonymous pulls, and the README quickstart, fail.
 - **On Host-A, before the upgrade** (docs/deploy.md, "Schema 9 -> 10 and upgrading from 0.3 to 0.5"): confirm the `kipple`
-  service has `KIPPLE_ADDR=:7080` set (the legacy-port fallback would keep 7080 anyway, but nothing should rely on it);
+  service has `KIPPLE_ADDR=:7080` set (from 0.6.0 an unset value is 1919, so a `7080:7080` mapping needs it);
   compare Host-A's `TZ` with the in-app time zone, since a set `TZ` now also governs statistics and the nightly job; take
   the off-box backup (step 7); rehearse migration 0010 on a copy of the latest snapshot (Suite 4).
 - **Deploy source.** 0.5.0-beta.1 is built from the tag on Host-A exactly as step 9 says (that step is unchanged; add
@@ -74,7 +78,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
   `ghcr.io/wptk/kipple@sha256:<digest from the Release notes>` in place of its `build:` and `docker compose ... pull kipple`
   then `up -d kipple` (named service); build-from-tag stays as the fallback.
 - **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and schema 10;
-  the log shows the port line (a WARN about 7080 if `KIPPLE_ADDR` were unset, none if it is set) and no setup banner;
+  the log shows the port line (listening on the port `KIPPLE_ADDR` names, 1919 if unset) and no setup banner;
   Settings > About matches; the existing account signs in with no wizard; a `TZ` mismatch WARN is absent.
 - **UAT Suite 5** (`docs/uat-plan.md`, rewritten for the wizard) on a Linux host with Docker, not Host-B, against the pushed
   prerelease image, and once on arm64. Findings go in the `uat-findings` doc; P0 and P1 block the promotion to rc.
@@ -84,7 +88,9 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 ## Before the tag
 
 1. **CI is green on the exact commit** you will deploy (not on a nearby one). Push first; nothing deploys from an unpushed tree.
-2. **Fuzz, by hand, not in CI:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean.
+2. **Fuzz, by hand:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean. The weekly
+   `Fuzz` workflow runs the same script on the default branch, but until it has run green for several weeks the
+   manual run stays the gate.
    A failure writes `testdata\fuzz\<Target>\<hash>` in the package: fix the bug, keep that file as a regression seed.
    **UAT Suite 1, also by hand:** in `web/`, `npm run build`, then `npm run seed` (it stays in the foreground), then
    in a second terminal, once the feeds have fetched (about a minute), `npm run uat` against that seeded local instance (never the live one; see `docs/uat-plan.md`, Suite 1). It must finish with exit code 0, or every
@@ -92,8 +98,10 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 3. **`/code-review high`** on the diff since the last deployed tag. Fix every finding.
 4. **CHANGELOG.md:** `node scripts/changelog.mjs preview` shows what is pending; add a one-paragraph
    `changes/_intro.md` if the release needs an intro. `node scripts/changelog.mjs release X.Y.Z` (`--dry-run` first) folds
-   the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links and deletes the
-   fragments. Review the diff (`changes/README.md`).
+   the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links, deletes the
+   fragments and sets the example image tag in `README.md`, `docker-compose.pull.example.yml` and `docs/deploy.md` to
+   X.Y.Z (`changelog.mjs check`, run by CI, fails when one differs from the top CHANGELOG version). Review the diff
+   (`changes/README.md`).
 5. **THIRD_PARTY_NOTICES.md:** regenerate with `node scripts/gen-notices.mjs` (after `cd web && npm ci`; after any dependency change at least).
    Any dependency change also needs a govulncheck run.
 6. Commit `chore(release): X.Y.Z`, push, wait for CI on that commit.
@@ -145,14 +153,15 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
     The image's `org.opencontainers.image.version` is `X.Y.Z` (the tag without its `v`, the string you pull), `created`
     is the commit time and `kipple version` prints `vX.Y.Z`. The `X.Y.Z` image tag is immutable: the workflow refuses
     to publish if it already exists with another digest. So **if a run fails part-way, use "Re-run failed jobs", never
-    "Re-run all jobs"**: a full re-run rebuilds, gets a new digest and is refused at the Tag step. A tag whose image was
+    "Re-run all jobs"**: a full re-run rebuilds, gets a new digest and is refused at the Tag step (the last step before the release notes block: the digest is already signed and attested by
+    then, so a pullable `X.Y.Z` always has its signature). A tag whose image was
     never published and whose commit is wrong gets a new version, as ever.
 
     **Who may create `v*` tags is not something the workflow can enforce**: it signs whatever tag reaches it, and the
-    signature identity only says "this workflow at some `v*` tag". The repository therefore needs a **ruleset
-    restricting who can create (and update or delete) `v*` tags** to the owner; check it under Settings > Rules
-    before the first release, and treat a missing ruleset as a blocker. The workflow itself checks that the tag is
-    annotated, well formed (no leading zeros) and on `main`.
+    signature identity only says "this workflow at some `v*` tag". The repository therefore has a **ruleset,
+    "Protect Release Tags", active on `refs/tags/v*`**, with rules for creation, update, deletion and non-fast-forward
+    (Settings > Rules). The workflow itself checks that the tag is annotated, well formed (no leading zeros) and on
+    `main`.
 
     The floating-tag job and the rollback share one lock, so two releases cannot interleave their tag moves. GitHub
     keeps only one pending run per lock: if you push several tags in quick succession, a run of the floating-tag job that

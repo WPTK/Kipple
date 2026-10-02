@@ -1,6 +1,6 @@
 import { onlineManager, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, authStore, buildPath } from "@/api/client";
-import { itemsParams, keys, PAGE_SIZE } from "@/api/queryKeys";
+import { itemsParams, keys, PAGE_SIZE, patchItems } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
 import { devicePrefsStore } from "./devicePrefs";
 import type { MarkReadResponse } from "@/api/types";
@@ -223,6 +223,21 @@ export async function queueRead(ids: string[], read: boolean): Promise<MarkReadR
 }
 
 /**
+ * The service worker's stored copy of a list or an article is the server's word as of the time it was stored; the queue
+ * holds what this user did since. This is the one place the two are put together: it lays the queued changes, oldest
+ * first so a later one wins, over articles that came from that copy. Everything that serves the stored copy calls it.
+ */
+export async function overlayPending<T extends { id: string; read: boolean; starred: boolean }>(items: T[]): Promise<T[]> {
+  const read = new Map<string, boolean>();
+  const starred = new Map<string, boolean>();
+  for (const r of await safe((b) => b.all(), [])) {
+    if (r.kind === "star") starred.set(r.id, r.starred);
+    else for (const id of r.ids) read.set(id, r.read);
+  }
+  return items.map((i) => (read.has(i.id) || starred.has(i.id) ? { ...i, read: read.get(i.id) ?? i.read, starred: starred.get(i.id) ?? i.starred } : i));
+}
+
+/**
  * A change made with the network up settles what a queued change to the same articles would have said, so the
  * queued one must not be replayed over it later. Called before an online write; cheap when nothing waits.
  */
@@ -290,6 +305,7 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   if (authStore.get() === "out") return;
   let sent = 0;
   let dropped = 0;
+  const confirmed: Queued[] = [];
   // Each row is read from the store right before it is sent, never from a list taken at the start: an online
   // write in the meantime (supersede) may have removed it or narrowed its ids, and replaying the old copy
   // would undo that write. Rows queued during the run are picked up too, in order.
@@ -309,6 +325,7 @@ async function doFlush(qc?: QueryClient): Promise<void> {
           : api("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key" }, signal: ctl.signal });
       sending = { row: r, done };
       await done;
+      confirmed.push(r);
     } catch (e) {
       if (ctl.signal.aborted || isOffline(e) || (e instanceof ApiError && (e.status === 401 || e.status === 429 || e.status >= 500))) break;
       // Any other refusal is final: drop the change, and say so below.
@@ -322,6 +339,8 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   }
   await refreshCount();
   if (sent > 0 && qc) void qc.invalidateQueries({ queryKey: keys.bootstrap });
+  // What the server just took is what the screen shows, whether or not the event stream is up to say so.
+  if (qc) for (const r of confirmed) patchItems(qc, r.kind === "star" ? [r.id] : r.ids, r.kind === "star" ? { starred: r.starred } : { read: r.read });
   if (dropped > 0) {
     // The screen still shows what those changes would have done; reload it from the server.
     if (qc) void qc.invalidateQueries({ queryKey: keys.itemsAll });

@@ -4,7 +4,12 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFragments, renderSections, checkUnreleased, release, notes, parseReleaseArgs, localDate, POINTER } from './changelog.mjs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import {
+  readFragments, renderSections, checkUnreleased, release, notes, parseReleaseArgs, localDate, POINTER,
+  isVersion, topVersion, pinExamples, checkExamples,
+} from './changelog.mjs';
 
 function dirWith(files) {
   const dir = mkdtempSync(join(tmpdir(), 'changes-'));
@@ -121,4 +126,54 @@ test('parseReleaseArgs takes the version and options in any order', () => {
 
 test('localDate uses local calendar fields', () => {
   assert.equal(localDate(new Date(2026, 9, 1, 23, 30)), '2026-10-01');
+});
+
+// One list of vectors for both grammars: changelog.mjs (what `release` accepts) and release-tags.sh (what the release
+// gate accepts). A version `release` would write must be one the gate would let through, and the reverse.
+const GOOD = ['0.0.0', '1.2.3', '10.20.30', '1.2.3-alpha.1', '1.2.3-beta.12', '1.2.3-rc.3'];
+const BAD = ['01.2.3', '1.02.3', '1.2.03', '1.2.3-alpha.0', '1.2.3-alpha.01', '1.2.3-gamma.1', '1.2', '1.2.3.4', '1.2.3-rc', '1.2.3-rc.1-x', ' 1.2.3', '1.2.3\n9.9.9', '', 'v1.2.3'];
+const gate = (tag) => spawnSync('bash', [fileURLToPath(new URL('./release-tags.sh', import.meta.url)), 'check-tag', tag], { encoding: 'utf8' });
+
+test('isVersion: no leading zeros, prerelease numbers start at 1', () => {
+  for (const v of GOOD) assert.equal(isVersion(v), true, v);
+  for (const v of BAD) assert.equal(isVersion(v), false, JSON.stringify(v));
+  assert.throws(() => release(CHANGELOG, { version: '01.0.0', date: '2026-10-01', fragments: [{ id: 'a', kind: 'fixed', text: 'x' }] }), /not X\.Y\.Z/);
+});
+
+test('isVersion agrees with the release gate (release-tags.sh check-tag)', (t) => {
+  if (gate('v1.2.3').error) return t.skip('bash is not available');
+  for (const v of GOOD) assert.equal(gate(`v${v}`).status, 0, `gate refuses v${v}`);
+  // A newline in argv does not survive spawnSync into Git Bash on Windows; release-tags.test.sh covers that vector itself.
+  for (const v of BAD.filter((x) => x !== 'v1.2.3' && !x.includes('\n'))) assert.notEqual(gate(`v${v}`).status, 0, `gate accepts v${JSON.stringify(v)}`);
+});
+
+const DOC = (v) => `Run ghcr.io/wptk/kipple:${v} and\n    image: ghcr.io/wptk/kipple:${v}\nverify ghcr.io/wptk/kipple:${v} \\nsee ghcr.io/wptk/kipple:<version>\n`;
+
+test('topVersion is the first released heading under [Unreleased]', () => {
+  assert.equal(topVersion(CHANGELOG), '0.3.0-beta.1');
+  assert.throws(() => topVersion(`# C\n\n## [Unreleased]\n\n${POINTER}\n`), /no released version/);
+});
+
+test('pinExamples rewrites every image tag, prerelease or not, and nothing else', () => {
+  assert.equal(pinExamples(DOC('0.3.0-beta.1'), '0.3.0'), DOC('0.3.0'));
+  assert.equal(pinExamples(DOC('0.3.0'), '0.4.0-rc.2'), DOC('0.4.0-rc.2'));
+  const other = 'first published with release 0.3.0-beta.1; ghcr.io/other/kipple:0.1.0\n';
+  assert.equal(pinExamples(other, '9.9.9'), other);
+});
+
+test('checkExamples flags a stale tag and a required file with none', () => {
+  const file = { path: 'README.md', required: true };
+  assert.deepEqual(checkExamples(DOC('0.3.0'), '0.3.0', file), []);
+  const stale = checkExamples(DOC('0.2.0'), '0.3.0', file);
+  assert.equal(stale.length, 3);
+  assert.match(stale[0], /README\.md: example image tag is 0\.2\.0, the newest CHANGELOG version is 0\.3\.0/);
+  assert.match(checkExamples('nothing here', '0.3.0', file)[0], /no example image tag/);
+  assert.deepEqual(checkExamples('nothing here', '0.3.0', { path: 'docs/deploy.md', required: false }), []);
+});
+
+test('release then check: the example files end up consistent with the new top version', () => {
+  const out = release(CHANGELOG, { version: '0.4.0', date: '2026-10-01', fragments: [{ id: 'a', kind: 'fixed', text: 'A fix.' }] });
+  const v = topVersion(out);
+  assert.equal(v, '0.4.0');
+  assert.equal(checkExamples(pinExamples(DOC('0.3.0-beta.1'), v), v, { path: 'README.md', required: true }).length, 0);
 });

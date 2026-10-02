@@ -411,17 +411,17 @@ var settingDefs = withScopes([]settingDef{
 			}
 			return s, ""
 		}},
-	{Key: store.SettingOpenLAN, Label: "Also allow devices on my local network", Description: "Only matters when Kipple has no password (open mode). Normally only this computer and your Tailscale devices can use it then; with this on, every device on your local network can too, and can read and change everything. In Docker, where Kipple cannot see your tailnet, Tailscale devices need this too.",
+	{Key: store.SettingOpenLAN, Label: "Also allow devices on my local network", Description: "Only matters when Kipple has no password (open mode). Normally only this computer and your Tailscale devices can use it then; with this on, every device that reaches Kipple over a private network address (a home LAN, or a Docker network) can too, and can read and change everything. A Tailscale-range address (100.64.0.0/10, which is also carrier-grade NAT and cloud overlay space) is let in this way only when it reaches a private address of this computer. In Docker, where Kipple cannot see your tailnet, Tailscale devices need this too. Inside Docker every connection reaches the container's private bridge address, so Kipple cannot tell a CGNAT or overlay peer from a LAN peer there: what protects you is the published port's bind address, so publish it only on your LAN or tailnet interface.",
 		Group: groupAccount, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides IP addresses, localhost and .localhost and .ts.net names (and, during setup only, single-word names and .local, .lan, .home.arpa and .internal names): exact names such as rss.example.com, nas or *.local, or *.example.com.",
 		Group: groupAccount, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},
 
 	// Statistics.
-	{Key: "stats.enabled", Label: "Reading statistics", Description: "Record which articles you open and how long you read them. Turning this off stops recording new statistics; what is already recorded is kept.",
+	{Key: "stats.enabled", Label: "Reading statistics", Description: "Record which articles you open and how long you read them. Turning it off keeps what is already recorded.",
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
-	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day weekly statistics start on. This only changes how they are shown.",
+	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day the week starts on in your statistics.",
 		Group: groupStats, Kind: "enum", Options: opts("sunday", "Sunday", "monday", "Monday"), Surface: surfaceSettings, check: oneOf("sunday", "monday")},
-	{Key: "stats.wrapped_enabled", Label: "Yearly Wrapped", Description: "Show a yearly summary of your reading that you can share as an image or text. Turning this off hides it; your statistics are kept.",
+	{Key: "stats.wrapped_enabled", Label: "Yearly Wrapped", Description: "A yearly summary of your reading that you can share as an image or text. Turning it off hides it and keeps your statistics.",
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Advanced: shown in an Advanced section of the Settings screen.
@@ -435,7 +435,7 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "greader.subscribe_fetch_now", Label: "Fetch new feeds at once from sync apps", Description: "Fetch a feed immediately when a sync app subscribes to it.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
-	{Key: "stats.api_single_read_is_open", Label: "Count single reads from sync apps", Description: "Reserved: stored but not used yet. Would treat an article opened in a sync app as opened for reading statistics.",
+	{Key: "stats.api_single_read_is_open", Label: "Count single reads from sync apps", Description: "Not used yet. Would count an article opened in a sync app as opened in your statistics.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "ui.layouts", Label: "Remembered list layouts", Description: "The list layout you chose for each folder or feed.",
 		Group: groupAdvanced, Kind: "json", Surface: surfaceHidden, check: func(v any) (any, string) {

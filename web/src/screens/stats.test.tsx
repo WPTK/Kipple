@@ -73,20 +73,20 @@ describe("Stats screen", () => {
     setup(() => ({ ...richStats, totals: { ...richStats.totals!, legacy_opens: 0 } }));
     const r = go();
     const summary = await screen.findByRole("region", { name: "Summary" });
-    expect(within(summary).getByText(/counts as read after 10 seconds of active reading, or once you scroll past a quarter of it and read for at least 3 seconds\. A quick look does not count\./)).toBeInTheDocument();
+    expect(within(summary).getByText(/counts as read after 10 seconds of reading, or 3 seconds once you.ve scrolled a quarter of the way down./)).toBeInTheDocument();
     expect(within(summary).queryByText(/before reading time was recorded/)).toBeNull();
     r.unmount();
 
     setup(() => ({ ...richStats, totals: { ...richStats.totals!, legacy_opens: 7 } }));
     const r2 = go();
     const s2 = await screen.findByRole("region", { name: "Summary" });
-    expect(within(s2).getByText(/7 opens in this range came before reading time was recorded, so they count as read without being measured\./)).toBeInTheDocument();
+    expect(within(s2).getByText(/7 opens in this range predate reading time. They count as read, with no time\./)).toBeInTheDocument();
     r2.unmount();
 
     setup(() => ({ ...richStats, totals: { ...richStats.totals!, legacy_opens: 1 } }));
     go();
     const s3 = await screen.findByRole("region", { name: "Summary" });
-    expect(within(s3).getByText(/1 open in this range came before reading time was recorded, so it counts as read/)).toBeInTheDocument();
+    expect(within(s3).getByText(/1 open in this range predate reading time. It counts as read/)).toBeInTheDocument();
   });
 
   it("shows friendly empty states, not blank charts", async () => {
@@ -94,11 +94,11 @@ describe("Stats screen", () => {
     go();
     await screen.findByRole("heading", { name: "Daily activity" });
     expect(screen.getByText(/No reading in this range yet/)).toBeInTheDocument();
-    expect(screen.getByText(/heatmap fills in/)).toBeInTheDocument();
-    expect(screen.getByText(/Observations show up/)).toBeInTheDocument();
-    expect(screen.getByText(/Sources are listed here/)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing to show yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing here until/)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing read yet/)).toBeInTheDocument();
     expect(screen.getByText(/No streak yet/)).toBeInTheDocument();
-    expect(screen.getByText(/Every subscribed feed has had an article opened/)).toBeInTheDocument();
+    expect(screen.getByText(/Every feed you subscribe to has had an article opened/)).toBeInTheDocument();
   });
 
   it("switches range, refetches and remembers the choice", async () => {
@@ -123,7 +123,7 @@ describe("Stats screen", () => {
   it("notes a young history, not a sparse week", async () => {
     setup(() => ({ ...richStats, first_event_date: "2026-09-22" })); // to = 2026-09-26: five days of history
     go();
-    expect(await screen.findByText("Only 5 days of reading so far; charts fill in as you read.")).toBeInTheDocument();
+    expect(await screen.findByText("Only 5 days of reading so far.")).toBeInTheDocument();
   });
 
   it("does not note low data when the history is old, however few days were active in the range", async () => {
@@ -213,7 +213,7 @@ describe("Stats screen", () => {
   it("says when the sources list was capped", async () => {
     setup(() => ({ ...richStats, sources_truncated: true }));
     go();
-    expect(await screen.findByText("Showing only the most active feeds; folder totals cover only those.")).toBeInTheDocument();
+    expect(await screen.findByText("Showing the most active feeds only. Folder totals count just those.")).toBeInTheDocument();
   });
 
   it("does not call an untimed opens cell empty when the range also has timed reading", async () => {
@@ -223,7 +223,7 @@ describe("Stats screen", () => {
     expect(cell).toHaveAttribute("data-level", "1");
     expect(screen.getByText("Tuesday 8 pm: 12 min").closest("td")).toHaveAttribute("data-level", "4");
     expect(screen.getByText("Wednesday 3 pm: none").closest("td")).toHaveAttribute("data-level", "0");
-    expect(screen.getByText(/cells with opens but no recorded time show the lightest shade/)).toBeInTheDocument();
+    expect(screen.getByText(/Opens with no recorded time show as the lightest shade/)).toBeInTheDocument();
   });
 
   it("keeps Export available when statistics are off", async () => {

@@ -27,15 +27,6 @@ func openFile(path string) (*sql.DB, error) {
 	return openDSN(path, url.Values{"_pragma": {"busy_timeout(5000)", "journal_mode(DELETE)"}})
 }
 
-// openFileReadOnly opens a database file read-only: nothing is written or
-// created beside it, and a live database's committed WAL is read too (SQLite
-// reads a WAL without write access since 3.22). For a glance at the live
-// database before a restore replaces it; a file it cannot open that way is the
-// caller's "could not be read".
-func openFileReadOnly(path string) (*sql.DB, error) {
-	return openDSN(path, url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout(5000)", "query_only(1)"}})
-}
-
 func openDSN(path string, q url.Values) (*sql.DB, error) {
 	u := url.URL{Path: filepath.ToSlash(path)}
 	db, err := sql.Open("sqlite", "file:"+u.EscapedPath()+"?"+q.Encode())

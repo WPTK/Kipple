@@ -30,8 +30,9 @@ function hostOf(url: string | undefined): string {
 }
 
 /**
- * Step 6: a starter set of feeds to subscribe to, in one checklist per category. Everything here is optional: nothing
- * is added until "Add" is pressed, a feed already in Kipple shows as added, and the list may be empty.
+ * Step 6: a starter set of feeds to subscribe to, in one checklist per category with a single select all or none.
+ * Everything here is optional: nothing is added until "Add" is pressed, a feed already in Kipple shows as added, and
+ * the list may be empty.
  */
 export function FeedsStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: () => void; onNext: () => void; onSkipAll: () => void; skipAllBusy?: boolean }) {
   const qc = useQueryClient();
@@ -45,6 +46,8 @@ export function FeedsStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
   const isOn = (f: StarterFeed) => (f.subscribed ? false : (picks[f.id] ?? f.checked));
   const all = list.data?.categories.flatMap((c) => c.feeds) ?? [];
   const chosen = all.filter(isOn);
+  const pickable = all.filter((f) => !f.subscribed);
+  const allOn = pickable.length > 0 && pickable.every(isOn);
 
   const setMany = (feeds: StarterFeed[], on: boolean) =>
     setPicks((p) => ({ ...p, ...Object.fromEntries(feeds.filter((f) => !f.subscribed).map((f) => [f.id, on])) }));
@@ -86,17 +89,16 @@ export function FeedsStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
   } else {
     body = (
       <>
+        {pickable.length > 0 ? (
+          <div>
+            <Button className="min-h-11" onClick={() => setMany(all, !allOn)}>
+              {allOn ? "Select none" : "Select all"}
+            </Button>
+          </div>
+        ) : null}
         {list.data.categories.map((c) => (
           <fieldset key={c.id} className="flex min-w-0 flex-col gap-2 rounded-xl border border-line p-3" data-category={c.id}>
             <legend className="px-1 text-base font-bold">{c.title}</legend>
-            <div className="flex flex-wrap gap-2">
-              <Button className="min-h-11" aria-label={`Select all in ${c.title}`} onClick={() => setMany(c.feeds, true)}>
-                Select all
-              </Button>
-              <Button className="min-h-11" aria-label={`Select none in ${c.title}`} onClick={() => setMany(c.feeds, false)}>
-                Select none
-              </Button>
-            </div>
             <ul className="flex flex-col">
               {c.feeds.map((f) => {
                 const host = hostOf(f.site ?? f.url);
@@ -110,13 +112,7 @@ export function FeedsStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
                           {f.subscribed ? <span className="ml-2 text-xs font-normal text-fg2">Already added</span> : null}
                         </span>
                         {f.description ? <span className="block text-xs text-fg2">{f.description}</span> : null}
-                        {host || f.lang ? (
-                          <span className="block text-xs text-fg2">
-                            {host}
-                            {host && f.lang ? " · " : ""}
-                            {f.lang ? f.lang.toUpperCase() : ""}
-                          </span>
-                        ) : null}
+                        {host ? <span className="block text-xs text-fg2">{host}</span> : null}
                       </span>
                     </label>
                   </li>
