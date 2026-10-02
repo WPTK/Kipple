@@ -263,7 +263,12 @@ The **open gate**, checked by `POST /api/auth/open`, by switching to open mode, 
    container's own default gateway (Docker's userland proxy makes every `-p 127.0.0.1:...` connection arrive from the
    bridge gateway, read once from `/proc/net/route`). Other private-range peers (the LAN) are refused unless the
    owner opts in with `security.open_lan` (Settings: "Also allow devices on my local network", default off;
-   decision 3). With it on, RFC 1918 and ULA peers pass too.
+   decision 3). With it on, RFC 1918 and ULA peers pass too, and so does a Tailscale-range peer whose connection reached
+   a private-range local address (the address it was addressed to: a LAN address or a container's bridge); never one
+   that reached a CGNAT, public or unknown local address, because `100.64.0.0/10` is also shared carrier-grade NAT and
+   cloud overlay space. "Reached" is the destination address, not the interface: on a host with both a WAN or CGNAT
+   interface and a LAN address the OS may accept packets for the LAN address from the WAN side, which Kipple cannot
+   see.
 
 Existing sessions keep working after the gate fails (a session is a session), but they are revoked whenever the mode
 changes, as password changes already do.
