@@ -29,7 +29,7 @@ INSERT INTO settings (key, value)
   ON CONFLICT (key) DO NOTHING;
 -- Existing installs keep their old defaults (owner decisions 1 and 5): the time zone stays
 -- America/New_York unless one is already set, and an unset KIPPLE_ADDR keeps listening on 7080
--- through 0.x. A database without an account was never usable and is treated as fresh (UTC, 1919).
+-- (the fallback was removed in 0.6.0). A database without an account was never usable and is treated as fresh (UTC, 1919).
 INSERT INTO settings (key, value)
   SELECT 'tz', '"America/New_York"' FROM account WHERE id = 1
   ON CONFLICT (key) DO NOTHING;

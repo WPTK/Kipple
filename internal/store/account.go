@@ -187,10 +187,3 @@ func (d *DB) RestartOnboarding(ctx context.Context) error {
 		return err
 	})
 }
-
-// LegacyPort reports sys.legacy_port: migration 0010 sets it for databases that
-// already had an account, so an unset KIPPLE_ADDR keeps the pre-0.5 port 7080
-// through 0.x. A failed read is an error, not "no".
-func (d *DB) LegacyPort(ctx context.Context) (bool, error) {
-	return settingBoolErr(ctx, d.reader, "sys.legacy_port", false)
-}

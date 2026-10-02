@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,7 +13,7 @@ import (
 	"github.com/WPTK/kipple/internal/config"
 )
 
-// healthcheckTimeout bounds the whole probe; Docker's own timeout is longer.
+// healthcheckTimeout bounds the probe; Docker's own timeout is longer.
 const healthcheckTimeout = 3 * time.Second
 
 // healthURL turns a listen address (KIPPLE_ADDR style: ":1919", "0.0.0.0:1919",
@@ -38,45 +37,20 @@ func healthURL(addr string) (string, error) {
 	return "http://" + net.JoinHostPort(host, port) + "/healthz", nil
 }
 
-// healthAddrs is what the probe tries, in order. With KIPPLE_ADDR unset the
-// server may be on the default port, the legacy port of an older database
-// (which the probe cannot read cheaply) or the fallback port.
-func healthAddrs(env string) []string {
-	if env != "" {
-		return []string{env}
-	}
-	return []string{config.DefaultAddr, config.LegacyAddr, config.FallbackAddr}
-}
-
-// runHealthcheck probes the local server: nil only on HTTP 200 "ok".
+// runHealthcheck probes the address the server would listen on (KIPPLE_ADDR, or
+// the default): nil only on HTTP 200 "ok".
 func runHealthcheck(args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("healthcheck takes no arguments")
 	}
-	return probeHealthAny(healthAddrs(os.Getenv("KIPPLE_ADDR")), healthcheckTimeout)
+	return probeHealth(os.Getenv("KIPPLE_ADDR"), healthcheckTimeout)
 }
 
-// probeHealthAny probes each address in turn within one budget and succeeds on
-// the first healthy one.
-func probeHealthAny(addrs []string, timeout time.Duration) error {
+// probeHealth is one probe of addr, bounded by timeout.
+func probeHealth(addr string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	var errs []error
-	for _, a := range addrs {
-		err := probeHealthCtx(ctx, a)
-		if err == nil {
-			return nil
-		}
-		errs = append(errs, err)
-		if ctx.Err() != nil {
-			break
-		}
-	}
-	return errors.Join(errs...)
-}
-
-func probeHealth(addr string, timeout time.Duration) error {
-	return probeHealthAny([]string{addr}, timeout)
+	return probeHealthCtx(ctx, addr)
 }
 
 func probeHealthCtx(ctx context.Context, addr string) error {
