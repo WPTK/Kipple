@@ -38,7 +38,7 @@ func TestRootHandlerSendsSecurityHeaders(t *testing.T) {
 	webHandler, err := kweb.NewHandler()
 	require.NoError(t, err)
 	mux.Handle("/", webHandler)
-	h := rootHandler(reader.Front, mux, func() string { return "all" }, nil, quietLog, nil)
+	h := rootHandler(reader.Front, mux, func() string { return "all" }, nil, nil, quietLog, nil)
 
 	get := func(path string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()

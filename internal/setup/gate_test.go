@@ -141,6 +141,16 @@ func TestOpenRefusal(t *testing.T) {
 	require.Equal(t, "", g.OpenRefusal(serve, "box.tail1234.ts.net", true, false))
 	serve.Header.Add("X-Forwarded-For", "100.101.102.104")
 	require.Equal(t, RefuseForwarded, g.OpenRefusal(serve, "box.tail1234.ts.net", true, false), "two X-Forwarded-For lines")
+	require.False(t, g.TailscaleServeRequest(serve), "two X-Forwarded-For lines")
+
+	// The proxy-header warning asks the same rule, with the Host as sent (port and case included).
+	serve.Header.Set("X-Forwarded-For", "100.101.102.103")
+	require.True(t, g.TailscaleServeRequest(serve))
+	serve.Host = "Box.Tail1234.ts.net:443"
+	require.True(t, g.TailscaleServeRequest(serve))
+	require.False(t, Gate{}.TailscaleServeRequest(serve), "no Tailscale address on this machine")
+	serve.Host = "rss.example.com"
+	require.False(t, g.TailscaleServeRequest(serve))
 
 	r := httptest.NewRequest("POST", "/", nil)
 	r.RemoteAddr = "127.0.0.1:1"

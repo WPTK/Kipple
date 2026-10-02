@@ -242,11 +242,15 @@ function main(argv) {
     console.log(`CHANGELOG.md: ${fragments.length} entries folded into ${version}; fragments deleted; example image tags set to ${version}. Review the diff, then commit.`);
     return 0;
   }
+  if (cmd === 'top') {
+    console.log(topVersion(readFileSync(changelogPath, 'utf8')));
+    return 0;
+  }
   if (cmd === 'notes') {
     process.stdout.write(notes(readFileSync(changelogPath, 'utf8'), rest[0]));
     return 0;
   }
-  console.error('usage: changelog.mjs check | preview | release <version> [--date YYYY-MM-DD] [--dry-run] | notes <version>');
+  console.error('usage: changelog.mjs check | preview | release <version> [--date YYYY-MM-DD] [--dry-run] | notes <version> | top');
   return 2;
 }
 

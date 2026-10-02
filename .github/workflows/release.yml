@@ -63,6 +63,12 @@ jobs:
             echo "::error::Tag '$TAG' is not annotated (git tag -a)"; exit 1
           fi
           commit="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          # The tag must be the version the changelog was released as (node scripts/changelog.mjs release), read from
+          # the tagged commit's own CHANGELOG.md (a tag push checks that commit out).
+          top="$(node scripts/changelog.mjs top)"
+          if [ "v$top" != "$TAG" ]; then
+            echo "::error::Tag '$TAG' is not the top version of CHANGELOG.md (v$top): run 'node scripts/changelog.mjs release' before tagging"; exit 1
+          fi
           git fetch --force origin main
           if ! git merge-base --is-ancestor "$commit" origin/main; then
             echo "::error::Tagged commit $commit is not on main"; exit 1
