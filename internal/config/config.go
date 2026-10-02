@@ -15,26 +15,27 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/access"
+	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/setup"
 )
 
 // Config holds every setting Kipple reads at startup. See .env.example for
 // a full description of each field.
 type Config struct {
-	Addr            string        // KIPPLE_ADDR, default DefaultAddr (":1919")
-	DataDir         string        // KIPPLE_DATA, default "/data"
-	Username        string        // KIPPLE_USERNAME
-	Password        string        // KIPPLE_PASSWORD, initial web password
-	APIPassword     string        // KIPPLE_API_PASSWORD, optional initial
-	PublicURL       string        // KIPPLE_PUBLIC_URL
-	TrustedProxyIPs []netip.Addr  // KIPPLE_TRUSTED_PROXY_IPS, comma-separated
-	TZ              string        // TZ: "" when unset. Only seeds the tz setting of a new install (store.SeedZone)
-	AllowedHosts    []string      // KIPPLE_ALLOWED_HOSTS, comma-separated host names or *.suffix (normalized)
-	SchedTick       time.Duration // KIPPLE_SCHED_TICK, default 30s
-	FetchWorkers    int           // KIPPLE_FETCH_WORKERS, default 8
-	FetchPerHost    int           // KIPPLE_FETCH_PER_HOST, default 2
-	LogLevel        slog.Level    // KIPPLE_LOG_LEVEL, default info
-	LogGreaderForms bool          // KIPPLE_LOG_GREADER_FORMS, default false
+	Addr            string         // KIPPLE_ADDR, default DefaultAddr (":1919")
+	DataDir         string         // KIPPLE_DATA, default "/data"
+	Username        string         // KIPPLE_USERNAME
+	Password        string         // KIPPLE_PASSWORD, initial web password
+	APIPassword     string         // KIPPLE_API_PASSWORD, optional initial
+	PublicURL       string         // KIPPLE_PUBLIC_URL
+	TrustedProxyIPs []netip.Prefix // KIPPLE_TRUSTED_PROXY_IPS, comma-separated addresses or CIDR ranges
+	TZ              string         // TZ: "" when unset. Only seeds the tz setting of a new install (store.SeedZone)
+	AllowedHosts    []string       // KIPPLE_ALLOWED_HOSTS, comma-separated host names or *.suffix (normalized)
+	SchedTick       time.Duration  // KIPPLE_SCHED_TICK, default 30s
+	FetchWorkers    int            // KIPPLE_FETCH_WORKERS, default 8
+	FetchPerHost    int            // KIPPLE_FETCH_PER_HOST, default 2
+	LogLevel        slog.Level     // KIPPLE_LOG_LEVEL, default info
+	LogGreaderForms bool           // KIPPLE_LOG_GREADER_FORMS, default false
 	// Cloudflare Access token validation (optional, both or neither): the team
 	// domain as a bare host (normalized) and the application AUD tag.
 	AccessTeamDomain string // KIPPLE_ACCESS_TEAM_DOMAIN
@@ -82,7 +83,7 @@ func load(getenv func(string) string) (Config, error) {
 	if cfg.AllowedHosts, err = setup.ParseAllowedHosts(getenv("KIPPLE_ALLOWED_HOSTS")); err != nil {
 		return Config{}, fmt.Errorf("KIPPLE_ALLOWED_HOSTS: %w", err)
 	}
-	if cfg.TrustedProxyIPs, err = parseIPList(getenv("KIPPLE_TRUSTED_PROXY_IPS")); err != nil {
+	if cfg.TrustedProxyIPs, err = auth.ParseProxies(getenv("KIPPLE_TRUSTED_PROXY_IPS")); err != nil {
 		return Config{}, fmt.Errorf("KIPPLE_TRUSTED_PROXY_IPS: %w", err)
 	}
 	if cfg.SchedTick, err = parseDuration(getenv("KIPPLE_SCHED_TICK"), defaultSchedTick); err != nil {
@@ -172,27 +173,6 @@ func orDefault(v, def string) string {
 		return def
 	}
 	return v
-}
-
-func parseIPList(v string) ([]netip.Addr, error) {
-	if v == "" {
-		return nil, nil
-	}
-	var ips []netip.Addr
-	for _, part := range strings.Split(v, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		addr, err := netip.ParseAddr(part)
-		if err != nil {
-			return nil, fmt.Errorf("invalid IP %q: %w", part, err)
-		}
-		// Unmapped, like the peer address it is compared with (auth.ClientIP):
-		// ::ffff:192.0.2.10 must trust the peer 192.0.2.10.
-		ips = append(ips, addr.Unmap())
-	}
-	return ips, nil
 }
 
 func parseDuration(v string, def time.Duration) (time.Duration, error) {

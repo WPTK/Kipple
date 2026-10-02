@@ -326,7 +326,7 @@ func repeatByte(b byte, n int) []byte {
 	return out
 }
 
-func TestAccountPasswordLockout(t *testing.T) {
+func TestAccountPasswordFailuresArePacedNeverLocked(t *testing.T) {
 	h := newHarness(t, realVerifier)
 	c := h.login()
 	bad := `{"current":"wrong-wrong-wrong","new":"a-brand-new-passphrase"}`
@@ -334,32 +334,14 @@ func TestAccountPasswordLockout(t *testing.T) {
 		code, _, _ := h.api(c, "POST", "/api/account/password", bad)
 		require.Equal(t, http.StatusForbidden, code, "attempt %d", i)
 	}
-	// locked: even the right password is refused, on either endpoint and on login
-	good := jsonStr(map[string]string{"current": testPass, "new": "a-brand-new-passphrase"})
-	code, _, rec := h.api(c, "POST", "/api/account/password", good)
-	require.Equal(t, http.StatusTooManyRequests, code)
-	require.NotEmpty(t, rec.Header().Get("Retry-After"))
-	code, _, _ = h.api(c, "POST", "/api/account/api-password", `{"current":"`+testPass+`","generate":true}`)
-	require.Equal(t, http.StatusTooManyRequests, code)
-	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
-	// the window ends
-	h.clk.Advance(15*time.Minute + time.Second)
-	code, _, _ = h.api(c, "POST", "/api/account/password", good)
-	require.Equal(t, http.StatusNoContent, code)
-}
-
-func TestAccountPasswordSuccessClearsFailures(t *testing.T) {
-	h := newHarness(t, realVerifier)
-	c := h.login()
-	for i := 0; i < 9; i++ {
-		h.api(c, "POST", "/api/account/api-password", `{"current":"wrong-wrong-wrong","generate":true}`)
-	}
+	require.Positive(t, h.paced.Load(), "the failures were counted")
+	// the right password is never refused, on either endpoint, nor on sign-in
 	code, _, _ := h.api(c, "POST", "/api/account/api-password", `{"current":"`+testPass+`","generate":true}`)
 	require.Equal(t, http.StatusOK, code)
-	for i := 0; i < 9; i++ { // the count restarted: nine more failures still do not lock
-		code, _, _ = h.api(c, "POST", "/api/account/api-password", `{"current":"wrong-wrong-wrong","generate":true}`)
-		require.Equal(t, http.StatusForbidden, code)
-	}
+	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
+	good := jsonStr(map[string]string{"current": testPass, "new": "a-brand-new-passphrase"})
+	code, _, _ = h.api(c, "POST", "/api/account/password", good)
+	require.Equal(t, http.StatusNoContent, code)
 }
 
 func TestAccountAPIPassword(t *testing.T) {

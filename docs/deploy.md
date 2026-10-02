@@ -290,6 +290,28 @@ The README's compose files publish `127.0.0.1:1919:1919`, this machine only. For
 your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx) is what gives Kipple HTTPS; set
 `KIPPLE_TRUSTED_PROXY_IPS` to the address it connects from, and `KIPPLE_PUBLIC_URL` to the public address.
 
+`KIPPLE_TRUSTED_PROXY_IPS` is a comma-separated list of single addresses and CIDR ranges (`192.0.2.10`,
+`198.51.100.0/24`, `2001:db8::/32`), empty by default. Only a connection from a listed address is believed about who the
+client is: for such a peer the client is the rightmost `X-Forwarded-For` hop that is not itself listed (each proxy appends
+the address it received from, so the entries to its left are whatever the client chose to send), or `CF-Connecting-IP`
+when there is no `X-Forwarded-For`; for any other peer the forwarding headers are ignored and the client is the peer.
+List every proxy in the chain and nothing wider: `0.0.0.0/0` would let anyone choose their own address. Trust a Docker
+network, or any range that clients can reach directly, only when the published port is reachable by the proxy alone;
+otherwise any client in the range can write its own `X-Forwarded-For` or `CF-Connecting-IP` and be believed. A trusted
+peer also makes open mode refuse the request as `forwarded` (it fails closed), so a trusted Docker gateway cannot be used
+with open mode.
+
+That address keys the per-client budgets of web sign-in and the Reader API. Wrong passwords are slowed, never counted
+against anyone else: five are free, then each wait doubles from two seconds to a minute, a correct password clears the
+count, and it is forgotten after an hour with no failure. With the list correct every visitor is a separate client and a
+stranger cannot slow your key's pacing. All keys do share one password-hashing slot (a 5 s wait, also used by the
+public Reader API login), so enough distinct addresses (one IPv6 /48 is 65,536 of them) can keep it full and make any
+sign-in answer "busy, try again". If several people truly share one address (a proxy you did not list, Docker Desktop's
+gateway without listing it, carrier NAT), they share one budget: even one persistent guesser among them can make your
+sign-in answer "busy, try again" (`503`, never a lockout) until it stops, and your own typos are slowed along with
+theirs. A client whose own failures ask for a long wait is answered at once with the remaining wait in `Retry-After`.
+Fix a shared address by listing the proxy, not by raising a limit.
+
 ## Open mode (no password)
 
 The wizard's account step offers **No password at all**. It is for a Kipple that only you can reach: this computer, or
@@ -421,8 +443,8 @@ From a script or a pipe (one line on standard input; mind shell history and the 
 Rules: 5 to 256 characters. It signs out every web session **and revokes every Reader API token**
 (it rotates the account secret), so afterwards: sign in again in the browser, and re-enter the
 Reader API password in Reeder and NetNewsWire (that password itself is unchanged; if you have lost
-it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login lockout is in
-memory: it clears when its 15-minute window ends or on a restart. If `KIPPLE_PASSWORD` is still in
+it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login pacing is in
+memory: it clears after an hour with no failure or on a restart. If `KIPPLE_PASSWORD` is still in
 `/home/user/stack/.env`, remove it: it is read only when the account is first created. On an account in open mode
 (no password) this sets a password and returns it to normal sign-in ("Open mode" above). If the account does not exist
 yet, the command says so and points to the setup wizard.

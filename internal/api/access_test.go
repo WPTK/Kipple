@@ -228,14 +228,15 @@ func TestPasswordlessLoginNeedsAVerifiedToken(t *testing.T) {
 	require.Equal(t, false, m["password_set"])
 }
 
-func TestPasswordlessFailuresCountTowardLockout(t *testing.T) {
+func TestPasswordlessFailuresArePacedNotLocked(t *testing.T) {
 	h := newHarness(t, withAccess(t))
 	h.dropPassword()
 	k, other := accessKeys(t)
 	for i := 0; i < 10; i++ {
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(other, nil))).Code)
 	}
-	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil))).Code)
+	require.Positive(t, h.paced.Load(), "the failures were counted")
+	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil))).Code, "a valid token is never refused")
 }
 
 func TestRemoveAndRestorePassword(t *testing.T) {
@@ -368,10 +369,11 @@ func TestPasswordlessPasswordGuessLooksLikeAWrongPassword(t *testing.T) {
 		}
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody(testPass), mod...).Code)
 	}
-	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil))).Code)
+	require.Positive(t, h.paced.Load(), "the failures were counted")
+	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil))).Code, "a valid token is never refused")
 }
 
-func TestRemoveCountsRefusedTokensAfterReserving(t *testing.T) {
+func TestRemoveCountsRefusedTokens(t *testing.T) {
 	h := newHarness(t, withAccess(t))
 	k, other := accessKeys(t)
 	c := h.login()
@@ -384,13 +386,14 @@ func TestRemoveCountsRefusedTokensAfterReserving(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 		require.Contains(t, rec.Body.String(), "access_unavailable")
 	}
-	// A forged token is, and the lockout then answers first.
+	// A forged token is, and the sign-in pacing then slows the next attempt.
 	for i := 0; i < 10; i++ {
 		rec := h.do("POST", "/api/account/password", remove, withCookie(c), withJWT(h.jwt(other, nil)))
 		require.Equal(t, http.StatusForbidden, rec.Code)
 		require.Contains(t, rec.Body.String(), "access_required")
 	}
-	require.Equal(t, http.StatusTooManyRequests, h.do("POST", "/api/account/password", remove, withCookie(c), withJWT(h.jwt(k, nil))).Code)
+	require.Positive(t, h.paced.Load())
+	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/account/password", remove, withCookie(c), withJWT(h.jwt(k, nil))).Code, "a valid token is never refused")
 }
 
 // tamperKid re-signs nothing: it swaps the header's kid, which is enough for

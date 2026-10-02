@@ -105,8 +105,8 @@ func TestNotModifiedGetsNoContentPolicy(t *testing.T) {
 }
 
 func TestHSTSAndUpgradeOnlyWhenEffectivelyHTTPS(t *testing.T) {
-	proxy := netip.MustParseAddr("192.0.2.5")
-	opt := Options{TrustedProxies: []netip.Addr{proxy}}
+	proxy := netip.MustParsePrefix("192.0.2.5/32")
+	opt := Options{TrustedProxies: []netip.Prefix{proxy}}
 	fromProxy := func(proto string) func(*http.Request) {
 		return func(r *http.Request) {
 			r.RemoteAddr = "192.0.2.5:4444"

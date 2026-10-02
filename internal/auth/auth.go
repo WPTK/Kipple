@@ -14,7 +14,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -200,29 +199,34 @@ func (v *Verifier) ClearMemo() {
 	v.mu.Unlock()
 }
 
-// FailureTracker paces ClientLogin password checks per client (design §6.3).
-// Only failures are counted, in a fixed Window started by the first one. Every
-// admitted attempt has its password verified, so the right password is never
+// FailureTracker paces password checks per client (design §6.3): the Reader
+// API's ClientLogin and the web sign-in. Only failures are counted, and the
+// count fades only once Window passes with no failure at all. Every admitted
+// attempt has its password verified, so an attempt that gets its turn is never
 // refused unchecked; the budget only slows a client down:
 //
 //   - At most one attempt per client hashes at a time. A second concurrent one
 //     (a client retrying a slow login) waits for the first instead of failing.
-//   - Once the window holds Threshold failures, an attempt starts only when
-//     Delay has passed since the client's previous attempt; it waits for that
-//     instead of being refused.
+//   - The first Threshold failures are free. After that an attempt starts only
+//     when a delay has passed since the client's previous attempt: Delay after
+//     the Threshold-th failure, doubling with each further failure up to
+//     MaxDelay. It waits for that instead of being refused.
 //   - Waiting is bounded: at most MaxWaiters attempts per client wait, for at
 //     most MaxWait (or until the request is cancelled). An attempt that cannot
-//     start is answered with the ordinary 401 and counts nothing (never a 429).
+//     start is not run and counts nothing; its caller answers with a retry
+//     (never a 429).
 //
-// So one client never runs more than one hash at a time, nor more than one per
-// Delay once over budget, and holds at most 1+MaxWaiters requests open. A
-// success changes nothing: it neither counts nor clears the failures, so a
-// client sharing the owner's address (carrier NAT) gains nothing from the
-// owner's logins. Clients are keyed by RateKey, so an IPv6 /64 is one client.
+// So one client never runs more than one hash at a time and holds at most
+// 1+MaxWaiters requests open. A verified success clears the client (Forget);
+// a busy verifier counts nothing. Clients are keyed by RateKey, so an IPv6 /64
+// is one client. Several people who truly share one key (an unlisted proxy,
+// Docker's gateway, carrier NAT) share one budget, so even one persistent
+// guesser among them can make the others' attempts wait or answer busy.
 type FailureTracker struct {
 	Window     time.Duration
 	Threshold  int
 	Delay      time.Duration
+	MaxDelay   time.Duration
 	MaxWait    time.Duration
 	MaxWaiters int
 	Now        func() time.Time
@@ -235,7 +239,7 @@ type FailureTracker struct {
 }
 
 type failure struct {
-	start time.Time
+	start time.Time // Lockout: when the window began. FailureTracker: the client's last failure
 	n     int
 	last  time.Time // FailureTracker: when the client's last attempt started or failed
 }
@@ -247,21 +251,21 @@ type attempt struct {
 	done    chan struct{} // closed (and replaced) when an admitted attempt finishes
 }
 
-// NewFailureTracker returns the design defaults: 10 minute window, 5 failures,
-// then one attempt per 2 s; at most 4 waiting attempts per client, each waiting
-// at most 10 s.
+// NewFailureTracker returns the design defaults: failures fade after an hour
+// with none, 5 are free, then 2 s doubling per failure to 60 s; at most 4
+// waiting attempts per client, each waiting at most 10 s.
 func NewFailureTracker() *FailureTracker {
-	return &FailureTracker{Window: 10 * time.Minute, Threshold: 5, Delay: 2 * time.Second,
+	return &FailureTracker{Window: time.Hour, Threshold: 5, Delay: 2 * time.Second, MaxDelay: time.Minute,
 		MaxWait: 10 * time.Second, MaxWaiters: 4, Now: time.Now,
 		m: map[string]*failure{}, live: map[string]*attempt{}}
 }
 
 // Acquire admits one attempt for ip before its password is checked, waiting
 // (bounded) while ip has an attempt in flight or is inside its over-budget
-// Delay. It returns false when the attempt could not start: too many attempts
+// delay. It returns false when the attempt could not start: too many attempts
 // already waiting, MaxWait passed, or ctx ended; nothing is counted and the
-// caller answers 401 without hashing. After true the caller must call Finish
-// exactly once.
+// caller answers with a retry, without hashing. After true the caller must call
+// Finish exactly once.
 func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
 	k := RateKey(ip)
 	maxWait := f.MaxWait
@@ -295,25 +299,27 @@ func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
 			done = a.done
 		} else {
 			now := f.Now()
-			e := f.m[k]
-			if e != nil && now.Sub(e.start) > f.Window {
-				delete(f.m, k)
-				e = nil
-			}
-			var pace time.Duration
-			if e != nil && e.n >= f.Threshold {
-				pace = e.last.Add(f.Delay).Sub(now)
-			}
+			pace := f.paceLocked(k, now)
 			if pace <= 0 {
 				a.busy = true
 				if waiting {
 					a.waiters--
 				}
-				if e != nil {
+				if e := f.m[k]; e != nil {
 					e.last = now
 				}
 				f.mu.Unlock()
 				return true
+			}
+			if pace > maxWait {
+				// The turn cannot come within the bound: say so now instead of
+				// holding the request for MaxWait (Wait tells the caller how long).
+				if waiting {
+					a.waiters--
+				}
+				f.dropIdle(k, a)
+				f.mu.Unlock()
+				return false
 			}
 			wake = after(pace)
 		}
@@ -354,8 +360,9 @@ func (f *FailureTracker) dropIdle(k string, a *attempt) {
 }
 
 // Finish ends an attempt admitted by Acquire. failed is true only for a wrong
-// password (or email): that is the one outcome counted. A success, or a busy
-// verifier that said nothing about the password, counts nothing.
+// password (or email): that is the one outcome counted. A busy
+// verifier that said nothing about the password counts nothing; a verified
+// success calls Forget as well.
 func (f *FailureTracker) Finish(ip string, failed bool) {
 	k := RateKey(ip)
 	f.mu.Lock()
@@ -377,7 +384,50 @@ func (f *FailureTracker) Finish(ip string, failed bool) {
 		f.m[k] = e
 	}
 	e.n++
+	e.start = now
 	e.last = now
+}
+
+// paceLocked is how much longer ip's next attempt must wait (0: none). An
+// expired entry is dropped. f.mu is held.
+func (f *FailureTracker) paceLocked(k string, now time.Time) time.Duration {
+	e := f.m[k]
+	if e != nil && now.Sub(e.start) > f.Window {
+		delete(f.m, k)
+		return 0
+	}
+	if e == nil || e.n < f.Threshold {
+		return 0
+	}
+	return e.last.Add(f.delay(e.n)).Sub(now)
+}
+
+// Wait is how much longer ip's next attempt must wait because of its own
+// failures (0 when none): what to tell a client whose Acquire returned false.
+func (f *FailureTracker) Wait(ip string) time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return max(f.paceLocked(RateKey(ip), f.Now()), 0)
+}
+
+// delay is how long the client must wait after its n-th failure (n >= Threshold):
+// Delay, doubling per further failure, never above MaxDelay.
+func (f *FailureTracker) delay(n int) time.Duration {
+	d := f.Delay
+	for i := f.Threshold; i < n && d < f.MaxDelay; i++ {
+		d *= 2
+	}
+	if f.MaxDelay > 0 && d > f.MaxDelay {
+		d = f.MaxDelay
+	}
+	return d
+}
+
+// Forget clears ip's failures: its owner just proved the password.
+func (f *FailureTracker) Forget(ip string) {
+	f.mu.Lock()
+	delete(f.m, RateKey(ip))
+	f.mu.Unlock()
 }
 
 // Count returns the failures currently recorded for ip.
@@ -411,30 +461,6 @@ func RateKey(ip string) string {
 	return p.String()
 }
 
-// ClientIP is CF-Connecting-IP when the TCP peer is a trusted proxy, else the peer.
-func ClientIP(r *http.Request, trusted []netip.Addr) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	peer, perr := netip.ParseAddr(host)
-	if perr != nil {
-		return host
-	}
-	peer = peer.Unmap()
-	for _, t := range trusted {
-		if t == peer {
-			if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
-				if a, err := netip.ParseAddr(cf); err == nil {
-					return a.Unmap().String()
-				}
-			}
-			break
-		}
-	}
-	return peer.String()
-}
-
 // passwordAlphabet has no look-alike characters (no 0/O, 1/l/I).
 const passwordAlphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -465,28 +491,9 @@ func GeneratePassword(n int) (string, error) {
 	return string(out), nil
 }
 
-// PeerTrusted reports whether the TCP peer of r is one of the trusted proxies.
-func PeerTrusted(r *http.Request, trusted []netip.Addr) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	peer, err := netip.ParseAddr(host)
-	if err != nil {
-		return false
-	}
-	peer = peer.Unmap()
-	for _, t := range trusted {
-		if t == peer {
-			return true
-		}
-	}
-	return false
-}
-
 // EffectiveScheme is "https" when the connection is TLS, or when a trusted
 // proxy says so with X-Forwarded-Proto (design §7); otherwise "http".
-func EffectiveScheme(r *http.Request, trusted []netip.Addr) string {
+func EffectiveScheme(r *http.Request, trusted []netip.Prefix) string {
 	if r.TLS != nil {
 		return "https"
 	}
@@ -624,7 +631,7 @@ const proxyWarnEvery = time.Hour
 // the client IP is the proxy's address and the lockouts and failure delays of
 // every visitor collapse onto it; the log line is how that misconfiguration
 // becomes visible. now is time.Now when nil.
-func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Addr, log *slog.Logger, now func() time.Time) http.Handler {
+func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Prefix, log *slog.Logger, now func() time.Time) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
@@ -634,6 +641,9 @@ func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Addr, log *slo
 		var hdrs []string
 		if r.Header.Get("CF-Connecting-IP") != "" {
 			hdrs = append(hdrs, "CF-Connecting-IP")
+		}
+		if r.Header.Get("X-Forwarded-For") != "" {
+			hdrs = append(hdrs, "X-Forwarded-For")
 		}
 		if r.Header.Get("X-Forwarded-Proto") != "" {
 			hdrs = append(hdrs, "X-Forwarded-Proto")

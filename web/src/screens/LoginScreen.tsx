@@ -40,7 +40,7 @@ export function LoginScreen() {
         setError("This Kipple doesn't use a password. Signing you in.");
         // If the answer does not move the app on, say what to do rather than leave that message up.
         void qc.invalidateQueries({ queryKey: INSTANCE_KEY }).then(() => setError("This Kipple doesn't use a password. Reload the page to sign in."));
-      } else if (err instanceof ApiError && err.status === 429) setError("Too many attempts. Try again in a few minutes.");
+      } else if (err instanceof ApiError && err.status === 503 && err.code === "busy") setError("Kipple is busy. Try again in a moment.");
       else if (err instanceof ApiError && err.status === 401)
         setError(
           password

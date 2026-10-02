@@ -23,7 +23,7 @@ const (
 	proofNotConfigured
 	// proofNone: nothing verifiable was presented: no token, or one naming a
 	// key id the team's key set does not have even after a fresh fetch. Not
-	// counted against the login lockout: it cannot succeed.
+	// counted as a failed sign-in: it cannot succeed.
 	proofNone
 	// proofUnavailable: the team's key set cannot be loaded, or the token's
 	// key id is not in it yet and a refetch is not due (a rotation), so the
@@ -60,12 +60,11 @@ func (s *Server) accessProof(r *http.Request) accessProof {
 }
 
 // writeProofError answers a proof other than proofOK for an account endpoint
-// (403 unless the keys are unavailable) and settles the lockout reservation:
-// only a refused token stays counted. removing selects the wording of the
-// Access-off case.
-func (s *Server) writeProofError(w http.ResponseWriter, ip string, p accessProof, removing bool) {
-	if p != proofRefused {
-		s.lock.Release(ip)
+// (403 unless the keys are unavailable) and counts the attempt: only a refused
+// token is a failure. removing selects the wording of the Access-off case.
+func (s *Server) writeProofError(w http.ResponseWriter, t *try, p accessProof, removing bool) {
+	if p == proofRefused {
+		t.fail()
 	}
 	switch p {
 	case proofNotConfigured:

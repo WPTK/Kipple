@@ -808,6 +808,19 @@ describe("Account and backup", () => {
     expect(calls.some((c) => c.url.pathname === "/api/account/password")).toBe(true);
   });
 
+  it("says busy, not locked out, when the password check could not get its turn", async () => {
+    base({ "POST /api/account/password": () => json({ error: "busy" }, 503, { "Retry-After": "5" }) });
+    go("/settings/account");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Change web password" }));
+    const dlg = await screen.findByRole("dialog", { name: "Change web password" });
+    await user.type(within(dlg).getByLabelText("Current password"), "old");
+    await user.type(within(dlg).getByLabelText("New password"), "abcdef");
+    await user.type(within(dlg).getByLabelText("New password again"), "abcdef");
+    await user.click(within(dlg).getByRole("button", { name: "Change password" }));
+    expect(await within(dlg).findByRole("alert")).toHaveTextContent("Kipple is busy. Try again in a moment.");
+  });
+
   it("confirms an export with its warning and contents, then offers the download link", async () => {
     base({
       "POST /api/backup": () =>

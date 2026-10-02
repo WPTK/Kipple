@@ -44,6 +44,7 @@ func TestVerifierRealArgon2WithMemo(t *testing.T) {
 // sleeping, and counts the waits.
 func fakePacing(f *FailureTracker, now *time.Time, waits *int) {
 	var mu sync.Mutex
+	f.MaxWait = time.Hour // the fake clock makes every wait instant
 	f.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return *now }
 	f.After = func(d time.Duration) <-chan time.Time {
 		mu.Lock()
@@ -67,9 +68,10 @@ func fail(f *FailureTracker, ip string) bool {
 	return true
 }
 
-// Only failures count; over budget an attempt waits out the delay instead of
-// being refused, and a success neither counts nor clears.
-func TestFailureTrackerBudget(t *testing.T) {
+// Only failures count. The first five are free, then the wait doubles from 2 s to
+// the 60 s cap; an attempt waits out its delay instead of being refused; a
+// verified success clears the client; the count fades only after a quiet hour.
+func TestFailureTrackerEscalatingDelay(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	waits := 0
 	f := NewFailureTracker()
@@ -78,29 +80,68 @@ func TestFailureTrackerBudget(t *testing.T) {
 		require.True(t, fail(f, "a"), "attempt %d", i+1)
 	}
 	require.Zero(t, waits, "inside the budget nothing waits")
-	start := now
-	require.True(t, f.Acquire(context.Background(), "a"), "over budget: admitted after the delay, not refused")
-	require.Equal(t, 1, waits)
-	require.Equal(t, 2*time.Second, now.Sub(start), "waited exactly the delay")
-	f.Finish("a", false) // a success
-	require.Equal(t, 5, f.Count("a"), "a success is not counted and clears nothing")
+	for _, want := range []time.Duration{2, 4, 8, 16, 32, 60, 60, 60} {
+		start := now
+		require.True(t, fail(f, "a"), "over budget: admitted after the delay, not refused")
+		require.Equal(t, want*time.Second, now.Sub(start))
+	}
+	require.Equal(t, 8, waits)
+	require.Equal(t, 13, f.Count("a"))
+
 	require.True(t, fail(f, "b"), "per IP")
-	require.Equal(t, 1, waits, "another client does not wait")
+	require.Equal(t, 8, waits, "another client does not wait")
 
-	// A busy verifier (Finish false) counts nothing either.
-	require.True(t, f.Acquire(context.Background(), "c"))
-	f.Finish("c", false)
-	require.Zero(t, f.Count("c"))
+	// A busy verifier (Finish false) counts nothing and clears nothing.
+	require.True(t, f.Acquire(context.Background(), "a"))
+	f.Finish("a", false)
+	require.Equal(t, 13, f.Count("a"))
+	// A verified success clears.
+	f.Forget("a")
+	require.Zero(t, f.Count("a"))
+	w := waits
+	require.True(t, fail(f, "a"))
+	require.Equal(t, w, waits, "a cleared client starts with a free budget")
 
+	// The count does not restart every few minutes: only a quiet hour fades it.
 	for i := 0; i < 10; i++ {
 		fail(f, "d")
 	}
+	now = now.Add(59 * time.Minute)
 	require.Equal(t, 10, f.Count("d"))
-	now = now.Add(11 * time.Minute)
-	w := waits
-	require.True(t, fail(f, "d"), "window expired")
-	require.Equal(t, w, waits, "a new window does not wait")
+	require.True(t, fail(f, "d"), "its delay has long passed")
+	require.Equal(t, 11, f.Count("d"), "59 quiet minutes later the count is still there")
+	w = waits
+	start := now
+	require.True(t, fail(f, "d"))
+	require.Equal(t, w+1, waits, "so the next attempt waits again")
+	require.Equal(t, time.Minute, now.Sub(start))
+	now = now.Add(61 * time.Minute)
+	w = waits
+	require.True(t, fail(f, "d"))
+	require.Equal(t, w, waits, "an hour with no failure forgets it")
 	require.Equal(t, 1, f.Count("d"))
+}
+
+// A wait longer than MaxWait is not held: Acquire says no at once and Wait says
+// how long the client's own failures still ask for.
+func TestFailureTrackerLongWaitIsAnsweredAtOnce(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	f := NewFailureTracker()
+	fakePacing(f, &now, nil)
+	for i := 0; i < 8; i++ {
+		fail(f, "a")
+	}
+	f.MaxWait = 10 * time.Second
+	begin := time.Now()
+	require.False(t, f.Acquire(context.Background(), "a"), "16 s is over the 10 s bound")
+	require.Less(t, time.Since(begin), time.Second, "and it says so at once")
+	require.Equal(t, 16*time.Second, f.Wait("a"))
+	now = now.Add(10 * time.Second)
+	require.Equal(t, 6*time.Second, f.Wait("a"))
+	require.True(t, f.Acquire(context.Background(), "a"), "6 s is within the bound")
+	f.Finish("a", false)
+	require.Zero(t, f.Wait("nobody"))
+	require.Empty(t, f.live, "a refused attempt leaves nothing behind")
 }
 
 // A second concurrent attempt from one client waits for the first instead of
@@ -193,17 +234,6 @@ func TestRateKeyGroupsIPv6By64(t *testing.T) {
 	require.False(t, ok, "rotating inside one /64 hits the same lockout")
 	locked, _ := l.Locked("2001:db8:5:6::1234")
 	require.True(t, locked)
-}
-
-func TestClientIP(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "192.0.2.20:1234"
-	r.Header.Set("CF-Connecting-IP", "203.0.113.9")
-	require.Equal(t, "192.0.2.20", ClientIP(r, nil), "untrusted peer: header ignored")
-	trusted := []netip.Addr{netip.MustParseAddr("192.0.2.20")}
-	require.Equal(t, "203.0.113.9", ClientIP(r, trusted))
-	r.Header.Set("CF-Connecting-IP", "junk")
-	require.Equal(t, "192.0.2.20", ClientIP(r, trusted))
 }
 
 func TestGeneratePassword(t *testing.T) {
@@ -330,7 +360,7 @@ func TestWarnUntrustedProxyHeaders(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
-	trusted := []netip.Addr{netip.MustParseAddr("192.0.2.10")}
+	trusted := []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")}
 	served := 0
 	h := WarnUntrustedProxyHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { served++ }),
 		trusted, log, func() time.Time { return now })

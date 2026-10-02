@@ -80,6 +80,7 @@ func newHarness(t *testing.T, o ...harnessOpts) *harness {
 		Wake: func() { h.wakes.Add(1) },
 		Now:  clk.Now,
 	})
+	h.api.fails.MaxWait = time.Hour // the fake clock makes every wait instant
 	h.api.fails.After = func(d time.Duration) <-chan time.Time {
 		h.paced.Add(1)
 		clk.Advance(d)
