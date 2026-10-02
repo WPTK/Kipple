@@ -8,6 +8,35 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.6.0-beta.1] - 2026-10-02
+
+This release removes workarounds found in a review of the whole codebase and fixes what the review proved: the login lockout that a stranger could use to lock the owner out behind a proxy, offline reads that came back unread, and a release workflow that could leave an unsigned version tag. It is a minor bump because it removes things: the pre-0.5 and fallback listen ports, four unused settings keys and the time zone variable's hold on the setting. Read the Removed and Changed entries before upgrading from 0.5.
+
+### Changed
+
+- Settings: reading spacing and list spacing now share one vocabulary, the five steps (Dense, Snug, Standard, Relaxed, Airy), and the reading default is `standard`; the first-draft names `compact` and `comfortable` are still accepted and read as `snug` and `standard`. `ui.font_body` now holds the font id (`default`, `literata`, `source-serif`, ...) in every client, as the web prefs do; an empty value or a display name such as "Inter", stored earlier or sent by an older client, reads as its id.
+- Stats, Your year and the statistics settings are reworded in plainer, shorter language: empty states, captions, dialog help and setting descriptions lose their explanations, and "events" is now "records" in the export and delete dialogs.
+- The `TZ` environment variable now only gives a new install its time zone: on a start where no time zone setting exists yet it is stored as the `tz` setting, and from then on the setting alone decides the zone for statistics, the nightly job, backup file names and log timestamps (at the next start). Settings, Account & Devices no longer shows the time zone read-only, the API no longer refuses a change of `tz` or reports `env_override`, and Kipple no longer logs a WARN at start when `TZ` and the setting differ. Installs that already have a time zone stored, which includes every install upgraded from before 0.5, keep it whatever `TZ` says. If your `TZ` differs from the time zone stored in Kipple, statistics and the nightly job follow the stored zone from this upgrade on (on 0.5.0-beta.2 they followed `TZ`); to check before upgrading, `GET /api/settings` on 0.5.0-beta.2 shows both the `tz` value and `env_override`.
+- Setup, Recommended feeds: one Select all / Select none button for the whole list instead of a pair in every category, and the language tag (EN) is no longer shown next to each feed.
+
+### Removed
+
+- Removed four settings keys that nothing read or showed: `ui.font_size` (text size is a per-device choice), `ui.font_ui`, `ui.layouts` (list layouts are per-device profile keys) and `stats.api_single_read_is_open` (reads from sync apps never count as statistics). They no longer appear in `GET /api/settings`, `/api/bootstrap` or device profiles, and `PATCH` refuses them as unknown. Rows an existing database holds for them are left in place and ignored. The unused `css` field of the Spacing option list is gone too, and the favorites fallback that kept pinned folders on one device is removed (favorites that were kept only in a device's local storage, because the server had refused them, are dropped).
+- The port handling is finished at its root (0.6.0): the pre-0.5 default 7080 is no longer kept for old installs, and the automatic `:1138` fallback is gone too. An unset `KIPPLE_ADDR` now always means `:1919`, whatever the database says; if that address (or the one you set) is taken, Kipple exits with an error naming it and `KIPPLE_ADDR` instead of choosing another port. `kipple healthcheck` makes one probe of the address the server would use, and a restore no longer carries a listen port. If your install still publishes 7080 without setting it, set `KIPPLE_ADDR=:7080` in `.env` (keeping the `7080:7080` mapping) or move to 1919 before upgrading to 0.6.0, or Kipple will listen on 1919 behind a mapping for 7080 and look down.
+
+### Fixed
+
+- Settings > Appearance & Reading no longer shows Day theme, Night theme and List spacing twice, once as this device's own control and once as an unlabeled account default; only the per-device control is listed.
+- Images that a site refuses unless the request looks like a browser are now retried with the same browser User-Agent as feeds, including your custom one if you set it, instead of a separate older built-in string.
+- Web sign-in no longer refuses the right password after ten wrong ones: wrong passwords are now slowed per client (five free, then a wait that doubles from two seconds to a minute, cleared by a correct password and forgotten after an hour with no failure), and the client is told apart by one resolver that believes `X-Forwarded-For` (the rightmost hop that is not a listed proxy) or `CF-Connecting-IP` only from a peer in `KIPPLE_TRUSTED_PROXY_IPS`. With that list correct, every visitor is a separate client and a stranger cannot slow your key's pacing; all clients do share one password-hashing slot, so enough distinct addresses can still make sign-in answer "busy, try again" (503), and even one persistent guesser on an address people really share (an unlisted proxy, Docker Desktop's gateway, carrier NAT) can do the same to those people, but nothing is ever a lockout or a 429.
+- Refreshing all feeds, importing or exporting OPML, and the status and feed-health views now answer 503 with Retry-After while the search index rebuilds, instead of a 500.
+- Offline: an article you read or starred while offline no longer comes back as unread or unstarred when the app is reopened offline, and once the queued changes are sent the open lists show them without waiting for the event stream.
+
+### Security
+
+- Open mode: the "Also allow devices on my local network" setting no longer lets in a peer from the Tailscale range (100.64.0.0/10, also carrier-grade NAT and cloud overlay space) that reached Kipple on a CGNAT, public or unknown local address; such a peer is admitted only when it arrives on this machine's Tailscale address or on a private-range address (a LAN or a container's bridge), and the setting's text and docs now say exactly that. (#175)
+- `KIPPLE_TRUSTED_PROXY_IPS` now accepts CIDR ranges as well as single addresses, and an `X-Forwarded-For` chain is read from the right, so a client cannot choose its own address by writing the leftmost entry; forwarding headers from a peer outside the list are still ignored. List a range such as a Docker network only when the published port is reachable by the proxy alone: otherwise any client inside the range can write its own `X-Forwarded-For` or `CF-Connecting-IP` and be believed.
+
 ## [0.5.0-beta.2] - 2026-10-01
 
 ### Fixed
@@ -736,7 +765,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.2...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.6.0-beta.1...HEAD
+[0.6.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.2...v0.6.0-beta.1
 [0.5.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.1...v0.5.0-beta.2
 [0.5.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.3...v0.5.0-beta.1
 [0.3.0-beta.3]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.2...v0.3.0-beta.3

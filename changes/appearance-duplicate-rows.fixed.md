@@ -1,1 +1,0 @@
-Settings > Appearance & Reading no longer shows Day theme, Night theme and List spacing twice, once as this device's own control and once as an unlabeled account default; only the per-device control is listed.

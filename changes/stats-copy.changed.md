@@ -1,1 +1,0 @@
-Stats, Your year and the statistics settings are reworded in plainer, shorter language: empty states, captions, dialog help and setting descriptions lose their explanations, and "events" is now "records" in the export and delete dialogs.

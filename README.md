@@ -96,7 +96,7 @@ your browser the first time you open it.
 One command:
 
 ```
-docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.5.0-beta.2
+docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.6.0-beta.1
 ```
 
 Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
@@ -105,7 +105,7 @@ Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
 ```yaml
 services:
   kipple:
-    image: ghcr.io/wptk/kipple:0.5.0-beta.2
+    image: ghcr.io/wptk/kipple:0.6.0-beta.1
     container_name: kipple
     restart: unless-stopped
     ports: ["127.0.0.1:1919:1919"]
@@ -155,7 +155,7 @@ unprivileged user.
 To check the image before you run it (optional; needs [cosign](https://docs.sigstore.dev/cosign/)):
 
 ```
-cosign verify ghcr.io/wptk/kipple:0.5.0-beta.2 \
+cosign verify ghcr.io/wptk/kipple:0.6.0-beta.1 \
   --certificate-identity-regexp '^https://github.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
