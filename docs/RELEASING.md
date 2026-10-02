@@ -116,7 +116,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
    Never move, delete or reuse a pushed tag; a bad release gets a new version.
    The tag push also starts `.github/workflows/release.yml`, which tests the tagged commit again, builds a multi-arch
    (amd64 and arm64) image, scans and smoke-tests it, then tags and signs it on `ghcr.io/wptk/kipple` (below).
-9. **Deploy the tag, only the named service** (see CLAUDE.md, Deploy). The tag, not `main`, is what gets built:
+9. **Deploy the tag, only the named service** (see CLAUDE.md, Deploy and releases). The tag, not `main`, is what gets built:
 
        ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout vX.Y.Z && KIPPLE_VERSION=vX.Y.Z KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose -f /home/user/stack/docker-compose.yml build kipple && docker compose -f /home/user/stack/docker-compose.yml up -d kipple'
        ssh host-a 'cd /home/user/kipple && git checkout main'
