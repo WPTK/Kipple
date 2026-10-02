@@ -1,7 +1,8 @@
 # Docs index
 
 A map of everything under `docs/`, for a newcomer (self-hoster or future contributor) who doesn't already know
-the project's shape. Each links to more detail; nothing here duplicates it.
+the project's shape. Each links to more detail; nothing here duplicates it. Older records under `docs/` (plans, meeting notes, handoffs, past test results) use the
+owner's own host labels (Host-A, Host-B); they are history and say nothing about how you should run Kipple.
 
 | Doc | What it's for |
 |---|---|

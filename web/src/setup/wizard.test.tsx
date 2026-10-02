@@ -1190,6 +1190,24 @@ describe("the sign-in form meets an open-mode Kipple", () => {
   });
 });
 
+describe("the sign-in form meets a Kipple with no account", () => {
+  it("moves to the account form on a 409 setup_required", async () => {
+    const w = makeWorld({ instance: { setup: false, auth: "password" } });
+    server(w, {
+      "POST /api/auth/login": () => {
+        // The instance was reset since the form was drawn.
+        w.instance = { setup: true, auth: null };
+        return json({ error: "setup_required", message: "Kipple has no account yet; create it first" }, 409);
+      },
+    });
+    go("/");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Username"), "reader");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await headingIs("Create your account");
+  });
+});
+
 describe("open-mode sign-in edge cases", () => {
   const openWorld = () => makeWorld({ instance: { setup: false, auth: "open" }, authMode: "open", pending: false, passwordSet: false });
 

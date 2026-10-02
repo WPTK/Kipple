@@ -81,7 +81,10 @@ type Maint struct {
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
-	done   chan struct{}
+	// stopped is set by Stop: a Start after it (an account created while the
+	// server shuts down) must not bring maintenance back.
+	stopped bool
+	done    chan struct{}
 }
 
 // New returns a stopped Maint.
@@ -108,11 +111,11 @@ func New(o Options) *Maint {
 	return m
 }
 
-// Start launches the goroutine. It is a no-op if already started.
+// Start launches the goroutine. It is a no-op if already started or stopped.
 func (m *Maint) Start() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.cancel != nil {
+	if m.cancel != nil || m.stopped {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -130,6 +133,7 @@ func (m *Maint) Start() {
 // VACUUM INTO) and waits for the goroutine to exit. Safe to call twice.
 func (m *Maint) Stop() {
 	m.mu.Lock()
+	m.stopped = true
 	cancel, done := m.cancel, m.done
 	m.mu.Unlock()
 	if cancel == nil {

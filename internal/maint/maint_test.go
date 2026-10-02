@@ -135,6 +135,17 @@ func (e *env) noNightly(d time.Duration) {
 
 func local(day, h, m int) time.Time { return time.Date(2026, 9, day, h, m, 0, 0, newYork) }
 
+// A Start after Stop (an account created while the server shuts down) must not
+// bring maintenance back.
+func TestStartAfterStopStaysStopped(t *testing.T) {
+	e := newEnv(t, local(23, 12, 0))
+	m := New(Options{DB: e.db, Clock: e.clk})
+	m.Stop()
+	m.Start()
+	require.Nil(t, m.cancel, "Start after Stop started nothing")
+	m.Stop()
+}
+
 func TestHourlyCheckpointFires(t *testing.T) {
 	e := newEnv(t, local(23, 12, 0))
 	e.start(Options{})
