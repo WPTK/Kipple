@@ -35,7 +35,7 @@ services:
     # Optional: .env holds advanced overrides only (see .env.example). Compose 2.24 or newer
     # starts without the file; on an older Compose, create an empty .env or delete these lines.
     # An install that still uses the old port 7080 must set KIPPLE_ADDR=:7080 in .env and keep
-    # the container side of the port below at 7080; an unset KIPPLE_ADDR is always 1919 since 1.0.
+    # the container side of the port below at 7080; an unset KIPPLE_ADDR is always 1919 since 0.6.0.
     env_file:
       - path: .env
         required: false

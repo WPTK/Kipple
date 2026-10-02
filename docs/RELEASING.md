@@ -39,6 +39,10 @@ not before 2026-10-06; it is now not before a week after the 0.5.0-beta.1 deploy
 on that build. The exception is not a precedent: beta.2 onward adds no features again. The design is
 `docs/setup-wizard-design.md` (its section 15 records the owner's decisions).
 
+**2026-10-02 (owner):** the soak toward 0.5.0-rc.1 was abandoned. 0.6.0-beta.1 carries breaking cleanup (the removed
+7080 fallback), which is a minor bump under Versioning, and the soak restarts at its own deploy. 0.5.0 never ships as
+a stable release.
+
 ### 0.5.0-beta.1: merge order and pre-deploy checklist
 
 Merged 2026-09-29 and 2026-09-30 on the owner's instruction, in this order, each with green CI on the exact commit and
@@ -65,7 +69,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 - **One-time, owner, after the first image is pushed:** make the GHCR package `kipple` public and confirm it is linked to
   `WPTK/Kipple` (step 11); until then anonymous pulls, and the README quickstart, fail.
 - **On Host-A, before the upgrade** (docs/deploy.md, "Schema 9 -> 10 and upgrading from 0.3 to 0.5"): confirm the `kipple`
-  service has `KIPPLE_ADDR=:7080` set (from 1.0 an unset value is 1919, so a `7080:7080` mapping needs it);
+  service has `KIPPLE_ADDR=:7080` set (from 0.6.0 an unset value is 1919, so a `7080:7080` mapping needs it);
   compare Host-A's `TZ` with the in-app time zone, since a set `TZ` now also governs statistics and the nightly job; take
   the off-box backup (step 7); rehearse migration 0010 on a copy of the latest snapshot (Suite 4).
 - **Deploy source.** 0.5.0-beta.1 is built from the tag on Host-A exactly as step 9 says (that step is unchanged; add

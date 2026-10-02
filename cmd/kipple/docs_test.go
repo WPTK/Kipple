@@ -39,6 +39,6 @@ func TestDocsDescribeTheZoneAndPortAsTheyWork(t *testing.T) {
 	}
 	require.Contains(t, design, "`store.Zone`")
 	compose := readRepoFile(t, "docker-compose.example.yml")
-	require.Contains(t, compose, "an unset KIPPLE_ADDR is always 1919 since 1.0",
+	require.Contains(t, compose, "an unset KIPPLE_ADDR is always 1919 since 0.6.0",
 		"the pre-0.5 7080 fallback is gone; an old install must set KIPPLE_ADDR")
 }

@@ -43,7 +43,7 @@ func startSetupMode(ctx context.Context, db *store.DB, cfg config.Config, logger
 
 // serveAddr is the address serve listens on and whether the 1138 fallback
 // applies (docs/setup-wizard-design.md 8.3). KIPPLE_ADDR always wins; unset, it
-// is 1919 with the 1138 fallback. Since 1.0 nothing else decides it (the pre-0.5
+// is 1919 with the 1138 fallback. Since 0.6.0 nothing else decides it (the pre-0.5
 // default 7080 is no longer kept for old databases).
 func serveAddr(cfg config.Config) (addr string, fallback bool) {
 	if cfg.AddrSet {

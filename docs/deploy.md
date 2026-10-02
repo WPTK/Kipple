@@ -207,9 +207,9 @@ The default listen address is `:1919`. If it is taken and `KIPPLE_ADDR` is unset
 logs a WARN with the port it chose (this does not happen in a container, which has its own network). Set
 `KIPPLE_ADDR` to choose any port; it always wins.
 
-**Installs that used 7080 must set it (1.0).** Through 0.x a database that already had an account before 0.5 kept
+**Installs that used 7080 must set it (0.6.0).** In 0.5 a database that already had an account before 0.5 kept
 listening on the old default `:7080` while `KIPPLE_ADDR` was unset, with a WARN at every start. That fallback was removed
-at 1.0: an unset `KIPPLE_ADDR` now always means `:1919` (then `:1138` if taken), whatever the database says, and a restore
+in 0.6.0: an unset `KIPPLE_ADDR` now always means `:1919` (then `:1138` if taken), whatever the database says, and a restore
 no longer carries a port with it. To stay on 7080 set `KIPPLE_ADDR=:7080` and keep the `7080:7080` mapping; to move, set
 `:1919` and change the published port in the compose file and anything that connects to it: a reverse proxy, a tunnel, a
 bookmark, sync clients. Without either, the container listens on 1919 behind a mapping for 7080 and looks dead. The
@@ -572,7 +572,7 @@ space cannot be read.
 Migration 0010 rebuilds the one-row `account` table (adding `auth_mode` and `created_via`, with a check that open mode has
 no password hash) and, for a database that already has an account, writes three settings so that nothing changes for it:
 `sys.setup_completed_at` (an existing account never sees onboarding), `tz` set to `America/New_York` unless a time
-zone was already chosen, and `sys.legacy_port` (a marker of 0.5's 7080 fallback; since 1.0 nothing reads it). It is quick (one row), and
+zone was already chosen, and `sys.legacy_port` (a marker of 0.5's 7080 fallback; since 0.6.0 nothing reads it). It is quick (one row), and
 the first start writes `/data/backup/pre-migration-9-10-<ns>.db` before migrating. A 0.3.x binary refuses the schema-10 database, so a
 rollback is the procedure above with that snapshot, and a database created fresh by 0.5 has no 0.3 snapshot and stays on 0.5.
 
@@ -581,10 +581,10 @@ image has no shell):
 
     ssh host-a "docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' kipple" | grep -E '^(KIPPLE_ADDR|TZ)='
 
-1. **`KIPPLE_ADDR` is set.** Confirm it says `KIPPLE_ADDR=:7080` (or whatever port you publish). 0.5 through 0.x kept
-   7080 for an unset value and logged a WARN at each start; 1.0 removed that fallback, so an unset value is 1919 and a
-   `7080:7080` mapping would point at nothing: set it explicitly before upgrading to 1.0. Your port mapping (for example `7080:7080`), reverse proxy, tunnel and sync clients keep
-   working untouched. Moving to 1919 is optional and changes all of those.
+1. **`KIPPLE_ADDR` is set.** Confirm it says `KIPPLE_ADDR=:7080` (or whatever port you publish). 0.5 kept
+   7080 for an unset value and logged a WARN at each start; 0.6.0 removed that fallback, so an unset value is 1919 and a
+   `7080:7080` mapping would point at nothing: set it explicitly before upgrading to 0.6.0. Your port mapping (for
+   example `7080:7080`), reverse proxy, tunnel and sync clients keep working untouched. Moving to 1919 is optional and changes all of those.
 2. **`TZ` and the in-app time zone agree, or you know which you want.** Before 0.5 a `TZ` environment variable set only
    the log timestamps, and daily statistics and the nightly job followed the in-app time zone (Settings > Account &
    Devices; `America/New_York` unless you changed it). From 0.5 a set `TZ` governs statistics and the nightly job too and

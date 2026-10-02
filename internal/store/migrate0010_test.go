@@ -88,7 +88,7 @@ func TestMigration0010ExistingAccount(t *testing.T) {
 	require.False(t, pending, "an existing account never sees onboarding")
 	legacy, ok := settingRow(t, db, "sys.legacy_port")
 	require.True(t, ok)
-	require.Equal(t, "true", legacy, "the row is still stamped; nothing reads it since 1.0")
+	require.Equal(t, "true", legacy, "the row is still stamped; nothing reads it since 0.6.0")
 	tz, ok := settingRow(t, db, "tz")
 	require.True(t, ok)
 	require.Equal(t, `"America/New_York"`, tz)
