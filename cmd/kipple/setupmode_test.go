@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -115,65 +114,23 @@ func TestBackupNeverCarriesTheSetupToken(t *testing.T) {
 	}
 }
 
-func TestServeAddr(t *testing.T) {
-	addr, fallback := serveAddr(config.Config{Addr: config.DefaultAddr})
-	require.Equal(t, ":1919", addr)
-	require.True(t, fallback)
-
-	// KIPPLE_ADDR always wins, and never falls back.
-	addr, fallback = serveAddr(config.Config{Addr: ":7080", AddrSet: true})
-	require.Equal(t, ":7080", addr)
-	require.False(t, fallback)
-	addr, _ = serveAddr(config.Config{Addr: "127.0.0.1:9000", AddrSet: true})
-	require.Equal(t, "127.0.0.1:9000", addr)
-}
-
-func TestListenFallsBackOnlyWhenTheDefaultIsTaken(t *testing.T) {
+// A failed bind says which address and how to change it; there is no fallback
+// port.
+func TestListenFailureNamesTheAddressAndTheVariable(t *testing.T) {
 	old := listenTCP
 	t.Cleanup(func() { listenTCP = old })
 	var tried []string
 	inUse := &net.OpError{Op: "listen", Err: os.NewSyscallError("bind", syscall.EADDRINUSE)}
 	listenTCP = func(addr string) (net.Listener, error) {
 		tried = append(tried, addr)
-		if addr == config.DefaultAddr {
-			return nil, inUse
-		}
-		return net.Listen("tcp", "127.0.0.1:0")
+		return nil, inUse
 	}
-	var logs bytes.Buffer
-	ln, err := listen(config.DefaultAddr, true, slog.New(slog.NewTextHandler(&logs, nil)))
-	require.NoError(t, err)
-	_ = ln.Close()
-	require.Equal(t, []string{":1919", ":1138"}, tried)
-	require.Contains(t, logs.String(), "listening on 1138 instead")
-
-	tried = nil
-	_, err = listen(config.DefaultAddr, false, quiet)
-	require.Error(t, err, "no fallback for an explicit or legacy address")
-	require.Equal(t, []string{":1919"}, tried)
-
-	tried = nil
-	listenTCP = func(addr string) (net.Listener, error) {
-		tried = append(tried, addr)
-		return nil, errors.New("permission denied")
-	}
-	_, err = listen(config.DefaultAddr, true, quiet)
+	_, err := listen(config.DefaultAddr)
 	require.Error(t, err)
-	require.Equal(t, []string{":1919"}, tried, "only EADDRINUSE falls back")
-
-	require.True(t, isAddrInUse(inUse))
-	require.True(t, isAddrInUse(syscall.Errno(10048)), "WSAEADDRINUSE")
-	require.False(t, isAddrInUse(errors.New("x")))
-}
-
-// A real taken port is recognized on this OS.
-func TestIsAddrInUseForReal(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
-	_, err = net.Listen("tcp", ln.Addr().String())
-	require.Error(t, err)
-	require.True(t, isAddrInUse(err), err.Error())
+	require.Equal(t, []string{":1919"}, tried, "no second port is tried")
+	require.Contains(t, err.Error(), ":1919")
+	require.Contains(t, err.Error(), "KIPPLE_ADDR")
+	require.ErrorIs(t, err, inUse)
 }
 
 func TestAllowedHostsIncludesThePublicURL(t *testing.T) {

@@ -22,7 +22,6 @@ import (
 // a full description of each field.
 type Config struct {
 	Addr            string        // KIPPLE_ADDR, default DefaultAddr (":1919")
-	AddrSet         bool          // KIPPLE_ADDR was set (the legacy port and the 1138 fallback apply only when it is not)
 	DataDir         string        // KIPPLE_DATA, default "/data"
 	Username        string        // KIPPLE_USERNAME
 	Password        string        // KIPPLE_PASSWORD, initial web password
@@ -42,12 +41,9 @@ type Config struct {
 	AccessAUD        string // KIPPLE_ACCESS_AUD
 }
 
-// Listen ports. DefaultAddr is the default of KIPPLE_ADDR; FallbackAddr is used
-// when KIPPLE_ADDR is unset and DefaultAddr is taken.
-const (
-	DefaultAddr  = ":1919"
-	FallbackAddr = ":1138"
-)
+// DefaultAddr is the default of KIPPLE_ADDR. There is no other port: a taken
+// address is an error the operator fixes by setting KIPPLE_ADDR.
+const DefaultAddr = ":1919"
 
 const (
 	defaultDataDir      = "/data"
@@ -71,7 +67,6 @@ func Load() (Config, error) {
 func load(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		Addr:        orDefault(getenv("KIPPLE_ADDR"), DefaultAddr),
-		AddrSet:     getenv("KIPPLE_ADDR") != "",
 		DataDir:     orDefault(getenv("KIPPLE_DATA"), defaultDataDir),
 		Username:    getenv("KIPPLE_USERNAME"),
 		Password:    getenv("KIPPLE_PASSWORD"),

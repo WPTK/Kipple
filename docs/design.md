@@ -2194,7 +2194,7 @@ cmd/kipple/*.go         import.go, account.go (api-password, ensureAccount), pas
                         (ensureDataDir), healthcheck.go (the healthcheck probe), shutdown.go (shutdown budget and
                         stages, §4.10); see §2.6
 web/embed.go            package web: //go:embed all:dist (web/dist from the Vite build)
-internal/config         KIPPLE_* env only: ADDR(:1919, fallback :1138), DATA(/data), USERNAME, PASSWORD, API_PASSWORD, ALLOWED_HOSTS; TZ
+internal/config         KIPPLE_* env only: ADDR(:1919), DATA(/data), USERNAME, PASSWORD, API_PASSWORD, ALLOWED_HOSTS; TZ
                         (optional initial), PUBLIC_URL, TRUSTED_PROXY_IPS, TZ, SCHED_TICK,
                         FETCH_WORKERS(8), FETCH_PER_HOST(2),
                         LOG_LEVEL, LOG_GREADER_FORMS, ACCESS_TEAM_DOMAIN + ACCESS_AUD (both or neither, §7.0).

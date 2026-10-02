@@ -523,15 +523,17 @@ ownership (65532) from the image; a bind mount needs `chown 65532:65532` first, 
 
 - `config.defaultAddr` becomes `:1919`; `healthURL` stops carrying its own `":7080"` fallback and uses the config
   constant (today they are two literals that must agree: a real drift risk). `EXPOSE 1919`.
-- **Fallback 1138:** only when `KIPPLE_ADDR` is unset and binding `:1919` fails with `EADDRINUSE` (a bare binary on a
+- **Fallback 1138 (removed in 0.6.0, owner decision 2026-10-02):** only when `KIPPLE_ADDR` is unset and binding `:1919` fails with `EADDRINUSE` (a bare binary on a
   machine where 1919 is taken). Logged as a WARN with the port chosen. `kipple healthcheck` with `KIPPLE_ADDR` unset
   probes 1919, then 1138. Inside a container this never triggers.
+  Now: an unset `KIPPLE_ADDR` is `:1919`; a taken port exits with an error naming the address and `KIPPLE_ADDR`, and
+  `kipple healthcheck` makes one probe of the address the server would use.
 - **Legacy shim (decision 1):** when `KIPPLE_ADDR` is unset and `sys.legacy_port` is set (0010 writes it for
   databases that already had an account), `serve` keeps listening on `:7080` and logs a WARN once per start: "port
   7080 is the pre-0.5 default and will stop being used in 0.6.0; set KIPPLE_ADDR=:7080 or move to 1919". Fresh installs
   get 1919. The healthcheck cannot read the database cheaply, so with `KIPPLE_ADDR` unset it probes 1919, 7080, 1138
   in that order (each loopback, same 3 s budget). The shim is deleted in 0.6.0 with a changelog `removed` entry
-  (done: an unset `KIPPLE_ADDR` is always 1919 with the 1138 fallback, the healthcheck probes 1919 then 1138, and
+  (done: an unset `KIPPLE_ADDR` is always 1919, a taken port is an error, the healthcheck makes one probe, and
   restore no longer carries the port; migration 0010 and the `sys.legacy_port` row are untouched but nothing reads it).
 - **Owner's live instance:** keeps 7080 by override (and would keep it through the shim anyway). The deploy notes
   still get a line to confirm Host-A sets `KIPPLE_ADDR=:7080`, so nothing depends on the shim.
@@ -624,7 +626,7 @@ previous good digest with `imagetools create`, no rebuild. Signed digests are ne
   httptest server and one store; exactly one `201`, every other account call `409` or `401`, one row, one session
   for the winner. Run under `-race` in CI (not locally on Host-B, which has no gcc).
 - Migration 0010 test (section 6). Port: default, legacy shim only with `sys.legacy_port` and no `KIPPLE_ADDR`
-  (removed in 0.6.0), fallback on `EADDRINUSE`, healthcheck probing order 1919, 7080, 1138 (now 1919, 1138; removed in 0.6.0).
+  (removed in 0.6.0), fallback on `EADDRINUSE`, healthcheck probing order 1919, 7080, 1138 (now one probe of the address in use; removed in 0.6.0).
 - Time zone (7a): `store.Zone` precedence (env, setting, UTC) with a table test; `PATCH tz` refused with
   `env_override` when `TZ` is set; changing `tz` mid-process moves the next stats row's `local_date` and the nightly
   run with no restart, and leaves every existing `stats_events` row byte-identical; `tz` across a DST boundary; the

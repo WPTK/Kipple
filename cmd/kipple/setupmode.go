@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"syscall"
 
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/setup"
@@ -41,38 +40,17 @@ func startSetupMode(ctx context.Context, db *store.DB, cfg config.Config, logger
 	return m, nil
 }
 
-// serveAddr is the address serve listens on and whether the 1138 fallback
-// applies (docs/setup-wizard-design.md 8.3). KIPPLE_ADDR always wins; unset, it
-// is 1919 with the 1138 fallback. Since 0.6.0 nothing else decides it (the pre-0.5
-// default 7080 is no longer kept for old databases).
-func serveAddr(cfg config.Config) (addr string, fallback bool) {
-	if cfg.AddrSet {
-		return cfg.Addr, false
-	}
-	return config.DefaultAddr, true
-}
-
 // listenTCP is net.Listen (a seam for tests).
 var listenTCP = func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }
 
-// listen binds addr; with fallback (KIPPLE_ADDR unset) a
-// taken default port moves to config.FallbackAddr with a warning.
-func listen(addr string, fallback bool, logger *slog.Logger) (net.Listener, error) {
+// listen binds addr. A failure names the address and KIPPLE_ADDR, the one way
+// to choose another (there is no automatic fallback port).
+func listen(addr string) (net.Listener, error) {
 	ln, err := listenTCP(addr)
-	if err != nil && fallback && isAddrInUse(err) {
-		logger.Warn("port 1919 is in use; listening on 1138 instead (set KIPPLE_ADDR to choose the port)", "addr", config.FallbackAddr)
-		return listenTCP(config.FallbackAddr)
+	if err != nil {
+		return nil, fmt.Errorf("cannot listen on %q (set KIPPLE_ADDR to use another address): %w", addr, err)
 	}
-	return ln, err
-}
-
-// isAddrInUse reports EADDRINUSE (WSAEADDRINUSE, 10048, on Windows).
-func isAddrInUse(err error) bool {
-	var errno syscall.Errno
-	if !errors.As(err, &errno) {
-		return false
-	}
-	return errno == syscall.EADDRINUSE || errno == 10048
+	return ln, nil
 }
 
 // allowedHosts is the Host gate's configured list: KIPPLE_ALLOWED_HOSTS plus the

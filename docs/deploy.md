@@ -90,8 +90,8 @@ sets `KIPPLE_ADDR=:7080`; see "Ports" below).
 
 The image carries a `HEALTHCHECK` (every 30 s, 5 s timeout, 40 s start period, 3 retries) that runs
 `/kipple healthcheck`. That subcommand does a GET on `http://127.0.0.1:<port>/healthz` (the port comes
-from `KIPPLE_ADDR`; a `0.0.0.0`, `::` or empty host becomes `127.0.0.1`; with `KIPPLE_ADDR` unset it tries 1919,
-then 1138), waits at most 3 s in all and exits 0 only on HTTP 200 `ok`, otherwise printing a line and exiting 1.
+from `KIPPLE_ADDR`; a `0.0.0.0`, `::` or empty host becomes `127.0.0.1`; with `KIPPLE_ADDR` unset it probes
+1919), makes that one probe, waits at most 3 s and exits 0 only on HTTP 200 `ok`, otherwise printing a line and exiting 1.
 `/healthz` needs no login and touches no database: it answers `ok` as long as the HTTP server is serving. So
 "healthy" means the process is up and answering, not that feeds are fetching, and not that Kipple has been set up:
 a container waiting for its setup code is healthy.
@@ -203,17 +203,17 @@ account or the code).
 
 ## Ports
 
-The default listen address is `:1919`. If it is taken and `KIPPLE_ADDR` is unset, Kipple listens on `:1138` instead and
-logs a WARN with the port it chose (this does not happen in a container, which has its own network). Set
-`KIPPLE_ADDR` to choose any port; it always wins.
+The default listen address is `:1919`. Set `KIPPLE_ADDR` to choose any other address. If the address is taken, Kipple
+exits with an error that names it and `KIPPLE_ADDR`; it never picks another port by itself (a container has its own
+network, so this only happens with the bare binary).
 
 **Installs that used 7080 must set it (0.6.0).** In 0.5 a database that already had an account before 0.5 kept
 listening on the old default `:7080` while `KIPPLE_ADDR` was unset, with a WARN at every start. That fallback was removed
-in 0.6.0: an unset `KIPPLE_ADDR` now always means `:1919` (then `:1138` if taken), whatever the database says, and a restore
+in 0.6.0: an unset `KIPPLE_ADDR` now always means `:1919` (and exits with an error if it is taken), whatever the database says, and a restore
 no longer carries a port with it. To stay on 7080 set `KIPPLE_ADDR=:7080` and keep the `7080:7080` mapping; to move, set
 `:1919` and change the published port in the compose file and anything that connects to it: a reverse proxy, a tunnel, a
 bookmark, sync clients. Without either, the container listens on 1919 behind a mapping for 7080 and looks dead. The
-container's health check with `KIPPLE_ADDR` unset tries 1919, then 1138.
+container's health check probes exactly the address Kipple listens on: `KIPPLE_ADDR`, or 1919 when unset.
 
 The README's compose files publish `127.0.0.1:1919:1919`, this machine only. For the LAN use `1919:1919`, for Tailscale
 your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx) is what gives Kipple HTTPS; set
