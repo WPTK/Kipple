@@ -30,6 +30,8 @@ export interface SettingMeta {
   step?: number;
   unit?: string;
   surface: SettingSurface;
+  /** global: one value for the account. device: the row is only the default for devices; each device has its own control. */
+  scope?: "global" | "device" | "both";
   /** No longer sent (the time zone setting is the only owner of the zone); the setup wizard's time zone step still reads it. */
   env_override?: string | null;
 }

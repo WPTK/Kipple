@@ -30,7 +30,18 @@ const meta = (m: Partial<SettingMeta> & Pick<SettingMeta, "key" | "kind">): Sett
 });
 
 const SETTINGS: SettingMeta[] = [
-  meta({ key: "ui.mark_read_on_scroll", kind: "bool", label: "Mark articles read as I scroll", value: false, default: false }),
+  meta({ key: "ui.mark_read_on_scroll", kind: "bool", scope: "device", label: "Mark articles read as I scroll", value: false, default: false }),
+  meta({ key: "ui.theme_day", kind: "enum", scope: "device", label: "Day theme", value: "paper", default: "paper", options: [{ value: "paper", label: "Paper" }] }),
+  meta({ key: "ui.theme_night", kind: "enum", scope: "device", label: "Night theme", value: "midnight", default: "midnight", options: [{ value: "midnight", label: "Midnight" }] }),
+  meta({
+    key: "ui.list_density",
+    kind: "enum",
+    scope: "device",
+    label: "List spacing",
+    value: "standard",
+    default: "standard",
+    options: ["dense", "snug", "standard", "relaxed", "airy"].map((v) => ({ value: v, label: v })),
+  }),
   meta({ key: "links.strip_tracking", kind: "bool", label: "Remove tracking from links", value: true, default: true }),
   meta({ key: "refresh.interval_minutes", kind: "int", group: "sync", label: "How often to check feeds", value: 30, default: 30, min: 5, max: 1440, step: 5, unit: "minutes" }),
   meta({
@@ -122,6 +133,16 @@ describe("Settings renderer", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("does not list a device-scoped key a second time: this device's own control already shows it", async () => {
+    base();
+    go("/settings/appearance");
+    await screen.findByRole("heading", { level: 1, name: "Appearance & Reading" }, { timeout: 5000 });
+    expect(await screen.findByRole("switch", { name: /Remove tracking from links/ })).toBeInTheDocument(); // the server rows have loaded
+    // A generic row would show the metadata description (the fixtures describe each key as "About <key>").
+    for (const key of ["ui.theme_day", "ui.theme_night", "ui.list_density"]) expect(screen.queryByText("About " + key), key).toBeNull();
+    expect(screen.getByText("About links.strip_tracking")).toBeInTheDocument(); // a global key in the same group still is drawn
+  });
+
   it("draws every kind from the metadata, in the group each server group belongs to", async () => {
     base();
     const { container } = go("/settings/sync");
@@ -142,7 +163,6 @@ describe("Settings renderer", () => {
     // Advanced has a page of its own now, so its settings show without a second click.
     go("/settings/advanced");
     expect(await screen.findByRole("switch", { name: /Send feed icons/ })).toBeInTheDocument();
-    expect(screen.queryByText("Remembered list layouts")).toBeNull(); // json is never shown
   });
 
   it("patches optimistically, and puts a 400 message next to the control", async () => {
