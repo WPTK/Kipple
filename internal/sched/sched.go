@@ -350,6 +350,9 @@ func (s *Scheduler) Stop() {
 		close(s.shutdownCh)
 		close(s.stopCh)
 	})
+	// A scheduler that never started (an instance with no account yet) has no
+	// dispatcher to drain: report it stopped, and make a later Start a no-op.
+	s.startOnce.Do(func() { close(s.stopped) })
 }
 
 // RefreshAll starts a manual run over every enabled feed, or joins the active

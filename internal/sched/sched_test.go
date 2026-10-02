@@ -1036,6 +1036,25 @@ func TestPartialChunkedCommitStillReportsCommittedItems(t *testing.T) {
 	require.EqualValues(t, 250, r.num("SELECT count(*) FROM items WHERE feed_id = ?", id))
 }
 
+// An instance with no account never starts its scheduler; stopping it must
+// still report it stopped (the shutdown waits on Stopped), and a Start after
+// the Stop must not bring it back.
+func TestStopWithoutStartReportsStopped(t *testing.T) {
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	db, err := store.Open(context.Background(), store.Options{Path: t.TempDir() + "/kipple.db", Logger: quiet})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	s := New(db, fetch.NewClient(fetch.ClientOptions{}), events.New(), nil, quiet, Options{})
+	s.Stop()
+	select {
+	case <-s.Stopped():
+	case <-time.After(2 * time.Second):
+		t.Fatal("a scheduler that never started did not report stopped")
+	}
+	s.Start() // a no-op: nothing runs after the stop
+	s.Stop()
+}
+
 func TestStatusNeverBlocksShutdown(t *testing.T) {
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	db, err := store.Open(context.Background(), store.Options{Path: t.TempDir() + "/kipple.db", Logger: quiet})

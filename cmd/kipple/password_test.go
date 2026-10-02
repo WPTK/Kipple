@@ -78,7 +78,7 @@ func TestResetPasswordNeedsAnAccount(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	require.ErrorContains(t, resetPassword(context.Background(), db, "long enough"), "no account yet")
-	require.ErrorContains(t, resetPassword(context.Background(), db, "long enough"), "finish setup in the browser")
+	require.ErrorContains(t, resetPassword(context.Background(), db, "long enough"), "create it in the browser")
 }
 
 // `kipple password` on an open-mode account sets a password and leaves open mode.

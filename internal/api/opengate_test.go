@@ -33,12 +33,11 @@ func arrivedOn(local string) func(*http.Request) {
 // openAccount finishes setup in open mode from this computer and returns the session.
 func (h *setupHarness) openAccount(extra map[string]any, mod ...func(*http.Request)) *http.Cookie {
 	h.t.Helper()
-	sc := h.claim(h.token(), mod...)
 	body := map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}
 	for k, v := range extra {
 		body[k] = v
 	}
-	rec := h.req("POST", "/api/setup/account", accountBody(body), append([]func(*http.Request){withCookies(sc)}, mod...)...)
+	rec := h.req("POST", "/api/setup/account", accountBody(body), mod...)
 	require.Equal(h.t, http.StatusCreated, rec.Code, rec.Body.String())
 	c := cookieNamed(rec, cookieName)
 	require.NotNil(h.t, c)
@@ -97,12 +96,11 @@ func TestOpenModeHostGateRefusesLANAnsweredNames(t *testing.T) {
 		require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host(hv)).Code, "setup mode: %s", hv)
 	}
 	// Choosing open mode by such a name is refused (the open gate uses open mode's list).
-	sc := h.claim(h.token(), host("evil.local:1919"), hdr("Origin", "http://evil.local:1919"))
 	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}),
-		withCookies(sc), host("evil.local:1919"), hdr("Origin", "http://evil.local:1919"))
+		host("evil.local:1919"), hdr("Origin", "http://evil.local:1919"))
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	require.Equal(t, "host", decode(t, rec)["reason"])
-	st := decode(t, h.req("GET", "/api/setup/state", "", host("nas:1919")))
+	st := decode(t, h.req("GET", "/api/instance", "", host("nas:1919")))
 	require.Equal(t, map[string]any{"reason": "host", "lan_reason": "host"}, st["open"])
 
 	sess := h.openAccount(nil)
@@ -160,28 +158,6 @@ func TestAboutReportsAccessAndPasswordModes(t *testing.T) {
 	require.NoError(t, h.db.SetPasswordHash(context.Background(), "", store.AuthStandard, sessionID(c.Value)))
 	_, out, _ = h.api(c, "GET", "/api/about", "")
 	require.Equal(t, "access", out["auth_mode"])
-}
-
-// A lockout that ends counts wrong codes again (answered 403, not 429), and a
-// new lockout of the same address right after still checks the right code at
-// once, however many wrong ones came just before it.
-func TestSetupClaimLockoutEndsAndRelocks(t *testing.T) {
-	h := newSetupHarness(t)
-	good := h.token()
-	bad := tokenBody("0000-0000-0000-0000-0000-0000")
-	lock := func() {
-		for i := 0; i < 10; i++ {
-			require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", bad).Code, "attempt %d", i)
-		}
-	}
-	lock() // the window starts now
-	h.clk.Advance(14*time.Minute + 50*time.Second)
-	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", bad).Code, "still locked")
-	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", bad).Code, "still locked")
-	h.clk.Advance(15 * time.Second) // the window has ended
-	lock()
-	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", bad).Code, "locked again")
-	h.claim(good)
 }
 
 // streamEnds reads br until the stream closes, failing after timeout.

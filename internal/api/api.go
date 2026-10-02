@@ -122,11 +122,8 @@ type Options struct {
 	Heartbeat time.Duration
 
 	// Setup is setup mode (docs/setup-wizard-design.md): when it is pending at
-	// Register, the setup routes are mounted. Nil means never in setup mode.
+	// Register, the setup route is mounted. Nil means never in setup mode.
 	Setup *setup.Manager
-	// SetupLockout limits wrong setup tokens per IP (default 10 per 15 minutes),
-	// separate from the login pacing.
-	SetupLockout *auth.Lockout
 	// AllowedHosts are the Host gate's configured names (KIPPLE_ALLOWED_HOSTS and
 	// the host of KIPPLE_PUBLIC_URL), normalized by setup.CheckHostEntry.
 	AllowedHosts []string
@@ -136,18 +133,14 @@ type Options struct {
 
 // Server holds the handlers.
 type Server struct {
-	started   time.Time // when this server was built, for /api/about
-	opt       Options
-	db        *store.DB
-	log       *slog.Logger
-	now       func() time.Time
-	fails     *auth.FailureTracker
-	setupLock *auth.Lockout
-	// setupChecks caps the concurrent code checks of locked-out addresses
-	// (maxLockedChecks slots, waited for, never refused); setupWrongDelay holds
-	// a locked address's wrong answer (lockedWrongDelay; tests shorten it).
-	setupChecks     chan struct{}
-	setupWrongDelay time.Duration
+	started time.Time // when this server was built, for /api/about
+	opt     Options
+	db      *store.DB
+	log     *slog.Logger
+	now     func() time.Time
+	fails   *auth.FailureTracker
+	// setupSlot admits one account creation at a time (setupAccount).
+	setupSlot chan struct{}
 
 	mode       modeCache // the Host gate's cached auth mode and allowed hosts
 	hostWarnMu sync.Mutex
@@ -204,12 +197,7 @@ func New(opt Options) *Server {
 		s.fails = auth.NewFailureTracker()
 		s.fails.Now = s.now
 	}
-	s.setupLock = opt.SetupLockout
-	if s.setupLock == nil {
-		s.setupLock = auth.NewLockout(s.now)
-	}
-	s.setupChecks = make(chan struct{}, maxLockedChecks)
-	s.setupWrongDelay = lockedWrongDelay
+	s.setupSlot = make(chan struct{}, 1)
 	if s.opt.Gate.Trusted == nil {
 		s.opt.Gate.Trusted = opt.TrustedProxies
 	}

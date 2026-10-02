@@ -9,7 +9,7 @@ import { StepActions, WizardFrame } from "./Frame";
 import { stepById } from "./steps";
 
 /**
- * Step 5: feeds from another reader. The same file check, upload and report as Settings' Import OPML, in a page instead
+ * Step 4: feeds from another reader. The same file check, upload and report as Settings' Import OPML, in a page instead
  * of a dialog. Skippable: most people who don't have a file just move on.
  */
 export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: () => void; onNext: () => void; onSkipAll: () => void; skipAllBusy?: boolean }) {

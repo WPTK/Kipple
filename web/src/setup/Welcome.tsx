@@ -27,7 +27,7 @@ export function Welcome() {
 
   const over = boot.data !== undefined && boot.data.user.setup_pending !== true;
   // Setup ended somewhere else (another tab or device, or Skip here): drop what this page kept for it, the password
-  // typed in step 2 above all, and put a previewed theme back.
+  // typed in step 1 above all, and put a previewed theme back.
   useEffect(() => {
     if (over) {
       revertUnsavedTheme();

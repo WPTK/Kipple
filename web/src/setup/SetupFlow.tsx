@@ -1,81 +1,35 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "@/api/client";
 import { Button } from "@/ui/button";
-import { Notice } from "@/ui/kit";
-import { fetchSetupState, INSTANCE_KEY, isOpenRefused, openRefusedReason, signInOpen, type OpenReason } from "./api";
+import { INSTANCE_KEY, isOpenRefused, openRefusedReason, signInOpen, type OpenReason, type SetupOptions } from "./api";
 import { AccountStep } from "./AccountStep";
-import { StepActions, WizardFrame } from "./Frame";
 import { OpenRefusedScreen } from "./OpenRefused";
 import { welcomeEntry } from "./session";
-import { stepById } from "./steps";
-import { TokenStep } from "./TokenStep";
 
-const SETUP_STATE_KEY = ["auth", "setup-state"] as const;
-/** Steps 1 and 2, before there is an account. Step 2 signs the browser in; the app then continues at /welcome. */
-export function SetupFlow({ code }: { code: string }) {
+/**
+ * Step 1, before there is an account: the account form is the first screen. It signs the browser in; the app then
+ * continues at /welcome.
+ */
+export function SetupFlow({ options }: { options: SetupOptions }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const [phase, setPhase] = useState<"token" | "account" | null>(null);
-  const [notice, setNotice] = useState<string | undefined>();
-  const [typedName, setTypedName] = useState("");
-  const st = useQuery({ queryKey: SETUP_STATE_KEY, queryFn: ({ signal }) => fetchSetupState(signal), retry: false, staleTime: 0, gcTime: 0 });
 
   // Before there is an account there is no /welcome: a stale address (a bookmark, or a tab left from an earlier run)
-  // would otherwise carry the new account past step 3 the moment it signs in. The first signed-in step always follows.
+  // would otherwise carry the new account past step 2 the moment it signs in. The first signed-in step always follows.
   useEffect(() => {
     if (pathname === "/welcome" || pathname.startsWith("/welcome/")) navigate("/", { replace: true });
   }, [pathname, navigate]);
 
-  if (st.isPending) {
-    return (
-      <div className="flex h-full items-center justify-center" role="status">
-        <span className="text-fg2">Loading Kipple</span>
-      </div>
-    );
-  }
-  if (st.isError || !st.data) {
-    const gone = (st.error as { status?: number } | null)?.status === 404;
-    return (
-      <WizardFrame step={stepById("token")}>
-        <Notice tone={gone ? "warn" : "error"} role="alert">{gone ? "Kipple was set up a moment ago. Reload the page to sign in." : "Kipple couldn't reach the server. Try again."}</Notice>
-        <StepActions>
-          <Button variant="solid" onClick={() => (gone ? window.location.reload() : void st.refetch())}>
-            {gone ? "Reload" : "Try again"}
-          </Button>
-        </StepActions>
-      </WizardFrame>
-    );
-  }
-  const current = phase ?? (st.data.claimed ? "account" : "token");
-  if (current === "token") {
-    return (
-      <TokenStep
-        initialCode={code}
-        issuedAt={st.data.token_issued_at}
-        notice={notice}
-        onClaimed={() => {
-          setNotice(undefined);
-          setPhase("account");
-        }}
-      />
-    );
-  }
   return (
     <AccountStep
-      state={st.data}
-      initialUsername={typedName}
+      state={options}
       onCreated={() => {
-        // The sign-in has just turned the app to signed in; step 3 comes first whatever address this page was opened at.
+        // The sign-in has just turned the app to signed in; step 2 comes first whatever address this page was opened at.
         navigate(welcomeEntry(), { replace: true });
         void qc.invalidateQueries();
-      }}
-      onRestart={(name) => {
-        setTypedName(name);
-        setNotice("The setup code was accepted a while ago and has timed out. Enter it again to continue.");
-        setPhase("token");
       }}
       onDone={() => window.location.reload()}
     />

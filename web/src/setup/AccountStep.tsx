@@ -2,7 +2,7 @@ import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
 import { Field, Notice, inputCls } from "@/ui/kit";
-import { accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupState } from "./api";
+import { accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupOptions } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import { setupSecret } from "./session";
 import { stepById } from "./steps";
@@ -11,8 +11,8 @@ type Choice = "password" | "access" | "open";
 
 const USERNAME = /^[A-Za-z0-9._-]{1,64}$/;
 
-/** What choosing "no password, open" needs from this browser's position, from GET /api/setup/state. */
-export function openAvailability(open: SetupState["open"]): { ok: boolean; needsLan: boolean; why: string | null } {
+/** What choosing "no password, open" needs from this browser's position, from GET /api/instance. */
+export function openAvailability(open: SetupOptions["open"]): { ok: boolean; needsLan: boolean; why: string | null } {
   if (open.reason === null) return { ok: true, needsLan: false, why: null };
   if (open.lan_reason === null) return { ok: true, needsLan: true, why: openReasonText(open.reason) };
   return { ok: false, needsLan: false, why: openReasonText(open.lan_reason) };
@@ -59,26 +59,21 @@ function Option({
 }
 
 /**
- * Step 2: the account. A user name, then how to sign in: a password (the normal choice), no password behind
+ * Step 1: the account, the first screen of a Kipple that has none. A user name, then how to sign in: a password (the normal choice), no password behind
  * Cloudflare Access (only offered when Access is set up and this very request came through it), or no password at all
  * (open mode, which is only safe when Kipple can be reached from this computer or over Tailscale and nowhere else).
  */
 export function AccountStep({
   state,
-  initialUsername = "",
   onCreated,
-  onRestart,
   onDone,
 }: {
-  state: SetupState;
-  /** The user name typed before the setup session ran out, so a second go at the code does not lose it. */
-  initialUsername?: string;
+  state: SetupOptions;
   onCreated: () => void;
-  onRestart: (username: string) => void;
   onDone: () => void;
 }) {
   const uid = useId();
-  const [username, setUsername] = useState(initialUsername);
+  const [username, setUsername] = useState("");
   // The live checks (too short, no match) speak once a field has been left, not on every keystroke: each one is an
   // alert, and a screen reader would read out a new one per character. Submitting shows them all regardless.
   const [left, setLeft] = useState<{ username?: boolean; password?: boolean; again?: boolean }>({});
@@ -136,8 +131,6 @@ export function AccountStep({
       if (f.kind === "field") {
         setFieldError({ field: f.field, message: f.message });
         (f.field === "username" ? userInput : pwInput).current?.focus();
-      } else if (f.kind === "restart") {
-        onRestart(username);
       } else if (f.kind === "done") {
         setDone(f.message);
       } else setFormError(f.message);
@@ -163,7 +156,7 @@ export function AccountStep({
   const accessOk = state.access.enabled && state.access.verified;
 
   return (
-    <WizardFrame step={stepById("account")} description="This is the account you'll sign in to Kipple with. There is only one, and it's yours.">
+    <WizardFrame step={stepById("account")} description="Kipple has no account yet. This is the one you'll sign in with. There is only one, and it's yours.">
       <form onSubmit={(e) => void submit(e)} className="flex flex-1 flex-col gap-5" noValidate>
         {formError ? <Notice tone="error">{formError}</Notice> : null}
         <Field label="User name" help="Letters, digits, dots, dashes and underscores, up to 64. Your sync apps use this too." error={fieldError?.field === "username" ? fieldError.message : usernameBad}>

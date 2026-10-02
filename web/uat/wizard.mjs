@@ -6,15 +6,15 @@
 // with fresh data directories under the system temp directory and NO account, so each starts in setup mode. It never
 // touches any other instance:
 //
-//   Run A (desktop 1280x800, browser time zone Asia/Tokyo): reads the setup code from the server's stderr banner and
-//     walks all seven steps with a password. Asserts the time zone step preselects Asia/Tokyo and that
-//     GET /api/settings then reports it, that a second browser context without the code cannot claim or create the
-//     account, and that after completion /api/setup/* answers 404.
+//   Run A (desktop 1280x800, browser time zone Asia/Tokyo): opens the address, which shows the account form first
+//     (no setup code), and walks all six steps with a password. Asserts the time zone step preselects Asia/Tokyo and
+//     that GET /api/settings then reports it, that while unclaimed the other API routes refuse, that a second browser
+//     context creating the account afterwards gets 404, and that after completion /api/setup/* answers 404.
 //   Run B (phone 375x812): the same wizard in open mode (no password), a theme and reading-font preview + Skip that
 //     must leave no theme or font overrides in the device profile, then a fresh browser context signs in by itself
 //     (POST /api/auth/open), and a request that carries a forwarding header is refused with the plain-English screen.
 //   Run C (phone, time zone Asia/Tokyo): GET /api/instance unreachable (a Try again screen, never a password form), then
-//     "Skip the rest of setup" on step 3, which must still save the preselected zone.
+//     "Skip the rest of setup" on step 2, which must still save the preselected zone.
 //
 // axe-core (WCAG 2.0/2.1/2.2 A and AA) runs on every step at both sizes. Exit code: 0 clean, 1 findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium`.
@@ -62,7 +62,7 @@ if (!bin) {
 if (opt.screenshots) mkdirSync(opt.screenshots, { recursive: true });
 
 const servers = [];
-/** A fresh server in setup mode. Resolves with its origin and the setup code read from the stderr banner. */
+/** A fresh server in setup mode. Resolves with its origin. */
 async function startServer(name, port) {
   const dir = join(tmp, name);
   mkdirSync(dir, { recursive: true });
@@ -82,9 +82,7 @@ async function startServer(name, port) {
     await new Promise((r) => setTimeout(r, 200));
     if (i === 99) setupError(`server ${name} did not start:\n${err}`);
   }
-  const m = /[0-9A-HJKMNP-TV-Z]{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){5}/.exec(err);
-  if (!m) setupError(`no setup code in the banner of ${name}:\n${err}`);
-  return { origin, code: m[0] };
+  return { origin };
 }
 
 async function axeRun(page, where) {
@@ -110,7 +108,7 @@ async function onStep(page, tag, heading, n) {
     throw new Error("lost");
   }
   await page.waitForTimeout(250);
-  check(where, await page.getByText(`Step ${n} of 7`).isVisible(), `no "Step ${n} of 7"`);
+  check(where, await page.getByText(`Step ${n} of 6`).isVisible(), `no "Step ${n} of 6"`);
   await axeRun(page, where);
   await overflowRun(page, where);
   if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, `${tag}-step${n}.png`), fullPage: true });
@@ -121,70 +119,66 @@ const browser = await chromium.launch({ headless: !opt.headed }).catch((e) => se
 try {
   // ---------------------------------------------------------------------------------------------- Run A
   {
-    const { origin, code } = await startServer("a", 7191);
+    const { origin } = await startServer("a", 7191);
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, timezoneId: "Asia/Tokyo", colorScheme: "light" });
     const page = await ctx.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => m.type() === "error" && !/status of 40[134]|status of 429/.test(m.text()) && errors.push(m.text()));
 
-    // A second browser without the code can neither claim with a wrong one nor create the account.
+    // While there is no account, the rest of the API refuses; a second browser looks on.
     const stranger = await browser.newContext();
     const sp = await stranger.newPage();
     await sp.goto(origin);
     const call = (p, path, body) =>
       p.evaluate(async ([u, b]) => (await fetch(u, { method: "POST", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify(b) })).status, [path, body]);
-    check("stranger", (await call(sp, "/api/setup/claim", { token: "AAAA-AAAA-AAAA-AAAA-AAAA-AAAA" })) === 403, "a wrong code was not refused with 403");
-    check("stranger", (await call(sp, "/api/setup/account", { username: "intruder", password: "intruder-password" })) === 401, "an account was created without the code");
+    check("unclaimed", (await sp.evaluate(async () => (await fetch("/api/bootstrap")).status)) === 401, "/api/bootstrap answered without an account");
+    check("unclaimed", (await call(sp, "/api/auth/login", { username: "a", password: "b" })) === 409, "sign-in did not say setup_required");
 
-    // Steps 1 and 2: the link form (#setup=<code>) fills the code in and leaves the address clean.
-    await page.goto(`${origin}/#setup=${code}`);
-    await onStep(page, "A", "Enter your setup code", 1);
-    check("A step 1", (await page.getByLabel("Setup code").inputValue()) === code, "the code from the link was not filled in");
-    check("A step 1", !page.url().includes("setup="), "the code is still in the address bar");
-    await page.getByRole("button", { name: "Continue" }).click();
-    await onStep(page, "A", "Create your account", 2);
+    // Step 1: the first screen is the account form.
+    await page.goto(origin);
+    await onStep(page, "A", "Create your account", 1);
     await page.getByLabel("User name").fill("tester");
     await page.getByLabel("Password", { exact: true }).fill("a long enough password");
     await page.getByLabel("Password again").fill("a long enough password");
     await page.getByRole("button", { name: "Create my account" }).click();
 
-    // Step 3: the browser's zone (Asia/Tokyo here) is preselected.
-    await onStep(page, "A", "Choose your time zone", 3);
-    check("A step 3", ((await page.getByTestId("selected-zone").textContent()) ?? "").includes("Asia/Tokyo"), "Asia/Tokyo was not preselected");
+    // Step 2: the browser's zone (Asia/Tokyo here) is preselected.
+    await onStep(page, "A", "Choose your time zone", 2);
+    check("A step 2", ((await page.getByTestId("selected-zone").textContent()) ?? "").includes("Asia/Tokyo"), "Asia/Tokyo was not preselected");
     await page.getByLabel("Search time zones").fill("+9");
-    check("A step 3", (await page.getByRole("listbox", { name: "Time zones" }).getByRole("option", { name: /Asia\/Tokyo/ }).count()) === 1, "searching +9 did not find Tokyo");
+    check("A step 2", (await page.getByRole("listbox", { name: "Time zones" }).getByRole("option", { name: /Asia\/Tokyo/ }).count()) === 1, "searching +9 did not find Tokyo");
     await page.getByLabel("Search time zones").fill("");
     await page.getByRole("button", { name: "Continue" }).click();
 
-    await onStep(page, "A", "Look and feel", 4);
+    await onStep(page, "A", "Look and feel", 3);
     await page.getByLabel("Day theme").selectOption("linen");
-    check("A step 4", (await page.evaluate(() => document.documentElement.dataset.theme)) === "linen", "the day theme was not applied at once (light browser)");
+    check("A step 3", (await page.evaluate(() => document.documentElement.dataset.theme)) === "linen", "the day theme was not applied at once (light browser)");
     // The reading font is part of this step (it once went missing everywhere but the Aa menu): every font, applied at once.
     const fontSelect = page.getByLabel("Reading font");
-    check("A step 4", (await fontSelect.count()) === 1 && (await fontSelect.locator("option").count()) >= 12, "no Reading font select with every font");
+    check("A step 3", (await fontSelect.count()) === 1 && (await fontSelect.locator("option").count()) >= 12, "no Reading font select with every font");
     await fontSelect.selectOption("vollkorn");
-    check("A step 4", /Vollkorn/.test(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--kp-reading-font"))), "the reading font was not applied at once");
+    check("A step 3", /Vollkorn/.test(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--kp-reading-font"))), "the reading font was not applied at once");
     if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "A-step4-font.png"), fullPage: true });
     await page.getByRole("button", { name: "Continue" }).click();
 
-    await onStep(page, "A", "Bring your feeds along", 5);
+    await onStep(page, "A", "Bring your feeds along", 4);
     // Steps are in the address: a reload lands on the same step.
     await page.reload();
-    await onStep(page, "A", "Bring your feeds along", 5);
+    await onStep(page, "A", "Bring your feeds along", 4);
     await page.getByRole("button", { name: "Skip", exact: true }).click();
 
-    await onStep(page, "A", "Recommended feeds", 6);
+    await onStep(page, "A", "Recommended feeds", 5);
     await page.getByRole("button", { name: /^Add \d+ feeds?$/ }).click();
 
-    await onStep(page, "A", "You're all set", 7);
-    // The reload at step 5 made the page forget the password typed in step 2, so step 7 asks for it again.
-    check("A step 7", await page.getByLabel("Your web password").isVisible(), "the web password was not asked for after a reload");
+    await onStep(page, "A", "You're all set", 6);
+    // The reload at step 4 made the page forget the password typed in step 1, so step 6 asks for it again.
+    check("A step 6", await page.getByLabel("Your web password").isVisible(), "the web password was not asked for after a reload");
     await page.getByLabel("Your web password").fill("a long enough password");
     await page.getByRole("button", { name: "Generate API password" }).click();
     await page.getByTestId("api-password").waitFor({ timeout: 10_000 });
-    check("A step 7", ((await page.getByTestId("api-password").textContent()) ?? "").length > 8, "no API password shown");
-    await axeRun(page, "A step 7 (password shown)");
+    check("A step 6", ((await page.getByTestId("api-password").textContent()) ?? "").length > 8, "no API password shown");
+    await axeRun(page, "A step 5 (password shown)");
     await page.getByRole("button", { name: "Finish" }).click();
     await page.waitForURL(/\/l\/unread/, { timeout: 10_000 }).catch(() => fail("A finish", `the reader did not open (at ${page.url()})`));
     if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "A-reader.png"), fullPage: true });
@@ -194,8 +188,7 @@ try {
     check("A settings", settings.values?.tz === "Asia/Tokyo", `tz is ${settings.values?.tz}, expected Asia/Tokyo`);
     check("A settings", settings.values?.["ui.theme_day"] === "linen", `ui.theme_day is ${settings.values?.["ui.theme_day"]}`);
     check("A settings", settings.values?.["ui.font_body"] === "Vollkorn", `ui.font_body is ${settings.values?.["ui.font_body"]}, expected Vollkorn`);
-    check("A setup routes", (await page.evaluate(async () => (await fetch("/api/setup/state")).status)) === 404, "/api/setup/state still answers after setup");
-    check("A setup routes", (await call(sp, "/api/setup/claim", { token: code })) === 404, "/api/setup/claim still answers after setup");
+    check("A setup routes", (await call(sp, "/api/setup/account", { username: "intruder", password: "intruder-password" })) === 404, "/api/setup/account still answers after setup");
     const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
     check("A account", me.setup_pending === false, "setup is still pending after Finish");
     check("A account", errors.length === 0, `console or page errors: ${errors.join(" | ")}`);
@@ -205,47 +198,44 @@ try {
 
   // ---------------------------------------------------------------------------------------------- Run B
   {
-    const { origin, code } = await startServer("b", 7192);
+    const { origin } = await startServer("b", 7192);
     const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, colorScheme: "dark" });
     const page = await ctx.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     await page.goto(origin);
-    await onStep(page, "B", "Enter your setup code", 1);
-    await page.getByLabel("Setup code").fill(code.toLowerCase().replaceAll("-", " "));
-    await page.getByRole("button", { name: "Continue" }).click();
-    await onStep(page, "B", "Create your account", 2);
+    await onStep(page, "B", "Create your account", 1);
     await page.getByLabel("User name").fill("opener");
     await page.getByRole("radio", { name: /No password at all/ }).check();
     await page.getByText("Anyone who can reach this address can read and change everything.").waitFor();
-    await axeRun(page, "B step 2 (open mode notice)");
+    await axeRun(page, "B step 0 (open mode notice)");
     if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "B-step2-open.png"), fullPage: true });
     await page.getByRole("button", { name: "Create my account" }).click();
-    check("B step 2", await page.getByText("Tick the box to confirm you understand.").isVisible(), "no acknowledgement error");
+    check("B step 1", await page.getByText("Tick the box to confirm you understand.").isVisible(), "no acknowledgement error");
     await page.getByRole("checkbox", { name: /I understand/ }).check();
     await page.getByRole("button", { name: "Create my account" }).click();
-    await onStep(page, "B", "Choose your time zone", 3);
+    await onStep(page, "B", "Choose your time zone", 2);
     await page.getByRole("button", { name: "Continue" }).click();
-    await onStep(page, "B", "Look and feel", 4);
+    await onStep(page, "B", "Look and feel", 3);
     // A preview is not a choice: trying a theme and skipping must leave this device's profile without theme overrides.
     await page.getByLabel("Day theme").selectOption("linen");
     await page.getByLabel("Reading font").selectOption("inter");
     await page.waitForTimeout(900); // longer than the 500 ms the app waits before it would send a change
     await page.getByRole("button", { name: "Skip", exact: true }).click();
-    await onStep(page, "B", "Bring your feeds along", 5);
+    await onStep(page, "B", "Bring your feeds along", 4);
     await page.waitForTimeout(900);
     const dev = await page.evaluate(async () => (await fetch("/api/device")).json());
     const pinned = Object.keys(dev.profile ?? {}).filter((k) => k.startsWith("ui.theme") || k === "ui.font_body");
-    check("B step 4", pinned.length === 0, `a preview and Skip left theme or font overrides in the device profile: ${pinned.join(", ")}`);
-    check("B step 4", !/Inter/.test(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--kp-reading-font"))), "Skip did not put the reading font back");
+    check("B step 3", pinned.length === 0, `a preview and Skip left theme or font overrides in the device profile: ${pinned.join(", ")}`);
+    check("B step 3", !/Inter/.test(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--kp-reading-font"))), "Skip did not put the reading font back");
     await page.getByRole("button", { name: "Back" }).click();
-    await onStep(page, "B", "Look and feel", 4);
+    await onStep(page, "B", "Look and feel", 3);
     await page.getByRole("button", { name: "Continue" }).click();
-    await onStep(page, "B", "Bring your feeds along", 5);
+    await onStep(page, "B", "Bring your feeds along", 4);
     await page.getByRole("button", { name: "Skip", exact: true }).click();
-    await onStep(page, "B", "Recommended feeds", 6);
+    await onStep(page, "B", "Recommended feeds", 5);
     await page.getByRole("button", { name: "Skip", exact: true }).click();
-    await onStep(page, "B", "You're all set", 7);
+    await onStep(page, "B", "You're all set", 6);
     await page.getByRole("button", { name: "Generate API password" }).click();
     await page.getByTestId("api-password").waitFor({ timeout: 10_000 });
     await page.getByRole("button", { name: "Finish" }).click();
@@ -280,8 +270,8 @@ try {
   }
   // ---------------------------------------------------------------------------------------------- Run C
   {
-    // Server trouble on the first screen, and "Skip the rest of setup" from step 3.
-    const { origin, code } = await startServer("c", 7193);
+    // Server trouble on the first screen, and "Skip the rest of setup" from step 2.
+    const { origin } = await startServer("c", 7193);
     const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, timezoneId: "Asia/Tokyo" });
     const page = await ctx.newPage();
     const errors = [];
@@ -300,19 +290,16 @@ try {
     }
     await page.unroute("**/api/instance");
     await page.getByRole("button", { name: "Try again" }).click();
-    await onStep(page, "C", "Enter your setup code", 1);
-    await page.getByLabel("Setup code").fill(code);
-    await page.getByRole("button", { name: "Continue" }).click();
-    await onStep(page, "C", "Create your account", 2);
+    await onStep(page, "C", "Create your account", 1);
     await page.getByLabel("User name").fill("skipper");
     await page.getByLabel("Password", { exact: true }).fill("a long enough password");
     await page.getByLabel("Password again").fill("a long enough password");
     await page.getByRole("button", { name: "Create my account" }).click();
-    await onStep(page, "C", "Choose your time zone", 3);
+    await onStep(page, "C", "Choose your time zone", 2);
     await page.getByRole("button", { name: "Skip the rest of setup" }).click();
     await page.waitForURL(/\/l\/unread/, { timeout: 10_000 }).catch(() => fail("C skip-all", `the reader did not open (at ${page.url()})`));
     const settings = await page.evaluate(async () => (await fetch("/api/settings")).json());
-    check("C skip-all", settings.values?.tz === "Asia/Tokyo", `tz is ${settings.values?.tz} after "Skip the rest of setup" on step 3, expected Asia/Tokyo`);
+    check("C skip-all", settings.values?.tz === "Asia/Tokyo", `tz is ${settings.values?.tz} after "Skip the rest of setup" on step 2, expected Asia/Tokyo`);
     const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
     check("C skip-all", me.setup_pending === false, "setup is still pending after Skip the rest of setup");
     check("C account", errors.length === 0, `page errors: ${errors.join(" | ")}`);

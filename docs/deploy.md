@@ -25,7 +25,7 @@ Everything is on the `kipple_data` volume, mounted at `/data`. Compose prefixes 
 |---|---|---|
 | `/data/kipple.db` (+ `-wal`, `-shm`) | The database. Never copy it while the server runs | live |
 | `/data/kipple.lock` | Held by `serve` (an OS lock: it vanishes with the process, no stale lock) | live |
-| `/data/setup-token` | The one-time setup code (`0600`), present only while Kipple has no account; removed when setup finishes or at the next start with an account. Never in a backup or snapshot | while setup is pending |
+| `/data/setup-token` | Left by a Kipple before 0.7, which asked for a setup code; this one needs none and deletes the file at every start | removed at start |
 | `/data/backup/kipple-snapshot.db` | Nightly snapshot at 04:10 (`tz` setting), consistent, safe to copy | 1 |
 | `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration (`0600`; files written by 0.2.0 and earlier are `0644`) | newest 3 |
 | `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC; older versions wrote local time without the `Z`) | The database that `kipple restore` replaced | newest 3 |
@@ -70,7 +70,7 @@ Checklist, for a rebuild to be a copy and paste:
 3. Your reverse proxy or tunnel configuration, and any Cloudflare Access application settings.
 4. For a bind mount, the host directory must be owned by uid 65532 on a new machine, for a fresh start or a restore.
 
-The setup code is never in a backup (it exists only while there is no account), so a restore does not need it.
+There is no setup code, so a restore does not need one.
 
 ### Back up the volume itself
 
@@ -143,7 +143,7 @@ from `KIPPLE_ADDR`; a `0.0.0.0`, `::` or empty host becomes `127.0.0.1`; with `K
 1919), makes that one probe, waits at most 3 s and exits 0 only on HTTP 200 `ok`, otherwise printing a line and exiting 1.
 `/healthz` needs no login and touches no database: it answers `ok` as long as the HTTP server is serving. So
 "healthy" means the process is up and answering, not that feeds are fetching, and not that Kipple has been set up:
-a container waiting for its setup code is healthy.
+a container that is waiting for you to create its account is healthy.
 
 See it:
 
@@ -174,53 +174,54 @@ If you run the image with plain `docker run`, the same flags are `--read-only --
 (`docker-compose.pull.example.yml`) keeps the hardening that works without edits and leaves out the resource limits and
 log rotation, which stay in `docker-compose.example.yml`.
 
-## First run: setup mode and the setup code
+## First run: create your account
 
-A Kipple with no account starts in **setup mode**. It is the normal server (feeds, scheduler and sync API all run), but
-the browser shows the setup wizard instead of a sign-in screen, and nothing can be claimed without the **setup code**.
+A Kipple with no account starts in **setup mode**. It is the normal server, but the browser shows the setup wizard
+instead of a sign-in screen, and its first step is the form that creates your account. There is no setup code: open the
+address and create your account, then the wizard takes you the rest of the way (time zone, theme, OPML import,
+recommended feeds, an optional Reader API password).
 
-- **Where the code is.** At start Kipple prints a boxed message to standard error, outside the log levels (so
-  `KIPPLE_LOG_LEVEL=error` cannot hide it): `docker logs kipple`. The code is 24 letters and digits in six groups, and
-  case, spaces and dashes do not matter when you type it. The message also gives a link,
-  `http://<host>:<port>/#setup=<code>`, that pre-fills the code (a `#` fragment never leaves the browser, so it does not reach
-  a proxy log). Log rotated away or the container restarted a while ago? `docker exec kipple /kipple setup-token` prints
-  the current code again (it reads `/data/setup-token`), or says no setup is pending. The file is owner-only: mode
-  0600, and on Windows (where the mode does nothing) a protected access list that admits only the user Kipple runs as, SYSTEM and Administrators. Both example compose files and the
-  README's one-line container command name the container `kipple`; with a compose file that sets no `container_name`,
-  use `docker compose logs kipple` and `docker compose exec kipple /kipple setup-token` instead.
-- **Wrong codes.** Ten wrong codes from one address in 15 minutes lock that address: from then on its wrong codes are
-  answered 429 after a one-second pause and no longer count towards replacing the code. Every code from a locked
-  address is still checked, so the right code works at once, even while a noisy device behind the same Docker gateway
-  keeps sending wrong ones. A hundred wrong codes in all replace the code (at most once an hour).
-- **Lifetime.** The code lives until an account exists. A restart makes a new one. It is single use in effect: once the
-  account row exists, the setup screens and routes are gone (they answer 404) for as long as that database is used, and
-  the code and its file are deleted.
-- **Guessing.** Ten wrong codes from one address lock that address for 15 minutes (as above: the right code still
-  works); a hundred wrong codes in all
-  replace the code (a new one is printed, at most once an hour). At 120 bits none of this is about feasibility.
-- **Who can claim.** Whoever can read the container's log, who already controls the host. Nobody else can create the
-  account, however early they reach the port.
-- **The code is in the log.** The boxed message puts the setup code and the `#setup=` link in the container's standard
-  error, so anyone who can read that log can complete setup until it finishes. That includes login-less log viewers on
-  your LAN (Dozzle without authentication, for example). Finish setup promptly after the first start, and keep the
-  container's logs private until you have.
-- **What signed-out visitors can see.** `GET /api/instance` and, in setup mode, `GET /api/setup/state` answer without
-  signing in (from an address the host gate admits). They reveal only the instance's state: whether setup is pending,
-  the sign-in mode (`open`, `access` or `password`), whether Cloudflare Access is configured and when the setup code was
-  issued. No version, username or feed data.
+- **Who can create the account.** Whoever gets there first. An unclaimed Kipple is simply "no account yet": the one
+  request that creates the account succeeds for exactly one caller, and any other that arrives at the same moment is
+  told Kipple was just set up (409) and is not signed in; one that arrives after the winner has finished gets 404, because
+  the route is gone by then. That is how Jellyfin, Gitea and Home Assistant set
+  themselves up too.
+- **Keep the port on this machine until you have created your account.** Anyone who can reach an unclaimed Kipple can
+  claim it, and whoever owns the account can also change a feed's network settings (which feeds may reach private
+  addresses). The examples and the README's one-line command publish the port on `127.0.0.1` for that reason: create
+  your account, then widen the port if you want to. A host firewall is not protection here: a Docker-published port
+  bypasses `ufw`. For a headless install that has to listen on a network before you can open a browser, create the
+  account from the environment instead (below). If you find Kipple already set up when you did not do it, stop the
+  container, delete its data volume and start again.
+- **What guards the request.** The Host gate answers 421 to a name Kipple does not recognize (so a web page in your
+  browser cannot reach the form by DNS rebinding), the request must be same-origin and carry `X-Kipple-Client`, and
+  only one account is created at a time. There is no per-address counting, so a noisy neighbour behind the same Docker
+  gateway can never keep you out.
+- **What answers while there is no account.** Only `GET /api/instance`, `POST /api/setup/account`, `/healthz` and the
+  app itself. Every other `/api` route answers 401, sign-in answers 409 `setup_required`, and the Reader API answers
+  401, apart from its static probe paths, which return no data (`/api/greader.php` and `/api/greader.php/` answer
+  `200 OK`, `/check/compatibility` answers `200 PASS`, and `/icon/...` answers 404). Nothing is fetched and no maintenance runs until the account exists: the scheduler starts at the claim.
+- **What signed-out visitors can see.** `GET /api/instance` answers without signing in (from an address the Host gate
+  admits). It says whether setup is pending, the sign-in mode (`open`, `access` or `password`) and, while pending,
+  whether Cloudflare Access is configured and whether open mode would work from where they are. No version, username
+  or feed data.
+- **Lifetime.** Once the account row exists the setup route is gone (it answers 404) for as long as that database is
+  used.
 - **Setup is not health.** `/healthz` and the container's health check answer `ok` in setup mode: healthy means serving,
   not configured. `/_status` says "Setup is pending" until an account exists.
 - **Env credentials skip it.** With both `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` set on a first start, Kipple creates the
-  account from them (as it always did) and starts in normal mode, with no wizard onboarding. A lone `KIPPLE_USERNAME` (the
-  default in old example files) is ignored and the wizard asks.
-- **Cloudflare Access and the code.** Even behind Access, the code is required: Access proves who may reach the app,
-  not who owns this instance. The wizard offers "No password, through Cloudflare Access" only on a request that came
-  through Access and carries a verified token.
+  account from them and starts in normal mode, with no wizard onboarding and no unclaimed window. A lone
+  `KIPPLE_USERNAME` (the default in old example files) is ignored and the wizard asks.
+- **Cloudflare Access.** Access proves who may reach the app, not who owns this instance, so it does not replace
+  creating the account. The wizard offers "No password, through Cloudflare Access" only on a request that came through
+  Access and carries a verified token.
+- **Upgrading from 0.5 or 0.6.** Kipple before 0.7 printed a setup code and asked for it. That is gone, and so is
+  `kipple setup-token` (it now only says so, and is removed in 1.0). An instance that was upgraded while still
+  unclaimed simply shows the account form; a stale `/data/setup-token` file is deleted at start.
 
-After the account step the wizard continues as an ordinary signed-in session (time zone, theme, OPML import,
-recommended feeds, an optional Reader API password). Each step saves as it goes, so a reload or "Skip for now" loses
-nothing. Settings > Account & Devices > Run setup again repeats those steps for any account (it never touches the
-account or the code).
+After the account step the wizard continues as an ordinary signed-in session. Each step saves as it goes, so a reload
+or "Skip for now" loses nothing. Settings > Account & Devices > Run setup again repeats the steps after the account for
+any account (it never touches the account).
 
 ## Ports
 
@@ -424,7 +425,7 @@ you are signed in through a verified Access token, and it asks for the current p
 password signs in only on requests that carry a verified token, so the LAN or a published port cannot sign in.
 Anyone your Access policy admits can, so keep the policy to your own email. The setup wizard offers the same choice
 ("No password, through Cloudflare Access") on a fresh install, but only when Kipple is opened through Access and the
-request carries a verified token, and it still needs the setup code first. Open mode (see "Open mode" above)
+request carries a verified token. Open mode (see "Open mode" above)
 is a different thing: it has no Access involved and refuses requests that came through Access.
 
 **Before you unset the two variables, set a password again**: Settings > Account > Set web password, or
@@ -472,9 +473,9 @@ throwaway volume (`docker compose -p test run ...` with a different project name
 volume) and compare its feed count with `/_status`. Do this now and then: a backup nobody has verified is a hope.
 
 **Restore leaves setup mode.** A backup that contains the account puts the instance in normal mode at the next start:
-the setup screens are gone and the leftover setup code file, if any, is deleted. A backup from before 0.5 that is
+the setup screens are gone. A backup from before 0.5 that is
 migrated on that start is marked as already set up, so it never shows the wizard's onboarding. Only a backup taken
-in setup mode (no account in it) returns the instance to setup mode, with a fresh setup code in `docker logs kipple`.
+in setup mode (no account in it) returns the instance to setup mode: the account form again.
 The listen port is never part of a backup: it comes from `KIPPLE_ADDR` (1919 when unset), so a restore does not
 change it.
 

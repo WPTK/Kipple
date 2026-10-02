@@ -8,7 +8,6 @@ import { initialLive, liveStore } from "@/api/events";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS } from "@/theme/settings";
-import { resetTakenSetupCode } from "./api";
 import { flush, resetDeviceSync, syncStore } from "@/lib/deviceSync";
 import { FONTS } from "@/lib/fonts";
 import { prefsStore, updatePrefs } from "@/lib/prefs";
@@ -24,8 +23,8 @@ class NoES {
 type Handler = Parameters<typeof mockFetch>[0][string];
 
 interface World {
-  /** Answers GET /api/setup/state. */
-  state: { claimed: boolean; access: { enabled: boolean; verified: boolean }; open: { reason: string | null; lan_reason: string | null } };
+  /** What GET /api/instance adds while Kipple has no account. */
+  state: { access: { enabled: boolean; verified: boolean }; open: { reason: string | null; lan_reason: string | null } };
   instance: { setup: boolean; auth: string | null };
   signedIn: boolean;
   pending: boolean;
@@ -37,7 +36,7 @@ interface World {
 
 function makeWorld(over: Partial<World> = {}): World {
   return {
-    state: { claimed: false, access: { enabled: false, verified: false }, open: { reason: null, lan_reason: null } },
+    state: { access: { enabled: false, verified: false }, open: { reason: null, lan_reason: null } },
     instance: { setup: true, auth: null },
     signedIn: false,
     pending: true,
@@ -54,9 +53,7 @@ const tzMeta = (w: World) => ({ key: "tz", value: w.tz, default: "UTC", label: "
 /** A tiny fake Kipple: every route the wizard touches, with the state it changes. Extra routes win over these. */
 function server(w: World, extra: Record<string, Handler> = {}) {
   return mockFetch({
-    "GET /api/instance": () => json(w.instance),
-    "GET /api/setup/state": () => json({ ...w.state, token_hint: "hint", token_issued_at: 1_790_000_000 }),
-    "POST /api/setup/claim": () => new Response(null, { status: 204 }),
+    "GET /api/instance": () => json(w.instance.setup ? { ...w.instance, ...w.state } : w.instance),
     "POST /api/setup/account": () => {
       w.signedIn = true;
       w.instance = { setup: false, auth: "password" };
@@ -121,7 +118,6 @@ beforeEach(() => {
   openRefusedStore.set(null);
   forgetWizardMemory();
   sessionStorage.clear();
-  resetTakenSetupCode();
   resetOpenSignInGuard();
   resetDeviceSync();
   liveStore.set(initialLive);
@@ -134,91 +130,41 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Step 1: setup code", () => {
-  it("asks for the code first, says where to find it, and passes axe", async () => {
-    server(makeWorld());
+describe("Step 1: the first screen is the account", () => {
+  it("opens on the account form, with no setup code, and passes axe", async () => {
+    const { calls } = server(makeWorld());
     const { container } = go("/");
-    await headingIs("Enter your setup code");
-    expect(screen.getByText("Step 1 of 7")).toBeInTheDocument();
-    expect(screen.getByLabelText("Setup code")).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Where do I find the code?" }));
-    expect(screen.getAllByText(/kipple setup-token/).length).toBeGreaterThan(0);
+    await headingIs("Create your account");
+    expect(screen.getByText("Step 1 of 6")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Setup code")).toBeNull();
+    expect(screen.queryByText(/setup code/i)).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
+    // Nothing is asked of the server but who it is.
+    expect(calls.filter((c) => c.url.pathname.startsWith("/api/setup"))).toHaveLength(0);
   });
 
-  it("fills the code in from #setup=<code> and removes it from the address at once", async () => {
+  it("ignores a #setup= link from an older Kipple and leaves the address alone", async () => {
     server(makeWorld());
     go("/#setup=ABCD-EFGH-JKMN");
-    expect(await screen.findByLabelText("Setup code")).toHaveValue("ABCD-EFGH-JKMN");
-    expect(window.location.hash).toBe("");
-    expect(screen.getByText(/code from your link is filled in/)).toBeInTheDocument();
-  });
-
-  it("sends the code and moves to the account step", async () => {
-    const { calls } = server(makeWorld());
-    go("/");
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Setup code"), "abcd efgh");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
     await headingIs("Create your account");
-    await waitFor(() => expect(callTo(calls, "POST", "/api/setup/claim")).toHaveLength(1));
-    expect(bodyOf(callTo(calls, "POST", "/api/setup/claim")[0] as never)).toEqual({ token: "abcd efgh" });
-    // Setup calls are made before any sign-in: the app never mistakes them for one.
-    expect(authStore.get()).toBe("out");
-  });
-
-  it("goes straight to the account step when the setup session is already valid", async () => {
-    server(makeWorld({ state: { ...makeWorld().state, claimed: true } }));
-    go("/");
-    await headingIs("Create your account");
-  });
-
-  it("asks for a code before it sends anything", async () => {
-    const { calls } = server(makeWorld());
-    go("/");
-    await userEvent.setup().click(await screen.findByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent("Enter the setup code first.");
-    expect(callTo(calls, "POST", "/api/setup/claim")).toHaveLength(0);
-  });
-
-  it("explains a wrong code", async () => {
-    server(makeWorld(), { "POST /api/setup/claim": () => json({ error: "bad_token", message: "that is not the current setup code (`kipple setup-token` shows it)" }, 403) });
-    go("/");
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Setup code"), "wrong");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent(/isn't the current setup code.*kipple setup-token/);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Enter your setup code");
-  });
-
-  it("says how long to wait after too many wrong codes", async () => {
-    server(makeWorld(), { "POST /api/setup/claim": () => json({ error: "locked" }, 429, { "Retry-After": "42" }) });
-    go("/");
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Setup code"), "wrong");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent("about 42 seconds");
-  });
-
-  it("says so when the server cannot be reached", async () => {
-    server(makeWorld(), { "POST /api/setup/claim": () => Promise.reject(new TypeError("offline")) as never });
-    go("/");
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Setup code"), "abc");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent("couldn't reach the server");
+    expect(window.location.hash).toBe("#setup=ABCD-EFGH-JKMN");
   });
 
   it("offers a reload when setup finished while the page was open", async () => {
-    server(makeWorld(), { "GET /api/setup/state": () => json({ error: "not_found" }, 404) });
+    server(makeWorld(), { "POST /api/setup/account": () => json({ error: "not_found" }, 404) });
     go("/");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("User name"), "reader");
+    await user.type(screen.getByLabelText("Password"), "long enough");
+    await user.type(screen.getByLabelText("Password again"), "long enough");
+    await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await findAlert()).toHaveTextContent("Reload the page to sign in");
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
   });
 });
 
-describe("Step 2: account", () => {
-  const claimed = () => makeWorld({ state: { claimed: true, access: { enabled: false, verified: false }, open: { reason: null, lan_reason: null } } });
+describe("Step 1: account", () => {
+  const claimed = () => makeWorld();
 
   it("creates the account with a password, signs in and continues at the time zone", async () => {
     const w = claimed();
@@ -234,7 +180,7 @@ describe("Step 2: account", () => {
     await headingIs("Choose your time zone");
     expect(bodyOf(callTo(calls, "POST", "/api/setup/account")[0] as never)).toEqual({ username: "reader", password: "correct horse" });
     expect(window.location.pathname).toBe("/welcome/timezone");
-    // Kept in memory for step 7.
+    // Kept in memory for step 6.
     expect(setupSecret.get()).toBe("correct horse");
   });
 
@@ -274,19 +220,6 @@ describe("Step 2: account", () => {
     expect(screen.getByLabelText("User name")).toHaveValue("reader");
   });
 
-  it("goes back to the code when the setup session ran out", async () => {
-    server(claimed(), { "POST /api/setup/account": () => json({ error: "setup_session", message: "enter the setup code first" }, 401) });
-    go("/");
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("User name"), "reader");
-    await user.type(screen.getByLabelText("Password"), "long enough");
-    await user.type(screen.getByLabelText("Password again"), "long enough");
-    await user.click(screen.getByRole("button", { name: "Create my account" }));
-    await headingIs("Enter your setup code");
-    expect(screen.getByText(/timed out/)).toBeInTheDocument();
-    expect(authStore.get()).toBe("out");
-  });
-
   it("says Kipple was set up a moment ago when someone else got there first", async () => {
     server(claimed(), { "POST /api/setup/account": () => json({ error: "already_set_up", message: "sign in instead" }, 409) });
     go("/");
@@ -299,9 +232,9 @@ describe("Step 2: account", () => {
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
   });
 
-  it("explains a network failure and a rate limit without losing the form", async () => {
+  it("explains a network failure without losing the form", async () => {
     let n = 0;
-    server(claimed(), { "POST /api/setup/account": () => (++n === 1 ? (Promise.reject(new TypeError("x")) as never) : json({ error: "rate" }, 429)) });
+    server(claimed(), { "POST /api/setup/account": () => (++n === 1 ? (Promise.reject(new TypeError("x")) as never) : json({ error: "bad_new_password", message: "no" }, 400)) });
     go("/");
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("User name"), "reader");
@@ -309,8 +242,9 @@ describe("Step 2: account", () => {
     await user.type(screen.getByLabelText("Password again"), "long enough");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await screen.findByText("Kipple couldn't reach the server.")).toBeInTheDocument();
+    expect(screen.getByLabelText("User name")).toHaveValue("reader");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
-    expect(await screen.findByText(/Too many attempts/)).toBeInTheDocument();
+    expect(await screen.findByText("No.")).toBeInTheDocument();
   });
 
   describe("no password, open mode", () => {
@@ -535,7 +469,7 @@ describe("routing into and out of /welcome", () => {
     server(signedIn());
     go("/welcome/import");
     await headingIs("Bring your feeds along");
-    expect(screen.getByText("Step 5 of 7")).toBeInTheDocument();
+    expect(screen.getByText("Step 4 of 6")).toBeInTheDocument();
   });
 
   it("moves focus to the new step's heading", async () => {
@@ -563,7 +497,7 @@ describe("routing into and out of /welcome", () => {
   });
 });
 
-describe("Step 3: time zone", () => {
+describe("Step 2: time zone", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
 
   it("preselects the browser's zone, saves it and goes on", async () => {
@@ -710,7 +644,7 @@ describe("Step 3: time zone", () => {
   });
 });
 
-describe("Step 4: theme", () => {
+describe("Step 3: theme", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
 
   it("applies the picks at once, shows both samples and saves the pair as the default", async () => {
@@ -839,7 +773,7 @@ describe("Step 4: theme", () => {
   });
 });
 
-describe("Step 5: OPML import", () => {
+describe("Step 4: OPML import", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
   const file = (name = "feeds.opml") => new File(['<?xml version="1.0"?><opml/>'], name, { type: "text/x-opml" });
   const result = { folders_created: 2, feeds_added: 5, feeds_existing: [{ url: "https://a.example/f", feed_id: "9" }], folders_merged_case: [], memberships_dropped: [], run_id: "r1" };
@@ -905,7 +839,7 @@ describe("Step 5: OPML import", () => {
   });
 });
 
-describe("Step 6: recommended feeds", () => {
+describe("Step 5: recommended feeds", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
   const feed = (id: string, over: Record<string, unknown> = {}) => ({ id, title: `Feed ${id}`, url: `https://${id}.example.com/feed.xml`, site: `https://www.${id}.example.com/`, description: `About ${id}`, checked: true, subscribed: false, ...over });
   const starter = {
@@ -1006,10 +940,10 @@ describe("Step 6: recommended feeds", () => {
   });
 });
 
-describe("Step 7: finish", () => {
+describe("Step 6: finish", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
 
-  it("generates the API password with the web password from step 2, shows it once with a copy button", async () => {
+  it("generates the API password with the web password from step 1, shows it once with a copy button", async () => {
     setupSecret.set("correct horse");
     const { calls } = server(signedIn(), { "POST /api/account/api-password": () => json({ api_password: "abcd-efgh-ijkl" }) });
     const user = userEvent.setup();
@@ -1084,16 +1018,15 @@ describe("Step 7: finish", () => {
 });
 
 describe("the whole run", () => {
-  it("walks all seven steps with a password", async () => {
+  it("walks all six steps with a password", async () => {
     browserZoneIs("Asia/Tokyo");
     const w = makeWorld();
     const { calls } = server(w, {
       "GET /api/starter-feeds": () => json({ available: true, categories: [{ id: "x", title: "Sample", feeds: [{ id: "f1", title: "Sample feed", url: "https://f1.example.com/feed", checked: true, subscribed: false }] }] }),
       "POST /api/starter-feeds": () => json({ added: 1, existing: 0, run_id: null }),
     });
-    go("/#setup=ABCD-EFGH");
+    go("/");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Continue" }));
     await user.type(await screen.findByLabelText("User name"), "reader");
     await user.type(screen.getByLabelText("Password"), "correct horse");
     await user.type(screen.getByLabelText("Password again"), "correct horse");
@@ -1112,7 +1045,7 @@ describe("the whole run", () => {
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(w.tz).toBe("Asia/Tokyo");
     expect(w.pending).toBe(false);
-    expect(callTo(calls, "POST", "/api/setup/claim")).toHaveLength(1);
+    expect(callTo(calls, "POST", "/api/setup/account")).toHaveLength(1);
   });
 });
 
@@ -1164,7 +1097,7 @@ describe("Settings: run setup again", () => {
 
 // ---- review fixes: the signed-out screen, skip-all, the theme preview and the small things around them ----
 
-describe("Skip the rest of setup from step 3 keeps the time zone", () => {
+describe("Skip the rest of setup from step 2 keeps the time zone", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
 
   it("saves the preselected zone before it ends setup", async () => {
@@ -1192,10 +1125,8 @@ describe("Skip the rest of setup from step 3 keeps the time zone", () => {
 });
 
 describe("a stale /welcome/<step> address before the account exists", () => {
-  const claimed = () => makeWorld({ state: { claimed: true, access: { enabled: false, verified: false }, open: { reason: null, lan_reason: null } } });
-
-  it("does not carry the new account past step 3", async () => {
-    server(claimed());
+  it("does not carry the new account past step 2", async () => {
+    server(makeWorld());
     go("/welcome/theme");
     const user = userEvent.setup();
     await headingIs("Create your account");
@@ -1256,6 +1187,24 @@ describe("the sign-in form meets an open-mode Kipple", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(callTo(calls, "POST", "/api/auth/open")).toHaveLength(1);
+  });
+});
+
+describe("the sign-in form meets a Kipple with no account", () => {
+  it("moves to the account form on a 409 setup_required", async () => {
+    const w = makeWorld({ instance: { setup: false, auth: "password" } });
+    server(w, {
+      "POST /api/auth/login": () => {
+        // The instance was reset since the form was drawn.
+        w.instance = { setup: true, auth: null };
+        return json({ error: "setup_required", message: "Kipple has no account yet; create it first" }, 409);
+      },
+    });
+    go("/");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Username"), "reader");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await headingIs("Create your account");
   });
 });
 
@@ -1369,7 +1318,7 @@ describe("a step that is saving cannot be left", () => {
 describe("what the wizard keeps in memory", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
 
-  it("drops the step 2 password when setup turns out to be over", async () => {
+  it("drops the step 1 password when setup turns out to be over", async () => {
     setupSecret.set("correct horse");
     server(signedIn({ pending: false }));
     go("/welcome/finish");
@@ -1409,20 +1358,8 @@ describe("what the wizard keeps in memory", () => {
   });
 });
 
-describe("steps 1 and 2: accessibility and small things", () => {
-  const claimed = () => makeWorld({ state: { claimed: true, access: { enabled: false, verified: false }, open: { reason: null, lan_reason: null } } });
-
-  it("ties a wrong-code message to the setup code input", async () => {
-    server(makeWorld(), { "POST /api/setup/claim": () => json({ error: "bad_token", message: "x" }, 403) });
-    go("/");
-    const user = userEvent.setup();
-    const input = await screen.findByLabelText("Setup code");
-    await user.type(input, "wrong");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await findAlert();
-    expect(input).toHaveAttribute("aria-invalid", "true");
-    expect(input).toHaveAccessibleDescription(/isn't the current setup code/);
-  });
+describe("step 1: accessibility and small things", () => {
+  const claimed = () => makeWorld();
 
   it("checks the password while typing without announcing it on every keystroke", async () => {
     server(claimed());
@@ -1435,21 +1372,6 @@ describe("steps 1 and 2: accessibility and small things", () => {
     await user.tab();
     expect(await screen.findByText("The two passwords don't match.")).toBeInTheDocument();
     expect(screen.getByText("Use at least 5 characters.")).toBeInTheDocument();
-  });
-
-  it("keeps the typed user name when the setup session ran out and the code is entered again", async () => {
-    server(claimed(), { "POST /api/setup/account": () => json({ error: "setup_session", message: "enter the setup code first" }, 401) });
-    go("/");
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("User name"), "reader");
-    await user.type(screen.getByLabelText("Password"), "long enough");
-    await user.type(screen.getByLabelText("Password again"), "long enough");
-    await user.click(screen.getByRole("button", { name: "Create my account" }));
-    await headingIs("Enter your setup code");
-    await user.type(screen.getByLabelText("Setup code"), "abcd");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Create your account");
-    expect(screen.getByLabelText("User name")).toHaveValue("reader");
   });
 });
 
