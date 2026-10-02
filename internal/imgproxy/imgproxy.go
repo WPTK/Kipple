@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/imgcache"
 )
 
@@ -110,9 +111,10 @@ type Options struct {
 	// (fetch.Client.Transport).
 	Transport func(allowPrivate, insecureTLS bool) http.RoundTripper
 	UserAgent string
-	// BrowserUA is the plain browser User-Agent of the hotlink retries; it never
-	// names Kipple. The default is a current desktop Chrome string.
-	BrowserUA string
+	// BrowserUA returns the plain browser User-Agent of the hotlink retries; it
+	// never names Kipple. It is read per request so a settings change applies
+	// at once. The default is fetch.BrowserUserAgent.
+	BrowserUA func() string
 	Logger    *slog.Logger
 
 	// Cache is the on-disk cache under the proxy. Nil, or a cache with a cap of
@@ -202,8 +204,8 @@ func New(opt Options) *Handler {
 	if opt.UserAgent == "" {
 		opt.UserAgent = "Mozilla/5.0 (compatible; Kipple)"
 	}
-	if opt.BrowserUA == "" {
-		opt.BrowserUA = defaultBrowserUA
+	if opt.BrowserUA == nil {
+		opt.BrowserUA = func() string { return fetch.BrowserUserAgent }
 	}
 	if opt.ThumbWidth <= 0 {
 		opt.ThumbWidth = ThumbWidth
@@ -405,7 +407,7 @@ func (h *Handler) vet(resp *http.Response) (head []byte, ct string, body io.Read
 	head = make([]byte, sniffLen)
 	n, err := io.ReadFull(body, head)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		return nil, "", nil, &refusal{negKindForErr(err), 0, http.StatusBadGateway, "reading the image failed"}
+		return nil, "", nil, &refusal{imgcache.NegTransient, 0, http.StatusBadGateway, "reading the image failed"}
 	}
 	head = head[:n]
 	if n == 0 {

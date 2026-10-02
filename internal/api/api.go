@@ -68,12 +68,13 @@ type Options struct {
 	Sched          Scheduler
 	Hub            *events.Hub
 	Logger         *slog.Logger
-	TrustedProxies []netip.Addr
+	TrustedProxies []netip.Prefix
 	// Clients reports Reader client families' last-seen times (greader.API.LastSeen); optional.
 	Clients func() map[string]time.Time
-	// Lockout defaults to the plan settings. Verifier must be the one instance
-	// shared with greader.Options.Verifier (nil builds a private one, tests only).
-	Lockout  *auth.Lockout
+	// Failures paces web sign-ins and password checks per client (nil: the
+	// design budget). Verifier must be the one instance shared with
+	// greader.Options.Verifier (nil builds a private one, tests only).
+	Failures *auth.FailureTracker
 	Verifier *auth.Verifier
 	// OnAPIPasswordChange runs after the Reader API password changes (drops the
 	// Reader API cached token at once); optional.
@@ -124,7 +125,7 @@ type Options struct {
 	// Register, the setup routes are mounted. Nil means never in setup mode.
 	Setup *setup.Manager
 	// SetupLockout limits wrong setup tokens per IP (default 10 per 15 minutes),
-	// separate from the login lockout.
+	// separate from the login pacing.
 	SetupLockout *auth.Lockout
 	// AllowedHosts are the Host gate's configured names (KIPPLE_ALLOWED_HOSTS and
 	// the host of KIPPLE_PUBLIC_URL), normalized by setup.CheckHostEntry.
@@ -140,7 +141,7 @@ type Server struct {
 	db        *store.DB
 	log       *slog.Logger
 	now       func() time.Time
-	lock      *auth.Lockout
+	fails     *auth.FailureTracker
 	setupLock *auth.Lockout
 	// setupChecks caps the concurrent code checks of locked-out addresses
 	// (maxLockedChecks slots, waited for, never refused); setupWrongDelay holds
@@ -192,15 +193,16 @@ type Server struct {
 
 // New builds the API server.
 func New(opt Options) *Server {
-	s := &Server{started: time.Now(), opt: opt, db: opt.DB, log: opt.Logger, now: opt.Now, lock: opt.Lockout, verifier: opt.Verifier, statsGate: make(chan struct{}, 1)}
+	s := &Server{started: time.Now(), opt: opt, db: opt.DB, log: opt.Logger, now: opt.Now, fails: opt.Failures, verifier: opt.Verifier, statsGate: make(chan struct{}, 1)}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
 	if s.now == nil {
 		s.now = time.Now
 	}
-	if s.lock == nil {
-		s.lock = auth.NewLockout(s.now)
+	if s.fails == nil {
+		s.fails = auth.NewFailureTracker()
+		s.fails.Now = s.now
 	}
 	s.setupLock = opt.SetupLockout
 	if s.setupLock == nil {

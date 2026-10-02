@@ -63,7 +63,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 /** What makes an open a read (design §8, `store.statsIsRead`); the thresholds live on the server. */
 export const READ_RULE =
-  "An article counts as read after 10 seconds of active reading, or once you scroll past a quarter of it and read for at least 3 seconds. A quick look does not count.";
+  "An article counts as read after 10 seconds of reading, or 3 seconds once you've scrolled a quarter of the way down.";
 
 export function SummaryStrip({ data }: { data: StatsSummary }) {
   const t = data.totals;
@@ -78,7 +78,7 @@ export function SummaryStrip({ data }: { data: StatsSummary }) {
       <p className="mt-2 text-xs text-fg2">
         {READ_RULE}
         {legacy > 0
-          ? ` ${plural(legacy, "open")} in this range came before reading time was recorded, so ${legacy === 1 ? "it counts" : "they count"} as read without being measured.`
+          ? ` ${plural(legacy, "open")} in this range predate reading time. ${legacy === 1 ? "It counts" : "They count"} as read, with no time.`
           : ""}
       </p>
     </Section>
@@ -93,11 +93,11 @@ const CHART_H = 120;
 
 export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean }) {
   const daily = data.daily ?? [];
-  if (empty || daily.length === 0) return <Empty>No reading in this range yet. Bars appear here as you read.</Empty>;
+  if (empty || daily.length === 0) return <Empty>No reading in this range yet.</Empty>;
   const max = Math.max(1, ...daily.map((d) => d.items_read));
   const total = daily.reduce((a, d) => a + d.items_read, 0);
   const busiest = daily.reduce((a, d) => (d.items_read > a.items_read ? d : a), daily[0]!);
-  const summary = `Items read per day, ${shortDate(daily[0]!.date)} to ${shortDate(daily[daily.length - 1]!.date)}. ${plural(total, "item")} in total; the most in one day was ${busiest.items_read} on ${shortDate(busiest.date)}.`;
+  const summary = `Items read per day, ${shortDate(daily[0]!.date)} to ${shortDate(daily[daily.length - 1]!.date)}. ${plural(total, "item")} in total. Most in one day: ${busiest.items_read}, on ${shortDate(busiest.date)}.`;
   const mid = daily[Math.floor((daily.length - 1) / 2)]!;
   return (
     <div>
@@ -122,7 +122,7 @@ export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean
         {daily.length > 14 ? <span className="hidden min-[420px]:inline">{shortDate(mid.date)}</span> : null}
         <span>{shortDate(daily[daily.length - 1]!.date)}</span>
       </div>
-      <p className="mt-1 text-xs text-fg2">Most in a day: {busiest.items_read}. Tallest bar: {max} {max === 1 ? "item" : "items"}.</p>
+      <p className="mt-1 text-xs text-fg2">Most in a day: {busiest.items_read}.</p>
       <table className="sr-only">
         <caption>Items read and active time per day</caption>
         <thead>
@@ -152,7 +152,7 @@ export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean
 
 export function Streaks({ data }: { data: StatsSummary }) {
   const s = data.streaks;
-  if (!s || (s.current === 0 && s.longest === 0)) return <Empty>No streak yet. A streak counts consecutive days with something read.</Empty>;
+  if (!s || (s.current === 0 && s.longest === 0)) return <Empty>No streak yet.</Empty>;
   const today = data.range?.to ?? todayString();
   const running = s.current > 0 && (s.current >= s.longest || (s.longest_end != null && daysBetween(s.longest_end, today) <= 1));
   const longestLabel = running ? "Longest streak, still going" : s.longest_end ? `Longest streak, ended ${shortDate(s.longest_end)}` : "Longest streak";
@@ -170,7 +170,7 @@ const heatStyle = (level: number) => ({ "--heat": HEAT_MIX[level] }) as CSSPrope
 
 export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean }) {
   const cells = data.heatmap ?? [];
-  if (empty || cells.length === 0) return <Empty>The heatmap fills in once there is some reading to place on it.</Empty>;
+  if (empty || cells.length === 0) return <Empty>Nothing to show yet.</Empty>;
   const useTime = cells.some((c) => c.active_seconds > 0);
   const val = (c: { active_seconds: number; opens: number }) => (useTime ? c.active_seconds : c.opens);
   // Legacy opens have no read time: in a range that also has timed reading they still show, at the lightest shade.
@@ -183,8 +183,8 @@ export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean })
   return (
     <div>
       <p className="mb-2 text-xs text-fg2">
-        {useTime ? "Active reading time by weekday and hour." : "Articles opened by weekday and hour."}
-        {mixed ? " Shaded by reading time; cells with opens but no recorded time show the lightest shade." : ""}
+        {useTime ? "Reading time by weekday and hour." : "Opens by weekday and hour."}
+        {mixed ? " Opens with no recorded time show as the lightest shade." : ""}
       </p>
       <div className="max-w-3xl">
         <table className="w-full table-fixed border-separate border-spacing-0.5">
@@ -246,7 +246,7 @@ export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean })
 
 export function Behavior({ data, empty }: { data: StatsSummary; empty: boolean }) {
   const b = data.behavior;
-  if (empty || !b) return <Empty>Observations show up after a few articles have been read.</Empty>;
+  if (empty || !b) return <Empty>Nothing here until you've read a few articles.</Empty>;
   const facts: ReactNode[] = [];
   const amount = (x: { active_seconds: number; opens: number }) => (x.active_seconds > 0 ? durationLabel(x.active_seconds) : plural(x.opens, "open"));
   if (b.busiest_weekday) facts.push(<>Busiest day: {weekdayName(b.busiest_weekday.weekday)} ({amount(b.busiest_weekday)}).</>);
@@ -260,7 +260,7 @@ export function Behavior({ data, empty }: { data: StatsSummary; empty: boolean }
       </>,
     );
   }
-  if (facts.length === 0) return <Empty>Observations show up after a few articles have been read.</Empty>;
+  if (facts.length === 0) return <Empty>Nothing here until you've read a few articles.</Empty>;
   return (
     <ul className="flex flex-col gap-2 text-sm">
       {facts.map((f, i) => (
@@ -299,7 +299,7 @@ export function Sources({ data }: { data: StatsSummary }) {
     const base = by === "feeds" ? feedRows(sources ?? []) : folderRows(sources ?? []);
     return sortRows(base, metric).filter((r) => r.items_read > 0 || r.active_seconds > 0 || r.opens > 0 || r.stars > 0);
   }, [sources, metric, by]);
-  if (rows.length === 0 && (sources?.length ?? 0) === 0) return <Empty>Sources are listed here once you have read something.</Empty>;
+  if (rows.length === 0 && (sources?.length ?? 0) === 0) return <Empty>Nothing read yet.</Empty>;
   const val = (r: SourceRow) => (metric === "items" ? r.items_read : r.active_seconds);
   const max = Math.max(1, ...rows.map(val));
   const starred = mostStarred(by === "feeds" ? feedRows(sources ?? []) : folderRows(sources ?? []));
@@ -326,7 +326,7 @@ export function Sources({ data }: { data: StatsSummary }) {
           ]}
         />
       </div>
-      {data.sources_truncated ? <p className="text-xs text-fg2">Showing only the most active feeds; folder totals cover only those.</p> : null}
+      {data.sources_truncated ? <p className="text-xs text-fg2">Showing the most active feeds only. Folder totals count just those.</p> : null}
       {starred.length > 0 ? (
         <p className="text-sm text-fg2">Most starred: {starred.map((r) => `${r.name} (${r.stars})`).join(", ")}.</p>
       ) : null}
@@ -410,7 +410,7 @@ export function Sources({ data }: { data: StatsSummary }) {
 
 export function NeverOpened({ data }: { data: StatsSummary }) {
   const list = data.never_opened ?? [];
-  if (list.length === 0) return <Empty>No feeds to list here. Every subscribed feed has had an article opened.</Empty>;
+  if (list.length === 0) return <Empty>Every feed you subscribe to has had an article opened.</Empty>;
   return (
     <ul className="flex flex-col divide-y divide-line text-sm">
       {list.map((f) => (
@@ -483,7 +483,7 @@ export function StatsScreen() {
         ) : null}
         {range !== "all" && !q.isPlaceholderData && history != null && history >= 1 && history < 7 && (t?.days_active ?? 0) > 0 ? (
           <p className="mt-3 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
-            Only {plural(history, "day")} of reading so far; charts fill in as you read.
+            Only {plural(history, "day")} of reading so far.
           </p>
         ) : null}
         <SummaryStrip data={data} />

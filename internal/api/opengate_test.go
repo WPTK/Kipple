@@ -150,11 +150,6 @@ func TestAboutReportsOpenModeAndTheLiveZone(t *testing.T) {
 	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"tz":"Europe/Paris"}`, withCookies(sess)).Code)
 	out = decode(t, h.req("GET", "/api/about", "", withCookies(sess)))
 	require.Equal(t, "Europe/Paris", out["tz"], "no restart needed")
-
-	t.Cleanup(func() { _ = store.SetEnvZone("") })
-	require.NoError(t, store.SetEnvZone("Asia/Tokyo"))
-	out = decode(t, h.req("GET", "/api/about", "", withCookies(sess)))
-	require.Equal(t, "Asia/Tokyo", out["tz"], "TZ overrides the setting, as for statistics")
 }
 
 func TestAboutReportsAccessAndPasswordModes(t *testing.T) {

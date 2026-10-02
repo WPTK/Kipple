@@ -230,6 +230,17 @@ func (d *DB) FetchSettings(ctx context.Context) FetchSettings {
 	return LoadFetchSettings(ctx, d.reader)
 }
 
+// BrowserUA is the browser User-Agent for requests that Kipple's own is
+// refused on: the custom fetch.user_agent setting, else fetch.BrowserUserAgent.
+// Feed fetches, article extraction and the image proxy's hotlink retries all
+// take it from here.
+func BrowserUA(set FetchSettings) string {
+	if set.UserAgent != "" {
+		return set.UserAgent
+	}
+	return fetch.BrowserUserAgent
+}
+
 // ResolveUserAgent picks the User-Agent for a fetch and the one to retry with
 // on a 403/406 ("" = no retry). The per-feed override beats everything and never
 // retries. Otherwise the mode decides: default = Kipple's UA (custom setting is
@@ -239,10 +250,7 @@ func ResolveUserAgent(set FetchSettings, feedUA string, uaFallback bool) (ua, re
 	if feedUA != "" {
 		return feedUA, ""
 	}
-	browser := set.UserAgent
-	if browser == "" {
-		browser = fetch.BrowserUserAgent
-	}
+	browser := BrowserUA(set)
 	switch set.UAMode {
 	case UAModeAlways:
 		return browser, ""

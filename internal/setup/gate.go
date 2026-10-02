@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/WPTK/kipple/internal/auth"
 )
 
 // Reasons the open gate refuses a request (answered as
@@ -37,7 +39,7 @@ var (
 type Gate struct {
 	// Trusted are the configured proxies: a request from one is forwarded by
 	// definition.
-	Trusted []netip.Addr
+	Trusted []netip.Prefix
 
 	// Tailnet lists this machine's Tailscale addresses (nil or empty: none).
 	// A peer in Tailscale's ranges counts as a tailnet device only when its
@@ -124,6 +126,19 @@ func (g Gate) tailscaleServe(r *http.Request, peer netip.Addr, host string) bool
 	return true
 }
 
+// TailscaleServeRequest reports whether r is a tailnet-only Tailscale Serve
+// request, by the one rule the open gate uses (tailscaleServe). The proxy-header
+// warning asks it so a legitimate Tailscale Serve setup is not reported as an
+// untrusted proxy.
+func (g Gate) TailscaleServeRequest(r *http.Request) bool {
+	peer, ok := auth.Peer(r)
+	if !ok {
+		return false
+	}
+	host, ok := NormalizeHost(r.Host)
+	return ok && g.tailscaleServe(r, peer, host)
+}
+
 // OpenRefusal is the network part of the open gate (design 5.4), checked on
 // every request of an open-mode account: "" when r may use open mode, else the
 // reason. host is the normalized Host (NormalizeHost) and hostOK whether it
@@ -145,12 +160,12 @@ func (g Gate) OpenRefusal(r *http.Request, host string, hostOK, openLAN bool) st
 	if !hostOK {
 		return RefuseHost
 	}
-	peer, ok := peerAddr(r)
+	peer, ok := auth.Peer(r)
 	if !ok {
 		return RefusePeer
 	}
 	for _, t := range g.Trusted {
-		if t == peer {
+		if t.Contains(peer) {
 			return RefuseForwarded
 		}
 	}
@@ -172,8 +187,13 @@ func (g Gate) OpenRefusal(r *http.Request, host string, hostOK, openLAN bool) st
 	case tailscaleV4.Contains(peer) || tailscaleV6.Contains(peer):
 		// Arrived on this machine's own Tailscale address: a tailnet device. Any
 		// other way in (the LAN interface, a container's bridge), only the owner's
-		// LAN opt-in admits the range.
-		if g.arrivedOverTailnet(r) || openLAN {
+		// LAN opt-in admits the range, and then only when the connection arrived on
+		// a private-range address of this machine (a LAN or a container's bridge,
+		// where open_lan already trusts every device). 100.64.0.0/10 is also shared
+		// carrier-grade NAT, cloud and Kubernetes overlay space: a machine whose
+		// own address is there, or that is reached on a public one, would
+		// otherwise let strangers in. An unknown local address fails closed.
+		if g.arrivedOverTailnet(r) || (openLAN && localAddr(r).IsPrivate()) {
 			return ""
 		}
 		return RefusePeer
@@ -202,18 +222,6 @@ func (g Gate) SignInRefusal(r *http.Request, host string, hostOK, openLAN bool) 
 		return RefuseForwarded
 	}
 	return ""
-}
-
-func peerAddr(r *http.Request) (netip.Addr, bool) {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	a, err := netip.ParseAddr(host)
-	if err != nil {
-		return netip.Addr{}, false
-	}
-	return a.WithZone("").Unmap(), true
 }
 
 // tailnetRecheck is how long TailnetCheck trusts its last answer: Tailscale may

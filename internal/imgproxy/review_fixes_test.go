@@ -306,7 +306,7 @@ func newLowDiskThumbRig(t *testing.T, tune ...func(*Options)) *lowDiskThumbRig {
 	free := &atomic.Uint64{}
 	free.Store(500 << 30)
 	c, err := imgcache.Open(imgcache.Options{
-		Dir: filepath.Join(t.TempDir(), "ic"), MaxBytes: 64 << 20, NoBackgound: true,
+		Dir: filepath.Join(t.TempDir(), "ic"), MaxBytes: 64 << 20, NoBackground: true,
 		DiskSpace: func(string) (uint64, uint64, error) { return free.Load(), 800 << 30, nil },
 	})
 	require.NoError(t, err)

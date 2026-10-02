@@ -63,7 +63,7 @@ func TestClientLoginAndWebLoginShareOneHashingSlot(t *testing.T) {
 			r := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(loginBody(testPass)))
 			r.Header.Set("Sec-Fetch-Site", "same-origin")
 			r.Header.Set("X-Kipple-Client", "web")
-			r.RemoteAddr = "10.20.30.10:1"
+			r.RemoteAddr = "10.20.30." + strconv.Itoa(30+i) + ":1"
 			w := httptest.NewRecorder()
 			front.ServeHTTP(w, r)
 			require.Equal(t, http.StatusNoContent, w.Code)

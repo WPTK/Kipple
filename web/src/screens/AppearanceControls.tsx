@@ -194,10 +194,9 @@ export function FontSelect({ preview = "compact" }: { preview?: "compact" | "lar
 
 export function TextSizeControl() {
   const p = useStore(prefsStore);
-  const meta = useMeta("ui.font_size", "Text size");
   return (
     <Segmented<number>
-      legend={meta.label}
+      legend="Text size"
       hint="Makes all text larger or smaller. Also follows your zoom."
       value={p.textSize}
       onChange={(textSize) => updatePrefs({ textSize })}

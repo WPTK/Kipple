@@ -18,7 +18,6 @@ func TestLoadDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, ":1919", cfg.Addr)
-	require.False(t, cfg.AddrSet, "the legacy port and the 1138 fallback apply only to an unset KIPPLE_ADDR")
 	require.Equal(t, "/data", cfg.DataDir)
 	require.Equal(t, "", cfg.Username)
 	require.Equal(t, "", cfg.Password)
@@ -54,16 +53,15 @@ func TestLoadOverrides(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "127.0.0.1:9090", cfg.Addr)
-	require.True(t, cfg.AddrSet)
 	require.Equal(t, []string{"rss.example.com", "*.example.org"}, cfg.AllowedHosts)
 	require.Equal(t, "/var/lib/kipple", cfg.DataDir)
 	require.Equal(t, "owner", cfg.Username)
 	require.Equal(t, "hunter2", cfg.Password)
 	require.Equal(t, "api-secret", cfg.APIPassword)
 	require.Equal(t, "https://rss.example.com", cfg.PublicURL)
-	require.Equal(t, []netip.Addr{
-		netip.MustParseAddr("192.0.2.20"),
-		netip.MustParseAddr("127.0.0.1"),
+	require.Equal(t, []netip.Prefix{
+		netip.MustParsePrefix("192.0.2.20/32"),
+		netip.MustParsePrefix("127.0.0.1/32"),
 	}, cfg.TrustedProxyIPs)
 	require.Equal(t, "America/Chicago", cfg.TZ)
 	require.Equal(t, time.Minute, cfg.SchedTick)
@@ -75,26 +73,27 @@ func TestLoadOverrides(t *testing.T) {
 
 func TestLoadInvalid(t *testing.T) {
 	cases := map[string]map[string]string{
-		"bad trusted proxy IP": {"KIPPLE_TRUSTED_PROXY_IPS": "not-an-ip"},
-		"bad sched tick":       {"KIPPLE_SCHED_TICK": "soon"},
-		"negative sched tick":  {"KIPPLE_SCHED_TICK": "-1s"},
-		"bad fetch workers":    {"KIPPLE_FETCH_WORKERS": "many"},
-		"zero fetch workers":   {"KIPPLE_FETCH_WORKERS": "0"},
-		"bad fetch per host":   {"KIPPLE_FETCH_PER_HOST": "lots"},
-		"bad log level":        {"KIPPLE_LOG_LEVEL": "shout"},
-		"bad log greader bool": {"KIPPLE_LOG_GREADER_FORMS": "maybe"},
-		"sched tick under 1s":  {"KIPPLE_SCHED_TICK": "500ms"},
-		"sched tick 1ns":       {"KIPPLE_SCHED_TICK": "1ns"},
-		"public URL no scheme": {"KIPPLE_PUBLIC_URL": "rss.example.com"},
-		"public URL ftp":       {"KIPPLE_PUBLIC_URL": "ftp://rss.example.com"},
-		"public URL no host":   {"KIPPLE_PUBLIC_URL": "https://"},
-		"public URL query":     {"KIPPLE_PUBLIC_URL": "https://rss.example.com/?x=1"},
-		"public URL fragment":  {"KIPPLE_PUBLIC_URL": "https://rss.example.com/#top"},
-		"public URL bare ?":    {"KIPPLE_PUBLIC_URL": "https://rss.example.com?"},
-		"public URL user info": {"KIPPLE_PUBLIC_URL": "https://u:p@rss.example.com"},
-		"public URL space":     {"KIPPLE_PUBLIC_URL": "https://rss.example.com /x"},
-		"public URL trailing":  {"KIPPLE_PUBLIC_URL": "https://rss.example.com "},
-		"public URL relative":  {"KIPPLE_PUBLIC_URL": "/rss"},
+		"bad trusted proxy IP":    {"KIPPLE_TRUSTED_PROXY_IPS": "not-an-ip"},
+		"bad trusted proxy range": {"KIPPLE_TRUSTED_PROXY_IPS": "10.0.0.0/33"},
+		"bad sched tick":          {"KIPPLE_SCHED_TICK": "soon"},
+		"negative sched tick":     {"KIPPLE_SCHED_TICK": "-1s"},
+		"bad fetch workers":       {"KIPPLE_FETCH_WORKERS": "many"},
+		"zero fetch workers":      {"KIPPLE_FETCH_WORKERS": "0"},
+		"bad fetch per host":      {"KIPPLE_FETCH_PER_HOST": "lots"},
+		"bad log level":           {"KIPPLE_LOG_LEVEL": "shout"},
+		"bad log greader bool":    {"KIPPLE_LOG_GREADER_FORMS": "maybe"},
+		"sched tick under 1s":     {"KIPPLE_SCHED_TICK": "500ms"},
+		"sched tick 1ns":          {"KIPPLE_SCHED_TICK": "1ns"},
+		"public URL no scheme":    {"KIPPLE_PUBLIC_URL": "rss.example.com"},
+		"public URL ftp":          {"KIPPLE_PUBLIC_URL": "ftp://rss.example.com"},
+		"public URL no host":      {"KIPPLE_PUBLIC_URL": "https://"},
+		"public URL query":        {"KIPPLE_PUBLIC_URL": "https://rss.example.com/?x=1"},
+		"public URL fragment":     {"KIPPLE_PUBLIC_URL": "https://rss.example.com/#top"},
+		"public URL bare ?":       {"KIPPLE_PUBLIC_URL": "https://rss.example.com?"},
+		"public URL user info":    {"KIPPLE_PUBLIC_URL": "https://u:p@rss.example.com"},
+		"public URL space":        {"KIPPLE_PUBLIC_URL": "https://rss.example.com /x"},
+		"public URL trailing":     {"KIPPLE_PUBLIC_URL": "https://rss.example.com "},
+		"public URL relative":     {"KIPPLE_PUBLIC_URL": "/rss"},
 	}
 
 	for name, envMap := range cases {
@@ -121,7 +120,13 @@ func TestLoadAcceptsPublicURLsAndMinimumTick(t *testing.T) {
 func TestTrustedProxiesAreUnmapped(t *testing.T) {
 	cfg, err := load(env(map[string]string{"KIPPLE_TRUSTED_PROXY_IPS": "::ffff:192.0.2.10, 2001:db8::1"}))
 	require.NoError(t, err)
-	require.Equal(t, []netip.Addr{netip.MustParseAddr("192.0.2.10"), netip.MustParseAddr("2001:db8::1")}, cfg.TrustedProxyIPs)
+	require.Equal(t, []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32"), netip.MustParsePrefix("2001:db8::1/128")}, cfg.TrustedProxyIPs)
+}
+
+func TestTrustedProxiesAcceptRanges(t *testing.T) {
+	cfg, err := load(env(map[string]string{"KIPPLE_TRUSTED_PROXY_IPS": "172.16.0.0/12, 192.0.2.10"}))
+	require.NoError(t, err)
+	require.Equal(t, []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12"), netip.MustParsePrefix("192.0.2.10/32")}, cfg.TrustedProxyIPs)
 }
 
 func TestLoadRejectsBadAllowedHosts(t *testing.T) {

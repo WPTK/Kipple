@@ -7,7 +7,7 @@ import { toast } from "@/shell/toasts";
 import { StepActions, WizardFrame } from "./Frame";
 import { isRerun } from "./session";
 import { stepById } from "./steps";
-import { browserZone, offsetLabel, searchZones, zoneEntries, zoneNames } from "./zones";
+import { browserZone, searchZones, zoneEntries, zoneNames } from "./zones";
 
 /** The time in `zone` right now, for "it is 3:42 PM there", or "" when the browser cannot say. */
 function nowIn(zone: string): string {
@@ -20,8 +20,7 @@ function nowIn(zone: string): string {
 
 /**
  * Step 3: the time zone Kipple keeps its daily statistics and nightly upkeep in. Starts on the browser's own zone (or
- * the one already saved, when this is a repeat run), with a searchable list of every zone and its offset. Read-only when
- * the server was started with a TZ setting, which then decides.
+ * the one already saved, when this is a repeat run), with a searchable list of every zone and its offset.
  */
 export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () => void; onSkipAll: () => void; skipAllBusy?: boolean }) {
   const settings = useSettings();
@@ -38,7 +37,6 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
   const browser = browserZone();
 
   const meta = settings.data?.settings.find((s) => s.key === "tz");
-  const env = typeof meta?.env_override === "string" && meta.env_override !== "" ? meta.env_override : null;
   const saved = typeof meta?.value === "string" ? meta.value : "UTC";
   const isDefault = saved === (typeof meta?.default === "string" ? meta.default : "UTC");
   // A zone somebody chose earlier (Run setup again, an upgraded install) stays, UTC included; on a fresh install the
@@ -77,7 +75,7 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
    */
   const save = async (skipping = false, proceed: () => void = onNext) => {
     setError(null);
-    if (env || selected === saved) {
+    if (selected === saved) {
       proceed();
       return;
     }
@@ -116,53 +114,42 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
     >
       <div className="flex flex-1 flex-col gap-4">
         {error ? <Notice tone="error">{error}</Notice> : null}
-        {env ? (
-          <>
-            <Notice>Set by the TZ environment variable; remove it to choose here.</Notice>
-            <p className="text-base">
-              Kipple is using <strong>{env}</strong> {offsetLabel(env) ? `(${offsetLabel(env)})` : ""}.
-            </p>
-          </>
-        ) : (
-          <>
-            {unknownBrowser && !fellBack ? (
-              <Notice>
-                Your browser reported the time zone "{unknownBrowser}", which Kipple doesn't have in its list, so UTC is selected. Choose yours below.
-              </Notice>
-            ) : null}
-            <div className="rounded-xl border border-line bg-surface px-4 py-3" data-testid="selected-zone">
-              <p className="text-xs font-semibold tracking-wide text-fg2 uppercase">Selected</p>
-              <p className="text-lg font-semibold">{selectedLabel}</p>
-              {time ? <p className="text-sm text-fg2">It's {time} there now.</p> : null}
-              {chosen && selected === saved ? <p className="mt-1 text-xs text-fg2">Kipple is already set to this zone.</p> : browser && known.has(browser) && selected === browser ? <p className="mt-1 text-xs text-fg2">Suggested from your browser.</p> : null}
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor={searchId} className="text-sm font-semibold">
-                Search time zones
-              </label>
-              <input id={searchId} type="search" autoComplete="off" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="A city, a region or an offset, such as tokyo or +9" className={inputCls} aria-describedby={`${searchId}-h`} />
-              <p id={`${searchId}-h`} className="text-xs text-fg2">
-                <span role="status">{shown.length === 0 ? "No time zone matches." : `${shown.length} time zone${shown.length === 1 ? "" : "s"} ${query.trim() ? "match" : "in the list"}.`}</span> Use the arrow keys to move through the list.
-              </p>
-            </div>
-            <select
-              aria-label="Time zones"
-              size={7}
-              value={selected}
-              onChange={(e) => {
-                setPicked(e.target.value);
-                setError(null);
-              }}
-              className={`${inputCls} py-1`}
-            >
-              {shown.map((z) => (
-                <option key={z.name} value={z.name}>
-                  {z.label}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
+        {unknownBrowser && !fellBack ? (
+          <Notice>
+            Your browser reported the time zone "{unknownBrowser}", which Kipple doesn't have in its list, so UTC is selected. Choose yours below.
+          </Notice>
+        ) : null}
+        <div className="rounded-xl border border-line bg-surface px-4 py-3" data-testid="selected-zone">
+          <p className="text-xs font-semibold tracking-wide text-fg2 uppercase">Selected</p>
+          <p className="text-lg font-semibold">{selectedLabel}</p>
+          {time ? <p className="text-sm text-fg2">It's {time} there now.</p> : null}
+          {chosen && selected === saved ? <p className="mt-1 text-xs text-fg2">Kipple is already set to this zone.</p> : browser && known.has(browser) && selected === browser ? <p className="mt-1 text-xs text-fg2">Suggested from your browser.</p> : null}
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor={searchId} className="text-sm font-semibold">
+            Search time zones
+          </label>
+          <input id={searchId} type="search" autoComplete="off" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="A city, a region or an offset, such as tokyo or +9" className={inputCls} aria-describedby={`${searchId}-h`} />
+          <p id={`${searchId}-h`} className="text-xs text-fg2">
+            <span role="status">{shown.length === 0 ? "No time zone matches." : `${shown.length} time zone${shown.length === 1 ? "" : "s"} ${query.trim() ? "match" : "in the list"}.`}</span> Use the arrow keys to move through the list.
+          </p>
+        </div>
+        <select
+          aria-label="Time zones"
+          size={7}
+          value={selected}
+          onChange={(e) => {
+            setPicked(e.target.value);
+            setError(null);
+          }}
+          className={`${inputCls} py-1`}
+        >
+          {shown.map((z) => (
+            <option key={z.name} value={z.name}>
+              {z.label}
+            </option>
+          ))}
+        </select>
         <StepActions>
           <Button disabled={busy} onClick={() => void save(true)}>
             Skip
@@ -171,7 +158,7 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
             {busy ? "Saving" : "Continue"}
           </Button>
         </StepActions>
-        {!env ? <p className="-mt-2 text-right text-xs text-fg2">Skip keeps the zone shown above, so Kipple never stays on UTC by accident.</p> : null}
+        <p className="-mt-2 text-right text-xs text-fg2">Skip keeps the zone shown above, so Kipple never stays on UTC by accident.</p>
       </div>
     </WizardFrame>
   );

@@ -146,6 +146,8 @@ func TestStatusPageHasNoInlineScript(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Header().Get("Content-Type"), "javascript")
 	require.Contains(t, rec.Body.String(), "loadFeeds")
+	require.Contains(t, rec.Body.String(), `r.status === 503`, "sign-in says busy, as the app's login does")
+	require.NotContains(t, rec.Body.String(), `r.status === 429`, "sign-in no longer answers 429")
 	require.NotContains(t, rec.Body.String(), "</script>")
 }
 

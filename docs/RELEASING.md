@@ -39,6 +39,10 @@ not before 2026-10-06; it is now not before a week after the 0.5.0-beta.1 deploy
 on that build. The exception is not a precedent: beta.2 onward adds no features again. The design is
 `docs/setup-wizard-design.md` (its section 15 records the owner's decisions).
 
+**2026-10-02 (owner):** the soak toward 0.5.0-rc.1 was abandoned. 0.6.0-beta.1 carries breaking cleanup (the removed
+7080 fallback), which is a minor bump under Versioning, and the soak restarts at its own deploy. 0.5.0 never ships as
+a stable release.
+
 ### 0.5.0-beta.1: merge order and pre-deploy checklist
 
 Merged 2026-09-29 and 2026-09-30 on the owner's instruction, in this order, each with green CI on the exact commit and
@@ -65,8 +69,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 - **One-time, owner, after the first image is pushed:** make the GHCR package `kipple` public and confirm it is linked to
   `WPTK/Kipple` (step 11); until then anonymous pulls, and the README quickstart, fail.
 - **On Host-A, before the upgrade** (docs/deploy.md, "Schema 9 -> 10 and upgrading from 0.3 to 0.5"): confirm the `kipple`
-  service has `KIPPLE_ADDR=:7080` set (the legacy-port fallback would keep 7080 anyway, but nothing should rely on it);
-  compare Host-A's `TZ` with the in-app time zone, since a set `TZ` now also governs statistics and the nightly job; take
+  service has `KIPPLE_ADDR=:7080` set (from 0.6.0 an unset value is 1919, so a `7080:7080` mapping needs it); take
   the off-box backup (step 7); rehearse migration 0010 on a copy of the latest snapshot (Suite 4).
 - **Deploy source.** 0.5.0-beta.1 is built from the tag on Host-A exactly as step 9 says (that step is unchanged; add
   `KIPPLE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` to it if you want the build date on the About screen). From 0.5.0
@@ -74,8 +77,8 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
   `ghcr.io/wptk/kipple@sha256:<digest from the Release notes>` in place of its `build:` and `docker compose ... pull kipple`
   then `up -d kipple` (named service); build-from-tag stays as the fallback.
 - **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and schema 10;
-  the log shows the port line (a WARN about 7080 if `KIPPLE_ADDR` were unset, none if it is set) and no setup banner;
-  Settings > About matches; the existing account signs in with no wizard; a `TZ` mismatch WARN is absent.
+  the log shows the port line (listening on the port `KIPPLE_ADDR` names, 1919 if unset) and no setup banner;
+  Settings > About matches; the existing account signs in with no wizard.
 - **UAT Suite 5** (`docs/uat-plan.md`, rewritten for the wizard) on a Linux host with Docker, not Host-B, against the pushed
   prerelease image, and once on arm64. Findings go in the `uat-findings` doc; P0 and P1 block the promotion to rc.
 - **`kipple-history`, then the website (step 12):** record the exception and the decisions there; the site's quickstart text
@@ -84,7 +87,9 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 ## Before the tag
 
 1. **CI is green on the exact commit** you will deploy (not on a nearby one). Push first; nothing deploys from an unpushed tree.
-2. **Fuzz, by hand, not in CI:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean.
+2. **Fuzz, by hand:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean. The weekly
+   `Fuzz` workflow runs the same script on the default branch, but until it has run green for several weeks the
+   manual run stays the gate.
    A failure writes `testdata\fuzz\<Target>\<hash>` in the package: fix the bug, keep that file as a regression seed.
    **UAT Suite 1, also by hand:** in `web/`, `npm run build`, then `npm run seed` (it stays in the foreground), then
    in a second terminal, once the feeds have fetched (about a minute), `npm run uat` against that seeded local instance (never the live one; see `docs/uat-plan.md`, Suite 1). It must finish with exit code 0, or every
@@ -92,8 +97,10 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 3. **`/code-review high`** on the diff since the last deployed tag. Fix every finding.
 4. **CHANGELOG.md:** `node scripts/changelog.mjs preview` shows what is pending; add a one-paragraph
    `changes/_intro.md` if the release needs an intro. `node scripts/changelog.mjs release X.Y.Z` (`--dry-run` first) folds
-   the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links and deletes the
-   fragments. Review the diff (`changes/README.md`).
+   the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links, deletes the
+   fragments and sets the example image tag in `README.md`, `docker-compose.pull.example.yml` and `docs/deploy.md` to
+   X.Y.Z (`changelog.mjs check`, run by CI, fails when one differs from the top CHANGELOG version). Review the diff
+   (`changes/README.md`).
 5. **THIRD_PARTY_NOTICES.md:** regenerate with `node scripts/gen-notices.mjs` (after `cd web && npm ci`; after any dependency change at least).
    Any dependency change also needs a govulncheck run.
 6. Commit `chore(release): X.Y.Z`, push, wait for CI on that commit.
@@ -102,7 +109,9 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 
 7. **Off-box database copy first:** take the in-app backup zip (or `docker cp` the nightly
    `/data/backup/kipple-snapshot.db`, never the live `kipple.db`; see docs/deploy.md) and store it somewhere other than
-   Host-A. Note the pre-migration snapshot name the app writes on start.
+   Host-A. Note the pre-migration snapshot name the app writes on start. From the dev machine:
+
+       ssh host-a 'docker cp kipple:/data/backup/kipple-snapshot.db /tmp/k.db' && scp host-a:/tmp/k.db '<backup-dir>\kipple\' && ssh host-a 'rm /tmp/k.db'
 8. **Tag the deployed commit:** `git tag -a vX.Y.Z -m "Kipple X.Y.Z"` on the exact commit, then `git push origin vX.Y.Z`.
    Never move, delete or reuse a pushed tag; a bad release gets a new version.
    The tag push also starts `.github/workflows/release.yml`, which tests the tagged commit again, builds a multi-arch
@@ -145,14 +154,15 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
     The image's `org.opencontainers.image.version` is `X.Y.Z` (the tag without its `v`, the string you pull), `created`
     is the commit time and `kipple version` prints `vX.Y.Z`. The `X.Y.Z` image tag is immutable: the workflow refuses
     to publish if it already exists with another digest. So **if a run fails part-way, use "Re-run failed jobs", never
-    "Re-run all jobs"**: a full re-run rebuilds, gets a new digest and is refused at the Tag step. A tag whose image was
+    "Re-run all jobs"**: a full re-run rebuilds, gets a new digest and is refused at the Tag step (the last step before the release notes block: the digest is already signed and attested by
+    then, so a pullable `X.Y.Z` always has its signature). A tag whose image was
     never published and whose commit is wrong gets a new version, as ever.
 
     **Who may create `v*` tags is not something the workflow can enforce**: it signs whatever tag reaches it, and the
-    signature identity only says "this workflow at some `v*` tag". The repository therefore needs a **ruleset
-    restricting who can create (and update or delete) `v*` tags** to the owner; check it under Settings > Rules
-    before the first release, and treat a missing ruleset as a blocker. The workflow itself checks that the tag is
-    annotated, well formed (no leading zeros) and on `main`.
+    signature identity only says "this workflow at some `v*` tag". The repository therefore has a **ruleset,
+    "Protect Release Tags", active on `refs/tags/v*`**, with rules for creation, update, deletion and non-fast-forward
+    (Settings > Rules). The workflow itself checks that the tag is annotated, well formed (no leading zeros) and on
+    `main`.
 
     The floating-tag job and the rollback share one lock, so two releases cannot interleave their tag moves. GitHub
     keeps only one pending run per lock: if you push several tags in quick succession, a run of the floating-tag job that
@@ -184,8 +194,17 @@ ships, later releases of that line do not move `latest` past the bad tag, becaus
 ## Rollback
 
 Follow docs/deploy.md, "Roll back an upgrade that migrated the schema": stop the service, restore the pre-migration
-snapshot with the still-built new image (`docker compose run --rm -T --no-deps kipple restore /data/backup/pre-migration-<old>-<new>-<ns>.db --yes`),
-then check out the previous tag, rebuild with `KIPPLE_VERSION=<previous tag>`, start it, and `git checkout main` again.
+snapshot with the still-built new image, then start the previous version. On Host-A that is (while the build-from-tag
+deploy of step 9 is in use):
+
+       ssh host-a 'cd /home/user/stack && docker compose stop kipple'
+       ssh host-a 'cd /home/user/stack && docker compose run --rm -T --no-deps kipple restore /data/backup/pre-migration-<old>-<new>-<ns>.db --yes'
+       ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout <previous tag>'
+       ssh host-a 'cd /home/user/stack && KIPPLE_VERSION=<previous tag> KIPPLE_VCS_REF=$(git -C /home/user/kipple rev-parse HEAD) docker compose build kipple && docker compose up -d kipple'
+       ssh host-a 'cd /home/user/kipple && git checkout main'
+
+With the pull-by-digest deploy, put the previous image's digest back in the `image:` line and `pull kipple` then `up -d kipple`
+instead of the three git/build lines.
 Never copy a snapshot over the volume's `kipple.db` by hand: the `-wal` and `-shm` files left beside it would be
 replayed onto the copy and corrupt it; `kipple restore` handles them. The database may have moved forward, so a rollback
 across a migration always goes through the snapshot. Record what happened in the CHANGELOG or the diary; ship the fix as the next version.

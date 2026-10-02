@@ -1,7 +1,8 @@
 # Docs index
 
 A map of everything under `docs/`, for a newcomer (self-hoster or future contributor) who doesn't already know
-the project's shape. Each links to more detail; nothing here duplicates it.
+the project's shape. Each links to more detail; nothing here duplicates it. Older records under `docs/` (plans, meeting notes, handoffs, past test results) use the
+owner's own host labels (Host-A, Host-B); they are history and say nothing about how you should run Kipple.
 
 | Doc | What it's for |
 |---|---|
@@ -12,7 +13,7 @@ the project's shape. Each links to more detail; nothing here duplicates it.
 | [sqa-plan.md](sqa-plan.md) | The software-quality-assurance plan, mapped to IEEE 730: what already ensures quality (CI, reviews, release discipline) and open candidate additions. |
 | [risk-register.md](risk-register.md) | Currently open risks and their mitigations, kept live rather than scattered across old phase notes. |
 | [RELEASING.md](RELEASING.md) | The release checklist for every version, including alphas, and the alpha/beta/rc/1.0 promotion criteria. |
-| [deploy.md](deploy.md) | Backups, recovery, migrations, optional Cloudflare Access setup, and how a deploy and a rollback actually work. Also the first-run setup code and setup mode, ports (1919 and the legacy 7080), open mode (no password), the time zone rules, the published image, and upgrading from 0.3 to 0.5. |
+| [deploy.md](deploy.md) | Backups, recovery, migrations, optional Cloudflare Access setup, and how a deploy and a rollback actually work. Also the first-run setup code and setup mode, ports (1919, and 7080 for an install that sets it), open mode (no password), the time zone rules, the published image, and upgrading from 0.3 to 0.5. |
 | [../README.md](../README.md) | The Quickstart: pull-and-run (`docker run` or the pull compose file) or build from source, then the setup wizard. |
 | [../docker-compose.pull.example.yml](../docker-compose.pull.example.yml), [../docker-compose.example.yml](../docker-compose.example.yml) | The ready-to-run compose file for the published image, and the build-from-source one with resource limits and full hardening. |
 | [../.env.example](../.env.example) | The optional advanced overrides (listen address, host names, proxies, time zone, Cloudflare Access, scheduler, logging). Nothing needs a `.env` to get started. |

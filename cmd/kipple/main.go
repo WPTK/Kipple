@@ -107,17 +107,6 @@ func run(args []string) error {
 	}
 }
 
-// applyTZ makes tz (an IANA name, resolved from the embedded tzdata) the
-// process's local time zone.
-func applyTZ(tz string) error {
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		return fmt.Errorf("TZ %q: %w", tz, err)
-	}
-	setLocal(loc)
-	return nil
-}
-
 // setLocal makes loc the process's local time zone (time.Local). It is called
 // only at start-up, before any goroutine that reads the clock exists: time.Local
 // is a plain global that every time.Now reads. A zone with the same name as the
@@ -142,18 +131,6 @@ func runServe() error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
-	}
-
-	// TZ, when set, is the zone for everything (docs/setup-wizard-design.md 7a):
-	// time.Local for the logs and the zone store.Zone reports. Unset, the in-app
-	// tz setting governs, and time.Local follows it below, once the store is open.
-	if cfg.TZ != "" {
-		if err := applyTZ(cfg.TZ); err != nil {
-			return err
-		}
-	}
-	if err := store.SetEnvZone(cfg.TZ); err != nil {
-		return fmt.Errorf("TZ: %w", err)
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
@@ -197,20 +174,17 @@ func runServe() error {
 	if err := ensureAccount(context.Background(), db, cfg, logger); err != nil {
 		return fmt.Errorf("account: %w", err)
 	}
-	warnTZOverride(context.Background(), db, cfg, logger)
-	if cfg.TZ == "" {
-		// Nothing but this goroutine runs yet (the pools keep no timers), so this
-		// is the one safe moment: log timestamps follow the effective zone as of
-		// this start; a later change of the setting reaches them after a restart.
-		setLocal(store.Zone(context.Background(), db.Reader()))
+	// TZ only gives a new install its time zone setting; the setting owns the zone from then on.
+	if err := db.SeedZone(context.Background(), cfg.TZ); err != nil {
+		return fmt.Errorf("TZ: %w", err)
 	}
+	// Nothing but this goroutine runs yet (the pools keep no timers), so this is the
+	// one safe moment: log timestamps follow the time zone setting as of this start;
+	// a later change of the setting reaches them after a restart.
+	setLocal(store.Zone(context.Background(), db.Reader()))
 	setupMgr, err := startSetupMode(context.Background(), db, cfg, logger)
 	if err != nil {
 		return fmt.Errorf("setup: %w", err)
-	}
-	addr, fallback, err := serveAddr(context.Background(), db, cfg, logger)
-	if err != nil {
-		return err
 	}
 	accessV, err := accessVerifier(cfg, logger)
 	if err != nil {
@@ -284,6 +258,7 @@ func runServe() error {
 
 	tailnet := setup.TailnetCheck()
 	_ = tailnet() // the first scan now, not on the first request
+	openGate := setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: tailnet}
 	mux := http.NewServeMux()
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
@@ -291,7 +266,7 @@ func runServe() error {
 		Stats: recorder, Version: version, Build: buildInfo(), WebBuild: kweb.BuildID(), DataDir: cfg.DataDir, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount, Access: accessV,
 		Setup: setupMgr, AllowedHosts: allowedHosts(cfg),
-		Gate: setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: tailnet},
+		Gate: openGate,
 	})
 	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API
@@ -307,8 +282,8 @@ func runServe() error {
 	startBackground(scheduler, maintenance, icons)
 
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, cfg.TrustedProxyIPs, logger, uiAPI.HostGate),
+		Addr:              cfg.Addr,
+		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, cfg.TrustedProxyIPs, openGate.TailscaleServeRequest, logger, uiAPI.HostGate),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
 		// WriteTimeout would kill /api/events; the SSE handler replaces it with a
@@ -322,7 +297,7 @@ func runServe() error {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		ln, err := listen(addr, fallback, logger)
+		ln, err := listen(cfg.Addr)
 		if err != nil {
 			serveErr <- err
 			return
@@ -385,8 +360,8 @@ var startBackground = func(s *sched.Scheduler, m *maint.Maint, icons *favicon.Fi
 // hostGate (the UI API's HostGate, design 5.2) runs inside httpx.Secure, so a
 // refused request still carries the security headers; nil installs none.
 func rootHandler(readerFront func(http.Handler) http.Handler, mux http.Handler, imgMode func() string,
-	trusted []netip.Addr, logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
-	h := auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, logger, nil)
+	trusted []netip.Prefix, tailscaleServe func(*http.Request) bool, logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
+	h := auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, tailscaleServe, logger, nil)
 	if hostGate != nil {
 		h = hostGate(h)
 	}

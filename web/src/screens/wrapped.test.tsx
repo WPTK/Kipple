@@ -102,7 +102,7 @@ describe("Wrapped screen", () => {
     expect(await screen.findByText("No items read in 2026.")).toBeInTheDocument();
     expect(screen.getByText("No reading time recorded in 2026.")).toBeInTheDocument();
     expect(screen.getByText("No month stands out yet.")).toBeInTheDocument();
-    expect(screen.getByText(/Sources appear here/)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing read yet/)).toBeInTheDocument();
     expect(screen.getByText("No timed reads yet.")).toBeInTheDocument();
     const region = screen.getByRole("region", { name: "Your year" });
     expect(region).toHaveAttribute("tabindex", "0");

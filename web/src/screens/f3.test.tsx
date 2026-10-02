@@ -30,7 +30,18 @@ const meta = (m: Partial<SettingMeta> & Pick<SettingMeta, "key" | "kind">): Sett
 });
 
 const SETTINGS: SettingMeta[] = [
-  meta({ key: "ui.mark_read_on_scroll", kind: "bool", label: "Mark articles read as I scroll", value: false, default: false }),
+  meta({ key: "ui.mark_read_on_scroll", kind: "bool", scope: "device", label: "Mark articles read as I scroll", value: false, default: false }),
+  meta({ key: "ui.theme_day", kind: "enum", scope: "device", label: "Day theme", value: "paper", default: "paper", options: [{ value: "paper", label: "Paper" }] }),
+  meta({ key: "ui.theme_night", kind: "enum", scope: "device", label: "Night theme", value: "midnight", default: "midnight", options: [{ value: "midnight", label: "Midnight" }] }),
+  meta({
+    key: "ui.list_density",
+    kind: "enum",
+    scope: "device",
+    label: "List spacing",
+    value: "standard",
+    default: "standard",
+    options: ["dense", "snug", "standard", "relaxed", "airy"].map((v) => ({ value: v, label: v })),
+  }),
   meta({ key: "links.strip_tracking", kind: "bool", label: "Remove tracking from links", value: true, default: true }),
   meta({ key: "refresh.interval_minutes", kind: "int", group: "sync", label: "How often to check feeds", value: 30, default: 30, min: 5, max: 1440, step: 5, unit: "minutes" }),
   meta({
@@ -57,7 +68,6 @@ const SETTINGS: SettingMeta[] = [
   }),
   meta({ key: "tz", kind: "text", group: "account", label: "Time zone", value: "America/New_York", default: "America/New_York" }),
   meta({ key: "greader.icon_urls", kind: "bool", group: "advanced", label: "Send feed icons to sync apps", value: true, default: true }),
-  meta({ key: "ui.layouts", kind: "json", group: "advanced", surface: "hidden", value: {}, default: {} }),
 ];
 
 const settingsBody = (list = SETTINGS) => ({ settings: list, values: Object.fromEntries(list.map((s) => [s.key, s.value])) });
@@ -123,6 +133,16 @@ describe("Settings renderer", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("does not list a device-scoped key a second time: this device's own control already shows it", async () => {
+    base();
+    go("/settings/appearance");
+    await screen.findByRole("heading", { level: 1, name: "Appearance & Reading" }, { timeout: 5000 });
+    expect(await screen.findByRole("switch", { name: /Remove tracking from links/ })).toBeInTheDocument(); // the server rows have loaded
+    // A generic row would show the metadata description (the fixtures describe each key as "About <key>").
+    for (const key of ["ui.theme_day", "ui.theme_night", "ui.list_density"]) expect(screen.queryByText("About " + key), key).toBeNull();
+    expect(screen.getByText("About links.strip_tracking")).toBeInTheDocument(); // a global key in the same group still is drawn
+  });
+
   it("draws every kind from the metadata, in the group each server group belongs to", async () => {
     base();
     const { container } = go("/settings/sync");
@@ -143,7 +163,6 @@ describe("Settings renderer", () => {
     // Advanced has a page of its own now, so its settings show without a second click.
     go("/settings/advanced");
     expect(await screen.findByRole("switch", { name: /Send feed icons/ })).toBeInTheDocument();
-    expect(screen.queryByText("Remembered list layouts")).toBeNull(); // json is never shown
   });
 
   it("patches optimistically, and puts a 400 message next to the control", async () => {
@@ -787,6 +806,19 @@ describe("Account and backup", () => {
     await user.click(within(dlg).getByRole("button", { name: "Change password" }));
     expect(await within(dlg).findByRole("alert")).toHaveTextContent("current password isn't right");
     expect(calls.some((c) => c.url.pathname === "/api/account/password")).toBe(true);
+  });
+
+  it("says busy, not locked out, when the password check could not get its turn", async () => {
+    base({ "POST /api/account/password": () => json({ error: "busy" }, 503, { "Retry-After": "5" }) });
+    go("/settings/account");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Change web password" }));
+    const dlg = await screen.findByRole("dialog", { name: "Change web password" });
+    await user.type(within(dlg).getByLabelText("Current password"), "old");
+    await user.type(within(dlg).getByLabelText("New password"), "abcdef");
+    await user.type(within(dlg).getByLabelText("New password again"), "abcdef");
+    await user.click(within(dlg).getByRole("button", { name: "Change password" }));
+    expect(await within(dlg).findByRole("alert")).toHaveTextContent("Kipple is busy. Try again in a moment.");
   });
 
   it("confirms an export with its warning and contents, then offers the download link", async () => {

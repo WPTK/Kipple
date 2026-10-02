@@ -126,6 +126,22 @@ describe("Login without a password", () => {
   });
 });
 
+describe("Sign-in busy", () => {
+  it("says Kipple is busy when the sign-in could not get its turn, not that the password is wrong", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json({ error: "auth" }, 401),
+      "GET /api/instance": () => json({ setup: false, auth: "password" }),
+      "POST /api/auth/login": () => json({ error: "busy" }, 503, { "Retry-After": "5" }),
+    });
+    go("/");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Username"), "dev");
+    await user.type(screen.getByLabelText("Password"), "secret");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Kipple is busy. Try again in a moment.");
+  });
+});
+
 describe("Access keys unavailable", () => {
   it("says the Access sign-in cannot be checked, not that the password is wrong", async () => {
     mockFetch({

@@ -47,8 +47,7 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := opml.Import(r.Context(), s.db, doc, opts)
 	if err != nil {
-		s.log.Error("api: opml import", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "opml import", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
@@ -101,8 +100,7 @@ func readOPMLBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 func (s *Server) opmlExport(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	if err := opml.Export(r.Context(), s.db, &buf); err != nil {
-		s.log.Error("api: opml export", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+		s.serverError(w, "opml export", err)
 		return
 	}
 	w.Header().Set("Content-Type", "text/x-opml; charset=utf-8")

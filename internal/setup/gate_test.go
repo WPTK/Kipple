@@ -31,7 +31,7 @@ func arrivedOn(r *http.Request, local string) *http.Request {
 }
 
 func TestOpenRefusal(t *testing.T) {
-	g := Gate{Trusted: []netip.Addr{netip.MustParseAddr("192.0.2.20")}, Tailnet: tailnetUp}
+	g := Gate{Trusted: []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")}, Tailnet: tailnetUp}
 	type tc struct {
 		name    string
 		peer    string
@@ -54,6 +54,27 @@ func TestOpenRefusal(t *testing.T) {
 		{"tailscale v6 range on the lan address", "[fd7a:115c:a1e0::1]:5000", "nas", nil, false, RefusePeer, "[fd00::10]:1919"},
 		{"tailscale range, local address unknown", "100.101.102.103:5000", "nas", nil, false, RefusePeer, ""},
 		{"tailscale range on the lan address with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "192.168.1.10:1919"},
+		{"tailscale range on a container address with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "172.17.0.2:1919"},
+		// #175: 100.64.0.0/10 is also CGNAT, cloud and Kubernetes overlay space. When
+		// this machine's own address is there (and not a known Tailscale one), or is
+		// public, or is unknown, open_lan does not admit a peer from the range.
+		{"cgnat peer on a cgnat local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "100.127.0.7:1919"},
+		{"cgnat peer on a public local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "203.0.113.5:1919"},
+		{"cgnat peer, local address unknown, with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, ""},
+		{"tailscale v6 range on a public local address with open_lan", "[fd7a:115c:a1e0::1]:5000", "nas", nil, true, RefusePeer, "[2001:db8::10]:1919"},
+		{"cgnat peer on a mapped lan local address with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "[::ffff:192.168.1.10]:1919"},
+		{"cgnat peer on a link-local v4 local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "169.254.1.5:1919"},
+		{"cgnat peer on a link-local v6 local address with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "[fe80::1%eth0]:1919"},
+		{"cgnat peer on 172.15.255.255 with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "172.15.255.255:1919"},
+		{"cgnat peer on 172.32.0.0 with open_lan", "100.101.102.103:5000", "nas", nil, true, RefusePeer, "172.32.0.0:1919"},
+		{"cgnat peer on 172.16.0.0 with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "172.16.0.0:1919"},
+		{"cgnat peer on 172.31.255.255 with open_lan", "100.101.102.103:5000", "nas", nil, true, "", "172.31.255.255:1919"},
+		{"peer 100.128.0.1 is not tailnet", "100.128.0.1:5000", "nas", nil, false, RefusePeer, "100.100.100.1:1919"},
+		{"peer 100.128.0.1 with open_lan on a private local address", "100.128.0.1:5000", "nas", nil, true, RefusePeer, "192.168.1.10:1919"},
+		{"peer 100.63.255.255 is not tailnet", "100.63.255.255:5000", "nas", nil, false, RefusePeer, "100.100.100.1:1919"},
+		{"peer 100.63.255.255 with open_lan on a private local address", "100.63.255.255:5000", "nas", nil, true, RefusePeer, "192.168.1.10:1919"},
+		{"public peer with open_lan on a private local address", "203.0.113.9:5000", "nas", nil, true, RefusePeer, "192.168.1.10:1919"},
+		{"tailscale v6 range on the lan address with open_lan", "[fd7a:115c:a1e0::1]:5000", "nas", nil, true, "", "[fd00::10]:1919"},
 		// In a container even this computer arrives from the bridge gateway, which
 		// cannot be told from the LAN: it needs the LAN opt-in, whatever Host it names.
 		{"container gateway naming localhost", "172.17.0.1:5000", "localhost", nil, false, RefusePeer, ""},
@@ -120,6 +141,16 @@ func TestOpenRefusal(t *testing.T) {
 	require.Equal(t, "", g.OpenRefusal(serve, "box.tail1234.ts.net", true, false))
 	serve.Header.Add("X-Forwarded-For", "100.101.102.104")
 	require.Equal(t, RefuseForwarded, g.OpenRefusal(serve, "box.tail1234.ts.net", true, false), "two X-Forwarded-For lines")
+	require.False(t, g.TailscaleServeRequest(serve), "two X-Forwarded-For lines")
+
+	// The proxy-header warning asks the same rule, with the Host as sent (port and case included).
+	serve.Header.Set("X-Forwarded-For", "100.101.102.103")
+	require.True(t, g.TailscaleServeRequest(serve))
+	serve.Host = "Box.Tail1234.ts.net:443"
+	require.True(t, g.TailscaleServeRequest(serve))
+	require.False(t, Gate{}.TailscaleServeRequest(serve), "no Tailscale address on this machine")
+	serve.Host = "rss.example.com"
+	require.False(t, g.TailscaleServeRequest(serve))
 
 	r := httptest.NewRequest("POST", "/", nil)
 	r.RemoteAddr = "127.0.0.1:1"
@@ -129,7 +160,10 @@ func TestOpenRefusal(t *testing.T) {
 	r = arrivedOn(r, "100.100.100.1:1919")
 	r.RemoteAddr = "100.101.102.103:1"
 	require.Equal(t, RefusePeer, Gate{}.OpenRefusal(r, "nas", true, false))
+	require.Equal(t, RefusePeer, Gate{}.OpenRefusal(r, "nas", true, true), "arrived on a CGNAT address that is not this machine's tailnet one")
+	r = arrivedOn(r, "192.168.1.10:1919")
 	require.Equal(t, "", Gate{}.OpenRefusal(r, "nas", true, true))
+	r = arrivedOn(r, "100.100.100.1:1919")
 	require.Equal(t, RefusePeer, Gate{Tailnet: func() []netip.Addr { return nil }}.OpenRefusal(r, "nas", true, false))
 	r.RemoteAddr = "[fd7a:115c:a1e0::9]:1"
 	require.Equal(t, RefusePeer, Gate{}.OpenRefusal(r, "nas", true, false))

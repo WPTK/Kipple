@@ -33,7 +33,7 @@ const row = (id: string, over: Partial<DeviceRow> = {}): DeviceRow => ({
   ...over,
 });
 
-const DEFAULTS = { "ui.theme": "system", "ui.theme_day": "paper", "ui.theme_night": "midnight", "ui.font_body": "", "client.layout": "magazine" };
+const DEFAULTS = { "ui.theme": "system", "ui.theme_day": "paper", "ui.theme_night": "midnight", "ui.font_body": "default", "client.layout": "magazine" };
 const deviceView = (over: Partial<DeviceView> = {}): DeviceView => ({ id: "me", name: "", profile: {}, merged: { ...DEFAULTS }, ...over });
 const boot: Bootstrap = { ...bootstrap, device: deviceView() };
 
@@ -112,7 +112,7 @@ describe("Settings > Devices", () => {
     updatePrefs({ font: "literata" });
     const { calls } = routes({
       "GET /api/devices": () => json({ devices: [me, phone] }),
-      "POST /api/device/copy-from/phone": () => json(deviceView({ profile: { "client.layout": "inbox", "ui.font_body": "Inter" }, merged: { ...DEFAULTS, "client.layout": "inbox", "ui.font_body": "Inter" } })),
+      "POST /api/device/copy-from/phone": () => json(deviceView({ profile: { "client.layout": "inbox", "ui.font_body": "inter" }, merged: { ...DEFAULTS, "client.layout": "inbox", "ui.font_body": "inter" } })),
     });
     go();
     const user = userEvent.setup();

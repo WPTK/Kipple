@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, phase-1, phase-2]
+    branches: [main]
   pull_request:
   # Called by release.yml so the exact tagged commit is tested again before an image is built.
   workflow_call:
@@ -26,12 +26,15 @@ concurrency:
 jobs:
   go:
     runs-on: ubuntu-latest
+    env:
+      # Job-level so the step-level `if` below can see it (a step's own env is not in scope for its `if`).
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27"
+          go-version-file: go.mod
 
       - name: gofmt
         run: |
@@ -49,11 +52,14 @@ jobs:
 
       - run: go tool cover -func=coverage.out | tail -n 1
 
+      # The thumbnail memory-limit tests skip under -race (the detector's own allocations break the measurement), so
+      # without this step no CI run would execute them.
+      - name: go test internal/imgproxy (no -race)
+        run: go test -count=1 -shuffle=on -timeout 10m ./internal/imgproxy
+
       # Skipped without the CODECOV_TOKEN secret (fork PRs, or before it is set); never fails the build.
       - name: Upload Go coverage to Codecov
         if: env.CODECOV_TOKEN != ''
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -70,7 +76,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27"
+          go-version-file: go.mod
 
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
@@ -98,6 +104,8 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     defaults:
       run:
         working-directory: web
@@ -115,6 +123,8 @@ jobs:
       - run: node --test ../scripts/changelog.test.mjs
       # The release workflow's tag rules (floating tags, tag shape, base image digest) live in a script with its own test.
       - run: bash ../scripts/release-tags.test.sh
+      # Go and Node versions agree across Dockerfile, go.mod, ci.yml and ci-local.ps1 (one Dependabot bump must not split them).
+      - run: node --test ../scripts/toolchain.test.mjs
       - run: npm ci
       - run: npm run lint
       - run: npm test
@@ -123,8 +133,6 @@ jobs:
 
       - name: Upload web coverage to Codecov
         if: env.CODECOV_TOKEN != ''
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

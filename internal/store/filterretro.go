@@ -104,7 +104,7 @@ func retroSQL(r filter.Rule, includeRead bool, cols retroCols) (from, where stri
 // retroScan walks the candidates newest first in keyset pages of retroPage and hands each page to
 // onPage. deadline (zero = none) ends the walk between pages and, through the page function's own
 // errRetroBudget, inside one.
-func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, includeRead bool, deadline time.Time, onPage func([]retroItem) error) (scanned int, truncated bool, err error) {
+func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, includeRead bool, deadline time.Time, onPage func([]retroItem) error) (truncated bool, err error) {
 	from, where, args := retroSQL(r, includeRead, rc)
 	cols := `i.id, i.feed_id, f.folder_id, ` + feedTitleSQL("f") + `,
 		i.title, i.author, i.url, i.read, i.starred, i.muted_by IS NOT NULL`
@@ -120,11 +120,11 @@ func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, include
 	cursor := maxInt64
 	for {
 		if !deadline.IsZero() && time.Now().After(deadline) {
-			return scanned, true, nil
+			return true, nil
 		}
 		rows, err := d.reader.QueryContext(ctx, q, append([]any{cursor}, args...)...)
 		if err != nil {
-			return scanned, false, err
+			return false, err
 		}
 		page := make([]retroItem, 0, retroPage)
 		for rows.Next() {
@@ -140,7 +140,7 @@ func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, include
 			}
 			if err := rows.Scan(dest...); err != nil {
 				rows.Close()
-				return scanned, false, err
+				return false, err
 			}
 			it.read, it.starred, it.muted = read == 1, starred == 1, muted == 1
 			if cats.Valid {
@@ -149,24 +149,23 @@ func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, include
 			page = append(page, it)
 		}
 		if err := rows.Close(); err != nil {
-			return scanned, false, err
+			return false, err
 		}
 		if err := rows.Err(); err != nil {
-			return scanned, false, err
+			return false, err
 		}
 		if len(page) == 0 {
-			return scanned, false, nil
+			return false, nil
 		}
 		cursor = page[len(page)-1].id
 		if err := onPage(page); err != nil {
 			if errors.Is(err, errRetroBudget) {
-				return scanned, true, nil
+				return true, nil
 			}
-			return scanned, false, err
+			return false, err
 		}
-		scanned += len(page)
 		if len(page) < retroPage {
-			return scanned, false, nil
+			return false, nil
 		}
 	}
 }
@@ -280,7 +279,7 @@ func (d *DB) PreviewFilter(ctx context.Context, f Filter, includeRead bool, budg
 	}
 	var out PreviewResult
 	deadline := time.Now().Add(budget)
-	scanned, truncated, err := d.retroScan(ctx, r, rc, includeRead, deadline, func(page []retroItem) error {
+	truncated, err := d.retroScan(ctx, r, rc, includeRead, deadline, func(page []retroItem) error {
 		for _, it := range page {
 			// Every item: one item can cost up to filter.MaxRegexCost's worst case, so a check every few
 			// dozen items could overrun the budget by seconds.
@@ -297,7 +296,6 @@ func (d *DB) PreviewFilter(ctx context.Context, f Filter, includeRead bool, budg
 		}
 		return nil
 	})
-	_ = scanned // out.Scanned counts per item, so a budget cut inside a page is exact
 	out.Truncated = truncated
 	return out, err
 }
@@ -367,7 +365,7 @@ func (d *DB) ApplyFilter(ctx context.Context, id int64, includeRead bool, total 
 		return ApplyResult{}, err
 	}
 	var out ApplyResult
-	scanned, _, err := d.retroScan(ctx, r, rc, includeRead, time.Time{}, func(page []retroItem) error {
+	_, err = d.retroScan(ctx, r, rc, includeRead, time.Time{}, func(page []retroItem) error {
 		var ids []int64
 		for _, it := range page {
 			// A cancel (edit, delete, shutdown) or the caller's deadline is noticed at the next item,
@@ -397,7 +395,6 @@ func (d *DB) ApplyFilter(ctx context.Context, id int64, includeRead bool, total 
 		}
 		return nil
 	})
-	_ = scanned
 	return out, err
 }
 

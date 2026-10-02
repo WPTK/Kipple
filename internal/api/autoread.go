@@ -155,7 +155,7 @@ func (s *Server) autoReadFeedOK(w http.ResponseWriter, ctx context.Context, feed
 		return true
 	}
 	var n int
-	if err := s.db.Reader().QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ? AND disabled_reason IS NOT 'archive'", feedID).Scan(&n); err != nil {
+	if err := s.db.Reader().QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ? AND "+store.ListedFeedSQL("feeds"), feedID).Scan(&n); err != nil {
 		s.serverError(w, "auto-read feed", err)
 		return false
 	}

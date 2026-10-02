@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -36,12 +37,10 @@ const (
 	scopeBoth   = "both"
 )
 
-// settingOption is one choice of an enum setting. CSS carries values the
-// frontend must use as-is instead of inventing its own numbers.
+// settingOption is one choice of an enum setting.
 type settingOption struct {
-	Value any            `json:"value"`
-	Label string         `json:"label"`
-	CSS   map[string]any `json:"css,omitempty"`
+	Value any    `json:"value"`
+	Label string `json:"label"`
 }
 
 // settingDef describes one user-visible setting: validation plus everything a
@@ -61,9 +60,6 @@ type settingDef struct {
 	Scope       string          `json:"scope"` // global | device | both
 
 	check func(v any) (any, string)
-	// envVar names the environment variable that overrides the setting when set
-	// (tz: TZ); the view then carries env_override and a PATCH is refused.
-	envVar string
 }
 
 // settingView is a settingDef with its current value and default.
@@ -71,9 +67,6 @@ type settingView struct {
 	settingDef
 	Value   any `json:"value"`
 	Default any `json:"default"`
-	// EnvOverride is present on settings an environment variable can override:
-	// the variable's value, or null when it is unset.
-	EnvOverride json.RawMessage `json:"env_override,omitempty"`
 }
 
 // maxAllowedHosts bounds security.allowed_hosts.
@@ -106,8 +99,6 @@ func checkAllowedHosts(v any) (any, string) {
 	}
 	return out, ""
 }
-
-const maxLayoutsBytes = 4096
 
 func ip(n int) *int { return &n }
 
@@ -160,14 +151,6 @@ func oneOf(vals ...string) func(any) (any, string) {
 	}
 }
 
-// ReadingDensityCSS is the one mapping from ui.reading_density to CSS. It is
-// served in the option metadata so the frontend never invents numbers.
-var ReadingDensityCSS = map[string]map[string]any{
-	"compact":     {"line_height": 1.45, "content_width": "620px"},
-	"comfortable": {"line_height": 1.6, "content_width": "680px"},
-	"relaxed":     {"line_height": 1.8, "content_width": "720px"},
-}
-
 // retentionLimits are the "newest N per feed" tiers, smallest first. 0
 // (unlimited) is also accepted everywhere a retention is set; this is the one
 // list the settings metadata, the settings validator and the per-feed PATCH use.
@@ -195,13 +178,6 @@ func retentionChoicesText() string {
 	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
 }
 
-var (
-	// uiFonts are the bundled and system faces of CLAUDE.md; "" = the platform default.
-	uiFonts = []string{"", "Literata", "Charter", "Vollkorn", "Gentium Book Plus", "Source Serif 4", "Arvo",
-		"Inter", "Manrope", "Source Sans 3", "JetBrains Mono", "Source Code Pro", "Atkinson Hyperlegible Next",
-		"New York", "SF Pro", "SF Mono", "Georgia", "Menlo"}
-)
-
 func opts(pairs ...string) []settingOption {
 	out := make([]settingOption, 0, len(pairs)/2)
 	for i := 0; i < len(pairs); i += 2 {
@@ -219,13 +195,9 @@ func optValues(os []settingOption) []string {
 }
 
 func fontOptions() []settingOption {
-	out := make([]settingOption, 0, len(uiFonts))
-	for _, f := range uiFonts {
-		label := f
-		if f == "" {
-			label = "Default"
-		}
-		out = append(out, settingOption{Value: f, Label: label})
+	out := make([]settingOption, 0, len(store.Fonts))
+	for _, f := range store.Fonts {
+		out = append(out, settingOption{Value: f.ID, Label: f.Name})
 	}
 	return out
 }
@@ -235,21 +207,6 @@ var densitySteps = []string{"dense", "snug", "standard", "relaxed", "airy"}
 
 func stepOptions() []settingOption {
 	return opts("dense", "Dense", "snug", "Snug", "standard", "Standard", "relaxed", "Relaxed", "airy", "Airy")
-}
-
-// densityOptions are the three original reading densities (with their CSS) followed by the steps.
-// "relaxed" is in both lists and listed once.
-func densityOptions() []settingOption {
-	out := opts("compact", "Compact", "comfortable", "Comfortable", "relaxed", "Relaxed")
-	for i := range out {
-		out[i].CSS = ReadingDensityCSS[out[i].Value.(string)]
-	}
-	for _, o := range stepOptions() {
-		if o.Value != "relaxed" {
-			out = append(out, o)
-		}
-	}
-	return out
 }
 
 func retentionOptions() []settingOption {
@@ -305,6 +262,26 @@ func checkTheme(system bool) func(any) (any, string) {
 	}
 }
 
+// checkDensity accepts a spacing step or a first-draft name and returns the step.
+func checkDensity(v any) (any, string) {
+	if s, ok := v.(string); ok {
+		if c := store.CanonicalDensity(s); slices.Contains(densitySteps, c) {
+			return c, ""
+		}
+	}
+	return nil, "must be one of " + strings.Join(densitySteps, ", ")
+}
+
+// checkFont accepts a font id or a font's display name (what older stored values use) and returns the id.
+func checkFont(v any) (any, string) {
+	if s, ok := v.(string); ok {
+		if c := store.CanonicalFont(s); store.IsFontID(c) {
+			return c, ""
+		}
+	}
+	return nil, "must be a font id such as \"default\" or \"literata\""
+}
+
 // checkClockTime accepts a 24-hour local time of day, "HH:MM" from "00:00" to "23:59" (the value of an HTML
 // time input without seconds).
 func checkClockTime(v any) (any, string) {
@@ -343,17 +320,13 @@ var settingDefs = withScopes([]settingDef{
 	{Key: "ui.theme_day_start", Label: "Day starts", Description: "On a schedule, the time of day (24-hour HH:MM, the device's own clock) the day theme comes back.",
 		Group: groupReading, Kind: "text", Surface: surfaceHidden, check: checkClockTime},
 	{Key: "ui.font_body", Label: "Reading font", Description: "The typeface used for article text.",
-		Group: groupReading, Kind: "enum", Options: fontOptions(), Surface: surfaceReader, check: oneOf(uiFonts...)},
-	{Key: "ui.font_size", Label: "Text size", Description: "How large article text is.",
-		Group: groupReading, Kind: "int", Min: ip(12), Max: ip(32), Step: ip(1), Unit: "px", Surface: surfaceReader, check: intIn(12, 32)},
+		Group: groupReading, Kind: "enum", Options: fontOptions(), Surface: surfaceReader, check: checkFont},
 	{Key: "ui.reading_density", Label: "Spacing", Description: "How tightly lines are spaced and how wide the text column is.",
-		Group: groupReading, Kind: "enum", Options: densityOptions(), Surface: surfaceReader, check: oneOf(append([]string{"compact", "comfortable"}, densitySteps...)...)},
+		Group: groupReading, Kind: "enum", Options: stepOptions(), Surface: surfaceReader, check: checkDensity},
 	{Key: "ui.list_density", Label: "List spacing", Description: "How tightly the article lists are spaced.",
-		Group: groupReading, Kind: "enum", Options: stepOptions(), Surface: surfaceSettings, check: oneOf(densitySteps...)},
+		Group: groupReading, Kind: "enum", Options: stepOptions(), Surface: surfaceSettings, check: checkDensity},
 
 	// Settings screen: reading extras.
-	{Key: "ui.font_ui", Label: "Interface font", Description: "The typeface used for menus, lists and buttons.",
-		Group: groupReading, Kind: "enum", Options: fontOptions(), Surface: surfaceSettings, check: oneOf(uiFonts...)},
 	{Key: "ui.mark_read_on_scroll", Label: "Mark articles read as I scroll", Description: "Articles you scroll past in the list are marked read automatically.",
 		Group: groupReading, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
@@ -401,7 +374,7 @@ var settingDefs = withScopes([]settingDef{
 
 	// Account.
 	{Key: store.SettingTZ, Label: "Time zone", Description: "Used for daily statistics and the nightly maintenance job.",
-		Group: groupAccount, Kind: "text", Surface: surfaceSettings, envVar: "TZ", check: func(v any) (any, string) {
+		Group: groupAccount, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
 			s, ok := v.(string)
 			if !ok || s == "" || s == "Local" || len(s) > 64 {
 				return nil, "must be an IANA time zone name such as America/New_York"
@@ -411,17 +384,17 @@ var settingDefs = withScopes([]settingDef{
 			}
 			return s, ""
 		}},
-	{Key: store.SettingOpenLAN, Label: "Also allow devices on my local network", Description: "Only matters when Kipple has no password (open mode). Normally only this computer and your Tailscale devices can use it then; with this on, every device on your local network can too, and can read and change everything. In Docker, where Kipple cannot see your tailnet, Tailscale devices need this too.",
+	{Key: store.SettingOpenLAN, Label: "Also allow devices on my local network", Description: "Only matters when Kipple has no password (open mode). Normally only this computer and your Tailscale devices can use it then; with this on, every device that reaches Kipple over a private network address (a home LAN, or a Docker network) can too, and can read and change everything. A Tailscale-range address (100.64.0.0/10, which is also carrier-grade NAT and cloud overlay space) is let in this way only when it reaches a private address of this computer. In Docker, where Kipple cannot see your tailnet, Tailscale devices need this too. Inside Docker every connection reaches the container's private bridge address, so Kipple cannot tell a CGNAT or overlay peer from a LAN peer there: what protects you is the published port's bind address, so publish it only on your LAN or tailnet interface.",
 		Group: groupAccount, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides IP addresses, localhost and .localhost and .ts.net names (and, during setup only, single-word names and .local, .lan, .home.arpa and .internal names): exact names such as rss.example.com, nas or *.local, or *.example.com.",
 		Group: groupAccount, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},
 
 	// Statistics.
-	{Key: "stats.enabled", Label: "Reading statistics", Description: "Record which articles you open and how long you read them. Turning this off stops recording new statistics; what is already recorded is kept.",
+	{Key: "stats.enabled", Label: "Reading statistics", Description: "Record which articles you open and how long you read them. Turning it off keeps what is already recorded.",
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
-	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day weekly statistics start on. This only changes how they are shown.",
+	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day the week starts on in your statistics.",
 		Group: groupStats, Kind: "enum", Options: opts("sunday", "Sunday", "monday", "Monday"), Surface: surfaceSettings, check: oneOf("sunday", "monday")},
-	{Key: "stats.wrapped_enabled", Label: "Yearly Wrapped", Description: "Show a yearly summary of your reading that you can share as an image or text. Turning this off hides it; your statistics are kept.",
+	{Key: "stats.wrapped_enabled", Label: "Yearly Wrapped", Description: "A yearly summary of your reading that you can share as an image or text. Turning it off hides it and keeps your statistics.",
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Advanced: shown in an Advanced section of the Settings screen.
@@ -435,26 +408,6 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "greader.subscribe_fetch_now", Label: "Fetch new feeds at once from sync apps", Description: "Fetch a feed immediately when a sync app subscribes to it.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
-	{Key: "stats.api_single_read_is_open", Label: "Count single reads from sync apps", Description: "Reserved: stored but not used yet. Would treat an article opened in a sync app as opened for reading statistics.",
-		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
-	{Key: "ui.layouts", Label: "Remembered list layouts", Description: "The list layout you chose for each folder or feed.",
-		Group: groupAdvanced, Kind: "json", Surface: surfaceHidden, check: func(v any) (any, string) {
-			m, ok := v.(map[string]any)
-			if ok {
-				for k, x := range m {
-					if s, isStr := x.(string); !isStr || len(k) > 64 || len(s) > 32 {
-						ok = false
-					}
-				}
-				if b, _ := json.Marshal(m); len(b) > maxLayoutsBytes {
-					ok = false
-				}
-			}
-			if !ok {
-				return nil, "must be an object of short string values (at most 4 KB)"
-			}
-			return m, ""
-		}},
 	{Key: "ui.whats_new_seen", Label: "Last version whose changes were shown", Description: "The newest Kipple version whose \"What's new\" was shown after an upgrade. Kept for the whole account so one reader does not dismiss it on every device.",
 		Group: groupAdvanced, Kind: "text", Surface: surfaceHidden, check: func(v any) (any, string) {
 			s, ok := v.(string)
@@ -470,9 +423,8 @@ var settingDefs = withScopes([]settingDef{
 // deviceScoped are the keys a device may override. The setting row is the default for
 // devices that have no override; make-default writes them.
 var deviceScoped = map[string]bool{
-	"ui.theme": true, "ui.theme_day": true, "ui.theme_night": true, "ui.theme_schedule": true, "ui.theme_night_start": true, "ui.theme_day_start": true, "ui.font_body": true, "ui.font_ui": true,
-	"ui.font_size": true, "ui.reading_density": true, "ui.list_density": true, "ui.mark_read_on_scroll": true,
-	"ui.layouts": true,
+	"ui.theme": true, "ui.theme_day": true, "ui.theme_night": true, "ui.theme_schedule": true, "ui.theme_night_start": true, "ui.theme_day_start": true, "ui.font_body": true,
+	"ui.reading_density": true, "ui.list_density": true, "ui.mark_read_on_scroll": true,
 }
 
 func withScopes(defs []settingDef) []settingDef {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -78,11 +79,12 @@ func TestSettingsEndpointMetadata(t *testing.T) {
 		}
 		by[m["key"].(string)] = m
 	}
-	fs := by["ui.font_size"]
-	require.EqualValues(t, 12, fs["min"])
-	require.EqualValues(t, 32, fs["max"])
-	require.EqualValues(t, 1, fs["step"])
-	require.Equal(t, "reader_menu", fs["surface"])
+	rd := by["ui.reading_density"]
+	require.Equal(t, "reader_menu", rd["surface"])
+	require.Equal(t, "standard", rd["default"])
+	for _, gone := range []string{"ui.font_size", "ui.font_ui", "ui.layouts", "stats.api_single_read_is_open"} {
+		require.NotContains(t, by, gone)
+	}
 	require.Equal(t, "How often to check feeds", by["refresh.interval_minutes"]["label"])
 	require.Equal(t, "minutes", by["refresh.interval_minutes"]["unit"])
 	require.Equal(t, "browser_on_failure", by["fetch.user_agent_mode"]["default"])
@@ -90,31 +92,27 @@ func TestSettingsEndpointMetadata(t *testing.T) {
 	require.Equal(t, "hidden", by["greader.subscribe_fetch_now"]["surface"])
 }
 
-func TestReadingDensityMapping(t *testing.T) {
+// Reading and list spacing share one vocabulary, the five steps; the first-draft names are read as steps.
+func TestDensityVocabulary(t *testing.T) {
 	h := newHarness(t)
 	_, out, _ := h.api(h.login(), "GET", "/api/settings", "")
-	var dens map[string]any
 	for _, x := range out["settings"].([]any) {
-		if m := x.(map[string]any); m["key"] == "ui.reading_density" {
-			dens = m
+		m := x.(map[string]any)
+		if k := m["key"]; k != "ui.reading_density" && k != "ui.list_density" {
+			continue
 		}
-	}
-	require.NotNil(t, dens)
-	require.Equal(t, "comfortable", dens["default"])
-	want := map[string][2]any{"compact": {1.45, "620px"}, "comfortable": {1.6, "680px"}, "relaxed": {1.8, "720px"}}
-	labels := map[string]string{"compact": "Compact", "comfortable": "Comfortable", "relaxed": "Relaxed"}
-	require.Len(t, dens["options"], 7) // the three originals, then the steps that are not repeats
-	for _, o := range dens["options"].([]any) {
-		m := o.(map[string]any)
-		v := m["value"].(string)
-		if _, legacy := want[v]; !legacy {
-			continue // the round-2 steps carry no CSS
+		require.Equal(t, "standard", m["default"], m["key"])
+		var got []string
+		for _, o := range m["options"].([]any) {
+			got = append(got, o.(map[string]any)["value"].(string))
 		}
-		css := m["css"].(map[string]any)
-		require.Equal(t, labels[v], m["label"])
-		require.EqualValues(t, want[v][0], css["line_height"], v)
-		require.Equal(t, want[v][1], css["content_width"], v)
+		require.Equal(t, densitySteps, got, m["key"])
 	}
+	h.exec("INSERT INTO settings (key, value) VALUES ('ui.reading_density', '\"comfortable\"'), ('ui.list_density', '\"compact\"'), ('ui.font_body', '\"Inter\"')")
+	_, out, _ = h.api(h.login(), "GET", "/api/settings", "")
+	require.Equal(t, "standard", vals(out)["ui.reading_density"])
+	require.Equal(t, "snug", vals(out)["ui.list_density"])
+	require.Equal(t, "inter", vals(out)["ui.font_body"])
 }
 
 func TestThemeOptionsAndAliases(t *testing.T) {
@@ -176,6 +174,21 @@ func TestStoredOldThemeReadsAsAlias(t *testing.T) {
 	require.Equal(t, "midnight", vals(out)["ui.theme_night"])
 }
 
+// The Go font list and the web app's fonts.ts must agree (ids, in order).
+func TestFontsMatchWeb(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "lib", "fonts.ts"))
+	require.NoError(t, err)
+	var web []string
+	for _, m := range regexp.MustCompile(`(?m)^  \{ id: "([a-z-]+)"`).FindAllStringSubmatch(string(raw), -1) {
+		web = append(web, m[1])
+	}
+	var goIDs []string
+	for _, f := range store.Fonts {
+		goIDs = append(goIDs, f.ID)
+	}
+	require.Equal(t, web, goIDs)
+}
+
 // The Go scheme list and the web app's schemes.json must agree (ids and names, in order).
 func TestSchemesMatchWebJSON(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "theme", "schemes.json"))
@@ -198,11 +211,14 @@ func TestSchemesMatchWebJSON(t *testing.T) {
 
 func TestOldReadingRowsAreIgnored(t *testing.T) {
 	h := newHarness(t)
-	h.exec("INSERT INTO settings (key, value) VALUES ('ui.line_height', '2'), ('ui.content_width', '900')")
+	h.exec("INSERT INTO settings (key, value) VALUES ('ui.line_height', '2'), ('ui.content_width', '900'), ('ui.font_size', '30'), ('ui.font_ui', '\"Inter\"'), ('ui.layouts', '{}'), ('stats.api_single_read_is_open', 'true')")
 	_, out, _ := h.api(h.login(), "GET", "/api/settings", "")
 	require.NotContains(t, vals(out), "ui.line_height")
 	require.NotContains(t, vals(out), "ui.content_width")
-	require.Equal(t, "comfortable", vals(out)["ui.reading_density"])
+	for _, gone := range []string{"ui.font_size", "ui.font_ui", "ui.layouts", "stats.api_single_read_is_open"} {
+		require.NotContains(t, vals(out), gone)
+	}
+	require.Equal(t, "standard", vals(out)["ui.reading_density"])
 }
 
 // The help texts state what the code does (audit C6, C7): retention counts unread

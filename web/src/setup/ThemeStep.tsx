@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { usePatchSettings } from "@/api/admin";
 import { errorMessage } from "@/api/client";
-import { fontById } from "@/lib/fonts";
 import { prefsStore, updatePrefs } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { FontPicker } from "@/screens/AppearanceControls";
@@ -84,12 +83,11 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
   const save = async () => {
     setBusy(true);
     setError(null);
-    const fontName = fontById(font).server ?? "";
     try {
-      await patch.mutateAsync({ "ui.theme": "system", "ui.theme_day": day, "ui.theme_night": night, "ui.font_body": fontName });
+      await patch.mutateAsync({ "ui.theme": "system", "ui.theme_day": day, "ui.theme_night": night, "ui.font_body": font });
       const now = themeStore.get();
       const nowFont = prefsStore.get().font;
-      markThemeSaved(now, now.mode === "follow" && now.day === day && now.night === night, { id: nowFont, matchesLocal: (fontById(nowFont).server ?? "") === fontName });
+      markThemeSaved(now, now.mode === "follow" && now.day === day && now.night === night, { id: nowFont, matchesLocal: nowFont === font });
       onNext();
     } catch (e) {
       setError(errorMessage(e));

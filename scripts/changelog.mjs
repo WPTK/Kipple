@@ -2,10 +2,12 @@
 // Changelog fragments: each change adds its own small file under changes/ instead of editing CHANGELOG.md, so two
 // branches never conflict on the changelog. At release, the fragments are folded into CHANGELOG.md and deleted.
 //
-//   node scripts/changelog.mjs check                       validate fragments and that CHANGELOG.md's [Unreleased] is untouched
+//   node scripts/changelog.mjs check                       validate fragments, that CHANGELOG.md's [Unreleased] is untouched, and that
+//                                                          the example image tags in the docs name the newest CHANGELOG version
 //   node scripts/changelog.mjs preview                     print the section the pending fragments would make
 //   node scripts/changelog.mjs release X.Y.Z[-pre.N] [--date YYYY-MM-DD] [--dry-run]
-//                                                          fold fragments into CHANGELOG.md, delete them, update compare links
+//                                                          fold fragments into CHANGELOG.md, delete them, update compare links and the
+//                                                          example image tags (README.md, docker-compose.pull.example.yml, docs/deploy.md)
 //   node scripts/changelog.mjs notes X.Y.Z[-pre.N]         print one version's CHANGELOG section (GitHub Release notes)
 //
 // Run from anywhere; paths resolve against the repository root. See changes/README.md for the fragment format.
@@ -17,8 +19,45 @@ export const KINDS = ['added', 'changed', 'deprecated', 'removed', 'fixed', 'sec
 const HEADING = Object.fromEntries(KINDS.map((k) => [k, k[0].toUpperCase() + k.slice(1)]));
 const FRAGMENT_NAME = new RegExp(`^([a-z0-9][a-z0-9._-]*)\\.(${KINDS.join('|')})\\.md$`);
 const IGNORED = new Set(['README.md', '_intro.md', '.gitkeep']);
-const VERSION = /^\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?$/;
+// SemVer items 2 and 9: no leading zeros, prerelease N from 1. The same grammar as scripts/release-tags.sh (the release
+// gate); changelog.test.mjs runs both over one list of vectors so they cannot drift apart unnoticed.
+const VERSION_SRC = String.raw`(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:alpha|beta|rc)\.[1-9]\d*)?`;
+const VERSION = new RegExp(`^${VERSION_SRC}$`);
+export const isVersion = (v) => VERSION.test(v);
 const REPO = 'https://github.com/WPTK/Kipple';
+
+// Files that show the image tag to pull as an example. The release commit used to edit these by hand; `release` now
+// rewrites them and `check` fails when one names another version than the newest CHANGELOG section. A file with
+// `required` must contain at least one tag (an empty match would make the check pass by seeing nothing).
+export const EXAMPLE_FILES = [
+  { path: 'README.md', required: true },
+  { path: 'docker-compose.pull.example.yml', required: true },
+  { path: 'docs/deploy.md', required: false },
+];
+const IMAGE_TAG = new RegExp(String.raw`(ghcr\.io/wptk/kipple:)(${VERSION_SRC})(?![\w.-])`, 'g');
+
+/** The newest released version in CHANGELOG.md: the first "## [X]" heading after [Unreleased]. */
+export function topVersion(changelog) {
+  const after = changelog.replace(/\r\n/g, '\n').split(/^## \[Unreleased\].*$/m)[1] ?? '';
+  const m = /^## \[([^\]]+)\]/m.exec(after);
+  if (!m || !isVersion(m[1])) throw new Error('CHANGELOG.md has no released version heading under [Unreleased]');
+  return m[1];
+}
+
+/** text with every example image tag set to version. */
+export function pinExamples(text, version) {
+  return text.replace(IMAGE_TAG, `$1${version}`);
+}
+
+/** Problems with the example image tags in one file: any tag that is not version, or none at all where one is required. */
+export function checkExamples(text, version, { path, required }) {
+  const found = [...text.matchAll(IMAGE_TAG)].map((m) => m[2]);
+  const problems = found
+    .filter((v) => v !== version)
+    .map((v) => `${path}: example image tag is ${v}, the newest CHANGELOG version is ${version} (node scripts/changelog.mjs release rewrites it)`);
+  if (required && !found.length) problems.push(`${path}: no example image tag (ghcr.io/wptk/kipple:<version>) found`);
+  return problems;
+}
 
 // The only thing that may sit under "## [Unreleased]": the pending entries live in changes/, not here.
 export const POINTER =
@@ -158,7 +197,10 @@ function main(argv) {
 
   if (cmd === 'check') {
     const { errors } = readFragments(dir);
-    errors.push(...checkUnreleased(readFileSync(changelogPath, 'utf8')));
+    const changelog = readFileSync(changelogPath, 'utf8');
+    errors.push(...checkUnreleased(changelog));
+    const version = topVersion(changelog);
+    for (const f of EXAMPLE_FILES) errors.push(...checkExamples(readFileSync(join(root, f.path), 'utf8'), version, f));
     if (errors.length) {
       console.error(errors.map((e) => `changelog: ${e}`).join('\n'));
       return 1;
@@ -189,16 +231,26 @@ function main(argv) {
       return 0;
     }
     writeFileSync(changelogPath, next);
+    for (const f of EXAMPLE_FILES) {
+      const path = join(root, f.path);
+      const text = readFileSync(path, 'utf8');
+      const pinned = pinExamples(text, version);
+      if (pinned !== text) writeFileSync(path, pinned);
+    }
     for (const f of fragments) unlinkSync(join(dir, f.file));
     if (existsSync(introPath)) unlinkSync(introPath);
-    console.log(`CHANGELOG.md: ${fragments.length} entries folded into ${version}; fragments deleted. Review the diff, then commit.`);
+    console.log(`CHANGELOG.md: ${fragments.length} entries folded into ${version}; fragments deleted; example image tags set to ${version}. Review the diff, then commit.`);
+    return 0;
+  }
+  if (cmd === 'top') {
+    console.log(topVersion(readFileSync(changelogPath, 'utf8')));
     return 0;
   }
   if (cmd === 'notes') {
     process.stdout.write(notes(readFileSync(changelogPath, 'utf8'), rest[0]));
     return 0;
   }
-  console.error('usage: changelog.mjs check | preview | release <version> [--date YYYY-MM-DD] [--dry-run] | notes <version>');
+  console.error('usage: changelog.mjs check | preview | release <version> [--date YYYY-MM-DD] [--dry-run] | notes <version> | top');
   return 2;
 }
 

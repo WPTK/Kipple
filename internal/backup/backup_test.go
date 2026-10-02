@@ -582,8 +582,8 @@ func TestInspectRefusesNewerSchemaAndForeignFiles(t *testing.T) {
 	require.ErrorContains(t, err, "not a Kipple database")
 }
 
-// The download name reads in the effective zone (TZ, else the tz setting, else
-// UTC), whatever zone the clock's time carries.
+// The download name reads in the time zone setting (UTC until chosen), whatever
+// zone the clock's time carries.
 func TestBackupFilenameFollowsTheEffectiveZone(t *testing.T) {
 	ctx := context.Background()
 	db := openDB(t)
@@ -598,70 +598,4 @@ func TestBackupFilenameFollowsTheEffectiveZone(t *testing.T) {
 	require.Equal(t, "kipple-backup-20260115-033000.zip", name(), "UTC by default")
 	require.NoError(t, db.SetSettings(ctx, map[string]any{"tz": "America/New_York"}))
 	require.Equal(t, "kipple-backup-20260114-223000.zip", name())
-	t.Cleanup(func() { _ = store.SetEnvZone("") })
-	require.NoError(t, store.SetEnvZone("Asia/Tokyo"))
-	require.Equal(t, "kipple-backup-20260115-123000.zip", name(), "TZ wins")
-}
-
-func TestPortSetting(t *testing.T) {
-	ctx := context.Background()
-	_, _, err := PortSetting(ctx, filepath.Join(t.TempDir(), "missing.db"))
-	require.Error(t, err, "a missing file cannot be read")
-
-	path := filepath.Join(t.TempDir(), "kipple.db")
-	db, err := store.Open(ctx, store.Options{Path: path, Logger: quiet})
-	require.NoError(t, err)
-	require.NoError(t, db.Close())
-	installed, legacy, err := PortSetting(ctx, path)
-	require.NoError(t, err)
-	require.False(t, installed, "never set up: no installation to follow")
-	require.False(t, legacy)
-
-	db, err = store.Open(ctx, store.Options{Path: path, Logger: quiet})
-	require.NoError(t, err)
-	_, err = db.CreateAccount(ctx, store.Account{Username: "owner", PasswordHash: "h", Secret: testSecret})
-	require.NoError(t, err)
-	require.NoError(t, db.Close())
-	installed, legacy, err = PortSetting(ctx, path)
-	require.NoError(t, err)
-	require.True(t, installed)
-	require.False(t, legacy, "a 0.5 account without the flag")
-	require.NoError(t, SetLegacyPort(ctx, path, true))
-	_, legacy, _ = PortSetting(ctx, path)
-	require.True(t, legacy)
-	require.NoError(t, SetLegacyPort(ctx, path, false))
-	_, legacy, _ = PortSetting(ctx, path)
-	require.False(t, legacy)
-
-	// An older database with an account is legacy: 0010 will stamp it.
-	raw, err := openFile(path)
-	require.NoError(t, err)
-	_, err = raw.ExecContext(ctx, "PRAGMA user_version = 9")
-	require.NoError(t, err)
-	require.NoError(t, raw.Close())
-	installed, legacy, err = PortSetting(ctx, path)
-	require.NoError(t, err)
-	require.True(t, installed)
-	require.True(t, legacy)
-}
-
-// The live database is read with its committed WAL, and nothing is created
-// beside it.
-func TestPortSettingReadsTheWALReadOnly(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "kipple.db")
-	db, err := store.Open(ctx, store.Options{Path: path, Logger: quiet})
-	require.NoError(t, err)
-	_, err = db.CreateAccount(ctx, store.Account{Username: "owner", PasswordHash: "h", Secret: testSecret})
-	require.NoError(t, err)
-	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES ('sys.legacy_port', 'true')`)
-		return err
-	}))
-	// While the store is still open the flag may live only in the WAL.
-	installed, legacy, err := PortSetting(ctx, path)
-	require.NoError(t, err)
-	require.True(t, installed)
-	require.True(t, legacy, "the committed WAL is read")
-	require.NoError(t, db.Close())
 }

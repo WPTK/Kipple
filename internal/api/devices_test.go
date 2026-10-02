@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
@@ -136,12 +137,12 @@ func TestDeviceResolutionOrder(t *testing.T) {
 	require.Empty(t, prof)
 	require.Equal(t, def["ui.theme"], merged["ui.theme"])
 	// 2. server default (the global settings row) beats the built-in
-	code, _, _ := h.api(d.sess, "PATCH", "/api/settings", `{"ui.theme":"linen","ui.font_size":22}`)
+	code, _, _ := h.api(d.sess, "PATCH", "/api/settings", `{"ui.theme":"linen","ui.reading_density":"airy"}`)
 	require.Equal(t, http.StatusOK, code)
 	def, _, merged = get()
 	require.Equal(t, "linen", def["ui.theme"])
 	require.Equal(t, "linen", merged["ui.theme"])
-	require.EqualValues(t, 22, merged["ui.font_size"])
+	require.Equal(t, "airy", merged["ui.reading_density"])
 	// 3. the device value beats the server default
 	code, out, _ := d.call("PATCH", "/api/device", `{"ui.theme":"graphite","client.layout":"cards","client.text_size":1.25}`)
 	require.Equal(t, http.StatusOK, code)
@@ -184,7 +185,7 @@ func TestPatchDeviceValidation(t *testing.T) {
 		{"day start no pad", `{"ui.theme_day_start":"7:00"}`, "ui.theme_day_start"},
 		{"day start type", `{"ui.theme_day_start":700}`, "ui.theme_day_start"},
 		{"font", `{"ui.font_body":"Comic Sans"}`, "ui.font_body"},
-		{"font size", `{"ui.font_size":99}`, "ui.font_size"},
+		{"reading density", `{"ui.reading_density":"huge"}`, "ui.reading_density"},
 		{"layout", `{"client.layout":"list"}`, "client.layout"},
 		{"order type", `{"client.order":1}`, "client.order"},
 		{"width low", `{"client.sidebar_width":100}`, "client.sidebar_width"},
@@ -221,8 +222,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	h := newHarness(t)
 	d := h.newDev()
 	body := `{"ui.theme":"system","ui.theme_schedule":true,"ui.theme_day":"linen","ui.theme_night":"carbon","ui.theme_night_start":"22:30","ui.theme_day_start":"06:15","ui.font_body":"Atkinson Hyperlegible Next",
-	 "ui.font_ui":"Inter","ui.font_size":19,"ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
-	 "ui.layouts":{"all":"cards"},
+	 "ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
 	 "client.layout":"headlines","client.layout_overrides":{"feed":{"12":"inbox"},"folder":{"3":"compact"}},
 	 "client.order":"oldest","client.search_order":"relevance","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
@@ -238,6 +238,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	require.Equal(t, "22:30", m["ui.theme_night_start"])
 	require.Equal(t, "06:15", m["ui.theme_day_start"])
 	require.Equal(t, "headlines", m["client.layout"])
+	require.Equal(t, "easy", m["ui.font_body"], "a display name is stored as the font id")
 	for _, bad := range []string{"\"rank\"", "1"} {
 		c2, o2, _ := d.call("PATCH", "/api/device", `{"client.search_order":`+bad+`}`)
 		require.NotEqual(t, http.StatusOK, c2, bad)
@@ -320,17 +321,26 @@ func TestListCopyDeleteDevices(t *testing.T) {
 	require.Equal(t, "Phone", second["name"])
 	require.Equal(t, false, second["current"])
 	require.EqualValues(t, 2, second["overrides"])
+	// A key a removed setting left in a stored profile is not counted: the device view drops it too.
+	require.NoError(t, h.db.ReplaceDeviceProfile(context.Background(), phoneID, map[string]any{"ui.theme": "fountain", "ui.font_size": 20}))
+	_, out, _ = laptop.call("GET", "/api/devices", "")
+	for _, x := range out["devices"].([]any) {
+		if m := x.(map[string]any); m["id"] == phoneID {
+			require.EqualValues(t, 1, m["overrides"])
+		}
+	}
+	require.NoError(t, h.db.ReplaceDeviceProfile(context.Background(), phoneID, map[string]any{"ui.theme": "fountain", "client.layout": "inbox"}))
 	for _, k := range []string{"user_agent", "client", "created_at", "last_seen_at"} {
 		require.Contains(t, second, k)
 	}
 
 	// copy-from replaces this device's overrides
-	laptop.call("PATCH", "/api/device", `{"ui.font_size":24,"client.order":"oldest"}`)
+	laptop.call("PATCH", "/api/device", `{"ui.reading_density":"dense","client.order":"oldest"}`)
 	code, out, _ = laptop.call("POST", "/api/device/copy-from/"+phoneID, "")
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, map[string]any{"ui.theme": "fountain", "client.layout": "inbox"}, out["profile"])
 	require.Equal(t, "fountain", out["merged"].(map[string]any)["ui.theme"])
-	require.EqualValues(t, 18, out["merged"].(map[string]any)["ui.font_size"])
+	require.Equal(t, "standard", out["merged"].(map[string]any)["ui.reading_density"])
 	// the source is untouched
 	_, out, _ = phone.call("GET", "/api/device", "")
 	require.Equal(t, "Phone", out["name"])
@@ -363,7 +373,7 @@ func TestListCopyDeleteDevices(t *testing.T) {
 func TestMakeDeviceDefault(t *testing.T) {
 	h := newHarness(t)
 	phone, tablet := h.newDev(), h.newDev()
-	phone.call("PATCH", "/api/device", `{"ui.theme":"fountain","ui.font_size":21,"client.layout":"cards","client.sidebar_width":300}`)
+	phone.call("PATCH", "/api/device", `{"ui.theme":"fountain","ui.reading_density":"airy","client.layout":"cards","client.sidebar_width":300}`)
 	code, out, _ := phone.call("POST", "/api/device/make-default", "")
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, "fountain", out["defaults"].(map[string]any)["ui.theme"])
@@ -374,7 +384,7 @@ func TestMakeDeviceDefault(t *testing.T) {
 	require.Empty(t, out["profile"])
 	m := out["merged"].(map[string]any)
 	require.Equal(t, "fountain", m["ui.theme"])
-	require.EqualValues(t, 21, m["ui.font_size"])
+	require.Equal(t, "airy", m["ui.reading_density"])
 	require.Equal(t, "cards", m["client.layout"])
 	require.EqualValues(t, 300, m["client.sidebar_width"])
 	// the server settings API sees the account defaults for the device-scoped ui.* rows
@@ -437,8 +447,8 @@ func TestSettingsMetadataScope(t *testing.T) {
 		m := x.(map[string]any)
 		by[m["key"].(string)] = m["scope"].(string)
 	}
-	for _, k := range []string{"ui.theme", "ui.theme_day", "ui.theme_night", "ui.theme_schedule", "ui.theme_night_start", "ui.theme_day_start", "ui.font_body", "ui.font_ui", "ui.font_size",
-		"ui.reading_density", "ui.list_density", "ui.mark_read_on_scroll", "ui.layouts"} {
+	for _, k := range []string{"ui.theme", "ui.theme_day", "ui.theme_night", "ui.theme_schedule", "ui.theme_night_start", "ui.theme_day_start", "ui.font_body",
+		"ui.reading_density", "ui.list_density", "ui.mark_read_on_scroll"} {
 		require.Equal(t, "device", by[k], k)
 	}
 	for _, k := range []string{"tz", "retention.default", "refresh.interval_minutes", "library.favorites", "ui.device_defaults", "links.strip_tracking"} {

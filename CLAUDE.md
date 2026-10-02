@@ -1,8 +1,24 @@
 # Kipple
 
-Self-hosted RSS reader for the owner. Replaces yarr on Host-A. Single user. The global Host-B
-CLAUDE.md also loads here and its rules apply (never Haiku, docker via PowerShell, 127.0.0.1
-not localhost, name compose services explicitly).
+Self-hosted RSS reader for the owner. Replaces yarr on the owner's Kipple server. Single user. The global
+CLAUDE.md of the dev machine (where the owner and Claude work) also loads here and its rules apply (never Haiku,
+docker via PowerShell, 127.0.0.1 not localhost, name compose services explicitly).
+
+The dev machine and the Kipple server are two different machines, and neither is how other people will run Kipple: they
+pull the published image and run it on their own. Write code, docs and examples for a stranger ("your server"), and say
+"the dev machine" and "the Kipple server" in conversation, never the owner's host labels. The owner's own deploy steps
+live in one place, `docs/RELEASING.md`.
+
+## Design rules (no band-aids)
+
+Before adding a flag, fallback, warning, retry, cache or special case, name the root cause and look for the change that
+makes the case impossible. For anything non-trivial, design it twice (two radically different designs) and say why
+one won. Prefer deleting to adding; a docs caveat usually means the behaviour is wrong. One source of truth: no state
+copied in several places, no flag pairs that allow invalid combinations. Removing or renaming something is expand,
+migrate, contract, and the contract must finish. Before calling code a band-aid, find out what it was for (git blame,
+the issue, the tests). Do not over-decompose either: prefer deeper modules with simple interfaces. With one user a
+removal is announced in the changelog, not in runtime code. Every PR description states the root cause, what the change
+removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no root fix was possible.
 
 ## Decisions (do not relitigate)
 
@@ -35,7 +51,7 @@ not localhost, name compose services explicitly).
 
 - `cmd/kipple/` main. `internal/` Go packages (fetch, sched, store, greader, api, extract, imgproxy, imgcache, filter, backup, stats, ...).
 - `web/` Vite app. `web/dist` is embedded via `go:embed` at build time.
-- `Dockerfile` is multi-stage (node build → go build → distroless static nonroot, uid 65532). Host-A has Docker
+- `Dockerfile` is multi-stage (node build → go build → distroless static nonroot, uid 65532). The Kipple server has Docker
   but no Go or Node, so the image must build with Docker alone.
 - No secrets or hostnames committed. `.env.example` documents every variable.
 
@@ -52,12 +68,11 @@ not localhost, name compose services explicitly).
 ## Deploy
 
 GitHub is the source of truth (repo `WPTK/Kipple`), and the pushed release tag is what deploys: nothing deploys from
-an unpushed tree or from `main`. On Host-A (full steps in `docs/RELEASING.md`):
-`ssh host-a 'cd /home/user/kipple && git fetch --tags --force && git checkout vX.Y.Z && KIPPLE_VERSION=vX.Y.Z KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose -f /home/user/stack/docker-compose.yml build kipple && docker compose -f /home/user/stack/docker-compose.yml up -d kipple'`,
-then `ssh host-a 'cd /home/user/kipple && git checkout main'` to leave the detached HEAD. `.git` is not in the build
-context, so the version reaches the binary only through `KIPPLE_VERSION` and the service's `build.args`.
-Service `kipple` in compose project `host-a`, named volume for `/data`, 10m x 3 log rotation.
-Public URL `https://rss.example.com` via Host-B's cloudflared; the Access bypass covers exactly the
+an unpushed tree or from `main`. On the Kipple server the exact commands are in `docs/RELEASING.md` (step 9: build the tag, never a bare `up`/`down`,
+return the checkout to `main`). `.git` is not in the build context, so the version reaches the binary only through
+`KIPPLE_VERSION` and the service's `build.args`. From 0.6.0-rc.1 the server pulls the signed image by digest instead.
+Service `kipple` in the server's compose project, named volume for `/data`, 10m x 3 log rotation.
+Public URL `https://rss.example.com` via the owner's cloudflared tunnel; the Access bypass covers exactly the
 `/api/greader.php` prefix (Reader API and its `/icon/` URLs); root `/accounts/ClientLogin` and
 `/reader/api/0/*` answer too but stay behind Access, the UI stays behind email OTP. yarr stays paused, not removed, until
 the owner says so. OPML source: `/home/user/newsblur-export.opml`.
@@ -70,17 +85,17 @@ audit and review; changelog review; documentation run; first-time Docker setup (
 walkthrough); how to retain and back up settings and Kipple itself; a final go/no-go meeting.
 Before going public there is one more meeting, then the hostname/IP scrub of committed docs. the owner
 uses each phase for a day before the next starts. Sonnet for routine code, Opus as advisor and
-reviewer. One writer on Host-A at a time. Verify iOS layout in the browser pane at the mobile
+reviewer. One writer on the Kipple server at a time. Verify iOS layout in the browser pane at the mobile
 preset before calling a UI phase done. Save decisions and gotchas to memory.
 **Update the history repository (`WPTK/kipple-history`, working copy `C:\kipple-history`) as part of the normal
 workflow, at the very least daily** and after every release, meeting or incident: diary, timeline, meetings,
 decisions, challenges, milestones, audits, human feedback, plan snapshots. `git fetch` first and never force-push;
-apply the same scrub rules as this repo (Host-A/Host-B, `rss.example.com`, no account names, IPs or emails).
+apply the same scrub rules as this repo (no host names or labels, `rss.example.com`, no account names, IPs or emails).
 
 ## Releases and CI
 
 - SemVer, with `-alpha.N`/`-beta.N`/`-rc.N` prereleases. Annotated tag `vX.Y.Z[-pre.N]` on the
-  exact commit deployed to Host-A, made at deploy time; never move or reuse a pushed tag.
+  exact commit deployed to the Kipple server, made at deploy time; never move or reuse a pushed tag.
 - `CHANGELOG.md` is Keep a Changelog 1.1.0: every behavior change adds a one-file entry under
   `changes/` (`changes/README.md`), never an edit to `CHANGELOG.md`, so branches don't conflict; a release folds them in
   with `node scripts/changelog.mjs release X.Y.Z`.

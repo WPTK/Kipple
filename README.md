@@ -96,7 +96,7 @@ your browser the first time you open it.
 One command:
 
 ```
-docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.5.0-beta.2
+docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.6.0-beta.1
 ```
 
 Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
@@ -105,7 +105,7 @@ Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
 ```yaml
 services:
   kipple:
-    image: ghcr.io/wptk/kipple:0.5.0-beta.2
+    image: ghcr.io/wptk/kipple:0.6.0-beta.1
     container_name: kipple
     restart: unless-stopped
     ports: ["127.0.0.1:1919:1919"]
@@ -155,7 +155,7 @@ unprivileged user.
 To check the image before you run it (optional; needs [cosign](https://docs.sigstore.dev/cosign/)):
 
 ```
-cosign verify ghcr.io/wptk/kipple:0.5.0-beta.2 \
+cosign verify ghcr.io/wptk/kipple:0.6.0-beta.1 \
   --certificate-identity-regexp '^https://github.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -191,10 +191,16 @@ to Home Screen" (Safari's share sheet) or "Install app" (Chrome's menu). It laun
 home screen from then on, like any other app, and keeps already-read articles available without a
 connection. The phone has to be able to reach Kipple (see above), and installing needs HTTPS or `127.0.0.1`.
 
+**Back up.** Settings > Account > Export backup downloads a zip (database, OPML, readable settings, manifest). It holds
+password hashes and feed logins, so keep it private. Kipple also writes a snapshot nightly at 04:10 to the same volume,
+which does not survive losing the volume, so copy it off the machine on a schedule:
+`docker cp kipple:/data/backup/kipple-snapshot.db ./kipple-snapshot.db`. To restore, stop the container and run
+`docker compose run --rm -T --no-deps kipple restore - --yes < kipple-backup-YYYYMMDD-HHMMSS.zip` (without `--yes` it only
+verifies). The backup holds your account, settings and feeds but not your compose file or `.env` (port, public URL, proxy
+and Access settings, `TZ`): keep those too. The full checklist is in [docs/deploy.md](docs/deploy.md#what-to-back-up).
+
 For anything past this (backups, restoring, upgrading from an older version, running behind a reverse proxy or
-tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md). It's written from the maintainer's own two-machine
-setup (one box running Kipple, one for admin/backups over SSH), but says up front how that collapses to a
-single machine, which is what most people running this will actually have.
+tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md).
 
 ## Configuration
 
@@ -208,12 +214,12 @@ The ones self-hosters most often want:
 
 | Variable | Purpose |
 | --- | --- |
-| `KIPPLE_ADDR` | Listen address, default `:1919`. An install that predates 0.5 and leaves it unset keeps listening on 7080 through 0.x; see [docs/deploy.md](docs/deploy.md). |
+| `KIPPLE_ADDR` | Listen address, default `:1919`. Since 0.6.0 an unset value is always 1919; an install that used the old 7080 must set `KIPPLE_ADDR=:7080` (see [docs/deploy.md](docs/deploy.md)). |
 | `KIPPLE_PUBLIC_URL` | Public URL, used for feed icons in sync clients. |
 | `KIPPLE_TRUSTED_PROXY_IPS` | Required if Kipple sits behind a reverse proxy or tunnel. |
 | `KIPPLE_ALLOWED_HOSTS` | Extra host names Kipple answers to during setup and without a password. |
 | `KIPPLE_ACCESS_TEAM_DOMAIN` / `KIPPLE_ACCESS_AUD` | Optional Cloudflare Access integration. |
-| `TZ` | IANA time zone. When set it wins over the time zone chosen in Kipple. |
+| `TZ` | IANA time zone for a new install: stored as the time zone setting on the first start only. Choose it in Kipple afterwards. |
 | `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` | Create the account from the environment instead of the wizard (scripted deploys). |
 
 ## Support

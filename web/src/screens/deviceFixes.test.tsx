@@ -10,7 +10,6 @@ import { keys } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { rowMenuStore } from "@/gestures/rowMenu";
 import { resetDevicePrefs, devicePrefsStore, updateDevicePrefs } from "@/lib/devicePrefs";
-import { resetFavoritesMode } from "@/lib/favorites";
 import { itemActions } from "@/lib/itemActions";
 import { DEFAULT_PREFS, applyPrefs, prefsStore, updatePrefs } from "@/lib/prefs";
 import { resetUndo, undoLast } from "@/lib/undo";
@@ -47,11 +46,19 @@ const feedBase = bootstrap.feeds[0] as Bootstrap["feeds"][number];
 const feed = (id: string, folder: string, title: string, over: Partial<Bootstrap["feeds"][number]> = {}) => ({ ...feedBase, id, folder_id: folder, title, ...over });
 const boot3: Bootstrap = {
   ...bootstrap,
+  settings: { "library.favorites": [] },
   folders: [
     { id: "1", name: "News", position: 0, is_default: true, unread: 3 },
     { id: "2", name: "Tech", position: 1, is_default: false, unread: 2 },
   ],
   feeds: [feed("1", "1", "Alpha", { starred_count: 2 }), feed("2", "1", "Bravo", { starred_count: 1 }), feed("3", "1", "Charlie"), feed("4", "2", "Delta")],
+};
+
+/** The favorites list of the last save sent to the server. */
+const lastFavoritesSent = (calls: { method: string; url: URL; init?: RequestInit }[]): Record<string, string>[] | undefined => {
+  const sent = calls.filter((c) => c.method === "PATCH" && c.url.pathname === "/api/settings");
+  const last = sent[sent.length - 1];
+  return last ? JSON.parse(String(last.init?.body))["library.favorites"] : undefined;
 };
 
 function routes(extra: Parameters<typeof mockFetch>[0] = {}, boot: Bootstrap = bootstrap) {
@@ -62,6 +69,7 @@ function routes(extra: Parameters<typeof mockFetch>[0] = {}, boot: Bootstrap = b
     "POST /api/items/1001/open": () => json({ session_key: "k", item: detail(1, { read: true }) }),
     "POST /api/items/mark-read": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids, restored: [] }),
     "GET /api/settings": () => json({ settings: [], values: {} }),
+    "PATCH /api/settings": (_u, init) => json({ settings: [], values: JSON.parse(String(init?.body)) }),
     "GET /api/filters": () => json({ filters: [] }),
     "GET /api/devices": () => json({ devices: [] }),
     ...extra,
@@ -76,7 +84,6 @@ beforeEach(() => {
   liveStore.set(initialLive);
   resetDevicePrefs();
   resetUndo();
-  resetFavoritesMode();
   helpStore.set(false);
   prefsStore.set({ ...DEFAULT_PREFS });
   updateDevicePrefs({ peekSeen: true });
@@ -360,8 +367,8 @@ describe("sidebar", () => {
     expect(devicePrefsStore.get().collapsedFolders).toEqual([]);
   });
 
-  it("favorites are pinned in a Favorites section (kept on this device when the server has no such setting)", async () => {
-    routes({}, boot3);
+  it("favorites are pinned in a Favorites section and saved to the account", async () => {
+    const { calls } = routes({}, boot3);
     media(WIDE);
     go("/l/unread");
     await screen.findByText("Article number 1");
@@ -373,22 +380,16 @@ describe("sidebar", () => {
     const fav = await within(nav).findByRole("region", { name: "Favorites" });
     // A favorited folder lists its feeds beneath it (the folder starts expanded).
     expect(within(fav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Delta", "News", "Alpha", "Bravo", "Charlie"].map((t) => expect.stringContaining(t)));
-    expect(devicePrefsStore.get().favoritesLocal).toEqual([
+    expect(lastFavoritesSent(calls)).toEqual([
       { t: "feed", id: "4" },
       { t: "folder", id: "1" },
     ]);
     await user.click(within(fav).getByRole("button", { name: "Favorite Delta" }));
-    expect(devicePrefsStore.get().favoritesLocal).toEqual([{ t: "folder", id: "1" }]);
+    await waitFor(() => expect(lastFavoritesSent(calls)).toEqual([{ t: "folder", id: "1" }]));
   });
 
   it("with a server that has library.favorites, a star PATCHes the setting", async () => {
-    const boot = { ...boot3, settings: { "library.favorites": [] } };
-    const { calls } = routes(
-      {
-        "PATCH /api/settings": (_u, init) => json({ settings: [], values: { "library.favorites": JSON.parse(String(init?.body))["library.favorites"] } }),
-      },
-      boot,
-    );
+    const { calls } = routes({}, boot3);
     media(WIDE);
     go("/l/unread");
     await screen.findByText("Article number 1");
@@ -398,19 +399,17 @@ describe("sidebar", () => {
     const patch = calls.find((c) => c.method === "PATCH");
     expect(JSON.parse(String(patch?.init?.body))).toEqual({ "library.favorites": [{ t: "feed", id: "2" }] });
     expect(await within(nav).findByRole("region", { name: "Favorites" })).toBeInTheDocument();
-    expect(devicePrefsStore.get().favoritesLocal).toEqual([]); // not duplicated on the device
   });
 
-  it("falls back to this device when the server rejects the setting", async () => {
-    const boot = { ...boot3, settings: { "library.favorites": [] } };
-    routes({ "PATCH /api/settings": () => json({ error: "invalid_settings", issues: [{ key: "library.favorites", message: "unknown setting" }], keys: ["library.favorites"] }, 400) }, boot);
+  it("a favorite the server refuses is taken back, not kept on this device", async () => {
+    const { calls } = routes({ "PATCH /api/settings": () => json({ error: "invalid_settings", issues: [{ key: "library.favorites", message: "too many items" }], keys: ["library.favorites"] }, 400) }, boot3);
     media(WIDE);
     go("/l/unread");
     await screen.findByText("Article number 1");
     const nav = screen.getByRole("navigation", { name: "Primary" });
     await userEvent.setup().click(within(nav).getByRole("button", { name: "Favorite Bravo" }));
-    await waitFor(() => expect(devicePrefsStore.get().favoritesLocal).toEqual([{ t: "feed", id: "2" }]));
-    expect(await within(nav).findByRole("region", { name: "Favorites" })).toBeInTheDocument();
+    await waitFor(() => expect(lastFavoritesSent(calls)).toEqual([{ t: "feed", id: "2" }]));
+    await waitFor(() => expect(within(nav).queryByRole("region", { name: "Favorites" })).toBeNull());
   });
 
   it("the unread badge follows the device setting and caps at 99+", async () => {
@@ -576,7 +575,7 @@ describe("manage feeds", () => {
   });
 
   it("stars a feed and a folder into Favorites, at the top, in the order they are kept", async () => {
-    routes({}, boot3);
+    const { calls } = routes({}, boot3);
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
@@ -587,7 +586,7 @@ describe("manage feeds", () => {
     expect(within(fav).getAllByRole("link").map((l) => l.textContent)).toEqual([expect.stringContaining("Delta"), expect.stringContaining("News")]);
     // Move the second favorite up with its keyboard handle.
     fireEvent.keyDown(within(fav).getByRole("button", { name: /Reorder favorite News/ }), { key: "ArrowUp" });
-    await waitFor(() => expect(devicePrefsStore.get().favoritesLocal[0]).toEqual({ t: "folder", id: "1" }));
+    await waitFor(() => expect(lastFavoritesSent(calls)?.[0]).toEqual({ t: "folder", id: "1" }));
   });
 
   it("a favorited folder collapses and expands in Favorites, but is a plain row in Edit and Select", async () => {

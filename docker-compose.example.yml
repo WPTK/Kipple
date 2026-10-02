@@ -34,10 +34,8 @@ services:
     # directory. Import an OPML with `kipple import -` and pipe the file in.
     # Optional: .env holds advanced overrides only (see .env.example). Compose 2.24 or newer
     # starts without the file; on an older Compose, create an empty .env or delete these lines.
-    # An install from before 0.5 keeps port 7080: when a .env sets KIPPLE_ADDR=:7080, and also
-    # when KIPPLE_ADDR is unset and the database dates from before 0.5 (it listens on 7080 through
-    # 0.x, and the healthcheck still passes). For such an install change the container side of the
-    # port below to 7080, or set KIPPLE_ADDR=:1919 in .env to move to 1919.
+    # An install that still uses the old port 7080 must set KIPPLE_ADDR=:7080 in .env and keep
+    # the container side of the port below at 7080; an unset KIPPLE_ADDR is always 1919 since 0.6.0.
     env_file:
       - path: .env
         required: false
@@ -68,9 +66,9 @@ services:
       - no-new-privileges:true
     environment:
       - GOMEMLIMIT=64MiB
-      # Address your reverse proxy / tunnel connects from (placeholder value;
-      # see .env.example). Kipple logs a WARN if proxy headers arrive from any
-      # other peer.
+      # Address or CIDR range your reverse proxy / tunnel connects from
+      # (placeholder value; see .env.example). Kipple logs a WARN if proxy
+      # headers arrive from any other peer.
       # - KIPPLE_TRUSTED_PROXY_IPS=192.0.2.10
       # Optional Cloudflare Access token validation (set both or neither; see
       # .env.example and docs/deploy.md "Cloudflare Access (optional)"):

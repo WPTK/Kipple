@@ -83,9 +83,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** Keys the screen draws itself (or does not honor yet), so the generic renderer skips them. */
-const SPECIAL = new Set(["ui.mark_read_on_scroll", "ui.font_ui"]);
-
 /** Number settings that get a row of presets ("Custom" opens the stepper). Everything else is drawn from the metadata alone. */
 export const PRESETS: Record<string, readonly { value: number; label: string }[]> = {
   "library.auto_read_days": AUTO_READ_PRESETS.map((value) => ({ value, label: autoReadLabel(value) })),
@@ -135,9 +132,13 @@ function AutoReadPanel({ days }: { days: number }) {
   );
 }
 
-/** The settings of one server group shown on the Settings screen, in the server's order. */
+/**
+ * The settings of one server group shown on the Settings screen, in the server's order. A device-scoped key is only the
+ * account default for devices; this device's own value has its own control (the theme picker, spacing, mark as read), so
+ * listing the key here would show every one of those twice.
+ */
 function settingsOf(settings: SettingMeta[], group: SettingGroup): SettingMeta[] {
-  return settings.filter((s) => s.group === group && s.surface === "settings" && !SPECIAL.has(s.key) && s.kind !== "json");
+  return settings.filter((s) => s.group === group && s.surface === "settings" && s.scope !== "device" && s.kind !== "json");
 }
 
 function SettingRows({ list, all }: { list: SettingMeta[]; all: SettingMeta[] }) {

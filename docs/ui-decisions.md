@@ -150,7 +150,7 @@ Decisions are recorded in full in the private history repository. Summary of wha
   daily activity, streaks, weekday-by-hour heatmap, behavior facts). Wrapped is a simple yearly summary with an opt-in
   share sheet, aggregates only by default. No goals, targets, badges, comparisons with other people or directives.
 - **Reading:** every open is recorded; views count an item as read at 10 s active time, or 25% scroll with at least 3 s active time (a scroll alone stopped counting with issue #120). List-preview
-  opens count. Reading stats (open, read time, scroll, open original, share) are web-only; Reader API clients are not tracked for reading (`stats.api_single_read_is_open` stays off), though their stars are recorded.
+  opens count. Reading stats (open, read time, scroll, open original, share) are web-only; Reader API clients are not tracked for reading, though their stars are recorded.
 - **Screen:** one Stats nav entry, phone first. Range Week/Month/Year/All (default Month). Items/Minutes toggle with
   folder rollup; average read length, quick-bounce rate, open-original rate, most-starred feeds; never opened.
   Deferred: per-feed drill-down, period comparison, monthly charts, read rate per feed.
