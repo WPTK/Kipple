@@ -12,7 +12,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -825,11 +824,17 @@ func TestShutdownDuringLargeRun(t *testing.T) {
 	require.GreaterOrEqual(t, int(completed.Load()), done-1)
 }
 
+// TestCommitGateKeepsAPIWritesResponsive proves that API writes never queue behind
+// the commit gate, without measuring how long anything takes (a latency bound
+// measures the runner, and flaked under -race on a loaded one). The test holds the
+// gate itself as a controlled blocker, so a 138-feed run cannot commit anything,
+// and then requires every API write to complete while that run is demonstrably
+// parked on the gate: run.done cannot have been published, because the run is
+// done only once its last commit is. Had API writes taken the gate (or waited on
+// the commits that wait for it), they would block here until the test's hang
+// detector fires. Once the blocker is released the run commits everything.
 func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
-	if testing.Short() {
-		t.Skip("timing test")
-	}
-	r := newRig(t, Options{PerHost: 8})
+	r := newRig(t, Options{PerHost: 8, CommitTimeout: 5 * time.Minute})
 	srv := newSrv(t, serveOK)
 	for i := 0; i < 138; i++ {
 		id := r.add(fmt.Sprintf("%s/f%d", srv.URL, i), nil)
@@ -841,21 +846,34 @@ func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
 	       INSERT INTO items (id, feed_id, uid, url, title, published_at, sort_at, content_hash, text_hash)
 	       SELECT 5000+n, (SELECT id FROM feeds WHERE disabled_reason='archive'), 'u'||n, '', 't', 1, 1, 'c', 't' FROM seq`)
 
-	_, err := r.s.RefreshAll()
+	release, err := r.db.AcquireGate(context.Background())
 	require.NoError(t, err)
-	var lat []time.Duration
-	for i := 0; len(r.events("run.done")) == 0 && i < 20000; i++ {
-		start := time.Now()
-		require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sqlTx) error {
+	released := false
+	releaseGate := func() {
+		if !released {
+			released = true
+			release()
+		}
+	}
+	t.Cleanup(releaseGate)
+
+	_, err = r.s.RefreshAll()
+	require.NoError(t, err)
+
+	// The hang detector is the only clock in this test: a write that is blocked
+	// behind the gate never returns, so the context ends it and fails the test. It
+	// does not bound how long a healthy write may take.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	for i := 0; i < 200; i++ {
+		require.NoError(t, r.db.WithWrite(ctx, func(ctx context.Context, tx *sqlTx) error {
 			_, err := tx.ExecContext(ctx, "UPDATE items SET read = 1 - read WHERE id = ?", 5001+i%50)
 			return err
-		}))
-		lat = append(lat, time.Since(start))
+		}), "API write %d must not wait for the commit gate", i)
+		require.Empty(t, r.events("run.done"), "the run is parked on the gate, so it cannot be done after write %d", i)
 	}
-	require.NotEmpty(t, lat)
-	sort.Slice(lat, func(i, j int) bool { return lat[i] < lat[j] })
-	p99 := lat[len(lat)*99/100]
-	require.LessOrEqual(t, p99, 250*time.Millisecond, "API write p99 during a 138-feed run (%d writes)", len(lat))
+
+	releaseGate()
 	r.waitEvents("run.done", 1)
 	require.EqualValues(t, 138*2, r.num("SELECT count(*) FROM items WHERE feed_id IN (SELECT id FROM feeds WHERE url LIKE 'http%')"))
 }
