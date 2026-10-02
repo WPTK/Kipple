@@ -191,6 +191,14 @@ to Home Screen" (Safari's share sheet) or "Install app" (Chrome's menu). It laun
 home screen from then on, like any other app, and keeps already-read articles available without a
 connection. The phone has to be able to reach Kipple (see above), and installing needs HTTPS or `127.0.0.1`.
 
+**Back up.** Settings > Account > Export backup downloads a zip (database, OPML, readable settings, manifest). It holds
+password hashes and feed logins, so keep it private. Kipple also writes a snapshot nightly at 04:10 to the same volume,
+which does not survive losing the volume, so copy it off the machine on a schedule:
+`docker cp kipple:/data/backup/kipple-snapshot.db ./kipple-snapshot.db`. To restore, stop the container and run
+`docker compose run --rm -T --no-deps kipple restore - --yes < kipple-backup-YYYYMMDD-HHMMSS.zip` (without `--yes` it only
+verifies). The backup holds your account, settings and feeds but not your compose file or `.env` (port, public URL, proxy
+and Access settings, `TZ`): keep those too. The full checklist is in [docs/deploy.md](docs/deploy.md#what-to-back-up).
+
 For anything past this (backups, restoring, upgrading from an older version, running behind a reverse proxy or
 tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md). It's written from the maintainer's own two-machine
 setup (one box running Kipple, one for admin/backups over SSH), but says up front how that collapses to a
