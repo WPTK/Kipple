@@ -5,10 +5,10 @@ import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { useRefreshAll } from "@/api/refresh";
 import { ApiError, api, authStore } from "@/api/client";
-import { applyRead, applyStar, keys, useOpenItem, useToggleStar } from "@/api/queries";
+import { applyRead, applyStar, flattenItems, keys, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import App, { makeQueryClient } from "@/App";
-import { card, detail, json, mockFetch } from "@/test/mockApi";
+import { card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 import {
   FLUSH_REQUEST_MS,
   flushQueue,
@@ -619,5 +619,65 @@ describe("the query client offline", () => {
     } finally {
       stop();
     }
+  });
+});
+
+// Read an article offline, close the app, reopen it offline: the service worker's stored copy still says unread, and
+// the queue (what the user did since) was never laid over it.
+describe("the queue laid over the worker's stored copy", () => {
+  afterEach(() => {
+    onlineManager.setOnline(true);
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const wrap = (c: QueryClient) =>
+    function Wrapper({ children }: { children: ReactNode }) {
+      return <QueryClientProvider client={c}>{children}</QueryClientProvider>;
+    };
+  const cached = { "X-Kipple-Cache": "1" };
+  const unread = { view: "unread" } as const;
+  const goOffline = () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    onlineManager.setOnline(false);
+  };
+
+  it("a list served from the stored copy shows what was queued since", async () => {
+    await queueRead(["1001"], true);
+    await queueStar("1002", true);
+    goOffline();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(pageOf([card(1), card(2), card(3)]), 200, cached)));
+    const { result } = renderHook(() => useItems(unread), { wrapper: wrap(makeQueryClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(flattenItems(result.current.data).map((r) => [r.id, r.read, r.starred])).toEqual([
+      ["1001", true, false],
+      ["1002", false, true],
+      ["1003", false, false],
+    ]);
+  });
+
+  it("an article served from the stored copy shows what was queued since", async () => {
+    await queueRead(["1001"], true);
+    goOffline();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail(1), 200, cached)));
+    const { result } = renderHook(() => useItem("1001"), { wrapper: wrap(makeQueryClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.read).toBe(true);
+  });
+
+  it("a live answer is left alone", async () => {
+    await queueRead(["1001"], true);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(pageOf([card(1)]))));
+    const { result } = renderHook(() => useItems(unread), { wrapper: wrap(makeQueryClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(flattenItems(result.current.data)[0]?.read).toBe(false);
+  });
+
+  it("a sent queue patches the lists it changed", async () => {
+    await queueRead(["1001"], true);
+    mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [] }), "GET /api/bootstrap": () => json({}) });
+    const qc = new QueryClient();
+    qc.setQueryData(keys.items(unread), { pages: [pageOf([card(1)])], pageParams: [""] });
+    await flushQueue(qc);
+    expect(flattenItems(qc.getQueryData(keys.items(unread)))[0]?.read).toBe(true);
   });
 });
