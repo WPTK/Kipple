@@ -78,11 +78,10 @@ describe("password rules", () => {
 });
 
 describe("open mode availability", () => {
-  it("works from here, needs the local network switch, or cannot work", () => {
-    expect(openAvailability({ reason: null, lan_reason: null })).toEqual({ ok: true, needsLan: false, why: null });
-    expect(openAvailability({ reason: "peer", lan_reason: null })).toMatchObject({ ok: true, needsLan: true });
-    expect(openAvailability({ reason: "forwarded", lan_reason: "forwarded" })).toMatchObject({ ok: false, why: openReasonText("forwarded") });
-    expect(openAvailability({ reason: "host", lan_reason: "host" }).why).toMatch(/KIPPLE_ALLOWED_HOSTS/);
+  it("works from here, or cannot work and says why", () => {
+    expect(openAvailability({ reason: null })).toEqual({ ok: true, why: null });
+    expect(openAvailability({ reason: "forwarded" })).toMatchObject({ ok: false, why: openReasonText("forwarded") });
+    expect(openAvailability({ reason: "host" }).why).toMatch(/KIPPLE_ALLOWED_HOSTS/);
   });
 });
 

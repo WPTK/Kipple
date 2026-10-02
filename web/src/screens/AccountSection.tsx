@@ -329,7 +329,7 @@ export function AccountActions() {
         {boot.data ? `Signed in as ${boot.data.user.username}.` : "Signed in."}
         {boot.data ? ` Kipple ${boot.data.version}.` : ""}
         {accessEmail ? ` Cloudflare Access: ${accessEmail}.` : ""}
-        {hasPassword ? "" : user?.auth_mode === "open" ? " No password: Kipple opens without signing in, from this computer and over Tailscale." : " No web password: you sign in through Cloudflare Access."}
+        {hasPassword ? "" : user?.auth_mode === "open" ? " No password: Kipple opens without signing in, from this computer, your local network and over Tailscale." : " No web password: you sign in through Cloudflare Access."}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => setDialog("password")}>{hasPassword ? "Change web password" : "Set web password"}</Button>
