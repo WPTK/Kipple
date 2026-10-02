@@ -50,6 +50,62 @@ To look inside the volume (there is no shell in the Kipple image):
 
     ssh host-a 'docker run --rm -v host-a_kipple_data:/data:ro alpine ls -la /data /data/backup'
 
+### What to back up
+
+Kipple's state is split in two places, and a backup of one does not cover the other.
+
+| Lives in the database (in every export zip and snapshot) | Lives in your compose file or `.env` (in no backup) |
+|---|---|
+| The account: user name, password hashes, account secret | `KIPPLE_ADDR` and the compose port mapping |
+| Every setting in Settings, including the time zone (`tz`) and `security.allowed_hosts` | `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS` |
+| Feeds, folders, per-feed options, filters, feed logins | `KIPPLE_ACCESS_TEAM_DOMAIN`, `KIPPLE_ACCESS_AUD` |
+| Read and starred state, the statistics history | `TZ`, `KIPPLE_DATA`, and the other tuning and logging variables |
+| Device profiles | Image tag, resource limits (`mem_limit`, `GOMEMLIMIT`), the reverse proxy or tunnel setup |
+
+`KIPPLE_USERNAME`, `KIPPLE_PASSWORD` and `KIPPLE_API_PASSWORD` are read only on the first start of an empty database and
+ignored once an account exists, so they are not part of the state. If you set them, the plain text sits in `.env`:
+remove the lines after setup, and keep `.env` somewhere private either way.
+
+`security.allowed_hosts` has no precedence rule between the two places: the names in `KIPPLE_ALLOWED_HOSTS` and the
+names in the setting are added together, so a restore brings back the setting's names and your `.env` must bring back
+the rest. Where `TZ` is set it wins over the restored `tz`; if you lose `TZ` along with the old host, the zone from the
+backup applies without any message.
+
+Checklist, for a rebuild to be a copy and paste:
+
+1. The data volume, as an export zip (above) or a tarball of the volume (below).
+2. The compose file and the `.env`, with the image tag you ran (`docker inspect kipple --format '{{.Config.Image}}'`
+   or `docker exec kipple /kipple version`).
+3. Your reverse proxy or tunnel configuration, and any Cloudflare Access application settings.
+4. For a bind mount, the host directory must be owned by uid 65532 on a new machine, for a fresh start or a restore.
+
+The setup code is never in a backup (it exists only while there is no account), so a restore does not need it.
+
+### Back up the volume itself
+
+The live `kipple.db` and its `-wal` must not be copied while the server runs. Either stop the service first, or copy
+only the nightly snapshot, which is always consistent. On a single machine (no SSH), a tarball of the whole volume, taken
+while Kipple is stopped:
+
+    docker stop kipple
+    docker run --rm -v kipple_data:/data:ro -v "$PWD":/out alpine tar czf /out/kipple-data.tar.gz -C /data .
+    docker start kipple
+
+Use your compose project's volume name (`docker volume ls`; `host-a_kipple_data` above). Add `--exclude=./imgcache` to
+leave out the image cache. Restoring a tarball means extracting it into an empty volume whose files are owned by uid 65532,
+which is more work than `kipple restore`, so the export zip or the snapshot is the better routine backup.
+
+### Back up on a schedule
+
+Kipple does not schedule an off-machine backup for you. The nightly snapshot is one file on the same volume, so it is
+lost with the volume. Run something on a timer (cron, a systemd timer, Windows Task Scheduler) that copies it away; on
+one machine:
+
+    docker cp kipple:/data/backup/kipple-snapshot.db /path/to/backups/kipple-$(date +%F).db
+
+Run it after 04:10 in your Kipple time zone, and keep as many generations as you like; the file is a consistent
+database that `kipple restore` accepts as it is. The export zip is the same data plus the OPML and a manifest.
+
 ## Export a backup (the button)
 
 Settings > Account > Export backup. The app calls `POST /api/backup`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
@@ -63,6 +119,8 @@ then starts the download of `GET /api/backup/<token>`, which saves as
 - **The file is sensitive.** It contains the web and Reader API password hashes, the account secret
   that signs Reader tokens and image links, hashed session ids, and any feed logins (HTTP Basic
   `user:password`, stored in plain text). Keep it private.
+- `kipple.db` in the zip is the whole database (everything in the left column of the table above, also the `sys.*`
+  flags); `settings.json` leaves the `sys.*` flags out and is only a readable copy.
 - The link is single use and expires after 5 minutes. If the transfer breaks, export again.
 - "Busy" (409): the nightly snapshot or another export is running. Retry in a few seconds.
   "Not enough free disk space" (507): the volume needs about 2.2 times the database size free.
@@ -75,7 +133,12 @@ snapshot with `docker cp`:
 
 That copies the snapshot only, never the live database or WAL.
 
-## Import OPML
+## OPML import and export
+
+Feeds screen > Export OPML downloads the subscription list (`GET /api/opml`), the same file as `feeds.opml` in a backup
+zip. It carries folders, feed URLs and titles, and the per-feed options Kipple adds (interval, retention, full text, and
+the like, as `kipple:` attributes that other readers ignore). It does **not** carry read or starred state, filters,
+settings, the statistics history, the account or feed logins. If OPML is all you keep, those are lost on a restore from it.
 
 `kipple import [-mark-read-older-than-days N] <file.opml | ->` is safe while the server runs and prints JSON on standard output. The flag must come before the file. Pipe the file in, because the container user cannot read a bind-mounted `/import`:
 
@@ -280,7 +343,7 @@ open mode: sync apps still sign in with the API password, which is then the only
 There are two settings, and they used to be independent:
 
 - **The `TZ` environment variable** (IANA name). When set it is the zone for everything: log timestamps, daily reading
-  statistics, the nightly 04:10 maintenance and the weekly snapshot, and backup file names. Settings then shows the time
+  statistics, the nightly 04:10 maintenance (which writes the snapshot, and checks it on Sundays), and backup file names. Settings then shows the time
   zone read-only ("Set by the TZ environment variable; remove it to choose here") and a change through the API is
   refused. Before 0.5 `TZ` only set the log timestamps.
 - **The in-app time zone** (setting `tz`, Settings > Account & Devices, and wizard step 3). When `TZ` is unset this
@@ -408,6 +471,21 @@ Runbook, with the backup on Host-B (it is piped in; the container user cannot re
 
 An older schema is migrated on that start, after the usual `pre-migration-*` snapshot. Then sign in
 again. A restore never touches a backup `.zip`.
+
+**What a zip restore brings back, and what it does not.** Back: everything in the database column of "What to back up"
+(account and account secret, settings, feeds, filters, read and starred state, statistics). Not back: the environment
+(compose file, `.env`, proxy or tunnel, Access setup), the image cache (`/data/imgcache`, fetched again on demand), and
+web sessions (all signed out). Things kept in each browser or installed app, such as the offline queue and the local
+appearance cache, stay on that device and are not part of any backup.
+
+**Same version first.** The restore refuses a database from a newer Kipple but migrates an older one. For a new host,
+look up the version in the zip's `manifest.json` (`kipple_version`, `schema_version`), restore with that image tag, check
+it, and only then upgrade; an upgrade is then a normal one with its own `pre-migration-*` snapshot.
+
+**Test your backup.** The verify run (`restore -` without `--yes`, step 2 above) checks checksums and integrity and changes
+nothing. It needs the service stopped and the volume it names; to test without touching your real one, run it against a
+throwaway volume (`docker compose -p test run ...` with a different project name, or a plain `docker run` with a scratch
+volume) and compare its feed count with `/_status`. Do this now and then: a backup nobody has verified is a hope.
 
 **Restore leaves setup mode.** A backup that contains the account puts the instance in normal mode at the next start:
 the setup screens are gone and the leftover setup code file, if any, is deleted. A backup from before 0.5 that is
