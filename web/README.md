@@ -180,7 +180,7 @@ sign out.
 
 **Device profile sync** (`lib/deviceSync.ts`). The bootstrap carries `device:{id,name,profile,merged}`. On load the
 effective values (`merged`) replace the local cache (the server wins); unsent changes from a reload or a failed save
-are put back on top. The first run on a browser with an empty profile and old `kipple.*` values sends them up once
+are put back on top. A browser with an empty profile that holds `kipple.*` localStorage values sends them up once
 (`kipple.deviceSync.v1` remembers it). Every write goes through one `PATCH /api/device`, debounced 500 ms: the patch is
 recomputed from the local state against what the server last confirmed, so a burst is batched and the latest value of
 each key wins, and values equal to the confirmed ones are never sent. A failure keeps the local value and shows
@@ -227,7 +227,7 @@ background) with the theme's text and a star underline, checked in every theme b
 user is typing (250 ms debounce); Enter, a saved-search run and a URL load are submitted searches without it (`Scope.typing`, part of the scope key,
 never sent otherwise). `fallback:true` shows the quiet banner "No exact matches: showing partial matches" and is echoed as `scope.fallback` in
 "Mark all results as read" (`Scope.fallback` is not part of the key; off while typing). `422 search_too_broad` shows the server message inline (no
-retry); a `400 bad_cursor` on a later page restarts the search (at most twice; other 400s show their message). The ordering (Relevance, Newest, Oldest) is per device in the device profile (`client.search_order`; the old `kipple.searchOrder.v1` value migrates once). Relevance shows one "Best matches first" header instead of day headers and disables
+retry); a `400 bad_cursor` on a later page restarts the search (at most twice; other 400s show their message). The ordering (Relevance, Newest, Oldest) is per device in the device profile (`client.search_order`; a `kipple.searchOrder.v1` localStorage value is adopted once). Relevance shows one "Best matches first" header instead of day headers and disables
 mark above/below. Query words are drawn with the highlight module: a client copy of the server parser (phrases, `-x`, `NOT x`, `title:`, `author:`,
 `x*`) with a rough stem (`approxStem`), marks from the start of a word to its end; in fallback mode the words the fallback used.
 
@@ -285,7 +285,7 @@ npm run dev                      # terminal 2: http://127.0.0.1:5173
 ```
 
 Sign in as `dev` with `dev-password-only-for-local-testing`. Those credentials belong to the throwaway data
-directory only (`%TEMP%\kipple-dev`, override with `KIPPLE_DEV_DATA`; `KIPPLE_DEV_PORT` changes the port; `KIPPLE_DEV_HOST` binds another local address, such as this machine's Tailscale address, to look at a build on a phone (never a public address: the dev account's password is fixed and public); `npm run seed -- --keep` reuses it).
+directory only (`%TEMP%\kipple-dev`, override with `KIPPLE_DEV_DATA`; `KIPPLE_DEV_PORT` changes the port, and the seed refuses to start when something already answers on it; `KIPPLE_DEV_HOST` binds another local address, such as this machine's Tailscale address, to look at a build on a phone (never a public address: the dev account's password is fixed and public); `npm run seed -- --keep` reuses it).
 Without `--keep` the directory is deleted and recreated, but only if the script made it (it leaves a
 `.kipple-dev-seed` file) or it is empty; any other `KIPPLE_DEV_DATA` directory is refused unless you add `-- --force`,
 and the temp directory, home directory or a drive root are always refused. Needs Go on PATH and network access for the feeds.

@@ -227,6 +227,11 @@ In a container the simplest way to use another port is to change only the host s
 mapping to a port Kipple does not listen on answers nothing, while the health check, which probes exactly the address
 Kipple listens on (`KIPPLE_ADDR`, or 1919 when unset), still reports healthy.
 
+The image has no shell, so to see the `KIPPLE_ADDR` and `TZ` a container really runs with, read its environment from
+the host:
+
+    docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' <container>
+
 The README's compose files publish `127.0.0.1:1919:1919`, this machine only. For the LAN use `1919:1919`, for Tailscale
 your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx) is what gives Kipple HTTPS; set
 `KIPPLE_TRUSTED_PROXY_IPS` to the address it connects from, and `KIPPLE_PUBLIC_URL` to the public address.
@@ -513,42 +518,61 @@ Do not start the server on the empty volume first: it would start in setup mode 
 
 ## Roll back an upgrade that migrated the schema
 
-There are no down migrations. An older binary refuses a newer schema, so going back means
-restoring the `pre-migration-<old>-<new>-<ns>.db` that the upgrade wrote before migrating.
-Anything read, starred or fetched since the upgrade is lost.
+There are no down migrations. An older binary refuses a newer schema, so going back means restoring the
+`pre-migration-<from>-<to>-<ns>.db` that the upgrade wrote before migrating. Anything read, starred or fetched since the
+upgrade is lost.
+
+`<from>` is the schema the database had and `<to>` the schema the upgrade migrated it to. After skipping releases
+`<from>` can be several schemas below `<to>` (`pre-migration-8-11-<ns>.db`). Restore the newest snapshot whose `<to>` is
+the current schema of the database.
+
+Always go back through `kipple restore`. Never copy a snapshot over `kipple.db` by hand, and never edit the schema by
+hand (drop a column, table or index) to make an older binary start.
 
 (This is the "Rolling back" procedure that a refused start points to.) If the old image is started on the migrated
-database without these steps, it does not start. It names the Kipple that wrote the database and what to do: `docker logs kipple` shows `kipple: store: store: database schema version 11 is newer than this binary (10); refusing to
-start. This database was last opened by Kipple v0.7.0 (schema 11); this is Kipple v0.6.0 (schema 10). Run v0.7.0 or
-newer, or restore the pre-migration snapshot from the backup folder (docs/deploy.md, Rolling back).` (the version and
-schema numbers here are examples; a database from a build that never recorded its version says "It was written by a
-newer Kipple than this binary." instead). The container exits with status
-1 (with `restart: unless-stopped` it keeps restarting) and nothing is changed on the volume. Stop it, then:
+database without these steps, it does not start, the container exits with status 1 (with `restart: unless-stopped` it
+keeps restarting) and nothing is changed on the volume. `docker logs kipple` shows the refusal. A binary that records
+versions names the Kipple that wrote the database and what to do:
+
+    kipple: store: store: database schema version 11 is newer than this binary (10); refusing to start. This database
+    was last opened by Kipple v0.7.0 (schema 11); this is Kipple v0.6.0 (schema 10). Run v0.7.0 or newer, or restore the
+    pre-migration snapshot from the backup folder (docs/deploy.md, Rolling back).
+
+(The numbers are examples. A database that never recorded its version gets "It was written by a newer Kipple than this
+binary." in place of the second sentence.) A binary that does not record versions prints only
+`database schema version N is newer than this binary (M); refusing to start`. Either way, stop it, then:
 
     # 1. Stop the service and find the newest pre-migration snapshot.
     docker compose stop kipple
     docker run --rm -v <project>_kipple_data:/data:ro alpine ls -la /data/backup
     # 2. Restore it with the NEW image (it is still on the machine; old releases may have no restore command).
-    docker compose run --rm -T --no-deps kipple restore /data/backup/pre-migration-<old>-<new>-<ns>.db --yes
+    docker compose run --rm -T --no-deps kipple restore /data/backup/pre-migration-<from>-<to>-<ns>.db --yes
     # 3. Start the old version. Do not start the new image in between: it would migrate again.
     #    Published image: put the old tag in the service's image: line, then
     docker compose pull kipple && docker compose up -d kipple
     #    Built from source: check out the old tag, then
     KIPPLE_VERSION=<old tag> KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose build kipple && docker compose up -d kipple
 
-The restore prints `schema version <old>` for the snapshot and moves the migrated database to
+The restore prints `schema version <from>` for the snapshot and moves the migrated database to
 `backup/pre-restore-<ts>/`, so the roll-forward is one more restore away. Sign in again afterwards.
 
 ### Disk space during an upgrade
 
-An upgrade that migrates the schema needs room for the pre-migration snapshot (a full copy of the database) and for the
-migration itself, which is held in the WAL until it is committed and checkpointed into the database file. Before the
-snapshot is written Kipple checks the free space: it refuses to start, with `not enough free disk space to migrate the
-database ... (nothing was changed)`, unless there is enough extra free space: on the database's volume, the size of the
-database file (without the WAL) plus 64 MB of headroom for the migration's WAL and growth, and on the backup
+An upgrade that migrates the schema writes the pre-migration snapshot (a full copy of the database) and then runs the
+migration, which is held in the WAL until it is committed and checkpointed into the database file. The server does not
+answer, health check included, until the migration finishes; a migration that builds an index over a large table can
+take a while.
+
+Before the snapshot is written Kipple checks the free space: it refuses to start, with `not enough free disk space to
+migrate the database ... (nothing was changed)`, unless there is enough extra free space: on the database's volume, the
+size of the database file (without the WAL) plus 64 MB of headroom for the migration's WAL and growth, and on the backup
 directory's volume, 1.1 times the database size for the snapshot; when both are on the same volume (the default `/data`
-layout) the two add up. Nothing has been written at that point, so free some space (older `backup/` files, exported
-archives, the image cache) and start again. If the volume fills up despite the check, the migration transaction fails
-and is rolled back (the database keeps its old schema and the previous binary keeps working); a full disk can also fail
-the snapshot itself, which likewise leaves the database untouched. The check is skipped when the free space cannot be
-read. What each migration changes, and how long it takes, is in that release's notes in `CHANGELOG.md`.
+layout) the two add up. That is the minimum. A migration that builds indexes briefly needs about twice the new indexes'
+size on top (the WAL holds the build until the checkpoint), so leave more than the minimum free. Nothing has been written
+when the check refuses, so free some space (older `backup/` files, exported archives, the image cache) and start again.
+If the volume fills up despite the check, the migration transaction fails and is rolled back (the database keeps its
+schema and the previous binary keeps working); a full disk can also fail the snapshot itself, which likewise leaves the
+database untouched. The check is skipped when the free space cannot be read.
+
+What each migration changes is in that release's notes in `CHANGELOG.md`. Before upgrading, read the top paragraph of
+every release you skip in `CHANGELOG.md`.

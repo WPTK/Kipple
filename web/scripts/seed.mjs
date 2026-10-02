@@ -100,6 +100,23 @@ function wipeDataDir() {
   rmSync(dataDir, { recursive: true, force: true });
 }
 
+// The dev port is Kipple's own default, so a real Kipple may already listen there. Refuse rather than start a second
+// server that cannot bind, and never mistake that instance for the one this script starts (waitReady below).
+async function refuseIfTaken() {
+  try {
+    await fetch(`http://${addr}/healthz`, { signal: AbortSignal.timeout(1500) });
+  } catch (e) {
+    if (e?.name !== "TimeoutError") return; // connection refused: the address is free
+    // A listener that accepts but does not answer is still taken.
+  }
+  console.error(
+    `refusing to start: something already answers on http://${addr} (another Kipple?).\n` +
+      "Stop it, or set KIPPLE_DEV_PORT to a free port (for example KIPPLE_DEV_PORT=1920) and point `npm run dev` at it with KIPPLE_DEV_BACKEND.",
+  );
+  process.exit(1);
+}
+
+await refuseIfTaken();
 if (!keep) wipeDataDir();
 mkdirSync(join(dataDir, "data"), { recursive: true });
 writeFileSync(join(dataDir, SENTINEL), "Created by web/scripts/seed.mjs; deleted and recreated on each run without --keep.\n");
