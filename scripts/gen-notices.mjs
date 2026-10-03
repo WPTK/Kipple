@@ -33,7 +33,7 @@ const bad = /GPL|AGPL|LGPL|SSPL|UNKNOWN|non-?commercial|no-?deriv/i;
 function findLicenseFiles(dir) {
   if (!dir || !existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((f) => /^(licen[sc]e|copying|notice|unlicense)/i.test(f))
+    .filter((f) => /^(licen[sc]e|copying|notice|unlicense)/i.test(f) && !/3rd-party/i.test(f)) // LICENSE-3RD-PARTY.md is an inventory, not a license text
     .map((f) => join(dir, f));
 }
 function copyrightLines(text) {
