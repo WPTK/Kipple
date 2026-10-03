@@ -577,8 +577,27 @@ the version reads `dev` unless `KIPPLE_VERSION` was passed, which the README say
 README) works without a `chown`, while a bind mount without one fails with a permissions error that the README's
 `chown 65532:65532` line fixes.
 
-**Status.** Not yet run for 0.5.0-beta.1: it needs the published image and a Linux host, so it is an item on the
-0.5.0-beta.1 pre-deploy checklist in `docs/RELEASING.md`, executed once the tag has produced the first image.
+**Status.** Executed 2026-10-03 against the published image `ghcr.io/wptk/kipple:0.7.0-beta.1` (digest
+`sha256:f729ef46...5ff72`, commit `28768e2`) on the owner's Linux server (Docker Engine, amd64), with throwaway
+containers and volumes on their own ports, the live instance untouched, everything removed afterwards. Driven with `curl`
+against the published API, so the browser-only steps (A3, A8 to A12, B1's wording, B3's reload) were not repeated by hand:
+the wizard script (`npm run uat:wizard`) covers them against a source build.
+
+- **A1** pulled anonymously and the digest equals the release notes; healthy in about 25 s. **A2** exactly one `no account
+  yet` line. **A4** `GET /api/bootstrap` 401, login 409 `setup_required`, `/healthz` 200. **A5** restart: the same one line,
+  setup still open. **A6** two simultaneous claims: one 201 with a cookie, one 409 `already_set_up` with none. **A7** a
+  4-character password refused (400, with the reason); 5 characters is the minimum and is accepted. **A13** the setup route
+  answers 404 afterwards. **A14** restart with an account: normal mode, no `no account yet` line, healthy.
+- **B** (open mode, over the API): no acknowledgement gets 400 `ack_required`; with it the account is created; an unexpected
+  `Host` gets 421; a forwarded header gets 403; a request from the Docker bridge is admitted silently (204).
+- **C** `gh attestation verify` on the image succeeds and names this repository's `release.yml` at `v0.7.0-beta.1`; `cosign`
+  itself was not installed, so the README's exact `cosign verify` line was not run.
+- **Also:** the container runs read-only as uid 65532 with all capabilities dropped; a bind mount without the `chown`
+  fails with `data dir lock ... permission denied`, as the README says.
+- **Not run:** Run D (arm64; no arm64 machine), Run E (the tag was built from source with Docker alone for the deploy, and
+  reports `v0.7.0-beta.1`), the NetNewsWire/Reeder connection (A10) and the manual browser steps above.
+- **Findings:** none. One note: the `no account yet` line says the container "listens on :1919", which is the in-container
+  port, not the published one.
 
 ### Prior runs (the pre-wizard Quickstart)
 
