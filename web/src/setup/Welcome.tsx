@@ -13,7 +13,7 @@ import { ThemeStep } from "./ThemeStep";
 import { TimeZoneStep } from "./TimeZoneStep";
 
 /**
- * /welcome/<step>: steps 3 to 7 of the wizard for a signed-in account whose setup is pending. Each step writes through
+ * /welcome/<step>: steps 2 to 6 of the wizard for a signed-in account whose setup is pending. Each step writes through
  * the ordinary endpoints as it goes, and the step is in the address, so a reload or the Back button lands where you were.
  * "Skip the rest of setup" and "Finish" both end it (POST /api/onboarding/complete) and open the reader.
  */
@@ -27,7 +27,7 @@ export function Welcome() {
 
   const over = boot.data !== undefined && boot.data.user.setup_pending !== true;
   // Setup ended somewhere else (another tab or device, or Skip here): drop what this page kept for it, the password
-  // typed in step 2 above all, and put a previewed theme back.
+  // typed in step 1 above all, and put a previewed theme back.
   useEffect(() => {
     if (over) {
       revertUnsavedTheme();

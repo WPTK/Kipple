@@ -89,26 +89,18 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 		s.refreshImgMode(ctx) // the CSP img-src follows it
 	}
 	hosts, hostsSet := set[store.SettingAllowedHosts]
-	lan, lanSet := set[store.SettingOpenLAN]
-	if hostsSet || lanSet {
-		// The Host gate and the open gate read them: re-read, with the new values
-		// already in the fallback.
+	if hostsSet {
+		// The Host gate reads it: re-read, with the new value already in the fallback.
 		s.noteMode(r.Context(), func(sn *modeSnapshot) {
-			if hostsSet {
-				var stored []string
-				if l, ok := hosts.([]any); ok {
-					for _, e := range l {
-						if h, ok := e.(string); ok {
-							stored = append(stored, h)
-						}
+			var stored []string
+			if l, ok := hosts.([]any); ok {
+				for _, e := range l {
+					if h, ok := e.(string); ok {
+						stored = append(stored, h)
 					}
 				}
-				sn.allowed = s.allowedWith(stored)
 			}
-			if lanSet {
-				b, _ := lan.(bool) // nil (reset) is the default, false
-				sn.openLAN = b
-			}
+			sn.allowed = s.allowedWith(stored)
 		})
 	}
 	if _, ok := set["imgproxy.cache_mb"]; ok {

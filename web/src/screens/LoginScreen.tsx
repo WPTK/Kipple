@@ -40,6 +40,10 @@ export function LoginScreen() {
         setError("This Kipple doesn't use a password. Signing you in.");
         // If the answer does not move the app on, say what to do rather than leave that message up.
         void qc.invalidateQueries({ queryKey: INSTANCE_KEY }).then(() => setError("This Kipple doesn't use a password. Reload the page to sign in."));
+      } else if (err instanceof ApiError && err.status === 409 && err.code === "setup_required") {
+        // This Kipple has no account yet (a stale tab): ask again what it is, and the app moves to the account form.
+        setError("Kipple has no account yet. Taking you to set it up.");
+        void qc.invalidateQueries({ queryKey: INSTANCE_KEY }).then(() => setError("Kipple has no account yet. Reload the page to set it up."));
       } else if (err instanceof ApiError && err.status === 503 && err.code === "busy") setError("Kipple is busy. Try again in a moment.");
       else if (err instanceof ApiError && err.status === 401)
         setError(

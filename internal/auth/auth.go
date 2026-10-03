@@ -239,7 +239,7 @@ type FailureTracker struct {
 }
 
 type failure struct {
-	start time.Time // Lockout: when the window began. FailureTracker: the client's last failure
+	start time.Time // the client's last failure
 	n     int
 	last  time.Time // FailureTracker: when the client's last attempt started or failed
 }
@@ -379,7 +379,7 @@ func (f *FailureTracker) Finish(ip string, failed bool) {
 	now := f.Now()
 	e := f.m[k]
 	if e == nil || now.Sub(e.start) > f.Window {
-		makeRoom(f.m, now, f.Window, false)
+		makeRoom(f.m, now, f.Window)
 		e = &failure{start: now}
 		f.m[k] = e
 	}
@@ -503,101 +503,19 @@ func EffectiveScheme(r *http.Request, trusted []netip.Prefix) string {
 	return "http"
 }
 
-// Lockout is the web login lockout: after Max failures from one IP inside a
-// fixed Window (started by the first failure), that IP is refused until the
-// window ends. Per IP, never global, so an attacker elsewhere cannot lock the owner
-// out. A success clears the IP.
-type Lockout struct {
-	Max    int
-	Window time.Duration
-	Now    func() time.Time
-
-	mu sync.Mutex
-	m  map[string]*failure
-}
-
-// NewLockout returns the plan defaults: 10 attempts (failures) per 15 minutes.
-func NewLockout(now func() time.Time) *Lockout {
-	if now == nil {
-		now = time.Now
-	}
-	return &Lockout{Max: 10, Window: 15 * time.Minute, Now: now, m: map[string]*failure{}}
-}
-
-// Locked reports whether ip is locked out and for how much longer.
-func (l *Lockout) Locked(ip string) (bool, time.Duration) {
-	ip = RateKey(ip)
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	e := l.m[ip]
-	if e == nil {
-		return false, 0
-	}
-	now := l.Now()
-	if now.Sub(e.start) >= l.Window {
-		delete(l.m, ip)
-		return false, 0
-	}
-	if e.n >= l.Max {
-		return true, e.start.Add(l.Window).Sub(now)
-	}
-	return false, 0
-}
-
-// Reserve counts one attempt for ip *before* its password is checked, so a
-// parallel burst cannot run more than Max verifications: the check and the
-// increment are one atomic step. It returns false (and how long the lockout
-// has left) when ip is locked. The caller then calls Clear on success, Release
-// when the attempt says nothing about the password (busy, malformed), and does
-// nothing on a wrong password: the reservation stays as the recorded failure.
-func (l *Lockout) Reserve(ip string) (ok bool, left time.Duration) {
-	ip = RateKey(ip)
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := l.Now()
-	e := l.m[ip]
-	if e != nil && now.Sub(e.start) >= l.Window {
-		delete(l.m, ip)
-		e = nil
-	}
-	if e != nil && e.n >= l.Max {
-		return false, e.start.Add(l.Window).Sub(now)
-	}
-	if e == nil {
-		makeRoom(l.m, now, l.Window, true)
-		e = &failure{start: now}
-		l.m[ip] = e
-	}
-	e.n++
-	return true, 0
-}
-
-// Release gives back one reservation.
-func (l *Lockout) Release(ip string) {
-	ip = RateKey(ip)
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if e := l.m[ip]; e != nil {
-		if e.n--; e.n <= 0 {
-			delete(l.m, ip)
-		}
-	}
-}
-
 // maxTracked bounds the per-IP maps. When they are full of live entries the
 // oldest one is evicted, so new offenders are always tracked. (Stopping instead
 // would let an attacker rotating source addresses switch tracking off.)
 const maxTracked = 4096
 
 // makeRoom frees one slot in m when it is full: expired entries first (start
-// plus window <= now; inclusive reports whether the boundary itself is expired),
-// then the entry with the oldest window start.
-func makeRoom(m map[string]*failure, now time.Time, window time.Duration, inclusive bool) {
+// plus window < now), then the entry with the oldest window start.
+func makeRoom(m map[string]*failure, now time.Time, window time.Duration) {
 	if len(m) < maxTracked {
 		return
 	}
 	for k, v := range m {
-		if d := now.Sub(v.start); d > window || (inclusive && d == window) {
+		if now.Sub(v.start) > window {
 			delete(m, k)
 		}
 	}
@@ -612,14 +530,6 @@ func makeRoom(m map[string]*failure, now time.Time, window time.Duration, inclus
 		}
 	}
 	delete(m, oldest)
-}
-
-// Clear forgets ip.
-func (l *Lockout) Clear(ip string) {
-	ip = RateKey(ip)
-	l.mu.Lock()
-	delete(l.m, ip)
-	l.mu.Unlock()
 }
 
 // proxyWarnEvery is the minimum gap between untrusted-proxy-header warnings.

@@ -33,12 +33,11 @@ func arrivedOn(local string) func(*http.Request) {
 // openAccount finishes setup in open mode from this computer and returns the session.
 func (h *setupHarness) openAccount(extra map[string]any, mod ...func(*http.Request)) *http.Cookie {
 	h.t.Helper()
-	sc := h.claim(h.token(), mod...)
 	body := map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}
 	for k, v := range extra {
 		body[k] = v
 	}
-	rec := h.req("POST", "/api/setup/account", accountBody(body), append([]func(*http.Request){withCookies(sc)}, mod...)...)
+	rec := h.req("POST", "/api/setup/account", accountBody(body), mod...)
 	require.Equal(h.t, http.StatusCreated, rec.Code, rec.Body.String())
 	c := cookieNamed(rec, cookieName)
 	require.NotNil(h.t, c)
@@ -97,13 +96,12 @@ func TestOpenModeHostGateRefusesLANAnsweredNames(t *testing.T) {
 		require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host(hv)).Code, "setup mode: %s", hv)
 	}
 	// Choosing open mode by such a name is refused (the open gate uses open mode's list).
-	sc := h.claim(h.token(), host("evil.local:1919"), hdr("Origin", "http://evil.local:1919"))
 	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}),
-		withCookies(sc), host("evil.local:1919"), hdr("Origin", "http://evil.local:1919"))
+		host("evil.local:1919"), hdr("Origin", "http://evil.local:1919"))
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	require.Equal(t, "host", decode(t, rec)["reason"])
-	st := decode(t, h.req("GET", "/api/setup/state", "", host("nas:1919")))
-	require.Equal(t, map[string]any{"reason": "host", "lan_reason": "host"}, st["open"])
+	st := decode(t, h.req("GET", "/api/instance", "", host("nas:1919")))
+	require.Equal(t, map[string]any{"reason": "host"}, st["open"])
 
 	sess := h.openAccount(nil)
 	for _, hv := range []string{"nas:1919", "evil.local:1919", "box.lan", "box.home.arpa", "svc.internal"} {
@@ -125,13 +123,15 @@ func TestOpenModeHostGateRefusesLANAnsweredNames(t *testing.T) {
 }
 
 // A peer in Tailscale's range counts as the tailnet only when it arrived on
-// this machine's own Tailscale address, not on its LAN address.
+// this machine's own Tailscale address or a private one (the LAN, a container
+// bridge), not on a public or unknown address.
 func TestOpenGateTailnetPeerNeedsTheTailscaleInterface(t *testing.T) {
 	h := newSetupHarness(t)
 	h.openAccount(nil)
 	ts := peer("100.101.102.103:5000")
 	require.Equal(t, http.StatusNoContent, h.req("POST", "/api/auth/open", "", ts, arrivedOn("100.100.100.1:1919")).Code)
-	rec := h.req("POST", "/api/auth/open", "", ts, arrivedOn("192.168.1.10:1919"))
+	require.Equal(t, http.StatusNoContent, h.req("POST", "/api/auth/open", "", ts, arrivedOn("192.168.1.10:1919")).Code)
+	rec := h.req("POST", "/api/auth/open", "", ts, arrivedOn("203.0.113.5:1919"))
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	require.Equal(t, "peer", decode(t, rec)["reason"])
 	rec = h.req("POST", "/api/auth/open", "", ts)
@@ -162,28 +162,6 @@ func TestAboutReportsAccessAndPasswordModes(t *testing.T) {
 	require.Equal(t, "access", out["auth_mode"])
 }
 
-// A lockout that ends counts wrong codes again (answered 403, not 429), and a
-// new lockout of the same address right after still checks the right code at
-// once, however many wrong ones came just before it.
-func TestSetupClaimLockoutEndsAndRelocks(t *testing.T) {
-	h := newSetupHarness(t)
-	good := h.token()
-	bad := tokenBody("0000-0000-0000-0000-0000-0000")
-	lock := func() {
-		for i := 0; i < 10; i++ {
-			require.Equal(t, http.StatusForbidden, h.req("POST", "/api/setup/claim", bad).Code, "attempt %d", i)
-		}
-	}
-	lock() // the window starts now
-	h.clk.Advance(14*time.Minute + 50*time.Second)
-	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", bad).Code, "still locked")
-	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", bad).Code, "still locked")
-	h.clk.Advance(15 * time.Second) // the window has ended
-	lock()
-	require.Equal(t, http.StatusTooManyRequests, h.req("POST", "/api/setup/claim", bad).Code, "locked again")
-	h.claim(good)
-}
-
 // streamEnds reads br until the stream closes, failing after timeout.
 func streamEnds(t *testing.T, br *bufio.Reader, timeout time.Duration) {
 	t.Helper()
@@ -202,19 +180,21 @@ func streamEnds(t *testing.T, br *bufio.Reader, timeout time.Duration) {
 	}
 }
 
-// An /api/events stream opened from the LAN under security.open_lan is closed
-// as soon as the opt-in is turned off, without waiting for a heartbeat.
+// An /api/events stream is closed as soon as the open gate stops passing it,
+// without waiting for a heartbeat: here the owner removes the host name the
+// stream was opened under from security.allowed_hosts.
 func TestEventStreamClosesWhenTheOpenGateStopsPassing(t *testing.T) {
 	h := newSetupHarness(t, func(o *Options) { o.Heartbeat = time.Hour })
-	sess := h.openAccount(map[string]any{"open_lan": true}, peer("172.17.0.1:40000"))
-	lan := "192.168.1.20:5000"
+	sess := h.openAccount(nil)
+	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.allowed_hosts":["nas"]}`, withCookies(sess)).Code)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.RemoteAddr = lan // a LAN device, admitted by open_lan
+		r.RemoteAddr = "192.168.1.20:5000" // a LAN device, let in as a local peer
 		h.root.ServeHTTP(w, r)
 	}))
 	t.Cleanup(srv.Close)
 
 	req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
+	req.Host = "nas"
 	req.AddCookie(&http.Cookie{Name: sess.Name, Value: sess.Value})
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -223,7 +203,7 @@ func TestEventStreamClosesWhenTheOpenGateStopsPassing(t *testing.T) {
 	br := bufio.NewReader(resp.Body)
 	require.Equal(t, "retry: 3000\n", readUntil(t, br, "retry:", 2*time.Second))
 
-	rec := h.req("PATCH", "/api/settings", `{"security.open_lan":false}`, withCookies(sess))
+	rec := h.req("PATCH", "/api/settings", `{"security.allowed_hosts":[]}`, withCookies(sess))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	streamEnds(t, br, 3*time.Second)
 }

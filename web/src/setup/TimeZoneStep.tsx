@@ -19,7 +19,7 @@ function nowIn(zone: string): string {
 }
 
 /**
- * Step 3: the time zone Kipple keeps its daily statistics and nightly upkeep in. Starts on the browser's own zone (or
+ * Step 2: the time zone Kipple keeps its daily statistics and nightly upkeep in. Starts on the browser's own zone (or
  * the one already saved, when this is a repeat run), with a searchable list of every zone and its offset.
  */
 export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () => void; onSkipAll: () => void; skipAllBusy?: boolean }) {

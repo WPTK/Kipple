@@ -96,7 +96,7 @@ your browser the first time you open it.
 One command:
 
 ```
-docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.6.0-beta.1
+docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.7.0-beta.1
 ```
 
 Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
@@ -105,7 +105,7 @@ Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
 ```yaml
 services:
   kipple:
-    image: ghcr.io/wptk/kipple:0.6.0-beta.1
+    image: ghcr.io/wptk/kipple:0.7.0-beta.1
     container_name: kipple
     restart: unless-stopped
     ports: ["127.0.0.1:1919:1919"]
@@ -120,28 +120,30 @@ volumes:
 
 Then:
 
-1. Open **http://127.0.0.1:1919**.
-2. Kipple says it isn't set up yet and asks for a **setup code**. Paste the one from the container's log with
-   `docker logs kipple`: it is printed once at start, in a box, and looks like `ABCD-EFGH-JKMN-PQRS-TVWX-YZ23`. If the
-   log has scrolled away, `docker exec kipple /kipple setup-token` prints it again. (`kipple` is the container name both
-   example files set; with a compose file of your own that sets none, use `docker compose logs kipple` and
-   `docker compose exec kipple /kipple setup-token`.) The code is what stops whoever
-   reaches the port first from claiming your Kipple: only someone who can read the container's log can.
-3. Follow the wizard. It takes about a minute, and every step after the account can be skipped:
-   1. **Setup code**, as above.
-   2. **Account**: a user name, then a password (or one of the two ways to go without, below).
-   3. **Time zone**, preselected from your browser.
-   4. **Theme**: one look for day and one for night.
-   5. **Import** an OPML file from your old reader (or skip).
-   6. **Recommended feeds**, a few good ones to start with (or skip).
-   7. **Done**, with an optional Reader API password for Reeder or NetNewsWire.
+1. Open **http://127.0.0.1:1919**. A new Kipple has no account, so the first screen is the form that creates it. (If something looks wrong, `docker logs kipple` shows what Kipple is doing;
+   `kipple` is the container name both example files set.)
+2. Follow the wizard. It takes about a minute, and every step after the account can be skipped:
+   1. **Account**: a user name, then a password (or one of the two ways to go without, below).
+   2. **Time zone**, preselected from your browser.
+   3. **Theme**: one look for day and one for night.
+   4. **Import** an OPML file from your old reader (or skip).
+   5. **Recommended feeds**, a few good ones to start with (or skip).
+   6. **Done**, with an optional Reader API password for Reeder or NetNewsWire.
+
+**Until you have created your account, anyone who can reach the port can create it.** That is how every
+self-hosted app that sets itself up in the browser works, and it is why the examples publish the port on `127.0.0.1`
+(this machine only): create your account first, then widen the port if you want to. A headless install that has to
+listen on a network before you can open a browser should create the account from the environment instead: set
+`KIPPLE_USERNAME` and `KIPPLE_PASSWORD` for the first start and Kipple never shows the form. Whoever creates the
+account owns the instance, including its feed network settings, so if you ever find Kipple already set up when you did
+not do it, take the container down, delete its data volume and start again.
 
 **Going without a password.** The account step offers "No password at all". Read its notice: anyone who can reach
-Kipple's address can then read and change everything, so choose it only when Kipple is reachable from this computer
-only, or over [Tailscale](https://tailscale.com/). Kipple refuses open sign-in through a reverse proxy or tunnel. In
-Docker it asks you to tick "Also allow devices on my local network", because a container sees every connection as
-coming from Docker's own network; the address you publish the port on (`127.0.0.1:` in the examples above) is what
-keeps other machines out. You can set a password later in Settings, Account & Devices. Details:
+Kipple's address can then read and change everything, so choose it only when Kipple is reachable from this computer,
+your local network and [Tailscale](https://tailscale.com/) and nowhere else. Kipple refuses open sign-in through a reverse
+proxy or tunnel and from public addresses. In Docker every connection arrives from Docker's own network, so Kipple cannot
+tell your network from the internet: the address you publish the port on (`127.0.0.1:` in the examples above) is what
+keeps other machines out, so never publish an open-mode Kipple on a public interface. You can set a password later in Settings, Account & Devices. Details:
 [docs/deploy.md](docs/deploy.md), "Open mode".
 
 **Reaching Kipple from your phone or another computer.** The examples publish the port on `127.0.0.1`, which is this
@@ -155,7 +157,7 @@ unprivileged user.
 To check the image before you run it (optional; needs [cosign](https://docs.sigstore.dev/cosign/)):
 
 ```
-cosign verify ghcr.io/wptk/kipple:0.6.0-beta.1 \
+cosign verify ghcr.io/wptk/kipple:0.7.0-beta.1 \
   --certificate-identity-regexp '^https://github.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -172,7 +174,7 @@ docker compose build
 docker compose up -d
 ```
 
-Then open **http://127.0.0.1:1919** and paste the setup code from `docker logs kipple`, exactly as above. There is no
+Then open **http://127.0.0.1:1919** and create your account, exactly as above. There is no
 `.env` to create; [.env.example](.env.example) lists the optional overrides for people who want them, and the compose
 file reads it when it exists (Docker Compose 2.24 or newer).
 
@@ -199,7 +201,7 @@ which does not survive losing the volume, so copy it off the machine on a schedu
 verifies). The backup holds your account, settings and feeds but not your compose file or `.env` (port, public URL, proxy
 and Access settings, `TZ`): keep those too. The full checklist is in [docs/deploy.md](docs/deploy.md#what-to-back-up).
 
-For anything past this (backups, restoring, upgrading from an older version, running behind a reverse proxy or
+For anything past this (backups, restoring, upgrading, running behind a reverse proxy or
 tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md).
 
 ## Configuration
@@ -214,7 +216,7 @@ The ones self-hosters most often want:
 
 | Variable | Purpose |
 | --- | --- |
-| `KIPPLE_ADDR` | Listen address, default `:1919`. Since 0.6.0 an unset value is always 1919; an install that used the old 7080 must set `KIPPLE_ADDR=:7080` (see [docs/deploy.md](docs/deploy.md)). |
+| `KIPPLE_ADDR` | Listen address, default `:1919`. Change the container side of the port mapping with it (see [docs/deploy.md](docs/deploy.md#ports)). |
 | `KIPPLE_PUBLIC_URL` | Public URL, used for feed icons in sync clients. |
 | `KIPPLE_TRUSTED_PROXY_IPS` | Required if Kipple sits behind a reverse proxy or tunnel. |
 | `KIPPLE_ALLOWED_HOSTS` | Extra host names Kipple answers to during setup and without a password. |

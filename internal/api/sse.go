@@ -54,14 +54,14 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 
 	// An open stream must not outlive what admitted it: its session ("Sign out
 	// other sessions" deletes rows) and, in open mode, the open gate (a device
-	// that left the tailnet, or security.open_lan turned off). Checked at every
+	// that left the tailnet). Checked at every
 	// heartbeat, and at once when the mode or a security setting changes here.
 	allowed := func() bool {
 		if ok, err := s.db.SessionActive(r.Context(), session, s.now().Unix()); err == nil && !ok {
 			return false
 		}
 		if snap := s.snapshot(r.Context()); snap.mode == store.AuthOpen || snap.failed {
-			return s.gateRefusal(r, snap, snap.openLAN, false) == ""
+			return s.gateRefusal(r, snap, false) == ""
 		}
 		return true
 	}

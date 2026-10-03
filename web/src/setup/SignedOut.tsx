@@ -1,11 +1,11 @@
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { LoginScreen } from "@/screens/LoginScreen";
 import { Button } from "@/ui/button";
 import { Skeleton } from "@/ui/kit";
-import { fetchInstance, INSTANCE_KEY, openReasonText, takeSetupFragment } from "./api";
+import { fetchInstance, INSTANCE_KEY, openReasonText } from "./api";
 
 // The wizard's signed-out half loads only when Kipple has no account or has no password; everyone else gets the sign-in form.
 const SetupFlow = lazyScreen(() => import("./SetupFlow").then((m) => ({ default: m.SetupFlow })));
@@ -17,8 +17,6 @@ const OpenSignIn = lazyScreen(() => import("./SetupFlow").then((m) => ({ default
  * shown then, as it always was.
  */
 export function SignedOut() {
-  // Read once, and removed from the address at once, whatever mode Kipple is in: the code in a link is a credential.
-  const [code] = useState(() => takeSetupFragment());
   const inst = useQuery({ queryKey: INSTANCE_KEY, queryFn: ({ signal }) => fetchInstance(signal), retry: false, staleTime: 0, gcTime: 0 });
   if (inst.isPending) {
     return (
@@ -55,7 +53,7 @@ export function SignedOut() {
   if (inst.data.setup) {
     return (
       <Suspense fallback={<Skeleton label="Loading setup" />}>
-        <SetupFlow code={code} />
+        <SetupFlow options={inst.data} />
       </Suspense>
     );
   }

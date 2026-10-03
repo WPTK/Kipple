@@ -15,7 +15,7 @@ import (
 )
 
 // noAccountYet is what the account commands say before the account exists.
-const noAccountYet = "no account yet: finish setup in the browser (the setup code is in the server log, or run `kipple setup-token`), or start `kipple serve` once with KIPPLE_USERNAME and KIPPLE_PASSWORD set"
+const noAccountYet = "no account yet: create it in the browser (open Kipple), or start `kipple serve` once with KIPPLE_USERNAME and KIPPLE_PASSWORD set"
 
 // ensureAccount creates the single account row on first start from
 // KIPPLE_USERNAME / KIPPLE_PASSWORD (and KIPPLE_API_PASSWORD when set). An
@@ -58,8 +58,7 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 	// made through a verified Access sign-in (design §7.0). Without both
 	// variables the wizard asks (a lone KIPPLE_USERNAME is ignored).
 	if cfg.Username == "" || cfg.Password == "" {
-		logger.Warn("no account yet: finish setup in the browser (the setup code is printed on standard error), or set KIPPLE_USERNAME and KIPPLE_PASSWORD")
-		return nil
+		return nil // setup mode: startSetupMode logs the one "no account yet" line
 	}
 	if err := checkEnvPassword("KIPPLE_PASSWORD", cfg.Password, auth.MinPasswordLen); err != nil {
 		return err

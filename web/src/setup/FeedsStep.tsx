@@ -30,7 +30,7 @@ function hostOf(url: string | undefined): string {
 }
 
 /**
- * Step 6: a starter set of feeds to subscribe to, in one checklist per category with a single select all or none.
+ * Step 5: a starter set of feeds to subscribe to, in one checklist per category with a single select all or none.
  * Everything here is optional: nothing is added until "Add" is pressed, a feed already in Kipple shows as added, and
  * the list may be empty.
  */

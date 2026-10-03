@@ -20,6 +20,9 @@ the issue, the tests). Do not over-decompose either: prefer deeper modules with 
 removal is announced in the changelog, not in runtime code. Every PR description states the root cause, what the change
 removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no root fix was possible.
 
+- Write for a stranger. User-facing text (UI, docs, errors, release notes' top paragraph) describes the product as it
+  is, with no earlier versions, old ports or past decisions; history lives in CHANGELOG.md and the decision records.
+
 ## Decisions (do not relitigate; detail is in docs/design.md and docs/ui-decisions.md)
 
 - **Stack:** Go backend, React + TypeScript + Vite + Tailwind + shadcn frontend, SQLite in WAL mode. The frontend build
@@ -50,8 +53,8 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 - `cmd/kipple/` main; `internal/` Go packages; `web/` Vite app (`web/dist` embedded via `go:embed`).
 - `Dockerfile` is multi-stage (node, go, distroless static nonroot uid 65532). the Kipple server has Docker but no Go or Node, so
   the image must build with Docker alone. No secrets or hostnames committed; `.env.example` documents every variable.
-- Dev: `cd web && npm run seed` (Kipple on 127.0.0.1:7080, sample feeds in `%TEMP%\kipple-dev`), then
-  `cd web && npm run dev` (Vite on 127.0.0.1:5173 proxies to 7080).
+- Dev: `cd web && npm run seed` (Kipple on 127.0.0.1:1919, sample feeds in `%TEMP%\kipple-dev`), then
+  `cd web && npm run dev` (Vite on 127.0.0.1:5173 proxies to 1919).
 - Test: `go test ./...` and `cd web && npm test`. Local CI: `pwsh scripts/ci-local.ps1` (`-Docker` adds the image build
   and Trivy). "CI green" means the GitHub Actions run on the exact commit; the local run is the fast pre-push check.
   Fuzz: `scripts/fuzz.ps1` once per release, not per PR.

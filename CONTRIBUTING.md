@@ -19,7 +19,7 @@ triaged best-effort (see [SECURITY.md](SECURITY.md)).
 ## Getting set up
 
 - Go (see `go.mod` for the version) and Node (see `web/package.json`). You do not need Docker to develop.
-- Sample data: `cd web && npm run seed` starts Kipple on `127.0.0.1:7080` with sample feeds in a temporary
+- Sample data: `cd web && npm run seed` starts Kipple on `127.0.0.1:1919` with sample feeds in a temporary
   folder. `web/README.md` has the rest.
 - Checks: `go test ./...`, and in `web/`: `npm ci && npm test && npm run build`.
 - `pwsh scripts/ci-local.ps1` runs what CI runs (formatting, vet, staticcheck, gosec, govulncheck, tests,

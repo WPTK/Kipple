@@ -68,7 +68,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
   exists, say `latest` works.
 - **One-time, owner, after the first image is pushed:** make the GHCR package `kipple` public and confirm it is linked to
   `WPTK/Kipple` (step 11); until then anonymous pulls, and the README quickstart, fail.
-- **On Host-A, before the upgrade** (docs/deploy.md, "Schema 9 -> 10 and upgrading from 0.3 to 0.5"): confirm the `kipple`
+- **On Host-A, before the upgrade** (docs/deploy.md, "Roll back an upgrade that migrated the schema"): confirm the `kipple`
   service has `KIPPLE_ADDR=:7080` set (from 0.6.0 an unset value is 1919, so a `7080:7080` mapping needs it); take
   the off-box backup (step 7); rehearse migration 0010 on a copy of the latest snapshot (Suite 4).
 - **Deploy source.** 0.5.0-beta.1 is built from the tag on Host-A exactly as step 9 says (that step is unchanged; add
@@ -76,7 +76,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
   Host-A pulls the signed image by digest instead: after `cosign verify` (step 11), set the service's `image:` to
   `ghcr.io/wptk/kipple@sha256:<digest from the Release notes>` in place of its `build:` and `docker compose ... pull kipple`
   then `up -d kipple` (named service); build-from-tag stays as the fallback.
-- **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and schema 10;
+- **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and schema 11 (10 before 0.7);
   the log shows the port line (listening on the port `KIPPLE_ADDR` names, 1919 if unset) and no setup banner;
   Settings > About matches; the existing account signs in with no wizard.
 - **UAT Suite 5** (`docs/uat-plan.md`, rewritten for the wizard) on a Linux host with Docker, not Host-B, against the pushed

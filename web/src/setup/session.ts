@@ -8,12 +8,12 @@ import type { ThemeSettings } from "@/theme/settings";
 import type { StepId } from "./steps";
 
 /**
- * The web password typed in step 2, so that step 7 can create the API password without asking again. Never stored
+ * The web password typed in step 1, so that step 6 can create the API password without asking again. Never stored
  * anywhere; dropped when setup ends and when the app signs out.
  */
 export const setupSecret = createStore<string | null>(null);
 
-/** An API password was made in step 7 during this setup (it is shown once, so a second one would silently replace it). */
+/** An API password was made in step 6 during this setup (it is shown once, so a second one would silently replace it). */
 export const apiPasswordMade = createStore<boolean>(false);
 
 /** The theme this device had before the wizard touched it, so a Skip (or leaving setup unsaved) can put it back. */

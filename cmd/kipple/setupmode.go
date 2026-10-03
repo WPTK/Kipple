@@ -2,42 +2,36 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/url"
-	"os"
 
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// setupOut receives the setup banner (a seam for tests).
-var setupOut io.Writer = os.Stderr
-
 // startSetupMode derives the mode from the database (docs/setup-wizard-design.md
-// 3.1): with an account the process is in normal mode for good and a setup
-// token file left by an earlier run is removed; without one it enters setup
-// mode (a fresh token, its file, and the banner once the port is known).
-func startSetupMode(ctx context.Context, db *store.DB, cfg config.Config, logger *slog.Logger) (*setup.Manager, error) {
+// 3.1): with an account the process is in normal mode for good; without one it
+// is in setup mode, which is only "no account row" (there is no setup code).
+// then runs once, when the account appears: it starts the background work, so
+// nothing fetches before an account exists. A `setup-token` file left by a
+// Kipple before 0.7 is removed at every start (the code is gone; the step goes
+// at 1.0).
+func startSetupMode(ctx context.Context, db *store.DB, cfg config.Config, logger *slog.Logger, then func()) (*setup.Manager, error) {
+	if err := setup.RemoveStaleTokenFile(cfg.DataDir); err != nil {
+		logger.Warn("cannot remove a stale setup token file", "err", err)
+	}
 	_, exists, err := db.Account(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read account: %w", err)
 	}
 	if exists {
-		if err := setup.RemoveTokenFile(cfg.DataDir); err != nil {
-			logger.Warn("cannot remove a stale setup token file", "err", err)
-		}
 		return nil, nil
 	}
-	m := setup.New(setup.Options{DataDir: cfg.DataDir, Out: setupOut, Logger: logger})
-	if err := m.Begin(); err != nil {
-		return nil, err
-	}
-	return m, nil
+	logger.Info("no account yet: open Kipple in a browser to create it (it listens on " + cfg.Addr + "), or set KIPPLE_USERNAME and KIPPLE_PASSWORD and restart")
+	return setup.NewPending(then), nil
 }
 
 // listenTCP is net.Listen (a seam for tests).
@@ -65,26 +59,4 @@ func allowedHosts(cfg config.Config) []string {
 		}
 	}
 	return out
-}
-
-// runSetupToken implements `kipple setup-token`: it prints the pending setup
-// code again (for logs that rotated away), or says there is none.
-func runSetupToken(args []string) error {
-	if len(args) != 0 {
-		return errors.New("usage: kipple setup-token")
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("config: %w", err)
-	}
-	tok, ok, err := setup.ReadToken(cfg.DataDir)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		fmt.Fprintln(os.Stderr, "no setup pending: Kipple already has an account, or `kipple serve` has not started yet")
-		return nil
-	}
-	fmt.Println(tok)
-	return nil
 }

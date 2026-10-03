@@ -2,7 +2,7 @@ import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
 import { Field, Notice, inputCls } from "@/ui/kit";
-import { accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupState } from "./api";
+import { accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupOptions } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import { setupSecret } from "./session";
 import { stepById } from "./steps";
@@ -11,11 +11,9 @@ type Choice = "password" | "access" | "open";
 
 const USERNAME = /^[A-Za-z0-9._-]{1,64}$/;
 
-/** What choosing "no password, open" needs from this browser's position, from GET /api/setup/state. */
-export function openAvailability(open: SetupState["open"]): { ok: boolean; needsLan: boolean; why: string | null } {
-  if (open.reason === null) return { ok: true, needsLan: false, why: null };
-  if (open.lan_reason === null) return { ok: true, needsLan: true, why: openReasonText(open.reason) };
-  return { ok: false, needsLan: false, why: openReasonText(open.lan_reason) };
+/** Whether choosing "no password, open" can work from this browser's position (GET /api/instance), and if not why. */
+export function openAvailability(open: SetupOptions["open"]): { ok: boolean; why: string | null } {
+  return open.reason === null ? { ok: true, why: null } : { ok: false, why: openReasonText(open.reason) };
 }
 
 function Option({
@@ -59,26 +57,21 @@ function Option({
 }
 
 /**
- * Step 2: the account. A user name, then how to sign in: a password (the normal choice), no password behind
+ * Step 1: the account, the first screen of a Kipple that has none. A user name, then how to sign in: a password (the normal choice), no password behind
  * Cloudflare Access (only offered when Access is set up and this very request came through it), or no password at all
- * (open mode, which is only safe when Kipple can be reached from this computer or over Tailscale and nowhere else).
+ * (open mode, which is only safe when Kipple can be reached from this computer, your local network and Tailscale and nowhere else).
  */
 export function AccountStep({
   state,
-  initialUsername = "",
   onCreated,
-  onRestart,
   onDone,
 }: {
-  state: SetupState;
-  /** The user name typed before the setup session ran out, so a second go at the code does not lose it. */
-  initialUsername?: string;
+  state: SetupOptions;
   onCreated: () => void;
-  onRestart: (username: string) => void;
   onDone: () => void;
 }) {
   const uid = useId();
-  const [username, setUsername] = useState(initialUsername);
+  const [username, setUsername] = useState("");
   // The live checks (too short, no match) speak once a field has been left, not on every keystroke: each one is an
   // alert, and a screen reader would read out a new one per character. Submitting shows them all regardless.
   const [left, setLeft] = useState<{ username?: boolean; password?: boolean; again?: boolean }>({});
@@ -87,7 +80,6 @@ export function AccountStep({
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [ack, setAck] = useState(false);
-  const [lan, setLan] = useState(false);
   const [fieldError, setFieldError] = useState<{ field: "username" | "password" | "open"; message: string } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -102,7 +94,7 @@ export function AccountStep({
 
   const ready =
     USERNAME.test(username) &&
-    (choice === "password" ? passwordProblem(password) === null && password === again : choice === "access" ? true : ack && (!open.needsLan || lan));
+    (choice === "password" ? passwordProblem(password) === null && password === again : choice === "access" ? true : ack);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -117,7 +109,6 @@ export function AccountStep({
         setFieldError({ field: "password", message: password === "" ? "Enter a password." : (passwordProblem(password) ?? "The two passwords don't match.") });
         pwInput.current?.focus();
       } else if (choice === "open" && !ack) setFieldError({ field: "open", message: "Tick the box to confirm you understand." });
-      else if (choice === "open") setFormError("Tick \"Also allow devices on my local network\" to continue, or choose a password instead.");
       return;
     }
     const body: AccountBody =
@@ -125,7 +116,7 @@ export function AccountStep({
         ? { username, password }
         : choice === "access"
           ? { username, passwordless: "access" }
-          : { username, passwordless: "open", acknowledge_open: true, ...(open.needsLan ? { open_lan: true } : {}) };
+          : { username, passwordless: "open", acknowledge_open: true };
     setBusy(true);
     try {
       await createAccount(body);
@@ -136,8 +127,6 @@ export function AccountStep({
       if (f.kind === "field") {
         setFieldError({ field: f.field, message: f.message });
         (f.field === "username" ? userInput : pwInput).current?.focus();
-      } else if (f.kind === "restart") {
-        onRestart(username);
       } else if (f.kind === "done") {
         setDone(f.message);
       } else setFormError(f.message);
@@ -163,7 +152,7 @@ export function AccountStep({
   const accessOk = state.access.enabled && state.access.verified;
 
   return (
-    <WizardFrame step={stepById("account")} description="This is the account you'll sign in to Kipple with. There is only one, and it's yours.">
+    <WizardFrame step={stepById("account")} description="Kipple has no account yet. This is the one you'll sign in with. There is only one, and it's yours.">
       <form onSubmit={(e) => void submit(e)} className="flex flex-1 flex-col gap-5" noValidate>
         {formError ? <Notice tone="error">{formError}</Notice> : null}
         <Field label="User name" help="Letters, digits, dots, dashes and underscores, up to 64. Your sync apps use this too." error={fieldError?.field === "username" ? fieldError.message : usernameBad}>
@@ -228,25 +217,14 @@ export function AccountStep({
           ) : null}
 
           <Option id={`${uid}-open`} value="open" checked={choice === "open"} disabled={!open.ok} onSelect={setChoice} title="No password at all">
-            <p>Nothing to remember and nothing to type. Only for when Kipple can be reached from this computer, or over Tailscale, and nowhere else.</p>
+            <p>Nothing to remember and nothing to type. This computer, every device on your local network and your Tailscale devices can open Kipple. Only for when Kipple can be reached from nowhere else.</p>
             {!open.ok ? <p role="note">{open.why}</p> : null}
             {choice === "open" ? (
               <div className="flex flex-col gap-3 text-fg">
                 <Notice tone="warn">
                   <p className="font-semibold">Anyone who can reach this address can read and change everything.</p>
-                  <p className="mt-1">Only choose this if Kipple is reachable only from this computer (localhost) or over Tailscale. It is your choice, and you can set a password later in Settings.</p>
+                  <p className="mt-1">Only choose this if Kipple is reachable only from this computer, your local network or your Tailscale network. In Docker, Kipple can't tell your network from the internet: publish its port only on your local network or Tailscale address, never on a public one. You can set a password later in Settings.</p>
                 </Notice>
-                {open.needsLan ? (
-                  <div className="flex flex-col gap-1">
-                    <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm">
-                      <input type="checkbox" checked={lan} onChange={(e) => setLan(e.target.checked)} aria-describedby={`${uid}-lan`} className="mt-0.5 size-5 shrink-0 accent-[var(--kp-accent)]" />
-                      <span className="font-semibold">Also allow devices on my local network</span>
-                    </label>
-                    <p id={`${uid}-lan`} className="ml-8 text-xs text-fg2">
-                      {open.why} Kipple needs this on to accept you from here. It means every device on your home or office network can open Kipple without a password.
-                    </p>
-                  </div>
-                ) : null}
                 <div className="flex flex-col gap-1">
                   <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm">
                     <input
@@ -260,7 +238,7 @@ export function AccountStep({
                       aria-describedby={fieldError?.field === "open" ? `${uid}-ack-e` : undefined}
                       className="mt-0.5 size-5 shrink-0 accent-[var(--kp-accent)]"
                     />
-                    <span className="font-semibold">I understand, and Kipple is only reachable from this computer or over Tailscale</span>
+                    <span className="font-semibold">I understand, and Kipple is only reachable from this computer, my local network or Tailscale</span>
                   </label>
                   {fieldError?.field === "open" ? (
                     <p id={`${uid}-ack-e`} role="alert" className="ml-8 text-sm text-danger">

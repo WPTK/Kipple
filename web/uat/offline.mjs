@@ -1,6 +1,6 @@
 // UAT Suite 1 addition: offline reading with the service worker, in a real browser (issue #108).
 //
-//   npm run build && npm run seed      in one terminal (the seed serves the embedded build on 127.0.0.1:7080)
+//   npm run build && npm run seed      in one terminal (the seed serves the embedded build on 127.0.0.1:1919)
 //   npm run uat:offline                in another, once the feeds have fetched
 //   npm run uat:offline -- --url http://127.0.0.1:7091 --screenshots <dir> --headed
 //
@@ -33,7 +33,7 @@ const { values: opt } = (() => {
   try {
     return parseArgs({
       options: {
-        url: { type: "string", default: process.env.KIPPLE_UAT_URL || "http://127.0.0.1:7080" },
+        url: { type: "string", default: process.env.KIPPLE_UAT_URL || "http://127.0.0.1:1919" },
         user: { type: "string", default: process.env.KIPPLE_UAT_USER || "dev" },
         // The seed's throwaway local credentials (web/scripts/seed.mjs), not a secret.
         password: { type: "string", default: process.env.KIPPLE_UAT_PASSWORD || "dev-password-only-for-local-testing" },

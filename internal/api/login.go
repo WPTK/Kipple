@@ -48,7 +48,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "auth")
+		// A stale tab of a Kipple that has no account yet: say so, so the app
+		// reloads into the first screen instead of showing "wrong password".
+		writeErrorMsg(w, http.StatusConflict, "setup_required", "Kipple has no account yet; create it first")
 		return
 	}
 	if acct.AuthMode == store.AuthOpen {

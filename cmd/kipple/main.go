@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"mime"
-	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -98,12 +97,10 @@ func run(args []string) error {
 		return runImport(args[1:])
 	case "healthcheck":
 		return runHealthcheck(args[1:])
-	case "setup-token":
-		return runSetupToken(args[1:])
 	case "version":
 		return runVersion(args[1:], os.Stdout)
 	default:
-		return fmt.Errorf("unknown command %q (want serve, healthcheck, import, api-password, password, restore, setup-token or version)", cmd)
+		return fmt.Errorf("unknown command %q (want serve, healthcheck, import, api-password, password, restore or version)", cmd)
 	}
 }
 
@@ -182,7 +179,10 @@ func runServe() error {
 	// one safe moment: log timestamps follow the time zone setting as of this start;
 	// a later change of the setting reaches them after a restart.
 	setLocal(store.Zone(context.Background(), db.Reader()))
-	setupMgr, err := startSetupMode(context.Background(), db, cfg, logger)
+	// The background work (fetching, maintenance, icons) starts only once an
+	// account exists: at once when there is one, else when the claim creates it.
+	var startWork func()
+	setupMgr, err := startSetupMode(context.Background(), db, cfg, logger, func() { startWork() })
 	if err != nil {
 		return fmt.Errorf("setup: %w", err)
 	}
@@ -278,8 +278,11 @@ func runServe() error {
 	mux.Handle("/", webHandler)
 	// The background work starts only once every handler is built, so a failed
 	// setup returns with nothing running (no fetch or maintenance racing the
-	// deferred store close).
-	startBackground(scheduler, maintenance, icons)
+	// deferred store close), and only with an account (see startSetupMode).
+	startWork = func() { startBackground(scheduler, maintenance, icons) }
+	if !setupMgr.Pending() {
+		startWork()
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -303,11 +306,6 @@ func runServe() error {
 			return
 		}
 		logger.Info("listening", "addr", ln.Addr().String(), "version", version, "commit", buildInfo().Commit)
-		if setupMgr.Pending() {
-			if _, port, err := net.SplitHostPort(ln.Addr().String()); err == nil {
-				setupMgr.Announce(port)
-			}
-		}
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
 			return

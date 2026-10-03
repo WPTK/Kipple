@@ -223,17 +223,6 @@ func TestRateKeyGroupsIPv6By64(t *testing.T) {
 	require.Equal(t, "fe80::/64", RateKey("fe80::1%eth0"))
 	require.Equal(t, "not-an-ip", RateKey("not-an-ip"))
 
-	// The web login lockout keys the same way.
-	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
-	l := NewLockout(func() time.Time { return now })
-	for i := 0; i < 10; i++ {
-		ok, _ := l.Reserve(fmt.Sprintf("2001:db8:5:6::%x", i+1))
-		require.True(t, ok)
-	}
-	ok, _ := l.Reserve("2001:db8:5:6::ffff")
-	require.False(t, ok, "rotating inside one /64 hits the same lockout")
-	locked, _ := l.Locked("2001:db8:5:6::1234")
-	require.True(t, locked)
 }
 
 func TestGeneratePassword(t *testing.T) {
@@ -290,58 +279,8 @@ func TestVerifierRemembered(t *testing.T) {
 	require.Equal(t, 1, checks, "Remembered never hashes")
 }
 
-func TestLockoutReserveIsAtomicAndReleasable(t *testing.T) {
-	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
-	l := NewLockout(func() time.Time { return now })
-	var granted atomic.Int32
-	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if ok, _ := l.Reserve("1.2.3.4"); ok {
-				granted.Add(1)
-			}
-		}()
-	}
-	wg.Wait()
-	require.EqualValues(t, 10, granted.Load(), "a parallel burst cannot exceed Max reservations")
-	ok, left := l.Reserve("1.2.3.4")
-	require.False(t, ok)
-	require.Positive(t, left)
-
-	l.Release("5.6.7.8") // releasing an unknown IP is harmless
-	ok, _ = l.Reserve("5.6.7.8")
-	require.True(t, ok)
-	l.Release("5.6.7.8")
-	for i := 0; i < 10; i++ {
-		ok, _ = l.Reserve("5.6.7.8")
-		require.True(t, ok, "released reservation did not count, attempt %d", i)
-	}
-	l.Clear("1.2.3.4")
-	ok, _ = l.Reserve("1.2.3.4")
-	require.True(t, ok)
-}
-
 func TestTrackersEvictOldestWhenFull(t *testing.T) {
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
-	l := NewLockout(func() time.Time { return now })
-	for i := 0; i < maxTracked; i++ {
-		now = now.Add(time.Millisecond)
-		ok, _ := l.Reserve(fmt.Sprintf("ip-%d", i))
-		require.True(t, ok)
-	}
-	now = now.Add(time.Millisecond)
-	for i := 0; i < 10; i++ {
-		ok, _ := l.Reserve("newcomer")
-		require.True(t, ok)
-	}
-	ok, _ := l.Reserve("newcomer")
-	require.False(t, ok, "a new IP is still tracked when the map is full")
-	require.Len(t, l.m, maxTracked)
-	_, oldestStillThere := l.m["ip-0"]
-	require.False(t, oldestStillThere, "the oldest entry was evicted")
-
 	f := NewFailureTracker()
 	f.Now = func() time.Time { return now }
 	for i := 0; i < maxTracked; i++ {

@@ -321,14 +321,6 @@ func TestListCopyDeleteDevices(t *testing.T) {
 	require.Equal(t, "Phone", second["name"])
 	require.Equal(t, false, second["current"])
 	require.EqualValues(t, 2, second["overrides"])
-	// A key a removed setting left in a stored profile is not counted: the device view drops it too.
-	require.NoError(t, h.db.ReplaceDeviceProfile(context.Background(), phoneID, map[string]any{"ui.theme": "fountain", "ui.font_size": 20}))
-	_, out, _ = laptop.call("GET", "/api/devices", "")
-	for _, x := range out["devices"].([]any) {
-		if m := x.(map[string]any); m["id"] == phoneID {
-			require.EqualValues(t, 1, m["overrides"])
-		}
-	}
 	require.NoError(t, h.db.ReplaceDeviceProfile(context.Background(), phoneID, map[string]any{"ui.theme": "fountain", "client.layout": "inbox"}))
 	for _, k := range []string{"user_agent", "client", "created_at", "last_seen_at"} {
 		require.Contains(t, second, k)
