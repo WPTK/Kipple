@@ -8,6 +8,22 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.7.0-beta.1] - 2026-10-03
+
+### Changed
+
+- Internal cleanup: schema 11 (migration 0011) deletes six settings rows nothing reads any more (`security.open_lan`, `ui.font_size`, `ui.font_ui`, `ui.layouts`, `stats.api_single_read_is_open` and `sys.legacy_port`) and removes the three `ui.*` ones from any saved per-device appearance profile; nothing changes for you, and rolling back to 0.6 is by the pre-migration snapshot the first start writes, as with every migration.
+- A new Kipple opens on the form that creates your account (step 1 of 6 of the setup wizard) instead of asking for a setup code first. Until the account exists only that form, `/api/instance` and `/healthz` answer, sign-in says setup is required, and nothing is fetched.
+- Open mode is one rule now: while the account has no password, a request is allowed when its connection comes from a local address (this computer, a link-local or private network address, or a Tailscale device) and carries no proxy or tunnel header, and the setting "Also allow devices on my local network" (`security.open_lan`) is gone. An install that was already in open mode with that setting off (this computer and your tailnet only) now also admits every device on its local network; a stored value of the old setting is ignored and Settings no longer lists it or accepts it. In Docker every connection arrives from the bridge gateway, so Kipple cannot tell your network from the internet there: publish an open-mode Kipple only on your local network or tailnet address, never on a public interface.
+
+### Removed
+
+- The setup code is gone: a new Kipple no longer prints a code, writes `/data/setup-token` or asks for one, and the `kipple setup-token` command is removed. Whoever reaches an unclaimed Kipple first creates the account, so keep the port on 127.0.0.1 until you have, or create the account from `KIPPLE_USERNAME` and `KIPPLE_PASSWORD`.
+
+### Security
+
+- Open mode no longer has a local-network switch, so an existing open-mode install that had it off (this computer and tailnet only) now lets in every device on its local network without a password, and anything that can reach the published port from a private address; set a password under Settings, Account & Devices, or bind the published port to this computer, if that network is not fully yours. A peer in Tailscale's range (100.64.0.0/10, also carrier-grade NAT and cloud overlay space) is still admitted only when it arrived on this machine's own Tailscale address or reached a private address of this machine, and forwarded or proxy headers are still refused, so a request through a proxy or tunnel never counts as local.
+
 ## [0.6.0-beta.1] - 2026-10-02
 
 **Before upgrading from 0.5: if your install publishes port 7080 and does not set `KIPPLE_ADDR`, set `KIPPLE_ADDR=:7080` in `.env` first** (or move your mapping to 1919). Without it Kipple listens on 1919 behind a mapping for 7080, the container still reports healthy (the health check probes 1919), and the service looks down with nothing in the log. This release removes workarounds found in a review of the whole codebase and fixes what the review proved: the login lockout that a stranger could use to lock the owner out behind a proxy, offline reads that came back unread, and a release workflow that could leave an unsigned version tag. It is a minor bump because it removes things: the pre-0.5 and fallback listen ports, four unused settings keys and the time zone variable's hold on the setting. Read the Removed and Changed entries before upgrading.
@@ -767,7 +783,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.6.0-beta.1...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.7.0-beta.1...HEAD
+[0.7.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.6.0-beta.1...v0.7.0-beta.1
 [0.6.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.2...v0.6.0-beta.1
 [0.5.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.1...v0.5.0-beta.2
 [0.5.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.3.0-beta.3...v0.5.0-beta.1
