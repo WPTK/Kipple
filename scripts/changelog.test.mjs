@@ -132,7 +132,13 @@ test('localDate uses local calendar fields', () => {
 // gate accepts). A version `release` would write must be one the gate would let through, and the reverse.
 const GOOD = ['0.0.0', '1.2.3', '10.20.30', '1.2.3-alpha.1', '1.2.3-beta.12', '1.2.3-rc.3'];
 const BAD = ['01.2.3', '1.02.3', '1.2.03', '1.2.3-alpha.0', '1.2.3-alpha.01', '1.2.3-gamma.1', '1.2', '1.2.3.4', '1.2.3-rc', '1.2.3-rc.1-x', ' 1.2.3', '1.2.3\n9.9.9', '', 'v1.2.3'];
-const gate = (tag) => spawnSync('bash', [fileURLToPath(new URL('./release-tags.sh', import.meta.url)), 'check-tag', tag], { encoding: 'utf8' });
+// The first bash that can run the gate script wins. On Windows `bash` on the PATH can be the WSL launcher, which cannot
+// open a C:\ script path, so Git's own bash is tried next.
+const GATE_SCRIPT = fileURLToPath(new URL('./release-tags.sh', import.meta.url));
+const run = (shell, tag) => spawnSync(shell, [GATE_SCRIPT, 'check-tag', tag], { encoding: 'utf8' });
+const SHELLS = ['bash', ...(process.platform === 'win32' ? [join(process.env.ProgramFiles ?? 'C:\Program Files', 'Git', 'bin', 'bash.exe')] : [])];
+const shell = SHELLS.find((s) => run(s, 'v1.2.3').status === 0);
+const gate = (tag) => run(shell, tag);
 
 test('isVersion: no leading zeros, prerelease numbers start at 1', () => {
   for (const v of GOOD) assert.equal(isVersion(v), true, v);
@@ -141,7 +147,11 @@ test('isVersion: no leading zeros, prerelease numbers start at 1', () => {
 });
 
 test('isVersion agrees with the release gate (release-tags.sh check-tag)', (t) => {
-  if (gate('v1.2.3').error) return t.skip('bash is not available');
+  if (!shell) {
+    // A machine without a usable bash may skip; CI must not, or a broken gate script would pass unnoticed.
+    if (process.env.CI) assert.fail('no bash can run release-tags.sh');
+    return t.skip('no bash can run release-tags.sh');
+  }
   for (const v of GOOD) assert.equal(gate(`v${v}`).status, 0, `gate refuses v${v}`);
   // A newline in argv does not survive spawnSync into Git Bash on Windows; release-tags.test.sh covers that vector itself.
   for (const v of BAD.filter((x) => x !== 'v1.2.3' && !x.includes('\n'))) assert.notEqual(gate(`v${v}`).status, 0, `gate accepts v${JSON.stringify(v)}`);
