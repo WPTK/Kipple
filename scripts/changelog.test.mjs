@@ -136,7 +136,7 @@ const BAD = ['01.2.3', '1.02.3', '1.2.03', '1.2.3-alpha.0', '1.2.3-alpha.01', '1
 // open a C:\ script path, so Git's own bash is tried next.
 const GATE_SCRIPT = fileURLToPath(new URL('./release-tags.sh', import.meta.url));
 const run = (shell, tag) => spawnSync(shell, [GATE_SCRIPT, 'check-tag', tag], { encoding: 'utf8' });
-const SHELLS = ['bash', ...(process.platform === 'win32' ? [join(process.env.ProgramFiles ?? 'C:\Program Files', 'Git', 'bin', 'bash.exe')] : [])];
+const SHELLS = ['bash', ...(process.platform === 'win32' ? [join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git', 'bin', 'bash.exe')] : [])];
 const shell = SHELLS.find((s) => run(s, 'v1.2.3').status === 0);
 const gate = (tag) => run(shell, tag);
 
