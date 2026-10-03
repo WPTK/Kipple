@@ -201,8 +201,9 @@ recommended feeds, an optional Reader API password).
   admits). It says whether setup is pending, the sign-in mode (`open`, `access` or `password`) and, while pending,
   whether Cloudflare Access is configured and whether open mode would work from where they are. No version, username
   or feed data.
-- **Lifetime.** Once the account row exists the setup route is gone (it answers 404) for as long as that database is
-  used.
+- **Lifetime.** Once the account row exists the setup route is gone. The process that created the account keeps answering
+  404 on it until it restarts; after any restart the route is not registered at all, so a signed-out request to it gets
+  the same `401` as any other `/api/` path.
 - **Setup is not health.** `/healthz` and the container's health check answer `ok` in setup mode: healthy means serving,
   not configured. `/_status` says "Setup is pending" until an account exists.
 - **Env credentials skip it.** With both `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` set on a first start, Kipple creates the
@@ -321,7 +322,7 @@ open mode: sync apps still sign in with the API password, which is then the only
 
 ## Time zone
 
-The time zone is one setting, `tz` (Settings > Account & Devices, and wizard step 3). It is the zone for daily reading
+The time zone is one setting, `tz` (Settings > Account & Devices, and wizard step 2). It is the zone for daily reading
 statistics, the nightly 04:10 maintenance and the weekly snapshot, backup file names and, from the next start, log
 timestamps. It is read live, so a change takes effect at the next statistics write, summary request and nightly tick,
 with no restart. The default for a new install is UTC, and the wizard preselects your browser's zone.

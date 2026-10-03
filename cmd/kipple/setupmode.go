@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/url"
@@ -31,7 +30,7 @@ func startSetupMode(ctx context.Context, db *store.DB, cfg config.Config, logger
 	if exists {
 		return nil, nil
 	}
-	logger.Info("no account yet: open Kipple in a browser to create it")
+	logger.Info("no account yet: open Kipple in a browser to create it (it listens on " + cfg.Addr + "), or set KIPPLE_USERNAME and KIPPLE_PASSWORD and restart")
 	return setup.NewPending(then), nil
 }
 
@@ -60,11 +59,4 @@ func allowedHosts(cfg config.Config) []string {
 		}
 	}
 	return out
-}
-
-// runSetupToken is the `kipple setup-token` command of Kipple before 0.7, kept
-// as a stub so an old script or doc fails softly. Removed at 1.0.
-func runSetupToken(out io.Writer) error {
-	_, err := fmt.Fprintln(out, "Kipple needs no setup code: open Kipple in a browser and create your account there (or set KIPPLE_USERNAME and KIPPLE_PASSWORD). `kipple setup-token` is removed in 1.0.")
-	return err
 }

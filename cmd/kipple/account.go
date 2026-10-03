@@ -58,8 +58,7 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 	// made through a verified Access sign-in (design §7.0). Without both
 	// variables the wizard asks (a lone KIPPLE_USERNAME is ignored).
 	if cfg.Username == "" || cfg.Password == "" {
-		logger.Warn("no account yet: create it in the browser, or set KIPPLE_USERNAME and KIPPLE_PASSWORD")
-		return nil
+		return nil // setup mode: startSetupMode logs the one "no account yet" line
 	}
 	if err := checkEnvPassword("KIPPLE_PASSWORD", cfg.Password, auth.MinPasswordLen); err != nil {
 		return err
