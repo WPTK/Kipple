@@ -1,1 +1,0 @@
-The setup code is gone: a new Kipple no longer prints a code, writes `/data/setup-token` or asks for one, and the `kipple setup-token` command is removed. Whoever reaches an unclaimed Kipple first creates the account, so keep the port on 127.0.0.1 until you have, or create the account from `KIPPLE_USERNAME` and `KIPPLE_PASSWORD`.
