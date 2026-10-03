@@ -187,7 +187,7 @@ try {
     const settings = await page.evaluate(async () => (await fetch("/api/settings")).json());
     check("A settings", settings.values?.tz === "Asia/Tokyo", `tz is ${settings.values?.tz}, expected Asia/Tokyo`);
     check("A settings", settings.values?.["ui.theme_day"] === "linen", `ui.theme_day is ${settings.values?.["ui.theme_day"]}`);
-    check("A settings", settings.values?.["ui.font_body"] === "Vollkorn", `ui.font_body is ${settings.values?.["ui.font_body"]}, expected Vollkorn`);
+    check("A settings", settings.values?.["ui.font_body"] === "vollkorn", `ui.font_body is ${settings.values?.["ui.font_body"]}, expected vollkorn`);
     check("A setup routes", (await call(sp, "/api/setup/account", { username: "intruder", password: "intruder-password" })) === 404, "/api/setup/account still answers after setup");
     const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
     check("A account", me.setup_pending === false, "setup is still pending after Finish");
