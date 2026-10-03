@@ -30,7 +30,7 @@ func startSetupMode(ctx context.Context, db *store.DB, cfg config.Config, logger
 	if exists {
 		return nil, nil
 	}
-	logger.Info("no account yet: open Kipple in a browser to create it (it listens on " + cfg.Addr + "), or set KIPPLE_USERNAME and KIPPLE_PASSWORD and restart")
+	logger.Info("no account yet: open Kipple in a browser to create it, or set KIPPLE_USERNAME and KIPPLE_PASSWORD and restart")
 	return setup.NewPending(then), nil
 }
 
