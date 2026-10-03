@@ -212,13 +212,14 @@ func TestUnclaimedRouteTable(t *testing.T) {
 	require.Zero(t, h.count("SELECT count(*) FROM sessions"))
 }
 
-// A process that started with an account never registers the setup routes.
+// A process that started with an account never registers the setup routes, so
+// the /api/ catch-all answers a signed-out caller 401. (The process that did the
+// claim itself keeps the route and answers 404: TestSetupHappyPathWithPassword.)
 func TestSetupRoutesAbsentWithAccount(t *testing.T) {
 	h := newHarness(t)
 	for _, p := range [][2]string{{"GET", "/api/setup/state"}, {"POST", "/api/setup/claim"}, {"POST", "/api/setup/account"}} {
 		rec := h.do(p[0], p[1], `{"username":"x","password":"abcdefgh"}`)
-		require.Contains(t, []int{http.StatusNotFound, http.StatusUnauthorized}, rec.Code, p[1])
-		require.NotEqual(t, http.StatusNoContent, rec.Code)
+		require.Equal(t, http.StatusUnauthorized, rec.Code, p[1])
 	}
 	rec := h.do("GET", "/api/instance", "")
 	require.JSONEq(t, `{"setup":false,"auth":"password"}`, rec.Body.String())

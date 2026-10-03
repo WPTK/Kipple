@@ -70,8 +70,10 @@ export function OpenSignIn() {
       autoSignedInAt = 0;
       if (isOpenRefused(e)) setRefused(openRefusedReason(e));
       else {
-        // 404: this Kipple no longer runs without a password. Ask again what it is, so the app moves to the form.
-        if (e instanceof ApiError && e.status === 404) void qc.invalidateQueries({ queryKey: INSTANCE_KEY });
+        // 404: this Kipple no longer runs without a password. 409 setup_required: it has no account (a stale tab).
+        // Either way, ask again what it is, so the app moves to the sign-in form or the account form.
+        if (e instanceof ApiError && (e.status === 404 || (e.status === 409 && e.code === "setup_required")))
+          void qc.invalidateQueries({ queryKey: INSTANCE_KEY });
         setFailed(true);
       }
     } finally {

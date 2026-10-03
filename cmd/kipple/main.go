@@ -97,12 +97,10 @@ func run(args []string) error {
 		return runImport(args[1:])
 	case "healthcheck":
 		return runHealthcheck(args[1:])
-	case "setup-token":
-		return runSetupToken(os.Stdout)
 	case "version":
 		return runVersion(args[1:], os.Stdout)
 	default:
-		return fmt.Errorf("unknown command %q (want serve, healthcheck, import, api-password, password, restore, setup-token or version)", cmd)
+		return fmt.Errorf("unknown command %q (want serve, healthcheck, import, api-password, password, restore or version)", cmd)
 	}
 }
 

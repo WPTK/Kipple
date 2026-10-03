@@ -538,10 +538,10 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 | # | Do | Expected | Log |
 |---|---|---|---|
 | A1 | Start it as the README says (`up -d` on the compose file, or the one-liner). | The image pulls anonymously; the container reaches `(healthy)` within about a minute even though nothing is set up. | Pull time, `docker ps` health, image digest (`docker inspect --format '{{index .RepoDigests 0}}' <container>`). |
-| A2 | `docker logs <container>`. | One `no account yet: open Kipple in a browser to create it` line, and no setup code, banner or link anywhere. | Whether it was clear what to do next. |
+| A2 | `docker logs <container>`. | One `no account yet: open Kipple in a browser to create it (it listens on ...)` line (the only one), and no setup code, banner or link anywhere. | Whether it was clear what to do next. |
 | A3 | Open `http://127.0.0.1:<port>` in a browser. | The wizard's first screen is **Create your account** (Step 1 of 6). No setup code is asked for. | Anything confusing in the wording. |
 | A4 | Before creating the account, from a second browser or `curl`: `GET /api/bootstrap`, then `POST /api/auth/login` with any body (same-origin headers). | `401` and `409 setup_required`. `docker logs` shows no feed fetch: nothing runs until an account exists. | |
-| A5 | Restart the container and open the address again. | The same account form: there is nothing to look up. `docker exec <container> /kipple setup-token` prints "Kipple needs no setup code". | |
+| A5 | Restart the container and open the address again. | The same account form: there is nothing to look up. Again exactly one `no account yet` line in `docker logs`. | |
 | A6 | Send two account requests at the same moment (two browsers, or two `curl` calls with `Sec-Fetch-Site: same-origin` and `X-Kipple-Client: web`). | Exactly one `201` with a session cookie; the other `409 already_set_up` and no cookie. | |
 | A7 | Step 1: create the account with a password (try one that is too short first). | The short one is refused with a reason; a valid one signs you in and moves to the time zone step. | |
 | A8 | Step 2, time zone. | Preselected from the browser's zone (UTC with a note if the server does not know it); searchable; Continue saves it. `docker exec <container> /kipple version -v` and Settings > About agree with the tag and show the zone. | The zone shown. |

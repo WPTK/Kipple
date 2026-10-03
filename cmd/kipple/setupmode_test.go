@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"net"
 	"os"
@@ -102,12 +101,4 @@ func TestAllowedHostsIncludesThePublicURL(t *testing.T) {
 	require.Equal(t, []string{"a.example.com", "rss.example.com"},
 		allowedHosts(config.Config{AllowedHosts: []string{"a.example.com"}, PublicURL: "https://RSS.example.com/kipple"}))
 	require.Nil(t, allowedHosts(config.Config{}))
-}
-
-// `kipple setup-token` is a stub until 1.0: it says no code is needed and exits 0.
-func TestRunSetupTokenIsAStub(t *testing.T) {
-	var out bytes.Buffer
-	require.NoError(t, runSetupToken(&out))
-	require.Contains(t, out.String(), "no setup code")
-	require.Contains(t, out.String(), "create your account")
 }

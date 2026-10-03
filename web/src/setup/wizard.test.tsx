@@ -1232,6 +1232,18 @@ describe("open-mode sign-in edge cases", () => {
     expect(await screen.findByRole("heading", { name: "Sign in to Kipple" })).toBeInTheDocument();
   });
 
+  it("goes to the account form when the open sign-in finds no account (409 setup_required)", async () => {
+    const w = openWorld();
+    server(w, {
+      "POST /api/auth/open": () => {
+        w.instance = { setup: true, auth: null };
+        return json({ error: "setup_required", message: "Kipple has no account yet; create it first" }, 409);
+      },
+    });
+    go("/");
+    await headingIs("Create your account");
+  });
+
   it("asks again what the mode is when Try again is pressed after a failure", async () => {
     const w = openWorld();
     let fail = true;
