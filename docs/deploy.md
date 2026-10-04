@@ -205,8 +205,8 @@ it). Use it for `docker ps`, monitoring and `depends_on: condition: service_heal
 
 If you run the image with plain `docker run`, the same flags are `--read-only --tmpfs /tmp --cap-drop ALL
 --security-opt no-new-privileges:true --pids-limit 200`. The README's pull-and-run file
-(`docker-compose.pull.example.yml`) keeps the hardening that works without edits and leaves out the resource limits and
-log rotation, which stay in `docker-compose.example.yml`.
+(`docker-compose.pull.example.yml`) carries the same limits, log rotation and hardening as `docker-compose.example.yml`, the
+build-from-source file, which also reads an optional `.env`.
 
 ## First run: create your account
 
