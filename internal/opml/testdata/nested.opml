@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>Nested folders</title></head><body>
+<outline text="Tech" title="Tech">
+  <outline type="rss" text="Nested 1" title="Nested 1" xmlUrl="https://nested1.test/feed" htmlUrl="https://nested1.test/"/>
+  <outline type="rss" text="Nested 2" title="Nested 2" xmlUrl="https://nested2.test/feed" htmlUrl="https://nested2.test/"/>
+  <outline text="Apple" title="Apple">
+    <outline type="rss" text="Nested 3" title="Nested 3" xmlUrl="https://nested3.test/feed" htmlUrl="https://nested3.test/"/>
+    <outline type="rss" text="Nested 4" title="Nested 4" xmlUrl="https://nested4.test/feed" htmlUrl="https://nested4.test/"/>
+    <outline type="rss" text="Nested 5" title="Nested 5" xmlUrl="https://nested5.test/feed" htmlUrl="https://nested5.test/"/>
+    <outline text="Mac" title="Mac">
+      <outline type="rss" text="Nested 6" title="Nested 6" xmlUrl="https://nested6.test/feed" htmlUrl="https://nested6.test/"/>
+      <outline type="rss" text="Nested 7" title="Nested 7" xmlUrl="https://nested7.test/feed" htmlUrl="https://nested7.test/"/>
+      <outline text="Pro Apps" title="Pro Apps">
+        <outline type="rss" text="Nested 8" title="Nested 8" xmlUrl="https://nested8.test/feed" htmlUrl="https://nested8.test/"/>
+        <outline type="rss" text="Nested 9" title="Nested 9" xmlUrl="https://nested9.test/feed" htmlUrl="https://nested9.test/"/>
+      </outline>
+    </outline>
+  </outline>
+  <outline text="News" title="News">
+    <outline type="rss" text="Nested 10" title="Nested 10" xmlUrl="https://nested10.test/feed" htmlUrl="https://nested10.test/"/>
+    <outline type="rss" text="Nested 11" title="Nested 11" xmlUrl="https://nested11.test/feed" htmlUrl="https://nested11.test/"/>
+    <outline type="rss" text="Nested 12" title="Nested 12" xmlUrl="https://nested12.test/feed" htmlUrl="https://nested12.test/"/>
+  </outline>
+  <outline text="Linux" title="Linux">
+    <outline text="Kernel" title="Kernel">
+      <outline type="rss" text="Nested 13" title="Nested 13" xmlUrl="https://nested13.test/feed" htmlUrl="https://nested13.test/"/>
+      <outline type="rss" text="Nested 14" title="Nested 14" xmlUrl="https://nested14.test/feed" htmlUrl="https://nested14.test/"/>
+    </outline>
+  </outline>
+</outline>
+<outline text="Sports" title="Sports">
+  <outline text="News" title="News">
+    <outline type="rss" text="Nested 15" title="Nested 15" xmlUrl="https://nested15.test/feed" htmlUrl="https://nested15.test/"/>
+    <outline type="rss" text="Nested 16" title="Nested 16" xmlUrl="https://nested16.test/feed" htmlUrl="https://nested16.test/"/>
+    <outline type="rss" text="Nested 17" title="Nested 17" xmlUrl="https://nested17.test/feed" htmlUrl="https://nested17.test/"/>
+  </outline>
+  <outline text="Football" title="Football">
+    <outline text="Clubs &amp; Leagues" title="Clubs &amp; Leagues">
+      <outline type="rss" text="Nested 18" title="Nested 18" xmlUrl="https://nested18.test/feed" htmlUrl="https://nested18.test/"/>
+      <outline type="rss" text="Nested 19" title="Nested 19" xmlUrl="https://nested19.test/feed" htmlUrl="https://nested19.test/"/>
+      <outline type="rss" text="Nested 20" title="Nested 20" xmlUrl="https://nested20.test/feed" htmlUrl="https://nested20.test/"/>
+    </outline>
+  </outline>
+</outline>
+<outline text="Music" title="Music">
+  <outline text="AC/DC" title="AC/DC">
+    <outline type="rss" text="Nested 21" title="Nested 21" xmlUrl="https://nested21.test/feed" htmlUrl="https://nested21.test/"/>
+    <outline type="rss" text="Nested 22" title="Nested 22" xmlUrl="https://nested22.test/feed" htmlUrl="https://nested22.test/"/>
+  </outline>
+  <outline text="Jazz" title="Jazz">
+    <outline type="rss" text="Nested 23" title="Nested 23" xmlUrl="https://nested23.test/feed" htmlUrl="https://nested23.test/"/>
+    <outline type="rss" text="Nested 24" title="Nested 24" xmlUrl="https://nested24.test/feed" htmlUrl="https://nested24.test/"/>
+  </outline>
+</outline>
+<outline text="Empty Folder" title="Empty Folder"/>
+<outline text="Reading" title="Reading">
+  <outline type="rss" text="Nested 25" title="Nested 25" xmlUrl="https://nested25.test/feed" htmlUrl="https://nested25.test/"/>
+  <outline type="rss" text="Nested 26" title="Nested 26" xmlUrl="https://nested26.test/feed" htmlUrl="https://nested26.test/"/>
+  <outline type="rss" text="Nested 27" title="Nested 27" xmlUrl="https://nested27.test/feed" htmlUrl="https://nested27.test/"/>
+  <outline type="rss" text="Nested 28" title="Nested 28" xmlUrl="https://nested28.test/feed" htmlUrl="https://nested28.test/"/>
+  <outline text="Long reads" title="Long reads">
+    <outline type="rss" text="Nested 29" title="Nested 29" xmlUrl="https://nested29.test/feed" htmlUrl="https://nested29.test/"/>
+    <outline type="rss" text="Nested 30" title="Nested 30" xmlUrl="https://nested30.test/feed" htmlUrl="https://nested30.test/"/>
+    <outline type="rss" text="Nested 31" title="Nested 31" xmlUrl="https://nested31.test/feed" htmlUrl="https://nested31.test/"/>
+  </outline>
+</outline>
+<outline text="Science" title="Science">
+  <outline type="rss" text="Nested 32" title="Nested 32" xmlUrl="https://nested32.test/feed" htmlUrl="https://nested32.test/"/>
+  <outline type="rss" text="Nested 33" title="Nested 33" xmlUrl="https://nested33.test/feed" htmlUrl="https://nested33.test/"/>
+  <outline type="rss" text="Nested 34" title="Nested 34" xmlUrl="https://nested34.test/feed" htmlUrl="https://nested34.test/"/>
+  <outline type="rss" text="Nested 35" title="Nested 35" xmlUrl="https://nested35.test/feed" htmlUrl="https://nested35.test/"/>
+  <outline text="Space" title="Space">
+    <outline type="rss" text="Nested 36" title="Nested 36" xmlUrl="https://nested36.test/feed" htmlUrl="https://nested36.test/"/>
+    <outline type="rss" text="Nested 37" title="Nested 37" xmlUrl="https://nested37.test/feed" htmlUrl="https://nested37.test/"/>
+    <outline type="rss" text="Nested 38" title="Nested 38" xmlUrl="https://nested38.test/feed" htmlUrl="https://nested38.test/"/>
+  </outline>
+</outline>
+</body></opml>

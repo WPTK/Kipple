@@ -3,9 +3,12 @@ package opml
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/netip"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/WPTK/kipple/internal/fetch"
@@ -17,15 +20,18 @@ type ImportOptions struct {
 	// MarkReadOlderThanDays (1-365, 0 = off) sets initial_read_before = now - N*86400
 	// on every new feed.
 	MarkReadOlderThanDays int
+	// MoveExisting moves each feed that already exists into the folder the file puts it in
+	// (POST /api/opml ?move_existing=true). Off, an existing feed stays where it is.
+	MoveExisting bool
 }
 
-// Existing is a feed that already existed and was left untouched.
+// Existing is a feed that already existed (left in its folder unless MoveExisting).
 type Existing struct {
 	URL    string `json:"url"`
 	FeedID int64  `json:"feed_id"`
 }
 
-// Dropped is a feed listed in several folders: the first is kept.
+// Dropped is a feed listed in several folders: the first is kept. Folders are paths.
 type Dropped struct {
 	URL     string   `json:"url"`
 	Kept    string   `json:"kept"`
@@ -44,7 +50,15 @@ type Result struct {
 	FeedsAdded         int          `json:"feeds_added"`
 	FeedsExisting      []Existing   `json:"feeds_existing"`
 	FoldersMergedCase  []MergedCase `json:"folders_merged_case"`
-	MembershipsDropped []Dropped    `json:"memberships_dropped"`
+	// FoldersRefused are folders not created (too deep, a name the folder writer refuses); their
+	// feeds went into the deepest ancestor that was kept, or Uncategorized.
+	FoldersRefused []RefusedFolder `json:"folders_refused"`
+	// FeedsMoved are the existing feeds MoveExisting moved to another folder.
+	FeedsMoved []Existing `json:"feeds_moved"`
+	// FoldersEmptied are folders (by path) that MoveExisting left with no feed and no subfolder.
+	// They are not deleted: deleting one would also delete its filters.
+	FoldersEmptied     []string  `json:"folders_emptied"`
+	MembershipsDropped []Dropped `json:"memberships_dropped"`
 	Skipped            []Skipped    `json:"skipped"`
 	InvalidAttrs       []string     `json:"invalid_attrs"`
 	// IgnoredAttrs are valid but security-sensitive kipple:* attributes that an
@@ -62,6 +76,9 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 	res := Result{
 		FeedsExisting:      []Existing{},
 		FoldersMergedCase:  append([]MergedCase{}, doc.FoldersMergedCase...),
+		FoldersRefused:     append([]RefusedFolder{}, doc.FoldersRefused...),
+		FeedsMoved:         []Existing{},
+		FoldersEmptied:     []string{},
 		MembershipsDropped: []Dropped{},
 		Skipped:            []Skipped{},
 		InvalidAttrs:       []string{},
@@ -80,43 +97,54 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			return err
 		}
 
-		// Folders: reuse a top-level NOCASE match, else create in document order
-		// (store.EnsureFolderChain, the folder writer). A folder that holds a feed but
-		// is missing from doc.Folders is created on demand.
-		folderID := map[string]int64{"": 1}
-		badFolder := map[string]bool{}
-		// ensureFolder reports false for a new name that the folder writer refuses
-		// (too long, control characters): it is not created.
-		ensureFolder := func(name string) (bool, error) {
-			if _, ok := folderID[name]; ok {
-				return true, nil
+		// Folders: each chain is matched level by level (ignoring case) or created, in document
+		// order, by the folder writer (store.EnsureFolderChain). A chain the writer refuses (a bad
+		// name, Uncategorized as a parent) resolves to its deepest kept ancestor and is reported once,
+		// at its top. A chain a hand-built Doc forgot to list is resolved on demand.
+		folderID := map[string]int64{}
+		refused := map[string]bool{}
+		var resolve func(chain []string) (int64, error)
+		resolve = func(chain []string) (int64, error) {
+			if len(chain) == 0 {
+				return 1, nil // the default folder
 			}
-			if badFolder[name] {
-				return false, nil
+			k := chainKey(chain)
+			if id, ok := folderID[k]; ok {
+				return id, nil
 			}
-			id, created, err := store.EnsureFolderChain(ctx, tx, []string{name})
+			parent, err := resolve(chain[:len(chain)-1])
+			if err != nil {
+				return 0, err
+			}
+			if refused[chainKey(chain[:len(chain)-1])] {
+				folderID[k], refused[k] = parent, true
+				return parent, nil
+			}
+			id, created, err := store.EnsureFolderChain(ctx, tx, chain)
+			res.FoldersCreated += created
 			if store.FolderRefused(err) {
-				badFolder[name] = true
-				return false, nil
+				folderID[k], refused[k] = parent, true
+				res.FoldersRefused = append(res.FoldersRefused, RefusedFolder{Path(chain), refusal(err)})
+				return parent, nil
 			}
 			if err != nil {
-				return false, fmt.Errorf("opml: create folder %q: %w", name, err)
+				return 0, fmt.Errorf("opml: create folder %q: %w", Path(chain), err)
 			}
-			res.FoldersCreated += created
-			folderID[name] = id
-			return true, nil
+			folderID[k] = id
+			return id, nil
 		}
-		for _, name := range doc.Folders {
-			if _, err := ensureFolder(name); err != nil {
+		for _, chain := range doc.Folders {
+			if _, err := resolve(chain); err != nil {
 				return err
 			}
 		}
 
 		type firstSeen struct {
 			url     string
-			folder  string
+			folder  []string
 			dropped []string
 		}
+		var emptiedFrom []int64 // folders MoveExisting took a feed out of, first time first
 		seen := map[string]*firstSeen{}
 		var order []*firstSeen
 		for _, f := range doc.Feeds {
@@ -134,14 +162,9 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			if ip, perr := netip.ParseAddr(host); perr == nil && fetch.Blocked(ip.Unmap()) {
 				privateAddr = true
 			}
-			// Every feed's folder is in doc.Folders, so badFolder is complete here.
-			if badFolder[f.Folder] {
-				res.Skipped = append(res.Skipped, Skipped{norm, "folder name must be 1 to 100 characters without control characters"})
-				continue
-			}
 			if p, ok := seen[key]; ok {
-				if f.Folder != p.folder {
-					p.dropped = append(p.dropped, f.Folder)
+				if chainKey(f.Folder) != chainKey(p.folder) {
+					p.dropped = append(p.dropped, Path(f.Folder))
 				}
 				continue
 			}
@@ -149,16 +172,31 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			seen[key] = p
 			order = append(order, p)
 
+			target, err := resolve(f.Folder)
+			if err != nil {
+				return err
+			}
 			if id, found, err := store.FindFeedByURL(ctx, tx, f.URL); err != nil {
 				return err
 			} else if found {
 				res.FeedsExisting = append(res.FeedsExisting, Existing{norm, id})
-				continue
-			}
-			if ok, err := ensureFolder(f.Folder); err != nil {
-				return err
-			} else if !ok {
-				res.Skipped = append(res.Skipped, Skipped{norm, "folder name must be 1 to 100 characters without control characters"})
+				if opts.MoveExisting {
+					var from int64
+					err := tx.QueryRowContext(ctx, "SELECT f.folder_id FROM feeds f WHERE f.id = ? AND "+store.ListedFeedSQL("f"), id).Scan(&from)
+					if errors.Is(err, sql.ErrNoRows) || err == nil && from == target {
+						continue
+					}
+					if err != nil {
+						return err
+					}
+					if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ?, updated_at = unixepoch() WHERE id = ?", target, id); err != nil {
+						return fmt.Errorf("opml: move %s: %w", norm, err)
+					}
+					res.FeedsMoved = append(res.FeedsMoved, Existing{norm, id})
+					if from != 1 && !slices.Contains(emptiedFrom, from) {
+						emptiedFrom = append(emptiedFrom, from)
+					}
+				}
 				continue
 			}
 			a := f.Attrs
@@ -188,7 +226,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				 interval_minutes, retention, fulltext, dedup_mode, user_agent, ignore_http_cache,
 				 disable_http2, allow_insecure_tls, allow_private_net, initial_read_before, next_fetch_at)
 				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				folderID[f.Folder], norm, key, host, nullStr(f.Title), httpURLOrEmpty(f.SiteURL), nextFeedPos, enabled, reason,
+				target, norm, key, host, nullStr(f.Title), httpURLOrEmpty(f.SiteURL), nextFeedPos, enabled, reason,
 				nullInt(a.Interval), nullInt(a.Retention), b2i(a.Fulltext), dedup, nullStrP(a.UserAgent),
 				b2i(a.IgnoreHTTPCache), b2i(a.DisableHTTP2), b2i(a.AllowInsecureTLS), b2i(a.AllowPrivateNet),
 				readBefore, now)
@@ -203,9 +241,22 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			res.FeedsAdded++
 			res.NewFeedIDs = append(res.NewFeedIDs, id)
 		}
+		for _, id := range emptiedFrom {
+			var path string
+			err := tx.QueryRowContext(ctx, `SELECT p.path FROM folder_paths p WHERE p.id = ?
+				AND NOT EXISTS (SELECT 1 FROM feeds f WHERE f.folder_id = p.id AND `+store.ListedFeedSQL("f")+`)
+				AND NOT EXISTS (SELECT 1 FROM folders c WHERE c.parent_id = p.id)`, id).Scan(&path)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			res.FoldersEmptied = append(res.FoldersEmptied, path)
+		}
 		for _, p := range order {
 			if len(p.dropped) > 0 {
-				res.MembershipsDropped = append(res.MembershipsDropped, Dropped{p.url, p.folder, p.dropped})
+				res.MembershipsDropped = append(res.MembershipsDropped, Dropped{p.url, Path(p.folder), p.dropped})
 			}
 		}
 		return nil
@@ -214,6 +265,17 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		return Result{}, err
 	}
 	return res, nil
+}
+
+// chainKey is an unambiguous map key for a folder chain (a name may hold any character).
+func chainKey(chain []string) string {
+	var b strings.Builder
+	for _, s := range chain {
+		b.WriteString(strconv.Itoa(len(s)))
+		b.WriteByte(':')
+		b.WriteString(s)
+	}
+	return b.String()
 }
 
 // httpURLOrEmpty keeps only absolute http(s) URLs (htmlUrl is rendered as a link).

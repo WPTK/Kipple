@@ -414,6 +414,10 @@ func (c *call) subscriptionImport() {
 		c.serverError("import", err)
 		return
 	}
+	if len(res.FoldersRefused) > 0 {
+		c.a.log.Warn("greader: subscription/import: folders not created; their feeds went into the nearest kept folder",
+			"folders", res.FoldersRefused, "ua", c.r.UserAgent())
+	}
 	if res.FeedsAdded > 0 {
 		c.a.wake()
 	}

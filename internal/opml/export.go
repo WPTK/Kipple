@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -26,16 +27,17 @@ type Queryer interface {
 // ExportFrom is Export against any database with Kipple's schema, such as a
 // backup snapshot file, so the OPML in a backup matches its database exactly.
 // A feed marked for deletion (its URL replaced by a placeholder) is left out.
-// Each folder is one outline named by its full path ("Tech/Apple"), the label
-// Reader API clients see.
+// The folder tree is written as nested outlines, one per folder named by its own
+// name, siblings in folder order; inside a folder its feeds come first, then its
+// subfolders. One query reads it all, so the document is one snapshot.
 func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	rows, err := q.QueryContext(ctx, `
-		SELECT fo.id, fp.path, f.url, f.site_url, COALESCE(f.custom_title, NULLIF(f.title,''), ''),
+		SELECT fo.id, fp.name, fp.depth, f.url, f.site_url, COALESCE(f.custom_title, NULLIF(f.title,''), ''),
 		       f.interval_minutes, f.retention, f.fulltext, f.dedup_mode, f.user_agent,
 		       f.ignore_http_cache, f.disable_http2, f.allow_insecure_tls, f.allow_private_net, f.enabled
 		FROM folders fo JOIN folder_paths fp ON fp.id = fo.id LEFT JOIN feeds f ON f.folder_id = fo.id AND `+store.ListedFeedSQL("f")+`
 		WHERE NOT (fo.is_default = 1 AND f.id IS NULL)
-		ORDER BY fo.position, fo.id, f.position, f.id`)
+		ORDER BY fp.sort_key, f.position, f.id`)
 	if err != nil {
 		return fmt.Errorf("opml: export: %w", err)
 	}
@@ -44,32 +46,44 @@ func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	var b bytes.Buffer
 	b.WriteString(xml.Header)
 	b.WriteString(`<opml version="2.0" xmlns:kipple="` + NS + `">` + "\n  <head><title>Kipple subscriptions</title></head>\n  <body>\n")
+	indent := func(depth int) { b.WriteString(strings.Repeat("  ", depth+1)) }
+	// open is the depth of the innermost open folder outline (0 = none); folders arrive in
+	// pre-order, so a folder at depth d closes every open outline at depth d or deeper.
+	open := 0
+	closeTo := func(depth int) {
+		for ; open > depth; open-- {
+			indent(open)
+			b.WriteString("</outline>\n")
+		}
+	}
 	var cur int64 = -1
 	for rows.Next() {
 		var fid int64
 		var folder string
+		var depth int
 		var url, site, title, dedup sql.NullString
 		var interval, retention sql.NullInt64
 		var ua sql.NullString
 		var ft, nocache, h2, insecure, private, enabled sql.NullInt64
-		if err := rows.Scan(&fid, &folder, &url, &site, &title, &interval, &retention, &ft, &dedup, &ua,
+		if err := rows.Scan(&fid, &folder, &depth, &url, &site, &title, &interval, &retention, &ft, &dedup, &ua,
 			&nocache, &h2, &insecure, &private, &enabled); err != nil {
 			return err
 		}
 		if fid != cur {
-			if cur != -1 {
-				b.WriteString("    </outline>\n")
-			}
 			cur = fid
-			b.WriteString("    <outline")
+			closeTo(depth - 1)
+			indent(depth)
+			b.WriteString("<outline")
 			attr(&b, "text", folder)
 			attr(&b, "title", folder)
 			b.WriteString(">\n")
+			open = depth
 		}
 		if !url.Valid {
 			continue
 		}
-		b.WriteString(`      <outline type="rss"`)
+		indent(depth + 1)
+		b.WriteString(`<outline type="rss"`)
 		attr(&b, "text", title.String)
 		attr(&b, "title", title.String)
 		attr(&b, "xmlUrl", url.String)
@@ -107,9 +121,7 @@ func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if cur != -1 {
-		b.WriteString("    </outline>\n")
-	}
+	closeTo(0)
 	b.WriteString("  </body>\n</opml>\n")
 	_, err = w.Write(b.Bytes())
 	return err
