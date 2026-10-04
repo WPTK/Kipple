@@ -96,7 +96,12 @@ func (c *Client) transport(v variant) *http.Transport {
 		ResponseHeaderTimeout:  c.opt.HeaderTimeout,
 		MaxResponseHeaderBytes: 64 << 10,
 		ForceAttemptHTTP2:      !v.noHTTP2,
-		DisableKeepAlives:      true,
+		// Connections are reused (an image grid or a run of articles from one host shares one),
+		// but never held long: the pool is small and idle ones close after 30 s. A reused
+		// connection keeps the address the dial guard already approved.
+		IdleConnTimeout:     30 * time.Second,
+		MaxIdleConns:        32,
+		MaxIdleConnsPerHost: 2,
 	}
 	if v.noHTTP2 {
 		t.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
