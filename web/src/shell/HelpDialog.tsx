@@ -3,6 +3,7 @@ import { Dialog } from "radix-ui";
 import { KEYMAP, type KeyDoc } from "@/lib/keys";
 import { createStore, useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
+import { useReturnFocus } from "@/ui/kit";
 
 /** Open state of the overlay, so the `?` key and the "Keyboard shortcuts" menu items share it. */
 export const helpStore = createStore(false);
@@ -19,6 +20,7 @@ export function HelpDialog() {
   const needle = q.trim().toLowerCase();
   const match = (k: KeyDoc) => !needle || `${k.keys} ${k.desc} ${k.scope}`.toLowerCase().includes(needle);
   const any = KEYMAP.some(match);
+  const returnFocus = useReturnFocus(open);
   return (
     <Dialog.Root
       open={open}
@@ -29,7 +31,7 @@ export function HelpDialog() {
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
-        <Dialog.Content className="fixed inset-x-4 top-[8vh] z-50 mx-auto max-h-[84dvh] max-w-lg overflow-y-auto rounded-2xl border border-line bg-bg p-5 text-fg shadow-xl">
+        <Dialog.Content {...returnFocus} className="fixed inset-x-4 top-[8vh] z-50 mx-auto max-h-[84dvh] max-w-lg overflow-y-auto rounded-2xl border border-line bg-bg p-5 text-fg shadow-xl">
           <Dialog.Title className="text-lg font-bold">Keyboard shortcuts</Dialog.Title>
           <Dialog.Description className="mb-3 text-sm text-fg2">
             Single-key shortcuts can be turned off in Settings. None of them use Ctrl, Cmd or Alt.
