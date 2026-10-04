@@ -366,6 +366,16 @@ the signature identity is the release workflow of this repository. Upgrade by ch
 as a source build (a different build: single-architecture there, no provenance), so `kipple restore`, rollbacks and everything else in this file apply unchanged; for a rollback
 across a migration, start the previous tag's image only after restoring the pre-migration snapshot (see below).
 
+To check the build provenance and read the software bill of materials (needs the GitHub CLI and Docker):
+
+    gh attestation verify oci://ghcr.io/wptk/kipple:<version> --repo WPTK/Kipple
+    docker buildx imagetools inspect ghcr.io/wptk/kipple:<version> --format '{{ json .SBOM }}'
+
+The first confirms the image digest was built by this repository's release workflow from the tagged commit; the second
+prints the SPDX package list BuildKit attached to the image, one per platform. Both are part of the signed image index,
+so the digest the signature covers covers them too. The threat model and a checklist for testing an instance yourself are
+in [threat-model.md](threat-model.md).
+
 ## Installing the app and offline reading
 
 Kipple is an installable web app: open it in a browser and use "Add to Home Screen" (iOS) or "Install" (Chrome). The
