@@ -166,10 +166,18 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
     **Container image:** the Release workflow must be green first (Actions > Release). It publishes `X.Y.Z` (a stable
     release also `latest`, `X` and `X.Y` **only when this tag is the highest stable tag overall, in its major, or in
     its minor respectively**, so an older patch or a re-run never moves them backwards; a prerelease never moves `latest`
-    or a floating tag), signs the digest with cosign (keyless) and writes an "image-notes" block (the digest and the
-    verify command) to its job summary and an artifact. If the Release already exists the workflow appends the block
-    itself; otherwise append `image-notes.md` to the notes before `gh release create`, so each version maps to exactly
-    one digest. Check it by hand:
+    or a floating tag), extracts the SBOM BuildKit embedded in the image (`kipple-X.Y.Z.sbom.json`, SPDX per platform),
+    signs the digest with cosign (keyless) and writes an "image-notes" block (the digest, the verify command and the
+    SBOM's sha256) to its job summary and to the `image-notes` artifact, which also holds the SBOM file. The Release is
+    normally created after the run, so download the artifact, append `image-notes.md` to the notes and attach the SBOM
+    file, so each version maps to exactly one digest and one SBOM:
+
+        gh run download <run-id> -n image-notes
+        cat image-notes.md >> notes.md
+        gh release create vX.Y.Z --notes-file notes.md kipple-X.Y.Z.sbom.json
+
+    (If the Release already exists when the run finishes, the workflow appends the block and uploads the SBOM itself.)
+    Check the signature by hand:
 
         cosign verify ghcr.io/wptk/kipple:X.Y.Z \
           --certificate-identity-regexp '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$' \
@@ -178,8 +186,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
     The image's `org.opencontainers.image.version` is `X.Y.Z` (the tag without its `v`, the string you pull), `created`
     is the commit time and `kipple version` prints `vX.Y.Z`. The `X.Y.Z` image tag is immutable: the workflow refuses
     to publish if it already exists with another digest. So **if a run fails part-way, use "Re-run failed jobs", never
-    "Re-run all jobs"**: a full re-run rebuilds, gets a new digest and is refused at the Tag step (the last step before the release notes block: the digest is already signed and attested by
-    then, so a pullable `X.Y.Z` always has its signature). A tag whose image was
+    "Re-run all jobs"**: a full re-run rebuilds, gets a new digest and is refused at the Tag step (the Tag step comes after signing and attesting, so a pullable `X.Y.Z` always has its signature). "Re-run failed jobs" re-runs the whole failed job from its first step: the SBOM is read again, signing and attesting are repeated (harmless) and Tag finds the tag already on the same digest and does nothing. A tag whose image was
     never published and whose commit is wrong gets a new version, as ever.
 
     **Who may create `v*` tags is not something the workflow can enforce**: it signs whatever tag reaches it, and the

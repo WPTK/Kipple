@@ -263,6 +263,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The SBOM BuildKit embedded in the image (sbom: true in the build), read back by digest: one SPDX document per
+      # platform, the output of `docker buildx imagetools inspect --format '{{ json .SBOM }}'` that anyone can run. It
+      # runs before cosign signs anything, so a missing or empty SBOM stops the release before any public tag exists.
+      # The platform list below mirrors `platforms:` in the build job; keep them in step.
+      - name: SBOM
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          sbom="kipple-$VERSION.sbom.json"
+          docker buildx imagetools inspect "$IMAGE@$DIGEST" --format '{{ json .SBOM }}' > "$sbom"
+          if ! jq -e '(keys == ["linux/amd64","linux/arm64"]) and all(.[]; (.SPDX.spdxVersion // "" | startswith("SPDX-")) and ((.SPDX.packages // []) | length > 0))' "$sbom" >/dev/null; then
+            echo "::error::$IMAGE@$DIGEST has no usable SPDX SBOM for both platforms"; exit 1
+          fi
+          echo "$sbom: $(sha256sum "$sbom" | cut -d' ' -f1)" | tee -a "$GITHUB_STEP_SUMMARY"
+
       # Keyless: the signature identity is this workflow at this tag. Signing is by digest, so it needs no tag.
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
@@ -310,23 +327,6 @@ jobs:
             echo "::error::could not inspect $IMAGE:$VERSION: $out"; exit 1
           fi
 
-      # The SBOM BuildKit embedded in the image (sbom: true in the build), read back by digest: one SPDX document per
-      # platform, the exact output of `docker buildx imagetools inspect --format '{{ json .SBOM }}'` that anyone can
-      # run. It comes after Tag, so signing, attesting and tagging are untouched; if it fails the image is already
-      # signed and tagged and the run is red, and re-running the failed jobs repeats this step and the ones after it.
-      - name: SBOM
-        env:
-          VERSION: ${{ needs.gate.outputs.version }}
-          DIGEST: ${{ needs.build.outputs.digest }}
-        run: |
-          set -euo pipefail
-          sbom="kipple-$VERSION.sbom.json"
-          docker buildx imagetools inspect "$IMAGE@$DIGEST" --format '{{ json .SBOM }}' > "$sbom"
-          if ! jq -e 'type == "object" and length > 0' "$sbom" >/dev/null; then
-            echo "::error::no SBOM found in $IMAGE@$DIGEST"; exit 1
-          fi
-          echo "$sbom: $(sha256sum "$sbom" | cut -d' ' -f1)" | tee -a "$GITHUB_STEP_SUMMARY"
-
       # The block a Release page needs so one version maps to exactly one digest. It goes in the job summary and an
       # artifact always; when the GitHub Release already exists it is appended there too (once).
       - name: Release notes block
@@ -355,7 +355,7 @@ jobs:
             echo '```'
             echo
             echo "Software bill of materials (SPDX, one document per platform): kipple-$VERSION.sbom.json, sha256 $(sha256sum "kipple-$VERSION.sbom.json" | cut -d' ' -f1)"
-            echo "Rebuild it from the image to compare:"
+            echo "To compare, regenerate it from the image with the same buildx version and check the command printed something (the sha256 of empty input, e3b0c442..., means a tooling error, not tampering):"
             echo
             echo '```'
             echo "docker buildx imagetools inspect $IMAGE@$DIGEST --format '{{ json .SBOM }}' | sha256sum"
@@ -370,12 +370,14 @@ jobs:
               gh release edit "$TAG" --notes-file release-body.md
             fi
           else
-            echo "No GitHub Release for $TAG yet; create it with the image-notes artifact appended (docs/RELEASING.md, step 11), then gh release upload $TAG kipple-$VERSION.sbom.json (also in that artifact)."
+            echo "No GitHub Release for $TAG yet; create it with the image-notes artifact appended and the SBOM file attached (docs/RELEASING.md, step 11)."
           fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
         with:
           name: image-notes
+          if-no-files-found: warn
           path: |
             image-notes.md
             kipple-${{ needs.gate.outputs.version }}.sbom.json
