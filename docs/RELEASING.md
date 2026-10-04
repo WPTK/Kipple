@@ -1,6 +1,8 @@
 # Releasing Kipple
 
-Every release, including alphas. Work top to bottom; do not deploy with a step open.
+Every release, including alphas. Work top to bottom; do not deploy with a step open. The steps that protect production
+(the exact green commit, the off-box copy, the migration rehearsal, the digest deploy, the rollback) apply to every
+release. The test gates scale with what changed (see "Gates scale with what changed" below).
 
 ## Versioning
 
@@ -8,26 +10,44 @@ SemVer. Prereleases are `-alpha.N`, `-beta.N`, `-rc.N` (in that order; `N` count
 anything, including the schema; beta is feature-complete; rc changes only fix bugs. Breaking changes to the
 Reader API, the backup format or the settings keys need a major bump once 1.0.0 is out, a minor bump before.
 
-### Alpha → beta → rc → 1.0.0 (decided 2026-09-27)
+### Gates scale with what changed
+
+Pick the tier from the diff since the last gated commit (the last commit that went through the tier's gates), not from
+the kind of release.
+
+| What changed | Gates |
+|---|---|
+| Docs, test-only, release-commit, dependency or log-line changes | CI green on the exact head; govulncheck for any dependency change. No fuzz, no Suite 1, no review. |
+| Code that parses, authenticates, migrates or renders UI | The full set, once, on the commit being tagged: two Go test runs, fuzz, Suite 1 and an Opus whole-diff review. Not repeated on every rc patch. |
+| Anything that changes the schema | The above plus the migration rehearsal on a copy of the live snapshot (Suite 4). |
+
+Kept for every release because they paid for themselves: tag only on the exact green commit, the off-box copy before a
+deploy, the migration rehearsal (Suite 4), the Opus review of large diffs, and deterministic tests (no wall-clock
+waits).
+
+### Version path to 1.0.0 (decided 2026-10-03)
+
+`0.8.0-beta.1`, then `1.0.0-rc.N`, then `1.0.0`. A candidate for 1.0.0 is named `1.0.0-rc.N`, never `0.8.0-rc.N`. A
+release candidate adds no features, so a feature lands in a beta. `0.8.0` never ships as a stable release. A change that
+needs no schema or Reader API change and is small may go into `1.0.0-rc.1` instead if the PR says why; the rc rule (bug
+fixes only) is the test.
 
 - **Alpha → beta.1:** only once phase 5 is fully closed — code audit fixes merged (#26), Cloudflare Access JWT +
   passwordless shipped (#40), auto-night theme shipped (#41), the documentation run done (#42), and
   `docs/uat-plan.md` Suites 1, 2 and 4 executed clean of open P0/P1 defects. Feature-complete means verified,
-  not declared: no more planned phases remain once beta cuts, and beta itself adds no new features, only fixes.
-- **Beta → rc.1:** Suites 1, 2 and 4 re-verified stable on the beta build, plus a **1-week soak period** of the
-  owner's real daily use producing zero new P0/P1 defects. RC then means "only fixing what the soak period or
-  UAT found," not starting a fresh test cycle.
-- **Suite 3 (owner-only device checks) is not a promotion gate at any step** (decided 2026-09-27, superseding
-  the original plan). It stays open-ended: the owner runs it informally on his own devices as he uses each
-  build, not as a one-time checklist to close before cutting beta or rc. If it surfaces something real (the
-  `document.hasFocus()` question, a gesture bug, an install/Share issue), that becomes its own tracked fix, on
-  its own timeline — it doesn't block a release that's otherwise ready.
-- **RC → 1.0.0:** a second, shorter soak (a few days) on the final rc build with zero regressions, GitHub
-  private vulnerability reporting still turned on (it is on as of 2026-09-27; `SECURITY.md` depends on it), the
-  documentation run and the first-time Docker setup walkthrough proven end-to-end, then the final go/no-go
-  meeting — its approval is what cuts 1.0.0.
-- A regression found during a soak period resets that soak's clock (a new rc.N or a return to beta.N+1,
-  whichever the defect's severity warrants) rather than being patched in place while the clock keeps running.
+  not declared: beta itself adds no new features, only fixes.
+- **Beta → rc.1:** Suites 1, 2 and 4 re-verified on the beta build, plus the beta's own soak (the owner's real daily
+  use, about three days, zero new P0/P1 defects). RC then means "only fixing what the soak or UAT found," not
+  starting a fresh test cycle.
+- **Suite 3 (owner-only device checks) is not a promotion gate at any step.** The owner runs it informally on his own
+  devices as he uses each build. If it surfaces something real, that becomes its own tracked fix and does not block a
+  release that is otherwise ready.
+- **RC → 1.0.0:** one soak at the release candidate (a few days of the owner's real use, zero new P0/P1), then the
+  written 1.0 readiness checklist, `docs/release-checklist.md`. The owner signs it with one yes; that yes cuts 1.0.0.
+  There is no second soak and no go/no-go meeting. The checklist includes GitHub private vulnerability reporting still
+  on (`SECURITY.md` depends on it), the documentation run and the first-time Docker walkthrough.
+- A regression found during a soak resets that soak's clock (a new rc.N or a return to beta.N+1, whichever the
+  defect's severity warrants) rather than being patched in place while the clock keeps running.
 
 ### Exception: 0.5.0-beta.1 adds features (owner-approved 2026-09-29)
 
@@ -87,14 +107,17 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 ## Before the tag
 
 1. **CI is green on the exact commit** you will deploy (not on a nearby one). Push first; nothing deploys from an unpushed tree.
-2. **Fuzz, by hand:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean. The weekly
+2. **Fuzz and Suite 1, only for the second tier above** (code that parses, authenticates, migrates or renders UI, once,
+   on the commit being tagged; skip both for docs, test-only, release-commit, dependency or log-line changes).
+   **Fuzz, by hand:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean. The weekly
    `Fuzz` workflow runs the same script on the default branch, but until it has run green for several weeks the
    manual run stays the gate.
    A failure writes `testdata\fuzz\<Target>\<hash>` in the package: fix the bug, keep that file as a regression seed.
    **UAT Suite 1, also by hand:** in `web/`, `npm run build`, then `npm run seed` (it stays in the foreground), then
    in a second terminal, once the feeds have fetched (about a minute), `npm run uat` against that seeded local instance (never the live one; see `docs/uat-plan.md`, Suite 1). It must finish with exit code 0, or every
    remaining finding must be in `web/uat/waivers.json` with the owner's reason.
-3. **`/code-review high`** on the diff since the last deployed tag. Fix every finding.
+3. **`/code-review high`** (an Opus whole-diff review) on the diff since the last gated commit, for the second tier
+   above. Fix every finding. Not needed for the first tier.
 4. **CHANGELOG.md:** `node scripts/changelog.mjs preview` shows what is pending; add a one-paragraph
    `changes/_intro.md` if the release needs an intro. `node scripts/changelog.mjs release X.Y.Z` (`--dry-run` first) folds
    the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links, deletes the
@@ -136,8 +159,9 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
    and pass `KIPPLE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` on the build command line next to the other two.
 10. **Verify:** `ssh host-a 'docker exec kipple /kipple version'` prints `vX.Y.Z`; container healthy; `docker logs kipple` shows the migrations that were expected and no errors;
     `/api/greader.php` answers with Reeder; a refresh completes; memory stays flat after a few minutes (`docker stats`).
-11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`node scripts/changelog.mjs notes X.Y.Z > notes.md`, then `gh release create vX.Y.Z --notes-file notes.md`; `-alpha/-beta/-rc` marked pre-release).
-    Every pushed tag has one; keep it that way.
+11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`node scripts/changelog.mjs notes X.Y.Z > notes.md`, then `gh release create vX.Y.Z --notes-file notes.md`). `-alpha`, `-beta` and `-rc` releases are marked pre-release
+    (`--prerelease`), unless the owner says otherwise for that release; that choice is per release and is not a default.
+    Every pushed tag has one; keep it that way. For 1.0.0 the notes carry a known-issues list.
 
     **Container image:** the Release workflow must be green first (Actions > Release). It publishes `X.Y.Z` (a stable
     release also `latest`, `X` and `X.Y` **only when this tag is the highest stable tag overall, in its major, or in
@@ -171,15 +195,15 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
     **First image only (one time, owner):** the GHCR package starts private. In the repository's Packages, open
     `kipple`, confirm it is linked to `WPTK/Kipple` (the `org.opencontainers.image.source` label does that) and change
     its visibility to public; until then anonymous pulls fail.
-12. **Website** (`WPTK/kipple-website`, kipple.cc, GitHub Pages from `main`), for every release, once the Release is published:
+12. **Website** (`WPTK/kipple-website`, kipple.cc, GitHub Pages from `main`), once the Release is published (the version text on every release, a one-line PR):
     - **Version text:** update "Where it stands" in `index.html` to the new tag (`grep -n "v0\." index.html README.md` finds
       every mention) and anything else on the site that says what is current.
-    - **Screenshots:** in the Kipple repo, `cd web`, then `KIPPLE_SEED_SET=site npm run seed` (foreground; wait about a
+    - **Screenshots, only when the UI visibly changed** (a release with no visible UI change keeps the old ones; the
+      version text is never skipped): in the Kipple repo, `cd web`, then `KIPPLE_SEED_SET=site npm run seed` (foreground; wait about a
       minute for the feeds), and in a second terminal
       `node scripts/site-shots.mjs --out <site>/screenshots --site <site>`. It writes the four WebP files at the sizes the
       site's design system names and re-renders `og.png`. Look at all five before committing. Update the capture note
       in the site's `design-system/DESIGN-SYSTEM.md` (section 10, `screenshots/`) with the new commit and the article shown.
-      A release with no visible UI change may keep the old screenshots; the version text is never skipped.
     - Open a PR in the site repo and merge it; the merge is what publishes.
 
 ## Rolling back `latest`
