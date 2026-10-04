@@ -127,8 +127,7 @@ jobs:
       - run: node --test ../scripts/toolchain.test.mjs
       - run: npm ci
       - run: npm run lint
-      - run: npm test
-      # Visibility only (SQA plan): a text summary in the log, no threshold gate.
+      # Runs the whole suite (a failing test fails the step) and prints a coverage summary; no threshold gate (SQA plan).
       - run: npm run test:coverage
 
       - name: Upload web coverage to Codecov
@@ -145,7 +144,6 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [go, web, security]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -169,6 +167,9 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             VCS_REF=${{ steps.version.outputs.vcs_ref }}
+          cache-from: type=gha,scope=ci
+          # A throttled cache service must not fail the build.
+          cache-to: type=gha,scope=ci,mode=max,ignore-error=true
 
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

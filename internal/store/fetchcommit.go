@@ -276,8 +276,15 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	// --- last chunk: trim, bookkeeping, log ---
 	// One bounded batch; a larger backlog is reported (CommitInfo.TrimPending) for the
 	// scheduler to finish with trim jobs rather than holding the writer here.
+	// The feed's item count is known when this transaction read it (a single-chunk commit): inserts
+	// are the only rows a commit adds, and nothing else writes inside it. After earlier chunks
+	// committed, another writer (a restore) may have added rows in between, so the trim counts.
+	total := -1
+	if first {
+		total = st.before + len(st.newIDs)
+	}
 	var err error
-	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, st.firstNewID, trimBatch); err != nil {
+	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, st.firstNewID, trimBatch, total); err != nil {
 		return err
 	}
 
@@ -528,6 +535,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				st.firstID = id
 			}
 			st.lastID = id
+			// Every row this commit adds is counted here: trimFeedBatch skips on st.before+len(newIDs).
 			st.newIDs = append(st.newIDs, id)
 		}
 		if err := writeHits(ctx, tx, hits, now); err != nil {

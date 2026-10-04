@@ -76,7 +76,8 @@ type ParseOptions struct {
 }
 
 // ParseFeed decodes body to UTF-8, parses it with gofeed and returns the
-// normalized feed. gofeed is pinned at v1.4.2 in go.mod.
+// normalized feed. gofeed is pinned at v1.4.2 in go.mod. Like DecodeBody it may
+// modify body (only the encoding value of its XML declaration).
 func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	return ParseDecoded(decodeBody(body, opt.HTTPCharset), opt)
 }
@@ -144,7 +145,7 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 	items, notes := AssignUIDs(items, mode)
 	for i := range items {
 		it := &items[i]
-		it.WordCount = len(strings.Fields(it.ContentText))
+		it.WordCount = sanitize.WordCount(it.ContentText)
 		it.ContentHash = ContentHash(it.Title, it.URL, it.Author, it.ContentHTML)
 		it.TextHash = TextHash(it.Title, it.ContentText)
 	}

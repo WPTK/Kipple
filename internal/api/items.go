@@ -753,11 +753,19 @@ func (s *Server) statsEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Close cancels a pending trailing `counts` event.
+// Close cancels a pending trailing `counts` event and stops the image proxy's
+// thumbnail workers, so no transcode is still writing when the image cache closes.
 func (s *Server) Close() {
 	s.apply.stop()
 	s.apply.wg.Wait()
 	s.backups.Close()
+	s.imgMu.Lock()
+	imgH := s.imgH
+	s.imgClosed = true
+	s.imgMu.Unlock()
+	if imgH != nil {
+		imgH.Close()
+	}
 	s.cmu.Lock()
 	defer s.cmu.Unlock()
 	s.closed = true

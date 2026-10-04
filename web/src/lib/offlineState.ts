@@ -41,7 +41,7 @@ export function setUpdateReady(): void {
   offlineStore.set((s) => (s.updateReady ? s : { ...s, updateReady: true }));
 }
 
-/** The web API contract this build speaks; the server announces its own in X-Kipple-API (internal/httpx). */
+/** The web API contract this build speaks; the server announces its own in X-Kipple-API (internal/httpx). Keep it a plain `export const API_VERSION = N;`: internal/httpx/headers_test.go reads it from this source. */
 export const API_VERSION = 1;
 
 /** Read the handshake headers of an /api response. */

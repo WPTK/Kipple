@@ -54,7 +54,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 }
 
 /** Thin renderer: draws the instruction list, nothing else. */
-export function drawCard(ctx: CanvasRenderingContext2D, ops: CardOp[], colors: Record<CardColor, string>, font: string): void {
+function drawCard(ctx: CanvasRenderingContext2D, ops: CardOp[], colors: Record<CardColor, string>, font: string): void {
   for (const op of ops) {
     if (op.kind === "rect") {
       ctx.fillStyle = colors[op.color];
@@ -101,7 +101,7 @@ export async function renderCardPng(model: WrappedModel, options: WrappedOptions
   }
 }
 
-export const cardFileName = (year: number): string => `kipple-${year}.png`;
+const cardFileName = (year: number): string => `kipple-${year}.png`;
 
 async function tryShare(data: ShareData): Promise<"shared" | "cancelled" | "failed"> {
   try {

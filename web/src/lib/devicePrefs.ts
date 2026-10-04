@@ -51,12 +51,12 @@ export type OrderPref = "newest" | "oldest";
  * (docs/design.md 7.1c) calls them relevance, newest and oldest. */
 export const SEARCH_ORDERS = ["rank", "date", "oldest"] as const;
 export type SearchOrder = (typeof SEARCH_ORDERS)[number];
-export const isSearchOrder = (v: unknown): v is SearchOrder => (SEARCH_ORDERS as readonly unknown[]).includes(v);
+const isSearchOrder = (v: unknown): v is SearchOrder => (SEARCH_ORDERS as readonly unknown[]).includes(v);
 export const SEARCH_ORDER_TO_SERVER: Record<SearchOrder, string> = { rank: "relevance", date: "newest", oldest: "oldest" };
 export const searchOrderFromServer = (v: unknown): SearchOrder | undefined =>
   v === "relevance" ? "rank" : v === "newest" ? "date" : v === "oldest" ? "oldest" : undefined;
 /** Where this ordering lived before it joined the device profile (one-time migration source). */
-export const LEGACY_SEARCH_ORDER_KEY = "kipple.searchOrder.v1";
+const LEGACY_SEARCH_ORDER_KEY = "kipple.searchOrder.v1";
 
 export interface DevicePrefs {
   /** Device default layout. Magazine unless changed. */
@@ -110,9 +110,9 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
 
 export const DEVICE_PREFS_KEY = "kipple.device.v1";
 
-export const isLayoutId = (v: unknown): v is LayoutId => LAYOUT_IDS.includes(v as LayoutId);
+const isLayoutId = (v: unknown): v is LayoutId => LAYOUT_IDS.includes(v as LayoutId);
 
-export const clampNum = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, Math.round(n)));
+const clampNum = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, Math.round(n)));
 
 /** A well-formed favorites list: known kinds, digit ids, no repeats, at most `max` (500). */
 export function cleanFavorites(v: unknown, max = 500): Favorite[] {

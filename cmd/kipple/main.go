@@ -323,7 +323,7 @@ func runServe() error {
 			drainHTTP: srv.Shutdown,
 			cutHTTP:   func() { _ = srv.Close() },
 			stopped:   scheduler.Stopped(),
-			stopMaint: func() { icons.Stop(); maintenance.Stop() },
+			stopMaint: func() { icons.Stop(); maintenance.Stop(); client.CloseIdle() },
 		}, logger)
 	}
 

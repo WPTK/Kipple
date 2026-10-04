@@ -30,9 +30,9 @@ export function rememberTheme(t: ThemeSettings, font: string = prefsStore.get().
   fontBaseline ??= font;
 }
 /** What Skip goes back to: the pick that was saved, else what this device had before the wizard. */
-export const themeBefore = (): ThemeSettings | null => themeSaved ?? themeBaseline;
+const themeBefore = (): ThemeSettings | null => themeSaved ?? themeBaseline;
 /** The reading font Skip goes back to, on the same rule. */
-export const fontBefore = (): string | null => fontSaved ?? fontBaseline;
+const fontBefore = (): string | null => fontSaved ?? fontBaseline;
 /**
  * A pick is being previewed: it shows on this page but is not written to this device's profile (a preview is not a
  * choice, and the profile would pin the device to values it only tried).

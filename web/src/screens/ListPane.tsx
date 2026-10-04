@@ -176,7 +176,7 @@ interface Props {
 type VRow = Row<Card> | { kind: "group"; key: string; items: Card[] };
 
 /** Group consecutive item rows into `cols`-wide rows (cards grid). */
-export function chunkRows(rows: Row<Card>[], cols: number): VRow[] {
+function chunkRows(rows: Row<Card>[], cols: number): VRow[] {
   if (cols <= 1) return rows;
   const out: VRow[] = [];
   let cur: Card[] = [];
@@ -198,7 +198,7 @@ export function chunkRows(rows: Row<Card>[], cols: number): VRow[] {
 }
 
 /** Card columns from the list's own width: 1 under 600 px, 2 under 900, else 3. */
-export function columnsFor(width: number): number {
+function columnsFor(width: number): number {
   return width < 600 ? 1 : width < 900 ? 2 : 3;
 }
 
@@ -639,18 +639,24 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     };
   }, [key]);
 
+  // Read through a ref so a cache patch (a mark-read) does not change `range`, and with it every row's menu actions.
+  const itemsRef = useRef(items);
+  useLayoutEffect(() => {
+    itemsRef.current = items;
+  });
   const range = useCallback(
     (item: Card, side: "above" | "below") => {
       if (scope.view === "muted") return; // nothing to mark in the muted list: those articles are already read
       if (rank || scope.typing) return; // relevance order has no above or below, and a search being typed is not a set the server can mark
-      const at = items.findIndex((i) => i.id === item.id);
+      const list = itemsRef.current;
+      const at = list.findIndex((i) => i.id === item.id);
       if (at < 0) return;
-      const part = side === "above" ? items.slice(0, at) : items.slice(at + 1);
+      const part = side === "above" ? list.slice(0, at) : list.slice(at + 1);
       const local = part.filter((i) => !i.read).map((i) => i.id);
       const restore = unreadView && local.length ? hide(local) : undefined;
       void act.markSide({ scope: markScope, order: scope.order === "oldest" ? "oldest" : "date", side, anchor: item, maxId: asOf.current }, local, restore, unhide);
     },
-    [act, hide, unhide, items, scope, markScope, unreadView, rank],
+    [act, hide, unhide, scope, markScope, unreadView, rank],
   );
 
   const markAllRead = useCallback(() => {

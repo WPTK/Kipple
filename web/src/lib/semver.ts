@@ -17,7 +17,7 @@ export function parseSemver(v: string): Semver | null {
 }
 
 /** SemVer 2.0.0 precedence: a prerelease sorts before its release, numeric identifiers before words. Negative when a < b. */
-export function compareSemver(a: Semver, b: Semver): number {
+function compareSemver(a: Semver, b: Semver): number {
   for (const k of ["major", "minor", "patch"] as const) {
     if (a[k] !== b[k]) return a[k] < b[k] ? -1 : 1;
   }

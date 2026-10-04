@@ -67,7 +67,7 @@ export function useSavedSearches(opts: { counts?: boolean } = {}): {
 export const ECHO_WINDOW_MS = 1000;
 let lastLocalWrite = -Infinity;
 /** Tests: forget the echo window. */
-export function resetSavedSearchEcho(): void {
+function resetSavedSearchEcho(): void {
   lastLocalWrite = -Infinity;
 }
 
@@ -129,7 +129,7 @@ export const createSavedSearch = (body: SavedSearchInput) => api<SavedSearch>("/
 export const patchSavedSearch = (id: string, body: Partial<SavedSearchInput>) =>
   api<SavedSearch>(`/api/saved-searches/${encodeURIComponent(id)}`, { method: "PATCH", body });
 export const deleteSavedSearch = (id: string) => api(`/api/saved-searches/${encodeURIComponent(id)}`, { method: "DELETE" });
-export const reorderSavedSearches = (ids: string[]) => api<{ saved_searches: SavedSearch[] }>("/api/saved-searches/reorder", { method: "POST", body: { ids } });
+const reorderSavedSearches = (ids: string[]) => api<{ saved_searches: SavedSearch[] }>("/api/saved-searches/reorder", { method: "POST", body: { ids } });
 
 /**
  * Reorder with an optimistic list. Moves are applied to the cache at once and sent one at a time: while a request is

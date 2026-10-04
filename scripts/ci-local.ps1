@@ -80,8 +80,7 @@ Step 'web' 'release tag rules (scripts/release-tags.test.sh)' { bash scripts/rel
 Step 'web' 'toolchain versions (scripts/toolchain.test.mjs)' { node --test scripts/toolchain.test.mjs }
 Step 'web' 'npm ci' { Push-Location web; npm ci --cache $npmCache --no-audit --no-fund; Pop-Location }
 Step 'web' 'lint' { Push-Location web; npm run lint; Pop-Location }
-Step 'web' 'test' { Push-Location web; npm test; Pop-Location }
-Step 'web' 'test coverage (visibility only)' { Push-Location web; npm run test:coverage; Pop-Location }
+Step 'web' 'test and coverage (no threshold)' { Push-Location web; npm run test:coverage; Pop-Location }
 Step 'web' 'build' { Push-Location web; npm run build; Pop-Location }
 Step 'web' 'theme contrast' { Push-Location web; npm run contrast; Pop-Location }
 Step 'web' 'npm audit (prod, high)' { Push-Location web; npm audit --omit=dev --audit-level=high; Pop-Location }

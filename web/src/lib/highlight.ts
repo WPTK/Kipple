@@ -46,7 +46,7 @@ export type Range = readonly [number, number];
 const NO_SPACE_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
 const WORD = /[\p{L}\p{N}\p{M}]/u;
 /** A word character for the whole-word check: a letter, digit or mark, except in scripts written without spaces. */
-export const isWordChar = (ch: string): boolean => WORD.test(ch) && !NO_SPACE_SCRIPT.test(ch);
+const isWordChar = (ch: string): boolean => WORD.test(ch) && !NO_SPACE_SCRIPT.test(ch);
 
 const MARKS = /\p{Mn}/gu;
 function foldChar(ch: string, caseSensitive: boolean, fold: boolean): string {
@@ -77,7 +77,7 @@ export function buildRegexes(terms: string[], g: Pick<Group, "caseSensitive" | "
 }
 
 /** `text` cut to at most `max` UTF-8 bytes, on a character boundary. */
-export function clipBytes(text: string, max: number): string {
+function clipBytes(text: string, max: number): string {
   if (text.length * 3 <= max) return text;
   let used = 0;
   let i = 0;
