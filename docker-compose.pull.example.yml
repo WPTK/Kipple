@@ -8,8 +8,8 @@
 #
 # The port is published on this machine only. Use "1919:1919" to reach Kipple from your LAN, or your
 # Tailscale address ("100.x.y.z:1919:1919"). A named volume is ready to use; a bind mount at /data
-# needs `chown 65532:65532` on the host directory first. Resource limits, log rotation and the
-# build-from-source variant are in docker-compose.example.yml. See docs/deploy.md.
+# needs `chown 65532:65532` on the host directory first. The build-from-source variant is in
+# docker-compose.example.yml. See docs/deploy.md.
 
 services:
   kipple:
@@ -20,9 +20,18 @@ services:
     restart: unless-stopped
     ports: ["127.0.0.1:1919:1919"]
     volumes: ["kipple_data:/data"]
+    # Kipple finishes shutting down within 25 s of SIGTERM; 30 s leaves margin.
+    stop_grace_period: 30s
+    # Hard memory and process caps; GOMEMLIMIT makes the Go GC work harder before the cap is hit.
+    mem_limit: 256m
+    pids_limit: 200
+    environment: ["GOMEMLIMIT=64MiB"]
     read_only: true
     tmpfs: ["/tmp:size=64m,mode=1777"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
 volumes:
   kipple_data:
