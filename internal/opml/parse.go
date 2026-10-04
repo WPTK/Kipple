@@ -33,8 +33,8 @@ type Attrs struct {
 
 // Feed is one parsed subscription, in document order.
 type Feed struct {
-	URL      string   // xmlUrl, entity-decoded and trimmed
-	Title    string   // text preferred over title; may be empty
+	URL      string // xmlUrl, entity-decoded and trimmed
+	Title    string // text preferred over title; may be empty
 	SiteURL  string
 	Folder   []string // the folder as its chain of names from the top level; empty = root (Uncategorized)
 	Attrs    Attrs

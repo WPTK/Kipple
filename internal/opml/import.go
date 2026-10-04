@@ -46,10 +46,10 @@ type Skipped struct {
 
 // Result is the import report (POST /api/opml shape, design §7).
 type Result struct {
-	FoldersCreated     int          `json:"folders_created"`
-	FeedsAdded         int          `json:"feeds_added"`
-	FeedsExisting      []Existing   `json:"feeds_existing"`
-	FoldersMergedCase  []MergedCase `json:"folders_merged_case"`
+	FoldersCreated    int          `json:"folders_created"`
+	FeedsAdded        int          `json:"feeds_added"`
+	FeedsExisting     []Existing   `json:"feeds_existing"`
+	FoldersMergedCase []MergedCase `json:"folders_merged_case"`
 	// FoldersRefused are folders not created (too deep, a name the folder writer refuses); their
 	// feeds went into the deepest ancestor that was kept, or Uncategorized.
 	FoldersRefused []RefusedFolder `json:"folders_refused"`
@@ -59,8 +59,8 @@ type Result struct {
 	// They are not deleted: deleting one would also delete its filters.
 	FoldersEmptied     []string  `json:"folders_emptied"`
 	MembershipsDropped []Dropped `json:"memberships_dropped"`
-	Skipped            []Skipped    `json:"skipped"`
-	InvalidAttrs       []string     `json:"invalid_attrs"`
+	Skipped            []Skipped `json:"skipped"`
+	InvalidAttrs       []string  `json:"invalid_attrs"`
 	// IgnoredAttrs are valid but security-sensitive kipple:* attributes that an
 	// import never applies (allow_private_net, allow_insecure_tls), and feeds
 	// on a literal private address, imported with allow_private_net off.
