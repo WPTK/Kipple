@@ -9,10 +9,12 @@ import (
 	"time"
 )
 
-// trimBatch bounds the items one transaction trims (or deletes with a feed): at
-// roughly 100 µs per item (the FTS delete trigger dominates) 2000 rows is about
-// 0.2 s, far inside the writer's 10 s deadline however large the feed is. The
-// rest is left for the next batch. A variable so tests can shrink it.
+// trimBatch bounds the items one transaction trims (or deletes with a feed). A
+// batch costs about 0.6 ms per item on a fast desktop with a local SSD, whatever
+// the size of the library (the FTS delete trigger and the WAL writes
+// of the commit dominate), so 2000 rows hold the writer a little over 1 s, well
+// inside its 10 s deadline. The rest is left for the next batch. A variable so
+// tests can shrink it.
 var trimBatch = 2000
 
 // trimFeedBatch applies design §5 to one feed inside a write transaction: keep the newest
@@ -331,9 +333,9 @@ func markFeedsDeleting(ctx context.Context, tx *sql.Tx, ids []int64, now int64) 
 func isDeleting(url string) bool { return strings.HasPrefix(url, deletingURLPrefix) }
 
 // deleteBudget bounds a deletion that runs detached from its request (the UI
-// delete, a Reader API unsubscribe) or from startup: at about 0.2 s per batch of
-// trimBatch items it covers millions of items, and a deletion it cuts short is
-// resumed by the next one.
+// delete, a Reader API unsubscribe) or from startup: at about 1 s per batch of
+// trimBatch items it covers several hundred thousand items, and a deletion it
+// cuts short is resumed by the next one.
 const deleteBudget = 5 * time.Minute
 
 // DeleteContext detaches ctx from its cancellation (a client that gives up must
