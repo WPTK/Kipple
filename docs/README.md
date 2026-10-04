@@ -13,6 +13,7 @@ owner's own host labels (Host-A, Host-B); they are history and say nothing about
 | [sqa-plan.md](sqa-plan.md) | The software-quality-assurance plan, mapped to IEEE 730: what already ensures quality (CI, reviews, release discipline) and open candidate additions. |
 | [risk-register.md](risk-register.md) | Currently open risks and their mitigations, kept live rather than scattered across old phase notes. |
 | [RELEASING.md](RELEASING.md) | The release checklist for every version, including alphas, and the alpha/beta/rc/1.0 promotion criteria. |
+| [performance.md](performance.md) | How Kipple behaves with a large library (500 feeds, 150,000 items): start, upgrade, search, backup and restore, refresh, memory, database size, with sizing advice and how to repeat the measurement (`scripts/scalegen`). |
 | [troubleshooting.md](troubleshooting.md) | Symptom, cause and fix: unreachable page, port mapping, sign-in busy, clients that will not connect, feeds not updating, restore, password reset, and which logs and version output to attach to an issue. |
 | [reverse-proxy.md](reverse-proxy.md) | Caddy, nginx and Traefik setups, and exactly which headers Kipple trusts from a proxy. |
 | [compatibility.md](compatibility.md) | What stays the same across 1.x (the Reader API, backup format, settings keys, environment variables, CLI, image tags, volume layout), what does not, and how a removal is announced. |

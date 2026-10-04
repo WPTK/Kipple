@@ -279,6 +279,7 @@ Everything above is all a self-hoster needs. This section is for changing Kipple
 - `docs/design.md` is the source of truth for how it works;
   `docs/ui-decisions.md` records the design decisions; `docs/deploy.md` covers backups, recovery and deploys.
   See [docs/README.md](docs/README.md) for a full index of everything under `docs/`.
+- [docs/performance.md](docs/performance.md) records how Kipple behaves with 500 feeds and 150,000 items (start, upgrade, search, backup, memory), how to size a server for it, and how to repeat the measurement with `scripts/scalegen`.
 - `CLAUDE.md` holds the project rules used when working on the code with Claude.
 - [CONTRIBUTING.md](CONTRIBUTING.md) covers how to report a bug, propose a change and send a pull request.
 
