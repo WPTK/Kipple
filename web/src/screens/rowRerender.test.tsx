@@ -88,7 +88,7 @@ describe("range actions after the list changed", () => {
     await user.keyboard("{{}"); // mark above the selected row
     const bulk = () => calls.filter((c) => c.method === "POST" && String(c.init?.body).includes("\"bound\""));
     await waitFor(() => expect(bulk().length).toBeGreaterThan(0));
-    const body = JSON.parse(String(bulk()[0].init?.body));
+    const body = JSON.parse(String(bulk()[0]?.init?.body));
     expect(body.bound).toMatchObject({ side: "above", anchor: { id: "1002" } });
   });
 });
