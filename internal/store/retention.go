@@ -87,43 +87,49 @@ func trimFeedLimit(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int6
 		return 0, nil
 	}
 
-	rest := []struct {
-		sql  string
-		args []any
-	}{
-		{`INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at)
-		    SELECT i.id, i.feed_id, i.uid, i.read, ?1, ?1
-		    FROM temp.trim_set t JOIN items i ON i.id = t.id
-		    WHERE true
-		  ON CONFLICT (feed_id, uid) DO UPDATE SET
-		    id = excluded.id, read = excluded.read, trimmed_at = excluded.trimmed_at, last_seen_at = excluded.last_seen_at`, []any{now}},
-		{`INSERT INTO trimmed_content (id, published_at, updated_at, sort_at, word_count, content_hash, text_hash,
-		                              url, title, author, image_url, origin_title, fulltext_mode,
-		                              content_html, content_text, enclosures_json, categories_json)
-		    SELECT i.id, i.published_at, i.updated_at, i.sort_at, i.word_count, i.content_hash, i.text_hash,
-		           i.url, i.title, i.author, i.image_url, i.origin_title, i.fulltext_mode,
-		           c.content_html, c.content_text, c.enclosures_json, c.categories_json
-		    FROM temp.trim_set t JOIN items i ON i.id = t.id JOIN item_content c ON c.item_id = i.id
-		    WHERE ?1 > 0
-		  ON CONFLICT (id) DO NOTHING`, []any{set.RestoreDays}},
-		{`UPDATE feeds SET
-		    trimmed_unread_count = trimmed_unread_count +
-		      (SELECT count(*) FROM temp.trim_set t JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < ?2),
-		    trimmed_unread_since = COALESCE(trimmed_unread_since, ?3)
-		  WHERE id = ?1 AND EXISTS (SELECT 1 FROM temp.trim_set t JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < ?2)`,
-			[]any{feedID, firstNewID, now}},
-	}
-	for _, s := range rest {
-		if _, err := tx.ExecContext(ctx, s.sql, s.args...); err != nil {
+	for i, args := range [][]any{{now}, {set.RestoreDays}, {feedID, firstNewID, now}} {
+		if _, err := tx.ExecContext(ctx, trimSetSQL[i], args...); err != nil {
 			return 0, fmt.Errorf("retention: %w", err)
 		}
 	}
-	res, err := tx.ExecContext(ctx, "DELETE FROM items WHERE id IN (SELECT id FROM temp.trim_set)")
+	res, err := tx.ExecContext(ctx, trimDeleteSQL)
 	if err != nil {
 		return 0, fmt.Errorf("retention: delete: %w", err)
 	}
 	return res.RowsAffected()
 }
+
+// trimSetSQL are the statements that tombstone the rows in temp.trim_set, keep their restore stubs
+// and count the unread ones, in that order. Each walks trim_set and looks each row up in items by id:
+// the CROSS JOIN fixes that order, so a trim costs what it trims. With a plain JOIN the planner picks
+// the order from its row estimates, and temp.trim_set has no statistics: it chose to scan the whole
+// of items instead (the restore stubs on any database, all three once ANALYZE or the nightly PRAGMA
+// optimize has measured items), for every feed a fetch trims. trimDeleteSQL is the delete that
+// follows them.
+var trimSetSQL = [...]string{
+	`INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at)
+	    SELECT i.id, i.feed_id, i.uid, i.read, ?1, ?1
+	    FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id
+	    WHERE true
+	  ON CONFLICT (feed_id, uid) DO UPDATE SET
+	    id = excluded.id, read = excluded.read, trimmed_at = excluded.trimmed_at, last_seen_at = excluded.last_seen_at`,
+	`INSERT INTO trimmed_content (id, published_at, updated_at, sort_at, word_count, content_hash, text_hash,
+	                              url, title, author, image_url, origin_title, fulltext_mode,
+	                              content_html, content_text, enclosures_json, categories_json)
+	    SELECT i.id, i.published_at, i.updated_at, i.sort_at, i.word_count, i.content_hash, i.text_hash,
+	           i.url, i.title, i.author, i.image_url, i.origin_title, i.fulltext_mode,
+	           c.content_html, c.content_text, c.enclosures_json, c.categories_json
+	    FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id CROSS JOIN item_content c ON c.item_id = i.id
+	    WHERE ?1 > 0
+	  ON CONFLICT (id) DO NOTHING`,
+	`UPDATE feeds SET
+	    trimmed_unread_count = trimmed_unread_count +
+	      (SELECT count(*) FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < ?2),
+	    trimmed_unread_since = COALESCE(trimmed_unread_since, ?3)
+	  WHERE id = ?1 AND EXISTS (SELECT 1 FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < ?2)`,
+}
+
+const trimDeleteSQL = "DELETE FROM items WHERE id IN (SELECT id FROM temp.trim_set)"
 
 // mutedAllowance is how many muted items a feed keeps under cap n, given its real and muted
 // counts (starred and held items excluded). Muted items count against n, but they are kept
