@@ -246,7 +246,9 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 
 // MarkScope selects what MarkAllRead touches. The zero value is every item.
 type MarkScope struct {
-	FeedID   int64
+	FeedID int64
+	// FolderID is a folder: with its subfolders for MarkScopeRead (the web app's folder scope), its own
+	// feeds only for MarkAllRead (a Reader API label, inFolderSQL).
 	FolderID int64
 	Starred  bool // starred items only; the ledger is skipped (starred items are never in it)
 	Muted    bool // muted items only (view=muted); the ledger is skipped

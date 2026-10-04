@@ -108,7 +108,7 @@ func TestDeletingAFeedOrFolderDropsOnlyTheScope(t *testing.T) {
 	e := newAREnv(t)
 	ctx := context.Background()
 	other := e.addFeed("https://b/f")
-	fo, err := e.db.CreateFolder(ctx, "News", 5)
+	fo, err := e.db.CreateFolder(ctx, "News", 0, 5)
 	require.NoError(t, err)
 	fid := fo.ID
 	list := []SavedSearch{
@@ -147,7 +147,7 @@ func TestEditSavedSearchesRefusesAScopeForAGoneFeedOrFolder(t *testing.T) {
 	e := newAREnv(t)
 	ctx := context.Background()
 	other := e.addFeed("https://b/f")
-	fo, err := e.db.CreateFolder(ctx, "News", 5)
+	fo, err := e.db.CreateFolder(ctx, "News", 0, 5)
 	require.NoError(t, err)
 	add := func(sc *SavedSearchScope) error {
 		_, err := e.db.EditSavedSearches(ctx, func(l []SavedSearch) ([]SavedSearch, error) {

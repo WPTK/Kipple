@@ -41,7 +41,7 @@ func benchItems(n, contentWords int) []Item {
 	items := make([]Item, n)
 	for i := range items {
 		items[i] = Item{
-			FeedID: int64(1 + i%40), FolderID: int64(1 + i%5), FeedTitle: sentence(r, 3),
+			FeedID: int64(1 + i%40), FolderIDs: []int64{int64(1 + i%5)}, FeedTitle: sentence(r, 3),
 			Title: sentence(r, 10), Author: sentence(r, 2), URL: "https://example.com/" + sentence(r, 4),
 			Content:    sentence(r, contentWords),
 			Categories: []string{sentence(r, 1), sentence(r, 1)},

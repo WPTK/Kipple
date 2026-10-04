@@ -179,35 +179,53 @@ func (d *DB) MergedSettings(ctx context.Context) (map[string]any, error) {
 	return out, rows.Err()
 }
 
-// UIFolder is a folder with its unread count.
+// UIFolder is a folder with the unread count of its whole subtree (what its list shows).
 type UIFolder struct {
 	ID        int64  `json:"id,string"`
+	ParentID  *int64 `json:"parent_id,string"` // null at the top level
 	Name      string `json:"name"`
 	Position  int64  `json:"position"`
 	IsDefault bool   `json:"is_default"`
 	Unread    int64  `json:"unread"`
 }
 
-// UIFolders lists folders in display order with unread counts.
+// UIFolders lists folders in display order (the tree in pre-order, siblings by position) with the
+// unread count of each folder's subtree.
 func (d *DB) UIFolders(ctx context.Context) ([]UIFolder, error) {
-	rows, err := d.reader.QueryContext(ctx, `SELECT fo.id, fo.name, fo.position, fo.is_default,
-		COALESCE((SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.folder_id = fo.id AND i.read = 0 AND `+listedFeedSQL+`), 0)
-		FROM folders fo ORDER BY fo.position, fo.name`)
+	rows, err := d.reader.QueryContext(ctx, `SELECT fo.id, fo.parent_id, fo.name, fo.position, fo.is_default, COALESCE(u.n, 0)
+		FROM folder_paths fp JOIN folders fo ON fo.id = fp.id
+		LEFT JOIN (SELECT f.folder_id, count(*) AS n FROM items i JOIN feeds f ON f.id = i.feed_id
+			WHERE i.read = 0 AND `+listedFeedSQL+` GROUP BY f.folder_id) u ON u.folder_id = fo.id
+		ORDER BY fp.sort_key`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []UIFolder{}
+	at := map[int64]int{}
 	for rows.Next() {
 		var f UIFolder
-		var def int
-		if err := rows.Scan(&f.ID, &f.Name, &f.Position, &def, &f.Unread); err != nil {
+		var parent sql.NullInt64
+		if err := rows.Scan(&f.ID, &parent, &f.Name, &f.Position, &f.IsDefault, &f.Unread); err != nil {
 			return nil, err
 		}
-		f.IsDefault = def == 1
+		if parent.Valid {
+			f.ParentID = &parent.Int64
+		}
+		at[f.ID] = len(out)
 		out = append(out, f)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Pre-order lists every folder after its ancestors, so walking it backwards adds each subtree's
+	// total to its parent before the parent's own total is passed up.
+	for i := len(out) - 1; i >= 0; i-- {
+		if p := out[i].ParentID; p != nil {
+			out[at[*p]].Unread += out[i].Unread
+		}
+	}
+	return out, nil
 }
 
 // UIFeed is a feed as GET /api/bootstrap lists it. Status is the disabled

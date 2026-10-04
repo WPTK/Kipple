@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -863,7 +864,7 @@ type ingestEval struct {
 	fs        *filterSet
 	gen       uint64 // the filter generation fs belongs to
 	feedID    int64
-	folderID  int64
+	folders   []int64 // the feed's folder, then the folders above it (folderChain)
 	feedTitle string
 }
 
@@ -894,7 +895,7 @@ func (d *DB) newIngestEval(ctx context.Context, tx *sql.Tx, feedID int64, docTit
 type preEval struct {
 	gen       uint64 // the filter generation read before the rules were loaded
 	fs        *filterSet
-	folderID  int64
+	folders   []int64
 	feedTitle string
 	results   map[string]filter.Result // by uid
 }
@@ -937,7 +938,7 @@ func (d *DB) preEvaluate(ctx context.Context, res *fetch.Result, items []fetch.I
 		d.log.Debug("store: pre-evaluate filters; evaluating in the transaction", "feed", res.Snap.ID, "err", err)
 		return nil
 	}
-	p := &preEval{gen: g, fs: fs, folderID: e.folderID, feedTitle: e.feedTitle, results: map[string]filter.Result{}}
+	p := &preEval{gen: g, fs: fs, folders: e.folders, feedTitle: e.feedTitle, results: map[string]filter.Result{}}
 	seen := make(map[string]bool, len(items))
 	for _, it := range items {
 		if known[it.UID] {
@@ -1015,7 +1016,7 @@ func (d *DB) knownUIDs(ctx context.Context, feedID int64, items []fetch.Item) (m
 // or a set compiled from an equal rule list) and the same folder and feed title. Otherwise nil,
 // and the transaction evaluates itself, as it always did.
 func (p *preEval) usable(e *ingestEval) map[string]filter.Result {
-	if p == nil || e == nil || p.gen != e.gen || p.folderID != e.folderID || p.feedTitle != e.feedTitle {
+	if p == nil || e == nil || p.gen != e.gen || !slices.Equal(p.folders, e.folders) || p.feedTitle != e.feedTitle {
 		return nil
 	}
 	if p.fs != e.fs && !reflect.DeepEqual(p.fs.src, e.fs.src) {
@@ -1024,16 +1025,22 @@ func (p *preEval) usable(e *ingestEval) map[string]filter.Result {
 	return p.results
 }
 
-// loadFeed fills the folder and the title a rule's `feed` field sees: feedTitleSQL, except that a
+// loadFeed fills the folders and the title a rule's `feed` field sees: feedTitleSQL, except that a
 // feed with no title stored yet (a brand-new subscription) uses the fetched document's title, which
 // this commit stores as its title, before the URL. The commit and the full-text prediction
 // (MutedUIDs) both use it, so they cannot disagree, and a retroactive run sees the same title.
 func (e *ingestEval) loadFeed(ctx context.Context, q Querier, docTitle string) error {
 	var own sql.NullString
 	var url string
-	if err := q.QueryRowContext(ctx, "SELECT f.folder_id, "+feedOwnTitleSQL("f")+", f.url FROM feeds f WHERE f.id = ?", e.feedID).Scan(&e.folderID, &own, &url); err != nil {
+	var folder int64
+	if err := q.QueryRowContext(ctx, "SELECT f.folder_id, "+feedOwnTitleSQL("f")+", f.url FROM feeds f WHERE f.id = ?", e.feedID).Scan(&folder, &own, &url); err != nil {
 		return err
 	}
+	chain, err := folderChain(ctx, q, folder)
+	if err != nil {
+		return err
+	}
+	e.folders = chain
 	switch doc := strings.Trim(docTitle, goSpace); {
 	case own.Valid:
 		e.feedTitle = own.String
@@ -1061,7 +1068,7 @@ func (e *ingestEval) eval(it fetch.Item, baseRead bool, hits map[int64]int) inge
 // match runs the rules over one item: the expensive part (the regex and text matching),
 // which depends on nothing but the item, the rules, the folder and the feed title.
 func (e *ingestEval) match(it fetch.Item) filter.Result {
-	return e.fs.set.Evaluate(filter.Item{FeedID: e.feedID, FolderID: e.folderID, FeedTitle: e.feedTitle,
+	return e.fs.set.Evaluate(filter.Item{FeedID: e.feedID, FolderIDs: e.folders, FeedTitle: e.feedTitle,
 		Title: it.Title, Author: it.Author, URL: it.URL, Content: it.ContentText, Categories: it.Categories})
 }
 

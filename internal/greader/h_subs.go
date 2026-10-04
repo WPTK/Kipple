@@ -478,7 +478,8 @@ func firstOrEmpty(l []string) string {
 	return l[0]
 }
 
-// disableTag is POST disable-tag: delete each folder, moving its feeds to Uncategorized.
+// disableTag is POST disable-tag: delete each folder with its subfolders, moving all their feeds to
+// Uncategorized (the web app's folder delete).
 func (c *call) disableTag() {
 	ctx := c.r.Context()
 	svals, raws := c.p.All("s"), c.p.AllRaw("s")
@@ -500,7 +501,11 @@ func (c *call) disableTag() {
 			return
 		}
 		if found {
-			if err := c.a.db.DisableLabel(ctx, id); err != nil {
+			// The default folder is never deleted (its feeds would stay where they are anyway), and a folder
+			// deleted meanwhile is already gone: both are nothing to do.
+			if _, err := c.a.db.DeleteFolder(ctx, id); errors.Is(err, store.ErrDefaultFolder) || errors.Is(err, store.ErrFolderNotFound) {
+				continue
+			} else if err != nil {
 				c.serverError("disable-tag", err)
 				return
 			}

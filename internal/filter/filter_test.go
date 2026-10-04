@@ -235,10 +235,14 @@ func TestScopeAndEnabled(t *testing.T) {
 	require.Equal(t, 4, s.Len())
 
 	got := func(it Item) []int64 { it.Title = "go"; return s.Evaluate(it).Matched }
-	require.Equal(t, []int64{4}, got(Item{FeedID: 1, FolderID: 1}))
-	require.Equal(t, []int64{1, 4}, got(Item{FeedID: 1, FolderID: 7}))
-	require.Equal(t, []int64{2, 4}, got(Item{FeedID: 42, FolderID: 1}))
-	require.Equal(t, []int64{1, 2, 4}, got(Item{FeedID: 42, FolderID: 7}))
+	require.Equal(t, []int64{4}, got(Item{FeedID: 1, FolderIDs: []int64{1}}))
+	require.Equal(t, []int64{1, 4}, got(Item{FeedID: 1, FolderIDs: []int64{7}}))
+	require.Equal(t, []int64{2, 4}, got(Item{FeedID: 42, FolderIDs: []int64{1}}))
+	require.Equal(t, []int64{1, 2, 4}, got(Item{FeedID: 42, FolderIDs: []int64{7}}))
+	// A folder rule covers the feeds of its subfolders: 7 is above the feed's folder 9.
+	require.Equal(t, []int64{1, 4}, got(Item{FeedID: 1, FolderIDs: []int64{9, 8, 7}}))
+	require.Equal(t, []int64{4}, got(Item{FeedID: 1, FolderIDs: []int64{7000, 70}}))
+	require.Equal(t, []int64{4}, got(Item{FeedID: 1}))
 }
 
 func TestSetLimits(t *testing.T) {

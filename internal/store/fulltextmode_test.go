@@ -234,9 +234,9 @@ func TestFulltextAllHold(t *testing.T) {
 
 func TestFavoritesDroppedWithFolderAndFeed(t *testing.T) {
 	e := newEnv(t)
-	fo, err := e.db.CreateFolder(e.ctx, "News", 5)
+	fo, err := e.db.CreateFolder(e.ctx, "News", 0, 5)
 	require.NoError(t, err)
-	fo2, err := e.db.CreateFolder(e.ctx, "Other", 6)
+	fo2, err := e.db.CreateFolder(e.ctx, "Other", 0, 6)
 	require.NoError(t, err)
 	f1 := e.addFeed("https://ex.com/one")
 	f2 := e.addFeed("https://ex.com/two")
@@ -305,11 +305,11 @@ func TestNormalizeFavoriteID(t *testing.T) {
 // transaction: the Reader API label rename-merge and disable-tag, too.
 func TestFavoritesDroppedByReaderLabelPaths(t *testing.T) {
 	e := newEnv(t)
-	a, err := e.db.CreateFolder(e.ctx, "A", 5)
+	a, err := e.db.CreateFolder(e.ctx, "A", 0, 5)
 	require.NoError(t, err)
-	b, err := e.db.CreateFolder(e.ctx, "B", 6)
+	b, err := e.db.CreateFolder(e.ctx, "B", 0, 6)
 	require.NoError(t, err)
-	c, err := e.db.CreateFolder(e.ctx, "C", 7)
+	c, err := e.db.CreateFolder(e.ctx, "C", 0, 7)
 	require.NoError(t, err)
 	s := func(n int64) string { return strconv.FormatInt(n, 10) }
 	// "0" + s(id) is a legacy spelling written before ids were normalised.
@@ -330,12 +330,14 @@ func TestFavoritesDroppedByReaderLabelPaths(t *testing.T) {
 	require.NoError(t, renameLabel(e.ctx, e.db, b.ID, "B2"))
 	require.Contains(t, get(), fmt.Sprintf(`"id":"%d"`, b.ID))
 
-	require.NoError(t, e.db.DisableLabel(e.ctx, c.ID))
+	_, err = e.db.DeleteFolder(e.ctx, c.ID) // disable-tag's delete
+	require.NoError(t, err)
 	require.JSONEq(t, fmt.Sprintf(`[{"t":"folder","id":"%d"},{"t":"feed","id":"%d"}]`, b.ID, a.ID), get())
 
 	// The default folder is never deleted, so its favorite stays.
 	require.NoError(t, e.db.SetSettings(e.ctx, map[string]any{SettingFavorites: []any{map[string]any{"t": "folder", "id": "1"}}}))
-	require.NoError(t, e.db.DisableLabel(e.ctx, 1))
+	_, err = e.db.DeleteFolder(e.ctx, 1)
+	require.ErrorIs(t, err, ErrDefaultFolder)
 	require.JSONEq(t, `[{"t":"folder","id":"1"}]`, get())
 }
 
