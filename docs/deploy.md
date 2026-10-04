@@ -16,6 +16,41 @@ with `ParserError: The '<' operator is reserved for future use` before anything 
 whole line: `cmd /c "docker exec -i kipple /kipple import - < feeds.opml"` (cmd passes the bytes through unchanged; do
 not use a PowerShell pipe, which can re-encode them).
 
+## Contents
+
+- [System requirements](#system-requirements)
+- [Where things live](#where-things-live), [what to back up](#what-to-back-up), [back up the volume](#back-up-the-volume-itself), [back up on a schedule](#back-up-on-a-schedule)
+- [Export a backup](#export-a-backup-the-button)
+- [OPML import and export](#opml-import-and-export)
+- [Health check and container hardening](#health-check-and-container-hardening)
+- [First run: create your account](#first-run-create-your-account)
+- [Ports](#ports) and [reverse proxies](reverse-proxy.md)
+- [Open mode (no password)](#open-mode-no-password)
+- [Time zone](#time-zone)
+- [About, debug info and versions](#about-debug-info-and-versions)
+- [The published image](#the-published-image)
+- [Installing the app and offline reading](#installing-the-app-and-offline-reading)
+- [Reset the web password](#reset-the-web-password)
+- [Cloudflare Access (optional)](#cloudflare-access-optional)
+- [Restore a backup](#restore-a-backup), [onto a new volume](#restore-onto-a-new-empty-volume-lost-volume-new-host)
+- [Roll back an upgrade](#roll-back-an-upgrade-that-migrated-the-schema) and [disk space during an upgrade](#disk-space-during-an-upgrade)
+- [Database size and compacting](#database-size-and-compacting)
+
+Something not working? See [troubleshooting.md](troubleshooting.md). Behind HTTPS with Caddy, nginx or Traefik:
+[reverse-proxy.md](reverse-proxy.md).
+
+## System requirements
+
+- A machine that runs Docker and Docker Compose 2.24 or newer (older Compose needs an empty `.env`; see
+  `docker-compose.example.yml`), on `linux/amd64` or `linux/arm64`. Building from source needs Docker and Git only.
+- Memory: Kipple is designed to stay under 100 MB resident, and the example compose file caps the container at 256 MB
+  (`mem_limit: 256m`, with `GOMEMLIMIT=64MiB`).
+- Disk, on the volume that holds `/data`: the database, the nightly snapshot (about one more copy of the database), the
+  image cache (at most 1 GiB by default, `imgproxy.cache_mb`) and room for upgrades and exports, below. A database
+  of about 140 feeds and 5,600 stored articles was 53 MB, so plan on roughly 10 KB per stored article. The default
+  keeps the newest 250 per feed (`retention.default`) and never trims starred articles.
+- A browser for the web app. Reeder Classic and NetNewsWire are the tested sync clients.
+
 ## Where things live
 
 Everything is on the `kipple_data` volume, mounted at `/data`. Compose prefixes the volume with the project name
@@ -122,6 +157,8 @@ Feeds screen > Export OPML downloads the subscription list (`GET /api/opml`), th
 zip. It carries folders, feed URLs and titles, and the per-feed options Kipple adds (interval, retention, full text, and
 the like, as `kipple:` attributes that other readers ignore). It does **not** carry read or starred state, filters,
 settings, the statistics history, the account or feed logins. If OPML is all you keep, those are lost on a restore from it.
+
+OPML carries your feeds and folders only; starred items and read state are not part of OPML (and most readers do not export them), so they are not imported.
 
 `kipple import [-mark-read-older-than-days N] <file.opml | ->` is safe while the server runs and prints JSON on standard output. The flag must come before the file. Pipe the file in, because the container user cannot read a bind-mounted `/import`:
 
@@ -577,3 +614,29 @@ database untouched. The check is skipped when the free space cannot be read.
 
 What each migration changes is in that release's notes in `CHANGELOG.md`. Before upgrading, read the top paragraph of
 every release you skip in `CHANGELOG.md`.
+
+## Database size and compacting
+
+Kipple keeps the newest N articles per feed (the global `retention.default`, 250 unless you change it, or a per-feed
+value) and trims after each fetch and when you lower a value. Starred articles are never trimmed. Trimmed articles leave
+small stubs so that read state and Reader API ids stay consistent, and `retention.restore_days` (90 by default) keeps
+enough to bring a recently trimmed article back; a nightly job removes the trimmed records once they are at least 180 days old. Statistics events are never
+trimmed.
+
+SQLite reuses space freed by trimming for new articles, but it does not shrink the file by itself: Kipple does not run
+`VACUUM` or use `auto_vacuum`, so `kipple.db` stays at its high-water mark after you lower retention or delete many
+feeds. A size that stops growing is normal, and `kipple.db-wal` next to it is a transient write log that Kipple
+checkpoints regularly. If you want the file smaller:
+
+1. Export a backup (Settings > Account > Export backup), or copy the nightly snapshot. Both are written with
+   `VACUUM INTO`, so they are compacted copies.
+2. Restore that copy with `kipple restore` (see [Restore a backup](#restore-a-backup)).
+
+Space to keep free on the volume:
+
+| When | Free space needed beyond what the database already occupies |
+|---|---|
+| Steady state | The nightly snapshot lives on the same volume: plan for about 2 times the database in total. |
+| Export | About 2.2 times the database, temporarily (the snapshot copy plus the zip). Over 4 GiB an export is refused: copy the nightly snapshot instead. |
+| Upgrade that migrates the schema | The database size plus 64 MB, plus 1.1 times the database for the pre-migration snapshot. The newest three pre-migration snapshots are kept, each about one more copy of the database. |
+| Restore | The new database, plus the previous one kept under `backup/pre-restore-*` (newest three kept). |
