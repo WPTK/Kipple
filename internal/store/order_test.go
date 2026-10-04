@@ -103,7 +103,7 @@ func TestOrderQueryPlans(t *testing.T) {
 				{"unread", CardQuery{View: "unread"}, "idx_items_unread_sort"},
 				{"all", CardQuery{View: "all"}, "idx_items_sort"},
 				{"feed", CardQuery{View: "all", FeedID: 2}, "idx_items_feed_sort"},
-				{"starred", CardQuery{View: "starred"}, "idx_items_"},
+				{"starred", CardQuery{View: "starred"}, "idx_items_starred_sort"},
 				{"muted", CardQuery{View: "muted"}, "idx_items_muted"},
 				{"muted in a feed", CardQuery{View: "muted", FeedID: 2}, "idx_items_"},
 				{"reading time", CardQuery{View: "unread", MinMinutes: 2, MaxMinutes: 9}, "idx_items_unread_sort"},
