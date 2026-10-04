@@ -13,7 +13,6 @@ import (
 )
 
 func TestDeleteFeedArchivesStarredByDefault(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("Doomed", 0)
@@ -60,7 +59,6 @@ func TestDeleteFeedArchivesStarredByDefault(t *testing.T) {
 }
 
 func TestDeleteFeedWithStarredDeleted(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("Doomed", 0)
@@ -78,7 +76,6 @@ func TestDeleteFeedWithStarredDeleted(t *testing.T) {
 }
 
 func TestDeleteFeedErrors(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -96,7 +93,6 @@ func TestDeleteFeedErrors(t *testing.T) {
 }
 
 func TestPurgeArchiveUnstarred(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 
@@ -127,7 +123,6 @@ func TestPurgeArchiveUnstarred(t *testing.T) {
 }
 
 func TestMarkFetchRead(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -192,7 +187,6 @@ func TestMarkFetchRead(t *testing.T) {
 }
 
 func TestResetTrimmedUnread(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -209,7 +203,6 @@ func TestResetTrimmedUnread(t *testing.T) {
 }
 
 func TestRefreshFeed(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	id := h.storeFeed("https://a.example/feed")
@@ -262,9 +255,8 @@ func TestRefreshFeed(t *testing.T) {
 }
 
 func TestRefreshFeedPendingWhenSlow(t *testing.T) {
-	t.Parallel()
+	shortWaits(t)
 	h := newHarness(t)
-	h.shortWaits()
 	c := h.login()
 	id := h.storeFeed("https://a.example/feed")
 	h.sched.hang = true
@@ -275,7 +267,6 @@ func TestRefreshFeedPendingWhenSlow(t *testing.T) {
 }
 
 func TestRefreshFeedShutdownDuringWait(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	id := h.storeFeed("https://a.example/feed")
@@ -289,7 +280,6 @@ func TestRefreshFeedShutdownDuringWait(t *testing.T) {
 }
 
 func TestFeedLog(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -344,7 +334,6 @@ func nullable(s string) any {
 }
 
 func TestFolders(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	sub := h.events()
@@ -436,7 +425,6 @@ func folderChanged(t *testing.T, sub *events.Sub) []string {
 }
 
 func TestFolderChangedEvents(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	sub := h.events()

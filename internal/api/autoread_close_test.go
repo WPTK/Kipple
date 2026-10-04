@@ -11,7 +11,6 @@ import (
 // started: that run's goroutine would outlive Close and touch a closed database.
 // Either the run is refused or Close waits for it.
 func TestCloseWaitsForAutoReadBeingStarted(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	admitted := make(chan struct{})
 	release := make(chan struct{})

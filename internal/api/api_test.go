@@ -124,8 +124,6 @@ type harness struct {
 	mux   *http.ServeMux
 	// paced counts sign-in pacing waits; each one advances clk instead of sleeping.
 	paced atomic.Int32
-	// seeded numbers the items addItem and arItem insert, so their ids are distinct and the same on every run.
-	seeded atomic.Int64
 }
 
 func newHarness(t *testing.T, tune ...func(*Options)) *harness {
@@ -201,7 +199,6 @@ func withCookie(c *http.Cookie) func(*http.Request) {
 }
 
 func TestCookieAttributesHTTP(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	require.True(t, c.HttpOnly)
@@ -213,7 +210,6 @@ func TestCookieAttributesHTTP(t *testing.T) {
 }
 
 func TestCookieAttributesHTTPSProxied(t *testing.T) {
-	t.Parallel()
 	trusted := netip.MustParsePrefix("192.0.2.20/32")
 	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Prefix{trusted} })
 
@@ -256,7 +252,6 @@ func TestCookieAttributesHTTPSProxied(t *testing.T) {
 }
 
 func TestUnauthenticatedIs401(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	for _, tc := range []struct{ method, path string }{
 		{"GET", "/api/status"}, {"GET", "/api/health/feeds"}, {"POST", "/api/refresh"},
@@ -278,7 +273,6 @@ func TestUnauthenticatedIs401(t *testing.T) {
 }
 
 func TestCrossOriginRejected(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	strip := func(r *http.Request) {
@@ -335,7 +329,6 @@ func TestCrossOriginRejected(t *testing.T) {
 }
 
 func TestOriginUsesEffectiveScheme(t *testing.T) {
-	t.Parallel()
 	trusted := netip.MustParsePrefix("192.0.2.20/32")
 	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Prefix{trusted} })
 	c := h.login()
@@ -352,7 +345,6 @@ func TestOriginUsesEffectiveScheme(t *testing.T) {
 }
 
 func TestStatusMeHealthRefresh(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 
@@ -419,7 +411,6 @@ func TestStatusMeHealthRefresh(t *testing.T) {
 }
 
 func TestOPMLImportExport(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	doc := `<?xml version="1.0"?><opml version="2.0"><head/><body>
@@ -454,7 +445,6 @@ func TestOPMLImportExport(t *testing.T) {
 // TestGreaderPrefixNeverReachesUI composes the Reader front with the UI mux the
 // way cmd/kipple does.
 func TestGreaderPrefixNeverReachesUI(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	front := greader.New(greader.Options{DB: h.db}).Front(h.mux)
 	for _, p := range []string{"/api/greader.php", "/api/greader.php/status", "/api/greader.php//api/status", "/api/greader.php/api/auth/me"} {
@@ -526,7 +516,6 @@ func readUntil(t *testing.T, br *bufio.Reader, prefix string, timeout time.Durat
 }
 
 func TestSSEHeartbeatAndSurvivesWriteAndReadTimeout(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	ts := sseServer(t, h)
@@ -549,7 +538,6 @@ func TestSSEHeartbeatAndSurvivesWriteAndReadTimeout(t *testing.T) {
 }
 
 func TestSSEReplayAndResync(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	ts := sseServer(t, h)
@@ -568,7 +556,6 @@ func TestSSEReplayAndResync(t *testing.T) {
 }
 
 func TestSSEEndsOnHubClose(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	ts := sseServer(t, h)
@@ -591,7 +578,6 @@ func itoa(n uint64) string {
 }
 
 func TestMalformedLoginsAreNotCounted(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	for i := 0; i < 15; i++ {
 		require.Equal(t, http.StatusBadRequest, h.do("POST", "/api/auth/login", "{not json").Code)
@@ -602,7 +588,6 @@ func TestMalformedLoginsAreNotCounted(t *testing.T) {
 // The API routes under httpx.Secure: every answer, errors included, forbids
 // framing and carries a JSON-only policy; the image proxy keeps its own.
 func TestAPIResponsesUnderSecure(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	secure := httpx.Secure(h.mux, httpx.Options{})
@@ -652,7 +637,6 @@ func (f *fakeSched) ApplyRetention(all bool) (sched.RunInfo, error) {
 // GET downloads answer to the Sec-Fetch-Site/Origin rule alone (a link click
 // carries no X-Kipple-Client); every other GET and every write still needs it.
 func TestDownloadOriginMatrix(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	plain := func(site string) func(*http.Request) {
@@ -675,7 +659,6 @@ func TestDownloadOriginMatrix(t *testing.T) {
 }
 
 func TestSSEReplayFromLastEventIDQueryParam(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	ts := sseServer(t, h)
@@ -693,7 +676,6 @@ func TestSSEReplayFromLastEventIDQueryParam(t *testing.T) {
 }
 
 func TestSSEEndsWhenItsSessionIsGone(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	ts := sseServer(t, h)
@@ -711,7 +693,6 @@ func TestSSEEndsWhenItsSessionIsGone(t *testing.T) {
 }
 
 func TestOPMLImportPublishesFolderChangedOnlyWhenFoldersAreCreated(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	sub := h.hub.Subscribe(h.hub.LastID())

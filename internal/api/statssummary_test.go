@@ -45,7 +45,6 @@ func (h *harness) setSetting(key, jsonVal string) {
 }
 
 func TestStatsSummaryDefinitions(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	f1 := h.addFeed("Alpha", 0)
 	f2 := h.addFeed("Beta", 0)
@@ -138,7 +137,6 @@ func TestStatsSummaryDefinitions(t *testing.T) {
 }
 
 func TestStatsSummaryWeekRanges(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t) // 2026-09-24 is a Thursday
 	for _, tc := range []struct {
 		ws, from string
@@ -155,7 +153,6 @@ func TestStatsSummaryWeekRanges(t *testing.T) {
 }
 
 func TestStatsSummaryYearAcrossDST(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	_, out := h.summary(nil, "?range=year")
 	rg := out["range"].(map[string]any)
@@ -178,7 +175,6 @@ func TestStatsSummaryYearAcrossDST(t *testing.T) {
 }
 
 func TestStatsSummaryAllAndCustom(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("A", 0)
 	_, out := h.summary(nil, "?range=all")
@@ -201,7 +197,6 @@ func TestStatsSummaryAllAndCustom(t *testing.T) {
 }
 
 func TestStatsSummaryOff(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("A", 0)
 	h.stat("open", "2026-09-20", 9, 1, f, "a", nil)
@@ -218,7 +213,6 @@ func TestStatsSummaryOff(t *testing.T) {
 }
 
 func TestStatsSummaryStreaks(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("A", 0)
 	n := int64(0)
@@ -248,7 +242,6 @@ func TestStatsSummaryStreaks(t *testing.T) {
 }
 
 func TestStatsSummaryNeverOpenedAndSnapshots(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	fo := h.addFolder("News")
 	opened := h.addFeed("Opened", 0)
@@ -277,7 +270,6 @@ func TestStatsSummaryNeverOpenedAndSnapshots(t *testing.T) {
 
 // 3660 days, both ends included, is the longest custom range: to minus from is at most 3659.
 func TestStatsSummaryCustomRangeCap(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	from := time.Date(2016, 1, 1, 0, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
@@ -295,7 +287,6 @@ func TestStatsSummaryCustomRangeCap(t *testing.T) {
 
 // A feed subscribed after the end of the range was not there to be opened.
 func TestStatsSummaryNeverOpenedSkipsLaterSubscriptions(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	early := h.addFeed("Early", 0)
 	late := h.addFeed("Late", 0)
@@ -315,7 +306,6 @@ func TestStatsSummaryNeverOpenedSkipsLaterSubscriptions(t *testing.T) {
 }
 
 func TestStatsSummarySourceTimedFieldsAndTruncationFlag(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("A", 0)
 	h.stat("open", "2026-09-19", 9, 1, f, "old", nil)
@@ -333,7 +323,6 @@ func TestStatsSummarySourceTimedFieldsAndTruncationFlag(t *testing.T) {
 
 // Only one summary is computed at a time; a waiter whose request is cancelled returns without querying.
 func TestStatsSummaryGateSerializes(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	cc := h.login()
 	h.srv.statsGate <- struct{}{} // a computation in flight

@@ -9,7 +9,6 @@ import (
 )
 
 func TestDetailIsTransformedAtServeTimeOnly(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -54,7 +53,6 @@ func TestDetailIsTransformedAtServeTimeOnly(t *testing.T) {
 }
 
 func TestStripTrackingSettingMetadata(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	_, body, _ := h.api(c, "GET", "/api/settings", "")

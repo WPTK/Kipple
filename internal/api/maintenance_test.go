@@ -16,7 +16,6 @@ import (
 // A write refused because the search index rebuild owns the writer is a temporary 503 with
 // Retry-After, not a 500; anything else stays a 500.
 func TestServerErrorMapsMaintenanceTo503(t *testing.T) {
-	t.Parallel()
 	s := &Server{log: slog.New(slog.DiscardHandler)}
 	rec := httptest.NewRecorder()
 	s.serverError(rec, "mark read", fmt.Errorf("wrapped: %w", store.ErrMaintenance))

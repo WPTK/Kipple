@@ -16,8 +16,8 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// New copies the two waits into each server's timing, which a test may shorten per server.
-const (
+// The two waits are variables so tests can shorten them.
+var (
 	addWait     = 8 * time.Second  // POST /api/feeds waits this long for the first fetch
 	refreshWait = 15 * time.Second // POST /api/feeds/{id}/refresh
 )
@@ -256,7 +256,7 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.Warn("api: add feed: submit first fetch", "err", err)
 		s.opt.Sched.Wake() // the feed is due; the tick picks it up
-	} else if rep, got, werr := s.awaitReply(r, ch, s.tm.addWait); werr == nil && got && rep.Err == nil {
+	} else if rep, got, werr := s.awaitReply(r, ch, addWait); werr == nil && got && rep.Err == nil {
 		fo = outcomeOf(rep)
 	}
 	fd, _, err := s.db.FeedDetail(ctx, res.FeedID, s.statusEnv())
@@ -557,7 +557,7 @@ func (s *Server) refreshFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "shutting_down")
 		return
 	}
-	rep, got, err := s.awaitReply(r, ch, s.tm.refreshWait)
+	rep, got, err := s.awaitReply(r, ch, refreshWait)
 	switch {
 	case errors.Is(err, sched.ErrStopped):
 		writeError(w, http.StatusServiceUnavailable, "shutting_down")

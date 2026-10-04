@@ -15,7 +15,6 @@ import (
 
 // A browser form upload sends the OPML as a multipart file part.
 func TestOPMLImportMultipart(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	doc := `<?xml version="1.0"?><opml version="2.0"><head/><body>
@@ -58,7 +57,6 @@ func TestOPMLImportMultipart(t *testing.T) {
 }
 
 func TestRefreshErrors(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	h.sched.mu.Lock()

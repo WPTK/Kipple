@@ -11,7 +11,6 @@ import (
 // the order (design §7.1): oldest-first page 1 holds the LOWEST ids, so the highest
 // id on the page would leave the rest of the list unmarked.
 func TestListItemsAsOfSweepsOldestFirstList(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -51,7 +50,6 @@ func TestListItemsAsOfSweepsOldestFirstList(t *testing.T) {
 
 // Undoing a mark-all restores the trimmed-ledger rows it read, without resurrecting stubs.
 func TestBulkUndoRestoresLedgerRows(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)

@@ -64,7 +64,6 @@ func readCSV(t *testing.T, body string) [][]string {
 }
 
 func TestStatsExportCSV(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("Alpha", 0)
 	h.stat("open", "2026-09-20", 8, 1, f, "s1", nil, "Feed, \"one\"\nline")
@@ -128,7 +127,6 @@ d', '@x', 12, 's1')`, f)
 }
 
 func TestStatsExportPagingAndFormats(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	h.addFeed("Alpha", 0)
 	const n = 25034 // five pages: four full and a partial one
@@ -221,7 +219,6 @@ type cancelAfterFlush struct {
 func (c cancelAfterFlush) Flush() { c.ResponseRecorder.Flush(); c.cancel() }
 
 func TestStatsExportStopsWhenCancelled(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	h.bulkStats(12000, "2026-09-20")
 	cc := h.login()
@@ -238,7 +235,6 @@ func TestStatsExportStopsWhenCancelled(t *testing.T) {
 }
 
 func TestStatsExportSummary(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("Alpha", 0)
 	h.stat("open", "2026-09-20", 9, 3, f, "s10", nil)
@@ -277,7 +273,6 @@ func TestStatsExportSummary(t *testing.T) {
 }
 
 func TestStatsExportBadRequests(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	for _, q := range []string{
 		"?format=xml", "?format=CSV", "?content=all", "?content=summary&format=csv", "?content=summary&format=jsonl",
@@ -294,7 +289,6 @@ func TestStatsExportBadRequests(t *testing.T) {
 }
 
 func TestStatsExportGuards(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	require.Equal(t, 401, h.do("GET", "/api/stats/export", "").Code)
 	require.Equal(t, 401, h.do("GET", "/api/stats/dictionary", "").Code)
@@ -315,7 +309,6 @@ func TestStatsExportGuards(t *testing.T) {
 }
 
 func TestStatsDictionary(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	cc := h.login()
 	rec := h.do("GET", "/api/stats/dictionary", "", withCookie(cc))
@@ -352,7 +345,6 @@ func (h *harness) del(body string) (int, map[string]any) {
 }
 
 func TestStatsDelete(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("Alpha", 0)
 	h.addItem(f, seedItem{SortAt: 1000, Read: true, Starred: true})
@@ -406,7 +398,6 @@ func TestStatsDelete(t *testing.T) {
 }
 
 func TestStatsDeleteAll(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	h.bulkStats(30, "2026-09-20")
 	for _, body := range []string{`{"all":true}`, `{"all":true,"confirm":"delete all"}`, `{"all":true,"confirm":"DELETE ALL "}`, `{"all":true,"confirm":""}`} {
@@ -429,7 +420,6 @@ func TestStatsDeleteAll(t *testing.T) {
 }
 
 func TestStatsDeleteBadRequests(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	h.bulkStats(3, "2026-09-20")
 	for _, body := range []string{
@@ -446,7 +436,6 @@ func TestStatsDeleteBadRequests(t *testing.T) {
 
 // Data controls work with recording off.
 func TestStatsExportAndDeleteWhileOff(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	h.bulkStats(5, "2026-09-20")
 	h.setSetting("stats.enabled", "false")
@@ -476,7 +465,6 @@ func TestStatsExportAndDeleteWhileOff(t *testing.T) {
 // TestStatsExportPerf times a raw CSV export of a million rows through the handler; skipped unless
 // KIPPLE_PERF=1. It discards the body, so it measures the read, encode and write path, not a disk.
 func TestStatsExportPerf(t *testing.T) {
-	t.Parallel()
 	if testing.Short() || os.Getenv("KIPPLE_PERF") == "" {
 		t.Skip("seeds a million stats rows; set KIPPLE_PERF=1")
 	}

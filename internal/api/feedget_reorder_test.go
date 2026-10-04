@@ -9,7 +9,6 @@ import (
 )
 
 func TestGetFeedReturnsTheDetailPatchReturns(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	id := h.storeFeed("https://a.example/feed")
@@ -34,7 +33,6 @@ func TestGetFeedReturnsTheDetailPatchReturns(t *testing.T) {
 }
 
 func TestGetFeedErrorsAndAuth(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/feeds/1", "").Code)
@@ -69,7 +67,6 @@ func positions(h *harness, table string) map[int64][2]int64 {
 }
 
 func TestReorderSetsFolderAndFeedPositionsAtomically(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f2, f3 := h.addFolder("Two"), h.addFolder("Three")
@@ -103,7 +100,6 @@ func TestReorderSetsFolderAndFeedPositionsAtomically(t *testing.T) {
 }
 
 func TestReorderInvalidInputWritesNothing(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f2 := h.addFolder("Two")
@@ -143,7 +139,6 @@ func TestReorderInvalidInputWritesNothing(t *testing.T) {
 }
 
 func TestSSEHeartbeatEventHasNoIDAndDoesNotAdvanceLastEventID(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	ts := sseServer(t, h)

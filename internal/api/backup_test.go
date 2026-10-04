@@ -31,7 +31,6 @@ func fresh(t *testing.T, h *harness) map[string]any {
 }
 
 func TestBackupCreateAndDownload(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t, func(o *Options) {
 		o.Backups = backup.New(backup.Options{DB: o.DB, Version: "t", FreeBytes: func(string) (uint64, error) { return 1 << 40, nil }})
 	})
@@ -78,7 +77,6 @@ func TestBackupCreateAndDownload(t *testing.T) {
 }
 
 func TestBackupRules(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t, func(o *Options) {
 		o.Backups = backup.New(backup.Options{DB: o.DB, FreeBytes: func(string) (uint64, error) { return 1 << 40, nil }})
 	})
@@ -94,7 +92,6 @@ func TestBackupRules(t *testing.T) {
 }
 
 func TestBackupBusyAndNoSpace(t *testing.T) {
-	t.Parallel()
 	space := uint64(1 << 40)
 	h := newHarness(t, func(o *Options) {
 		o.Backups = backup.New(backup.Options{DB: o.DB, FreeBytes: func(string) (uint64, error) { return space, nil }})
@@ -123,7 +120,6 @@ func TestBackupBusyAndNoSpace(t *testing.T) {
 }
 
 func TestBackupResponseIsJSON(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.backupSetup(t)
 	rec := h.do("POST", "/api/backup", "", withCookie(c))

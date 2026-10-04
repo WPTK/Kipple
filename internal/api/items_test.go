@@ -85,9 +85,11 @@ func (h *harness) addFeed(title string, folder int64) int64 {
 	return id
 }
 
+var seedN int64
+
 func (h *harness) addItem(feed int64, s seedItem) int64 {
 	h.t.Helper()
-	seedN := h.seeded.Add(1)
+	seedN++
 	id := baseID + seedN*1000
 	if s.SortAt == 0 {
 		s.SortAt = id / 1_000_000
@@ -216,7 +218,6 @@ func drain(sub *events.Sub, typ string, wait time.Duration) []events.Event {
 // ---- auth and origin rules ----
 
 func TestNewRoutesRequireSession(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	for _, tc := range []struct{ method, path string }{
 		{"GET", "/api/bootstrap"}, {"GET", "/api/items"}, {"GET", "/api/items/5"}, {"POST", "/api/items/5/open"},
@@ -229,7 +230,6 @@ func TestNewRoutesRequireSession(t *testing.T) {
 }
 
 func TestNewRoutesOriginRules(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -290,7 +290,6 @@ func TestNewRoutesOriginRules(t *testing.T) {
 // ---- GET /api/items ----
 
 func TestListItems(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	fo := h.addFolder("News")
@@ -397,7 +396,6 @@ func TestListItems(t *testing.T) {
 }
 
 func TestCardShape(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -438,7 +436,6 @@ func TestCardShape(t *testing.T) {
 }
 
 func TestListItemsEmptyIsArray(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	_, body, rec := h.api(c, "GET", "/api/items", "")
@@ -449,7 +446,6 @@ func TestListItemsEmptyIsArray(t *testing.T) {
 // ---- GET /api/items/{id} ----
 
 func TestGetItem(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("Feed A", 0)
@@ -494,7 +490,6 @@ func TestGetItem(t *testing.T) {
 }
 
 func TestGetItemLedgerStub(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -525,7 +520,6 @@ func TestGetItemLedgerStub(t *testing.T) {
 // ---- POST /api/items/{id}/open ----
 
 func TestOpenItem(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	sub := h.hub.Subscribe(0)
@@ -567,7 +561,6 @@ func TestOpenItem(t *testing.T) {
 }
 
 func TestOpenItemErrors(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -589,7 +582,6 @@ func TestOpenItemErrors(t *testing.T) {
 }
 
 func TestOpenLedgerStub(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -606,7 +598,6 @@ func TestOpenLedgerStub(t *testing.T) {
 // ---- PUT /api/items/{id}/star ----
 
 func TestStarItem(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	sub := h.hub.Subscribe(0)
@@ -648,7 +639,6 @@ func TestStarItem(t *testing.T) {
 }
 
 func TestStarRestoresLedgerItem(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	sub := h.hub.Subscribe(0)
@@ -685,7 +675,6 @@ func TestStarRestoresLedgerItem(t *testing.T) {
 // ---- POST /api/items/mark-read ----
 
 func TestMarkReadByIDs(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	sub := h.hub.Subscribe(0)
@@ -725,7 +714,6 @@ func TestMarkReadByIDs(t *testing.T) {
 }
 
 func TestMarkReadUnreadRestoresLedger(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	sub := h.hub.Subscribe(0)
@@ -751,7 +739,6 @@ func TestMarkReadUnreadRestoresLedger(t *testing.T) {
 }
 
 func TestMarkReadScope(t *testing.T) {
-	t.Parallel()
 	type fixture struct {
 		h                  *harness
 		c                  *http.Cookie
@@ -860,7 +847,6 @@ func TestMarkReadScope(t *testing.T) {
 }
 
 func TestMarkReadValidation(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -897,7 +883,6 @@ func TestMarkReadValidation(t *testing.T) {
 
 // The structural rule (design §7.2, §8): mark-read has no path to the Recorder.
 func TestMarkReadNeverTouchesRecorder(t *testing.T) {
-	t.Parallel()
 	rec := &countingRecorder{}
 	h := newHarness(t, func(o *Options) { o.Stats = rec })
 	c := h.login()
@@ -914,7 +899,6 @@ func TestMarkReadNeverTouchesRecorder(t *testing.T) {
 // ---- POST /api/stats/events ----
 
 func TestStatsEvents(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -983,7 +967,6 @@ func TestStatsEvents(t *testing.T) {
 }
 
 func TestStatsEventsMalformedBodiesAre204(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	for _, body := range []string{``, `nope`, `{"events":"x"}`, `[]`, `{"events":[1,2]}`, `{"events":[{"kind":7}]}`, `{"events":null}`, strings.Repeat("x", statsBodyMax+10)} {
@@ -994,7 +977,6 @@ func TestStatsEventsMalformedBodiesAre204(t *testing.T) {
 }
 
 func TestStatsEventsBatchCap(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -1009,7 +991,6 @@ func TestStatsEventsBatchCap(t *testing.T) {
 }
 
 func TestStatsEventsBeaconWithBlobBody(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -1026,7 +1007,6 @@ func TestStatsEventsBeaconWithBlobBody(t *testing.T) {
 // ---- GET /api/bootstrap ----
 
 func TestBootstrap(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	fo := h.addFolder("News")
@@ -1083,7 +1063,6 @@ func TestBootstrap(t *testing.T) {
 }
 
 func TestBootstrapWarningsAndArchive(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t, func(o *Options) { o.Version = "v1.2.3" })
 	c := h.login()
 	// archive feed: never listed, empty or not (an unsubscribed feed shows up nowhere), and its
@@ -1181,7 +1160,6 @@ func TestCountsAreCoalesced(t *testing.T) {
 }
 
 func TestNoCountsEventWithoutChange(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t, func(o *Options) { o.CountsInterval = 20 * time.Millisecond })
 	c := h.login()
 	sub := h.hub.Subscribe(0)
@@ -1216,7 +1194,6 @@ func (c *countingRecorder) RecordStars(_ *sql.Tx, _, _ string, ids []int64) erro
 // Counts events cannot go out of order: publishCounts takes pubMu around query+publish, so a
 // publish cannot start while another one holds it.
 func TestPublishCountsIsSerialized(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	sub := h.hub.Subscribe(0)
 	defer sub.Close()
@@ -1234,7 +1211,6 @@ func TestPublishCountsIsSerialized(t *testing.T) {
 }
 
 func TestListItemsIncludeContent(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -1273,7 +1249,6 @@ func TestListItemsIncludeContent(t *testing.T) {
 }
 
 func TestStarAtRecordsWhenItHappened(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -1307,7 +1282,6 @@ func TestStarAtRecordsWhenItHappened(t *testing.T) {
 // ---- stats.enabled and event_id ----
 
 func TestStatsDisabledOpenStarIngest(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -1338,7 +1312,6 @@ func TestStatsDisabledOpenStarIngest(t *testing.T) {
 }
 
 func TestStatsEventsEventID(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -1380,7 +1353,6 @@ func TestStatsEventsEventID(t *testing.T) {
 }
 
 func TestStatsEventsMalformedEventDropsOnlyThatEvent(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -1411,7 +1383,6 @@ func TestStatsEventsMalformedEventDropsOnlyThatEvent(t *testing.T) {
 }
 
 func TestStatsEventsDisabledAnswersBeforeParsing(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -1430,7 +1401,6 @@ func TestStatsEventsDisabledAnswersBeforeParsing(t *testing.T) {
 // Dedup runs before the cumulative cap: a retried event at the cap is dropped silently and does not
 // change the sum, while a genuinely new event over the cap is still refused.
 func TestStatsEventsDedupBeforeCap(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)

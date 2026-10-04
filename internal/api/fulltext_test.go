@@ -64,7 +64,6 @@ func (h *harness) ftItem(site *ftSite, feedFulltext bool, private bool) (feed, i
 }
 
 func TestFulltextSetModeExtractsOnceAndStores(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	site := newFTSite(t)
@@ -134,7 +133,6 @@ func TestFulltextSetModeExtractsOnceAndStores(t *testing.T) {
 }
 
 func TestFulltextFeedModeExtractsWithEmptyBody(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	site := newFTSite(t)
@@ -147,7 +145,6 @@ func TestFulltextFeedModeExtractsWithEmptyBody(t *testing.T) {
 }
 
 func TestFulltextFailureStoredAndRetried(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	site := newFTSite(t)
@@ -196,7 +193,6 @@ func TestFulltextFailureStoredAndRetried(t *testing.T) {
 }
 
 func TestFulltextGuardedAgainstPrivateNets(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	site := newFTSite(t) // 127.0.0.1
@@ -216,7 +212,6 @@ func TestFulltextGuardedAgainstPrivateNets(t *testing.T) {
 }
 
 func TestFulltextConcurrentRequestsShareOneFetch(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	site := newFTSite(t)
@@ -240,7 +235,6 @@ func TestFulltextConcurrentRequestsShareOneFetch(t *testing.T) {
 }
 
 func TestFulltextValidationAndAuth(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	site := newFTSite(t)
@@ -264,7 +258,6 @@ func TestFulltextValidationAndAuth(t *testing.T) {
 // fetch.fulltext_all: PATCH flips it immediately for the on-demand endpoint and
 // the item detail; the feed's own flag stays; an item forced off still wins.
 func TestFulltextAllSwitchOnDemandAndDetail(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	site := newFTSite(t)

@@ -12,7 +12,6 @@ import (
 // Deleting with unmute=unread reports how many items went back to unread, which is fewer than it
 // restored when some were read before the rule muted them.
 func TestFilterDeleteReportsMadeUnread(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -36,9 +35,10 @@ func TestFilterDeleteReportsMadeUnread(t *testing.T) {
 // A restore larger than one request's budget answers 202 {done:false} with the rule disabled; the
 // client repeats the DELETE until done, and each answer comes back well inside the WriteTimeout.
 func TestFilterDeleteIsBoundedAndResumable(t *testing.T) {
-	t.Parallel()
+	old := deleteFilterBudget
+	deleteFilterBudget = 0 // one batch per request
+	t.Cleanup(func() { deleteFilterBudget = old })
 	h := newHarness(t)
-	h.srv.tm.deleteFilterBudget = 0 // one batch per request
 	c := h.login()
 	feed := h.addFeed("A", 0)
 	h.bulkItems(feed, 2400)
@@ -69,7 +69,6 @@ func TestFilterDeleteIsBoundedAndResumable(t *testing.T) {
 // A PATCH that does not change how the rule matches or acts (a rename, a move) leaves a running apply
 // alone; one that does cancels it, and run.done says "cancelled", not a failure.
 func TestPatchCancelsApplyOnlyOnMatchingChanges(t *testing.T) {
-	t.Parallel()
 	for _, tc := range []struct {
 		name, body string
 		cancels    bool
@@ -108,7 +107,6 @@ func TestPatchCancelsApplyOnlyOnMatchingChanges(t *testing.T) {
 // a nanosecond (issue #154) armed a timer when the clock had not ticked since the deadline was set,
 // and a 50-item scan sometimes finished before that timer fired, ending the run with no error.
 func TestApplyBudgetEndsTheRun(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	h.srv.apply.budget = 0
 	c := h.login()
@@ -127,7 +125,6 @@ func TestApplyBudgetEndsTheRun(t *testing.T) {
 // The candidate count runs outside the apply lock: while it runs, bootstrap's run list and a cancel
 // from an edit do not wait on it, and a cancel during it ends the start with 409 cancelled.
 func TestStartApplyCountsOutsideTheLock(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -135,7 +132,8 @@ func TestStartApplyCountsOutsideTheLock(t *testing.T) {
 	id := h.mustFilter(c, map[string]any{"action": "mute", "terms": []string{"spam"}})
 
 	counting, release := make(chan struct{}), make(chan struct{})
-	h.srv.applyCounting = func() { close(counting); <-release }
+	testApplyCountHook = func() { close(counting); <-release }
+	t.Cleanup(func() { testApplyCountHook = nil })
 
 	type result struct {
 		code int
@@ -191,7 +189,6 @@ func mustID(t *testing.T, s string) int64 {
 
 // An empty field list is title only: stored and served as ["title"], so the client draws the highlight.
 func TestHighlightWithEmptyFieldsIsDrawnOnTitles(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	code, out := h.postFilter(c, map[string]any{"action": "highlight", "terms": []string{"go"}, "fields": []string{}})
@@ -207,7 +204,6 @@ func TestHighlightWithEmptyFieldsIsDrawnOnTitles(t *testing.T) {
 // sendBeacon cannot set X-Kipple-Client, so a flush carries its client in the body: "web" or "pwa";
 // anything else falls back to the header, then to web.
 func TestStatsEventsClientFromBody(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)

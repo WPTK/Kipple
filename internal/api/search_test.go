@@ -19,7 +19,6 @@ func searchURL(q string, extra ...string) string {
 }
 
 func TestSearchBasicFiltersAndSnippet(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f1 := h.addFeed("One", 0)
@@ -57,7 +56,6 @@ func TestSearchBasicFiltersAndSnippet(t *testing.T) {
 }
 
 func TestSearchMaliciousInputNeverErrors(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("One", 0)
@@ -94,7 +92,6 @@ func TestSearchMaliciousInputNeverErrors(t *testing.T) {
 }
 
 func TestSearchPaginationBothOrders(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("One", 0)
@@ -147,7 +144,6 @@ func TestSearchPaginationBothOrders(t *testing.T) {
 }
 
 func TestSearchParamValidation(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("One", 0)
@@ -174,7 +170,6 @@ func TestSearchParamValidation(t *testing.T) {
 }
 
 func TestFTSRebuild(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("One", 0)
@@ -193,7 +188,6 @@ func TestFTSRebuild(t *testing.T) {
 }
 
 func TestSearchStemmingPhraseAndFallbackFlag(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("One", 0)
@@ -225,7 +219,6 @@ func TestSearchStemmingPhraseAndFallbackFlag(t *testing.T) {
 
 // Relevance cursors from before schema 5 and cursors from another ordering are refused, not misread.
 func TestSearchOldRankCursorIs400(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("One", 0)
@@ -245,7 +238,6 @@ func TestSearchOldRankCursorIs400(t *testing.T) {
 
 // typing=1 makes the unfinished last word a prefix; without it a finished-looking word never widens.
 func TestSearchTypingParam(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("One", 0)
@@ -261,7 +253,6 @@ func TestSearchTypingParam(t *testing.T) {
 
 // mark-read honors scope.fallback: the list's own flag decides the expression.
 func TestMarkReadScopeFallbackFlag(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("One", 0)

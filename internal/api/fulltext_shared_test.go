@@ -40,7 +40,6 @@ func (e *gatedExtractor) Extract(ctx context.Context, t extract.Target) (extract
 // Opening an item while the ingest pool is extracting it joins that run: the
 // page is fetched once, and the response carries the stored text.
 func TestOpeningAnItemTheIngestPoolIsExtractingJoinsTheRun(t *testing.T) {
-	t.Parallel()
 	feedSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")
 		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://ex.com/</link>`+

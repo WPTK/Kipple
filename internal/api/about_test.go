@@ -12,13 +12,11 @@ import (
 )
 
 func TestAboutRequiresASession(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/about", "").Code)
 }
 
 func TestAboutReportsTheBuildAndNothingPrivate(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	h := newHarness(t, func(o *Options) {
 		o.Version = "v0.5.0-beta.1"
@@ -57,14 +55,12 @@ func TestAboutReportsTheBuildAndNothingPrivate(t *testing.T) {
 }
 
 func TestAboutDataDirNotWritable(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t, func(o *Options) { o.DataDir = t.TempDir() + "/does/not/exist" })
 	_, out, _ := h.api(h.login(), "GET", "/api/about", "")
 	require.Equal(t, false, out["data_dir_writable"])
 }
 
 func TestAboutUnsetBuildFieldsAreUnknown(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	_, out, _ := h.api(h.login(), "GET", "/api/about", "")
 	require.Equal(t, "unknown", out["commit"])
@@ -72,7 +68,6 @@ func TestAboutUnsetBuildFieldsAreUnknown(t *testing.T) {
 }
 
 func TestBootstrapCarriesTheWebBuild(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t, func(o *Options) { o.WebBuild = "abc123def4" })
 	_, out, _ := h.api(h.login(), "GET", "/api/bootstrap", "")
 	require.Equal(t, "abc123def4", out["web_build"])

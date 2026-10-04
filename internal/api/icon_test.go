@@ -7,7 +7,6 @@ import (
 )
 
 func TestFeedIcon(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("One", 0)

@@ -71,7 +71,6 @@ func ofType(evs []events.Event, typ string) []map[string]any {
 // ---- auth and origin ----
 
 func TestFilterRoutesRequireSessionAndOrigin(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	routes := []struct{ method, path string }{
@@ -94,7 +93,6 @@ func TestFilterRoutesRequireSessionAndOrigin(t *testing.T) {
 // ---- CRUD ----
 
 func TestFilterCRUD(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -175,7 +173,6 @@ func TestFilterCRUD(t *testing.T) {
 }
 
 func TestFilterValidationErrorsAre400WithFieldAndMessage(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -241,7 +238,6 @@ func TestFilterValidationErrorsAre400WithFieldAndMessage(t *testing.T) {
 // ---- preview ----
 
 func TestFilterPreview(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -308,7 +304,6 @@ func TestFilterPreview(t *testing.T) {
 }
 
 func TestFilterPreviewBudget(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t, func(o *Options) { o.PreviewBudget = time.Nanosecond })
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -322,7 +317,6 @@ func TestFilterPreviewBudget(t *testing.T) {
 // ---- apply (a run) ----
 
 func TestFilterApplyRunBatchesAndEvents(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t, func(o *Options) { o.CountsInterval = 20 * time.Millisecond })
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -380,7 +374,6 @@ func TestFilterApplyRunBatchesAndEvents(t *testing.T) {
 }
 
 func TestFilterApplyRejectsAndSingleFlight(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -428,7 +421,6 @@ func TestFilterApplyRejectsAndSingleFlight(t *testing.T) {
 }
 
 func TestCreateWithApplyExisting(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -459,7 +451,6 @@ func TestCreateWithApplyExisting(t *testing.T) {
 // ---- delete with un-muting ----
 
 func TestFilterDeleteUnmute(t *testing.T) {
-	t.Parallel()
 	for _, tc := range []struct {
 		query        string
 		wantChanged  int
@@ -532,7 +523,6 @@ func TestFilterDeleteUnmute(t *testing.T) {
 // ---- the Muted view, counts, search, mark-read ----
 
 func TestMutedViewAndCounts(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -609,7 +599,6 @@ func TestMutedViewAndCounts(t *testing.T) {
 }
 
 func TestUnmuteThroughWebActions(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -640,7 +629,6 @@ func TestUnmuteThroughWebActions(t *testing.T) {
 }
 
 func TestBootstrapHighlights(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)

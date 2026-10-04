@@ -22,8 +22,8 @@ const previewBudget = 5 * time.Second
 // deleteFilterBudget is how long one DELETE restores before it answers 202 with done:false (the
 // client repeats it; the store resumes where it stopped). deleteFilterSlack is the hard backstop on
 // top for the batch in flight. Together they stay under the server's 60 s WriteTimeout, so a
-// response is always written. New copies them into each server's timing, which a test may shorten.
-const (
+// response is always written. Variables so tests can shorten them.
+var (
 	deleteFilterBudget = 40 * time.Second
 	deleteFilterSlack  = 15 * time.Second
 )
@@ -31,6 +31,9 @@ const (
 // applyBudget bounds one apply run (the store checks the context on every item, so it ends promptly).
 // New copies it into each server's apply.budget, which a test may set per server.
 const applyBudget = 30 * time.Minute
+
+// testApplyCountHook, when set by a test, runs where startApply counts the candidates.
+var testApplyCountHook func()
 
 // runKindFilterApply is the `kind` of an apply run in run.* events and bootstrap `runs`.
 const runKindFilterApply = "filter_apply"
@@ -341,9 +344,9 @@ func (s *Server) deleteFilter(w http.ResponseWriter, r *http.Request) {
 	// deleteFilterBudget: a larger restore answers 202 {done:false} with the rule already disabled, and
 	// the client repeats the DELETE, which resumes (the store's order is disable, restore, delete the row).
 	s.cancelApply(id)
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), s.tm.deleteFilterBudget+s.tm.deleteFilterSlack)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), deleteFilterBudget+deleteFilterSlack)
 	defer cancel()
-	res, found, err := s.db.DeleteFilterWithin(ctx, id, mode, time.Now().Add(s.tm.deleteFilterBudget), func(res store.StateResult) {
+	res, found, err := s.db.DeleteFilterWithin(ctx, id, mode, time.Now().Add(deleteFilterBudget), func(res store.StateResult) {
 		s.publishState(res, map[string]any{"muted": false})
 		if len(res.MadeUnread) > 0 { // only the items that were unread before the mute go back to unread
 			s.publishState(store.StateResult{Changed: res.MadeUnread}, map[string]any{"read": false})
@@ -555,7 +558,7 @@ func (s *Server) startApply(id int64, includeRead bool) (*applyRun, error) {
 	s.apply.run, s.apply.cancelRun, s.apply.done = run, cancel, done
 	s.apply.mu.Unlock()
 
-	if h := s.applyCounting; h != nil {
+	if h := testApplyCountHook; h != nil {
 		h()
 	}
 	_, total, err := s.db.RetroTotal(ctx, id, includeRead)
