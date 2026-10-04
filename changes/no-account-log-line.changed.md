@@ -1,1 +1,0 @@
-A new Kipple's log line `no account yet` no longer names the address it listens on, which in Docker is the port inside the container and not the one you published; it now just says to open Kipple in a browser, or to set `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` and restart.
