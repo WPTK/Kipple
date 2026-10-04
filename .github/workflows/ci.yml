@@ -53,10 +53,9 @@ jobs:
       - run: go tool cover -func=coverage.out | tail -n 1
 
       # The thumbnail memory-limit tests skip under -race (the detector's own allocations break the measurement), so
-      # without this step no CI run would execute them. Only the tests that branch on raceEnabled (see
-      # internal/imgproxy/thumbmem_test.go, thumbjpeg_test.go) run here; the rest of the package already ran above.
-      - name: go test internal/imgproxy memory tests (no -race)
-        run: go test -count=1 -shuffle=on -timeout 10m -run '^(TestThumbCostBoundsRealAllocation|TestThumbWorstAdmittedStaysUnderCeiling|TestThumbRefuses24MPCMYK|TestThumbRefusesTheFF00FrameSubstitution|TestThumbPricesLosslessWebPWithMetaPrefixCodes|TestVP8LWalkBoundsTheDecoderOnGroupHeavyFiles|TestJPEGStrictParserAgreesOrRefuses)$' ./internal/imgproxy
+      # without this step no CI run would execute them.
+      - name: go test internal/imgproxy (no -race)
+        run: go test -count=1 -shuffle=on -timeout 10m ./internal/imgproxy
 
       # Skipped without the CODECOV_TOKEN secret (fork PRs, or before it is set); never fails the build.
       - name: Upload Go coverage to Codecov

@@ -641,7 +641,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   // Read through a ref so a cache patch (a mark-read) does not change `range`, and with it every row's menu actions.
   const itemsRef = useRef(items);
-  itemsRef.current = items;
+  useLayoutEffect(() => {
+    itemsRef.current = items;
+  });
   const range = useCallback(
     (item: Card, side: "above" | "below") => {
       if (scope.view === "muted") return; // nothing to mark in the muted list: those articles are already read
