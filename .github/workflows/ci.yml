@@ -53,9 +53,10 @@ jobs:
       - run: go tool cover -func=coverage.out | tail -n 1
 
       # The thumbnail memory-limit tests skip under -race (the detector's own allocations break the measurement), so
-      # without this step no CI run would execute them.
-      - name: go test internal/imgproxy (no -race)
-        run: go test -count=1 -shuffle=on -timeout 10m ./internal/imgproxy
+      # without this step no CI run would execute them. Only the tests that branch on raceEnabled (see
+      # internal/imgproxy/thumbmem_test.go, thumbjpeg_test.go) run here; the rest of the package already ran above.
+      - name: go test internal/imgproxy memory tests (no -race)
+        run: go test -count=1 -shuffle=on -timeout 10m -run '^(TestThumbCostBoundsRealAllocation|TestThumbWorstAdmittedStaysUnderCeiling|TestThumbRefuses24MPCMYK|TestThumbRefusesTheFF00FrameSubstitution|TestThumbPricesLosslessWebPWithMetaPrefixCodes|TestVP8LWalkBoundsTheDecoderOnGroupHeavyFiles|TestJPEGStrictParserAgreesOrRefuses)$' ./internal/imgproxy
 
       # Skipped without the CODECOV_TOKEN secret (fork PRs, or before it is set); never fails the build.
       - name: Upload Go coverage to Codecov
@@ -127,8 +128,7 @@ jobs:
       - run: node --test ../scripts/toolchain.test.mjs
       - run: npm ci
       - run: npm run lint
-      - run: npm test
-      # Visibility only (SQA plan): a text summary in the log, no threshold gate.
+      # Runs the whole suite (a failing test fails the step) and prints a coverage summary; no threshold gate (SQA plan).
       - run: npm run test:coverage
 
       - name: Upload web coverage to Codecov
@@ -145,7 +145,6 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [go, web, security]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -169,6 +168,8 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             VCS_REF=${{ steps.version.outputs.vcs_ref }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

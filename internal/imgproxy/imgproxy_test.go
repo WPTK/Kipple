@@ -378,8 +378,13 @@ func TestQueuedRequestGetsSlotWithinWait(t *testing.T) {
 }
 
 func TestUpstreamTimeout(t *testing.T) {
-	rg := newRig(t, func(o *Options) { o.Timeout = 200 * time.Millisecond })
-	up := upstream(t, func(w http.ResponseWriter, r *http.Request) { time.Sleep(time.Second) })
+	rg := newRig(t, func(o *Options) { o.Timeout = 50 * time.Millisecond })
+	up := upstream(t, func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(time.Second):
+		}
+	})
 	require.Equal(t, 502, rg.fetchOrig(up.URL+"/slow", FlagPrivateNet).StatusCode)
 }
 
