@@ -1,0 +1,1 @@
+A refresh no longer slows down as the library grows: trimming a feed to its retention limit read every item in the database, once for each feed trimmed, so refreshing 500 feeds in a 150,000-item library took about 23 seconds instead of under 4, and the app's own changes (a star, a mark as read) waited behind it. (#237)
