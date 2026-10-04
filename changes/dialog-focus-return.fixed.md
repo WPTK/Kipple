@@ -1,1 +1,0 @@
-Closing a dialog, the shortcut overlay or a row's More actions menu with Escape now puts the keyboard back on the control that opened it, instead of dropping it to the top of the page; Export backup and Apply retention stay focusable while they work so the backup dialog can return there too.

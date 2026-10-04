@@ -295,11 +295,14 @@ CREATE TABLE sessions (
 ) STRICT, WITHOUT ROWID;
 CREATE INDEX idx_sessions_expires ON sessions(expires_at);
 
--- Single-level folders (Reader labels are flat; nested OPML is flattened). Row 1 is the
--- undeletable default. AUTOINCREMENT: ids are never reused. position = OPML document order.
+-- Nested folders (see 2.2a; the migration is 0012). parent_id NULL = top level; names are unique among siblings
+-- (idx_folders_sibling_name); deleting a folder deletes its subfolders. Reader labels are flat full paths such as
+-- "Tech/Apple". Row 1 is the undeletable default and stays at the top level. AUTOINCREMENT: ids are never reused.
+-- position = OPML document order.
 CREATE TABLE folders (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  name       TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(trim(name)) > 0),
+  parent_id  INTEGER REFERENCES folders(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL COLLATE NOCASE CHECK (length(trim(name)) > 0),
   position   INTEGER NOT NULL DEFAULT 0,
   is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
   created_at INTEGER NOT NULL DEFAULT (unixepoch())

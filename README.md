@@ -29,10 +29,10 @@
 > "Kipple drives out nonkipple."
 > (Philip K. Dick, *Do Androids Dream of Electric Sheep?*)
 
-A self-hosted RSS reader, built for one reader: yours. No ads, no algorithm, no tracking, nobody else's
-data mixed in, just your feeds, kept in a small SQLite database on a server you control, read the way
-you like to read. It builds to one Docker container with one port, and it talks the Google Reader sync API,
-so a Google Reader-API client can act as a second reader on the same account.
+Kipple is an RSS reader you run yourself, for yourself. It keeps your feeds in a small database on your own
+server, shows them in a clean reading app, and has no ads, no recommendations and nobody else's data in it. It
+runs as a single Docker container on one port, and any app that speaks the Google Reader sync API (Reeder,
+NetNewsWire and others) can read the same account.
 
 > **Status: prerelease (beta).** The fetch and sync core, the reading UI, an installable offline-capable app,
 > and reading statistics with a yearly Wrapped summary are all done and in daily use; testing before 1.0 is
@@ -45,6 +45,7 @@ so a Google Reader-API client can act as a second reader on the same account.
 ## Contents
 
 - [Why Kipple](#why-kipple)
+- [Features](#features)
 - [What it's like to use](#what-its-like-to-use)
 - [Quickstart](#quickstart)
 - [Configuration](#configuration)
@@ -56,9 +57,24 @@ so a Google Reader-API client can act as a second reader on the same account.
 
 ## Why Kipple
 
-Kipple looks and feels like a reading app: magazine-style layouts, real images up front, five ways to view
-a feed. It's a single Go binary with an embedded SQLite database, nothing else to run. It speaks the Google
-Reader sync API, so existing sync clients work against it unmodified.
+I wanted a feed reader that feels like a good reading app and that I could leave running without looking after
+it. Kipple is one Go program with its database built in, so there is nothing else to install or keep up. It
+shows articles as a magazine would, with real images up front, and it works with the sync apps you may already
+use.
+
+## Features
+
+- Your feeds in nested folders, with OPML import and export.
+- Five ways to browse a feed: magazine, photo cards, two dense list views and an inbox view.
+- 20 color themes, automatic day and night themes, 11 bundled reading fonts and adjustable text size and density.
+- Full-text extraction for feeds that only publish a summary.
+- Search, starred articles, saved searches and rules that mute, star or mark articles as read.
+- Per-feed and global limits on how many articles to keep.
+- Installable on a phone's home screen, with already-read articles available offline.
+- Reading statistics, including a yearly summary, kept on your own server.
+- A Google Reader-compatible sync API for Reeder, NetNewsWire and similar apps.
+- Backups you can download from the web app, and a command-line tool to restore them.
+- One account, with an optional password, and no tracking of any kind.
 
 ## What it's like to use
 
@@ -97,7 +113,7 @@ your browser the first time you open it.
 One command:
 
 ```
-docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.7.0-beta.2
+docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.8.0-beta.1
 ```
 
 Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
@@ -106,7 +122,7 @@ Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
 ```yaml
 services:
   kipple:
-    image: ghcr.io/wptk/kipple:0.7.0-beta.2
+    image: ghcr.io/wptk/kipple:0.8.0-beta.1
     container_name: kipple
     restart: unless-stopped
     ports: ["127.0.0.1:1919:1919"]
@@ -167,7 +183,7 @@ unprivileged user.
 To check the image before you run it (optional; needs [cosign](https://docs.sigstore.dev/cosign/)):
 
 ```
-cosign verify ghcr.io/wptk/kipple:0.7.0-beta.2 \
+cosign verify ghcr.io/wptk/kipple:0.8.0-beta.1 \
   --certificate-identity-regexp '^https://github.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -241,14 +257,15 @@ The ones self-hosters most often want:
 Kipple is a reader for one person, and some things are left out on purpose. Requests for these will be closed:
 
 - No podcasts, and no audio or video players.
-- No read-later service and no webhook or other integrations with outside services.
+- No webhook or other integrations with outside services.
 - No tags (feeds live in folders, and articles can be starred).
 - No AI features.
 - No notifications.
-- No social features, and no sharing of your reading with other people.
-- No monitoring or analytics of any kind.
+- No social features.
+- No monitoring or analytics of any kind.\*
 - No multiple users: one account per server.
-- No Fever API. The sync API is the Google Reader API.
+
+\* Kipple does keep reading statistics, but they live in your own database, are shown only to you, and are never sent anywhere.
 
 ## Support
 

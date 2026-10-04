@@ -8,6 +8,23 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.8.0-beta.1] - 2026-10-04
+
+### Added
+
+- Folders can nest, up to 8 levels: a folder may sit inside another, and a folder's list, search, mark-all-read, unread count and folder filters cover its subfolders too. Reader API clients see each nested folder as one folder named by its full path (`Tech/Apple`), holding that folder's own feeds; a client that files a feed under `Tech/Apple` creates both folders. Deleting a folder deletes its subfolders, and their feeds move to Uncategorized. A library without nested folders looks exactly as before to every client. (#209)
+- The web app shows nested folders as a tree: the sidebar and the Feeds screen indent subfolders, collapse them per device and count each folder's unread over its subfolders; a folder can be created inside another, moved by dragging or with Move to…, and every folder picker lists folders by their full path. A folder's layout carries down to its subfolders. OPML import can move feeds you already have into the file's folders (off by default). (#209)
+
+### Changed
+
+- OPML import and export keep the folder tree: nested outlines become subfolders (up to 8 levels; a feed nested deeper, or in a folder whose name cannot be stored, goes into the nearest folder above it and the report says so), folders with the same name under different parents stay apart, and the export writes subfolders as nested outlines. A new import option moves feeds you already have into the file's folders (`kipple import -move-existing`, `POST /api/opml?move_existing=true`). (#209)
+
+### Fixed
+
+- Closing a dialog, the shortcut overlay or a row's More actions menu with Escape now puts the keyboard back on the control that opened it, instead of dropping it to the top of the page; Export backup and Apply retention stay focusable while they work so the backup dialog can return there too.
+- A refresh no longer slows down as the library grows: trimming a feed to its retention limit read every item in the database, once for each feed trimmed, so refreshing 500 feeds in a 150,000-item library took about 23 seconds instead of under 4, and the app's own changes (a star, a mark as read) waited behind it. (#237)
+- Lowering a retention limit on a large library trims about three times faster: on 150,000 items, trimming 36,000 of them takes about 24 seconds instead of 75, and each step of the trim holds up a star or a mark as read for about a second instead of several. (#228)
+
 ## [0.7.0-beta.2] - 2026-10-03
 
 ### Changed
@@ -790,7 +807,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.7.0-beta.2...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.1...HEAD
+[0.8.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.7.0-beta.2...v0.8.0-beta.1
 [0.7.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.7.0-beta.1...v0.7.0-beta.2
 [0.7.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.6.0-beta.1...v0.7.0-beta.1
 [0.6.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.2...v0.6.0-beta.1
