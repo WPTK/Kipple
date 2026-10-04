@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 // shadcn-style button, hand-written on the scheme tokens. Every size keeps a
 // 44 x 44 px minimum hit area (Apple HIG; WCAG 2.5.8 asks for 24).
 export const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors select-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-5 [&_svg]:shrink-0",
+  "inline-flex shrink-0 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors select-none disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:size-5 [&_svg]:shrink-0",
   {
     variants: {
       variant: {

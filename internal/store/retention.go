@@ -289,12 +289,20 @@ func ListedFeedSQL(alias string) string {
 }
 
 // inFolderSQL scopes items (col is their feed_id column) to a folder (param is
-// its bound parameter): the items of the folder's listed feeds, so a folder list,
-// its search, its mark-all-read and its Reader API label stream cover exactly
-// what its unread count counts. The archive feed sits in the default folder but
-// is not one of its feeds; a feed being deleted is left to the caller.
+// its bound parameter, used once): the items of the folder's own listed feeds, so
+// its Reader API label stream, mark-all-as-read and unread-count row cover exactly
+// the feeds a client files under that label (subscription/list gives each feed
+// one label, its own folder's path). The archive feed sits in the default folder
+// but is not one of its feeds; a feed being deleted is left to the caller.
 func inFolderSQL(col, param string) string {
 	return col + " IN (SELECT id FROM feeds WHERE folder_id = " + param + " AND disabled_reason IS NOT 'archive')"
+}
+
+// inFolderTreeSQL is inFolderSQL over the folder and all its subfolders: the web
+// app's folder scope, so a folder list, its search and its mark-all-read cover
+// exactly what its unread count (UIFolders, the subtree's) counts.
+func inFolderTreeSQL(col, param string) string {
+	return col + " IN (SELECT id FROM feeds WHERE folder_id IN (" + folderTreeSQL(param) + ") AND disabled_reason IS NOT 'archive')"
 }
 
 // markFeedsDeleting applies step 1 to ids inside tx. The archive feed (never

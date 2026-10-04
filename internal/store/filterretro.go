@@ -38,6 +38,7 @@ var errRetroBudget = errors.New("store: filter scan budget exhausted")
 // retroItem is one candidate row.
 type retroItem struct {
 	id, feedID, folderID          int64
+	folders                       []int64 // folderID, then the folders above it
 	feedTitle, title, author, url string
 	read, starred, muted          bool
 	content                       string
@@ -45,7 +46,7 @@ type retroItem struct {
 }
 
 func (it retroItem) engine() filter.Item {
-	return filter.Item{FeedID: it.feedID, FolderID: it.folderID, FeedTitle: it.feedTitle, Title: it.title,
+	return filter.Item{FeedID: it.feedID, FolderIDs: it.folders, FeedTitle: it.feedTitle, Title: it.title,
 		Author: it.author, URL: it.url, Content: it.content, Categories: it.categories}
 }
 
@@ -92,7 +93,7 @@ func retroSQL(r filter.Rule, includeRead bool, cols retroCols) (from, where stri
 		where += " AND i.feed_id = ?"
 		args = append(args, r.FeedID)
 	case filter.ScopeFolder:
-		where += " AND f.folder_id = ?"
+		where += " AND f.folder_id IN (" + folderTreeSQL("?") + ")" // a folder rule covers its subfolders
 		args = append(args, r.FolderID)
 	}
 	if !includeRead {
@@ -118,6 +119,7 @@ func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, include
 	}
 	q := "SELECT " + cols + " FROM " + from + " WHERE i.id < ? AND " + where + " ORDER BY i.id DESC LIMIT " + fmt.Sprint(retroPage)
 	cursor := maxInt64
+	chains := map[int64][]int64{} // folder id -> folderChain, read once per scan
 	for {
 		if !deadline.IsZero() && time.Now().After(deadline) {
 			return true, nil
@@ -156,6 +158,16 @@ func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, include
 		}
 		if len(page) == 0 {
 			return false, nil
+		}
+		for i := range page {
+			chain, ok := chains[page[i].folderID]
+			if !ok {
+				if chain, err = folderChain(ctx, d.reader, page[i].folderID); err != nil {
+					return false, err
+				}
+				chains[page[i].folderID] = chain
+			}
+			page[i].folders = chain
 		}
 		cursor = page[len(page)-1].id
 		if err := onPage(page); err != nil {

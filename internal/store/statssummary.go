@@ -911,8 +911,8 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 
 	// never opened: current, non-archived feeds subscribed by the end of the range with no open in it
 	toEnd := time.Date(toT.Year(), toT.Month(), toT.Day()+1, 0, 0, 0, 0, loc).Unix()
-	nRows, err := q.QueryContext(ctx, `SELECT f.id, `+feedTitleSQL("f")+`, fo.name, f.created_at
-		FROM feeds f LEFT JOIN folders fo ON fo.id = f.folder_id
+	nRows, err := q.QueryContext(ctx, `SELECT f.id, `+feedTitleSQL("f")+`, fo.path, f.created_at
+		FROM feeds f LEFT JOIN folder_paths fo ON fo.id = f.folder_id
 		WHERE f.disabled_reason IS NOT 'archive' AND f.created_at < ? ORDER BY f.created_at, f.id`, toEnd)
 	if err != nil {
 		return nil, err

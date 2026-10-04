@@ -565,21 +565,15 @@ func (c *call) jsonETag(v any) {
 // ok is the text/plain OK every write endpoint answers.
 func (c *call) ok() { c.text(http.StatusOK, "OK") }
 
-// serverError answers a genuine database failure (the only 5xx). A folder name
-// the store refuses (too long, control characters) is client data, never a 5xx:
-// it is logged and answered OK with nothing changed, like any other ignored
-// value (a non-2xx wedges NetNewsWire's queue).
+// serverError answers a genuine database failure (the only 5xx). A folder change
+// the store refuses (store.FolderRefused: a name too long or with control
+// characters, a path another folder has, the nesting rules, a merge it cannot
+// do) is client data, never a 5xx: it is logged and answered OK with nothing
+// changed, like any other ignored value (a non-2xx wedges NetNewsWire's queue),
+// and the client sees the old folders again on its next sync.
 func (c *call) serverError(what string, err error) {
-	if errors.Is(err, store.ErrBadFolderName) {
-		c.a.log.Warn("greader: "+what+": folder name refused", "err", err, "path", c.path, "ua", c.r.UserAgent())
-		c.ok()
-		return
-	}
-	if errors.Is(err, store.ErrMergeTooManyFilters) {
-		// Refused like a bad name, and answered the same way for the same reason (a non-2xx wedges
-		// NetNewsWire's queue): nothing changed, the client sees the old folders again on its next sync,
-		// and the log says why.
-		c.a.log.Warn("greader: "+what+": folder merge refused", "err", err, "path", c.path, "ua", c.r.UserAgent())
+	if store.FolderRefused(err) {
+		c.a.log.Warn("greader: "+what+": folder change refused", "err", err, "path", c.path, "ua", c.r.UserAgent())
 		c.ok()
 		return
 	}

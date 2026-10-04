@@ -86,7 +86,9 @@ npm run seed                        # terminal 1: Kipple on 127.0.0.1:1919 with 
 npm run uat                         # terminal 2, once the feeds have fetched (about a minute)
 ```
 
-Options (`npm run uat -- --help`): `--url` (or `KIPPLE_UAT_URL`),
+Options (`npm run uat -- --help`): `--url` (or `KIPPLE_UAT_URL`), `--browser chromium|firefox|webkit` (default chromium) or `--browsers all` (or a list) for
+one run per engine in turn, with a report directory each and the worst exit code; the default run stays Chromium only (see
+the cross-engine run below),
 `--user`/`--password` (default: the seed's throwaway account), `--only <screen ids>`, `--screenshots`, `--headed`,
 `--out`. Every screen is checked in Paper and Midnight (the browser's light and dark preference, which the default
 follow-system theme picks up) at 1280 px, 768 px and 390 px (the last two as touch devices); S4 applies to the two
@@ -122,6 +124,25 @@ screen, otherwise a router history entry; each screen must show its expected hea
 was checked. The in-page probes live in `web/uat/probes.mjs` (linted with browser globals only), the runner in
 `web/uat/run.mjs`. S5 also looks for `Invalid Date`
 and in form field values. A screen still loading after 15 s is an error, not a pass.
+
+Other engines (opt-in): `npx playwright install firefox webkit` once, then `npm run uat -- --browsers all` runs Chromium, Firefox and
+WebKit one after the other, reports in `<out>/<engine>/`, `report.md` naming the engine and its version. A waiver may
+carry `"browser": "<engine>"` to apply to one engine only. Two things differ by engine and are handled in the runner,
+not waived: Firefox has no mobile emulation (the tablet and phone runs are touch devices at the right width, not
+`isMobile`), and it drops an emulated color scheme when the page is sent with Cross-Origin-Opener-Policy (Kipple's is
+`same-origin`), so the Firefox runs set the operating-system preference on the browser itself. The results, the
+engine differences and what stays manual are in `compatibility-matrix.md`. Playwright's WebKit is the WebKit engine,
+not Safari: the iPhone check stays Suite 3.
+
+Keyboard and gestures (`npm run uat:keyboard`, `web/uat/keyboard.mjs`, `--browser` as above, against the same seeded
+instance): at 1280x800 with the keyboard only, K1 walks Tab through every main screen (every visible control is
+reached, the focused one shows an indicator, no trap forward or back), K2 opens menus and dialogs from the keyboard and
+checks that focus stays inside a modal dialog, Escape closes it and focus returns to what opened it, and K3 presses
+each shortcut of `web/src/lib/keys.ts` (state changes are undone with `z` or pressed twice). At 390x844 as a touch
+device K4 checks that each swipe or long-press action has a button or menu: Star, the row's More actions menu (mark
+read or unread), Back to list, Refresh all feeds, and Move to folder for reordering. Exit code 0 clean, 1 findings, 2
+setup error. WebKit leaves links out of the Tab order unless the reader turns on Safari's "Press Tab to highlight each
+item" (or uses Option+Tab), so its K1 expects buttons and fields only.
 
 Offline reading (`npm run uat:offline`, `web/uat/offline.mjs`, against the same seeded instance): Suite 1 blocks the
 service worker, so offline is checked on its own, at 1280x800 and 375x812. A fresh browser signs in, lets the worker

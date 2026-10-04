@@ -334,6 +334,10 @@ func (c *call) subscriptionEdit() {
 				c.serverError("subscribe", err)
 				return
 			}
+			if res.FolderRefused != nil {
+				c.a.log.Warn("greader: subscribe: folder label refused; the feed is not filed under it", "err", res.FolderRefused,
+					"label", folder, "feed_id", res.FeedID, "path", c.path, "ua", c.r.UserAgent())
+			}
 			c.afterSubscribe(res)
 			if folder != "" {
 				c.publishFolders() // may have created the folder
@@ -457,6 +461,10 @@ func (c *call) renameTag() {
 	}
 	if found {
 		filtersChanged, err := c.a.db.RenameLabel(ctx, id, dest)
+		if errors.Is(err, store.ErrFolderNotFound) {
+			c.ok() // deleted meanwhile: nothing to rename
+			return
+		}
 		if err != nil {
 			c.serverError("rename-tag", err)
 			return
@@ -478,7 +486,8 @@ func firstOrEmpty(l []string) string {
 	return l[0]
 }
 
-// disableTag is POST disable-tag: delete each folder, moving its feeds to Uncategorized.
+// disableTag is POST disable-tag: delete each folder with its subfolders, moving all their feeds to
+// Uncategorized (the web app's folder delete).
 func (c *call) disableTag() {
 	ctx := c.r.Context()
 	svals, raws := c.p.All("s"), c.p.AllRaw("s")
@@ -500,7 +509,11 @@ func (c *call) disableTag() {
 			return
 		}
 		if found {
-			if err := c.a.db.DisableLabel(ctx, id); err != nil {
+			// The default folder is never deleted (its feeds would stay where they are anyway), and a folder
+			// deleted meanwhile is already gone: both are nothing to do.
+			if _, err := c.a.db.DeleteFolder(ctx, id); errors.Is(err, store.ErrDefaultFolder) || errors.Is(err, store.ErrFolderNotFound) {
+				continue
+			} else if err != nil {
 				c.serverError("disable-tag", err)
 				return
 			}

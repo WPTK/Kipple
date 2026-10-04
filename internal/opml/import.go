@@ -75,20 +75,18 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 	}
 
 	err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		var nextFolderPos, nextFeedPos int64
-		if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(position)+1,1) FROM folders").Scan(&nextFolderPos); err != nil {
-			return err
-		}
+		var nextFeedPos int64
 		if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(position)+1,0) FROM feeds").Scan(&nextFeedPos); err != nil {
 			return err
 		}
 
-		// Folders: reuse a NOCASE match, else create in document order. A folder
-		// that holds a feed but is missing from doc.Folders is created on demand.
+		// Folders: reuse a top-level NOCASE match, else create in document order
+		// (store.EnsureFolderChain, the folder writer). A folder that holds a feed but
+		// is missing from doc.Folders is created on demand.
 		folderID := map[string]int64{"": 1}
 		badFolder := map[string]bool{}
-		// ensureFolder reports false for a new name that store.CheckFolderName
-		// refuses (too long, control characters): it is not created.
+		// ensureFolder reports false for a new name that the folder writer refuses
+		// (too long, control characters): it is not created.
 		ensureFolder := func(name string) (bool, error) {
 			if _, ok := folderID[name]; ok {
 				return true, nil
@@ -96,25 +94,15 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			if badFolder[name] {
 				return false, nil
 			}
-			var id int64
-			err := tx.QueryRowContext(ctx, "SELECT id FROM folders WHERE name = ? COLLATE NOCASE", name).Scan(&id)
-			if err == sql.ErrNoRows {
-				if store.CheckFolderName(name) != nil {
-					badFolder[name] = true
-					return false, nil
-				}
-				r, err := tx.ExecContext(ctx, "INSERT INTO folders (name, position) VALUES (?,?)", name, nextFolderPos)
-				if err != nil {
-					return false, fmt.Errorf("opml: create folder %q: %w", name, err)
-				}
-				nextFolderPos++
-				res.FoldersCreated++
-				if id, err = r.LastInsertId(); err != nil {
-					return false, err
-				}
-			} else if err != nil {
-				return false, err
+			id, created, err := store.EnsureFolderChain(ctx, tx, []string{name})
+			if store.FolderRefused(err) {
+				badFolder[name] = true
+				return false, nil
 			}
+			if err != nil {
+				return false, fmt.Errorf("opml: create folder %q: %w", name, err)
+			}
+			res.FoldersCreated += created
 			folderID[name] = id
 			return true, nil
 		}

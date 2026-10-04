@@ -30,7 +30,7 @@ var statsColumns = []dictColumn{
 	{"feed_id", "integer (string in JSON)", "", "The feed's id at the time of the event."},
 	{"feed_title", "text", "", "The feed's name when the event was written (a snapshot: later renames do not change it). Empty when the feed was already gone."},
 	{"folder_id", "integer (string in JSON), may be empty", "", "The feed's folder id when written; empty for a feed in no folder."},
-	{"folder_name", "text, may be empty", "", "The folder's name when written; empty for no folder."},
+	{"folder_name", "text, may be empty", "", "The folder's full path when written: the names from the top level joined with / (Tech/Apple for Apple inside Tech, just the name for a top-level folder). Empty for no folder."},
 	{"item_title", "text, may be empty", "", "The article's title when written. Blank in CSV and null in JSON and JSONL when the export was made with titles=0 (see the X-Kipple-Titles-Included header and titles_included)."},
 	{"item_url", "text, may be empty", "", "The article's URL when written. Blank in CSV and null in JSON and JSONL when the export was made with titles=0."},
 	{"value", "integer, may be empty", "seconds for read_time, percent for scroll", "read_time: seconds of active reading in this slice (at most 60 per event; sum by session_key for the total). scroll: deepest scroll position, 0-100. Empty for every other kind."},

@@ -346,3 +346,25 @@ func TestImportValidatesURLUserAgentAndFolderNames(t *testing.T) {
 	require.Contains(t, joined, "http://longua.test/rss: kipple:user_agent=")
 	require.Contains(t, joined, "http://ctlua.test/rss: kipple:user_agent=")
 }
+
+// An OPML file is a list of URLs from outside: a feed that is not an http(s) URL,
+// or has credentials in it, is skipped and reported, never stored, and no file can
+// switch on a feed's private-network or insecure-TLS exceptions.
+func TestImportSkipsNonHTTPSchemesAndNeverGrantsExceptions(t *testing.T) {
+	db := openDB(t)
+	r := importString(t, db, `<opml xmlns:kipple="`+NS+`"><body>
+	<outline text="a" xmlUrl="ftp://a.test/rss"/>
+	<outline text="b" xmlUrl="file:///etc/passwd"/>
+	<outline text="c" xmlUrl="gopher://127.0.0.1:70/_x"/>
+	<outline text="d" xmlUrl="javascript:alert(1)"/>
+	<outline text="e" xmlUrl="//e.test/rss"/>
+	<outline text="f" xmlUrl="http://x@127.0.0.1/rss"/>
+	<outline text="g" xmlUrl="http://169.254.169.254/latest/meta-data/" kipple:allow_private_net="1" kipple:allow_insecure_tls="1"/>
+	<outline text="h" xmlUrl="http://2130706433/rss" kipple:allow_private_net="1"/>
+	</body></opml>`, ImportOptions{})
+	require.Len(t, r.Skipped, 6, "%v", r.Skipped)
+	require.Equal(t, 2, r.FeedsAdded, "the metadata address and the numeric spelling are stored, switched off for the guard")
+	var granted int
+	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE allow_private_net != 0 OR allow_insecure_tls != 0").Scan(&granted))
+	require.Zero(t, granted)
+}

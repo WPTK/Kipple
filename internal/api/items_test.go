@@ -1044,8 +1044,8 @@ func TestBootstrap(t *testing.T) {
 	folders := body["folders"].([]any)
 	require.Len(t, folders, 2)
 	f0, f1 := folders[0].(map[string]any), folders[1].(map[string]any)
-	require.Equal(t, map[string]any{"id": "1", "name": "Uncategorized", "position": float64(0), "is_default": true, "unread": float64(1)}, f0)
-	require.Equal(t, map[string]any{"id": sid(fo), "name": "News", "position": float64(5), "is_default": false, "unread": float64(2)}, f1)
+	require.Equal(t, map[string]any{"id": "1", "parent_id": nil, "name": "Uncategorized", "position": float64(0), "is_default": true, "unread": float64(1)}, f0)
+	require.Equal(t, map[string]any{"id": sid(fo), "parent_id": nil, "name": "News", "position": float64(5), "is_default": false, "unread": float64(2)}, f1)
 
 	feeds := body["feeds"].([]any)
 	require.Len(t, feeds, 2)

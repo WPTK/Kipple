@@ -99,7 +99,7 @@ func excerpt(text string) string {
 type CardQuery struct {
 	View     string
 	FeedID   int64
-	FolderID int64
+	FolderID int64 // the folder and its subfolders
 	Cursor   *Cursor
 	Limit    int
 	IDs      []int64
@@ -342,7 +342,7 @@ func listCardsSQL(q CardQuery) (string, []any, int, error) {
 			args = append(args, q.FeedID)
 		}
 		if q.FolderID != 0 {
-			where = append(where, inFolderSQL("i.feed_id", "?"))
+			where = append(where, inFolderTreeSQL("i.feed_id", "?"))
 			args = append(args, q.FolderID)
 		}
 		if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes); w != "" {
@@ -541,6 +541,9 @@ func (f MarkFilter) any() bool {
 // which has no sort_at, text or word count to test. Like the other read-state
 // functions it has no stats side effect.
 func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilter, maxID, now int64) (StateResult, error) {
+	if scope.FolderID != 0 {
+		return StateResult{}, errors.New("store: MarkScopeRead takes the web app's FolderTreeID, not a label's FolderID")
+	}
 	match, ok, err := markMatch(ctx, tx, scope, f)
 	if err != nil {
 		return StateResult{}, err
@@ -593,9 +596,9 @@ func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64, match string, pro
 	case scope.FeedID != 0:
 		feedWhere = " AND feed_id = :feed"
 		args = append(args, sql.Named("feed", scope.FeedID))
-	case scope.FolderID != 0:
-		feedWhere = " AND " + inFolderSQL("feed_id", ":folder")
-		args = append(args, sql.Named("folder", scope.FolderID))
+	case scope.FolderTreeID != 0:
+		feedWhere = " AND " + inFolderTreeSQL("feed_id", ":folder")
+		args = append(args, sql.Named("folder", scope.FolderTreeID))
 	}
 	base = append([]any(nil), args...)
 	extra := ""
