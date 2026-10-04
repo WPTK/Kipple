@@ -42,7 +42,7 @@ export function setUpdateReady(): void {
 }
 
 /** The web API contract this build speaks; the server announces its own in X-Kipple-API (internal/httpx). */
-const API_VERSION = 1;
+export const API_VERSION = 1;
 
 /** Read the handshake headers of an /api response. */
 export function noteResponse(res: Pick<Response, "headers">, quiet = false): void {
