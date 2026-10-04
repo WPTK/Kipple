@@ -35,6 +35,7 @@ not use a PowerShell pipe, which can re-encode them).
 - [Restore a backup](#restore-a-backup), [onto a new volume](#restore-onto-a-new-empty-volume-lost-volume-new-host)
 - [Roll back an upgrade](#roll-back-an-upgrade-that-migrated-the-schema) and [disk space during an upgrade](#disk-space-during-an-upgrade)
 - [Database size and compacting](#database-size-and-compacting)
+- [What stays the same across 1.x](compatibility.md)
 
 Something not working? See [troubleshooting.md](troubleshooting.md). Behind HTTPS with Caddy, nginx or Traefik:
 [reverse-proxy.md](reverse-proxy.md).

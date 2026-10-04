@@ -15,6 +15,7 @@ owner's own host labels (Host-A, Host-B); they are history and say nothing about
 | [RELEASING.md](RELEASING.md) | The release checklist for every version, including alphas, and the alpha/beta/rc/1.0 promotion criteria. |
 | [troubleshooting.md](troubleshooting.md) | Symptom, cause and fix: unreachable page, port mapping, sign-in busy, clients that will not connect, feeds not updating, restore, password reset, and which logs and version output to attach to an issue. |
 | [reverse-proxy.md](reverse-proxy.md) | Caddy, nginx and Traefik setups, and exactly which headers Kipple trusts from a proxy. |
+| [compatibility.md](compatibility.md) | What stays the same across 1.x (the Reader API, backup format, settings keys, environment variables, CLI, image tags, volume layout), what does not, and how a removal is announced. |
 | [deploy.md](deploy.md) | Backups, recovery, migrations, optional Cloudflare Access setup, and how a deploy and a rollback actually work. Also the first-run account form and setup mode, ports (1919 by default), open mode (no password), the time zone rules, the published image, and the disk space an upgrade needs. |
 | [../README.md](../README.md) | The Quickstart: pull-and-run (`docker run` or the pull compose file) or build from source, then the setup wizard. |
 | [../docker-compose.pull.example.yml](../docker-compose.pull.example.yml), [../docker-compose.example.yml](../docker-compose.example.yml) | The ready-to-run compose file for the published image, and the build-from-source one with resource limits and full hardening. |
