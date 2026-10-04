@@ -112,11 +112,23 @@ func TestOrderQueryPlans(t *testing.T) {
 				q.Oldest, q.Cursor, q.Limit = oldest, cur, 30
 				sqlText, args, _, err := listCardsSQL(q)
 				require.NoError(t, err)
-				p := plan(sqlText, args)
+				// The page is a deferred join: the id pick walks the view's index in keyset order
+				// (no sort, no full scan), and the outer query only looks its rows up by id and
+				// sorts those (at most limit+1).
+				const in = " WHERE i.id IN ("
+				pick := sqlText[strings.Index(sqlText, in)+len(in) : strings.LastIndex(sqlText, ") ORDER BY ")]
+				require.True(t, strings.HasPrefix(pick, "SELECT i.id FROM items i WHERE "), pick)
+				p := plan(pick, args)
 				label := fmt.Sprintf("%s oldest=%v analyze=%v\n%s", tc.name, oldest, analyze, p)
 				require.Contains(t, p, tc.idx, label)
 				require.NotContains(t, p, "USE TEMP B-TREE FOR ORDER BY", label)
 				require.NotContains(t, p, "SCAN i\n", label)
+				full := plan(sqlText, args)
+				label = fmt.Sprintf("%s oldest=%v analyze=%v\n%s", tc.name, oldest, analyze, full)
+				require.True(t, strings.HasPrefix(full, "SEARCH i USING INTEGER PRIMARY KEY (rowid=?)\n"), label)
+				require.Equal(t, 1, strings.Count(full, "USE TEMP B-TREE FOR ORDER BY"), label)
+				require.NotContains(t, full, "SCAN i\n", label)
+				require.NotContains(t, full, "SCAN c", label)
 			}
 		}
 		// The bounded mark scans by an index too (never a full-table SCAN of items).
