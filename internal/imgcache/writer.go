@@ -117,9 +117,6 @@ func (w *Writer) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// Size is the bytes written so far.
-func (w *Writer) Size() int64 { return w.n }
-
 // OpenReader opens a second, read-only handle on the download so another
 // goroutine can serve the bytes already written while the body is still
 // arriving (the proxy decouples a slow client from its source this way). Call

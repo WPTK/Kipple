@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/microcosm-cc/bluemonday"
 	"golang.org/x/net/html"
@@ -157,5 +158,17 @@ func (s *shielded) unshield(out string) string {
 	}
 }
 
-// WordCount counts whitespace-separated words in plain text.
-func WordCount(text string) int { return len(strings.Fields(text)) }
+// WordCount counts whitespace-separated words in plain text. It equals
+// len(strings.Fields(text)) (unicode.IsSpace) without building the slice.
+func WordCount(text string) int {
+	n, inWord := 0, false
+	for _, r := range text {
+		if unicode.IsSpace(r) {
+			inWord = false
+		} else if !inWord {
+			inWord = true
+			n++
+		}
+	}
+	return n
+}

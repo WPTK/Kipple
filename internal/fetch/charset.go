@@ -39,6 +39,10 @@ var xmlDeclRe = regexp.MustCompile(`(?is)\A\s*<\?xml\b[^>]*?\bencoding\s*=\s*(["
 // valid UTF-8 with multi-byte sequences is decoded as UTF-8. That is the
 // common "declares latin1, sends UTF-8" lie, and honouring the label would
 // produce mojibake. utf-16/utf-32 labels without a BOM are ignored.
+//
+// DecodeBody may modify body (and the returned Body may alias it): a UTF-8
+// body is not copied and its XML declaration is rewritten in place. The caller
+// must own the slice and not rely on its bytes afterwards.
 func DecodeBody(body []byte, httpCharset string) Decoded {
 	var (
 		enc      encoding.Encoding
@@ -159,16 +163,27 @@ func hasMultiByte(b []byte) bool {
 }
 
 // rewriteDecl replaces the declared encoding with utf-8 so gofeed's XML
-// decoder does not try to convert an already-converted body again.
+// decoder does not try to convert an already-converted body again. An
+// already-"utf-8" value returns b untouched, a 5-byte value is overwritten in
+// place, and only a value of another length copies the body.
 func rewriteDecl(b []byte) []byte {
 	loc := xmlDeclRe.FindSubmatchIndex(b)
 	if loc == nil {
 		return b
 	}
 	// loc[4]:loc[5] is the encoding value.
-	out := make([]byte, 0, len(b))
+	const want = "utf-8"
+	val := b[loc[4]:loc[5]]
+	if string(val) == want {
+		return b
+	}
+	if len(val) == len(want) {
+		copy(val, want)
+		return b
+	}
+	out := make([]byte, 0, len(b)-len(val)+len(want))
 	out = append(out, b[:loc[4]]...)
-	out = append(out, "utf-8"...)
+	out = append(out, want...)
 	out = append(out, b[loc[5]:]...)
 	return out
 }
