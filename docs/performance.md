@@ -17,7 +17,7 @@ go run ./scripts/scalegen bench -bin ./kipple -src scale-data -work scale-work -
 
 `bench` needs about 8 GB free in `-work`, takes about 30 minutes for three runs, uses ports 1931, 1932 (the feed
 server) and 1933 (the restored copy), and deletes `-work` when it finishes. It prints a table with every value and the
-median of the runs. Other commands: `gen -schema 10` (or `6`) writes the library at an older schema, `rewind -db F
+median of the runs. Other commands: `gen -schema 11` (or `10`, `6`) writes the library at an older schema, `rewind -db F
 -schema N` does the same to a copy, and `feeds -dir scale-data` serves the feeds on its own. `gen` takes
 `-feeds`, `-items`, `-seed` and `-stats-days`.
 
@@ -28,7 +28,7 @@ are relative to the moment of generation, so two databases are not byte-identica
 
 | | |
 |---|---|
-| Feeds | 500 in 25 folders (431 of them in a folder, 69 in the default one) |
+| Feeds and folders | 500 feeds spread over 541 folders (25 at the top level, nested up to 5 levels deep) and the default folder |
 | Retention | 330 feeds inherit the default of 250 items, 100 keep 500, 50 keep 1000, 20 keep everything. Most feeds sit at their cap, as a library that has been running for a while does |
 | Items | 150,000 with content (title, HTML, plain text, image URL for 70 percent) |
 | Item size | half are summaries of 30 to 200 words, 40 percent articles of 300 to 900 words, 10 percent long reads of 1000 to 3500 words; about 3.4 KB of HTML and 3.3 KB of text per item on average |
@@ -45,7 +45,7 @@ Item content is larger or smaller in other libraries; see "Sizing" for how to sc
 - A desktop with a 13th-generation Intel Core i5 (14 cores, 20 threads), 48 GB of RAM and a local SSD, running
   Windows 11. Other work was running on the machine during the measurements, so every figure is a typical value, not a
   best case.
-- `kipple` built natively from main at 0.7.0-beta.2 with `go build` (Go 1.27). The web app was not embedded, so the
+- `kipple` built natively from main after nested folders (migration 0012) with `go build` (Go 1.27). The web app was not embedded, so the
   resident size is that of the server without the static assets.
 - Loopback only (no network latency). The operating system file cache is warm: each run starts from a fresh copy of
   the database that was just written. A start after a reboot reads the file from disk and can take longer.
@@ -61,80 +61,109 @@ Item content is larger or smaller in other libraries; see "Sizing" for how to sc
 
 | | Median | Runs |
 |---|---:|---|
-| Cold start (process start to `/healthz` 200) | 217 ms | 205, 217, 247 |
-| Open the database at the current schema | 28 ms | 152, 28, 26 |
-| Upgrade from the previous schema (10 to 11, the newest migration) | 6.6 s | 6.6, 5.4, 6.8 |
-| Upgrade from an older schema (6 to 11: 0007 rewrites every item, 0009 builds three statistics indexes) | 9.0 s | 8.2, 11.1, 9.0 |
-| Backup, in-app export (build the zip) | 32 s | 35, 31, 32 |
-| Backup download (loopback) | 5.9 s | 6.5, 5.9, 5.9 |
-| Backup zip size | 654 MB | the 1,637 MB database compresses to 40 percent |
-| `kipple restore` of that zip | 26 s | 26.3, 26.6, 25.8 |
-| First start after the restore | 204 ms | 279, 204, 204 |
+| Cold start (process start to `/healthz` 200) | 0.2 to 0.3 s | 286 ms in the quiet run; 1.8 and 2.0 s in two runs that followed heavy file copying |
+| Open the database at the current schema | 151 ms | 47, 164, 151 |
+| Upgrade from the previous schema (11 to 12, nested folders: rebuilds the `folders` table) | 7.4 s | 7.2, 7.4, 17.8 |
+| Upgrade from an older schema (6 to 12: 0007 rewrites every item, 0009 builds three statistics indexes) | 11.7 s | 11.7, 21.9, 9.7 |
+| Backup, in-app export (build the zip) | 33 s | 33, 31, 33 |
+| Backup download (loopback) | 6.5 s | 5.9, 6.5, 15.8 |
+| Backup zip size | 655 MB | the 1,637 MB database compresses to 40 percent |
+| `kipple restore` of that zip | 26.5 s | 26.5, 25.1, 46.3 |
+| First start after the restore | 223 ms | 223, 197, 236 |
 
 The upgrade is dominated by the pre-migration snapshot (`VACUUM INTO`, a 1.6 GB copy), not by the migration itself:
-the newest migration only deletes a few settings rows. The snapshot costs about 3.5 s per GB. A restored backup
-reported the same unread count as the original in every run.
+a typical figure is 6 to 7 s, and the slow runs were disturbed by the file copying around them. The snapshot costs
+about 3.5 s per GB. A restored backup reported the same unread count as the original in every run.
 
-An **old-format backup** restores. The library above was copied to the previous schema, a 0.5.0-beta.1 build took its
-own in-app backup of it (686 MB, schema 10, 500 feeds, 150,000 items), and the current build restored it in 26 s with
-checksums and the integrity check passing, migrated it on the first start and found the planted rare term by search.
-A 0.3.0-beta.3 backup (schema 9, empty library) restores and migrates as well. The repository holds no backup zip in its
-test fixtures (the tests build their archives in code), so these two were made by building the old tags.
+An **old-format backup** restores. The library was copied to schema 10, a 0.5.0-beta.1 build took its own in-app
+backup of it (686 MB, 500 feeds, 150,000 items), and the then-current build restored it in 26 s with checksums and the
+integrity check passing, migrated it on the first start and found the planted rare term by search. A 0.3.0-beta.3 backup
+(schema 9, empty library) restores and migrates as well. The repository holds no backup zip in its test fixtures (the
+tests build their archives in code), so these two were made by building the old tags. They predate nested folders;
+the 11 to 12 row above is the migration on the large library.
 
 ### Interactive calls (warm, median of 3 runs)
 
 | Call | ms |
 |---|---:|
-| `GET /api/status` | 2.2 |
+| `GET /api/status` | 2.1 |
 | `GET /api/items`, unread, page of 50 | 1.5 |
-| same, 100 pages deep (5,000 items in) | 1.6 |
-| all items / oldest first / one feed | 1.5 / 1.5 / 1.6 |
-| one folder | 3.1 |
-| starred (2,215 items) | 46 |
+| same, 100 pages deep (5,000 items in) | 2.0 |
+| all items / oldest first / one feed | 1.7 / 1.6 / 1.6 |
+| starred (2,215 items) | 43 |
 | `GET /api/items/{id}` | 0.5 |
-| `GET /api/stats/summary` (year / all time) | 46 / 50 |
-| `GET /api/health/feeds` | 5.2 |
-| `GET /api/opml` | 2.0 |
-| **`GET /api/bootstrap`** (what the web app loads when it opens: folders, 500 feeds with unread counts, totals, settings) | **706** |
+| `GET /api/stats/summary` (year / all time) | 50 / 51 |
+| `GET /api/health/feeds` | 4.7 |
+| `GET /api/opml` | 4.7 |
+| **`GET /api/bootstrap`** (what the web app loads when it opens: 541 folders and 500 feeds with unread counts, totals, settings) | **706** |
 
 Every call except the bootstrap is a few milliseconds. The bootstrap counts unread items per feed over the whole items
 table, so it is the call that grows with the library: about 0.7 s at 150,000 items, and expect it to scale roughly
 linearly with the item count. Nothing here is over 2 s.
 
+### Folders (a tree of 541 folders, 5 levels deep)
+
+| Call | ms |
+|---|---:|
+| Unread list of a folder in the middle of the tree | 0.6 |
+| Unread list of the deepest folder | 0.5 |
+| Unread list of a top-level folder, with its whole subtree | 28.8 |
+| All-items list of a top-level folder, with its whole subtree | 123 |
+| Reader API `stream/contents` for a top-level label / the deepest label | 4.9 / 2.1 |
+| Reader API `tag/list` / `unread-count` | 2.6 / 8.0 |
+
+A folder's list covers its subfolders, so a top-level folder with a large share of the library costs more than a leaf
+(123 ms for the all-items view of a top-level folder is the slowest list in this table, still far under 2 s).
+
+**OPML import of a large folder tree.** One OPML file that creates nested folders, each holding one feed, imported into
+the library above:
+
+| Folders in the file | Result | Time |
+|---|---|---:|
+| 250 | imported | 1.0 s |
+| 500 | imported | 3.1 s |
+| 1,000, 2,000, 3,000 | HTTP 500 | 10 s each (the writer's deadline) |
+
+The cost grows faster than linearly with the number of folders (doubling the folders from 250 to 500 tripled the time),
+and an import of somewhere between 500 and 1,000 folders cannot finish in one write. This is known and PR #233 changes the import;
+re-run the bench after it merges. The bootstrap after the failed imports (about 1,000 folders and feeds more) answers
+in about 1.0 s.
+
 ### Full-text search (warm, median of 3 runs)
 
 | Search | ms |
 |---|---:|
-| Common word (in most items) | 191 |
-| Common word, relevance order | 269 |
-| Mid-frequency word | 231 |
-| Two common words | 185 |
-| Prefix while typing (`typing=1`) | 220 |
-| Rare word (5 items) | 1.6 |
-| Word in about 450 items | 6.6 |
-| Word that is not in the library | 0.5 |
+| Common word (in most items) | 193 |
+| Common word, relevance order | 241 |
+| Mid-frequency word | 186 |
+| Two common words | 181 |
+| Prefix while typing (`typing=1`) | 202 |
+| Rare word (5 items) | 1.1 |
+| Word in about 450 items | 6.0 |
+| Word that is not in the library | 0.6 |
 
-Forty common-word searches in a row had a median of 198 ms and a slowest of 292 ms (450 ms in the worst run). A
-search that outruns the 500 ms budget is answered with `422 search_too_broad`. See
+Forty common-word searches in a row had a median of 190 ms and a slowest of 237 ms (450 ms in the worst run of an
+earlier series). A search that outruns the 500 ms budget is answered with `422 search_too_broad`. See
 [#229](https://github.com/WPTK/Kipple/issues/229).
 
-Search is the call that varies most from run to run. In three of the six runs (with and without `GOMEMLIMIT`) at least
-one search loop had searches refused, 12 to 33 of 40 in a loop, while the median of the other runs was 190 to 230 ms.
-The slow runs followed the copying of tens of gigabytes of database files, so the file cache was competing with them:
-the same thing happens after a restart, when the first searches read the index from disk.
+Search is the call that varies most from run to run. Across three series of runs (nine runs, with and without
+`GOMEMLIMIT`), some searches were refused in four of them, in loops of 40 up to 33 refused, while the median of the
+other runs was 190 to 230 ms. The slow runs followed the copying of tens of gigabytes of database files, so the file
+cache was competing with them: the same thing happens after a restart, when the first searches read the index from
+disk.
 
 ### Reader API (warm, median of 3 runs)
 
 | Call | ms | Body |
 |---|---:|---:|
-| `subscription/list` | 1.2 | 102 KB |
-| `tag/list` | under 1 | 1 KB |
-| `unread-count` | 6.0 | 38 KB |
-| `stream/contents`, 50 unread items | 1.5 | 175 KB |
-| `stream/contents`, 250 unread items | 5.2 | 901 KB |
-| `stream/items/ids`, 10,000 unread / all | 3.8 / 3.1 | 254 KB |
-| `stream/contents`, starred, 50 | 1.5 | 208 KB |
-| `stream/items/contents`, 50 ids (POST) | 1.1 | 175 KB |
+| `subscription/list` | 3.7 | 102 KB |
+| `tag/list` | 2.6 | 1 KB |
+| `unread-count` | 8.0 | 38 KB |
+| `stream/contents`, 50 unread items | 3.4 | 175 KB |
+| `stream/contents`, 250 unread items | 7.3 | 901 KB |
+| `stream/items/ids`, 10,000 unread / all | 3.7 / 3.2 | 254 KB |
+| `stream/contents`, starred, 50 | 3.7 | 208 KB |
+| `stream/items/contents`, 50 ids (POST) | 3.2 | 175 KB |
 
 All of them are fast; a sync client syncing a library of this size is limited by the body size, not the server.
 
@@ -142,13 +171,13 @@ All of them are fast; a sync client syncing a library of this size is limited by
 
 | | |
 |---|---|
-| Refresh of all 500 feeds (local feed server, each feed returns 5 new items) | 3.3 s (3.9, 3.3, 3.1); 500 fetched, 0 errors, 2,500 new items |
-| Trim after that refresh (feeds at their cap lose the surplus) | 142 items, inside the refresh time |
-| A reader during the refresh | median 2.6 ms, worst 169 ms |
-| A write (star toggle) during the refresh | median 6.3 ms, worst 117 ms |
-| Lower the default retention from 250 to 100 (bulk trim) | 64 s for 32,414 items (65, 64, 63), about 2 ms per item |
-| A reader during the bulk trim | median 2.6 ms, worst 12 ms |
-| A write during the bulk trim | median 132 ms, worst 0.8 s (0.4 to 0.8 s) |
+| Refresh of all 500 feeds (local feed server, each feed returns 5 new items) | **20.0 s** (19.2, 20.0, 21.9); 500 fetched, 0 errors, 2,500 new items. On the same library with 25 flat folders it took 3.3 s; see [#237](https://github.com/WPTK/Kipple/issues/237) |
+| Trim after that refresh (feeds at their cap lose the surplus) | 334 items, inside the refresh time |
+| A reader during the refresh | median 2.3 ms, worst 199 ms |
+| A write (star toggle) during the refresh | median 69 ms, worst 135 ms |
+| Lower the default retention from 250 to 100 (bulk trim) | 60 s for 37,063 items (60, 60, 115), about 1.6 ms per item |
+| A reader during the bulk trim | median 2.1 ms, worst 7 ms (2.6 s in the disturbed run) |
+| A write during the bulk trim | median 139 ms, worst 0.3 s (6.8 s in the disturbed run) |
 
 The bulk trim is the slowest background job and the one that waits longest on the single writer; see
 [#228](https://github.com/WPTK/Kipple/issues/228).
@@ -158,30 +187,30 @@ The bulk trim is the slowest background job and the one that waits longest on th
 | | MB |
 |---|---:|
 | Idle after start (10 s) | 62 |
-| During the interactive calls above | 86 |
-| During searches | 79 |
-| During the in-app backup | 61 |
-| During the refresh | 104 |
-| During the bulk trim (the highest) | 125 |
-| After the refresh, settled | 100 |
+| During the interactive calls above | 85 |
+| During searches | 77 |
+| During the in-app backup | 60 |
+| During the refresh | 115 |
+| During the bulk trim (the highest) | 129 |
+| After the refresh, settled | 115 |
 
-A soak of 5 rounds of 60 mixed list, search and bootstrap calls kept the resident size flat (79, 53, 53, 53, 52 MB after
-each round), so nothing grew with the number of requests. The peak is during the bulk trim and the refresh, where it
-stays under 130 MB, within the 256 MB of the compose example.
+A soak of 5 rounds of 60 mixed list, search and bootstrap calls kept the resident size flat (about 53 MB after each
+round, 77 right after the searches), so nothing grew with the number of requests. The peak is during the bulk trim and
+the refresh, where it stays under 130 MB, within the 256 MB of the compose example.
 
-With the compose example's `GOMEMLIMIT=64MiB` (three more runs) nothing moved: idle 62 MB, peaks 128 MB (bulk
-trim) and 103 MB (refresh), common-word search 203 ms, refresh 2.9 s, bulk trim 65 s. The soft limit is below the
-working set during a refresh or trim, and the Go runtime keeps going past it instead of stalling.
+With the compose example's `GOMEMLIMIT=64MiB` (three runs, on the library before nested folders) nothing moved: idle
+62 MB, peaks 128 MB (bulk trim) and 103 MB (refresh), common-word search 203 ms, refresh 2.9 s, bulk trim 65 s. The soft
+limit is below the working set during a refresh or trim, and the Go runtime keeps going past it instead of stalling.
 
 ### Database file and WAL
 
 | | MB |
 |---|---:|
 | Database after generation | 1,637 |
-| After a refresh and a bulk trim of 32,414 items | 1,740 (trimmed content is kept for `retention.restore_days`) |
+| After a refresh and a bulk trim of 37,063 items | 1,753 (trimmed content is kept for `retention.restore_days`) |
 | WAL while idle | 0 |
-| WAL peak during a refresh | 5.5 |
-| WAL peak during the bulk trim | 17 (171 in one of three runs; the file is cut back to 64 MB at the next checkpoint) |
+| WAL peak during a refresh | 4.5 |
+| WAL peak during the bulk trim | 14.5 (171 in one run of an earlier series; the file is cut back to 64 MB at the next checkpoint) |
 
 The database file does not shrink after a trim: SQLite reuses the freed pages for new items, so the size settles
 instead of growing.
@@ -194,9 +223,12 @@ Anything that failed or was slow enough to matter is an issue:
   budget in the code and holds the writer for about 4 s a batch against a 10 s deadline.
 - [#229](https://github.com/WPTK/Kipple/issues/229): a common-word search at this size is within 2 times of its 500 ms
   budget and is refused as too broad when the machine is busy.
+- [#237](https://github.com/WPTK/Kipple/issues/237): a refresh of 500 feeds takes 20 s with the nested folder tree, 6
+  times the flat-tree figure.
+- OPML import of a folder tree fails somewhere between 500 and 1,000 folders (the writer's deadline); known, PR #233.
 
-Nothing failed outright: every backup restored with the same counts, every upgrade completed and passed the
-integrity check, and no call needed more than 2 s.
+Nothing else failed: every backup restored with the same counts, every upgrade completed and passed the integrity
+check, and no interactive call needed more than 2 s.
 
 ## Sizing
 
@@ -207,7 +239,7 @@ Rules of thumb from the numbers above. They scale with item count and content si
   thumbnails are cached separately and are not in the database. Keep free space of at least 2.5 times the
   database: the pre-upgrade snapshot needs 1.1 times plus 64 MB, the in-app backup needs 2.2 times plus 16 MB, and the
   database needs room to grow.
-- **Memory.** Idle use is about 60 MB and the peak at 500 feeds and 150,000 items was 125 MB. The 256 MB limit in the
+- **Memory.** Idle use is about 60 MB and the peak at 500 feeds and 150,000 items was 130 MB. The 256 MB limit in the
   compose example fits this size; memory follows the work in flight (a refresh, a trim), not the library size.
 - **CPU and time.** One core is enough for the interactive calls. Backup is about 20 s per GB of database, restore
   about 16 s per GB, and the pre-upgrade snapshot about 3.5 s per GB. A restart after an upgrade is not
