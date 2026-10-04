@@ -354,13 +354,28 @@ func listCardsSQL(q CardQuery) (string, []any, int, error) {
 			args = append(args, q.Cursor.SortAt, q.Cursor.ID)
 		}
 	}
-	sqlText := "SELECT " + cardCols + " FROM items i LEFT JOIN item_content c ON c.item_id = i.id"
+	cond := ""
 	if len(where) > 0 {
-		sqlText += " WHERE " + strings.Join(where, " AND ")
+		cond = " WHERE " + strings.Join(where, " AND ")
 	}
-	sqlText += " ORDER BY " + dateOrder("i.", q.Oldest && len(q.IDs) == 0) + " LIMIT ?"
+	order := " ORDER BY " + dateOrder("i.", q.Oldest && len(q.IDs) == 0)
 	args = append(args, limit+1)
-	return sqlText, args, limit, nil
+	if len(q.IDs) > 0 {
+		return "SELECT " + cardCols + " FROM items i LEFT JOIN item_content c ON c.item_id = i.id" + cond + order + " LIMIT ?", args, limit, nil
+	}
+	// A page is a deferred join: the subquery walks the view's index over the narrow items rows
+	// alone and picks the page's ids, then only those rows are joined to item_content and the
+	// card columns. Joined in one query, a folder view walks each of its feeds and sorts the whole
+	// view, building every row's card (item_content snippet, feed title) before the sort keeps a
+	// page of them. The outer sort orders at most limit+1 rows.
+	return "SELECT " + cardCols + " FROM items i LEFT JOIN item_content c ON c.item_id = i.id WHERE i.id IN (" +
+		pageIDsSQL(cond, order) + ")" + order, args, limit, nil
+}
+
+// pageIDsSQL is the id pick of a card page (listCardsSQL): the view's WHERE and keyset
+// order over items alone, LIMIT ? (the page size plus one).
+func pageIDsSQL(cond, order string) string {
+	return "SELECT i.id FROM items i" + cond + order + " LIMIT ?"
 }
 
 // ItemFeed is the feed summary embedded in an item.

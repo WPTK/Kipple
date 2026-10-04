@@ -1,0 +1,1 @@
+Large libraries answer faster: the feed list's starred counts, folder and Starred article pages, and mark-all-as-read read only the rows they need (two new indexes, added by an automatic migration on first start), and a refresh no longer re-counts a feed that is within its retention limit.

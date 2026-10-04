@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -213,4 +214,55 @@ func TestUnsubscribeBatched(t *testing.T) {
 	require.GreaterOrEqual(t, batches, 300/50+120/50, "items went in bounded batches")
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items"), "only the starred item survives, in the archive")
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.disabled_reason = 'archive'"))
+}
+
+// A trim whose caller knows the feed holds at most N items reads nothing more: given a total
+// that understates a feed over its cap, nothing goes, which shows the count and the trim-set
+// window did not run. With the true total, or none (-1), the feed is trimmed to its cap.
+func TestTrimSkipsAFeedWithinItsCap(t *testing.T) {
+	e := newEnv(t)
+	id := e.loadFeed("http://a.example/feed", 110)
+	e.exec("UPDATE feeds SET retention = 100 WHERE id = ?", id)
+	trim := func(total int) int64 {
+		t.Helper()
+		var n int64
+		require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
+			var err error
+			n, _, err = trimFeedBatch(ctx, tx, id, e.clk.Now().Unix(), maxInt64, trimBatch, total)
+			return err
+		}))
+		return n
+	}
+	require.Zero(t, trim(100))
+	require.Equal(t, 110, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	require.Zero(t, e.count("SELECT count(*) FROM trimmed_items"))
+
+	require.EqualValues(t, 10, trim(-1))
+	require.Equal(t, 100, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
+	require.EqualValues(t, 50, trim(100))
+	require.Equal(t, 50, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	require.Equal(t, 60, e.count("SELECT count(*) FROM trimmed_items"))
+}
+
+// A fetch commit passes the count it knows: a fetch that leaves the feed within its cap trims
+// nothing, one that takes it over trims it back to the cap.
+func TestFetchCommitTrimsOnlyOverTheCap(t *testing.T) {
+	e := newEnv(t)
+	id := e.loadFeed("http://a.example/feed", 40)
+	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
+	info := e.fetchBody(id, rss(numbered(50)...))
+	require.Equal(t, 10, info.New)
+	require.Zero(t, info.Trimmed)
+	require.Equal(t, 50, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+
+	info = e.fetchBody(id, rss(numbered(51)...))
+	require.Equal(t, 1, info.New)
+	require.EqualValues(t, 1, info.Trimmed)
+	require.Equal(t, 50, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	require.Zero(t, e.count("SELECT count(*) FROM items WHERE title = 'title g0'"), "the oldest went")
+
+	n, err := e.db.TrimOnly(e.ctx, id, fetch.TriggerRetention)
+	require.NoError(t, err)
+	require.Zero(t, n, "the commit left nothing for a trim job")
 }

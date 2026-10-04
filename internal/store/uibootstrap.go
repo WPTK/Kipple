@@ -265,10 +265,11 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 		SELECT f.id, f.folder_id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url, fi.hash,
 		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes, f.auto_read_days,
 		       f.host, f.redirect_kind, f.redirect_to, COALESCE(f.last_new_items_at, f.created_at),
-		       (SELECT count(*) FROM items WHERE feed_id = f.id AND starred = 1)
+		       COALESCE(s.n, 0)
 		FROM feeds f JOIN folders fo ON fo.id = f.folder_id
 		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
 		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id
+		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE starred = 1 GROUP BY feed_id) s ON s.feed_id = f.id
 		WHERE `+where+`
 		ORDER BY fo.position, fo.name, f.position, lower(COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url)), f.id`, args...)
 	if err != nil {
