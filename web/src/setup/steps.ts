@@ -25,7 +25,7 @@ export const STEPS: readonly StepInfo[] = [
 ];
 
 export const STEP_COUNT = STEPS.length;
-export const WELCOME_STEPS = STEPS.filter((s) => s.phase === "welcome");
+const WELCOME_STEPS = STEPS.filter((s) => s.phase === "welcome");
 export const FIRST_WELCOME = WELCOME_STEPS[0] as StepInfo;
 
 export const stepById = (id: StepId): StepInfo => STEPS.find((s) => s.id === id) as StepInfo;

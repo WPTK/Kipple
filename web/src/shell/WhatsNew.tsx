@@ -10,13 +10,13 @@ import type { Release } from "@/lib/whatsNewParse";
 import { Button } from "@/ui/button";
 
 /** Set by About's "What's new" button: show the latest releases on request (nothing is remembered from that). */
-export const whatsNewRequest = createStore(0);
+const whatsNewRequest = createStore(0);
 export const openWhatsNew = (): void => whatsNewRequest.set((n) => n + 1);
 
 const MANUAL_RELEASES = 3;
 
 /** The panel: the sections of the releases it is given, newest first. A real dialog (focus trapped, Esc closes). */
-export function WhatsNewDialog({ releases, onClose }: { releases: Release[]; onClose: () => void }) {
+function WhatsNewDialog({ releases, onClose }: { releases: Release[]; onClose: () => void }) {
   return (
     <Dialog.Root open onOpenChange={(o) => (o ? undefined : onClose())}>
       <Dialog.Portal>

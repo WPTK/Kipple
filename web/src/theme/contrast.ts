@@ -1,7 +1,7 @@
 // WCAG 2.x contrast and a Machado 2009 color-vision-deficiency simulation.
 // Pure functions, shared by the tests and scripts/contrast.mjs.
 
-export function hexToRgb(hex: string): [number, number, number] {
+function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
   return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
 }
@@ -18,7 +18,7 @@ export function mixHex(a: string, b: string, pct: number): string {
   return "#" + ch.map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
-export function luminance(hex: string): number {
+function luminance(hex: string): number {
   const [r, g, b] = hexToRgb(hex);
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
@@ -52,7 +52,7 @@ export const CVD: Record<"protanopia" | "deuteranopia" | "tritanopia", Mat> = {
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
-export function toLab(rgbLinear: [number, number, number]): [number, number, number] {
+function toLab(rgbLinear: [number, number, number]): [number, number, number] {
   const [r, g, b] = rgbLinear.map(clamp01) as [number, number, number];
   const x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
   const y = 0.2126729 * r + 0.7151522 * g + 0.072175 * b;
@@ -62,7 +62,7 @@ export function toLab(rgbLinear: [number, number, number]): [number, number, num
   return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
 
-export function labOf(hex: string, sim?: keyof typeof CVD): [number, number, number] {
+function labOf(hex: string, sim?: keyof typeof CVD): [number, number, number] {
   const rgb = hexToRgb(hex).map(lin) as [number, number, number];
   if (!sim) return toLab(rgb);
   const m = CVD[sim];

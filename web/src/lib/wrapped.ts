@@ -12,7 +12,7 @@ import { daysBetween, durationLabel, hourLabel, plural, todayString, weekdayName
 export type WrappedState = "on" | "off" | "unknown";
 
 /** Unknown while the bootstrap answer is absent; a missing key counts as on (the setting's default). */
-export function wrappedStateOf(qc: QueryClient | undefined): WrappedState {
+function wrappedStateOf(qc: QueryClient | undefined): WrappedState {
   const b = qc?.getQueryData<Bootstrap>(keys.bootstrap);
   if (b === undefined) return "unknown";
   if (b.settings?.["stats.enabled"] === false) return "off";
@@ -181,10 +181,10 @@ export function hoursLabel(seconds: number): string {
  * Whether active-reading seconds are a real fact for this model, rather than a legacy gap: items were read (or
  * opened) with no seconds ever recorded for them, which is not the same as zero reading having happened.
  */
-export const activeSecondsKnown = (m: WrappedModel): boolean => m.activeSeconds > 0 || m.itemsRead === 0;
+const activeSecondsKnown = (m: WrappedModel): boolean => m.activeSeconds > 0 || m.itemsRead === 0;
 
 /** The active-reading fact as it should read in the card and the text, consistently: a duration, or "not recorded". */
-export function activeReadingFact(m: WrappedModel): string {
+function activeReadingFact(m: WrappedModel): string {
   return activeSecondsKnown(m) ? hoursLabel(m.activeSeconds) : "not recorded";
 }
 

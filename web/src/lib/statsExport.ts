@@ -22,7 +22,7 @@ export const DICTIONARY_MD_URL = `${DICTIONARY_PATH}?format=md`;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A real calendar date in YYYY-MM-DD form. */
-export function validDate(s: string): boolean {
+function validDate(s: string): boolean {
   if (!DATE.test(s)) return false;
   const d = new Date(`${s}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
@@ -32,7 +32,7 @@ export function validDate(s: string): boolean {
 export const MAX_EXPORT_DAYS = 3660;
 
 /** Whole days from a to b (both valid YYYY-MM-DD). */
-export function dayDiff(a: string, b: string): number {
+function dayDiff(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 }
 
