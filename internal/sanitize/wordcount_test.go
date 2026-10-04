@@ -10,7 +10,7 @@ import (
 func TestWordCountMatchesFields(t *testing.T) {
 	for _, s := range []string{
 		"", " ", "\n\t ", "one", " one ", "two words", "a  b\tc\nd\r\ne",
-		"nbsp joined", "nel\u0085x", "line sep para", "em space　ideo", "zws​not-space",
+		"nbsp joined", "nel\u0085x", "line sep para", "em space　ideo", "zws\u200bnot-space",
 		" ", "café über", "bad \xff\xfe bytes", "trail ", " ogham ",
 		strings.Repeat("word ", 1000),
 	} {
