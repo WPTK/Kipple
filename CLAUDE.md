@@ -46,7 +46,8 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
   sepia=Parchment, soft green=Directory, brown=Cocoa Kraft, dark=Graphite, OLED=Midnight).
 - **Look:** Feedly is the reference (magazine/cards, images up front). Not NewsBlur, FreshRSS or Miniflux.
 - **Non-goals:** no AI features, no notifications, no social (an opt-in share of the reader's own yearly summary,
-  Wrapped, is allowed), no monitoring, no multi-user. Per-device appearance profiles are not multi-user.
+  Wrapped, is allowed), no monitoring, no multi-user. Per-device appearance profiles are not multi-user. No podcasts or media players, no
+  read-later or webhook integrations, no tags. Kipple is not trying to match what other readers have.
 
 ## Layout and commands
 
@@ -82,12 +83,21 @@ exact commands, backup, verification and GHCR steps are in `docs/RELEASING.md`; 
 
 ## Process
 
-- Phases 1 to 4 are shipped. Release steps toward 1.0 follow `docs/RELEASING.md`; the owner uses each build for a day or
-  more before the next.
+- Phases and the plan to 1.0 live in the history repo plan `plans/0.8-1.0-plan.md`. Release steps follow
+  `docs/RELEASING.md` (gates scale with what changed); the 1.0 sign-off is `docs/release-checklist.md`.
 - Verify iOS layout in the browser pane at the mobile preset before calling a UI change done.
 - Save decisions and gotchas to memory. Update the history repo (`WPTK/kipple-history`, `C:\kipple-history`) at least
   daily and after every release, meeting or incident: fetch first, never force-push, and apply the scrub rules (no
   host names or labels, `rss.example.com`, account names, IPs or emails).
+
+## Unattended work
+
+- May do without asking: branches and worktrees, commits, PRs, merge to `main` when CI is green on the exact head (one PR
+  at a time, base merged in, never force-pushed), issues and labels, subagents (never Haiku), the history repo, and
+  website PRs for version text and screenshots.
+- Needs the owner's word in chat: pushing a tag, creating a GitHub release, copying data off the Kipple server,
+  deploying, anything touching the Kipple server's containers or compose file (including a rollback drill).
+- A denied command stops that item: keep the exact command in a scratch note and carry on elsewhere; never route around it.
 
 ## Working economy (token use)
 

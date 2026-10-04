@@ -13,6 +13,7 @@ owner's own host labels (Host-A, Host-B); they are history and say nothing about
 | [sqa-plan.md](sqa-plan.md) | The software-quality-assurance plan, mapped to IEEE 730: what already ensures quality (CI, reviews, release discipline) and open candidate additions. |
 | [risk-register.md](risk-register.md) | Currently open risks and their mitigations, kept live rather than scattered across old phase notes. |
 | [RELEASING.md](RELEASING.md) | The release checklist for every version, including alphas, and the alpha/beta/rc/1.0 promotion criteria. |
+| [compatibility.md](compatibility.md) | What stays the same across 1.x (the Reader API, backup format, settings keys, environment variables, CLI, image tags, volume layout), what does not, and how a removal is announced. |
 | [deploy.md](deploy.md) | Backups, recovery, migrations, optional Cloudflare Access setup, and how a deploy and a rollback actually work. Also the first-run account form and setup mode, ports (1919 by default), open mode (no password), the time zone rules, the published image, and the disk space an upgrade needs. |
 | [../README.md](../README.md) | The Quickstart: pull-and-run (`docker run` or the pull compose file) or build from source, then the setup wizard. |
 | [../docker-compose.pull.example.yml](../docker-compose.pull.example.yml), [../docker-compose.example.yml](../docker-compose.example.yml) | The ready-to-run compose file for the published image, and the build-from-source one with resource limits and full hardening. |
