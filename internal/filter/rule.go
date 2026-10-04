@@ -156,10 +156,11 @@ func NewRule(scope Scope, kind Kind, action Action, terms ...string) Rule {
 		Fields: []Field{FieldTitle}, WholeWord: true, FoldDiacritics: true}
 }
 
-// Item is what a rule is evaluated against. FolderID is the feed's current folder.
+// Item is what a rule is evaluated against. FolderIDs is the feed's current folder followed by the
+// folders above it: a folder rule covers the feeds of its subfolders too.
 type Item struct {
 	FeedID     int64
-	FolderID   int64
+	FolderIDs  []int64
 	FeedTitle  string
 	Title      string
 	Author     string

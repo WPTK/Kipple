@@ -26,12 +26,14 @@ type Queryer interface {
 // ExportFrom is Export against any database with Kipple's schema, such as a
 // backup snapshot file, so the OPML in a backup matches its database exactly.
 // A feed marked for deletion (its URL replaced by a placeholder) is left out.
+// Each folder is one outline named by its full path ("Tech/Apple"), the label
+// Reader API clients see.
 func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	rows, err := q.QueryContext(ctx, `
-		SELECT fo.id, fo.name, f.url, f.site_url, COALESCE(f.custom_title, NULLIF(f.title,''), ''),
+		SELECT fo.id, fp.path, f.url, f.site_url, COALESCE(f.custom_title, NULLIF(f.title,''), ''),
 		       f.interval_minutes, f.retention, f.fulltext, f.dedup_mode, f.user_agent,
 		       f.ignore_http_cache, f.disable_http2, f.allow_insecure_tls, f.allow_private_net, f.enabled
-		FROM folders fo LEFT JOIN feeds f ON f.folder_id = fo.id AND `+store.ListedFeedSQL("f")+`
+		FROM folders fo JOIN folder_paths fp ON fp.id = fo.id LEFT JOIN feeds f ON f.folder_id = fo.id AND `+store.ListedFeedSQL("f")+`
 		WHERE NOT (fo.is_default = 1 AND f.id IS NULL)
 		ORDER BY fo.position, fo.id, f.position, f.id`)
 	if err != nil {

@@ -72,13 +72,6 @@ func (d *DB) FeedDetail(ctx context.Context, id int64, env StatusEnv) (FeedDetai
 	return fd, true, nil
 }
 
-// FolderExists reports whether a folder id exists.
-func (d *DB) FolderExists(ctx context.Context, id int64) (bool, error) {
-	var n int
-	err := d.reader.QueryRowContext(ctx, "SELECT count(*) FROM folders WHERE id = ?", id).Scan(&n)
-	return n > 0, err
-}
-
 // FeedPatch is a validated PATCH /api/feeds/{id}. Cols maps whitelisted column
 // names to their new value (nil = NULL); URL and Enabled have their own rules.
 type FeedPatch struct {
@@ -454,118 +447,6 @@ func (d *DB) FetchLog(ctx context.Context, feedID int64) (rows []FetchLogRow, fo
 		rows = append(rows, r)
 	}
 	return rows, true, rs.Err()
-}
-
-// ---- folders ----
-
-// CreateFolder adds a folder; position < 0 puts it last.
-func (d *DB) CreateFolder(ctx context.Context, name string, position int64) (UIFolder, error) {
-	var out UIFolder
-	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		if _, found, err := FindLabel(ctx, tx, []string{name}); err != nil {
-			return err
-		} else if found {
-			return ErrFolderExists
-		}
-		var res sql.Result
-		var err error
-		if position < 0 {
-			res, err = tx.ExecContext(ctx, "INSERT INTO folders (name, position) SELECT ?, COALESCE(MAX(position)+1, 1) FROM folders", name)
-		} else {
-			res, err = tx.ExecContext(ctx, "INSERT INTO folders (name, position) VALUES (?, ?)", name, position)
-		}
-		if err != nil {
-			return err
-		}
-		id, err := res.LastInsertId()
-		if err != nil {
-			return err
-		}
-		out.ID = id
-		return tx.QueryRowContext(ctx, "SELECT name, position, is_default FROM folders WHERE id = ?", id).Scan(&out.Name, &out.Position, new(int))
-	})
-	return out, err
-}
-
-// UpdateFolder renames and/or repositions a folder. A name taken by another
-// folder is ErrFolderExists (the UI never merges; only the Reader API does).
-func (d *DB) UpdateFolder(ctx context.Context, id int64, name *string, position *int64) (UIFolder, error) {
-	var out UIFolder
-	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		var n int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM folders WHERE id = ?", id).Scan(&n); err != nil {
-			return err
-		}
-		if n == 0 {
-			return ErrFolderNotFound
-		}
-		if name != nil {
-			if other, found, err := FindLabel(ctx, tx, []string{*name}); err != nil {
-				return err
-			} else if found && other != id {
-				return ErrFolderExists
-			}
-			if _, err := tx.ExecContext(ctx, "UPDATE folders SET name = ? WHERE id = ?", *name, id); err != nil {
-				return err
-			}
-		}
-		if position != nil {
-			if _, err := tx.ExecContext(ctx, "UPDATE folders SET position = ? WHERE id = ?", *position, id); err != nil {
-				return err
-			}
-		}
-		var def int
-		out.ID = id
-		if err := tx.QueryRowContext(ctx, `SELECT name, position, is_default,
-			COALESCE((SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.folder_id = folders.id AND i.read = 0 AND `+listedFeedSQL+`), 0)
-			FROM folders WHERE id = ?`, id).Scan(&out.Name, &out.Position, &def, &out.Unread); err != nil {
-			return err
-		}
-		out.IsDefault = def == 1
-		return nil
-	})
-	return out, err
-}
-
-// DeleteFolder deletes a folder, moving its feeds to the default folder; it
-// returns their ids. The default folder cannot be deleted.
-func (d *DB) DeleteFolder(ctx context.Context, id int64) (moved []int64, err error) {
-	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		var def sql.NullInt64
-		if err := tx.QueryRowContext(ctx, "SELECT is_default FROM folders WHERE id = ?", id).Scan(&def); errors.Is(err, sql.ErrNoRows) {
-			return ErrFolderNotFound
-		} else if err != nil {
-			return err
-		}
-		if def.Int64 == 1 {
-			return ErrDefaultFolder
-		}
-		rows, err := tx.QueryContext(ctx, "UPDATE feeds SET folder_id = 1, updated_at = unixepoch() WHERE folder_id = ? RETURNING id", id)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var fid int64
-			if err := rows.Scan(&fid); err != nil {
-				rows.Close()
-				return err
-			}
-			moved = append(moved, fid)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return err
-		}
-		rows.Close()
-		if _, err = tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ?", id); err != nil {
-			return err
-		}
-		return dropFavorite(ctx, tx, FavFolder, id)
-	})
-	if err == nil {
-		d.bumpFilters() // the folder's own filters cascade away with it
-	}
-	return moved, err
 }
 
 // ErrReorder is a bad Reorder request (an unknown or repeated id); it wraps

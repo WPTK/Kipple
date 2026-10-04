@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
@@ -29,11 +28,11 @@ type Subscription struct {
 // gone feeds included, never the archive feed (listedFeedSQL).
 func (d *DB) Subscriptions(ctx context.Context) ([]Subscription, error) {
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT f.id, COALESCE(f.custom_title, f.title), f.url, f.site_url, fo.name, COALESCE(fi.hash, '')
-		FROM feeds f JOIN folders fo ON fo.id = f.folder_id
+		SELECT f.id, COALESCE(f.custom_title, f.title), f.url, f.site_url, COALESCE(fp.path, ''), COALESCE(fi.hash, '')
+		FROM feeds f LEFT JOIN folder_paths fp ON fp.id = f.folder_id
 		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
 		WHERE `+listedFeedSQL+`
-		ORDER BY fo.position, fo.name, f.position, COALESCE(f.custom_title, f.title)`)
+		ORDER BY fp.sort_key, f.position, COALESCE(f.custom_title, f.title)`)
 	if err != nil {
 		return nil, err
 	}
@@ -49,9 +48,15 @@ func (d *DB) Subscriptions(ctx context.Context) ([]Subscription, error) {
 	return out, rows.Err()
 }
 
-// FolderNames lists folders in display order (tag/list).
+// FolderNames lists the Reader API labels in display order (tag/list): every folder's full path,
+// except a pure container (a folder with subfolders and no listed feed of its own), which a client
+// would show as an empty folder of its own beside the "Parent/Child" labels. An empty folder without
+// subfolders stays listed: a client creates a folder and then files a feed into it.
 func (d *DB) FolderNames(ctx context.Context) ([]string, error) {
-	rows, err := d.reader.QueryContext(ctx, "SELECT name FROM folders ORDER BY position, name")
+	rows, err := d.reader.QueryContext(ctx, `SELECT fp.path FROM folder_paths fp
+		WHERE NOT EXISTS (SELECT 1 FROM folders c WHERE c.parent_id = fp.id)
+		   OR EXISTS (SELECT 1 FROM feeds f WHERE f.folder_id = fp.id AND `+listedFeedSQL+`)
+		ORDER BY fp.sort_key`)
 	if err != nil {
 		return nil, err
 	}
@@ -82,73 +87,6 @@ func (d *DB) BoolSetting(ctx context.Context, key string, def bool) bool {
 	return settingBool(ctx, d.reader, key, def)
 }
 
-// FindLabel resolves a folder by name (case-insensitively), trying each
-// candidate in order (design §6.2 label lookup).
-func FindLabel(ctx context.Context, q Querier, candidates []string) (id int64, found bool, err error) {
-	for _, c := range candidates {
-		if strings.TrimSpace(c) == "" {
-			continue
-		}
-		err = q.QueryRowContext(ctx, "SELECT id FROM folders WHERE name = ? COLLATE NOCASE", c).Scan(&id)
-		if err == nil {
-			return id, true, nil
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return 0, false, err
-		}
-	}
-	return 0, false, nil
-}
-
-// FindLabel is FindLabel on the reader pool.
-func (d *DB) FindLabel(ctx context.Context, candidates []string) (int64, bool, error) {
-	return FindLabel(ctx, d.reader, candidates)
-}
-
-// MaxFolderNameRunes is the longest folder name, in characters, on every path
-// that names a folder (the web UI, the Reader API, OPML import).
-const MaxFolderNameRunes = 100
-
-// ErrBadFolderName is returned for a folder name that is longer than
-// MaxFolderNameRunes or holds a control character.
-var ErrBadFolderName = errors.New("store: folder names are 1 to 100 characters without control characters")
-
-// CheckFolderName reports whether a (trimmed, non-empty) folder name may be
-// stored: at most MaxFolderNameRunes characters and no control character
-// (below 0x20 except tab, or DEL), the web UI's rule.
-func CheckFolderName(name string) error {
-	if utf8.RuneCountInString(name) > MaxFolderNameRunes {
-		return ErrBadFolderName
-	}
-	for i := 0; i < len(name); i++ {
-		if c := name[i]; c < 0x20 && c != '\t' || c == 0x7f {
-			return ErrBadFolderName
-		}
-	}
-	return nil
-}
-
-// ensureFolder returns the id of the folder called name, creating it at the end.
-// A new name must pass CheckFolderName; an existing folder is found whatever its name.
-func ensureFolder(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return 1, nil
-	}
-	id, found, err := FindLabel(ctx, tx, []string{name})
-	if err != nil || found {
-		return id, err
-	}
-	if err := CheckFolderName(name); err != nil {
-		return 0, err
-	}
-	res, err := tx.ExecContext(ctx, "INSERT INTO folders (name, position) SELECT ?, COALESCE(MAX(position)+1, 1) FROM folders", name)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
-}
-
 // InvalidURLError is returned by Subscribe for a URL that cannot be a feed.
 type InvalidURLError struct{ Reason string }
 
@@ -169,6 +107,9 @@ type SubscribeResult struct {
 	FeedID  int64
 	Title   string // display title
 	Existed bool
+	// FolderRefused is why the folder writer refused the label (FolderRefused): the feed was not filed
+	// under it (a new feed went to the default folder, an existing one stayed). Nil otherwise.
+	FolderRefused error
 }
 
 // Subscribe is the API subscribe path (design §6.9, decision 33): idempotent on
@@ -190,13 +131,29 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 		}
 		if found {
 			res.Existed = true
-			if err := applyFeedEdit(ctx, tx, id, o.Folder, o.Folder != "", o.Title); err != nil {
+			if o.Folder != "" {
+				fid, refused, err := subscribeFolder(ctx, tx, o.Folder)
+				if err != nil {
+					return err
+				}
+				res.FolderRefused = refused
+				if refused == nil {
+					if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ?, updated_at = unixepoch() WHERE id = ? AND folder_id != ?", fid, id, fid); err != nil {
+						return err
+					}
+				}
+			}
+			if err := applyFeedEdit(ctx, tx, id, "", false, o.Title); err != nil {
 				return err
 			}
 		} else {
-			folder, err := ensureFolder(ctx, tx, o.Folder)
+			folder, refused, err := subscribeFolder(ctx, tx, o.Folder)
 			if err != nil {
 				return err
+			}
+			res.FolderRefused = refused
+			if refused != nil {
+				folder = 1
 			}
 			if strings.TrimSpace(o.Folder) == "" && o.FolderID > 0 {
 				// Checked in this transaction: a folder deleted after the caller's own
@@ -231,6 +188,29 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 		return tx.QueryRowContext(ctx, "SELECT COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&res.Title)
 	})
 	return res, err
+}
+
+// subscribeFolder is resolveFolderPath for a subscribe. A label the folder writer refuses (an empty
+// level such as "News/", more than 8 levels, below the default folder) never costs the subscription: it
+// is reported in refused, so a new feed goes to the default folder and an existing one stays where it
+// is; the caller logs refused. The savepoint undoes any folder the refused walk created before it stopped.
+func subscribeFolder(ctx context.Context, tx *sql.Tx, label string) (id int64, refused, err error) {
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT subscribe_folder"); err != nil {
+		return 0, nil, err
+	}
+	id, err = resolveFolderPath(ctx, tx, label)
+	if FolderRefused(err) {
+		refused, id, err = err, 0, nil
+		if _, err := tx.ExecContext(ctx, "ROLLBACK TO subscribe_folder"); err != nil {
+			return 0, nil, err
+		}
+	} else if err != nil {
+		return 0, nil, err
+	}
+	if _, err := tx.ExecContext(ctx, "RELEASE subscribe_folder"); err != nil {
+		return 0, nil, err
+	}
+	return id, refused, nil
 }
 
 // ValidateFeedURL is the one URL check for every way a feed URL enters the
@@ -284,7 +264,7 @@ func resolveFeed(ctx context.Context, q Querier, ref FeedRef) (int64, error) {
 // true ("" then means the default folder); title when non-blank.
 func applyFeedEdit(ctx context.Context, tx *sql.Tx, id int64, folder string, setFolder bool, title string) error {
 	if setFolder {
-		fid, err := ensureFolder(ctx, tx, folder)
+		fid, err := resolveFolderPath(ctx, tx, folder)
 		if err != nil {
 			return err
 		}
@@ -505,59 +485,94 @@ func ensureArchiveFeed(ctx context.Context, tx *sql.Tx) (int64, error) {
 	return res.LastInsertId()
 }
 
-// RenameLabel renames folder oldID to newName; when a different folder already
-// has that name the two are merged (feeds move, the old folder is deleted). The
-// default folder may be renamed but never deleted. A name that fails
-// CheckFolderName is ErrBadFolderName and changes nothing. filtersChanged
-// reports whether a merge converted or dropped the old folder's filters, for
-// the filters.changed event.
+// RenameLabel is the Reader API's rename-tag: folder oldID gets the label (full path) newName, which
+// may rename it, move it, or both; its subfolders follow. When a different folder already has that
+// path the two are merged (feeds move, the old folder is deleted), unless the old folder has
+// subfolders (ErrMergeSubfolders). Otherwise the last segment of newName becomes the folder's name and
+// the rest names its new parent: the longest prefix that is an existing folder's path, then folders
+// created below it for the remaining segments (as subscribe does). The default folder may be renamed
+// but never deleted or moved. A refused change (FolderRefused) changes nothing. filtersChanged reports
+// whether a merge converted or dropped the old folder's filters, for the filters.changed event.
 func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) (filtersChanged bool, err error) {
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return false, nil
 	}
-	if err := CheckFolderName(newName); err != nil {
-		return false, err
-	}
 	var convFilters, convFeeds int
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		convFilters, convFeeds, filtersChanged = 0, 0, false
-		target, found, err := FindLabel(ctx, tx, []string{newName})
+		cur, err := loadFolder(ctx, tx, oldID)
 		if err != nil {
 			return err
 		}
-		if found && target != oldID {
-			// A rename that merges folders keeps the old folder's filters at the
-			// scope they had: each becomes one feed filter per feed that was in the
-			// folder. Re-pointing them at the target folder would make them match
-			// the target's own feeds as well.
-			if convFilters, convFeeds, err = d.scopeFolderFiltersToFeeds(ctx, tx, oldID); err != nil {
-				return err
-			}
-			var left int // folder filters the folder's deletion cascades away (an empty folder's)
-			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM filters WHERE folder_id = ?", oldID).Scan(&left); err != nil {
-				return err
-			}
-			// The archive feed stays where it is (the default folder, which is never deleted).
-			if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ? WHERE folder_id = ? AND disabled_reason IS NOT 'archive'", target, oldID); err != nil {
-				return err
-			}
-			res, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", oldID)
+		target, found, err := folderByPath(ctx, tx, newName)
+		if err != nil {
+			return err
+		}
+		if found && target == oldID {
+			// The same path in another spelling of ASCII case (same length in bytes): the folder's own
+			// name takes the new spelling; the folders above it are not this rename's to change.
+			return placeAndSave(ctx, tx, oldID, cur.parent, newName[len(newName)-len(cur.name):])
+		}
+		if !found {
+			parent, rest, err := splitPath(ctx, tx, newName)
 			if err != nil {
 				return err
 			}
-			n, _ := res.RowsAffected()
-			filtersChanged = convFilters > 0 || (n > 0 && left > 0)
-			if filtersChanged {
-				d.bumpFilters()
+			for _, seg := range rest {
+				if strings.TrimSpace(seg) == "" {
+					return ErrEmptyFolderSegment
+				}
 			}
-			if n > 0 {
-				return dropFavorite(ctx, tx, FavFolder, oldID)
+			if len(rest) > 1 {
+				if parent, _, err = walkFolders(ctx, tx, parent, rest[:len(rest)-1]); err != nil {
+					return err
+				}
+			}
+			if err := placeAndSave(ctx, tx, oldID, parent, rest[len(rest)-1]); err != nil {
+				return err
+			}
+			if parent != cur.parent {
+				d.bumpFilters() // folder filters cover subfolders: the feeds a rule matches changed
 			}
 			return nil
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE folders SET name = ? WHERE id = ?", newName, oldID)
-		return err
+		// A merge.
+		var kids int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM folders WHERE parent_id = ?", oldID).Scan(&kids); err != nil {
+			return err
+		}
+		if kids > 0 {
+			return ErrMergeSubfolders
+		}
+		// A rename that merges folders keeps the old folder's filters at the
+		// scope they had: each becomes one feed filter per feed that was in the
+		// folder. Re-pointing them at the target folder would make them match
+		// the target's own feeds as well.
+		if convFilters, convFeeds, err = d.scopeFolderFiltersToFeeds(ctx, tx, oldID); err != nil {
+			return err
+		}
+		var left int // folder filters the folder's deletion cascades away (an empty folder's)
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM filters WHERE folder_id = ?", oldID).Scan(&left); err != nil {
+			return err
+		}
+		// The archive feed stays where it is (the default folder, which is never deleted).
+		if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ? WHERE folder_id = ? AND disabled_reason IS NOT 'archive'", target, oldID); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", oldID)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		filtersChanged = convFilters > 0 || (n > 0 && left > 0)
+		if filtersChanged {
+			d.bumpFilters()
+		}
+		if n > 0 {
+			return dropFavorite(ctx, tx, FavFolder, oldID)
+		}
+		return nil
 	})
 	if err == nil && convFilters > 0 {
 		d.log.Info("store: folder merge turned folder filters into feed filters", "folder", oldID, "filters", convFilters, "feeds", convFeeds)
@@ -723,24 +738,6 @@ func checkMergeCopies(ctx context.Context, q Querier, filterIDs, feedIDs []int64
 	return nil
 }
 
-// DisableLabel deletes a folder, moving its feeds to the default folder.
-func (d *DB) DisableLabel(ctx context.Context, id int64) error {
-	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = 1 WHERE folder_id = ?", id); err != nil {
-			return err
-		}
-		res, err := tx.ExecContext(ctx, "DELETE FROM folders WHERE id = ? AND is_default = 0", id)
-		if err != nil {
-			return err
-		}
-		if n, _ := res.RowsAffected(); n > 0 {
-			d.bumpFilters() // the folder's filters cascade away
-			return dropFavorite(ctx, tx, FavFolder, id)
-		}
-		return nil
-	})
-}
-
 // UnreadRow is one feed's unread count for unread-count.
 type UnreadRow struct {
 	FeedID int64
@@ -765,11 +762,11 @@ func (d *DB) UnreadCounts(ctx context.Context, holdCut int64) ([]UnreadRow, erro
 		args = append(args, d.holdArgs(holdCut)...)
 	}
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT u.feed_id, fo.name, u.n, u.newest, f.disabled_reason IS 'archive'
+		SELECT u.feed_id, COALESCE(fp.path, ''), u.n, u.newest, f.disabled_reason IS 'archive'
 		FROM (SELECT feed_id, count(*) AS n, max(id) AS newest FROM items WHERE read = 0`+held+` GROUP BY feed_id) u
-		JOIN feeds f ON f.id = u.feed_id JOIN folders fo ON fo.id = f.folder_id
+		JOIN feeds f ON f.id = u.feed_id LEFT JOIN folder_paths fp ON fp.id = f.folder_id
 		WHERE `+notDeletingSQL+`
-		ORDER BY fo.position, fo.name, f.position, u.feed_id`, args...)
+		ORDER BY fp.sort_key, f.position, u.feed_id`, args...)
 	if err != nil {
 		return nil, err
 	}

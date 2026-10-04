@@ -268,7 +268,7 @@ func regexReason(err error) string {
 func (c *Compiled) applies(it *Item) bool {
 	switch c.rule.Scope {
 	case ScopeFolder:
-		return it.FolderID == c.rule.FolderID
+		return slices.Contains(it.FolderIDs, c.rule.FolderID)
 	case ScopeFeed:
 		return it.FeedID == c.rule.FeedID
 	}

@@ -46,8 +46,8 @@ var statFeedTitle = "COALESCE(" + feedTitleSQL("f") + ", '')"
 // URL come from its restore stub when one exists). ok is false when the id is
 // in neither table.
 func StatItemSnapshot(ctx context.Context, q Querier, itemID int64) (s StatSnapshot, ok bool, err error) {
-	row := q.QueryRowContext(ctx, `SELECT x.feed_id, `+statFeedTitle+`, f.folder_id, fo.name, x.title, x.url
-		FROM items x LEFT JOIN feeds f ON f.id = x.feed_id LEFT JOIN folders fo ON fo.id = f.folder_id
+	row := q.QueryRowContext(ctx, `SELECT x.feed_id, `+statFeedTitle+`, f.folder_id, fo.path, x.title, x.url
+		FROM items x LEFT JOIN feeds f ON f.id = x.feed_id LEFT JOIN folder_paths fo ON fo.id = f.folder_id
 		WHERE x.id = ?`, itemID)
 	err = row.Scan(&s.FeedID, &s.FeedTitle, &s.FolderID, &s.FolderName, &s.ItemTitle, &s.ItemURL)
 	if err == nil {
@@ -56,10 +56,10 @@ func StatItemSnapshot(ctx context.Context, q Querier, itemID int64) (s StatSnaps
 	if !errors.Is(err, sql.ErrNoRows) {
 		return s, false, err
 	}
-	row = q.QueryRowContext(ctx, `SELECT x.feed_id, `+statFeedTitle+`, f.folder_id, fo.name,
+	row = q.QueryRowContext(ctx, `SELECT x.feed_id, `+statFeedTitle+`, f.folder_id, fo.path,
 		COALESCE(c.title, ''), COALESCE(c.url, '')
 		FROM trimmed_items x LEFT JOIN trimmed_content c ON c.id = x.id
-		LEFT JOIN feeds f ON f.id = x.feed_id LEFT JOIN folders fo ON fo.id = f.folder_id
+		LEFT JOIN feeds f ON f.id = x.feed_id LEFT JOIN folder_paths fo ON fo.id = f.folder_id
 		WHERE x.id = ?`, itemID)
 	err = row.Scan(&s.FeedID, &s.FeedTitle, &s.FolderID, &s.FolderName, &s.ItemTitle, &s.ItemURL)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -136,8 +136,8 @@ func StatItemBasics(ctx context.Context, q Querier, itemID int64) (feedID int64,
 // StatFeedSnapshot reads the feed and folder identity for a stats row.
 func StatFeedSnapshot(ctx context.Context, q Querier, feedID int64) (s StatSnapshot, err error) {
 	s.FeedID = feedID
-	err = q.QueryRowContext(ctx, `SELECT `+statFeedTitle+`, f.folder_id, fo.name
-		FROM feeds f LEFT JOIN folders fo ON fo.id = f.folder_id WHERE f.id = ?`, feedID).Scan(&s.FeedTitle, &s.FolderID, &s.FolderName)
+	err = q.QueryRowContext(ctx, `SELECT `+statFeedTitle+`, f.folder_id, fo.path
+		FROM feeds f LEFT JOIN folder_paths fo ON fo.id = f.folder_id WHERE f.id = ?`, feedID).Scan(&s.FeedTitle, &s.FolderID, &s.FolderName)
 	return s, err
 }
 

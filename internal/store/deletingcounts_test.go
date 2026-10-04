@@ -61,7 +61,7 @@ func TestDeletingFeedLeftOutOfCounts(t *testing.T) {
 	require.EqualValues(t, 1, got, "UIFolders")
 
 	name := "Y"
-	upd, err := e.db.UpdateFolder(ctx, folder, &name, nil)
+	upd, err := e.db.UpdateFolder(ctx, folder, FolderPatch{Name: &name})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, upd.Unread, "UpdateFolder")
 
