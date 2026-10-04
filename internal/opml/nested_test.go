@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -224,13 +223,13 @@ func TestImportMoveExisting(t *testing.T) {
 	require.Equal(t, []string{"Misc"}, r.FoldersEmptied)
 }
 
-// Folder lookups use the sibling index, so a large tree imports in one write well inside the writer's
-// timeout (a lookup per folder through folder_paths made this quadratic).
+// A larger tree imports and re-imports in one write. Whether the lookups stay linear is checked on the
+// query plans (store.TestFolderLookupPlans), not on the clock, which varies (the race detector).
 func TestImportManyFolders(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("<opml><body>")
 	n := 0
-	for i := 0; i < 1250; i++ {
+	for i := 0; i < 250; i++ {
 		fmt.Fprintf(&b, `<outline text="Top %d">`, i)
 		for j := 0; j < 3; j++ {
 			n++
@@ -240,16 +239,12 @@ func TestImportManyFolders(t *testing.T) {
 	}
 	b.WriteString("</body></opml>")
 	db := openDB(t)
-	start := time.Now()
 	r := importString(t, db, b.String(), ImportOptions{})
-	t.Logf("5000 folders, %d feeds: %v", n, time.Since(start))
-	require.Equal(t, 5000, r.FoldersCreated)
+	require.Equal(t, 1000, r.FoldersCreated)
 	require.Equal(t, n, r.FeedsAdded)
-	require.Equal(t, "Top 1249/Sub 2", folderOf(t, db, fmt.Sprintf("https://f%d.test/rss", n)))
+	require.Equal(t, "Top 249/Sub 2", folderOf(t, db, fmt.Sprintf("https://f%d.test/rss", n)))
 
-	start = time.Now()
 	r = importString(t, db, b.String(), ImportOptions{MoveExisting: true})
-	t.Logf("re-import: %v", time.Since(start))
 	require.Zero(t, r.FoldersCreated)
 	require.Empty(t, r.FeedsMoved)
 }

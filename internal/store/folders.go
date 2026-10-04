@@ -200,7 +200,7 @@ func folderNames(ctx context.Context, q Querier, id int64, r *folderRow) ([]stri
 		var parent sql.NullInt64
 		var name string
 		var isDefault bool
-		err := q.QueryRowContext(ctx, "SELECT parent_id, name, is_default FROM folders WHERE id = ?", cur).Scan(&parent, &name, &isDefault)
+		err := q.QueryRowContext(ctx, folderRowSQL, cur).Scan(&parent, &name, &isDefault)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrFolderNotFound
 		}
@@ -337,10 +337,19 @@ func placeAndSave(ctx context.Context, tx *sql.Tx, id, parent int64, name string
 	return err
 }
 
+// The two queries every folder lookup is made of: one sibling-index probe per level down
+// (childFolderSQL) and one primary-key read per level up (folderRowSQL). Neither reads the whole
+// table, so resolving or creating a folder costs a few index reads however many folders exist
+// (TestFolderLookupPlans).
+const (
+	childFolderSQL = "SELECT id FROM folders WHERE ifnull(parent_id, 0) = ? AND name = ? COLLATE NOCASE"
+	folderRowSQL   = "SELECT parent_id, name, is_default FROM folders WHERE id = ?"
+)
+
 // childFolder finds the folder named name (ignoring ASCII case) directly inside parent (0 = the top level).
 func childFolder(ctx context.Context, q Querier, parent int64, name string) (int64, bool, error) {
 	var id int64
-	err := q.QueryRowContext(ctx, "SELECT id FROM folders WHERE ifnull(parent_id, 0) = ? AND name = ? COLLATE NOCASE", parent, name).Scan(&id)
+	err := q.QueryRowContext(ctx, childFolderSQL, parent, name).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}

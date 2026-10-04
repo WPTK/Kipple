@@ -593,3 +593,40 @@ func TestFeedsOfAnUnreachableFolderStayListed(t *testing.T) {
 	require.NoError(t, e.db.StreamItems(e.ctx, ids, false, 0, func(r *ContentRow) error { got = append(got, r.Folder); return nil }))
 	require.Equal(t, []string{""}, got)
 }
+
+// Folder lookups read a few index rows, never the whole table (folder_paths does, through its window
+// function), so an import that resolves thousands of folders stays linear. Checked on the query plan,
+// which does not depend on the machine's speed.
+func TestFolderLookupPlans(t *testing.T) {
+	e := newEnv(t)
+	for i := 0; i < 50; i++ {
+		top := e.mkFolder(0, fmt.Sprintf("Top %d", i))
+		e.mkFolder(top, "Sub")
+	}
+	plan := func(q string, args ...any) string {
+		rows, err := e.db.Reader().Query("EXPLAIN QUERY PLAN "+q, args...)
+		require.NoError(t, err)
+		defer rows.Close()
+		var b strings.Builder
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
+			b.WriteString(detail + "\n")
+		}
+		require.NoError(t, rows.Err())
+		return b.String()
+	}
+	for _, analyze := range []bool{false, true} {
+		if analyze {
+			_, err := e.db.writer.ExecContext(e.ctx, "ANALYZE")
+			require.NoError(t, err)
+		}
+		p := plan(childFolderSQL, 3, "Sub")
+		require.Contains(t, p, "USING INDEX idx_folders_sibling_name", "analyze=%v\n%s", analyze, p)
+		require.NotContains(t, p, "SCAN", "analyze=%v\n%s", analyze, p)
+		p = plan(folderRowSQL, 3)
+		require.Contains(t, p, "INTEGER PRIMARY KEY", "analyze=%v\n%s", analyze, p)
+		require.NotContains(t, p, "SCAN", "analyze=%v\n%s", analyze, p)
+	}
+}
