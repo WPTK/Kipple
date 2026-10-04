@@ -3,8 +3,8 @@
 Adapted from standard UAT methodology (entry/exit criteria, traceable test cases, severity-triaged defects,
 formal sign-off) to a single-owner, single-user project with no separate QA team. Functional testing (`go test`,
 Vitest, `/code-review`) already answers "does it work?" This plan answers "does it work for the owner, on his
-actual devices, doing his actual reading?" It is a phase 5 release-readiness step, feeding the final go/no-go
-meeting (`docs/RELEASING.md`, promotion criteria). Status: planned, not yet executed.
+actual devices, doing his actual reading?" It is a phase 5 release-readiness step, feeding the final sign-off
+(`docs/release-checklist.md`). Status: planned, not yet executed.
 
 ## Roles (mapped from the standard 5-role model)
 
@@ -14,7 +14,7 @@ meeting (`docs/RELEASING.md`, promotion criteria). Status: planned, not yet exec
 | End user | The owner — the only user, on desktop Chrome and an installed iPhone PWA, plus Reeder Classic and NetNewsWire as Reader API clients |
 | Business analyst / product owner | The owner (same person) — decisions already recorded in `docs/ui-decisions.md` and `kipple-history` are the "requirements" test cases trace to |
 | Development team | Claude, via fix PRs against defects found |
-| Sign-off authority | The owner, at the final go/no-go meeting |
+| Sign-off authority | The owner, against `docs/release-checklist.md` |
 
 No separate defect-tracking tool: findings go in `kipple-history/audits/uat-findings-<date>.md` (same format as
 the code-audit reports), severity P0-P3 (blocker / high / medium / low, borrowed from the webapp-uat skill's
@@ -37,7 +37,7 @@ triage scheme since it's a reasonable, well-known scale), each with steps to rep
 - P2/P3 defects are either fixed or listed with the owner's explicit decision to ship anyway — no silent
   "won't fix" list (standing project rule).
 - The findings doc is committed to `kipple-history/audits/`.
-- The owner gives explicit sign-off, recorded as a `kipple-history` MEETINGS.md entry (the go/no-go meeting).
+- The owner gives explicit sign-off, recorded in the history repository.
 
 ## Execution split
 

@@ -1,1 +1,0 @@
-Lowering a retention limit on a large library trims about three times faster: on 150,000 items, trimming 36,000 of them takes about 24 seconds instead of 75, and each step of the trim holds up a star or a mark as read for about a second instead of several. (#228)

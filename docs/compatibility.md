@@ -46,7 +46,7 @@ Something covered is removed or changed incompatibly only after this notice:
 
 1. A release announces the deprecation under **Deprecated** in [CHANGELOG.md](../CHANGELOG.md), with what to use
    instead.
-2. The removal happens no earlier than the next minor release after that announcement.
+2. The removal happens only in a major release (2.0.0 or later), after the release that announced the deprecation.
 3. The removal is listed under **Removed** in the changelog of the release that makes it.
 
 The changelog is the only place a deprecation is announced, so read the notes of each release you skip. Kipple never
