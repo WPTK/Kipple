@@ -23,11 +23,12 @@ import (
 func runImport(args []string) error {
 	fs := flag.NewFlagSet("import", flag.ContinueOnError)
 	days := fs.Int("mark-read-older-than-days", 0, "mark items older than N days (1-365) read on each new feed's first fetch")
+	move := fs.Bool("move-existing", false, "move feeds that already exist into the file's folders")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: kipple import [-mark-read-older-than-days N] <file.opml | ->")
+		return fmt.Errorf("usage: kipple import [-mark-read-older-than-days N] [-move-existing] <file.opml | ->")
 	}
 	if *days < 0 || *days > 365 {
 		return fmt.Errorf("-mark-read-older-than-days must be 0 or 1-365")
@@ -66,7 +67,7 @@ func runImport(args []string) error {
 		}
 	}()
 
-	res, err := opml.Import(ctx, db, doc, opml.ImportOptions{MarkReadOlderThanDays: *days})
+	res, err := opml.Import(ctx, db, doc, opml.ImportOptions{MarkReadOlderThanDays: *days, MoveExisting: *move})
 	if err != nil {
 		return err
 	}
@@ -75,7 +76,11 @@ func runImport(args []string) error {
 	if err := enc.Encode(res); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "imported %d new feeds (%d folders created, %d already present); the running server fetches them on its next tick\n",
-		res.FeedsAdded, res.FoldersCreated, len(res.FeedsExisting))
+	fmt.Fprintf(os.Stderr, "imported %d new feeds (%d folders created, %d already present, %d moved); the running server fetches them on its next tick\n",
+		res.FeedsAdded, res.FoldersCreated, len(res.FeedsExisting), len(res.FeedsMoved))
+	if res.FoldersCreated > 0 || len(res.FeedsMoved) > 0 {
+		// This command writes the database directly, so the server sends open web apps no event.
+		fmt.Fprintln(os.Stderr, "reload any open Kipple web app to see the new folders and moved feeds")
+	}
 	return nil
 }

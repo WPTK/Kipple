@@ -113,11 +113,11 @@ func (s *Server) starterSubscribe(w http.ResponseWriter, r *http.Request) {
 			if !want[fd.ID] {
 				continue
 			}
-			folder := ""
+			var folder []string
 			if body.Folders {
-				folder = c.Title
-				if !seenFolder[folder] {
-					seenFolder[folder] = true
+				folder = []string{c.Title}
+				if !seenFolder[c.Title] {
+					seenFolder[c.Title] = true
 					doc.Folders = append(doc.Folders, folder)
 				}
 			}

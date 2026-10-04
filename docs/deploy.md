@@ -155,13 +155,20 @@ The database only grows so much: an export is refused above 4 GiB. Past that, co
 ## OPML import and export
 
 Feeds screen > Export OPML downloads the subscription list (`GET /api/opml`), the same file as `feeds.opml` in a backup
-zip. It carries folders, feed URLs and titles, and the per-feed options Kipple adds (interval, retention, full text, and
-the like, as `kipple:` attributes that other readers ignore). It does **not** carry read or starred state, filters,
-settings, the statistics history, the account or feed logins. If OPML is all you keep, those are lost on a restore from it.
+zip. It carries the folder tree (subfolders as nested outlines), feed URLs and titles, and the per-feed options Kipple
+adds (interval, retention, full text, and the like, as `kipple:` attributes that other readers ignore). It does **not**
+carry read or starred state, filters, settings, the statistics history, the account or feed logins. If OPML is all you
+keep, those are lost on a restore from it.
 
 OPML carries your feeds and folders only; starred items and read state are not part of OPML (and most readers do not export them), so they are not imported.
 
-`kipple import [-mark-read-older-than-days N] <file.opml | ->` is safe while the server runs and prints JSON on standard output. The flag must come before the file. Pipe the file in, because the container user cannot read a bind-mounted `/import`:
+An import keeps the file's folder tree: nested outlines become subfolders, up to 8 levels deep. A feed nested deeper, or
+in a folder whose name Kipple cannot store (over 100 characters, control characters), goes into the nearest folder above
+it, and the import report lists that folder under `folders_refused`. A feed you already have stays in its folder unless
+you ask for "move feeds that already exist into the file's folders" (`kipple import -move-existing`, or
+`POST /api/opml?move_existing=true`); folders that this leaves empty are listed under `folders_emptied` and kept.
+
+`kipple import [-mark-read-older-than-days N] [-move-existing] <file.opml | ->` is safe while the server runs and prints JSON on standard output. The flags must come before the file. Pipe the file in, because the container user cannot read a bind-mounted `/import`:
 
     docker exec -i kipple /kipple import - < feeds.opml
 

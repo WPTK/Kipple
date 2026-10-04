@@ -25,3 +25,8 @@ regexes = ['''(testSecret|secret64)\s*=''']
 description = "Character set used to generate random passwords, not a secret"
 paths = ['''^internal/auth/auth\.go$''']
 regexes = ['''passwordAlphabet\s*=''']
+
+[[allowlists]]
+description = "Throwaway login of the synthetic benchmark library (scripts/scalegen); guards nothing"
+paths = ['''^scripts/scalegen/gen\.go$''']
+regexes = ['''(benchPassword|benchAPIPass)\s*=''']
