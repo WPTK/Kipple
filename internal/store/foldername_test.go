@@ -20,17 +20,25 @@ func TestFolderNameLimitsInStore(t *testing.T) {
 		require.ErrorIs(t, CheckFolderName(bad), ErrBadFolderName, "%q", bad)
 	}
 
-	_, err := db.Subscribe(ctx, SubscribeOpts{URL: "https://a.example/feed", Folder: strings.Repeat("x", 101)})
-	require.ErrorIs(t, err, ErrBadFolderName)
+	// A refused label never costs the subscription: the new feed goes to the default folder.
+	res, err := db.Subscribe(ctx, SubscribeOpts{URL: "https://a.example/feed", Folder: strings.Repeat("x", 101)})
+	require.NoError(t, err)
 	_, found, err := db.FindLabel(ctx, []string{strings.Repeat("x", 101)})
 	require.NoError(t, err)
 	require.False(t, found)
-	var feeds int
-	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE url LIKE 'https://a.example/%'").Scan(&feeds))
-	require.Zero(t, feeds, "the subscribe rolled back")
+	var folder int64
+	require.NoError(t, db.Reader().QueryRow("SELECT folder_id FROM feeds WHERE id = ?", res.FeedID).Scan(&folder))
+	require.Equal(t, int64(1), folder)
 
-	res, err := db.Subscribe(ctx, SubscribeOpts{URL: "https://a.example/feed", Folder: "News"})
+	// An existing feed subscribed again under a refused label stays where it is.
+	res, err = db.Subscribe(ctx, SubscribeOpts{URL: "https://a.example/feed", Folder: "News"})
 	require.NoError(t, err)
+	_, err = db.Subscribe(ctx, SubscribeOpts{URL: "https://a.example/feed", Folder: "News/"})
+	require.NoError(t, err)
+	require.NoError(t, db.Reader().QueryRow("SELECT f.folder_id FROM feeds f WHERE f.id = ?", res.FeedID).Scan(&folder))
+	news, _, err := db.FindLabel(ctx, []string{"News"})
+	require.NoError(t, err)
+	require.Equal(t, news, folder)
 	_, err = db.EditSubscription(ctx, []FeedRef{{ID: res.FeedID}}, EditOpts{Folder: "bad\x01name", SetFolder: true})
 	require.ErrorIs(t, err, ErrBadFolderName)
 

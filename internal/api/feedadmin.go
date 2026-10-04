@@ -673,6 +673,8 @@ func parseParentID(raw json.RawMessage) (int64, bool) {
 // writeFolderError answers the folder writer's refusals; it reports false for any other error.
 func writeFolderError(w http.ResponseWriter, err error) bool {
 	switch {
+	case errors.Is(err, store.ErrParentNotFound): // the request's fault, unlike the folder itself missing (404)
+		writeErrorMsg(w, http.StatusBadRequest, "folder_not_found", "no such parent folder")
 	case errors.Is(err, store.ErrFolderExists):
 		writeErrorMsg(w, http.StatusConflict, "folder_exists", "a folder with that name exists there")
 	case errors.Is(err, store.ErrFolderDepth):
@@ -713,9 +715,6 @@ func (s *Server) createFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := s.db.CreateFolder(r.Context(), name, parent, pos)
 	switch {
-	case errors.Is(err, store.ErrFolderNotFound):
-		writeErrorMsg(w, http.StatusBadRequest, "folder_not_found", "no such parent folder")
-		return
 	case writeFolderError(w, err):
 		return
 	case err != nil:
@@ -758,16 +757,6 @@ func (s *Server) patchFolder(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			writeErrorMsg(w, http.StatusBadRequest, "bad_request", "parent_id must be a folder id or null")
 			return
-		}
-		if parent != 0 {
-			// The folder itself missing is a 404; a missing parent is the request's fault.
-			if exists, err := s.db.FolderExists(r.Context(), parent); err != nil {
-				s.serverError(w, "patch folder", err)
-				return
-			} else if !exists {
-				writeErrorMsg(w, http.StatusBadRequest, "folder_not_found", "no such parent folder")
-				return
-			}
 		}
 		p.Parent = &parent
 	}

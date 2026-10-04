@@ -28,8 +28,8 @@ type Subscription struct {
 // gone feeds included, never the archive feed (listedFeedSQL).
 func (d *DB) Subscriptions(ctx context.Context) ([]Subscription, error) {
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT f.id, COALESCE(f.custom_title, f.title), f.url, f.site_url, fp.path, COALESCE(fi.hash, '')
-		FROM feeds f JOIN folder_paths fp ON fp.id = f.folder_id
+		SELECT f.id, COALESCE(f.custom_title, f.title), f.url, f.site_url, COALESCE(fp.path, ''), COALESCE(fi.hash, '')
+		FROM feeds f LEFT JOIN folder_paths fp ON fp.id = f.folder_id
 		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
 		WHERE `+listedFeedSQL+`
 		ORDER BY fp.sort_key, f.position, COALESCE(f.custom_title, f.title)`)
@@ -107,6 +107,9 @@ type SubscribeResult struct {
 	FeedID  int64
 	Title   string // display title
 	Existed bool
+	// FolderRefused is why the folder writer refused the label (FolderRefused): the feed was not filed
+	// under it (a new feed went to the default folder, an existing one stayed). Nil otherwise.
+	FolderRefused error
 }
 
 // Subscribe is the API subscribe path (design §6.9, decision 33): idempotent on
@@ -128,13 +131,29 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 		}
 		if found {
 			res.Existed = true
-			if err := applyFeedEdit(ctx, tx, id, o.Folder, o.Folder != "", o.Title); err != nil {
+			if o.Folder != "" {
+				fid, refused, err := subscribeFolder(ctx, tx, o.Folder)
+				if err != nil {
+					return err
+				}
+				res.FolderRefused = refused
+				if refused == nil {
+					if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ?, updated_at = unixepoch() WHERE id = ? AND folder_id != ?", fid, id, fid); err != nil {
+						return err
+					}
+				}
+			}
+			if err := applyFeedEdit(ctx, tx, id, "", false, o.Title); err != nil {
 				return err
 			}
 		} else {
-			folder, err := resolveFolderPath(ctx, tx, o.Folder)
+			folder, refused, err := subscribeFolder(ctx, tx, o.Folder)
 			if err != nil {
 				return err
+			}
+			res.FolderRefused = refused
+			if refused != nil {
+				folder = 1
 			}
 			if strings.TrimSpace(o.Folder) == "" && o.FolderID > 0 {
 				// Checked in this transaction: a folder deleted after the caller's own
@@ -169,6 +188,29 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 		return tx.QueryRowContext(ctx, "SELECT COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&res.Title)
 	})
 	return res, err
+}
+
+// subscribeFolder is resolveFolderPath for a subscribe. A label the folder writer refuses (an empty
+// level such as "News/", more than 8 levels, below the default folder) never costs the subscription: it
+// is reported in refused, so a new feed goes to the default folder and an existing one stays where it
+// is; the caller logs refused. The savepoint undoes any folder the refused walk created before it stopped.
+func subscribeFolder(ctx context.Context, tx *sql.Tx, label string) (id int64, refused, err error) {
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT subscribe_folder"); err != nil {
+		return 0, nil, err
+	}
+	id, err = resolveFolderPath(ctx, tx, label)
+	if FolderRefused(err) {
+		refused, id, err = err, 0, nil
+		if _, err := tx.ExecContext(ctx, "ROLLBACK TO subscribe_folder"); err != nil {
+			return 0, nil, err
+		}
+	} else if err != nil {
+		return 0, nil, err
+	}
+	if _, err := tx.ExecContext(ctx, "RELEASE subscribe_folder"); err != nil {
+		return 0, nil, err
+	}
+	return id, refused, nil
 }
 
 // ValidateFeedURL is the one URL check for every way a feed URL enters the
@@ -477,6 +519,11 @@ func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) (filt
 			if err != nil {
 				return err
 			}
+			for _, seg := range rest {
+				if strings.TrimSpace(seg) == "" {
+					return ErrEmptyFolderSegment
+				}
+			}
 			if len(rest) > 1 {
 				if parent, _, err = walkFolders(ctx, tx, parent, rest[:len(rest)-1]); err != nil {
 					return err
@@ -715,9 +762,9 @@ func (d *DB) UnreadCounts(ctx context.Context, holdCut int64) ([]UnreadRow, erro
 		args = append(args, d.holdArgs(holdCut)...)
 	}
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT u.feed_id, fp.path, u.n, u.newest, f.disabled_reason IS 'archive'
+		SELECT u.feed_id, COALESCE(fp.path, ''), u.n, u.newest, f.disabled_reason IS 'archive'
 		FROM (SELECT feed_id, count(*) AS n, max(id) AS newest FROM items WHERE read = 0`+held+` GROUP BY feed_id) u
-		JOIN feeds f ON f.id = u.feed_id JOIN folder_paths fp ON fp.id = f.folder_id
+		JOIN feeds f ON f.id = u.feed_id LEFT JOIN folder_paths fp ON fp.id = f.folder_id
 		WHERE `+notDeletingSQL+`
 		ORDER BY fp.sort_key, f.position, u.feed_id`, args...)
 	if err != nil {

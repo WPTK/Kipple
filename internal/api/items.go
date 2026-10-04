@@ -455,7 +455,7 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 		if len(sc.FolderID) > 0 && string(sc.FolderID) != "null" {
 			targets++
 			var ok bool
-			if scope.FolderID, ok = parseID(sc.FolderID); !ok {
+			if scope.FolderTreeID, ok = parseID(sc.FolderID); !ok {
 				bad()
 				return
 			}

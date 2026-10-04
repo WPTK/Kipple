@@ -123,7 +123,7 @@ func TestOrderQueryPlans(t *testing.T) {
 		for _, oldest := range []bool{false, true} {
 			for _, above := range []bool{false, true} {
 				b := &Bound{Oldest: oldest, Above: above, SortAt: 100, ID: 1_700_000_000_100_000}
-				for _, sc := range []MarkScope{{}, {FeedID: 2}, {FolderID: 7}, {Starred: true}, {Muted: true}} {
+				for _, sc := range []MarkScope{{}, {FeedID: 2}, {FolderTreeID: 7}, {Starred: true}, {Muted: true}} {
 					sel, args, _, _ := markSelectSQL(sc, MarkFilter{Bound: b}, 1_700_000_000_900_000, "", false)
 					p := plan(sel, args)
 					require.NotContains(t, p, "SCAN items\n", "%+v oldest=%v above=%v analyze=%v\n%s", sc, oldest, above, analyze, p)

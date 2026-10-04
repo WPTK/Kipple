@@ -130,17 +130,23 @@ func TestResolveFolderPathLongestPrefix(t *testing.T) {
 	require.Equal(t, "Tech/Apple", e.path(apple))
 	require.Equal(t, apple, e.resolve("tech/apple"), "found again ignoring case")
 	require.Equal(t, apple, e.resolve(" Tech/Apple "))
-	// Spaces around a segment belong to no name: "Tech / Mac" files under the existing Tech.
+	// Only the outer ends of the whole path are trimmed: "Tech / Mac" is kept as written, a top-level
+	// "Tech " holding " Mac", so the label a client sent is the label it gets back.
 	mac := e.resolve("Tech / Mac")
-	require.Equal(t, "Tech/Mac", e.path(mac))
+	require.Equal(t, "Tech / Mac", e.path(mac))
+	require.Equal(t, " Mac", scalar[string](t, e.db.Reader(), "SELECT name FROM folders WHERE id = ?", mac))
 	require.Equal(t, int64(1), e.resolve(""))
-	for _, bad := range []string{"Tech/", "Tech//x", "/x", strings.Repeat("y", 101) + "/z", "a\x01/b"} {
+	before := e.count("SELECT count(*) FROM folders")
+	for bad, want := range map[string]error{"Tech/": ErrEmptyFolderSegment, "Tech//x": ErrEmptyFolderSegment, "/x": ErrEmptyFolderSegment,
+		"New/ /x": ErrEmptyFolderSegment, "New/" + strings.Repeat("y", 101) + "/z": ErrBadFolderName, "New/a\x01/b": ErrBadFolderName} {
 		require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
 			_, err := resolveFolderPath(ctx, tx, bad)
-			require.ErrorIs(t, err, ErrBadFolderName, bad)
+			require.ErrorIs(t, err, want, bad)
+			require.True(t, FolderRefused(err), bad)
 			return nil
 		}))
 	}
+	require.Equal(t, before, e.count("SELECT count(*) FROM folders"), "a refused path creates nothing")
 	checkFolderInvariants(t, e.db.Reader())
 }
 
@@ -367,7 +373,7 @@ func TestFolderScopes(t *testing.T) {
 	}))
 	require.Equal(t, 3, e.count("SELECT count(*) FROM items WHERE read = 0"))
 	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := MarkScopeRead(ctx, tx, MarkScope{FolderID: ids[0]}, MarkFilter{}, max, now)
+		_, err := MarkScopeRead(ctx, tx, MarkScope{FolderTreeID: ids[0]}, MarkFilter{}, max, now)
 		return err
 	}))
 	require.Zero(t, e.count("SELECT count(*) FROM items WHERE read = 0"))
@@ -446,4 +452,84 @@ func TestUIFoldersTreeOrder(t *testing.T) {
 	}
 	id := func(n int64) string { return strconv.FormatInt(n, 10) }
 	require.Equal(t, []string{"Uncategorized<-", "A<-", "a1<" + id(a.ID), "B<-", "B1<" + id(b.ID), "B2<" + id(b.ID)}, got)
+}
+
+// OPML's explicit chains: a literal top-level "AC/DC" takes the chain AC > DC without an empty "AC"
+// being created on the way, and the chain still walks real levels when they exist.
+func TestEnsureFolderChainPrefersAWholeLiteralPath(t *testing.T) {
+	e := newEnv(t)
+	acdc := e.mkFolder(0, "AC/DC")
+	chain := func(segs ...string) (int64, int) {
+		var id int64
+		var n int
+		require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
+			var err error
+			id, n, err = EnsureFolderChain(ctx, tx, segs)
+			return err
+		}))
+		return id, n
+	}
+	id, n := chain("AC", "DC")
+	require.Equal(t, acdc, id)
+	require.Zero(t, n)
+	require.Zero(t, e.count("SELECT count(*) FROM folders WHERE name = 'AC'"), "no empty AC left behind")
+	id, n = chain("AC", "DC", "Live")
+	require.Equal(t, "AC/DC/Live", e.path(id))
+	require.Equal(t, 1, n)
+	require.Zero(t, e.count("SELECT count(*) FROM folders WHERE name = 'AC'"))
+	id, n = chain("Music", "Rock")
+	require.Equal(t, "Music/Rock", e.path(id))
+	require.Equal(t, 2, n)
+	checkFolderInvariants(t, e.db.Reader())
+}
+
+// The two mark-read functions each refuse the other's folder scope.
+func TestMarkScopeFolderFieldsBelongToOneFunctionEach(t *testing.T) {
+	e := newEnv(t)
+	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := MarkAllRead(ctx, tx, MarkScope{FolderTreeID: 1}, 1, 1)
+		require.Error(t, err)
+		_, err = MarkScopeRead(ctx, tx, MarkScope{FolderID: 1}, MarkFilter{}, 1, 1)
+		require.Error(t, err)
+		return nil
+	}))
+}
+
+// A rename-tag of a folder deleted meanwhile is ErrFolderNotFound (the Reader API answers OK), and a
+// dest with an empty level is refused before anything changes.
+func TestRenameLabelMissingAndEmptyLevel(t *testing.T) {
+	e := newEnv(t)
+	x := e.mkFolder(0, "X")
+	_, err := e.db.RenameLabel(e.ctx, 999, "Y")
+	require.ErrorIs(t, err, ErrFolderNotFound)
+	for _, dest := range []string{"Y/", "Y//Z", "/Y"} {
+		_, err = e.db.RenameLabel(e.ctx, x, dest)
+		require.ErrorIs(t, err, ErrEmptyFolderSegment, dest)
+	}
+	require.Equal(t, 2, e.count("SELECT count(*) FROM folders"))
+	require.Equal(t, "X", e.path(x))
+}
+
+// A folder the view cannot reach (a cycle written behind the writer's back) never hides its feeds
+// from the Reader API: they are listed with an empty label instead of vanishing.
+func TestFeedsOfAnUnreachableFolderStayListed(t *testing.T) {
+	e := newEnv(t)
+	a := e.mkFolder(0, "A")
+	b := e.mkFolder(a, "B")
+	feed := e.addFeed("http://cycle.example/feed")
+	e.exec("UPDATE feeds SET folder_id = ? WHERE id = ?", b, feed)
+	e.fetchBody(feed, frss(fspec{guid: "c1", title: "one"}))
+	e.exec("UPDATE folders SET parent_id = ? WHERE id = ?", b, a)
+	subs, err := e.db.Subscriptions(e.ctx)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	require.Equal(t, "", subs[0].Folder)
+	rows, err := e.db.UnreadCounts(e.ctx, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	var got []string
+	ids, err := queryIDs(e.ctx, e.db.Reader(), "SELECT id FROM items")
+	require.NoError(t, err)
+	require.NoError(t, e.db.StreamItems(e.ctx, ids, false, 0, func(r *ContentRow) error { got = append(got, r.Folder); return nil }))
+	require.Equal(t, []string{""}, got)
 }

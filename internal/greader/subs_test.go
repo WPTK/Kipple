@@ -712,7 +712,8 @@ func TestQuickAddFetchNowOnlyWhenSettingOn(t *testing.T) {
 }
 
 // A folder name the store refuses (too long, control characters) is client
-// data: 200 OK with nothing changed, never a 5xx.
+// data: 200 OK, never a 5xx; an edit or rename changes nothing, a subscribe files
+// the new feed in the default folder.
 func TestReaderFolderNameLimitsAreOKNoOps(t *testing.T) {
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "News")
@@ -725,7 +726,7 @@ func TestReaderFolderNameLimitsAreOKNoOps(t *testing.T) {
 
 	w = h.post(rd+"subscription/edit", "T=x&ac=subscribe&s=feed/"+url.QueryEscape("https://b.example/f")+"&a="+url.QueryEscape("user/-/label/bad\x01name"))
 	require.Equal(t, 200, w.Code)
-	require.Zero(t, q[int](h, "SELECT count(*) FROM feeds WHERE url LIKE 'https://b.example/%'"))
+	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM feeds WHERE url LIKE 'https://b.example/%' AND folder_id = 1"), "subscribed, into the default folder")
 
 	w = h.post(rd+"rename-tag", "T=x&s="+url.QueryEscape("user/-/label/News")+"&dest="+url.QueryEscape("user/-/label/"+long))
 	require.Equal(t, 200, w.Code)

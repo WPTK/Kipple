@@ -168,3 +168,23 @@ func TestNestedRenameTag(t *testing.T) {
 	require.Equal(t, "Apple Stuff", path(feeds["Tech/Apple"]), "nothing changed")
 	require.Equal(t, "Apple Stuff/Mac", path(feeds["Tech/Apple/Mac"]))
 }
+
+// A label the folder writer refuses (an empty level, more than 8 levels, below the default folder)
+// never costs a subscription: each s= feed is subscribed into the default folder with a WARN, and the
+// later s= values are still subscribed.
+func TestSubscribeWithRefusedLabelUsesTheDefaultFolder(t *testing.T) {
+	for _, label := range []string{"user/-/label/News/", "user/-/label//News", "user/-/label/Uncategorized/X",
+		"user/-/label/A//B", "user/-/label/1/2/3/4/5/6/7/8/9"} {
+		t.Run(label, func(t *testing.T) {
+			var logs bytes.Buffer
+			h := newHarness(t, harnessOpts{logger: debugLogger(&logs)})
+			before := q[int](h, "SELECT count(*) FROM folders")
+			w := h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/"+url.QueryEscape("https://one.example/rss")+
+				"&s=feed/"+url.QueryEscape("https://two.example/rss")+"&a="+nnwEnc(label))
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Equal(t, 2, q[int](h, "SELECT count(*) FROM feeds WHERE folder_id = 1 AND host IN ('one.example', 'two.example')"))
+			require.Equal(t, before, q[int](h, "SELECT count(*) FROM folders"), "no folder half-created")
+			require.Contains(t, logs.String(), "folder label refused")
+		})
+	}
+}

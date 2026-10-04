@@ -44,6 +44,11 @@ var (
 	// ErrMergeSubfolders refuses a Reader API rename onto an existing folder (a merge) when the renamed
 	// folder has subfolders: two trees would have to be merged, which a flat client cannot even see it asked for.
 	ErrMergeSubfolders = errors.New("store: a folder that has subfolders cannot be merged into another folder")
+	// ErrEmptyFolderSegment refuses a folder path with an empty level: a leading, trailing or doubled '/'
+	// ("News/", "/News", "A//B") or a level of spaces only.
+	ErrEmptyFolderSegment = errors.New("store: a folder path has an empty level (a leading, trailing or doubled '/')")
+	// ErrParentNotFound is a create or move into a parent folder that does not exist.
+	ErrParentNotFound = errors.New("store: no such parent folder")
 )
 
 // FolderRefused reports whether err is a folder change the store refused because of the request
@@ -51,7 +56,7 @@ var (
 // The Reader API logs these and answers OK with nothing changed.
 func FolderRefused(err error) bool {
 	for _, e := range []error{ErrBadFolderName, ErrFolderExists, ErrFolderDepth, ErrFolderCycle, ErrFolderParent,
-		ErrMergeSubfolders, ErrMergeTooManyFilters} {
+		ErrMergeSubfolders, ErrMergeTooManyFilters, ErrEmptyFolderSegment} {
 		if errors.Is(err, e) {
 			return true
 		}
@@ -146,10 +151,10 @@ func loadFolder(ctx context.Context, q Querier, id int64) (folderRow, error) {
 }
 
 // placeFolder checks that folder id (0 for a new folder) may be called name and sit directly inside
-// parent (0 = the top level), with all of its subfolders following it. It returns the trimmed name.
+// parent (0 = the top level), with all of its subfolders following it. The name is kept as written
+// (callers trim what they take from a person; a Reader API label keeps its inner spaces). It returns name.
 func placeFolder(ctx context.Context, tx *sql.Tx, id, parent int64, name string) (string, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
+	if strings.TrimSpace(name) == "" {
 		return "", ErrBadFolderName
 	}
 	if err := CheckFolderName(name); err != nil {
@@ -158,6 +163,9 @@ func placeFolder(ctx context.Context, tx *sql.Tx, id, parent int64, name string)
 	path, depth := name, 1
 	if parent != 0 {
 		p, err := loadFolder(ctx, tx, parent)
+		if errors.Is(err, ErrFolderNotFound) {
+			return "", ErrParentNotFound
+		}
 		if err != nil {
 			return "", err
 		}
@@ -262,10 +270,20 @@ func childFolder(ctx context.Context, q Querier, parent int64, name string) (int
 }
 
 // walkFolders follows segments down from parent (0 = the top level), each one the name of the next
-// folder, and creates the ones that are missing. A segment whose full path already belongs to a folder
-// elsewhere in the tree (a top-level "AC/DC" for the segments "AC", "DC") resolves to that folder, so a
-// path is never stored twice. It returns the last folder and how many it created.
+// folder as written, and creates the ones that are missing. A path is never stored twice: when the full
+// path of what is left (a top-level "AC/DC" for the segments "AC", "DC") or of the next level already
+// belongs to a folder elsewhere in the tree, the walk resolves to that folder instead of creating one, so
+// it never leaves an empty "AC" behind. An empty or all-space segment is ErrEmptyFolderSegment, before
+// anything is created. It returns the last folder and how many it created.
 func walkFolders(ctx context.Context, tx *sql.Tx, parent int64, segments []string) (id int64, created int, err error) {
+	for _, seg := range segments {
+		if strings.TrimSpace(seg) == "" {
+			return 0, 0, ErrEmptyFolderSegment
+		}
+		if err := CheckFolderName(seg); err != nil {
+			return 0, 0, err
+		}
+	}
 	path := ""
 	if parent != 0 {
 		p, err := loadFolder(ctx, tx, parent)
@@ -274,30 +292,37 @@ func walkFolders(ctx context.Context, tx *sql.Tx, parent int64, segments []strin
 		}
 		path = p.path
 	}
-	for _, seg := range segments {
-		seg = strings.TrimSpace(seg)
-		if seg == "" {
-			return 0, created, ErrBadFolderName
+	join := func(base string, segs ...string) string {
+		if base == "" {
+			return strings.Join(segs, "/")
 		}
-		if path == "" {
-			path = seg
-		} else {
-			path += "/" + seg
-		}
-		next, found, err := childFolder(ctx, tx, parent, seg)
-		if err == nil && !found {
-			next, found, err = folderByPath(ctx, tx, path)
-		}
+		return base + "/" + strings.Join(segs, "/")
+	}
+	for i := 0; i < len(segments); i++ {
+		next, found, err := childFolder(ctx, tx, parent, segments[i])
 		if err != nil {
 			return 0, created, err
 		}
+		step := 1
+		// Not a child by name: the longest run of the next levels that is already one folder's full path
+		// (a literal name holding '/', or a folder elsewhere with that path) is taken whole.
+		for j := len(segments); !found && j > i; j-- {
+			if next, found, err = folderByPath(ctx, tx, join(path, segments[i:j]...)); err != nil {
+				return 0, created, err
+			}
+			if found {
+				step = j - i
+			}
+		}
 		if !found {
-			if next, err = createFolder(ctx, tx, parent, seg, -1); err != nil {
+			if next, err = createFolder(ctx, tx, parent, segments[i], -1); err != nil {
 				return 0, created, err
 			}
 			created++
 		}
+		path = join(path, segments[i:i+step]...)
 		parent = next
+		i += step - 1
 	}
 	return parent, created, nil
 }
@@ -352,7 +377,7 @@ func resolveFolderPath(ctx context.Context, tx *sql.Tx, path string) (int64, err
 
 // CreateFolder adds a folder named name inside parent (0 = the top level); position < 0 puts it
 // last. A taken path is ErrFolderExists; the tree rules are ErrFolderDepth and ErrFolderParent; a
-// parent that does not exist is ErrFolderNotFound.
+// parent that does not exist is ErrParentNotFound.
 func (d *DB) CreateFolder(ctx context.Context, name string, parent, position int64) (UIFolder, error) {
 	var out UIFolder
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
@@ -376,7 +401,7 @@ type FolderPatch struct {
 // UpdateFolder renames, moves and/or repositions a folder. A path taken by another folder (the folder
 // itself or one of its subfolders landing on it) is ErrFolderExists: the UI never merges; only the
 // Reader API does. Moving inside itself is ErrFolderCycle, too deep ErrFolderDepth, under or of the
-// default folder ErrFolderParent; a missing folder or parent is ErrFolderNotFound.
+// default folder ErrFolderParent; a missing folder is ErrFolderNotFound, a missing parent ErrParentNotFound.
 func (d *DB) UpdateFolder(ctx context.Context, id int64, p FolderPatch) (UIFolder, error) {
 	var out UIFolder
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {

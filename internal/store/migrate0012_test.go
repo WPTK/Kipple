@@ -1,52 +1,66 @@
 package store
 
 import (
+	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// undo0012 turns a fresh current database (only the default folder, no feeds or filters, so the drop's
-// implicit delete has nothing to cascade) into a schema-11 one: the folders table of 0001, no view.
-const undo0012 = `DROP VIEW folder_paths;
-CREATE TABLE folders_old (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  name       TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(trim(name)) > 0),
-  position   INTEGER NOT NULL DEFAULT 0,
-  is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
-) STRICT;
-INSERT INTO folders_old (id, name, position, is_default, created_at) SELECT id, name, position, is_default, created_at FROM folders;
-DROP TABLE folders;
-ALTER TABLE folders_old RENAME TO folders;
-CREATE UNIQUE INDEX idx_folders_one_default ON folders(is_default) WHERE is_default = 1;
-CREATE TRIGGER folders_keep_default BEFORE DELETE ON folders WHEN old.is_default = 1
-BEGIN SELECT RAISE(ABORT, 'the default folder cannot be deleted'); END;
-PRAGMA user_version = 11`
+// schema11 builds a real schema-11 database by running the embedded migrations 0001 to 0011 in order,
+// as the runner did when 0011 was the newest, and returns it open on one connection with its path.
+func schema11(t *testing.T) (*sql.DB, string) {
+	t.Helper()
+	ms, err := loadMigrations()
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(ms), 12)
+	path := filepath.Join(t.TempDir(), "kipple.db")
+	raw, err := sql.Open("sqlite", buildDSN(path, "writer"))
+	require.NoError(t, err)
+	raw.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = raw.Close() })
+	for _, m := range ms[:11] {
+		require.False(t, strings.HasPrefix(m.sql, foreignKeysOffMarker), m.name)
+		tx, err := raw.Begin()
+		require.NoError(t, err)
+		_, err = tx.Exec(m.sql)
+		require.NoError(t, err, m.name)
+		_, err = tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", m.version))
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit())
+	}
+	require.Equal(t, 11, scalar[int](t, raw, "PRAGMA user_version"))
+	return raw, path
+}
 
 // schema11Library builds a populated schema-11 database: folders (one named "AC/DC", two at the same
 // position, a deleted one with the highest id), feeds in them, folder and feed filters, favorites and
 // saved-search scopes. It returns the database's path.
 func schema11Library(t *testing.T) string {
 	t.Helper()
-	e := newEnv(t)
-	e.exec(undo0012)
-	require.False(t, columnNames(t, e.db.Reader(), "folders")["parent_id"])
-	e.exec(`INSERT INTO folders (id, name, position, created_at) VALUES (2, 'News', 3, 100), (3, 'AC/DC', 1, 101),
+	raw, path := schema11(t)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		_, err := raw.Exec(q, args...)
+		require.NoError(t, err)
+	}
+	require.False(t, columnNames(t, raw, "folders")["parent_id"])
+	exec(`INSERT INTO folders (id, name, position, created_at) VALUES (2, 'News', 3, 100), (3, 'AC/DC', 1, 101),
 		(4, 'beta', 2, 102), (5, 'Alpha', 2, 103), (9, 'Gone', 9, 104)`)
-	e.exec("DELETE FROM folders WHERE id = 9") // sqlite_sequence stays at 9
+	exec("DELETE FROM folders WHERE id = 9") // sqlite_sequence stays at 9
 	for i, folder := range []int64{2, 3, 4, 5, 1} {
-		e.exec(`INSERT INTO feeds (id, folder_id, url, url_key, host, title, position, next_fetch_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+		exec(`INSERT INTO feeds (id, folder_id, url, url_key, host, title, position, next_fetch_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
 			i+1, folder, "https://f"+strconv.Itoa(i)+".example/feed", "f"+strconv.Itoa(i)+".example/feed", "f"+strconv.Itoa(i)+".example", "Feed "+strconv.Itoa(i), i)
 	}
-	e.exec(`INSERT INTO filters (id, name, scope, folder_id, kind, terms, action) VALUES (1, 'folder rule', 'folder', 3, 'text', '["x"]', 'mute')`)
-	e.exec(`INSERT INTO filters (id, name, scope, feed_id, kind, terms, action) VALUES (2, 'feed rule', 'feed', 1, 'text', '["y"]', 'star')`)
-	e.exec(`INSERT INTO settings (key, value) VALUES ('library.favorites', '[{"t":"folder","id":"3"},{"t":"feed","id":"2"}]'),
+	exec(`INSERT INTO filters (id, name, scope, folder_id, kind, terms, action) VALUES (1, 'folder rule', 'folder', 3, 'text', '["x"]', 'mute')`)
+	exec(`INSERT INTO filters (id, name, scope, feed_id, kind, terms, action) VALUES (2, 'feed rule', 'feed', 1, 'text', '["y"]', 'star')`)
+	exec(`INSERT INTO settings (key, value) VALUES ('library.favorites', '[{"t":"folder","id":"3"},{"t":"feed","id":"2"}]'),
 		('library.saved_searches', '[{"id":"s","name":"S","q":"x","scope":{"folder_id":"5"}}]')`)
-	path := scalar[string](t, e.db.Reader(), "SELECT file FROM pragma_database_list WHERE name = 'main'")
-	require.NoError(t, e.db.Close())
+	require.NoError(t, raw.Close())
 	return path
 }
 
@@ -121,10 +135,8 @@ func TestMigration0012KeepsEveryFolder(t *testing.T) {
 
 // A schema-11 database with only the default folder migrates too.
 func TestMigration0012EmptyLibrary(t *testing.T) {
-	e := newEnv(t)
-	e.exec(undo0012)
-	path := scalar[string](t, e.db.Reader(), "SELECT file FROM pragma_database_list WHERE name = 'main'")
-	require.NoError(t, e.db.Close())
+	raw, path := schema11(t)
+	require.NoError(t, raw.Close())
 	db := reopen(t, path)
 	require.Equal(t, "Uncategorized", scalar[string](t, db.Reader(), "SELECT path FROM folder_paths"))
 	checkFolderInvariants(t, db.Reader())

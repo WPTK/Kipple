@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -244,14 +245,17 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 	return inserted, nil
 }
 
-// MarkScope selects what MarkAllRead touches. The zero value is every item.
+// MarkScope selects what MarkAllRead (the Reader API) or MarkScopeRead (the web app) touches. The
+// zero value is every item. The two folder scopes belong to one function each, which refuses the other.
 type MarkScope struct {
 	FeedID int64
-	// FolderID is a folder: with its subfolders for MarkScopeRead (the web app's folder scope), its own
-	// feeds only for MarkAllRead (a Reader API label, inFolderSQL).
+	// FolderID is a Reader API label: the folder's own feeds (inFolderSQL). MarkAllRead only.
 	FolderID int64
-	Starred  bool // starred items only; the ledger is skipped (starred items are never in it)
-	Muted    bool // muted items only (view=muted); the ledger is skipped
+	// FolderTreeID is the web app's folder scope: the folder and its subfolders (inFolderTreeSQL).
+	// MarkScopeRead only.
+	FolderTreeID int64
+	Starred      bool // starred items only; the ledger is skipped (starred items are never in it)
+	Muted        bool // muted items only (view=muted); the ledger is skipped
 	// HoldCut > 0 leaves out items held back from the Reader API (HeldSQL): a client
 	// cannot have seen them, so its mark-all must not read them.
 	HoldCut int64
@@ -262,6 +266,9 @@ type MarkScope struct {
 // MarkAllRead marks unread items with id <= maxID read inside scope, and the
 // matching ledger rows (design §6.8). It returns the number of items changed.
 func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now int64) (int64, error) {
+	if scope.FolderTreeID != 0 {
+		return 0, errors.New("store: MarkAllRead takes a label's FolderID, not the web app's FolderTreeID")
+	}
 	where, feedWhere := "", ""
 	args := []any{sql.Named("ts", maxID), sql.Named("now", now)}
 	switch {
