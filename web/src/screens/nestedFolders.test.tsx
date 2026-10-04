@@ -7,7 +7,9 @@ import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import type { Bootstrap } from "@/api/types";
 import { rowMenuStore } from "@/gestures/rowMenu";
-import { devicePrefsStore, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
+import { LAYOUT_LABELS, devicePrefsStore, resetDevicePrefs, setLayoutOverride, updateDevicePrefs } from "@/lib/devicePrefs";
+import { QueryClient } from "@tanstack/react-query";
+import { bumpUnread, keys } from "@/api/queries";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
 import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
@@ -173,7 +175,7 @@ describe("managing nested folders", () => {
     const user = userEvent.setup();
     await actions(user, "Tech › Apple");
     await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Move Apple" });
+    const dialog = await screen.findByRole("dialog", { name: "Move Tech › Apple" });
     const select = within(dialog).getByRole("combobox", { name: "Move into" });
     const options = within(select).getAllByRole("option").map((o) => o.textContent);
     // Not the default folder, not Apple itself or Mac inside it.
@@ -211,7 +213,7 @@ describe("managing nested folders", () => {
     const user = userEvent.setup();
     await actions(user, "Tech › Apple");
     await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Move Apple" });
+    const dialog = await screen.findByRole("dialog", { name: "Move Tech › Apple" });
     await user.selectOptions(within(dialog).getByRole("combobox", { name: "Move into" }), "5");
     await user.click(within(dialog).getByRole("button", { name: "Move" }));
     expect(await within(dialog).findByText("A folder with that name is already there.")).toBeInTheDocument();
@@ -226,5 +228,87 @@ describe("managing nested folders", () => {
     const dialog = await screen.findByRole("dialog");
     const options = within(within(dialog).getByRole("combobox", { name: "Folder" })).getAllByRole("option").map((o) => o.textContent);
     expect(options).toEqual(["Default folder", "Uncategorized", "Tech", "Tech › Apple", "Tech › Apple › Mac", "Tech › Empty", "Sports"]);
+  });
+});
+
+describe("nested folder review fixes", () => {
+  it("taking the focused item out of Favorites with P leaves the focus on the item now in its place, one tab stop", async () => {
+    routes({ "GET /api/bootstrap": () => json({ ...nested, settings: { "library.favorites": [{ t: "feed", id: "2" }, { t: "feed", id: "3" }] } }) });
+    media(WIDE);
+    go("/l/unread");
+    const nav = await screen.findByRole("navigation", { name: "Primary" });
+    const favTree = await within(nav).findByRole("tree", { name: "Favorites" });
+    const user = userEvent.setup();
+    const first = within(favTree).getAllByRole("treeitem")[0]!;
+    expect(first).toHaveAttribute("tabindex", "0");
+    first.focus();
+    // The star is not a tab stop inside the tree: Tab leaves the tree.
+    expect(within(first).getByRole("button", { name: "Favorite Apple Daily" })).toHaveAttribute("tabindex", "-1");
+    await user.keyboard("p");
+    await waitFor(() => expect(within(favTree).getAllByRole("treeitem")).toHaveLength(1));
+    const left = within(favTree).getAllByRole("treeitem")[0]!;
+    await waitFor(() => expect(document.activeElement).toBe(left));
+    expect(left).toHaveAttribute("tabindex", "0");
+    await user.tab();
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(left);
+  });
+
+  it("taking the last favorite out moves the focus to the Feeds tree, not the page", async () => {
+    routes({ "GET /api/bootstrap": () => json({ ...nested, settings: { "library.favorites": [{ t: "feed", id: "2" }] } }) });
+    media(WIDE);
+    go("/l/unread");
+    const nav = await screen.findByRole("navigation", { name: "Primary" });
+    const favTree = await within(nav).findByRole("tree", { name: "Favorites" });
+    within(favTree).getAllByRole("treeitem")[0]!.focus();
+    await userEvent.setup().keyboard("p");
+    await waitFor(() => expect(within(nav).queryByRole("tree", { name: "Favorites" })).toBeNull());
+    const feeds = within(nav).getByRole("tree", { name: "Feeds" });
+    await waitFor(() => expect(feeds.contains(document.activeElement)).toBe(true));
+    expect(document.activeElement).toHaveAttribute("tabindex", "0");
+  });
+
+  it("a move whose order fails to save after the folder moved says so", async () => {
+    routes({ "POST /api/reorder": () => json({ error: "internal" }, 500) });
+    media(WIDE);
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Folder actions for Tech › Apple" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Move Tech › Apple" });
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Move into" }), "5");
+    await user.click(within(dialog).getByRole("button", { name: "Move" }));
+    expect(await within(dialog).findByText("Moved, but the order couldn't be saved.")).toBeInTheDocument();
+  });
+
+  it("after Move to…, the moved folder's actions button has the focus", async () => {
+    routes();
+    media(WIDE);
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Folder actions for Tech › Apple" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Move Tech › Apple" });
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Move into" }), "5");
+    await user.click(within(dialog).getByRole("button", { name: "Move" }));
+    await waitFor(() => expect(document.activeElement?.id).toBe("folder-actions-3"));
+  });
+
+  it("a subfolder's layout menu names the folder it inherits from", async () => {
+    routes();
+    media(WIDE);
+    setLayoutOverride("folder", "2", "cards");
+    go("/l/unread?folder=4");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Layout:/ }));
+    expect(await screen.findByRole("menuitemradio", { name: `Inherited from Tech (${LAYOUT_LABELS.cards})` })).toBeChecked();
+  });
+
+  it("bumpUnread moves the feed's folder and every folder above it", () => {
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, nested);
+    bumpUnread(qc, "3", -1); // Mac Weekly, in Mac, in Apple, in Tech
+    const unread = Object.fromEntries(qc.getQueryData<Bootstrap>(keys.bootstrap)!.folders.map((f) => [f.name, f.unread]));
+    expect(unread).toEqual({ Uncategorized: 1, Tech: 2, Apple: 2, Mac: 1, Empty: 0, Sports: 1 });
   });
 });

@@ -25,7 +25,7 @@ import {
   type DropTarget,
   type Tree,
 } from "@/lib/dnd";
-import { MAX_FOLDER_DEPTH, childrenOf, depthOf, feedOrder, folderPath, folderTree, parentChoices, parentOf, rollUp, subtreeOf, type FolderTree } from "@/lib/folderTree";
+import { MAX_FOLDER_DEPTH, childrenOf, depthOf, feedOrder, folderPath, folderTree, parentChoices, parentOf, rollUp, subtreeFeeds, subtreeOf, type FolderTree } from "@/lib/folderTree";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { useFavorites } from "@/lib/favorites";
 import { clickRow, groupState, toggleGroup } from "@/lib/selection";
@@ -67,8 +67,12 @@ type FolderDialog =
   | { kind: "move"; folder: Folder }
   | { kind: "delete"; folder: Folder };
 
+/** A move whose folders moved (PATCH done) but whose order then failed to save. */
+export class OrderNotSavedError extends Error {}
+
 /** The message for a folder change the server refused. */
 export function folderError(e: unknown): string {
+  if (e instanceof OrderNotSavedError) return "Moved, but the order couldn't be saved.";
   const code = e instanceof ApiError ? e.code : undefined;
   if (code === "folder_exists") return "A folder with that name is already there.";
   if (code === "folder_too_deep") return `Folders nest at most ${MAX_FOLDER_DEPTH} levels deep.`;
@@ -100,7 +104,8 @@ function FolderDialogs({
   feeds: readonly Feed[];
   /** Move a folder to the end of `parent` (null: the top level); rejects with the server's refusal. */
   onMove: (folder: string, parent: string | null) => Promise<void>;
-  onClose: () => void;
+  /** Closes the dialog; after a move or a delete, `focusFolder` is the folder whose row takes the focus. */
+  onClose: (focusFolder?: string) => void;
 }) {
   const qc = useQueryClient();
   const dp = useDevicePrefs();
@@ -108,14 +113,14 @@ function FolderDialogs({
   const [parent, setParent] = useState(dialog.kind === "new" ? (dialog.parent ?? "") : dialog.kind === "move" ? (parentOf(tree, dialog.folder.id) ?? "") : "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const run = async (fn: () => Promise<unknown>, done: string) => {
+  const run = async (fn: () => Promise<unknown>, done: string, focusFolder?: string) => {
     setBusy(true);
     setError(null);
     try {
       await fn();
       invalidateFeeds(qc);
       toast(done);
-      onClose();
+      onClose(focusFolder);
     } catch (e) {
       setError(folderError(e));
     } finally {
@@ -126,6 +131,10 @@ function FolderDialogs({
 
   if (dialog.kind === "delete") {
     const f = dialog.folder;
+    // The focus goes to the next folder row that stays (after the subtree), else the one above.
+    const inside = subtreeOf(tree, f.id);
+    const at = tree.preorder.indexOf(f.id);
+    const focusNext = tree.preorder.slice(at).find((id) => !inside.has(id)) ?? tree.preorder.slice(0, Math.max(0, at)).at(-1);
     return (
       <Modal
         open
@@ -134,8 +143,8 @@ function FolderDialogs({
         description={deleteFolderText(tree, f.id, feeds)}
         footer={
           <>
-            <Button onClick={onClose}>Cancel</Button>
-            <Button variant="solid" disabled={busy} onClick={() => void run(() => deleteFolder(f.id), `Deleted folder ${f.name}`)}>
+            <Button onClick={() => onClose()}>Cancel</Button>
+            <Button variant="solid" disabled={busy} onClick={() => void run(() => deleteFolder(f.id), `Deleted folder ${f.name}`, focusNext)}>
               Delete folder
             </Button>
           </>
@@ -152,15 +161,15 @@ function FolderDialogs({
       <Modal
         open
         onOpenChange={(o) => !o && onClose()}
-        title={`Move ${f.name}`}
+        title={`Move ${pathOf(f.id)}`}
         description="Its subfolders and feeds move with it."
         footer={
           <>
-            <Button onClick={onClose}>Cancel</Button>
+            <Button onClick={() => onClose()}>Cancel</Button>
             <Button
               variant="solid"
               disabled={busy}
-              onClick={() => (parent === from ? onClose() : void run(() => onMove(f.id, parent || null), `Moved ${f.name} to ${parent ? pathOf(parent) : "the top level"}`))}
+              onClick={() => (parent === from ? onClose() : void run(() => onMove(f.id, parent || null), `Moved ${f.name} to ${parent ? pathOf(parent) : "the top level"}`, f.id))}
             >
               Move
             </Button>
@@ -180,7 +189,7 @@ function FolderDialogs({
       title={isNew ? (dialog.parent ? "New subfolder" : "New folder") : "Rename folder"}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={() => onClose()}>Cancel</Button>
           <Button
             variant="solid"
             disabled={busy || !name.trim()}
@@ -234,6 +243,25 @@ function FolderDialogs({
 
 type Sel = ReadonlySet<string>;
 
+const folderActionsId = (folder: string) => `folder-actions-${folder}`;
+
+/**
+ * After a move or a delete, put the focus on a folder row's actions button. The row re-mounts (moved) or the dialog's
+ * own focus return lands on a button that is about to go (deleted), so this keeps trying for a moment, without taking
+ * the focus from anything the person moved it to since.
+ */
+function focusFolderActions(folder: string) {
+  let tries = 0;
+  const tick = () => {
+    const el = document.getElementById(folderActionsId(folder));
+    const now = document.activeElement;
+    const adrift = !now || now === document.body || !now.isConnected || (now instanceof HTMLElement && now.dataset.folderActions !== undefined);
+    if (el && now !== el && adrift) el.focus();
+    if (++tries < 20) setTimeout(tick, 50);
+  };
+  setTimeout(tick, 0);
+}
+
 /** Feeds: where you open a folder or feed, and where feeds and folders are added, edited, ordered, favorited and removed. */
 export function FeedsScreen() {
   const boot = useBootstrap();
@@ -280,6 +308,8 @@ export function FeedsScreen() {
   );
   // The order feeds appear on screen: what shift-click ranges are measured along.
   const visibleOrder = useMemo(() => feedOrder(ftree, (id) => tree.feeds[id] ?? []), [ftree, tree]);
+  // Each folder's feeds over its subtree (its Select checkbox), built once per tree, not per row and drag move.
+  const subtreeIds = useMemo(() => subtreeFeeds(ftree, (id) => tree.feeds[id] ?? []), [ftree, tree]);
 
   const markSaved = () => {
     setSaved("saved");
@@ -289,15 +319,22 @@ export function FeedsScreen() {
   };
   useEffect(() => () => clearTimeout(savedTimer.current), []);
 
+  // Saves run one after another: a second drop while the first is still saving must not race it on the server.
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const saving = useRef(0);
   /**
    * Save a new tree: paint it at once, then move the folders whose parent changed (PATCH /api/folders/{id}) and save
-   * the order in one POST /api/reorder. Rejects with the server's refusal, after putting the saved state back.
+   * the order in one POST /api/reorder, after any save still running. Rejects with the server's refusal (an
+   * OrderNotSavedError when the folders moved but the order did not save); the bootstrap is refetched once the last
+   * queued save ends, so the screen ends up showing what the server has.
    */
   const saveTree = async (next: Tree) => {
     const body = reorderBody(tree, next);
     const moves = parentChanges(tree, next);
     if (!body && moves.length === 0) return;
     setSaved("saving");
+    // A bootstrap refetch in flight would paint the old tree over the new one.
+    await qc.cancelQueries({ queryKey: keys.bootstrap });
     qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => {
       if (!old) return old;
       const byId = new Map(old.feeds.map((f) => [f.id, f]));
@@ -316,15 +353,28 @@ export function FeedsScreen() {
         feeds: [...ordered, ...old.feeds.filter((f) => f.is_archive)],
       };
     });
+    saving.current++;
+    const run = saveQueue.current.then(async () => {
+      let moved = false;
+      try {
+        for (const m of moves) {
+          await patchFolder(m.id, { parent_id: m.parent });
+          moved = true;
+        }
+        if (body) await reorderApi(body);
+      } catch (e) {
+        throw moved ? new OrderNotSavedError(errorMessage(e)) : e;
+      }
+    });
+    saveQueue.current = run.catch(() => undefined);
     try {
-      for (const m of moves) await patchFolder(m.id, { parent_id: m.parent });
-      if (body) await reorderApi(body);
-      invalidateFeeds(qc);
+      await run;
       markSaved();
     } catch (e) {
       setSaved(null);
-      invalidateFeeds(qc);
       throw e;
+    } finally {
+      if (--saving.current === 0) invalidateFeeds(qc);
     }
   };
   /** Save a new tree from a drop or a move button: a refusal is a toast. */
@@ -565,7 +615,7 @@ export function FeedsScreen() {
     const siblings = childrenOf(ftree, parent);
     const subfolders = childrenOf(ftree, fo.id);
     const inFolder = byFolder[fo.id] ?? [];
-    const inSubtree = realFeeds.filter((f) => subtreeOf(ftree, fo.id).has(f.folder_id)).map((f) => f.id);
+    const inSubtree = subtreeIds.get(fo.id) ?? [];
     const fsrc: DragSource = { kind: "folder", id: fo.id, group: parent ?? "" };
     const folderBefore = dropAt?.kind === "folder" && dropAt.before === fo.id && !isDragged("folder", fo.id);
     const folderEnd = dropAt?.kind === "folder" && dropAt.before === null && dropAt.group === "" && parent === null && topLevel.filter((x) => x !== dragging?.id).at(-1) === fo.id;
@@ -618,7 +668,7 @@ export function FeedsScreen() {
               <FavStar on={favs.has("folder", fo.id)} name={label} onToggle={() => favs.toggle("folder", fo.id)} />
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
-                  <Button variant="ghost" size="icon" aria-label={`Folder actions for ${label}`}>
+                  <Button variant="ghost" size="icon" id={folderActionsId(fo.id)} data-folder-actions="" aria-label={`Folder actions for ${label}`}>
                     <MoreVertical aria-hidden="true" />
                   </Button>
                 </DropdownMenu.Trigger>
@@ -809,7 +859,18 @@ export function FeedsScreen() {
           onDone={(ids) => setSel((s) => new Set([...s].filter((x) => !ids.includes(x))))}
         />
       ) : null}
-      {folderDialog ? <FolderDialogs dialog={folderDialog} tree={ftree} feeds={realFeeds} onMove={moveFolder} onClose={() => setFolderDialog(null)} /> : null}
+      {folderDialog ? (
+        <FolderDialogs
+          dialog={folderDialog}
+          tree={ftree}
+          feeds={realFeeds}
+          onMove={moveFolder}
+          onClose={(focusFolder) => {
+            setFolderDialog(null);
+            if (focusFolder) focusFolderActions(focusFolder);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

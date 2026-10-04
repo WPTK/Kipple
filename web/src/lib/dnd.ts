@@ -169,9 +169,16 @@ function firstFeedOf(root: ParentNode, folder: string): string | null {
  * Where a dragged folder lands when the pointer is at `y`. Over the middle half of a folder row it goes inside that
  * folder (unless the row says `data-dnd-into="no"`), over the top or bottom quarter before or after it among its
  * siblings; between rows, before the next row down. `rows` are the folder rows that can take it, in screen order,
- * each with its parent (`group`, "" at the top level).
+ * each with its parent (`group`, "" at the top level) and whether it can hold the dragged folder (`into`). A place
+ * inside a folder that cannot hold it is never offered: null.
  */
-export function folderSlot(rows: readonly { id: string; group: string; top: number; bottom: number; into: boolean }[], y: number): { group: string; before: string | null } {
+export function folderSlot(rows: readonly { id: string; group: string; top: number; bottom: number; into: boolean }[], y: number): { group: string; before: string | null } | null {
+  const slot = rawSlot(rows, y);
+  if (slot.group === "") return slot;
+  return rows.find((r) => r.id === slot.group)?.into ? slot : null;
+}
+
+function rawSlot(rows: readonly { id: string; group: string; top: number; bottom: number; into: boolean }[], y: number): { group: string; before: string | null } {
   const over = rows.find((r) => y >= r.top && y < r.bottom);
   if (over) {
     const rel = (y - over.top) / Math.max(1, over.bottom - over.top);
@@ -208,7 +215,7 @@ export function targetAt(src: DragSource, x: number, y: number, root: ParentNode
       rows.map((r) => ({ id: r.dataset.dndId as string, group: r.dataset.dndGroup ?? "", into: r.dataset.dndInto !== "no", ...rectOf(r) })),
       y,
     );
-    return { kind: "folder", ...slot };
+    return slot ? { kind: "folder", ...slot } : null;
   }
   const el = stack.find(
     (e): e is HTMLElement =>
@@ -334,7 +341,8 @@ export function useRowDnd(opts: Options) {
         begin(l);
       }
       const target = targetAt(l.src, e.clientX, e.clientY);
-      setState((s) => ({ ...s, dy, target: target ?? s.target }));
+      // A folder over a place that cannot take it has no target (nothing is offered); a feed keeps its last one.
+      setState((s) => ({ ...s, dy, target: target ?? (l.src.kind === "folder" ? null : s.target) }));
     },
     [begin, finish],
   );

@@ -41,6 +41,11 @@ describe("the OPML import report", () => {
     expect(screen.getByText(/nearest folder above/)).toBeInTheDocument();
   });
 
+  it("says where the feeds of a folder with a matching full path went, names joined with ›", () => {
+    render(<OpmlResultSummary result={{ ...base, folders_merged_path: [{ kept: ["Music", "AC/DC"], merged: ["Music", "AC", "DC"] }] }} />);
+    expect(screen.getByText("The feeds of Music › AC › DC were filed into Music › AC/DC")).toBeInTheDocument();
+  });
+
   it("shows none of it for a plain import (the fields absent or empty)", () => {
     render(<OpmlResultSummary result={{ ...base, feeds_added: 3, feeds_moved: [], folders_emptied: [], folders_refused: [] }} />);
     expect(screen.queryByText(/moved into/)).toBeNull();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FOLDER_DEPTH, chainOf, childrenOf, depthOf, feedOrder, folderPath, folderTree, heightOf, parentChoices, parentPath, rollUp, subtreeOf } from "./folderTree";
+import { MAX_FOLDER_DEPTH, chainOf, childrenOf, depthOf, feedOrder, folderPath, folderTree, heightOf, parentChoices, parentOf, parentPath, rollUp, subtreeFeeds, subtreeOf } from "./folderTree";
 
 // Uncategorized (default); Tech > (Apple > Mac, News); Sports > News. Listed in pre-order, as the bootstrap does.
 const folders = [
@@ -67,6 +67,30 @@ describe("folderTree", () => {
     const deep = folderTree(Array.from({ length: MAX_FOLDER_DEPTH }, (_, i) => ({ id: `d${i}`, name: `L${i}`, parent_id: i ? `d${i - 1}` : null })));
     expect(parentChoices(deep, null)).not.toContain(`d${MAX_FOLDER_DEPTH - 1}`);
     expect(parentChoices(deep, null)).toContain(`d${MAX_FOLDER_DEPTH - 2}`);
+    expect(parentChoices(t, "1")).toEqual([]); // the default folder goes nowhere
+  });
+
+  it("a loop of parents (never sent by the server) is cut: every folder appears once, parentOf agrees", () => {
+    const loop = folderTree([
+      { id: "1", name: "Top", parent_id: null },
+      { id: "2", name: "A", parent_id: "3" },
+      { id: "3", name: "B", parent_id: "2" },
+      { id: "4", name: "C", parent_id: "3" },
+    ]);
+    expect(loop.preorder).toEqual(["1", "2", "3", "4"]);
+    expect(parentOf(loop, "2")).toBeNull();
+    expect(childrenOf(loop, null)).toEqual(["1", "2"]);
+    expect(childrenOf(loop, "3")).toEqual(["4"]); // 2 is no longer listed under 3
+    expect(chainOf(loop, "4")).toEqual(["4", "3", "2"]);
+    expect(folderPath(loop, "4")).toBe("A › B › C");
+  });
+
+  it("subtreeFeeds gives every folder its subtree's feeds in screen order", () => {
+    const feeds: Record<string, string[]> = { "2": ["t"], "3": ["a"], "4": ["m"], "7": ["n"] };
+    const m = subtreeFeeds(t, (id) => feeds[id] ?? []);
+    expect(m.get("2")).toEqual(["m", "a", "t"]);
+    expect(m.get("6")).toEqual(["n"]);
+    expect(m.get("1")).toEqual([]);
   });
 
   it("feedOrder lists each folder's subfolders before its own feeds", () => {

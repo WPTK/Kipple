@@ -133,6 +133,11 @@ implementing anything. Commit and PR as needed without asking." (Host-A deploys 
   leaves out the folder itself, everything inside it, the default folder and anywhere too deep.
 - Paths on screen use ` › `, not `/` (a folder name may contain a slash). A subfolder's list shows the path of the
   folders above it over its title.
+  The OPML import report shows the paths the server sends, which are `/`-joined like Reader API labels; a folder the
+  file merged into one with the same full path is shown as both chains joined with ` › `.
+- In the sidebar trees the item is the only tab stop: the chevron and the star are pointer targets there, and **P**
+  adds the focused item to the favorites or takes it out (listed in the shortcuts overlay under Sidebar).
+- A subfolder's or feed's layout menu names where its layout comes from: "Inherited from Tech (Cards)".
 - Deleting a folder says how many subfolders are deleted with it and that its feeds move to the default folder.
 - OPML import has an opt-in switch, off by default: "Move feeds that already exist into the file's folders".
 

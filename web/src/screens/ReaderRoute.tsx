@@ -4,7 +4,7 @@ import { Link, useMatch, useNavigate, useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, Keyboard, MoreVertical, RefreshCw, Settings, Undo2 } from "lucide-react";
 import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
-import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeOf } from "@/lib/folderTree";
+import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib/folderTree";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, ItemsPage, Scope, View } from "@/api/types";
 import { useSearchHighlight } from "@/lib/useHighlights";
@@ -53,11 +53,15 @@ function useNeighbours(scope: Scope): { prev?: Scope; next?: Scope } {
     // The sidebar's order: its feeds, and only the folders it shows (those with a feed somewhere inside).
     const feeds = visibleFeeds(d.feeds);
     const tree = folderTree(d.folders);
-    const withFeeds = new Set(feeds.map((f) => f.folder_id));
-    const order =
-      kind === "feed"
-        ? feedOrder(tree, (id) => feeds.filter((f) => f.folder_id === id).map((f) => f.id))
-        : tree.preorder.filter((id) => [...subtreeOf(tree, id)].some((x) => withFeeds.has(x)));
+    const own = new Map<string, string[]>();
+    for (const f of feeds) {
+      const list = own.get(f.folder_id);
+      if (list) list.push(f.id);
+      else own.set(f.folder_id, [f.id]);
+    }
+    const feedsOf = (id: string) => own.get(id) ?? [];
+    const inside = kind === "folder" ? subtreeFeeds(tree, feedsOf) : null;
+    const order = inside ? tree.preorder.filter((id) => (inside.get(id)?.length ?? 0) > 0) : feedOrder(tree, feedsOf);
     const at = order.indexOf((kind === "feed" ? scope.feed : scope.folder) as string);
     const to = (id: string | undefined): Scope | undefined => (id ? { view: scope.view, [kind]: id } : undefined);
     return at < 0 ? {} : { prev: to(order[at - 1]), next: to(order[at + 1]) };

@@ -175,6 +175,8 @@ export interface OpmlResult {
   feeds_moved?: { url: string; feed_id: string }[];
   /** Folders (by path) that moving existing feeds left empty; they are kept. */
   folders_emptied?: string[];
+  /** Folders of the file filed into an existing folder with the same full path but other levels, as chains of names. */
+  folders_merged_path?: { kept: string[]; merged: string[] }[];
   /** Folders of the file that could not be made (for example nested too deep), by path, and why. */
   folders_refused?: { path: string; reason: string }[];
   /** Outlines that could not be imported (a bad URL). */

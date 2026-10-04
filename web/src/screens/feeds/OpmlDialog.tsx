@@ -5,6 +5,7 @@ import { importOpml, invalidateFeeds, type OpmlResult } from "@/api/admin";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 import { announce } from "@/shell/toasts";
+import { PATH_SEP } from "@/lib/folderTree";
 
 /** The most the server accepts for an OPML upload (maxOPMLBody in internal/api/opml.go). */
 export const OPML_MAX_BYTES = 8 << 20;
@@ -52,6 +53,7 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
   const moved = result.feeds_moved?.length ?? 0;
   const emptied = result.folders_emptied ?? [];
   const refused = result.folders_refused ?? [];
+  const mergedPath = result.folders_merged_path ?? [];
   const dropped = result.memberships_dropped.length;
   const skipped = result.skipped ?? [];
   const invalid = result.invalid_attrs ?? [];
@@ -81,6 +83,18 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
       ) : null}
       {result.folders_merged_case.length ? <li>Folders that differed only by capital letters were merged: {result.folders_merged_case.map((m) => `${m.merged} into ${m.kept}`).join(", ")}</li> : null}
     </ul>
+    {mergedPath.length ? (
+      <div className="text-sm">
+        <p className="font-semibold">Some folders of the file match a folder you have with the same full path</p>
+        <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
+          {mergedPath.map((m, i) => (
+            <li key={i} className="break-all">
+              The feeds of {m.merged.join(PATH_SEP)} were filed into {m.kept.join(PATH_SEP)}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null}
     {refused.length ? (
       <div className="text-sm">
         <p className="font-semibold">

@@ -172,11 +172,15 @@ export function useHotkeys(handlers: Handlers, opts: { singleKeys: boolean; enab
 export interface KeyDoc {
   keys: string;
   desc: string;
-  scope: "List" | "Article" | "Everywhere";
+  scope: "List" | "Article" | "Sidebar" | "Everywhere";
 }
 
 /** The shortcut overlay's source of truth, kept beside the maps above. */
 export const KEYMAP: KeyDoc[] = [
+  { keys: "↑ / ↓", desc: "Previous / next folder or feed (the sidebar's Favorites and Feeds trees)", scope: "Sidebar" },
+  { keys: "→ / ←", desc: "Expand or step into / collapse or step out of a folder", scope: "Sidebar" },
+  { keys: "Enter", desc: "Open the folder's or feed's list", scope: "Sidebar" },
+  { keys: "p", desc: "Add to favorites or take out", scope: "Sidebar" },
   { keys: "j / k", desc: "Next / previous article", scope: "List" },
   { keys: "Enter", desc: "Open the selected article", scope: "List" },
   { keys: "x", desc: "Select or deselect the row (then m, s, { and } act on the selection; { and } anchor on its first and last row)", scope: "List" },

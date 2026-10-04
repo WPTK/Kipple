@@ -18,19 +18,29 @@ export interface FolderTree<T extends F = Folder> {
   children: ReadonlyMap<string, readonly string[]>;
   /** Every folder id, parents before children and siblings in order. */
   preorder: readonly string[];
+  /** Each folder's parent in this tree (null at the top level). */
+  parents: ReadonlyMap<string, string | null>;
 }
 
 const TOP = "";
 
-/** Build the tree. A parent that is not in the list (an older server sends none) puts the folder at the top level. */
+/**
+ * Build the tree. A parent that is not in the list (an older server sends none) puts the folder at the top level, and
+ * so does a loop of parents (which the server never sends): every folder is in the tree exactly once.
+ */
 export function folderTree<T extends F>(folders: readonly T[]): FolderTree<T> {
   const byId = new Map(folders.map((f) => [f.id, f]));
+  const parents = new Map<string, string | null>();
   const children = new Map<string, string[]>();
-  for (const f of folders) {
-    const p = f.parent_id && f.parent_id !== f.id && byId.has(f.parent_id) ? f.parent_id : TOP;
+  const add = (p: string, id: string) => {
     let list = children.get(p);
     if (!list) children.set(p, (list = []));
-    list.push(f.id);
+    list.push(id);
+  };
+  for (const f of folders) {
+    const p = f.parent_id && f.parent_id !== f.id && byId.has(f.parent_id) ? f.parent_id : null;
+    parents.set(f.id, p);
+    add(p ?? TOP, f.id);
   }
   const preorder: string[] = [];
   const seen = new Set<string>();
@@ -43,12 +53,22 @@ export function folderTree<T extends F>(folders: readonly T[]): FolderTree<T> {
     }
   };
   walk(TOP);
-  return { byId, children, preorder };
+  // Whatever the walk from the top never reached sits in a loop: cut it at its first listed folder.
+  for (const f of folders) {
+    if (seen.has(f.id)) continue;
+    const old = parents.get(f.id);
+    if (old) children.set(old, (children.get(old) ?? []).filter((x) => x !== f.id));
+    parents.set(f.id, null);
+    add(TOP, f.id);
+    seen.add(f.id);
+    preorder.push(f.id);
+    walk(f.id);
+  }
+  return { byId, children, preorder, parents };
 }
 
 export function parentOf(t: FolderTree<F>, id: string): string | null {
-  const p = t.byId.get(id)?.parent_id;
-  return p && t.byId.has(p) && p !== id ? p : null;
+  return t.parents.get(id) ?? null;
 }
 
 /** The folders directly inside `id` (null: the top level). */
@@ -118,9 +138,26 @@ export function rollUp(t: FolderTree<F>, own: ReadonlyMap<string, number>): Map<
  * the moved subtree past MAX_FOLDER_DEPTH.
  */
 export function parentChoices(t: FolderTree<F>, moving: string | null): string[] {
+  if (moving !== null && t.byId.get(moving)?.is_default) return []; // the default folder stays at the top level
   const inside = moving === null ? new Set<string>() : subtreeOf(t, moving);
   const height = moving === null ? 1 : heightOf(t, moving);
   return t.preorder.filter((id) => !t.byId.get(id)?.is_default && !inside.has(id) && depthOf(t, id) + height <= MAX_FOLDER_DEPTH);
+}
+
+/**
+ * Every folder's feeds over its whole subtree, in screen order (subfolders first, then its own), in one pass:
+ * pre-order walked backwards builds each folder from its children, which were built already.
+ */
+export function subtreeFeeds(t: FolderTree<F>, feedsOf: (folder: string) => readonly string[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (let i = t.preorder.length - 1; i >= 0; i--) {
+    const id = t.preorder[i] as string;
+    const list: string[] = [];
+    for (const c of childrenOf(t, id)) list.push(...(out.get(c) ?? []));
+    list.push(...feedsOf(id));
+    out.set(id, list);
+  }
+  return out;
 }
 
 /**
