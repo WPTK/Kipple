@@ -27,7 +27,7 @@ waits).
 
 ### Version path to 1.0.0 (decided 2026-10-03)
 
-`0.8.0-beta.1`, then `1.0.0-rc.N`, then `1.0.0`. A candidate for 1.0.0 is named `1.0.0-rc.N`, never `0.8.0-rc.N`. A
+`0.8.0-beta.1`, `0.8.0-beta.2`, then `1.0.0-rc.N`, then `1.0.0`. A candidate for 1.0.0 is named `1.0.0-rc.N`, never `0.8.0-rc.N`. A
 release candidate adds no features, so a feature lands in a beta. `0.8.0` never ships as a stable release. A change that
 needs no schema or Reader API change and is small may go into `1.0.0-rc.1` instead if the PR says why; the rc rule (bug
 fixes only) is the test.
