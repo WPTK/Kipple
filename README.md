@@ -203,6 +203,8 @@ and Access settings, `TZ`): keep those too. The full checklist is in [docs/deplo
 
 For anything past this (backups, restoring, upgrading, running behind a reverse proxy or
 tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md).
+If something does not work, start with [docs/troubleshooting.md](docs/troubleshooting.md); for HTTPS with Caddy, nginx or
+Traefik, see [docs/reverse-proxy.md](docs/reverse-proxy.md).
 
 ## Configuration
 
