@@ -161,6 +161,29 @@ describe("cache reconciliation", () => {
     expect(qc.getQueryData<typeof bootstrap>(keys.bootstrap)!.feeds[0]?.unread).toBe(0);
   });
 
+  it("counts rolls each folder's number up over its subfolders, as the bootstrap does", () => {
+    const qc = seeded();
+    // Tech (2) > Apple (3) > Mac (4); Sports (5) beside it at the top level.
+    qc.setQueryData<typeof bootstrap>(keys.bootstrap, {
+      ...bootstrap,
+      folders: [
+        { id: "2", name: "Tech", parent_id: null, position: 0, is_default: false, unread: 0 },
+        { id: "3", name: "Apple", parent_id: "2", position: 1, is_default: false, unread: 0 },
+        { id: "4", name: "Mac", parent_id: "3", position: 2, is_default: false, unread: 0 },
+        { id: "5", name: "Sports", parent_id: null, position: 3, is_default: false, unread: 0 },
+      ],
+      feeds: [
+        { ...bootstrap.feeds[0]!, id: "10", folder_id: "2" },
+        { ...bootstrap.feeds[0]!, id: "11", folder_id: "3" },
+        { ...bootstrap.feeds[0]!, id: "12", folder_id: "4" },
+        { ...bootstrap.feeds[0]!, id: "13", folder_id: "5" },
+      ],
+    });
+    applyCounts(qc, { unread_total: 15, feeds: { "10": 1, "11": 2, "12": 4, "13": 8 } });
+    const unread = Object.fromEntries(qc.getQueryData<typeof bootstrap>(keys.bootstrap)!.folders.map((f) => [f.name, f.unread]));
+    expect(unread).toEqual({ Tech: 7, Apple: 6, Mac: 4, Sports: 8 });
+  });
+
   it("resync invalidates the lists and the bootstrap", () => {
     const qc = seeded();
     handleServerEvent(qc, { type: "resync", data: {} });
@@ -219,30 +242,43 @@ describe('pendingFor (the "n new" pill)', () => {
     { id: "2", folder_id: "a" },
     { id: "3", folder_id: "b" },
   ];
+  const folders = [
+    { id: "a", name: "A" },
+    { id: "b", name: "B" },
+  ];
   const pending = { "1": 3, "2": 2, "3": 4 };
   it("counts only feeds inside the list's scope", () => {
-    expect(pendingFor(pending, { view: "unread" }, feeds)).toBe(9);
-    expect(pendingFor(pending, { view: "all", feed: "3" }, feeds)).toBe(4);
-    expect(pendingFor(pending, { view: "unread", folder: "a" }, feeds)).toBe(5);
-    expect(pendingFor(pending, { view: "unread", feed: "9" }, feeds)).toBe(0);
+    expect(pendingFor(pending, { view: "unread" }, feeds, folders)).toBe(9);
+    expect(pendingFor(pending, { view: "all", feed: "3" }, feeds, folders)).toBe(4);
+    expect(pendingFor(pending, { view: "unread", folder: "a" }, feeds, folders)).toBe(5);
+    expect(pendingFor(pending, { view: "unread", feed: "9" }, feeds, folders)).toBe(0);
   });
   it("shows nothing for starred, search and oldest-first lists", () => {
-    expect(pendingFor(pending, { view: "starred" }, feeds)).toBe(0);
-    expect(pendingFor(pending, { view: "all", q: "x" }, feeds)).toBe(0);
-    expect(pendingFor(pending, { view: "unread", order: "oldest" }, feeds)).toBe(0);
+    expect(pendingFor(pending, { view: "starred" }, feeds, folders)).toBe(0);
+    expect(pendingFor(pending, { view: "all", q: "x" }, feeds, folders)).toBe(0);
+    expect(pendingFor(pending, { view: "unread", order: "oldest" }, feeds, folders)).toBe(0);
   });
   it("does not count ids the list already holds", () => {
     const loaded = { ids: new Set(["a", "b"]), pendingIds: { "1": ["a", "b", "c"], "2": ["z"] } };
     // Feed 1: 3 pending, a and b are already loaded, so 1 is new; feed 2: 2 pending, z not loaded.
-    expect(pendingFor({ "1": 3, "2": 2 }, { view: "unread" }, feeds, loaded)).toBe(3);
-    expect(pendingFor({ "1": 3 }, { view: "unread", feed: "1" }, feeds, { ...loaded, ids: new Set(["a", "b", "c"]) })).toBe(0);
+    expect(pendingFor({ "1": 3, "2": 2 }, { view: "unread" }, feeds, folders, loaded)).toBe(3);
+    expect(pendingFor({ "1": 3 }, { view: "unread", feed: "1" }, feeds, folders, { ...loaded, ids: new Set(["a", "b", "c"]) })).toBe(0);
     // Without ids from the server the count stands.
-    expect(pendingFor({ "3": 4 }, { view: "unread" }, feeds, loaded)).toBe(4);
+    expect(pendingFor({ "3": 4 }, { view: "unread" }, feeds, folders, loaded)).toBe(4);
+  });
+  it("a folder list covers the feeds of its subfolders", () => {
+    // c sits inside a; its feed 4 counts for a's list, not for b's.
+    const nested = [...folders, { id: "c", name: "C", parent_id: "a" }];
+    const all = [...feeds, { id: "4", folder_id: "c" }];
+    const p = { ...pending, "4": 6 };
+    expect(pendingFor(p, { view: "unread", folder: "a" }, all, nested)).toBe(11);
+    expect(pendingFor(p, { view: "unread", folder: "c" }, all, nested)).toBe(6);
+    expect(clearPending(p, { view: "unread", folder: "a" }, all, nested)).toEqual({ "3": 4 });
   });
   it("clears only the covered feeds", () => {
-    expect(clearPending(pending, { view: "unread", folder: "a" }, feeds)).toEqual({ "3": 4 });
-    expect(clearPending(pending, { view: "unread", feed: "3" }, feeds)).toEqual({ "1": 3, "2": 2 });
-    expect(clearPending(pending, { view: "unread" }, feeds)).toEqual({});
+    expect(clearPending(pending, { view: "unread", folder: "a" }, feeds, folders)).toEqual({ "3": 4 });
+    expect(clearPending(pending, { view: "unread", feed: "3" }, feeds, folders)).toEqual({ "1": 3, "2": 2 });
+    expect(clearPending(pending, { view: "unread" }, feeds, folders)).toEqual({});
   });
 });
 

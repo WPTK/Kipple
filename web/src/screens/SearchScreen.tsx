@@ -2,7 +2,8 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { BookmarkPlus, CheckCheck, X } from "lucide-react";
 import { savedScopeOf, scopeFromSearchParams, useSavedSearches } from "@/api/savedSearches";
-import { useBootstrap } from "@/api/queries";
+import { useBootstrap, useFolderTree } from "@/api/queries";
+import { folderPath } from "@/lib/folderTree";
 import type { Scope } from "@/api/types";
 import { useHotkeys } from "@/lib/keys";
 import { prefsStore } from "@/lib/prefs";
@@ -47,6 +48,7 @@ export function SearchScreen() {
   const prefs = useStore(prefsStore);
   const pref = useSearchOrder();
   const boot = useBootstrap();
+  const tree = useFolderTree();
   const saved = useSavedSearches();
 
   const { scope: where, order } = scopeFromSearchParams(sp, pref);
@@ -117,7 +119,7 @@ export function SearchScreen() {
   );
 
   const feedTitle = boot.data?.feeds.find((f) => f.id === where.feed)?.title;
-  const folderName = boot.data?.folders.find((f) => f.id === where.folder)?.name;
+  const folderName = where.folder && tree.byId.has(where.folder) ? folderPath(tree, where.folder) : undefined;
   const scopeLabel = where.feed
     ? `the feed ${feedTitle ?? "you chose"}`
     : where.folder

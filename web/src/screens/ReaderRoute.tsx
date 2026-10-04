@@ -3,7 +3,8 @@ import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, useMatch, useNavigate, useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, Keyboard, MoreVertical, RefreshCw, Settings, Undo2 } from "lucide-react";
-import { keys, scopeKey, useBootstrap } from "@/api/queries";
+import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
+import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeOf } from "@/lib/folderTree";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, ItemsPage, Scope, View } from "@/api/types";
 import { useSearchHighlight } from "@/lib/useHighlights";
@@ -32,11 +33,13 @@ const VIEWS: { view: View; label: string }[] = [
   { view: "starred", label: "Starred" },
 ];
 
-function useScopeTitle(scope: Scope): string {
+/** The list's title, and for a subfolder the path of the folders above it ("Tech › Apple" above "Mac"). */
+function useScopeTitle(scope: Scope): { title: string; above: string } {
   const boot = useBootstrap();
-  if (scope.feed) return boot.data?.feeds.find((f) => f.id === scope.feed)?.title ?? "Feed";
-  if (scope.folder) return boot.data?.folders.find((f) => f.id === scope.folder)?.name ?? "Folder";
-  return scope.view === "all" ? "All articles" : scope.view === "starred" ? "Starred" : scope.view === "muted" ? "Muted" : "Unread";
+  const tree = useFolderTree();
+  if (scope.feed) return { title: boot.data?.feeds.find((f) => f.id === scope.feed)?.title ?? "Feed", above: "" };
+  if (scope.folder) return { title: tree.byId.get(scope.folder)?.name ?? "Folder", above: tree.byId.has(scope.folder) ? parentPath(tree, scope.folder) : "" };
+  return { title: scope.view === "all" ? "All articles" : scope.view === "starred" ? "Starred" : scope.view === "muted" ? "Muted" : "Unread", above: "" };
 }
 
 /** Feeds (or folders, on a folder list) in sidebar order, and the neighbours of the current one. */
@@ -47,12 +50,14 @@ function useNeighbours(scope: Scope): { prev?: Scope; next?: Scope } {
     if (!d) return {};
     const kind = scope.feed ? "feed" : scope.folder ? "folder" : null;
     if (!kind) return {};
-    // The sidebar's order: its feeds, and only the folders it shows (those with a feed in them).
+    // The sidebar's order: its feeds, and only the folders it shows (those with a feed somewhere inside).
     const feeds = visibleFeeds(d.feeds);
+    const tree = folderTree(d.folders);
+    const withFeeds = new Set(feeds.map((f) => f.folder_id));
     const order =
       kind === "feed"
-        ? d.folders.flatMap((fo) => feeds.filter((f) => f.folder_id === fo.id).map((f) => f.id))
-        : d.folders.filter((fo) => feeds.some((f) => f.folder_id === fo.id)).map((f) => f.id);
+        ? feedOrder(tree, (id) => feeds.filter((f) => f.folder_id === id).map((f) => f.id))
+        : tree.preorder.filter((id) => [...subtreeOf(tree, id)].some((x) => withFeeds.has(x)));
     const at = order.indexOf((kind === "feed" ? scope.feed : scope.folder) as string);
     const to = (id: string | undefined): Scope | undefined => (id ? { view: scope.view, [kind]: id } : undefined);
     return at < 0 ? {} : { prev: to(order[at - 1]), next: to(order[at + 1]) };
@@ -63,7 +68,7 @@ const menuItem =
   "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
 
 export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: ListControls }) {
-  const title = useScopeTitle(scope);
+  const { title, above } = useScopeTitle(scope);
   const refresh = useRefreshAll();
   const refreshing = useRefreshing();
   const prefs = useStore(prefsStore);
@@ -90,7 +95,8 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           title needs, and where the pane is too narrow for title and controls together the controls drop to a line
           of their own rather than squeeze the title to an ellipsis. */}
       <div className="flex w-fit min-w-[min(100%,25rem)] max-w-full flex-wrap items-center gap-x-0.5 pt-2">
-        <h1 className="min-w-0 max-w-full grow truncate text-xl font-bold" tabIndex={-1} data-route-heading>
+        <h1 className="min-w-0 max-w-full grow truncate text-xl font-bold" tabIndex={-1} data-route-heading aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}>
+          {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
           {title}
         </h1>
         <div className="ml-auto flex items-center gap-0.5">

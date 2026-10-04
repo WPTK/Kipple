@@ -54,9 +54,12 @@ export interface ItemsPage {
 
 export interface Folder {
   id: string;
+  /** The folder it sits in; null (or absent, from a bootstrap cached by an older server) at the top level. */
+  parent_id?: string | null;
   name: string;
   position: number;
   is_default: boolean;
+  /** Unread articles in the folder and all its subfolders: what its list shows. */
   unread: number;
 }
 

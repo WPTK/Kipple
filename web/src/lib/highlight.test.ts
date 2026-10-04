@@ -77,15 +77,21 @@ describe("scope and fields", () => {
   const ids = (gs: Group[]) => gs.map((g) => g.id);
 
   it("applies global, folder and feed rules to the right feeds", () => {
-    expect(ids(groupsFor(all, "title", { id: "1", folder_id: "10" }))).toEqual(["g", "f"]);
-    expect(ids(groupsFor(all, "title", { id: "1", folder_id: "11" }))).toEqual(["g"]);
-    expect(ids(groupsFor(all, "author", { id: "7", folder_id: "11" }))).toEqual(["d"]);
-    expect(ids(groupsFor(all, "author", { id: "8", folder_id: "11" }))).toEqual([]);
+    expect(ids(groupsFor(all, "title", { id: "1", folders: ["10"] }))).toEqual(["g", "f"]);
+    expect(ids(groupsFor(all, "title", { id: "1", folders: ["11"] }))).toEqual(["g"]);
+    expect(ids(groupsFor(all, "author", { id: "7", folders: ["11"] }))).toEqual(["d"]);
+    expect(ids(groupsFor(all, "author", { id: "8", folders: ["11"] }))).toEqual([]);
+  });
+
+  it("a folder rule covers feeds in its subfolders, as on the server", () => {
+    // The feed sits in 12, inside 11, inside 10: the rule of folder 10 applies.
+    expect(ids(groupsFor(all, "title", { id: "1", folders: ["12", "11", "10"] }))).toEqual(["g", "f"]);
+    expect(ids(groupsFor(all, "title", { id: "1", folders: ["12", "11"] }))).toEqual(["g"]);
   });
 
   it("only draws a field the rule looks at, and knows nothing of an unknown feed's scope", () => {
-    expect(ids(groupsFor(all, "content", { id: "1", folder_id: "10" }))).toEqual(["f"]);
-    expect(ids(groupsFor(all, "content", { id: "1", folder_id: "11" }))).toEqual([]);
+    expect(ids(groupsFor(all, "content", { id: "1", folders: ["10"] }))).toEqual(["f"]);
+    expect(ids(groupsFor(all, "content", { id: "1", folders: ["11"] }))).toEqual([]);
     expect(ids(groupsFor(all, "title", undefined))).toEqual(["g"]);
   });
 

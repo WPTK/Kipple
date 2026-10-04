@@ -815,11 +815,11 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   // Items the list already holds are not "new" to it, whatever fetched them (a later load, another route).
   const loadedIds = useMemo(() => new Set(allItems.map((i) => i.id)), [allItems]);
-  const pendingNew = pendingFor(pendingByFeed, scope, boot.data?.feeds ?? [], { ids: loadedIds, pendingIds });
+  const pendingNew = pendingFor(pendingByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? [], { ids: loadedIds, pendingIds });
   const loadNew = () => {
     // Only what this list showed is now loaded; other feeds' arrivals keep counting for other lists.
     liveStore.set((s) => {
-      const left = clearPending(s.pendingByFeed, scope, boot.data?.feeds ?? []);
+      const left = clearPending(s.pendingByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? []);
       return { ...s, pendingByFeed: left, pendingIds: Object.fromEntries(Object.entries(s.pendingIds).filter(([k]) => k in left)) };
     });
     memory.delete(key);

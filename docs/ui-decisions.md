@@ -112,9 +112,29 @@ implementing anything. Commit and PR as needed without asking." (Host-A deploys 
   Editorial and Headlines Email - Compact, ids unchanged). Parked: Columns, Reader list,
   Expanded stream.
 - Layout is choosable **per feed and per folder** (override), plus a global/device default. UI in phase 2.
+- A folder's layout override applies to its subfolders and their feeds too; the nearest override up the tree wins
+  (feed, then its folder, then each folder above, then the device default).
 - Density: the owner doubts sliders. Use **named steps in a segmented picker with a live preview**
   (Dense / Snug / Standard / Relaxed / Airy). One "Density" choice drives both list rows and reading text;
   an "Adjust separately" disclosure splits them. No sliders, no "link" toggle. Must not look messy.
+
+### Folders (nested, #209)
+- The sidebar shows folders as a **tree** (WAI-ARIA navigation tree: one tab stop, arrow keys move, Right/Left expand
+  and collapse or step into and out of a folder, Enter opens the list). Each level indents 12 px, less past the
+  fourth so deep trees fit a phone. A folder's subfolders come before its own feeds. A branch with no feed anywhere
+  inside is hidden, as an empty folder always was. Collapsed folders are remembered per device.
+- Every folder badge counts its **whole subtree**, the same number its list shows.
+- A favorited folder shows its subtree in Favorites.
+- Manage Feeds: in Edit, dropping a folder on the middle of another folder's row puts it inside; the top or bottom
+  edge puts it before or after. **Move to…** in each folder's menu is the keyboard, touch and phone path (pick the
+  new parent, or Top level). **New subfolder** in the same menu; **New folder** asks where (Top level by default).
+- One folder picker everywhere (add feed, edit feed, bulk move, move folder, new folder, filters, saved searches): a
+  native select listing folders in tree order, **each labelled by its full path** (`Tech › Apple`). The move picker
+  leaves out the folder itself, everything inside it, the default folder and anywhere too deep.
+- Paths on screen use ` › `, not `/` (a folder name may contain a slash). A subfolder's list shows the path of the
+  folders above it over its title.
+- Deleting a folder says how many subfolders are deleted with it and that its feeds move to the default folder.
+- OPML import has an opt-in switch, off by default: "Move feeds that already exist into the file's folders".
 
 ### Gestures and keys
 - **Swipe directions match iOS Mail everywhere** (this supersedes round 1's "read left, unread right"):

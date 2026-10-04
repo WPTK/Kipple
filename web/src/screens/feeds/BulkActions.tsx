@@ -4,7 +4,9 @@ import { deleteFeed, invalidateFeeds, patchFeed, reorder as reorderApi } from "@
 import { errorMessage } from "@/api/client";
 import type { Feed, Folder } from "@/api/types";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
+import { Field, Modal, Notice, Switch } from "@/ui/kit";
+import { FolderSelect } from "@/ui/FolderSelect";
+import { folderPath, folderTree } from "@/lib/folderTree";
 import { announce, toast } from "@/shell/toasts";
 
 /** What a bulk delete tells the user before it starts: the count and the starred articles at stake. */
@@ -41,7 +43,7 @@ export function MoveDialog({
       const keep = allFeeds.filter((f) => f.folder_id === dest && !f.is_archive && !moved.has(f.id)).map((f) => f.id);
       await reorderApi({ feeds: [{ folder_id: dest, ids: [...keep, ...allFeeds.filter((f) => moved.has(f.id)).map((f) => f.id)] }] });
       invalidateFeeds(qc);
-      toast(`Moved ${feeds.length} feed${feeds.length === 1 ? "" : "s"} to ${target.name}`);
+      toast(`Moved ${feeds.length} feed${feeds.length === 1 ? "" : "s"} to ${folderPath(folderTree(folders), target.id)}`);
       onDone();
       onClose();
     } catch (e) {
@@ -66,17 +68,7 @@ export function MoveDialog({
       }
     >
       {error ? <Notice tone="error">{error}</Notice> : null}
-      <Field label="Move to folder">
-        {(a) => (
-          <select {...a} value={dest} onChange={(e) => setDest(e.target.value)} className={inputCls}>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-        )}
-      </Field>
+      <Field label="Move to folder">{(a) => <FolderSelect {...a} value={dest} onChange={setDest} />}</Field>
     </Modal>
   );
 }

@@ -245,20 +245,25 @@ export const sessionLayoutStore = createStore<LayoutId | null>(null);
 
 export interface LayoutContext {
   feedId?: string;
-  folderId?: string;
+  /** The list's folder (a feed list: the feed's folder) and the folders above it, nearest first. */
+  folderIds?: readonly string[];
 }
 
-/** Resolve the layout for a list: session toggle, then feed, then folder, then the device default. */
+/**
+ * Resolve the layout for a list: session toggle, then feed, then the nearest folder up the tree with an override,
+ * then the device default.
+ */
 export function resolveLayout(p: DevicePrefs, ctx: LayoutContext, session: LayoutId | null = null): LayoutId {
   if (session) return session;
   if (ctx.feedId && p.overrides.feed[ctx.feedId]) return p.overrides.feed[ctx.feedId] as LayoutId;
-  if (ctx.folderId && p.overrides.folder[ctx.folderId]) return p.overrides.folder[ctx.folderId] as LayoutId;
+  for (const id of ctx.folderIds ?? []) if (p.overrides.folder[id]) return p.overrides.folder[id] as LayoutId;
   return p.layout;
 }
 
 /** Which override a list can carry, if any (a feed list or a folder list). */
 export function overrideTarget(ctx: LayoutContext): { kind: "feed" | "folder"; id: string } | null {
   if (ctx.feedId) return { kind: "feed", id: ctx.feedId };
-  if (ctx.folderId) return { kind: "folder", id: ctx.folderId };
+  const folder = ctx.folderIds?.[0];
+  if (folder) return { kind: "folder", id: folder };
   return null;
 }

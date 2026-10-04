@@ -8,6 +8,7 @@ import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
+import { folderTree, rollUp, subtreeOf } from "@/lib/folderTree";
 import {
   SERVER_EVENT_TYPES,
   type Bootstrap,
@@ -130,15 +131,24 @@ export const isRefreshKind = (kind: string): boolean => !QUIET_KINDS.includes(ki
  */
 const isManualTrigger = (trigger: string | undefined): boolean => trigger === "manual" || trigger === "feed_manual";
 
+type FolderRef = { id: string; name: string; parent_id?: string | null };
+
+/** The feeds a folder list shows: those in the folder or any of its subfolders. */
+function feedsInFolder(folder: string, feeds: readonly { id: string; folder_id: string }[], folders: readonly FolderRef[]): string[] {
+  const inside = subtreeOf(folderTree(folders), folder);
+  return feeds.filter((f) => inside.has(f.folder_id)).map((f) => f.id);
+}
+
 /**
- * New items that would appear in this list: the feeds the scope includes (a feed, a folder's feeds,
- * or all). Starred and search lists never show a pill (their membership is not "new arrivals"),
- * and an oldest-first list gets new items at its far end, so a jump-to-top pill would mislead.
+ * New items that would appear in this list: the feeds the scope includes (a feed, the feeds of a folder
+ * and its subfolders, or all). Starred and search lists never show a pill (their membership is not "new
+ * arrivals"), and an oldest-first list gets new items at its far end, so a jump-to-top pill would mislead.
  */
 export function pendingFor(
   pending: Record<string, number>,
   scope: { view: string; feed?: string; folder?: string; q?: string; order?: string },
   feeds: readonly { id: string; folder_id: string }[],
+  folders: readonly FolderRef[],
   /** Ids the list already holds (with `ids`, the pending ids per feed): those are not new to it. */
   loaded?: { ids: ReadonlySet<string>; pendingIds: Record<string, string[]> },
 ): number {
@@ -152,7 +162,7 @@ export function pendingFor(
   if (scope.feed) return count(scope.feed);
   let n = 0;
   if (scope.folder) {
-    for (const f of feeds) if (f.folder_id === scope.folder) n += count(f.id);
+    for (const id of feedsInFolder(scope.folder, feeds, folders)) n += count(id);
     return n;
   }
   for (const id of Object.keys(pending)) n += count(id);
@@ -164,10 +174,11 @@ export function clearPending(
   pending: Record<string, number>,
   scope: Parameters<typeof pendingFor>[1],
   feeds: readonly { id: string; folder_id: string }[],
+  folders: readonly FolderRef[],
 ): Record<string, number> {
-  if (pendingFor(pending, scope, feeds) === 0) return pending;
+  if (pendingFor(pending, scope, feeds, folders) === 0) return pending;
   if (scope.feed) return omit(pending, [scope.feed]);
-  if (scope.folder) return omit(pending, feeds.filter((f) => f.folder_id === scope.folder).map((f) => f.id));
+  if (scope.folder) return omit(pending, feedsInFolder(scope.folder, feeds, folders));
   return {};
 }
 const omit = <T,>(o: Record<string, T>, ids: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !ids.includes(k))) as Record<string, T>;
@@ -211,13 +222,17 @@ export function announcementFor(ev: ServerEvent, runKind?: string): string | nul
   return null;
 }
 
-/** Patch unread counts in the cached bootstrap from a `counts` event. */
+/**
+ * Patch unread counts in the cached bootstrap from a `counts` event. A folder's count covers its subfolders, as
+ * the bootstrap's does (what the folder's list shows).
+ */
 export function applyCounts(qc: QueryClient, c: CountsEvent): void {
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => {
     if (!old) return old;
     const feeds = old.feeds.map((f) => ({ ...f, unread: c.feeds[f.id] ?? 0 }));
-    const folderUnread = new Map<string, number>();
-    for (const f of feeds) folderUnread.set(f.folder_id, (folderUnread.get(f.folder_id) ?? 0) + f.unread);
+    const own = new Map<string, number>();
+    for (const f of feeds) own.set(f.folder_id, (own.get(f.folder_id) ?? 0) + f.unread);
+    const folderUnread = rollUp(folderTree(old.folders), own);
     return {
       ...old,
       counts: { ...old.counts, unread: c.unread_total, ...(typeof c.muted === "number" ? { muted: c.muted } : {}) },

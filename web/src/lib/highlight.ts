@@ -121,13 +121,16 @@ export function compileHighlights(rules: readonly Highlight[] | undefined): Grou
   return out;
 }
 
-/** The rules that apply to a field of an article of this feed: global, its folder's, or its own. */
-export function groupsFor(all: readonly Group[], field: HighlightField, feed: { id: string; folder_id: string } | undefined): Group[] {
+/**
+ * The rules that apply to a field of an article of this feed: global, those of its folder or any folder above it
+ * (`folders`, the feed's folder first), or its own.
+ */
+export function groupsFor(all: readonly Group[], field: HighlightField, feed: { id: string; folders: readonly string[] } | undefined): Group[] {
   return all.filter((g) => {
     if (!g.fields.has(field)) return false;
     if (g.scope === "global") return true;
     if (!feed) return false;
-    return g.scope === "folder" ? g.folderId === feed.folder_id : g.feedId === feed.id;
+    return g.scope === "folder" ? g.folderId !== null && feed.folders.includes(g.folderId) : g.feedId === feed.id;
   });
 }
 
@@ -303,8 +306,9 @@ export function clearMarks(root: HTMLElement): void {
 
 export interface HighlightState {
   groups: Group[];
-  feeds: ReadonlyMap<string, string>;
+  /** Each feed's folder and the folders above it, nearest first. */
+  feeds: ReadonlyMap<string, readonly string[]>;
 }
 
-/** The compiled rules and the feed-to-folder map; kept by `useSyncHighlights` from the bootstrap. */
+/** The compiled rules and each feed's folder chain; kept by `useSyncHighlights` from the bootstrap. */
 export const highlightStore = createStore<HighlightState>({ groups: [], feeds: new Map() });

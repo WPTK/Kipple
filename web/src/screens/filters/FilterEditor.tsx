@@ -30,6 +30,7 @@ import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
+import { FolderSelect } from "@/ui/FolderSelect";
 
 export const PREVIEW_DEBOUNCE_MS = 600;
 
@@ -463,19 +464,13 @@ function EditorForm({
       <Group legend="Where it applies" error={at("scope") ?? at("target")}>
         <div className="grid gap-2 min-[520px]:grid-cols-3">
           <Choice name={scopeName} value="global" current={d.scope} label="Everywhere" help="Every feed" onPick={() => set({ scope: "global", folder_id: null, feed_id: null })} />
-          <Choice name={scopeName} value="folder" current={d.scope} label="A folder" help="Feeds in one folder" onPick={() => set({ scope: "folder", feed_id: null, folder_id: d.folder_id ?? folders[0]?.id ?? null })} />
+          <Choice name={scopeName} value="folder" current={d.scope} label="A folder" help="Feeds in one folder and its subfolders" onPick={() => set({ scope: "folder", feed_id: null, folder_id: d.folder_id ?? folders[0]?.id ?? null })} />
           <Choice name={scopeName} value="feed" current={d.scope} label="A feed" help="One feed only" onPick={() => set({ scope: "feed", folder_id: null, feed_id: d.feed_id ?? feeds[0]?.id ?? null })} />
         </div>
         {d.scope === "folder" ? (
           <Field label="Folder">
             {(a) => (
-              <select {...a} value={d.folder_id ?? ""} onChange={(e) => set({ folder_id: e.target.value || null })} className={inputCls}>
-                {folders.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
+              <FolderSelect {...a} value={d.folder_id ?? ""} onChange={(id) => set({ folder_id: id || null })} />
             )}
           </Field>
         ) : null}

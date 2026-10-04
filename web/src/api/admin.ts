@@ -150,8 +150,11 @@ export const deleteFeed = (id: string, deleteStarred: boolean) =>
 export const refreshFeed = (id: string, full = false) =>
   api<FetchOutcome>(`/api/feeds/${id}/refresh`, { method: "POST", params: full ? { full: 1 } : undefined });
 
-export const createFolder = (name: string) => api<Folder>("/api/folders", { method: "POST", body: { name } });
-export const patchFolder = (id: string, body: { name?: string; position?: number }) =>
+/** A new folder inside `parent` (null: the top level). */
+export const createFolder = (name: string, parent: string | null = null) =>
+  api<Folder>("/api/folders", { method: "POST", body: { name, parent_id: parent } });
+/** Rename, reposition or move a folder (`parent_id` null: to the top level). */
+export const patchFolder = (id: string, body: { name?: string; position?: number; parent_id?: string | null }) =>
   api<Folder>(`/api/folders/${id}`, { method: "PATCH", body });
 export const deleteFolder = (id: string) => api(`/api/folders/${id}`, { method: "DELETE" });
 
@@ -168,6 +171,12 @@ export interface OpmlResult {
   feeds_existing: { url: string; feed_id: string }[];
   folders_merged_case: { kept: string; merged: string }[];
   memberships_dropped: { url: string; kept: string; dropped: string[] }[];
+  /** Feeds that already existed and were moved into the file's folders (with `moveExisting`). */
+  feeds_moved?: { url: string; feed_id: string }[];
+  /** Folders (by path) that moving existing feeds left empty; they are kept. */
+  folders_emptied?: string[];
+  /** Folders of the file that could not be made (for example nested too deep), by path, and why. */
+  folders_refused?: { path: string; reason: string }[];
   /** Outlines that could not be imported (a bad URL). */
   skipped?: { url: string; reason: string }[];
   /** "<feed url>: <what was wrong>" for kipple:* attributes with bad values. */
@@ -177,14 +186,17 @@ export interface OpmlResult {
   run_id?: string;
 }
 
-/** Multipart OPML upload: api() passes FormData through unchanged. */
-export function importOpml(file: File, markReadOlderThanDays?: number): Promise<OpmlResult> {
+/**
+ * Multipart OPML upload: api() passes FormData through unchanged. `moveExisting` also moves feeds that already exist
+ * into the folders the file puts them in.
+ */
+export function importOpml(file: File, opts: { markReadOlderThanDays?: number; moveExisting?: boolean } = {}): Promise<OpmlResult> {
   const fd = new FormData();
   fd.append("file", file);
   return api<OpmlResult>("/api/opml", {
     method: "POST",
     body: fd,
-    params: { mark_read_older_than_days: markReadOlderThanDays || undefined },
+    params: { mark_read_older_than_days: opts.markReadOlderThanDays || undefined, move_existing: opts.moveExisting ? "true" : undefined },
   });
 }
 

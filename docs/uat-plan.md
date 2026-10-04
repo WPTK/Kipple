@@ -132,6 +132,15 @@ from the worker's copy with the offline notice (O3) and opens the article from i
 (O5); back online the queue is sent and Stats loads by itself (O6). It refuses non-loopback addresses and other
 credentials like the main run. Exit code 0 clean, 1 findings, 2 setup error.
 
+Nested folders (`npm run uat:folders`, `web/uat/folders.mjs`, against the same seeded instance), at 1280x800 and
+375x812, all through the Feeds screen: New folder, then New subfolder twice, makes three levels (N1); Select and Move to
+folder, picked by its path, puts a feed in the deepest one (N2); each of the three folders counts the feed's unread in
+the bootstrap and on screen, the sidebar (desktop) is a tree with three levels, the phone has no sideways scroll, the
+folder list's title names its path, and axe-core finds nothing on Feeds or the folder list (N3); Move to… takes the
+deepest folder to the top level and back (N4); deleting the top folder says its subfolders go and its feed moves, and
+afterwards the subtree is gone and the feed is in the default folder (N5). The feed is put back where it was, and
+folders a stopped run left behind are removed first. Same address and credential rules and exit codes as above.
+
 ## Suite 2 — Agent-driven scenario walkthroughs
 
 Test case format (per the standard guide): ID, title, precondition, steps, expected result.

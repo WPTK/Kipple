@@ -180,11 +180,11 @@ describe("highlights in the article", () => {
     routes([hl(["article"])]);
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
-    await waitFor(() => expect(highlightStore.get().feeds.get("2")).toBe("1"));
+    await waitFor(() => expect(highlightStore.get().feeds.get("2")).toEqual(["1"]));
     act(() =>
       qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, feeds: old.feeds.map((f) => (f.id === "2" ? { ...f, folder_id: "9" } : f)) } : old)),
     );
-    await waitFor(() => expect(highlightStore.get().feeds.get("2")).toBe("9"));
+    await waitFor(() => expect(highlightStore.get().feeds.get("2")).toEqual(["9"]));
   });
 
   it("turning the setting off takes the marks out of the body again", async () => {

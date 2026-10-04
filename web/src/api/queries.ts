@@ -19,6 +19,8 @@ import type {
 } from "./types";
 import { failedWhileOffline, isOffline, queueRead, queueStar, QueueWriteError, overlayPending, supersede } from "@/lib/offline";
 import { serverRebuilt } from "@/lib/buildInfo";
+import { chainOf, folderTree, type FolderTree } from "@/lib/folderTree";
+import { useMemo } from "react";
 import { setUpdateReady } from "@/lib/offlineState";
 import { toast } from "@/shell/toasts";
 import { itemsParams, keys, patchItems } from "./queryKeys";
@@ -51,6 +53,12 @@ export function useBootstrap(enabled = true) {
     retry: (n, e) => (e as { status?: number }).status !== 401 && !failedWhileOffline(e) && n < 2,
     staleTime: 60_000,
   });
+}
+
+/** The folder tree of the cached bootstrap (lib/folderTree). Its folders carry the unread counts of that bootstrap. */
+export function useFolderTree(): FolderTree {
+  const folders = useBootstrap().data?.folders;
+  return useMemo(() => folderTree(folders ?? []), [folders]);
 }
 
 /** Cursor-paged item list (design 7.1: keyset cursor, limit at most 100). */
@@ -119,19 +127,21 @@ export function resetCountsGuard(): void {
   lastBumpAt = 0;
 }
 
-/** Adjust unread counts locally (total, feed and its folder) so badges move before the counts event lands. */
+/**
+ * Adjust unread counts locally (total, feed, its folder and the folders above it) so badges move before the counts
+ * event lands.
+ */
 export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void {
   lastBumpAt = Date.now();
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => {
     if (!old) return old;
     const feed = old.feeds.find((f) => f.id === feedId);
+    const above = new Set(feed ? chainOf(folderTree(old.folders), feed.folder_id) : []);
     return {
       ...old,
       counts: { ...old.counts, unread: Math.max(0, old.counts.unread + delta) },
       feeds: old.feeds.map((f) => (f.id === feedId ? { ...f, unread: Math.max(0, f.unread + delta) } : f)),
-      folders: old.folders.map((fo) =>
-        feed && fo.id === feed.folder_id ? { ...fo, unread: Math.max(0, fo.unread + delta) } : fo,
-      ),
+      folders: old.folders.map((fo) => (above.has(fo.id) ? { ...fo, unread: Math.max(0, fo.unread + delta) } : fo)),
     };
   });
 }
