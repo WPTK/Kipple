@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -26,16 +27,17 @@ type Queryer interface {
 // ExportFrom is Export against any database with Kipple's schema, such as a
 // backup snapshot file, so the OPML in a backup matches its database exactly.
 // A feed marked for deletion (its URL replaced by a placeholder) is left out.
-// Each folder is one outline named by its full path ("Tech/Apple"), the label
-// Reader API clients see.
+// The folder tree is written as nested outlines, one per folder named by its own
+// name, siblings in folder order; inside a folder its feeds come first, then its
+// subfolders. One query reads it all, so the document is one snapshot.
 func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	rows, err := q.QueryContext(ctx, `
-		SELECT fo.id, fp.path, f.url, f.site_url, COALESCE(f.custom_title, NULLIF(f.title,''), ''),
+		SELECT fo.id, COALESCE(fo.parent_id, 0), fo.name, f.url, f.site_url, COALESCE(f.custom_title, NULLIF(f.title,''), ''),
 		       f.interval_minutes, f.retention, f.fulltext, f.dedup_mode, f.user_agent,
 		       f.ignore_http_cache, f.disable_http2, f.allow_insecure_tls, f.allow_private_net, f.enabled
 		FROM folders fo JOIN folder_paths fp ON fp.id = fo.id LEFT JOIN feeds f ON f.folder_id = fo.id AND `+store.ListedFeedSQL("f")+`
 		WHERE NOT (fo.is_default = 1 AND f.id IS NULL)
-		ORDER BY fo.position, fo.id, f.position, f.id`)
+		ORDER BY fp.sort_key, f.position, f.id`)
 	if err != nil {
 		return fmt.Errorf("opml: export: %w", err)
 	}
@@ -44,32 +46,55 @@ func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	var b bytes.Buffer
 	b.WriteString(xml.Header)
 	b.WriteString(`<opml version="2.0" xmlns:kipple="` + NS + `">` + "\n  <head><title>Kipple subscriptions</title></head>\n  <body>\n")
+	indent := func(depth int) { b.WriteString(strings.Repeat("  ", depth+1)) }
+	// open holds the ids of the open folder outlines, outermost first. Each folder closes the
+	// outlines down to its parent, which must be open: rows in any other order are an error, never
+	// a document with misnested or unclosed outlines.
+	var open []int64
+	opened := map[int64]bool{}
+	closeTo := func(n int) {
+		for len(open) > n {
+			indent(len(open))
+			b.WriteString("</outline>\n")
+			open = open[:len(open)-1]
+		}
+	}
 	var cur int64 = -1
 	for rows.Next() {
-		var fid int64
+		var fid, parent int64
 		var folder string
 		var url, site, title, dedup sql.NullString
 		var interval, retention sql.NullInt64
 		var ua sql.NullString
 		var ft, nocache, h2, insecure, private, enabled sql.NullInt64
-		if err := rows.Scan(&fid, &folder, &url, &site, &title, &interval, &retention, &ft, &dedup, &ua,
+		if err := rows.Scan(&fid, &parent, &folder, &url, &site, &title, &interval, &retention, &ft, &dedup, &ua,
 			&nocache, &h2, &insecure, &private, &enabled); err != nil {
 			return err
 		}
 		if fid != cur {
-			if cur != -1 {
-				b.WriteString("    </outline>\n")
+			if opened[fid] {
+				return fmt.Errorf("opml: export: folder %d listed twice", fid)
 			}
-			cur = fid
-			b.WriteString("    <outline")
+			for len(open) > 0 && open[len(open)-1] != parent {
+				closeTo(len(open) - 1)
+			}
+			if parent != 0 && len(open) == 0 {
+				return fmt.Errorf("opml: export: folder %d listed outside its parent %d", fid, parent)
+			}
+			cur, opened[fid] = fid, true
+			indent(len(open) + 1)
+			b.WriteString("<outline")
 			attr(&b, "text", folder)
 			attr(&b, "title", folder)
 			b.WriteString(">\n")
+			open = append(open, fid)
 		}
+		depth := len(open)
 		if !url.Valid {
 			continue
 		}
-		b.WriteString(`      <outline type="rss"`)
+		indent(depth + 1)
+		b.WriteString(`<outline type="rss"`)
 		attr(&b, "text", title.String)
 		attr(&b, "title", title.String)
 		attr(&b, "xmlUrl", url.String)
@@ -107,9 +132,7 @@ func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if cur != -1 {
-		b.WriteString("    </outline>\n")
-	}
+	closeTo(0)
 	b.WriteString("  </body>\n</opml>\n")
 	_, err = w.Write(b.Bytes())
 	return err

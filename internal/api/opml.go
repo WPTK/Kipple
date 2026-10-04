@@ -18,8 +18,9 @@ import (
 const maxOPMLBody = 8 << 20
 
 // opmlImport is POST /api/opml: raw OPML or a multipart upload (first file
-// part), optional ?mark_read_older_than_days=N (1-365). New feeds are inserted
-// due now and followed by an import run.
+// part), optional ?mark_read_older_than_days=N (1-365) and ?move_existing=true
+// (move feeds that already exist into the file's folders; default false). New
+// feeds are inserted due now and followed by an import run.
 func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 	var opts opml.ImportOptions
 	if v := r.URL.Query().Get("mark_read_older_than_days"); v != "" {
@@ -29,6 +30,14 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		opts.MarkReadOlderThanDays = n
+	}
+	switch r.URL.Query().Get("move_existing") {
+	case "", "false":
+	case "true":
+		opts.MoveExisting = true
+	default:
+		writeError(w, http.StatusBadRequest, "bad_move_existing")
+		return
 	}
 	body, err := readOPMLBody(w, r)
 	if err != nil {
@@ -60,8 +69,11 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 // folder event when folders were made, and an import run over the new feeds.
 // It returns the run id, or nil when nothing was started.
 func (s *Server) afterImport(res opml.Result) any {
-	if res.FoldersCreated > 0 {
+	if res.FoldersCreated > 0 || len(res.FeedsMoved) > 0 {
 		s.publishFolderChanged(0)
+	}
+	for _, m := range res.FeedsMoved {
+		s.publishFeedChanged(m.FeedID)
 	}
 	if len(res.NewFeedIDs) == 0 {
 		return nil
