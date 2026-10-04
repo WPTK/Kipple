@@ -105,6 +105,6 @@ func FuzzURLHelpers(f *testing.F) {
 		_ = StripTracking(ref)
 		_ = PlainText(ref)
 		_ = LeadImage(ref, base)
-		_ = RewriteImages(ref, func(s string) string { return s })
+		_ = ServeHTML(ref, ServeOptions{Image: func(s string) string { return s }})
 	})
 }
