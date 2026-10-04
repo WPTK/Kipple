@@ -12,6 +12,7 @@ import (
 )
 
 func TestPatchFeedFields(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	folder := h.addFolder("Blogs")
@@ -74,6 +75,7 @@ func TestPatchFeedFields(t *testing.T) {
 }
 
 func TestPatchFeedValidation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	id := h.storeFeed("https://a.example/feed")
@@ -158,6 +160,7 @@ func (h *harness) feedByURL2(key string) int64 {
 }
 
 func TestPatchFeedRetentionEnqueuesTrim(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	id := h.storeFeed("https://a.example/feed")
@@ -184,6 +187,7 @@ func TestPatchFeedRetentionEnqueuesTrim(t *testing.T) {
 }
 
 func TestPatchFeedDedupModeSetsRekey(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	id := h.storeFeed("https://a.example/feed")
@@ -199,6 +203,7 @@ func TestPatchFeedDedupModeSetsRekey(t *testing.T) {
 }
 
 func TestPatchFeedEnableDisable(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	id := h.storeFeed("https://a.example/feed")
@@ -233,6 +238,7 @@ func TestPatchFeedEnableDisable(t *testing.T) {
 }
 
 func TestPatchFeedURLChange(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	id := h.storeFeed("http://a.example/feed")
@@ -296,6 +302,7 @@ func TestPatchFeedURLChange(t *testing.T) {
 }
 
 func TestPatchFeedURLPrivateNetAllowance(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	id := h.storeFeed("https://a.example/feed")
@@ -317,6 +324,7 @@ func TestPatchFeedURLPrivateNetAllowance(t *testing.T) {
 }
 
 func TestPatchFeedFolderMoveRoundTripThroughBootstrap(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	folder := h.addFolder("Blogs")

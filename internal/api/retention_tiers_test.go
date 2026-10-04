@@ -9,6 +9,7 @@ import (
 // The settings metadata, the retention.default validator and the per-feed PATCH
 // all read retentionLimits, so they accept exactly the same values.
 func TestRetentionTiersAreDefinedOnce(t *testing.T) {
+	t.Parallel()
 	var offered []int64
 	for _, o := range retentionOptions() {
 		offered = append(offered, int64(o.Value.(int)))

@@ -31,6 +31,7 @@ func savedList(t *testing.T, h *harness, c *http.Cookie, query string) []map[str
 }
 
 func TestSavedSearchesCRUDCountsAndBootstrap(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	a := h.addFeed("A", 0)
@@ -104,6 +105,7 @@ func TestSavedSearchesCRUDCountsAndBootstrap(t *testing.T) {
 }
 
 func TestSavedSearchValidation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -138,6 +140,7 @@ func TestSavedSearchValidation(t *testing.T) {
 }
 
 func TestSavedSearchLimitAndSettingsPatch(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	var entries []map[string]any
@@ -176,6 +179,7 @@ func TestSavedSearchLimitAndSettingsPatch(t *testing.T) {
 }
 
 func TestSavedSearchConcurrentCreatesLoseNothing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	var wg sync.WaitGroup
@@ -192,6 +196,7 @@ func TestSavedSearchConcurrentCreatesLoseNothing(t *testing.T) {
 }
 
 func TestSavedSearchScopeIsDroppedWhenItsFeedOrFolderIsDeleted(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -215,8 +220,9 @@ func TestSavedSearchScopeIsDroppedWhenItsFeedOrFolderIsDeleted(t *testing.T) {
 }
 
 func TestSavedSearchCountIsCappedAt999(t *testing.T) {
-	noBudget(t) // no real-time limit: the race detector is slow
+	t.Parallel()
 	h := newHarness(t)
+	h.noBudget() // no real-time limit: the race detector is slow
 	c := h.login()
 	feed := h.addFeed("A", 0)
 	h.exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 1100)
@@ -237,61 +243,60 @@ func TestSavedSearchCountIsCappedAt999(t *testing.T) {
 }
 
 // noBudget removes the count time limits (a cancel-only context, a frozen clock).
-func noBudget(t *testing.T) {
-	t.Helper()
-	cc, now := savedSearchCountCtx, savedSearchNow
-	t.Cleanup(func() { savedSearchCountCtx, savedSearchNow = cc, now })
-	savedSearchCountCtx = func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+func (h *harness) noBudget() {
+	h.srv.tm.savedSearchCountCtx = func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
 		return context.WithCancel(ctx)
 	}
 	frozen := time.Unix(1_700_000_000, 0)
-	savedSearchNow = func() time.Time { return frozen }
+	h.srv.tm.savedSearchNow = func() time.Time { return frozen }
 }
 
 func TestSavedSearchCountThatRunsOutOfBudgetIsNull(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
 	h.addItem(feed, seedItem{Title: "budget word"})
-	noBudget(t)
+	h.noBudget()
 	// Per-search budget: the context is already past its deadline, so the count cannot finish.
 	var seen []time.Duration
-	savedSearchCountCtx = func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	h.srv.tm.savedSearchCountCtx = func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
 		seen = append(seen, d)
 		return context.WithDeadline(ctx, time.Unix(0, 0))
 	}
 	out := h.saved(c, `{"name":"n","q":"budget"}`)
 	require.Contains(t, out, "unread")
 	require.Nil(t, out["unread"], "no count is better than a slow one")
-	require.Equal(t, []time.Duration{savedSearchBudget}, seen, "the count ran under the per-search budget")
+	require.Equal(t, []time.Duration{h.srv.tm.savedSearchBudget}, seen, "the count ran under the per-search budget")
 	require.Equal(t, false, out["unread_capped"])
 
 	// Whole-list budget: the clock jumps past the deadline after it is set, so no count starts.
-	noBudget(t)
+	h.noBudget()
 	var calls int
-	savedSearchCountCtx = func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+	h.srv.tm.savedSearchCountCtx = func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
 		calls++
 		return context.WithCancel(ctx)
 	}
 	base := time.Unix(1_700_000_000, 0)
 	var reads int
-	savedSearchNow = func() time.Time {
+	h.srv.tm.savedSearchNow = func() time.Time {
 		reads++
 		if reads == 1 {
 			return base // sets the deadline
 		}
-		return base.Add(savedSearchTotalBudget + time.Nanosecond)
+		return base.Add(h.srv.tm.savedSearchTotalBudget + time.Nanosecond)
 	}
 	require.Nil(t, savedList(t, h, c, "")[0]["unread"], "the whole-list budget is spent")
 	require.Zero(t, calls, "no count may start after the list budget is spent")
 
-	noBudget(t)
+	h.noBudget()
 	require.EqualValues(t, 1, savedList(t, h, c, "")[0]["unread"])
 }
 
 // Replacing or resetting the list through PATCH /api/settings tells other tabs, like every other
 // change to it, and a scope naming a feed or folder that does not exist is a field error.
 func TestSettingsPatchOfSavedSearchesPublishesAndChecksScopes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -346,8 +351,9 @@ func TestSettingsPatchOfSavedSearchesPublishesAndChecksScopes(t *testing.T) {
 
 // The count stops at 999 only when there is more: exactly 999 is "999", not "999+".
 func TestSavedSearchCapBoundary(t *testing.T) {
-	noBudget(t)
+	t.Parallel()
 	h := newHarness(t)
+	h.noBudget()
 	c := h.login()
 	feed := h.addFeed("A", 0)
 	h.exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 1001)

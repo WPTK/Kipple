@@ -9,6 +9,7 @@ import (
 // The dictionary that ships in every stats export says that the tz setting alone
 // decides the local fields and the export's tz.
 func TestStatsDictionaryLocalTimeNamesTheSetting(t *testing.T) {
+	t.Parallel()
 	var text string
 	for _, c := range statsConcepts {
 		if c.Name == "local_time" {

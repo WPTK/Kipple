@@ -172,6 +172,9 @@ type Server struct {
 	bgClosed bool
 
 	autoReadAdmitted func() // tests: runs once startAutoRead has admitted a run, before its goroutine starts
+	applyCounting    func() // tests: runs where startApply counts the candidates
+
+	tm timing // request budgets and waits; New sets the production values
 
 	apply    applyState    // the retroactive filter apply run
 	autoRead autoReadState // the auto-read catch-up run
@@ -182,6 +185,18 @@ type Server struct {
 	clast  time.Time
 	ctimer *time.Timer
 	closed bool
+}
+
+// timing holds the budgets and waits requests run under. New sets the production values; a test
+// changes them on its own server before it sends a request.
+type timing struct {
+	addWait, refreshWait                      time.Duration // feed add and manual refresh wait for the first fetch
+	deleteFilterBudget, deleteFilterSlack     time.Duration // one filter DELETE's restore budget and its backstop
+	savedSearchBudget, savedSearchTotalBudget time.Duration // one saved-search count, and a whole list's counts
+	// savedSearchCountCtx derives the context one count runs under, and savedSearchNow is the clock the
+	// whole-list budget reads (a test replaces them to make an exhausted budget deterministic).
+	savedSearchCountCtx func(context.Context, time.Duration) (context.Context, context.CancelFunc)
+	savedSearchNow      func() time.Time
 }
 
 // New builds the API server.
@@ -233,6 +248,13 @@ func New(opt Options) *Server {
 	bgCtx, cancel := context.WithCancel(context.Background())
 	s.apply.ctx = bgCtx
 	s.apply.budget = applyBudget
+	s.tm = timing{
+		addWait: addWait, refreshWait: refreshWait,
+		deleteFilterBudget: deleteFilterBudget, deleteFilterSlack: deleteFilterSlack,
+		savedSearchBudget: savedSearchBudget, savedSearchTotalBudget: savedSearchTotalBudget,
+		savedSearchCountCtx: context.WithTimeout,
+		savedSearchNow:      time.Now,
+	}
 	s.apply.stop = func() {
 		s.bgMu.Lock()
 		s.bgClosed = true

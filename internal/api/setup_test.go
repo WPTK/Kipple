@@ -124,6 +124,7 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 }
 
 func TestSetupHappyPathWithPassword(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 
 	// The first screen asks one thing: is there an account? Nothing else is
@@ -181,6 +182,7 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 // While Kipple has no account, only /api/instance, the account route, /healthz
 // and the app shell answer; everything else says there is nobody to sign in as.
 func TestUnclaimedRouteTable(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	// The authenticated API: 401, whatever is asked.
 	for _, rt := range [][2]string{
@@ -216,6 +218,7 @@ func TestUnclaimedRouteTable(t *testing.T) {
 // the /api/ catch-all answers a signed-out caller 401. (The process that did the
 // claim itself keeps the route and answers 404: TestSetupHappyPathWithPassword.)
 func TestSetupRoutesAbsentWithAccount(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for _, p := range [][2]string{{"GET", "/api/setup/state"}, {"POST", "/api/setup/claim"}, {"POST", "/api/setup/account"}} {
 		rec := h.do(p[0], p[1], `{"username":"x","password":"abcdefgh"}`)
@@ -226,6 +229,7 @@ func TestSetupRoutesAbsentWithAccount(t *testing.T) {
 }
 
 func TestSetupAccountValidation(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	for _, tc := range []struct {
 		body map[string]any
@@ -260,6 +264,7 @@ func TestSetupAccountValidation(t *testing.T) {
 // has no secret, so these (plus the Host gate) are what keep a page in the
 // owner's browser from creating the account.
 func TestSetupCSRF(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	crossSite := hdr("Sec-Fetch-Site", "cross-site")
 	noClient := func(r *http.Request) { r.Header.Del("X-Kipple-Client") }
@@ -280,6 +285,7 @@ func TestSetupCSRF(t *testing.T) {
 
 // The Host gate refuses DNS-rebinding shapes on every route in setup mode.
 func TestSetupHostGate(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t, func(o *Options) { o.AllowedHosts = []string{"rss.example.com"} })
 	for _, hv := range []string{"evil.example:1919", "evil.example.", "EVIL.EXAMPLE:1919", "127.0.0.1.nip.io:1919",
 		"localhost.evil.example", "", "evil.example:1919:1", "127.1:1919", "rss.example.com.evil.example"} {
@@ -304,6 +310,7 @@ func TestSetupHostGate(t *testing.T) {
 // Many browsers claim at once on one server and store: exactly one 201 with
 // exactly one session; every loser gets 409 already_set_up and no session.
 func TestSetupClaimRaceHasExactlyOneWinner(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	const n = 24
 	var wg sync.WaitGroup
@@ -349,6 +356,7 @@ func TestSetupClaimRaceHasExactlyOneWinner(t *testing.T) {
 // request): a claim waits while another holds the slot, and one whose client
 // went away creates nothing.
 func TestSetupClaimsAreOneAtATime(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	h.srv.setupSlot <- struct{}{} // another claim is mid-hash
 	done := make(chan *httptest.ResponseRecorder, 1)
@@ -377,6 +385,7 @@ func TestSetupClaimsAreOneAtATime(t *testing.T) {
 }
 
 func TestSetupOpenMode(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	open := accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true})
 
@@ -476,6 +485,7 @@ func TestSetupOpenMode(t *testing.T) {
 
 // Switching a password account to open mode needs the password and the open gate.
 func TestSwitchToOpenMode(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass}))
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -512,6 +522,7 @@ func TestSwitchToOpenMode(t *testing.T) {
 // Setup behind Cloudflare Access: the Access-only account needs a verified token
 // on the account request itself; the first screen says whether one is present.
 func TestSetupWithAccess(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t, withAccess(t))
 	k, other := accessKeys(t)
 	st := decode(t, h.req("GET", "/api/instance", ""))
@@ -532,6 +543,7 @@ func TestSetupWithAccess(t *testing.T) {
 
 // No route, new or old, ever answers with CORS headers, preflight included.
 func TestNoCORSHeadersAnywhere(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	routes := [][2]string{
 		{"GET", "/api/instance"}, {"POST", "/api/setup/account"},
@@ -558,6 +570,7 @@ func TestNoCORSHeadersAnywhere(t *testing.T) {
 }
 
 func TestSettingsTZDefaultAndOwnedByTheSetting(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	tzView := func() map[string]any {
@@ -582,6 +595,7 @@ func TestSettingsTZDefaultAndOwnedByTheSetting(t *testing.T) {
 }
 
 func TestSettingsSecurityKeys(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	rec := h.do("PATCH", "/api/settings", `{"security.allowed_hosts":[" RSS.example.com. ","*.Example.org","rss.example.com"] }`, withCookie(c))
@@ -602,6 +616,7 @@ func TestSettingsSecurityKeys(t *testing.T) {
 
 // A name added in Settings passes the Host gate at once (the cache is dropped).
 func TestAllowedHostsSettingReachesTheGate(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}))
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -612,6 +627,7 @@ func TestAllowedHostsSettingReachesTheGate(t *testing.T) {
 }
 
 func TestStarterFeeds(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	out := decode(t, h.do("GET", "/api/starter-feeds", "", withCookie(c)))
@@ -649,6 +665,7 @@ func TestStarterFeeds(t *testing.T) {
 
 // In password mode the gate logs an unlisted Host (once an hour) instead of refusing.
 func TestHostGateLogsOnlyInPasswordMode(t *testing.T) {
+	t.Parallel()
 	var logs bytes.Buffer
 	h := newHarness(t, func(o *Options) { o.Logger = slog.New(slog.NewTextHandler(&logs, nil)) })
 	root := h.srv.HostGate(h.mux)
@@ -671,6 +688,7 @@ func TestHostGateLogsOnlyInPasswordMode(t *testing.T) {
 // after the insert committed) still ends setup mode in this process, and the
 // loser gets no session.
 func TestSetupEndsWhenTheRowExistsWhateverTheAnswer(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	_, err := h.db.CreateAccount(context.Background(), store.Account{Username: "first", PasswordHash: "h", Secret: testSecret, CreatedVia: store.CreatedViaWizard})
 	require.NoError(t, err)
@@ -685,6 +703,7 @@ func TestSetupEndsWhenTheRowExistsWhateverTheAnswer(t *testing.T) {
 // A mode never read enforces (fail closed); a failed re-read after a change
 // keeps the last known mode instead of forgetting open mode.
 func TestModeSnapshotFailsClosed(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	require.True(t, h.srv.enforceHosts(&modeSnapshot{failed: true}))
 	require.False(t, h.srv.enforceHosts(&modeSnapshot{mode: store.AuthStandard}))
@@ -714,6 +733,7 @@ func TestModeSnapshotFailsClosed(t *testing.T) {
 // In a container even this computer arrives from the bridge gateway, a private
 // address: open mode works from there like from any local peer, with no setting.
 func TestSetupOpenModeFromAContainerGateway(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	gw := peer("172.17.0.1:40000")
 	st := decode(t, h.req("GET", "/api/instance", "", gw))
@@ -733,6 +753,7 @@ func TestSetupOpenModeFromAContainerGateway(t *testing.T) {
 // security.open_lan is gone: a row an old install stored changes nothing (the
 // gate does not read it and settings never list it), and it cannot be written.
 func TestRemovedOpenLANSettingIsIgnored(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"security.open_lan": false}))
 	sess := h.openAccount(nil)
@@ -750,6 +771,7 @@ func TestRemovedOpenLANSettingIsIgnored(t *testing.T) {
 // from a LAN or public peer, behind a forwarding header, and an anonymous
 // request there gets the plain 401 of password mode, never an open_refused.
 func TestPasswordModeIgnoresTheOpenGate(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	rec := h.createAccount(map[string]any{"username": "reader", "password": setupPass})
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -791,6 +813,7 @@ func apiRoutes(t *testing.T) (routes []struct {
 // request is refused on all of them. A route added later that skips `authed`
 // fails here unless it is added to the list on purpose.
 func TestOpenGateCoversEveryRoute(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	sess := h.openAccount(nil)
 	nonAuthed := map[string]bool{"GET /healthz": true, "GET /api/instance": true, "POST /api/auth/open": true, "POST /api/auth/login": true}
@@ -833,6 +856,7 @@ func TestOpenGateCoversEveryRoute(t *testing.T) {
 // An Access-only account cannot switch to open mode: its proof is an Access
 // header, which the open gate refuses. It is told to set a password first.
 func TestSwitchToOpenNeedsAPassword(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	require.NoError(t, h.db.SetPasswordHash(context.Background(), "", store.AuthStandard, sessionID(c.Value)))

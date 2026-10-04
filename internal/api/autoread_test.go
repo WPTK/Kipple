@@ -12,8 +12,7 @@ import (
 // arItem inserts an unread item crawled `age` before the harness clock.
 func (h *harness) arItem(feed int64, age time.Duration) int64 {
 	h.t.Helper()
-	seedN++
-	id := h.clk.Now().Add(-age).UnixMicro() + seedN
+	id := h.clk.Now().Add(-age).UnixMicro() + h.seeded.Add(1)
 	h.exec(`INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash, url, title, author)
 		VALUES (?1, ?2, 1, 1, 'ar' || ?1, 'c', 't', 'https://x.example/a', 'old one', '')`, id, feed)
 	return id
@@ -31,6 +30,7 @@ func (h *harness) waitAutoReadIdle() {
 const arDay = 24 * time.Hour
 
 func TestAutoReadRoutesRequireSessionAndOrigin(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	for _, r := range []struct{ method, path string }{
@@ -48,6 +48,7 @@ func TestAutoReadRoutesRequireSessionAndOrigin(t *testing.T) {
 }
 
 func TestAutoReadSettingAndFeedPatchValidation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -100,6 +101,7 @@ func TestAutoReadSettingAndFeedPatchValidation(t *testing.T) {
 }
 
 func TestAutoReadPreviewAndRunWithConfirm(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	a := h.addFeed("A", 0)
@@ -184,6 +186,7 @@ func TestAutoReadPreviewAndRunWithConfirm(t *testing.T) {
 }
 
 func TestAutoReadRunIsOneAtATime(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -214,6 +217,7 @@ func TestAutoReadRunIsOneAtATime(t *testing.T) {
 
 // expect_total guards a run against a library that moved on since the preview.
 func TestAutoReadRunExpectTotal(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)

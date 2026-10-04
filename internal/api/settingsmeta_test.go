@@ -23,6 +23,7 @@ func jsonRoundTrip(t *testing.T, v any) any {
 }
 
 func TestSettingDefsShape(t *testing.T) {
+	t.Parallel()
 	groups := map[string]bool{"reading": true, "sync": true, "library": true, "images": true, "stats": true, "account": true, "advanced": true}
 	surfaces := map[string]bool{"reader_menu": true, "settings": true, "hidden": true}
 	kinds := map[string]bool{"bool": true, "enum": true, "int": true, "text": true, "json": true}
@@ -66,6 +67,7 @@ func TestSettingDefsShape(t *testing.T) {
 }
 
 func TestSettingsEndpointMetadata(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	code, out, _ := h.api(h.login(), "GET", "/api/settings", "")
 	require.Equal(t, http.StatusOK, code)
@@ -94,6 +96,7 @@ func TestSettingsEndpointMetadata(t *testing.T) {
 
 // Reading and list spacing share one vocabulary, the five steps; the first-draft names are read as steps.
 func TestDensityVocabulary(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	_, out, _ := h.api(h.login(), "GET", "/api/settings", "")
 	for _, x := range out["settings"].([]any) {
@@ -116,6 +119,7 @@ func TestDensityVocabulary(t *testing.T) {
 }
 
 func TestThemeOptionsAndAliases(t *testing.T) {
+	t.Parallel()
 	var theme settingDef
 	for _, d := range settingDefs {
 		if d.Key == "ui.theme" {
@@ -146,6 +150,7 @@ func TestThemeOptionsAndAliases(t *testing.T) {
 
 // The schedule is a hidden bool, and its times are 24-hour HH:MM, 00:00 to 23:59, and nothing else.
 func TestThemeScheduleTimes(t *testing.T) {
+	t.Parallel()
 	sched := settingDefByKey["ui.theme_schedule"]
 	require.Equal(t, "hidden", sched.Surface)
 	require.Equal(t, "bool", sched.Kind)
@@ -167,6 +172,7 @@ func TestThemeScheduleTimes(t *testing.T) {
 
 // A stored row with an old theme id reads back as the current id, and is not rewritten.
 func TestStoredOldThemeReadsAsAlias(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.exec(`INSERT INTO settings (key, value) VALUES ('ui.theme', '"brown"'), ('ui.theme_night', '"oled"')`)
 	_, out, _ := h.api(h.login(), "GET", "/api/settings", "")
@@ -176,6 +182,7 @@ func TestStoredOldThemeReadsAsAlias(t *testing.T) {
 
 // The Go font list and the web app's fonts.ts must agree (ids, in order).
 func TestFontsMatchWeb(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "lib", "fonts.ts"))
 	require.NoError(t, err)
 	var web []string
@@ -191,6 +198,7 @@ func TestFontsMatchWeb(t *testing.T) {
 
 // The Go scheme list and the web app's schemes.json must agree (ids and names, in order).
 func TestSchemesMatchWebJSON(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "theme", "schemes.json"))
 	require.NoError(t, err)
 	var web []struct{ ID, Name string }
@@ -210,6 +218,7 @@ func TestSchemesMatchWebJSON(t *testing.T) {
 }
 
 func TestOldReadingRowsAreIgnored(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.exec("INSERT INTO settings (key, value) VALUES ('ui.line_height', '2'), ('ui.content_width', '900'), ('ui.font_size', '30'), ('ui.font_ui', '\"Inter\"'), ('ui.layouts', '{}'), ('stats.api_single_read_is_open', 'true')")
 	_, out, _ := h.api(h.login(), "GET", "/api/settings", "")
@@ -224,6 +233,7 @@ func TestOldReadingRowsAreIgnored(t *testing.T) {
 // The help texts state what the code does (audit C6, C7): retention counts unread
 // articles too, and the tz setting drives the nightly job as well as statistics.
 func TestSettingHelpTexts(t *testing.T) {
+	t.Parallel()
 	text := map[string]string{}
 	for _, d := range settingDefs {
 		text[d.Key] = d.Description
@@ -233,6 +243,7 @@ func TestSettingHelpTexts(t *testing.T) {
 }
 
 func TestNewSettingsMetadata(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	_, out, _ := h.api(h.login(), "GET", "/api/settings", "")
 	by := map[string]map[string]any{}

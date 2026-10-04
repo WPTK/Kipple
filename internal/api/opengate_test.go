@@ -50,6 +50,7 @@ func (h *setupHarness) openAccount(extra map[string]any, mod ...func(*http.Reque
 // and was taken for Tailscale Serve: a session, the bootstrap and a lasting
 // Reader API password. Now the forwarded headers give it away.
 func TestOpenGateTSNetHostThroughAProxyIsRefused(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	sess := h.openAccount(nil)
 	nginx := func(hostName string) []func(*http.Request) {
@@ -91,6 +92,7 @@ func TestOpenGateTSNetHostThroughAProxyIsRefused(t *testing.T) {
 // could rebind it to this computer and reach the open instance through the
 // owner's browser. Setup mode keeps the broader list; listed names pass.
 func TestOpenModeHostGateRefusesLANAnsweredNames(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	for _, hv := range []string{"nas:1919", "evil.local:1919", "box.lan"} {
 		require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host(hv)).Code, "setup mode: %s", hv)
@@ -126,6 +128,7 @@ func TestOpenModeHostGateRefusesLANAnsweredNames(t *testing.T) {
 // this machine's own Tailscale address or a private one (the LAN, a container
 // bridge), not on a public or unknown address.
 func TestOpenGateTailnetPeerNeedsTheTailscaleInterface(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	h.openAccount(nil)
 	ts := peer("100.101.102.103:5000")
@@ -141,6 +144,7 @@ func TestOpenGateTailnetPeerNeedsTheTailscaleInterface(t *testing.T) {
 // #131: About names open mode "open" (not Cloudflare Access) and shows the zone
 // in force now, not the one the process started with.
 func TestAboutReportsOpenModeAndTheLiveZone(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	sess := h.openAccount(nil)
 	out := decode(t, h.req("GET", "/api/about", "", withCookies(sess)))
@@ -153,6 +157,7 @@ func TestAboutReportsOpenModeAndTheLiveZone(t *testing.T) {
 }
 
 func TestAboutReportsAccessAndPasswordModes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	_, out, _ := h.api(c, "GET", "/api/about", "")
@@ -184,6 +189,7 @@ func streamEnds(t *testing.T, br *bufio.Reader, timeout time.Duration) {
 // without waiting for a heartbeat: here the owner removes the host name the
 // stream was opened under from security.allowed_hosts.
 func TestEventStreamClosesWhenTheOpenGateStopsPassing(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t, func(o *Options) { o.Heartbeat = time.Hour })
 	sess := h.openAccount(nil)
 	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.allowed_hosts":["nas"]}`, withCookies(sess)).Code)

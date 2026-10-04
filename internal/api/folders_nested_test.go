@@ -10,6 +10,7 @@ import (
 // POST and PATCH /api/folders take parent_id (a folder id, or null for the top level); the writer's
 // refusals are 409s with their own codes, and bootstrap lists parent_id.
 func TestNestedFoldersAPI(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 

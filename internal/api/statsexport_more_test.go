@@ -11,6 +11,7 @@ import (
 )
 
 func TestStatsExportMetadataAndCSVOptions(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.setSetting("tz", `"UTC"`)
 	h.exec(`INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, item_id, feed_id, feed_title, item_title)
@@ -44,6 +45,7 @@ func TestStatsExportMetadataAndCSVOptions(t *testing.T) {
 }
 
 func TestStatsExportAllRangeToIsToday(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("Alpha", 0)
 	h.stat("open", "2026-09-10", 9, 1, f, "a", nil)
@@ -82,6 +84,7 @@ func TestStatsExportAllRangeToIsToday(t *testing.T) {
 
 // The header count is the number of records, kind by kind, whatever the range and filters.
 func TestStatsExportRowsHeaderMatchesRecords(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("Alpha", 0)
 	for i, k := range []string{"open", "read_time", "scroll", "star", "unstar", "open_original", "share"} {
@@ -99,6 +102,7 @@ func TestStatsExportRowsHeaderMatchesRecords(t *testing.T) {
 }
 
 func TestStatsExportRowsSentTrailer(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.bulkStats(5001, "2026-09-20")
 	for _, f := range []string{"csv", "json", "jsonl"} {
@@ -114,6 +118,7 @@ func TestStatsExportRowsSentTrailer(t *testing.T) {
 // Deleting old data must not change how the data that stays is counted: the legacy-open cutoff is
 // the earliest timed event ever recorded, remembered across deletes.
 func TestStatsDeleteKeepsLegacyCutoff(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("Alpha", 0)
 	h.stat("open", "2026-09-01", 9, 1, f, "s1", nil)
@@ -148,6 +153,7 @@ func TestStatsDeleteKeepsLegacyCutoff(t *testing.T) {
 
 // A delete that fails after earlier windows committed says how many rows went.
 func TestStatsDeletePartialFailureReportsTheCount(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.bulkStats(25000, "2026-09-20")
 	h.exec(`CREATE TRIGGER stop_delete BEFORE DELETE ON stats_events WHEN OLD.id > 10000 BEGIN SELECT RAISE(ABORT, 'boom'); END`)

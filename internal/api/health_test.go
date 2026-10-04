@@ -10,6 +10,7 @@ import (
 )
 
 func TestHealthReportsHostThrottleSnapshotClockAndSizes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	held := h.storeFeed("https://held.example/feed")

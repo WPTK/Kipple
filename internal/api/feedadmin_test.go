@@ -25,11 +25,8 @@ const rssBody = `<?xml version="1.0"?><rss version="2.0"><channel><title>T</titl
 // openGuard lets the loopback test servers through; SSRF tests use the real guard.
 func openGuard(bool, bool, bool) http.RoundTripper { return http.DefaultTransport }
 
-func shortWaits(t *testing.T) {
-	t.Helper()
-	a, r := addWait, refreshWait
-	addWait, refreshWait = 150*time.Millisecond, 150*time.Millisecond
-	t.Cleanup(func() { addWait, refreshWait = a, r })
+func (h *harness) shortWaits() {
+	h.srv.tm.addWait, h.srv.tm.refreshWait = 150*time.Millisecond, 150*time.Millisecond
 }
 
 // site serves the pages discovery is tested against.
@@ -107,6 +104,7 @@ func feedChanged(t *testing.T, sub *events.Sub) []string {
 // ---- auth ----
 
 func TestFeedAdminRoutesRequireSessionAndOrigin(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	routes := []struct{ method, path string }{
@@ -132,6 +130,7 @@ func TestFeedAdminRoutesRequireSessionAndOrigin(t *testing.T) {
 // ---- POST /api/feeds ----
 
 func TestAddFeedCreatesAndWaitsForFirstFetch(t *testing.T) {
+	t.Parallel()
 	srv, _ := site(t)
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
@@ -159,6 +158,7 @@ func TestAddFeedCreatesAndWaitsForFirstFetch(t *testing.T) {
 }
 
 func TestAddFeedDiscovery(t *testing.T) {
+	t.Parallel()
 	srv, hits := site(t)
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
@@ -220,6 +220,7 @@ func TestAddFeedDiscovery(t *testing.T) {
 }
 
 func TestAddFeedValidation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
 	for _, tc := range []struct {
@@ -260,6 +261,7 @@ func TestAddFeedValidation(t *testing.T) {
 
 // A name that resolves to a blocked address is stopped by the real dial guard.
 func TestAddFeedSSRFThroughHostnameIsBlocked(t *testing.T) {
+	t.Parallel()
 	srv, hits := site(t)
 	h := newHarness(t) // default Guard: fetch.Client's dial-time check
 	c := h.login()
@@ -273,9 +275,10 @@ func TestAddFeedSSRFThroughHostnameIsBlocked(t *testing.T) {
 }
 
 func TestAddFeedFirstFetchPendingAndSchedulerDown(t *testing.T) {
+	t.Parallel()
 	srv, _ := site(t)
-	shortWaits(t)
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
+	h.shortWaits()
 	c := h.login()
 
 	h.sched.hang = true
@@ -294,6 +297,7 @@ func TestAddFeedFirstFetchPendingAndSchedulerDown(t *testing.T) {
 }
 
 func TestAddFeedReportsFailedFirstFetch(t *testing.T) {
+	t.Parallel()
 	srv, _ := site(t)
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
@@ -308,6 +312,7 @@ func TestAddFeedReportsFailedFirstFetch(t *testing.T) {
 // Web discovery follows fetch.user_agent_mode: a site that refuses Kipple's
 // User-Agent is retried once as a browser; "default" never retries.
 func TestAddFeedDiscoveryRetriesWithBrowserUserAgent(t *testing.T) {
+	t.Parallel()
 	var uas []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uas = append(uas, r.UserAgent())
@@ -346,6 +351,7 @@ func TestAddFeedDiscoveryRetriesWithBrowserUserAgent(t *testing.T) {
 // One control-character rule for titles, folder names and header values: tab is
 // fine, everything else below 0x20 and DEL is not.
 func TestHasControlRule(t *testing.T) {
+	t.Parallel()
 	require.False(t, hasControl("a\tb ünï"))
 	for _, s := range []string{"a\nb", "a\rb", "a\x00b", "a\x1fb", "a\x7fb"} {
 		require.True(t, hasControl(s), "%q", s)
