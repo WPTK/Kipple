@@ -30,7 +30,7 @@ export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack:
     setBusy(true);
     setError(null);
     try {
-      const r = await importOpml(file, daysNum);
+      const r = await importOpml(file, { markReadOlderThanDays: daysNum });
       setResult(r);
       invalidateFeeds(qc);
       announce(`Imported ${r.feeds_added} feed${r.feeds_added === 1 ? "" : "s"}`);

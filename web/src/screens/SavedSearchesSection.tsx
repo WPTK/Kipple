@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, GripVertical, Pencil, Trash2 } from "lucide-react";
-import { useBootstrap } from "@/api/queries";
+import { useBootstrap, useFolderTree } from "@/api/queries";
 import { deleteSavedSearch, invalidateSavedSearches, patchSavedSearch, savedSearchesKey, useReorderSavedSearches, useSavedSearches } from "@/api/savedSearches";
 import type { Bootstrap, SavedSearch } from "@/api/types";
 import { errorMessage } from "@/api/client";
@@ -12,13 +12,18 @@ import { visibleFeeds } from "@/lib/visibleFeeds";
 import { announce } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
+import { FolderOptions } from "@/ui/FolderSelect";
+import { folderPath, folderTree } from "@/lib/folderTree";
 import { scrollParent } from "@/ui/segmented";
 import { savedSearchError } from "./search/SaveSearchDialog";
 
 /** Where a saved search looks, in words. */
 export function scopeText(scope: SavedSearch["scope"], boot: Bootstrap | undefined): string {
   if (scope?.feed_id) return `the feed ${boot?.feeds.find((f) => f.id === scope.feed_id)?.title ?? "(removed)"}`;
-  if (scope?.folder_id) return `the folder ${boot?.folders.find((f) => f.id === scope.folder_id)?.name ?? "(removed)"}`;
+  if (scope?.folder_id) {
+    const tree = folderTree(boot?.folders ?? []);
+    return `the folder ${tree.byId.has(scope.folder_id) ? folderPath(tree, scope.folder_id) : "(removed)"}`;
+  }
   if (scope?.view === "unread") return "unread articles";
   if (scope?.view === "starred") return "starred articles";
   return "the whole library";
@@ -46,7 +51,7 @@ function EditDialog({ search, onClose }: { search: SavedSearch; onClose: () => v
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const feeds = visibleFeeds(boot.data?.feeds);
-  const folders = boot.data?.folders ?? [];
+  const tree = useFolderTree();
 
   const save = async () => {
     const body: Record<string, unknown> = {};
@@ -95,13 +100,9 @@ function EditDialog({ search, onClose }: { search: SavedSearch; onClose: () => v
             <option value="all">The whole library</option>
             <option value="view:unread">Unread articles</option>
             <option value="view:starred">Starred articles</option>
-            {folders.length ? (
+            {tree.preorder.length ? (
               <optgroup label="A folder">
-                {folders.map((f) => (
-                  <option key={f.id} value={`folder:${f.id}`}>
-                    {f.name}
-                  </option>
-                ))}
+                <FolderOptions tree={tree} optionValue={(id) => `folder:${id}`} />
               </optgroup>
             ) : null}
             {feeds.length ? (

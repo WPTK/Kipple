@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { folderPath, folderTree } from "@/lib/folderTree";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import { errorMessage } from "@/api/client";
@@ -13,8 +14,11 @@ import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, Switch } from "@/ui/kit";
 
 /** "Everywhere", "Folder: News" or "Feed: Example". */
-export function scopeText(f: Pick<Filter, "scope" | "folder_id" | "feed_id">, folders: { id: string; name: string }[], feeds: { id: string; title: string }[]): string {
-  if (f.scope === "folder") return `Folder: ${folders.find((x) => x.id === f.folder_id)?.name ?? "deleted folder"}`;
+export function scopeText(f: Pick<Filter, "scope" | "folder_id" | "feed_id">, folders: { id: string; name: string; parent_id?: string | null }[], feeds: { id: string; title: string }[]): string {
+  if (f.scope === "folder") {
+    const tree = folderTree(folders);
+    return `Folder: ${f.folder_id && tree.byId.has(f.folder_id) ? folderPath(tree, f.folder_id) : "deleted folder"}`;
+  }
   if (f.scope === "feed") return `Feed: ${feeds.find((x) => x.id === f.feed_id)?.title ?? "deleted feed"}`;
   return "Everywhere";
 }
@@ -138,7 +142,7 @@ function FilterRow({
   onDelete,
 }: {
   f: Filter;
-  folders: { id: string; name: string }[];
+  folders: { id: string; name: string; parent_id?: string | null }[];
   feeds: { id: string; title: string }[];
   highlightKeywords: boolean;
   onDelete: (f: Filter) => void;

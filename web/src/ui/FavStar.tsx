@@ -2,10 +2,12 @@ import { Star } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 /** The star that pins a folder or a feed to the top of the sidebar. A toggle: pressed when it is a favorite. */
-export function FavStar({ on, name, onToggle, className }: { on: boolean; name: string; onToggle: () => void; className?: string }) {
+/** `tabIndex` -1 inside a tree, where the item is the one tab stop and P toggles the favorite. */
+export function FavStar({ on, name, onToggle, className, tabIndex }: { on: boolean; name: string; onToggle: () => void; className?: string; tabIndex?: number }) {
   return (
     <button
       type="button"
+      tabIndex={tabIndex}
       aria-pressed={on}
       aria-label={`Favorite ${name}`}
       title={on ? `Remove ${name} from favorites` : `Add ${name} to favorites`}

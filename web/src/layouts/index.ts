@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { useBootstrap } from "@/api/queries";
+import { useBootstrap, useFolderTree } from "@/api/queries";
+import { chainOf, type FolderTree } from "@/lib/folderTree";
 import type { Scope } from "@/api/types";
 import { resolveLayout, sessionLayoutStore, useDevicePrefs, type LayoutContext, type LayoutId } from "@/lib/devicePrefs";
 import { useStore } from "@/lib/store";
@@ -16,20 +17,28 @@ export function getLayout(id: LayoutId): ListLayout {
   return layouts[id] ?? magazine;
 }
 
-/** Feed and folder a list belongs to, for override resolution. A feed list also inherits its folder's override. */
-export function layoutContext(scope: Scope, feeds: { id: string; folder_id: string }[]): LayoutContext {
-  if (scope.feed) return { feedId: scope.feed, folderId: feeds.find((f) => f.id === scope.feed)?.folder_id };
-  if (scope.folder) return { folderId: scope.folder };
+/**
+ * Feed and folders a list belongs to, for override resolution. A folder list inherits the override of the nearest
+ * folder above it that has one; a feed list also inherits its folder's (and so on up).
+ */
+export function layoutContext(scope: Scope, feeds: readonly { id: string; folder_id: string }[], tree: FolderTree<FolderLike>): LayoutContext {
+  if (scope.feed) {
+    const folder = feeds.find((f) => f.id === scope.feed)?.folder_id;
+    return { feedId: scope.feed, folderIds: folder ? chainOf(tree, folder) : [] };
+  }
+  if (scope.folder) return { folderIds: chainOf(tree, scope.folder) };
   return {};
 }
+type FolderLike = { id: string; name: string; parent_id?: string | null };
 
-/** The layout in effect for a list: `c` toggle, then feed override, folder override, device default. */
+/** The layout in effect for a list: `c` toggle, then feed override, folder overrides up the tree, device default. */
 export function useResolvedLayout(scope: Scope): { layout: ListLayout; ctx: LayoutContext } {
   const dp = useDevicePrefs();
   const session = useStore(sessionLayoutStore);
   const boot = useBootstrap();
+  const tree = useFolderTree();
   const feeds = boot.data?.feeds;
-  const ctx = useMemo(() => layoutContext(scope, feeds ?? []), [scope, feeds]);
+  const ctx = useMemo(() => layoutContext(scope, feeds ?? [], tree), [scope, feeds, tree]);
   return { layout: getLayout(resolveLayout(dp, ctx, session)), ctx };
 }
 

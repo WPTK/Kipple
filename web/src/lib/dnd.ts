@@ -6,10 +6,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // measures and paints. There is no library: the list is short and the rules are ours.
 
 export interface Tree {
-  /** Folder ids in order. */
+  /** Folder ids in tree order: every folder after its parent, siblings in order (what POST /api/reorder takes). */
   folders: string[];
+  /** Each folder's parent; null at the top level. */
+  parents: Record<string, string | null>;
   /** Feed ids of each folder, in order. */
   feeds: Record<string, string[]>;
+}
+
+/** Where a folder is dropped: inside `parent` (null: the top level), before its child `before` (null: at the end). */
+export interface FolderTarget {
+  parent: string | null;
+  before: string | null;
 }
 
 /** Where a feed is dropped: into a folder, before one of its feeds (null = at the end). */
@@ -34,8 +42,53 @@ export function insertBefore(list: readonly string[], id: string, before: string
   return [...rest.slice(0, at), id, ...rest.slice(at)];
 }
 
-export function planFolderDrop(tree: Tree, folder: string, before: string | null): Tree {
-  return { ...tree, folders: insertBefore(tree.folders, folder, before) };
+/** The folder and every folder inside it, in tree order (a contiguous run of `tree.folders`). */
+export function folderBlock(tree: Tree, folder: string): string[] {
+  const inside = new Set([folder]);
+  for (const id of tree.folders) {
+    const p = tree.parents[id];
+    if (p != null && inside.has(p)) inside.add(id);
+  }
+  return tree.folders.filter((id) => inside.has(id));
+}
+
+/**
+ * Move a folder, with everything inside it, to `target`. A target inside the folder itself (a cycle) or a `before`
+ * that is not a child of the target parent changes nothing.
+ */
+export function planFolderDrop(tree: Tree, folder: string, target: FolderTarget): Tree {
+  const block = folderBlock(tree, folder);
+  if (block.length === 0) return tree;
+  if (target.parent !== null && (block.includes(target.parent) || !(target.parent in tree.parents))) return tree;
+  if (target.before !== null && (target.before === folder || tree.parents[target.before] !== target.parent)) return tree;
+  const moving = new Set(block);
+  const rest = tree.folders.filter((id) => !moving.has(id));
+  const parents = { ...tree.parents, [folder]: target.parent };
+  let at: number;
+  if (target.before !== null) at = rest.indexOf(target.before);
+  else if (target.parent === null) at = rest.length;
+  else {
+    // After the parent's last descendant.
+    const under = new Set([target.parent]);
+    at = rest.indexOf(target.parent) + 1;
+    while (at < rest.length && under.has(parents[rest[at] as string] ?? "")) under.add(rest[at++] as string);
+  }
+  return { ...tree, parents, folders: [...rest.slice(0, at), ...block, ...rest.slice(at)] };
+}
+
+/** One place up or down among the folder's siblings (the keyboard and button alternative to dragging). */
+export function stepFolder(tree: Tree, folder: string, delta: -1 | 1): Tree {
+  const parent = tree.parents[folder] ?? null;
+  const siblings = tree.folders.filter((id) => (tree.parents[id] ?? null) === parent);
+  const i = siblings.indexOf(folder);
+  if (i < 0 || i + delta < 0 || i + delta >= siblings.length) return tree;
+  const before = delta < 0 ? (siblings[i - 1] as string) : (siblings[i + 2] ?? null);
+  return planFolderDrop(tree, folder, { parent, before });
+}
+
+/** Folders whose parent differs between `a` and `b`: the PATCH /api/folders/{id} {parent_id} calls a change needs. */
+export function parentChanges(a: Tree, b: Tree): { id: string; parent: string | null }[] {
+  return b.folders.filter((id) => (a.parents[id] ?? null) !== (b.parents[id] ?? null)).map((id) => ({ id, parent: b.parents[id] ?? null }));
 }
 
 export function planFeedDrop(tree: Tree, feed: string, target: FeedTarget): Tree {
@@ -74,13 +127,13 @@ export type DragKind = "folder" | "feed" | "fav" | "saved";
 export interface DragSource {
   kind: DragKind;
   id: string;
-  /** The list it lives in: the folder id for a feed, "folders" for a folder, "fav" for a favorite. */
+  /** The list it lives in: the folder id for a feed, the parent folder id for a folder ("" at the top level), "fav" for a favorite. */
   group: string;
 }
 
 export interface DropTarget {
   kind: DragKind;
-  /** Destination list (folder id for feeds). */
+  /** Destination list: the folder id for a feed, the parent folder id for a folder ("" at the top level). */
   group: string;
   /** Insert before this id; null appends. */
   before: string | null;
@@ -112,9 +165,58 @@ function firstFeedOf(root: ParentNode, folder: string): string | null {
   return el?.dataset.dndId ?? null;
 }
 
+/**
+ * Where a dragged folder lands when the pointer is at `y`. Over the middle half of a folder row it goes inside that
+ * folder (unless the row says `data-dnd-into="no"`), over the top or bottom quarter before or after it among its
+ * siblings; between rows, before the next row down. `rows` are the folder rows that can take it, in screen order,
+ * each with its parent (`group`, "" at the top level) and whether it can hold the dragged folder (`into`). A place
+ * inside a folder that cannot hold it is never offered: null.
+ */
+export function folderSlot(rows: readonly { id: string; group: string; top: number; bottom: number; into: boolean }[], y: number): { group: string; before: string | null } | null {
+  const slot = rawSlot(rows, y);
+  if (slot.group === "") return slot;
+  return rows.find((r) => r.id === slot.group)?.into ? slot : null;
+}
+
+function rawSlot(rows: readonly { id: string; group: string; top: number; bottom: number; into: boolean }[], y: number): { group: string; before: string | null } {
+  const over = rows.find((r) => y >= r.top && y < r.bottom);
+  if (over) {
+    const rel = (y - over.top) / Math.max(1, over.bottom - over.top);
+    if (over.into && rel >= 0.25 && rel < 0.75) return { group: over.id, before: null };
+    if (rel < 0.5) return { group: over.group, before: over.id };
+    // After it: before its next sibling. Rows come in tree order, so that is the first later row with the same
+    // parent, unless a row outside the parent comes first (the parent's subtree ended: it was the last child).
+    const later = rows.slice(rows.indexOf(over) + 1);
+    const end = later.findIndex((r) => r.group !== over.group && !isInside(rows, r, over.group));
+    const next = (end < 0 ? later : later.slice(0, end)).find((r) => r.group === over.group);
+    return { group: over.group, before: next?.id ?? null };
+  }
+  const below = rows.find((r) => y < (r.top + r.bottom) / 2);
+  return below ? { group: below.group, before: below.id } : { group: "", before: null };
+}
+
+/** Whether row `r` sits somewhere inside folder `group` (going up its parents through `rows`). */
+function isInside(rows: readonly { id: string; group: string }[], r: { group: string }, group: string): boolean {
+  if (group === "") return true;
+  const byId = new Map(rows.map((x) => [x.id, x]));
+  for (let g = r.group, n = 0; g !== "" && n < 64; g = byId.get(g)?.group ?? "", n++) if (g === group) return true;
+  return false;
+}
+
 /** Find the drop target under a point: rows carry data-dnd-id, -kind and -group; a folder header takes feeds at its top. */
 export function targetAt(src: DragSource, x: number, y: number, root: ParentNode = document): DropTarget | null {
   const stack: Element[] = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(x, y) : [];
+  if (src.kind === "folder") {
+    // The dragged folder's own subtree moves with it and can never take it.
+    const own = root.querySelector<HTMLElement>(`[data-dnd-kind="folder"][data-dnd-id="${CSS.escape(src.id)}"]`)?.closest("li");
+    const rows = [...root.querySelectorAll<HTMLElement>('[data-dnd-kind="folder"]')].filter((r) => r.dataset.dndId !== src.id && !own?.contains(r));
+    if (!rows.length) return null;
+    const slot = folderSlot(
+      rows.map((r) => ({ id: r.dataset.dndId as string, group: r.dataset.dndGroup ?? "", into: r.dataset.dndInto !== "no", ...rectOf(r) })),
+      y,
+    );
+    return slot ? { kind: "folder", ...slot } : null;
+  }
   const el = stack.find(
     (e): e is HTMLElement =>
       e instanceof HTMLElement &&
@@ -239,7 +341,8 @@ export function useRowDnd(opts: Options) {
         begin(l);
       }
       const target = targetAt(l.src, e.clientX, e.clientY);
-      setState((s) => ({ ...s, dy, target: target ?? s.target }));
+      // A folder over a place that cannot take it has no target (nothing is offered); a feed keeps its last one.
+      setState((s) => ({ ...s, dy, target: target ?? (l.src.kind === "folder" ? null : s.target) }));
     },
     [begin, finish],
   );

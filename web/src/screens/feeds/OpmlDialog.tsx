@@ -3,8 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, errorMessage } from "@/api/client";
 import { importOpml, invalidateFeeds, type OpmlResult } from "@/api/admin";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, inputCls } from "@/ui/kit";
+import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 import { announce } from "@/shell/toasts";
+import { PATH_SEP } from "@/lib/folderTree";
 
 /** The most the server accepts for an OPML upload (maxOPMLBody in internal/api/opml.go). */
 export const OPML_MAX_BYTES = 8 << 20;
@@ -49,6 +50,10 @@ export function attrNote(s: string): string {
 /** What an import did, in plain words: the counts, and everything that was skipped, merged or not applied. */
 export function OpmlResultSummary({ result }: { result: OpmlResult }) {
   const existing = result.feeds_existing.length;
+  const moved = result.feeds_moved?.length ?? 0;
+  const emptied = result.folders_emptied ?? [];
+  const refused = result.folders_refused ?? [];
+  const mergedPath = result.folders_merged_path ?? [];
   const dropped = result.memberships_dropped.length;
   const skipped = result.skipped ?? [];
   const invalid = result.invalid_attrs ?? [];
@@ -62,11 +67,13 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
       <li>
         {result.folders_created} folder{result.folders_created === 1 ? "" : "s"} created
       </li>
-      {existing ? (
+      {existing - moved > 0 ? (
         <li>
-          {existing === 1 ? "1 feed was already in Kipple and was left as it is" : `${existing} feeds were already in Kipple and were left as they are`}
+          {existing - moved === 1 ? "1 feed was already in Kipple and was left as it is" : `${existing - moved} feeds were already in Kipple and were left as they are`}
         </li>
       ) : null}
+      {moved ? <li>{moved === 1 ? "1 feed you already had was moved into the file's folder" : `${moved} feeds you already had were moved into the file's folders`}</li> : null}
+      {emptied.length ? <li>Folders now empty, kept: {emptied.join(", ")}</li> : null}
       {dropped ? (
         <li>
           {dropped === 1
@@ -76,6 +83,33 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
       ) : null}
       {result.folders_merged_case.length ? <li>Folders that differed only by capital letters were merged: {result.folders_merged_case.map((m) => `${m.merged} into ${m.kept}`).join(", ")}</li> : null}
     </ul>
+    {mergedPath.length ? (
+      <div className="text-sm">
+        <p className="font-semibold">Some folders of the file match a folder you have with the same full path</p>
+        <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
+          {mergedPath.map((m, i) => (
+            <li key={i} className="break-all">
+              The feeds of {m.merged.join(PATH_SEP)} were filed into {m.kept.join(PATH_SEP)}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null}
+    {refused.length ? (
+      <div className="text-sm">
+        <p className="font-semibold">
+          {refused.length} folder{refused.length === 1 ? " was" : "s were"} not created
+        </p>
+        <p className="text-fg2">Their feeds went into the nearest folder above that could be made.</p>
+        <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
+          {refused.map((r, i) => (
+            <li key={i} className="break-all">
+              {r.path}: {r.reason}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null}
     {skipped.length ? (
       <div className="text-sm">
         <p className="font-semibold">
@@ -126,6 +160,7 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [days, setDays] = useState("");
+  const [moveExisting, setMoveExisting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<OpmlResult | null>(null);
@@ -138,7 +173,7 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const r = await importOpml(file, daysNum);
+      const r = await importOpml(file, { markReadOlderThanDays: daysNum, moveExisting });
       setResult(r);
       invalidateFeeds(qc);
       announce(`Imported ${r.feeds_added} feed${r.feeds_added === 1 ? "" : "s"}`);
@@ -202,6 +237,12 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
       >
         {(a) => <input {...a} inputMode="numeric" type="text" value={days} onChange={(e) => setDays(e.target.value)} placeholder="For example 7" className={inputCls} />}
       </Field>
+      <Switch
+        label="Move feeds that already exist into the file's folders"
+        help="Off: feeds you already have stay where they are. On: they move to the folder the file puts them in. Folders left empty are kept."
+        checked={moveExisting}
+        onChange={setMoveExisting}
+      />
     </Modal>
   );
 }

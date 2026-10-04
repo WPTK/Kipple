@@ -9,7 +9,7 @@ import { useReturnFocus } from "@/ui/kit";
 export const helpStore = createStore(false);
 export const openHelp = (): void => helpStore.set(true);
 
-const SCOPES: KeyDoc["scope"][] = ["List", "Article", "Everywhere"];
+const SCOPES: KeyDoc["scope"][] = ["List", "Article", "Sidebar", "Everywhere"];
 
 /** Searchable keyboard shortcut overlay (`?`). A real dialog: focus is trapped and Esc closes it. */
 export function HelpDialog() {

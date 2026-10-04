@@ -9,6 +9,7 @@ import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { Button } from "@/ui/button";
 import { AutoReadCatchUp } from "../AutoReadCatchUp";
 import { Disclosure, Field, Modal, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
+import { FolderSelect } from "@/ui/FolderSelect";
 import { announce, toast } from "@/shell/toasts";
 import { intervalLabel } from "@/lib/interval";
 
@@ -134,7 +135,6 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
   const [alsoStarred, setAlsoStarred] = useState(false);
   const f: Form | null = q.data ? { ...fromDetail(q.data), ...edits } : null;
 
-  const folders = boot.data?.folders ?? [];
   const patch = useMemo(() => (q.data ? diffForm(q.data, { ...fromDetail(q.data), ...edits }) : {}), [q.data, edits]);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setEdits((cur) => ({ ...cur, [k]: v }));
   const changedUrl = q.data && f && f.url.trim() !== q.data.url;
@@ -267,13 +267,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
           ) : null}
           <Field label="Folder">
             {(a) => (
-              <select {...a} value={f.folder} onChange={(e) => set("folder", e.target.value)} className={inputCls}>
-                {folders.map((fo) => (
-                  <option key={fo.id} value={fo.id}>
-                    {fo.name}
-                  </option>
-                ))}
-              </select>
+              <FolderSelect {...a} value={f.folder} onChange={(id) => set("folder", id)} />
             )}
           </Field>
           <Field label="Layout on this device" help="Overrides the device default for this feed only.">

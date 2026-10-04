@@ -4,20 +4,24 @@ import { useBootstrap } from "@/api/queries";
 import { useDevicePrefs } from "./devicePrefs";
 import { compileHighlights, groupsFor, highlightRanges, highlightStore, segments, type Group, type HighlightField } from "./highlight";
 import { useStore } from "./store";
+import { chainOf, folderTree } from "./folderTree";
 
 /** Keep the compiled highlight rules current: from the bootstrap, and off when "Highlight keywords" is off. Mount once. */
 export function useSyncHighlights(): void {
   const boot = useBootstrap();
   const on = useDevicePrefs().highlightKeywords;
   const rules = boot.data?.highlights;
-  // Only which folder each feed is in matters here. A `counts` event replaces the feeds array (new unread numbers)
-  // every few seconds; keying on ids and folder ids keeps the store, and so every <mark> in the article and the
-  // list, untouched by it (a rebuild would strip and redraw them and collapse the reader's text selection).
+  // Only which folders each feed is in matters here (its own and those above it). A `counts` event replaces the
+  // feeds and folders arrays (new unread numbers) every few seconds; keying on ids, folder ids and parents keeps the
+  // store, and so every <mark> in the article and the list, untouched by it (a rebuild would strip and redraw them
+  // and collapse the reader's text selection).
   const feedKey = (boot.data?.feeds ?? []).map((f) => `${f.id}:${f.folder_id}`).join(",");
-  const feeds = useMemo(
-    () => new Map<string, string>(feedKey ? feedKey.split(",").map((p) => p.split(":") as [string, string]) : []),
-    [feedKey],
-  );
+  const folderKey = (boot.data?.folders ?? []).map((f) => `${f.id}:${f.parent_id ?? ""}`).join(",");
+  const feeds = useMemo(() => {
+    const tree = folderTree(folderKey ? folderKey.split(",").map((p) => p.split(":")).map(([id, parent]) => ({ id: id as string, name: "", parent_id: parent || null })) : []);
+    const pairs = feedKey ? feedKey.split(",").map((p) => p.split(":") as [string, string]) : [];
+    return new Map<string, readonly string[]>(pairs.map(([id, folder]) => [id, chainOf(tree, folder)]));
+  }, [feedKey, folderKey]);
   const compiled = useMemo(() => (on ? compileHighlights(rules) : []), [on, rules]);
   useEffect(() => {
     const cur = highlightStore.get();
@@ -34,8 +38,8 @@ export function useGroups(field: HighlightField, feedId: string | undefined): Gr
   const search = useStore(searchHighlightStore);
   return useMemo(() => {
     if (s.groups.length === 0 && search.groups.length === 0) return NONE;
-    const folder = feedId ? s.feeds.get(feedId) : undefined;
-    const got = groupsFor(s.groups, field, feedId && folder !== undefined ? { id: feedId, folder_id: folder } : undefined);
+    const folders = feedId ? s.feeds.get(feedId) : undefined;
+    const got = groupsFor(s.groups, field, feedId && folders !== undefined ? { id: feedId, folders } : undefined);
     // The words of the search on screen (results and the article opened from them), on top of the keyword rules.
     const found = search.groups.filter((g) => g.fields.has(field));
     const all = found.length ? [...got, ...found] : got;

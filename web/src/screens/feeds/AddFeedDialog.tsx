@@ -2,9 +2,9 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, errorMessage } from "@/api/client";
 import { addFeed, invalidateFeeds, type AddFeedResult, type Candidate, type FeedDetail, type FetchOutcome } from "@/api/admin";
-import { useBootstrap } from "@/api/queries";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, inputCls } from "@/ui/kit";
+import { FolderSelect } from "@/ui/FolderSelect";
 import { announce } from "@/shell/toasts";
 
 type Step =
@@ -26,8 +26,6 @@ export function addError(e: unknown): string {
 /** Add a feed by address: exists, choose-among-candidates and ok flows, then the first-fetch result. */
 export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; onOpenFeed?: (feedId: string) => void }) {
   const qc = useQueryClient();
-  const boot = useBootstrap();
-  const folders = boot.data?.folders ?? [];
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [folder, setFolder] = useState("");
@@ -146,14 +144,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
           </Field>
           <Field label="Folder">
             {(a) => (
-              <select {...a} value={folder} onChange={(e) => setFolder(e.target.value)} className={inputCls}>
-                <option value="">Default folder</option>
-                {folders.map((fo) => (
-                  <option key={fo.id} value={fo.id}>
-                    {fo.name}
-                  </option>
-                ))}
-              </select>
+              <FolderSelect {...a} value={folder} onChange={setFolder} none="Default folder" />
             )}
           </Field>
         </form>

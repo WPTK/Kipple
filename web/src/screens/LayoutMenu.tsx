@@ -1,6 +1,8 @@
 import { DropdownMenu } from "radix-ui";
 import { Check, LayoutGrid, Star } from "lucide-react";
 import type { Scope } from "@/api/types";
+import { useFolderTree } from "@/api/queries";
+import { folderPath } from "@/lib/folderTree";
 import { useResolvedLayout } from "@/layouts";
 import {
   LAYOUT_HINTS,
@@ -22,7 +24,8 @@ const item =
 /**
  * Layout picker in the list header. One list of layouts; the star beside each one makes it this device's
  * default (a filled star is the default). On a feed or folder list the radio choice is that list's own
- * override ("Use device default" clears it), under its own heading; on the other lists the radio choice is the
+ * override (the first choice clears it: "Use device default", or "Inherited from <folder>" when a folder above has
+ * an override), under its own heading; on the other lists the radio choice is the
  * device default itself. Everything is stored per device (src/lib/devicePrefs).
  */
 export function LayoutMenu({ scope }: { scope: Scope }) {
@@ -31,6 +34,13 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   const target = overrideTarget(ctx);
   const current = target ? dp.overrides[target.kind][target.id] : undefined;
   const noun = target?.kind === "folder" ? "folder" : "feed";
+  const tree = useFolderTree();
+  // Without its own override a list follows the nearest folder above it that has one, else the device default.
+  const above = (target?.kind === "folder" ? ctx.folderIds?.slice(1) : ctx.folderIds) ?? [];
+  const from = above.find((id) => dp.overrides.folder[id]);
+  const fallback = from
+    ? `Inherited from ${folderPath(tree, from)} (${LAYOUT_LABELS[dp.overrides.folder[from] as LayoutId] ?? ""})`
+    : `Use device default (${LAYOUT_LABELS[dp.layout]})`;
   const say = (l: LayoutId) => announce(`${LAYOUT_LABELS[l]} layout`);
   const makeDefault = (l: LayoutId) => {
     sessionLayoutStore.set(null);
@@ -68,7 +78,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
               }
             }}
           >
-            {target ? <Radio value="default" label={`Use device default (${LAYOUT_LABELS[dp.layout]})`} /> : null}
+            {target ? <Radio value="default" label={fallback} /> : null}
             {LAYOUT_IDS.map((id) => (
               <div key={id} className="flex items-center">
                 <Radio value={id} label={LAYOUT_LABELS[id]} hint={LAYOUT_HINTS[id]} className="min-w-0 flex-1" />

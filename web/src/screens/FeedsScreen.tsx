@@ -3,7 +3,7 @@ import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
-import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderPlus, GripVertical, HeartPulse, MoreVertical, Pencil, Plus, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, HeartPulse, MoreVertical, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { createFolder, deleteFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
@@ -13,9 +13,11 @@ import type { Favorite } from "@/lib/devicePrefs";
 import {
   arrayMove,
   insertBefore,
+  parentChanges,
   planFeedDrop,
   planFolderDrop,
   reorderBody,
+  stepFolder,
   useRowDnd,
   DND_ROW_CLASS,
   type DragKind,
@@ -23,6 +25,8 @@ import {
   type DropTarget,
   type Tree,
 } from "@/lib/dnd";
+import { MAX_FOLDER_DEPTH, childrenOf, depthOf, feedOrder, folderPath, folderTree, parentChoices, parentOf, rollUp, subtreeFeeds, subtreeOf, type FolderTree } from "@/lib/folderTree";
+import { FolderSelect } from "@/ui/FolderSelect";
 import { useFavorites } from "@/lib/favorites";
 import { clickRow, groupState, toggleGroup } from "@/lib/selection";
 import { cn } from "@/lib/cn";
@@ -57,45 +61,90 @@ function Badge({ n }: { n: number }) {
   );
 }
 
-type FolderDialog = { kind: "new" } | { kind: "rename"; folder: Folder } | { kind: "delete"; folder: Folder };
+type FolderDialog =
+  | { kind: "new"; parent: string | null }
+  | { kind: "rename"; folder: Folder }
+  | { kind: "move"; folder: Folder }
+  | { kind: "delete"; folder: Folder };
 
-function FolderDialogs({ dialog, onClose }: { dialog: FolderDialog; onClose: () => void }) {
+/** A move whose folders moved (PATCH done) but whose order then failed to save. */
+export class OrderNotSavedError extends Error {}
+
+/** The message for a folder change the server refused. */
+export function folderError(e: unknown): string {
+  if (e instanceof OrderNotSavedError) return "Moved, but the order couldn't be saved.";
+  const code = e instanceof ApiError ? e.code : undefined;
+  if (code === "folder_exists") return "A folder with that name is already there.";
+  if (code === "folder_too_deep") return `Folders nest at most ${MAX_FOLDER_DEPTH} levels deep.`;
+  if (code === "folder_cycle") return "A folder can't move inside itself or one of its subfolders.";
+  if (code === "default_folder") return "The default folder stays at the top level and holds no subfolders.";
+  return errorMessage(e);
+}
+
+/** What deleting a folder takes with it: its subfolders (deleted) and the feeds of the whole subtree (moved). */
+export function deleteFolderText(tree: FolderTree, folder: string, feeds: readonly Pick<Feed, "folder_id">[]): string {
+  const inside = subtreeOf(tree, folder);
+  const subfolders = inside.size - 1;
+  const n = feeds.filter((f) => inside.has(f.folder_id)).length;
+  const fallback = tree.preorder.map((id) => tree.byId.get(id)).find((f) => f?.is_default)?.name ?? "the default folder";
+  const subs = subfolders > 0 ? `${subfolders === 1 ? "Its subfolder is" : `Its ${subfolders} subfolders are`} deleted too. ` : "";
+  const moved = n === 0 ? "No feeds are in it." : `${n === 1 ? "The feed in it is" : `The ${n} feeds in it are`} not deleted: ${n === 1 ? "it moves" : "they move"} to ${fallback}.`;
+  return subs + moved;
+}
+
+function FolderDialogs({
+  dialog,
+  tree,
+  feeds,
+  onMove,
+  onClose,
+}: {
+  dialog: FolderDialog;
+  tree: FolderTree;
+  feeds: readonly Feed[];
+  /** Move a folder to the end of `parent` (null: the top level); rejects with the server's refusal. */
+  onMove: (folder: string, parent: string | null) => Promise<void>;
+  /** Closes the dialog; after a move or a delete, `focusFolder` is the folder whose row takes the focus. */
+  onClose: (focusFolder?: string) => void;
+}) {
   const qc = useQueryClient();
   const dp = useDevicePrefs();
   const [name, setName] = useState(dialog.kind === "rename" ? dialog.folder.name : "");
+  const [parent, setParent] = useState(dialog.kind === "new" ? (dialog.parent ?? "") : dialog.kind === "move" ? (parentOf(tree, dialog.folder.id) ?? "") : "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const fail = (e: unknown) => {
-    const code = e instanceof ApiError ? e.code : undefined;
-    setError(code === "folder_exists" ? "A folder with that name already exists." : errorMessage(e));
-  };
-  const run = async (fn: () => Promise<unknown>, done: string) => {
+  const run = async (fn: () => Promise<unknown>, done: string, focusFolder?: string) => {
     setBusy(true);
     setError(null);
     try {
       await fn();
       invalidateFeeds(qc);
       toast(done);
-      onClose();
+      onClose(focusFolder);
     } catch (e) {
-      fail(e);
+      setError(folderError(e));
     } finally {
       setBusy(false);
     }
   };
+  const pathOf = (id: string) => folderPath(tree, id);
 
   if (dialog.kind === "delete") {
     const f = dialog.folder;
+    // The focus goes to the next folder row that stays (after the subtree), else the one above.
+    const inside = subtreeOf(tree, f.id);
+    const at = tree.preorder.indexOf(f.id);
+    const focusNext = tree.preorder.slice(at).find((id) => !inside.has(id)) ?? tree.preorder.slice(0, Math.max(0, at)).at(-1);
     return (
       <Modal
         open
         onOpenChange={(o) => !o && onClose()}
-        title={`Delete ${f.name}?`}
-        description="Its feeds are not deleted. They move to the default folder."
+        title={`Delete ${pathOf(f.id)}?`}
+        description={deleteFolderText(tree, f.id, feeds)}
         footer={
           <>
-            <Button onClick={onClose}>Cancel</Button>
-            <Button variant="solid" disabled={busy} onClick={() => void run(() => deleteFolder(f.id), `Deleted folder ${f.name}`)}>
+            <Button onClick={() => onClose()}>Cancel</Button>
+            <Button variant="solid" disabled={busy} onClick={() => void run(() => deleteFolder(f.id), `Deleted folder ${f.name}`, focusNext)}>
               Delete folder
             </Button>
           </>
@@ -105,19 +154,51 @@ function FolderDialogs({ dialog, onClose }: { dialog: FolderDialog; onClose: () 
       </Modal>
     );
   }
+  if (dialog.kind === "move") {
+    const f = dialog.folder;
+    const from = parentOf(tree, f.id) ?? "";
+    return (
+      <Modal
+        open
+        onOpenChange={(o) => !o && onClose()}
+        title={`Move ${pathOf(f.id)}`}
+        description="Its subfolders and feeds move with it."
+        footer={
+          <>
+            <Button onClick={() => onClose()}>Cancel</Button>
+            <Button
+              variant="solid"
+              disabled={busy}
+              onClick={() => (parent === from ? onClose() : void run(() => onMove(f.id, parent || null), `Moved ${f.name} to ${parent ? pathOf(parent) : "the top level"}`, f.id))}
+            >
+              Move
+            </Button>
+          </>
+        }
+      >
+        {error ? <Notice tone="error">{error}</Notice> : null}
+        <Field label="Move into">{(a) => <FolderSelect {...a} value={parent} onChange={setParent} only={parentChoices(tree, f.id)} none="Top level" />}</Field>
+      </Modal>
+    );
+  }
   const isNew = dialog.kind === "new";
   return (
     <Modal
       open
       onOpenChange={(o) => !o && onClose()}
-      title={isNew ? "New folder" : "Rename folder"}
+      title={isNew ? (dialog.parent ? "New subfolder" : "New folder") : "Rename folder"}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={() => onClose()}>Cancel</Button>
           <Button
             variant="solid"
             disabled={busy || !name.trim()}
-            onClick={() => void run(() => (isNew ? createFolder(name.trim()) : patchFolder(dialog.folder.id, { name: name.trim() })), isNew ? "Folder created" : "Folder renamed")}
+            onClick={() =>
+              void run(
+                () => (isNew ? createFolder(name.trim(), parent || null) : patchFolder(dialog.folder.id, { name: name.trim() })),
+                isNew ? "Folder created" : "Folder renamed",
+              )
+            }
           >
             {isNew ? "Create" : "Save"}
           </Button>
@@ -134,8 +215,10 @@ function FolderDialogs({ dialog, onClose }: { dialog: FolderDialog; onClose: () 
         <Field label="Name">
           {(a) => <input {...a} type="text" maxLength={100} autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />}
         </Field>
-        {!isNew ? (
-          <Field label="Layout on this device" help="Overrides the device default for every feed in this folder that has no layout of its own.">
+        {isNew ? (
+          <Field label="Inside">{(a) => <FolderSelect {...a} value={parent} onChange={setParent} only={parentChoices(tree, null)} none="Top level" />}</Field>
+        ) : (
+          <Field label="Layout on this device" help="Overrides the device default for this folder and its subfolders, unless a subfolder or a feed has its own.">
             {(a) => (
               <select
                 {...a}
@@ -152,13 +235,32 @@ function FolderDialogs({ dialog, onClose }: { dialog: FolderDialog; onClose: () 
               </select>
             )}
           </Field>
-        ) : null}
+        )}
       </form>
     </Modal>
   );
 }
 
 type Sel = ReadonlySet<string>;
+
+const folderActionsId = (folder: string) => `folder-actions-${folder}`;
+
+/**
+ * After a move or a delete, put the focus on a folder row's actions button. The row re-mounts (moved) or the dialog's
+ * own focus return lands on a button that is about to go (deleted), so this keeps trying for a moment, without taking
+ * the focus from anything the person moved it to since.
+ */
+function focusFolderActions(folder: string) {
+  let tries = 0;
+  const tick = () => {
+    const el = document.getElementById(folderActionsId(folder));
+    const now = document.activeElement;
+    const adrift = !now || now === document.body || !now.isConnected || (now instanceof HTMLElement && now.dataset.folderActions !== undefined);
+    if (el && now !== el && adrift) el.focus();
+    if (++tries < 20) setTimeout(tick, 50);
+  };
+  setTimeout(tick, 0);
+}
 
 /** Feeds: where you open a folder or feed, and where feeds and folders are added, edited, ordered, favorited and removed. */
 export function FeedsScreen() {
@@ -195,12 +297,19 @@ export function FeedsScreen() {
     for (const f of realFeeds) (m[f.folder_id] ??= []).push(f);
     return m;
   }, [folders, realFeeds]);
+  const ftree = useMemo(() => folderTree(folders), [folders]);
   const tree: Tree = useMemo(
-    () => ({ folders: folders.map((f) => f.id), feeds: Object.fromEntries(Object.entries(byFolder).map(([k, v]) => [k, v.map((f) => f.id)])) }),
-    [folders, byFolder],
+    () => ({
+      folders: [...ftree.preorder],
+      parents: Object.fromEntries(ftree.preorder.map((id) => [id, parentOf(ftree, id)])),
+      feeds: Object.fromEntries(Object.entries(byFolder).map(([k, v]) => [k, v.map((f) => f.id)])),
+    }),
+    [ftree, byFolder],
   );
   // The order feeds appear on screen: what shift-click ranges are measured along.
-  const visibleOrder = useMemo(() => tree.folders.flatMap((id) => tree.feeds[id] ?? []), [tree]);
+  const visibleOrder = useMemo(() => feedOrder(ftree, (id) => tree.feeds[id] ?? []), [ftree, tree]);
+  // Each folder's feeds over its subtree (its Select checkbox), built once per tree, not per row and drag move.
+  const subtreeIds = useMemo(() => subtreeFeeds(ftree, (id) => tree.feeds[id] ?? []), [ftree, tree]);
 
   const markSaved = () => {
     setSaved("saved");
@@ -210,11 +319,22 @@ export function FeedsScreen() {
   };
   useEffect(() => () => clearTimeout(savedTimer.current), []);
 
-  /** Apply a new order: paint it at once, save it in one POST /api/reorder, show "Saved" (or put the old order back). */
-  const applyTree = async (next: Tree) => {
+  // Saves run one after another: a second drop while the first is still saving must not race it on the server.
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const saving = useRef(0);
+  /**
+   * Save a new tree: paint it at once, then move the folders whose parent changed (PATCH /api/folders/{id}) and save
+   * the order in one POST /api/reorder, after any save still running. Rejects with the server's refusal (an
+   * OrderNotSavedError when the folders moved but the order did not save); the bootstrap is refetched once the last
+   * queued save ends, so the screen ends up showing what the server has.
+   */
+  const saveTree = async (next: Tree) => {
     const body = reorderBody(tree, next);
-    if (!body) return;
+    const moves = parentChanges(tree, next);
+    if (!body && moves.length === 0) return;
     setSaved("saving");
+    // A bootstrap refetch in flight would paint the old tree over the new one.
+    await qc.cancelQueries({ queryKey: keys.bootstrap });
     qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => {
       if (!old) return old;
       const byId = new Map(old.feeds.map((f) => [f.id, f]));
@@ -223,22 +343,43 @@ export function FeedsScreen() {
         const f = byId.get(id);
         if (f) ordered.push({ ...f, folder_id: fid });
       }
+      const own = new Map<string, number>();
+      for (const f of ordered) own.set(f.folder_id, (own.get(f.folder_id) ?? 0) + f.unread);
+      const moved = next.folders.map((id, i) => ({ ...(old.folders.find((f) => f.id === id) as Folder), parent_id: next.parents[id] ?? null, position: i }));
+      const unread = rollUp(folderTree(moved), own);
       return {
         ...old,
-        folders: next.folders.map((id, i) => ({ ...(old.folders.find((f) => f.id === id) as Folder), position: i })),
+        folders: moved.map((f) => ({ ...f, unread: unread.get(f.id) ?? 0 })),
         feeds: [...ordered, ...old.feeds.filter((f) => f.is_archive)],
       };
     });
+    saving.current++;
+    const run = saveQueue.current.then(async () => {
+      let moved = false;
+      try {
+        for (const m of moves) {
+          await patchFolder(m.id, { parent_id: m.parent });
+          moved = true;
+        }
+        if (body) await reorderApi(body);
+      } catch (e) {
+        throw moved ? new OrderNotSavedError(errorMessage(e)) : e;
+      }
+    });
+    saveQueue.current = run.catch(() => undefined);
     try {
-      await reorderApi(body);
-      invalidateFeeds(qc);
+      await run;
       markSaved();
     } catch (e) {
       setSaved(null);
-      toast(errorMessage(e), "error");
-      invalidateFeeds(qc);
+      throw e;
+    } finally {
+      if (--saving.current === 0) invalidateFeeds(qc);
     }
   };
+  /** Save a new tree from a drop or a move button: a refusal is a toast. */
+  const applyTree = (next: Tree) => saveTree(next).catch((e: unknown) => toast(folderError(e), "error"));
+  const moveFolder = (folder: string, parent: string | null) => saveTree(planFolderDrop(tree, folder, { parent, before: null }));
 
   const applyFavs = async (next: Favorite[]) => {
     setSaved("saving");
@@ -248,7 +389,7 @@ export function FeedsScreen() {
   const favKey = (f: Favorite) => `${f.t}:${f.id}`;
 
   const drop = (from: DragSource, to: DropTarget) => {
-    if (from.kind === "folder") void applyTree(planFolderDrop(tree, from.id, to.before));
+    if (from.kind === "folder") void applyTree(planFolderDrop(tree, from.id, { parent: to.group || null, before: to.before }));
     else if (from.kind === "feed") void applyTree(planFeedDrop(tree, from.id, { folder: to.group, before: to.before }));
     else {
       const keys2 = favs.favorites.map(favKey);
@@ -286,10 +427,11 @@ export function FeedsScreen() {
     const had = document.activeElement;
     if (had && had !== document.body) keepFocus(src, had);
     if (src.kind === "folder") {
-      const i = tree.folders.indexOf(src.id);
-      if (i + delta < 0 || i + delta >= tree.folders.length) return;
-      void applyTree({ ...tree, folders: arrayMove(tree.folders, i, i + delta) });
-      announce(`Moved ${folders.find((f) => f.id === src.id)?.name ?? "folder"} to position ${i + delta + 1} of ${tree.folders.length}`);
+      const siblings = childrenOf(ftree, parentOf(ftree, src.id));
+      const i = siblings.indexOf(src.id);
+      if (i + delta < 0 || i + delta >= siblings.length) return;
+      void applyTree(stepFolder(tree, src.id, delta));
+      announce(`Moved ${ftree.byId.get(src.id)?.name ?? "folder"} to position ${i + delta + 1} of ${siblings.length}`);
     } else if (src.kind === "feed") {
       const list = tree.feeds[src.group] ?? [];
       const i = list.indexOf(src.id);
@@ -411,9 +553,11 @@ export function FeedsScreen() {
   const favRows = favs.favorites.map((fav, i) => {
     const key = favKey(fav);
     const src: DragSource = { kind: "fav", id: key, group: "fav" };
-    const name = fav.t === "folder" ? folders.find((f) => f.id === fav.id)?.name : feeds.find((f) => f.id === fav.id)?.title;
-    const favFolder = fav.t === "folder" ? folders.find((f) => f.id === fav.id) : undefined;
-    const favFeeds = favFolder ? feeds.filter((f) => f.folder_id === favFolder.id) : [];
+    const favFolder = fav.t === "folder" ? ftree.byId.get(fav.id) : undefined;
+    const name = favFolder ? folderPath(ftree, favFolder.id) : feeds.find((f) => f.id === fav.id)?.title;
+    // A favorite folder lists the feeds of its whole subtree.
+    const inFav = favFolder ? subtreeOf(ftree, favFolder.id) : null;
+    const favFeeds = inFav ? realFeeds.filter((f) => inFav.has(f.folder_id)) : [];
     const favCollapsed = dp.collapsedFolders.includes(fav.id);
     const favListId = `manage-fav-folder-${fav.id}-feeds`;
     const before = dropAt?.kind === "fav" && dropAt.before === key && !isDragged("fav", key);
@@ -460,6 +604,114 @@ export function FeedsScreen() {
     );
   });
 
+  // While a folder is dragged: the folders it may go inside (not itself, not below itself, not too deep).
+  const canHold = useMemo(() => (dragging?.kind === "folder" ? new Set(parentChoices(ftree, dragging.id)) : null), [dragging, ftree]);
+  const topLevel = childrenOf(ftree, null);
+
+  /** A folder row, then (unless collapsed) its subfolders and its own feeds. */
+  const folderNode = (fo: Folder): React.ReactNode => {
+    const depth = depthOf(ftree, fo.id);
+    const parent = parentOf(ftree, fo.id);
+    const siblings = childrenOf(ftree, parent);
+    const subfolders = childrenOf(ftree, fo.id);
+    const inFolder = byFolder[fo.id] ?? [];
+    const inSubtree = subtreeIds.get(fo.id) ?? [];
+    const fsrc: DragSource = { kind: "folder", id: fo.id, group: parent ?? "" };
+    const folderBefore = dropAt?.kind === "folder" && dropAt.before === fo.id && !isDragged("folder", fo.id);
+    const folderEnd = dropAt?.kind === "folder" && dropAt.before === null && dropAt.group === "" && parent === null && topLevel.filter((x) => x !== dragging?.id).at(-1) === fo.id;
+    const intoFolder =
+      (dropAt?.kind === "feed" && dropAt.group === fo.id && inFolder.length === 0) || (dropAt?.kind === "folder" && dropAt.before === null && dropAt.group === fo.id);
+    const state = groupState(inSubtree, sel);
+    // Edit and Select need every feed on screen and reachable (a collapsed folder's chevron is replaced by
+    // the grip or checkbox in those modes, and Select all / shift-click range over every feed), so the
+    // saved collapsed state only applies outside them; it is not changed, and returns when the mode ends.
+    const collapsed = !selecting && !editMode && dp.collapsedFolders.includes(fo.id);
+    const listId = `manage-folder-${fo.id}-feeds`;
+    const label = folderPath(ftree, fo.id);
+    return (
+      <li
+        key={fo.id}
+        style={rowStyle("folder", fo.id)}
+        className={cn(dragCls("folder", fo.id), folderBefore && "border-t-2 border-accent", folderEnd && "border-b-2 border-accent")}
+      >
+        <div
+          className={cn("flex items-center", DND_ROW_CLASS, intoFolder && "rounded-lg outline-2 outline-accent")}
+          data-dnd-into={canHold && !canHold.has(fo.id) ? "no" : undefined}
+          {...(selecting || !editMode ? {} : dnd.rowProps(fsrc))}
+        >
+          {selecting ? (
+            <input
+              type="checkbox"
+              aria-label={`Select all feeds in ${label}`}
+              checked={state === "all"}
+              ref={(el) => {
+                if (el) el.indeterminate = state === "some";
+              }}
+              onChange={() => {
+                setSel(toggleGroup(inSubtree, sel));
+                setAnchor(null);
+              }}
+              className="mx-3 size-5 shrink-0 accent-[var(--kp-accent)]"
+            />
+          ) : editMode ? (
+            grip(fsrc, `folder ${label}`)
+          ) : (
+            <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />
+          )}
+          <Link to={listTo({ view: "unread", folder: fo.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
+            <span className="truncate">{fo.name}</span>
+            <Badge n={fo.unread} />
+          </Link>
+          {!selecting ? (
+            <>
+              {moves(fsrc, siblings.indexOf(fo.id), siblings.length, `folder ${label}`)}
+              <FavStar on={favs.has("folder", fo.id)} name={label} onToggle={() => favs.toggle("folder", fo.id)} />
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <Button variant="ghost" size="icon" id={folderActionsId(fo.id)} data-folder-actions="" aria-label={`Folder actions for ${label}`}>
+                    <MoreVertical aria-hidden="true" />
+                  </Button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-48 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+                    <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "rename", folder: fo })}>
+                      <Pencil className="size-5" aria-hidden="true" />
+                      Rename or set layout
+                    </DropdownMenu.Item>
+                    {!fo.is_default && depth < MAX_FOLDER_DEPTH ? (
+                      <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: fo.id })}>
+                        <FolderPlus className="size-5" aria-hidden="true" />
+                        New subfolder
+                      </DropdownMenu.Item>
+                    ) : null}
+                    {!fo.is_default ? (
+                      <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "move", folder: fo })}>
+                        <FolderInput className="size-5" aria-hidden="true" />
+                        Move to…
+                      </DropdownMenu.Item>
+                    ) : null}
+                    {!fo.is_default ? (
+                      <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "delete", folder: fo })}>
+                        <Trash2 className="size-5" aria-hidden="true" />
+                        Delete folder
+                      </DropdownMenu.Item>
+                    ) : null}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </>
+          ) : null}
+        </div>
+        {collapsed ? null : (
+          <ul id={listId} className={depth < 4 ? "pl-6" : "pl-2"}>
+            {subfolders.map((id) => folderNode(ftree.byId.get(id) as Folder))}
+            {inFolder.map((f, i) => feedRow(f, i, inFolder, fo))}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
   return (
     <div className="ui-font mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-2">
@@ -501,7 +753,7 @@ export function FeedsScreen() {
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
-                <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new" })}>
+                <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
                   <FolderPlus className="size-5" aria-hidden="true" />
                   New folder
                 </DropdownMenu.Item>
@@ -574,81 +826,7 @@ export function FeedsScreen() {
               </section>
             ) : null}
             <SavedSearchesNav />
-            <ul className="flex flex-col gap-1">
-              {folders.map((fo, fi) => {
-                const inFolder = byFolder[fo.id] ?? [];
-                const fsrc: DragSource = { kind: "folder", id: fo.id, group: "folders" };
-                const folderBefore = dropAt?.kind === "folder" && dropAt.before === fo.id && !isDragged("folder", fo.id);
-                const folderEnd = dropAt?.kind === "folder" && dropAt.before === null && folders.filter((x) => x.id !== dragging?.id).at(-1)?.id === fo.id;
-                const intoFolder = dropAt?.kind === "feed" && dropAt.group === fo.id && inFolder.length === 0;
-                const state = groupState(inFolder.map((f) => f.id), sel);
-                // Edit and Select need every feed on screen and reachable (a collapsed folder's chevron is replaced by
-                // the grip or checkbox in those modes, and Select all / shift-click range over every feed), so the
-                // saved collapsed state only applies outside them; it is not changed, and returns when the mode ends.
-                const collapsed = !selecting && !editMode && dp.collapsedFolders.includes(fo.id);
-                const listId = `manage-folder-${fo.id}-feeds`;
-                return (
-                  <li
-                    key={fo.id}
-                    style={rowStyle("folder", fo.id)}
-                    className={cn(dragCls("folder", fo.id), folderBefore && "border-t-2 border-accent", folderEnd && "border-b-2 border-accent")}
-                  >
-                    <div className={cn("flex items-center", DND_ROW_CLASS, intoFolder && "rounded-lg outline-2 outline-accent")} {...(selecting || !editMode ? {} : dnd.rowProps(fsrc))}>
-                      {selecting ? (
-                        <input
-                          type="checkbox"
-                          aria-label={`Select all feeds in ${fo.name}`}
-                          checked={state === "all"}
-                          ref={(el) => {
-                            if (el) el.indeterminate = state === "some";
-                          }}
-                          onChange={() => {
-                            setSel(toggleGroup(inFolder.map((f) => f.id), sel));
-                            setAnchor(null);
-                          }}
-                          className="mx-3 size-5 shrink-0 accent-[var(--kp-accent)]"
-                        />
-                      ) : editMode ? (
-                        grip(fsrc, `folder ${fo.name}`)
-                      ) : (
-                        <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />
-                      )}
-                      <Link to={listTo({ view: "unread", folder: fo.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
-                        <span className="truncate">{fo.name}</span>
-                        <Badge n={fo.unread} />
-                      </Link>
-                      {!selecting ? (
-                        <>
-                          {moves(fsrc, fi, folders.length, `folder ${fo.name}`)}
-                          <FavStar on={favs.has("folder", fo.id)} name={fo.name} onToggle={() => favs.toggle("folder", fo.id)} />
-                          <DropdownMenu.Root>
-                            <DropdownMenu.Trigger asChild>
-                              <Button variant="ghost" size="icon" aria-label={`Folder actions for ${fo.name}`}>
-                                <MoreVertical aria-hidden="true" />
-                              </Button>
-                            </DropdownMenu.Trigger>
-                            <DropdownMenu.Portal>
-                              <DropdownMenu.Content align="end" sideOffset={4} className="z-50 min-w-48 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
-                                <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "rename", folder: fo })}>
-                                  <Pencil className="size-5" aria-hidden="true" />
-                                  Rename or set layout
-                                </DropdownMenu.Item>
-                                {!fo.is_default ? (
-                                  <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "delete", folder: fo })}>
-                                    Delete folder
-                                  </DropdownMenu.Item>
-                                ) : null}
-                              </DropdownMenu.Content>
-                            </DropdownMenu.Portal>
-                          </DropdownMenu.Root>
-                        </>
-                      ) : null}
-                    </div>
-                    {collapsed ? null : <ul id={listId} className="pl-6">{inFolder.map((f, i) => feedRow(f, i, inFolder, fo))}</ul>}
-                  </li>
-                );
-              })}
-            </ul>
+            <ul className="flex flex-col gap-1">{topLevel.map((id) => folderNode(ftree.byId.get(id) as Folder))}</ul>
           </>
         ) : null}
       </div>
@@ -681,7 +859,18 @@ export function FeedsScreen() {
           onDone={(ids) => setSel((s) => new Set([...s].filter((x) => !ids.includes(x))))}
         />
       ) : null}
-      {folderDialog ? <FolderDialogs dialog={folderDialog} onClose={() => setFolderDialog(null)} /> : null}
+      {folderDialog ? (
+        <FolderDialogs
+          dialog={folderDialog}
+          tree={ftree}
+          feeds={realFeeds}
+          onMove={moveFolder}
+          onClose={(focusFolder) => {
+            setFolderDialog(null);
+            if (focusFolder) focusFolderActions(focusFolder);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { arrayMove, dropSlot, insertBefore, planFeedDrop, planFolderDrop, reorderBody, type Tree } from "./dnd";
+import { arrayMove, dropSlot, folderSlot, insertBefore, parentChanges, planFeedDrop, planFolderDrop, reorderBody, stepFolder, targetAt, type Tree } from "./dnd";
 
-const tree: Tree = { folders: ["1", "2", "3"], feeds: { "1": ["a", "b", "c"], "2": ["d"], "3": [] } };
+const tree: Tree = { folders: ["1", "2", "3"], parents: { "1": null, "2": null, "3": null }, feeds: { "1": ["a", "b", "c"], "2": ["d"], "3": [] } };
+
+// T > (A > (M), B), then S, all in tree order.
+const nested: Tree = {
+  folders: ["T", "A", "M", "B", "S"],
+  parents: { T: null, A: "T", M: "A", B: "T", S: null },
+  feeds: { T: [], A: [], M: [], B: [], S: [] },
+};
 
 describe("drag reorder planning", () => {
   it("arrayMove and insertBefore", () => {
@@ -14,7 +21,7 @@ describe("drag reorder planning", () => {
   });
 
   it("a folder dropped before another reorders the folders only", () => {
-    const next = planFolderDrop(tree, "3", "1");
+    const next = planFolderDrop(tree, "3", { parent: null, before: "1" });
     expect(next.folders).toEqual(["3", "1", "2"]);
     expect(reorderBody(tree, next)).toEqual({ folders: ["3", "1", "2"] });
   });
@@ -42,7 +49,7 @@ describe("drag reorder planning", () => {
 
   it("dropping where it already is changes nothing (no request)", () => {
     expect(reorderBody(tree, planFeedDrop(tree, "b", { folder: "1", before: "c" }))).toBeNull();
-    expect(reorderBody(tree, planFolderDrop(tree, "2", "3"))).toBeNull();
+    expect(reorderBody(tree, planFolderDrop(tree, "2", { parent: null, before: "3" }))).toBeNull();
   });
 
   it("dropSlot puts the pointer before the first row whose middle is below it", () => {
@@ -54,5 +61,86 @@ describe("drag reorder planning", () => {
     expect(dropSlot(rows, 30)).toEqual({ before: "b" });
     expect(dropSlot(rows, 70)).toEqual({ before: null });
     expect(dropSlot([], 5)).toEqual({ before: null });
+  });
+});
+
+describe("nested folder moves", () => {
+  it("a folder dropped inside another moves with its subtree to the end of that folder", () => {
+    const next = planFolderDrop(nested, "A", { parent: "S", before: null });
+    expect(next.folders).toEqual(["T", "B", "S", "A", "M"]);
+    expect(next.parents.A).toBe("S");
+    expect(next.parents.M).toBe("A");
+    expect(parentChanges(nested, next)).toEqual([{ id: "A", parent: "S" }]);
+    expect(reorderBody(nested, next)).toEqual({ folders: ["T", "B", "S", "A", "M"] });
+  });
+
+  it("a folder dropped at the end of a parent goes after the parent's last descendant", () => {
+    const next = planFolderDrop(nested, "S", { parent: "T", before: null });
+    expect(next.folders).toEqual(["T", "A", "M", "B", "S"]);
+    expect(next.parents.S).toBe("T");
+    const top = planFolderDrop(nested, "M", { parent: null, before: "T" });
+    expect(top.folders).toEqual(["M", "T", "A", "B", "S"]);
+    expect(top.parents.M).toBeNull();
+  });
+
+  it("never into itself or one of its subfolders, and never before a folder of another parent", () => {
+    expect(planFolderDrop(nested, "T", { parent: "M", before: null })).toBe(nested);
+    expect(planFolderDrop(nested, "T", { parent: "T", before: null })).toBe(nested);
+    expect(planFolderDrop(nested, "S", { parent: "T", before: "M" })).toBe(nested);
+  });
+
+  it("steps among its siblings only", () => {
+    expect(stepFolder(nested, "B", -1).folders).toEqual(["T", "B", "A", "M", "S"]);
+    expect(stepFolder(nested, "A", 1).folders).toEqual(["T", "B", "A", "M", "S"]);
+    expect(stepFolder(nested, "A", -1)).toBe(nested); // first child
+    expect(stepFolder(nested, "T", 1).folders).toEqual(["S", "T", "A", "M", "B"]);
+    expect(parentChanges(nested, stepFolder(nested, "T", 1))).toEqual([]);
+  });
+
+  it("folderSlot: the middle of a row is inside it, its edges are before or after it", () => {
+    // T (0-40) > A (40-80), then S (80-120).
+    const rows = [
+      { id: "T", group: "", top: 0, bottom: 40, into: true },
+      { id: "A", group: "T", top: 40, bottom: 80, into: true },
+      { id: "S", group: "", top: 80, bottom: 120, into: false },
+    ];
+    expect(folderSlot(rows, 5)).toEqual({ group: "", before: "T" });
+    expect(folderSlot(rows, 20)).toEqual({ group: "T", before: null });
+    expect(folderSlot(rows, 35)).toEqual({ group: "", before: "S" }); // after T, past its subtree
+    expect(folderSlot(rows, 75)).toEqual({ group: "T", before: null }); // after A: the end of T
+    expect(folderSlot(rows, 100)).toEqual({ group: "", before: null }); // S takes no subfolders: after it
+    expect(folderSlot(rows, 90)).toEqual({ group: "", before: "S" });
+    expect(folderSlot(rows, 500)).toEqual({ group: "", before: null });
+  });
+
+  it("folderSlot never offers a place inside a folder that cannot hold the dragged one", () => {
+    // T can't hold it (too deep, or it is the default folder being dragged): A's edges are inside T, so refused.
+    const rows = [
+      { id: "T", group: "", top: 0, bottom: 40, into: false },
+      { id: "A", group: "T", top: 40, bottom: 80, into: true },
+    ];
+    expect(folderSlot(rows, 10)).toEqual({ group: "", before: "T" }); // no middle band: before T
+    expect(folderSlot(rows, 30)).toEqual({ group: "", before: null }); // or after it
+    expect(folderSlot(rows, 45)).toBeNull(); // before A = inside T
+    expect(folderSlot(rows, 60)).toEqual({ group: "A", before: null }); // inside A is fine
+    expect(folderSlot(rows, 75)).toBeNull(); // after A = the end of T
+  });
+
+  it("targetAt leaves out the dragged folder's own subtree", () => {
+    document.body.innerHTML = `<ul>
+      <li><div data-dnd-kind="folder" data-dnd-id="T" data-dnd-group=""></div>
+        <ul><li><div data-dnd-kind="folder" data-dnd-id="A" data-dnd-group="T"></div></li></ul></li>
+      <li><div data-dnd-kind="folder" data-dnd-id="S" data-dnd-group=""></div></li></ul>`;
+    const rect = { T: [0, 40], A: [40, 80], S: [80, 120] } as Record<string, [number, number]>;
+    for (const el of document.querySelectorAll<HTMLElement>("[data-dnd-id]")) {
+      const [top, bottom] = rect[el.dataset.dndId as string]!;
+      el.getBoundingClientRect = () => ({ top, bottom }) as DOMRect;
+    }
+    // Dragging T: the pointer over its own child A finds no row there and falls to the next row down, S.
+    expect(targetAt({ kind: "folder", id: "T", group: "" }, 0, 50)).toEqual({ kind: "folder", group: "", before: "S" });
+    expect(targetAt({ kind: "folder", id: "T", group: "" }, 0, 100)).toEqual({ kind: "folder", group: "S", before: null });
+    // Dragging A: T can take it.
+    expect(targetAt({ kind: "folder", id: "A", group: "T" }, 0, 20)).toEqual({ kind: "folder", group: "T", before: null });
+    document.body.innerHTML = "";
   });
 });
