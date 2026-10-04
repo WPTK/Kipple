@@ -65,3 +65,30 @@ describe("row memoization", () => {
     expect([...renders.keys()]).toEqual(["1001"]);
   });
 });
+
+describe("range actions after the list changed", () => {
+  it("mark above uses the list as it is now, not the one before a mark-read", async () => {
+    const cards = Array.from({ length: 5 }, (_, i) => card(i + 1));
+    const { calls } = mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf(cards)),
+      "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [] }),
+    });
+    window.history.replaceState({ idx: 0 }, "", "/l/all");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    await screen.findByText("Article number 1");
+    const user = userEvent.setup();
+    await user.keyboard("j");
+    await user.keyboard("m"); // changes the cached list: row 1001 is now read
+    await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(1));
+    await user.keyboard("j");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    await user.keyboard("{{}"); // mark above the selected row
+    const bulk = () => calls.filter((c) => c.method === "POST" && String(c.init?.body).includes("\"bound\""));
+    await waitFor(() => expect(bulk().length).toBeGreaterThan(0));
+    const body = JSON.parse(String(bulk()[0].init?.body));
+    expect(body.bound).toMatchObject({ side: "above", anchor: { id: "1002" } });
+  });
+});

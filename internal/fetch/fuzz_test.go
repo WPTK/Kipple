@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -20,7 +21,7 @@ func FuzzDecodeBody(f *testing.F) {
 		f.Add([]byte(s), "shift_jis")
 	}
 	f.Fuzz(func(t *testing.T, body []byte, cs string) {
-		d := DecodeBody(body, cs)
+		d := DecodeBody(bytes.Clone(body), cs) // DecodeBody may modify its input; the engine's bytes stay intact
 		if !utf8.Valid(d.Body) {
 			t.Fatalf("output is not UTF-8 (source %q)", d.Source)
 		}
@@ -47,7 +48,7 @@ func FuzzParseFeed(f *testing.F) {
 	f.Add([]byte(`{"version":"https://jsonfeed.org/version/1.1","items":[{"id":"1","content_html":"<script>x</script>"}]}`))
 	f.Fuzz(func(t *testing.T, body []byte) {
 		for _, mode := range []string{"", DedupLink, DedupLinkTitle} {
-			fd, err := ParseFeed(body, ParseOptions{FeedURL: "https://example.com/feed", DedupMode: mode})
+			fd, err := ParseFeed(bytes.Clone(body), ParseOptions{FeedURL: "https://example.com/feed", DedupMode: mode})
 			if err != nil {
 				return
 			}

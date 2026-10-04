@@ -160,6 +160,7 @@ type Server struct {
 	imgSecret   []byte
 	imgSecretAt time.Time // when imgSecret was last read from the account row
 	imgHSecret  []byte    // the secret imgH was built with
+	imgClosed   bool      // Close ran: imageHandler builds no new handler
 	imgH        *imgproxy.Handler
 	imgMode     atomic.Pointer[string] // cached imgproxy.mode for the CSP; refreshed on PATCH
 	imgModeMu   sync.Mutex             // serializes refreshImgMode's read and store

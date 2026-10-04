@@ -535,6 +535,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				st.firstID = id
 			}
 			st.lastID = id
+			// Every row this commit adds is counted here: trimFeedBatch skips on st.before+len(newIDs).
 			st.newIDs = append(st.newIDs, id)
 		}
 		if err := writeHits(ctx, tx, hits, now); err != nil {

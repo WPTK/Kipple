@@ -167,8 +167,9 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             VCS_REF=${{ steps.version.outputs.vcs_ref }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=ci
+          # A throttled cache service must not fail the build.
+          cache-to: type=gha,scope=ci,mode=max,ignore-error=true
 
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

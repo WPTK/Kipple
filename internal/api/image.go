@@ -64,6 +64,9 @@ func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 	}
 	s.imgMu.Lock()
 	defer s.imgMu.Unlock()
+	if s.imgClosed {
+		return nil, false
+	}
 	if s.imgH != nil {
 		if !bytes.Equal(s.imgHSecret, secret) {
 			s.imgHSecret = secret

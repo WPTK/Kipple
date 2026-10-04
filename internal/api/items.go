@@ -761,6 +761,7 @@ func (s *Server) Close() {
 	s.backups.Close()
 	s.imgMu.Lock()
 	imgH := s.imgH
+	s.imgClosed = true
 	s.imgMu.Unlock()
 	if imgH != nil {
 		imgH.Close()
