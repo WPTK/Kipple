@@ -223,13 +223,14 @@ func TestImportMoveExisting(t *testing.T) {
 	require.Equal(t, []string{"Misc"}, r.FoldersEmptied)
 }
 
-// A larger tree imports and re-imports in one write. Whether the lookups stay linear is checked on the
-// query plans (store.TestFolderLookupPlans), not on the clock, which varies (the race detector).
+// A wider tree imports and re-imports in one write. Whether the lookups stay linear is checked on the
+// query plans (store.TestFolderLookupPlans), not with a big tree on the clock: under the race detector
+// the SQLite engine runs some 40 times slower, and 1,000 folders already took over 10 s on CI.
 func TestImportManyFolders(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("<opml><body>")
 	n := 0
-	for i := 0; i < 250; i++ {
+	for i := 0; i < 40; i++ {
 		fmt.Fprintf(&b, `<outline text="Top %d">`, i)
 		for j := 0; j < 3; j++ {
 			n++
@@ -240,9 +241,9 @@ func TestImportManyFolders(t *testing.T) {
 	b.WriteString("</body></opml>")
 	db := openDB(t)
 	r := importString(t, db, b.String(), ImportOptions{})
-	require.Equal(t, 1000, r.FoldersCreated)
+	require.Equal(t, 160, r.FoldersCreated)
 	require.Equal(t, n, r.FeedsAdded)
-	require.Equal(t, "Top 249/Sub 2", folderOf(t, db, fmt.Sprintf("https://f%d.test/rss", n)))
+	require.Equal(t, "Top 39/Sub 2", folderOf(t, db, fmt.Sprintf("https://f%d.test/rss", n)))
 
 	r = importString(t, db, b.String(), ImportOptions{MoveExisting: true})
 	require.Zero(t, r.FoldersCreated)
