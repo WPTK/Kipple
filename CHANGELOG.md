@@ -8,6 +8,13 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.7.0-beta.2] - 2026-10-03
+
+### Changed
+
+- Dependency updates: the feed parser (gofeed 1.5.0) now reads an author written as `Name <email>` into name and email and enforces its response size limit to the end of the body, and the SQLite driver (1.60.1) binds query parameters faster; nothing else changes for you.
+- A new Kipple's log line `no account yet` no longer names the address it listens on, which in Docker is the port inside the container and not the one you published; it now just says to open Kipple in a browser, or to set `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` and restart.
+
 ## [0.7.0-beta.1] - 2026-10-03
 
 ### Changed
@@ -783,7 +790,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.7.0-beta.1...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.7.0-beta.2...HEAD
+[0.7.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.7.0-beta.1...v0.7.0-beta.2
 [0.7.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.6.0-beta.1...v0.7.0-beta.1
 [0.6.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.2...v0.6.0-beta.1
 [0.5.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.5.0-beta.1...v0.5.0-beta.2
