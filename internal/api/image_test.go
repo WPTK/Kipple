@@ -242,7 +242,6 @@ func TestSecretRotationKeepsOneImageHandler(t *testing.T) {
 // TestCloseStopsTheThumbnailPool: shutting the API down drains the thumbnail
 // workers before the image cache and the store close behind it.
 func TestCloseStopsTheThumbnailPool(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
 	img, ok := h.srv.imageHandler(context.Background())
 	require.True(t, ok)
