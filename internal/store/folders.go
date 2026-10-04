@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -113,13 +114,53 @@ func (d *DB) FindLabel(ctx context.Context, candidates []string) (int64, bool, e
 	return FindLabel(ctx, d.reader, candidates)
 }
 
+// folderByPath finds the folder whose full path is path, ignoring ASCII case. It walks down from the
+// top level on idx_folders_sibling_name instead of reading folder_paths (whose window function and
+// recursion read every folder on each query): at each level it tries every run of the remaining
+// '/'-separated parts as one name, so a name that holds a '/' (a literal "AC/DC") is found too. Full
+// paths are unique, so the first complete match is the folder. A run longer than a folder name can be
+// is not tried, and a (parent, part) that led nowhere is not tried twice.
 func folderByPath(ctx context.Context, q Querier, path string) (int64, bool, error) {
-	var id int64
-	err := q.QueryRowContext(ctx, "SELECT id FROM folder_paths WHERE path = ? COLLATE NOCASE", path).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
+	if path == "" {
 		return 0, false, nil
 	}
-	return id, err == nil, err
+	parts := strings.Split(path, "/")
+	type at struct {
+		parent int64
+		i      int
+	}
+	deadEnd := map[at]bool{}
+	var find func(parent int64, i int) (int64, bool, error)
+	find = func(parent int64, i int) (int64, bool, error) {
+		if deadEnd[at{parent, i}] {
+			return 0, false, nil
+		}
+		name := parts[i]
+		for j := i; j < len(parts); j++ {
+			if j > i {
+				name += "/" + parts[j]
+			}
+			if utf8.RuneCountInString(name) > MaxFolderNameRunes {
+				break
+			}
+			id, ok, err := childFolder(ctx, q, parent, name)
+			if err != nil {
+				return 0, false, err
+			}
+			if !ok {
+				continue
+			}
+			if j == len(parts)-1 {
+				return id, true, nil
+			}
+			if id, ok, err := find(id, j+1); err != nil || ok {
+				return id, ok, err
+			}
+		}
+		deadEnd[at{parent, i}] = true
+		return 0, false, nil
+	}
+	return find(0, 0)
 }
 
 // FolderExists reports whether a folder id exists.
@@ -138,16 +179,53 @@ type folderRow struct {
 	isDefault bool
 }
 
+// loadFolder reads a folder and its ancestors by primary key (at most MaxFolderDepth rows), not
+// through folder_paths, which reads every folder.
 func loadFolder(ctx context.Context, q Querier, id int64) (folderRow, error) {
 	var r folderRow
-	var parent sql.NullInt64
-	err := q.QueryRowContext(ctx, `SELECT fp.parent_id, fp.name, fp.path, fp.depth, fo.is_default
-		FROM folder_paths fp JOIN folders fo ON fo.id = fp.id WHERE fp.id = ?`, id).Scan(&parent, &r.name, &r.path, &r.depth, &r.isDefault)
-	if errors.Is(err, sql.ErrNoRows) {
-		return r, ErrFolderNotFound
+	names, err := folderNames(ctx, q, id, &r)
+	if err != nil {
+		return r, err
 	}
-	r.parent = parent.Int64
-	return r, err
+	r.name, r.path, r.depth = names[len(names)-1], strings.Join(names, "/"), len(names)
+	return r, nil
+}
+
+// folderNames returns the names from the top level down to folder id, and fills r's parent and
+// isDefault when r is not nil. A missing folder is ErrFolderNotFound.
+func folderNames(ctx context.Context, q Querier, id int64, r *folderRow) ([]string, error) {
+	// One primary-key lookup per level (a recursive CTE here is planned as a scan of folders per level).
+	var names []string
+	for cur, n := id, 0; ; n++ {
+		var parent sql.NullInt64
+		var name string
+		var isDefault bool
+		err := q.QueryRowContext(ctx, "SELECT parent_id, name, is_default FROM folders WHERE id = ?", cur).Scan(&parent, &name, &isDefault)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrFolderNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 && r != nil {
+			r.parent, r.isDefault = parent.Int64, isDefault
+		}
+		names = append(names, name)
+		if !parent.Valid {
+			break
+		}
+		if n >= 64 { // the writer keeps the tree acyclic and at most MaxFolderDepth deep
+			return nil, errors.New("store: folder ancestry too deep")
+		}
+		cur = parent.Int64
+	}
+	slices.Reverse(names)
+	return names, nil
+}
+
+// FolderNames returns a folder's chain of names from the top level (what an OPML file nests).
+func FolderNames(ctx context.Context, q Querier, id int64) ([]string, error) {
+	return folderNames(ctx, q, id, nil)
 }
 
 // placeFolder checks that folder id (0 for a new folder) may be called name and sit directly inside
@@ -178,11 +256,11 @@ func placeFolder(ctx context.Context, tx *sql.Tx, id, parent int64, name string)
 		if depth > MaxFolderDepth {
 			return "", ErrFolderDepth
 		}
-		var n int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM folder_paths WHERE path = ? COLLATE NOCASE", path).Scan(&n); err != nil {
+		_, taken, err := folderByPath(ctx, tx, path)
+		if err != nil {
 			return "", err
 		}
-		if n > 0 {
+		if taken {
 			return "", ErrFolderExists
 		}
 		return name, nil
@@ -335,6 +413,18 @@ func EnsureFolderChain(ctx context.Context, tx *sql.Tx, segments []string) (id i
 		return 1, 0, nil
 	}
 	return walkFolders(ctx, tx, 0, segments)
+}
+
+// EnsureFolderChainFrom is EnsureFolderChain below parent (0 = the top level): an importer that has
+// already resolved the upper levels does not walk them again.
+func EnsureFolderChainFrom(ctx context.Context, tx *sql.Tx, parent int64, segments []string) (id int64, created int, err error) {
+	if parent == 0 {
+		return EnsureFolderChain(ctx, tx, segments)
+	}
+	if len(segments) == 0 {
+		return parent, 0, nil
+	}
+	return walkFolders(ctx, tx, parent, segments)
 }
 
 // splitPath resolves a Reader API label path against the tree: the longest prefix of path (cut at a

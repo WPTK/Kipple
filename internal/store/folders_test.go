@@ -64,6 +64,66 @@ func checkFolderInvariants(t testing.TB, q Querier) {
 	require.Equal(t, all, scalar[int](t, q, "SELECT count(DISTINCT lower(path)) FROM folder_paths"), "full paths unique")
 	require.Zero(t, scalar[int](t, q, "SELECT count(*) FROM folders WHERE parent_id IN (SELECT id FROM folders WHERE is_default = 1)"))
 	require.Zero(t, scalar[int](t, q, "SELECT count(*) FROM folders WHERE is_default = 1 AND parent_id IS NOT NULL"))
+	// The indexed lookups (folderByPath, loadFolder) agree with the view for every folder, in any
+	// ASCII case (what NOCASE folds).
+	rows, err := q.QueryContext(context.Background(), "SELECT id, path, depth FROM folder_paths")
+	require.NoError(t, err)
+	type fp struct {
+		id    int64
+		path  string
+		depth int
+	}
+	var list []fp
+	for rows.Next() {
+		var r fp
+		require.NoError(t, rows.Scan(&r.id, &r.path, &r.depth))
+		list = append(list, r)
+	}
+	require.NoError(t, rows.Err())
+	require.NoError(t, rows.Close())
+	upper := func(s string) string {
+		b := []byte(s)
+		for i, c := range b {
+			if c >= 'a' && c <= 'z' {
+				b[i] = c - 32
+			}
+		}
+		return string(b)
+	}
+	for _, r := range list {
+		for _, p := range []string{r.path, upper(r.path)} {
+			id, ok, err := folderByPath(context.Background(), q, p)
+			require.NoError(t, err)
+			require.True(t, ok, "path %q", p)
+			require.Equal(t, r.id, id, "path %q", p)
+		}
+		row, err := loadFolder(context.Background(), q, r.id)
+		require.NoError(t, err)
+		require.Equal(t, r.path, row.path)
+		require.Equal(t, r.depth, row.depth)
+	}
+}
+
+// folderByPath follows names that hold a '/' at any level, and a path that is not a folder's is not found.
+func TestFolderByPathSlashNames(t *testing.T) {
+	e := newEnv(t)
+	music := e.mkFolder(0, "Music")
+	acdc := e.mkFolder(music, "AC/DC")
+	live := e.mkFolder(acdc, "Live")
+	top := e.mkFolder(0, "A/B/C")
+	deep := e.mkFolder(top, "D")
+	for path, want := range map[string]int64{"music/ac/dc": acdc, "Music/AC/DC/Live": live, "A/B/C": top, "a/b/c/d": deep} {
+		id, ok, err := folderByPath(e.ctx, e.db.Reader(), path)
+		require.NoError(t, err)
+		require.True(t, ok, path)
+		require.Equal(t, want, id, path)
+	}
+	for _, path := range []string{"Music/AC", "A/B", "Music/AC/DC/Live/X", "", "/", "Music/"} {
+		_, ok, err := folderByPath(e.ctx, e.db.Reader(), path)
+		require.NoError(t, err)
+		require.False(t, ok, path)
+	}
+	checkFolderInvariants(t, e.db.Reader())
 }
 
 func TestFolderSiblingNamesUniqueIgnoringCase(t *testing.T) {

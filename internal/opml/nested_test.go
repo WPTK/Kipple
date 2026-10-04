@@ -1,11 +1,15 @@
 package opml
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -66,10 +70,11 @@ func TestParseAndImportTooDeep(t *testing.T) {
 	require.Len(t, d.Folders, store.MaxFolderDepth)
 	require.Len(t, d.Feeds[0].Folder, store.MaxFolderDepth, "a feed below the cap goes into its level-8 ancestor")
 	require.Len(t, d.Feeds[1].Folder, store.MaxFolderDepth)
-	require.Equal(t, []RefusedFolder{
-		{"L1/L2/L3/L4/L5/L6/L7/L8/L9", "folders nest at most 8 levels deep"},
-		{"L1/L2/L3/L4/L5/L6/L7/L8/L0", "folders nest at most 8 levels deep"},
-	}, d.FoldersRefused)
+	require.Len(t, d.FoldersRefused, 1, "only the topmost too-deep outline; what is below it is covered by it")
+	require.Equal(t, "L1/L2/L3/L4/L5/L6/L7/L8/L9", d.FoldersRefused[0].Path)
+	require.Equal(t, "folders nest at most 8 levels deep", d.FoldersRefused[0].Reason)
+	require.True(t, d.Feeds[0].cut)
+	require.True(t, d.Feeds[1].cut)
 
 	db := openDB(t)
 	r, err := Import(context.Background(), db, d, ImportOptions{})
@@ -217,4 +222,123 @@ func TestImportMoveExisting(t *testing.T) {
 	require.Len(t, r.FeedsMoved, 1)
 	require.Equal(t, "Uncategorized", folderOf(t, db, "https://m.test/f"))
 	require.Equal(t, []string{"Misc"}, r.FoldersEmptied)
+}
+
+// Folder lookups use the sibling index, so a large tree imports in one write well inside the writer's
+// timeout (a lookup per folder through folder_paths made this quadratic).
+func TestImportManyFolders(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("<opml><body>")
+	n := 0
+	for i := 0; i < 1250; i++ {
+		fmt.Fprintf(&b, `<outline text="Top %d">`, i)
+		for j := 0; j < 3; j++ {
+			n++
+			fmt.Fprintf(&b, `<outline text="Sub %d"><outline xmlUrl="https://f%d.test/rss"/></outline>`, j, n)
+		}
+		b.WriteString("</outline>")
+	}
+	b.WriteString("</body></opml>")
+	db := openDB(t)
+	start := time.Now()
+	r := importString(t, db, b.String(), ImportOptions{})
+	t.Logf("5000 folders, %d feeds: %v", n, time.Since(start))
+	require.Equal(t, 5000, r.FoldersCreated)
+	require.Equal(t, n, r.FeedsAdded)
+	require.Equal(t, "Top 1249/Sub 2", folderOf(t, db, fmt.Sprintf("https://f%d.test/rss", n)))
+
+	start = time.Now()
+	r = importString(t, db, b.String(), ImportOptions{MoveExisting: true})
+	t.Logf("re-import: %v", time.Since(start))
+	require.Zero(t, r.FoldersCreated)
+	require.Empty(t, r.FeedsMoved)
+}
+
+// With MoveExisting, a feed whose folder in the file was refused (a bad name, too deep) stays where it
+// is instead of falling back to an ancestor or Uncategorized.
+func TestImportMoveExistingSkipsRefusedFolders(t *testing.T) {
+	db := openDB(t)
+	importString(t, db, `<opml><body><outline text="Keep">
+	<outline xmlUrl="https://bad.test/f"/><outline xmlUrl="https://deep.test/f"/><outline xmlUrl="https://ok.test/f"/>
+	</outline></body></opml>`, ImportOptions{})
+	deep := `<outline xmlUrl="https://deep.test/f"/>`
+	for i := 9; i >= 1; i-- {
+		deep = fmt.Sprintf(`<outline text="D%d">%s</outline>`, i, deep)
+	}
+	r := importString(t, db, `<opml><body>
+	<outline text="Good"><outline text="Bad&#127;"><outline xmlUrl="https://bad.test/f"/></outline><outline xmlUrl="https://ok.test/f"/></outline>
+	`+deep+`</body></opml>`, ImportOptions{MoveExisting: true})
+	require.Len(t, r.FoldersRefused, 2, "%v", r.FoldersRefused)
+	require.Len(t, r.FeedsMoved, 1)
+	require.Equal(t, "https://ok.test/f", r.FeedsMoved[0].URL)
+	require.Equal(t, "Keep", folderOf(t, db, "https://bad.test/f"))
+	require.Equal(t, "Keep", folderOf(t, db, "https://deep.test/f"))
+	require.Equal(t, "Good", folderOf(t, db, "https://ok.test/f"))
+}
+
+// A chain that lands on an existing folder with the same full path but other levels is reported, and
+// the container it came through is not created empty.
+func TestImportReportsPathMerge(t *testing.T) {
+	db := openDB(t)
+	importString(t, db, `<opml><body><outline text="Music"><outline text="AC/DC"><outline xmlUrl="https://acdc.test/f"/></outline></outline></body></opml>`, ImportOptions{})
+	r := importString(t, db, `<opml><body><outline text="Music"><outline text="AC"><outline text="DC"><outline xmlUrl="https://dc.test/f"/></outline></outline></outline></body></opml>`, ImportOptions{})
+	require.Zero(t, r.FoldersCreated, "no empty AC beside the literal AC/DC")
+	require.Equal(t, []MergedPath{{Kept: []string{"Music", "AC/DC"}, Merged: []string{"Music", "AC", "DC"}}}, r.FoldersMergedPath)
+	require.Equal(t, []string{"Music", "Music/AC/DC"}, paths(t, db))
+	require.Equal(t, "Music/AC/DC", folderOf(t, db, "https://dc.test/f"))
+
+	// A case-only difference from an existing folder is not a path merge.
+	r = importString(t, db, `<opml><body><outline text="music"><outline text="ac/dc"/></outline></body></opml>`, ImportOptions{})
+	require.Empty(t, r.FoldersMergedPath)
+	require.Zero(t, r.FoldersCreated)
+}
+
+// Sibling names are compared like SQLite's NOCASE: ASCII letters only, so "É" and "é" are two folders
+// in the parser and in the store, and a re-import keeps both.
+func TestParseFoldsASCIICaseOnly(t *testing.T) {
+	src := `<opml><body><outline text="École"><outline xmlUrl="https://a.test/f"/></outline>` +
+		`<outline text="école"><outline xmlUrl="https://b.test/f"/></outline>` +
+		`<outline text="ÉCOLE"><outline xmlUrl="https://c.test/f"/></outline></body></opml>`
+	d := parseString(t, src)
+	require.Equal(t, [][]string{{"École"}, {"école"}}, d.Folders, "only the ASCII letters fold: ÉCOLE is École")
+	require.Equal(t, []MergedCase{{"École", "ÉCOLE"}}, d.FoldersMergedCase)
+
+	db := openDB(t)
+	r := importString(t, db, src, ImportOptions{})
+	require.Equal(t, 2, r.FoldersCreated)
+	require.Equal(t, "école", folderOf(t, db, "https://b.test/f"))
+	db2 := openDB(t)
+	r = importString(t, db2, export(t, db), ImportOptions{})
+	require.Equal(t, 2, r.FoldersCreated)
+	require.Equal(t, paths(t, db), paths(t, db2))
+}
+
+// reorderQ runs ExportFrom's query with another ORDER BY, as a broken view or query would.
+type reorderQ struct {
+	q     Queryer
+	order string
+}
+
+func (r reorderQ) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return r.q.QueryContext(ctx, strings.Replace(query, "ORDER BY fp.sort_key", "ORDER BY "+r.order+", fp.sort_key", 1), args...)
+}
+
+// Rows out of tree order are an error, never misnested XML.
+func TestExportRefusesRowsOutOfTreeOrder(t *testing.T) {
+	db := openDB(t)
+	importString(t, db, `<opml><body><outline text="A"><outline text="B"><outline xmlUrl="https://b.test/f"/></outline></outline>
+	<outline text="C"><outline xmlUrl="https://c.test/f"/></outline></body></opml>`, ImportOptions{})
+	var b bytes.Buffer
+	err := ExportFrom(context.Background(), reorderQ{db.Reader(), "fo.id DESC"}, &b)
+	require.ErrorContains(t, err, "outside its parent")
+	b.Reset()
+	require.NoError(t, ExportFrom(context.Background(), db.Reader(), &b))
+
+	// A folder's rows split by another folder's.
+	db2 := openDB(t)
+	importString(t, db2, `<opml><body><outline text="A"><outline xmlUrl="https://a1.test/f"/></outline>
+	<outline text="C"><outline xmlUrl="https://c.test/f"/></outline></body></opml>`, ImportOptions{})
+	importString(t, db2, `<opml><body><outline text="A"><outline xmlUrl="https://a2.test/f"/></outline></body></opml>`, ImportOptions{})
+	err = ExportFrom(context.Background(), reorderQ{db2.Reader(), "f.id"}, &b)
+	require.ErrorContains(t, err, "listed twice")
 }

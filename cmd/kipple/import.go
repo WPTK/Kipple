@@ -78,5 +78,9 @@ func runImport(args []string) error {
 	}
 	fmt.Fprintf(os.Stderr, "imported %d new feeds (%d folders created, %d already present, %d moved); the running server fetches them on its next tick\n",
 		res.FeedsAdded, res.FoldersCreated, len(res.FeedsExisting), len(res.FeedsMoved))
+	if res.FoldersCreated > 0 || len(res.FeedsMoved) > 0 {
+		// This command writes the database directly, so the server sends open web apps no event.
+		fmt.Fprintln(os.Stderr, "reload any open Kipple web app to see the new folders and moved feeds")
+	}
 	return nil
 }

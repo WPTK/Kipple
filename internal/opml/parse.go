@@ -39,14 +39,17 @@ type Feed struct {
 	Folder   []string // the folder as its chain of names from the top level; empty = root (Uncategorized)
 	Attrs    Attrs
 	BadAttrs []string // kipple:* attributes that failed validation
+	// cut: the file put the feed in a folder too deep to keep, and Folder is the deepest kept
+	// ancestor. Import never moves an existing feed there.
+	cut bool
 }
 
 // Doc is a parsed OPML document: its folder tree and its feeds.
 type Doc struct {
 	// Folders holds every named outline that is not a feed, pure containers and empty folders
 	// included, as its chain of names from the top level, in document order (a parent before its
-	// children). Among siblings, names that differ only by case are one folder (first spelling
-	// kept); the same name under different parents is a different folder.
+	// children). Among siblings, names that differ only by ASCII case (SQLite's NOCASE) are one
+	// folder (first spelling kept); the same name under different parents is a different folder.
 	Folders [][]string
 	Feeds   []Feed // document order
 	// FoldersMergedCase lists case-variant spellings merged into an earlier sibling, by path.
@@ -67,6 +70,31 @@ type MergedCase struct {
 type RefusedFolder struct {
 	Path   string `json:"path"`
 	Reason string `json:"reason"`
+	chain  []string
+}
+
+// MergedPath records a folder of the file that resolved to an existing folder with the same full
+// path but other levels: the file's Music > AC > DC filed into a folder literally named "AC/DC" inside
+// Music (full paths are unique, so both cannot exist). Each side is the chain of names from the top.
+type MergedPath struct {
+	Kept   []string `json:"kept"`
+	Merged []string `json:"merged"`
+}
+
+// foldCase lowercases ASCII letters only: SQLite's NOCASE, the rule folder names are compared by.
+func foldCase(s string) string {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c >= 'A' && c <= 'Z' {
+			b := []byte(s)
+			for j := i; j < len(b); j++ {
+				if c := b[j]; c >= 'A' && c <= 'Z' {
+					b[j] = c + 'a' - 'A'
+				}
+			}
+			return string(b)
+		}
+	}
+	return s
 }
 
 // Path joins a folder chain with '/', the way the Reader API names a folder. It is for reports
@@ -142,21 +170,25 @@ func Parse(r io.Reader) (*Doc, error) {
 	doc := &Doc{}
 	type node struct {
 		chain []string
-		kids  map[string]*node // lower(name) -> child folder
+		kids  map[string]*node // foldCase(name) -> child folder
 	}
-	tooDeep := map[string]bool{} // lower(path) of each too-deep outline reported
-	var walk func(list []outline, parent *node)
-	walk = func(list []outline, parent *node) {
+	tooDeep := map[string]bool{} // chainKey(foldCase) of each too-deep outline reported
+	// cut is true below an outline too deep to keep: everything there goes into parent, the
+	// deepest kept ancestor, and only that topmost outline is reported (the way Import reports a
+	// refused folder once, at its top). Reporting each outline below it would build a path per
+	// level, quadratic in a file nested thousands deep.
+	var walk func(list []outline, parent *node, cut bool)
+	walk = func(list []outline, parent *node, cut bool) {
 		for _, o := range list {
 			if u := o.get("xmlUrl"); u != "" {
-				f := Feed{URL: u, Title: o.name(), SiteURL: o.get("htmlUrl"), Folder: parent.chain}
+				f := Feed{URL: u, Title: o.name(), SiteURL: o.get("htmlUrl"), Folder: parent.chain, cut: cut}
 				f.Attrs, f.BadAttrs = parseAttrs(o.Attrs)
 				doc.Feeds = append(doc.Feeds, f)
 				continue
 			}
 			name := o.name()
-			if name == "" {
-				walk(o.Children, parent)
+			if name == "" || cut {
+				walk(o.Children, parent, cut)
 				continue
 			}
 			chain := make([]string, len(parent.chain)+1)
@@ -165,14 +197,14 @@ func Parse(r io.Reader) (*Doc, error) {
 			if len(chain) > store.MaxFolderDepth {
 				// Too deep to keep: what it holds goes into the deepest kept ancestor. The cap also
 				// bounds the chains Parse builds (the XML decoder nests up to 10000 levels).
-				if p := Path(chain); !tooDeep[strings.ToLower(p)] {
-					tooDeep[strings.ToLower(p)] = true
-					doc.FoldersRefused = append(doc.FoldersRefused, RefusedFolder{p, refusal(store.ErrFolderDepth)})
+				if k := foldCase(chainKey(chain)); !tooDeep[k] {
+					tooDeep[k] = true
+					doc.FoldersRefused = append(doc.FoldersRefused, RefusedFolder{Path(chain), refusal(store.ErrFolderDepth), chain})
 				}
-				walk(o.Children, parent)
+				walk(o.Children, parent, true)
 				continue
 			}
-			key := strings.ToLower(name)
+			key := foldCase(name)
 			n, ok := parent.kids[key]
 			if !ok {
 				n = &node{chain: chain, kids: map[string]*node{}}
@@ -181,10 +213,10 @@ func Parse(r io.Reader) (*Doc, error) {
 			} else if n.chain[len(n.chain)-1] != name {
 				doc.FoldersMergedCase = appendMerged(doc.FoldersMergedCase, Path(n.chain), Path(chain))
 			}
-			walk(o.Children, n)
+			walk(o.Children, n, false)
 		}
 	}
-	walk(d.Body.Outlines, &node{kids: map[string]*node{}})
+	walk(d.Body.Outlines, &node{kids: map[string]*node{}}, false)
 	return doc, nil
 }
 

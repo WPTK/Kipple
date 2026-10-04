@@ -32,7 +32,7 @@ type Queryer interface {
 // subfolders. One query reads it all, so the document is one snapshot.
 func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	rows, err := q.QueryContext(ctx, `
-		SELECT fo.id, fp.name, fp.depth, f.url, f.site_url, COALESCE(f.custom_title, NULLIF(f.title,''), ''),
+		SELECT fo.id, COALESCE(fo.parent_id, 0), fo.name, f.url, f.site_url, COALESCE(f.custom_title, NULLIF(f.title,''), ''),
 		       f.interval_minutes, f.retention, f.fulltext, f.dedup_mode, f.user_agent,
 		       f.ignore_http_cache, f.disable_http2, f.allow_insecure_tls, f.allow_private_net, f.enabled
 		FROM folders fo JOIN folder_paths fp ON fp.id = fo.id LEFT JOIN feeds f ON f.folder_id = fo.id AND `+store.ListedFeedSQL("f")+`
@@ -47,38 +47,49 @@ func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	b.WriteString(xml.Header)
 	b.WriteString(`<opml version="2.0" xmlns:kipple="` + NS + `">` + "\n  <head><title>Kipple subscriptions</title></head>\n  <body>\n")
 	indent := func(depth int) { b.WriteString(strings.Repeat("  ", depth+1)) }
-	// open is the depth of the innermost open folder outline (0 = none); folders arrive in
-	// pre-order, so a folder at depth d closes every open outline at depth d or deeper.
-	open := 0
-	closeTo := func(depth int) {
-		for ; open > depth; open-- {
-			indent(open)
+	// open holds the ids of the open folder outlines, outermost first. Each folder closes the
+	// outlines down to its parent, which must be open: rows in any other order are an error, never
+	// a document with misnested or unclosed outlines.
+	var open []int64
+	opened := map[int64]bool{}
+	closeTo := func(n int) {
+		for len(open) > n {
+			indent(len(open))
 			b.WriteString("</outline>\n")
+			open = open[:len(open)-1]
 		}
 	}
 	var cur int64 = -1
 	for rows.Next() {
-		var fid int64
+		var fid, parent int64
 		var folder string
-		var depth int
 		var url, site, title, dedup sql.NullString
 		var interval, retention sql.NullInt64
 		var ua sql.NullString
 		var ft, nocache, h2, insecure, private, enabled sql.NullInt64
-		if err := rows.Scan(&fid, &folder, &depth, &url, &site, &title, &interval, &retention, &ft, &dedup, &ua,
+		if err := rows.Scan(&fid, &parent, &folder, &url, &site, &title, &interval, &retention, &ft, &dedup, &ua,
 			&nocache, &h2, &insecure, &private, &enabled); err != nil {
 			return err
 		}
 		if fid != cur {
-			cur = fid
-			closeTo(depth - 1)
-			indent(depth)
+			if opened[fid] {
+				return fmt.Errorf("opml: export: folder %d listed twice", fid)
+			}
+			for len(open) > 0 && open[len(open)-1] != parent {
+				closeTo(len(open) - 1)
+			}
+			if parent != 0 && len(open) == 0 {
+				return fmt.Errorf("opml: export: folder %d listed outside its parent %d", fid, parent)
+			}
+			cur, opened[fid] = fid, true
+			indent(len(open) + 1)
 			b.WriteString("<outline")
 			attr(&b, "text", folder)
 			attr(&b, "title", folder)
 			b.WriteString(">\n")
-			open = depth
+			open = append(open, fid)
 		}
+		depth := len(open)
 		if !url.Valid {
 			continue
 		}

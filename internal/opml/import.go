@@ -53,6 +53,9 @@ type Result struct {
 	// FoldersRefused are folders not created (too deep, a name the folder writer refuses); their
 	// feeds went into the deepest ancestor that was kept, or Uncategorized.
 	FoldersRefused []RefusedFolder `json:"folders_refused"`
+	// FoldersMergedPath are folders of the file filed into an existing folder with the same full
+	// path but other levels (full paths are unique), each side as its chain of names.
+	FoldersMergedPath []MergedPath `json:"folders_merged_path"`
 	// FeedsMoved are the existing feeds MoveExisting moved to another folder.
 	FeedsMoved []Existing `json:"feeds_moved"`
 	// FoldersEmptied are folders (by path) that MoveExisting left with no feed and no subfolder.
@@ -77,6 +80,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		FeedsExisting:      []Existing{},
 		FoldersMergedCase:  append([]MergedCase{}, doc.FoldersMergedCase...),
 		FoldersRefused:     append([]RefusedFolder{}, doc.FoldersRefused...),
+		FoldersMergedPath:  []MergedPath{},
 		FeedsMoved:         []Existing{},
 		FoldersEmptied:     []string{},
 		MembershipsDropped: []Dropped{},
@@ -97,43 +101,74 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			return err
 		}
 
-		// Folders: each chain is matched level by level (ignoring case) or created, in document
-		// order, by the folder writer (store.EnsureFolderChain). A chain the writer refuses (a bad
-		// name, Uncategorized as a parent) resolves to its deepest kept ancestor and is reported once,
-		// at its top. A chain a hand-built Doc forgot to list is resolved on demand.
-		folderID := map[string]int64{}
-		refused := map[string]bool{}
+		// Folders: each chain is matched level by level (ignoring ASCII case) or created by the folder
+		// writer, which walks down from the nearest level already resolved (never from the top again)
+		// on indexed lookups. A chain the writer refuses (a bad name, Uncategorized as a parent)
+		// resolves to its deepest kept ancestor and is reported once, at its top. A chain that lands on
+		// a folder with the same full path but other levels (Music > AC > DC onto a literal "AC/DC") is
+		// reported in folders_merged_path. A chain a hand-built Doc forgot to list is resolved on demand.
+		folderID := map[string]int64{} // chainKey -> folder id; the empty chain is the top level (0)
+		refused := map[string]bool{}   // chains that fell back to an ancestor
 		var resolve func(chain []string) (int64, error)
 		resolve = func(chain []string) (int64, error) {
 			if len(chain) == 0 {
-				return 1, nil // the default folder
+				return 0, nil
 			}
 			k := chainKey(chain)
 			if id, ok := folderID[k]; ok {
 				return id, nil
 			}
-			parent, err := resolve(chain[:len(chain)-1])
+			base, from := int64(0), 0
+			for i := len(chain) - 1; i > 0; i-- {
+				ak := chainKey(chain[:i])
+				if id, ok := folderID[ak]; ok {
+					if refused[ak] {
+						folderID[k], refused[k] = id, true
+						return id, nil
+					}
+					base, from = id, i
+					break
+				}
+			}
+			id, created, werr := store.EnsureFolderChainFrom(ctx, tx, base, chain[from:])
+			res.FoldersCreated += created
+			if store.FolderRefused(werr) {
+				parent, err := resolve(chain[:len(chain)-1])
+				if err != nil {
+					return 0, err
+				}
+				if !refused[chainKey(chain[:len(chain)-1])] {
+					res.FoldersRefused = append(res.FoldersRefused, RefusedFolder{Path(chain), refusal(werr), chain})
+				}
+				folderID[k], refused[k] = parent, true
+				return parent, nil
+			}
+			if werr != nil {
+				return 0, fmt.Errorf("opml: create folder %q: %w", Path(chain), werr)
+			}
+			folderID[k] = id
+			names, err := store.FolderNames(ctx, tx, id)
 			if err != nil {
 				return 0, err
 			}
-			if refused[chainKey(chain[:len(chain)-1])] {
-				folderID[k], refused[k] = parent, true
-				return parent, nil
+			if foldCase(chainKey(names)) != foldCase(chainKey(chain)) {
+				res.FoldersMergedPath = append(res.FoldersMergedPath, MergedPath{names, chain})
 			}
-			id, created, err := store.EnsureFolderChain(ctx, tx, chain)
-			res.FoldersCreated += created
-			if store.FolderRefused(err) {
-				folderID[k], refused[k] = parent, true
-				res.FoldersRefused = append(res.FoldersRefused, RefusedFolder{Path(chain), refusal(err)})
-				return parent, nil
-			}
-			if err != nil {
-				return 0, fmt.Errorf("opml: create folder %q: %w", Path(chain), err)
-			}
-			folderID[k] = id
 			return id, nil
 		}
+		// A folder with subfolders in the file is resolved through them, top-down, so the writer can
+		// match a whole run of levels to an existing folder (and leave no empty "AC" beside a literal
+		// "AC/DC"); it is still created, in document order, by the first of them.
+		hasKids := map[string]bool{}
 		for _, chain := range doc.Folders {
+			if len(chain) > 1 {
+				hasKids[chainKey(chain[:len(chain)-1])] = true
+			}
+		}
+		for _, chain := range doc.Folders {
+			if hasKids[chainKey(chain)] {
+				continue
+			}
 			if _, err := resolve(chain); err != nil {
 				return err
 			}
@@ -176,11 +211,16 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			if err != nil {
 				return err
 			}
+			if target == 0 {
+				target = 1 // the default folder
+			}
 			if id, found, err := store.FindFeedByURL(ctx, tx, f.URL); err != nil {
 				return err
 			} else if found {
 				res.FeedsExisting = append(res.FeedsExisting, Existing{norm, id})
-				if opts.MoveExisting {
+				// A feed whose folder in the file was not kept stays where it is: moving it to an
+				// ancestor (or Uncategorized) is not what the file says.
+				if opts.MoveExisting && !f.cut && !refused[chainKey(f.Folder)] {
 					var from int64
 					err := tx.QueryRowContext(ctx, "SELECT f.folder_id FROM feeds f WHERE f.id = ? AND "+store.ListedFeedSQL("f"), id).Scan(&from)
 					if errors.Is(err, sql.ErrNoRows) || err == nil && from == target {
@@ -242,17 +282,19 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			res.NewFeedIDs = append(res.NewFeedIDs, id)
 		}
 		for _, id := range emptiedFrom {
-			var path string
-			err := tx.QueryRowContext(ctx, `SELECT p.path FROM folder_paths p WHERE p.id = ?
-				AND NOT EXISTS (SELECT 1 FROM feeds f WHERE f.folder_id = p.id AND `+store.ListedFeedSQL("f")+`)
-				AND NOT EXISTS (SELECT 1 FROM folders c WHERE c.parent_id = p.id)`, id).Scan(&path)
-			if errors.Is(err, sql.ErrNoRows) {
+			var empty bool
+			if err := tx.QueryRowContext(ctx, `SELECT NOT EXISTS (SELECT 1 FROM feeds f WHERE f.folder_id = ?1 AND `+store.ListedFeedSQL("f")+`)
+				AND NOT EXISTS (SELECT 1 FROM folders c WHERE c.parent_id = ?1)`, id).Scan(&empty); err != nil {
+				return err
+			}
+			if !empty {
 				continue
 			}
+			names, err := store.FolderNames(ctx, tx, id)
 			if err != nil {
 				return err
 			}
-			res.FoldersEmptied = append(res.FoldersEmptied, path)
+			res.FoldersEmptied = append(res.FoldersEmptied, Path(names))
 		}
 		for _, p := range order {
 			if len(p.dropped) > 0 {
