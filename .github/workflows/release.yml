@@ -310,6 +310,23 @@ jobs:
             echo "::error::could not inspect $IMAGE:$VERSION: $out"; exit 1
           fi
 
+      # The SBOM BuildKit embedded in the image (sbom: true in the build), read back by digest: one SPDX document per
+      # platform, the exact output of `docker buildx imagetools inspect --format '{{ json .SBOM }}'` that anyone can
+      # run. It comes after Tag, so signing, attesting and tagging are untouched; if it fails the image is already
+      # signed and tagged and the run is red, and re-running the failed jobs repeats this step and the ones after it.
+      - name: SBOM
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          sbom="kipple-$VERSION.sbom.json"
+          docker buildx imagetools inspect "$IMAGE@$DIGEST" --format '{{ json .SBOM }}' > "$sbom"
+          if ! jq -e 'type == "object" and length > 0' "$sbom" >/dev/null; then
+            echo "::error::no SBOM found in $IMAGE@$DIGEST"; exit 1
+          fi
+          echo "$sbom: $(sha256sum "$sbom" | cut -d' ' -f1)" | tee -a "$GITHUB_STEP_SUMMARY"
+
       # The block a Release page needs so one version maps to exactly one digest. It goes in the job summary and an
       # artifact always; when the GitHub Release already exists it is appended there too (once).
       - name: Release notes block
@@ -336,22 +353,32 @@ jobs:
             echo "  --certificate-identity-regexp '$COSIGN_IDENTITY_REGEXP' \\"
             echo "  --certificate-oidc-issuer $COSIGN_ISSUER"
             echo '```'
+            echo
+            echo "Software bill of materials (SPDX, one document per platform): kipple-$VERSION.sbom.json, sha256 $(sha256sum "kipple-$VERSION.sbom.json" | cut -d' ' -f1)"
+            echo "Rebuild it from the image to compare:"
+            echo
+            echo '```'
+            echo "docker buildx imagetools inspect $IMAGE@$DIGEST --format '{{ json .SBOM }}' | sha256sum"
+            echo '```'
           } > image-notes.md
           cat image-notes.md >> "$GITHUB_STEP_SUMMARY"
           if body="$(gh release view "$TAG" --json body --jq .body 2>/dev/null)"; then
+            gh release upload "$TAG" "kipple-$VERSION.sbom.json" --clobber
             # One block per Release: the X.Y.Z tag is immutable, so a block that is already there is the right one.
             if ! grep -qF "$DIGEST" <<<"$body" && ! grep -qxF "## Container image" <<<"$body"; then
               printf '%s\n\n%s\n' "$body" "$(cat image-notes.md)" > release-body.md
               gh release edit "$TAG" --notes-file release-body.md
             fi
           else
-            echo "No GitHub Release for $TAG yet; create it with the image-notes artifact appended (docs/RELEASING.md, step 11)."
+            echo "No GitHub Release for $TAG yet; create it with the image-notes artifact appended (docs/RELEASING.md, step 11), then gh release upload $TAG kipple-$VERSION.sbom.json (also in that artifact)."
           fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: image-notes
-          path: image-notes.md
+          path: |
+            image-notes.md
+            kipple-${{ needs.gate.outputs.version }}.sbom.json
 
   # 9. Floating tags: latest, X.Y and X move only onto the highest stable tag they could point at, so an older patch or
   # a re-run never moves them backwards. Decided here, after the lock is taken, from the tags as they are now. The lock
