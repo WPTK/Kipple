@@ -144,8 +144,13 @@ func TestExtractRefusesBadURLsAndPrivateNets(t *testing.T) {
 }
 
 func TestExtractTimeout(t *testing.T) {
-	srv := page(t, func(w http.ResponseWriter, r *http.Request) { time.Sleep(2 * time.Second) })
-	ex := newExtractor(func(o *Options) { o.Timeout = 200 * time.Millisecond })
+	srv := page(t, func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	})
+	ex := newExtractor(func(o *Options) { o.Timeout = 50 * time.Millisecond })
 	start := time.Now()
 	_, err := ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
 	require.Error(t, err)
