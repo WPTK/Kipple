@@ -33,7 +33,7 @@ type genOpts struct {
 	feeds    int
 	items    int
 	seed     int64
-	schema   int // 0 = latest; otherwise rewind the finished database to this schema version (6 or 10)
+	schema   int // 0 = latest; otherwise rewind the finished database to this schema version (6, 10 or 11)
 	feedBase string
 	days     int // days of stats history
 }
@@ -62,7 +62,7 @@ func runGen(args []string) error {
 	fs.IntVar(&o.feeds, "feeds", 500, "number of feeds")
 	fs.IntVar(&o.items, "items", 150000, "number of items")
 	fs.Int64Var(&o.seed, "seed", 1, "random seed (same seed, same data)")
-	fs.IntVar(&o.schema, "schema", 0, "rewind the finished database to this schema version: 10 (the previous one) or 6 (an older shape); 0 keeps the latest")
+	fs.IntVar(&o.schema, "schema", 0, "rewind the finished database to this schema version: 11 (the previous one), 10 or 6 (older shapes); 0 keeps the latest")
 	fs.StringVar(&o.feedBase, "feed-base", "http://127.0.0.1:1932", "base URL of `scalegen feeds`; feed N is <base>/feed/N.xml")
 	fs.IntVar(&o.days, "stats-days", 400, "days of reading-statistics history")
 	if err := fs.Parse(args); err != nil {
@@ -110,14 +110,54 @@ func generate(ctx context.Context, o genOpts) error {
 		return err
 	}
 
-	// Folders: 24 plus the default one.
+	// Folders: the default one plus a tree of about 540: 25 at the top level, each folder holding
+	// 1 to 5 subfolders (1 to 3 below the second level), breadth first, up to 5 levels deep.
 	folderIDs := []int64{1}
-	for i := 0; i < 24; i++ {
-		f, err := db.CreateFolder(ctx, fmt.Sprintf("Folder %02d", i+1), int64(i+1))
+	type node struct {
+		id    int64
+		depth int
+	}
+	var queue []node
+	var lvl4 []int64
+	made := 0
+	mk := func(parent int64, depth int) error {
+		made++
+		f, err := db.CreateFolder(ctx, fmt.Sprintf("Folder %03d", made), parent, int64(made))
 		if err != nil {
 			return err
 		}
 		folderIDs = append(folderIDs, f.ID)
+		queue = append(queue, node{f.ID, depth})
+		if depth == 4 {
+			lvl4 = append(lvl4, f.ID)
+		}
+		return nil
+	}
+	for i := 0; i < 25; i++ {
+		if err := mk(0, 1); err != nil {
+			return err
+		}
+	}
+	for len(queue) > 0 && made < 500 {
+		n := queue[0]
+		queue = queue[1:]
+		if n.depth >= 5 {
+			continue
+		}
+		k := 1 + r.Intn(3)
+		if n.depth <= 2 {
+			k = 1 + r.Intn(5)
+		}
+		for j := 0; j < k && made < 500; j++ {
+			if err := mk(n.id, n.depth+1); err != nil {
+				return err
+			}
+		}
+	}
+	for i := 0; i < len(lvl4) && i < 40; i++ { // a few folders at the fifth level
+		if err := mk(lvl4[i], 5); err != nil {
+			return err
+		}
 	}
 
 	// Feed plan. Counts sit at the retention cap for most feeds (a steady-state library) and
@@ -191,7 +231,7 @@ func generate(ctx context.Context, o genOpts) error {
 		plans[i].title = fmt.Sprintf("Feed %03d %s", i+1, tg.words[r.Intn(2000)])
 		folder := folderIDs[0]
 		if r.Float64() < 0.85 {
-			folder = folderIDs[1+int(math.Min(23, math.Abs(r.NormFloat64())*7))]
+			folder = folderIDs[1+r.Intn(len(folderIDs)-1)]
 		}
 		id, err := db.AddFeed(ctx, store.NewFeed{URL: fmt.Sprintf("%s/feed/%d.xml", o.feedBase, i+1),
 			FolderID: folder, Retention: plans[i].retention, NextFetchAt: farFuture})
@@ -212,7 +252,7 @@ func generate(ctx context.Context, o genOpts) error {
 	}); err != nil {
 		return err
 	}
-	progress("%d feeds in 25 folders", len(plans))
+	progress("%d feeds in %d folders", len(plans), len(folderIDs))
 
 	// Item plan: metadata only; content is generated per item from its own seed at insert time.
 	nowMicro := time.Now().UnixMicro()
@@ -434,32 +474,46 @@ func boolI(b bool) int {
 }
 
 // rewind turns a finished database into one the migrations from schema v up produce the latest
-// shape from. 10 only restores the settings rows 0011 deletes; 6 also drops what 0007 to 0009
-// added, so those migrations do their real work (a full items UPDATE and three stats indexes).
+// shape from. Every version first flattens the folder tree to the shape before migration 0012: each
+// folder becomes a top-level folder named by its full path, so 0012 has a table to rebuild. 11 does
+// only that; 10 also restores the settings rows 0011 deletes; 6 also drops what 0007 to 0009 added,
+// so those migrations do their real work (a full items UPDATE and three stats indexes).
 func rewind(path string, v int) error {
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(ON)")
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(OFF)")
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	var stmts []string
+	db.SetMaxOpenConns(1)
+	stmts := []string{
+		`CREATE TABLE folders_old (
+		   id INTEGER PRIMARY KEY AUTOINCREMENT,
+		   name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(trim(name)) > 0),
+		   position INTEGER NOT NULL DEFAULT 0,
+		   is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
+		   created_at INTEGER NOT NULL DEFAULT (unixepoch())) STRICT`,
+		`INSERT INTO folders_old (id, name, position, is_default, created_at)
+		   SELECT fo.id, fp.path, fo.position, fo.is_default, fo.created_at FROM folders fo JOIN folder_paths fp ON fp.id = fo.id`,
+		`DROP VIEW folder_paths`, `DROP TABLE folders`, `ALTER TABLE folders_old RENAME TO folders`,
+		`CREATE UNIQUE INDEX idx_folders_one_default ON folders(is_default) WHERE is_default = 1`,
+		`CREATE TRIGGER folders_keep_default BEFORE DELETE ON folders WHEN old.is_default = 1
+		   BEGIN SELECT RAISE(ABORT, 'the default folder cannot be deleted'); END`,
+	}
 	switch v {
+	case 11:
 	case 10:
-		stmts = []string{
-			`INSERT OR IGNORE INTO settings (key, value) VALUES ('security.open_lan', 'true'), ('ui.font_size', '16'), ('sys.legacy_port', 'true')`,
-		}
+		stmts = append(stmts, `INSERT OR IGNORE INTO settings (key, value) VALUES ('security.open_lan', 'true'), ('ui.font_size', '16'), ('sys.legacy_port', 'true')`)
 	case 6:
-		stmts = []string{
+		stmts = append(stmts, `INSERT OR IGNORE INTO settings (key, value) VALUES ('security.open_lan', 'true'), ('ui.font_size', '16'), ('sys.legacy_port', 'true')`,
 			`DROP INDEX idx_items_state_changed`, `ALTER TABLE items DROP COLUMN state_changed_at`,
 			`DROP INDEX idx_stats_event`, `ALTER TABLE stats_events DROP COLUMN event_id`,
-			`DROP INDEX idx_stats_open_cov`, `DROP INDEX idx_stats_rt_cov`, `DROP INDEX idx_stats_scroll_cov`,
-		}
+			`DROP INDEX idx_stats_open_cov`, `DROP INDEX idx_stats_rt_cov`, `DROP INDEX idx_stats_scroll_cov`)
 	default:
-		return fmt.Errorf("gen: -schema must be 6 or 10")
+		return fmt.Errorf("gen: -schema must be 6, 10 or 11")
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
-			return fmt.Errorf("rewind %q: %w", s, err)
+			return fmt.Errorf("rewind %.60q: %w", s, err)
 		}
 	}
 	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", v)); err != nil {
@@ -473,7 +527,7 @@ func rewind(path string, v int) error {
 func runRewind(args []string) error {
 	fs := flag.NewFlagSet("rewind", flag.ExitOnError)
 	db := fs.String("db", "", "database file to rewind in place")
-	v := fs.Int("schema", 10, "schema version to rewind to (6 or 10)")
+	v := fs.Int("schema", 10, "schema version to rewind to (6, 10 or 11)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

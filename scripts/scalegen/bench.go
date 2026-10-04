@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -107,7 +108,7 @@ func fsize(p string) int64 {
 	return st.Size()
 }
 
-func runBench(args []string) error {
+func runBench(args []string) (err error) {
 	var o benchOpts
 	fs := flag.NewFlagSet("bench", flag.ExitOnError)
 	fs.StringVar(&o.bin, "bin", "", "the kipple binary to measure")
@@ -125,7 +126,11 @@ func runBench(args []string) error {
 	if err := os.MkdirAll(o.work, 0o750); err != nil {
 		return err
 	}
-	defer os.RemoveAll(o.work)
+	defer func() {
+		if err == nil { // keep the scratch directory (and the server logs in it) when a run fails
+			_ = os.RemoveAll(o.work)
+		}
+	}()
 
 	m := newMetrics()
 	src := filepath.Join(o.src, "kipple.db")
@@ -133,7 +138,7 @@ func runBench(args []string) error {
 
 	// Migration timing is in process: store.Open is what `kipple serve` runs first.
 	for run := 1; run <= o.runs; run++ {
-		for _, v := range []int{0, 10, 6} {
+		for _, v := range []int{0, 11, 6} {
 			if err := benchOpen(o, m, src, v, run); err != nil {
 				return err
 			}
@@ -151,7 +156,7 @@ func runBench(args []string) error {
 }
 
 // benchOpen times store.Open on a copy of the database: v = 0 is the current schema (the open
-// itself), 10 the previous one and 6 an older one (see rewind).
+// itself), 11 the previous one and 6 an older one (see rewind).
 func benchOpen(o benchOpts, m *metrics, src string, v, run int) error {
 	dir := filepath.Join(o.work, fmt.Sprintf("open-%d-%d", v, run))
 	path := filepath.Join(dir, "kipple.db")
@@ -462,13 +467,50 @@ func benchServer(o benchOpts, m *metrics, src string, run int) error {
 			ID string `json:"id"`
 		} `json:"feeds"`
 		Folders []struct {
-			ID string `json:"id"`
+			ID        string  `json:"id"`
+			ParentID  *string `json:"parent_id"`
+			Name      string  `json:"name"`
+			IsDefault bool    `json:"is_default"`
 		} `json:"folders"`
 	}](s, "/api/bootstrap")
 	if err != nil {
 		return err
 	}
+	// The folder tree: a top-level folder, and the deepest one with its full path (a Reader API label).
+	byID := map[string]int{}
+	for i, f := range boot.Folders {
+		byID[f.ID] = i
+	}
+	pathOf := func(i int) (string, int) {
+		var names []string
+		for j := i; ; {
+			names = append([]string{boot.Folders[j].Name}, names...)
+			p := boot.Folders[j].ParentID
+			if p == nil {
+				break
+			}
+			j = byID[*p]
+		}
+		return strings.Join(names, "/"), len(names)
+	}
+	topIdx, deepIdx, deepDepth := -1, 0, 0
+	for i, f := range boot.Folders {
+		if topIdx < 0 && f.ParentID == nil && !f.IsDefault {
+			topIdx = i
+		}
+		if _, d := pathOf(i); d > deepDepth {
+			deepIdx, deepDepth = i, d
+		}
+	}
+	topPath, _ := pathOf(topIdx)
+	deepPath, _ := pathOf(deepIdx)
+	m.add("library.folders", "count", float64(len(boot.Folders)))
+	m.add("library.folder_max_depth", "levels", float64(deepDepth))
 	feedID, folderID := boot.Feeds[3].ID, boot.Folders[len(boot.Folders)/2].ID
+	topID, deepID := boot.Folders[topIdx].ID, boot.Folders[deepIdx].ID
+	label := func(p string) string {
+		return greader + "stream/contents/user/-/label/" + url.PathEscape(p) + "?n=50&xt=user/-/state/com.google/read&output=json"
+	}
 
 	// Item ids for the detail and Reader contents calls.
 	first, err := jsonGet[struct {
@@ -497,6 +539,11 @@ func benchServer(o benchOpts, m *metrics, src string, run int) error {
 		{name: "web.list_starred", method: "GET", path: "/api/items?view=starred&limit=50"},
 		{name: "web.list_feed", method: "GET", path: "/api/items?view=all&feed=" + feedID + "&limit=50"},
 		{name: "web.list_folder", method: "GET", path: "/api/items?folder=" + folderID + "&limit=50"},
+		{name: "web.list_folder_top_subtree", method: "GET", path: "/api/items?folder=" + topID + "&limit=50"},
+		{name: "web.list_folder_deepest", method: "GET", path: "/api/items?folder=" + deepID + "&limit=50"},
+		{name: "web.list_folder_top_all", method: "GET", path: "/api/items?view=all&folder=" + topID + "&limit=50"},
+		{name: "reader.label_top_n50", method: "GET", reader: true, path: label(topPath)},
+		{name: "reader.label_deepest_n50", method: "GET", reader: true, path: label(deepPath)},
 		{name: "web.item_detail", method: "GET", path: "/api/items/" + ids[0]},
 		{name: "web.stats_summary_year", method: "GET", path: "/api/stats/summary?range=year"},
 		{name: "web.stats_summary_all", method: "GET", path: "/api/stats/summary?range=all"},
@@ -632,6 +679,9 @@ func benchServer(o benchOpts, m *metrics, src string, run int) error {
 	m.add("trim.bulk_ledger_added", "count", float64(countRows(dir, "SELECT count(*) FROM trimmed_items")-trimBefore))
 	m.add("rss.peak_during_bulk_trim_mb", "MB", mb(peak))
 	m.add("db.wal.peak_during_bulk_trim_mb", "MB", mb(uint64(wal)))
+	if err := benchImport(m, s); err != nil {
+		return err
+	}
 	m.add("db.file.end_mb", "MB", mb(uint64(fsize(filepath.Join(dir, "kipple.db")))))
 	m.add("db.wal.end_mb", "MB", mb(uint64(fsize(filepath.Join(dir, "kipple.db-wal")))))
 	_, hwm, _ := rss(s.cmd.Process.Pid)
@@ -854,4 +904,63 @@ func allowPrivateFeeds(dir string) error {
 	defer h.Close()
 	_, err = h.Exec("UPDATE feeds SET allow_private_net = 1")
 	return err
+}
+
+// opmlWithFolders builds an OPML document of n folders nested up to 5 levels (30 at the top, 1 to 5
+// subfolders each, breadth first), each holding one feed that the synthetic feed server does not know.
+func opmlWithFolders(n int, prefix string) []byte {
+	r := rand.New(rand.NewSource(99)) // #nosec G404 -- fixture data
+	children := make([][]int, n)
+	depth := make([]int, n)
+	next := 0
+	for ; next < 30 && next < n; next++ {
+		depth[next] = 1
+	}
+	for q := 0; q < n && next < n; q++ {
+		if depth[q] >= 5 || depth[q] == 0 {
+			continue
+		}
+		for k := 1 + r.Intn(5); k > 0 && next < n; k-- {
+			depth[next] = depth[q] + 1
+			children[q] = append(children[q], next)
+			next++
+		}
+	}
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><opml version="2.0"><head><title>folders</title></head><body>`)
+	var emit func(i int)
+	emit = func(i int) {
+		fmt.Fprintf(&b, `<outline text="%s %d">`, prefix, i)
+		fmt.Fprintf(&b, `<outline type="rss" text="%s feed %d" xmlUrl="http://127.0.0.1:1/%s/%d.xml"/>`, prefix, i, strings.ReplaceAll(prefix, " ", "-"), i)
+		for _, c := range children[i] {
+			emit(c)
+		}
+		b.WriteString(`</outline>`)
+	}
+	for i := 0; i < 30 && i < n; i++ {
+		emit(i)
+	}
+	b.WriteString(`</body></opml>`)
+	return []byte(b.String())
+}
+
+// benchImport imports OPML files that create 250 to 3000 nested folders, each size from a new prefix, and
+// records the request time and status of each. A failed import is a result, not an error: folder import
+// work grows faster than linearly with the number of folders and ends at the writer's 10 s deadline.
+func benchImport(m *metrics, s *server) error {
+	for _, n := range []int{250, 500, 1000, 2000, 3000} {
+		body := opmlWithFolders(n, fmt.Sprintf("Import %d folder", n))
+		t := time.Now()
+		code, _, _, err := s.req("POST", "/api/opml", body, "text/x-opml", nil)
+		if err != nil {
+			return err
+		}
+		took := time.Since(t).Seconds()
+		m.add(fmt.Sprintf("import.opml_%d_folders.http_status", n), "code", float64(code))
+		m.add(fmt.Sprintf("import.opml_%d_folders.request_s", n), "s", took)
+		if err := s.waitIdle(500 * time.Millisecond); err != nil {
+			return err
+		}
+	}
+	return s.timeEndpoint(m, endpoint{name: "web.bootstrap_after_import", method: "GET", path: "/api/bootstrap"})
 }
