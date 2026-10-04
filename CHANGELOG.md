@@ -8,6 +8,19 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.8.0-beta.2] - 2026-10-04
+
+### Changed
+
+- Outgoing requests (feeds, article extraction, the image proxy) now reuse connections to the same host instead of opening a new one per request, which saves TLS handshakes on pages with many images.
+- Large libraries answer faster: the feed list's starred counts, folder and Starred article pages, and mark-all-as-read read only the rows they need (two new indexes, added by an automatic migration on first start), and a refresh no longer re-counts a feed that is within its retention limit.
+- Feed ingest allocates less: a UTF-8 feed body is no longer copied to rewrite its XML declaration, and word counting no longer builds a slice of every word.
+- The article list no longer redraws every row when you mark one article read.
+
+### Fixed
+
+- Shutting down now waits for in-flight image thumbnail jobs to finish before the image cache and database close, so a stop during a transcode no longer cuts one off mid-write.
+
 ## [0.8.0-beta.1] - 2026-10-04
 
 ### Added
@@ -807,7 +820,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.1...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.2...HEAD
+[0.8.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.1...v0.8.0-beta.2
 [0.8.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.7.0-beta.2...v0.8.0-beta.1
 [0.7.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.7.0-beta.1...v0.7.0-beta.2
 [0.7.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.6.0-beta.1...v0.7.0-beta.1
