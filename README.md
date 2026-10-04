@@ -48,6 +48,7 @@ so a Google Reader-API client can act as a second reader on the same account.
 - [What it's like to use](#what-its-like-to-use)
 - [Quickstart](#quickstart)
 - [Configuration](#configuration)
+- [What Kipple will not do](#what-kipple-will-not-do)
 - [Support](#support)
 - [Roadmap](#roadmap)
 - [For developers](#for-developers)
@@ -110,10 +111,19 @@ services:
     restart: unless-stopped
     ports: ["127.0.0.1:1919:1919"]
     volumes: ["kipple_data:/data"]
+    # Kipple finishes shutting down within 25 s of SIGTERM; 30 s leaves margin.
+    stop_grace_period: 30s
+    # Hard memory and process caps; GOMEMLIMIT makes the Go GC work harder before the cap is hit.
+    mem_limit: 256m
+    pids_limit: 200
+    environment: ["GOMEMLIMIT=64MiB"]
     read_only: true
     tmpfs: ["/tmp:size=64m,mode=1777"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
 volumes:
   kipple_data:
 ```
@@ -224,10 +234,32 @@ The ones self-hosters most often want:
 | `TZ` | IANA time zone for a new install: stored as the time zone setting on the first start only. Choose it in Kipple afterwards. |
 | `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` | Create the account from the environment instead of the wizard (scripted deploys). |
 
+## What Kipple will not do
+
+Kipple is a reader for one person, and some things are left out on purpose. Requests for these will be closed:
+
+- No podcasts, and no audio or video players.
+- No read-later service and no webhook or other integrations with outside services.
+- No tags (feeds live in folders, and articles can be starred).
+- No AI features.
+- No notifications.
+- No social features, and no sharing of your reading with other people.
+- No monitoring or analytics of any kind.
+- No multiple users: one account per server.
+- No Fever API. The sync API is the Google Reader API.
+
 ## Support
 
-Something broken or missing? Open an issue on [GitHub Issues](https://github.com/WPTK/Kipple/issues).
-There's no chat room or mailing list; issues are the one place to ask.
+Kipple has one maintainer and is supported on a best-effort basis: there is no response time, and no chat room or
+mailing list. Start with [docs/troubleshooting.md](docs/troubleshooting.md). If that does not solve it, open an issue on
+[GitHub Issues](https://github.com/WPTK/Kipple/issues) and fill in the bug form: it asks for the output of
+`docker exec kipple /kipple version -v`, how you run Kipple, what sits in front of it, and the logs. A vulnerability goes
+through [SECURITY.md](SECURITY.md), not an issue.
+
+Supported: the published Docker image on `linux/amd64` and `linux/arm64`, one user, the web app, and Reeder Classic and
+NetNewsWire as sync clients. Not supported: a hosted service, other container runtimes and NAS platforms (they may
+work), running the bare binary, other sync clients (they may work), your reverse proxy or tunnel beyond what
+[docs/reverse-proxy.md](docs/reverse-proxy.md) says, and builds from source (best effort).
 
 Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md).
 

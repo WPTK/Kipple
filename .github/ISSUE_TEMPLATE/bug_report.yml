@@ -1,0 +1,64 @@
+name: Bug report
+description: Something in Kipple does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Kipple has one maintainer and issues are handled best effort. Please read the
+        [troubleshooting page](https://github.com/WPTK/Kipple/blob/main/docs/troubleshooting.md) first.
+        Do not report a security problem here: use the private link on the issue chooser.
+        Remove passwords, feed logins and private addresses from anything you paste.
+  - type: textarea
+    id: version
+    attributes:
+      label: Output of `docker exec kipple /kipple version -v`
+      description: Paste the whole output. Settings > About > Copy debug info works too.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you run Kipple
+      options:
+        - Published image with Docker Compose
+        - Published image with docker run
+        - Built from source with Docker
+        - Other (describe below)
+    validations:
+      required: true
+  - type: dropdown
+    id: proxy
+    attributes:
+      label: What sits between your browser and Kipple
+      options:
+        - Nothing (direct to the published port)
+        - Caddy
+        - nginx
+        - Traefik
+        - Cloudflare Tunnel or Cloudflare Access
+        - Tailscale
+        - Other (describe below)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: Include the steps to reproduce it, and the client (browser and version, Reeder Classic, NetNewsWire) if it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The relevant lines of `docker logs --tail 100 kipple`, around the time of the problem.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Your compose file (without secrets), proxy configuration, or other details.
