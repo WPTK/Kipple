@@ -1270,7 +1270,7 @@ INSERT INTO temp.trim_set(id)
 
 INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at)
   SELECT i.id, i.feed_id, i.uid, i.read, :now, :now
-  FROM temp.trim_set t JOIN items i ON i.id = t.id
+  FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id   -- CROSS: walk trim_set (see below)
   WHERE true                                   -- required before ON CONFLICT with INSERT … SELECT … JOIN
 ON CONFLICT (feed_id, uid) DO UPDATE SET
   id = excluded.id, read = excluded.read, trimmed_at = excluded.trimmed_at, last_seen_at = excluded.last_seen_at;
@@ -1281,20 +1281,21 @@ INSERT INTO trimmed_content (id, published_at, updated_at, sort_at, word_count, 
   SELECT i.id, i.published_at, i.updated_at, i.sort_at, i.word_count, i.content_hash, i.text_hash,
          i.url, i.title, i.author, i.image_url, i.origin_title, i.fulltext_mode,
          c.content_html, c.content_text, c.enclosures_json, c.categories_json
-  FROM temp.trim_set t JOIN items i ON i.id = t.id JOIN item_content c ON c.item_id = i.id
+  FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id CROSS JOIN item_content c ON c.item_id = i.id
   WHERE :restore_days > 0
 ON CONFLICT (id) DO NOTHING;
 
 UPDATE feeds SET trimmed_unread_count = trimmed_unread_count +
-  (SELECT count(*) FROM temp.trim_set t JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :first_new_id),
+  (SELECT count(*) FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :first_new_id),
   trimmed_unread_since = COALESCE(trimmed_unread_since, :now)
 WHERE id = :feed
-  AND EXISTS (SELECT 1 FROM temp.trim_set t JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :first_new_id);
+  AND EXISTS (SELECT 1 FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :first_new_id);
 
 DELETE FROM items WHERE id IN (SELECT id FROM temp.trim_set);
 ```
 
-- **Bounded per transaction.** The `trim_set` INSERT ends with `ORDER BY sort_at ASC, id ASC LIMIT :batch` (2000): one transaction trims at most that many items, the oldest first, so a feed with a huge backlog under a newly lowered cap never pushes a write past the writer's 10 s deadline (about 100 µs per item, mostly the FTS delete trigger). Repeating it converges on exactly the unbounded result, since kept items never enter the set and the muted allowance recomputed from the smaller counts is unchanged. A fetch commit trims one batch; when that batch was full the scheduler queues a `trim_only` job for the feed 1 s later. A `trim_only` job loops in batches, each its own gated transaction, for at most 10 s (the first batch always runs), and when it stops with work left it is requeued the same way; one `fetch_log` row is written by the first batch and later ones add to it. Deleting or unsubscribing a feed likewise deletes its items and then its ledger rows in gated batches of the same size before the final transaction removes the feed row; an interrupted delete resumes on retry.
+- **Bounded per transaction.** The `trim_set` INSERT ends with `ORDER BY sort_at ASC, id ASC LIMIT :batch` (2000): one transaction trims at most that many items, the oldest first, so a feed with a huge backlog under a newly lowered cap never pushes a write past the writer's 10 s deadline (about 0.6 ms per item on a fast desktop with a local SSD, mostly the FTS delete trigger and the WAL writes of the commit, so a little over 1 s a batch). Repeating it converges on exactly the unbounded result, since kept items never enter the set and the muted allowance recomputed from the smaller counts is unchanged. A fetch commit trims one batch; when that batch was full the scheduler queues a `trim_only` job for the feed 1 s later. A `trim_only` job loops in batches, each its own gated transaction, for at most 10 s (the first batch always runs), and when it stops with work left it is requeued the same way; one `fetch_log` row is written by the first batch and later ones add to it. Deleting or unsubscribing a feed likewise deletes its items and then its ledger rows in gated batches of the same size before the final transaction removes the feed row; an interrupted delete resumes on retry.
+- Every statement that reads the trim set's items joins `temp.trim_set t CROSS JOIN items i`, so SQLite walks the trim set and looks each item up by id. With a plain JOIN the planner, which has no statistics for the temp table, may scan `items` instead and probe the trim set, so a batch would cost what the library holds rather than what it trims.
 - The trim returns early, before any INSERT, when `trim_set` is empty.
 - `changes()` from the DELETE goes to `fetch_log.trimmed_items`.
 - The FTS rows go via `items_fts_bd`. `item_content` and `item_fulltext` go by cascade.
