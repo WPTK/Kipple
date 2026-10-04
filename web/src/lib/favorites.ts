@@ -4,7 +4,6 @@ import { api, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { toast } from "@/shell/toasts";
-import { arrayMove } from "./dnd";
 import { cleanFavorites, type Favorite } from "./devicePrefs";
 import { visibleFeeds } from "./visibleFeeds";
 
@@ -12,18 +11,13 @@ import { visibleFeeds } from "./visibleFeeds";
 // to every device: the server keeps them in `library.favorites` (PATCH /api/settings, at most 500 items).
 
 export const FAVORITES_KEY = "library.favorites";
-export const MAX_FAVORITES = 500;
+const MAX_FAVORITES = 500;
 
-export const isFav = (list: readonly Favorite[], t: Favorite["t"], id: string): boolean => list.some((f) => f.t === t && f.id === id);
+const isFav = (list: readonly Favorite[], t: Favorite["t"], id: string): boolean => list.some((f) => f.t === t && f.id === id);
 
 /** Toggle one entry, keeping the order of the others; a new favorite goes to the end. */
-export function toggleFavorite(list: readonly Favorite[], t: Favorite["t"], id: string): Favorite[] {
+function toggleFavorite(list: readonly Favorite[], t: Favorite["t"], id: string): Favorite[] {
   return isFav(list, t, id) ? list.filter((f) => !(f.t === t && f.id === id)) : [...list, { t, id }];
-}
-
-/** Move one favorite to a new position (drag, or the up and down buttons). */
-export function moveFavorite(list: readonly Favorite[], from: number, to: number): Favorite[] {
-  return arrayMove(list, from, to);
 }
 
 export interface FavoritesApi {

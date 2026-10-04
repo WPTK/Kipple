@@ -15,10 +15,10 @@ export const PREVIEW_MAX_AGE_MS = 60_000;
 /** The count grew this much (a fraction, or that many articles) since the preview: the person must see the new number. */
 export const GREW_FRACTION = 0.1;
 export const GREW_ARTICLES = 100;
-export const grewTooMuch = (before: number, after: number): boolean => after - before > Math.min(before * GREW_FRACTION, GREW_ARTICLES) && after > before;
+const grewTooMuch = (before: number, after: number): boolean => after - before > Math.min(before * GREW_FRACTION, GREW_ARTICLES) && after > before;
 
 /** What a failed preview or run says. `busy` and `confirm_required` have their own wording; everything else is generic. */
-export function catchUpError(e: unknown): string {
+function catchUpError(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 409 && e.code === "busy") return "Another catch-up is already running. Wait for it to finish, then try again.";
     if (e.status === 404) return "That feed no longer exists.";

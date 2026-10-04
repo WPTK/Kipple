@@ -13,7 +13,7 @@ import type { ListLayout } from "./types";
 
 const layouts: Record<LayoutId, ListLayout> = { magazine, cards, compact, inbox, headlines };
 
-export function getLayout(id: LayoutId): ListLayout {
+function getLayout(id: LayoutId): ListLayout {
   return layouts[id] ?? magazine;
 }
 

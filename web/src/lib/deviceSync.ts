@@ -47,7 +47,7 @@ const LEGACY_KEYS = [DEVICE_PREFS_KEY, PREFS_KEY, THEME_STORAGE_KEY];
 const store = (): LocalState => ({ theme: themeStore.get(), prefs: prefsStore.get(), dp: devicePrefsStore.get() });
 
 /** JSON with sorted keys: a stable comparison and fingerprint for profile values. */
-export function stable(v: unknown): string {
+function stable(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
   if (v && typeof v === "object") {
     const o = v as Record<string, unknown>;
@@ -595,7 +595,7 @@ export function hydrateDevice(device: DeviceView | undefined): void {
 }
 
 /** The server's answer to a copy, reset or rename: adopt its effective values and forget anything pending. */
-export function adoptDevice(device: DeviceView): void {
+function adoptDevice(device: DeviceView): void {
   if (timer) clearTimeout(timer);
   timer = undefined;
   again = false;
