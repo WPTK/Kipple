@@ -18,6 +18,7 @@
     "uat": "node uat/run.mjs",
     "uat:wizard": "node uat/wizard.mjs",
     "uat:offline": "node uat/offline.mjs",
+    "uat:keyboard": "node uat/keyboard.mjs",
     "uat:folders": "node uat/folders.mjs"
   },
   "dependencies": {

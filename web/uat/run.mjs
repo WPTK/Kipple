@@ -16,7 +16,7 @@
 //   S7  the reading-font choice is reachable: the Aa menu above every list and article, and Settings > Appearance &
 //       Reading, each offer a "Reading font" select with every font (it once went missing from Settings unnoticed)
 // Known, accepted issues are waived in uat/waivers.json:
-//   [{ "check": "S3", "rule"?: "<axe id>", "match"?: "<text in the finding>", "screen"?, "theme"?, "viewport"?,
+//   [{ "check": "S3", "rule"?: "<axe id>", "match"?: "<text in the finding>", "screen"?, "theme"?, "viewport"?, "browser"?,
 //      "reason": "why this is accepted" }]
 //
 // Exit code: 0 clean, 1 findings, 2 a screen or the run itself could not be checked.
@@ -32,21 +32,24 @@
 //   --url <base>        Kipple to test [KIPPLE_UAT_URL], default http://127.0.0.1:1919
 //   --user <name>       [KIPPLE_UAT_USER], default the seed's user
 //   --password <pw>     [KIPPLE_UAT_PASSWORD], default the seed's password
-//   --out <dir>         report directory, default uat/results/<timestamp>
+//   --out <dir>         report directory, default uat/results/<timestamp> (per engine, with --browsers)
 //   --only <ids>        comma-separated screen ids to run (see SCREENS below)
 //   --screenshots       save a full-page screenshot of every screen (failing screens are always saved)
+//   --browser <engine>  chromium (default), firefox or webkit [KIPPLE_UAT_BROWSER]
+//   --browsers <list>   several engines in turn, comma-separated, or "all": one run each, reports in <out>/<engine>;
+//                       the exit code is the worst of them. The default run stays Chromium only
 //   --headed            show the browser
 //   --allow-remote      allow a non-loopback --url or credentials other than the seed's
 //   --help              this text
 //
-// First time on a machine: `npx playwright install chromium`. See docs/uat-plan.md, Suite 1.
+// First time on a machine: `npx playwright install chromium` (and firefox webkit for --browsers). See docs/uat-plan.md, Suite 1.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { chromium } from "@playwright/test";
+import { chromium, firefox, webkit } from "@playwright/test";
 import { activeScheme, axeProbe, hasAxe, installPageHelpers, literalProbe, overflowProbe, pushRoute, screenReady } from "./probes.mjs";
 
 /** The first line of an error's message. */
@@ -82,6 +85,8 @@ const { values: opt } = orSetupError("bad arguments (see --help)", () => parseAr
     only: { type: "string" },
     screenshots: { type: "boolean", default: false },
     headed: { type: "boolean", default: false },
+    browser: { type: "string", default: process.env.KIPPLE_UAT_BROWSER || "chromium" },
+    browsers: { type: "string" },
     "allow-remote": { type: "boolean", default: false },
     help: { type: "boolean", default: false },
   },
@@ -91,6 +96,29 @@ if (opt.help) {
   const lines = readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/);
   console.log(lines.slice(0, lines.findIndex((l) => !l.startsWith("//"))).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
   process.exit(0);
+}
+
+const ENGINES = { chromium, firefox, webkit };
+const engineName = opt.browser;
+if (!(engineName in ENGINES)) setupError(`unknown --browser ${engineName}. Known: ${Object.keys(ENGINES).join(", ")}`);
+if (opt.browsers !== undefined) {
+  // One child run per engine, in turn (never in parallel: they share the instance and its device), each with its own
+  // report directory. The exit code is the worst of them (2 over 1 over 0), so a missing engine is never a pass.
+  const list = opt.browsers === "all" ? Object.keys(ENGINES) : opt.browsers.split(",").map((b) => b.trim()).filter(Boolean);
+  const bad = list.filter((b) => !(b in ENGINES));
+  if (!list.length || bad.length) setupError(`bad --browsers: ${bad.join(", ") || "(none given)"}. Use all or a list of ${Object.keys(ENGINES).join(", ")}`);
+  const parent = opt.out ?? join(webDir, "uat", "results", `browsers-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+  const own = ["--browsers", "--browser", "--out"];
+  const passthrough = process.argv.slice(2).filter((a, i, all) => !own.includes(a.replace(/=.*/, "")) && !(i > 0 && own.includes(all[i - 1])));
+  let worst = 0;
+  for (const b of new Set(list)) {
+    console.log(`\n==== ${b} ====`);
+    const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), ...passthrough, "--browser", b, "--out", join(parent, b)], { stdio: "inherit" });
+    const code = r.status ?? 2;
+    console.log(`==== ${b}: exit ${code} ====`);
+    worst = Math.max(worst, code);
+  }
+  process.exit(worst);
 }
 
 const base = orSetupError(`bad --url ${opt.url}`, () => new URL(opt.url));
@@ -181,6 +209,7 @@ const waivers = orSetupError("uat/waivers.json", () => {
   if (!Array.isArray(list)) throw new Error("must be a JSON array");
   const allowed = {
     check: ["S1", "S2", "S3", "S4", "S5", "S6"],
+    browser: Object.keys(ENGINES),
     screen: [...SCREENS.map((s) => s.id), "boot"],
     theme: THEMES.map((t) => t.id),
     viewport: VIEWPORTS.map((v) => v.id),
@@ -188,7 +217,7 @@ const waivers = orSetupError("uat/waivers.json", () => {
   for (const w of list) {
     const bad = (why) => new Error(`${why}: ${JSON.stringify(w)}`);
     if (typeof w !== "object" || w === null) throw bad("a waiver is an object");
-    for (const k of Object.keys(w)) if (!["check", "rule", "match", "screen", "theme", "viewport", "reason"].includes(k)) throw bad(`unknown key "${k}"`);
+    for (const k of Object.keys(w)) if (!["check", "rule", "match", "screen", "theme", "viewport", "browser", "reason"].includes(k)) throw bad(`unknown key "${k}"`);
     for (const k of Object.keys(w)) if (typeof w[k] !== "string" || !w[k]) throw bad(`"${k}" must be a non-empty string`);
     if (!w.check || !w.reason) throw bad("every waiver needs a check and a reason");
     for (const [k, ok] of Object.entries(allowed)) if (w[k] !== undefined && !ok.includes(w[k])) throw bad(`"${k}" must be one of ${ok.join(", ")}`);
@@ -208,7 +237,8 @@ function waived(check, rule, where, message, detail) {
         (w.match === undefined || text.includes(w.match)) &&
         (w.screen === undefined || w.screen === where.screen) &&
         (w.theme === undefined || w.theme === where.theme) &&
-        (w.viewport === undefined || w.viewport === where.viewport),
+        (w.viewport === undefined || w.viewport === where.viewport) &&
+        (w.browser === undefined || w.browser === engineName),
     );
   for (const [, i] of hits) used.add(i);
   return hits[0]?.[0] ?? null;
@@ -347,9 +377,20 @@ async function go(page, path, { reload = false } = {}) {
 }
 
 // ---- the run ----
-const browser = await chromium
+const browser = await ENGINES[engineName]
   .launch({ headless: !opt.headed })
-  .catch((e) => setupError(`could not start Chromium (npx playwright install chromium): ${firstLine(e)}`));
+  .catch((e) => setupError(`could not start ${engineName} (npx playwright install ${engineName}): ${firstLine(e)}`));
+// Firefox drops a context's emulated color scheme when the document is served with Cross-Origin-Opener-Policy
+// (Kipple sends same-origin): the navigation swaps the browsing context group and matchMedia goes back to light. The
+// real engine follows the OS, so for Firefox the preference is set on the browser itself, one browser per theme.
+const themeBrowsers = new Map();
+async function browserFor(theme) {
+  if (engineName !== "firefox") return browser;
+  if (!themeBrowsers.has(theme.id)) {
+    themeBrowsers.set(theme.id, await firefox.launch({ headless: !opt.headed, firefoxUserPrefs: { "ui.systemUsesDarkTheme": theme.colorScheme === "dark" ? 1 : 0 } }));
+  }
+  return themeBrowsers.get(theme.id);
+}
 let exitCode;
 try {
   await selfTest();
@@ -363,6 +404,7 @@ try {
   console.error(`run aborted: ${firstLine(e)}`);
   exitCode = 2;
 } finally {
+  for (const b of themeBrowsers.values()) await b.close().catch(() => {});
   await browser.close().catch((e) => console.warn(`closing the browser failed: ${firstLine(e)}`));
 }
 // Set rather than process.exit(), so piped output is flushed before Node leaves.
@@ -535,11 +577,12 @@ async function checkScreens(cookies) {
       const combo = { theme: theme.id, viewport: vp.id };
       let context;
       try {
-        context = await browser.newContext({
+        context = await (await browserFor(theme)).newContext({
           baseURL: origin,
           colorScheme: theme.colorScheme,
           viewport: { width: vp.width, height: vp.height },
-          isMobile: vp.mobile,
+          // Firefox has no mobile emulation (Playwright rejects isMobile there); it still gets the width and touch.
+          isMobile: vp.mobile && engineName !== "firefox",
           hasTouch: vp.mobile,
           storageState: { cookies, origins: [] },
           // Keep the run self-contained: no service worker answering from its cache between screens.
@@ -599,7 +642,8 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     const u = new URL(req.url());
     const why = req.failure()?.errorText ?? "failed";
     // A navigation aborts whatever was in flight (the event stream, prefetches): that is not a failure.
-    if (why.includes("ERR_ABORTED")) return;
+    // Each engine words it its own way: ERR_ABORTED (Chromium), NS_BINDING_ABORTED (Firefox), "cancelled" (WebKit).
+    if (/ERR_ABORTED|NS_BINDING_ABORTED|cancel+ed/i.test(why)) return;
     if (u.origin !== origin) return; // other origins: the console message above
     if (u.pathname.startsWith("/api/")) bucket.api.push({ status: 0, method: req.method(), url: u.pathname + u.search, error: why });
     else bucket.other.push({ url: u.pathname + u.search, text: why });
@@ -825,7 +869,7 @@ function writeReport(results, s6) {
   const md = [
     `# UAT Suite 1 report`,
     ``,
-    `${origin}, ${startedText}. ${checked} of ${screens.length * THEMES.length * VIEWPORTS.length} screen checks completed ` +
+    `${engineName} ${browser.version()}, ${origin}, ${startedText}. ${checked} of ${screens.length * THEMES.length * VIEWPORTS.length} screen checks completed ` +
       `(${screens.length} screens x ${THEMES.length} themes x ${VIEWPORTS.length} widths).`,
     ``,
     `| Check | Failures | Waived |`,

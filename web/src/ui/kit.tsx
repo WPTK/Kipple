@@ -5,6 +5,30 @@ import { ChevronDown, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "./button";
 
+/**
+ * Props for a Radix `Dialog.Content` that is opened by state (a button, a key, a menu item) rather than by a
+ * `Dialog.Trigger`. Radix gives focus back to the trigger on close and to nothing when there is none, so Escape would
+ * drop the keyboard to the top of the page. This remembers what had focus when `open` turned true, read while rendering
+ * (before the commit moves focus into the dialog, which an `autoFocus` field does before any effect can run), and
+ * returns focus there.
+ */
+export function useReturnFocus(open: boolean) {
+  const [wasOpen, setWasOpen] = useState(false);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setOpener(document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null);
+  }
+  return {
+    onCloseAutoFocus: (e: Event) => {
+      if (opener?.isConnected) {
+        e.preventDefault();
+        opener.focus();
+      }
+    },
+  };
+}
+
 /** A modal sheet: bottom-aligned on phones, centered on wide screens. Radix traps focus and restores it. */
 export function Modal({
   open,
@@ -24,11 +48,13 @@ export function Modal({
   /** lg: room for a form with a preview beside its fields (still a bottom sheet on a phone). */
   size?: "md" | "lg";
 }) {
+  const returnFocus = useReturnFocus(open);
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
         <Dialog.Content
+          {...returnFocus}
           className={cn(
             "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full flex-col rounded-t-2xl border border-line bg-bg text-fg shadow-xl min-[640px]:inset-y-auto min-[640px]:top-[6vh] min-[640px]:bottom-auto min-[640px]:rounded-2xl",
             size === "lg" ? "max-w-2xl min-[640px]:top-[3vh]" : "max-w-lg",

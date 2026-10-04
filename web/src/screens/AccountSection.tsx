@@ -277,6 +277,7 @@ export function AccountActions() {
   const [backupError, setBackupError] = useState<string | null>(null);
 
   const doBackup = async () => {
+    if (busy) return;
     setBusy("backup");
     setBackupError(null);
     try {
@@ -288,6 +289,7 @@ export function AccountActions() {
     }
   };
   const doRetention = async () => {
+    if (busy) return;
     setBusy("retention");
     try {
       await applyRetention();
@@ -337,7 +339,8 @@ export function AccountActions() {
         <Button onClick={() => setDialog("api")}>Generate API password</Button>
       </div>
       <div>
-        <Button disabled={busy === "backup"} onClick={() => void doBackup()}>
+        {/* aria-disabled, not disabled: a disabled button drops the keyboard's place, so the dialog it opens would have nothing to return focus to. */}
+        <Button aria-disabled={busy === "backup" || undefined} onClick={() => void doBackup()}>
           {busy === "backup" ? "Preparing backup" : "Export backup"}
         </Button>
         <p className="mt-1 text-xs text-fg2">Saves everything (feeds, articles, read and starred state, settings) as one file you choose where to keep.</p>
@@ -348,7 +351,7 @@ export function AccountActions() {
         ) : null}
       </div>
       <div>
-        <Button disabled={busy === "retention"} onClick={() => void doRetention()}>
+        <Button aria-disabled={busy === "retention" || undefined} onClick={() => void doRetention()}>
           Apply retention now
         </Button>
         <p className="mt-1 text-xs text-fg2">Trims every feed to its "articles to keep" limit right away. Starred articles are never removed.</p>
