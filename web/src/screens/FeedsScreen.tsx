@@ -317,14 +317,19 @@ export function FeedsScreen() {
   // Saves run one after another: each one sends the whole folder order, so two in flight could commit out of order.
   const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
   const saving = useRef(0);
+  // Counts failed saves. A queued save was planned on top of the tree painted before it; once a save planned earlier
+  // has failed, that tree was never the server's, so the queued save is dropped instead of sent.
+  const failures = useRef(0);
   /**
    * Save a new tree: paint it at once, then send the moves and the new order as one POST /api/reorder (one server
-   * transaction), after any save still running. Rejects with the server's refusal, which changed nothing; the
-   * bootstrap is refetched once the last queued save ends, so the screen ends up showing what the server has.
+   * transaction), after any save still running. Rejects with the server's refusal, which changed nothing; a save
+   * queued behind a failed one is dropped. The bootstrap is refetched once the last queued save ends, so the screen
+   * ends up showing what the server has.
    */
   const saveTree = async (next: Tree) => {
     const body = reorderBody(tree, next);
     if (!body) return;
+    const planned = failures.current;
     setSaved("saving");
     // A bootstrap refetch in flight would paint the old tree over the new one.
     await qc.cancelQueries({ queryKey: keys.bootstrap });
@@ -347,11 +352,20 @@ export function FeedsScreen() {
       };
     });
     saving.current++;
-    const run = saveQueue.current.then(() => reorderApi(body));
+    const run = saveQueue.current.then(async () => {
+      if (failures.current !== planned) return false;
+      try {
+        await reorderApi(body);
+        return true;
+      } catch (e) {
+        failures.current++;
+        throw e;
+      }
+    });
     saveQueue.current = run.catch(() => undefined);
     try {
-      await run;
-      markSaved();
+      if (await run) markSaved();
+      else setSaved(null);
     } catch (e) {
       setSaved(null);
       throw e;

@@ -50,10 +50,10 @@ func TestReorderMovesAFolderWithItsOrder(t *testing.T) {
 	checkFolderInvariants(t, e.db.Reader())
 }
 
-// Each move is checked against the tree the earlier entries left, so a list in tree order (parents
-// first) is checked as the tree it describes: B under A is refused while A is under B, and allowed
-// once an earlier entry has taken A out.
-func TestReorderChecksMovesInListOrder(t *testing.T) {
+// Each move is checked against the tree the earlier entries left, not the final tree: swapping B and
+// A (B under A while A is still under B) is refused in that order, and goes through when an earlier
+// entry has taken A out first.
+func TestReorderChecksEachMoveAgainstTheTreeSoFar(t *testing.T) {
 	e := newEnv(t)
 	ba := e.chain("B", "A")
 	b, a := ba[0], ba[1]
@@ -114,6 +114,20 @@ func TestReorderRefusedMoveChangesNothing(t *testing.T) {
 	require.Equal(t, "G2", e.path(good[1]))
 	require.Equal(t, other, scalar[int64](t, e.db.Reader(), "SELECT folder_id FROM feeds WHERE id = ?", feed))
 	checkFolderInvariants(t, e.db.Reader())
+}
+
+// The archive feed in a feed list refuses the whole Reorder, a good folder move listed before it too.
+func TestReorderArchiveFeedChangesNothing(t *testing.T) {
+	e := newEnv(t)
+	ab := e.chain("A", "B")
+	feed := e.addFeed("http://a.example/feed")
+	e.exec(`INSERT INTO feeds (folder_id, url, url_key, host, enabled, disabled_reason, retention) VALUES (1,'kipple:archive','kipple:archive','kipple.invalid',0,'archive',0)`)
+	arch := scalar[int64](t, e.db.Reader(), "SELECT id FROM feeds WHERE disabled_reason = 'archive'")
+	before := e.treeState()
+	_, err := e.db.Reorder(e.ctx, []FolderOrder{keep(1), keep(ab[0]), under(ab[1], 0)}, []FeedOrder{{FolderID: ab[0], IDs: []int64{feed, arch}}})
+	require.ErrorIs(t, err, ErrArchiveFeed)
+	require.Equal(t, before, e.treeState())
+	require.Equal(t, "A/B", e.path(ab[1]))
 }
 
 // Moving a folder in a Reorder changes which feeds a folder filter covers, as a PATCH move does.

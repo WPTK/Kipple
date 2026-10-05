@@ -483,10 +483,12 @@ type ReorderResult struct {
 
 // Reorder moves folders to new parents and sets folder positions (0..n-1 in the
 // order given), and sets feed positions (0..n-1 inside each named folder, moving
-// a feed into that folder if it is elsewhere), in ONE transaction. A folder move
-// is checked by the folder writer's own rules (placeFolder, as UpdateFolder
-// checks it) against the tree the earlier entries left, so a list in tree order,
-// parents before children, is checked as the tree it describes. Any unknown id,
+// a feed into that folder if it is elsewhere), in ONE transaction. Each folder
+// move is checked by the folder writer's own rules (placeFolder, as UpdateFolder
+// checks it) against the tree the earlier entries left, not against the final
+// tree: moves that are only valid together (a swap, or a move that fits only
+// after a later entry takes a subfolder out) are refused, so callers send them
+// in separate requests or in an order where each step is valid. Any unknown id,
 // repeated id, the archive feed or a refused move aborts the whole call with
 // nothing written (*ErrReorder, ErrArchiveFeed, or the folder writer's error:
 // ErrFolderCycle, ErrFolderDepth, ErrFolderParent, ErrFolderExists,

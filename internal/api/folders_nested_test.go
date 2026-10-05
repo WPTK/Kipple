@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -89,6 +90,25 @@ func TestNestedFoldersAPI(t *testing.T) {
 	require.Equal(t, 204, code)
 	require.Equal(t, 1, h.count("SELECT count(*) FROM feeds WHERE id = ? AND folder_id = 1", feed))
 	require.Equal(t, 2, h.count("SELECT count(*) FROM folders"), "Uncategorized and the top-level Apple")
+}
+
+// A stored folder name that today's rules refuse (written before them) is a 400 on a move, by PATCH or
+// by POST /api/reorder, with the code a bad name gets on create, not a 500; renaming it fixes it.
+func TestMoveOfAFolderWithAnOldBadName(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	tech := h.addFolder("Tech")
+	old := h.addFolder("x")
+	h.exec("UPDATE folders SET name = ? WHERE id = ?", strings.Repeat("n", 101), old)
+	code, body, _ := h.api(c, "PATCH", "/api/folders/"+sid(old), `{"parent_id":"`+sid(tech)+`"}`)
+	require.Equal(t, 400, code, body)
+	require.Equal(t, "bad_request", body["error"])
+	code, body, _ = h.api(c, "POST", "/api/reorder", `{"folders":[{"id":"`+sid(old)+`","parent_id":"`+sid(tech)+`"}]}`)
+	require.Equal(t, 400, code, body)
+	require.Equal(t, "bad_request", body["error"])
+	require.Equal(t, 1, h.count("SELECT count(*) FROM folders WHERE id = ? AND parent_id IS NULL", old))
+	code, body, _ = h.api(c, "PATCH", "/api/folders/"+sid(old), `{"name":"Short","parent_id":"`+sid(tech)+`"}`)
+	require.Equal(t, 200, code, body)
 }
 
 // POST /api/reorder moves a folder and saves the new order in one request: a folders entry is an id

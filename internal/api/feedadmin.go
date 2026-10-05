@@ -816,6 +816,8 @@ func writeFolderError(w http.ResponseWriter, err error) bool {
 		writeErrorMsg(w, http.StatusConflict, "folder_cycle", "a folder cannot move inside itself or one of its subfolders")
 	case errors.Is(err, store.ErrFolderParent):
 		writeErrorMsg(w, http.StatusConflict, "default_folder", "the default folder stays at the top level and holds no subfolders")
+	case errors.Is(err, store.ErrBadFolderName): // a stored name the rules now refuse, met on a move
+		writeErrorMsg(w, http.StatusBadRequest, "bad_request", "name must be 1 to 100 characters")
 	default:
 		return false
 	}
