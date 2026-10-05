@@ -130,10 +130,10 @@ func TestExportNestsTheTree(t *testing.T) {
 	</body></opml>`, ImportOptions{})
 	out := export(t, db)
 	require.Contains(t, out, `    <outline text="Tech" title="Tech">
-      <outline type="rss" text="T" title="T" xmlUrl="https://t.test/f"/>
       <outline text="Apple" title="Apple">
         <outline type="rss" text="A" title="A" xmlUrl="https://a.test/f"/>
       </outline>
+      <outline type="rss" text="T" title="T" xmlUrl="https://t.test/f"/>
     </outline>
     <outline text="Music" title="Music">
       <outline text="AC/DC" title="AC/DC">

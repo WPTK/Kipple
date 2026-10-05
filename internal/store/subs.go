@@ -498,6 +498,9 @@ func (d *DB) RenameLabel(ctx context.Context, oldID int64, newName string) (filt
 	if newName == "" {
 		return false, nil
 	}
+	if err := checkFolderPath(newName); err != nil {
+		return false, err
+	}
 	var convFilters, convFeeds int
 	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		convFilters, convFeeds, filtersChanged = 0, 0, false

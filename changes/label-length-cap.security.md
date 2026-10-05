@@ -1,0 +1,1 @@
+Reader API: a folder label longer than any real folder path (807 characters: eight names of 100 characters and the slashes between them) is refused before it is looked up, on subscribe, subscription edit and rename-tag, so one request can no longer cost millions of database probes while holding the writer. The client still gets `OK` and nothing changes. (#241)
