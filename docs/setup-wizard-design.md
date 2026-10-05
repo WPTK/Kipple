@@ -245,12 +245,17 @@ cannot control is the `Host` header, which is `evil.example:1919`. So:
   setting. In password/Access mode the gate only logs (once an hour, like the untrusted-proxy WARN): the session
   cookie is bound to the real origin, so rebinding reads nothing there, and enforcing would break existing
   deployments whose hostname was never configured.
-- **Allowed by default:** IP literals (a rebinding attack always carries a name), `localhost` and `*.localhost`,
-  `*.ts.net` (Tailscale MagicDNS), the host of `KIPPLE_PUBLIC_URL` when set. Setup mode also allows single-label names
-  (`nas`), `*.local`, `*.lan`, `*.home.arpa` and `*.internal`; open mode (and the open gate, including the switch to
-  open mode) does not: any LAN device can answer those names (mDNS, LLMNR/NetBIOS, a router's DHCP names) and rebind
-  one to this computer, which would let a LAN peer reach an open instance meant for this computer and the tailnet
-  only. They can be listed explicitly.
+- **Allowed by default, one rule for setup mode, open mode and the open gate:** any name that cannot be resolved
+  from public DNS. That is IP literals (a rebinding attack always carries a name), single-label names (`localhost`,
+  `nas`), `*.localhost`, `*.local`, `*.lan`, `*.home.arpa`, `*.internal` and `*.ts.net` (Tailscale MagicDNS), plus the
+  host of `KIPPLE_PUBLIC_URL` when set. One list, `privateHostSuffixes` in `internal/setup/hosts.go`. Every public
+  name is refused until listed, and the 421 says to set a password or list a name that points at the owner's own
+  network. A LAN device can answer some of these names (mDNS, LLMNR/NetBIOS, a router's DHCP names) and rebind one to
+  this computer, but open mode admits every local-network peer directly (5.4), so the name adds nothing to what that
+  device can already do. The one install where it does is a loopback-only bind used to keep the LAN out of open
+  mode; that owner is told to use a password (docs/deploy.md). Rejected alternative: deciding "public" from the
+  embedded public suffix list (unknown TLD = private) fails open for every top-level domain delegated after the
+  list was built.
 - **Configurable:** `KIPPLE_ALLOWED_HOSTS` (comma list, for setup mode, before any UI exists) plus a global setting
   `security.allowed_hosts` (JSON array, editable in Settings after setup). Entries are exact hosts or `*.suffix`.
 
@@ -301,7 +306,7 @@ changes already do.
 | **Claim race**: someone on the network reaches the fresh port first | Token required before the account step; the account insert is `ON CONFLICT DO NOTHING`, so two token holders racing get one `201` and one `409` | Whoever can read container logs can claim; that person already controls the host |
 | **Token leakage in logs** (log shippers, pasted `docker logs` in an issue) | Single use, dies at claim, rotates on restart; printed once, outside slog; never in debug info, request logs or backups; the fragment form keeps it out of proxy logs and Referers | A shipped log line is readable until the instance is claimed |
 | **Brute force** of the token or of logins | 120-bit token, separate per-IP lockout, global rotation; login lockout unchanged | None worth noting |
-| **DNS rebinding** against setup or open mode | Host gate (5.2) enforced in both; password mode unaffected (cookie is origin-bound) | A user who allowlists a public name they do not control |
+| **DNS rebinding** against setup or open mode | Host gate (5.2) enforced in both; password mode unaffected (cookie is origin-bound) | A user who allowlists a public name they do not control; a LAN device rebinding a local name against a loopback-only open instance (open mode trusts the LAN) |
 | **CSRF / login CSRF** | `sameOrigin` + `X-Kipple-Client` on every write; Strict setup cookie; no CORS | None beyond today |
 | **Passwordless on the LAN or the internet** | Explicit acknowledgement; open gate refuses forwarded requests and non-local peers; turning open mode on requires the password and the gate | Open mode trusts every device on the local network and the tailnet, by choice (0.7: one rule, no setting; superseded the `security.open_lan` opt-in) |
 | **Setup endpoints reopening** | Not registered when the row exists at start; flag checked per request; no API deletes the row | Direct SQLite surgery (out of scope) |

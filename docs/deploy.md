@@ -314,15 +314,18 @@ everything. It needs a ticked acknowledgement, and it stores the account with no
 Sign-in then happens by itself when the app opens: it asks the server for a session, and the server grants one only if
 the request passes the **open gate**:
 
-1. **The name is expected.** The `Host` header must be an IP address, `localhost`, a `.localhost` or `.ts.net` name,
-   the host of `KIPPLE_PUBLIC_URL`, or in `KIPPLE_ALLOWED_HOSTS` / Settings > Allowed host names. Anything else gets
-   `421 Misdirected Request` naming those settings. This defeats DNS rebinding, where a hostile web page tries to use
-   your browser to reach a private address. `http://<ip>:1919` always works. Setup mode also accepts single-word names
-   and `.local`, `.lan`, `.home.arpa` and `.internal` names; open mode does not, because any device on your network can
-   answer those (a `.local` name over mDNS, a single word over LLMNR or NetBIOS, a DHCP host name under `.lan` on many
-   routers) and so point one at your computer and drive your browser into Kipple. List such a name explicitly
-   (`nas`, `*.local`) if you use one and trust every device on the network. The check is enforced in setup mode and
-   open mode; with a password it only logs, once an hour.
+1. **The name is private.** The `Host` header must be a name that cannot be looked up in public DNS: an IP address, a
+   single-word name (`localhost`, `nas`), or a name ending in `.localhost`, `.local`, `.lan`, `.home.arpa`,
+   `.internal` or `.ts.net`. The host of `KIPPLE_PUBLIC_URL` and the names in `KIPPLE_ALLOWED_HOSTS` / Settings >
+   Allowed host names are accepted too. Anything else, that is any public name such as `rss.example.com`, gets
+   `421 Misdirected Request` saying what to do. This defeats DNS rebinding, where a hostile web site points a name it
+   owns at your computer so your browser treats Kipple as part of that site; the `Host` header still names the site.
+   `http://<ip>:1919` always works. To use Kipple by a public name, set a password, or list the name if it points only
+   at your own network (split DNS). A device on your network can answer some private names (a `.local` name over
+   mDNS, a single word over LLMNR or NetBIOS) and point one at your computer, but open mode already lets every device
+   on your network in (step 3), so that gives it nothing more. If you bound Kipple to `127.0.0.1` to keep the network
+   out, that is the case where it matters: use a password. The check is enforced in setup mode and open mode; with a
+   password it only logs, once an hour.
 2. **Not forwarded.** A request that came through a proxy or tunnel (a `CF-Connecting-IP`, `Cf-Access-Jwt-Assertion`,
    `Forwarded`, `X-Real-IP` or `X-Forwarded-*` header, a `Tailscale-Funnel-Request`, or a peer listed in
    `KIPPLE_TRUSTED_PROXY_IPS`) is refused, because a tunnel means the port is published to people you did not pick.

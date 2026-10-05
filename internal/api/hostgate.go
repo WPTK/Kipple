@@ -128,38 +128,21 @@ func (s *Server) enforceHosts(snap *modeSnapshot) bool {
 	return s.opt.Setup.Pending() || snap.failed || snap.mode == store.AuthOpen
 }
 
-// hostAllowed normalizes r's Host and judges it: by open mode's narrower
-// list (setup.OpenHostAllowed) when open, and when the mode could not be read
-// (fail closed), else by the setup-mode list (setup.HostAllowed).
+// hostAllowed normalizes r's Host and judges it (setup.HostAllowed).
 func (s *Server) hostAllowed(r *http.Request, snap *modeSnapshot) (host string, ok bool) {
-	if s.openHosts(snap) {
-		return s.openHostAllowed(r, snap)
-	}
 	host, valid := setup.NormalizeHost(r.Host)
 	return host, valid && setup.HostAllowed(host, snap.allowed)
 }
 
-// openHostAllowed judges r's Host by open mode's list, whatever the mode:
-// the open gate always uses it, including for the switch to open mode.
-func (s *Server) openHostAllowed(r *http.Request, snap *modeSnapshot) (host string, ok bool) {
-	host, valid := setup.NormalizeHost(r.Host)
-	return host, valid && setup.OpenHostAllowed(host, snap.allowed)
-}
-
-// openHosts reports whether the Host gate uses open mode's list: an open-mode
-// account outside setup mode, or a mode that could not be read.
-func (s *Server) openHosts(snap *modeSnapshot) bool {
-	return snap.failed || (snap.mode == store.AuthOpen && !s.opt.Setup.Pending())
-}
-
 // hostRefusedText is the 421 body: what happened and the settings that fix it.
 const hostRefusedText = "Kipple refused this request because of the address it was sent to.\n\n" +
-	"While Kipple is being set up, it only answers requests addressed to an IP address, localhost, a single-word\n" +
-	"name, or a .local, .lan, .home.arpa, .internal or .ts.net name. While it runs without a password (open mode),\n" +
-	"it only answers an IP address, localhost, a .localhost name or a .ts.net name, because other devices on the\n" +
-	"local network can answer single-word, .local and similar names. This protects it against DNS rebinding.\n\n" +
-	"To use another name, add it to KIPPLE_ALLOWED_HOSTS (comma-separated, e.g. rss.example.com or *.example.com)\n" +
-	"and restart, or add it under Settings (security.allowed_hosts). Opening Kipple by its IP address always works.\n"
+	"While Kipple is being set up or runs without a password (open mode), it only answers names that cannot be\n" +
+	"looked up in public DNS: an IP address, localhost, a single-word name such as nas, or a .localhost, .local,\n" +
+	".lan, .home.arpa, .internal or .ts.net name. This protects it against DNS rebinding.\n\n" +
+	"To use a public name such as rss.example.com, set a password (with one, every name is answered), or, if the\n" +
+	"name only points at your own network, add it to KIPPLE_ALLOWED_HOSTS (comma-separated, e.g. rss.example.com\n" +
+	"or *.example.com) and restart, or under Settings (security.allowed_hosts). Opening Kipple by its IP address\n" +
+	"always works.\n"
 
 // HostGate is the Host-header check (design 5.2), installed ahead of every
 // handler. In setup and open mode a request whose Host is not an allowed name
@@ -208,7 +191,7 @@ func (s *Server) warnHost() {
 // part (authed), so a session never outlives the network position that
 // admitted it.
 func (s *Server) gateRefusal(r *http.Request, snap *modeSnapshot, signIn bool) string {
-	host, ok := s.openHostAllowed(r, snap)
+	host, ok := s.hostAllowed(r, snap)
 	if signIn {
 		return s.opt.Gate.SignInRefusal(r, host, ok)
 	}
@@ -225,7 +208,7 @@ func writeOpenRefused(w http.ResponseWriter, reason string) {
 	msg := "open mode (no password) only works from this computer, your local network or Tailscale"
 	switch reason {
 	case setup.RefuseHost:
-		msg = "open mode refuses this address: open Kipple by its IP address, localhost or an allowed host name"
+		msg = "open mode only answers private names (an IP address, localhost, a local network name such as nas or nas.local, or a .ts.net name): set a password to use a public name, or add the name to KIPPLE_ALLOWED_HOSTS if it only points at your own network"
 	case setup.RefuseForwarded:
 		msg = "open mode refuses requests through a proxy or tunnel: reach Kipple directly (localhost, your local network or Tailscale), or set a password"
 	case setup.RefusePeer:

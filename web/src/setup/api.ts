@@ -65,7 +65,7 @@ export const subscribeStarter = (ids: string[], folders: boolean) =>
 export function openReasonText(reason: OpenReason | string | null | undefined): string {
   switch (reason) {
     case "host":
-      return "Kipple doesn't recognize the address this page was opened with. Open Kipple by its IP address (for example http://192.168.1.20:1919) or by localhost, or add the name you use to KIPPLE_ALLOWED_HOSTS.";
+      return "Without a password Kipple only answers private addresses: an IP address (for example http://192.168.1.20:1919), localhost, a local network name such as nas or nas.local, or a Tailscale name. To use a public name, use a password, or add the name to KIPPLE_ALLOWED_HOSTS if it only points at your own network.";
     case "forwarded":
       return "This page reached Kipple through a proxy or tunnel (such as a Cloudflare Tunnel). Without a password that would let anyone on the internet in, so it isn't allowed. Open Kipple directly from this computer, your local network or over Tailscale, or use a password.";
     case "peer":

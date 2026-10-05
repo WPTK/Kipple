@@ -384,7 +384,7 @@ var settingDefs = withScopes([]settingDef{
 			}
 			return s, ""
 		}},
-	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides IP addresses, localhost and .localhost and .ts.net names (and, during setup only, single-word names and .local, .lan, .home.arpa and .internal names): exact names such as rss.example.com, nas or *.local, or *.example.com.",
+	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides the private ones it always answers (IP addresses, single-word names such as nas, and .localhost, .local, .lan, .home.arpa, .internal and .ts.net names): exact names such as rss.example.com, or *.example.com. List a public name only if it points at your own network.",
 		Group: groupAccount, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},
 
 	// Statistics.
