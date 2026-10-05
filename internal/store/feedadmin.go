@@ -168,6 +168,13 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 					sets = append(sets, "ua_fallback = 0")
 				}
 			case "custom_title":
+				// The one name rule (fetch.CleanName), as on every other way a name comes in; a name
+				// that is blank once cleaned (only invisible characters) is no name.
+				if str, isStr := v.(string); isStr {
+					if v = fetch.CleanName(str); v == "" {
+						v = nil
+					}
+				}
 				if str, isStr := v.(string); v == nil && custom.Valid || isStr && (!custom.Valid || str != custom.String) {
 					res.Notify = true
 				}

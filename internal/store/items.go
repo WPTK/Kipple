@@ -251,7 +251,7 @@ func (d *DB) StreamItems(ctx context.Context, ids []int64, asc bool, holdCut int
 	rows, err := d.reader.QueryContext(ctx, `
 SELECT i.id, i.feed_id, i.url, i.title, i.author, c.content_html, i.published_at, i.updated_at,
        i.read, i.starred, c.enclosures_json, i.origin_title,
-       COALESCE(f.custom_title, f.title), f.site_url, CASE WHEN f.disabled_reason IS 'archive' THEN '' ELSE COALESCE(fo.path, '') END,
+       `+feedTitleSQL("f")+`, f.site_url, CASE WHEN f.disabled_reason IS 'archive' THEN '' ELSE COALESCE(fo.path, '') END,
        `+FulltextModeSQL("i.fulltext_mode", "f.fulltext", all)+`, ft.content_html
 FROM items i JOIN item_content c ON c.item_id = i.id
 JOIN feeds f ON f.id = i.feed_id LEFT JOIN folder_paths fo ON fo.id = f.folder_id

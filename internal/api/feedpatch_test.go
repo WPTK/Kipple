@@ -25,6 +25,10 @@ func TestPatchFeedFields(t *testing.T) {
 		{"custom title", `{"custom_title":"  Nice  "}`, "custom_title", "Nice"},
 		{"blank title clears", `{"custom_title":"   "}`, "custom_title", ""},
 		{"null title clears", `{"custom_title":null}`, "custom_title", ""},
+		// The 200-character limit counts the name once cleaned: an invisible tail is not an error.
+		{"invisible tail", `{"custom_title":"` + strings.Repeat("x", 200) + `\u200B\u200E"}`, "custom_title", strings.Repeat("x", 200)},
+		{"invisible only clears", `{"custom_title":"\u200B\u2060\uFEFF"}`, "custom_title", ""},
+		{"cleaned", `{"custom_title":"Two\tparts\u202E"}`, "custom_title", "Two parts"},
 		{"folder", `{"folder_id":"` + sid(folder) + `"}`, "folder_id", sid(folder)},
 		{"folder as number", `{"folder_id":1}`, "folder_id", "1"},
 		{"position", `{"position":7}`, "position", "7"},

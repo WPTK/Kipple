@@ -710,6 +710,24 @@ func TestGoneDisablesAndStopsFetching(t *testing.T) {
 	require.Equal(t, 1, srv.count("/g"))
 }
 
+// A fetch that changes a feed's display name (a new feed's first fetch naming it) announces the feed,
+// so an open web app shows the new name; a fetch that keeps the name does not.
+func TestFetchThatRenamesAFeedAnnouncesIt(t *testing.T) {
+	r := newRig(t, Options{})
+	srv := newSrv(t, serveOK)
+	id := r.add(srv.URL+"/f", nil)
+	r.s.Wake()
+	r.waitEvents("fetch.done", 1)
+	r.waitEvents("feed.changed", 1)
+	require.Equal(t, fmt.Sprint(id), r.events("feed.changed")[0]["feed_id"])
+	require.EqualValues(t, 1, r.num("SELECT count(*) FROM feeds WHERE id = ? AND title = 'T'", id))
+
+	r.clk.Advance(10 * time.Hour)
+	r.waitEvents("fetch.done", 2)
+	r.barrier()
+	require.Len(t, r.events("feed.changed"), 1, "same name: no second announcement")
+}
+
 func TestRetentionJobsAndRun(t *testing.T) {
 	r := newRig(t, Options{})
 	srv := newSrv(t, serveOK)

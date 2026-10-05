@@ -44,12 +44,12 @@ type FeedHealth struct {
 // (ResumeFeedDeletes) finishes it.
 func (d *DB) FeedHealth(ctx context.Context) ([]FeedHealth, error) {
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT id, COALESCE(NULLIF(custom_title,''), NULLIF(title,''), url), url, url_original, enabled, disabled_reason,
+		SELECT id, `+feedTitleSQL("feeds")+`, url, url_original, enabled, disabled_reason,
 		       last_success_at, last_fetch_at, last_error_at, last_error_class, last_error, last_status,
 		       consecutive_failures, current_delay_s, next_fetch_at, redirect_to, redirect_kind, redirect_count,
 		       last_new_items_at, trimmed_unread_count, trimmed_unread_since, host, created_at
 		FROM feeds WHERE disabled_reason IS NOT 'archive'
-		ORDER BY lower(COALESCE(NULLIF(custom_title,''), NULLIF(title,''), url)), id`)
+		ORDER BY lower(`+feedTitleSQL("feeds")+`), id`)
 	if err != nil {
 		return nil, err
 	}

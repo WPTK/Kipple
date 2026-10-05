@@ -6,9 +6,12 @@ import (
 	stdhtml "html"
 	"net/url"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/mmcdole/gofeed"
 	ext "github.com/mmcdole/gofeed/extensions"
@@ -106,7 +109,7 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 
 	out := &Feed{
 		Format:      formatName(gf.FeedType),
-		Title:       strings.TrimSpace(gf.Title),
+		Title:       FeedTitle(gf.Title),
 		SiteURL:     sanitize.ResolveURL(gf.Link, opt.FeedURL),
 		Description: strings.TrimSpace(gf.Description),
 		Charset:     dec.Source,
@@ -359,6 +362,163 @@ const (
 	MaxCategories    = 20
 	MaxCategoryRunes = 100
 )
+
+// MaxTitleRunes is the longest feed name: a title a feed gives itself is cut to it, and a name the
+// user types may not be longer.
+const MaxTitleRunes = 200
+
+// leftEntity matches a complete character reference still in a decoded title: the publisher escaped
+// the title twice ("&amp;amp;", "&amp;#8217;"), so the parser's own decoding left one level behind.
+var leftEntity = regexp.MustCompile(`&(?:[a-zA-Z][a-zA-Z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6});`)
+
+// decodeReference decodes one leftEntity match only when the whole reference is a known one. HTML's
+// legacy rules would also decode a known prefix of an unknown name ("&notit;" as "¬it;"); such a
+// match, which decodes to text still ending in its ";", is left as written. A numeric reference to
+// no character (0, a surrogate half, past U+10FFFF, or U+FFFD itself) is dropped rather than stored
+// as U+FFFD.
+func decodeReference(ref string) string {
+	if num, ok := strings.CutPrefix(ref[:len(ref)-1], "&#"); ok {
+		base := 10
+		if n, hex := strings.CutPrefix(strings.ToLower(num), "x"); hex {
+			num, base = n, 16
+		}
+		n, err := strconv.ParseUint(num, base, 32)
+		if err != nil || n == 0 || n > unicode.MaxRune || (n >= 0xD800 && n <= 0xDFFF) {
+			return ""
+		}
+	}
+	dec := stdhtml.UnescapeString(ref)
+	switch {
+	case dec == string(utf8.RuneError):
+		return ""
+	case dec != ";" && strings.HasSuffix(dec, ";"):
+		return ref
+	}
+	return dec
+}
+
+// FeedTitle is the name a feed document (or an OPML file, the same kind of data) gives a feed, as
+// Kipple stores it: any whole character reference left by double escaping decoded, then CleanName.
+// "" means no title.
+func FeedTitle(raw string) string {
+	return CleanName(leftEntity.ReplaceAllStringFunc(raw, decodeReference))
+}
+
+// invisible reports the characters a name never keeps because they show nothing on their own and
+// carry no meaning in a name: zero-width space and non-joiner, word joiner, invisible math operators,
+// byte order mark, soft hyphen, combining grapheme joiner, Mongolian variation selectors and vowel
+// separator, interlinear annotation marks, the Hangul fillers, the braille blank, and the bidi marks,
+// embeddings, overrides and isolates.
+func invisible(r rune) bool {
+	switch {
+	case r == 0x00AD, r == 0x034F, r == 0x061C, r == 0x115F, r == 0x1160, r == 0x180E, r == 0x200B, r == 0x200C,
+		r == 0x200E, r == 0x200F, r == 0x2800, r == 0x3164, r == 0xFEFF, r == 0xFFA0,
+		r >= 0x180B && r <= 0x180D, r >= 0x202A && r <= 0x202E, r >= 0x2060 && r <= 0x2064,
+		r >= 0x2066 && r <= 0x2069, r >= 0xFFF9 && r <= 0xFFFB:
+		return true
+	}
+	return false
+}
+
+const (
+	zwj       = rune(0x200D)  // zero-width joiner
+	blackFlag = rune(0x1F3F4) // the base of a flag tag sequence
+)
+
+// isTag reports a tag character (U+E0000 to U+E007F): only meaningful inside a flag tag sequence.
+func isTag(r rune) bool { return r >= 0xE0000 && r <= 0xE007F }
+
+// needsBase reports a character that only shows attached to the one before it: a combining mark or a
+// variation selector. Without a base (at a word's start, or after a joiner) it is dropped.
+func needsBase(r rune) bool {
+	return unicode.In(r, unicode.Mn, unicode.Me) || (r >= 0xFE00 && r <= 0xFE0F) || (r >= 0xE0100 && r <= 0xE01EF)
+}
+
+// normalizeName is CleanName without the length cut.
+func normalizeName(raw string) string {
+	out := make([]rune, 0, len(raw))
+	for _, r := range raw {
+		last := ' '
+		if len(out) > 0 {
+			last = out[len(out)-1]
+		}
+		switch {
+		case unicode.IsSpace(r):
+			out = append(out, ' ')
+		case unicode.IsControl(r), r == utf8.RuneError, invisible(r):
+		case isTag(r):
+			// Kept only in a flag tag sequence: the black flag, then tag characters.
+			if last == blackFlag || isTag(last) {
+				out = append(out, r)
+			}
+		case needsBase(r):
+			if last != ' ' && last != zwj {
+				out = append(out, r)
+			}
+		default:
+			out = append(out, r)
+		}
+	}
+	words := strings.Fields(string(out))
+	kept := words[:0]
+	for _, w := range words {
+		if w = strings.Trim(w, string(zwj)); w != "" {
+			kept = append(kept, w)
+		}
+	}
+	return strings.Join(kept, " ")
+}
+
+// NameRunes is the length of a name in characters (code points) once cleaned, before any cut: what a
+// limit on a name a person types is checked against.
+func NameRunes(raw string) int { return utf8.RuneCountInString(normalizeName(raw)) }
+
+// CleanName is the one rule for a feed name, whoever supplies it (a document, an OPML file, a sync
+// app or the web app): one line of plain text, with control characters, U+FFFD and the invisible
+// characters above dropped, a combining mark or variation selector without a base dropped, tag
+// characters kept only in a flag sequence, Unicode whitespace runs collapsed to one space, a
+// zero-width joiner kept only inside a word, and cut to MaxTitleRunes with an ellipsis, never inside
+// a combined character. A name that is blank once cleaned is "", which every caller stores as no
+// name, so a stored name is never blank or made only of those characters, and the display rule's
+// ASCII-blank check (feedTitleSQL) is enough.
+func CleanName(raw string) string {
+	t := normalizeName(raw)
+	if r := []rune(t); len(r) > MaxTitleRunes {
+		cut := clusterStart(r, MaxTitleRunes-1)
+		body := strings.TrimRight(strings.TrimRight(string(r[:cut]), " "), string(zwj))
+		if body == "" {
+			// One combined character longer than the limit (a letter under hundreds of marks, a long
+			// tag sequence): cut it at the limit rather than leave a name that is only an ellipsis.
+			body = string(r[:MaxTitleRunes-1])
+		}
+		t = body + "…"
+	}
+	return t
+}
+
+// clusterStart moves a cut point i in r back until it does not fall inside a combined character: not
+// before a combining mark, variation selector, emoji modifier or zero-width joiner, not right after a
+// zero-width joiner, and not between the two regional indicators of a flag.
+func clusterStart(r []rune, i int) int {
+	extends := func(c rune) bool {
+		return unicode.In(c, unicode.Mn, unicode.Me, unicode.Mc) || c == zwj ||
+			(c >= 0xFE00 && c <= 0xFE0F) || (c >= 0x1F3FB && c <= 0x1F3FF) || (c >= 0xE0020 && c <= 0xE007F)
+	}
+	for i > 0 && i < len(r) && (extends(r[i]) || r[i-1] == zwj) {
+		i--
+	}
+	regional := func(c rune) bool { return c >= 0x1F1E6 && c <= 0x1F1FF }
+	if i > 0 && i < len(r) && regional(r[i]) {
+		n := 0
+		for j := i - 1; j >= 0 && regional(r[j]); j-- {
+			n++
+		}
+		if n%2 == 1 {
+			i--
+		}
+	}
+	return i
+}
 
 // itemCategories trims, drops blanks and repeats (case-insensitively) and caps the list.
 func itemCategories(in []string) []string {
