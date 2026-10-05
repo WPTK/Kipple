@@ -101,14 +101,13 @@ ignored everywhere, and so is `output` except on `ClientLogin`.
 | `user/-/state/com.google/read` | read |
 | `user/-/state/com.google/unread`, `…/kept-unread` | unread |
 | `user/-/state/com.google/broadcast`, `…/like` | none |
-| `user/-/label/<folder>` | the folder's own feeds (a nested folder is the label `Parent/Child`) |
+| `user/-/label/<folder>` | the folder's own feeds, not its subfolders' (see [Folders and flat-folder clients](#folders-and-flat-folder-clients)) |
 | `feed/<n>` or `feed/<feed URL>` | one feed |
 
 `user/<any user id>/…` is the same as `user/-/…`. `it` keeps only items in a state stream and `xt` drops them (`read`,
 `unread`, `kept-unread`, `starred`); both repeat and combine. `ot` and `nt` are Unix seconds: `ot` returns items crawled
 from two minutes before it (so a client clock that is slightly ahead loses nothing), `nt` items crawled at or before
-it. `c`
-is the `continuation` of the previous page. `r=o` lists oldest first.
+it. `c` is the `continuation` of the previous page. `r=o` lists oldest first.
 
 **Item ids** may be sent in any of these forms, mixed in one request: `tag:google.com,2005:reader/item/<hex>` (padded
 to 16 digits or not), 16 bare hex digits, decimal, or `0x<hex>`. An id that cannot be parsed is skipped.
@@ -118,6 +117,40 @@ and `a=…/kept-unread` mark unread). **mark-all-as-read** marks the unread item
 `ts` (Unix seconds, milliseconds, microseconds or nanoseconds, told apart by length), or all of them without `ts`.
 `s` may be the reading list, `unread`, `kept-unread`, `starred`, a folder label or a feed; `read` and unknown streams
 change nothing.
+
+### Folders and flat-folder clients
+
+Folders nest in Kipple (at most 8 levels), but Reader API labels are flat. A Reader API client sees a nested folder as one
+label named by its full path, so `Local` inside `News` is the label `News/Local`, and a flat-folder client shows it as a
+single folder with that name. Four consequences follow, and each is the same on every Reader API client.
+
+- **A label with a slash nests.** When a client subscribes a feed with, or moves a feed to, a label such as `News/Local`,
+  Kipple resolves it against the tree: the longest prefix that is an existing folder's full path becomes the parent, and the
+  rest becomes folders below it. If a top-level `News` exists, the feed lands in `Local` inside `News`, not in a new
+  top-level folder named `News/Local`. A folder's filters (mute, mark as read and the rest) apply to the feeds of its
+  subfolders, so the filters of `News` also apply to the feed in `News/Local`, although the client shows `News/Local` as a
+  separate folder. If no folder matches a prefix, the whole label becomes folders at the top level, split at each `/`.
+  A top-level folder whose name itself contains a slash (`AC/DC`) keeps being found by its full path.
+- **A label the folder rules refuse is ignored.** Kipple refuses a label that would create a folder when it has an empty
+  level (`News/`, `/News`, `A//B`, or a level of only spaces), more than 8 levels, a level longer than 100 characters or
+  holding a control character, or a place below the Uncategorized folder. A label that already names a folder is used
+  as it is. Otherwise the request still answers OK, so the client shows no error, and the server log records the reason.
+  Kipple creates no folder, not even the upper levels it had started to walk. A feed that is new goes to Uncategorized, and
+  a feed that already exists stays in its folder. For `subscription/edit` with `ac=edit`, a refused label rolls back the
+  whole edit: a title change in the same request is dropped, and in a batch no feed moves. For `ac=subscribe` on a
+  feed that already exists, the title is still applied. The client shows the folder it asked for until its next sync, and
+  then the old folders come back.
+- **Deleting a folder deletes its subfolders.** `disable-tag` on `News` deletes `News/Local` and every other folder below
+  it, moves all their feeds to Uncategorized, and deletes the filters scoped to those folders. A flat-folder client does not
+  show that `News` held other folders, so it cannot warn you. The web app's delete does the same, with a warning.
+- **A rename that would merge folders is refused when the folder has subfolders.** `rename-tag` onto the label of an
+  existing folder merges the two folders. That is allowed for a folder without subfolders, but not for one that has them,
+  because two trees would have to be merged. A refused merge is answered OK, logged, and changes nothing, so the client
+  shows the merge until its next sync, and then the old folders come back.
+
+A folder's filters always cover the feeds of its subfolders, and deleting a parent from a flat-folder client always deletes
+its subfolders. Create and rename nested folders in the web app, delete folders there too (it warns first), and keep
+slashes out of the labels you type in a flat-folder client.
 
 ### Endpoint notes
 
@@ -132,7 +165,7 @@ might not expect:
   after trimming surrounding whitespace, so the `token` body may be sent back as it came.
 - **`subscription/list`** has no `firstitemmsec` or `sortid`, and categories carry `id` and `label` but no `type`
   (the FreshRSS shape). Each feed has exactly one category, its folder; there are no feeds outside a folder (they are
-  in the default folder).
+  in Uncategorized, the default folder).
 - **`tag/list`** lists folders only (`type` `folder`); Kipple has no per-item tags.
 - **`edit-tag`** ignores `user/-/label/…` values: a folder is a property of a feed, never of an item.
   `broadcast`, `like`, `tracking-*` and unknown tags are ignored too.
