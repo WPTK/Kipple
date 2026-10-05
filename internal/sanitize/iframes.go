@@ -10,7 +10,7 @@ import (
 
 // EmbedSandbox is the sandbox the stored YouTube/Vimeo iframes carry. bluemonday
 // would otherwise write sandbox="", which blocks the player's script and shows
-// a blank box in Reader clients (Reeder, NetNewsWire) that render the stored
+// a blank box in Reader clients that render the stored
 // HTML. The four tokens are what the tap-to-load iframe uses (design 7.8); the
 // page is never a same-origin parent of the player, so they are the least the
 // player needs. Only the two allowlisted hosts ever reach this.

@@ -18,13 +18,13 @@ func TestRequestLogKeysOnlyByDefault(t *testing.T) {
 	h := newHarness(t, harnessOpts{logger: debugLogger(&buf)})
 	h.api.routes["echo-write"] = route{post: true, h: func(c *call) { c.ok() }}
 	login(h, "owner", testPass)
-	h.do(http.MethodPost, base+rd+"echo-write?client=x", "T="+h.tok+"&i=SECRETID&a=user/-/state/com.google/read", map[string]string{"User-Agent": "Reeder/5"})
+	h.do(http.MethodPost, base+rd+"echo-write?client=x", "T="+h.tok+"&i=SECRETID&a=user/-/state/com.google/read", map[string]string{"User-Agent": "ClientX/5"})
 
 	out := buf.String()
 	require.Contains(t, out, `"msg":"greader request"`)
 	require.Contains(t, out, `"form_keys":["T","a","i"]`)
 	require.Contains(t, out, `"query_keys":["client"]`)
-	require.Contains(t, out, `"ua":"Reeder/5"`)
+	require.Contains(t, out, `"ua":"ClientX/5"`)
 	require.Contains(t, out, `"status":200`)
 	require.Contains(t, out, `"duration_ms"`)
 	require.NotContains(t, out, testPass, "password never logged")

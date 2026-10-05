@@ -171,8 +171,8 @@ log with "Mark this fetch read", refresh now, turn on or off, reset the trimmed-
 
 **Account and backup**: the signed-in user, the version and (with Cloudflare Access validation on) the verified
 Access email; change or set the web password, or remove it (offered only through a verified Access sign-in, and
-asking for the current password; docs/design.md 7.0); generate an API password (shown once, with Copy and the Reeder or
-NetNewsWire server URL), export a backup (build, confirm the returned `warning` and `contents`, then a real download
+asking for the current password; docs/design.md 7.0); generate an API password (shown once, with Copy and the server URL
+for sync apps), export a backup (build, confirm the returned `warning` and `contents`, then a real download
 link so the browser's save dialog picks the place; 409, 507 and 413 have their own messages), apply retention now,
 sign out.
 
