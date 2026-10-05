@@ -4,11 +4,14 @@ import { folderTree } from "./folderTree";
 import {
   DEVICE_PREFS_KEY,
   devicePrefsStore,
+  inheritedList,
   overrideTarget,
   parseDevicePrefs,
   resetDevicePrefs,
   resolveLayout,
+  resolveList,
   setLayoutOverride,
+  setListOverride,
   updateDevicePrefs,
 } from "./devicePrefs";
 
@@ -96,19 +99,61 @@ describe("layout override resolution", () => {
   });
 });
 
+describe("order and view overrides (#38)", () => {
+  it("each field resolves on its own: feed, then the folders up the tree, then the device default", () => {
+    updateDevicePrefs({ order: "oldest" });
+    setListOverride("folder", "10", "view", "all");
+    setListOverride("folder", "12", "order", "newest");
+    setLayoutOverride("folder", "13", "cards");
+    const p = () => devicePrefsStore.get();
+    const ctx4 = layoutContext({ view: "unread", feed: "4" }, feeds, tree); // feed 4 is in 13, inside 12, inside 10
+    expect(resolveList(p(), ctx4, "layout")).toEqual({ value: "cards", from: { kind: "folder", id: "13" } });
+    expect(resolveList(p(), ctx4, "order")).toEqual({ value: "newest", from: { kind: "folder", id: "12" } });
+    expect(resolveList(p(), ctx4, "view")).toEqual({ value: "all", from: { kind: "folder", id: "10" } });
+    // No override anywhere: the device order, and Unread (the view has no device default).
+    const ctx3 = layoutContext({ view: "unread", feed: "3" }, feeds, tree);
+    expect(resolveList(p(), ctx3, "order")).toEqual({ value: "oldest", from: null });
+    expect(resolveList(p(), ctx3, "view")).toEqual({ value: "unread", from: null });
+    // The feed's own value wins; what it would inherit is one level up.
+    setListOverride("feed", "4", "order", "oldest");
+    expect(resolveList(p(), ctx4, "order")).toEqual({ value: "oldest", from: { kind: "feed", id: "4" } });
+    expect(inheritedList(p(), ctx4, "order")).toEqual({ value: "newest", from: { kind: "folder", id: "12" } });
+    // A folder list inherits from the folder above it, never from itself.
+    const ctx12 = layoutContext({ view: "unread", folder: "12" }, feeds, tree);
+    expect(inheritedList(p(), ctx12, "order")).toEqual({ value: "oldest", from: null });
+  });
+
+  it("clearing the last field removes the override, and the other fields stay", () => {
+    setListOverride("feed", "2", "layout", "cards");
+    setListOverride("feed", "2", "view", "all");
+    setListOverride("feed", "2", "layout", null);
+    expect(devicePrefsStore.get().overrides.feed).toEqual({ "2": { view: "all" } });
+    setListOverride("feed", "2", "view", null);
+    expect(devicePrefsStore.get().overrides.feed).toEqual({});
+  });
+});
+
 describe("storage", () => {
   it("persists through the storage seam and survives a reload", () => {
     setLayoutOverride("feed", "7", "headlines");
+    setListOverride("folder", "3", "order", "oldest");
     updateDevicePrefs({ order: "oldest" });
     const back = parseDevicePrefs(localStorage.getItem(DEVICE_PREFS_KEY));
-    expect(back.overrides.feed).toEqual({ "7": "headlines" });
+    expect(back.overrides.feed).toEqual({ "7": { layout: "headlines" } });
+    expect(back.overrides.folder).toEqual({ "3": { order: "oldest" } });
     expect(back.order).toBe("oldest");
   });
 
   it("ignores junk", () => {
-    const p = parseDevicePrefs(JSON.stringify({ layout: "bogus", overrides: { feed: { "1": "nope", "2": "cards" }, folder: 5 }, order: "sideways" }));
+    const p = parseDevicePrefs(
+      JSON.stringify({
+        layout: "bogus",
+        overrides: { feed: { "1": "cards", "2": { layout: "cards", order: "sideways", view: "starred" }, "3": { view: "nope" } }, folder: 5 },
+        order: "sideways",
+      }),
+    );
     expect(p.layout).toBe("magazine");
-    expect(p.overrides.feed).toEqual({ "2": "cards" });
+    expect(p.overrides.feed).toEqual({ "2": { layout: "cards" } });
     expect(p.overrides.folder).toEqual({});
     expect(p.order).toBe("newest");
     expect(parseDevicePrefs("{not json").layout).toBe("magazine");

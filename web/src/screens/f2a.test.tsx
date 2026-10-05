@@ -209,12 +209,12 @@ describe("layouts", () => {
     // One list under "This feed": the radio is the override, the star beside each layout is the device default.
     expect(screen.getByText("This feed")).toBeInTheDocument();
     await user.click(screen.getByRole("menuitemradio", { name: /Email - Compact/ }));
-    expect(devicePrefsStore.get().overrides.feed["1"]).toBe("headlines");
+    expect(devicePrefsStore.get().overrides.feed["1"]).toEqual({ layout: "headlines" });
     expect(devicePrefsStore.get().layout).toBe("magazine"); // the device default did not move
     await waitFor(() => expect(document.querySelector(".row-headline")).not.toBeNull());
     // Use device default clears it.
     await user.click(screen.getByRole("button", { name: "Layout: Email - Compact" }));
-    await user.click(screen.getByRole("menuitemradio", { name: /Use device default/ }));
+    await user.click(within(screen.getByRole("group", { name: "Layout of this feed" })).getByRole("menuitemradio", { name: /Use device default/ }));
     expect(devicePrefsStore.get().overrides.feed["1"]).toBeUndefined();
     await waitFor(() => expect(document.querySelector(".row-headline")).toBeNull());
     // The star makes a layout the device default; the filled star marks the current one.

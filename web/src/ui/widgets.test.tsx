@@ -172,9 +172,9 @@ describe("Unread badge", () => {
 
 describe("device prefs added for this round", () => {
   it("keeps the layout ids stable (Magazine and Headlines were only renamed) and parses defensively", () => {
-    const p = parseDevicePrefs(JSON.stringify({ layout: "magazine", overrides: { feed: { "3": "headlines" }, folder: {} } }));
+    const p = parseDevicePrefs(JSON.stringify({ layout: "magazine", overrides: { feed: { "3": { layout: "headlines" } }, folder: {} } }));
     expect(p.layout).toBe("magazine");
-    expect(p.overrides.feed).toEqual({ "3": "headlines" });
+    expect(p.overrides.feed).toEqual({ "3": { layout: "headlines" } });
     expect(p.articleWidth).toBe("medium");
     expect(p.linkTarget).toBeNull();
     expect(p.unreadBadge).toBe("count");

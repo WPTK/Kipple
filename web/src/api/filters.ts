@@ -77,6 +77,32 @@ export const ACTIONS: readonly { id: FilterAction; label: string; help: string }
 export const actionLabel = (a: string): string => ACTIONS.find((x) => x.id === a)?.label ?? a;
 
 /**
+ * What a rule does, as the editor offers it. "Only show matching" is not a fifth action: it is an inverted Mute, the
+ * one stored form (`action: "mute", invert: true`), so the server, Reader API clients and the Muted view need nothing
+ * new. The invert option is offered for Mark as read and Star only; for Mute this mode is that option.
+ */
+export type FilterMode = FilterAction | "only";
+export const ONLY_MATCHING = {
+  id: "only" as const,
+  label: "Only show matching",
+  help: "Mutes every article that does not match, so only articles with these words are left in Unread, All and search. The others are kept in Muted, and you can restore any of them. Pick a feed or folder under Where it applies to keep the others everywhere else.",
+};
+export const MODES: readonly { id: FilterMode; label: string; help: string }[] = [ACTIONS[0]!, ONLY_MATCHING, ...ACTIONS.slice(1)];
+export const modeOf = (f: Pick<FilterDraft, "action" | "invert">): FilterMode => (f.action === "mute" && f.invert ? "only" : f.action);
+/**
+ * The stored fields for picking mode `m` on draft `d`: Mute and Highlight are never inverted, and leaving "Only show
+ * matching" clears the inversion; between Mark as read and Star the invert option keeps its value.
+ */
+export function modeFields(m: FilterMode, d: Pick<FilterDraft, "action" | "invert">): Pick<FilterDraft, "action" | "invert"> {
+  if (m === "only") return { action: "mute", invert: true };
+  if (m === "mute" || m === "highlight") return { action: m, invert: false };
+  return { action: m, invert: modeOf(d) === "only" ? false : d.invert };
+}
+/** A rule's action in words: "Only show matching", "Star when it does not match", "Mute". */
+export const ruleLabel = (f: Pick<FilterDraft, "action" | "invert">): string =>
+  modeOf(f) === "only" ? ONLY_MATCHING.label : `${actionLabel(f.action)}${f.invert ? " when it does not match" : ""}`;
+
+/**
  * The status line under a rule in Settings, or "" for none. A highlight changes nothing stored, so the server never
  * counts its matches (a count would always read 0): it says what it does, or that this device has highlighting off,
  * and nothing while the rule is off (the switch or the "Turned off" note already says so).

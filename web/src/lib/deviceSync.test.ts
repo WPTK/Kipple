@@ -40,7 +40,7 @@ const DEFAULTS: Record<string, unknown> = {
   "ui.reading_density": "standard",
   "ui.mark_read_on_scroll": false,
   "client.layout": "magazine",
-  "client.layout_overrides": { feed: {}, folder: {} },
+  "client.list_overrides": { feed: {}, folder: {} },
   "client.order": "newest",
   "client.search_order": "relevance",
   "client.inbox_thumbs": "auto",
@@ -413,7 +413,7 @@ describe("saving", () => {
 
 // Every key the server accepts (internal/api/devices.go clientDefs plus the device-scoped ui.* keys this client mirrors).
 const SERVER_CLIENT_KEYS = [
-  "client.layout", "client.layout_overrides", "client.order", "client.search_order", "client.inbox_thumbs", "client.peek_seen", "client.article_width",
+  "client.layout", "client.list_overrides", "client.order", "client.search_order", "client.inbox_thumbs", "client.peek_seen", "client.article_width",
   "client.list_width", "client.sidebar_width", "client.link_target", "client.unread_badge", "client.text_size",
   "client.adjust_separately", "client.shortcuts", "client.spacing", "client.motion", "client.large_targets",
   "client.listen", "client.voice", "client.rate", "client.collapsed_folders", "client.highlight_keywords",
@@ -429,7 +429,7 @@ describe("every device pref is carried both ways (review finding 2)", () => {
     const changed: Record<string, unknown> = {
       "ui.theme": "graphite", "ui.theme_day": "linen", "ui.theme_night": "carbon", "ui.font_body": "inter",
       "ui.list_density": "airy", "ui.reading_density": "airy", "ui.mark_read_on_scroll": true,
-      "client.layout": "cards", "client.layout_overrides": { feed: { "5": "compact" }, folder: { "7": "inbox" } },
+      "client.layout": "cards", "client.list_overrides": { feed: { "5": { layout: "compact", order: "oldest" } }, folder: { "7": { layout: "inbox", view: "all" } } },
       "client.order": "oldest", "client.search_order": "newest", "client.inbox_thumbs": "off", "client.peek_seen": true, "client.article_width": "wide",
       "client.list_width": 400, "client.sidebar_width": 300, "client.link_target": "same", "client.unread_badge": "dot",
       "client.text_size": 1.25, "client.adjust_separately": true, "client.shortcuts": false, "client.spacing": "roomy",

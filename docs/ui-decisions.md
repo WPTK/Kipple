@@ -155,14 +155,30 @@ implementing anything. Commit and PR as needed without asking." (Host-A deploys 
 ### Backend features
 - Filters family **F1 to F7 in phase 2** (mute, mark read, auto-star, only-show-matching, highlights, saved
   searches, auto-read after N days, reading-time filter, per-feed view/order). (Shipped in phase 2: mute,
-  mark read, star, highlight, saved searches and auto-read. Not shipped: only-show-matching, a
-  reading-time filter UI (the API has `min_minutes` and `max_minutes`), and per-feed view/order (order
-  is per device).) Quiet hours rejected.
+  mark read, star, highlight, saved searches and auto-read. The rest, only-show-matching, the reading-time
+  filter UI and per-feed view and order, shipped with #38; see "Filters follow-ups" below.) Quiet hours rejected.
 - Image cache default cap **1 GiB** (check Host-A free disk before deploy). Default mode: **all images**
   (inline too) through Kipple, matching common RSS-reader practice; enables the strict CSP.
 - Backup export, `kipple restore`, `kipple password`; ship them (and take an off-box export) before the
   0004/0005 migrations reach the live DB. Implementation order: `backend-additions-round2.md` §11.
 
+### Filters follow-ups (#38, 0.8.0-beta.3)
+Choices made where the decisions above were silent; the owner may overrule any of them.
+- **Only show matching** is a choice under "What it does", stored as an inverted Mute (no new action, no schema
+  change). For Mute the "Act when it does NOT match" option is that choice, so the checkbox is offered for Mark as
+  read and Star only.
+- **Reading-time filter:** three lengths, "5 min or less", "6 to 15 min" and "Over 15 min", from a timer button in the
+  list header, with a chip under the view pills that clears it. It lives in the list's address: the view pills,
+  previous and next feed, and an opened article keep it; another list starts without it; it is not saved. Mark all as
+  read marks only what it shows.
+- **Per-feed view** means the view a feed or folder opens in (Unread or All), not the layout (already per feed). No
+  device default view: Unread unless the feed or a folder above it says otherwise. Previous and next feed keep the
+  current view.
+- **Per-feed order** resolves like the layout: feed, then the nearest folder up the tree, then the device default. The
+  list header's oldest-first toggle acts at the list's level (the feed or folder on its list, the device on Unread,
+  All, Starred and Muted), and toggling back to the inherited order removes the override.
+- Layout, order and view of one list are one object per feed or folder in the device profile
+  (`client.list_overrides`), set from the list header's layout menu and from the feed and folder editors.
 ### Working agreement
 - Commit and open PRs without asking. Merge docs-only PRs when CI is green. Code PR for `phase-2` opens at
   deploy time. Reviews (Opus, high) after every two or three backend steps; fix all findings.

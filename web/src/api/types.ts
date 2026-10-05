@@ -1,6 +1,8 @@
 // Types for the UI JSON API (docs/design.md section 7). Ids are strings in
 // every JSON body; times are unix seconds.
 
+import type { ReadingLength } from "@/lib/readingLength";
+
 export type View = "unread" | "all" | "starred" | "muted";
 
 export interface Card {
@@ -196,6 +198,8 @@ export interface Scope {
   q?: string;
   /** Oldest first (device preference), or relevance (search only). Absent means newest first. */
   order?: "oldest" | "rank";
+  /** Reading-time filter (lib/readingLength): only articles of this length. Absent means any length. */
+  length?: ReadingLength;
   /**
    * Search-as-you-type: the unfinished last word also matches as a prefix. Only while the user is typing; a
    * submitted search, a saved-search run and every count leave it out.

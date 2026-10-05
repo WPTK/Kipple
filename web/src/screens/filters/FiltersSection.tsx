@@ -3,7 +3,7 @@ import { folderPath, folderTree } from "@/lib/folderTree";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import { errorMessage } from "@/api/client";
-import { actionLabel, deleteFilter, fieldLabel, filterStatus, filtersKey, invalidateFilterData, setFilterEnabled, useFilters, type Filter, type Unmute } from "@/api/filters";
+import { deleteFilter, ruleLabel, fieldLabel, filterStatus, filtersKey, invalidateFilterData, setFilterEnabled, useFilters, type Filter, type Unmute } from "@/api/filters";
 import { useBootstrap } from "@/api/queries";
 import { devicePrefsStore } from "@/lib/devicePrefs";
 import { useStoreSelector } from "@/lib/store";
@@ -166,8 +166,7 @@ function FilterRow({
       <Switch label={f.name || "Untitled filter"} checked={f.enabled} onChange={(v) => void toggle(v)} />
       <div className="min-w-0">
         <p className="text-xs text-fg2">
-          {actionLabel(f.action)}
-          {f.invert ? " when it does not match" : ""} · {scopeText(f, folders, feeds)} · {f.kind === "regex" ? "Regular expression" : "Words"} in {f.fields.map(fieldLabel).join(", ").toLowerCase()}
+          {ruleLabel(f)} ·{scopeText(f, folders, feeds)} · {f.kind === "regex" ? "Regular expression" : "Words"} in {f.fields.map(fieldLabel).join(", ").toLowerCase()}
         </p>
         <p className="truncate text-xs text-fg2">{terms}</p>
         {f.disabled_reason ? (

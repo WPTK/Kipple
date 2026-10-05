@@ -4,10 +4,10 @@ import { ApiError, errorMessage } from "@/api/client";
 import { deleteFeed, invalidateFeeds, loadFeedDetail, patchFeed, refreshFeed, type FeedDetail } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import type { Feed } from "@/api/types";
-import { LAYOUT_IDS, LAYOUT_LABELS, setLayoutOverride, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
 import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { Button } from "@/ui/button";
 import { AutoReadCatchUp } from "../AutoReadCatchUp";
+import { ListOverrideFields } from "./ListOverrideFields";
 import { Disclosure, Field, Modal, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { announce, toast } from "@/shell/toasts";
@@ -128,7 +128,6 @@ function saveError(e: unknown): { field: "url" | "auth" | "form"; message: strin
 export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void }) {
   const qc = useQueryClient();
   const boot = useBootstrap();
-  const dp = useDevicePrefs();
   const q = useQuery({ queryKey: ["feed", feed.id], queryFn: () => loadFeedDetail(feed), staleTime: 0, gcTime: 0, retry: false });
   const [edits, setEdits] = useState<Partial<Form>>({});
   const [err, setErr] = useState<{ field: "url" | "auth" | "form"; message: string } | null>(null);
@@ -192,7 +191,6 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
     }
   };
 
-  const layoutValue = dp.overrides.feed[feed.id] ?? "default";
   // The global switch overrides every feed's own one: say so instead of showing a switch that does nothing.
   const fulltextAll = boot.data?.settings?.["fetch.fulltext_all"] === true;
 
@@ -272,23 +270,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
               <FolderSelect {...a} value={f.folder} onChange={(id) => set("folder", id)} />
             )}
           </Field>
-          <Field label="Layout on this device" help="Overrides the device default for this feed only.">
-            {(a) => (
-              <select
-                {...a}
-                value={layoutValue}
-                onChange={(e) => setLayoutOverride("feed", feed.id, e.target.value === "default" ? null : (e.target.value as LayoutId))}
-                className={inputCls}
-              >
-                <option value="default">Use device default</option>
-                {LAYOUT_IDS.map((l) => (
-                  <option key={l} value={l}>
-                    {LAYOUT_LABELS[l]}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
+          <ListOverrideFields kind="feed" id={feed.id} />
           <Field label="Check for new articles">
             {(a) => (
               <select {...a} value={f.interval} onChange={(e) => set("interval", e.target.value)} className={inputCls}>

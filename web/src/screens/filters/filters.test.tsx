@@ -207,7 +207,10 @@ describe("filter editor", () => {
     expect(caps).not.toBeChecked();
     expect(w.getByRole("checkbox", { name: /Ignore accents/ })).toBeChecked(); // fold_diacritics true
     expect(w.getByRole("checkbox", { name: /Match whole words only/ })).toBeChecked();
-    await user.click(w.getByRole("checkbox", { name: /Act when it does NOT match/ }));
+    // For Mute the inversion is the "Only show matching" mode, not the checkbox (one control for one stored state).
+    expect(w.getByRole("checkbox", { name: /Act when it does NOT match/ })).toBeDisabled();
+    await user.click(w.getByRole("radio", { name: /Only show matching/ }));
+    expect(w.getByRole("checkbox", { name: /Act when it does NOT match/ })).not.toBeChecked();
 
     // The actions explain themselves.
     expect(w.getByText(/Hides matching articles from Unread, All and search/)).toBeInTheDocument();
@@ -238,7 +241,7 @@ describe("filter editor", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/filters")).toBe(true));
     const create = body(calls.find((c) => c.method === "POST" && c.url.pathname === "/api/filters") as never);
     expect(create).toMatchObject({ terms: ["giveaway"], action: "mute", invert: true, case_sensitive: true, whole_word: true, fold_diacritics: true, scope: "global" });
-    expect(create.name).toBe("Mute: giveaway"); // an unnamed rule is given one
+    expect(create.name).toBe("Only show: giveaway"); // an unnamed rule is given one
     expect(create.apply_existing).toBeUndefined();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "New filter" })).toBeNull());
   }, 20000);

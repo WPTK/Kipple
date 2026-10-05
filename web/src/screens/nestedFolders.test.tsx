@@ -108,7 +108,7 @@ describe("the sidebar folder tree", () => {
     expect(tech).toHaveAttribute("aria-level", "1");
     expect(item(tree, /^Apple/)).toHaveAttribute("aria-level", "2");
     expect(mac).toHaveAttribute("aria-level", "3");
-    expect(within(mac).getAllByRole("link")[0]).toHaveAttribute("href", "/l/unread?folder=4");
+    expect(within(mac).getAllByRole("link")[0]).toHaveAttribute("href", "/l?folder=4");
     // Tech holds no feed itself but shows: its subtree does. Its badge is the subtree's.
     expect(within(tech).getAllByTestId("unread-count")[0]).toHaveTextContent("3");
     expect(within(tree).queryByText("Empty")).toBeNull();

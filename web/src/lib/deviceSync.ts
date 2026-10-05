@@ -88,7 +88,7 @@ export function profileOf(l: LocalState): Profile {
     "client.voice": p.voice.length <= 200 && !/[\r\n]/.test(p.voice) ? p.voice : null,
     "client.rate": p.rate,
     "client.layout": dp.layout,
-    "client.layout_overrides": { feed: { ...dp.overrides.feed }, folder: { ...dp.overrides.folder } },
+    "client.list_overrides": { feed: { ...dp.overrides.feed }, folder: { ...dp.overrides.folder } },
     "client.order": dp.order,
     "client.search_order": SEARCH_ORDER_TO_SERVER[dp.searchOrder],
     "client.inbox_thumbs": dp.inboxThumbs,
@@ -146,7 +146,7 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
   }
   const dpRaw = {
     layout: g("client.layout"),
-    overrides: g("client.layout_overrides"),
+    overrides: g("client.list_overrides"),
     order: g("client.order"),
     searchOrder: searchOrderFromServer(g("client.search_order")),
     inboxThumbs: g("client.inbox_thumbs"),
@@ -504,7 +504,7 @@ function legacyProfileKeys(): Set<string> {
   if (p?.markReadOnScroll === true) out.add("ui.mark_read_on_scroll");
   if (p && parsePrefs(JSON.stringify(p)).shortcutsChosen) out.add("client.shortcuts");
   add(read(DEVICE_PREFS_KEY), {
-    layout: ["client.layout"], overrides: ["client.layout_overrides"], order: ["client.order"], searchOrder: ["client.search_order"], inboxThumbs: ["client.inbox_thumbs"],
+    layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], searchOrder: ["client.search_order"], inboxThumbs: ["client.inbox_thumbs"],
     peekSeen: ["client.peek_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
     sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
     unreadBadge: ["client.unread_badge"], highlightKeywords: ["client.highlight_keywords"],

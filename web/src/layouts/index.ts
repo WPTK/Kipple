@@ -31,14 +31,20 @@ export function layoutContext(scope: Scope, feeds: readonly { id: string; folder
 }
 type FolderLike = { id: string; name: string; parent_id?: string | null };
 
+/** The feed and folders a list's overrides resolve through (layoutContext over the cached bootstrap). */
+export function useListContext(scope: Pick<Scope, "feed" | "folder">): LayoutContext {
+  const boot = useBootstrap();
+  const tree = useFolderTree();
+  const feeds = boot.data?.feeds;
+  const { feed, folder } = scope;
+  return useMemo(() => layoutContext({ view: "unread", feed, folder }, feeds ?? [], tree), [feed, folder, feeds, tree]);
+}
+
 /** The layout in effect for a list: `c` toggle, then feed override, folder overrides up the tree, device default. */
 export function useResolvedLayout(scope: Scope): { layout: ListLayout; ctx: LayoutContext } {
   const dp = useDevicePrefs();
   const session = useStore(sessionLayoutStore);
-  const boot = useBootstrap();
-  const tree = useFolderTree();
-  const feeds = boot.data?.feeds;
-  const ctx = useMemo(() => layoutContext(scope, feeds ?? [], tree), [scope, feeds, tree]);
+  const ctx = useListContext(scope);
   return { layout: getLayout(resolveLayout(dp, ctx, session)), ctx };
 }
 
