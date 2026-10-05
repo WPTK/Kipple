@@ -627,10 +627,11 @@ take a while.
 
 Before the snapshot is written Kipple checks the free space: it refuses to start, with `not enough free disk space to
 migrate the database ... (nothing was changed)`, unless there is enough extra free space: on the database's volume, the
-size of the database file (without the WAL) plus 64 MB of headroom for the migration's WAL and growth, and on the backup
-directory's volume, 1.1 times the database size for the snapshot; when both are on the same volume (the default `/data`
-layout) the two add up. That is the minimum. A migration that builds indexes briefly needs about twice the new indexes'
-size on top (the WAL holds the build until the checkpoint), so leave more than the minimum free. Nothing has been written
+size of the database file (without the WAL) plus 64 MB, or twice that size plus 64 MB when one of the pending migrations
+rebuilds a table (the WAL holds the new copy of the table and its indexes until the checkpoint, and the checkpoint then
+grows the file by the new table before the old table's pages are reused); and on the backup directory's volume, 1.1
+times the database size for the snapshot. When both are on the same volume (the default `/data` layout) the two add
+up: about 2.1 times the database plus 64 MB, or 3.1 times plus 64 MB with a rebuild. Nothing has been written
 when the check refuses, so free some space (older `backup/` files, exported archives, the image cache) and start again.
 If the volume fills up despite the check, the migration transaction fails and is rolled back (the database keeps its
 schema and the previous binary keeps working); a full disk can also fail the snapshot itself, which likewise leaves the
@@ -662,5 +663,5 @@ Space to keep free on the volume:
 |---|---|
 | Steady state | The nightly snapshot lives on the same volume: plan for about 2 times the database in total. |
 | Export | About 2.2 times the database, temporarily (the snapshot copy plus the zip). Over 4 GiB an export is refused: copy the nightly snapshot instead. |
-| Upgrade that migrates the schema | The database size plus 64 MB, plus 1.1 times the database for the pre-migration snapshot. The newest three pre-migration snapshots are kept, each about one more copy of the database. |
+| Upgrade that migrates the schema | The database size plus 64 MB (twice the size plus 64 MB when a migration rebuilds a table), plus 1.1 times the database for the pre-migration snapshot. The newest three pre-migration snapshots are kept, each about one more copy of the database. |
 | Restore | The new database, plus the previous one kept under `backup/pre-restore-*` (newest three kept). |

@@ -96,7 +96,7 @@ func (c *call) editTag() {
 				if *op.starred {
 					kind = stats.KindStar
 				}
-				if err := c.a.opt.Stats.RecordStars(tx, kind, c.family, res.Changed); err != nil {
+				if err := c.a.opt.Stats.RecordStars(tx, kind, stats.ClientAPI, res.Changed); err != nil {
 					return err
 				}
 			}
@@ -118,7 +118,7 @@ func (c *call) editTag() {
 			c.a.publish("resync", map[string]any{})
 			continue
 		}
-		ev := map[string]any{"ids": idStrings(ch.res.Changed), "source": c.family}
+		ev := map[string]any{"ids": idStrings(ch.res.Changed), "source": stats.ClientAPI}
 		if ch.op.read != nil {
 			ev["read"] = *ch.op.read
 		}

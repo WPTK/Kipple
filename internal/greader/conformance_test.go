@@ -34,7 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// confUA is a User-Agent no client family matches.
+// confUA is a generic User-Agent; every Reader API client is treated the same.
 const confUA = "conformance-suite/1.0"
 
 // confClient is a generic Reader API client over a real HTTP server.

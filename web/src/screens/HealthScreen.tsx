@@ -322,7 +322,7 @@ export function HealthScreen() {
             </div>
             <p role="status" className="mb-2 text-sm text-fg2">
               {feeds.length} of {d.feeds.filter((f) => f.status !== "archive").length} feeds
-              {d.clients.length ? ` · Sync apps seen: ${d.clients.map((c) => `${c.family} ${whenLabel(c.last_seen_at)}`).join(", ")}` : ""}
+              {d.reader_last_seen_at ? ` · A sync app was last seen ${whenLabel(Math.min(d.reader_last_seen_at, Date.now() / 1000)).toLowerCase()}` : ""}
             </p>
             {feeds.length === 0 ? (
               <p className="py-8 text-center text-sm text-fg2">No feeds match.</p>

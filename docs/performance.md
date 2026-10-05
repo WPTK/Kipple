@@ -239,8 +239,9 @@ Rules of thumb from the numbers above. They scale with item count and content si
 
 - **Disk.** Plan about 10 KB per item for a typical mix of summaries and articles (this library: 11 KB). A feed
   at the default retention keeps 250 items, so 500 feeds is at most 125,000 items, about 1.4 GB. Image
-  thumbnails are cached separately and are not in the database. Keep free space of at least 2.5 times the
-  database: the pre-upgrade snapshot needs 1.1 times plus 64 MB, the in-app backup needs 2.2 times plus 16 MB, and the
+  thumbnails are cached separately and are not in the database. Keep free space of at least 3.1 times the
+  database plus 64 MB: an upgrade that migrates needs 3.1 times the database plus 64 MB when it rebuilds a table (2.1
+  times plus 64 MB otherwise), with the pre-migration snapshot included, the in-app backup needs 2.2 times plus 16 MB, and the
   database needs room to grow.
 - **Memory.** Idle use is about 60 MB and the peak at 500 feeds and 150,000 items was 130 MB. The 256 MB limit in the
   compose example fits this size; memory follows the work in flight (a refresh, a trim), not the library size.

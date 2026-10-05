@@ -34,6 +34,16 @@ func TestHealthReportsHostThrottleSnapshotClockAndSizes(t *testing.T) {
 	require.Contains(t, byID[sid(held)], "redirect_pending")
 	require.NotContains(t, byID[sid(held)], "migrated")
 
+	require.Contains(t, body, "reader_last_seen_at")
+	require.Nil(t, body["reader_last_seen_at"], "no Reader API client has called")
+	seen := h.clk.Now().Add(-90 * time.Second)
+	h.srv.opt.ReaderLastSeen = func() time.Time { return seen }
+	_, withSeen, _ := h.api(c, "GET", "/api/health/feeds", "")
+	require.EqualValues(t, seen.Unix(), withSeen["reader_last_seen_at"])
+	h.srv.opt.ReaderLastSeen = func() time.Time { return time.Time{} }
+	_, unseen, _ := h.api(c, "GET", "/api/health/feeds", "")
+	require.Nil(t, unseen["reader_last_seen_at"], "the zero time is never")
+
 	snap := body["snapshot"].(map[string]any)
 	require.EqualValues(t, h.clk.Now().Unix()-3600, snap["last_at"])
 	require.Equal(t, "disk full", snap["last_error"])

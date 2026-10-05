@@ -19,9 +19,11 @@ func TestEditTagRecordsStarStats(t *testing.T) {
 	h.api.opt.Stats = stats.New(h.clk.Now)
 	f := h.addFeed("https://a.example/f", "A", "")
 	ids := seedN(h, f, 3, nil)
-	reeder := map[string]string{"User-Agent": "Reeder/5.4"}
-	post := func(body string) {
-		w := h.do("POST", base+rd+"edit-tag", body, reeder)
+	agents := []string{"SyncApp/5.4", "OtherReader/2 (https://reader.example)", ""}
+	calls := 0
+	post := func(body string) { // each call from a different client: they all record as api
+		w := h.do("POST", base+rd+"edit-tag", body, map[string]string{"User-Agent": agents[calls%len(agents)]})
+		calls++
 		require.Equal(t, 200, w.Code)
 	}
 	count := func(kind string) int {
@@ -37,7 +39,7 @@ func TestEditTagRecordsStarStats(t *testing.T) {
 	post(editBody("a="+readSt, FormatDecimal(ids[2])))
 	require.Equal(t, 3, q[int](h, "SELECT count(*) FROM stats_events"))
 
-	require.Equal(t, 3, q[int](h, "SELECT count(*) FROM stats_events WHERE client = 'reeder' AND inferred = 0 AND session_key IS NULL"))
+	require.Equal(t, 3, q[int](h, "SELECT count(*) FROM stats_events WHERE client = 'api' AND inferred = 0 AND session_key IS NULL"))
 	require.Equal(t, "A", q[string](h, "SELECT feed_title FROM stats_events WHERE kind = 'unstar'"))
 }
 
@@ -69,7 +71,7 @@ func TestEditTagBulkStarFinishesWellInsideWriteDeadline(t *testing.T) {
 	body := editBody("a="+starred, ids...)
 
 	start := time.Now()
-	w := h.do("POST", base+rd+"edit-tag", body, map[string]string{"User-Agent": "Reeder/5.4"})
+	w := h.do("POST", base+rd+"edit-tag", body, map[string]string{"User-Agent": "SyncApp/5.4"})
 	took := time.Since(start)
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Equal(t, "OK", w.Body.String())
@@ -78,7 +80,7 @@ func TestEditTagBulkStarFinishesWellInsideWriteDeadline(t *testing.T) {
 		limit = 8 * time.Second // shared CI runners under the race detector measured 3.0-3.3 s for 1000 ids
 	}
 	require.Less(t, took, limit, "bulk star of %d ids took %s", n, took)
-	require.Equal(t, n, q[int](h, "SELECT count(*) FROM stats_events WHERE kind = 'star' AND client = 'reeder'"))
+	require.Equal(t, n, q[int](h, "SELECT count(*) FROM stats_events WHERE kind = 'star' AND client = 'api'"))
 	require.Equal(t, n, q[int](h, "SELECT count(*) FROM items WHERE starred = 1"))
 	t.Logf("bulk star of %d ids: %s", n, took)
 }
@@ -140,7 +142,7 @@ func TestEditTagStarWithStatsOff(t *testing.T) {
 	f := h.addFeed("https://a.example/f", "A", "")
 	ids := seedN(h, f, 2, nil)
 	w := h.do("POST", base+rd+"edit-tag", editBody("a="+starred, FormatDecimal(ids[0]), FormatDecimal(ids[1])),
-		map[string]string{"User-Agent": "Reeder/5.4"})
+		map[string]string{"User-Agent": "SyncApp/5.4"})
 	require.Equal(t, 200, w.Code)
 	require.Equal(t, 2, q[int](h, "SELECT count(*) FROM items WHERE starred = 1"))
 	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM stats_events"))

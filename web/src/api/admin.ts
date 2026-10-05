@@ -234,7 +234,8 @@ export interface HealthFeed {
 
 export interface HealthResponse {
   feeds: HealthFeed[];
-  clients: { family: string; last_seen_at: number }[];
+  /** When a sync app last called the Reader API (unix seconds), null if none has since the server started. */
+  reader_last_seen_at: number | null;
   snapshot: { last_at: number | null; last_error: string | null };
   clock: { ahead_s: number };
   db: { db_bytes: number; wal_bytes: number; backup_bytes: number; imgcache_bytes: number };
