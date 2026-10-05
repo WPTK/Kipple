@@ -29,7 +29,7 @@ func TestCommitAdoptsDiscoveredFeedURL(t *testing.T) {
 		require.True(t, found, u)
 		require.Equal(t, id, got, u)
 	}
-	res2, err := e.db.Subscribe(e.ctx, SubscribeOpts{URL: "blog.example/"})
+	res2, err := e.db.Subscribe(e.ctx, SubscribeOpts{URL: " https://Blog.example/#top "})
 	require.NoError(t, err)
 	require.True(t, res2.Existed, "the page address subscribes the same feed")
 	require.Equal(t, id, res2.FeedID)

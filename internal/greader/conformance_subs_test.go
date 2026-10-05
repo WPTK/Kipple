@@ -161,7 +161,7 @@ func TestConformanceQuickAdd(t *testing.T) {
 	// request: the address is stored as typed (read as a URL), and the scheduler's first fetch finds
 	// the feed the page links and makes it the subscription's url (store and sched tests).
 	for typed, stored := range map[string]string{
-		"blog.example":                    "https://blog.example",
+		"blog.example.com":                "https://blog.example.com",
 		" https://www.site.example/news ": "https://www.site.example/news",
 		"feed://podcast.example/show.xml": "https://podcast.example/show.xml",
 	} {

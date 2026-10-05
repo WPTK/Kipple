@@ -64,7 +64,8 @@ func TestNormalizeTypedForms(t *testing.T) {
 	}
 	// Still not addresses: a relative path, a lone word, other schemes, the internal pseudo-URLs.
 	for _, bad := range []string{"", "   ", "/relative", "nas", "ftp://example.com/x", "mailto:me",
-		"javascript:alert(1)", "kipple:archive", "kipple:deleting:12", "feed:", "http://", "file:///etc/passwd"} {
+		"javascript:alert(1)", "kipple:archive", "kipple:deleting:12", "feed:", "http://", "file:///etc/passwd",
+		"../feed.xml", "./x", "index.php?x=1", "rss:8080/x", "feed.xml", "...", "a..b/feed", "-bad.com/x", "example.notatld/x", "nas.lan/feed", "host:port/x"} {
 		_, err := Normalize(bad)
 		require.Error(t, err, bad)
 	}
