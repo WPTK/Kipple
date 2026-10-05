@@ -15,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -46,7 +47,7 @@ func (h *setupHarness) openAccount(extra map[string]any, mod ...func(*http.Reque
 
 // #128: a remote client behind a same-machine proxy that passes its Host
 // through (nginx with proxy_set_header Host $host and X-Forwarded-For /
-// X-Forwarded-Proto, not in KIPPLE_TRUSTED_PROXY_IPS) chose Host anything.ts.net
+// X-Forwarded-Proto, not a trusted proxy) chose Host anything.ts.net
 // and was taken for Tailscale Serve: a session, the bootstrap and a lasting
 // Reader API password. Now the forwarded headers give it away.
 func TestOpenGateTSNetHostThroughAProxyIsRefused(t *testing.T) {
@@ -101,7 +102,7 @@ func TestOpenModeHostGateRefusesLANAnsweredNames(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	refused := decode(t, rec)
 	require.Equal(t, "host", refused["reason"])
-	require.Contains(t, refused["message"], "KIPPLE_ALLOWED_HOSTS", "the refusal says how to allow a name")
+	require.Contains(t, refused["message"], "Allowed host names", "the refusal says how to allow a name")
 	// The refused claim left nothing behind: no account, no allowed name (a
 	// rebinding page that could claim and get its name kept would have lasting
 	// access).
@@ -122,7 +123,7 @@ func TestOpenModeHostGateRefusesLANAnsweredNames(t *testing.T) {
 		for _, path := range []string{"/api/instance", "/api/bootstrap", "/", "/healthz"} {
 			rec := h.req("GET", path, "", host(hv), withCookies(sess))
 			require.Equal(t, http.StatusMisdirectedRequest, rec.Code, "%s %s", hv, path)
-			require.Contains(t, rec.Body.String(), "add it to KIPPLE_ALLOWED_HOSTS", "%s %s", hv, path)
+			require.Contains(t, rec.Body.String(), "add the name under Allowed host", "%s %s", hv, path)
 		}
 		rec := h.req("POST", "/api/auth/open", "", host(hv), hdr("Origin", "http://"+hv))
 		require.Equal(t, http.StatusMisdirectedRequest, rec.Code, hv)
@@ -143,16 +144,17 @@ func TestOpenModeHostGateRefusesLANAnsweredNames(t *testing.T) {
 	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host("box.lan")).Code)
 }
 
-// Allowing a name through KIPPLE_ALLOWED_HOSTS, as the refusal says, works the
-// same: the listed LAN name opens, other LAN names stay refused.
-func TestOpenModeHostGateEnvListedName(t *testing.T) {
-	h := newSetupHarness(t, func(o *Options) { o.AllowedHosts = []string{"nas.local"} })
+// A name the KIPPLE_ALLOWED_HOSTS variable seeded into the setting at start
+// works like one listed in Settings: the listed LAN name opens, other LAN names
+// stay refused, and the claim made at that name adds nothing.
+func TestOpenModeHostGateSeededName(t *testing.T) {
+	h := newSetupHarness(t, withSeed(t, reach.Seed{AllowedHosts: []string{"nas.local"}}))
 	sess := h.openAccount(nil, host("nas.local:1919"), hdr("Origin", "http://nas.local:1919"))
 	require.Equal(t, http.StatusOK, h.req("GET", "/api/bootstrap", "", host("nas.local:1919"), withCookies(sess)).Code)
 	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/bootstrap", "", host("evil.local:1919"), withCookies(sess)).Code)
 	sec, err := h.db.SecuritySettings(context.Background())
 	require.NoError(t, err)
-	require.Empty(t, sec.AllowedHosts, "nothing is copied into the setting")
+	require.Equal(t, []string{"nas.local"}, sec.AllowedHosts, "only the seeded name; the claim lists nothing")
 }
 
 // A peer in Tailscale's range counts as the tailnet only when it arrived on

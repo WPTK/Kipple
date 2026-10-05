@@ -215,11 +215,11 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
   — confirm the digit-count parsing picks the right cut).
 
 **Settings and accounts**
-- TC-C1: Cloudflare Access sign-in (shipped in #40; design §7.0): with `KIPPLE_ACCESS_TEAM_DOMAIN` and
-  `KIPPLE_ACCESS_AUD` set, Settings shows the Access email and offers Remove web password (asking for the
+- TC-C1: Cloudflare Access sign-in (shipped in #40; design §7.0): with Cloudflare Access set in Settings
+  (Account & Devices, Address and access), Settings shows the Access email and offers Remove web password (asking for the
   current password); afterwards sign-in with an empty password succeeds only through Access with a verified
-  token, and a LAN request that bypasses Access is refused. Negative cases: with the variables unset a password is
-  always required, and an account that still has a password always needs it. Setting a password again (Settings,
+  token, and a LAN request that bypasses Access is refused. Negative cases: with Access off a password is
+  always required, Settings refuses to change or turn off Access while the account has no password (`access_in_use`), and an account that still has a password always needs it. Setting a password again (Settings,
   or `kipple password`) restores normal sign-in.
 - TC-C2: API password generate-and-copy button works; the Reader API accepts the generated password.
 - TC-C3: Backup export → `kipple restore` on a copy of the volume restores identically (this is also Suite 4's
@@ -569,14 +569,15 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 |---|---|---|---|
 | A1 | Start it as the README says (`up -d` on the compose file, or the one-liner). | The image pulls anonymously; the container reaches `(healthy)` within about a minute even though nothing is set up. | Pull time, `docker ps` health, image digest (`docker inspect --format '{{index .RepoDigests 0}}' <container>`). |
 | A2 | `docker logs <container>`. | One `no account yet: open Kipple in a browser to create it` line (the only one), and no setup code, banner or link anywhere. | Whether it was clear what to do next. |
-| A3 | Open `http://127.0.0.1:<port>` in a browser. | The wizard's first screen is **Create your account** (Step 1 of 6). No setup code is asked for. | Anything confusing in the wording. |
+| A3 | Open `http://127.0.0.1:<port>` in a browser. | The wizard's first screen is **Create your account** (Step 1 of 7). No setup code is asked for. | Anything confusing in the wording. |
 | A4 | Before creating the account, from a second browser or `curl`: `GET /api/bootstrap`, then `POST /api/auth/login` with any body (same-origin headers). | `401` and `409 setup_required`. `docker logs` shows no feed fetch: nothing runs until an account exists. | |
 | A5 | Restart the container and open the address again. | The same account form: there is nothing to look up. Again exactly one `no account yet` line in `docker logs`. | |
 | A6 | Send two account requests at the same moment (two browsers, or two `curl` calls with `Sec-Fetch-Site: same-origin` and `X-Kipple-Client: web`). | Exactly one `201` with a session cookie; the other `409 already_set_up` and no cookie. | |
 | A7 | Step 1: create the account with a password (try one that is too short first). | The short one is refused with a reason; a valid one signs you in and moves to the time zone step. | |
 | A8 | Step 2, time zone. | Preselected from the browser's zone (UTC with a note if the server does not know it); searchable; Continue saves it. `docker exec <container> /kipple version -v` and Settings > About agree with the tag and show the zone. | The zone shown. |
 | A9 | Steps 3 to 5: pick a theme, import a small OPML file (or skip), tick a few recommended feeds. | Each saves as you go; imported and subscribed feeds start fetching; "Skip" on each step works and lands on the next. | Feeds added, time to the first article. |
-| A10 | Step 6: generate the Reader API password and connect a Reader API client with the server address the wizard shows, the user name and that password. | The password is shown once with a copy button; the app signs in and lists the feeds. | Client and version. |
+| A9b | Step 6, the address: open Kipple at its IP address, then at a DNS name if you have one; try `http://nas.local:1919`. | At the IP address the field starts empty; at a DNS name it is suggested; at a `.local` or single-word name nothing is suggested, and typing one saves (it is used for icons but open mode still answers it only when listed); Continue saves, Skip saves nothing. | The suggestion shown. |
+| A10 | Step 7: generate the Reader API password and connect a Reader API client with the server address the wizard shows, the user name and that password. | The password is shown once with a copy button; the app signs in and lists the feeds. | Client and version. |
 | A11 | Finish, sign out and in again, Settings > Account & Devices > **Export backup** and save the zip, then `docker exec <container> /kipple healthcheck; echo $?`. | Lands on the feed list; the password works; the backup downloads; the health check exits 0. | Backup size, and the version and schema in its manifest. |
 | A12 | On a second throwaway volume, reload the page between steps 2 and 5 (or use Settings > Account & Devices > Run setup again). | The wizard resumes where it was; what was saved is kept. | |
 | A13 | After completion `POST /api/setup/account` again (a browser tab or `curl`). | `404`: the setup route is gone. | |
@@ -589,7 +590,7 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 | B1 | Read the notice; try to continue without ticking the acknowledgement. | The notice says anyone who can reach the address can read and change everything, and to use it only when Kipple is reachable from this computer, your local network or Tailscale and the Docker bind rule (publish only on a local or Tailscale address, never a public one); it cannot be skipped without ticking the box. |
 | B2 | Note that there is no extra checkbox (this run is in Docker). | Only the acknowledgement is asked: nothing about a local-network switch, because open mode has no such setting. Tick it and continue; the account is created. |
 | B3 | Finish the wizard, close the browser, reopen the address. | It opens straight into the app with no sign-in screen (a session is minted silently). Settings has no "Sign out". |
-| B4 | Send a request with an unexpected `Host`, for example `curl -H 'Host: evil.example' http://127.0.0.1:<port>/`; put a reverse proxy (or any request carrying `X-Forwarded-For`) in front and open the app through it. | The unexpected `Host` gets `421 Misdirected Request` naming `KIPPLE_ALLOWED_HOSTS`. The proxied request is refused as `forwarded`. With the default `127.0.0.1:` mapping another machine cannot reach the port at all. |
+| B4 | Send a request with an unexpected `Host`, for example `curl -H 'Host: evil.example' http://127.0.0.1:<port>/`; put a reverse proxy (or any request carrying `X-Forwarded-For`) in front and open the app through it. | The unexpected `Host` gets `421 Misdirected Request` naming Allowed host names in Settings. The proxied request is refused as `forwarded`. With the default `127.0.0.1:` mapping another machine cannot reach the port at all. |
 | B5 | Settings > Account & Devices > Set web password. | Gives the account a password and signs every other session out; a reload shows the sign-in screen. |
 
 **Run C: verify.** `cosign verify ghcr.io/wptk/kipple:<version> ...` exactly as the README prints it succeeds and names the

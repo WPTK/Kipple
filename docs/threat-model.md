@@ -41,7 +41,7 @@ the owner's password or a shell on the host; denial of service by someone who ca
 | Compression length oracles (BREACH) | gzip only for compressible bodies; no compressed response puts a secret beside request-reflected input (the token and backup-download responses are their own small bodies) | `internal/httpx/compress.go` |
 | Session theft and fixation | 256-bit random cookie value, stored only as its hash; HttpOnly, SameSite=Lax, Secure when the effective scheme is https; logout deletes the row; a password change signs out other sessions; `kipple password` signs out all | `internal/api/api.go`, `login.go`, `account.go`, `internal/store/sessions.go`; tests `internal/api/session_security_test.go` |
 | Password guessing | argon2id, per-client escalating wait, one hashing slot, same for Reader API login | `internal/auth`, `internal/api/login.go`, design section 6.3 |
-| Spoofed client address or Access header | Forwarded headers are honoured only from `KIPPLE_TRUSTED_PROXY_IPS`; Access tokens are verified against the team's keys | `internal/auth/clientip.go`, `internal/access` |
+| Spoofed client address or Access header | Forwarded headers are honoured only from the trusted proxies setting (ranges wider than an IPv4 /8 or IPv6 /20 covering public addresses are refused; changing them needs the current password); Access tokens are verified against the team's keys | `internal/auth/clientip.go`, `internal/access` |
 | DNS rebinding against the app | Host header gate in setup and open mode; open mode answers single-label and `.local`-style names only when listed, and choosing open mode never lists one (design §7.1e) | `internal/setup/hosts.go`, `internal/api/hostgate.go` |
 | Image proxy abuse (bombs, huge files) | Signed URLs, size and time caps, strict JPEG walk and decode-cost budget before transcoding | `internal/imgproxy` |
 | Hostile OPML or backup archive | Go's XML decoder has no external entities; imported feeds never get the private-network or insecure-TLS exceptions; archive entry names are flat and bounded | `internal/opml`, `internal/backup/archive.go` |
@@ -75,7 +75,7 @@ Run against your own instance, from outside the network and from inside it. Repl
 1. **Auth bypass.** Request every `/api/*` path with no cookie: all answer 401 except the listed public ones. Replay a
    cookie after logout and after a password change.
 2. **Access and proxy headers.** With the access proxy on, send `Cf-Access-Jwt-Assertion` with a forged, expired and
-   other-team token. Send `X-Forwarded-For` and `X-Forwarded-Proto` from an address not in `KIPPLE_TRUSTED_PROXY_IPS`;
+   other-team token. Send `X-Forwarded-For` and `X-Forwarded-Proto` from an address not in the trusted proxies;
    the client address and scheme must not change.
 3. **Login pacing.** Ten wrong passwords from one address: waits grow. From a second address the first one's delay is
    not shared.

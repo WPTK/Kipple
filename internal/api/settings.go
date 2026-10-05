@@ -5,10 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/sched"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -22,12 +26,16 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // patchSettings is PATCH /api/settings: all-or-nothing. A null value resets the
-// key to its default.
+// key to its default. "current" is not a setting: it is the caller's current
+// web password, which a write to the trusted proxies or Cloudflare Access must
+// carry (guardedKeys).
 func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	if !decodeBody(w, r, &body, false) {
 		return
 	}
+	current, _ := body["current"].(string)
+	delete(body, "current")
 	if len(body) == 0 {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
@@ -46,6 +54,10 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 			issues = append(issues, settingIssue{k, "read-only setting"})
 		case !known:
 			issues = append(issues, settingIssue{k, "unknown setting"})
+		case body[k] == nil && slices.Contains(store.ReachKeys, k):
+			// A reachability reset stores the default, so the row stays and its seed
+			// variable can never fill it again.
+			set[k] = store.DefaultSettings[k]
 		case body[k] == nil:
 			set[k] = nil
 		default:
@@ -66,9 +78,35 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 			"error": "invalid_settings", "message": "invalid settings: " + strings.Join(bad, ", "), "keys": bad, "issues": issues})
 		return
 	}
+	if guarded(set) {
+		// Who may name the client's address, and who may sign in: proven like an
+		// account change (the web password; Access or the open gate without one).
+		if _, ok := s.checkCurrent(w, r, current, false); !ok {
+			return
+		}
+	}
 	ctx := r.Context()
 	before := s.db.FetchSettings(ctx)
-	if err := s.writeAccountSettings(ctx, set); err != nil {
+	write := func() error { return s.writeAccountSettings(ctx, set) }
+	reachSet := touchesReach(set)
+	var err error
+	if reachSet {
+		// The reachability settings in force change with the write, under one lock.
+		err = s.reach.Update(set, func(cur *reach.State) error { return s.checkReachChange(r, cur, set) }, write)
+	} else {
+		err = write()
+	}
+	if err != nil {
+		if errors.Is(err, errProxyIsYou) {
+			writeErrorMsg(w, http.StatusConflict, "proxy_is_you",
+				"your own address is in this list: Kipple runs without a password, and it refuses every request from a trusted proxy, so saving it would lock you out. Leave your address out, or set a password first")
+			return
+		}
+		if errors.Is(err, errAccessInUse) {
+			writeErrorMsg(w, http.StatusConflict, "access_in_use",
+				"this account has no web password and signs in through Cloudflare Access: set a web password first (Account), then change or turn off Access")
+			return
+		}
 		var ve *store.SavedSearchError
 		if errors.As(err, &ve) {
 			// A saved search names a feed or folder that does not exist (checked in the write).
@@ -88,20 +126,10 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := set["imgproxy.mode"]; ok {
 		s.refreshImgMode(ctx) // the CSP img-src follows it
 	}
-	hosts, hostsSet := set[store.SettingAllowedHosts]
-	if hostsSet {
-		// The Host gate reads it: re-read, with the new value already in the fallback.
-		s.noteMode(r.Context(), func(sn *modeSnapshot) {
-			var stored []string
-			if l, ok := hosts.([]any); ok {
-				for _, e := range l {
-					if h, ok := e.(string); ok {
-						stored = append(stored, h)
-					}
-				}
-			}
-			sn.allowed = s.allowedWith(stored)
-		})
+	if reachSet {
+		// The Host gate and the open gate read them: wake long-lived requests (an
+		// /api/events stream) so they re-check the open gate at once.
+		s.noteMode(ctx, nil)
 	}
 	if _, ok := set["imgproxy.cache_mb"]; ok {
 		s.applyImgCacheCap(ctx) // a lower cap evicts, 0 turns the cache off and purges it
@@ -150,4 +178,74 @@ func (s *Server) retentionApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"run_id": fmt.Sprint(info.RunID), "total": info.Total})
+}
+
+// errAccessInUse refuses a change to the Cloudflare Access setting while the
+// account signs in through it (no web password).
+var errAccessInUse = errors.New("cloudflare access in use")
+
+// touchesReach reports whether set writes a reachability setting.
+func touchesReach(set map[string]any) bool {
+	for _, k := range store.ReachKeys {
+		if _, ok := set[k]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// errProxyIsYou refuses a trusted-proxies write in open mode that lists the
+// caller's own address: the open gate refuses a trusted peer as forwarded, so
+// the write would lock the caller out.
+var errProxyIsYou = errors.New("trusted proxies include the caller")
+
+// guardedKeys are the settings a write must prove the account for (checkCurrent).
+var guardedKeys = []string{store.SettingTrustedProxies, store.SettingCloudflareAccess}
+
+// guarded reports whether set writes one of guardedKeys.
+func guarded(set map[string]any) bool {
+	for _, k := range guardedKeys {
+		if _, ok := set[k]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// checkReachChange refuses a reachability write that would lock the owner out
+// (it runs under the reach lock, against the state in force):
+//
+//   - changing or turning off Cloudflare Access while the account has no web
+//     password and signs in through it: that would lock the owner out, or hand
+//     sign-in to whoever the new team admits. A password is set first
+//     (Account), which needs a verified Access sign-in anyway.
+//   - in open mode, a trusted-proxies list that contains the caller's own
+//     address: the open gate would then refuse the caller as forwarded.
+func (s *Server) checkReachChange(r *http.Request, cur *reach.State, set map[string]any) error {
+	acct, exists, err := s.db.Account(r.Context())
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	if v, ok := set[store.SettingCloudflareAccess]; ok {
+		m, _ := v.(map[string]any)
+		team, _ := m["team_domain"].(string)
+		aud, _ := m["aud"].(string)
+		if (store.AccessConfig{TeamDomain: team, AUD: aud}) != cur.Stored.Access && setup.DisplayMode(acct) == "access" {
+			return errAccessInUse
+		}
+	}
+	if v, ok := set[store.SettingTrustedProxies]; ok && acct.AuthMode == store.AuthOpen {
+		peer, known := auth.Peer(r)
+		l, _ := v.([]any)
+		for _, e := range l {
+			ps, err := auth.ParseProxies(fmt.Sprint(e))
+			if known && err == nil && len(ps) == 1 && ps[0].Contains(peer) {
+				return errProxyIsYou
+			}
+		}
+	}
+	return nil
 }

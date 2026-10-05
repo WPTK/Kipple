@@ -199,7 +199,7 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 
 	ua := snap.UserAgent
 	if ua == "" {
-		ua = c.ua
+		ua = c.DefaultUserAgent()
 	}
 	feedU, _ := url.Parse(snap.URL) // nil on error: then no hop carries credentials
 	hc := c.httpClient(variant{noHTTP2: snap.DisableHTTP2, insecureTLS: snap.AllowInsecureTLS, allowPrivate: snap.AllowPrivateNet}, &res.Hops, feedU)

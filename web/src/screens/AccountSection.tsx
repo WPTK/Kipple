@@ -19,6 +19,8 @@ export function accountError(e: unknown): string {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.code === "bad_password") return "The current password isn't right.";
     if (e.code === "access_required") return "This needs your Cloudflare Access sign-in. Open Kipple through its Access address and try again.";
+    if (e.code === "access_changed")
+      return "The Cloudflare Access settings changed while this was being checked. Open Kipple through Access again and try again.";
     if (e.code === "access_unavailable") return "Kipple can't check your Cloudflare Access sign-in right now. Try again in a moment.";
     if (e.code === "access_not_configured")
       // The server words it for the case: removing a password, or an account without one.
@@ -360,7 +362,7 @@ export function AccountActions() {
         <Button disabled={busy === "setup"} onClick={() => void runSetupAgain()}>
           Run setup again
         </Button>
-        <p className="mt-1 text-xs text-fg2">Walks through the first-run steps again: time zone, look, importing feeds and recommended feeds. Your account and feeds stay as they are.</p>
+        <p className="mt-1 text-xs text-fg2">Walks through the first-run steps again: time zone, look, importing feeds, recommended feeds and the address. Your account and feeds stay as they are.</p>
       </div>
       {/* Without a password there is nothing to sign out of: Kipple would sign this browser straight back in. */}
       {user?.auth_mode === "open" ? null : (

@@ -1,7 +1,7 @@
 // Package access verifies Cloudflare Access application tokens (design §7.0):
 // the RS256 JWT that Access adds to every request it lets through, in the
-// Cf-Access-Jwt-Assertion header. It is optional. With KIPPLE_ACCESS_TEAM_DOMAIN
-// and KIPPLE_ACCESS_AUD unset there is no Verifier (a nil *Verifier verifies
+// Cf-Access-Jwt-Assertion header. It is optional. With the security.cloudflare_access
+// setting empty there is no Verifier (a nil *Verifier verifies
 // nothing), so Kipple never depends on Cloudflare.
 //
 // A verified token is a trust signal, never a replacement for the session
@@ -105,7 +105,7 @@ type Verifier struct {
 	attemptedAt time.Time // last fetch attempt, successful or not
 }
 
-// NormalizeTeamDomain turns KIPPLE_ACCESS_TEAM_DOMAIN into a bare host name.
+// NormalizeTeamDomain turns a team domain (the setting, or its seed variable) into a bare host name.
 // It accepts "team.cloudflareaccess.com" or "https://team.cloudflareaccess.com"
 // (with or without a trailing slash) and refuses anything with a path, port,
 // user info, query or characters a host name cannot have.
@@ -133,7 +133,7 @@ func NormalizeTeamDomain(v string) (string, error) {
 	return h, nil
 }
 
-// CheckAUD validates and trims KIPPLE_ACCESS_AUD, the application's Audience
+// CheckAUD validates and trims the application's Audience
 // tag: required, no spaces or control characters, at most 256 characters.
 func CheckAUD(v string) (string, error) {
 	aud := strings.TrimSpace(v)
@@ -266,7 +266,7 @@ func (v *Verifier) noteRefused(err error, peer string, waited bool) {
 		v.warnMu.Unlock()
 	}
 	if warn {
-		v.log.Warn("Cloudflare Access token refused; if this keeps happening, check KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD", "err", err, "peer", peer)
+		v.log.Warn("Cloudflare Access token refused; if this keeps happening, check the team domain and audience under Cloudflare Access in Settings", "err", err, "peer", peer)
 		return
 	}
 	v.log.Debug("Cloudflare Access token refused", "err", err, "peer", peer)
@@ -527,7 +527,7 @@ func (v *Verifier) fetchLocked(ctx context.Context) error {
 	}
 	v.mu.Unlock()
 	if err != nil {
-		v.log.Warn("Cloudflare Access: cannot load the signing keys; check KIPPLE_ACCESS_TEAM_DOMAIN",
+		v.log.Warn("Cloudflare Access: cannot load the signing keys; check the team domain under Cloudflare Access in Settings",
 			"url", v.certsURL, "err", err)
 	}
 	return err

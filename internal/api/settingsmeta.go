@@ -10,19 +10,25 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/WPTK/kipple/internal/access"
+	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
 // Setting groups and surfaces (the UI contract of GET /api/settings).
 const (
-	groupReading  = "reading"
-	groupSync     = "sync"
-	groupLibrary  = "library"
-	groupImages   = "images"
-	groupAccount  = "account"
-	groupStats    = "stats"
-	groupAdvanced = "advanced"
+	groupReading = "reading"
+	groupSync    = "sync"
+	groupLibrary = "library"
+	groupImages  = "images"
+	groupAccount = "account"
+	// groupConnection is how people reach Kipple and who may (package reach). The
+	// Settings screen draws it with its own section, not row by row.
+	groupConnection = "connection"
+	groupStats      = "stats"
+	groupAdvanced   = "advanced"
 
 	surfaceReader   = "reader_menu" // the Kindle-style reading appearance menu
 	surfaceSettings = "settings"    // the Settings screen
@@ -100,6 +106,97 @@ func checkAllowedHosts(v any) (any, string) {
 	return out, ""
 }
 
+// checkPublicURL validates server.public_url: "" (none) or an absolute http(s)
+// URL with a host and no user info, query or fragment (reach.NormalizePublicURL),
+// returned trimmed and with an internationalized host in its xn-- form.
+func checkPublicURL(v any) (any, string) {
+	s, ok := v.(string)
+	if !ok || len(s) > 2048 {
+		return nil, "must be an address such as https://rss.example.com, or empty"
+	}
+	s, err := reach.NormalizePublicURL(strings.TrimSpace(s))
+	if err != nil {
+		return nil, err.Error()
+	}
+	return s, ""
+}
+
+// maxTrustedProxies bounds security.trusted_proxies.
+const maxTrustedProxies = 64
+
+// checkTrustedProxies validates security.trusted_proxies: a list of at most 64
+// IP addresses or CIDR ranges (auth.ParseProxies), none too wide
+// (auth.ProxyTooWide), returned normalized (reach.FormatProxy) and without repeats.
+func checkTrustedProxies(v any) (any, string) {
+	const msg = "must be a list (at most 64) of IP addresses or ranges such as 192.0.2.10 or 198.51.100.0/24"
+	arr, ok := v.([]any)
+	if !ok || len(arr) > maxTrustedProxies {
+		return nil, msg
+	}
+	out := make([]any, 0, len(arr))
+	seen := map[string]bool{}
+	for _, x := range arr {
+		s, ok := x.(string)
+		if !ok || strings.Contains(s, ",") || strings.TrimSpace(s) == "" {
+			return nil, msg
+		}
+		ps, err := auth.ParseProxies(s)
+		if err != nil || len(ps) != 1 {
+			// The parser's own wording is for developers; say what is accepted.
+			return nil, fmt.Sprintf("%q is not an IP address or a range such as 192.0.2.10 or 198.51.100.0/24", strings.TrimSpace(s))
+		}
+		if auth.ProxyTooWide(ps[0]) {
+			return nil, fmt.Sprintf("%s is too wide to trust: any client in it could choose its own address. List only the address your proxy connects from.", ps[0])
+		}
+		e := reach.FormatProxy(ps[0])
+		if !seen[e] {
+			seen[e] = true
+			out = append(out, e)
+		}
+	}
+	return out, ""
+}
+
+// checkCloudflareAccess validates security.cloudflare_access: {} (off) or
+// {"team_domain","aud"} with both set, by the access package's own rules,
+// returned normalized. Empty strings for both are off too.
+func checkCloudflareAccess(v any) (any, string) {
+	const msg = `must be {} (off) or {"team_domain": "yourteam.cloudflareaccess.com", "aud": "<audience tag>"}`
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, msg
+	}
+	var team, aud string
+	for k, x := range m {
+		s, ok := x.(string)
+		switch {
+		case !ok:
+			return nil, msg
+		case k == "team_domain":
+			team = strings.TrimSpace(s)
+		case k == "aud":
+			aud = strings.TrimSpace(s)
+		default:
+			return nil, msg
+		}
+	}
+	switch {
+	case team == "" && aud == "":
+		return map[string]any{}, ""
+	case team == "":
+		return nil, "the team domain is missing: set both the team domain and the audience (AUD) tag, or neither"
+	case aud == "":
+		return nil, "the audience (AUD) tag is missing: set both the team domain and the audience (AUD) tag, or neither"
+	}
+	host, err := access.NormalizeTeamDomain(team)
+	if err != nil {
+		return nil, err.Error()
+	}
+	if aud, err = access.CheckAUD(aud); err != nil {
+		return nil, err.Error()
+	}
+	return map[string]any{"team_domain": host, "aud": aud}, ""
+}
 func ip(n int) *int { return &n }
 
 func intIn(lo, hi int) func(any) (any, string) {
@@ -384,9 +481,16 @@ var settingDefs = withScopes([]settingDef{
 			}
 			return s, ""
 		}},
-	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides IP addresses, localhost and .localhost and .ts.net names (and, during setup only, single-word names and .local, .lan, .home.arpa and .internal names): exact names such as rss.example.com, nas or *.local, or *.example.com. The Settings screen does not show this list; names in KIPPLE_ALLOWED_HOSTS are answered as well.",
-		Group: groupAccount, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},
 
+	// Address and access (package reach): applied at once, no restart.
+	{Key: store.SettingPublicURL, Label: "Public URL", Description: "The address you reach Kipple at from other devices, such as https://rss.example.com. Sync apps get feed icons from it, feed sites see it in Kipple's User-Agent, and its host name is answered too (a name any device on your network can answer, such as nas.local, only when it is also under Allowed host names). Leave empty if Kipple has no such address.",
+		Group: groupConnection, Kind: "text", Surface: surfaceSettings, check: checkPublicURL},
+	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides IP addresses, localhost and .localhost and .ts.net names, the host of the public URL (and, during setup only, single-word names and .local, .lan, .home.arpa and .internal names): exact names such as rss.example.com, nas or nas.local, or *.example.com.",
+		Group: groupConnection, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},
+	{Key: store.SettingTrustedProxies, Label: "Trusted proxies", Description: "The addresses or ranges your reverse proxy or tunnel connects from, as Kipple sees them, such as 192.0.2.10 or 198.51.100.0/24. Only these may tell Kipple the visitor's real address (X-Forwarded-For, CF-Connecting-IP) and that the connection was https (X-Forwarded-Proto). Never list a range that clients can reach Kipple from directly. Leave empty without a proxy.",
+		Group: groupConnection, Kind: "json", Surface: surfaceSettings, check: checkTrustedProxies},
+	{Key: store.SettingCloudflareAccess, Label: "Cloudflare Access", Description: "Only if Cloudflare Access protects Kipple: your team domain (such as yourteam.cloudflareaccess.com) and the application's audience (AUD) tag. Kipple then checks the Access token on each request, shows who you are signed in as, and lets you remove the web password. Empty turns it off.",
+		Group: groupConnection, Kind: "json", Surface: surfaceSettings, check: checkCloudflareAccess},
 	// Statistics.
 	{Key: "stats.enabled", Label: "Reading statistics", Description: "Record which articles you open and how long you read them. Turning it off keeps what is already recorded.",
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},

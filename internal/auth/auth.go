@@ -532,18 +532,26 @@ func makeRoom(m map[string]*failure, now time.Time, window time.Duration) {
 	delete(m, oldest)
 }
 
+// call is f(), or nil when f is nil.
+func call(f func() []netip.Prefix) []netip.Prefix {
+	if f == nil {
+		return nil
+	}
+	return f()
+}
+
 // proxyWarnEvery is the minimum gap between untrusted-proxy-header warnings.
 const proxyWarnEvery = time.Hour
 
 // WarnUntrustedProxyHeaders wraps next and logs a WARN, at most once an hour,
 // when CF-Connecting-IP, X-Forwarded-For or X-Forwarded-Proto arrives from a TCP
-// peer that is not in trusted (KIPPLE_TRUSTED_PROXY_IPS). Those headers are then
+// peer that is not in trusted() (the trusted proxies setting). Those headers are then
 // ignored, so the client IP is the proxy's address and the failure delays of
 // every visitor collapse onto it; the log line is how that misconfiguration
 // becomes visible. A request for which expected returns true (Tailscale Serve,
 // a loopback proxy that is meant to stay untrusted) is not a misconfiguration
-// and never warns; expected may be nil. now is time.Now when nil.
-func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Prefix, expected func(*http.Request) bool, log *slog.Logger, now func() time.Time) http.Handler {
+// and never warns; expected and trusted may be nil. now is time.Now when nil.
+func WarnUntrustedProxyHeaders(next http.Handler, trusted func() []netip.Prefix, expected func(*http.Request) bool, log *slog.Logger, now func() time.Time) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
@@ -560,7 +568,7 @@ func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Prefix, expect
 		if r.Header.Get("X-Forwarded-Proto") != "" {
 			hdrs = append(hdrs, "X-Forwarded-Proto")
 		}
-		if len(hdrs) > 0 && !PeerTrusted(r, trusted) && (expected == nil || !expected(r)) {
+		if len(hdrs) > 0 && !PeerTrusted(r, call(trusted)) && (expected == nil || !expected(r)) {
 			mu.Lock()
 			t := now()
 			warn := last.IsZero() || t.Sub(last) >= proxyWarnEvery
@@ -569,7 +577,7 @@ func WarnUntrustedProxyHeaders(next http.Handler, trusted []netip.Prefix, expect
 			}
 			mu.Unlock()
 			if warn {
-				log.Warn("proxy headers from an untrusted peer are ignored; if this peer is your reverse proxy or tunnel, add its address to KIPPLE_TRUSTED_PROXY_IPS",
+				log.Warn("proxy headers from an untrusted peer are ignored; if this peer is your reverse proxy or tunnel, add its address to the trusted proxies (Settings, Account & Devices)",
 					"peer", r.RemoteAddr, "headers", strings.Join(hdrs, ","))
 			}
 		}

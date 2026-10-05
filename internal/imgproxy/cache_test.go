@@ -464,7 +464,9 @@ func TestHotlinkRetryUsesConfiguredBrowserUA(t *testing.T) {
 }
 
 func TestHotlinkRetryLadderAndHostHint(t *testing.T) {
-	cr := newCacheRig(t, func(o *Options) { o.UserAgent = "Mozilla/5.0 (compatible; Kipple; +https://rss.example.org)" })
+	cr := newCacheRig(t, func(o *Options) {
+		o.UserAgent = func() string { return "Mozilla/5.0 (compatible; Kipple; +https://rss.example.org)" }
+	})
 	var mu sync.Mutex
 	var log []seen
 	needReferer := atomic.Bool{}

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -465,10 +466,10 @@ func TestIconEndpoint(t *testing.T) {
 	require.Equal(t, "", subsOf(t, h)[0]["iconUrl"])
 	require.NoError(t, execSQL(h, "INSERT INTO settings (key, value) VALUES ('greader.icon_urls', 'false')"))
 	require.Equal(t, 404, h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-abc123", "", map[string]string{"Authorization": ""}).Code, "off when set to false")
-	h.api.opt.PublicURL = "https://rss.example.org/"
+	h.api.opt.Reach = reach.Fixed(reach.State{PublicURL: "https://rss.example.org/"})
 	require.Equal(t, "", subsOf(t, h)[0]["iconUrl"], "off when set to false")
 	require.NoError(t, execSQL(h, "DELETE FROM settings WHERE key = 'greader.icon_urls'")) // back to the default: on
-	h.api.opt.PublicURL = "https://rss.example.org/"
+	h.api.opt.Reach = reach.Fixed(reach.State{PublicURL: "https://rss.example.org/"})
 	require.Equal(t, "https://rss.example.org/api/greader.php/icon/"+FormatDecimal(f)+"-abc123", subsOf(t, h)[0]["iconUrl"])
 	w := h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-abc123", "", map[string]string{"Authorization": ""})
 	require.Equal(t, 200, w.Code, "icons are unauthenticated")

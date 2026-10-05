@@ -31,7 +31,7 @@ func arrivedOn(r *http.Request, local string) *http.Request {
 }
 
 func TestOpenRefusal(t *testing.T) {
-	g := Gate{Trusted: []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")}, Tailnet: tailnetUp}
+	g := Gate{Trusted: func() []netip.Prefix { return []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")} }, Tailnet: tailnetUp}
 	type tc struct {
 		name  string
 		peer  string

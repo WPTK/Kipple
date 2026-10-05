@@ -52,8 +52,8 @@ func (s *Server) about(w http.ResponseWriter, r *http.Request) {
 		"data_dir_writable": dataDirWritable(s.opt.DataDir),
 		"tz":                store.Zone(ctx, s.db.Reader()).String(), // the zone in force now (the tz setting), as statistics use it
 		"auth_mode":         authMode,
-		"access_enabled":    s.opt.Access != nil,
-		"public_url_set":    s.opt.PublicURL != "",
+		"access_enabled":    s.reach.Access() != nil,
+		"public_url_set":    s.reach.PublicURL() != "",
 		"web_build":         s.opt.WebBuild,
 		"last_version":      s.db.LastVersion(ctx),
 	})

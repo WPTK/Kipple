@@ -135,7 +135,7 @@ describe("Step 1: the first screen is the account", () => {
     const { calls } = server(makeWorld());
     const { container } = go("/");
     await headingIs("Create your account");
-    expect(screen.getByText("Step 1 of 6")).toBeInTheDocument();
+    expect(screen.getByText("Step 1 of 7")).toBeInTheDocument();
     expect(screen.queryByLabelText("Setup code")).toBeNull();
     expect(screen.queryByText(/setup code/i)).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
@@ -180,7 +180,7 @@ describe("Step 1: account", () => {
     await headingIs("Choose your time zone");
     expect(bodyOf(callTo(calls, "POST", "/api/setup/account")[0] as never)).toEqual({ username: "reader", password: "correct horse" });
     expect(window.location.pathname).toBe("/welcome/timezone");
-    // Kept in memory for step 6.
+    // Kept in memory for step 7.
     expect(setupSecret.get()).toBe("correct horse");
   });
 
@@ -290,7 +290,7 @@ describe("Step 1: account", () => {
 
     it.each([
       ["forwarded", /proxy or tunnel/],
-      ["host", /KIPPLE_ALLOWED_HOSTS/],
+      ["host", /Allowed host names in Settings/],
       ["peer", /Tailscale/],
     ])("cannot be chosen when the gate refuses it for good (%s), and says why", async (reason, text) => {
       const w = claimed();
@@ -382,7 +382,7 @@ describe("open-mode sign-in", () => {
 
   it.each([
     ["forwarded", /proxy or tunnel/],
-    ["host", /KIPPLE_ALLOWED_HOSTS/],
+    ["host", /Allowed host names in Settings/],
     ["peer", /Tailscale network/],
   ])("says why when the gate refuses this address (%s), and lets you try again", async (reason, text) => {
     const w = makeWorld({ instance: { setup: false, auth: "open" }, authMode: "open", pending: false });
@@ -465,7 +465,7 @@ describe("routing into and out of /welcome", () => {
     server(signedIn());
     go("/welcome/import");
     await headingIs("Bring your feeds along");
-    expect(screen.getByText("Step 4 of 6")).toBeInTheDocument();
+    expect(screen.getByText("Step 4 of 7")).toBeInTheDocument();
   });
 
   it("moves focus to the new step's heading", async () => {
@@ -879,7 +879,7 @@ describe("Step 5: recommended feeds", () => {
     await user.click(screen.getByRole("checkbox", { name: /Feed e/ }));
     await user.click(screen.getByRole("switch", { name: /own folder/ }));
     await user.click(screen.getByRole("button", { name: "Add 3 feeds" }));
-    await headingIs("You're all set");
+    await headingIs("Your Kipple's address");
     expect(bodyOf(callTo(calls, "POST", "/api/starter-feeds")[0] as never)).toEqual({ ids: ["a", "b", "e"], folders: false });
   });
 
@@ -888,7 +888,7 @@ describe("Step 5: recommended feeds", () => {
     go("/welcome/feeds");
     await screen.findByText("Feed a");
     await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("You're all set");
+    await headingIs("Your Kipple's address");
     expect(callTo(calls, "POST", "/api/starter-feeds")).toHaveLength(0);
   });
 
@@ -909,7 +909,7 @@ describe("Step 5: recommended feeds", () => {
     expect(await screen.findByText("No recommended feeds are available.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add feeds" })).toBeDisabled();
     await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("You're all set");
+    await headingIs("Your Kipple's address");
   });
 
   it("offers a retry when the list cannot be loaded", async () => {
@@ -936,7 +936,7 @@ describe("Step 5: recommended feeds", () => {
   });
 });
 
-describe("Step 6: finish", () => {
+describe("Step 7: finish", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
 
   it("generates the API password with the web password from step 1, shows it once with a copy button", async () => {
@@ -1013,8 +1013,61 @@ describe("Step 6: finish", () => {
   });
 });
 
+describe("Step 6: the address", () => {
+  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
+
+  it("saves a typed address and goes on, and passes axe", async () => {
+    const { calls } = server(signedIn());
+    const { container } = go("/welcome/address");
+    await screen.findByLabelText("Public URL (optional)");
+    expect(screen.getByText("Step 6 of 7")).toBeInTheDocument();
+    expect(await axe(container)).toHaveNoViolations();
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Public URL (optional)"), "  https://rss.example.com ");
+    await user.keyboard("{Enter}");
+    await headingIs("You're all set");
+    expect(callTo(calls, "PATCH", "/api/settings").map(bodyOf)).toEqual([{ "server.public_url": "https://rss.example.com" }]);
+  });
+
+  it("Skip saves nothing, and Continue with nothing typed saves nothing", async () => {
+    const { calls } = server(signedIn());
+    go("/welcome/address");
+    await screen.findByLabelText("Public URL (optional)");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await headingIs("You're all set");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.type(await screen.findByLabelText("Public URL (optional)"), "https://typed.example.com");
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await headingIs("You're all set");
+    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
+  });
+
+  it("shows the server's reason for a refused address and stays", async () => {
+    server(signedIn(), {
+      "PATCH /api/settings": () =>
+        json({ error: "invalid_settings", message: "invalid settings: server.public_url", keys: ["server.public_url"], issues: [{ key: "server.public_url", message: "\"rss.example.com\" must start with http:// or https://" }] }, 400),
+    });
+    go("/welcome/address");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Public URL (optional)"), "rss.example.com");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await findAlert()).toHaveTextContent("must start with http:// or https://");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Your Kipple's address");
+  });
+
+  it("suggests the address the page was opened at only when it is a name no device on the network can claim", async () => {
+    const { suggestedAddress } = await import("./AddressStep");
+    expect(suggestedAddress({ origin: "https://rss.example.com", hostname: "rss.example.com" })).toBe("https://rss.example.com");
+    expect(suggestedAddress({ origin: "https://box.tail1234.ts.net", hostname: "box.tail1234.ts.net" })).toBe("https://box.tail1234.ts.net");
+    for (const h of ["localhost", "app.localhost", "192.168.1.10", "[::1]", "[fe80::1]", "nas", "nas.local", "NAS.LOCAL.", "box.lan", "x.home.arpa", "svc.internal", "nas.home", "box.localdomain", "fritz.box", "nas.fritz.box", "intranet.corp"]) {
+      expect(suggestedAddress({ origin: `http://${h}:1919`, hostname: h })).toBe("");
+    }
+  });
+});
+
 describe("the whole run", () => {
-  it("walks all six steps with a password", async () => {
+  it("walks all seven steps with a password", async () => {
     browserZoneIs("Asia/Tokyo");
     const w = makeWorld();
     const { calls } = server(w, {
@@ -1036,10 +1089,14 @@ describe("the whole run", () => {
     await user.click(screen.getByRole("button", { name: "Skip" }));
     await headingIs("Recommended feeds");
     await user.click(await screen.findByRole("button", { name: "Add 1 feed" }));
+    await headingIs("Your Kipple's address");
+    await user.type(screen.getByLabelText("Public URL (optional)"), "https://rss.example.com");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
     await headingIs("You're all set");
     await user.click(screen.getByRole("button", { name: "Finish" }));
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(w.tz).toBe("Asia/Tokyo");
+    expect(callTo(calls, "PATCH", "/api/settings").map(bodyOf)).toContainEqual({ "server.public_url": "https://rss.example.com" });
     expect(w.pending).toBe(false);
     expect(callTo(calls, "POST", "/api/setup/account")).toHaveLength(1);
   });
@@ -1139,7 +1196,7 @@ describe("a stale /welcome/<step> address before the account exists", () => {
 describe("the signed-out screen when GET /api/instance does not answer", () => {
   it.each([
     ["a server error", () => json({ error: "internal" }, 500), /answered with something unexpected/],
-    ["a refused address", () => json({ error: "misdirected" }, 421), /KIPPLE_ALLOWED_HOSTS/],
+    ["a refused address", () => json({ error: "misdirected" }, 421), /Allowed host names in Settings/],
     ["no network", () => Promise.reject(new TypeError("offline")) as never, /couldn't reach the server/],
   ])("says so, with Try again, instead of a password form (%s)", async (_n, answer, text) => {
     const w = makeWorld({ instance: { setup: false, auth: "open" }, authMode: "open", pending: false, passwordSet: false });
@@ -1344,7 +1401,7 @@ describe("what the wizard keeps in memory", () => {
     await user.click(screen.getByRole("button", { name: "Generate API password" }));
     await screen.findByTestId("api-password");
     await user.click(screen.getByRole("button", { name: "Back" }));
-    await headingIs("Recommended feeds");
+    await headingIs("Your Kipple's address");
     await user.click(screen.getByRole("button", { name: "Skip" }));
     await headingIs("You're all set");
     expect(screen.getByText(/already made an API password.*can't show it again/)).toBeInTheDocument();

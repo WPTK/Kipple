@@ -34,7 +34,7 @@ func feedServer(t *testing.T, h http.HandlerFunc) (*httptest.Server, *Client) {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return srv, NewClient(ClientOptions{Version: "test", PublicURL: "https://rss.example"})
+	return srv, NewClient(ClientOptions{Version: "test", PublicURL: func() string { return "https://rss.example" }})
 }
 
 func serveRSS(w http.ResponseWriter, _ *http.Request) {

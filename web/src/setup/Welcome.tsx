@@ -5,6 +5,7 @@ import { announce, LiveRegion, toast, Toasts } from "@/shell/toasts";
 import { errorMessage } from "@/api/client";
 import { useSetupActions } from "./actions";
 import { forgetWizardMemory, revertUnsavedTheme } from "./session";
+import { AddressStep } from "./AddressStep";
 import { FeedsStep } from "./FeedsStep";
 import { FinishStep } from "./FinishStep";
 import { ImportStep } from "./ImportStep";
@@ -13,7 +14,7 @@ import { ThemeStep } from "./ThemeStep";
 import { TimeZoneStep } from "./TimeZoneStep";
 
 /**
- * /welcome/<step>: steps 2 to 6 of the wizard for a signed-in account whose setup is pending. Each step writes through
+ * /welcome/<step>: steps 2 to 7 of the wizard for a signed-in account whose setup is pending. Each step writes through
  * the ordinary endpoints as it goes, and the step is in the address, so a reload or the Back button lands where you were.
  * "Skip the rest of setup" and "Finish" both end it (POST /api/onboarding/complete) and open the reader.
  */
@@ -62,6 +63,7 @@ export function Welcome() {
       {id === "theme" ? <ThemeStep onBack={back} onNext={next} {...common} /> : null}
       {id === "import" ? <ImportStep onBack={back} onNext={next} {...common} /> : null}
       {id === "feeds" ? <FeedsStep onBack={back} onNext={next} {...common} /> : null}
+      {id === "address" ? <AddressStep onBack={back} onNext={next} {...common} /> : null}
       {id === "finish" ? <FinishStep onBack={back} onFinish={() => void end()} busy={ending} /> : null}
       <LiveRegion />
       <Toasts inset="none" />

@@ -37,6 +37,7 @@ import { DevicesSection } from "./DevicesSection";
 import { FiltersSection } from "./filters/FiltersSection";
 import { AboutSection } from "./AboutSection";
 import { AccountActions } from "./AccountSection";
+import { ConnectionSection } from "./ConnectionSection";
 import { AutoReadCatchUp } from "./AutoReadCatchUp";
 import { ImageCachePanel } from "./ImageCachePanel";
 import { SavedSearchesSection } from "./SavedSearchesSection";
@@ -434,6 +435,9 @@ function AccountPage() {
       <Section title="Account">
         <ServerPart groups={[{ id: "account" }]} inline />
         <AccountActions />
+      </Section>
+      <Section title="Address and access">
+        <ConnectionSection />
       </Section>
     </>
   );

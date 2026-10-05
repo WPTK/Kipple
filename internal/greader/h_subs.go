@@ -60,8 +60,8 @@ func (c *call) subscriptionList() {
 		c.serverError("subscription list", err)
 		return
 	}
-	icons := c.a.db.BoolSetting(ctx, "greader.icon_urls", true) && c.a.opt.PublicURL != ""
-	pub := strings.TrimRight(c.a.opt.PublicURL, "/")
+	pub := strings.TrimRight(c.a.opt.Reach.PublicURL(), "/")
+	icons := c.a.db.BoolSetting(ctx, "greader.icon_urls", true) && pub != ""
 	out := make([]subscriptionJSON, 0, len(subs))
 	for _, s := range subs {
 		j := subscriptionJSON{

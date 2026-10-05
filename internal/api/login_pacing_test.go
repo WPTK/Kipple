@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/reach"
 )
 
 // Wrong passwords are slowed, not refused: five are free, then each wait doubles
@@ -117,11 +118,13 @@ func TestLoginBurstRunsOneCheckAtATime(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
 }
 
-// A proxy listed in KIPPLE_TRUSTED_PROXY_IPS that sends the standard
+// A trusted proxy that sends the standard
 // X-Forwarded-For (never CF-Connecting-IP): a stranger's wrong passwords cost
 // the stranger's address, not the owner's.
 func TestLoginBehindXForwardedForProxyKeysOnTheClient(t *testing.T) {
-	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")} })
+	h := newHarness(t, func(o *Options) {
+		o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}})
+	})
 	via := func(client string) func(*http.Request) {
 		return func(r *http.Request) {
 			r.RemoteAddr = "127.0.0.1:40000"
@@ -140,7 +143,9 @@ func TestLoginBehindXForwardedForProxyKeysOnTheClient(t *testing.T) {
 
 // Same for Cloudflare Tunnel, which sends CF-Connecting-IP.
 func TestLoginBehindCloudflareKeysOnTheClient(t *testing.T) {
-	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")} })
+	h := newHarness(t, func(o *Options) {
+		o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")}})
+	})
 	via := func(ip string) func(*http.Request) {
 		return func(r *http.Request) {
 			r.RemoteAddr = "192.0.2.20:4000"
@@ -214,7 +219,9 @@ func TestLoginFloodOnASharedKeyMakesTheOwnerBusyNotLockedOut(t *testing.T) {
 // A peer that is not a trusted proxy cannot pick its own client address: rotating
 // X-Forwarded-For or CF-Connecting-IP buys no fresh budget.
 func TestLoginSpoofedForwardingHeadersFromAnUntrustedPeerAreIgnored(t *testing.T) {
-	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")} })
+	h := newHarness(t, func(o *Options) {
+		o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")}})
+	})
 	for i := 0; i < 10; i++ {
 		ip := netip.AddrFrom4([4]byte{203, 0, 113, byte(i + 1)}).String()
 		h.do("POST", "/api/auth/login", loginBody("guess"), peer("198.51.100.9:1"),
@@ -226,7 +233,9 @@ func TestLoginSpoofedForwardingHeadersFromAnUntrustedPeerAreIgnored(t *testing.T
 // A trusted proxy's client is the rightmost untrusted hop: a spoofed leftmost
 // entry does not give a fresh budget either.
 func TestLoginRightmostUntrustedHopIsTheClient(t *testing.T) {
-	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12")} })
+	h := newHarness(t, func(o *Options) {
+		o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12")}})
+	})
 	for i := 0; i < 10; i++ {
 		fake := netip.AddrFrom4([4]byte{203, 0, 113, byte(i + 1)}).String()
 		h.do("POST", "/api/auth/login", loginBody("guess"), peer("172.17.0.1:1"),

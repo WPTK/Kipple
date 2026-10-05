@@ -24,6 +24,7 @@ import (
 	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/greader"
 	"github.com/WPTK/kipple/internal/httpx"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -211,7 +212,7 @@ func TestCookieAttributesHTTP(t *testing.T) {
 
 func TestCookieAttributesHTTPSProxied(t *testing.T) {
 	trusted := netip.MustParsePrefix("192.0.2.20/32")
-	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Prefix{trusted} })
+	h := newHarness(t, func(o *Options) { o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{trusted}}) })
 
 	// trusted proxy saying https: Secure
 	rec := h.do("POST", "/api/auth/login", loginBody(testPass), func(r *http.Request) {
@@ -330,7 +331,7 @@ func TestCrossOriginRejected(t *testing.T) {
 
 func TestOriginUsesEffectiveScheme(t *testing.T) {
 	trusted := netip.MustParsePrefix("192.0.2.20/32")
-	h := newHarness(t, func(o *Options) { o.TrustedProxies = []netip.Prefix{trusted} })
+	h := newHarness(t, func(o *Options) { o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{trusted}}) })
 	c := h.login()
 	via := func(origin string) func(*http.Request) {
 		return func(r *http.Request) {

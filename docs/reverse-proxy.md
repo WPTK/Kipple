@@ -14,8 +14,8 @@ proxy, because a wrong setup does not fail loudly: it makes every visitor look l
 
 ## What Kipple needs from a proxy
 
-Kipple decides who the client is in one place. A connection from an address that is **not** in
-`KIPPLE_TRUSTED_PROXY_IPS` is the client itself, and every forwarding header it sends is ignored. For a connection from
+Kipple decides who the client is in one place. A connection from an address that is **not** in the trusted proxies
+(Settings, Account & Devices, Address and access) is the client itself, and every forwarding header it sends is ignored. For a connection from
 a listed address:
 
 - The client is the rightmost `X-Forwarded-For` hop that is not itself a listed proxy. Each proxy appends the address
@@ -27,7 +27,7 @@ a listed address:
 That client address keys the web sign-in and Reader API login budgets (see "Ports" in [deploy.md](deploy.md#ports)). So
 a proxy **must**:
 
-1. Connect from an address you list in `KIPPLE_TRUSTED_PROXY_IPS` (a single address or a CIDR range, comma-separated).
+1. Connect from an address you list under **Trusted proxies** (a single address or a CIDR range, one per line).
 2. Pass the original `Host` header through unchanged. Kipple refuses a state-changing request whose `Origin` does not
    match the host it was sent to.
 3. Send `X-Forwarded-For` containing the address it received the connection from, appended after whatever the client
@@ -37,7 +37,9 @@ a proxy **must**:
 
 A proxy **must not**:
 
-- Be listed with a range wider than the proxies themselves. `0.0.0.0/0` lets anyone choose their address.
+- Be listed with a range wider than the proxies themselves. A range wider than an IPv4 `/8` or an IPv6
+  `/20` that covers public addresses (`0.0.0.0/0`, `::/0`) is refused, per entry: Cloudflare's published ranges all
+  pass. In `KIPPLE_TRUSTED_PROXY_IPS` such a range stops the start when it would be stored.
 - Rewrite `Host` to the upstream's address (`proxy_set_header Host $proxy_host` in nginx, a `Host` rewrite in a
   Caddy `header_up`, and so on).
 - Strip `X-Forwarded-Proto` when it terminates TLS, or forward a client's `X-Forwarded-Proto` unchanged.
@@ -59,26 +61,25 @@ leaves an already compressed response alone.
 ## Find the address to trust
 
 The address to list is the one Kipple sees as the connection's peer, which in Docker is not always the proxy's own
-address. The easiest way to learn it is to start Kipple with `KIPPLE_TRUSTED_PROXY_IPS` unset, load the site through
-the proxy once, and read the log:
+address. The easiest way to learn it is to leave the trusted proxies empty, load the site through the proxy once, and
+read the log:
 
     docker logs kipple 2>&1 | grep "untrusted peer"
 
-The line is a `WARN` that names the peer, for example `"peer":"172.18.0.1:53422"`. Take the address without the port,
-and set it in your `.env`:
-
-    KIPPLE_TRUSTED_PROXY_IPS=172.18.0.1
-
-then `docker compose up -d kipple`. (Kipple logs this warning at most once an hour.) The usual cases:
+The line is a `WARN` that names the peer, for example `"peer":"172.18.0.1:53422"`. Take the address without the port
+(`172.18.0.1`) and add it under **Trusted proxies** in Settings, Account & Devices, Address and access. It applies at
+once. (Kipple logs this warning at most once an hour. For a scripted first start, `KIPPLE_TRUSTED_PROXY_IPS=172.18.0.1`
+in `.env` seeds the setting.) The usual cases:
 
 - **Proxy on the host, Kipple published on `127.0.0.1:1919`.** Kipple sees the Docker bridge gateway, for example
   `172.18.0.1`. The published port is reachable from this machine only, so listing the gateway is safe.
 - **Proxy in a container on the same Docker network as Kipple, Kipple not published.** Kipple sees the proxy
   container's address. List that address, or the network's subnet when it is a network only your containers join.
 - **Cloudflare Tunnel (`cloudflared`).** List the address `cloudflared` connects from. Kipple reads `CF-Connecting-IP`
-  from it. Set `KIPPLE_PUBLIC_URL` to your public address.
+  from it.
 
-Also set `KIPPLE_PUBLIC_URL=https://rss.example.com` so sync clients get feed icons and the name passes the Host check.
+Also set the **Public URL** in the same place (for example `https://rss.example.com`; the setup wizard asks for it too)
+so sync clients get feed icons and the name passes the Host check.
 
 ## Caddy
 
@@ -136,7 +137,7 @@ With Docker labels, Traefik and Kipple on the same network and Kipple not publis
 Traefik passes `Host`, appends the client to `X-Forwarded-For` and sets `X-Forwarded-Proto`. Leave the entry point's
 `forwardedHeaders.insecure` at its default (off) unless a proxy of your own sits in front of Traefik, in which case list
 that proxy under `forwardedHeaders.trustedIPs` and add its address to Kipple's list too. Kipple sees Traefik's address
-on the shared network: find it as above and set `KIPPLE_TRUSTED_PROXY_IPS`.
+on the shared network: find it as above and add it to the trusted proxies.
 
 ## Open mode and proxies
 

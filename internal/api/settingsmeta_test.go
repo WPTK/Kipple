@@ -23,7 +23,7 @@ func jsonRoundTrip(t *testing.T, v any) any {
 }
 
 func TestSettingDefsShape(t *testing.T) {
-	groups := map[string]bool{"reading": true, "sync": true, "library": true, "images": true, "stats": true, "account": true, "advanced": true}
+	groups := map[string]bool{"reading": true, "sync": true, "library": true, "images": true, "stats": true, "account": true, "connection": true, "advanced": true}
 	surfaces := map[string]bool{"reader_menu": true, "settings": true, "hidden": true}
 	kinds := map[string]bool{"bool": true, "enum": true, "int": true, "text": true, "json": true}
 	seen := map[string]bool{}

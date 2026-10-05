@@ -65,12 +65,13 @@ services:
       - no-new-privileges:true
     environment:
       - GOMEMLIMIT=64MiB
-      # Address or CIDR range your reverse proxy / tunnel connects from
-      # (placeholder value; see .env.example). Kipple logs a WARN if proxy
-      # headers arrive from any other peer.
+      # Optional seeds (stored once, then Settings, Account & Devices, Address
+      # and access decides; see .env.example). Address or CIDR range your
+      # reverse proxy / tunnel connects from (placeholder value). Kipple logs a
+      # WARN if proxy headers arrive from any other peer.
       # - KIPPLE_TRUSTED_PROXY_IPS=192.0.2.10
-      # Optional Cloudflare Access token validation (set both or neither; see
-      # .env.example and docs/deploy.md "Cloudflare Access (optional)"):
+      # Cloudflare Access token validation (set both or neither; see
+      # docs/deploy.md "Cloudflare Access (optional)"):
       # - KIPPLE_ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
       # - KIPPLE_ACCESS_AUD=<application AUD tag>
     logging:

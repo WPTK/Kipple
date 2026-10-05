@@ -96,9 +96,3 @@ func TestListenFailureNamesTheAddressAndTheVariable(t *testing.T) {
 	require.Contains(t, err.Error(), "KIPPLE_ADDR")
 	require.ErrorIs(t, err, inUse)
 }
-
-func TestAllowedHostsIncludesThePublicURL(t *testing.T) {
-	require.Equal(t, []string{"a.example.com", "rss.example.com"},
-		allowedHosts(config.Config{AllowedHosts: []string{"a.example.com"}, PublicURL: "https://RSS.example.com/kipple"}))
-	require.Nil(t, allowedHosts(config.Config{}))
-}

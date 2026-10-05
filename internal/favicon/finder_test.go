@@ -33,7 +33,7 @@ func newFEnv(t *testing.T) *fenv {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	client := fetch.NewClient(fetch.ClientOptions{})
-	f := New(Options{DB: db, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Clock: clk})
+	f := New(Options{DB: db, Guard: client.Transport, UserAgent: client.DefaultUserAgent, Clock: clk})
 	return &fenv{t: t, db: db, clk: clk, f: f, ctx: context.Background()}
 }
 

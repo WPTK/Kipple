@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/WPTK/kipple/internal/access"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -39,10 +40,17 @@ const (
 // accessProof verifies the request's Access token, waiting for a key-set fetch
 // when needed (a sign-in or an account change; the wait ends with the request).
 func (s *Server) accessProof(r *http.Request) accessProof {
-	if s.opt.Access == nil {
+	return s.accessProofWith(r, s.reach.Get())
+}
+
+// accessProofWith is accessProof against the Access verifier of st, so a caller
+// can tell which Access setting the proof was made under (st.Stored.Access).
+func (s *Server) accessProofWith(r *http.Request, st *reach.State) accessProof {
+	v := st.Access
+	if v == nil {
 		return proofNotConfigured
 	}
-	id, err := s.opt.Access.VerifyRequest(r)
+	id, err := v.VerifyRequest(r)
 	switch {
 	case err == nil && id.Email != "":
 		return proofOK
@@ -70,7 +78,7 @@ func (s *Server) writeProofError(w http.ResponseWriter, t *try, p accessProof, r
 	case proofNotConfigured:
 		if removing {
 			writeErrorMsg(w, http.StatusBadRequest, "access_not_configured",
-				"a web password can only be removed when Cloudflare Access validation is configured (KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD)")
+				"a web password can only be removed when Cloudflare Access validation is on (Settings, Account & Devices, Address and access)")
 			return
 		}
 		writeErrorMsg(w, http.StatusForbidden, "access_not_configured",
@@ -104,13 +112,13 @@ func (s *Server) userInfo(r *http.Request, acct store.Account, withEmail bool) (
 		"username":       acct.Username,
 		"api_enabled":    acct.APIPasswordHash != "",
 		"password_set":   acct.PasswordHash != "",
-		"access_enabled": s.opt.Access != nil,
+		"access_enabled": s.reach.Access() != nil,
 		"auth_mode":      setup.DisplayMode(acct),
 		"setup_pending":  pending,
 	}
 	if withEmail {
 		var email any
-		if id, err := s.opt.Access.VerifyRequestCached(r); err == nil && id.Email != "" {
+		if id, err := s.reach.Access().VerifyRequestCached(r); err == nil && id.Email != "" {
 			email = id.Email
 		}
 		m["access_email"] = email

@@ -94,6 +94,7 @@ func TestLoadInvalid(t *testing.T) {
 		"public URL space":        {"KIPPLE_PUBLIC_URL": "https://rss.example.com /x"},
 		"public URL trailing":     {"KIPPLE_PUBLIC_URL": "https://rss.example.com "},
 		"public URL relative":     {"KIPPLE_PUBLIC_URL": "/rss"},
+		"public URL wildcard":     {"KIPPLE_PUBLIC_URL": "http://*.example.com"},
 	}
 
 	for name, envMap := range cases {

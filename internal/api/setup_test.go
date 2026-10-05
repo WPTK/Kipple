@@ -23,6 +23,7 @@ import (
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/clock"
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -280,13 +281,13 @@ func TestSetupCSRF(t *testing.T) {
 
 // The Host gate refuses DNS-rebinding shapes on every route in setup mode.
 func TestSetupHostGate(t *testing.T) {
-	h := newSetupHarness(t, func(o *Options) { o.AllowedHosts = []string{"rss.example.com"} })
+	h := newSetupHarness(t, func(o *Options) { withSeed(t, reach.Seed{AllowedHosts: []string{"rss.example.com"}})(o) })
 	for _, hv := range []string{"evil.example:1919", "evil.example.", "EVIL.EXAMPLE:1919", "127.0.0.1.nip.io:1919",
 		"localhost.evil.example", "", "evil.example:1919:1", "127.1:1919", "rss.example.com.evil.example"} {
 		for _, path := range []string{"/api/instance", "/", "/healthz", "/api/greader.php/accounts/ClientLogin"} {
 			rec := h.req("GET", path, "", host(hv))
 			require.Equal(t, http.StatusMisdirectedRequest, rec.Code, "%q %s", hv, path)
-			require.Contains(t, rec.Body.String(), "KIPPLE_ALLOWED_HOSTS")
+			require.Contains(t, rec.Body.String(), "Allowed host")
 			require.NotContains(t, rec.Body.String(), "evil", "the refused name is not echoed")
 		}
 		rec := h.createAccount(map[string]any{"username": "reader", "password": setupPass}, host(hv))

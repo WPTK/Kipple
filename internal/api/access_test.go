@@ -61,10 +61,8 @@ func withAccess(t *testing.T) func(*Options) {
 			}}})
 		}))
 		t.Cleanup(srv.Close)
-		v, err := access.New(accTeam, accAUD, access.Options{CertsURL: srv.URL, Client: srv.Client(), Now: o.Now})
-		require.NoError(t, err)
-		require.NoError(t, v.Prefetch(context.Background())) // as serve does at startup
-		o.Access = v
+		withAccessOptions(t, access.Options{CertsURL: srv.URL, Client: srv.Client(), Now: o.Now})(o)
+		require.NoError(t, o.Reach.Access().Prefetch(context.Background())) // as serve does at startup
 	}
 }
 
@@ -415,9 +413,7 @@ func TestAccessKeysUnavailableIsNotAFailure(t *testing.T) {
 	}))
 	t.Cleanup(down.Close)
 	h := newHarness(t, func(o *Options) {
-		v, err := access.New(accTeam, accAUD, access.Options{CertsURL: down.URL, Client: down.Client(), Now: o.Now})
-		require.NoError(t, err)
-		o.Access = v
+		withAccessOptions(t, access.Options{CertsURL: down.URL, Client: down.Client(), Now: o.Now})(o)
 	})
 	h.dropPassword()
 	k, _ := accessKeys(t)

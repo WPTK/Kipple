@@ -49,7 +49,7 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 			}
 			logger.Info("Reader API password set from KIPPLE_API_PASSWORD")
 		}
-		warnPasswordless(acc, cfg, logger)
+		warnPasswordless(ctx, db, acc, logger)
 		return nil
 	}
 	// A new account always gets a web password, Access or not: an empty
@@ -86,13 +86,20 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 }
 
 // warnPasswordless logs an account without a web password that cannot sign in
-// because Cloudflare Access validation is off (both variables unset): nothing
+// because Cloudflare Access validation is off (the setting is empty): nothing
 // else can stand in for the password, so web sign-in is impossible until one
-// is set with `kipple password`. Open mode has no password by design.
-func warnPasswordless(acc store.Account, cfg config.Config, logger *slog.Logger) {
-	if acc.PasswordHash == "" && acc.AuthMode != store.AuthOpen && !cfg.AccessEnabled() {
-		logger.Warn("the account has no web password and Cloudflare Access validation is off (KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD unset): web sign-in is impossible; set a password with `kipple password` or configure Access")
+// is set with `kipple password`. Open mode has no password by design. Settings
+// refuses to turn Access off under such an account, so this takes a restored
+// backup or a hand-edited database.
+func warnPasswordless(ctx context.Context, db *store.DB, acc store.Account, logger *slog.Logger) {
+	if acc.PasswordHash != "" || acc.AuthMode == store.AuthOpen {
+		return
 	}
+	sec, err := db.SecuritySettings(ctx)
+	if err == nil && sec.Access.TeamDomain != "" {
+		return
+	}
+	logger.Warn("the account has no web password and Cloudflare Access validation is off: web sign-in is impossible; set a password with `kipple password`")
 }
 
 // checkEnvPassword applies the account endpoints' length rules (and refuses the
