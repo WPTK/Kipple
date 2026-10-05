@@ -128,7 +128,8 @@ func TestHSTSAndUpgradeOnlyWhenEffectivelyHTTPS(t *testing.T) {
 
 func TestCORPOnAPIAndImages(t *testing.T) {
 	for path, want := range map[string]string{"/api/items": "same-origin", "/img/a/0/b": "same-origin", "/": "", "/assets/a.js": "", "/healthz": "",
-		"/api/greader.php/reader/api/0/stream/contents": "", "/api/greader.php/icon/1-abc": ""} {
+		"/api/greader.php/reader/api/0/stream/contents": "", "/api/greader.php/icon/1-abc": "", "/api/greader.php": "",
+		"/api//greader.php/reader/api/0/tag/list": "", "/api/greader.phpx": "same-origin", "/api/greader.php.bak/x": "same-origin"} {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		Secure(typed("application/json", "{}"), Options{}).ServeHTTP(rec, r)
@@ -175,6 +176,8 @@ func TestAPIHandshakeHeaderOnAPIPathsOnly(t *testing.T) {
 	require.Equal(t, APIVersion, get("/api/bootstrap"))
 	require.Empty(t, get("/"))
 	require.Empty(t, get("/api/greader.php/reader/api/0/token"), "the Reader API is a different contract")
+	require.Empty(t, get("/api/greader.php"))
+	require.Equal(t, APIVersion, get("/api/greader.phpx"), "a sibling of the mount is a web API path")
 }
 
 // The Go and TypeScript halves of the handshake must agree: web/src/lib/offlineState.ts says which contract
