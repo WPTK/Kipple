@@ -25,14 +25,15 @@ const addFallback: Record<string, string> = {
 /** A server reason as a sentence: capitalized, ending in a full stop. */
 const sentence = (s: string) => {
   const t = s.trim();
-  return t ? t[0].toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".") : t;
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".") : t;
 };
 
 /** Plain-English message for a failed add. */
 export function addError(e: unknown): string {
-  if (e instanceof ApiError && e.code && e.code in addFallback) {
+  const fallback = e instanceof ApiError ? addFallback[e.code] : undefined;
+  if (e instanceof ApiError && fallback) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
-    return msg ? sentence(msg) : addFallback[e.code];
+    return msg ? sentence(msg) : fallback;
   }
   return errorMessage(e);
 }
