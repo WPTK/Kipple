@@ -388,11 +388,12 @@ func SeedSettings(ctx context.Context, db *store.DB, seed Seed) ([]string, error
 	}
 	m := map[string]any{}
 	if seed.PublicURL != "" {
-		u := seed.PublicURL
-		if !stored[store.SettingPublicURL] {
-			if u, err = NormalizePublicURL(u); err != nil {
-				return nil, fmt.Errorf("KIPPLE_PUBLIC_URL: %w (fix it, or remove the variable)", err)
-			}
+		u, err := NormalizePublicURL(seed.PublicURL)
+		switch {
+		case err != nil && !stored[store.SettingPublicURL]:
+			return nil, fmt.Errorf("KIPPLE_PUBLIC_URL: %w (fix it, or remove the variable)", err)
+		case err != nil:
+			u = seed.PublicURL // compared only, to name it as not used
 		}
 		m[store.SettingPublicURL] = u
 	}

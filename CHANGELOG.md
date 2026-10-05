@@ -43,6 +43,7 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 - Reader API: `stream/contents/feed/<feed URL>` now answers with the feed URL exactly as requested in the response `id`, instead of with the `//` after the scheme reduced to one slash. (#256)
 - Reader API: a write whose `T` edit token carries surrounding whitespace, such as the newline that ends the `token` response, is now accepted instead of answered 401. (#256)
 - An upgrade that fails the same schema migration on every restart keeps one pre-migration snapshot for that step instead of adding one per start, so the snapshot the previous version needs is no longer pruned. When an older version refuses a newer database, the message names the snapshot to restore (`pre-migration-<schema>-...`) and no longer tells you to run the version you are running.
+- `KIPPLE_PUBLIC_URL` with an internationalized host (such as `https://rss.bücher.example`) no longer stops the start: it is stored in its `xn--` form, and a value that is not used because the setting is already saved is never judged.
 
 ### Security
 

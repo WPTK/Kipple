@@ -79,10 +79,10 @@ func load(getenv func(string) string) (Config, error) {
 		TZ:          getenv("TZ"),
 	}
 
+	// KIPPLE_PUBLIC_URL is judged by reach.SeedSettings, and only when it would be
+	// stored: it converts an internationalized host first, and a value that is
+	// ignored (the setting is already stored) must not stop a start.
 	var err error
-	if err = reach.CheckPublicURL(cfg.PublicURL); err != nil {
-		return Config{}, fmt.Errorf("KIPPLE_PUBLIC_URL: %w", err)
-	}
 	if cfg.AllowedHosts, err = setup.ParseAllowedHosts(getenv("KIPPLE_ALLOWED_HOSTS")); err != nil {
 		return Config{}, fmt.Errorf("KIPPLE_ALLOWED_HOSTS: %w", err)
 	}

@@ -62,6 +62,30 @@ func TestSeedOnceThenTheSettingDecides(t *testing.T) {
 	require.Empty(t, ignored)
 }
 
+// KIPPLE_PUBLIC_URL is judged only when it would be stored: an internationalized
+// host is converted and stored, a bad value stops the start, and either one is
+// only compared (and named as not used, when it differs) once the setting is
+// stored.
+func TestPublicURLSeedIsJudgedOnlyWhenStored(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	_, err := SeedSettings(ctx, db, Seed{PublicURL: "https://rss.bücher.example"})
+	require.NoError(t, err)
+	sec, err := db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "https://rss.xn--bcher-kva.example", sec.PublicURL)
+	ignored, err := SeedSettings(ctx, db, Seed{PublicURL: "https://rss.bücher.example"})
+	require.NoError(t, err)
+	require.Empty(t, ignored, "the same address in either form is not reported")
+
+	ignored, err = SeedSettings(ctx, db, Seed{PublicURL: "ftp://rss.example.com"})
+	require.NoError(t, err, "a value that would be ignored never stops a start")
+	require.Equal(t, []string{store.SettingPublicURL}, ignored)
+
+	_, err = SeedSettings(ctx, openDB(t), Seed{PublicURL: "ftp://rss.example.com"})
+	require.ErrorContains(t, err, "KIPPLE_PUBLIC_URL")
+}
+
 // An install from before the seed rule answered the variable's names and the
 // stored ones together. Its first start under the seed rule adds the variable's
 // names to the stored list once, so no name is lost; a name later removed in
