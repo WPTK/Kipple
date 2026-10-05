@@ -69,8 +69,9 @@ type Options struct {
 	Hub            *events.Hub
 	Logger         *slog.Logger
 	TrustedProxies []netip.Prefix
-	// Clients reports Reader client families' last-seen times (greader.API.LastSeen); optional.
-	Clients func() map[string]time.Time
+	// ReaderLastSeen reports when a Reader API client last called (greader.API.LastSeen; the zero
+	// time if none has); optional.
+	ReaderLastSeen func() time.Time
 	// Failures paces web sign-ins and password checks per client (nil: the
 	// design budget). Verifier must be the one instance shared with
 	// greader.Options.Verifier (nil builds a private one, tests only).

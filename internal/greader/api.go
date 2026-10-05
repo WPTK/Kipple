@@ -103,8 +103,8 @@ type API struct {
 	// afterAcctRead is a test hook run between the DB read and the store.
 	afterAcctRead func()
 
-	seenMu sync.Mutex
-	seen   map[string]time.Time
+	// seen is when an authenticated Reader API call last arrived (unix nanoseconds, 0 = never).
+	seen atomic.Int64
 }
 
 // route is one endpoint under /reader/api/0/.
@@ -118,14 +118,13 @@ type route struct {
 
 // call is one authenticated (or login) request.
 type call struct {
-	a      *API
-	w      *statusWriter
-	r      *http.Request
-	path   string // cleaned path below the mount, e.g. /reader/api/0/edit-tag
-	name   string // path below /reader/api/0/
-	p      *Params
-	family string
-	acct   *acctSnap // account snapshot taken once per request
+	a    *API
+	w    *statusWriter
+	r    *http.Request
+	path string // cleaned path below the mount, e.g. /reader/api/0/edit-tag
+	name string // path below /reader/api/0/
+	p    *Params
+	acct *acctSnap // account snapshot taken once per request
 	// fetchSpent is the time this request has already waited for subscribe_fetch_now fetches.
 	fetchSpent time.Duration
 }
@@ -135,7 +134,7 @@ func New(opt Options) *API {
 	a := &API{
 		db: opt.DB, log: opt.Logger, wake: opt.Wake, opt: opt,
 		now: opt.Now, fails: opt.Failures, ver: opt.Verifier,
-		routes: map[string]route{}, seen: map[string]time.Time{},
+		routes: map[string]route{},
 	}
 	if a.log == nil {
 		a.log = slog.Default()
@@ -159,16 +158,13 @@ func New(opt Options) *API {
 	return a
 }
 
-// LastSeen returns when each client family last called the API (updated at most
-// once a minute per family), for the health view.
-func (a *API) LastSeen() map[string]time.Time {
-	a.seenMu.Lock()
-	defer a.seenMu.Unlock()
-	out := make(map[string]time.Time, len(a.seen))
-	for k, v := range a.seen {
-		out[k] = v
+// LastSeen returns when an authenticated Reader API call last arrived (updated at
+// most once a minute), or the zero time if none has since the start, for the health view.
+func (a *API) LastSeen() time.Time {
+	if n := a.seen.Load(); n != 0 {
+		return time.Unix(0, n)
 	}
-	return out
+	return time.Time{}
 }
 
 // classify implements §6.1 steps 1-3: collapse '/' runs, strip leading mount
@@ -227,7 +223,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
 	start := time.Now()
 	sw := &statusWriter{ResponseWriter: w}
 	sw.Header().Set("Cache-Control", "private, no-cache")
-	c := &call{a: a, w: sw, r: r, path: rest, family: family(r.UserAgent())}
+	c := &call{a: a, w: sw, r: r, path: rest}
 	defer func() { a.logRequest(c, time.Since(start)) }()
 
 	switch {
@@ -278,7 +274,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
 		c.unauthorized()
 		return
 	}
-	a.touch(c.family)
+	a.touch()
 	if !found {
 		a.log.Warn("greader: unknown endpoint", "path", rest, "ua", r.UserAgent())
 		c.json(http.StatusOK, []any{})
@@ -319,27 +315,12 @@ func (a *API) lookup(name string) (route, bool) {
 	return route{}, false
 }
 
-// touch records the family's last-seen time, at most once a minute.
-func (a *API) touch(family string) {
-	now := a.now()
-	a.seenMu.Lock()
-	if now.Sub(a.seen[family]) >= time.Minute {
-		a.seen[family] = now
+// touch records the last-seen time, at most once a minute.
+func (a *API) touch() {
+	now := a.now().UnixNano()
+	if now-a.seen.Load() >= int64(time.Minute) {
+		a.seen.Store(now)
 	}
-	a.seenMu.Unlock()
-}
-
-// family classifies the client by User-Agent prefix (design §6.3).
-func family(ua string) string {
-	switch {
-	case strings.HasPrefix(ua, "Reeder"):
-		return "reeder"
-	case strings.HasPrefix(ua, "NetNewsWire"):
-		return "netnewswire"
-	case strings.HasPrefix(ua, "Unread"):
-		return "unread"
-	}
-	return "api"
 }
 
 // ---- account, token, auth ----

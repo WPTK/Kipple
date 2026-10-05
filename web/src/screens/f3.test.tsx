@@ -597,7 +597,7 @@ const HEALTH: HealthResponse = {
     { id: "2", title: "NPR", url: "https://npr.test/feed", url_original: null, status: "failing", redirect_pending: false, notices: [], enabled: true, disabled_reason: null, last_success_at: 500, last_fetch_at: 900, last_error_at: 900, last_error_class: "http", last_error: "HTTP 404", last_status: 404, consecutive_failures: 20, current_delay_s: 86400, next_fetch_at: 90000, redirect_to: null, redirect_kind: null, redirect_count: 0, last_new_items_at: null, trimmed_unread_count: 0, trimmed_unread_since: null, host_throttled_until: null },
     { id: "3", title: "Moved Site", url: "http://old.test/feed", url_original: null, status: "redirecting", redirect_pending: true, notices: ["moved permanently (301) to https://new.test/feed"], enabled: true, disabled_reason: null, last_success_at: 800, last_fetch_at: 900, last_error_at: null, last_error_class: null, last_error: null, last_status: 301, consecutive_failures: 0, current_delay_s: 1800, next_fetch_at: 4000, redirect_to: "https://new.test/feed", redirect_kind: "permanent", redirect_count: 1, last_new_items_at: 800, trimmed_unread_count: 4, trimmed_unread_since: 100, host_throttled_until: null },
   ],
-  clients: [],
+  reader_last_seen_at: null,
   snapshot: { last_at: null, last_error: "disk full" },
   clock: { ahead_s: 600 },
   db: { db_bytes: 1000, wal_bytes: 0, backup_bytes: 0, imgcache_bytes: 0 },
@@ -635,6 +635,20 @@ describe("Feed health", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Fetch log" }));
     const dlg = await screen.findByRole("dialog", { name: "Fetch log for NPR" });
     expect(await within(dlg).findByText("HTTP 404", { selector: "p.break-words" })).toBeInTheDocument();
+  });
+
+  it("says when a sync app last called, the same for every app, and nothing before one has", async () => {
+    base({ "GET /api/health/feeds": () => json({ ...HEALTH, reader_last_seen_at: Math.floor(Date.now() / 1000) - 300 }) });
+    go("/health");
+    expect(await screen.findByText(/A sync app was last seen 5 minutes ago/)).toBeInTheDocument();
+  });
+
+  it("names no sync app when none has called", async () => {
+    base({ "GET /api/health/feeds": () => json(HEALTH) });
+    go("/health");
+    await screen.findByRole("heading", { name: "Feed health" });
+    expect(await screen.findByText(/of 3 feeds/)).toBeInTheDocument();
+    expect(screen.queryByText(/sync app/i)).toBeNull();
   });
 
   it("Mark this fetch read also marks the loaded article lists stale, not just the counts", async () => {

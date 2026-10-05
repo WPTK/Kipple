@@ -588,7 +588,7 @@ describe("Health shows the image cache size", () => {
   it("adds imgcache_bytes to the sizes line", async () => {
     base({
       "GET /api/health/feeds": () =>
-        json({ feeds: [], clients: [], snapshot: { last_at: null, last_error: null }, clock: { ahead_s: 0 }, db: { db_bytes: 5 * 1024 ** 2, wal_bytes: 0, backup_bytes: 2 * 1024 ** 2, imgcache_bytes: 300 * 1024 ** 2 }, unread_total: 3 }),
+        json({ feeds: [], reader_last_seen_at: null, snapshot: { last_at: null, last_error: null }, clock: { ahead_s: 0 }, db: { db_bytes: 5 * 1024 ** 2, wal_bytes: 0, backup_bytes: 2 * 1024 ** 2, imgcache_bytes: 300 * 1024 ** 2 }, unread_total: 3 }),
     });
     go("/health");
     expect(await screen.findByText(/image cache 300\.0 MB/, undefined, { timeout: 5000 })).toBeInTheDocument();

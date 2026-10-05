@@ -262,7 +262,7 @@ func runServe() error {
 	mux := http.NewServeMux()
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
-		TrustedProxies: cfg.TrustedProxyIPs, Clients: readerAPI.LastSeen, Verifier: verifier,
+		TrustedProxies: cfg.TrustedProxyIPs, ReaderLastSeen: readerAPI.LastSeen, Verifier: verifier,
 		Stats: recorder, Version: version, Build: buildInfo(), WebBuild: kweb.BuildID(), DataDir: cfg.DataDir, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
 		OnAPIPasswordChange: readerAPI.InvalidateAccount, Access: accessV,
 		Setup: setupMgr, AllowedHosts: allowedHosts(cfg),

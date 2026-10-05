@@ -1,0 +1,1 @@
+Reading stats and Feed Health treat every sync app the same: stats from any Reader API client are recorded as `api`, existing rows that named a particular app are rewritten to `api` when the database upgrades (schema 14), and Feed Health shows one "last seen" time for sync apps. Going back to an earlier version means restoring the pre-migration snapshot. (#260)
