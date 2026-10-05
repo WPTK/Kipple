@@ -180,7 +180,9 @@ number (`127.0.0.1:8080:1919`); nothing else changes. A named volume (as above) 
 (`-v /srv/kipple:/data`) needs `chown 65532:65532 /srv/kipple` first, because the container runs as that
 unprivileged user.
 
-To check the image before you run it (optional; needs [cosign](https://docs.sigstore.dev/cosign/)):
+To check the image before you run it (optional; needs [cosign](https://docs.sigstore.dev/cosign/) 3 or later). This
+accepts any Kipple release; the release notes of each version give the same command with that release's exact identity,
+which also proves the tag points at that release's image:
 
 ```
 cosign verify ghcr.io/wptk/kipple:0.8.0-beta.3 \

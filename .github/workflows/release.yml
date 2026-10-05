@@ -359,6 +359,9 @@ jobs:
           DIGEST: ${{ needs.build.outputs.digest }}
         run: |
           set -euo pipefail
+          # The exact identity of this release's own run: unlike the regexp (any release tag), it also fails when the
+          # X.Y.Z tag or the SBOM files were swapped for another release's.
+          identity="https://github.com/WPTK/Kipple/.github/workflows/release.yml@refs/tags/$TAG"
           {
             echo "## Container image"
             echo
@@ -367,11 +370,11 @@ jobs:
             echo "$IMAGE@$DIGEST"
             echo '```'
             echo
-            echo "Verify the signature:"
+            echo "Verify the signature (cosign 3 or later). The identity names this release's tag, so the check also fails for another release's image:"
             echo
             echo '```'
             echo "cosign verify $IMAGE:$VERSION \\"
-            echo "  --certificate-identity-regexp '$COSIGN_IDENTITY_REGEXP' \\"
+            echo "  --certificate-identity '$identity' \\"
             echo "  --certificate-oidc-issuer $COSIGN_ISSUER"
             echo '```'
             echo
@@ -382,11 +385,11 @@ jobs:
             echo "docker buildx imagetools inspect $IMAGE@$DIGEST --format '{{ json .SBOM }}' | sha256sum"
             echo '```'
             echo
-            echo "The SBOM file is signed too (kipple-$VERSION.sbom.json.sigstore.json, attached next to it; cosign 3 or later):"
+            echo "The SBOM file is signed too (kipple-$VERSION.sbom.json.sigstore.json, attached next to it; cosign 3 or later, same identity):"
             echo
             echo '```'
             echo "cosign verify-blob kipple-$VERSION.sbom.json --bundle kipple-$VERSION.sbom.json.sigstore.json \\"
-            echo "  --certificate-identity-regexp '$COSIGN_IDENTITY_REGEXP' \\"
+            echo "  --certificate-identity '$identity' \\"
             echo "  --certificate-oidc-issuer $COSIGN_ISSUER"
             echo '```'
           } > image-notes.md
@@ -406,6 +409,8 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: image-notes
+          # "Re-run failed jobs" runs this again in the same run, where the name is already taken.
+          overwrite: true
           if-no-files-found: warn
           path: |
             image-notes.md
