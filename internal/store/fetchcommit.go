@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -48,9 +47,9 @@ type CommitInfo struct {
 	Stale bool
 	// URL is the feed's URL after the commit ("" when nothing was written).
 	URL string
-	// MergedInto is set when the fetch discovered the feed of a page URL that another feed already
-	// has: this feed (never fetched successfully, so it held no items) was removed instead of becoming
-	// a duplicate, and nothing else was written. Migrated is set with it.
+	// MergedInto is set by CommitDiscovered when another feed already has the discovered URL: this
+	// feed (never fetched successfully, so it held no items) was removed instead of becoming a
+	// duplicate. Migrated is set with it.
 	MergedInto int64
 }
 
@@ -76,7 +75,6 @@ type commitState struct {
 	begun      bool
 	stale      bool   // the feed's URL changed under the fetch; nothing was written
 	url        string // the feed's URL as this commit leaves it
-	mergedInto int64  // the discovered feed was already subscribed as this feed; this one was removed
 }
 
 type heldItem struct {
@@ -143,20 +141,20 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 			}
 		}
 		url := st.url
-		if !st.begun || st.mergedInto != 0 {
+		if !st.begun {
 			url = ""
 		}
 		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale, TrimPending: st.trimMore,
 			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred, Held: held,
-			URL: url, MergedInto: st.mergedInto}
+			URL: url}
 	}
 	for i, ch := range chunks {
 		last := i == len(chunks)-1
 		if err := d.commitChunk(ctx, res, ch, last, st, perChunk); err != nil {
 			return info(), fmt.Errorf("store: commit fetch of feed %d (chunk %d/%d): %w", res.Snap.ID, i+1, len(chunks), err)
 		}
-		if st.stale || st.mergedInto != 0 {
-			break // the URL changed under the fetch, or the feed was merged away: report what did commit
+		if st.stale {
+			break // the URL changed under the fetch: stop here and report what did commit
 		}
 	}
 	return info(), nil
@@ -257,27 +255,17 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	// earlier chunks' items durable; CommitInfo.Stale is set and NewIDs/New list
 	// exactly what did commit, which callers use (the scheduler still queues
 	// full-text extraction for those items).
-	first := !st.begun
-	want := res.Snap.URL
-	if !first {
-		want = st.url // the first chunk may have adopted a discovered URL
-	}
 	var curURL string
 	if err := tx.QueryRowContext(ctx, "SELECT url FROM feeds WHERE id = ?", feedID).Scan(&curURL); err != nil {
 		return err
 	}
-	if curURL != want {
+	if curURL != res.Snap.URL {
 		st.stale = true
 		return nil
 	}
+	first := !st.begun
 	st.begun = true
 	st.url = curURL
-
-	if first && res.Discovered != "" {
-		if done, err := d.adoptDiscovered(ctx, tx, res, st); err != nil || done {
-			return err
-		}
-	}
 
 	if first {
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ?", feedID).Scan(&st.before); err != nil {
@@ -673,44 +661,6 @@ func (d *DB) rekey(ctx context.Context, tx *sql.Tx, feedID int64, doc, fresh []f
 	return out, nil
 }
 
-// adoptDiscovered makes res.Discovered (the feed a page URL links, design §4.4 "Discovery on the
-// first fetch") the feed's URL, keeping the page URL as url_original so the same page address finds
-// this feed again. When another feed already has the discovered URL, this feed is a duplicate: it has
-// never fetched successfully, so it holds no items, and it is removed rather than kept beside the
-// other one (done is then true and nothing else is written). The removal goes through removeFeed, as
-// an unsubscribe does.
-func (d *DB) adoptDiscovered(ctx context.Context, tx *sql.Tx, res *fetch.Result, st *commitState) (done bool, err error) {
-	feedID := res.Snap.ID
-	other, found, err := FindFeedByURL(ctx, tx, res.Discovered)
-	if err != nil {
-		return false, err
-	}
-	if found && other != feedID {
-		if err := removeFeed(ctx, tx, feedID, true); err != nil {
-			return false, err
-		}
-		d.bumpFilters() // its filters cascade away
-		d.log.Info("store: a page address led to a feed that is already subscribed; the duplicate was removed",
-			"feed", feedID, "page", res.Snap.URL, "feed_url", res.Discovered, "kept", other)
-		st.mergedInto, st.migrated = other, true
-		return true, nil
-	}
-	key, kerr := feedurl.Key(res.Discovered)
-	host, herr := feedurl.Host(res.Discovered)
-	if kerr != nil || herr != nil {
-		return false, fmt.Errorf("store: discovered URL %q: %w", res.Discovered, errors.Join(kerr, herr))
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE feeds SET url_original = COALESCE(url_original, url),
-		url_original_key = COALESCE(url_original_key, url_key), url = ?2, url_key = ?3, host = ?4,
-		redirect_to = NULL, redirect_kind = NULL, redirect_count = 0, updated_at = unixepoch()
-		WHERE id = ?1`, feedID, res.Discovered, key, host); err != nil {
-		return false, err
-	}
-	st.note(fmt.Sprintf("discovered: %s -> %s", res.Snap.URL, res.Discovered), true)
-	st.migrated, st.url = true, res.Discovered
-	return false, nil
-}
-
 // applyRedirect persists the §4.7 decision for a successful fetch.
 func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, st *commitState) error {
 	feedID := res.Snap.ID
@@ -744,7 +694,7 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 		// feed; so while any is set the move is not made automatically: the
 		// redirect stays pending with a note, and the user accepts it by editing
 		// the URL (api PATCH, which drops them the same way).
-		oldHost, oerr := feedurl.Host(res.FeedURL())
+		oldHost, oerr := feedurl.Host(res.Snap.URL)
 		moved := oerr != nil || !fetch.SameSite(oldHost, host)
 		if moved {
 			var held bool
@@ -768,7 +718,7 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 			WHERE id = ?1`, feedID, dec.To, key, host, moved); err != nil {
 			return err
 		}
-		st.note(fmt.Sprintf("redirect_migrated: %s -> %s", res.FeedURL(), dec.To), true)
+		st.note(fmt.Sprintf("redirect_migrated: %s -> %s", res.Snap.URL, dec.To), true)
 		st.migrated, st.url = true, dec.To
 		return nil
 	default: // clear

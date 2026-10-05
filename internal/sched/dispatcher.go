@@ -400,6 +400,9 @@ func (s *Scheduler) handleDone(r result) {
 	if r.migrated || r.gone {
 		s.hub.Publish("feed.changed", map[string]any{"feed_id": idStr(r.feedID)})
 	}
+	if r.discovered {
+		s.Wake() // the feed is due at its new URL: fetch it on the next tick, under that host's limits
+	}
 	for _, run := range f.runs {
 		if s.runs[run.ID] == run && now.Sub(run.lastProgress) >= progressEvery {
 			run.lastProgress = now
