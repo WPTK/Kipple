@@ -180,7 +180,7 @@ describe("Step 1: account", () => {
     await headingIs("Choose your time zone");
     expect(bodyOf(callTo(calls, "POST", "/api/setup/account")[0] as never)).toEqual({ username: "reader", password: "correct horse" });
     expect(window.location.pathname).toBe("/welcome/timezone");
-    // Kept in memory for step 6.
+    // Kept in memory for step 7.
     expect(setupSecret.get()).toBe("correct horse");
   });
 
@@ -936,7 +936,7 @@ describe("Step 5: recommended feeds", () => {
   });
 });
 
-describe("Step 6: finish", () => {
+describe("Step 7: finish", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
 
   it("generates the API password with the web password from step 1, shows it once with a copy button", async () => {
@@ -1056,17 +1056,18 @@ describe("Step 6: the address", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Your Kipple's address");
   });
 
-  it("suggests the address the page was opened at only when it is a name", async () => {
+  it("suggests the address the page was opened at only when it is a name no device on the network can claim", async () => {
     const { suggestedAddress } = await import("./AddressStep");
     expect(suggestedAddress({ origin: "https://rss.example.com", hostname: "rss.example.com" })).toBe("https://rss.example.com");
-    expect(suggestedAddress({ origin: "http://nas.local:1919", hostname: "nas.local" })).toBe("http://nas.local:1919");
-    for (const h of ["localhost", "app.localhost", "192.168.1.10", "[::1]", "[fe80::1]"]) {
+    expect(suggestedAddress({ origin: "https://box.tail1234.ts.net", hostname: "box.tail1234.ts.net" })).toBe("https://box.tail1234.ts.net");
+    for (const h of ["localhost", "app.localhost", "192.168.1.10", "[::1]", "[fe80::1]", "nas", "nas.local", "NAS.LOCAL.", "box.lan", "x.home.arpa", "svc.internal"]) {
       expect(suggestedAddress({ origin: `http://${h}:1919`, hostname: h })).toBe("");
     }
   });
 });
 
-describe("the whole run", () => {  it("walks all seven steps with a password", async () => {
+describe("the whole run", () => {
+  it("walks all seven steps with a password", async () => {
     browserZoneIs("Asia/Tokyo");
     const w = makeWorld();
     const { calls } = server(w, {

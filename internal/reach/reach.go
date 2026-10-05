@@ -15,11 +15,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"golang.org/x/net/idna"
 
 	"github.com/WPTK/kipple/internal/access"
 	"github.com/WPTK/kipple/internal/auth"
@@ -131,6 +134,15 @@ func (l *Live) Update(set map[string]any, check func(cur *State) error, write fu
 	return nil
 }
 
+// Locked runs fn with the state in force under the lock Update holds, so a
+// write elsewhere that depends on these settings (removing the web password
+// needs Access on) cannot interleave with a settings write that changes them.
+func (l *Live) Locked(fn func(cur *State) error) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return fn(l.Get())
+}
+
 // overlay puts one written value (nil: the default) into sec.
 func overlay(sec *store.Security, key string, v any) {
 	switch key {
@@ -169,13 +181,19 @@ func strings1(v any) []string {
 // loaded). Caller holds mu.
 func (l *Live) install(sec store.Security) {
 	st := &State{Stored: sec}
-	if CheckPublicURL(sec.PublicURL) == nil {
-		st.PublicURL = sec.PublicURL
+	if u, err := NormalizePublicURL(sec.PublicURL); err == nil && u == sec.PublicURL {
+		st.PublicURL = u
+	} else {
+		l.log.Error("the stored public URL is not valid and is not used", "err", err)
 	}
 	for _, e := range sec.TrustedProxies {
-		if ps, err := auth.ParseProxies(e); err == nil {
-			st.Trusted = append(st.Trusted, ps...)
+		ps, err := auth.ParseProxies(e)
+		if err != nil || len(ps) != 1 || auth.ProxyTooWide(ps[0]) {
+			// Only a hand-edited row gets here (the API validates with the same rules).
+			l.log.Error("a stored trusted proxy is not valid and is not trusted", "entry", e)
+			continue
 		}
+		st.Trusted = append(st.Trusted, ps[0])
 	}
 	for _, e := range sec.AllowedHosts {
 		if n, err := setup.CheckHostEntry(e); err == nil {
@@ -263,6 +281,9 @@ func CheckPublicURL(v string) error {
 	if err != nil {
 		return fmt.Errorf("%q is not a URL", v)
 	}
+	if strings.ContainsFunc(u.Host, func(r rune) bool { return r > 0x7e }) {
+		return fmt.Errorf("%q: write the host in its ASCII (xn--) form", v)
+	}
 	switch {
 	case u.Scheme != "http" && u.Scheme != "https":
 		return fmt.Errorf("%q must start with http:// or https://", v)
@@ -276,6 +297,46 @@ func CheckPublicURL(v string) error {
 		return fmt.Errorf("%q is not an absolute URL", v)
 	}
 	return nil
+}
+
+// NormalizePublicURL is the rule for a public URL that is put in force (the
+// setting, or a seed about to be stored): CheckPublicURL, with an
+// internationalized host written in its ASCII (xn--) form so the Host gate and
+// the User-Agent name the same host, and never a name any device on the local
+// network can answer (setup.LANClaimable): the public URL's host is answered in
+// open mode, so such a name would let a device on the network rebind it. "" is
+// "no public URL".
+func NormalizePublicURL(v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	if strings.TrimSpace(v) != v || strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return "", fmt.Errorf("%q has spaces or control characters", v)
+	}
+	u, err := url.Parse(v)
+	if err != nil || u.Host == "" {
+		return "", CheckPublicURL(v)
+	}
+	host := u.Hostname()
+	if strings.ContainsFunc(host, func(r rune) bool { return r > 0x7e }) {
+		a, err := idna.Lookup.ToASCII(host)
+		if err != nil {
+			return "", fmt.Errorf("%q: the host is not a valid name", v)
+		}
+		if port := u.Port(); port != "" {
+			u.Host = net.JoinHostPort(a, port)
+		} else {
+			u.Host = a
+		}
+		v = u.String()
+	}
+	if err := CheckPublicURL(v); err != nil {
+		return "", err
+	}
+	if h := strings.TrimSuffix(strings.ToLower(u.Hostname()), "."); setup.LANClaimable(h) {
+		return "", fmt.Errorf("%q is a name any device on your network can answer: use the DNS name or IP address your other devices reach Kipple at, or add the name under Allowed host names", h)
+	}
+	return v, nil
 }
 
 // FormatProxy is a trusted proxy as stored and shown: an address alone for a
@@ -309,10 +370,24 @@ var EnvNames = map[string]string{
 // never been stored, and returns the settings that were stored already with a
 // different value (their variables were not used). This is the one rule: the
 // setting is the only source; a variable only gives a setting its first value.
+// A value about to be stored must pass the same rules as a settings write (a
+// public URL a LAN device could answer, a trusted range that is too wide), and
+// one that does not stops the start with what to do; a variable that would be
+// ignored is never judged.
 func SeedSettings(ctx context.Context, db *store.DB, seed Seed) ([]string, error) {
+	stored, err := db.StoredSettings(ctx, store.ReachKeys)
+	if err != nil {
+		return nil, err
+	}
 	m := map[string]any{}
 	if seed.PublicURL != "" {
-		m[store.SettingPublicURL] = seed.PublicURL
+		u := seed.PublicURL
+		if !stored[store.SettingPublicURL] {
+			if u, err = NormalizePublicURL(u); err != nil {
+				return nil, fmt.Errorf("KIPPLE_PUBLIC_URL: %w; set the address your other devices use, or remove the variable", err)
+			}
+		}
+		m[store.SettingPublicURL] = u
 	}
 	if len(seed.AllowedHosts) > 0 {
 		m[store.SettingAllowedHosts] = seed.AllowedHosts
@@ -320,6 +395,9 @@ func SeedSettings(ctx context.Context, db *store.DB, seed Seed) ([]string, error
 	if len(seed.TrustedProxies) > 0 {
 		l := make([]string, len(seed.TrustedProxies))
 		for i, p := range seed.TrustedProxies {
+			if !stored[store.SettingTrustedProxies] && auth.ProxyTooWide(p) {
+				return nil, fmt.Errorf("KIPPLE_TRUSTED_PROXY_IPS: %s is too wide to trust (any client in it could choose its own address): list only the address your proxy connects from (docs/reverse-proxy.md), or remove the variable", p)
+			}
 			l[i] = FormatProxy(p)
 		}
 		m[store.SettingTrustedProxies] = l

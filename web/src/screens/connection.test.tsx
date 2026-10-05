@@ -5,7 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { axe } from "vitest-axe";
 import { makeQueryClient } from "@/App";
 import type { SettingMeta } from "@/api/admin";
-import { json, mockFetch } from "@/test/mockApi";
+import { bootstrap, json, mockFetch } from "@/test/mockApi";
 import { ConnectionSection, parseList } from "./ConnectionSection";
 
 // Settings, Account & Devices, "Address and access": the public URL, the allowed host names, the trusted proxies and
@@ -42,15 +42,18 @@ function world(values: Record<string, unknown> = {}) {
   return { v, body };
 }
 
-function show(w: ReturnType<typeof world>, patch?: (body: Record<string, unknown>) => Response) {
+function show(w: ReturnType<typeof world>, patch?: (body: Record<string, unknown>) => Response, withPassword = false) {
   const api = mockFetch({
+    ...(withPassword ? { "GET /api/bootstrap": () => json(bootstrap) } : {}),
     "GET /api/settings": () => json(w.body()),
     "GET /api/auth/me": () => json({ username: "reader" }),
     "PATCH /api/settings": (_u, init) => {
       const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
       const custom = patch?.(b);
       if (custom) return custom;
-      Object.assign(w.v, b);
+      const { current: _c, ...rest } = b;
+      void _c;
+      Object.assign(w.v, rest);
       return json(w.body());
     },
   });
@@ -140,5 +143,67 @@ describe("Address and access", () => {
     await user.click(within(access).getByRole("button", { name: "Turn off Cloudflare Access" }));
     expect(await within(access).findByText(/Set a web password first/)).toBeInTheDocument();
     expect(within(access).getByText(/On: Kipple checks/)).toBeInTheDocument();
+  });
+});
+
+describe("Address and access: the web password", () => {
+  it("is asked for before the trusted proxies or Access change, and sent with the write only", async () => {
+    const { calls } = show(world(), undefined, true);
+    const user = userEvent.setup();
+    // The public URL needs no password.
+    await user.type(await screen.findByLabelText("Public URL"), "https://rss.example.com{Enter}");
+    await screen.findByRole("button", { name: "Remove the public url" });
+
+    const proxies = screen.getByLabelText("Trusted proxies");
+    await user.type(proxies, "192.0.2.10");
+    const save = screen.getByRole("button", { name: "Save Trusted proxies" });
+    expect(save).toBeDisabled();
+    await user.type(await screen.findByLabelText("Your web password, to save trusted proxies"), "correct-horse");
+    await user.click(save);
+    await screen.findByText(/^Off/);
+
+    const access = screen.getByRole("group", { name: "Cloudflare Access" });
+    await user.type(within(access).getByLabelText("Team domain"), "myteam.cloudflareaccess.com");
+    await user.type(within(access).getByLabelText("Application audience (AUD) tag"), "abc");
+    expect(within(access).getByRole("button", { name: "Save Cloudflare Access" })).toBeDisabled();
+    await user.type(within(access).getByLabelText("Your web password, to save Cloudflare Access"), "correct-horse");
+    await user.click(within(access).getByRole("button", { name: "Save Cloudflare Access" }));
+    await within(access).findByText(/On: Kipple checks/);
+
+    expect(patches(calls)).toEqual([
+      { "server.public_url": "https://rss.example.com" },
+      { "security.trusted_proxies": ["192.0.2.10"], current: "correct-horse" },
+      { "security.cloudflare_access": { team_domain: "myteam.cloudflareaccess.com", aud: "abc" }, current: "correct-horse" },
+    ]);
+  });
+
+  it("says a wrong password and the open-mode lock-out plainly, and links the Access error to its fields", async () => {
+    show(
+      world(),
+      (b) => {
+        if ("security.trusted_proxies" in b) return json({ error: "proxy_is_you", message: "x" }, 409);
+        if ("security.cloudflare_access" in b) return json({ error: "bad_password" }, 403);
+        return undefined as unknown as Response;
+      },
+      true,
+    );
+    const user = userEvent.setup();
+    const proxies = await screen.findByLabelText("Trusted proxies");
+    await user.type(proxies, "127.0.0.1");
+    await user.type(await screen.findByLabelText("Your web password, to save trusted proxies"), "pw");
+    await user.click(screen.getByRole("button", { name: "Save Trusted proxies" }));
+    expect(await screen.findByText(/Your own address is in this list/)).toBeInTheDocument();
+
+    const access = screen.getByRole("group", { name: "Cloudflare Access" });
+    await user.type(within(access).getByLabelText("Team domain"), "myteam.cloudflareaccess.com");
+    await user.type(within(access).getByLabelText("Application audience (AUD) tag"), "abc");
+    await user.type(within(access).getByLabelText("Your web password, to save Cloudflare Access"), "wrong");
+    await user.click(within(access).getByRole("button", { name: "Save Cloudflare Access" }));
+    const note = await within(access).findByText("The current password isn't right.");
+    const holder = note.closest("[id]") as HTMLElement;
+    const team = within(access).getByLabelText("Team domain");
+    expect(team.getAttribute("aria-describedby")?.split(" ")).toContain(holder.id);
+    expect(team).toHaveAttribute("aria-invalid", "true");
+    expect(within(access).getByLabelText("Application audience (AUD) tag").getAttribute("aria-describedby")?.split(" ")).toContain(holder.id);
   });
 });

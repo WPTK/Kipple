@@ -145,7 +145,8 @@ const hostRefusedText = "Kipple refused this request because of the address it w
 	"Kipple (DNS rebinding), so each such name has to be allowed by name.\n\n" +
 	"To allow a name, open Kipple by its IP address (that always works), then add the name under Allowed host\n" +
 	"names in Settings, Account & Devices, Address and access (e.g. nas.local, rss.example.com or *.example.com).\n" +
-	"It applies at once.\n"
+	"It applies at once. Without a browser on the network (a headless install), KIPPLE_ALLOWED_HOSTS works on a first\n" +
+	"start: it gives the setting its first value.\n"
 
 // HostGate is the Host-header check (design 5.2), installed ahead of every
 // handler. In setup and open mode a request whose Host is not an allowed name

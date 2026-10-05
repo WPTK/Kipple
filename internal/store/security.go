@@ -102,6 +102,19 @@ func (d *DB) SeedSettings(ctx context.Context, seed map[string]any) (ignored []s
 	return ignored, err
 }
 
+// StoredSettings reports which of keys have a settings row.
+func (d *DB) StoredSettings(ctx context.Context, keys []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		_, ok, err := settingRawErr(ctx, d.reader, k)
+		if err != nil {
+			return nil, err
+		}
+		out[k] = ok
+	}
+	return out, nil
+}
+
 // sameJSON reports whether two JSON texts hold the same value.
 func sameJSON(a string, b []byte) bool {
 	var x, y any

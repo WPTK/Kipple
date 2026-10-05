@@ -8,15 +8,20 @@ import { Field, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { StepActions, WizardFrame } from "./Frame";
 import { stepById } from "./steps";
 
-/** An IP address, localhost or a .localhost name: an address only this computer or this network uses, never a suggestion. */
-function isLocalOnly(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  return h === "localhost" || h.endsWith(".localhost") || /^[0-9.]+$/.test(h) || h.includes(":");
+/**
+ * Never a suggestion: an IP address or localhost (only this computer or this network uses them), and a name any device
+ * on the local network can answer (a single-word name, .local, .lan, .home.arpa, .internal), which the server refuses
+ * as a public URL: open mode answers the public URL's host, so such a name would let a device on the network rebind it.
+ */
+function notSuggested(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (h === "localhost" || h.endsWith(".localhost") || /^[0-9.]+$/.test(h) || h.includes(":")) return true;
+  return !h.includes(".") || [".local", ".lan", ".home.arpa", ".internal"].some((s) => h.endsWith(s));
 }
 
-/** The address this page was opened at, when it is a name worth keeping (not an IP address or localhost). */
+/** The address this page was opened at, when it is a name worth keeping (see notSuggested). */
 export function suggestedAddress(loc: Pick<Location, "origin" | "hostname"> = window.location): string {
-  return isLocalOnly(loc.hostname) ? "" : loc.origin;
+  return notSuggested(loc.hostname) ? "" : loc.origin;
 }
 
 /**

@@ -82,11 +82,12 @@ func TestOpenReachSeedsOnceThenSettingsDecide(t *testing.T) {
 	require.Contains(t, buf.String(), "KIPPLE_ACCESS_TEAM_DOMAIN")
 	require.NotContains(t, buf.String(), "KIPPLE_TRUSTED_PROXY_IPS", "a variable equal to its setting is not mentioned")
 
-	// No variables: nothing seeded, nothing warned.
+	// No variables: nothing seeded, nothing warned; the INFO line says what is in force.
 	buf.Reset()
 	_, err = openReach(ctx, openDB(t), config.Config{}, loud)
 	require.NoError(t, err)
-	require.Empty(t, buf.String())
+	require.NotContains(t, buf.String(), "not used")
+	require.Contains(t, buf.String(), "address and access settings in force")
 }
 
 // noPrefetch keeps an Access verifier built in a test off the network.

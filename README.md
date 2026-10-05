@@ -153,7 +153,8 @@ Then:
    3. **Theme**: one look for day and one for night.
    4. **Import** an OPML file from your old reader (or skip).
    5. **Recommended feeds**, a few good ones to start with (or skip).
-   6. **Done**, with an optional Reader API password for sync apps.
+   6. **Address**: the public URL your other devices open Kipple at (or skip).
+   7. **Done**, with an optional Reader API password for sync apps.
 
 **Until you have created your account, anyone who can reach the port can create it.** That is how every
 self-hosted app that sets itself up in the browser works, and it is why the examples publish the port on `127.0.0.1`

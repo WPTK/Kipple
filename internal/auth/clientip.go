@@ -11,8 +11,8 @@ import (
 // ParseProxies parses a list of trusted proxies (the security.trusted_proxies
 // setting, or its KIPPLE_TRUSTED_PROXY_IPS seed): comma-separated single
 // addresses and CIDR ranges. An address is the range of one. IPv4-mapped IPv6
-// forms are unmapped, like the peer address they are compared with. A range
-// that covers every address (/0) is refused.
+// forms are unmapped, like the peer address they are compared with. It checks
+// the syntax only; ProxyTooWide is the policy on how wide a range may be.
 func ParseProxies(v string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
 	for _, part := range strings.Split(v, ",") {
@@ -39,12 +39,35 @@ func ParseProxies(v string) ([]netip.Prefix, error) {
 			}
 			p = netip.PrefixFrom(a.Unmap(), p.Bits()-96)
 		}
-		if p.Bits() == 0 {
-			return nil, fmt.Errorf("invalid address range %q: it covers every address, so any client could choose its own address", part)
-		}
 		out = append(out, p.Masked())
 	}
 	return out, nil
+}
+
+var (
+	ula       = netip.MustParsePrefix("fc00::/7")
+	linkLocal = netip.MustParsePrefix("fe80::/10")
+)
+
+// ProxyTooWide reports whether p is too wide to trust as a proxy: wider than an
+// IPv4 /8 or an IPv6 /32 and covering public addresses. A trusted range lets
+// every address in it name its own client address, so a range that wide could
+// only be a mistake (0.0.0.0/0 above all). Every IPv4 range wider than /8
+// covers public addresses; an IPv6 one is fine only inside fc00::/7 or
+// fe80::/10.
+func ProxyTooWide(p netip.Prefix) bool {
+	if p.Addr().Is4() {
+		return p.Bits() < 8
+	}
+	if p.Bits() >= 32 {
+		return false
+	}
+	for _, private := range []netip.Prefix{ula, linkLocal} {
+		if p.Bits() >= private.Bits() && private.Contains(p.Addr()) {
+			return false
+		}
+	}
+	return true
 }
 
 // Peer is the TCP peer address of r, unmapped and without a zone.

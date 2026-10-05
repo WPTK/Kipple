@@ -27,7 +27,19 @@ func openReach(ctx context.Context, db *store.DB, cfg config.Config, logger *slo
 		logger.Warn("an environment variable is not used: Settings already holds another value, and Settings decides (change it under Account & Devices, Address and access, or remove the variable)",
 			"variable", reach.EnvNames[key], "setting", key)
 	}
-	return reach.Open(ctx, db, reach.Options{Logger: logger, Access: access.Options{Logger: logger}, NoPrefetch: !prefetchAccessKeys})
+	live, err := reach.Open(ctx, db, reach.Options{Logger: logger, Access: access.Options{Logger: logger}, NoPrefetch: !prefetchAccessKeys})
+	if err != nil {
+		return nil, err
+	}
+	// What is in force, so a log shows which address and proxies a start used.
+	st := live.Get()
+	proxies := make([]string, len(st.Trusted))
+	for i, p := range st.Trusted {
+		proxies[i] = reach.FormatProxy(p)
+	}
+	logger.Info("address and access settings in force", "public_url", st.PublicURL, "trusted_proxies", proxies,
+		"allowed_host_names", len(st.Stored.AllowedHosts), "cloudflare_access", st.Access != nil)
+	return live, nil
 }
 
 // prefetchAccessKeys loads a new Access key set at once (a seam: tests never reach the network).

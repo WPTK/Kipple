@@ -334,3 +334,12 @@ func TestWarnUntrustedProxyHeaders(t *testing.T) {
 	require.Contains(t, buf.String(), "X-Forwarded-Proto")
 	require.Equal(t, 6, served, "requests always pass through")
 }
+
+func TestProxyTooWide(t *testing.T) {
+	for p, want := range map[string]bool{
+		"0.0.0.0/0": true, "10.0.0.0/7": true, "10.0.0.0/8": false, "8.0.0.0/8": false, "172.16.0.0/12": false, "192.0.2.10/32": false,
+		"::/0": true, "2000::/3": true, "2001:db8::/32": false, "fc00::/7": false, "fd00::/8": false, "fe80::/10": false, "fe00::/7": true,
+	} {
+		require.Equal(t, want, ProxyTooWide(netip.MustParsePrefix(p)), p)
+	}
+}

@@ -172,6 +172,26 @@ func hostMatches(host string, suffixes, extra []string) bool {
 	return false
 }
 
+// LANClaimable reports whether any device on the local network can answer host
+// with this computer's address (mDNS, LLMNR or NetBIOS, a router's DHCP names):
+// a single-label name, or one under .local, .lan, .home.arpa or .internal. Such
+// a name is answered in open mode only when listed by name. host is normalized
+// (NormalizeHost or CheckHostEntry).
+func LANClaimable(host string) bool {
+	if _, err := netip.ParseAddr(host); err == nil || host == "localhost" {
+		return false
+	}
+	if !strings.Contains(host, ".") {
+		return true
+	}
+	for _, suf := range []string{".local", ".lan", ".home.arpa", ".internal"} {
+		if strings.HasSuffix(host, suf) {
+			return true
+		}
+	}
+	return false
+}
+
 // CheckHostEntry validates one allowed-host entry (the security.allowed_hosts
 // setting, or its KIPPLE_ALLOWED_HOSTS seed) and returns it normalized: an exact host
 // name or IP address, or "*." followed by a name that is not itself a public

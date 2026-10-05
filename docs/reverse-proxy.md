@@ -37,7 +37,8 @@ a proxy **must**:
 
 A proxy **must not**:
 
-- Be listed with a range wider than the proxies themselves. A range of every address (`0.0.0.0/0`) is refused.
+- Be listed with a range wider than the proxies themselves. A range wider than an IPv4 `/8` or an IPv6
+  `/32` that covers public addresses (`0.0.0.0/0`) is refused.
 - Rewrite `Host` to the upstream's address (`proxy_set_header Host $proxy_host` in nginx, a `Host` rewrite in a
   Caddy `header_up`, and so on).
 - Strip `X-Forwarded-Proto` when it terminates TLS, or forward a client's `X-Forwarded-Proto` unchanged.

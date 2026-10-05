@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/netip"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -152,4 +154,118 @@ func TestHelpers(t *testing.T) {
 	for _, bad := range []string{"rss.example.com", " https://rss.example.com", "https://", "https://u:p@x.example", "https://x.example/#a", "https://x.example/?", "mailto:x@example.com"} {
 		require.Error(t, CheckPublicURL(bad), bad)
 	}
+}
+
+// A seed about to be stored passes the rules of a settings write, and a failure
+// says what to do; a seed that would be ignored (its setting is stored) is never
+// judged, so a stale variable cannot stop a start.
+func TestSeedPolicyOnlyWhenStored(t *testing.T) {
+	ctx := context.Background()
+	wide := Seed{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}}
+	_, err := SeedSettings(ctx, openDB(t), wide)
+	require.ErrorContains(t, err, "KIPPLE_TRUSTED_PROXY_IPS")
+	require.ErrorContains(t, err, "list only the address your proxy connects from (docs/reverse-proxy.md), or remove the variable")
+	_, err = SeedSettings(ctx, openDB(t), Seed{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("2000::/3")}})
+	require.ErrorContains(t, err, "too wide")
+	_, err = SeedSettings(ctx, openDB(t), Seed{PublicURL: "http://nas.local:1919"})
+	require.ErrorContains(t, err, "KIPPLE_PUBLIC_URL")
+	require.ErrorContains(t, err, "remove the variable")
+
+	db := openDB(t)
+	require.NoError(t, db.SetSettings(ctx, map[string]any{store.SettingTrustedProxies: []any{"192.0.2.10"}, store.SettingPublicURL: ""}))
+	ignored, err := SeedSettings(ctx, db, Seed{PublicURL: "http://nas.local:1919", TrustedProxies: wide.TrustedProxies})
+	require.NoError(t, err, "ignored variables are not judged")
+	require.Equal(t, []string{store.SettingTrustedProxies, store.SettingPublicURL}, ignored)
+
+	// An internationalized seed is stored in its xn-- form.
+	db = openDB(t)
+	_, err = SeedSettings(ctx, db, Seed{PublicURL: "https://bücher.example"})
+	require.NoError(t, err)
+	sec, err := db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "https://xn--bcher-kva.example", sec.PublicURL)
+}
+
+func TestNormalizePublicURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                              "",
+		"https://rss.example.com":       "https://rss.example.com",
+		"https://bücher.example:8443/x": "https://xn--bcher-kva.example:8443/x",
+		"http://192.168.1.20:1919":      "http://192.168.1.20:1919",
+		"http://[2001:db8::1]:1919/":    "http://[2001:db8::1]:1919/",
+		"https://box.tail1234.ts.net":   "https://box.tail1234.ts.net",
+		"http://localhost:1919":         "http://localhost:1919",
+	} {
+		got, err := NormalizePublicURL(in)
+		require.NoError(t, err, in)
+		require.Equal(t, want, got, in)
+	}
+	for _, bad := range []string{"http://nas", "http://nas.local", "http://NAS.LAN:1919", "https://x.home.arpa", "https://x.internal", "rss.example.com", "https://"} {
+		_, err := NormalizePublicURL(bad)
+		require.Error(t, err, bad)
+	}
+	require.ErrorContains(t, CheckPublicURL("https://bücher.example"), "xn--")
+}
+
+// Reads never see a half-applied state while writes swap it: every State read
+// is one of the written ones, whole (its public URL, host names and proxies
+// belong together). Meaningful without -race (the invariant), and CI runs it
+// with -race too.
+func TestConcurrentUpdatesAndReads(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	l, err := Open(ctx, db, Options{NoPrefetch: true})
+	require.NoError(t, err)
+	states := []map[string]any{
+		{store.SettingPublicURL: "https://a.example.com", store.SettingTrustedProxies: []any{"192.0.2.1"}},
+		{store.SettingPublicURL: "https://b.example.com", store.SettingTrustedProxies: []any{"192.0.2.2"}},
+	}
+	want := map[string]string{"https://a.example.com": "192.0.2.1/32", "https://b.example.com": "192.0.2.2/32"}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	var reads atomic.Int64
+	for r := 0; r < 4; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				st := l.Get()
+				reads.Add(1)
+				if st.PublicURL == "" {
+					continue
+				}
+				if len(st.Trusted) != 1 || st.Trusted[0].String() != want[st.PublicURL] || len(st.HostNames) != 1 || "https://"+st.HostNames[0] != st.PublicURL || st.Stored.PublicURL != st.PublicURL {
+					t.Errorf("a torn state: %+v", st)
+					return
+				}
+			}
+		}()
+	}
+	var writers sync.WaitGroup
+	for w := 0; w < 2; w++ {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			for i := 0; i < 100; i++ {
+				set := states[(i+w)%2]
+				if err := l.Update(set, nil, func() error { return db.SetSettings(ctx, set) }); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}()
+	}
+	writers.Wait()
+	close(stop)
+	wg.Wait()
+	require.Positive(t, reads.Load())
+	// The state in force is the one last written, as a fresh read of the database says.
+	again, err := Open(ctx, db, Options{NoPrefetch: true})
+	require.NoError(t, err)
+	require.Equal(t, again.Get().Stored, l.Get().Stored)
 }

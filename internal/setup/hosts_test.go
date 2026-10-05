@@ -190,3 +190,12 @@ func isIPv4(s string) (string, bool) {
 	}
 	return s, true
 }
+
+func TestLANClaimable(t *testing.T) {
+	for _, h := range []string{"nas", "nas.local", "box.lan", "x.home.arpa", "svc.internal"} {
+		require.True(t, LANClaimable(h), h)
+	}
+	for _, h := range []string{"localhost", "app.localhost", "box.tail1.ts.net", "rss.example.com", "192.168.1.10", "2001:db8::1"} {
+		require.False(t, LANClaimable(h), h)
+	}
+}

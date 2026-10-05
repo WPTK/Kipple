@@ -62,12 +62,17 @@ export function settingsIssues(e: unknown): SettingsIssues | null {
   return { keys: Array.isArray(b.keys) ? b.keys : [], issues: Array.isArray(b.issues) ? b.issues : [] };
 }
 
-/** PATCH one or more settings (null resets to the default). Optimistic; rolls back on an error. */
+/**
+ * PATCH one or more settings (null resets to the default). Optimistic; rolls back on an error. A `current` entry is not a
+ * setting: it is the web password a write to the trusted proxies or Cloudflare Access carries, and never enters the cache.
+ */
 export function usePatchSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (patch: Record<string, unknown>) => api<SettingsResponse>("/api/settings", { method: "PATCH", body: patch }),
-    onMutate: async (patch) => {
+    onMutate: async (sent) => {
+      const { current: _current, ...patch } = sent;
+      void _current;
       await qc.cancelQueries({ queryKey: settingsKey });
       const prev = qc.getQueryData<SettingsResponse>(settingsKey);
       if (prev) {

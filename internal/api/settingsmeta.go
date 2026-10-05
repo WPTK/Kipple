@@ -107,15 +107,16 @@ func checkAllowedHosts(v any) (any, string) {
 }
 
 // checkPublicURL validates server.public_url: "" (none) or an absolute http(s)
-// URL with a host and no user info, query or fragment (reach.CheckPublicURL),
-// returned trimmed.
+// URL with a host and no user info, query or fragment, and not a name a LAN
+// device can answer (reach.NormalizePublicURL), returned trimmed and with an
+// internationalized host in its xn-- form.
 func checkPublicURL(v any) (any, string) {
 	s, ok := v.(string)
 	if !ok || len(s) > 2048 {
 		return nil, "must be an address such as https://rss.example.com, or empty"
 	}
-	s = strings.TrimSpace(s)
-	if err := reach.CheckPublicURL(s); err != nil {
+	s, err := reach.NormalizePublicURL(strings.TrimSpace(s))
+	if err != nil {
 		return nil, err.Error()
 	}
 	return s, ""
@@ -125,8 +126,8 @@ func checkPublicURL(v any) (any, string) {
 const maxTrustedProxies = 64
 
 // checkTrustedProxies validates security.trusted_proxies: a list of at most 64
-// IP addresses or CIDR ranges (auth.ParseProxies, which refuses a range of
-// every address), returned normalized (reach.FormatProxy) and without repeats.
+// IP addresses or CIDR ranges (auth.ParseProxies), none too wide
+// (auth.ProxyTooWide), returned normalized (reach.FormatProxy) and without repeats.
 func checkTrustedProxies(v any) (any, string) {
 	const msg = "must be a list (at most 64) of IP addresses or ranges such as 192.0.2.10 or 198.51.100.0/24"
 	arr, ok := v.([]any)
@@ -141,8 +142,12 @@ func checkTrustedProxies(v any) (any, string) {
 			return nil, msg
 		}
 		ps, err := auth.ParseProxies(s)
-		if err != nil {
-			return nil, err.Error()
+		if err != nil || len(ps) != 1 {
+			// The parser's own wording is for developers; say what is accepted.
+			return nil, fmt.Sprintf("%q is not an IP address or a range such as 192.0.2.10 or 198.51.100.0/24", strings.TrimSpace(s))
+		}
+		if auth.ProxyTooWide(ps[0]) {
+			return nil, fmt.Sprintf("%s is too wide to trust: any client in it could choose its own address. List only the address your proxy connects from.", ps[0])
 		}
 		e := reach.FormatProxy(ps[0])
 		if !seen[e] {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -174,13 +175,35 @@ func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	hash := "" // an empty hash is "no web password": the verifier never accepts it
-	if !body.Remove {
-		var err error
-		if hash, err = auth.HashPassword(body.New); err != nil {
-			s.serverError(w, "hash password", err)
-			return
+	if body.Remove {
+		if s.removeProved != nil {
+			s.removeProved()
 		}
+		// Under the reach lock, re-checked: a settings write that turns Access off
+		// cannot slip between the proof above and this write and leave an account
+		// that nothing can sign in to.
+		err := s.reach.Locked(func(cur *reach.State) error {
+			if cur.Access == nil {
+				return errAccessOff
+			}
+			return s.storePassword(r, "", store.AuthStandard)
+		})
+		switch {
+		case errors.Is(err, errAccessOff):
+			writeErrorMsg(w, http.StatusBadRequest, "access_not_configured",
+				"a web password can only be removed when Cloudflare Access validation is on (Settings, Account & Devices, Address and access)")
+		case err != nil:
+			s.serverError(w, "set password", err)
+		default:
+			w.Header().Set("Cache-Control", "private, no-store")
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
+	}
+	hash, err := auth.HashPassword(body.New)
+	if err != nil {
+		s.serverError(w, "hash password", err)
+		return
 	}
 	s.setPassword(w, r, hash, store.AuthStandard)
 }
@@ -188,18 +211,30 @@ func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 // setPassword stores the web password hash and auth mode, signing out every
 // other session, and answers 204.
 func (s *Server) setPassword(w http.ResponseWriter, r *http.Request, hash, mode string) {
+	if err := s.storePassword(r, hash, mode); err != nil {
+		s.serverError(w, "set password", err)
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// errAccessOff refuses removing the web password once Access validation is off.
+var errAccessOff = errors.New("cloudflare access is off")
+
+// storePassword stores the web password hash and auth mode, signing out every
+// other session.
+func (s *Server) storePassword(r *http.Request, hash, mode string) error {
 	keep := ""
 	if c, err := r.Cookie(cookieName); err == nil {
 		keep = sessionID(c.Value)
 	}
 	if err := s.db.SetPasswordHash(r.Context(), hash, mode, keep); err != nil {
-		s.serverError(w, "set password", err)
-		return
+		return err
 	}
 	s.verifier.ClearMemo()
 	s.noteMode(r.Context(), func(sn *modeSnapshot) { sn.mode = mode })
-	w.Header().Set("Cache-Control", "private, no-store")
-	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // switchToOpen is `{current, open: true}` on a password account: the current

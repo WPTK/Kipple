@@ -168,6 +168,7 @@ type Server struct {
 	bgClosed bool
 
 	autoReadAdmitted func() // tests: runs once startAutoRead has admitted a run, before its goroutine starts
+	removeProved     func() // tests: runs after a password removal was proven, before its write
 
 	apply    applyState    // the retroactive filter apply run
 	autoRead autoReadState // the auto-read catch-up run

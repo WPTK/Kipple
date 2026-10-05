@@ -75,7 +75,6 @@ func TestLoadInvalid(t *testing.T) {
 	cases := map[string]map[string]string{
 		"bad trusted proxy IP":    {"KIPPLE_TRUSTED_PROXY_IPS": "not-an-ip"},
 		"bad trusted proxy range": {"KIPPLE_TRUSTED_PROXY_IPS": "10.0.0.0/33"},
-		"every address trusted":   {"KIPPLE_TRUSTED_PROXY_IPS": "192.0.2.1, 0.0.0.0/0"},
 		"bad sched tick":          {"KIPPLE_SCHED_TICK": "soon"},
 		"negative sched tick":     {"KIPPLE_SCHED_TICK": "-1s"},
 		"bad fetch workers":       {"KIPPLE_FETCH_WORKERS": "many"},

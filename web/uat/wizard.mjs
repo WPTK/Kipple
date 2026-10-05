@@ -7,7 +7,7 @@
 // touches any other instance:
 //
 //   Run A (desktop 1280x800, browser time zone Asia/Tokyo): opens the address, which shows the account form first
-//     (no setup code), and walks all six steps with a password. Asserts the time zone step preselects Asia/Tokyo and
+//     (no setup code), and walks all seven steps with a password. Asserts the time zone step preselects Asia/Tokyo and
 //     that GET /api/settings then reports it, that while unclaimed the other API routes refuse, that a second browser
 //     context creating the account afterwards gets 404, and that after completion /api/setup/* answers 404.
 //   Run B (phone 375x812): the same wizard in open mode (no password), a theme and reading-font preview + Skip that
@@ -108,7 +108,7 @@ async function onStep(page, tag, heading, n) {
     throw new Error("lost");
   }
   await page.waitForTimeout(250);
-  check(where, await page.getByText(`Step ${n} of 6`).isVisible(), `no "Step ${n} of 6"`);
+  check(where, await page.getByText(`Step ${n} of 7`).isVisible(), `no "Step ${n} of 7"`);
   await axeRun(page, where);
   await overflowRun(page, where);
   if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, `${tag}-step${n}.png`), fullPage: true });
@@ -171,14 +171,19 @@ try {
     await onStep(page, "A", "Recommended feeds", 5);
     await page.getByRole("button", { name: /^Add \d+ feeds?$/ }).click();
 
-    await onStep(page, "A", "You're all set", 6);
-    // The reload at step 4 made the page forget the password typed in step 1, so step 6 asks for it again.
-    check("A step 6", await page.getByLabel("Your web password").isVisible(), "the web password was not asked for after a reload");
+    // Step 6: the public URL. 127.0.0.1 is never suggested, so the field starts empty; Skip saves nothing.
+    await onStep(page, "A", "Your Kipple's address", 6);
+    check("A step 6", (await page.getByLabel("Public URL (optional)").inputValue()) === "", "an IP address was suggested as the public URL");
+    await page.getByRole("button", { name: "Skip", exact: true }).click();
+
+    await onStep(page, "A", "You're all set", 7);
+    // The reload at step 4 made the page forget the password typed in step 1, so step 7 asks for it again.
+    check("A step 7", await page.getByLabel("Your web password").isVisible(), "the web password was not asked for after a reload");
     await page.getByLabel("Your web password").fill("a long enough password");
     await page.getByRole("button", { name: "Generate API password" }).click();
     await page.getByTestId("api-password").waitFor({ timeout: 10_000 });
-    check("A step 6", ((await page.getByTestId("api-password").textContent()) ?? "").length > 8, "no API password shown");
-    await axeRun(page, "A step 5 (password shown)");
+    check("A step 7", ((await page.getByTestId("api-password").textContent()) ?? "").length > 8, "no API password shown");
+    await axeRun(page, "A step 7 (password shown)");
     await page.getByRole("button", { name: "Finish" }).click();
     await page.waitForURL(/\/l\/unread/, { timeout: 10_000 }).catch(() => fail("A finish", `the reader did not open (at ${page.url()})`));
     if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "A-reader.png"), fullPage: true });
@@ -235,7 +240,9 @@ try {
     await page.getByRole("button", { name: "Skip", exact: true }).click();
     await onStep(page, "B", "Recommended feeds", 5);
     await page.getByRole("button", { name: "Skip", exact: true }).click();
-    await onStep(page, "B", "You're all set", 6);
+    await onStep(page, "B", "Your Kipple's address", 6);
+    await page.getByRole("button", { name: "Skip", exact: true }).click();
+    await onStep(page, "B", "You're all set", 7);
     await page.getByRole("button", { name: "Generate API password" }).click();
     await page.getByTestId("api-password").waitFor({ timeout: 10_000 });
     await page.getByRole("button", { name: "Finish" }).click();

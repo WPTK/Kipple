@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -61,6 +62,11 @@ func patchIssue(t *testing.T, h *harness, c *http.Cookie, body string, key strin
 	return 0, ""
 }
 
+// withCurrent adds the current web password a guarded write carries.
+func withCurrent(body string) string {
+	return strings.Replace(body, "{", `{"current":"`+testPass+`",`, 1)
+}
+
 func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
@@ -74,17 +80,24 @@ func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
 	require.Equal(t, []any{}, v[store.SettingTrustedProxies])
 	require.Equal(t, map[string]any{}, v[store.SettingCloudflareAccess])
 
-	code, _ := patchIssue(t, h, c, `{"server.public_url":" https://rss.example.com/kipple ",
-		"security.trusted_proxies":["192.0.2.10"," 198.51.100.7/24","::ffff:192.0.2.10","2001:db8::/32"],
-		"security.cloudflare_access":{"team_domain":"https://MyTeam.cloudflareaccess.com/","aud":" abc123 "}}`, "")
+	code, _ := patchIssue(t, h, c, withCurrent(`{"server.public_url":" https://rss.example.com/kipple ",
+		"security.trusted_proxies":["192.0.2.10"," 198.51.100.7/24","::ffff:192.0.2.10","2001:db8::/32","10.0.0.0/8","fc00::/7"],
+		"security.cloudflare_access":{"team_domain":"https://MyTeam.cloudflareaccess.com/","aud":" abc123 "}}`), "")
 	require.Equal(t, http.StatusOK, code)
 	v = values()
 	require.Equal(t, "https://rss.example.com/kipple", v[store.SettingPublicURL])
-	require.Equal(t, []any{"192.0.2.10", "198.51.100.0/24", "2001:db8::/32"}, v[store.SettingTrustedProxies], "normalized, repeats dropped")
+	require.Equal(t, []any{"192.0.2.10", "198.51.100.0/24", "2001:db8::/32", "10.0.0.0/8", "fc00::/7"}, v[store.SettingTrustedProxies], "normalized, repeats dropped")
 	require.Equal(t, map[string]any{"team_domain": "myteam.cloudflareaccess.com", "aud": "abc123"}, v[store.SettingCloudflareAccess])
 
+	// An internationalized host is stored in its xn-- form, so the Host gate and the User-Agent agree.
+	code, _ = patchIssue(t, h, c, `{"server.public_url":"https://bücher.example:8443/r"}`, "")
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, "https://xn--bcher-kva.example:8443/r", values()[store.SettingPublicURL])
+	require.Contains(t, h.srv.reach.HostNames(), "xn--bcher-kva.example")
+	require.Contains(t, h.srv.outgoingUA(), "+https://xn--bcher-kva.example:8443/r)")
+
 	// Empty values turn each one off.
-	code, _ = patchIssue(t, h, c, `{"server.public_url":"","security.trusted_proxies":[],"security.cloudflare_access":{"team_domain":" ","aud":""}}`, "")
+	code, _ = patchIssue(t, h, c, withCurrent(`{"server.public_url":"","security.trusted_proxies":[],"security.cloudflare_access":{"team_domain":" ","aud":""}}`), "")
 	require.Equal(t, http.StatusOK, code)
 	v = values()
 	require.Equal(t, "", v[store.SettingPublicURL])
@@ -97,11 +110,19 @@ func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
 		{store.SettingPublicURL, `"https://rss.example.com/?a=1"`, "query"},
 		{store.SettingPublicURL, `"https://"`, "no host"},
 		{store.SettingPublicURL, `42`, "https://rss.example.com"},
+		// Names any device on the network can answer would widen the open-mode Host gate.
+		{store.SettingPublicURL, `"http://nas.local:1919"`, "any device on your network"},
+		{store.SettingPublicURL, `"http://nas:1919"`, "any device on your network"},
+		{store.SettingPublicURL, `"https://box.home.arpa"`, "any device on your network"},
+		{store.SettingPublicURL, `"https://svc.internal"`, "any device on your network"},
 		{store.SettingTrustedProxies, `"192.0.2.10"`, "list"},
 		{store.SettingTrustedProxies, `["192.0.2.10,192.0.2.11"]`, "list"},
-		{store.SettingTrustedProxies, `["proxy.example.com"]`, "invalid IP"},
-		{store.SettingTrustedProxies, `["0.0.0.0/0"]`, "every address"},
-		{store.SettingTrustedProxies, `["::/0"]`, "every address"},
+		{store.SettingTrustedProxies, `["proxy.example.com"]`, `"proxy.example.com" is not an IP address or a range`},
+		{store.SettingTrustedProxies, `["10.0.0.0/33"]`, `"10.0.0.0/33" is not an IP address or a range`},
+		{store.SettingTrustedProxies, `["0.0.0.0/0"]`, "too wide to trust"},
+		{store.SettingTrustedProxies, `["10.0.0.0/7"]`, "too wide to trust"},
+		{store.SettingTrustedProxies, `["::/0"]`, "too wide to trust"},
+		{store.SettingTrustedProxies, `["2000::/3"]`, "too wide to trust"},
 		{store.SettingTrustedProxies, `[1]`, "list"},
 		{store.SettingCloudflareAccess, `{"team_domain":"myteam.cloudflareaccess.com"}`, "audience (AUD) tag is missing"},
 		{store.SettingCloudflareAccess, `{"aud":"abc"}`, "team domain is missing"},
@@ -113,6 +134,7 @@ func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
 		code, msg := patchIssue(t, h, c, `{"`+bad.key+`":`+bad.value+`}`, bad.key)
 		require.Equal(t, http.StatusBadRequest, code, bad.value)
 		require.Contains(t, msg, bad.says, bad.value)
+		require.NotContains(t, msg, "ParsePrefix", "no parser wording reaches the person")
 	}
 	many := make([]string, maxTrustedProxies+1)
 	for i := range many {
@@ -125,6 +147,30 @@ func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
 	v = values()
 	require.Equal(t, "", v[store.SettingPublicURL])
 	require.Equal(t, []any{}, v[store.SettingTrustedProxies])
+}
+
+// The trusted proxies and Cloudflare Access decide who may name the client's
+// address and who may sign in, so a write proves the account like an account
+// change: a session alone is refused, a wrong password is refused and counted.
+// The public URL and the allowed names need only the session.
+func TestGuardedConnectionSettingsNeedTheCurrentPassword(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	for _, body := range []string{
+		`{"security.trusted_proxies":["192.0.2.10"]}`,
+		`{"security.cloudflare_access":{"team_domain":"` + accTeam + `","aud":"` + accAUD + `"}}`,
+		`{"security.trusted_proxies":null}`,
+		`{"current":"wrong-password","security.trusted_proxies":["192.0.2.10"]}`,
+	} {
+		rec := h.do("PATCH", "/api/settings", body, withCookie(c))
+		require.Equal(t, http.StatusForbidden, rec.Code, body)
+		require.Equal(t, "bad_password", decode(t, rec)["error"], body)
+	}
+	require.Empty(t, h.srv.reach.Trusted())
+	require.Nil(t, h.srv.reach.Access())
+	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", `{"server.public_url":"https://rss.example.com","security.allowed_hosts":["rss.example.org"]}`, withCookie(c)).Code)
+	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", withCurrent(`{"security.trusted_proxies":["192.0.2.10"]}`), withCookie(c)).Code)
+	require.Len(t, h.srv.reach.Trusted(), 1)
 }
 
 // A settings write puts the new values in force at once: no restart.
@@ -145,7 +191,7 @@ func TestConnectionSettingsApplyAtOnce(t *testing.T) {
 	_, about, _ := h.api(c, "GET", "/api/about", "")
 	require.Equal(t, false, about["public_url_set"])
 
-	code, _ := patchIssue(t, h, c, `{"security.trusted_proxies":["192.0.2.20"],"server.public_url":"https://rss.example.com"}`, "")
+	code, _ := patchIssue(t, h, c, withCurrent(`{"security.trusted_proxies":["192.0.2.20"],"server.public_url":"https://rss.example.com"}`), "")
 	require.Equal(t, http.StatusOK, code)
 	require.True(t, login(), "the proxy is trusted at once")
 	require.Contains(t, h.srv.outgoingUA(), "; +https://rss.example.com)")
@@ -153,26 +199,35 @@ func TestConnectionSettingsApplyAtOnce(t *testing.T) {
 	require.Equal(t, true, about["public_url_set"])
 	require.Contains(t, h.srv.reach.HostNames(), "rss.example.com", "the public URL's host is an allowed name")
 
-	// A reset (null) is the default: off again.
-	code, _ = patchIssue(t, h, c, `{"security.trusted_proxies":null,"server.public_url":null}`, "")
+	// A reset (null) is the default, off again, and stored as such: the row stays,
+	// so a seed variable can never fill it again.
+	code, _ = patchIssue(t, h, c, withCurrent(`{"security.trusted_proxies":null,"server.public_url":null}`), "")
 	require.Equal(t, http.StatusOK, code)
 	require.False(t, login())
 	require.NotContains(t, h.srv.outgoingUA(), "+https://")
 	require.Empty(t, h.srv.reach.HostNames())
+	stored, err := h.db.StoredSettings(context.Background(), store.ReachKeys)
+	require.NoError(t, err)
+	require.True(t, stored[store.SettingTrustedProxies])
+	require.True(t, stored[store.SettingPublicURL])
+	ignored, err := reach.SeedSettings(context.Background(), h.db, reach.Seed{PublicURL: "https://seed.example.com"})
+	require.NoError(t, err)
+	require.Equal(t, []string{store.SettingPublicURL}, ignored, "the reset value wins over the seed")
 
 	// Access on and off.
 	require.Equal(t, false, h.me(withCookie(c))["access_enabled"])
-	code, _ = patchIssue(t, h, c, `{"security.cloudflare_access":{"team_domain":"`+accTeam+`","aud":"`+accAUD+`"}}`, "")
+	code, _ = patchIssue(t, h, c, withCurrent(`{"security.cloudflare_access":{"team_domain":"`+accTeam+`","aud":"`+accAUD+`"}}`), "")
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, true, h.me(withCookie(c))["access_enabled"])
-	code, _ = patchIssue(t, h, c, `{"security.cloudflare_access":{}}`, "")
+	code, _ = patchIssue(t, h, c, withCurrent(`{"security.cloudflare_access":{}}`), "")
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, false, h.me(withCookie(c))["access_enabled"])
 }
 
 // Access cannot be changed or turned off while the account signs in through it
 // (no web password): that would lock the owner out or hand sign-in to another
-// team. Other settings still save, and so does the same Access value.
+// team. Other settings still save, and so does the same Access value. Without a
+// password the proof for the write is a verified Access token.
 func TestAccessChangeRefusedWhileItIsTheSignIn(t *testing.T) {
 	h := newHarness(t, withAccess(t))
 	h.dropPassword()
@@ -180,27 +235,89 @@ func TestAccessChangeRefusedWhileItIsTheSignIn(t *testing.T) {
 	rec := h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil)))
 	require.Equal(t, http.StatusNoContent, rec.Code)
 	c := sessionCookie(t, rec)
+	// The session alone is not proof.
+	rec = h.do("PATCH", "/api/settings", `{"security.trusted_proxies":["192.0.2.10"]}`, withCookie(c))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, "access_required", decode(t, rec)["error"])
 	for _, body := range []string{
 		`{"security.cloudflare_access":{}}`,
 		`{"security.cloudflare_access":null}`,
 		`{"security.cloudflare_access":{"team_domain":"other.cloudflareaccess.com","aud":"` + accAUD + `"}}`,
 		`{"security.cloudflare_access":{"team_domain":"` + accTeam + `","aud":"other"},"server.public_url":"https://rss.example.com"}`,
 	} {
-		rec := h.do("PATCH", "/api/settings", body, withCookie(c))
+		rec := h.do("PATCH", "/api/settings", body, withCookie(c), withJWT(h.jwt(k, nil)))
 		require.Equal(t, http.StatusConflict, rec.Code, body+": "+rec.Body.String())
 		require.Equal(t, "access_in_use", decode(t, rec)["error"])
 	}
 	require.NotNil(t, h.srv.reach.Access(), "still on")
 	require.Equal(t, "", h.srv.reach.PublicURL(), "a refused write writes nothing")
 	same := `{"security.cloudflare_access":{"team_domain":"` + accTeam + `","aud":"` + accAUD + `"},"server.public_url":"https://rss.example.com"}`
-	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", same, withCookie(c)).Code)
+	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", same, withCookie(c), withJWT(h.jwt(k, nil))).Code)
 	require.Equal(t, "https://rss.example.com", h.srv.reach.PublicURL())
 
 	// With a web password again, Access can go.
 	require.NoError(t, h.db.SetPasswordHash(context.Background(), "web-hash", store.AuthStandard, ""))
 	c = h.login()
-	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", `{"security.cloudflare_access":{}}`, withCookie(c)).Code)
+	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", withCurrent(`{"security.cloudflare_access":{}}`), withCookie(c)).Code)
 	require.Nil(t, h.srv.reach.Access())
+}
+
+// Removing the web password and turning Access off at the same moment can never
+// leave an account with neither. The settings write lands in the worst place:
+// after the removal was proven (with Access on) and before its write. The
+// removal re-checks Access under the lock the settings write holds, so it is
+// refused. Without that re-check this test fails.
+func TestPasswordRemovalAndAccessOffNeverBothWin(t *testing.T) {
+	k, _ := accessKeys(t)
+	h := newHarness(t, withAccess(t))
+	ca := h.login()
+	cb := h.login()
+	h.srv.removeProved = func() {
+		rec := h.do("PATCH", "/api/settings", withCurrent(`{"security.cloudflare_access":{}}`), withCookie(cb), peer("10.20.30.12:5555"))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+	rec := h.do("POST", "/api/account/password", `{"current":"`+testPass+`","remove":true}`, withCookie(ca), withJWT(h.jwt(k, nil)), peer("10.20.30.11:5555"))
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Equal(t, "access_not_configured", decode(t, rec)["error"])
+	acct, _, err := h.db.Account(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, acct.PasswordHash, "the password stays")
+	require.Nil(t, h.srv.reach.Access())
+
+	// And concurrently, many times (meaningful under -race in CI): never both.
+	for i := 0; i < 10; i++ {
+		h := newHarness(t, withAccess(t))
+		ca, cb := h.login(), h.login()
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			h.do("POST", "/api/account/password", `{"current":"`+testPass+`","remove":true}`, withCookie(ca), withJWT(h.jwt(k, nil)), peer("10.20.30.11:5555"))
+		}()
+		go func() {
+			defer wg.Done()
+			h.do("PATCH", "/api/settings", withCurrent(`{"security.cloudflare_access":{}}`), withCookie(cb), peer("10.20.30.12:5555"))
+		}()
+		wg.Wait()
+		acct, _, err := h.db.Account(context.Background())
+		require.NoError(t, err)
+		require.False(t, acct.PasswordHash == "" && h.srv.reach.Access() == nil, "run %d: no password and Access off", i)
+	}
+}
+
+// Once Access is off, removing the password is refused, even with a token that
+// was verified before (the check is made again, under the lock, at the write).
+func TestPasswordRemovalRefusedOnceAccessIsOff(t *testing.T) {
+	h := newHarness(t, withAccess(t))
+	c := h.login()
+	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", withCurrent(`{"security.cloudflare_access":{}}`), withCookie(c)).Code)
+	k, _ := accessKeys(t)
+	rec := h.do("POST", "/api/account/password", `{"current":"`+testPass+`","remove":true}`, withCookie(c), withJWT(h.jwt(k, nil)))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "access_not_configured", decode(t, rec)["error"])
+	acct, _, err := h.db.Account(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, acct.PasswordHash)
 }
 
 // The public URL's host opens in open mode once an authenticated write sets it,
@@ -214,4 +331,25 @@ func TestOpenModeAnswersThePublicURLHost(t *testing.T) {
 	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host(name)).Code)
 	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"server.public_url":""}`, withCookies(sess)).Code)
 	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host(name)).Code)
+}
+
+// In open mode the open gate refuses a trusted peer as forwarded, so a list
+// that names the caller's own address would lock the caller out: refused, and
+// nothing is written. A list without it saves, from where open mode works.
+func TestOpenModeTrustedProxiesCannotLockTheCallerOut(t *testing.T) {
+	h := newSetupHarness(t)
+	sess := h.openAccount(nil)
+	for _, list := range []string{`["127.0.0.1"]`, `["192.0.2.10","127.0.0.0/8"]`, `["::ffff:127.0.0.1"]`} {
+		rec := h.req("PATCH", "/api/settings", `{"security.trusted_proxies":`+list+`}`, withCookies(sess))
+		require.Equal(t, http.StatusConflict, rec.Code, list)
+		require.Equal(t, "proxy_is_you", decode(t, rec)["error"])
+	}
+	require.Empty(t, h.srv.reach.Trusted())
+	require.Equal(t, http.StatusOK, h.req("GET", "/api/bootstrap", "", withCookies(sess)).Code, "still signed in")
+	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.trusted_proxies":["192.0.2.10"]}`, withCookies(sess)).Code)
+	require.Len(t, h.srv.reach.Trusted(), 1)
+	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.trusted_proxies":null}`, withCookies(sess)).Code, "a reset can never name the caller")
+	// From a proxied request, open mode refuses the write at the gate.
+	rec := h.req("PATCH", "/api/settings", `{"security.trusted_proxies":["192.0.2.10"]}`, withCookies(sess), hdr("X-Forwarded-For", "203.0.113.9"))
+	require.Equal(t, http.StatusForbidden, rec.Code)
 }
