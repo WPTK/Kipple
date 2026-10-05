@@ -12,13 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// schema13 builds a real schema-13 database by running the embedded migrations 0001 to 0013 in order,
-// as the runner did when 0013 was the newest, and returns it open on one connection with its path.
-func schema13(t *testing.T) (*sql.DB, string) {
+// schema14 builds a real schema-14 database by running the embedded migrations 0001 to 0014 in order,
+// as the runner did when 0014 was the newest, and returns it open on one connection with its path.
+func schema14(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	ms, err := loadMigrations()
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(ms), 14)
+	require.GreaterOrEqual(t, len(ms), 15)
 	path := filepath.Join(t.TempDir(), "kipple.db")
 	raw, err := sql.Open("sqlite", buildDSN(path, "writer"))
 	require.NoError(t, err)
@@ -26,7 +26,7 @@ func schema13(t *testing.T) (*sql.DB, string) {
 	t.Cleanup(func() { _ = raw.Close() })
 	_, err = raw.Exec("PRAGMA foreign_keys = OFF") // as the runner does for a migration marked foreign-keys-off (0012)
 	require.NoError(t, err)
-	for _, m := range ms[:13] {
+	for _, m := range ms[:14] {
 		tx, err := raw.Begin()
 		require.NoError(t, err)
 		_, err = tx.Exec(m.sql)
@@ -37,14 +37,14 @@ func schema13(t *testing.T) (*sql.DB, string) {
 	}
 	_, err = raw.Exec("PRAGMA foreign_keys = ON")
 	require.NoError(t, err)
-	require.Equal(t, 13, scalar[int](t, raw, "PRAGMA user_version"))
+	require.Equal(t, 14, scalar[int](t, raw, "PRAGMA user_version"))
 	return raw, path
 }
 
-// seedStats13 inserts n stats rows into a schema-13 database, cycling through every client value
-// schema 13 allowed, every kind, with and without event ids and session keys, then deletes the
+// seedStats14 inserts n stats rows into a schema-14 database, cycling through every client value
+// schema 14 allowed, every kind, with and without event ids and session keys, then deletes the
 // newest ten so the sequence high-water mark is above the largest id.
-func seedStats13(t *testing.T, raw *sql.DB, n int) {
+func seedStats14(t *testing.T, raw *sql.DB, n int) {
 	t.Helper()
 	_, err := raw.Exec(`WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM s WHERE i < ?1)
 		INSERT INTO stats_events (id, ts, local_date, local_hour, local_weekday, kind, client, inferred, item_id, feed_id,
@@ -69,8 +69,8 @@ func seedStats13(t *testing.T, raw *sql.DB, n int) {
 const statsCols = `id, ts, local_date, local_hour, local_weekday, kind, inferred, item_id, feed_id, feed_title, folder_id,
 	folder_name, item_title, item_url, value, session_key, event_id`
 
-// clientAfter0014 is what 0014 makes of a schema-13 client value.
-const clientAfter0014 = `CASE WHEN client IN ('web','pwa') THEN client ELSE 'api' END`
+// clientAfter0015 is what 0015 makes of a schema-14 client value.
+const clientAfter0015 = `CASE WHEN client IN ('web','pwa') THEN client ELSE 'api' END`
 
 const oldClientCheck = "CHECK (client IN ('web','pwa','reeder','netnewswire','unread','api'))"
 
@@ -116,13 +116,13 @@ func tableShape(sqlText string) string {
 	return strings.NewReplacer(" ", "", "\t", "", "\r", "", `"`, "").Replace(b.String())
 }
 
-// 0014 rewrites the Reader API client values to 'api' and keeps every other column of every row, the
+// 0015 rewrites the Reader API client values to 'api' and keeps every other column of every row, the
 // sequence high-water mark, every other schema object byte for byte and a pre-migration snapshot. The
 // seeded row count is large enough to time the rebuild.
-func TestMigration0014OneAPIClient(t *testing.T) {
+func TestMigration0015OneAPIClient(t *testing.T) {
 	const n = 200_000
-	raw, path := schema13(t)
-	seedStats13(t, raw, n)
+	raw, path := schema14(t)
+	seedStats14(t, raw, n)
 	seq := scalar[int64](t, raw, "SELECT seq FROM sqlite_sequence WHERE name = 'stats_events'")
 	require.EqualValues(t, n, seq)
 	byClient := func(q Querier) string {
@@ -141,11 +141,11 @@ func TestMigration0014OneAPIClient(t *testing.T) {
 	db, err := Open(t.Context(), Options{Path: path})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	t.Logf("open, snapshot and migrate schema 13 to %d with %d stats rows: %s", LatestVersion(), n-10, time.Since(start))
+	t.Logf("open, snapshot and migrate schema 14 to %d with %d stats rows: %s", LatestVersion(), n-10, time.Since(start))
 	require.Equal(t, LatestVersion(), scalar[int](t, db.Reader(), "PRAGMA user_version"))
 	requireCleanIntegrity(t, db.Reader())
 	r := db.Reader()
-	snaps, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "backup", "pre-migration-13-*.db"))
+	snaps, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "backup", "pre-migration-14-*.db"))
 	require.Len(t, snaps, 1, "a pre-migration snapshot")
 
 	// The database and its WAL grew within what the free-space check reserves for the migration.
@@ -166,7 +166,7 @@ func TestMigration0014OneAPIClient(t *testing.T) {
 	t.Cleanup(func() { _ = cmp.Close() })
 	_, err = cmp.Exec("ATTACH DATABASE ? AS old", snaps[0])
 	require.NoError(t, err)
-	oldRows := "SELECT " + clientAfter0014 + ", " + statsCols + " FROM old.stats_events"
+	oldRows := "SELECT " + clientAfter0015 + ", " + statsCols + " FROM old.stats_events"
 	newRows := "SELECT client, " + statsCols + " FROM main.stats_events"
 	require.Equal(t, n-10, scalar[int](t, cmp, "SELECT count(*) FROM old.stats_events"))
 	require.Equal(t, n-10, scalar[int](t, cmp, "SELECT count(*) FROM main.stats_events"))
@@ -180,7 +180,7 @@ func TestMigration0014OneAPIClient(t *testing.T) {
 	require.Equal(t, seq, scalar[int64](t, r, "SELECT seq FROM sqlite_sequence WHERE name = 'stats_events'"), "ids are never reused")
 	require.Zero(t, scalar[int](t, r, "SELECT count(*) FROM sqlite_sequence WHERE name = 'stats_events_new'"))
 
-	// The schema is schema 13's with only the client CHECK changed: every index (the INDEXED BY ones
+	// The schema is schema 14's with only the client CHECK changed: every index (the INDEXED BY ones
 	// included), trigger, view and other table byte for byte, and stats_events the same columns.
 	newSchema := schemaObjects(t, r)
 	oldTable, newTable := oldSchema["table stats_events"], newSchema["table stats_events"]
@@ -211,9 +211,9 @@ func TestMigration0014OneAPIClient(t *testing.T) {
 
 // The free-space check reserves room for a table rebuild: twice the database plus the headroom on its
 // volume, and the snapshot on top when both share it (the fake reports one shared volume).
-func TestMigration0014SpaceCheckCoversARebuild(t *testing.T) {
-	raw, path := schema13(t)
-	seedStats13(t, raw, 20_000)
+func TestMigration0015SpaceCheckCoversARebuild(t *testing.T) {
+	raw, path := schema14(t)
+	seedStats14(t, raw, 20_000)
 	require.NoError(t, raw.Close())
 	need := func() uint64 { // from the file's size when the check runs (opening may checkpoint into it)
 		st, err := os.Stat(path)
@@ -234,10 +234,10 @@ func TestMigration0014SpaceCheckCoversARebuild(t *testing.T) {
 	require.Equal(t, LatestVersion(), scalar[int](t, db.Reader(), "PRAGMA user_version"))
 }
 
-// An empty schema-13 table whose rows were all deleted keeps its sequence mark through the rebuild.
-func TestMigration0014EmptyStatsKeepsSequence(t *testing.T) {
-	raw, path := schema13(t)
-	seedStats13(t, raw, 20)
+// An empty schema-14 table whose rows were all deleted keeps its sequence mark through the rebuild.
+func TestMigration0015EmptyStatsKeepsSequence(t *testing.T) {
+	raw, path := schema14(t)
+	seedStats14(t, raw, 20)
 	_, err := raw.Exec("DELETE FROM stats_events")
 	require.NoError(t, err)
 	require.NoError(t, raw.Close())
@@ -246,26 +246,26 @@ func TestMigration0014EmptyStatsKeepsSequence(t *testing.T) {
 	require.EqualValues(t, 20, scalar[int64](t, db.Reader(), "SELECT seq FROM sqlite_sequence WHERE name = 'stats_events'"))
 }
 
-// A failing 0014 leaves the schema-13 table, its values and its CHECK untouched, and the retry migrates.
-func TestMigration0014RollsBackOnFailure(t *testing.T) {
-	raw, _ := schema13(t)
-	seedStats13(t, raw, 100)
+// A failing 0015 leaves the schema-14 table, its values and its CHECK untouched, and the retry migrates.
+func TestMigration0015RollsBackOnFailure(t *testing.T) {
+	raw, _ := schema14(t)
+	seedStats14(t, raw, 100)
 	before := statsDump(t, raw, "client")
-	mapped := statsDump(t, raw, clientAfter0014)
+	mapped := statsDump(t, raw, clientAfter0015)
 	require.NotEqual(t, before, mapped)
 	ms, err := loadMigrations()
 	require.NoError(t, err)
-	m := ms[13]
-	d := &DB{writer: raw} // the runner's transaction alone, on the schema-13 connection
+	m := ms[14]
+	d := &DB{writer: raw} // the runner's transaction alone, on the schema-14 connection
 	require.Error(t, d.applyMigration(t.Context(), migration{version: m.version, name: m.name, sql: m.sql + "\nCREATE TABLE items (a);"}))
-	require.Equal(t, 13, scalar[int](t, raw, "PRAGMA user_version"))
+	require.Equal(t, 14, scalar[int](t, raw, "PRAGMA user_version"))
 	require.Zero(t, scalar[int](t, raw, "SELECT count(*) FROM sqlite_master WHERE name = 'stats_events_new'"))
 	require.Contains(t, scalar[string](t, raw, "SELECT sql FROM sqlite_master WHERE name = 'stats_events'"), oldClientCheck)
 	require.Equal(t, before, statsDump(t, raw, "client"), "untouched")
 
 	start := time.Now()
 	require.NoError(t, d.applyMigration(t.Context(), m))
-	t.Logf("migration 0014 alone, %d stats rows: %s", scalar[int](t, raw, "SELECT count(*) FROM stats_events"), time.Since(start))
-	require.Equal(t, 14, scalar[int](t, raw, "PRAGMA user_version"))
+	t.Logf("migration 0015 alone, %d stats rows: %s", scalar[int](t, raw, "SELECT count(*) FROM stats_events"), time.Since(start))
+	require.Equal(t, 15, scalar[int](t, raw, "PRAGMA user_version"))
 	require.Equal(t, mapped, statsDump(t, raw, "client"))
 }

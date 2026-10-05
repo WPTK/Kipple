@@ -1,4 +1,4 @@
--- Kipple schema v14: one stats client value for every Reader API client (docs/design.md §2.2a, §8).
+-- Kipple schema v15: one stats client value for every Reader API client (docs/design.md §2.2a, §8).
 -- stats_events.client allowed three values named after particular apps beside 'api'. Every Reader API
 -- client is now treated the same, so the stored rows carrying those values become 'api' and the CHECK
 -- allows only 'web', 'pwa' and 'api'. A CHECK cannot be changed in place, so the table is rebuilt: every
@@ -11,7 +11,7 @@
 -- (measured on one million seeded events: the copy 4 s, the seven indexes 6 s, the commit 2 s; 200,000
 -- events take about 2 s). The table is written twice over meanwhile, so the pre-migration snapshot and
 -- the WAL need room too, see docs/deploy.md. One-way: the old values are not kept, so going back to
--- schema 13 is a restore of the pre-migration snapshot. Runs once, in BEGIN IMMEDIATE, gated by
+-- schema 14 is a restore of the pre-migration snapshot. Runs once, in BEGIN IMMEDIATE, gated by
 -- user_version.
 CREATE TABLE stats_events_new (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,

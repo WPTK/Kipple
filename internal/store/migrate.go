@@ -142,7 +142,7 @@ var migrationFreeBytes = diskFree
 // Extra free space (not peak total usage) a migration needs on top of what the database already
 // occupies: the pre-migration snapshot (VACUUM INTO) is a copy of about 1x the database file, taken
 // with 10% slack, and the migration itself needs room for its WAL and file growth. The worst case is
-// a table rebuild (0012, 0014): the WAL holds the new copy of the table and its indexes until the
+// a table rebuild (0012, 0015): the WAL holds the new copy of the table and its indexes until the
 // checkpoint, and the checkpoint then grows the file by the new table before the old pages are
 // reused, so up to twice the rebuilt table, bounded by twice the database file
 // (migrateRewriteFactor), plus a fixed migrateHeadroom. When the backup directory is on the same
