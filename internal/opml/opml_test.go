@@ -61,7 +61,7 @@ func TestParseNestedEntitiesTextOverTitle(t *testing.T) {
 	require.Equal(t, "Feed & Co", d.Feeds[0].Title, "text beats title, entities decoded")
 	require.Equal(t, []string{"Tech & Gadgets", "Apple"}, d.Feeds[0].Folder)
 	require.Equal(t, "It’s \"t\"", d.Feeds[1].Title)
-	require.Equal(t, "Nbsp x", d.Feeds[2].Title)
+	require.Equal(t, "Nbsp\u00A0x", d.Feeds[2].Title)
 	require.Empty(t, d.Feeds[3].Folder, "root-level feeds go to the default folder")
 }
 
@@ -95,8 +95,9 @@ func firstFetch(t *testing.T, db *store.DB, host, title string) {
 }
 
 // An imported feed without a name has no title until its first fetch (the app names it by its URL),
-// like a feed added any other way; a name in the file is kept as the feed's custom name, as written
-// (the parser's own entity rule only), on one line and at most 200 characters.
+// like a feed added any other way; a name in the file is kept as the feed's custom name, read by the
+// same rule as a document title (fetch.FeedTitle, after the parser's own doubled-&amp; rule): one
+// line, at most 200 characters, a level of escaping left behind decoded.
 func TestImportNamesFeeds(t *testing.T) {
 	db := openDB(t)
 	long := strings.Repeat("y", 250)
@@ -112,7 +113,60 @@ func TestImportNamesFeeds(t *testing.T) {
 	require.Equal(t, "Two lines", feedName(t, db, "two.test"))
 	require.Len(t, []rune(feedName(t, db, "long.test")), 200)
 	require.Equal(t, "Tips & tricks", feedName(t, db, "tips.test"), "the OPML parser undoes a doubled &amp;")
-	require.Equal(t, "It&#8217;s mine", feedName(t, db, "mine.test"), "a written name is not run through the feed-title entity heuristic")
+	require.Equal(t, "It’s mine", feedName(t, db, "mine.test"), "read like a document title")
+}
+
+// An OPML name that is the same text as the feed's own title, however each is escaped, is dropped at
+// the first successful fetch, so the feed follows its own renames afterwards.
+func TestOPMLNameEqualToTheDocumentTitleIsDropped(t *testing.T) {
+	for name, outline := range map[string]string{
+		"literal":         `It’s mine`,
+		"reference":       `It&#8217;s mine`,
+		"escaped twice":   `It&amp;#8217;s mine`,
+		"spaced out":      "  It&#8217;s \n mine ",
+		"invisible chars": "It’s\u200B mine\u200E",
+	} {
+		db := openDB(t)
+		importString(t, db, `<opml><body><outline text="`+outline+`" xmlUrl="https://mine.test/rss"/></body></opml>`, ImportOptions{})
+		firstFetch(t, db, "mine.test", "It&amp;#8217;s mine") // the document title "It&#8217;s mine", escaped once more
+		var n int
+		require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE custom_title IS NOT NULL").Scan(&n))
+		require.Zero(t, n, name)
+		require.Equal(t, "It’s mine", feedName(t, db, "mine.test"), name)
+	}
+}
+
+// A feed an earlier version stored with its host as title (a document without a title keeps it for
+// good) does not round-trip that host as a name once migration 0014 has run: the export writes no
+// name and the re-imported feed is not pinned to the host.
+func TestLegacyHostTitleDoesNotRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kipple.db")
+	db, err := store.Open(ctx, store.Options{Path: path})
+	require.NoError(t, err)
+	importString(t, db, `<opml><body><outline xmlUrl="https://untitled.test/rss"/></body></opml>`, ImportOptions{})
+	firstFetch(t, db, "untitled.test", "") // fetched; the document names no title
+	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "UPDATE feeds SET title = host"); err != nil { // what an earlier subscribe left
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "PRAGMA user_version = 13")
+		return err
+	}))
+	require.NoError(t, db.Close())
+	db, err = store.Open(ctx, store.Options{Path: path})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	out := export(t, db)
+	require.NotContains(t, out, `"untitled.test"`)
+	dst := openDB(t)
+	importString(t, dst, out, ImportOptions{})
+	var n int
+	require.NoError(t, dst.Reader().QueryRow("SELECT count(*) FROM feeds WHERE custom_title IS NOT NULL").Scan(&n))
+	require.Zero(t, n, "the host is not pinned as a name")
+	firstFetch(t, dst, "untitled.test", "Named Now")
+	require.Equal(t, "Named Now", feedName(t, dst, "untitled.test"))
 }
 
 // A feed that was never fetched round-trips through OPML without picking up a name: the export writes

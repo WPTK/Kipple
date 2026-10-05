@@ -174,7 +174,7 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 				return err
 			}
 			var custom any
-			if t := strings.TrimSpace(o.Title); t != "" {
+			if t := fetch.CleanName(o.Title); t != "" {
 				custom = t
 			}
 			r, err := tx.ExecContext(ctx, `INSERT INTO feeds (folder_id, url, url_key, host, custom_title, position, next_fetch_at)
@@ -270,7 +270,8 @@ func resolveFeed(ctx context.Context, q Querier, ref FeedRef) (int64, error) {
 }
 
 // applyFeedEdit moves and renames one feed. folder is applied when setFolder is
-// true ("" then means the default folder); title when non-blank.
+// true ("" then means the default folder); title when non-blank once cleaned by the one
+// name rule (fetch.CleanName: one line, no control or invisible characters, at most 200).
 func applyFeedEdit(ctx context.Context, tx *sql.Tx, id int64, folder string, setFolder bool, title string) error {
 	if setFolder {
 		fid, err := resolveFolderPath(ctx, tx, folder)
@@ -281,7 +282,7 @@ func applyFeedEdit(ctx context.Context, tx *sql.Tx, id int64, folder string, set
 			return err
 		}
 	}
-	if t := strings.TrimSpace(title); t != "" {
+	if t := fetch.CleanName(title); t != "" {
 		if _, err := tx.ExecContext(ctx, "UPDATE feeds SET custom_title = ?, updated_at = unixepoch() WHERE id = ? AND custom_title IS NOT ?", t, id, t); err != nil {
 			return err
 		}

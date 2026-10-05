@@ -64,8 +64,10 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
 
   if (step.kind === "done") {
     const { feed, existed, fetch } = step;
-    // The feed list's copy is the live name: a first fetch that finishes after this answer names the feed there.
-    const name = boot.data?.feeds.find((f) => f.id === feed.id)?.title || feed.custom_title || feed.title || feed.url;
+    // `title` is the server's display name (custom title, else the feed's own, blanks ignored, else the URL), never
+    // empty, so the dialog applies no rule of its own. The feed list's copy is the live one: a first fetch that
+    // finishes after this answer names the feed there.
+    const name = boot.data?.feeds.find((f) => f.id === feed.id)?.title ?? feed.title;
     return (
       <Modal
         open

@@ -266,7 +266,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				 interval_minutes, retention, fulltext, dedup_mode, user_agent, ignore_http_cache,
 				 disable_http2, allow_insecure_tls, allow_private_net, initial_read_before, next_fetch_at)
 				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				target, norm, key, host, nullStr(fetch.CleanName(f.Title)), httpURLOrEmpty(f.SiteURL), nextFeedPos, enabled, reason,
+				target, norm, key, host, nullStr(fetch.FeedTitle(f.Title)), httpURLOrEmpty(f.SiteURL), nextFeedPos, enabled, reason,
 				nullInt(a.Interval), nullInt(a.Retention), b2i(a.Fulltext), dedup, nullStrP(a.UserAgent),
 				b2i(a.IgnoreHTTPCache), b2i(a.DisableHTTP2), b2i(a.AllowInsecureTLS), b2i(a.AllowPrivateNet),
 				readBefore, now)

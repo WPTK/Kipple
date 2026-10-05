@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +84,37 @@ func TestFeedTitleIsNormalized(t *testing.T) {
 	got := []rune(e.name(long))
 	require.Len(t, got, fetch.MaxTitleRunes)
 	require.Equal(t, '…', got[len(got)-1])
+}
+
+// Every way a name comes in (a sync app's subscribe t=, quickadd, subscription edit, a web add or
+// rename) goes through the one rule, fetch.CleanName: one line, no control or invisible characters,
+// at most 200 characters, and a name blank once cleaned is no name.
+func TestGivenNamesFollowTheOneNameRule(t *testing.T) {
+	e := newEnv(t)
+	custom := func(id int64) sql.NullString {
+		return scalar[sql.NullString](t, e.db.Reader(), "SELECT custom_title FROM feeds WHERE id = ?", id)
+	}
+	a := e.subscribe(SubscribeOpts{URL: "https://a.example/feed", Title: " My\n\tpicks\u200B\x07 "})
+	require.Equal(t, "My picks", custom(a).String)
+	b := e.subscribe(SubscribeOpts{URL: "https://b.example/feed", Title: strings.Repeat("x", 500)})
+	require.Len(t, []rune(custom(b).String), fetch.MaxTitleRunes)
+	c := e.subscribe(SubscribeOpts{URL: "https://c.example/feed", Title: "\u200B\u202E \u00A0"})
+	require.False(t, custom(c).Valid, "invisible only: no name")
+	require.Equal(t, "https://c.example/feed", e.name(c))
+
+	_, err := e.db.EditSubscription(e.ctx, []FeedRef{{ID: a}}, EditOpts{Title: "Line one\nline two"})
+	require.NoError(t, err)
+	require.Equal(t, "Line one line two", custom(a).String)
+	_, err = e.db.EditSubscription(e.ctx, []FeedRef{{ID: a}}, EditOpts{Title: "\u2060"})
+	require.NoError(t, err)
+	require.Equal(t, "Line one line two", custom(a).String, "a blank rename renames nothing, as an empty t= does")
+
+	_, err = e.db.PatchFeed(e.ctx, a, FeedPatch{Cols: map[string]any{"custom_title": "Web\u200E  name"}})
+	require.NoError(t, err)
+	require.Equal(t, "Web name", custom(a).String)
+	_, err = e.db.PatchFeed(e.ctx, a, FeedPatch{Cols: map[string]any{"custom_title": "\uFEFF"}})
+	require.NoError(t, err)
+	require.False(t, custom(a).Valid, "a web rename to only invisible characters clears the name")
 }
 
 // A name given when the feed is added wins over the feed's own title, at the first fetch and after;
