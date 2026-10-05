@@ -217,6 +217,32 @@ func TestCreateAccountAllowingHostFullList(t *testing.T) {
 	require.True(t, created)
 }
 
+// The switch to open mode lists its name in the same transaction: once, and
+// not at all when the list is full (then the mode is unchanged too).
+func TestSetPasswordHashAllowingHost(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	_, err := e.db.CreateAccount(ctx, Account{Username: "owner", PasswordHash: "h", Secret: fixtureKey})
+	require.NoError(t, err)
+	require.NoError(t, e.db.SetPasswordHashAllowingHost(ctx, "", AuthOpen, "", "nas.local"))
+	require.NoError(t, e.db.SetPasswordHashAllowingHost(ctx, "", AuthOpen, "", "nas.local"))
+	sec, err := e.db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"nas.local"}, sec.AllowedHosts)
+
+	require.NoError(t, e.db.SetPasswordHash(ctx, "h", AuthStandard, ""))
+	full := make([]any, MaxAllowedHosts)
+	for i := range full {
+		full[i] = fmt.Sprintf("h%d.example.com", i)
+	}
+	require.NoError(t, e.db.SetSettings(ctx, map[string]any{SettingAllowedHosts: full}))
+	require.ErrorIs(t, e.db.SetPasswordHashAllowingHost(ctx, "", AuthOpen, "", "box.lan"), ErrAllowedHostsFull)
+	a, _, err := e.db.Account(ctx)
+	require.NoError(t, err)
+	require.Equal(t, AuthStandard, a.AuthMode)
+	require.Equal(t, "h", a.PasswordHash)
+}
+
 // security.open_lan was removed (open mode is one rule now). A row an older
 // version stored stays in the database and nothing reads it.
 func TestRemovedOpenLANRowIsIgnored(t *testing.T) {

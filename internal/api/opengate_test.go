@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -157,6 +158,121 @@ func TestOpenModeRemembersTheWizardName(t *testing.T) {
 			}
 		})
 	}
+}
+
+// passwordAccount finishes setup with a password and returns the session.
+func (h *setupHarness) passwordAccount() *http.Cookie {
+	h.t.Helper()
+	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "password": setupPass}))
+	require.Equal(h.t, http.StatusCreated, rec.Code, rec.Body.String())
+	return cookieNamed(rec, cookieName)
+}
+
+// switchOpen is POST /api/account/password {current, open: true} sent to hv.
+func (h *setupHarness) switchOpen(sess *http.Cookie, current, hv string) *httptest.ResponseRecorder {
+	h.t.Helper()
+	b := `{"current":"` + current + `","open":true}`
+	return h.req("POST", "/api/account/password", b, withCookies(sess), host(hv), hdr("Origin", "http://"+hv))
+}
+
+func (h *setupHarness) allowedHosts() []string {
+	h.t.Helper()
+	sec, err := h.db.SecuritySettings(context.Background())
+	require.NoError(h.t, err)
+	return sec.AllowedHosts
+}
+
+func (h *setupHarness) authMode() string {
+	h.t.Helper()
+	a, _, err := h.db.Account(context.Background())
+	require.NoError(h.t, err)
+	return a.AuthMode
+}
+
+// Switching from a password to open mode in Settings follows the wizard's
+// rule: the name it is sent to is remembered with the switch, and no other LAN
+// name opens.
+func TestSwitchToOpenRemembersTheName(t *testing.T) {
+	h := newSetupHarness(t)
+	sess := h.passwordAccount()
+	rec := h.switchOpen(sess, setupPass, "nas.local:1919")
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Equal(t, store.AuthOpen, h.authMode())
+	require.Equal(t, []string{"nas.local"}, h.allowedHosts())
+	for _, path := range []string{"/api/instance", "/api/bootstrap", "/", "/healthz"} {
+		require.Equal(t, http.StatusOK, h.req("GET", path, "", host("nas.local:1919"), withCookies(sess)).Code, path)
+	}
+	for _, hv := range []string{"evil.local:1919", "nas:1919", "box.lan", "box.home.arpa", "svc.internal"} {
+		requireRefusedInOpenMode(t, h, sess, hv)
+	}
+	// Already open: a repeat changes nothing and lists nothing more.
+	require.Equal(t, http.StatusNoContent, h.switchOpen(sess, "", "127.0.0.1:1919").Code)
+	require.Equal(t, []string{"nas.local"}, h.allowedHosts())
+}
+
+// The default install's loopback publish: switched on from 127.0.0.1, nothing
+// is remembered and every LAN-answered name stays refused. A rebinding page at
+// a LAN name cannot switch at all: it has no session and not the password.
+func TestSwitchToOpenFromLoopbackRefusesLANAnsweredNames(t *testing.T) {
+	h := newSetupHarness(t)
+	sess := h.passwordAccount()
+	rec := h.req("POST", "/api/account/password", `{"current":"`+setupPass+`","open":true}`,
+		host("evil.local:1919"), hdr("Origin", "http://evil.local:1919"))
+	require.Equal(t, http.StatusUnauthorized, rec.Code, "no session: %s", rec.Body.String())
+	rec = h.switchOpen(sess, "wrong-password", "evil.local:1919")
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	require.Equal(t, store.AuthStandard, h.authMode())
+	require.Empty(t, h.allowedHosts())
+
+	require.Equal(t, http.StatusNoContent, h.switchOpen(sess, setupPass, "127.0.0.1:1919").Code)
+	require.Equal(t, store.AuthOpen, h.authMode())
+	require.Empty(t, h.allowedHosts(), "an IP literal needs no listing")
+	for _, hv := range lanNames {
+		requireRefusedInOpenMode(t, h, sess, hv)
+	}
+}
+
+// A full allowed-host list fails the switch: 409 allowed_hosts_full, the mode
+// and the list unchanged. A name that needs no listing still switches.
+func TestSwitchToOpenFullList(t *testing.T) {
+	h := newSetupHarness(t)
+	sess := h.passwordAccount()
+	full := make([]string, store.MaxAllowedHosts)
+	for i := range full {
+		full[i] = fmt.Sprintf(`"h%d.example.com"`, i)
+	}
+	rec := h.req("PATCH", "/api/settings", `{"security.allowed_hosts":[`+strings.Join(full, ",")+`]}`, withCookies(sess))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = h.switchOpen(sess, setupPass, "nas.local:1919")
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Equal(t, "allowed_hosts_full", decode(t, rec)["error"])
+	require.Equal(t, store.AuthStandard, h.authMode())
+	require.Len(t, h.allowedHosts(), store.MaxAllowedHosts)
+
+	require.Equal(t, http.StatusNoContent, h.switchOpen(sess, setupPass, "127.0.0.1:1919").Code)
+	require.Equal(t, store.AuthOpen, h.authMode())
+	require.Len(t, h.allowedHosts(), store.MaxAllowedHosts)
+}
+
+// The wizard's claim fails the same way on a full list: no account, still in
+// setup.
+func TestWizardOpenFullList(t *testing.T) {
+	h := newSetupHarness(t)
+	full := make([]any, store.MaxAllowedHosts)
+	for i := range full {
+		full[i] = fmt.Sprintf("h%d.example.com", i)
+	}
+	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{store.SettingAllowedHosts: full}))
+	h.srv.noteMode(context.Background(), nil)
+	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}),
+		host("nas.local:1919"), hdr("Origin", "http://nas.local:1919"))
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Equal(t, "allowed_hosts_full", decode(t, rec)["error"])
+	_, ok, err := h.db.Account(context.Background())
+	require.NoError(t, err)
+	require.False(t, ok, "no account")
+	require.True(t, h.mgr.Pending(), "still in setup")
 }
 
 // A public name is not remembered (setup mode refuses it), and neither is a

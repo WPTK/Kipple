@@ -135,6 +135,15 @@ func (d *DB) SetAPIPasswordHash(ctx context.Context, hash string) error {
 // same transaction, deletes every session except keepSession (the caller's),
 // so a changed password or mode signs out every other browser.
 func (d *DB) SetPasswordHash(ctx context.Context, hash, mode, keepSession string) error {
+	return d.SetPasswordHashAllowingHost(ctx, hash, mode, keepSession, "")
+}
+
+// SetPasswordHashAllowingHost is SetPasswordHash that, when allowHost is not
+// empty, also adds allowHost to security.allowed_hosts in the same transaction
+// (idempotent; ErrAllowedHostsFull, which fails the whole change, when the list
+// is full): the name open mode was switched on under, as
+// CreateAccountAllowingHost does for the setup wizard.
+func (d *DB) SetPasswordHashAllowingHost(ctx context.Context, hash, mode, keepSession, allowHost string) error {
 	if mode != AuthStandard && mode != AuthOpen {
 		return fmt.Errorf("store: unknown auth mode %q", mode)
 	}
@@ -145,6 +154,11 @@ func (d *DB) SetPasswordHash(ctx context.Context, hash, mode, keepSession string
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return fmt.Errorf("store: no account row")
+		}
+		if allowHost != "" {
+			if err := allowHostTx(ctx, tx, allowHost); err != nil {
+				return err
+			}
 		}
 		_, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE id <> ?", keepSession)
 		return err

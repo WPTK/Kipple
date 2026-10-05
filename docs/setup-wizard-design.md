@@ -251,14 +251,15 @@ cannot control is the `Host` header, which is `evil.example:1919`. So:
   can answer those names (mDNS, LLMNR/NetBIOS, a router's DHCP names) and rebind one to this computer, which reaches
   an open instance through the owner's browser even when the LAN cannot reach its port (the default
   `127.0.0.1:1919` publish).
-- **The wizard's name is remembered:** choosing open mode in the setup wizard is judged by setup mode's list, and when
-  the wizard's Host is a name open mode would not answer unlisted (`setup.OpenHostToRemember`: `nas`, `nas.local`),
-  the account insert adds it to `security.allowed_hosts` in the same transaction (idempotent, bounded by
-  `store.MaxAllowedHosts`; a full list fails the claim with `409 allowed_hosts_full`). The owner keeps working at the
-  name they set up under, and no other LAN name opens. This gives a rebinding page nothing setup mode did not: whoever
-  claims the unclaimed instance owns it either way. Switching to open mode later in Settings stays on open mode's
-  list; the owner adds the name first. Rejected alternative: accepting every private name in open mode (one list for
-  both modes), which reopens the loopback-publish rebinding above for the default install.
+- **The name open mode is chosen under is remembered:** choosing open mode, in the setup wizard or by the password
+  switch in Settings (one function, `chooseOpenRefusal`), is judged by setup mode's list. When that request's Host is
+  a name open mode would not answer unlisted (`setup.OpenHostToRemember`: `nas`, `nas.local`), the account insert or
+  the mode change adds it to `security.allowed_hosts` in the same transaction (idempotent, bounded by
+  `store.MaxAllowedHosts`; a full list fails the claim or the switch with `409 allowed_hosts_full` and changes
+  nothing). The owner keeps working at the name they chose open mode under, and no other LAN name opens. This gives a
+  rebinding page nothing: in setup mode whoever claims the unclaimed instance owns it either way, and the switch needs
+  a session (an origin-bound cookie) and the current password. Rejected alternative: accepting every private name in
+  open mode (one list for both modes), which reopens the loopback-publish rebinding above for the default install.
 - **Configurable:** `KIPPLE_ALLOWED_HOSTS` (comma list, for setup mode, before any UI exists) plus a global setting
   `security.allowed_hosts` (JSON array, editable in Settings after setup). Entries are exact hosts or `*.suffix`.
 

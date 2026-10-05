@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/WPTK/kipple/internal/auth"
@@ -47,7 +45,7 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 			}
 			return reason
 		}
-		openReason, _ := s.wizardOpenRefusal(r, snap, false)
+		openReason, _ := s.chooseOpenRefusal(r, snap, false)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"setup": true, "auth": nil,
 			"access": map[string]bool{
@@ -116,7 +114,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 			writeErrorMsg(w, http.StatusBadRequest, "ack_required", "confirm that anyone who can reach this address can read and change everything")
 			return
 		}
-		reason, remember := s.wizardOpenRefusal(r, s.snapshot(r.Context()), true)
+		reason, remember := s.chooseOpenRefusal(r, s.snapshot(r.Context()), true)
 		if reason != "" {
 			writeOpenRefused(w, reason)
 			return
@@ -163,10 +161,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		if a, ok, rerr := s.db.Account(context.WithoutCancel(r.Context())); rerr == nil && ok {
 			s.finishSetup(r.Context(), a, "")
 		}
-		if errors.Is(err, store.ErrAllowedHostsFull) {
-			writeErrorMsg(w, http.StatusConflict, "allowed_hosts_full", fmt.Sprintf(
-				"open mode needs %q in Allowed host names, which already has %d names: open Kipple by its IP address or localhost, or remove a name from KIPPLE_ALLOWED_HOSTS or security.allowed_hosts",
-				na.AllowHost, store.MaxAllowedHosts))
+		if rememberOpenHostError(w, err, na.AllowHost) {
 			return
 		}
 		if err != nil {
