@@ -80,6 +80,25 @@ func CheckFolderName(name string) error {
 	return nil
 }
 
+// MaxFolderPathRunes is the longest label path, in characters, that can name a folder: MaxFolderDepth
+// names of MaxFolderNameRunes each and the '/' between them. A Reader API label is resolved with a few
+// index probes per '/' (splitPath), so the length of a label the store accepts to resolve bounds the work
+// one request can cost while it holds the writer.
+const MaxFolderPathRunes = MaxFolderDepth*MaxFolderNameRunes + MaxFolderDepth - 1
+
+// checkFolderPath refuses a label path longer than any real folder path (ErrBadFolderName) before any
+// lookup. The two writes that resolve a client-supplied path call it first: resolveFolderPath
+// (subscribe, subscription/edit) and RenameLabel (rename-tag), the only callers of splitPath, whose
+// cost grows with the number of '/' in the label. folderByPath, which the reads (FindLabel) use, needs
+// no gate: it stops at the first level that matches no folder, so its probes are bounded by the tree
+// (TestFolderByPathLongLabelCostsFewProbes).
+func checkFolderPath(path string) error {
+	if utf8.RuneCountInString(path) > MaxFolderPathRunes {
+		return ErrBadFolderName
+	}
+	return nil
+}
+
 // folderTreeSQL selects the id bound to param and the ids of all the folders below it.
 func folderTreeSQL(param string) string {
 	return "WITH RECURSIVE folder_tree(id) AS (SELECT " + param +
@@ -460,6 +479,9 @@ func resolveFolderPath(ctx context.Context, tx *sql.Tx, path string) (int64, err
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return 1, nil
+	}
+	if err := checkFolderPath(path); err != nil {
+		return 0, err
 	}
 	if id, found, err := folderByPath(ctx, tx, path); err != nil || found {
 		return id, err
