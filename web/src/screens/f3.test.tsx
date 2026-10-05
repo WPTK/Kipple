@@ -226,10 +226,10 @@ describe("Accessibility section", () => {
     expect(root.dataset.motion).toBe("on");
     expect(root.dataset.targets).toBe("large");
     await user.click(w.getByRole("switch", { name: /Titles only in lists/ }));
-    expect(JSON.parse(localStorage.getItem("kipple.device.v1") ?? "{}").layout).toBe("headlines");
+    expect(JSON.parse(localStorage.getItem("kipple.device.v2") ?? "{}").layout).toBe("headlines");
     // The layout to return to survives a reload (it is in the device prefs, not a module variable).
     updateDevicePrefs({ layout: "headlines", layoutBeforeTitlesOnly: "cards" });
-    devicePrefsStore.set(parseDevicePrefs(localStorage.getItem("kipple.device.v1")));
+    devicePrefsStore.set(parseDevicePrefs(localStorage.getItem("kipple.device.v2")));
     await user.click(w.getByRole("switch", { name: /Titles only in lists/ }));
     expect(devicePrefsStore.get().layout).toBe("cards");
   });

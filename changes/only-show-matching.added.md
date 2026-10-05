@@ -1,0 +1,1 @@
+Filters: Only show matching keeps the articles that contain a rule's words and mutes the rest, which stay in Muted and can be restored. Narrow it to a feed or a folder to leave other sources alone. (#38)

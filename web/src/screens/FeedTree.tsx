@@ -6,7 +6,7 @@ import type { Feed, Folder } from "@/api/types";
 import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { useFavorites } from "@/lib/favorites";
 import { childrenOf, folderPath, folderTree, subtreeFeeds, type FolderTree } from "@/lib/folderTree";
-import { listTo } from "@/lib/routes";
+import { openListTo } from "@/lib/routes";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { cn } from "@/lib/cn";
 import { FavStar } from "@/ui/FavStar";
@@ -198,7 +198,7 @@ function FeedItem({ f, level, ctx, fav }: { f: Feed; level: number; ctx: TreeCtx
       className="group/row rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
     >
       <div className="flex items-center">
-        <Link id={`${key}-link`} tabIndex={-1} to={listTo({ view: "unread", feed: f.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
+        <Link id={`${key}-link`} tabIndex={-1} to={openListTo({ feed: f.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
           <FeedIcon feed={f} />
           <span className="truncate">{f.title}</span>
           <span className="ml-auto" />
@@ -230,7 +230,7 @@ function FolderItem({ fo, level, ctx, fav }: { fo: Folder; level: number; ctx: T
     >
       <div className="group/row flex items-center">
         {branch ? <CollapseToggle folder={fo} collapsed={collapsed} listId={groupId} collapsedIds={ctx.collapsedIds} tabIndex={-1} /> : null}
-        <Link id={`${key}-link`} tabIndex={-1} to={listTo({ view: "unread", folder: fo.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 pl-1 text-sm font-semibold")}>
+        <Link id={`${key}-link`} tabIndex={-1} to={openListTo({ folder: fo.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 pl-1 text-sm font-semibold")}>
           {fav ? <FolderIcon aria-hidden="true" className="size-4 shrink-0 text-fg2" /> : null}
           <span className="truncate">{name}</span>
           <span className="ml-auto" />
@@ -255,7 +255,7 @@ function FolderItem({ fo, level, ctx, fav }: { fo: Folder; level: number; ctx: T
 
 /**
  * Favorites first (folders and feeds pinned with the star), then the folder tree with its feeds. Both are navigation
- * trees: folders collapse (remembered per device) and each entry links to that scope's unread list.
+ * trees: folders collapse (remembered per device) and each entry opens that scope's list in its own view (Unread unless the feed or a folder above it says otherwise).
  */
 export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
   const boot = useBootstrap();

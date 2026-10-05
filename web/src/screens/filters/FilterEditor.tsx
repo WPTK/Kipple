@@ -4,9 +4,9 @@ import { X } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
 import { ApiError, errorMessage } from "@/api/client";
 import {
-  ACTIONS,
   FIELDS,
   LIMITS,
+  MODES,
   applyFilter,
   badFilter,
   bodyOf,
@@ -15,12 +15,16 @@ import {
   draftOf,
   fieldGroup,
   invalidateFilterData,
+  modeFields,
+  modeOf,
   previewFilter,
+  ruleLabel,
   updateFilter,
   useFilters,
   type ApplyRun,
   type FilterDraft,
   type FilterField,
+  type FilterMode,
   type Preview,
 } from "@/api/filters";
 import { relativeTime } from "@/lib/format";
@@ -53,8 +57,8 @@ export function termProblem(term: string, d: Pick<FilterDraft, "kind" | "terms">
 }
 
 /** A name for a filter saved without one. */
-export function autoName(d: Pick<FilterDraft, "action" | "terms">): string {
-  const verb = ACTIONS.find((a) => a.id === d.action)?.label ?? "Filter";
+export function autoName(d: Pick<FilterDraft, "action" | "terms"> & { invert?: boolean }): string {
+  const verb = modeOf({ action: d.action, invert: !!d.invert }) === "only" ? "Only show" : ruleLabel({ action: d.action, invert: false });
   const list = d.terms.slice(0, 3).join(", ");
   const name = `${verb}: ${list}${d.terms.length > 3 ? "…" : ""}`;
   const runes = [...name];
@@ -341,6 +345,9 @@ function EditorForm({
   qc: ReturnType<typeof useQueryClient>;
 }) {
   const [d, setD] = useState<FilterDraft>(initial);
+  // The invert option of Mark as read and Star, kept while the rule passes through a mode that has none (Mute, Only
+  // show matching, Highlight), so picking Mark as read or Star again brings the choice back.
+  const [invertChoice, setInvertChoice] = useState(initial.action === "mark_read" || initial.action === "star" ? initial.invert : false);
   const [includeRead, setIncludeRead] = useState(false);
   const [apply, setApply] = useState(false);
   const [issue, setIssue] = useState<Issue | null>(null);
@@ -532,17 +539,25 @@ function EditorForm({
         {regex ? null : <Check label="Ignore accents" help="On: cafe matches café." checked={d.fold_diacritics} onChange={(v) => set({ fold_diacritics: v })} />}
         <Check
           label="Act when it does NOT match"
-          help="Inverts the rule: it fires on articles that contain none of the terms. Articles with nothing in the parts you chose (say, no author) count as not matching."
-          checked={d.invert}
-          disabled={d.action === "highlight"}
-          onChange={(v) => set({ invert: v })}
+          help={
+            d.action === "mute"
+              ? "For Mute, pick Only show matching below instead."
+              : "Inverts the rule: it fires on articles that contain none of the terms. Articles with nothing in the parts you chose (say, no author) count as not matching."
+          }
+          checked={d.invert && d.action !== "mute"}
+          // Mute inverted is the "Only show matching" choice below, so it has exactly one control.
+          disabled={d.action === "highlight" || d.action === "mute"}
+          onChange={(v) => {
+            setInvertChoice(v);
+            set({ invert: v });
+          }}
         />
       </Group>
 
       <Group legend="What it does" error={at("action")}>
         <div className="grid gap-2">
-          {ACTIONS.map((a) => (
-            <Choice key={a.id} name={actionName} value={a.id} current={d.action} label={a.label} help={a.help} onPick={(v) => set({ action: v as FilterDraft["action"], ...(v === "highlight" ? { invert: false } : {}) })} />
+          {MODES.map((a) => (
+            <Choice key={a.id} name={actionName} value={a.id} current={modeOf(d)} label={a.label} help={a.help} onPick={(v) => set(modeFields(v as FilterMode, invertChoice))} />
           ))}
         </div>
         {regex && d.action === "highlight" ? <p className="text-xs text-fg2">Highlight works with words or phrases only.</p> : null}

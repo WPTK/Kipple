@@ -1,5 +1,6 @@
 import { api } from "./client";
 import type { BulkMarkResponse, Card, Scope } from "./types";
+import { READING_LENGTH_MINUTES } from "@/lib/readingLength";
 
 // Bulk read marking. Both calls go to POST /api/items/mark-read with a `scope` (the
 // backend's shape, docs/research/backend-additions-round2.md section 3). Keeping them
@@ -13,6 +14,9 @@ export interface ScopeBody {
   q?: string;
   /** The list's `fallback` flag echoed back, so the server marks what the list showed (docs/design.md 2.4). */
   fallback?: boolean;
+  /** The list's reading-time filter, so rows it hides are never marked. */
+  min_minutes?: number;
+  max_minutes?: number;
 }
 
 export function scopeBody(scope: Scope): ScopeBody {
@@ -24,6 +28,7 @@ export function scopeBody(scope: Scope): ScopeBody {
     b.q = scope.q;
     if (scope.fallback !== undefined) b.fallback = scope.fallback;
   }
+  if (scope.length) Object.assign(b, READING_LENGTH_MINUTES[scope.length]);
   return b;
 }
 

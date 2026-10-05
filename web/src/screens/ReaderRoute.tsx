@@ -1,15 +1,28 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { Link, useMatch, useNavigate, useSearchParams } from "react-router";
+import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, Keyboard, MoreVertical, RefreshCw, Settings, Undo2 } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, Keyboard, MoreVertical, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
 import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
 import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib/folderTree";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, ItemsPage, Scope, View } from "@/api/types";
 import { useSearchHighlight } from "@/lib/useHighlights";
-import { useResolvedLayout } from "@/layouts";
-import { DEFAULT_DEVICE_PREFS, LIST_WIDTH_MAX, LIST_WIDTH_MIN, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
+import { useListContext, useResolvedLayout, useSetListOverride } from "@/layouts";
+import {
+  DEFAULT_DEVICE_PREFS,
+  LIST_WIDTH_MAX,
+  LIST_WIDTH_MIN,
+  ORDER_LABELS,
+  inheritedList,
+  overrideTarget,
+  resolveList,
+  updateDevicePrefs,
+  useDevicePrefs,
+  type OrderPref,
+} from "@/lib/devicePrefs";
+import { READING_LENGTH_LABELS } from "@/lib/readingLength";
+import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { useWide } from "@/lib/useMedia";
 import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
@@ -24,6 +37,7 @@ import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { ArticlePane } from "./ArticlePane";
 import { LayoutMenu } from "./LayoutMenu";
+import { LengthMenu } from "./LengthMenu";
 import { ReadingMenu } from "./AppearanceControls";
 import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
 
@@ -63,9 +77,10 @@ function useNeighbours(scope: Scope): { prev?: Scope; next?: Scope } {
     const inside = kind === "folder" ? subtreeFeeds(tree, feedsOf) : null;
     const order = inside ? tree.preorder.filter((id) => (inside.get(id)?.length ?? 0) > 0) : feedOrder(tree, feedsOf);
     const at = order.indexOf((kind === "feed" ? scope.feed : scope.folder) as string);
-    const to = (id: string | undefined): Scope | undefined => (id ? { view: scope.view, [kind]: id } : undefined);
+    // The neighbour keeps this list's view and reading-time filter.
+    const to = (id: string | undefined): Scope | undefined => (id ? { view: scope.view, [kind]: id, ...(scope.length ? { length: scope.length } : {}) } : undefined);
     return at < 0 ? {} : { prev: to(order[at - 1]), next: to(order[at + 1]) };
-  }, [boot.data, scope.feed, scope.folder, scope.view]);
+  }, [boot.data, scope.feed, scope.folder, scope.view, scope.length]);
 }
 
 const menuItem =
@@ -81,8 +96,18 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   const { canUndo } = useStore(undoStore);
   const wide = useWide();
   const { prev, next } = useNeighbours(scope);
-  const oldest = dp.order === "oldest";
-  // Feed and folder scopes do not carry the order; it is a device preference.
+  const ctx = useListContext(scope);
+  const setListOverride = useSetListOverride();
+  const oldest = scope.order === "oldest";
+  // The order is the list's resolved one (readerScope). On a feed or folder list the toggle sets that list's own order,
+  // and dropping back to what it would inherit clears its override; elsewhere it sets the device default.
+  const toggleOrder = () => {
+    const order: OrderPref = oldest ? "newest" : "oldest";
+    const target = overrideTarget(ctx);
+    if (!target) updateDevicePrefs({ order });
+    else setListOverride(target.kind, target.id, "order", order === inheritedList(dp, ctx, "order").value ? null : order);
+    announce(`${ORDER_LABELS[order]}${target ? ` in this ${target.kind}` : ""}`);
+  };
   const go = (s: Scope | undefined) => s && navigate(listTo(s));
   const noun = scope.feed ? "feed" : "folder";
   const boot = useBootstrap();
@@ -109,10 +134,11 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           size="icon"
           aria-label="Oldest first"
           aria-pressed={oldest}
-          onClick={() => updateDevicePrefs({ order: oldest ? "newest" : "oldest" })}
+          onClick={toggleOrder}
         >
           {oldest ? <ArrowUpNarrowWide aria-hidden="true" /> : <ArrowDownWideNarrow aria-hidden="true" />}
         </Button>
+        <LengthMenu scope={scope} />
         <LayoutMenu scope={scope} />
         <ReadingMenu />
         <Button
@@ -220,6 +246,20 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           </div>
         ) : null}
       </div>
+      {scope.length ? (
+        <div className="mt-1 flex max-w-[25rem]">
+          <Link
+            to={listTo({ ...scope, length: undefined })}
+            replace
+            aria-label={`Reading time ${READING_LENGTH_LABELS[scope.length]}. Show any length`}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-accent px-3 text-sm text-fg hover:bg-selection"
+          >
+            <Timer className="size-4 text-accent" aria-hidden="true" />
+            {READING_LENGTH_LABELS[scope.length]}
+            <X className="size-4 text-fg2" aria-hidden="true" />
+          </Link>
+        </div>
+      ) : null}
       {scope.view === "muted" ? (
         <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as unread. Muting keeps them here instead of deleting them.</p>
       ) : null}
@@ -344,15 +384,18 @@ function WidePane({
   );
 }
 
+/** The list of the reader screen before its order: `/l/:view?feed=&folder=&len=`, or an article's list from `?from=`. */
+function baseScope(view: string | undefined, sp: URLSearchParams, isArticle: boolean): Scope {
+  return isArticle ? scopeFromSearch(sp) : scopeFromList(view, sp);
+}
+
 /**
- * The scope of the reader screen, one builder for the list route and the article route: the list
- * comes from `/l/:view?feed=&folder=`, an article's list from `?from=`; the sort order is always the
- * device preference (a `from` written under the other order does not stick).
+ * The scope of the reader screen, one builder for the list route and the article route. The sort order is always the
+ * list's resolved order (its own, a folder's above it, else the device's; a `from` written under the other order does
+ * not stick). A search keeps the ordering it was run with (relevance, newest, oldest) and its typing flag: its list in
+ * the cache is keyed by them.
  */
-export function readerScope(view: string | undefined, sp: URLSearchParams, isArticle: boolean, order: "newest" | "oldest"): Scope {
-  const base = isArticle ? scopeFromSearch(sp) : scopeFromList(view, sp);
-  // A search keeps the ordering it was run with (relevance, newest, oldest) and its typing flag: its list in the
-  // cache is keyed by them. Every other list follows the device's order.
+export function readerScope(base: Scope, order: OrderPref): Scope {
   if (base.q) return base;
   const { order: _drop, ...rest } = base;
   void _drop;
@@ -367,13 +410,25 @@ export function ReaderRoute() {
   const item = useMatch("/i/:id");
   const list = useMatch("/l/:view");
   const [sp] = useSearchParams();
-  const { order } = useDevicePrefs();
+  const dp = useDevicePrefs();
   const isArticle = !!item;
   const view = list?.params.view;
   const spKey = sp.toString();
-  const scope = useMemo(
-    () => readerScope(view, new URLSearchParams(spKey), isArticle, order),
-    [view, spKey, isArticle, order],
-  );
+  const base = useMemo(() => baseScope(view, new URLSearchParams(spKey), isArticle), [view, spKey, isArticle]);
+  const order = resolveList(dp, useListContext(base), "order").value;
+  const scope = useMemo(() => readerScope(base, order), [base, order]);
   return <ReaderLayout scope={scope} articleId={item?.params.id} hasFrom={sp.has("from")} />;
+}
+
+/**
+ * `/l?feed=` or `/l?folder=` (lib/routes openListTo): the list opens in its own view (the feed's, the nearest folder's
+ * above it, else Unread). The address is replaced by the list's own, so back, reload and the view pills see a plain list.
+ */
+export function OpenList() {
+  const [sp] = useSearchParams();
+  const dp = useDevicePrefs();
+  const target = { feed: sp.get("feed") ?? undefined, folder: sp.get("feed") ? undefined : (sp.get("folder") ?? undefined) };
+  const ctx = useListContext(target);
+  // The folder chain comes from the bootstrap; the app shell shows no route until it has bootstrap data, so it is here.
+  return <Navigate to={listTo({ view: resolveList(dp, ctx, "view").value, ...target })} replace />;
 }

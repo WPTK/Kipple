@@ -9,6 +9,7 @@ import { isFontId } from "./fonts";
 import {
   DEFAULT_DEVICE_PREFS,
   DEVICE_PREFS_KEY,
+  LEGACY_DEVICE_PREFS_KEY,
   devicePrefsStore,
   parseDevicePrefs,
   replaceDevicePrefs,
@@ -42,7 +43,7 @@ export const DEBOUNCE_MS = 500;
 /** localStorage keys: the one-time migration flag, and the unsent changes (so a reload does not lose them). */
 export const SYNC_FLAG_KEY = "kipple.deviceSync.v1";
 export const SYNC_DIRTY_KEY = "kipple.deviceSync.dirty.v1";
-const LEGACY_KEYS = [DEVICE_PREFS_KEY, PREFS_KEY, THEME_STORAGE_KEY];
+const LEGACY_KEYS = [DEVICE_PREFS_KEY, LEGACY_DEVICE_PREFS_KEY, PREFS_KEY, THEME_STORAGE_KEY];
 
 const store = (): LocalState => ({ theme: themeStore.get(), prefs: prefsStore.get(), dp: devicePrefsStore.get() });
 
@@ -88,7 +89,7 @@ export function profileOf(l: LocalState): Profile {
     "client.voice": p.voice.length <= 200 && !/[\r\n]/.test(p.voice) ? p.voice : null,
     "client.rate": p.rate,
     "client.layout": dp.layout,
-    "client.layout_overrides": { feed: { ...dp.overrides.feed }, folder: { ...dp.overrides.folder } },
+    "client.list_overrides": { feed: { ...dp.overrides.feed }, folder: { ...dp.overrides.folder } },
     "client.order": dp.order,
     "client.search_order": SEARCH_ORDER_TO_SERVER[dp.searchOrder],
     "client.inbox_thumbs": dp.inboxThumbs,
@@ -146,7 +147,7 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
   }
   const dpRaw = {
     layout: g("client.layout"),
-    overrides: g("client.layout_overrides"),
+    overrides: g("client.list_overrides"),
     order: g("client.order"),
     searchOrder: searchOrderFromServer(g("client.search_order")),
     inboxThumbs: g("client.inbox_thumbs"),
@@ -188,10 +189,10 @@ export interface SyncState {
    * docs/design.md 7.1c). Nothing can be written, so nothing is sent and the local values are all there is.
    */
   status: "off" | "idle" | "saving" | "error" | "unsaved";
-  /** How many settings the server refused (they keep their local value). */
-  refused: number;
+  /** The settings the server refused, sorted (they keep their local value). */
+  refused: readonly string[];
 }
-export const syncStore = createStore<SyncState>({ status: "off", refused: 0 });
+export const syncStore = createStore<SyncState>({ status: "off", refused: [] });
 
 let enabled = false;
 let applying = false;
@@ -236,7 +237,8 @@ function pruneRefused(): void {
 
 function setStatus(status: SyncState["status"]): void {
   pruneRefused();
-  syncStore.set((s) => (s.status === status && s.refused === Object.keys(refused).length ? s : { status, refused: Object.keys(refused).length }));
+  const keys = Object.keys(refused).sort();
+  syncStore.set((s) => (s.status === status && s.refused.join() === keys.join() ? s : { status, refused: keys }));
 }
 
 /**
@@ -434,6 +436,8 @@ function onStorage(e: StorageEvent): void {
     const n = parsePrefs(e.newValue);
     if (stable(n) !== stable(prefsStore.get())) prefsStore.set(n);
   } else if (e.key === DEVICE_PREFS_KEY) {
+    // Only this build's key: a tab of an older build writes LEGACY_DEVICE_PREFS_KEY, whose overrides this build
+    // cannot read, and following it would send an emptied client.list_overrides to the server.
     const n = parseDevicePrefs(e.newValue);
     if (stable(n) !== stable(devicePrefsStore.get())) replaceDevicePrefs(n);
   } else if (e.key === THEME_STORAGE_KEY) {
@@ -503,8 +507,9 @@ function legacyProfileKeys(): Set<string> {
   // Never held before F4, so only a true value is a choice; false is just the field's default.
   if (p?.markReadOnScroll === true) out.add("ui.mark_read_on_scroll");
   if (p && parsePrefs(JSON.stringify(p)).shortcutsChosen) out.add("client.shortcuts");
-  add(read(DEVICE_PREFS_KEY), {
-    layout: ["client.layout"], overrides: ["client.layout_overrides"], order: ["client.order"], searchOrder: ["client.search_order"], inboxThumbs: ["client.inbox_thumbs"],
+  // The v1 cache counts when this build has not written its own yet (devicePrefs converts it on load).
+  add(read(DEVICE_PREFS_KEY) ?? read(LEGACY_DEVICE_PREFS_KEY), {
+    layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], searchOrder: ["client.search_order"], inboxThumbs: ["client.inbox_thumbs"],
     peekSeen: ["client.peek_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
     sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
     unreadBadge: ["client.unread_badge"], highlightKeywords: ["client.highlight_keywords"],
@@ -543,7 +548,7 @@ export function hydrateDevice(device: DeviceView | undefined): void {
     refused = {};
     unsavedBase = profileOf(store());
     // Whatever was left unsent before stays: it is still the person's choice.
-    syncStore.set({ status: "unsaved", refused: 0 });
+    syncStore.set({ status: "unsaved", refused: [] });
     return;
   }
   const cur = store();
@@ -641,5 +646,5 @@ export function resetDeviceSync(): void {
   again = false;
   themeHeld = false;
   overridden = new Set();
-  syncStore.set({ status: "off", refused: 0 });
+  syncStore.set({ status: "off", refused: [] });
 }

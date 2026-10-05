@@ -3,44 +3,63 @@ import { Check, LayoutGrid, Star } from "lucide-react";
 import type { Scope } from "@/api/types";
 import { useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
-import { useResolvedLayout } from "@/layouts";
+import { useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
   LAYOUT_HINTS,
   LAYOUT_IDS,
   LAYOUT_LABELS,
+  LIST_VIEWS,
+  LIST_VIEW_LABELS,
+  ORDER_LABELS,
+  inheritedList,
   overrideTarget,
   sessionLayoutStore,
-  setLayoutOverride,
   updateDevicePrefs,
   useDevicePrefs,
+  type LayoutContext,
   type LayoutId,
+  type ListField,
+  type OrderPref,
 } from "@/lib/devicePrefs";
 import { cn } from "@/lib/cn";
 import { announce } from "@/shell/toasts";
 
 const item =
   "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
+const heading = "px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase";
+
+const FIELD_LABELS: { [F in ListField]: Record<string, string> } = { layout: LAYOUT_LABELS, order: ORDER_LABELS, view: LIST_VIEW_LABELS };
 
 /**
- * Layout picker in the list header. One list of layouts; the star beside each one makes it this device's
- * default (a filled star is the default). On a feed or folder list the radio choice is that list's own
- * override (the first choice clears it: "Use device default", or "Inherited from <folder>" when a folder above has
- * an override), under its own heading; on the other lists the radio choice is the
- * device default itself. Everything is stored per device (src/lib/devicePrefs).
+ * The first choice of a feed's or folder's group, which clears its own value: it names what the list then gets, "Inherited
+ * from Tech › Apple (Cards)" when a folder above sets it, else the device default ("Unread" for the view).
+ */
+export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
+  const dp = useDevicePrefs();
+  const tree = useFolderTree();
+  const up = inheritedList(dp, ctx, field);
+  const value = FIELD_LABELS[field][up.value] ?? "";
+  if (up.from) return `Inherited from ${folderPath(tree, up.from.id)} (${value})`;
+  return field === "view" ? `Use the default (${value})` : `Use device default (${value})`;
+}
+
+/**
+ * The list options menu in the list header (its button names the layout in effect). Layout: one list; the star beside each
+ * layout makes it this device's default (a filled star is the default). Order, and on a feed or folder list the view it
+ * opens in. On a feed or folder list each radio choice is that list's own override (the first choice clears it), under
+ * its own heading; on the other lists the layout and order choices are the device defaults themselves. Everything is
+ * stored per device (src/lib/devicePrefs).
  */
 export function LayoutMenu({ scope }: { scope: Scope }) {
   const dp = useDevicePrefs();
+  const setListOverride = useSetListOverride();
   const { layout, ctx } = useResolvedLayout(scope);
   const target = overrideTarget(ctx);
-  const current = target ? dp.overrides[target.kind][target.id] : undefined;
+  const own = target ? dp.overrides[target.kind][target.id] : undefined;
   const noun = target?.kind === "folder" ? "folder" : "feed";
-  const tree = useFolderTree();
-  // Without its own override a list follows the nearest folder above it that has one, else the device default.
-  const above = (target?.kind === "folder" ? ctx.folderIds?.slice(1) : ctx.folderIds) ?? [];
-  const from = above.find((id) => dp.overrides.folder[id]);
-  const fallback = from
-    ? `Inherited from ${folderPath(tree, from)} (${LAYOUT_LABELS[dp.overrides.folder[from] as LayoutId] ?? ""})`
-    : `Use device default (${LAYOUT_LABELS[dp.layout]})`;
+  const layoutFallback = useFallbackLabel(ctx, "layout");
+  const orderFallback = useFallbackLabel(ctx, "order");
+  const viewFallback = useFallbackLabel(ctx, "view");
   const say = (l: LayoutId) => announce(`${LAYOUT_LABELS[l]} layout`);
   const makeDefault = (l: LayoutId) => {
     sessionLayoutStore.set(null);
@@ -53,32 +72,36 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label={`Layout: ${layout.label}`}
+          aria-label={`List options, ${layout.label} layout`}
           className="hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection"
         >
           <LayoutGrid className="size-5" aria-hidden="true" />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align="start" sideOffset={4} collisionPadding={8} className="z-50 w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
-          <DropdownMenu.Label className="px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase">
-            {target ? `This ${noun}` : "Layout"}
-          </DropdownMenu.Label>
+        <DropdownMenu.Content
+          align="start"
+          sideOffset={4}
+          collisionPadding={8}
+          className="z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border border-line bg-bg p-1 text-fg shadow-xl"
+        >
+          <DropdownMenu.Label className={heading}>{target ? `This ${noun}` : "Layout"}</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
-            value={target ? (current ?? "default") : dp.layout}
+            aria-label={target ? `Layout of this ${noun}` : "Layout"}
+            value={target ? (own?.layout ?? "default") : dp.layout}
             onValueChange={(v) => {
               sessionLayoutStore.set(null);
               if (!target) {
                 updateDevicePrefs({ layout: v as LayoutId });
                 say(v as LayoutId);
-              } else if (v === "default") setLayoutOverride(target.kind, target.id, null);
+              } else if (v === "default") setListOverride(target.kind, target.id, "layout", null);
               else {
-                setLayoutOverride(target.kind, target.id, v as LayoutId);
+                setListOverride(target.kind, target.id, "layout", v as LayoutId);
                 say(v as LayoutId);
               }
             }}
           >
-            {target ? <Radio value="default" label={fallback} /> : null}
+            {target ? <Radio value="default" label={layoutFallback} /> : null}
             {LAYOUT_IDS.map((id) => (
               <div key={id} className="flex items-center">
                 <Radio value={id} label={LAYOUT_LABELS[id]} hint={LAYOUT_HINTS[id]} className="min-w-0 flex-1" />
@@ -99,6 +122,42 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             ))}
           </DropdownMenu.RadioGroup>
           <p className="px-3 pt-1 pb-2 text-xs text-fg2">The star sets this device's default layout.</p>
+
+          <DropdownMenu.Separator className="my-1 h-px bg-line" />
+          <DropdownMenu.Label className={heading}>Order</DropdownMenu.Label>
+          <DropdownMenu.RadioGroup
+            aria-label={target ? `Order of this ${noun}` : "Order"}
+            value={target ? (own?.order ?? "default") : dp.order}
+            onValueChange={(v) => {
+              const order = v === "default" ? null : (v as OrderPref);
+              if (!target) updateDevicePrefs({ order: order ?? "newest" });
+              else setListOverride(target.kind, target.id, "order", order);
+              if (order) announce(ORDER_LABELS[order]);
+            }}
+          >
+            {target ? <Radio value="default" label={orderFallback} /> : null}
+            {(["newest", "oldest"] as const).map((o) => (
+              <Radio key={o} value={o} label={ORDER_LABELS[o]} />
+            ))}
+          </DropdownMenu.RadioGroup>
+
+          {target ? (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-line" />
+              <DropdownMenu.Label className={heading}>Opens in</DropdownMenu.Label>
+              <DropdownMenu.RadioGroup
+                aria-label={`View this ${noun} opens in`}
+                value={own?.view ?? "default"}
+                onValueChange={(v) => setListOverride(target.kind, target.id, "view", v === "default" ? null : (v as (typeof LIST_VIEWS)[number]))}
+              >
+                <Radio value="default" label={viewFallback} />
+                {LIST_VIEWS.map((v) => (
+                  <Radio key={v} value={v} label={LIST_VIEW_LABELS[v]} />
+                ))}
+              </DropdownMenu.RadioGroup>
+              <p className="px-3 pt-1 pb-2 text-xs text-fg2">The view this {noun} shows when you open it from your feeds.</p>
+            </>
+          ) : null}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

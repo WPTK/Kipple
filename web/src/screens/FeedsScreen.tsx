@@ -8,7 +8,8 @@ import { createFolder, deleteFolder, invalidateFeeds, patchFolder, reorder as re
 import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap, Feed, Folder } from "@/api/types";
-import { LAYOUT_IDS, LAYOUT_LABELS, setLayoutOverride, useDevicePrefs, type LayoutId } from "@/lib/devicePrefs";
+import { useDevicePrefs } from "@/lib/devicePrefs";
+import { ListOverrideFields } from "./feeds/ListOverrideFields";
 import type { Favorite } from "@/lib/devicePrefs";
 import {
   arrayMove,
@@ -29,7 +30,7 @@ import { FolderSelect } from "@/ui/FolderSelect";
 import { useFavorites } from "@/lib/favorites";
 import { clickRow, groupState, toggleGroup } from "@/lib/selection";
 import { cn } from "@/lib/cn";
-import { listTo } from "@/lib/routes";
+import { listTo, openListTo } from "@/lib/routes";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { FavStar } from "@/ui/FavStar";
 import { MutedCount } from "@/ui/UnreadCount";
@@ -103,7 +104,6 @@ function FolderDialogs({
   onClose: (focusFolder?: string) => void;
 }) {
   const qc = useQueryClient();
-  const dp = useDevicePrefs();
   const [name, setName] = useState(dialog.kind === "rename" ? dialog.folder.name : "");
   const [parent, setParent] = useState(dialog.kind === "new" ? (dialog.parent ?? "") : dialog.kind === "move" ? (parentOf(tree, dialog.folder.id) ?? "") : "");
   const [error, setError] = useState<string | null>(null);
@@ -213,23 +213,7 @@ function FolderDialogs({
         {isNew ? (
           <Field label="Inside">{(a) => <FolderSelect {...a} value={parent} onChange={setParent} only={parentChoices(tree, null)} none="Top level" />}</Field>
         ) : (
-          <Field label="Layout on this device" help="Overrides the device default for this folder and its subfolders, unless a subfolder or a feed has its own.">
-            {(a) => (
-              <select
-                {...a}
-                value={dp.overrides.folder[dialog.folder.id] ?? "default"}
-                onChange={(e) => setLayoutOverride("folder", dialog.folder.id, e.target.value === "default" ? null : (e.target.value as LayoutId))}
-                className={inputCls}
-              >
-                <option value="default">Use device default</option>
-                {LAYOUT_IDS.map((l) => (
-                  <option key={l} value={l}>
-                    {LAYOUT_LABELS[l]}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
+          <ListOverrideFields kind="folder" id={dialog.folder.id} />
         )}
       </form>
     </Modal>
@@ -515,7 +499,7 @@ export function FeedsScreen() {
           grip(src, f.title)
         ) : null}
         <Link
-          to={listTo({ view: "unread", feed: f.id })}
+          to={openListTo({ feed: f.id })}
           draggable={false}
           onClick={(e) => {
             if (selecting) {
@@ -571,7 +555,7 @@ export function FeedsScreen() {
             <CollapseToggle folder={favFolder} collapsed={favCollapsed} listId={favListId} collapsedIds={dp.collapsedFolders} />
           ) : null}
           <Link
-            to={listTo(fav.t === "folder" ? { view: "unread", folder: fav.id } : { view: "unread", feed: fav.id })}
+            to={openListTo(fav.t === "folder" ? { folder: fav.id } : { feed: fav.id })}
             draggable={false}
             className={`${row} min-w-0 flex-1 text-sm`}
           >
@@ -589,7 +573,7 @@ export function FeedsScreen() {
           <ul id={favListId} className="pl-6">
             {favFeeds.map((f) => (
               <li key={f.id}>
-                <Link to={listTo({ view: "unread", feed: f.id })} draggable={false} className={`${row} text-sm`}>
+                <Link to={openListTo({ feed: f.id })} draggable={false} className={`${row} text-sm`}>
                   <span className="truncate">{f.title}</span>
                 </Link>
               </li>
@@ -654,7 +638,7 @@ export function FeedsScreen() {
           ) : (
             <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />
           )}
-          <Link to={listTo({ view: "unread", folder: fo.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
+          <Link to={openListTo({ folder: fo.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
             <span className="truncate">{fo.name}</span>
             <Badge n={fo.unread} />
           </Link>
@@ -843,7 +827,7 @@ export function FeedsScreen() {
         </div>
       ) : null}
       <Suspense fallback={null}>
-        {adding ? <AddFeedDialog onClose={() => setAdding(false)} onOpenFeed={(id) => { setAdding(false); navigate(listTo({ view: "unread", feed: id })); }} /> : null}
+        {adding ? <AddFeedDialog onClose={() => setAdding(false)} onOpenFeed={(id) => { setAdding(false); navigate(openListTo({ feed: id })); }} /> : null}
         {importing ? <OpmlImportDialog onClose={() => setImporting(false)} /> : null}
         {editing ? <FeedEditor feed={editing} onClose={() => setEditing(null)} /> : null}
       </Suspense>

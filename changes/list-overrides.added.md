@@ -1,0 +1,1 @@
+Each feed and folder can have its own order (newest or oldest first) and the view it opens in (Unread or All), set from the list header's options menu or the feed and folder editors. A folder's choice reaches its subfolders and their feeds, and like the layout it is kept per device. (#38)

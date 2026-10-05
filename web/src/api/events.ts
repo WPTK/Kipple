@@ -146,13 +146,14 @@ function feedsInFolder(folder: string, feeds: readonly { id: string; folder_id: 
  */
 export function pendingFor(
   pending: Record<string, number>,
-  scope: { view: string; feed?: string; folder?: string; q?: string; order?: string },
+  scope: { view: string; feed?: string; folder?: string; q?: string; order?: string; length?: string },
   feeds: readonly { id: string; folder_id: string }[],
   folders: readonly FolderRef[],
   /** Ids the list already holds (with `ids`, the pending ids per feed): those are not new to it. */
   loaded?: { ids: ReadonlySet<string>; pendingIds: Record<string, string[]> },
 ): number {
-  if (scope.view === "starred" || scope.view === "muted" || scope.q || scope.order === "oldest") return 0;
+  // A search or a reading-time filter may not take a new article in: nothing is promised.
+  if (scope.view === "starred" || scope.view === "muted" || scope.q || scope.length || scope.order === "oldest") return 0;
   const count = (id: string): number => {
     const n = pending[id] ?? 0;
     if (!loaded || n === 0) return n;

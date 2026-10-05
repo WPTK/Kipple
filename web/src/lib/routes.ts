@@ -1,14 +1,25 @@
 import type { To } from "react-router";
 import type { Scope, View } from "@/api/types";
 import { parseScopeKey, scopeKey } from "@/api/queries";
+import { isReadingLength } from "./readingLength";
 
-/** List route for a scope: /l/:view?feed=&folder= */
+/** List route for a scope: /l/:view?feed=&folder=&len= */
 export function listTo(scope: Scope): To {
   const sp = new URLSearchParams();
   if (scope.feed) sp.set("feed", scope.feed);
   if (scope.folder) sp.set("folder", scope.folder);
+  if (scope.length) sp.set("len", scope.length);
   const search = sp.toString();
   return { pathname: `/l/${scope.view}`, search: search ? `?${search}` : "" };
+}
+
+/**
+ * Open a feed's or a folder's list in the view it opens in (its own, a folder's above it, else Unread): `/l?feed=`
+ * leaves the view to the reader screen, which resolves it once and replaces the address with the list's own.
+ */
+export function openListTo(target: { feed: string } | { folder: string }): To {
+  const sp = new URLSearchParams("feed" in target ? { feed: target.feed } : { folder: target.folder });
+  return { pathname: "/l", search: `?${sp.toString()}` };
 }
 
 /** Article route. `from` carries the list it came from, so back returns to it. */
@@ -28,5 +39,7 @@ export function scopeFromList(view: string | undefined, search: URLSearchParams)
   const folder = search.get("folder");
   if (feed) s.feed = feed;
   else if (folder) s.folder = folder;
+  const len = search.get("len");
+  if (isReadingLength(len)) s.length = len;
   return s;
 }

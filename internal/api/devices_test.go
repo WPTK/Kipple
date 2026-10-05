@@ -195,9 +195,15 @@ func TestPatchDeviceValidation(t *testing.T) {
 		{"highlight type", `{"client.highlight_keywords":"no"}`, "client.highlight_keywords"},
 		{"voice newline", `{"client.voice":"a\nb"}`, "client.voice"},
 		{"voice long", `{"client.voice":"` + strings.Repeat("v", 201) + `"}`, "client.voice"},
-		{"override bad layout", `{"client.layout_overrides":{"feed":{"1":"grid"},"folder":{}}}`, "client.layout_overrides"},
-		{"override bad id", `{"client.layout_overrides":{"feed":{"abc":"cards"}}}`, "client.layout_overrides"},
-		{"override extra key", `{"client.layout_overrides":{"tag":{"1":"cards"}}}`, "client.layout_overrides"},
+		{"override bad layout", `{"client.list_overrides":{"feed":{"1":{"layout":"grid"}},"folder":{}}}`, "client.list_overrides"},
+		{"override bad order", `{"client.list_overrides":{"feed":{"1":{"order":"rank"}}}}`, "client.list_overrides"},
+		{"override bad view", `{"client.list_overrides":{"folder":{"1":{"view":"starred"}}}}`, "client.list_overrides"},
+		{"override unknown field", `{"client.list_overrides":{"feed":{"1":{"layout":"cards","density":"dense"}}}}`, "client.list_overrides"},
+		{"override empty entry", `{"client.list_overrides":{"feed":{"1":{}}}}`, "client.list_overrides"},
+		{"override bare layout", `{"client.list_overrides":{"feed":{"1":"cards"}}}`, "client.list_overrides"},
+		{"override bad id", `{"client.list_overrides":{"feed":{"abc":{"layout":"cards"}}}}`, "client.list_overrides"},
+		{"override extra key", `{"client.list_overrides":{"tag":{"1":{"layout":"cards"}}}}`, "client.list_overrides"},
+		{"old override key", `{"client.layout_overrides":{"feed":{"1":"cards"}}}`, "client.layout_overrides"},
 		{"collapsed dup", `{"client.collapsed_folders":["1","1"]}`, "client.collapsed_folders"},
 		{"collapsed type", `{"client.collapsed_folders":[1]}`, "client.collapsed_folders"},
 	} {
@@ -223,7 +229,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	d := h.newDev()
 	body := `{"ui.theme":"system","ui.theme_schedule":true,"ui.theme_day":"linen","ui.theme_night":"carbon","ui.theme_night_start":"22:30","ui.theme_day_start":"06:15","ui.font_body":"Atkinson Hyperlegible Next",
 	 "ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
-	 "client.layout":"headlines","client.layout_overrides":{"feed":{"12":"inbox"},"folder":{"3":"compact"}},
+	 "client.layout":"headlines","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"}}},
 	 "client.order":"oldest","client.search_order":"relevance","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
 	 "client.text_size":0.875,"client.adjust_separately":true,"client.shortcuts":false,"client.spacing":"roomy",
@@ -244,7 +250,10 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 		require.NotEqual(t, http.StatusOK, c2, bad)
 		_ = o2
 	}
-	require.Equal(t, map[string]any{"feed": map[string]any{"12": "inbox"}, "folder": map[string]any{"3": "compact"}}, m["client.layout_overrides"])
+	require.Equal(t, map[string]any{
+		"feed":   map[string]any{"12": map[string]any{"layout": "inbox", "order": "oldest", "view": "all"}},
+		"folder": map[string]any{"3": map[string]any{"layout": "compact"}, "8": map[string]any{"view": "unread"}},
+	}, m["client.list_overrides"])
 	require.Equal(t, false, m["client.shortcuts"])
 	require.Equal(t, false, m["client.highlight_keywords"])
 	_, fresh, _ := h.newDev().call("GET", "/api/device", "")
@@ -261,18 +270,55 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	require.NotContains(t, out["merged"], "client.shortcuts")
 }
 
+// listOverridesOf is a valid client.list_overrides value whose compact JSON is as long as it can be
+// without passing n bytes (feed entries of {"layout":"headlines"}).
+func listOverridesOf(n int) string {
+	var parts []string
+	for i := 1; ; i++ {
+		next := append(parts, fmt.Sprintf(`"%d":{"layout":"headlines"}`, 1000000+i))
+		if len(`{"feed":{`+strings.Join(next, ",")+`},"folder":{}}`) > n {
+			break
+		}
+		parts = next
+	}
+	return `{"feed":{` + strings.Join(parts, ",") + `},"folder":{}}`
+}
+
+// client.list_overrides has its own byte budget: over it, the key alone is refused (400 naming it,
+// so a client puts aside only that key), and the rest of the patch is not applied either (all or nothing).
+func TestListOverridesBudget(t *testing.T) {
+	h := newHarness(t)
+	d := h.newDev()
+	fits := listOverridesOf(store.MaxListOverridesBytes)
+	code, out, _ := d.call("PATCH", "/api/device", `{"client.list_overrides":`+fits+`}`)
+	require.Equal(t, http.StatusOK, code, out)
+
+	over := listOverridesOf(store.MaxListOverridesBytes + 40)
+	require.Greater(t, len(over), store.MaxListOverridesBytes)
+	code, out, _ = d.call("PATCH", "/api/device", `{"client.layout":"cards","client.list_overrides":`+over+`}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Equal(t, "invalid_settings", out["error"])
+	require.Equal(t, []any{"client.list_overrides"}, out["keys"])
+	_, out, _ = d.call("GET", "/api/device", "")
+	require.NotContains(t, out["profile"], "client.layout")
+
+	// The defaults for new devices are held to the same budget.
+	c := h.login()
+	code, out, _ = h.api(c, "PATCH", "/api/settings", `{"ui.device_defaults":{"client.list_overrides":`+over+`}}`)
+	require.Equal(t, http.StatusBadRequest, code, out)
+}
+
 func TestDeviceProfileSizeLimit413(t *testing.T) {
 	h := newHarness(t)
 	d := h.newDev()
-	// Two full layout maps (200 entries each, each valid on its own) exceed 8 KB together.
-	big := func(n int) string {
-		parts := make([]string, n)
-		for i := range parts {
-			parts[i] = fmt.Sprintf(`"%019d":"headlines"`, i+1)
-		}
-		return "{" + strings.Join(parts, ",") + "}"
+	// The list overrides fit their own budget (just under 4 KB) and the collapsed folders fit too,
+	// but together they pass the 8 KB the stored profile is held to.
+	overrides := listOverridesOf(store.MaxListOverridesBytes - 100)
+	folders := make([]string, 200)
+	for i := range folders {
+		folders[i] = fmt.Sprintf(`"%019d"`, i+1)
 	}
-	body := `{"client.layout_overrides":{"feed":` + big(200) + `,"folder":` + big(200) + `}}`
+	body := `{"client.list_overrides":` + overrides + `,"client.collapsed_folders":[` + strings.Join(folders, ",") + `]}`
 	code, _, _ := d.call("PATCH", "/api/device", body)
 	require.Equal(t, http.StatusRequestEntityTooLarge, code)
 	_, out, _ := d.call("GET", "/api/device", "")
@@ -400,17 +446,13 @@ func TestMakeDeviceDefault(t *testing.T) {
 func TestMakeDeviceDefaultSizeCap(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
-	feeds := make([]string, 200)
-	for i := range feeds {
-		feeds[i] = fmt.Sprintf(`"%015d":"headlines"`, i)
-	}
-	stored := `{"ui.device_defaults":{"client.layout_overrides":{"feed":{` + strings.Join(feeds, ",") + `}}}}`
+	stored := `{"ui.device_defaults":{"client.list_overrides":` + listOverridesOf(store.MaxListOverridesBytes) + `}}`
 	code, _, _ := h.api(c, "PATCH", "/api/settings", stored)
 	require.Equal(t, http.StatusOK, code, "under the cap on its own")
 
 	folders := make([]string, 200)
 	for i := range folders {
-		folders[i] = fmt.Sprintf(`"%015d"`, i)
+		folders[i] = fmt.Sprintf(`"%019d"`, i)
 	}
 	phone := h.newDev()
 	code, _, _ = phone.call("PATCH", "/api/device", `{"client.collapsed_folders":[`+strings.Join(folders, ",")+`]}`)
