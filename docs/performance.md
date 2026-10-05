@@ -170,7 +170,7 @@ matches past the 500 ms budget. See [#229](https://github.com/WPTK/Kipple/issues
 
 All of them are fast; a sync client syncing a library of this size is limited by the body size, not the server.
 Items carry the article twice (`summary.content` and `content.content`), and a client that accepts gzip receives about
-a quarter of the bytes; see "Response compression" below, which these times come from (uncompressed requests).
+a quarter of the bytes for articles of this size (long full-text articles compress less); see "Response compression" below, which these times come from (uncompressed requests).
 
 ### Response compression
 
@@ -193,7 +193,26 @@ the rest, then the median of the three runs. "Level 1" and "level 6" compress th
 | `stream/items/contents`, 50 ids (POST) | 307 KB | 75 KB | 24% | 5.3 | 6.3 | 75 / 1.3 | 70 / 2.2 |
 
 - Every large response shrinks to between a tenth and a third. An item page, which carries each article twice, is
-  a quarter of its uncompressed size: smaller than the same page with one copy and no compression.
+  a quarter of its uncompressed size here: smaller than the same page with one copy and no compression, because this
+  library's articles (3.4 KB of HTML on average) are short.
+- The second copy of an article is nearly free only while the encoded article is shorter than gzip's 32 KB window:
+  gzip then finds the second copy as a repeat of the first. A longer article, such as a full-text extraction, about
+  doubles on the wire. One item's `summary` and `content`, compressed at `BestSpeed` (synthetic prose, so the
+  compressed sizes are a plausible shape, not an exact one):
+
+  | Article | One copy, gzip | Both copies, gzip |
+  |---|---:|---:|
+  | 4 KB | 2.4 KB | 2.5 KB |
+  | 16 KB | 8.9 KB | 9.1 KB |
+  | 32 KB (34 KB once escaped as JSON) | 16.9 KB | 33.0 KB |
+  | 100 KB | 50.3 KB | 99.8 KB |
+  | 500 KB (the cap) | 247 KB | 493 KB |
+
+- Memory: an item's article is encoded once, into a buffer the response reuses, and written twice, so the second copy
+  costs no memory. Writing one item with a 500 KB article (`BenchmarkWriteItem500K` and `…First` in
+  `internal/greader`) allocates about 0.6 MB for the first item of a response (the buffer grows to the encoded
+  article) and about 10 KB for each later one, in 0.45 ms. Encoding the whole item as one value allocated 1.3 MB per
+  item, in 1.3 ms.
 - Over loopback, where bandwidth is free, compression costs at most about 3 ms on the largest call (250 full items)
   and nothing measurable on the others. Over a real network the time saved sending three quarters fewer bytes is far
   larger: at 20 Mbit/s the 250-item page takes about 0.7 s uncompressed and 0.17 s compressed.

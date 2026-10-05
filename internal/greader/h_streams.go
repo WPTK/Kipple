@@ -2,7 +2,9 @@ package greader
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -151,6 +153,7 @@ func (c *call) writeContents(streamID, continuation string, ids []int64, asc boo
 		_, _ = bw.WriteString(`,"items":[`)
 	}
 	first := true
+	var scratch bytes.Buffer // reused for every item of the response
 	err := c.a.db.StreamItems(c.r.Context(), ids, asc, c.a.holdCut(), func(r *store.ContentRow) error {
 		if bw == nil {
 			begin()
@@ -159,8 +162,7 @@ func (c *call) writeContents(streamID, continuation string, ids []int64, asc boo
 			_ = bw.WriteByte(',')
 		}
 		first = false
-		_, err := bw.Write(marshal(newItemJSON(r)))
-		return err
+		return writeItem(bw, &scratch, r)
 	})
 	if err != nil {
 		if bw == nil {
@@ -204,26 +206,63 @@ type enclosureJSON struct {
 	Length int64  `json:"length"`
 }
 
-// itemJSON is one stream item (design §6.6). Strings are never null; summary,
-// content, categories and origin are always present (strict client decoders need them).
-type itemJSON struct {
-	ID            string          `json:"id"`
-	CrawlTimeMsec string          `json:"crawlTimeMsec"`
-	TimestampUsec string          `json:"timestampUsec"`
-	Published     int64           `json:"published"`
-	Updated       int64           `json:"updated"`
-	Title         string          `json:"title"`
-	Author        string          `json:"author"`
-	Canonical     []hrefJSON      `json:"canonical"`
-	Alternate     []altJSON       `json:"alternate"`
-	Summary       summaryJSON     `json:"summary"`
-	Content       summaryJSON     `json:"content"`
-	Categories    []string        `json:"categories"`
-	Origin        originJSON      `json:"origin"`
-	Enclosure     []enclosureJSON `json:"enclosure,omitempty"`
+// An item (design §6.6) is written in three parts so its article is encoded once and written twice,
+// as summary and as content: the fields before them (itemHead), the article (summaryJSON), and the
+// fields after them (itemTail). The bytes are those of one object with the fields in this order:
+// id, crawlTimeMsec, timestampUsec, published, updated, title, author, canonical, alternate, summary,
+// content, categories, origin, enclosure. Strings are never null; summary, content, categories and
+// origin are always present (strict client decoders need them).
+type itemHead struct {
+	ID            string     `json:"id"`
+	CrawlTimeMsec string     `json:"crawlTimeMsec"`
+	TimestampUsec string     `json:"timestampUsec"`
+	Published     int64      `json:"published"`
+	Updated       int64      `json:"updated"`
+	Title         string     `json:"title"`
+	Author        string     `json:"author"`
+	Canonical     []hrefJSON `json:"canonical"`
+	Alternate     []altJSON  `json:"alternate"`
 }
 
-func newItemJSON(r *store.ContentRow) itemJSON {
+type itemTail struct {
+	Categories []string        `json:"categories"`
+	Origin     originJSON      `json:"origin"`
+	Enclosure  []enclosureJSON `json:"enclosure,omitempty"`
+}
+
+// writeItem writes one item to bw. scratch is reused between items, so a response holds one
+// encoded article at a time, whatever its size.
+func writeItem(bw *bufio.Writer, scratch *bytes.Buffer, r *store.ContentRow) error {
+	head, body, tail := itemParts(r)
+	enc := func(v any) []byte {
+		scratch.Reset()
+		e := json.NewEncoder(scratch)
+		e.SetEscapeHTML(false)
+		if err := e.Encode(v); err != nil {
+			return nil
+		}
+		return bytes.TrimRight(scratch.Bytes(), "\n")
+	}
+	h := enc(head)
+	if len(h) < 2 {
+		return errors.New("greader: encode item")
+	}
+	_, _ = bw.Write(h[:len(h)-1]) // without its closing brace
+	b := enc(body)
+	_, _ = bw.WriteString(`,"summary":`)
+	_, _ = bw.Write(b)
+	_, _ = bw.WriteString(`,"content":`)
+	_, _ = bw.Write(b)
+	t := enc(tail)
+	if len(t) < 2 {
+		return errors.New("greader: encode item")
+	}
+	_ = bw.WriteByte(',')
+	_, err := bw.Write(t[1:]) // without its opening brace
+	return err
+}
+
+func itemParts(r *store.ContentRow) (itemHead, summaryJSON, itemTail) {
 	content := r.HTML
 	if r.UseFulltext && r.FulltextHTML.Valid {
 		content = r.FulltextHTML.String
@@ -247,10 +286,11 @@ func newItemJSON(r *store.ContentRow) itemJSON {
 		title = r.FeedTitle
 	}
 	// The article goes in both summary and content: clients read one or the other (the Google
-	// Reader API set content for full articles, summary for excerpts), and response compression
-	// makes the second copy cheap on the wire.
+	// Reader API set content for full articles, summary for excerpts). Under gzip the second copy of
+	// an article up to about 32 KB (the compression window) costs almost nothing; a longer one, such
+	// as a full-text extraction, about doubles on the wire (docs/performance.md).
 	body := summaryJSON{Direction: "ltr", Content: truncateUTF8(content, contentCap)}
-	return itemJSON{
+	return itemHead{
 		ID:            FormatLongID(r.ID),
 		CrawlTimeMsec: strconv.FormatInt(r.ID/1000, 10),
 		TimestampUsec: strconv.FormatInt(r.ID, 10),
@@ -260,11 +300,10 @@ func newItemJSON(r *store.ContentRow) itemJSON {
 		Author:        r.Author,
 		Canonical:     []hrefJSON{{Href: r.URL}},
 		Alternate:     []altJSON{{Href: r.URL, Type: "text/html"}},
-		Summary:       body,
-		Content:       body,
-		Categories:    cats,
-		Origin:        originJSON{StreamID: feedID(r.FeedID), Title: title, HTMLURL: r.SiteURL},
-		Enclosure:     parseEnclosures(r.Enclosures),
+	}, body, itemTail{
+		Categories: cats,
+		Origin:     originJSON{StreamID: feedID(r.FeedID), Title: title, HTMLURL: r.SiteURL},
+		Enclosure:  parseEnclosures(r.Enclosures),
 	}
 }
 
