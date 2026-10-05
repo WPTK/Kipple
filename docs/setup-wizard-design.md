@@ -25,7 +25,7 @@ answers to this design's own open questions (2026-09-29).
 | Race safety of creation | `INSERT ... ON CONFLICT (id) DO NOTHING`, reports `created`. Already the right primitive for a claim race. | `internal/store/account.go:37` |
 | Passwordless | Empty hash signs in **only** with a verified Cloudflare Access JWT on that request; without Access configured it cannot sign in at all. Getting there requires Settings > Remove web password with a verified token. | `internal/api/login.go:51`, `internal/api/access.go`, `docs/design.md` §7.0 |
 | Sessions | `kipple_session` cookie, 32 random bytes, stored as sha256, 90-day sliding, HttpOnly, SameSite=Lax, Secure when the effective scheme is https. | `internal/api/api.go:36-40, 383-429` |
-| CSRF | `authed` wraps every UI route: session first, then for non-GET `sameOrigin`: `Sec-Fetch-Site: same-origin` (or `Origin == scheme://Host`) **and** `X-Kipple-Client: web|pwa`. No CORS headers anywhere. | `internal/api/api.go:317-379` |
+| CSRF | `authed` wraps every UI route: session first, then for non-GET `sameOrigin`: `Sec-Fetch-Site: same-origin` (or `Origin == scheme://Host`) **and** `X-Kipple-Client: web|pwa`. No CORS headers on any UI route (only the token-authenticated Reader API answers CORS). | `internal/api/api.go:317-379` |
 | Host header | Never validated. Only used to build the expected `Origin`. | `internal/api/api.go:368` |
 | Lockout | Per IP (IPv6 by /64), 10 failures / 15 min, reserve-before-verify. | `internal/auth/auth.go:499-616` |
 | Route table | Explicit list; the `/api/` catch-all is `authed` and answers 401/404, never the SPA. New public routes must be registered explicitly. | `internal/api/api.go:233-306` |

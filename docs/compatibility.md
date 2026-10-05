@@ -47,7 +47,12 @@ on which client is calling.
   unencoded.
 - **Responses.** JSON is `application/json; charset=utf-8` whatever `output` says; JSON values are never `null` (except
   `LSID` in a JSON sign-in). Writes answer `200 text/plain` `OK`. Item ids in `itemRefs` are decimal strings; in
-  `items[].id` they are `tag:google.com,2005:reader/item/` plus 16 hex digits.
+  `items[].id` they are `tag:google.com,2005:reader/item/` plus 16 hex digits. A response of 1400 bytes or more is
+  gzip-compressed when the request sends `Accept-Encoding: gzip` (with `Vary: Accept-Encoding` and a weak `ETag`).
+- **Browser clients (CORS).** Every path answers `Access-Control-Allow-Origin: *` and exposes `ETag`, `Retry-After`
+  and the bad-token headers. An `OPTIONS` preflight answers `204` without authentication, allowing `GET`, `POST` and
+  the `Authorization`, `Content-Type` and `If-None-Match` headers. Credentials (cookies) are never involved; send the
+  token in `Authorization` or `T`.
 - **Status codes.** `401` with `X-Reader-Google-Bad-Token: true` and `Google-Bad-Token: true` for a missing, wrong or
   revoked token (sign in again); `405` for a write endpoint called without `POST`; `413` for a body over 4 MiB (64 KiB
   before the client has authenticated); `400` for more than 20,000 parameters and for an unreadable OPML import; `404`
@@ -75,7 +80,7 @@ Paths are below `/api/greader.php`. Every endpoint except the first three and `/
 | `/reader/api/0/stream/items/contents` | `POST` (or `GET`) | `i` (repeated, up to 1000), `r=o` | `{"id":"user/-/state/com.google/reading-list","updated","items":[…]}` |
 | `/reader/api/0/edit-tag` | `POST` | `i` (repeated, up to 10,000), `a`, `r` (repeated) | `OK` |
 | `/reader/api/0/mark-all-as-read` | `POST` | `s`, `ts` | `OK` |
-| `/reader/api/0/subscription/quickadd` | `POST` | `quickadd` (a feed URL, `feed/` prefix optional) | `{"numResults":1,"query","streamId":"feed/<n>","streamName"}`, or `{"numResults":0,"query","error"}` |
+| `/reader/api/0/subscription/quickadd` | `POST` | `quickadd` (a feed URL or a site or page address, `feed/` prefix optional) | `{"numResults":1,"query","streamId":"feed/<n>","streamName"}`, or `{"numResults":0,"query","error"}` |
 | `/reader/api/0/subscription/edit` | `POST` | `ac` (`subscribe`, `edit`, `unsubscribe`), `s` (repeated), `t` (one per `s`), `a`, `r` | `OK` |
 | `/reader/api/0/rename-tag` | `POST` | `s`, `dest` | `OK` |
 | `/reader/api/0/disable-tag` | `POST` | `s` (repeated) | `OK` |
@@ -89,7 +94,7 @@ ignored everywhere, and so is `output` except on `ClientLogin`.
 
 **Items** in `stream/contents` and `stream/items/contents` carry `id`, `crawlTimeMsec` and `timestampUsec` (strings),
 `published` and `updated` (seconds), `title`, `author`, `canonical` and `alternate` (`[{"href"}]`), `summary.content`
-(the article HTML), `categories` (`reading-list`, the feed's folder label, and `read` or `starred` when they apply),
+and `content.content` (both the article HTML), `categories` (`reading-list`, the feed's folder label, and `read` or `starred` when they apply),
 `origin` (`streamId`, `title`, `htmlUrl`) and `enclosure` when the item has any.
 
 ### Stream ids
@@ -169,20 +174,19 @@ might not expect:
 - **`tag/list`** lists folders only (`type` `folder`); Kipple has no per-item tags.
 - **`edit-tag`** ignores `user/-/label/…` values: a folder is a property of a feed, never of an item.
   `broadcast`, `like`, `tracking-*` and unknown tags are ignored too.
-- **Items** carry the article in `summary.content` only, not also in `content.content` (the FreshRSS shape). In the
-  original API a client reads `content` or `summary`, whichever is present.
 - **`stream/items/ids`** reads one `s` (the first), and returns `itemRefs` with `id` only: no `timestampUsec` and no
   `directStreamIds`, even with `includeAllDirectStreamIds=true`.
 - **JSON only.** `output=atom` or `xml` still returns JSON.
-- **`subscription/quickadd` and `subscription/edit ac=subscribe`** take the feed's own URL. They do no network request
-  and no feed discovery: the feed is fetched within the next scheduler tick (about 30 seconds), and a web page URL
-  stays a feed that fails to fetch. The web app's add-feed does discovery.
+- **`subscription/quickadd` and `subscription/edit ac=subscribe`** answer without any network request, with the
+  address stored as given (a bare `example.com`, `feed://…` and surrounding spaces are read as the URL they mean). The
+  feed is fetched within the next scheduler tick (about 30 seconds). When the address is a web page, that first fetch
+  takes the first feed the page links and makes it the subscription's `url`; when that feed is already subscribed, the
+  new subscription is removed instead of becoming a duplicate (the next `subscription/list` no longer has it).
 - **Unsubscribing** a feed that has starred items keeps those items in a hidden archive feed; its items still appear
   in the reading list and starred streams with an `origin.streamId` that is not in `subscription/list`.
 - **New items of a feed with full-text extraction on** are held back from every listing for up to 60 seconds after
   they arrive (30 seconds by default), until the extracted text is ready, so a client never stores the short feed
   version.
-- **No CORS headers.** A browser page on another origin cannot call the API, and an `OPTIONS` request is a `401`.
 
 ### Running the conformance suite
 

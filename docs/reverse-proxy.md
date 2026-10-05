@@ -49,7 +49,12 @@ enough.
 
 `/api/greader.php` is the path sync apps use. It must reach Kipple with the same rules as the rest. If an access layer
 such as Cloudflare Access sits in front, that path normally bypasses it, since sync apps cannot sign in to one; Kipple's
-Reader API has its own password.
+Reader API has its own password. A sync client that runs in a browser sends an `OPTIONS` preflight there first, without
+the password; Kipple answers it, so the bypass must cover `OPTIONS` as well as `GET` and `POST`, and the proxy must not
+answer it or add CORS headers of its own.
+
+Kipple compresses its responses (gzip) for clients that accept it, so the proxy need not; a proxy that compresses
+leaves an already compressed response alone.
 
 ## Find the address to trust
 

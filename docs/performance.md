@@ -157,18 +157,48 @@ matches past the 500 ms budget. See [#229](https://github.com/WPTK/Kipple/issues
 
 ### Reader API (warm, median of 3 runs)
 
-| Call | ms | Body |
-|---|---:|---:|
-| `subscription/list` | 3.7 | 102 KB |
-| `tag/list` | 2.6 | 1 KB |
-| `unread-count` | 8.0 | 38 KB |
-| `stream/contents`, 50 unread items | 3.4 | 175 KB |
-| `stream/contents`, 250 unread items | 7.3 | 901 KB |
-| `stream/items/ids`, 10,000 unread / all | 3.7 / 3.2 | 254 KB |
-| `stream/contents`, starred, 50 | 3.7 | 208 KB |
-| `stream/items/contents`, 50 ids (POST) | 3.2 | 175 KB |
+| Call | ms | Body | Body, gzip |
+|---|---:|---:|---:|
+| `subscription/list` | 4.7 | 123 KB | 14 KB |
+| `tag/list` | 3.7 | 33 KB | 3 KB |
+| `unread-count` | 9.9 | 69 KB | 12 KB |
+| `stream/contents`, 50 unread items | 6.9 | 307 KB | 75 KB |
+| `stream/contents`, 250 unread items | 15.9 | 1,671 KB | 405 KB |
+| `stream/items/ids`, 10,000 unread | 5.8 | 254 KB | 63 KB |
+| `stream/contents`, starred, 50 | 6.3 | 319 KB | 77 KB |
+| `stream/items/contents`, 50 ids (POST) | 5.3 | 307 KB | 75 KB |
 
 All of them are fast; a sync client syncing a library of this size is limited by the body size, not the server.
+Items carry the article twice (`summary.content` and `content.content`), and a client that accepts gzip receives about
+a quarter of the bytes; see "Response compression" below, which these times come from (uncompressed requests).
+
+### Response compression
+
+What `httpx.Compress` (gzip, `BestSpeed`) does to the largest responses of the library above, measured from a client
+on the same machine over loopback: three runs, each call made six times per run, the first discarded, the median of
+the rest, then the median of the three runs. "Level 1" and "level 6" compress the same uncompressed body offline with
+`compress/gzip` at `BestSpeed` and at the default level, to compare the cost.
+
+| Call | Uncompressed | gzip | Share | ms uncompressed | ms gzip | Level 1: KB / ms | Level 6: KB / ms |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `GET /api/bootstrap` | 190 KB | 22 KB | 12% | 29.0 | 30.2 | 22 / 0.5 | 18 / 1.0 |
+| `GET /api/items`, unread, 50 | 36 KB | 13 KB | 36% | 2.6 | 2.7 | 13 / 0.5 | 12 / 0.5 |
+| `subscription/list` | 123 KB | 14 KB | 11% | 4.7 | 4.7 | 14 / 0.5 | 12 / 0.5 |
+| `tag/list` | 33 KB | 3 KB | 8% | 3.7 | 3.6 | 3 / 0.0 | 2 / 0.0 |
+| `unread-count` | 69 KB | 12 KB | 17% | 9.9 | 10.2 | 12 / 0.5 | 11 / 0.5 |
+| `stream/contents`, 50 unread items | 307 KB | 75 KB | 24% | 6.9 | 6.8 | 75 / 1.6 | 70 / 2.6 |
+| `stream/contents`, 250 unread items | 1,671 KB | 405 KB | 24% | 15.9 | 18.9 | 405 / 6.8 | 378 / 12.8 |
+| `stream/items/ids`, 10,000 | 254 KB | 63 KB | 25% | 5.8 | 5.8 | 63 / 1.0 | 66 / 2.1 |
+| `stream/contents`, starred, 50 | 319 KB | 77 KB | 24% | 6.3 | 7.8 | 77 / 1.5 | 72 / 2.6 |
+| `stream/items/contents`, 50 ids (POST) | 307 KB | 75 KB | 24% | 5.3 | 6.3 | 75 / 1.3 | 70 / 2.2 |
+
+- Every large response shrinks to between a tenth and a third. An item page, which carries each article twice, is
+  a quarter of its uncompressed size: smaller than the same page with one copy and no compression.
+- Over loopback, where bandwidth is free, compression costs at most about 3 ms on the largest call (250 full items)
+  and nothing measurable on the others. Over a real network the time saved sending three quarters fewer bytes is far
+  larger: at 20 Mbit/s the 250-item page takes about 0.7 s uncompressed and 0.17 s compressed.
+- `BestSpeed` was chosen over the default level: the default saves 7 percent more bytes on the largest body for twice
+  the CPU time (12.8 ms against 6.8 ms), and on the smaller ones the two are within a kilobyte.
 
 ### Refresh and retention
 
