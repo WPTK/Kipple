@@ -19,12 +19,9 @@ var defaultHostSuffixes = []string{".localhost", ".local", ".lan", ".home.arpa",
 // local network: any device can claim a .local name over mDNS, a single-label
 // name over LLMNR or NetBIOS, and a DHCP hostname under .lan or .internal on
 // many routers. A LAN peer could then rebind such a name to this computer and
-// drive a browser here into an open-mode instance whose port it cannot reach
-// itself (the default publish is 127.0.0.1 only). .localhost never leaves the
-// machine (RFC 6761) and .ts.net names come from Tailscale, not from the LAN.
-// Open mode answers such a name only when it is listed; choosing open mode (in
-// the setup wizard or in Settings) lists the one it was chosen under
-// (OpenHostToRemember).
+// drive a browser here into an open-mode instance that only admits this
+// computer and the tailnet. .localhost never leaves the machine (RFC 6761) and
+// .ts.net names come from Tailscale, not from the LAN.
 var openHostSuffixes = []string{".localhost", ".ts.net"}
 
 const maxHostLen = 253
@@ -141,8 +138,7 @@ func HostAllowed(host string, extra []string) bool {
 // OpenHostAllowed is the narrower Host gate of open mode: an IP literal,
 // localhost and *.localhost, a *.ts.net name, or a match for one of extra.
 // Names any LAN device can answer (.local, .lan, .home.arpa, .internal and
-// single-label names; see openHostSuffixes) need to be listed, which choosing open
-// mode does for the name it is chosen under (OpenHostToRemember).
+// single-label names; see openHostSuffixes) need to be listed explicitly.
 func OpenHostAllowed(host string, extra []string) bool {
 	if host == "" {
 		return false
@@ -151,19 +147,6 @@ func OpenHostAllowed(host string, extra []string) bool {
 		return true
 	}
 	return hostMatches(host, openHostSuffixes, extra)
-}
-
-// OpenHostToRemember is the name to add to security.allowed_hosts when open
-// mode is chosen (setup wizard or Settings) under host: one setup mode answers but
-// open mode would not (nas, nas.local), so the instance keeps answering the
-// name its owner set it up under, and no other such name. "" when there is
-// nothing to remember: open mode already accepts host (an IP literal,
-// localhost, a listed name), or setup mode refuses it.
-func OpenHostToRemember(host string, extra []string) string {
-	if !HostAllowed(host, extra) || OpenHostAllowed(host, extra) {
-		return ""
-	}
-	return host
 }
 
 // hostMatches is an IP literal, a name under one of suffixes, or a match for

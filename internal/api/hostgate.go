@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -158,12 +156,13 @@ func (s *Server) openHosts(snap *modeSnapshot) bool {
 const hostRefusedText = "Kipple refused this request because of the address it was sent to.\n\n" +
 	"While Kipple is being set up, it only answers requests addressed to an IP address, localhost, a single-word\n" +
 	"name, or a .localhost, .local, .lan, .home.arpa, .internal or .ts.net name. While it runs without a password\n" +
-	"(open mode), it answers an IP address, localhost, a .localhost or .ts.net name, the name open mode was\n" +
-	"turned on under, and the names you listed: other devices on the local network can answer single-word,\n" +
-	".local and similar names, so each one you use has to be listed. This protects it against DNS rebinding.\n\n" +
-	"To use another name, add it under Settings > Allowed host names (security.allowed_hosts), or to\n" +
-	"KIPPLE_ALLOWED_HOSTS (comma-separated, e.g. nas.local, rss.example.com or *.example.com) and restart.\n" +
-	"Opening Kipple by its IP address always works.\n"
+	"(open mode), it only answers an IP address, localhost, a .localhost or .ts.net name, the host of\n" +
+	"KIPPLE_PUBLIC_URL and the names you allowed: any device on your network can answer a single-word or .local-style\n" +
+	"name with this computer's address and steer your browser into Kipple (DNS rebinding), so each such name has to\n" +
+	"be allowed by name.\n\n" +
+	"To allow a name, add it to KIPPLE_ALLOWED_HOSTS (comma-separated, e.g. nas.local, rss.example.com or\n" +
+	"*.example.com) and restart Kipple. Signed in, you can also set security.allowed_hosts with\n" +
+	"PATCH /api/settings. Opening Kipple by its IP address always works.\n"
 
 // HostGate is the Host-header check (design 5.2), installed ahead of every
 // handler. In setup and open mode a request whose Host is not an allowed name
@@ -213,46 +212,10 @@ func (s *Server) warnHost() {
 // admitted it.
 func (s *Server) gateRefusal(r *http.Request, snap *modeSnapshot, signIn bool) string {
 	host, ok := s.openHostAllowed(r, snap)
-	return s.openGate(r, host, ok, signIn)
-}
-
-// chooseOpenRefusal is gateRefusal for choosing open mode: in the setup wizard
-// (signIn: the account POST; otherwise the instance's preview of it) and by
-// the password switch in Settings. It judges the Host by setup mode's list
-// (setup.HostAllowed: the mode is not open yet, so hostAllowed uses it), so the
-// name open mode is chosen under (nas, nas.local) may become one of open
-// mode's names; remember is that name when open mode would not answer it
-// unlisted (setup.OpenHostToRemember; "" otherwise), and the caller lists it
-// in the same transaction as the mode (rememberOpenHostError for a full list).
-// This gives a rebinding page nothing: in setup mode whoever creates the
-// account owns the instance either way, and the switch needs the current
-// password.
-func (s *Server) chooseOpenRefusal(r *http.Request, snap *modeSnapshot, signIn bool) (reason, remember string) {
-	host, ok := s.hostAllowed(r, snap) // setup mode's list: the mode is not open yet
-	if reason = s.openGate(r, host, ok, signIn); reason == "" {
-		remember = setup.OpenHostToRemember(host, snap.allowed)
-	}
-	return reason, remember
-}
-
-// rememberOpenHostError answers err when it is store.ErrAllowedHostsFull (409
-// allowed_hosts_full, naming host) and reports whether it did.
-func rememberOpenHostError(w http.ResponseWriter, err error, host string) bool {
-	if !errors.Is(err, store.ErrAllowedHostsFull) {
-		return false
-	}
-	writeErrorMsg(w, http.StatusConflict, "allowed_hosts_full", fmt.Sprintf(
-		"open mode needs %q in Allowed host names, which already has %d names: open Kipple by its IP address or localhost, or remove a name from KIPPLE_ALLOWED_HOSTS or security.allowed_hosts",
-		host, store.MaxAllowedHosts))
-	return true
-}
-
-// openGate is the open gate for an already judged Host.
-func (s *Server) openGate(r *http.Request, host string, hostOK, signIn bool) string {
 	if signIn {
-		return s.opt.Gate.SignInRefusal(r, host, hostOK)
+		return s.opt.Gate.SignInRefusal(r, host, ok)
 	}
-	return s.opt.Gate.OpenRefusal(r, host, hostOK)
+	return s.opt.Gate.OpenRefusal(r, host, ok)
 }
 
 // signInRefusal is gateRefusal for granting access.
@@ -265,7 +228,7 @@ func writeOpenRefused(w http.ResponseWriter, reason string) {
 	msg := "open mode (no password) only works from this computer, your local network or Tailscale"
 	switch reason {
 	case setup.RefuseHost:
-		msg = "open mode does not answer this address: open Kipple by its IP address, localhost or the name you turned open mode on under, or add this name under Settings > Allowed host names (security.allowed_hosts) or to KIPPLE_ALLOWED_HOSTS"
+		msg = "open mode does not answer this name: open Kipple by its IP address or localhost, or allow the name by adding it to KIPPLE_ALLOWED_HOSTS and restarting Kipple"
 	case setup.RefuseForwarded:
 		msg = "open mode refuses requests through a proxy or tunnel: reach Kipple directly (localhost, your local network or Tailscale), or set a password"
 	case setup.RefusePeer:

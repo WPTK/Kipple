@@ -83,7 +83,7 @@ Kipple's state is split in two places, and a backup of one does not cover the ot
 | Lives in the database (in every export zip and snapshot) | Lives in your compose file or `.env` (in no backup) |
 |---|---|
 | The account: user name, password hashes, account secret | `KIPPLE_ADDR` and the compose port mapping |
-| Every setting in Settings, including the time zone (`tz`) and `security.allowed_hosts` | `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS` |
+| Every setting, including the time zone (`tz`) and `security.allowed_hosts` | `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS` |
 | Feeds, folders, per-feed options, filters, feed logins | `KIPPLE_ACCESS_TEAM_DOMAIN`, `KIPPLE_ACCESS_AUD` |
 | Read and starred state, the statistics history | `TZ`, `KIPPLE_DATA`, and the other tuning and logging variables |
 | Device profiles | Image tag, resource limits (`mem_limit`, `GOMEMLIMIT`), the reverse proxy or tunnel setup |
@@ -315,19 +315,20 @@ Sign-in then happens by itself when the app opens: it asks the server for a sess
 the request passes the **open gate**:
 
 1. **The name is expected.** Open mode answers a `Host` header that is an IP address, `localhost`, a `.localhost` or
-   `.ts.net` name, the host of `KIPPLE_PUBLIC_URL`, a name in `KIPPLE_ALLOWED_HOSTS` or Settings > Allowed host names
-   (`security.allowed_hosts`), or the name you used when you chose no password, in the setup wizard or later in Settings. That last name is
-   remembered for you: if you set Kipple up at `http://nas.local:1919` or `http://nas:1919`, the wizard adds `nas.local`
-   or `nas` to Allowed host names when it creates the account (switching to no password in Settings does the same for
-   the name you switched under), so that address keeps working.
-   Anything else gets `421 Misdirected Request`, which says how to add the name. `http://<ip>:1919` always works, so
-   you can always get to Settings to add another name.
+   `.ts.net` name, the host of `KIPPLE_PUBLIC_URL`, or a name you allowed. Anything else gets
+   `421 Misdirected Request`, which says how to allow the name. `http://<ip>:1919` always works.
+
+   To use a local network name such as `nas.local` or `nas` without a password, allow it: add it to
+   `KIPPLE_ALLOWED_HOSTS` (comma-separated, for example `KIPPLE_ALLOWED_HOSTS=nas.local`) and restart Kipple. The
+   names are also kept in the `security.allowed_hosts` setting, which you can set while signed in with
+   `PATCH /api/settings`; the Settings screen does not show it. The two lists add up.
 
    This defeats DNS rebinding, where a hostile web page points a name it controls at your computer so your browser
    treats Kipple as part of that page. A public name is the usual tool, but a device on your network can do the same
    with a single-word or `.local`, `.lan`, `.home.arpa` or `.internal` name (mDNS, LLMNR or NetBIOS, a router's DHCP
-   names) even when it cannot reach Kipple's port itself, as with the default `127.0.0.1:1919` publish. So open mode
-   answers only the names of that kind you turned open mode on under or added, not all of them. During setup the check is
+   names), even when it cannot reach Kipple's port itself, as with the default `127.0.0.1:1919` publish. So open mode
+   answers only the names of that kind you allowed, never all of them, and choosing open mode never allows a name for
+   you: the setup wizard has no secret, so a hostile page could make that choice too. During setup the check is
    broader (single-word names and those suffixes are answered, so the wizard opens at whatever name you use); with a
    password it only logs, once an hour.
 2. **Not forwarded.** A request that came through a proxy or tunnel (a `CF-Connecting-IP`, `Cf-Access-Jwt-Assertion`,

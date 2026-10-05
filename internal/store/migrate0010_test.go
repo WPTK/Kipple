@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -159,88 +158,6 @@ func TestEnvAccountIsSetUp(t *testing.T) {
 	again, err := e.db.CreateAccount(ctx, Account{Username: "other", PasswordHash: "x", Secret: fixtureKey})
 	require.NoError(t, err)
 	require.False(t, again, "an existing row is never replaced")
-}
-
-// The name open mode was chosen under is added to security.allowed_hosts with
-// the account row: after what is already there, once, and only by the insert
-// that wins.
-func TestCreateAccountAllowingHost(t *testing.T) {
-	e := newEnv(t)
-	ctx := context.Background()
-	require.NoError(t, e.db.SetSettings(ctx, map[string]any{SettingAllowedHosts: []any{"rss.example.com", "nas.local"}}))
-	open := Account{Username: "owner", Secret: fixtureKey, AuthMode: AuthOpen, CreatedVia: CreatedViaWizard}
-	created, err := e.db.CreateAccountAllowingHost(ctx, open, "nas.local")
-	require.NoError(t, err)
-	require.True(t, created)
-	sec, err := e.db.SecuritySettings(ctx)
-	require.NoError(t, err)
-	require.Equal(t, []string{"rss.example.com", "nas.local"}, sec.AllowedHosts, "already listed: unchanged")
-
-	again, err := e.db.CreateAccountAllowingHost(ctx, open, "box.lan")
-	require.NoError(t, err)
-	require.False(t, again)
-	sec, err = e.db.SecuritySettings(ctx)
-	require.NoError(t, err)
-	require.Equal(t, []string{"rss.example.com", "nas.local"}, sec.AllowedHosts, "a lost race lists nothing")
-
-	e2 := newEnv(t)
-	created, err = e2.db.CreateAccountAllowingHost(ctx, open, "nas")
-	require.NoError(t, err)
-	require.True(t, created)
-	sec, err = e2.db.SecuritySettings(ctx)
-	require.NoError(t, err)
-	require.Equal(t, []string{"nas"}, sec.AllowedHosts, "no list yet: a list of one")
-}
-
-// A full list fails the whole insert: no account, the list unchanged.
-func TestCreateAccountAllowingHostFullList(t *testing.T) {
-	e := newEnv(t)
-	ctx := context.Background()
-	full := make([]any, MaxAllowedHosts)
-	for i := range full {
-		full[i] = fmt.Sprintf("h%d.example.com", i)
-	}
-	require.NoError(t, e.db.SetSettings(ctx, map[string]any{SettingAllowedHosts: full}))
-	open := Account{Username: "owner", Secret: fixtureKey, AuthMode: AuthOpen, CreatedVia: CreatedViaWizard}
-	created, err := e.db.CreateAccountAllowingHost(ctx, open, "nas.local")
-	require.ErrorIs(t, err, ErrAllowedHostsFull)
-	require.False(t, created)
-	_, ok, err := e.db.Account(ctx)
-	require.NoError(t, err)
-	require.False(t, ok)
-	sec, err := e.db.SecuritySettings(ctx)
-	require.NoError(t, err)
-	require.Len(t, sec.AllowedHosts, MaxAllowedHosts)
-	// A name already on a full list needs no room.
-	created, err = e.db.CreateAccountAllowingHost(ctx, open, "h3.example.com")
-	require.NoError(t, err)
-	require.True(t, created)
-}
-
-// The switch to open mode lists its name in the same transaction: once, and
-// not at all when the list is full (then the mode is unchanged too).
-func TestSetPasswordHashAllowingHost(t *testing.T) {
-	e := newEnv(t)
-	ctx := context.Background()
-	_, err := e.db.CreateAccount(ctx, Account{Username: "owner", PasswordHash: "h", Secret: fixtureKey})
-	require.NoError(t, err)
-	require.NoError(t, e.db.SetPasswordHashAllowingHost(ctx, "", AuthOpen, "", "nas.local"))
-	require.NoError(t, e.db.SetPasswordHashAllowingHost(ctx, "", AuthOpen, "", "nas.local"))
-	sec, err := e.db.SecuritySettings(ctx)
-	require.NoError(t, err)
-	require.Equal(t, []string{"nas.local"}, sec.AllowedHosts)
-
-	require.NoError(t, e.db.SetPasswordHash(ctx, "h", AuthStandard, ""))
-	full := make([]any, MaxAllowedHosts)
-	for i := range full {
-		full[i] = fmt.Sprintf("h%d.example.com", i)
-	}
-	require.NoError(t, e.db.SetSettings(ctx, map[string]any{SettingAllowedHosts: full}))
-	require.ErrorIs(t, e.db.SetPasswordHashAllowingHost(ctx, "", AuthOpen, "", "box.lan"), ErrAllowedHostsFull)
-	a, _, err := e.db.Account(ctx)
-	require.NoError(t, err)
-	require.Equal(t, AuthStandard, a.AuthMode)
-	require.Equal(t, "h", a.PasswordHash)
 }
 
 // security.open_lan was removed (open mode is one rule now). A row an older

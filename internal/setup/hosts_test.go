@@ -87,49 +87,6 @@ func TestOpenHostAllowedIsNarrower(t *testing.T) {
 	require.False(t, OpenHostAllowed("", extra))
 }
 
-// The wizard lists the name open mode was chosen under exactly when setup mode
-// answers it and open mode would not: a LAN name. Not an IP literal, localhost
-// or a Tailscale name (open mode answers those), not a listed name, and not a
-// public one (setup mode refuses it, so the wizard never sees it).
-func TestOpenHostToRemember(t *testing.T) {
-	extra := []string{"listed.local", "*.corp.example"}
-	for _, tc := range []struct{ in, want string }{
-		{"nas.local:1919", "nas.local"},
-		{"NAS.LOCAL.", "nas.local"},
-		{"nas", "nas"},
-		{"NAS:1919", "nas"},
-		{"box.lan", "box.lan"},
-		{"box.home.arpa", "box.home.arpa"},
-		{"svc.internal:8080", "svc.internal"},
-		{"xn--bcher-kva.local", "xn--bcher-kva.local"},
-		{"127.0.0.1:1919", ""},
-		{"192.168.1.20", ""},
-		{"[::1]:1919", ""},
-		{"[fe80::1]", ""},
-		{"[FD00::AB]:80", ""},
-		{"localhost:1919", ""},
-		{"LOCALHOST.", ""},
-		{"app.localhost", ""},
-		{"box.tail1234.ts.net", ""},
-		{"listed.local", ""},
-		{"a.corp.example", ""},
-		{"rss.example.com", ""},
-		{"nas.local.evil.example", ""},
-		{"evil.ts.net.example", ""},
-		{"nas.xn--lcal-6qa", ""}, // a punycode lookalike of .local is another, public name
-	} {
-		host, ok := NormalizeHost(tc.in)
-		require.True(t, ok, tc.in)
-		require.Equal(t, tc.want, OpenHostToRemember(host, extra), tc.in)
-		if tc.want != "" {
-			_, err := CheckHostEntry(tc.want)
-			require.NoError(t, err, "a remembered name is a valid allowed_hosts entry: %s", tc.want)
-			require.True(t, OpenHostAllowed(host, append(extra, tc.want)), "once listed, open mode answers %s", tc.in)
-		}
-	}
-	require.Equal(t, "", OpenHostToRemember("", nil))
-}
-
 func TestHostAllowedExtraEntries(t *testing.T) {
 	extra := []string{"rss.example.com", "*.example.org"}
 	for in, want := range map[string]bool{

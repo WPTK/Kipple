@@ -68,9 +68,6 @@ type NewAccount struct {
 	APIPassword string // "" = the Reader API stays disabled
 	AuthMode    string // store.AuthStandard or store.AuthOpen
 	CreatedVia  string // store.CreatedViaEnv or store.CreatedViaWizard
-	// AllowHost ("" = none) is added to security.allowed_hosts with the row: the
-	// name open mode was chosen under (OpenHostToRemember).
-	AllowHost string
 }
 
 // ErrBadUsername is CreateAccount's answer to a user name ValidUsername refuses.
@@ -109,7 +106,7 @@ func CreateAccount(ctx context.Context, db *store.DB, a NewAccount) (created boo
 	}
 	acct = store.Account{Username: a.Username, PasswordHash: pwHash, APIPasswordHash: apiHash, Secret: secret,
 		AuthMode: a.AuthMode, CreatedVia: a.CreatedVia}
-	created, err = db.CreateAccountAllowingHost(ctx, acct, a.AllowHost)
+	created, err = db.CreateAccount(ctx, acct)
 	if err != nil || !created {
 		return created, store.Account{}, err
 	}

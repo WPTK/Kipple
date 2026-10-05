@@ -62,15 +62,6 @@ func (d *DB) Account(ctx context.Context) (a Account, ok bool, err error) {
 // account created from the environment is stamped as set up in the same
 // transaction, so scripted deploys never see onboarding.
 func (d *DB) CreateAccount(ctx context.Context, a Account) (created bool, err error) {
-	return d.CreateAccountAllowingHost(ctx, a, "")
-}
-
-// CreateAccountAllowingHost is CreateAccount that, when it inserts the row and
-// allowHost is not empty, also adds allowHost to security.allowed_hosts in the
-// same transaction (idempotent; ErrAllowedHostsFull, which fails the whole
-// insert, when the list is full): the name the setup wizard was opened under
-// when open mode was chosen, so the instance keeps answering it.
-func (d *DB) CreateAccountAllowingHost(ctx context.Context, a Account, allowHost string) (created bool, err error) {
 	mode, via := a.AuthMode, a.CreatedVia
 	if mode == "" {
 		mode = AuthStandard
@@ -95,12 +86,6 @@ func (d *DB) CreateAccountAllowingHost(ctx context.Context, a Account, allowHost
 		created = n > 0
 		if !created {
 			return nil
-		}
-		if allowHost != "" {
-			if err := allowHostTx(ctx, tx, allowHost); err != nil {
-				created = false
-				return err
-			}
 		}
 		if via == CreatedViaEnv {
 			return stampSetupCompletedTx(ctx, tx, d.clock.Now().Unix())
@@ -135,15 +120,6 @@ func (d *DB) SetAPIPasswordHash(ctx context.Context, hash string) error {
 // same transaction, deletes every session except keepSession (the caller's),
 // so a changed password or mode signs out every other browser.
 func (d *DB) SetPasswordHash(ctx context.Context, hash, mode, keepSession string) error {
-	return d.SetPasswordHashAllowingHost(ctx, hash, mode, keepSession, "")
-}
-
-// SetPasswordHashAllowingHost is SetPasswordHash that, when allowHost is not
-// empty, also adds allowHost to security.allowed_hosts in the same transaction
-// (idempotent; ErrAllowedHostsFull, which fails the whole change, when the list
-// is full): the name open mode was switched on under, as
-// CreateAccountAllowingHost does for the setup wizard.
-func (d *DB) SetPasswordHashAllowingHost(ctx context.Context, hash, mode, keepSession, allowHost string) error {
 	if mode != AuthStandard && mode != AuthOpen {
 		return fmt.Errorf("store: unknown auth mode %q", mode)
 	}
@@ -154,11 +130,6 @@ func (d *DB) SetPasswordHashAllowingHost(ctx context.Context, hash, mode, keepSe
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return fmt.Errorf("store: no account row")
-		}
-		if allowHost != "" {
-			if err := allowHostTx(ctx, tx, allowHost); err != nil {
-				return err
-			}
 		}
 		_, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE id <> ?", keepSession)
 		return err

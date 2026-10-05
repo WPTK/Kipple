@@ -182,52 +182,38 @@ func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.setPassword(w, r, hash, store.AuthStandard, "")
+	s.setPassword(w, r, hash, store.AuthStandard)
 }
 
 // setPassword stores the web password hash and auth mode, signing out every
-// other session, and answers 204; it reports whether it stored the change.
-// allowHost ("" = none) is added to security.allowed_hosts in the same
-// transaction: the name open mode is switched on under. A full list answers
-// 409 and changes nothing.
-func (s *Server) setPassword(w http.ResponseWriter, r *http.Request, hash, mode, allowHost string) bool {
+// other session, and answers 204.
+func (s *Server) setPassword(w http.ResponseWriter, r *http.Request, hash, mode string) {
 	keep := ""
 	if c, err := r.Cookie(cookieName); err == nil {
 		keep = sessionID(c.Value)
 	}
-	if err := s.db.SetPasswordHashAllowingHost(r.Context(), hash, mode, keep, allowHost); err != nil {
-		if !rememberOpenHostError(w, err, allowHost) {
-			s.serverError(w, "set password", err)
-		}
-		return false
+	if err := s.db.SetPasswordHash(r.Context(), hash, mode, keep); err != nil {
+		s.serverError(w, "set password", err)
+		return
 	}
 	s.verifier.ClearMemo()
-	s.noteMode(r.Context(), func(sn *modeSnapshot) {
-		sn.mode = mode
-		if allowHost != "" {
-			sn.allowed = append(sn.allowed, allowHost)
-		}
-	})
+	s.noteMode(r.Context(), func(sn *modeSnapshot) { sn.mode = mode })
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusNoContent)
-	return true
 }
 
 // switchToOpen is `{current, open: true}` on a password account: the current
-// password and then the open gate, judged as in the setup wizard
-// (chooseOpenRefusal), so the name it is sent to is remembered.
+// password and then the open gate.
 func (s *Server) switchToOpen(w http.ResponseWriter, r *http.Request, current string) {
 	if _, ok := s.checkCurrent(w, r, current, false); !ok {
 		return
 	}
-	reason, remember := s.chooseOpenRefusal(r, s.snapshot(r.Context()), true)
-	if reason != "" {
+	if reason := s.signInRefusal(r); reason != "" {
 		writeOpenRefused(w, reason)
 		return
 	}
-	if s.setPassword(w, r, "", store.AuthOpen, remember) {
-		s.log.Info("account switched to open mode (no password)", "remembered_host", remember)
-	}
+	s.setPassword(w, r, "", store.AuthOpen)
+	s.log.Info("account switched to open mode (no password)")
 }
 
 // accountPasswordOpen is POST /api/account/password on an open-mode account:
@@ -250,9 +236,8 @@ func (s *Server) accountPasswordOpen(w http.ResponseWriter, r *http.Request, new
 		s.serverError(w, "hash password", err)
 		return
 	}
-	if s.setPassword(w, r, hash, store.AuthStandard, "") {
-		s.log.Info("account left open mode: a web password is set")
-	}
+	s.setPassword(w, r, hash, store.AuthStandard)
+	s.log.Info("account left open mode: a web password is set")
 }
 
 func btoi(b bool) int {

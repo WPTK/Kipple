@@ -251,17 +251,15 @@ cannot control is the `Host` header, which is `evil.example:1919`. So:
   can answer those names (mDNS, LLMNR/NetBIOS, a router's DHCP names) and rebind one to this computer, which reaches
   an open instance through the owner's browser even when the LAN cannot reach its port (the default
   `127.0.0.1:1919` publish).
-- **The name open mode is chosen under is remembered:** choosing open mode, in the setup wizard or by the password
-  switch in Settings (one function, `chooseOpenRefusal`), is judged by setup mode's list. When that request's Host is
-  a name open mode would not answer unlisted (`setup.OpenHostToRemember`: `nas`, `nas.local`), the account insert or
-  the mode change adds it to `security.allowed_hosts` in the same transaction (idempotent, bounded by
-  `store.MaxAllowedHosts`; a full list fails the claim or the switch with `409 allowed_hosts_full` and changes
-  nothing). The owner keeps working at the name they chose open mode under, and no other LAN name opens. This gives a
-  rebinding page nothing: in setup mode whoever claims the unclaimed instance owns it either way, and the switch needs
-  a session (an origin-bound cookie) and the current password. Rejected alternative: accepting every private name in
-  open mode (one list for both modes), which reopens the loopback-publish rebinding above for the default install.
+- **Nothing is allowed implicitly (#254):** choosing open mode never lists the name it was chosen under. Two designs
+  were rejected. Accepting every private name in open mode reopens the loopback-publish rebinding above for the
+  default install. Remembering the wizard's name fails because the account claim has no secret: a rebinding page at
+  `evil.local` during the setup window passes the Host gate, same-origin, `X-Kipple-Client` and Origin == Host, and
+  would get its name kept, so it would have lasting, silent access. A LAN name is allowed only by the owner, by name; the
+  421 body and the open gate's `host` refusal say how.
 - **Configurable:** `KIPPLE_ALLOWED_HOSTS` (comma list, for setup mode, before any UI exists) plus a global setting
-  `security.allowed_hosts` (JSON array, editable in Settings after setup). Entries are exact hosts or `*.suffix`.
+  `security.allowed_hosts` (JSON array, set with `PATCH /api/settings`; the Settings screen does not render JSON
+  settings, so it is not shown there). Entries are exact hosts or `*.suffix`.
 
 ### 5.3 CSRF
 
@@ -310,7 +308,7 @@ changes already do.
 | **Claim race**: someone on the network reaches the fresh port first | Token required before the account step; the account insert is `ON CONFLICT DO NOTHING`, so two token holders racing get one `201` and one `409` | Whoever can read container logs can claim; that person already controls the host |
 | **Token leakage in logs** (log shippers, pasted `docker logs` in an issue) | Single use, dies at claim, rotates on restart; printed once, outside slog; never in debug info, request logs or backups; the fragment form keeps it out of proxy logs and Referers | A shipped log line is readable until the instance is claimed |
 | **Brute force** of the token or of logins | 120-bit token, separate per-IP lockout, global rotation; login lockout unchanged | None worth noting |
-| **DNS rebinding** against setup or open mode | Host gate (5.2) enforced in both; password mode unaffected (cookie is origin-bound) | A user who allowlists a public name they do not control; a LAN device that answers the very name the owner set up under or listed (`nas.local`) with this computer's address |
+| **DNS rebinding** against setup or open mode | Host gate (5.2) enforced in both; open mode answers single-label and `.local`/`.lan`/`.home.arpa`/`.internal` names only when listed (a LAN device can answer them, even against the default `127.0.0.1` publish); choosing open mode never lists a name | A user who allowlists a public name they do not control; a LAN device that answers a name the owner listed (`nas.local`) with this computer's address; in setup mode, a LAN-name rebinding page can claim the unclaimed instance (no setup secret) |
 | **CSRF / login CSRF** | `sameOrigin` + `X-Kipple-Client` on every write; Strict setup cookie; no CORS | None beyond today |
 | **Passwordless on the LAN or the internet** | Explicit acknowledgement; open gate refuses forwarded requests and non-local peers; turning open mode on requires the password and the gate | Open mode trusts every device on the local network and the tailnet, by choice (0.7: one rule, no setting; superseded the `security.open_lan` opt-in) |
 | **Setup endpoints reopening** | Not registered when the row exists at start; flag checked per request; no API deletes the row | Direct SQLite surgery (out of scope) |
