@@ -2027,7 +2027,7 @@ The React app does not refetch lists on events, except on `resync`. For `fetch.d
 
 **Export:**
 
-- `<opml version="2.0" xmlns:kipple="https://kipple.invalid/opml/1">`, with the folder tree as nested `<outline text title>` folder outlines, each named by its own name (not its path), in `folder_paths.sort_key` order (pre-order, siblings by position, then name). Inside a folder its feeds come first, then its subfolders. The default folder is written only while it has feeds. One query reads folders and feeds, so the document is one snapshot.
+- `<opml version="2.0" xmlns:kipple="https://kipple.invalid/opml/1">`, with the folder tree as nested `<outline text title>` folder outlines, each named by its own name (not its path), in `folder_paths.sort_key` order (pre-order, siblings by position, then name). Inside a folder its subfolders come first, then its own feeds, the order the web app shows. The default folder is written only while it has feeds. One query reads folders and feeds, so the document is one snapshot.
 - Each feed is `<outline type="rss" text title xmlUrl htmlUrl>`, where `text` and `title` = `COALESCE(custom_title, title)`.
 - Optional attributes, written only when not at the default: `kipple:interval`, `kipple:retention`, `kipple:fulltext`, `kipple:dedup`, `kipple:user_agent`, `kipple:ignore_http_cache`, `kipple:disable_http2`, `kipple:allow_insecure_tls`, `kipple:allow_private_net`, `kipple:enabled`.
 - Disabled and gone feeds are included; the archive feed is excluded. `http_auth` is never exported.
