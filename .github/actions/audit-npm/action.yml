@@ -1,0 +1,20 @@
+name: npm audit
+description: Fail on high or critical advisories in the production dependencies of the web app. Reads web/package-lock.json only.
+
+runs:
+  using: composite
+  steps:
+    # The ids of what fails the gate, for the weekly audit's tracking issue. Never fails by itself.
+    - shell: bash
+      working-directory: web
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/audit-logs"
+        npm audit --omit=dev --json > "$RUNNER_TEMP/npm-audit.json" || true
+        node "$ACTION_PATH/high-ids.mjs" "$RUNNER_TEMP/npm-audit.json" > "$RUNNER_TEMP/audit-logs/npm.log"
+
+    # The gate itself.
+    - shell: bash
+      working-directory: web
+      run: npm audit --omit=dev --audit-level=high
