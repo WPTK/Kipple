@@ -71,13 +71,12 @@ Then check, in order:
 ## "Kipple refused this request because of the address it was sent to" (421)
 
 This is the Host check; it protects against DNS rebinding. During setup Kipple answers an IP address, `localhost`, a
-single-word name such as `nas`, and `.localhost`, `.local`, `.lan`, `.home.arpa`, `.internal` and `.ts.net` names.
-Without a password (open mode) it answers an IP address, `localhost`, `.localhost` and `.ts.net` names, the host of
+single-word name such as `nas`, `.localhost`, `.local`, `.lan`, `.home.arpa`, `.internal` and `.ts.net` names, the host of
+`KIPPLE_PUBLIC_URL`, and the names you allowed. Without a password (open mode) it answers an IP address, `localhost`, `.localhost` and `.ts.net` names, the host of
 `KIPPLE_PUBLIC_URL`, and the names you allowed; other single-word and `.local`-style names are refused because any
 device on your network could answer them with your computer's address. To allow a name, add it to
 `KIPPLE_ALLOWED_HOSTS` (comma-separated, for example `nas.local` or `rss.example.com`) and restart Kipple, or open
-Kipple by its IP address. Signed in, you can also set the `security.allowed_hosts` setting with `PATCH /api/settings`
-(the Settings screen does not show it). With a password the check only logs.
+Kipple by its IP address. With a password the check only logs.
 
 ## Sign-in says "busy"
 

@@ -155,14 +155,13 @@ func (s *Server) openHosts(snap *modeSnapshot) bool {
 // hostRefusedText is the 421 body: what happened and the settings that fix it.
 const hostRefusedText = "Kipple refused this request because of the address it was sent to.\n\n" +
 	"While Kipple is being set up, it only answers requests addressed to an IP address, localhost, a single-word\n" +
-	"name, or a .localhost, .local, .lan, .home.arpa, .internal or .ts.net name. While it runs without a password\n" +
-	"(open mode), it only answers an IP address, localhost, a .localhost or .ts.net name, the host of\n" +
-	"KIPPLE_PUBLIC_URL and the names you allowed: any device on your network can answer a single-word or .local-style\n" +
-	"name with this computer's address and steer your browser into Kipple (DNS rebinding), so each such name has to\n" +
-	"be allowed by name.\n\n" +
+	"name, a .localhost, .local, .lan, .home.arpa, .internal or .ts.net name, the host of KIPPLE_PUBLIC_URL or a\n" +
+	"name you allowed. While it runs without a password (open mode), it only answers an IP address, localhost, a\n" +
+	".localhost or .ts.net name, the host of KIPPLE_PUBLIC_URL and the names you allowed: any device on your\n" +
+	"network can answer a single-word or .local-style name with this computer's address and steer your browser into\n" +
+	"Kipple (DNS rebinding), so each such name has to be allowed by name.\n\n" +
 	"To allow a name, add it to KIPPLE_ALLOWED_HOSTS (comma-separated, e.g. nas.local, rss.example.com or\n" +
-	"*.example.com) and restart Kipple. Signed in, you can also set security.allowed_hosts with\n" +
-	"PATCH /api/settings. Opening Kipple by its IP address always works.\n"
+	"*.example.com) and restart Kipple. Opening Kipple by its IP address always works.\n"
 
 // HostGate is the Host-header check (design 5.2), installed ahead of every
 // handler. In setup and open mode a request whose Host is not an allowed name

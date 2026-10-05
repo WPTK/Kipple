@@ -319,9 +319,7 @@ the request passes the **open gate**:
    `421 Misdirected Request`, which says how to allow the name. `http://<ip>:1919` always works.
 
    To use a local network name such as `nas.local` or `nas` without a password, allow it: add it to
-   `KIPPLE_ALLOWED_HOSTS` (comma-separated, for example `KIPPLE_ALLOWED_HOSTS=nas.local`) and restart Kipple. The
-   names are also kept in the `security.allowed_hosts` setting, which you can set while signed in with
-   `PATCH /api/settings`; the Settings screen does not show it. The two lists add up.
+   `KIPPLE_ALLOWED_HOSTS` (comma-separated, for example `KIPPLE_ALLOWED_HOSTS=nas.local`) and restart Kipple.
 
    This defeats DNS rebinding, where a hostile web page points a name it controls at your computer so your browser
    treats Kipple as part of that page. A public name is the usual tool, but a device on your network can do the same
