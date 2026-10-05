@@ -1,0 +1,19 @@
+{
+  "timeoutMs": 15000,
+  "retries": 2,
+  "retryDelayMs": 1500,
+  "workers": 8,
+  "perHostConcurrency": 2,
+  "waybackMaxAgeDays": 730,
+  "blockedHosts": [],
+  "ignoredUrls": [
+    {
+      "prefix": "https://token.actions.githubusercontent.com",
+      "reason": "The GitHub Actions OIDC issuer: an identifier that cosign compares as a string, not a page. docs/RELEASING.md passes it to cosign verify."
+    },
+    {
+      "prefix": "https://github.com/sharanda/manrope",
+      "reason": "A copyright line quoted verbatim from the font's own licence by scripts/gen-notices.mjs into THIRD_PARTY_NOTICES.md; the upstream author moved the repository, and the notice must keep the licence text as published."
+    }
+  ]
+}

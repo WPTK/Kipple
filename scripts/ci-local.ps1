@@ -2,13 +2,14 @@
 #
 #   pwsh scripts/ci-local.ps1               everything except the Docker build and Trivy
 #   pwsh scripts/ci-local.ps1 -Docker       also build the image and scan it with Trivy
-#   pwsh scripts/ci-local.ps1 -Skip web,security     skip a group (go, security, web, docker)
+#   pwsh scripts/ci-local.ps1 -Skip web,security     skip a group (go, security, web, links, docker)
+#   pwsh scripts/ci-local.ps1 -AllLinks     check every link in every *.md, not only the *.md changed against origin/main
 #
 # It runs the same commands and pinned tool versions as the workflow. Differences: no `-race` (this
 # machine has no C compiler), gofmt is checked on LF-normalized copies (CRLF working copies hide
 # formatting failures), and gitleaks/Trivy run through pinned Docker images. The GitHub Actions run on the exact
 # commit is what "CI green" means; this is the check before pushing. Exit code is non-zero on any failure.
-param([switch]$Docker, [string[]]$Skip = @())
+param([switch]$Docker, [switch]$AllLinks, [string[]]$Skip = @())
 
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
@@ -78,6 +79,7 @@ Step 'security' 'gitleaks (git history)' {
 Step 'web' 'changelog fragments' { node scripts/changelog.mjs check; if ($LASTEXITCODE -eq 0) { node --test scripts/changelog.test.mjs } }
 Step 'web' 'release tag rules (scripts/release-tags.test.sh)' { bash scripts/release-tags.test.sh }
 Step 'web' 'toolchain versions (scripts/toolchain.test.mjs)' { node --test scripts/toolchain.test.mjs }
+Step 'web' 'link checker tests (scripts/check-links.test.mjs)' { node --test scripts/check-links.test.mjs }
 Step 'web' 'npm ci' { Push-Location web; npm ci --ignore-scripts --cache $npmCache --no-audit --no-fund; Pop-Location }
 Step 'web' 'lint' { Push-Location web; npm run lint; Pop-Location }
 Step 'web' 'test and coverage (no threshold)' { Push-Location web; npm run test:coverage; Pop-Location }
@@ -85,6 +87,14 @@ Step 'web' 'build' { Push-Location web; npm run build; Pop-Location }
 Step 'web' 'theme contrast' { Push-Location web; npm run contrast; Pop-Location }
 Step 'web' 'npm audit (prod, high)' { Push-Location web; npm audit --omit=dev --audit-level=high; Pop-Location }
 Step 'web' 'npm audit signatures' { Push-Location web; npm audit signatures --cache $npmCache; Pop-Location }
+
+# ---- links (network; only the *.md changed against origin/main, since CI runs the full set weekly) ----
+Step 'links' 'markdown links (scripts/check-links.mjs)' {
+  if ($AllLinks) { node scripts/check-links.mjs; return }
+  $changed = @(git diff --name-only --diff-filter=d origin/main -- '*.md'; git ls-files --others --exclude-standard -- '*.md') | Sort-Object -Unique
+  if ($changed.Count -eq 0) { Write-Host 'no changed *.md'; $global:LASTEXITCODE = 0; return }
+  node scripts/check-links.mjs @changed
+}
 
 # ---- docker (opt-in: slow) ----
 if ($Docker) {
