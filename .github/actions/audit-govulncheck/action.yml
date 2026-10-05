@@ -1,0 +1,19 @@
+name: govulncheck
+description: Scan the Go module for known vulnerabilities that the code actually reaches. Expects Go to be set up already.
+
+inputs:
+  version:
+    description: govulncheck version. The one place it is pinned; scripts/ci-local.ps1 must match.
+    default: v1.8.0
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GOVULNCHECK_VERSION: ${{ inputs.version }}
+      # The log is kept next to the other audits' logs so the weekly audit can name the advisories in its issue.
+      run: |
+        set -o pipefail
+        mkdir -p "$RUNNER_TEMP/audit-logs"
+        go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./... 2>&1 | tee "$RUNNER_TEMP/audit-logs/govulncheck.log"

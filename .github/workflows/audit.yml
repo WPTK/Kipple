@@ -1,0 +1,135 @@
+name: Weekly audit
+
+# A new advisory against a dependency or base image we already ship is invisible until the next commit triggers CI.
+# This runs the same three audits CI runs (the composite actions in .github/actions/) every Monday against main, and
+# keeps ONE tracking issue in step with the result (scripts/audit-report.mjs): opened while something fails, updated
+# (body edited and a short comment added, so the assignee is notified) when the set of findings changes, closed by the
+# first clean run, and left alone when nothing changed. It never opens a PR or pushes.
+#
+# Run it by hand from the Actions tab. It only writes to the issue when it ran on the default branch; on any other
+# branch, or with dry_run, it audits that branch and prints what it would have done.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Audit and report, but do not open, edit or close the tracking issue
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: weekly-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # tags, for git describe
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # Each audit may fail without stopping the others; the last step fails the run if any did.
+      - id: govulncheck
+        uses: ./.github/actions/audit-govulncheck # zizmor: ignore[self-repository]
+        continue-on-error: true
+
+      - id: npm
+        uses: ./.github/actions/audit-npm # zizmor: ignore[self-repository]
+        continue-on-error: true
+
+      - id: build
+        uses: ./.github/actions/build-image # zizmor: ignore[self-repository]
+        continue-on-error: true
+        with:
+          tag: kipple:audit
+
+      - id: trivy
+        if: steps.build.outcome == 'success'
+        uses: ./.github/actions/audit-image # zizmor: ignore[self-repository]
+        continue-on-error: true
+        with:
+          image-ref: kipple:audit
+
+      # A scan that never ran because the image did not build is recorded as `build-failure`, so the issue says why.
+      - name: Record outcomes
+        if: ${{ !cancelled() }}
+        env:
+          GOVULNCHECK: ${{ steps.govulncheck.outcome }}
+          NPM: ${{ steps.npm.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          TRIVY: ${{ steps.trivy.outcome }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/audit-logs"
+          echo "$GOVULNCHECK" > "$RUNNER_TEMP/audit-logs/govulncheck.status"
+          echo "$NPM" > "$RUNNER_TEMP/audit-logs/npm.status"
+          if [ "$BUILD" = success ]; then echo "$TRIVY"; else echo build-failure; fi > "$RUNNER_TEMP/audit-logs/trivy.status"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: audit-results
+          path: ${{ runner.temp }}/audit-logs
+          retention-days: 7
+
+      - name: Fail if any audit failed
+        if: ${{ !cancelled() }}
+        env:
+          GOVULNCHECK: ${{ steps.govulncheck.outcome }}
+          NPM: ${{ steps.npm.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          TRIVY: ${{ steps.trivy.outcome }}
+        run: |
+          fail=0
+          for o in "$GOVULNCHECK" "$NPM" "$BUILD"; do
+            if [ "$o" != success ]; then echo "an audit step ended as: $o"; fail=1; fi
+          done
+          # The scan is skipped when the build failed, and the build outcome above already counts.
+          if [ "$BUILD" = success ] && [ "$TRIVY" != success ]; then echo "the image scan ended as: $TRIVY"; fail=1; fi
+          exit "$fail"
+
+  # Separate job so the only token that can write issues never runs dependency code.
+  report:
+    needs: audit
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: audit-results
+          path: audit-results
+
+      - name: Open, update or close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          ASSIGNEE: ${{ github.repository_owner }}
+        run: |
+          # The event payload has no default branch on `schedule`, so ask the API the same way for every event. If the
+          # lookup fails the step fails (set -e): a run must never silently turn into a dry run.
+          default_branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)"
+          # Whether this run may write (default branch only, and not with dry_run) is decided in the script, under test.
+          node scripts/audit-report.mjs --dir audit-results --run-url "$RUN_URL" --ref "$REF_NAME" --sha "$SHA" \
+            --assignee "$ASSIGNEE" --default-branch "$default_branch" --event "$EVENT" --dry-run-input "$DRY_RUN"

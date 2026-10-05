@@ -39,15 +39,17 @@ test('Node: Dockerfile web stage and ci.yml name the same major', () => {
   for (const v of versions) assert.equal(v, image);
 });
 
-test('CI tool pins: ci-local.ps1 matches the env block in ci.yml', () => {
+test('CI tool pins: ci-local.ps1 matches the env block in ci.yml and the govulncheck action', () => {
   const ci = read('.github/workflows/ci.yml');
   const local = read('scripts/ci-local.ps1');
   const pairs = [
-    ['GOVULNCHECK_VERSION', 'GovulncheckVersion'],
     ['STATICCHECK_VERSION', 'StaticcheckVersion'],
     ['GOSEC_VERSION', 'GosecVersion'],
     ['GITLEAKS_VERSION', 'GitleaksVersion'],
   ];
+  // govulncheck is pinned once, in the composite action that ci.yml and the weekly audit both call.
+  const govuln = first(read('.github/actions/audit-govulncheck/action.yml'), /^\s*default:\s*(v\S+)/m, 'govulncheck action default');
+  assert.equal(first(local, /^\$GovulncheckVersion\s*=\s*'([^']+)'/m, 'ci-local.ps1 GovulncheckVersion'), govuln);
   for (const [envName, psName] of pairs) {
     const a = first(ci, new RegExp(String.raw`^\s*${envName}:\s*(\S+)`, 'm'), `ci.yml ${envName}`);
     const b = first(local, new RegExp(String.raw`^\$${psName}\s*=\s*'([^']+)'`, 'm'), `ci-local.ps1 ${psName}`);
