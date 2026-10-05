@@ -138,24 +138,14 @@ func (s *Server) openHosts(snap *modeSnapshot) bool {
 }
 
 // hostRefusedText is the 421 body: what happened and the settings that fix it.
-const hostRefusedText = "Kipple refused this request because of the address it was sent to.
-
-" +
-	"While Kipple is being set up, it only answers requests addressed to an IP address, localhost, a single-word
-" +
-	"name, a .localhost, .local, .lan, .home.arpa, .internal or .ts.net name, the host of its public URL or a
-" +
-	"name you allowed. While it runs without a password (open mode), it only answers an IP address, localhost, a
-" +
-	".localhost or .ts.net name, the host of its public URL and the names you allowed: any device on your
-" +
-	"network can answer a single-word or .local-style name (also .home, .localdomain, .fritz.box or .corp) with
-" +
-	"this computer's address and steer your browser into Kipple (DNS rebinding), so in open mode each such name
-" +
-	"has to be allowed by name, even when it is the public URL's.
-
-" +
+const hostRefusedText = "Kipple refused this request because of the address it was sent to.\n\n" +
+	"While Kipple is being set up, it only answers requests addressed to an IP address, localhost, a single-word\n" +
+	"name, a .localhost, .local, .lan, .home.arpa, .internal or .ts.net name, the host of its public URL or a\n" +
+	"name you allowed. While it runs without a password (open mode), it only answers an IP address, localhost, a\n" +
+	".localhost or .ts.net name, the host of its public URL and the names you allowed: any device on your\n" +
+	"network can answer a single-word or .local-style name (also .home, .localdomain, .fritz.box or .corp) with\n" +
+	"this computer's address and steer your browser into Kipple (DNS rebinding), so in open mode each such name\n" +
+	"has to be allowed by name, even when it is the public URL's.\n\n" +
 	"To allow a name, open Kipple by its IP address (that always works), then add the name under Allowed host\n" +
 	"names in Settings, Account & Devices, Address and access (e.g. nas.local, rss.example.com or *.example.com).\n" +
 	"It applies at once. Without a browser on the network (a headless install), KIPPLE_ALLOWED_HOSTS works on a\n" +
