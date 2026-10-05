@@ -3,6 +3,7 @@ package reach
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"path/filepath"
 	"sync"
@@ -97,14 +98,19 @@ func TestUpgradeMergesAllowedHostsOnce(t *testing.T) {
 	require.NoError(t, db.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: []any{"rss.example.com"}}))
 	seed := Seed{AllowedHosts: []string{"nas.local", "rss.example.com"}}
 
-	_, err := SeedSettings(ctx, db, seed)
+	ignored, err := SeedSettings(ctx, db, seed)
 	require.NoError(t, err)
+	require.Empty(t, ignored, "after the merge the variable is what the setting holds")
 	sec, err := db.SecuritySettings(ctx)
 	require.NoError(t, err)
 	require.Equal(t, []string{"rss.example.com", "nas.local"}, sec.AllowedHosts, "the union, once")
+	// Later starts: the same names in another order are the same list, so nothing is reported.
+	ignored, err = SeedSettings(ctx, db, seed)
+	require.NoError(t, err)
+	require.Empty(t, ignored)
 
 	require.NoError(t, db.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: []any{"rss.example.com"}}))
-	ignored, err := SeedSettings(ctx, db, seed)
+	ignored, err = SeedSettings(ctx, db, seed)
 	require.NoError(t, err)
 	require.Equal(t, []string{store.SettingAllowedHosts}, ignored, "the variable is named as not used")
 	sec, err = db.SecuritySettings(ctx)
@@ -121,6 +127,34 @@ func TestUpgradeMergesAllowedHostsOnce(t *testing.T) {
 	sec, err = fresh.SecuritySettings(ctx)
 	require.NoError(t, err)
 	require.Empty(t, sec.AllowedHosts)
+}
+
+// A stored row that is not a list (a hand edit) reads as empty, so the merge
+// replaces it with the variable's names. Names past the 64-name limit are not
+// added (and are logged), and the merge still runs only once.
+func TestUpgradeMergeOfABadOrFullRow(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	require.NoError(t, db.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: "not a list"}))
+	_, err := SeedSettings(ctx, db, Seed{AllowedHosts: []string{"nas.local"}})
+	require.NoError(t, err)
+	sec, err := db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"nas.local"}, sec.AllowedHosts)
+
+	full := openDB(t)
+	have := make([]any, store.MaxAllowedHosts-1)
+	for i := range have {
+		have[i] = fmt.Sprintf("h%d.example.com", i)
+	}
+	require.NoError(t, full.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: have}))
+	_, err = SeedSettings(ctx, full, Seed{AllowedHosts: []string{"a.example.net", "b.example.net"}})
+	require.NoError(t, err)
+	sec, err = full.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Len(t, sec.AllowedHosts, store.MaxAllowedHosts)
+	require.Equal(t, "a.example.net", sec.AllowedHosts[store.MaxAllowedHosts-1], "the first name that fits is added")
+	require.NotContains(t, sec.AllowedHosts, "b.example.net")
 }
 
 func TestOpenBuildsTheState(t *testing.T) {
