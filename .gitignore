@@ -1,5 +1,7 @@
-# Local Claude Code permission grants (per-machine)
+# Local Claude Code permission grants (per-machine), their backups, and agent worktrees
 .claude/settings.local.json
+.claude/settings.local.json.bak*
+.claude/worktrees/
 
 # npm run seed's own PID/log files (not the throwaway data dir, which lives outside the repo)
 web/.seed.log
@@ -10,6 +12,10 @@ web/.seed.pid
 .env
 .env.*
 !.env.example
+# Signing keys and certificates (releases are signed keyless; none belong in the repository)
+*.pem
+*.key
+*.p12
 
 # Runtime data
 /data/
@@ -32,6 +38,12 @@ web/dist/*
 
 # Local-only deployment notes (real LAN IP and hostnames); never commit
 /deploy-local/
+
+# Scratch output from audits, fuzz and seed runs
+/sme.json
+/*.out
+/*.err
+web/dist-*/
 
 # Coverage output (uploaded by CI, never committed)
 /coverage.out
