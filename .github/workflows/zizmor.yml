@@ -1,9 +1,9 @@
 name: zizmor
 
 # Static analysis of the workflows themselves (injection, over-broad permissions, unpinned actions, credential
-# persistence). ADVISORY: the zizmor step may fail without failing the job (step-level continue-on-error, so the PR
-# check stays green); findings are read in the log. It becomes a gate only after the existing findings are triaged.
-# SARIF upload is off so it needs no security-events permission.
+# persistence). It fails the PR when it finds something, and it is checked under the "CI green on the exact head" rule.
+# Accepted findings are listed with a reason in .github/zizmor.yml. SARIF upload is off so it needs no
+# security-events permission.
 on:
   push:
     branches: [main]
@@ -27,7 +27,8 @@ jobs:
           persist-credentials: false
 
       - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
-        continue-on-error: true
         with:
+          # zizmor itself is pinned too, so a new release never changes the result of an unrelated PR; bump on purpose.
+          version: 1.30.1
           inputs: .github
           advanced-security: false

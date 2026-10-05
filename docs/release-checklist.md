@@ -17,7 +17,7 @@ records. `docs/uat-plan.md` describes the suites.
 | 8 | A Reader API client works against the rc | owner | |
 | 9 | Firefox and Safari pass | owner | |
 | 10 | Screen-reader pass | owner | |
-| 11 | SBOM is attached to the release; the `cosign verify` and `gh attestation verify` lines in the docs run and pass | agent | |
+| 11 | SBOM and its `.sigstore.json` signature are attached to the release; the `cosign verify` and `gh attestation verify` lines in the docs run and pass | agent | |
 | 12 | Compatibility and deprecation document present (what is public API, "downgrade means restore") | agent | |
 | 13 | Known-issues list is in the release notes | agent | |
 | 14 | 1.0.0 release commit: README and `docs/deploy.md` say that the `latest` image tag works | agent | |

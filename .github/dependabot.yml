@@ -4,6 +4,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       go-minor-patch:
         update-types: [minor, patch]
@@ -12,6 +14,8 @@ updates:
     directory: /web
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
@@ -28,6 +32,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions-minor-patch:
         update-types: [minor, patch]
@@ -43,6 +49,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       docker-minor-patch:
         update-types: [minor, patch]

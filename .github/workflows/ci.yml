@@ -31,6 +31,8 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -72,6 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # gitleaks scans history
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -111,6 +114,8 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -125,7 +130,8 @@ jobs:
       - run: bash ../scripts/release-tags.test.sh
       # Go and Node versions agree across Dockerfile, go.mod, ci.yml and ci-local.ps1 (one Dependabot bump must not split them).
       - run: node --test ../scripts/toolchain.test.mjs
-      - run: npm ci
+      # --ignore-scripts: no dependency install script runs; the build and tests call their tools directly.
+      - run: npm ci --ignore-scripts
       - run: npm run lint
       # Runs the whole suite (a failing test fails the step) and prints a coverage summary; no threshold gate (SQA plan).
       - run: npm run test:coverage
@@ -141,12 +147,16 @@ jobs:
       - run: npm run build
       - run: npm run contrast
       - run: npm audit --omit=dev --audit-level=high
+      # Registry signatures and provenance of what was installed (a different check from the advisory audit above).
+      # A registry hiccup here is fixed by re-running the job.
+      - run: npm audit signatures
 
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # tags, for git describe
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1

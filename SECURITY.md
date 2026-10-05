@@ -42,11 +42,14 @@ Out of scope:
 
 ## Automated checks
 
-CI runs govulncheck, staticcheck, gosec (gates on high severity and high confidence), gitleaks, `npm audit --omit=dev` (high) and a Trivy image scan; Dependabot proposes
-weekly dependency updates.
+CI runs govulncheck, staticcheck, gosec (gates on high severity and high confidence), gitleaks, `npm audit --omit=dev`
+(high), `npm audit signatures` (registry signatures and provenance of the installed packages), zizmor (static analysis
+of the GitHub Actions workflows) and a Trivy image scan. Each release also publishes a signed SBOM next to the image.
+Dependabot proposes weekly dependency updates: version updates wait 7 days after a release is published, security
+updates do not.
 
 ## Issue triage
 
-Kipple has a single maintainer. Security reports filed as above get a fast look. Other issues and pull
-requests are triaged best-effort, in whatever order the maintainer gets to them. There is no guaranteed
-response time or SLA.
+Kipple has a single maintainer. A security report filed as above gets a first response within 14 days; that is the
+target, not a guarantee, and a fix has no fixed deadline. Other issues and pull requests are triaged best-effort, in
+whatever order the maintainer gets to them, with no response time promised.
