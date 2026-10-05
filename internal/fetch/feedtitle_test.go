@@ -13,6 +13,12 @@ func TestFeedTitle(t *testing.T) {
 	require.Equal(t, "a < b & c; Q&A &nbsp", FeedTitle("a < b & c; Q&A &nbsp"), "plain text stays as written")
 	require.Equal(t, "Tom & Jerry’s …", FeedTitle("Tom &amp; Jerry&#8217;s &hellip;"), "a level of escaping left behind is undone")
 	require.Equal(t, "&amp; once", FeedTitle("&amp;amp; once"), "one level only")
+	require.Equal(t, "&notit; and &bogus; stay; a;b", FeedTitle("&notit; and &bogus; stay&semi; a;b"),
+		"only whole known references: no legacy prefix decoding")
+	require.Equal(t, "Bell and null gone", FeedTitle("Bell\x07 and\x00 null\x1f gone"), "control characters dropped")
+	require.Equal(t, "a b", FeedTitle("a&#9;b"), "a decoded control counts too")
+	require.Equal(t, "Tips &amp;amp; tricks", CleanName("Tips &amp;amp; tricks"), "a written name keeps its entities")
+	require.Equal(t, "x y", CleanName("x\u0085\x01y"), "C1 whitespace is a space, other controls go")
 	require.Equal(t, strings.Repeat("x", MaxTitleRunes), FeedTitle(strings.Repeat("x", MaxTitleRunes)), "at the limit: untouched")
 	cut := []rune(FeedTitle(strings.Repeat("é", MaxTitleRunes+1)))
 	require.Len(t, cut, MaxTitleRunes)

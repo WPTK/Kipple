@@ -217,9 +217,9 @@ func ParseCursor(s string) (Cursor, error) {
 	return Cursor{SortAt: sortAt, ID: id, Asc: asc, Fallback: fb}, nil
 }
 
-const cardCols = `i.id, i.feed_id, i.title, i.url, i.author, substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url,
+var cardCols = `i.id, i.feed_id, i.title, i.url, i.author, substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url,
 	i.published_at, i.sort_at, i.read, i.starred, i.word_count,
-	i.origin_title, (SELECT COALESCE(NULLIF(custom_title, ''), NULLIF(title, ''), url) FROM feeds WHERE id = i.feed_id),
+	i.origin_title, (SELECT ` + feedTitleSQL("feeds") + ` FROM feeds WHERE id = i.feed_id),
 	i.muted_by, (SELECT name FROM filters WHERE id = i.muted_by)`
 
 func scanCard(rows interface{ Scan(...any) error }) (Card, error) {
@@ -415,7 +415,7 @@ func (d *DB) GetItem(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 	var ftEff int
 	var ftRow sql.NullInt64
 	err = d.reader.QueryRowContext(ctx, `SELECT `+cardCols+`, COALESCE(c.content_html, ''), c.enclosures_json,
-			f.id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url,
+			f.id, `+feedTitleSQL("f")+`, f.site_url,
 			i.fulltext_mode, `+FulltextModeSQL("i.fulltext_mode", "f.fulltext", d.FulltextAll(ctx))+`, ft.item_id, ft.content_html, ft.error
 		FROM items i LEFT JOIN item_content c ON c.item_id = i.id JOIN feeds f ON f.id = i.feed_id
 		LEFT JOIN item_fulltext ft ON ft.item_id = i.id WHERE i.id = ?`, id).
@@ -468,7 +468,7 @@ func (d *DB) getStub(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 	var mode sql.NullInt64
 	err = d.reader.QueryRowContext(ctx, `SELECT t.id, t.feed_id, c.title, c.url, c.author, substr(c.content_text, 1, 1200), c.image_url,
 			c.published_at, c.sort_at, t.read, c.word_count, c.origin_title, c.content_html, c.enclosures_json,
-			f.id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url, c.fulltext_mode, f.fulltext
+			f.id, `+feedTitleSQL("f")+`, f.site_url, c.fulltext_mode, f.fulltext
 		FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id JOIN feeds f ON f.id = t.feed_id
 		WHERE t.id = ? AND t.trimmed_at >= ?`, id, cutoff).
 		Scan(&det.ID, &det.FeedID, &det.Title, &det.URL, &det.Author, &text, &img, &det.PublishedAt, &det.SortAt, &read, &det.WordCount, &origin,

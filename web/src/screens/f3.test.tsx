@@ -321,6 +321,17 @@ describe("Add feed", () => {
     await user.type(title, "Mine");
     expect(title).toHaveAccessibleDescription(/instead of the feed's own/);
     await user.clear(title);
+    // The limit is the server's: 200 characters, counted as code points (an emoji is one, not two UTF-16 units).
+    await user.type(within(dlg).getByLabelText("Feed or website address"), "https://news.example/feed.xml");
+    await user.click(title);
+    await user.paste("📰".repeat(200));
+    expect(title).toHaveValue("📰".repeat(200));
+    expect(within(dlg).getByRole("button", { name: "Add feed" })).toBeEnabled();
+    await user.paste("x");
+    expect(title).toHaveAccessibleDescription(/at most 200 characters; this one has 201/);
+    expect(within(dlg).getByRole("button", { name: "Add feed" })).toBeDisabled();
+    await user.clear(title);
+    await user.clear(within(dlg).getByLabelText("Feed or website address"));
     await user.type(within(dlg).getByLabelText("Feed or website address"), "https://news.example/feed.xml");
     await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
     const done = await screen.findByRole("dialog", { name: "Feed added" });

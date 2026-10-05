@@ -164,7 +164,7 @@ func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card
 	}
 	sqlText := `SELECT i.id, i.feed_id, i.title, i.url, i.author,
 			substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url, i.published_at, i.sort_at, i.read, i.starred, i.word_count, i.origin_title,
-			(SELECT COALESCE(NULLIF(custom_title, ''), NULLIF(title, ''), url) FROM feeds WHERE id = i.feed_id),
+			(SELECT ` + feedTitleSQL("feeds") + ` FROM feeds WHERE id = i.feed_id),
 			i.muted_by, (SELECT name FROM filters WHERE id = i.muted_by),
 			snippet(items_fts, 2, '` + snipOpen + `', '` + snipClose + `', '…', 24)
 		FROM items_fts JOIN items i ON i.id = items_fts.rowid LEFT JOIN item_content c ON c.item_id = i.id

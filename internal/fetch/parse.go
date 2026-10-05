@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/mmcdole/gofeed"
 	ext "github.com/mmcdole/gofeed/extensions"
@@ -369,12 +370,36 @@ const MaxTitleRunes = 200
 // the title twice ("&amp;amp;", "&amp;#8217;"), so the parser's own decoding left one level behind.
 var leftEntity = regexp.MustCompile(`&(?:[a-zA-Z][a-zA-Z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6});`)
 
-// FeedTitle is the name a feed document gives itself, as Kipple stores it: plain text with any
-// character reference left by double escaping decoded, whitespace runs (a title written over several
-// lines of XML) collapsed to one space, and cut to MaxTitleRunes with an ellipsis. "" means the
-// document names no title.
+// decodeReference decodes one leftEntity match only when the whole reference is a known one. HTML's
+// legacy rules would also decode a known prefix of an unknown name ("&notit;" as "¬it;"); such a
+// match, which decodes to text still ending in its ";", is left as written.
+func decodeReference(ref string) string {
+	dec := stdhtml.UnescapeString(ref)
+	if dec != ";" && strings.HasSuffix(dec, ";") {
+		return ref
+	}
+	return dec
+}
+
+// FeedTitle is the name a feed document gives itself, as Kipple stores it: any complete character
+// reference left by double escaping decoded, then CleanName. "" means the document names no title.
 func FeedTitle(raw string) string {
-	t := leftEntity.ReplaceAllStringFunc(raw, stdhtml.UnescapeString)
+	return CleanName(leftEntity.ReplaceAllStringFunc(raw, decodeReference))
+}
+
+// CleanName makes a feed name one line of plain text: control characters dropped (the whitespace
+// ones count as spaces), whitespace runs collapsed to one space, and cut to MaxTitleRunes with an
+// ellipsis. Entities are left alone: a name a person wrote (an OPML outline) is taken as written.
+func CleanName(raw string) string {
+	t := strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsSpace(r):
+			return ' '
+		case unicode.IsControl(r):
+			return -1
+		}
+		return r
+	}, raw)
 	t = strings.Join(strings.Fields(t), " ")
 	if r := []rune(t); len(r) > MaxTitleRunes {
 		t = strings.TrimRight(string(r[:MaxTitleRunes-1]), " ") + "…"

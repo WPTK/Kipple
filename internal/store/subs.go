@@ -17,7 +17,7 @@ import (
 // Subscription is one row of the Reader API subscription list.
 type Subscription struct {
 	ID       int64
-	Title    string // COALESCE(custom_title, title)
+	Title    string // the display name, feedTitleSQL
 	URL      string
 	SiteURL  string
 	Folder   string
@@ -28,11 +28,11 @@ type Subscription struct {
 // gone feeds included, never the archive feed (listedFeedSQL).
 func (d *DB) Subscriptions(ctx context.Context) ([]Subscription, error) {
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT f.id, COALESCE(f.custom_title, f.title), f.url, f.site_url, COALESCE(fp.path, ''), COALESCE(fi.hash, '')
+		SELECT f.id, `+feedTitleSQL("f")+`, f.url, f.site_url, COALESCE(fp.path, ''), COALESCE(fi.hash, '')
 		FROM feeds f LEFT JOIN folder_paths fp ON fp.id = f.folder_id
 		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
 		WHERE `+listedFeedSQL+`
-		ORDER BY fp.sort_key, f.position, COALESCE(f.custom_title, f.title)`)
+		ORDER BY fp.sort_key, f.position, `+feedTitleSQL("f"))
 	if err != nil {
 		return nil, err
 	}
@@ -114,10 +114,10 @@ type SubscribeResult struct {
 
 // Subscribe is the API subscribe path (design §6.9, decision 33): idempotent on
 // FindFeedByURL, no outbound HTTP and no discovery. A new feed is inserted with
-// next_fetch_at = now and its host as title; the scheduler picks it up, and the
-// first successful fetch replaces the host with the title the document gives
-// itself (CommitFetch). A given title is the custom title, which always wins. An
-// existing feed is moved or renamed only if a folder or title was given.
+// next_fetch_at = now and no title of its own (feedTitleSQL then names it by its
+// URL); the scheduler picks it up, and the first successful fetch stores the
+// title the document gives itself (CommitFetch). A given title is the custom
+// title. An existing feed is moved or renamed only if a folder or title was given.
 func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, error) {
 	raw := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(o.URL), "feed/"))
 	norm, key, host, err := ValidateFeedURL(raw, false)
@@ -177,8 +177,8 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 			if t := strings.TrimSpace(o.Title); t != "" {
 				custom = t
 			}
-			r, err := tx.ExecContext(ctx, `INSERT INTO feeds (folder_id, url, url_key, host, title, custom_title, position, next_fetch_at)
-				VALUES (?,?,?,?,?,?,?,?)`, folder, norm, key, host, host, custom, pos, now)
+			r, err := tx.ExecContext(ctx, `INSERT INTO feeds (folder_id, url, url_key, host, custom_title, position, next_fetch_at)
+				VALUES (?,?,?,?,?,?,?)`, folder, norm, key, host, custom, pos, now)
 			if err != nil {
 				return err
 			}
@@ -187,15 +187,15 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 			}
 		}
 		res.FeedID = id
-		return tx.QueryRowContext(ctx, "SELECT COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&res.Title)
+		return tx.QueryRowContext(ctx, "SELECT "+feedTitleSQL("feeds")+" FROM feeds WHERE id = ?", id).Scan(&res.Title)
 	})
 	return res, err
 }
 
-// FeedName is a feed's display name, COALESCE(custom_title, title), as Subscriptions lists it.
+// FeedName is a feed's display name (feedTitleSQL), as every list shows it.
 func (d *DB) FeedName(ctx context.Context, id int64) (string, error) {
 	var name string
-	err := d.reader.QueryRowContext(ctx, "SELECT COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&name)
+	err := d.reader.QueryRowContext(ctx, "SELECT "+feedTitleSQL("feeds")+" FROM feeds WHERE id = ?", id).Scan(&name)
 	return name, err
 }
 
@@ -443,7 +443,7 @@ var ErrArchiveHasStarred = errors.New("store: the archive feed holds starred ite
 func removeFeed(ctx context.Context, tx *sql.Tx, id int64, archiveStarred bool) error {
 	var reason sql.NullString
 	var title string
-	if err := tx.QueryRowContext(ctx, "SELECT disabled_reason, COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&reason, &title); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT disabled_reason, "+feedTitleSQL("feeds")+" FROM feeds WHERE id = ?", id).Scan(&reason, &title); err != nil {
 		return err
 	}
 	if archiveStarred && reason.String == "archive" {

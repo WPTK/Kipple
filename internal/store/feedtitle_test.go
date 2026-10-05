@@ -31,12 +31,13 @@ func (e *env) subscribe(o SubscribeOpts) int64 {
 	return res.FeedID
 }
 
-// A feed added without a name is named after its host until its first fetch, which names it with the
+// A feed added without a name stores no title and is named by its URL until its first fetch, which names it with the
 // title the feed gives itself and reports the change (the scheduler announces it as feed.changed).
 func TestFirstFetchNamesAnUntitledFeed(t *testing.T) {
 	e := newEnv(t)
 	id := e.subscribe(SubscribeOpts{URL: "https://news.example/feed.xml"})
-	require.Equal(t, "news.example", e.name(id))
+	require.Equal(t, "https://news.example/feed.xml", e.name(id))
+	require.Equal(t, "", scalar[string](t, e.db.Reader(), "SELECT title FROM feeds WHERE id = ?", id), "no placeholder is stored")
 
 	info := e.commit(e.okResult(e.snap(id), titledDoc("Daily  News")))
 	require.True(t, info.Retitled)
@@ -51,18 +52,18 @@ func TestFirstFetchNamesAnUntitledFeed(t *testing.T) {
 	require.Equal(t, "Daily News Weekly", e.name(id))
 }
 
-// A document with no title, or only whitespace, keeps the placeholder name; a failed first fetch (the
+// A document with no title, or only whitespace, leaves the feed named by its URL; a failed first fetch (the
 // feed unreachable) leaves it too, and the next successful one names the feed.
-func TestUntitledDocumentAndFailedFetchKeepTheHost(t *testing.T) {
+func TestUntitledDocumentAndFailedFetchKeepTheURL(t *testing.T) {
 	e := newEnv(t)
 	id := e.subscribe(SubscribeOpts{URL: "https://news.example/feed.xml"})
 	require.NoError(t, e.db.CommitFetchError(e.ctx, &fetch.Result{Snap: e.snap(id), StartedAt: e.clk.Now(), Outcome: fetch.OutcomeError,
 		ErrClass: "network", ErrMsg: "connection refused", NextFetchAt: e.clk.Now().Add(time.Hour), CurrentDelayS: 3600}))
-	require.Equal(t, "news.example", e.name(id))
+	require.Equal(t, "https://news.example/feed.xml", e.name(id))
 
 	e.clk.Advance(time.Hour)
 	require.False(t, e.commit(e.okResult(e.snap(id), titledDoc(" \n\t "))).Retitled)
-	require.Equal(t, "news.example", e.name(id))
+	require.Equal(t, "https://news.example/feed.xml", e.name(id))
 
 	e.clk.Advance(time.Hour)
 	require.True(t, e.commit(e.okResult(e.snap(id), titledDoc("Named at last"))).Retitled)
@@ -100,9 +101,32 @@ func TestGivenNameAndRenamesStick(t *testing.T) {
 	require.False(t, e.commit(e.okResult(e.snap(id), titledDoc("Daily News, new look"))).Retitled)
 	require.Equal(t, "Renamed", e.name(id))
 
-	// A given name equal to the feed's own title is not kept as a custom name: the feed's later
-	// renames then flow through.
+	// The one exception (design §4.5): a given name that is exactly the feed's own title at its first
+	// successful fetch is dropped, so the feed then follows its own renames. That is what keeps an OPML
+	// round trip from pinning every exported title as a custom name.
 	same := e.subscribe(SubscribeOpts{URL: "https://same.example/feed.xml", Title: "Daily News"})
 	e.commit(e.okResult(e.snap(same), titledDoc("Daily News")))
 	require.Zero(t, e.count("SELECT count(*) FROM feeds WHERE id = ? AND custom_title IS NOT NULL", same))
+	e.clk.Advance(time.Hour)
+	require.True(t, e.commit(e.okResult(e.snap(same), titledDoc("Daily News Weekly"))).Retitled)
+	require.Equal(t, "Daily News Weekly", e.name(same))
+}
+
+// The display name has one definition (feedTitleSQL): blank or whitespace-only titles count as
+// absent, in every list and in the fetch commit's rename check, so a row with empty strings is named
+// by its URL and its first titled fetch is announced.
+func TestBlankTitlesCountAsAbsent(t *testing.T) {
+	e := newEnv(t)
+	id := e.subscribe(SubscribeOpts{URL: "https://blank.example/feed.xml"})
+	e.exec("UPDATE feeds SET custom_title = '  ', title = '' WHERE id = ?", id)
+	require.Equal(t, "https://blank.example/feed.xml", e.name(id))
+	subs, err := e.db.Subscriptions(e.ctx)
+	require.NoError(t, err)
+	require.Equal(t, "https://blank.example/feed.xml", subs[0].Title, "the Reader API names it the same way")
+
+	require.True(t, e.commit(e.okResult(e.snap(id), titledDoc("Blank no more"))).Retitled)
+	require.Equal(t, "Blank no more", e.name(id))
+	subs, err = e.db.Subscriptions(e.ctx)
+	require.NoError(t, err)
+	require.Equal(t, "Blank no more", subs[0].Title)
 }

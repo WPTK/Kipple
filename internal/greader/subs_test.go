@@ -101,7 +101,7 @@ func TestQuickAddNewThenOldETagStillGets200WithNewFeed(t *testing.T) {
 	res := jsonBody(t, w)
 	require.EqualValues(t, 1, res["numResults"])
 	require.Equal(t, "https://new.example/atom.xml", res["query"])
-	require.Equal(t, "new.example", res["streamName"], "host until the first fetch")
+	require.Equal(t, "https://new.example/atom.xml", res["streamName"], "named by its URL until the first fetch")
 	sid := res["streamId"].(string)
 	require.Regexp(t, `^feed/\d+$`, sid)
 	require.Equal(t, int32(1), h.wakes.Load(), "scheduler woken, no outbound HTTP")
@@ -702,7 +702,7 @@ func TestQuickAddFetchNowOnlyWhenSettingOn(t *testing.T) {
 	}
 	res := add("https://off.example/feed.xml")
 	require.Empty(t, calls, "default: no synchronous fetch")
-	require.Equal(t, "off.example", res["streamName"], "named after its host until the scheduler's first fetch")
+	require.Equal(t, "https://off.example/feed.xml", res["streamName"], "named by its URL until the scheduler's first fetch")
 
 	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"greader.subscribe_fetch_now": true}))
 	h.api.opt.FetchNow = func(_ context.Context, id int64, wait time.Duration) {

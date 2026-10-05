@@ -531,7 +531,7 @@ func TestContentsEnvelopeAndSwiftFatalFields(t *testing.T) {
 	n := env.Items[0]
 	require.Equal(t, "", n.Author)
 	require.Equal(t, "", n.Alternate[0].Href, "no link is an empty string")
-	require.Equal(t, "", n.Origin.Title, "untitled feed is an empty string")
+	require.Equal(t, "https://b.example/f", n.Origin.Title, "an untitled feed is named by its URL, as subscription/list names it")
 	require.Nil(t, n.Enclosure)
 	require.NotContains(t, w.Body.String(), `"enclosure":null`)
 }

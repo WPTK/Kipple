@@ -38,8 +38,8 @@ type CommitInfo struct {
 	Held map[string]int64
 	// Migrated is set when the commit rewrote feeds.url (design §4.7).
 	Migrated bool
-	// Retitled is set when the feed's display name (its custom title, else the title the document
-	// gives itself) changed: a new feed's first fetch replaces the placeholder host this way.
+	// Retitled is set when the feed's display name (feedTitleSQL) changed: the first fetch naming a
+	// new feed, or the feed renaming itself while it has no custom name.
 	Retitled bool
 	// TrimPending is set when the retention trim filled its bounded batch, so the
 	// feed may still hold more than its cap; the scheduler queues a trim job for it.
@@ -316,7 +316,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	if res.Outcome == fetch.OutcomeOK && res.Feed != nil {
 		f := res.Feed
 		var before, after string
-		const nameSQL = "SELECT COALESCE(custom_title, title) FROM feeds WHERE id = ?"
+		nameSQL := "SELECT " + feedTitleSQL("feeds") + " FROM feeds WHERE id = ?"
 		if err := tx.QueryRowContext(ctx, nameSQL, feedID).Scan(&before); err != nil {
 			return err
 		}

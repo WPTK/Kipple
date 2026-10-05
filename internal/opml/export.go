@@ -32,7 +32,7 @@ type Queryer interface {
 // subfolders. One query reads it all, so the document is one snapshot.
 func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	rows, err := q.QueryContext(ctx, `
-		SELECT fo.id, COALESCE(fo.parent_id, 0), fo.name, f.url, f.site_url, COALESCE(f.custom_title, NULLIF(f.title,''), ''),
+		SELECT fo.id, COALESCE(fo.parent_id, 0), fo.name, f.url, f.site_url, COALESCE(`+store.FeedOwnTitleSQL("f")+`, ''),
 		       f.interval_minutes, f.retention, f.fulltext, f.dedup_mode, f.user_agent,
 		       f.ignore_http_cache, f.disable_http2, f.allow_insecure_tls, f.allow_private_net, f.enabled
 		FROM folders fo JOIN folder_paths fp ON fp.id = fo.id LEFT JOIN feeds f ON f.folder_id = fo.id AND `+store.ListedFeedSQL("f")+`

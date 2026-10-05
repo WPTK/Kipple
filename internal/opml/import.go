@@ -262,11 +262,11 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				dedup = *a.Dedup
 			}
 			r, err := tx.ExecContext(ctx, `INSERT INTO feeds
-				(folder_id, url, url_key, host, title, custom_title, site_url, position, enabled, disabled_reason,
+				(folder_id, url, url_key, host, custom_title, site_url, position, enabled, disabled_reason,
 				 interval_minutes, retention, fulltext, dedup_mode, user_agent, ignore_http_cache,
 				 disable_http2, allow_insecure_tls, allow_private_net, initial_read_before, next_fetch_at)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				target, norm, key, host, host, nullStr(fetch.FeedTitle(f.Title)), httpURLOrEmpty(f.SiteURL), nextFeedPos, enabled, reason,
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				target, norm, key, host, nullStr(fetch.CleanName(f.Title)), httpURLOrEmpty(f.SiteURL), nextFeedPos, enabled, reason,
 				nullInt(a.Interval), nullInt(a.Retention), b2i(a.Fulltext), dedup, nullStrP(a.UserAgent),
 				b2i(a.IgnoreHTTPCache), b2i(a.DisableHTTP2), b2i(a.AllowInsecureTLS), b2i(a.AllowPrivateNet),
 				readBefore, now)

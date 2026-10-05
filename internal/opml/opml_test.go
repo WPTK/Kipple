@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -63,8 +65,38 @@ func TestParseNestedEntitiesTextOverTitle(t *testing.T) {
 	require.Empty(t, d.Feeds[3].Folder, "root-level feeds go to the default folder")
 }
 
-// An imported feed without a name is named after its host until its first fetch, like a feed added any
-// other way; a name in the file is kept as the feed's custom name, on one line and at most 200 characters.
+// feedName is the display name the app shows for the feed at host.
+func feedName(t *testing.T, db *store.DB, host string) string {
+	t.Helper()
+	var id int64
+	require.NoError(t, db.Reader().QueryRow("SELECT id FROM feeds WHERE host = ?", host).Scan(&id))
+	n, err := db.FeedName(context.Background(), id)
+	require.NoError(t, err)
+	return n
+}
+
+// firstFetch commits a successful fetch of the feed at host whose document is titled title.
+func firstFetch(t *testing.T, db *store.DB, host, title string) {
+	t.Helper()
+	ctx := context.Background()
+	var id int64
+	require.NoError(t, db.Reader().QueryRow("SELECT id FROM feeds WHERE host = ?", host).Scan(&id))
+	snap, ok, err := db.FeedSnapshot(ctx, db.FetchSettings(ctx), id)
+	require.NoError(t, err)
+	require.True(t, ok)
+	snap.Trigger = fetch.TriggerScheduled
+	feed, err := fetch.ParseFeed([]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>`+title+`</title>`+
+		`<item><guid>a</guid><title>t</title><link>https://`+host+`/a</link></item></channel></rss>`), fetch.ParseOptions{FeedURL: snap.URL})
+	require.NoError(t, err)
+	now := time.Now()
+	_, err = db.CommitFetch(ctx, &fetch.Result{Snap: snap, StartedAt: now, Outcome: fetch.OutcomeOK, Status: 200, Feed: feed,
+		FinalURL: snap.URL, Redirect: fetch.RedirectDecision{Action: fetch.RedirectClear}, NextFetchAt: now.Add(time.Hour), CurrentDelayS: 3600})
+	require.NoError(t, err)
+}
+
+// An imported feed without a name has no title until its first fetch (the app names it by its URL),
+// like a feed added any other way; a name in the file is kept as the feed's custom name, as written
+// (the parser's own entity rule only), on one line and at most 200 characters.
 func TestImportNamesFeeds(t *testing.T) {
 	db := openDB(t)
 	long := strings.Repeat("y", 250)
@@ -73,15 +105,44 @@ func TestImportNamesFeeds(t *testing.T) {
 	<outline text="  Two
 	  lines  " xmlUrl="https://two.test/rss"/>
 	<outline text="`+long+`" xmlUrl="https://long.test/rss"/>
+	<outline text="Tips &amp;amp; tricks" xmlUrl="https://tips.test/rss"/>
+	<outline text="It&amp;#8217;s mine" xmlUrl="https://mine.test/rss"/>
 	</body></opml>`, ImportOptions{})
-	name := func(host string) string {
-		var n string
-		require.NoError(t, db.Reader().QueryRow("SELECT COALESCE(custom_title, title) FROM feeds WHERE host = ?", host).Scan(&n))
+	require.Equal(t, "https://untitled.test/rss", feedName(t, db, "untitled.test"))
+	require.Equal(t, "Two lines", feedName(t, db, "two.test"))
+	require.Len(t, []rune(feedName(t, db, "long.test")), 200)
+	require.Equal(t, "Tips & tricks", feedName(t, db, "tips.test"), "the OPML parser undoes a doubled &amp;")
+	require.Equal(t, "It&#8217;s mine", feedName(t, db, "mine.test"), "a written name is not run through the feed-title entity heuristic")
+}
+
+// A feed that was never fetched round-trips through OPML without picking up a name: the export writes
+// none, so the re-imported feed still takes the title its first fetch finds.
+func TestRoundTripOfAnUnfetchedFeedKeepsItUnnamed(t *testing.T) {
+	src := openDB(t)
+	importString(t, src, `<opml><body><outline xmlUrl="https://fresh.test/rss"/></body></opml>`, ImportOptions{})
+	out := export(t, src)
+	require.NotContains(t, out, `text="fresh.test"`)
+	require.NotContains(t, out, `text="https://fresh.test/rss"`)
+
+	dst := openDB(t)
+	importString(t, dst, out, ImportOptions{})
+	firstFetch(t, dst, "fresh.test", "Fresh News")
+	require.Equal(t, "Fresh News", feedName(t, dst, "fresh.test"))
+	require.Zero(t, func() int {
+		var n int
+		require.NoError(t, dst.Reader().QueryRow("SELECT count(*) FROM feeds WHERE custom_title IS NOT NULL").Scan(&n))
 		return n
-	}
-	require.Equal(t, "untitled.test", name("untitled.test"))
-	require.Equal(t, "Two lines", name("two.test"))
-	require.Len(t, []rune(name("long.test")), 200)
+	}(), "no custom name was made up")
+
+	// A fetched feed round-trips with its real title, which the first fetch after re-import drops as a
+	// custom name (it equals the document's), so the feed keeps following its own renames.
+	firstFetch(t, src, "fresh.test", "Fresh News")
+	dst2 := openDB(t)
+	importString(t, dst2, export(t, src), ImportOptions{})
+	require.Equal(t, "Fresh News", feedName(t, dst2, "fresh.test"))
+	firstFetch(t, dst2, "fresh.test", "Fresh News")
+	firstFetch(t, dst2, "fresh.test", "Fresh News Daily")
+	require.Equal(t, "Fresh News Daily", feedName(t, dst2, "fresh.test"))
 }
 
 func TestImportReportsAndDedup(t *testing.T) {
