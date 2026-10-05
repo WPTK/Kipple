@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, errorMessage } from "@/api/client";
+import { useBootstrap } from "@/api/queries";
 import { addFeed, invalidateFeeds, type AddFeedResult, type Candidate, type FeedDetail, type FetchOutcome } from "@/api/admin";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, inputCls } from "@/ui/kit";
@@ -23,9 +24,13 @@ export function addError(e: unknown): string {
   return errorMessage(e);
 }
 
+/** The longest title the server accepts, in characters. */
+const MAX_TITLE_CHARS = 200;
+
 /** Add a feed by address: exists, choose-among-candidates and ok flows, then the first-fetch result. */
 export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; onOpenFeed?: (feedId: string) => void }) {
   const qc = useQueryClient();
+  const boot = useBootstrap();
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [folder, setFolder] = useState("");
@@ -33,6 +38,9 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
   const [pick, setPick] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The server counts characters (code points), so an emoji is one, not the two UTF-16 units maxLength would count.
+  const titleChars = [...title.trim()].length;
+  const titleTooLong = titleChars > MAX_TITLE_CHARS;
 
   const run = async (target: string) => {
     setBusy(true);
@@ -56,6 +64,10 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
 
   if (step.kind === "done") {
     const { feed, existed, fetch } = step;
+    // `title` is the server's display name (custom title, else the feed's own, blanks ignored, else the URL), never
+    // empty, so the dialog applies no rule of its own. The feed list's copy is the live one: a first fetch that
+    // finishes after this answer names the feed there.
+    const name = boot.data?.feeds.find((f) => f.id === feed.id)?.title ?? feed.title;
     return (
       <Modal
         open
@@ -72,7 +84,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
           </>
         }
       >
-        <p className="text-sm">{feed.custom_title || feed.title || feed.url}</p>
+        <p className="text-sm">{name}</p>
         {existed ? <p className="text-sm text-fg2">It is already in your folder list, so nothing was added.</p> : null}
         {!existed && fetch?.error ? (
           <Notice tone="error">
@@ -106,7 +118,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
         ) : (
           <>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="solid" disabled={busy || !url.trim()} onClick={() => void run(url)}>
+            <Button variant="solid" disabled={busy || !url.trim() || titleTooLong} onClick={() => void run(url)}>
               {busy ? "Adding" : "Add feed"}
             </Button>
           </>
@@ -132,15 +144,19 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
           id="add-feed-form"
           onSubmit={(e) => {
             e.preventDefault();
-            if (url.trim() && !busy) void run(url);
+            if (url.trim() && !busy && !titleTooLong) void run(url);
           }}
           className="flex flex-col gap-4"
         >
           <Field label="Feed or website address">
             {(a) => <input {...a} type="url" inputMode="url" autoCapitalize="none" spellCheck={false} autoFocus placeholder="https://example.com/feed.xml" value={url} onChange={(e) => setUrl(e.target.value)} className={inputCls} />}
           </Field>
-          <Field label="Title (optional)" help="Leave empty to use the feed's own title.">
-            {(a) => <input {...a} type="text" value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} />}
+          <Field
+            label="Title (optional)"
+            help={title.trim() ? "Kipple uses this title instead of the feed's own. You can change it later." : "Left empty, the title is filled in from the feed. You can change it later."}
+            error={titleTooLong ? `A title can be at most ${MAX_TITLE_CHARS} characters; this one has ${titleChars}.` : null}
+          >
+            {(a) => <input {...a} type="text" placeholder="Filled in from the feed" value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} />}
           </Field>
           <Field label="Folder">
             {(a) => (

@@ -264,7 +264,7 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 	// `GROUP BY +feed_id` keeps the planner off idx_items_feed_sort, which would walk every item to group the few
 	// starred ones (about 670 ms at 200k items); it counts through the starred partial index instead.
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT f.id, f.folder_id, COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url), f.site_url, fi.hash,
+		SELECT f.id, f.folder_id, `+feedTitleSQL("f")+`, f.site_url, fi.hash,
 		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes, f.auto_read_days,
 		       f.host, f.redirect_kind, f.redirect_to, COALESCE(f.last_new_items_at, f.created_at),
 		       COALESCE(s.n, 0)
@@ -273,7 +273,7 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id
 		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE starred = 1 GROUP BY +feed_id) s ON s.feed_id = f.id
 		WHERE `+where+`
-		ORDER BY fo.position, fo.name, f.position, lower(COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url)), f.id`, args...)
+		ORDER BY fo.position, fo.name, f.position, lower(`+feedTitleSQL("f")+`), f.id`, args...)
 	if err != nil {
 		return nil, err
 	}
