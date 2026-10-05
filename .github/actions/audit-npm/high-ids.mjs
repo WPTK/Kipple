@@ -11,7 +11,7 @@ export function highIds(json) {
   try {
     report = JSON.parse(json);
   } catch {
-    return []; // npm printed no report (registry error); the gate step fails on its own and the issue says so
+    return []; // no report (registry error): the separate gate step decides pass or fail, and the issue says "failed without an id"
   }
   const ids = new Set();
   for (const v of Object.values(report.vulnerabilities ?? {})) {

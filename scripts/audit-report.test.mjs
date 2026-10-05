@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ID_RE, report, TITLE } from './audit-report.mjs';
+import { decideDryRun, ID_RE, report, TITLE } from './audit-report.mjs';
 import { highIds } from '../.github/actions/audit-npm/high-ids.mjs';
 
 const RUN = 'https://example.invalid/run/1';
@@ -159,6 +159,34 @@ test('dry run reads and reports but writes nothing, for open, update and close',
   assert.match(report({ dir: results({}), ...OPTS, dryRun: true, gh: live.gh }), /would: close/);
   assert.equal(live.writes.length, before);
   assert.equal(live.issues[0].state, 'open');
+});
+
+test('an organization owner cannot be assigned: the issue is still opened, without an assignee, and says so', () => {
+  const fake = fakeGh();
+  const gh = (args, input) => {
+    if (args.includes('--assignee')) throw new Error('could not assign user');
+    return fake.gh(args, input);
+  };
+  const out = report({ dir: results(vulnerable), ...OPTS, assignee: 'some-org', gh });
+  assert.equal(fake.issues.length, 1);
+  assert.ok(!fake.issues[0].args.includes('--assignee'));
+  assert.match(fake.issues[0].body, /assignee `some-org` could not be set/);
+  assert.match(fake.issues[0].body, /audit-fingerprint:/);
+  assert.match(out, /without an assignee/);
+});
+
+test('may this run write? only on the default branch, and not with dry_run', () => {
+  const on = { ref: 'main', defaultBranch: 'main' };
+  assert.equal(decideDryRun({ ...on, eventName: 'schedule', dryRunInput: false }), false, 'schedule on the default branch writes');
+  assert.equal(decideDryRun({ ...on, eventName: 'workflow_dispatch', dryRunInput: false }), false, 'dispatch on main writes');
+  assert.equal(decideDryRun({ ref: 'fix/x', defaultBranch: 'main', eventName: 'workflow_dispatch', dryRunInput: false }), true, 'dispatch on a branch is a dry run');
+  assert.equal(decideDryRun({ ...on, eventName: 'workflow_dispatch', dryRunInput: true }), true, 'dispatch with dry_run is a dry run');
+});
+
+test('may this run write? an unknown default branch fails loudly instead of becoming a dry run', () => {
+  for (const defaultBranch of ['', undefined]) {
+    assert.throws(() => decideDryRun({ ref: 'main', defaultBranch, eventName: 'schedule', dryRunInput: false }), /default branch is unknown/);
+  }
 });
 
 test('advisory id pattern: CVE, GHSA and GO ids match, near misses do not', () => {

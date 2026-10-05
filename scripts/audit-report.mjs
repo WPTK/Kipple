@@ -1,4 +1,5 @@
-// node scripts/audit-report.mjs --dir <results> --run-url <url> --ref <ref> --sha <sha> [--assignee <login>] [--dry-run]
+// node scripts/audit-report.mjs --dir <results> --run-url <url> --ref <ref> --sha <sha> [--assignee <login>]
+//                               --default-branch <name> --event <name> [--dry-run-input true]
 //
 // The weekly audit (.github/workflows/audit.yml) runs govulncheck, npm audit and Trivy and leaves, per check, a
 // <check>.status file (the step outcome) and a <check>.log file in <results>. This turns that into exactly one
@@ -70,7 +71,17 @@ export function body(failed, { runUrl, ref, sha }) {
   return lines.join('\n');
 }
 
-const defaultGh = (args, input) => execFileSync('gh', args, { encoding: 'utf8', input });
+// Whether this run may write to the issue. Only a run on the default branch may; any other ref, or a manual run with
+// dry_run set, reports what it would have done. The default branch must be known: an empty value (a failed lookup) throws
+// instead of quietly turning every run into a dry run.
+export function decideDryRun({ ref, defaultBranch, eventName, dryRunInput }) {
+  if (!defaultBranch) throw new Error('the default branch is unknown, so it is not safe to decide whether this run may write');
+  if (!ref) throw new Error('the run has no ref');
+  if (eventName === 'workflow_dispatch' && dryRunInput) return true;
+  return ref !== defaultBranch;
+}
+
+const defaultGh =(args, input) => execFileSync('gh', args, { encoding: 'utf8', input });
 
 // `gh` is injected so the decision logic can be tested without a repository. Returns the actions taken, as text.
 export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee, dryRun, gh = defaultGh }) {
@@ -94,8 +105,17 @@ export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee
   if (!open) {
     const args = ['issue', 'create', '--title', TITLE, '--body-file', '-'];
     for (const l of LABELS) args.push('--label', l);
-    if (assignee) args.push('--assignee', assignee);
-    return act('open a new issue', [[args, text]]);
+    if (!assignee) return act('open a new issue', [[args, text]]);
+    if (dryRun) return act('open a new issue', []);
+    // An organization cannot be assigned. The issue matters more than its assignee, so retry once without one and say so.
+    try {
+      gh([...args, '--assignee', assignee], text);
+      return 'open a new issue';
+    } catch {
+      const note = `\n\nThe assignee \`${assignee}\` could not be set (the repository owner is probably not a user). Please assign someone.`;
+      gh(args, text.replace(/\n\n<!-- /, `${note}\n\n<!-- `));
+      return 'open a new issue (without an assignee)';
+    }
   }
   if ((open.body ?? '').includes(`${MARK} ${fingerprint(failed)} `)) return `#${open.number} already lists these findings: nothing to do`;
   const note = `The findings changed. The description now lists them. Run: ${runUrl}`;
@@ -113,8 +133,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const dir = arg('--dir');
   const runUrl = arg('--run-url');
   if (!dir || !runUrl) {
-    console.error('usage: audit-report.mjs --dir <results> --run-url <url> [--ref <ref>] [--sha <sha>] [--assignee <login>] [--dry-run]');
+    console.error('usage: audit-report.mjs --dir <results> --run-url <url> [--ref <ref>] [--sha <sha>] [--assignee <login>] --default-branch <name> --event <name> [--dry-run-input true]');
     process.exit(2);
   }
-  console.log(report({ dir, runUrl, ref: arg('--ref'), sha: arg('--sha'), assignee: arg('--assignee'), dryRun: process.argv.includes('--dry-run') }));
+  const dryRun = decideDryRun({
+    ref: arg('--ref'),
+    defaultBranch: arg('--default-branch'),
+    eventName: arg('--event'),
+    dryRunInput: arg('--dry-run-input') === 'true',
+  });
+  console.log(report({ dir, runUrl, ref: arg('--ref'), sha: arg('--sha'), assignee: arg('--assignee'), dryRun }));
 }
