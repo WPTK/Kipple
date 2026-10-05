@@ -240,8 +240,9 @@ func TestMarkAllAsReadScopes(t *testing.T) {
 	tr := h.addItem(fc, itemSeed{})
 	h.trim(tr, true)
 
-	// Read, unread, broadcast, unknown streams: OK, nothing changes.
-	for _, s := range []string{readSt, "user/-/state/com.google/unread", "user/-/state/com.google/broadcast", "user/-/label/Nope", "feed/9999", "garbage"} {
+	// Read, broadcast, unknown streams: OK, nothing changes (the unread stream is the reading list,
+	// covered by the conformance suite).
+	for _, s := range []string{readSt, "user/-/state/com.google/broadcast", "user/-/label/Nope", "feed/9999", "garbage"} {
 		w := h.post(rd+"mark-all-as-read", "T=x&s="+url.QueryEscape(s))
 		require.Equal(t, "OK", w.Body.String(), s)
 	}

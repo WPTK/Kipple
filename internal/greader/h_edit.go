@@ -3,6 +3,7 @@ package greader
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"strconv"
 
 	"github.com/WPTK/kipple/internal/events"
@@ -168,7 +169,8 @@ func normalizeTS(s string) (us int64, ok bool) {
 }
 
 // markAllAsRead is POST mark-all-as-read. It never produces stats and is
-// always OK; read/unread/broadcast/unknown streams are no-ops.
+// always OK. The unread and kept-unread streams mark like the reading list; the
+// read, broadcast and unknown streams are no-ops.
 func (c *call) markAllAsRead() {
 	ctx := c.r.Context()
 	f, err := c.resolveStream(c.p.Get("s"), firstOrEmpty(c.p.AllRaw("s")))
@@ -176,7 +178,9 @@ func (c *call) markAllAsRead() {
 		c.serverError("mark-all-as-read", err)
 		return
 	}
-	if f.Empty || len(f.Read) > 0 {
+	// Only unread items are ever marked, so an unread or kept-unread stream is the
+	// reading list (or its scope), and the read stream has nothing to mark.
+	if f.Empty || slices.Contains(f.Read, 1) {
 		c.ok()
 		return
 	}

@@ -406,7 +406,8 @@ func (c *call) authenticate(s *acctSnap, rt route) bool {
 	if c.r.Method != http.MethodPost || rt.raw {
 		return hdrOK
 	}
-	t := c.p.Get("T")
+	// The token endpoint's body ends in a newline; a client may send that body back as T verbatim.
+	t := strings.TrimSpace(c.p.Get("T"))
 	if hdrOK {
 		return t == "" || t == "x" || tokEqual(t, s.token)
 	}
