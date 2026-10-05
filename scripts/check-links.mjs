@@ -12,7 +12,8 @@
 //   broken     404/410 (the archive is never asked), 5xx or 3xx-without-target after the retries, DNS/TLS failure, redirect
 //              loop, timeout, or a 4xx refusal that the archive says is not live (no recent 200 snapshot)
 // Only `broken` sets a non-zero exit. Retries wait retryDelayMs, then twice that, and so on. Archive lookups run one at a
-// time. Settings live in check-links.json next to this file. Nothing but the URL is sent.
+// time. A redirect loop is broken at once (retrying cannot change it). After deadlineMs for the whole run, archive lookups
+// that have not finished count as "archive unavailable", so the run ends and still prints its summary. Settings live in check-links.json next to this file. Nothing but the URL is sent.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -25,7 +26,7 @@ const DAY_MS = 86400000;
 
 export function loadSettings(path = `${HERE}check-links.json`) {
   const s = JSON.parse(readFileSync(path, 'utf8'));
-  for (const k of ['timeoutMs', 'workers', 'perHostConcurrency']) {
+  for (const k of ['timeoutMs', 'workers', 'perHostConcurrency', 'deadlineMs']) {
     if (!Number.isInteger(s[k]) || s[k] < 1) throw new Error(`${path}: ${k} must be an integer of at least 1`);
   }
   if (!Number.isInteger(s.retries) || s.retries < 0) throw new Error(`${path}: retries must be an integer of at least 0`);
@@ -69,29 +70,40 @@ const indentOf = (line) => {
 // list item's content, after a blank line), inline code, HTML comments. A "|" ends a URL, so table cells do not leak.
 export function extractLinks(text) {
   const out = [];
-  const body = text.replace(/<!--[\s\S]*?-->/g, (c) => c.replace(/[^\n]/g, ' '));
   let fence = null; // { ch, len }
-  let listIndent = 0;
+  let inComment = false;
+  const lists = []; // content columns of the open list items, shallowest first
   let prevBlank = true;
   let inIndented = false;
-  body.split(/\r?\n/).forEach((raw, i) => {
+  text.split(/\r?\n/).forEach((src, i) => {
     if (fence) {
-      const close = /^\s*(`{3,}|~{3,})\s*$/.exec(raw);
+      const close = /^\s*(`{3,}|~{3,})\s*$/.exec(src);
       if (close && close[1][0] === fence.ch && close[1].length >= fence.len) fence = null;
       return;
     }
+    let raw = src;
+    if (inComment) {
+      const end = raw.indexOf('-->');
+      if (end < 0) return;
+      raw = raw.slice(end + 3);
+      inComment = false;
+    }
     if (!raw.trim()) { prevBlank = true; return; }
-    const open = /^\s*(`{3,}|~{3,})/.exec(raw);
+    const open = /^\s*(?:(?:[-*+]|\d{1,9}[.)])\s+)?(`{3,}|~{3,})/.exec(raw);
     const indent = indentOf(raw);
     const item = /^\s*(?:[-*+]|\d{1,9}[.)])(\s+)\S/.exec(raw);
-    if (inIndented && indent >= listIndent + 4) { prevBlank = false; return; }
+    const base = lists.length ? lists[lists.length - 1] : 0;
+    if (inIndented && indent >= base + 4) { prevBlank = false; return; }
     inIndented = false;
-    if (prevBlank && indent >= listIndent + 4 && !open) { inIndented = true; prevBlank = false; return; }
-    if (item) listIndent = indent + raw.trimStart().indexOf(item[1]) + Math.min(item[1].length, 4);
-    else if (prevBlank && indent < listIndent) listIndent = 0;
+    if (prevBlank && indent >= base + 4 && !open) { inIndented = true; prevBlank = false; return; }
+    if (item || prevBlank) while (lists.length && lists[lists.length - 1] > indent) lists.pop();
+    if (item) lists.push(indent + raw.trimStart().indexOf(item[1]) + Math.min(item[1].length, 4));
     prevBlank = false;
     if (open) { fence = { ch: open[1][0], len: open[1].length }; return; }
-    const line = raw.replace(/`[^`]*`/g, '');
+    // Inline code first, so a "<!--" inside it opens nothing; then comments, which may run on to a later line.
+    let line = raw.replace(/`[^`]*`/g, '').replace(/<!--.*?-->/g, ' ');
+    const start = line.indexOf('<!--');
+    if (start >= 0) { line = line.slice(0, start); inComment = true; }
     for (const hit of line.matchAll(/https?:\/\/[^\s<>"'`\]|]+/g)) {
       let url = hit[0];
       // Trailing punctuation, and a ")" that closes a Markdown link rather than the URL itself.
@@ -123,7 +135,9 @@ async function probe(url, fetchFn, timeoutMs) {
     try { await res.body?.cancel(); } catch { /* the status is all that is needed */ }
     return { status: res.status };
   } catch (err) {
-    return { error: err?.cause?.code || err?.cause?.message || err?.name || 'error' };
+    const message = err?.cause?.message || '';
+    // A redirect loop is the same on every try.
+    return { error: err?.cause?.code || message || err?.name || 'error', final: /redirect count exceeded/i.test(message) };
   }
 }
 
@@ -137,9 +151,12 @@ const oneAtATime = (fn) => {
 
 // 'live' (a 200 snapshot no older than maxAgeDays), 'dead' (the archive answered and has none) or 'unknown' (it did not
 // answer usefully: down, throttled after the retries, non-2xx, timeout, malformed). Only 'dead' may fail a link.
-export function lookupSnapshot(url, { fetchFn, maxAgeDays, timeoutMs, retries = 0, retryDelayMs = 0, sleepFn = sleep, now = Date.now() }) {
+// Once `expired()` is true every queued or retrying lookup gives up as 'unknown', so the queue drains at once and the
+// run can finish within its deadline.
+export function lookupSnapshot(url, { fetchFn, maxAgeDays, timeoutMs, retries = 0, retryDelayMs = 0, sleepFn = sleep, now = Date.now(), expired = () => false }) {
   return oneAtATime(async () => {
     for (let attempt = 0; attempt <= retries; attempt++) {
+      if (expired()) return 'unknown';
       if (attempt) await sleepFn(retryDelayMs * 2 ** (attempt - 1));
       let res;
       try {
@@ -164,7 +181,7 @@ export function lookupSnapshot(url, { fetchFn, maxAgeDays, timeoutMs, retries = 
 }
 
 // { bucket, detail } for one URL. fetchFn and sleepFn are injectable so the tests need no network and no waiting.
-export async function classify(url, settings, { fetchFn = fetch, sleepFn = sleep, now = Date.now() } = {}) {
+export async function classify(url, settings, { fetchFn = fetch, sleepFn = sleep, now = Date.now(), expired } = {}) {
   const host = new URL(url).hostname.toLowerCase();
   const blockedHost = settings.blockedHosts.some((h) => host === h || host.endsWith(`.${h}`));
   let last;
@@ -172,6 +189,7 @@ export async function classify(url, settings, { fetchFn = fetch, sleepFn = sleep
     if (attempt) await sleepFn(backoff(settings, attempt));
     last = await probe(url, fetchFn, settings.timeoutMs);
     const s = last.status;
+    if (last.final) return { bucket: 'broken', detail: last.error };
     if (s >= 200 && s < 300) return { bucket: 'ok', detail: String(s) };
     if (s === 429) return { bucket: 'throttled', detail: '429' };
     if (s === 404 || s === 410) return { bucket: 'broken', detail: String(s) };
@@ -180,7 +198,7 @@ export async function classify(url, settings, { fetchFn = fetch, sleepFn = sleep
       if (blockedHost) return { bucket: 'blocked', detail: `${s}, host in blockedHosts` };
       const snap = await lookupSnapshot(url, {
         fetchFn, maxAgeDays: settings.waybackMaxAgeDays, timeoutMs: settings.timeoutMs,
-        retries: settings.retries, retryDelayMs: settings.retryDelayMs, sleepFn, now,
+        retries: settings.retries, retryDelayMs: settings.retryDelayMs, sleepFn, now, expired,
       });
       if (snap === 'live') return { bucket: 'blocked', detail: `${s}, live in the Internet Archive` };
       if (snap === 'unknown') return { bucket: 'blocked', detail: `${s}, archive unavailable` };
@@ -214,7 +232,9 @@ async function pool(items, hostOf, workers, perHost, fn) {
 }
 
 // files: [{ name, text }]. Returns { results: [{ url, bucket, detail, where: ['file:line'] }], counts }.
-export async function checkTexts(files, settings, deps = {}) {
+export async function checkTexts(files, settings, { clock = Date.now, ...deps } = {}) {
+  const deadline = clock() + settings.deadlineMs;
+  deps = { ...deps, expired: () => clock() > deadline };
   const byUrl = new Map();
   for (const { name, text } of files) {
     for (const { url, line } of extractLinks(text)) {
@@ -247,7 +267,7 @@ export function report({ results, counts }, log = console.log) {
 
 async function main(argv) {
   const root = fileURLToPath(new URL('..', import.meta.url));
-  const names = argv.length ? argv : execFileSync('git', ['ls-files', '*.md'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
+  const names = argv.length ? argv : execFileSync('git', ['ls-files', '-z', '*.md'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
   const files = names.map((name) => ({ name, text: readFileSync(resolve(root, name), 'utf8') }));
   return report(await checkTexts(files, loadSettings()));
 }

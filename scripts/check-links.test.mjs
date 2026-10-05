@@ -1,7 +1,7 @@
 // node --test scripts/check-links.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { classify, extractLinks, checkTexts, report, loadSettings, isExampleHost } from './check-links.mjs';
 
 const settings = {
-  timeoutMs: 1000, retries: 2, retryDelayMs: 0, workers: 4, perHostConcurrency: 2,
+  timeoutMs: 1000, deadlineMs: 600000, retries: 2, retryDelayMs: 0, workers: 4, perHostConcurrency: 2,
   waybackMaxAgeDays: 730, blockedHosts: ['blocked.test-host.com'], ignoredUrls: [],
 };
 const NOW = Date.UTC(2026, 9, 5);
@@ -271,6 +271,68 @@ test('the shipped settings file is valid', () => {
   assert.ok(s.perHostConcurrency >= 1 && s.waybackMaxAgeDays > 0);
 });
 
+test('extractLinks: a comment opener in a code block or inline code swallows nothing', () => {
+  const md = ['```html', '<!-- not a comment', '```', 'https://a.com/one', '`<!--` https://b.com/two', 'https://c.com/three -->'].join('\n');
+  assert.deepEqual(urls(md), ['https://a.com/one', 'https://b.com/two', 'https://c.com/three']);
+  const real = ['x <!-- https://skip.com/a', 'https://skip.com/b --> https://d.com/after', 'https://e.com/next'].join('\n');
+  assert.deepEqual(urls(real), ['https://d.com/after', 'https://e.com/next']);
+});
+
+test('extractLinks: a nested item then an outer paragraph keeps the outer item content column', () => {
+  const md = ['- outer', '  - inner', '', '  outer para', '', '    still outer item https://x.com/y', '', '        https://skip.com/code'].join('\n');
+  assert.deepEqual(urls(md), ['https://x.com/y']);
+});
+
+test('extractLinks: a fence opened on a list-marker line is code', () => {
+  const md = ['1. ```sh', '   https://skip.com/a', '   ```', '- ````', '  https://skip.com/b', '  ````', 'https://a.com/after'].join('\n');
+  assert.deepEqual(urls(md), ['https://a.com/after']);
+});
+
+test('a redirect loop is broken at once, with no retries and no sleeping', async () => {
+  const loop = Object.assign(new TypeError('fetch failed'), { cause: new Error('redirect count exceeded') });
+  const fetchFn = stub({ 'https://a.com/x': loop });
+  const sleeps = [];
+  const r = await classify('https://a.com/x', settings, { fetchFn, sleepFn: async (ms) => { sleeps.push(ms); } });
+  assert.deepEqual([r.bucket, fetchFn.calls.length, sleeps.length], ['broken', 1, 0]);
+});
+
+test('after the run deadline queued archive lookups give up as unavailable and the run still finishes', async () => {
+  let t = 0;
+  const archiveCalls = [];
+  const fetchFn = async (url) => {
+    if (url.startsWith('https://archive.org/')) {
+      archiveCalls.push(url);
+      t += 1000; // each lookup takes one second of the fake clock
+      return resp(200, { archived_snapshots: {} });
+    }
+    return resp(403);
+  };
+  const text = Array.from({ length: 6 }, (_, i) => `https://h${i}.com/p`).join(' ');
+  const out = await checkTexts([{ name: 'a.md', text }], { ...settings, workers: 6, deadlineMs: 2500 }, { fetchFn, sleepFn: noSleep, now: NOW, clock: () => t });
+  assert.equal(archiveCalls.length, 3);
+  assert.deepEqual(out.counts, { ok: 0, blocked: 3, throttled: 0, broken: 3 });
+  assert.equal(out.results.filter((r) => r.detail === '403, archive unavailable').length, 3);
+  assert.equal(report(out, () => {}), 1); // the three genuinely dead ones still fail; none of the skipped ones do
+});
+
+test('tracked files are listed NUL-separated, so a name git would quote is still read', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'l262-'));
+  try {
+    const here = (f) => new URL(`./${f}`, import.meta.url);
+    mkdirSync(join(dir, 'scripts'));
+    for (const f of ['check-links.mjs', 'check-links.json']) writeFileSync(join(dir, 'scripts', f), readFileSync(here(f)));
+    writeFileSync(join(dir, 'café notes.md'), 'Only an example link: https://rss.example.com/x\n');
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    git('init', '-q');
+    git('add', 'café notes.md');
+    const r = spawnSync(process.execPath, [join(dir, 'scripts', 'check-links.mjs')], { encoding: 'utf8', cwd: dir });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^0 links/m);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('an ignore is exact: a longer URL with the same start is still checked', async () => {
   const s = { ...settings, ignoredUrls: [{ url: 'https://skip.com/x', reason: 'test' }] };
   const fetchFn = stub({ 'https://skip.com/xyz': 200 });
@@ -340,7 +402,7 @@ test('loadSettings rejects workers, perHostConcurrency and timeoutMs that are no
       return loadSettings(p);
     };
     assert.doesNotThrow(() => load({}));
-    for (const k of ['workers', 'perHostConcurrency', 'timeoutMs']) {
+    for (const k of ['workers', 'perHostConcurrency', 'timeoutMs', 'deadlineMs']) {
       for (const bad of [0, -1, 1.5, '2', null]) assert.throws(() => load({ [k]: bad }), new RegExp(`${k} must be an integer`), `${k}=${bad}`);
     }
     assert.throws(() => load({ retries: 1.5 }), /retries/);

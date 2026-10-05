@@ -2,6 +2,7 @@
   "timeoutMs": 15000,
   "retries": 2,
   "retryDelayMs": 1500,
+  "deadlineMs": 600000,
   "workers": 8,
   "perHostConcurrency": 2,
   "waybackMaxAgeDays": 730,
