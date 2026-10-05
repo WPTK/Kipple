@@ -39,25 +39,25 @@ func (d *DB) SQLiteVersion(ctx context.Context) string {
 	return v
 }
 
-// downgradeError explains a database that is newer than this binary. It names the Kipple that last opened the
-// database when that is on record (read best-effort: the settings table exists at every schema, and any
-// failure just leaves the sentence out), what this binary is, and what to do about it.
+// downgradeError explains a database that is newer than this binary: what this binary is, the Kipple that last
+// started on the database when that is on record (read best-effort: the settings table exists at every schema, and
+// any failure just leaves the sentence out), and the two ways out. The recorded version is not assumed to be newer
+// than this binary: an upgrade that failed partway leaves the schema between two versions while the version on
+// record is still the old one, so the way back names the snapshot by this binary's schema, which is always right.
 func (d *DB) downgradeError(ctx context.Context, cur, latest int) error {
+	this := "this binary"
+	if v := strings.TrimSpace(d.version); v != "" {
+		this = "Kipple " + v
+	}
 	msg := fmt.Sprintf("store: database schema version %d is newer than this binary (%d); refusing to start.", cur, latest)
 	last, err := settingStringErr(ctx, d.writer, SettingLastVersion, "")
 	if err != nil {
 		last = ""
 	}
-	this := "this binary"
-	if v := strings.TrimSpace(d.version); v != "" {
-		this = "this is Kipple " + v
+	if last != "" {
+		msg += fmt.Sprintf(" The last Kipple that started on this database is %s.", last)
 	}
-	switch {
-	case last != "":
-		msg += fmt.Sprintf(" This database was last opened by Kipple %s (schema %d); %s (schema %d). Run %s or newer, or restore the pre-migration snapshot from the backup folder (docs/deploy.md, Rolling back).",
-			last, cur, this, latest, last)
-	default:
-		msg += fmt.Sprintf(" It was written by a newer Kipple than %s. Run a newer Kipple, or restore the pre-migration snapshot from the backup folder (docs/deploy.md, Rolling back).", this)
-	}
+	msg += fmt.Sprintf(" To run %s (schema %d), restore the snapshot pre-migration-%d-<to>-<time>.db from the backup folder"+
+		" (docs/deploy.md, Rolling back); otherwise run a Kipple whose schema is %d or newer.", this, latest, latest, cur)
 	return fmt.Errorf("%s", msg)
 }

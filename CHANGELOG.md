@@ -42,6 +42,7 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 - Moving a folder saves its new place and the new folder order in one step, so a move can no longer half-complete, and rapid moves or a refresh in between no longer show a folder in the wrong place. `POST /api/reorder` accepts `{id, parent_id}` in its `folders` list to move a folder; a bare folder id still keeps its parent. (#236)
 - Reader API: `stream/contents/feed/<feed URL>` now answers with the feed URL exactly as requested in the response `id`, instead of with the `//` after the scheme reduced to one slash. (#256)
 - Reader API: a write whose `T` edit token carries surrounding whitespace, such as the newline that ends the `token` response, is now accepted instead of answered 401. (#256)
+- An upgrade that fails the same schema migration on every restart keeps one pre-migration snapshot for that step instead of adding one per start, so the snapshot the previous version needs is no longer pruned. When an older version refuses a newer database, the message names the snapshot to restore (`pre-migration-<schema>-...`) and no longer tells you to run the version you are running.
 
 ### Security
 
