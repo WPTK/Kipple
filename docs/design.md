@@ -1815,8 +1815,15 @@ Optional, and off unless both `KIPPLE_ACCESS_TEAM_DOMAIN` and `KIPPLE_ACCESS_AUD
 | `GET/POST /api/starter-feeds` | session | The embedded recommended-feeds list; subscribe by id only. |
 | `POST /api/onboarding/complete`, `POST /api/onboarding/restart` | session | Set or clear `sys.setup_completed_at` ("Finish", "Skip", "Run setup again"). |
 
-Host gate (`421`) in setup and open mode, the `TZ` seeding of the `tz` setting and the port rules are described in
-the setup routes above and, for operators, `docs/deploy.md`.
+**Setup mode.** The mode is derived from the database at every start: with an account row the process is in normal mode for good; without one it is in setup mode, which is only "no account row" (there is no setup code). The setup route is mounted only while setup is pending. Background work (the scheduler and the rest) starts once, when the account appears, so nothing fetches before an account exists.
+
+**Account table.** `account` holds at most one row. `auth_mode` is `standard` (a web password, or none behind Cloudflare Access, §7.0) or `open` (no password, fenced by the open gate), and `created_via` records `env` (`KIPPLE_USERNAME` and `KIPPLE_PASSWORD` on first start) or `wizard`. A table-level `CHECK` enforces that open mode never has a web password.
+
+**Security settings.** `security.allowed_hosts` is a JSON array of extra host names the Host gate accepts, as exact names or `*.suffix`; the API validates the entries. A malformed stored value reads as the default (empty). The configured names (`KIPPLE_ALLOWED_HOSTS` and the host of `KIPPLE_PUBLIC_URL`) are added to it.
+
+**Recommended feeds.** The list the wizard offers is one embedded file (`starter/feeds.json`), parsed once; the server subscribes only the ids it lists. A file that fails validation never fails a start: the wizard shows "no recommendations available".
+
+Host gate (`421`) in setup and open mode, the `TZ` seeding of the `tz` setting and the port rules are described in the setup routes above and, for operators, `docs/deploy.md`.
 
 ### 7.1a Library settings added in phase 2 (no schema change)
 

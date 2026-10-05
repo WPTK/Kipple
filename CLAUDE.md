@@ -28,7 +28,7 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 - **Stack:** Go backend, React + TypeScript + Vite + Tailwind + shadcn frontend, SQLite in WAL mode. The frontend build
   is embedded in the Go binary. One image, one container, one port.
 - **Sync API:** Google Reader API (FreshRSS/Miniflux flavor) only. **No Fever.** The web app is the preferred client
-  (reading stats are web-only); any client that speaks the Google Reader API works. Test against the protocol with the conformance suite, not against named apps, and build nothing special for any one app.
+  (reading stats are web-only); any client that speaks the Google Reader API works. Test against the protocol, not named apps; build nothing special for any one app (issues #256, #260).
 - **Refresh:** background poll every 30 min (global + per-feed override), ETag/Last-Modified, exponential backoff on
   failing feeds, manual refresh fetches all now. API clients never trigger fetches of existing feeds; a feed added from
   a client is fetched on the next scheduler tick (opt-in exception: `greader.subscribe_fetch_now`, default off, see

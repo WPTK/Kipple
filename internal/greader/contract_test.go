@@ -109,7 +109,7 @@ func loginBody() string {
 	return "Email=" + testUser + "&Passwd=" + url.QueryEscape(testPass)
 }
 
-// batchClientLogin does a client's ClientLogin and parses the response the way a client does:
+// batchClientLogin does a ClientLogin and parses the response the way a strict client does:
 // every line split on every '=' and accepted only with exactly two parts.
 func (c *client) batchClientLogin() string {
 	c.t.Helper()
@@ -133,7 +133,7 @@ func decodeIDs(t *testing.T, body string) (ids []string, cont *string) {
 	t.Helper()
 	var v struct {
 		ItemRefs []struct {
-			ID *string `json:"id"` // a client: String?, used verbatim
+			ID *string `json:"id"` // strict clients decode it as an optional string and use it verbatim
 		} `json:"itemRefs"`
 		Continuation *string `json:"continuation"` // must be a string when present
 	}
@@ -190,7 +190,7 @@ func TestContractBatchingClientSequence(t *testing.T) {
 	tech := h.addFeed("https://tech.example/feed.xml", "Tech", "Tech")
 	other := h.addFeed("http://old.example/feed.xml", "Legacy", "")
 	now := h.clk.Now().Unix()
-	ot := now - 90*86400 // a client: Date minus 3 months when it has no stored start time
+	ot := now - 90*86400 // some clients use the Date minus 3 months when they have no stored start time
 
 	// 600 items crawled inside the window (one a minute), and two much older
 	// ones whose content changed after ot.
@@ -381,7 +381,7 @@ func TestContractBatchingClientSequence(t *testing.T) {
 	require.Equal(t, q[string](h, "SELECT origin_title FROM items WHERE id = ?", starredID), c2[0].Origin.Title)
 }
 
-// closedClientSequence replays the reconstructed a client Classic sync against one mount.
+// closedClientSequence replays the reconstructed closed-source-client sync against one mount.
 func closedClientSequence(t *testing.T, prefix string) {
 	h := newHarness(t)
 	c := newClient(t, h, prefix, "ClosedClient/5.4")

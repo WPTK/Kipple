@@ -16,6 +16,7 @@ web/.seed.pid
 *.pem
 *.key
 *.p12
+!**/testdata/**
 
 # Runtime data
 /data/
