@@ -329,6 +329,29 @@ func TestEditFeedURLToAPage(t *testing.T) {
 	require.Equal(t, srv+"/missing", body["url"], "a 404 now is kept as typed; the fetch reports it")
 }
 
+// An edit that moves a feed with the private-network exception to another site probes the new
+// address without it (the saved feed loses it too), unless the edit sets it again.
+func TestEditFeedURLProbeDropsExceptionsOffSite(t *testing.T) {
+	srv, hits := site(t)
+	h := newHarness(t) // the real dial guard: the test site is on loopback
+	c := h.login()
+	id := h.storeFeed("http://nas.example/rss", func(f *store.NewFeed) { f.AllowPrivateNet = true })
+	path := "/api/feeds/" + sid(id)
+
+	code, body, _ := h.api(c, "PATCH", path, jsonStr(map[string]any{"url": srv + "/one"}))
+	require.Equal(t, 200, code, body)
+	require.Zero(t, hits.Load(), "no request to an address the saved feed may not reach")
+	require.Equal(t, srv+"/one", body["url"])
+	require.Equal(t, false, body["allow_private_net"])
+
+	h.exec("DELETE FROM feeds WHERE id = ?", id)
+	id2 := h.storeFeed("http://nas2.example/rss", func(f *store.NewFeed) { f.AllowPrivateNet = true })
+	code, body, _ = h.api(c, "PATCH", "/api/feeds/"+sid(id2), jsonStr(map[string]any{"url": srv + "/one", "allow_private_net": true}))
+	require.Equal(t, 200, code, body)
+	require.EqualValues(t, 1, hits.Load())
+	require.Equal(t, srv+"/feed.xml", body["url"])
+}
+
 // Whatever form the address is typed or pasted in, the dialog adds the feed it names.
 func TestAddFeedTypedAddressForms(t *testing.T) {
 	srv, _ := site(t)

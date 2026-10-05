@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/WPTK/kipple/internal/discover"
+	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/store"
@@ -552,9 +553,23 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 		return cur
 	}
 	private := flag("allow_private_net", fd.AllowPrivateNet)
-	norm, _, _, err := store.ValidateFeedURL(*p.URL, private)
+	insecure := flag("allow_insecure_tls", fd.AllowInsecureTLS)
+	norm, _, host, err := store.ValidateFeedURL(*p.URL, private)
 	if err != nil || norm == fd.URL {
 		return "", ""
+	}
+	// A move to another site drops the exceptions the patch does not set itself (store.PatchFeed),
+	// so the probe runs without them: no request goes where the saved feed may not go.
+	if oldHost, _ := feedurl.Host(fd.URL); !fetch.SameSite(oldHost, host) {
+		if _, set := p.Cols["allow_private_net"]; !set && private {
+			private = false
+			if norm, _, _, err = store.ValidateFeedURL(*p.URL, false); err != nil {
+				return "", ""
+			}
+		}
+		if _, set := p.Cols["allow_insecure_tls"]; !set {
+			insecure = false
+		}
 	}
 	if _, found, err := s.db.FindFeedID(ctx, norm); err != nil || found {
 		return "", "" // the patch answers url_exists (or it is this feed's own old address)
@@ -565,7 +580,7 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 	if ua == "" {
 		ua = s.outgoingUA()
 	}
-	rt := s.opt.Guard(private, flag("allow_insecure_tls", fd.AllowInsecureTLS), flag("disable_http2", fd.DisableHTTP2))
+	rt := s.opt.Guard(private, insecure, flag("disable_http2", fd.DisableHTTP2))
 	found, err := discover.Find(dctx, rt, ua, retryUA, norm, private)
 	switch {
 	case errors.Is(err, discover.ErrNoFeed):

@@ -22,9 +22,11 @@ import (
 //     as there too; that is logged (MergedInto);
 //   - otherwise the link becomes the feed's URL (url_original keeps the page, so the same page
 //     address finds this feed again), validators are dropped, and the feed is due at once: the
-//     scheduler fetches it like any feed, under that host's own limits. HTTP credentials never
-//     follow a change of host, nor network exceptions a change of site (the fetch already refused
-//     such a link; this holds whatever the caller). The fetch_log row is outcome ok with the note
+//     scheduler fetches it like any feed, under that host's own limits. The HTTP login is cleared
+//     on a change of host and the network exceptions on a change of site, as PatchFeed does (the
+//     fetch already refuses such a link; this commit does not rely on it). A permanent-redirect
+//     migration (applyRedirect, design §4.7) differs: it keeps the login on another host of the
+//     same site. The fetch_log row is outcome ok with the note
 //     "discovered: <page> -> <feed>" (kept).
 //
 // Migrated and URL are set when the feed row changed.
