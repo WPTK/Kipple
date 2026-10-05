@@ -1,14 +1,16 @@
-// node scripts/audit-report.mjs --dir <results> --run-url <url> [--dry-run]
+// node scripts/audit-report.mjs --dir <results> --run-url <url> --ref <ref> --sha <sha> [--assignee <login>] [--dry-run]
 //
 // The weekly audit (.github/workflows/audit.yml) runs govulncheck, npm audit and Trivy and leaves, per check, a
 // <check>.status file (the step outcome) and a <check>.log file in <results>. This turns that into exactly one
-// tracking issue:
+// tracking issue, found by its exact title:
 //   - something failed, no open issue    -> open one
-//   - something failed, issue is open    -> edit its body, only when the set of findings changed
+//   - something failed, issue is open    -> edit its body and add a short comment, only when the set of findings
+//                                           changed (the edit keeps the list current, the comment notifies the
+//                                           assignee and keeps the history)
 //   - everything passed, issue is open   -> close it with a comment
 //   - everything passed, no open issue   -> do nothing
-// The findings are fingerprinted without the run link or any timestamp, so a repeat run that sees the same
-// advisories changes nothing. With --dry-run it only reads and prints what it would have done.
+// The findings are fingerprinted without the run link, the audited ref or sha, or any timestamp, so a repeat run that
+// sees the same advisories changes nothing. With --dry-run it only reads and prints what it would have done.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -17,28 +19,33 @@ import { fileURLToPath } from 'node:url';
 
 export const TITLE = 'Weekly audit: dependency or image advisories on main';
 export const LABELS = ['security', 'area:infra'];
-export const ASSIGNEE = 'WPTK';
 const MARK = 'audit-fingerprint:';
 
+// What a check's log can name: a CVE (Trivy), a GitHub advisory (npm) or a Go vulnerability (govulncheck).
+export const ID_RE = /\b(?:CVE-\d{4}-\d{4,}|GHSA(?:-[a-z0-9]{4}){3}|GO-\d{4}-\d+)\b/g;
+
 export const CHECKS = [
-  { name: 'govulncheck', label: 'govulncheck (Go modules and standard library)', ids: /\bGO-\d{4}-\d+\b/g },
-  { name: 'npm', label: 'npm audit (web production dependencies)', ids: /\bGHSA(?:-[a-z0-9]{4}){3}\b/g },
-  { name: 'trivy', label: 'Trivy (container image)', ids: /\bCVE-\d{4}-\d{4,}\b/g },
+  { name: 'govulncheck', label: 'govulncheck (Go modules and standard library)' },
+  { name: 'npm', label: 'npm audit (web production dependencies, high and critical)' },
+  { name: 'trivy', label: 'Trivy (container image)' },
 ];
+
+// What the workflow may write into a .status file. Anything else is treated as a check that did not report.
+const STATUSES = new Set(['success', 'failure', 'cancelled', 'skipped', 'missing', 'build-failure']);
 
 function readOr(path, fallback) {
   return existsSync(path) ? readFileSync(path, 'utf8') : fallback;
 }
 
-// One entry per check that did not pass. A check with no status file did not run to completion, which is a failure:
-// a missing result must never read as a clean run and close the issue.
+// One entry per check that did not pass. A check with no (or an unknown) status did not run to completion, which is a
+// failure: a missing result must never read as a clean run and close the issue.
 export function collect(dir) {
   const failed = [];
   for (const c of CHECKS) {
-    const status = readOr(join(dir, `${c.name}.status`), 'missing').trim();
+    const raw = readOr(join(dir, `${c.name}.status`), 'missing').trim();
+    const status = STATUSES.has(raw) ? raw : 'missing';
     if (status === 'success') continue;
-    const log = readOr(join(dir, `${c.name}.log`), '');
-    const ids = [...new Set(log.match(c.ids) ?? [])].sort();
+    const ids = [...new Set(readOr(join(dir, `${c.name}.log`), '').match(ID_RE) ?? [])].sort();
     failed.push({ ...c, status, ids });
   }
   return failed;
@@ -49,45 +56,53 @@ export function fingerprint(failed) {
   return createHash('sha256').update(canon).digest('hex').slice(0, 16);
 }
 
-export function body(failed, runUrl) {
-  const lines = ['The weekly audit of `main` found the following. This issue is updated when the findings change and closed by the first clean run.', ''];
-  for (const f of failed) {
-    lines.push(`### ${f.label}`);
-    if (f.ids.length > 0) for (const id of f.ids) lines.push(`- ${id}`);
-    else lines.push(f.status === 'failure' ? '- Failed without a recognisable advisory id; see the run log.' : `- The check did not complete (${f.status}); see the run log.`);
-    lines.push('');
-  }
-  lines.push(`Run that last changed this list: ${runUrl}`, '', `<!-- ${MARK} ${fingerprint(failed)} -->`);
+function detail(f) {
+  if (f.ids.length > 0) return f.ids.map((id) => `- ${id}`);
+  if (f.status === 'failure') return ['- Failed without a recognisable advisory id; see the run log.'];
+  if (f.status === 'build-failure') return ['- The image did not build, so it was not scanned; see the run log.'];
+  return [`- The check did not complete (${f.status}); see the run log.`];
+}
+
+export function body(failed, { runUrl, ref, sha }) {
+  const lines = ['The weekly audit found the following. This issue is updated when the findings change and closed by the first clean run.', ''];
+  for (const f of failed) lines.push(`### ${f.label}`, ...detail(f), '');
+  lines.push(`Last changed by: ${runUrl}`, `Audited: ${ref} @ ${sha}`, '', `<!-- ${MARK} ${fingerprint(failed)} -->`);
   return lines.join('\n');
 }
 
-const defaultGh = (args) => execFileSync('gh', args, { encoding: 'utf8' });
+const defaultGh = (args, input) => execFileSync('gh', args, { encoding: 'utf8', input });
 
 // `gh` is injected so the decision logic can be tested without a repository. Returns the actions taken, as text.
-export function report({ dir, runUrl, dryRun, gh = defaultGh }) {
+export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee, dryRun, gh = defaultGh }) {
   const failed = collect(dir);
+  // The title is the identity; labels can be edited by hand and must not hide the issue from the audit.
   const found = JSON.parse(
-    gh(['issue', 'list', '--state', 'open', '--label', LABELS[0], '--label', LABELS[1], '--search', `"${TITLE}" in:title`, '--json', 'number,title,body', '--limit', '20']),
+    gh(['issue', 'list', '--state', 'open', '--search', `"${TITLE}" in:title`, '--json', 'number,title,body', '--limit', '20']),
   ).filter((i) => i.title === TITLE);
   // A second open issue can only come from a human; the oldest is the tracked one and the rest are left alone.
   const open = found.sort((a, b) => a.number - b.number)[0];
-  const act = (text, args) => {
-    if (!dryRun) gh(args);
+  const act = (text, calls) => {
+    if (!dryRun) for (const [args, input] of calls) gh(args, input);
     return dryRun ? `dry run, would: ${text}` : text;
   };
 
   if (failed.length === 0) {
     if (!open) return 'clean run, no open issue: nothing to do';
-    return act(`close #${open.number}`, ['issue', 'close', String(open.number), '--comment', `Clean run, closing: ${runUrl}`]);
+    return act(`close #${open.number}`, [[['issue', 'close', String(open.number), '--comment', `Clean run, closing: ${runUrl}`]]]);
   }
-  const text = body(failed, runUrl);
+  const text = body(failed, { runUrl, ref, sha });
   if (!open) {
-    const args = ['issue', 'create', '--title', TITLE, '--body', text, '--assignee', ASSIGNEE];
+    const args = ['issue', 'create', '--title', TITLE, '--body-file', '-'];
     for (const l of LABELS) args.push('--label', l);
-    return act('open a new issue', args);
+    if (assignee) args.push('--assignee', assignee);
+    return act('open a new issue', [[args, text]]);
   }
   if ((open.body ?? '').includes(`${MARK} ${fingerprint(failed)} `)) return `#${open.number} already lists these findings: nothing to do`;
-  return act(`update #${open.number}`, ['issue', 'edit', String(open.number), '--body', text]);
+  const note = `The findings changed. The description now lists them. Run: ${runUrl}`;
+  return act(`update #${open.number}`, [
+    [['issue', 'edit', String(open.number), '--body-file', '-'], text],
+    [['issue', 'comment', String(open.number), '--body-file', '-'], note],
+  ]);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -98,8 +113,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const dir = arg('--dir');
   const runUrl = arg('--run-url');
   if (!dir || !runUrl) {
-    console.error('usage: audit-report.mjs --dir <results> --run-url <url> [--dry-run]');
+    console.error('usage: audit-report.mjs --dir <results> --run-url <url> [--ref <ref>] [--sha <sha>] [--assignee <login>] [--dry-run]');
     process.exit(2);
   }
-  console.log(report({ dir, runUrl, dryRun: process.argv.includes('--dry-run') }));
+  console.log(report({ dir, runUrl, ref: arg('--ref'), sha: arg('--sha'), assignee: arg('--assignee'), dryRun: process.argv.includes('--dry-run') }));
 }
