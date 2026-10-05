@@ -240,23 +240,36 @@ async function pool(items, hostOf, workers, perHost, fn) {
 }
 
 // A release is merged before its tag is pushed (the tag goes on the deployed commit), so the compare links that
-// CHANGELOG.md gains for the newest version point at a tag that does not exist yet. Returns a matcher for those links,
-// or null for any other file.
-function unpushedCompareTag(name, text) {
+// CHANGELOG.md gains for the newest version point at a tag that may not exist yet. Returns that tag and a matcher for
+// its compare links, or null for any other file. checkTexts skips them only while the tag is not known to be pushed.
+function newestCompareTag(name, text) {
   if (!/(^|[\\/])CHANGELOG\.md$/.test(name)) return null;
   const top = /^## \[(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]/m.exec(text);
   if (!top) return null;
   const tag = top[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`/compare/(?:[^/]*\\.\\.\\.)?v${tag}(?:\\.\\.\\.[^/]*)?$`);
+  return { tag: `v${top[1]}`, re: new RegExp(`/compare/(?:[^/]*\\.\\.\\.)?v${tag}(?:\\.\\.\\.[^/]*)?$`) };
 }
 
-// files: [{ name, text }]. Returns { results: [{ url, bucket, detail, where: ['file:line'] }], counts }.
-export async function checkTexts(files, settings, { clock = Date.now, ...deps } = {}) {
+// The tags on the origin remote (git ls-remote), or null when git or the remote cannot be asked.
+export function remoteTags(cwd) {
+  try {
+    const out = execFileSync('git', ['ls-remote', '--tags', '--refs', 'origin'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30000 });
+    return new Set(out.split('\n').map((l) => l.split('\trefs/tags/')[1]).filter(Boolean));
+  } catch {
+    return null;
+  }
+}
+
+// files: [{ name, text }]. Returns { results: [{ url, bucket, detail, where: ['file:line'] }], counts }. tags is the set
+// of pushed tags (remoteTags), or null when unknown: the newest version's compare links are skipped while its tag is
+// not in it, and always when it is unknown.
+export async function checkTexts(files, settings, { clock = Date.now, tags = null, ...deps } = {}) {
   const deadline = clock() + settings.deadlineMs;
   deps = { ...deps, expired: () => clock() > deadline };
   const byUrl = new Map();
   for (const { name, text } of files) {
-    const unpushed = unpushedCompareTag(name, text);
+    const newest = newestCompareTag(name, text);
+    const unpushed = newest && !tags?.has(newest.tag) ? newest.re : null;
     for (const { url, line } of extractLinks(text)) {
       if (isExampleHost(new URL(url).hostname)) continue;
       if (unpushed && unpushed.test(url)) continue;
@@ -290,7 +303,7 @@ async function main(argv) {
   const root = fileURLToPath(new URL('..', import.meta.url));
   const names = argv.length ? argv : execFileSync('git', ['ls-files', '-z', '*.md'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
   const files = names.map((name) => ({ name, text: readFileSync(resolve(root, name), 'utf8') }));
-  return report(await checkTexts(files, loadSettings()));
+  return report(await checkTexts(files, loadSettings(), { tags: remoteTags(root) }));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
