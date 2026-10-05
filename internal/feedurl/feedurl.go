@@ -80,10 +80,11 @@ var feedSchemes = map[string]bool{"feed": true, "rss": true, "pcast": true, "itp
 
 // clean turns an address as a person types or pastes it into one url.Parse reads as absolute. It
 // trims surrounding white space; unwraps a feed pseudo-scheme (feed:https://x is https://x); and
-// gives https to an address without a scheme (//host/p, example.com, example.com/feed,
-// localhost:8080/feed, a feed pseudo-scheme without its own); and repairs http:/host and https:host.
+// gives https to an address without a scheme (//host/p, example.com, example.com/feed, a feed
+// pseudo-scheme without its own) and http to localhost or an IP address typed without one; and
+// repairs http:/host and https:host.
 // An address with neither a scheme nor // counts as one only when its first segment is shaped like
-// a host (hostShaped: localhost, an IP address, or a name under a real top-level domain), so a
+// a host (hostShape: localhost, an IP address, or a name under a real top-level domain), so a
 // relative path (../feed.xml, index.php?x=1), a file name (feed.xml) or a lone word stays invalid.
 // Everything else is left to parse. Every entry point reaches it through parse: subscribe, the web
 // dialog, a URL edit, OPML import and the lookups.
@@ -108,48 +109,65 @@ func clean(raw string) string {
 	if i := strings.IndexAny(s, "/?#"); i >= 0 {
 		first = s[:i]
 	}
-	if hostShaped(first) {
+	switch hostShape(first) {
+	case shapeName:
 		return "https://" + s
+	case shapeLocal:
+		// localhost or an IP address cannot have a publicly trusted certificate: plain http.
+		return "http://" + s
 	}
 	return s
 }
 
-// hostShaped reports whether seg (host[:port], no scheme) is plainly a host: localhost, an IP
-// address (IPv6 in brackets), or dot-separated letter-digit-hyphen labels ending in a top-level
-// domain from the public suffix list. A numeric port may follow.
-func hostShaped(seg string) bool {
+// The shapes hostShape tells apart.
+const (
+	shapeNone  = iota // not plainly a host
+	shapeName         // a name under a real top-level domain: https
+	shapeLocal        // localhost or an IP address: http
+)
+
+// hostShape reports whether seg (host[:port], no scheme) is plainly a host: localhost or an IP
+// address (IPv6 in brackets), shapeLocal; or dot-separated letter-digit-hyphen labels whose last
+// label is a top-level domain in the ICANN section of the public suffix list (com, io, app, uk;
+// so foo.github.io and a.co.uk count, nas.lan, index.php and feed.xml do not), shapeName. A
+// numeric port may follow.
+func hostShape(seg string) int {
 	host := seg
 	if h, port, err := net.SplitHostPort(seg); err == nil {
 		if port == "" || strings.Trim(port, "0123456789") != "" {
-			return false
+			return shapeNone
 		}
 		host = h
 	} else if strings.Contains(seg, ":") && !strings.HasPrefix(seg, "[") {
-		return false
+		return shapeNone
 	}
 	host = strings.Trim(host, "[]")
 	if strings.EqualFold(host, "localhost") {
-		return true
+		return shapeLocal
 	}
 	if _, err := netip.ParseAddr(host); err == nil {
-		return true
+		return shapeLocal
 	}
 	labels := strings.Split(strings.ToLower(host), ".")
 	if len(labels) < 2 {
-		return false
+		return shapeNone
 	}
 	for _, l := range labels {
 		if l == "" || l[0] == '-' || l[len(l)-1] == '-' {
-			return false
+			return shapeNone
 		}
 		for _, r := range l {
 			if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-') {
-				return false
+				return shapeNone
 			}
 		}
 	}
-	_, icann := publicsuffix.PublicSuffix(strings.ToLower(host))
-	return icann
+	// The last label alone: a private-section suffix (github.io, blogspot.com) would otherwise
+	// report icann false for the whole name.
+	if _, icann := publicsuffix.PublicSuffix(labels[len(labels)-1]); icann {
+		return shapeName
+	}
+	return shapeNone
 }
 
 // hasScheme reports whether s starts with scheme "://" (RFC 3986 scheme characters).
