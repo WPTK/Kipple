@@ -1819,7 +1819,7 @@ Optional, and off unless both `KIPPLE_ACCESS_TEAM_DOMAIN` and `KIPPLE_ACCESS_AUD
 
 **Account table.** `account` holds at most one row. `auth_mode` is `standard` (a web password, or none behind Cloudflare Access, §7.0) or `open` (no password, fenced by the open gate), and `created_via` records `env` (`KIPPLE_USERNAME` and `KIPPLE_PASSWORD` on first start) or `wizard`. A table-level `CHECK` enforces that open mode never has a web password.
 
-**Security settings.** `security.allowed_hosts` is a JSON array of extra host names the Host gate accepts, as exact names or `*.suffix`; the API validates the entries. A malformed stored value reads as the default (empty). The configured names (`KIPPLE_ALLOWED_HOSTS` and the host of `KIPPLE_PUBLIC_URL`) are added to it.
+**Security settings.** `security.allowed_hosts` is a JSON array of extra host names the Host gate accepts, as exact names or `*.suffix`; the API validates the entries. A malformed stored value reads as the default (empty). The names in `KIPPLE_ALLOWED_HOSTS` and the host of `KIPPLE_PUBLIC_URL` are accepted in addition to it; they are not written into the setting.
 
 **Recommended feeds.** The list the wizard offers is one embedded file (`starter/feeds.json`), parsed once; the server subscribes only the ids it lists. A file that fails validation never fails a start: the wizard shows "no recommendations available".
 
