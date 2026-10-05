@@ -59,11 +59,11 @@ func searchScope(q CardQuery) (where []string, args []any) {
 // a reader connection. A variable so tests can shrink it.
 var searchBudget = 500 * time.Millisecond
 
-// searchScanLimit is the most matching items a search takes on. Date order has to see every match
-// before it can pick the newest page, so a search's cost grows with its matches, and a time budget
-// alone refuses a common word only when the machine happens to be busy. The first page counts the
-// matches up to this bound (a bounded walk, not the whole result) and a search above it is
-// ErrSearchTooBroad at once, whatever the load. A variable so tests can shrink it.
+// searchScanLimit is the most matching items one page of a search walks. Date order has to see every
+// match before it can pick the newest page, so a search's cost grows with its matches, and a time
+// budget alone refuses a common word only when the machine happens to be busy. The match walk of every
+// page (any cursor included) stops after this many rows plus one, and a walk that reached the extra row
+// is ErrSearchTooBroad whatever the load. A variable so tests can shrink it.
 var searchScanLimit = 75000
 
 // ErrSearchTooBroad is returned by a search that ran out of searchBudget or matches more than
@@ -131,33 +131,41 @@ func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card
 			args = append(args, q.Cursor.SortAt, q.Cursor.ID)
 		}
 	}
-	if q.Cursor == nil {
-		// The first page of a search: refuse one that matches more than searchScanLimit items.
+	// Pass 1: the ids of the page (one extra row says whether a next page exists). Every page, from any
+	// cursor, walks at most searchScanLimit+1 matches and a walk that reached the extra row is refused.
+	// By date the walk is materialized once and counted from there, so there is no second walk. By
+	// relevance bm25 is computed during the walk, which is the expensive part, so the count comes first
+	// from a walk that does not rank (a second, cheap walk).
+	from := `FROM items_fts JOIN items i ON i.id = items_fts.rowid WHERE ` + strings.Join(where, " AND ")
+	var idSQL string
+	if q.Rank {
 		var n int
-		probe := `SELECT count(*) FROM (SELECT 1 FROM items_fts JOIN items i ON i.id = items_fts.rowid WHERE ` +
-			strings.Join(where, " AND ") + ` LIMIT ?)`
+		probe := `SELECT count(*) FROM (SELECT 1 ` + from + ` LIMIT ?)`
 		if err := d.reader.QueryRowContext(ctx, probe, append(append([]any{}, args...), searchScanLimit+1)...).Scan(&n); err != nil {
 			return nil, nil, false, fmt.Errorf("store: search scan: %w", err)
 		}
 		if n > searchScanLimit {
 			return nil, nil, false, ErrSearchTooBroad
 		}
+		idSQL = `SELECT id, r, 0 FROM (SELECT i.id AS id, i.sort_at AS sort_at, ` + rankCol + ` AS r ` + from + `)` +
+			outer + ` ORDER BY ` + order + ` LIMIT ?`
+		args = append(append(args, outerArgs...), limit+1)
+	} else {
+		idSQL = `WITH m AS MATERIALIZED (SELECT i.id AS id, i.sort_at AS sort_at, ` + rankCol + ` AS r ` + from + ` LIMIT ?)
+			SELECT id, r, (SELECT count(*) FROM m) FROM m ORDER BY ` + order + ` LIMIT ?`
+		args = append(args, searchScanLimit+1, limit+1)
 	}
-	// Pass 1: the ids of the page (one extra row says whether a next page exists).
-	idSQL := `SELECT id, r FROM (SELECT i.id AS id, i.sort_at AS sort_at, ` + rankCol + ` AS r
-		FROM items_fts JOIN items i ON i.id = items_fts.rowid
-		WHERE ` + strings.Join(where, " AND ") + `)` + outer + ` ORDER BY ` + order + ` LIMIT ?`
-	args = append(append(args, outerArgs...), limit+1)
 	idRows, err := d.reader.QueryContext(ctx, idSQL, args...)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("store: search: %w", err)
 	}
+	scanned := 0
 	var ids []int64
 	var ranks []float64
 	for idRows.Next() {
 		var id int64
 		var r float64
-		if err := idRows.Scan(&id, &r); err != nil {
+		if err := idRows.Scan(&id, &r, &scanned); err != nil {
 			idRows.Close()
 			return nil, nil, false, err
 		}
@@ -168,6 +176,9 @@ func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card
 		return nil, nil, false, fmt.Errorf("store: search: %w", err)
 	}
 	idRows.Close()
+	if scanned > searchScanLimit {
+		return nil, nil, false, ErrSearchTooBroad
+	}
 	if len(ids) == 0 {
 		return []Card{}, nil, false, nil
 	}

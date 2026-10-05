@@ -87,10 +87,13 @@ func CheckFolderName(name string) error {
 const MaxFolderPathRunes = MaxFolderDepth*MaxFolderNameRunes + MaxFolderDepth - 1
 
 // checkFolderPath refuses a label path longer than any real folder path (ErrBadFolderName) before any
-// lookup. It is the one gate for the two writes that resolve a client-supplied path: resolveFolderPath
-// (subscribe, subscription/edit) and RenameLabel (rename-tag).
+// lookup. The two writes that resolve a client-supplied path call it first: resolveFolderPath
+// (subscribe, subscription/edit) and RenameLabel (rename-tag), the only callers of splitPath, whose
+// cost grows with the number of '/' in the label. folderByPath, which the reads (FindLabel) use, needs
+// no gate: it stops at the first level that matches no folder, so its probes are bounded by the tree
+// (TestFolderByPathLongLabelCostsFewProbes).
 func checkFolderPath(path string) error {
-	if len(path) > 4*MaxFolderPathRunes || utf8.RuneCountInString(path) > MaxFolderPathRunes {
+	if utf8.RuneCountInString(path) > MaxFolderPathRunes {
 		return ErrBadFolderName
 	}
 	return nil

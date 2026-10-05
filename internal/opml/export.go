@@ -51,6 +51,7 @@ func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 		ft, nocache, h2, insecure, private, on sql.NullInt64
 	}
 	type folderNode struct {
+		id    int64
 		name  string
 		feeds []feed
 		kids  []*folderNode
@@ -58,7 +59,6 @@ func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 	root := &folderNode{}
 	nodes := map[int64]*folderNode{0: root}
 	var cur *folderNode
-	var curID int64 = -1
 	for rows.Next() {
 		var fid, parent int64
 		var folder string
@@ -67,7 +67,7 @@ func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 			&f.nocache, &f.h2, &f.insecure, &f.private, &f.on); err != nil {
 			return err
 		}
-		if fid != curID {
+		if cur == nil || cur.id != fid {
 			if nodes[fid] != nil {
 				return fmt.Errorf("opml: export: folder %d listed twice", fid)
 			}
@@ -75,7 +75,7 @@ func ExportFrom(ctx context.Context, q Queryer, w io.Writer) error {
 			if up == nil {
 				return fmt.Errorf("opml: export: folder %d listed outside its parent %d", fid, parent)
 			}
-			cur, curID = &folderNode{name: folder}, fid
+			cur = &folderNode{id: fid, name: folder}
 			nodes[fid] = cur
 			up.kids = append(up.kids, cur)
 		}

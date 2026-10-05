@@ -255,6 +255,31 @@ func TestFolderPathLengthCap(t *testing.T) {
 	checkFolderInvariants(t, e.db.Reader())
 }
 
+// countingQuerier counts the lookups a Querier is asked for.
+type countingQuerier struct {
+	Querier
+	rows int
+}
+
+func (c *countingQuerier) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	c.rows++
+	return c.Querier.QueryRowContext(ctx, query, args...)
+}
+
+// The read side (FindLabel, folderByPath) stops at the first level that matches no folder: a label with a
+// hundred thousand '/' costs a bounded number of probes, so it needs no length gate.
+func TestFolderByPathLongLabelCostsFewProbes(t *testing.T) {
+	e := newEnv(t)
+	e.chain("a", "a", "a")
+	for _, label := range []string{strings.Repeat("a/", 100000) + "a", strings.Repeat("z/", 100000) + "z"} {
+		c := &countingQuerier{Querier: e.db.Reader()}
+		_, found, err := folderByPath(e.ctx, c, label)
+		require.NoError(t, err)
+		require.False(t, found)
+		require.LessOrEqual(t, c.rows, MaxFolderDepth*MaxFolderNameRunes, "probes for a %d-byte label", len(label))
+	}
+}
+
 func TestFolderMoveRefusesCycles(t *testing.T) {
 	e := newEnv(t)
 	ids := e.chain("A", "B", "C")

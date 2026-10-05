@@ -485,27 +485,77 @@ func TestSearchTooBroad(t *testing.T) {
 	require.ErrorIs(t, err, ErrSearchTooBroad)
 }
 
-// A search whose first page matches more items than searchScanLimit is refused at once, in either order;
-// one that matches exactly the limit is answered, and so are its later pages.
+// One page of a search walks at most searchScanLimit matches: over it the search is refused, on the
+// first page and on any later one (a client-supplied cursor included), in both orders, in a feed or folder
+// scope and in the partial-match (OR) mode; exactly the limit is answered.
 func TestSearchScanLimit(t *testing.T) {
 	e := newEnv(t)
 	items := make([]sitem, 0, 8)
 	for i := 0; i < 8; i++ {
 		items = append(items, sitem{fmt.Sprintf("Apple %d", i), "Ann", "apple pie"})
 	}
-	seedSearch(t, e, items...)
+	ids := seedSearch(t, e, items...)
 	old := searchScanLimit
 	t.Cleanup(func() { searchScanLimit = old })
+	list := func(q CardQuery) ([]Card, *Cursor, bool, error) {
+		q.View, q.Limit = "all", 3
+		return e.db.ListCardsFB(e.ctx, q)
+	}
 
-	searchScanLimit = 8
 	for _, rank := range []bool{false, true} {
-		cards, cur, _, err := e.db.ListCardsFB(e.ctx, CardQuery{View: "all", Query: "apple ", Rank: rank, Limit: 3})
+		searchScanLimit = 8
+		cards, cur, _, err := list(CardQuery{Query: "apple ", Rank: rank})
 		require.NoError(t, err)
 		require.Len(t, cards, 3)
 		require.NotNil(t, cur)
+		// A later page of a search at the limit is answered (it walks what remains, or all of it by rank).
+		cards, _, _, err = list(CardQuery{Query: "apple ", Rank: rank, Cursor: cur})
+		require.NoError(t, err)
+		require.NotEmpty(t, cards)
+
 		searchScanLimit = 7
-		_, _, _, err = e.db.ListCardsFB(e.ctx, CardQuery{View: "all", Query: "apple ", Rank: rank, Limit: 3})
-		require.ErrorIs(t, err, ErrSearchTooBroad)
-		searchScanLimit = 8
+		_, _, _, err = list(CardQuery{Query: "apple ", Rank: rank})
+		require.ErrorIs(t, err, ErrSearchTooBroad, "first page, rank=%v", rank)
+		// A cursor that skips nothing (as a client can forge one) walks everything and is refused too.
+		forged := &Cursor{SortAt: 1 << 40, ID: 1 << 60, ByRank: rank, Rank: -1e9}
+		_, _, _, err = list(CardQuery{Query: "apple ", Rank: rank, Cursor: forged})
+		require.ErrorIs(t, err, ErrSearchTooBroad, "forged cursor, rank=%v", rank)
 	}
+	// By date a real cursor leaves fewer than the limit to walk, so the later page of a series is answered.
+	searchScanLimit = 8
+	_, cur, _, err := list(CardQuery{Query: "apple "})
+	require.NoError(t, err)
+	searchScanLimit = 5
+	cards, _, _, err := list(CardQuery{Query: "apple ", Cursor: cur})
+	require.NoError(t, err)
+	require.Len(t, cards, 3)
+
+	// A feed or folder scope counts its own matches only.
+	other := e.addFeed("https://ex.com/other")
+	folder := e.mkFolder(0, "Scoped")
+	e.exec("UPDATE feeds SET folder_id = ? WHERE id = ?", folder, other)
+	for _, id := range ids[:3] {
+		e.exec("UPDATE items SET feed_id = ? WHERE id = ?", other, id)
+	}
+	searchScanLimit = 5
+	_, _, _, err = list(CardQuery{Query: "apple "})
+	require.ErrorIs(t, err, ErrSearchTooBroad)
+	for _, scope := range []CardQuery{{FeedID: other}, {FolderID: folder}} {
+		scope.Query = "apple "
+		cards, _, _, err = list(scope)
+		require.NoError(t, err, "%+v", scope)
+		require.Len(t, cards, 3)
+	}
+	_, _, _, err = list(CardQuery{Query: "apple ", FeedID: 1})
+	require.NoError(t, err, "the other feed holds five")
+
+	// The partial-match mode (no item has both words, so they are ORed) is held to the limit as well.
+	searchScanLimit = 8
+	cards, _, fb, err := list(CardQuery{Query: "apple pear "})
+	require.NoError(t, err)
+	require.True(t, fb)
+	require.Len(t, cards, 3)
+	searchScanLimit = 7
+	_, _, _, err = list(CardQuery{Query: "apple pear "})
+	require.ErrorIs(t, err, ErrSearchTooBroad)
 }
