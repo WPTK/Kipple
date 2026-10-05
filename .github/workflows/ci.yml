@@ -148,6 +148,7 @@ jobs:
       - run: npm run contrast
       - run: npm audit --omit=dev --audit-level=high
       # Registry signatures and provenance of what was installed (a different check from the advisory audit above).
+      # A registry hiccup here is fixed by re-running the job.
       - run: npm audit signatures
 
   docker:

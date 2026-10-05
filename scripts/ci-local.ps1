@@ -84,7 +84,7 @@ Step 'web' 'test and coverage (no threshold)' { Push-Location web; npm run test:
 Step 'web' 'build' { Push-Location web; npm run build; Pop-Location }
 Step 'web' 'theme contrast' { Push-Location web; npm run contrast; Pop-Location }
 Step 'web' 'npm audit (prod, high)' { Push-Location web; npm audit --omit=dev --audit-level=high; Pop-Location }
-Step 'web' 'npm audit signatures' { Push-Location web; npm audit signatures; Pop-Location }
+Step 'web' 'npm audit signatures' { Push-Location web; npm audit signatures --cache $npmCache; Pop-Location }
 
 # ---- docker (opt-in: slow) ----
 if ($Docker) {

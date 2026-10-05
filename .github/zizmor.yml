@@ -1,6 +1,6 @@
 rules:
-  # `uses: ./.github/workflows/ci.yml` is the long-standing local reusable-workflow form; the newer `$/` spelling
-  # offers nothing here and is not worth changing in the release path.
+  # `uses: ./.github/workflows/ci.yml` (release.yml, line 88) is the local reusable-workflow form; the `$/` spelling
+  # offers nothing here and is not worth changing in the release path. Only that line is ignored.
   self-repository:
     ignore:
-      - release.yml
+      - release.yml:88
