@@ -25,6 +25,14 @@ func (c *confClient) confSubs() map[string]map[string]any {
 	return out
 }
 
+// confSubURL is the url subscription/list gives the stream id.
+func (c *confClient) confSubURL(streamID string) string {
+	c.t.Helper()
+	sub := c.confSubs()[streamID]
+	require.NotNil(c.t, sub, streamID)
+	return sub["url"].(string)
+}
+
 // confLabels returns the label ids in tag/list, in order.
 func (c *confClient) confLabels() []string {
 	c.t.Helper()
@@ -148,6 +156,19 @@ func TestConformanceQuickAdd(t *testing.T) {
 	r := c.call(http.MethodPost, rd+"subscription/quickadd?"+q1("quickadd", "https://second.example/rss"), "T="+url.QueryEscape(c.token), nil)
 	require.Equal(t, 200, r.code)
 	require.Len(t, c.confSubs(), 2)
+
+	// [FR][MF] a web page or a bare site address subscribes too. [K §6.9] The call makes no network
+	// request: the address is stored as typed (read as a URL), and the scheduler's first fetch finds
+	// the feed the page links and makes it the subscription's url (store and sched tests).
+	for typed, stored := range map[string]string{
+		"blog.example":                    "https://blog.example",
+		" https://www.site.example/news ": "https://www.site.example/news",
+		"feed://podcast.example/show.xml": "https://podcast.example/show.xml",
+	} {
+		m := quick(typed)
+		require.EqualValues(t, 1, m["numResults"], typed)
+		require.Equal(t, stored, c.confSubURL(m["streamId"].(string)), typed)
+	}
 }
 
 func TestConformanceSubscriptionEdit(t *testing.T) {

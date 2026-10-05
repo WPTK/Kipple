@@ -127,7 +127,8 @@ func TestHSTSAndUpgradeOnlyWhenEffectivelyHTTPS(t *testing.T) {
 }
 
 func TestCORPOnAPIAndImages(t *testing.T) {
-	for path, want := range map[string]string{"/api/items": "same-origin", "/img/a/0/b": "same-origin", "/": "", "/assets/a.js": "", "/healthz": ""} {
+	for path, want := range map[string]string{"/api/items": "same-origin", "/img/a/0/b": "same-origin", "/": "", "/assets/a.js": "", "/healthz": "",
+		"/api/greader.php/reader/api/0/stream/contents": "", "/api/greader.php/icon/1-abc": ""} {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		Secure(typed("application/json", "{}"), Options{}).ServeHTTP(rec, r)

@@ -205,7 +205,7 @@ type enclosureJSON struct {
 }
 
 // itemJSON is one stream item (design §6.6). Strings are never null; summary,
-// categories and origin are always present (NetNewsWire's decoder needs them).
+// content, categories and origin are always present (strict client decoders need them).
 type itemJSON struct {
 	ID            string          `json:"id"`
 	CrawlTimeMsec string          `json:"crawlTimeMsec"`
@@ -217,6 +217,7 @@ type itemJSON struct {
 	Canonical     []hrefJSON      `json:"canonical"`
 	Alternate     []altJSON       `json:"alternate"`
 	Summary       summaryJSON     `json:"summary"`
+	Content       summaryJSON     `json:"content"`
 	Categories    []string        `json:"categories"`
 	Origin        originJSON      `json:"origin"`
 	Enclosure     []enclosureJSON `json:"enclosure,omitempty"`
@@ -245,6 +246,10 @@ func newItemJSON(r *store.ContentRow) itemJSON {
 	if title == "" {
 		title = r.FeedTitle
 	}
+	// The article goes in both summary and content: clients read one or the other (the Google
+	// Reader API set content for full articles, summary for excerpts), and response compression
+	// makes the second copy cheap on the wire.
+	body := summaryJSON{Direction: "ltr", Content: truncateUTF8(content, contentCap)}
 	return itemJSON{
 		ID:            FormatLongID(r.ID),
 		CrawlTimeMsec: strconv.FormatInt(r.ID/1000, 10),
@@ -255,7 +260,8 @@ func newItemJSON(r *store.ContentRow) itemJSON {
 		Author:        r.Author,
 		Canonical:     []hrefJSON{{Href: r.URL}},
 		Alternate:     []altJSON{{Href: r.URL, Type: "text/html"}},
-		Summary:       summaryJSON{Direction: "ltr", Content: truncateUTF8(content, contentCap)},
+		Summary:       body,
+		Content:       body,
 		Categories:    cats,
 		Origin:        originJSON{StreamID: feedID(r.FeedID), Title: title, HTMLURL: r.SiteURL},
 		Enclosure:     parseEnclosures(r.Enclosures),

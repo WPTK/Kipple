@@ -223,7 +223,28 @@ func (a *API) Front(next http.Handler) http.Handler {
 	})
 }
 
+// CORS (design §6.1): every Reader API path may be called from a web page on any origin. The API
+// authenticates by the Authorization header or the T token, never by a cookie, so no credentials
+// are allowed and the origin is "*". The web app's own /api routes never get these headers.
+const (
+	corsMethods = "GET, POST, OPTIONS"
+	corsHeaders = "Authorization, Content-Type, If-None-Match"
+	corsExpose  = "ETag, Retry-After, X-Reader-Google-Bad-Token, Google-Bad-Token"
+)
+
 func (a *API) serve(w http.ResponseWriter, r *http.Request, rest string) {
+	h := w.Header()
+	h.Set("Access-Control-Allow-Origin", "*")
+	h.Set("Access-Control-Expose-Headers", corsExpose)
+	if r.Method == http.MethodOptions {
+		// A preflight (or any OPTIONS): answered before authentication, which it never carries.
+		h.Set("Access-Control-Allow-Methods", corsMethods)
+		h.Set("Access-Control-Allow-Headers", corsHeaders)
+		h.Set("Access-Control-Max-Age", "86400")
+		h.Set("Allow", corsMethods)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	start := time.Now()
 	sw := &statusWriter{ResponseWriter: w}
 	sw.Header().Set("Cache-Control", "private, no-cache")

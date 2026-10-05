@@ -175,6 +175,9 @@ func TestConformanceStreamContents(t *testing.T) {
 	require.Equal(t, "https://example.org/news-unread-starred", it.Alternate[0].Href)
 	require.Equal(t, "text/html", it.Alternate[0].Type)
 	require.Contains(t, it.Summary.Content, "body of news-unread-starred")
+	// [GR] a client reads content.content or summary.content, whichever is present; [MF] sends
+	// content, [FR] summary. Kipple sends both, the same article.
+	require.Equal(t, it.Summary.Content, it.Content.Content)
 	require.Equal(t, feedID(l.news), it.Origin.StreamID)
 	require.Equal(t, "World News", it.Origin.Title)
 	require.Equal(t, "https://news.example/", it.Origin.HTMLURL)

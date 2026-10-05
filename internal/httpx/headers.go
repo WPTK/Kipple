@@ -89,7 +89,9 @@ func Secure(h http.Handler, opt Options) http.Handler {
 		if secure {
 			hd.Set("Strict-Transport-Security", "max-age=31536000")
 		}
-		if p := r.URL.Path; strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/img/") {
+		// The Reader API is meant for other origins (it answers CORS, and a client shows its iconUrl
+		// images), so it gets no same-origin resource policy; the web app's /api and /img do.
+		if p := r.URL.Path; (strings.HasPrefix(p, "/api/") && !strings.HasPrefix(p, "/api/greader.php")) || strings.HasPrefix(p, "/img/") {
 			hd.Set("Cross-Origin-Resource-Policy", "same-origin")
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/api/greader.php") {
