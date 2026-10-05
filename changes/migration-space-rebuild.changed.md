@@ -1,0 +1,1 @@
+The free-space check before a database upgrade now reserves room for a migration that rebuilds a table: twice the database size plus 64 MB on the database's volume, plus 1.1 times the database for the pre-migration snapshot (about 3.1 times the database when both share a volume, as in the default `/data` layout). (#260)

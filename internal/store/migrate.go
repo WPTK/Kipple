@@ -141,14 +141,18 @@ var migrationFreeBytes = diskFree
 
 // Extra free space (not peak total usage) a migration needs on top of what the database already
 // occupies: the pre-migration snapshot (VACUUM INTO) is a copy of about 1x the database file, taken
-// with 10% slack, and the migration itself needs headroom for its WAL and file growth (an index
-// build or table rewrite; 0009 adds about a quarter of the database), covered by a fixed
-// migrateHeadroom. When the backup directory is on the same volume as the database the two
-// requirements add up. The check refuses before anything is written, so a full volume ends in a
-// clear error and an untouched database; it fails open when free space cannot be read.
+// with 10% slack, and the migration itself needs room for its WAL and file growth. The worst case is
+// a table rebuild (0012, 0014): the WAL holds the new copy of the table and its indexes until the
+// checkpoint, and the checkpoint then grows the file by the new table before the old pages are
+// reused, so up to twice the rebuilt table, bounded by twice the database file
+// (migrateRewriteFactor), plus a fixed migrateHeadroom. When the backup directory is on the same
+// volume as the database the two requirements add up. The check refuses before anything is written,
+// so a full volume ends in a clear error and an untouched database; it fails open when free space
+// cannot be read.
 const (
-	snapshotFreeFactor = 1.1
-	migrateHeadroom    = 64 << 20
+	snapshotFreeFactor   = 1.1
+	migrateRewriteFactor = 2
+	migrateHeadroom      = 64 << 20
 )
 
 // checkMigrationSpace refuses to migrate when the volumes are too full for the snapshot and the migration.
@@ -166,7 +170,7 @@ func (d *DB) checkMigrationSpace(from, to int) error {
 	if err1 != nil || err2 != nil {
 		return nil // cannot tell: do not block the upgrade on the check itself
 	}
-	dbNeed := uint64(size) + migrateHeadroom
+	dbNeed := migrateRewriteFactor*uint64(size) + migrateHeadroom
 	snapNeed := uint64(float64(size) * snapshotFreeFactor)
 	same := dbFree == snapFree
 	if rel, err := filepath.Rel(dbDir, d.backupDir); err == nil && !strings.HasPrefix(rel, "..") {
