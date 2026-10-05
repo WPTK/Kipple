@@ -40,9 +40,12 @@ type State struct {
 	Trusted []netip.Prefix
 	// Access verifies Cloudflare Access tokens; nil when validation is off.
 	Access *access.Verifier
-	// HostNames are the Host gate's extra names: the allowed host names plus the
-	// host of the public URL, normalized by setup.CheckHostEntry.
+	// HostNames are the allowed host names, normalized by setup.CheckHostEntry.
 	HostNames []string
+	// PublicHost is the host of PublicURL, "" when none. The Host gate answers it
+	// in setup mode, and in open mode unless any LAN device can answer it
+	// (setup.HostAllowed, setup.OpenHostAllowed).
+	PublicHost string
 }
 
 // Options configure Open.
@@ -200,13 +203,7 @@ func (l *Live) install(sec store.Security) {
 			st.HostNames = append(st.HostNames, n)
 		}
 	}
-	// The public URL's host is an allowed name, except one any device on the local
-	// network can answer (a single label, .local, .lan, .home.arpa, .internal): such
-	// a name is answered in open mode only when listed by name (#254), so a public
-	// URL alone never widens what open mode answers.
-	if h := Host(st.PublicURL); h != "" && !setup.LANClaimable(h) {
-		st.HostNames = append(st.HostNames, h)
-	}
+	st.PublicHost = Host(st.PublicURL)
 	old := l.cur.Load()
 	switch a := sec.Access; {
 	case a.TeamDomain == "":
@@ -252,7 +249,7 @@ func (l *Live) Trusted() []netip.Prefix { return l.Get().Trusted }
 // Access is the Access verifier in force, nil when validation is off.
 func (l *Live) Access() *access.Verifier { return l.Get().Access }
 
-// HostNames is the Host gate's extra names in force.
+// HostNames is the allowed host names in force.
 func (l *Live) HostNames() []string { return l.Get().HostNames }
 
 // Host is the host of a public URL as an allowed-host entry, "" when it has none.

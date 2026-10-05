@@ -119,14 +119,16 @@ func (s *Server) hostAllowed(r *http.Request, snap *modeSnapshot) (host string, 
 		return s.openHostAllowed(r)
 	}
 	host, valid := setup.NormalizeHost(r.Host)
-	return host, valid && setup.HostAllowed(host, s.reach.HostNames())
+	st := s.reach.Get()
+	return host, valid && setup.HostAllowed(host, st.PublicHost, st.HostNames)
 }
 
 // openHostAllowed judges r's Host by open mode's list, whatever the mode:
 // the open gate always uses it, including for the switch to open mode.
 func (s *Server) openHostAllowed(r *http.Request) (host string, ok bool) {
 	host, valid := setup.NormalizeHost(r.Host)
-	return host, valid && setup.OpenHostAllowed(host, s.reach.HostNames())
+	st := s.reach.Get()
+	return host, valid && setup.OpenHostAllowed(host, st.PublicHost, st.HostNames)
 }
 
 // openHosts reports whether the Host gate uses open mode's list: an open-mode
@@ -136,13 +138,24 @@ func (s *Server) openHosts(snap *modeSnapshot) bool {
 }
 
 // hostRefusedText is the 421 body: what happened and the settings that fix it.
-const hostRefusedText = "Kipple refused this request because of the address it was sent to.\n\n" +
-	"While Kipple is being set up, it only answers requests addressed to an IP address, localhost, a single-word\n" +
-	"name, a .localhost, .local, .lan, .home.arpa, .internal or .ts.net name, the host of its public URL or a\n" +
-	"name you allowed. While it runs without a password (open mode), it only answers an IP address, localhost, a\n" +
-	".localhost or .ts.net name, the host of its public URL and the names you allowed: any device on your\n" +
-	"network can answer a single-word or .local-style name with this computer's address and steer your browser into\n" +
-	"Kipple (DNS rebinding), so each such name has to be allowed by name, even when it is the public URL's.\n\n" +
+const hostRefusedText = "Kipple refused this request because of the address it was sent to.
+
+" +
+	"While Kipple is being set up, it only answers requests addressed to an IP address, localhost, a single-word
+" +
+	"name, a .localhost, .local, .lan, .home.arpa, .internal or .ts.net name, the host of its public URL or a
+" +
+	"name you allowed. While it runs without a password (open mode), it only answers an IP address, localhost, a
+" +
+	".localhost or .ts.net name, the host of its public URL and the names you allowed: any device on your
+" +
+	"network can answer a single-word or .local-style name (also .home, .localdomain, .fritz.box or .corp) with
+" +
+	"this computer's address and steer your browser into Kipple (DNS rebinding), so in open mode each such name
+" +
+	"has to be allowed by name, even when it is the public URL's.
+
+" +
 	"To allow a name, open Kipple by its IP address (that always works), then add the name under Allowed host\n" +
 	"names in Settings, Account & Devices, Address and access (e.g. nas.local, rss.example.com or *.example.com).\n" +
 	"It applies at once. Without a browser on the network (a headless install), KIPPLE_ALLOWED_HOSTS works on a\n" +

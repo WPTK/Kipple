@@ -47,14 +47,14 @@ func TestHostAllowedRefusesRebindingShapes(t *testing.T) {
 		"0x7f.0.0.1", "rss.example.com", "evilts.net", "example.lan.com",
 	} {
 		host, ok := NormalizeHost(in)
-		require.False(t, ok && HostAllowed(host, nil), in)
+		require.False(t, ok && HostAllowed(host, "", nil), in)
 	}
 	for _, in := range []string{
 		"127.0.0.1:1919", "[::1]:1919", "192.168.1.20", "localhost:1919", "app.localhost", "nas", "nas:1919",
 		"nas.local", "box.lan", "box.home.arpa", "svc.internal", "machine.tailnet-abcd.ts.net",
 	} {
 		host, ok := NormalizeHost(in)
-		require.True(t, ok && HostAllowed(host, nil), in)
+		require.True(t, ok && HostAllowed(host, "", nil), in)
 	}
 }
 
@@ -69,22 +69,42 @@ func TestOpenHostAllowedIsNarrower(t *testing.T) {
 		"evil.example", "127.0.0.1.nip.io", "localhost.evil.example", "evilts.net",
 	} {
 		host, ok := NormalizeHost(in)
-		require.False(t, ok && OpenHostAllowed(host, nil), in)
+		require.False(t, ok && OpenHostAllowed(host, "", nil), in)
 	}
 	for _, in := range []string{
 		"127.0.0.1:1919", "[::1]:1919", "192.168.1.20", "localhost:1919", "LOCALHOST", "app.localhost",
 		"machine.tailnet-abcd.ts.net",
 	} {
 		host, ok := NormalizeHost(in)
-		require.True(t, ok && OpenHostAllowed(host, nil), in)
-		require.True(t, HostAllowed(host, nil), "setup mode allows everything open mode does: %s", in)
+		require.True(t, ok && OpenHostAllowed(host, "", nil), in)
+		require.True(t, HostAllowed(host, "", nil), "setup mode allows everything open mode does: %s", in)
 	}
 	extra := []string{"nas", "*.local", "rss.example.com"}
 	for _, in := range []string{"nas", "box.local", "rss.example.com"} {
-		require.True(t, OpenHostAllowed(in, extra), in)
+		require.True(t, OpenHostAllowed(in, "", extra), in)
 	}
-	require.False(t, OpenHostAllowed("box.lan", extra))
-	require.False(t, OpenHostAllowed("", extra))
+	require.False(t, OpenHostAllowed("box.lan", "", extra))
+	require.False(t, OpenHostAllowed("", "", extra))
+}
+
+// The public URL's host is answered in setup mode whatever its zone (the
+// operator typed it), and in open mode only when no LAN device can answer it:
+// such a name has to be listed by name there (#254).
+func TestPublicHostSetupVersusOpen(t *testing.T) {
+	for _, public := range []string{"kipple.fritz.box", "rss.home", "rss.corp", "nas.localdomain", "nas.local", "nas"} {
+		require.True(t, HostAllowed(public, public, nil), "setup mode: %s", public)
+		require.False(t, OpenHostAllowed(public, public, nil), "open mode: %s", public)
+		require.True(t, OpenHostAllowed(public, public, []string{public}), "open mode, listed: %s", public)
+	}
+	const public = "rss.example.com"
+	require.True(t, HostAllowed(public, public, nil))
+	require.True(t, OpenHostAllowed(public, public, nil))
+	require.False(t, HostAllowed("www."+public, public, nil), "only the host itself")
+	require.False(t, HostAllowed("kipple.fritz.box", public, nil), "a name setup mode does not know needs to be the public host or listed")
+	require.False(t, HostAllowed(public, "", nil))
+	require.False(t, OpenHostAllowed(public, "", nil))
+	require.False(t, HostAllowed("", "", nil))
+	require.False(t, OpenHostAllowed("", "", nil))
 }
 
 func TestHostAllowedExtraEntries(t *testing.T) {
@@ -100,9 +120,9 @@ func TestHostAllowedExtraEntries(t *testing.T) {
 	} {
 		host, ok := NormalizeHost(in)
 		require.True(t, ok, in)
-		require.Equal(t, want, HostAllowed(host, extra), in)
+		require.Equal(t, want, HostAllowed(host, "", extra), in)
 	}
-	require.False(t, HostAllowed("", extra))
+	require.False(t, HostAllowed("", "", extra))
 }
 
 func TestCheckHostEntry(t *testing.T) {
@@ -158,12 +178,12 @@ func FuzzHostGate(f *testing.F) {
 			require.NotEqual(t, "*", e)
 			extra = []string{e}
 		}
-		allowed := HostAllowed(host, extra)
-		if OpenHostAllowed(host, extra) {
+		allowed := HostAllowed(host, "", extra)
+		if OpenHostAllowed(host, "", extra) {
 			require.True(t, allowed, "open mode allows only what setup mode allows: %q", host)
 		}
 		if !ok {
-			require.False(t, HostAllowed("", extra))
+			require.False(t, HostAllowed("", "", extra))
 			return
 		}
 		// Anything allowed is local by shape or listed.

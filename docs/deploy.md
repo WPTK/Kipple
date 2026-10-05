@@ -321,7 +321,8 @@ Sign-in then happens by itself when the app opens: it asks the server for a sess
 the request passes the **open gate**:
 
 1. **The name is expected.** Open mode answers a `Host` header that is an IP address, `localhost`, a `.localhost` or
-   `.ts.net` name, the host of the public URL, or a name you allowed. Anything else gets
+   `.ts.net` name, the host of the public URL (unless it is a local network name, below), or a name you allowed.
+   Anything else gets
    `421 Misdirected Request`, which says how to allow the name. `http://<ip>:1919` always works.
 
    To use a local network name such as `nas.local` or `nas` without a password, allow it: open Kipple by its IP
@@ -334,8 +335,9 @@ the request passes the **open gate**:
    names), even when it cannot reach Kipple's port itself, as with the default `127.0.0.1:1919` publish. So open mode
    answers only the names of that kind you allowed, never all of them, and choosing open mode never allows a name for
    you: the setup wizard has no secret, so a hostile page could make that choice too. During setup the check is
-   broader (single-word names and those suffixes are answered, so the wizard opens at whatever name you use); with a
-   password it only logs, once an hour.
+   broader (single-word names, those suffixes and the host of the public URL whatever it is, such as
+   `kipple.fritz.box` or `rss.home`, are answered, so the wizard opens at the name you use); with a password it only
+   logs, once an hour.
 2. **Not forwarded.** A request that came through a proxy or tunnel (a `CF-Connecting-IP`, `Cf-Access-Jwt-Assertion`,
    `Forwarded`, `X-Real-IP` or `X-Forwarded-*` header, a `Tailscale-Funnel-Request`, or a peer in the trusted
    proxies) is refused, because a tunnel means the port is published to people you did not pick.

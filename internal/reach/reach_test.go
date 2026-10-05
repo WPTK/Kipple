@@ -74,7 +74,8 @@ func TestOpenBuildsTheState(t *testing.T) {
 	require.NoError(t, err)
 	st := l.Get()
 	require.Equal(t, "https://RSS.example.com/kipple", st.PublicURL)
-	require.Equal(t, []string{"nas", "*.example.org", "rss.example.com"}, st.HostNames, "hand-edited bad entries are dropped")
+	require.Equal(t, []string{"nas", "*.example.org"}, st.HostNames, "hand-edited bad entries are dropped")
+	require.Equal(t, "rss.example.com", st.PublicHost)
 	require.Equal(t, []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32"), netip.MustParsePrefix("198.51.100.0/24")}, st.Trusted)
 	require.Nil(t, st.Access)
 
@@ -108,7 +109,7 @@ func TestUpdateAppliesTheWrittenValues(t *testing.T) {
 	url := map[string]any{store.SettingPublicURL: "https://rss.example.com"}
 	require.NoError(t, l.Update(url, nil, write(url)))
 	require.Same(t, v, l.Access())
-	require.Equal(t, []string{"rss.example.com"}, l.HostNames())
+	require.Equal(t, "rss.example.com", l.Get().PublicHost)
 
 	// A refused check and a failed write change nothing.
 	off := map[string]any{store.SettingCloudflareAccess: nil, store.SettingPublicURL: ""}
@@ -125,7 +126,7 @@ func TestUpdateAppliesTheWrittenValues(t *testing.T) {
 	require.NoError(t, l.Update(off, nil, write(off)))
 	require.Nil(t, l.Access())
 	require.Equal(t, "", l.PublicURL())
-	require.Empty(t, l.HostNames())
+	require.Empty(t, l.Get().PublicHost)
 
 	// What Update put in force is what a fresh read of the database gives.
 	again, err := Open(ctx, db, Options{NoPrefetch: true})
@@ -133,22 +134,25 @@ func TestUpdateAppliesTheWrittenValues(t *testing.T) {
 	require.Equal(t, l.Get().Stored, again.Get().Stored)
 }
 
-// A public URL at a LAN name is used, but its host is not added to the Host
-// gate's names (open mode answers such a name only when listed).
-func TestLANPublicURLHostIsNotAnAllowedName(t *testing.T) {
+// A public URL at a LAN name is used, and its host is the state's public host
+// like any other (the Host gate decides per mode; see setup.OpenHostAllowed).
+// The allowed names stay what was listed.
+func TestPublicHostIsKeptApartFromListedNames(t *testing.T) {
 	ctx := context.Background()
 	db := openDB(t)
 	l, err := Open(ctx, db, Options{NoPrefetch: true})
 	require.NoError(t, err)
-	for _, u := range []string{"http://nas.local:1919", "http://unraid:1919", "https://rss.home.arpa", "https://svc.internal", "http://box.lan"} {
+	for u, h := range map[string]string{"http://nas.local:1919": "nas.local", "http://unraid:1919": "unraid", "https://rss.home.arpa": "rss.home.arpa", "http://kipple.fritz.box:1919": "kipple.fritz.box"} {
 		set := map[string]any{store.SettingPublicURL: u}
 		require.NoError(t, l.Update(set, nil, func() error { return db.SetSettings(ctx, set) }))
 		require.Equal(t, u, l.PublicURL())
+		require.Equal(t, h, l.Get().PublicHost)
 		require.Empty(t, l.HostNames(), u)
 	}
 	set := map[string]any{store.SettingPublicURL: "https://rss.example.com", store.SettingAllowedHosts: []any{"nas.local"}}
 	require.NoError(t, l.Update(set, nil, func() error { return db.SetSettings(ctx, set) }))
-	require.Equal(t, []string{"nas.local", "rss.example.com"}, l.HostNames())
+	require.Equal(t, []string{"nas.local"}, l.HostNames())
+	require.Equal(t, "rss.example.com", l.Get().PublicHost)
 }
 
 func TestNilAndFixed(t *testing.T) {
@@ -259,7 +263,7 @@ func TestConcurrentUpdatesAndReads(t *testing.T) {
 				if st.PublicURL == "" {
 					continue
 				}
-				if len(st.Trusted) != 1 || st.Trusted[0].String() != want[st.PublicURL] || len(st.HostNames) != 1 || "https://"+st.HostNames[0] != st.PublicURL || st.Stored.PublicURL != st.PublicURL {
+				if len(st.Trusted) != 1 || st.Trusted[0].String() != want[st.PublicURL] || "https://"+st.PublicHost != st.PublicURL || st.Stored.PublicURL != st.PublicURL {
 					t.Errorf("a torn state: %+v", st)
 					return
 				}
