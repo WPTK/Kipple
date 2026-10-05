@@ -11,7 +11,7 @@ actual devices, doing his actual reading?" It is a phase 5 release-readiness ste
 | Standard role | Here |
 |---|---|
 | QA professional (orchestrates) | Claude: writes test cases, executes what can be automated or agent-driven, tracks and triages defects |
-| End user | The owner — the only user, on desktop Chrome and an installed iPhone PWA, plus a Reader API client |
+| End user | The owner (the only user), on desktop Chrome and an installed iPhone PWA, plus a Reader API client |
 | Business analyst / product owner | The owner (same person) — decisions already recorded in `docs/ui-decisions.md` and `kipple-history` are the "requirements" test cases trace to |
 | Development team | Claude, via fix PRs against defects found |
 | Sign-off authority | The owner, against `docs/release-checklist.md` |
