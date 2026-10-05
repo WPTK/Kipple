@@ -101,9 +101,17 @@ export function extractLinks(text) {
     prevBlank = false;
     if (open) { fence = { ch: open[1][0], len: open[1].length }; return; }
     // Inline code first, so a "<!--" inside it opens nothing; then comments, which may run on to a later line.
-    let line = raw.replace(/`[^`]*`/g, '').replace(/<!--.*?-->/g, ' ');
-    const start = line.indexOf('<!--');
-    if (start >= 0) { line = line.slice(0, start); inComment = true; }
+    // Comments are cut out by position, not by regexp: one that is still open at the end of the line continues on the next.
+    let rest = raw.replace(/`[^`]*`/g, '');
+    let line = '';
+    for (;;) {
+      const start = rest.indexOf('<!--');
+      if (start < 0) { line += rest; break; }
+      line += `${rest.slice(0, start)} `;
+      const end = rest.indexOf('-->', start + 4);
+      if (end < 0) { inComment = true; break; }
+      rest = rest.slice(end + 3);
+    }
     for (const hit of line.matchAll(/https?:\/\/[^\s<>"'`\]|]+/g)) {
       let url = hit[0];
       // Trailing punctuation, and a ")" that closes a Markdown link rather than the URL itself.
