@@ -15,9 +15,9 @@ func TestParseItemIDVectors(t *testing.T) {
 	}{
 		{"tag:google.com,2005:reader/item/00063f8740c61a40", 1758700000123456, true},
 		{"tag:google.com,2005:reader/item/63f8740c61a40", 1758700000123456, true}, // unpadded long form
-		{"00063f8740c61a40", 1758700000123456, true},                              // Reeder bare hex
+		{"00063f8740c61a40", 1758700000123456, true},                              // bare hex ids
 		{"1758700000123456", 1758700000123456, true},                              // decimal
-		{"00058b10ce338909", 1560279178774793, true},                              // NNW vectors
+		{"00058b10ce338909", 1560279178774793, true},                              // vectors from a client that sends unpadded hex ids
 		{"tag:google.com,2005:reader/item/00058b10ce338909", 1560279178774793, true},
 		{"tag:google.com,2005:reader/item/ffffffffffffcdef", -12817, true},
 		{"ffffffffffffcdef", -12817, true},

@@ -25,7 +25,7 @@ func TestClientLoginSuccessShape(t *testing.T) {
 	code, body := login(h, "OWNER", testPass) // Email is case-insensitive
 	require.Equal(t, 200, code)
 	require.Equal(t, "SID="+h.tok+"\nLSID=null\nAuth="+h.tok+"\n", body)
-	// NNW splits every line on '=' and needs exactly two parts.
+	// Some clients split every line on '=' and need exactly two parts.
 	for _, line := range strings.Split(strings.TrimSpace(body), "\n") {
 		require.Len(t, strings.Split(line, "="), 2, line)
 	}
@@ -98,7 +98,7 @@ func TestWriteTokenRules(t *testing.T) {
 	}{
 		{"header only", "i=1", nil, 200},
 		{"header + T=token", "T=" + h.tok + "&i=1", nil, 200},
-		{"header + T=x (Reeder 4)", "T=x&i=1", nil, 200},
+		{"header + T=x (older client)", "T=x&i=1", nil, 200},
 		{"header + empty T", "T=&i=1", nil, 200},
 		{"header + stale T", "T=old&i=1", nil, 401},
 		{"no header + T=token", "T=" + h.tok + "&i=1", noHdr, 200},

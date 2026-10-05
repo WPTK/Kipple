@@ -1,4 +1,4 @@
-// UAT Suite 1 addition (docs/setup-wizard-design.md, section 12): the setup wizard, end to end, in a real browser.
+// UAT Suite 1 addition (docs/uat-plan.md): the setup wizard, end to end, in a real browser.
 //
 //   npm run build && node uat/wizard.mjs [--headed] [--screenshots <dir>] [--bin <path to a kipple binary>]
 //

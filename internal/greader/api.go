@@ -387,7 +387,8 @@ func (c *call) authenticate(s *acctSnap, rt route) bool {
 	if c.r.Method != http.MethodPost || rt.raw {
 		return hdrOK
 	}
-	t := c.p.Get("T")
+	// The token endpoint's body ends in a newline; a client may send that body back as T verbatim.
+	t := strings.TrimSpace(c.p.Get("T"))
 	if hdrOK {
 		return t == "" || t == "x" || tokEqual(t, s.token)
 	}
@@ -489,7 +490,7 @@ func (c *call) token() {
 	c.text(http.StatusOK, s.token+"\n")
 }
 
-// userInfo is GET user-info (Reeder calls it right after ClientLogin).
+// userInfo is GET user-info (some clients call it right after ClientLogin).
 func (c *call) userInfo() {
 	s := c.acct
 	c.json(http.StatusOK, map[string]string{
@@ -550,7 +551,7 @@ func (c *call) ok() { c.text(http.StatusOK, "OK") }
 // the store refuses (store.FolderRefused: a name too long or with control
 // characters, a path another folder has, the nesting rules, a merge it cannot
 // do) is client data, never a 5xx: it is logged and answered OK with nothing
-// changed, like any other ignored value (a non-2xx wedges NetNewsWire's queue),
+// changed, like any other ignored value (a non-2xx wedges a client's sync queue),
 // and the client sees the old folders again on its next sync.
 func (c *call) serverError(what string, err error) {
 	if store.FolderRefused(err) {

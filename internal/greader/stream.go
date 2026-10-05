@@ -49,8 +49,6 @@ func (c *call) resolveStream(id, raw string) (store.StreamFilter, error) {
 		if n, err := strconv.ParseInt(rest, 10, 64); err == nil && n > 0 {
 			return store.StreamFilter{FeedID: n}, nil
 		}
-		// A feed URL in a request path had its "//" collapsed by the front handler.
-		rest = restoreScheme(rest)
 		fid, found, err := c.a.db.FindFeedID(c.r.Context(), rest)
 		if err != nil {
 			return store.StreamFilter{}, err
@@ -66,6 +64,17 @@ func (c *call) resolveStream(id, raw string) (store.StreamFilter, error) {
 
 func (c *call) warnStream(id string) {
 	c.a.log.Warn("greader: unknown stream", "stream", id, "path", c.path, "ua", c.r.UserAgent())
+}
+
+// pathStream is the stream id named by a stream/contents/<stream> path. The front
+// handler collapsed every "//" in the path, so a feed/<url> stream gets its
+// scheme's "//" back here, once: the id then resolves and is echoed exactly as an
+// s= value would be.
+func pathStream(path string) string {
+	if rest, ok := strings.CutPrefix(path, "feed/"); ok {
+		return "feed/" + restoreScheme(rest)
+	}
+	return path
 }
 
 // restoreScheme undoes the slash collapse in "http:/host/x".

@@ -234,7 +234,7 @@ The owner also asked to study general UAT methodology (testmonitor.com's UAT gui
 UAT plan, and to add these release-process gaps as phase 5 line items:
 - A Kipple-specific UAT plan, `docs/uat-plan.md` (roles, entry/exit criteria, scripted/agent-driven/owner-only
   test suites, defect severity scale, sign-off feeding the go/no-go meeting).
-- Reader API regression replay (Reeder Classic / NetNewsWire recorded sequences) against the actual deployed
+- Reader API regression replay (Reader API client recorded sequences) against the actual deployed
   build, not just CI's unit-level contract tests.
 - Migration rehearsal against a copy of the live Host-A DB, made a standing checklist item rather than ad hoc.
 - An actual end-to-end `kipple restore` drill (not just documentation) — first real run this cycle.
@@ -243,6 +243,6 @@ UAT plan, and to add these release-process gaps as phase 5 line items:
 
 **Phase 5 outline, updated:** (A) code audit + changelog review — DONE, PR #26; (B) Cloudflare Access JWT +
 passwordless, in parallel with A — DONE, PR #40; (C) auto-night theme — DONE, PR #41; (D) documentation run
-— DONE, #42 (a further pass for the 0.5 setup wizard is PR D of `docs/setup-wizard-design.md`) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
+— DONE, #42 (a further pass for the 0.5 setup wizard is PR D of the setup wizard work) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
 Suites 1-4, migration rehearsal, restore drill, Reader API regression replay); (E) final go/no-go meeting, fed by
 D and F's sign-off.

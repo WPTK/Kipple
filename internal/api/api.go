@@ -122,7 +122,7 @@ type Options struct {
 	Now       func() time.Time
 	Heartbeat time.Duration
 
-	// Setup is setup mode (docs/setup-wizard-design.md): when it is pending at
+	// Setup is setup mode (docs/design.md §7.1e): when it is pending at
 	// Register, the setup route is mounted. Nil means never in setup mode.
 	Setup *setup.Manager
 	// AllowedHosts are the Host gate's configured names (KIPPLE_ALLOWED_HOSTS and
