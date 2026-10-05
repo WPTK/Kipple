@@ -4,7 +4,7 @@ import { ApiError, errorMessage } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import { addFeed, invalidateFeeds, type AddFeedResult, type Candidate, type FeedDetail, type FetchOutcome } from "@/api/admin";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, inputCls } from "@/ui/kit";
+import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { announce } from "@/shell/toasts";
 
@@ -13,13 +13,28 @@ type Step =
   | { kind: "choose"; candidates: Candidate[] }
   | { kind: "done"; feed: FeedDetail; existed: boolean; fetch?: FetchOutcome };
 
+/** Fallbacks for the add errors the server explains in its own message (it knows the cause). */
+const addFallback: Record<string, string> = {
+  invalid_url: "That isn't a web address. Enter a feed or site address such as https://example.com/feed.",
+  no_feed: "Kipple found a web page at that address, but the page doesn't link to a feed.",
+  not_feed: "That address doesn't answer with a feed or a web page.",
+  unreachable: "Kipple couldn't reach that site. Check the address, or try again later.",
+  timeout: "The site took too long to answer. Try again later.",
+  private_address: "That address is on your own network, which Kipple doesn't fetch from unless you allow it for the feed.",
+};
+
+/** A server reason as a sentence: capitalized, ending in a full stop. */
+const sentence = (s: string) => {
+  const t = s.trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".") : t;
+};
+
 /** Plain-English message for a failed add. */
 export function addError(e: unknown): string {
-  if (e instanceof ApiError) {
+  const fallback = e instanceof ApiError ? addFallback[e.code] : undefined;
+  if (e instanceof ApiError && fallback) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
-    if (e.code === "no_feed") return "Kipple couldn't find a feed at that address. Check the address, or try the site's home page.";
-    if (e.code === "discovery_failed") return `Kipple couldn't reach that address.${msg ? ` ${msg}` : ""}`;
-    if (e.code === "invalid_url") return msg ? `That address isn't valid: ${msg}` : "That address isn't valid.";
+    return msg ? sentence(msg) : fallback;
   }
   return errorMessage(e);
 }
@@ -38,6 +53,9 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
   const [pick, setPick] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Offered once the server refused a private address; sent only when turned on.
+  const [privateOffered, setPrivateOffered] = useState(false);
+  const [privateNet, setPrivateNet] = useState(false);
   // The server counts characters (code points), so an emoji is one, not the two UTF-16 units maxLength would count.
   const titleChars = [...title.trim()].length;
   const titleTooLong = titleChars > MAX_TITLE_CHARS;
@@ -46,7 +64,12 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
     setBusy(true);
     setError(null);
     try {
-      const r: AddFeedResult = await addFeed({ url: target.trim(), ...(title.trim() ? { title: title.trim() } : {}), ...(folder ? { folder_id: folder } : {}) });
+      const r: AddFeedResult = await addFeed({
+        url: target.trim(),
+        ...(title.trim() ? { title: title.trim() } : {}),
+        ...(folder ? { folder_id: folder } : {}),
+        ...(privateNet ? { allow_private_net: true } : {}),
+      });
       invalidateFeeds(qc);
       if (r.status === "choose") {
         setStep({ kind: "choose", candidates: r.candidates });
@@ -57,6 +80,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
       }
     } catch (e) {
       setError(addError(e));
+      if (e instanceof ApiError && e.code === "private_address") setPrivateOffered(true);
     } finally {
       setBusy(false);
     }
@@ -118,7 +142,8 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
         ) : (
           <>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="solid" disabled={busy || !url.trim() || titleTooLong} onClick={() => void run(url)}>
+            {/* The form's submit button, so Enter in the address field adds the feed too. */}
+            <Button variant="solid" type="submit" form="add-feed-form" disabled={busy || !url.trim() || titleTooLong}>
               {busy ? "Adding" : "Add feed"}
             </Button>
           </>
@@ -149,8 +174,17 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
           className="flex flex-col gap-4"
         >
           <Field label="Feed or website address">
-            {(a) => <input {...a} type="url" inputMode="url" autoCapitalize="none" spellCheck={false} autoFocus placeholder="https://example.com/feed.xml" value={url} onChange={(e) => setUrl(e.target.value)} className={inputCls} />}
+            {/* type="text": the browser's URL check would refuse example.com, which Kipple accepts. */}
+            {(a) => <input {...a} type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus placeholder="example.com or https://example.com/feed.xml" value={url} onChange={(e) => setUrl(e.target.value)} className={inputCls} />}
           </Field>
+          {privateOffered ? (
+            <Switch
+              label="Allow addresses on my own network"
+              help="Lets this feed point at a private or local address, such as a server in your home. Turn it on only for a feed you trust."
+              checked={privateNet}
+              onChange={setPrivateNet}
+            />
+          ) : null}
           <Field
             label="Title (optional)"
             help={title.trim() ? "Kipple uses this title instead of the feed's own. You can change it later." : "Left empty, the title is filled in from the feed. You can change it later."}

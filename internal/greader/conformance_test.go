@@ -181,6 +181,9 @@ type confItem struct {
 	Summary struct {
 		Content string `json:"content"`
 	} `json:"summary"`
+	Content struct {
+		Content string `json:"content"`
+	} `json:"content"`
 	Categories []string `json:"categories"`
 	Origin     struct {
 		StreamID string `json:"streamId"`

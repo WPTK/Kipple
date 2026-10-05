@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/WPTK/kipple/internal/discover"
+	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/store"
@@ -166,9 +168,16 @@ func outcomeOf(rep sched.Reply) fetchOutcome {
 // ---- POST /api/feeds ----
 
 func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
-	m, ok := readObject(w, r, "url", "folder_id", "title")
+	m, ok := readObject(w, r, "url", "folder_id", "title", "allow_private_net")
 	if !ok {
 		return
+	}
+	allowPrivate := false
+	if raw, present := m["allow_private_net"]; present && !isNull(raw) {
+		if err := json.Unmarshal(raw, &allowPrivate); err != nil {
+			writeErrorMsg(w, http.StatusBadRequest, "bad_request", "allow_private_net must be true or false")
+			return
+		}
 	}
 	rawURL, ok := rawString(m["url"])
 	if !ok || strings.TrimSpace(rawURL) == "" {
@@ -199,8 +208,14 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		}
 		opts.Title = t
 	}
-	norm, _, _, err := store.ValidateFeedURL(rawURL, false)
+	opts.AllowPrivateNet = allowPrivate
+	norm, _, _, err := store.ValidateFeedURL(rawURL, allowPrivate)
 	if err != nil {
+		var bad *store.InvalidURLError
+		if errors.As(err, &bad) && bad.Private {
+			writeErrorMsg(w, http.StatusBadRequest, "private_address", msgPrivateAddress)
+			return
+		}
 		writeErrorMsg(w, http.StatusBadRequest, "invalid_url", err.Error())
 		return
 	}
@@ -220,14 +235,11 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	if ua == "" {
 		ua = s.outgoingUA()
 	}
-	found, err := discover.Find(dctx, s.opt.Guard(false, false, false), ua, retryUA, norm)
+	found, err := discover.Find(dctx, s.opt.Guard(allowPrivate, false, false), ua, retryUA, norm, allowPrivate)
 	cancel()
 	if err != nil {
-		if errors.Is(err, discover.ErrNoFeed) {
-			writeErrorMsg(w, http.StatusUnprocessableEntity, "no_feed", err.Error())
-		} else {
-			writeErrorMsg(w, http.StatusUnprocessableEntity, "discovery_failed", err.Error())
-		}
+		code, msg := discoveryError(err)
+		writeErrorMsg(w, http.StatusUnprocessableEntity, code, msg)
 		return
 	}
 	if len(found.Candidates) > 1 {
@@ -275,6 +287,42 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "feed": fd, "fetch": fo})
+}
+
+// msgPrivateAddress explains a private address refused by the add dialog and how to allow it.
+const msgPrivateAddress = "That address is on a private network (this computer or your local network). Kipple does not " +
+	"fetch from private addresses unless you allow it for the feed. If this feed is on your own network, turn on " +
+	"\"Allow addresses on my own network\" and add it again."
+
+// discoveryError maps a failed discovery to the add dialog's error code and a plain-language message.
+func discoveryError(err error) (code, msg string) {
+	var se *discover.StatusError
+	switch {
+	case errors.Is(err, discover.ErrNoFeed):
+		return "no_feed", "Kipple found a web page at that address, but the page does not link to a feed. " +
+			"Look on the site for its feed address (often /feed or /rss.xml)."
+	case errors.Is(err, discover.ErrNotFeed):
+		return "not_feed", "That address does not answer with a feed or a web page. Check the address."
+	case errors.Is(err, discover.ErrTooLarge):
+		return "not_feed", "That address answered with something too large to be a feed (" + err.Error() + ")."
+	case errors.As(err, &se):
+		return "unreachable", "The site answered, but with an error: HTTP " + strconv.Itoa(se.Code) + " " + http.StatusText(se.Code) +
+			". Check the address, or try again later."
+	}
+	switch class, detail := fetch.Classify(err); class {
+	case fetch.ClassSSRF:
+		return "private_address", msgPrivateAddress
+	case fetch.ClassTimeout:
+		return "timeout", "The site took too long to answer. Try again later."
+	case fetch.ClassDNS:
+		return "unreachable", "Kipple could not find that site: its name does not resolve. Check the spelling of the address."
+	case fetch.ClassTLS:
+		return "unreachable", "Kipple could not make a secure connection to that site (" + detail + ")."
+	case fetch.ClassRedirectLoop:
+		return "unreachable", "That address redirects too many times."
+	default:
+		return "unreachable", "Kipple could not reach that site (" + detail + ")."
+	}
 }
 
 func (s *Server) writeExisting(w http.ResponseWriter, r *http.Request, id int64) {
@@ -425,6 +473,12 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusBadRequest, "bad_request", msg)
 		return
 	}
+	if p.URL != nil {
+		if code, msg := s.resolveEditedURL(r.Context(), id, &p); code != "" {
+			writeErrorMsg(w, http.StatusUnprocessableEntity, code, msg)
+			return
+		}
+	}
 	res, err := s.db.PatchFeed(r.Context(), id, p)
 	var bad *store.InvalidURLError
 	var clash *store.URLCollisionError
@@ -474,6 +528,76 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, fd)
+}
+
+// resolveEditedURL runs the add dialog's discovery on a feed's edited URL, so an edit to a site or
+// page address gets the feed that page links, as adding it would (the first-fetch discovery is
+// only for a URL as it was given). A page that links one feed puts that feed's URL in p; a page
+// that links several, or none, is refused with a code and message for the editor. Anything else
+// (a feed, a site that cannot be reached now, an address the patch refuses anyway) leaves the URL
+// as typed, as an edit always did: the fetch that follows reports any problem.
+func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPatch) (code, msg string) {
+	fd, ok, err := s.db.FeedDetail(ctx, id, s.statusEnv())
+	if err != nil || !ok {
+		return "", ""
+	}
+	flag := func(key string, cur bool) bool {
+		switch v := p.Cols[key].(type) {
+		case bool:
+			return v
+		case int:
+			return v != 0
+		case int64:
+			return v != 0
+		}
+		return cur
+	}
+	private := flag("allow_private_net", fd.AllowPrivateNet)
+	insecure := flag("allow_insecure_tls", fd.AllowInsecureTLS)
+	norm, _, host, err := store.ValidateFeedURL(*p.URL, private)
+	if err != nil || norm == fd.URL {
+		return "", ""
+	}
+	// A move to another site drops the exceptions the patch does not set itself (store.PatchFeed),
+	// so the probe runs without them: no request goes where the saved feed may not go.
+	if oldHost, _ := feedurl.Host(fd.URL); !fetch.SameSite(oldHost, host) {
+		if _, set := p.Cols["allow_private_net"]; !set && private {
+			private = false
+			if norm, _, _, err = store.ValidateFeedURL(*p.URL, false); err != nil {
+				return "", ""
+			}
+		}
+		if _, set := p.Cols["allow_insecure_tls"]; !set {
+			insecure = false
+		}
+	}
+	if _, found, err := s.db.FindFeedID(ctx, norm); err != nil || found {
+		return "", "" // the patch answers url_exists (or it is this feed's own old address)
+	}
+	dctx, cancel := context.WithTimeout(ctx, discoverWait)
+	defer cancel()
+	ua, retryUA := store.ResolveUserAgent(s.db.FetchSettings(ctx), "", false)
+	if ua == "" {
+		ua = s.outgoingUA()
+	}
+	rt := s.opt.Guard(private, insecure, flag("disable_http2", fd.DisableHTTP2))
+	found, err := discover.Find(dctx, rt, ua, retryUA, norm, private)
+	switch {
+	case errors.Is(err, discover.ErrNoFeed):
+		return discoveryError(err)
+	case err != nil || found.IsFeed || len(found.Candidates) == 0:
+		return "", ""
+	case len(found.Candidates) == 1:
+		u := found.Candidates[0].URL
+		p.URL = &u
+		return "", ""
+	}
+	urls := make([]string, len(found.Candidates))
+	for i, c := range found.Candidates {
+		urls[i] = c.URL
+	}
+	return "several_feeds", "That address is a web page that links several feeds: " + strings.Join(urls, ", ") +
+		". Enter the address of the one you want."
 }
 
 // ---- DELETE /api/feeds/{id}, archive purge ----

@@ -109,7 +109,11 @@ a trusted `X-Forwarded-Proto: https`, makes every action fail with 403 while the
   to refresh is expected; new items appear when Kipple has fetched them.
 - **See why one feed is stuck.** Feed Health in the web app lists feeds with errors, the last error and the next
   attempt. Common causes: the site blocks the fetch (HTTP 403 or 429), a certificate problem, a feed that moved, or a feed
-  that needs a login. A feed on a private address needs "allow private network" in its own options.
+  that needs a login. A feed on a private address needs "Allow addresses on my own network" in its own options (the
+  add dialog offers it when it refuses a private address).
+- **A site address instead of a feed.** A web page or site address added from a sync client or an OPML file is
+  replaced by the feed the page links, on its first fetch. If the page links none, Feed Health says so ("this address
+  is a web page, and the page does not link to a feed"): find the feed's address on the site and edit the feed's URL.
 - **Nothing runs until the account exists.** A Kipple still in setup mode fetches nothing.
 - **The clock or time zone looks wrong.** The nightly work and the statistics use the `tz` setting; fetching does not.
 - **Disk full.** A full volume stops writes. See the disk-space notes in [deploy.md](deploy.md#disk-space-during-an-upgrade)

@@ -48,6 +48,12 @@ type CommitInfo struct {
 	// for a chunked commit, only the chunks before the change) was
 	// written.
 	Stale bool
+	// URL is the feed's URL after the commit ("" when nothing was written).
+	URL string
+	// MergedInto is set by CommitDiscovered when another feed already has the discovered URL: this
+	// feed (never fetched successfully, so it held no items) was removed instead of becoming a
+	// duplicate. Migrated is set with it.
+	MergedInto int64
 }
 
 type commitState struct {
@@ -71,7 +77,8 @@ type commitState struct {
 	fStarred   int
 	keep       bool
 	begun      bool
-	stale      bool // the feed's URL changed under the fetch; nothing was written
+	stale      bool   // the feed's URL changed under the fetch; nothing was written
+	url        string // the feed's URL as this commit leaves it
 }
 
 type heldItem struct {
@@ -137,8 +144,13 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 				held[h.uid] = h.id
 			}
 		}
+		url := st.url
+		if !st.begun {
+			url = ""
+		}
 		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Retitled: st.retitled, Stale: st.stale, TrimPending: st.trimMore,
-			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred, Held: held}
+			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred, Held: held,
+			URL: url}
 	}
 	for i, ch := range chunks {
 		last := i == len(chunks)-1
@@ -257,6 +269,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	}
 	first := !st.begun
 	st.begun = true
+	st.url = curURL
 
 	if first {
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ?", feedID).Scan(&st.before); err != nil {
@@ -719,7 +732,7 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 			return err
 		}
 		st.note(fmt.Sprintf("redirect_migrated: %s -> %s", res.Snap.URL, dec.To), true)
-		st.migrated = true
+		st.migrated, st.url = true, dec.To
 		return nil
 	default: // clear
 		_, err := tx.ExecContext(ctx, `UPDATE feeds SET redirect_to = NULL, redirect_kind = NULL, redirect_count = 0

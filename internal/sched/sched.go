@@ -131,26 +131,27 @@ type flight struct {
 }
 
 type result struct {
-	exit      bool
-	feedID    int64
-	host      string
-	trigger   string
-	outcome   string
-	status    int
-	errClass  string
-	errMsg    string
-	newIDs    []int64
-	mutedIDs  []int64 // new items a filter muted (left out of the fetch.done ids)
-	muted     int
-	updated   int
-	trimmed   int64
-	newItems  int
-	migrated  bool // the commit rewrote feeds.url (redirect migration)
-	retitled  bool // the commit changed the feed's display name (store.CommitInfo.Retitled)
-	gone      bool // a 410 disabled the feed
-	retry     time.Duration
-	nextFetch time.Time
-	cancelled bool
+	exit       bool
+	feedID     int64
+	host       string
+	trigger    string
+	outcome    string
+	status     int
+	errClass   string
+	errMsg     string
+	newIDs     []int64
+	mutedIDs   []int64 // new items a filter muted (left out of the fetch.done ids)
+	muted      int
+	updated    int
+	trimmed    int64
+	newItems   int
+	migrated   bool // the commit rewrote feeds.url (redirect migration, discovery)
+	discovered bool // the commit adopted a discovered URL: the feed is due again at once
+	retitled   bool // the commit changed the feed's display name (store.CommitInfo.Retitled)
+	gone       bool // a 410 disabled the feed
+	retry      time.Duration
+	nextFetch  time.Time
+	cancelled  bool
 
 	commitFailed bool // the fetch completed but its commit did not
 	// trimPending: the job's retention trim stopped with a full batch (a fetch

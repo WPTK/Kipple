@@ -13,7 +13,8 @@ import (
 
 // A library without nested folders puts the same bytes on the wire as before folders could nest:
 // testdata/flat_wire.golden was written by this test on the release before nesting (with
-// KIPPLE_UPDATE_GOLDEN=1). The fixture covers the cases the folder order and label strings could get
+// KIPPLE_UPDATE_GOLDEN=1), and rewritten only when items gained content.content beside
+// summary.content (the one intended difference in those lines). The fixture covers the cases the folder order and label strings could get
 // wrong: two folders at the same position (ordered by name, ignoring case), names holding '/', '+',
 // '&' and non-ASCII letters, an empty folder, the default folder, a disabled feed and an archived
 // (unsubscribed, starred) item.

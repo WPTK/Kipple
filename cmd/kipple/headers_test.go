@@ -62,4 +62,9 @@ func TestRootHandlerSendsSecurityHeaders(t *testing.T) {
 	require.Contains(t, page.Header().Get("Permissions-Policy"), "camera=()")
 	require.Equal(t, "default-src 'none'; sandbox", get("/img/abc").Header().Get("Content-Security-Policy"), "the image proxy keeps its own policy")
 	require.Equal(t, "same-origin", get("/api/status").Header().Get("Cross-Origin-Resource-Policy"))
+
+	// The chain compresses (httpx.Compress, tested there): a compressible response varies on
+	// Accept-Encoding; an image does not.
+	require.Equal(t, "Accept-Encoding", get("/api/status").Header().Get("Vary"))
+	require.Empty(t, get("/img/abc").Header().Get("Vary"))
 }

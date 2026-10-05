@@ -121,6 +121,19 @@ func (s *Scheduler) exec(f *flight) (out result) {
 		phase = phaseCommit
 		if s.failCommit != nil {
 			err = s.failCommit(f.snap.ID)
+		} else if res.Discovered != "" {
+			// The URL was a page that links a feed: the commit makes the link the feed's URL, due at
+			// once, and the dispatcher wakes a tick, so the feed is fetched through the normal path
+			// (that host's per-host limit and Retry-After hold apply).
+			cctx, cancel := s.commitCtx()
+			defer cancel()
+			ci, cerr := s.db.CommitDiscovered(cctx, res)
+			err = cerr
+			if cerr == nil {
+				phase = phaseCommitted
+				out.migrated, out.discovered = ci.Migrated, ci.Migrated
+				out.nextFetch = time.Time{}
+			}
 		} else if res.Success() {
 			if len(cand) > 0 {
 				// The commit marks these pending as it inserts them, so a Reader
@@ -150,11 +163,9 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil && !ci.Stale {
 				cctx, cancel := s.commitCtx()
 				defer cancel()
-				moved := ""
-				if ci.Migrated {
-					moved = res.Redirect.To
-				}
-				if uerr := s.db.SetFeedUAFallback(cctx, f.snap.ID, f.snap.URL, moved); uerr != nil {
+				// ci.URL is the feed's URL after the commit: a redirect migration or a discovered feed may
+				// have changed it.
+				if uerr := s.db.SetFeedUAFallback(cctx, f.snap.ID, f.snap.URL, ci.URL); uerr != nil {
 					s.log.Warn("sched: remember browser user agent", "feed", f.snap.ID, "err", uerr)
 				}
 			}

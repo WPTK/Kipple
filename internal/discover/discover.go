@@ -1,7 +1,9 @@
 // Package discover finds the feed behind a URL the user typed (design §4.9,
 // "Add feed in the web UI"): the URL itself when it is a feed, otherwise the
 // <link rel="alternate"> feed candidates of the page. It fetches through a
-// caller-supplied guarded transport, so the dial-time SSRF check applies.
+// caller-supplied guarded transport, so the dial-time SSRF check applies. The
+// scheduler finds the feed of a page URL stored without this step (a Reader API
+// subscribe, an OPML import) with the same link extraction (fetch.FeedLinks).
 package discover
 
 import (
@@ -11,19 +13,15 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"net/url"
 	"strings"
-
-	"golang.org/x/net/html"
 
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/store"
 )
 
 const (
-	maxBody       = 10 << 20 // the fetcher's own response limit
-	maxRedirects  = 5
-	maxCandidates = 20
+	maxBody      = 10 << 20 // the fetcher's own response limit
+	maxRedirects = 5
 )
 
 // Candidate is one feed a page advertises.
@@ -40,17 +38,29 @@ type Result struct {
 	Candidates []Candidate
 }
 
-// ErrNoFeed means the page is reachable but advertises no feed.
-var ErrNoFeed = errors.New("no feed found at that address")
+// ErrNoFeed means the address is a web page that links no feed.
+var ErrNoFeed = errors.New("that address is a web page, and the page does not link to a feed; look on the site for its feed address (often /feed or /rss.xml)")
+
+// ErrNotFeed means the address answered with something that is neither a feed nor a web page.
+var ErrNotFeed = errors.New("that address does not answer with a feed or a web page")
 
 // ErrTooLarge means the response exceeded the fetcher's size limit.
 var ErrTooLarge = fmt.Errorf("the response is larger than %d MiB", maxBody>>20)
+
+// StatusError is a response with a status other than 2xx.
+type StatusError struct{ Code int }
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("the site answered HTTP %d %s", e.Code, http.StatusText(e.Code))
+}
 
 // Find fetches raw through rt and reports whether it is a feed or which feeds
 // it links to. ctx bounds the whole attempt. When the site refuses userAgent
 // (403, 406, or a Cloudflare challenge served as a 503) and retryUA is set and
 // different, it asks once more with retryUA, as the feed fetcher does.
-func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw string) (Result, error) {
+// allowPrivate keeps candidates on private addresses (the caller's rt must then
+// allow them too).
+func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw string, allowPrivate bool) (Result, error) {
 	hc := &http.Client{Transport: rt, CheckRedirect: func(_ *http.Request, via []*http.Request) error {
 		if len(via) > maxRedirects {
 			return errors.New("too many redirects")
@@ -76,7 +86,7 @@ func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw str
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return Result{}, fmt.Errorf("the server answered HTTP %d", resp.StatusCode)
+		return Result{}, &StatusError{Code: resp.StatusCode}
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
@@ -88,17 +98,20 @@ func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw str
 	ct := resp.Header.Get("Content-Type")
 	final := resp.Request.URL.String()
 
-	// Decide by the body, not the Content-Type: plenty of servers label a feed text/html.
-	if !looksHTML(body) {
+	html := fetch.LooksHTML(body)
+	if !html {
 		if _, perr := fetch.ParseFeed(body, fetch.ParseOptions{FeedURL: final, HTTPCharset: charsetOf(ct)}); perr == nil {
 			return Result{IsFeed: true, Candidates: []Candidate{{URL: raw, Type: kindOf(ct, body)}}}, nil
 		}
 	}
-	cands := links(body, final, raw)
-	if len(cands) == 0 {
+	cands := candidates(body, final, raw, allowPrivate)
+	switch {
+	case len(cands) > 0:
+		return Result{Candidates: cands}, nil
+	case html:
 		return Result{}, ErrNoFeed
 	}
-	return Result{Candidates: cands}, nil
+	return Result{}, ErrNotFeed
 }
 
 func charsetOf(ct string) string {
@@ -107,11 +120,6 @@ func charsetOf(ct string) string {
 		return ""
 	}
 	return params["charset"]
-}
-
-func looksHTML(b []byte) bool {
-	head := strings.ToLower(strings.TrimSpace(string(b[:min(len(b), 512)])))
-	return strings.HasPrefix(head, "<!doctype html") || strings.HasPrefix(head, "<html")
 }
 
 func kindOf(ct string, body []byte) string {
@@ -126,73 +134,18 @@ func kindOf(ct string, body []byte) string {
 	return "rss"
 }
 
-// links extracts <link rel="alternate" type=feed> candidates, resolved against
-// the page URL and validated like any feed URL. self (the typed URL) is never a candidate.
-func links(body []byte, base, self string) []Candidate {
-	b, err := url.Parse(base)
-	if err != nil {
-		return nil
-	}
+// candidates are the page's feed links (fetch.FeedLinks), validated like any feed URL and without
+// duplicates. self (the typed URL) is never a candidate.
+func candidates(body []byte, base, self string, allowPrivate bool) []Candidate {
 	seen := map[string]bool{}
 	var out []Candidate
-	z := html.NewTokenizer(strings.NewReader(string(body)))
-	for len(out) < maxCandidates {
-		tt := z.Next()
-		if tt == html.ErrorToken {
-			break
-		}
-		if tt != html.StartTagToken && tt != html.SelfClosingTagToken {
-			continue
-		}
-		name, hasAttr := z.TagName()
-		if string(name) == "body" {
-			break // feed links live in <head>
-		}
-		if string(name) != "link" || !hasAttr {
-			continue
-		}
-		attrs := map[string]string{}
-		for {
-			k, v, more := z.TagAttr()
-			attrs[strings.ToLower(string(k))] = string(v)
-			if !more {
-				break
-			}
-		}
-		if !hasToken(attrs["rel"], "alternate") {
-			continue
-		}
-		kind := ""
-		switch strings.ToLower(strings.TrimSpace(strings.SplitN(attrs["type"], ";", 2)[0])) {
-		case "application/rss+xml":
-			kind = "rss"
-		case "application/atom+xml":
-			kind = "atom"
-		case "application/feed+json", "application/json":
-			kind = "json"
-		default:
-			continue
-		}
-		ref, err := url.Parse(strings.TrimSpace(attrs["href"]))
-		if err != nil || attrs["href"] == "" {
-			continue
-		}
-		abs := b.ResolveReference(ref).String()
-		norm, _, _, err := store.ValidateFeedURL(abs, false)
+	for _, l := range fetch.FeedLinks(body, base) {
+		norm, _, _, err := store.ValidateFeedURL(l.URL, allowPrivate)
 		if err != nil || seen[norm] || norm == self {
 			continue
 		}
 		seen[norm] = true
-		out = append(out, Candidate{URL: norm, Title: strings.TrimSpace(attrs["title"]), Type: kind})
+		out = append(out, Candidate{URL: norm, Title: l.Title, Type: l.Type})
 	}
 	return out
-}
-
-func hasToken(list, want string) bool {
-	for _, t := range strings.Fields(strings.ToLower(list)) {
-		if t == want {
-			return true
-		}
-	}
-	return false
 }

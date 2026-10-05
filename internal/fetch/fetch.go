@@ -73,6 +73,9 @@ type Snapshot struct {
 	ConsecutiveFailures int
 	InitialReadBefore   int64 // 0 = none
 	LastSuccessAt       int64 // 0 = never
+	// URLChanged: the feed's URL is no longer the one it was given (url_original is set: a
+	// discovery, a redirect migration or a URL edit). See Discoverable.
+	URLChanged bool
 
 	// Full drops validators and the body-hash short circuit for this attempt.
 	Full bool
@@ -116,6 +119,11 @@ type Result struct {
 	TTLHintS   int64
 
 	Redirect RedirectDecision
+
+	// Discovered is set when the feed's URL answered with a web page that links a feed
+	// (discoverFeed): the result has no items, and store.CommitDiscovered makes the link the
+	// feed's URL, due at once.
+	Discovered string
 
 	// HoldUIDs are the uids of the new items the scheduler will queue for
 	// full-text extraction (set by the scheduler, not by Fetch). The commit marks
@@ -303,6 +311,9 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	})
 	if err != nil {
 		res.BodyHash = ""
+		if snap.Discoverable() && LooksHTML(dec.Body) {
+			return discoverFeed(res, dec.Body)
+		}
 		return res.fail(ClassParse, "not a feed: "+err.Error())
 	}
 	res.TTLHintS = PublisherHintSeconds(snap.HonorTTL, feed.TTLMinutes, resp.Header, now)

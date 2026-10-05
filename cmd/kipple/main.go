@@ -353,7 +353,8 @@ var startBackground = func(s *sched.Scheduler, m *maint.Maint, icons *favicon.Fi
 // paths ahead of the mux, untrusted forwarding headers are logged, and
 // httpx.Secure puts the security headers (frame-ancestors, X-Frame-Options,
 // CSP by content type, Permissions-Policy on pages) on every response, the SPA,
-// the UI API, the Reader API and the image proxy alike.
+// the UI API, the Reader API and the image proxy alike. httpx.Compress, outermost, gzips the
+// responses worth it (JSON, text, scripts) for clients that accept it.
 //
 // hostGate (the UI API's HostGate, design 5.2) runs inside httpx.Secure, so a
 // refused request still carries the security headers; nil installs none.
@@ -363,7 +364,7 @@ func rootHandler(readerFront func(http.Handler) http.Handler, mux http.Handler, 
 	if hostGate != nil {
 		h = hostGate(h)
 	}
-	return httpx.Secure(h, httpx.Options{ImgMode: imgMode, TrustedProxies: trusted})
+	return httpx.Compress(httpx.Secure(h, httpx.Options{ImgMode: imgMode, TrustedProxies: trusted}))
 }
 
 // serveDrainWait bounds the wait for ListenAndServe to report after a shutdown.

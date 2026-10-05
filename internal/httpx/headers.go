@@ -89,14 +89,30 @@ func Secure(h http.Handler, opt Options) http.Handler {
 		if secure {
 			hd.Set("Strict-Transport-Security", "max-age=31536000")
 		}
-		if p := r.URL.Path; strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/img/") {
+		// The Reader API is meant for other origins (it answers CORS, and a client shows its iconUrl
+		// images), so it gets no same-origin resource policy; the web app's /api and /img do.
+		webAPI := strings.HasPrefix(r.URL.Path, "/api/") && !readerPath(r.URL.Path)
+		if webAPI || strings.HasPrefix(r.URL.Path, "/img/") {
 			hd.Set("Cross-Origin-Resource-Policy", "same-origin")
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/api/greader.php") {
+		if webAPI {
 			hd.Set("X-Kipple-API", APIVersion) // the handshake: the web app compares it with the one it was built for
 		}
 		h.ServeHTTP(&secureWriter{ResponseWriter: w, opt: opt, secure: secure}, r)
 	})
+}
+
+// readerMount is the Reader API's mount point (greader.apiPrefix).
+const readerMount = "/api/greader.php"
+
+// readerPath reports whether p is under the Reader API mount: the mount itself or a path below it,
+// after collapsing runs of '/' as the Reader front handler does (so /api//greader.php/x is the
+// Reader API too), and never a sibling such as /api/greader.phpx.
+func readerPath(p string) bool {
+	for strings.Contains(p, "//") {
+		p = strings.ReplaceAll(p, "//", "/")
+	}
+	return p == readerMount || strings.HasPrefix(p, readerMount+"/")
 }
 
 // secureWriter adds the content-dependent headers on the first WriteHeader.
