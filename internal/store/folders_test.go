@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 )
@@ -207,6 +208,50 @@ func TestResolveFolderPathLongestPrefix(t *testing.T) {
 		}))
 	}
 	require.Equal(t, before, e.count("SELECT count(*) FROM folders"), "a refused path creates nothing")
+	checkFolderInvariants(t, e.db.Reader())
+}
+
+// A label longer than any real folder path is refused before it is resolved, on subscribe/edit and on
+// rename-tag; one of exactly MaxFolderPathRunes (eight 100-character names) still resolves.
+func TestFolderPathLengthCap(t *testing.T) {
+	e := newEnv(t)
+	name := strings.Repeat("x", MaxFolderNameRunes)
+	names := make([]string, MaxFolderDepth)
+	for i := range names {
+		names[i] = string(rune('a'+i)) + name[1:]
+	}
+	atCap := strings.Join(names, "/")
+	require.Equal(t, MaxFolderPathRunes, utf8.RuneCountInString(atCap))
+	require.Equal(t, 807, MaxFolderPathRunes)
+	id := e.resolve(atCap)
+	require.Equal(t, atCap, e.path(id))
+
+	over := []string{
+		atCap + "x",                        // one rune too long
+		strings.Repeat("a/", 100000) + "a", // many slashes, each a probe
+		strings.Repeat("é", MaxFolderPathRunes+1),
+		strings.Repeat("😀", 4*MaxFolderPathRunes),
+	}
+	before := e.count("SELECT count(*) FROM folders")
+	for _, bad := range over {
+		require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
+			_, err := resolveFolderPath(ctx, tx, bad)
+			require.ErrorIs(t, err, ErrBadFolderName)
+			require.True(t, FolderRefused(err))
+			return nil
+		}))
+		err := renameLabel(e.ctx, e.db, id, bad)
+		require.ErrorIs(t, err, ErrBadFolderName)
+		require.True(t, FolderRefused(err))
+	}
+	require.Equal(t, before, e.count("SELECT count(*) FROM folders"), "a refused label creates nothing")
+	require.Equal(t, atCap, e.path(id))
+
+	// Rename onto a label of exactly the cap works too.
+	other := e.mkFolder(0, "Other")
+	atCap2 := strings.Join(append([]string{"z" + name[1:]}, names[1:]...), "/")
+	require.NoError(t, renameLabel(e.ctx, e.db, other, atCap2))
+	require.Equal(t, atCap2, e.path(other))
 	checkFolderInvariants(t, e.db.Reader())
 }
 
