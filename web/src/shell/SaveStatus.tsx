@@ -3,7 +3,7 @@ import { useStore } from "@/lib/store";
 
 /** Refused settings the notice can name, because the person can act on them. */
 const REFUSED_TEXT: Record<string, string> = {
-  "client.list_overrides": "Too many per-list settings; remove some",
+  "client.list_overrides": "Too many per-list settings: clear them in Settings, Account & Devices",
 };
 
 /**

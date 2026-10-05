@@ -167,6 +167,24 @@ describe("Settings > Devices", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/device/copy-from/defaults")).toBe(true));
     await waitFor(() => expect(prefsStore.get().font).toBe("default"));
   });
+
+  it("clears every per-list setting with a confirm, which is always a way under the key's budget", async () => {
+    const merged = { ...DEFAULTS, "client.list_overrides": { feed: { "1": { layout: "cards" } }, folder: { "2": { view: "all" } } } };
+    const { calls } = routes({
+      "GET /api/bootstrap": () => json({ ...boot, device: deviceView({ merged }) }),
+      "GET /api/devices": () => json({ devices: [me] }),
+      "PATCH /api/device": () => json(deviceView()),
+    });
+    go();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Clear per-list settings (2 lists)" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Clear per-list settings?" })).getByRole("button", { name: "Clear per-list settings" }));
+    expect(devicePrefsStore.get().overrides).toEqual({ feed: {}, folder: {} });
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "PATCH" && c.url.pathname === "/api/device" && JSON.stringify(body(c)).includes('"client.list_overrides":{"feed":{},"folder":{}}'))).toBe(true),
+    );
+    expect(screen.queryByRole("button", { name: /Clear per-list settings/ })).toBeNull();
+  });
 });
 
 describe("the bootstrap device profile", () => {

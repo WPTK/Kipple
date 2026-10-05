@@ -20,6 +20,7 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 - Reader API: items carry the article as `content.content` as well as `summary.content`, so a client that reads either one gets it. With compression the second copy of an article up to about 30 KB costs almost nothing; a longer one, such as a full-text extraction, about doubles on the wire. (#266)
 - A reading-time filter in the list header (5 min or less, 6 to 15 min, over 15 min) shows only articles of that length; Mark all as read then marks only what the filter shows. (#38)
 - Responses are gzip-compressed for clients that accept it: JSON, text, scripts and styles of 1400 bytes or more, never images, archives or the live event stream. A page of 50 Reader API items with articles of typical length is about a quarter of its uncompressed size, and the web app's start-up data about an eighth. (#266)
+- Settings, Account & Devices, Devices can clear every per-list setting (layout, order and view) of this device at once. When there are too many to save, the notice points there.
 
 ### Changed
 

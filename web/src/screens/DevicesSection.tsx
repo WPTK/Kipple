@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Smartphone } from "lucide-react";
 import { ApiError, errorMessage } from "@/api/client";
 import { describeUserAgent, deleteDevice, devicesKey, renameDevice, useDevices, type DeviceRow } from "@/api/devices";
+import { clearListOverrides, useDevicePrefs } from "@/lib/devicePrefs";
 import { copySettingsFrom, makeThisDeviceDefault, syncStore } from "@/lib/deviceSync";
 import { useStore } from "@/lib/store";
 import { whenLabel } from "@/lib/format";
@@ -12,7 +13,7 @@ import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 
 const label = (d: DeviceRow): string => d.name || describeUserAgent(d.user_agent, d.client);
 
-type Confirm = { kind: "copy"; from: DeviceRow } | { kind: "delete"; device: DeviceRow } | { kind: "default" } | { kind: "reset" };
+type Confirm = { kind: "copy"; from: DeviceRow } | { kind: "delete"; device: DeviceRow } | { kind: "default" } | { kind: "reset" } | { kind: "lists" };
 
 function ThisDeviceName({ device }: { device: DeviceRow }) {
   const qc = useQueryClient();
@@ -101,6 +102,12 @@ function confirmCopy(c: Confirm): { title: string; body: string; action: string 
         body: "This clears every choice made on this device (theme, font, layout, keyboard and the rest) so it uses the defaults again. Your feeds, articles and other devices are not touched.",
         action: "Reset this device",
       };
+    case "lists":
+      return {
+        title: "Clear per-list settings?",
+        body: "This clears the layout, order and view you chose for single feeds and folders on this device, so every list follows this device's defaults again. Your other settings, feeds and articles are not touched.",
+        action: "Clear per-list settings",
+      };
   }
 }
 
@@ -113,6 +120,8 @@ export function DevicesSection() {
   const [error, setError] = useState<string | null>(null);
   // The server could not register this browser (docs/design.md 7.1c): its settings stay local and nothing is sent.
   const unsaved = useStore(syncStore).status === "unsaved";
+  const overrides = useDevicePrefs().overrides;
+  const lists = Object.keys(overrides.feed).length + Object.keys(overrides.folder).length;
   const list = devices.data ?? [];
   const me = unsaved ? undefined : list.find((d) => d.current);
   const others = list.filter((d) => !d.current);
@@ -128,6 +137,9 @@ export function DevicesSection() {
       } else if (confirm.kind === "reset") {
         await copySettingsFrom("defaults");
         toast("This device is back to the defaults");
+      } else if (confirm.kind === "lists") {
+        clearListOverrides();
+        toast("Per-list settings cleared");
       } else if (confirm.kind === "default") {
         await makeThisDeviceDefault();
         toast("New devices will start from this device's settings");
@@ -210,6 +222,11 @@ export function DevicesSection() {
             <Button variant="link" className="min-h-11 px-0" onClick={() => setConfirm({ kind: "reset" })}>
               Reset this device to defaults
             </Button>
+            {lists > 0 ? (
+              <Button variant="link" className="min-h-11 px-0" onClick={() => setConfirm({ kind: "lists" })}>
+                Clear per-list settings ({lists} {lists === 1 ? "list" : "lists"})
+              </Button>
+            ) : null}
           </div>
         </>
       )}

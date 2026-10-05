@@ -5,7 +5,7 @@ import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
-import { resetDevicePrefs, sessionLayoutStore, setLayoutOverride, updateDevicePrefs, devicePrefsStore, type LayoutId } from "@/lib/devicePrefs";
+import { resetDevicePrefs, sessionLayoutStore, setListOverride, updateDevicePrefs, devicePrefsStore, type LayoutId } from "@/lib/devicePrefs";
 import { updatePrefs } from "@/lib/prefs";
 import { resetUndo } from "@/lib/undo";
 import { rowMenuStore } from "@/gestures/rowMenu";
@@ -181,7 +181,7 @@ describe("layouts", () => {
   it("a feed override beats the device default, and other lists keep the default", async () => {
     routes();
     updateDevicePrefs({ layout: "compact" });
-    setLayoutOverride("feed", "1", "inbox");
+    setListOverride("feed", "1", "layout", "inbox");
     const { container, unmount } = go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
     expect(container.querySelector(".row-compact")).toBeNull();
@@ -194,7 +194,7 @@ describe("layouts", () => {
 
   it("a folder override applies to the feeds inside it", async () => {
     routes();
-    setLayoutOverride("folder", "1", "headlines");
+    setListOverride("folder", "1", "layout", "headlines");
     const { container } = go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
     expect(container.querySelector(".row-headline")).not.toBeNull();
