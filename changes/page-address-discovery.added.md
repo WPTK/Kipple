@@ -1,0 +1,1 @@
+A web page or site address added through the Reader API (`quickadd`, `subscription/edit`) or an OPML import now works: the feed's first fetch finds the feed the page links and uses it, and when that feed is already subscribed the new entry is removed instead of becoming a duplicate. Subscribing still makes no network request during the call. (#266)

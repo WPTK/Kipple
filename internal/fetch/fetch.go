@@ -78,6 +78,9 @@ type Snapshot struct {
 	Full bool
 	// HostUntil is the host's live Retry-After deadline at dispatch time.
 	HostUntil time.Time
+
+	// linked marks the fetch of a feed a page linked (discoverFeed): it never discovers again.
+	linked bool
 }
 
 // Result is everything one attempt learned, ready for CommitFetch or
@@ -117,6 +120,11 @@ type Result struct {
 
 	Redirect RedirectDecision
 
+	// Discovered is set when the feed's URL was a web page and the result is the fetch of the feed
+	// that page links (discoverFeed): the commit makes it the feed's URL. Redirect, FinalURL and
+	// Hops then belong to that fetch.
+	Discovered string
+
 	// HoldUIDs are the uids of the new items the scheduler will queue for
 	// full-text extraction (set by the scheduler, not by Fetch). The commit marks
 	// each one it inserts (and does not mute) pending for the Reader API hold
@@ -130,6 +138,15 @@ type Result struct {
 
 // Success reports whether the outcome counts as a successful fetch.
 func (r *Result) Success() bool { return r.Outcome != OutcomeError }
+
+// FeedURL is the URL this result was fetched from as the feed: Discovered when set, else the
+// snapshot's URL.
+func (r *Result) FeedURL() string {
+	if r.Discovered != "" {
+		return r.Discovered
+	}
+	return r.Snap.URL
+}
 
 // Schedule fills NextFetchAt and CurrentDelayS per design §4.6.
 func (r *Result) Schedule(now time.Time, rnd Rand) {
@@ -303,6 +320,10 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	})
 	if err != nil {
 		res.BodyHash = ""
+		if snap.LastSuccessAt == 0 && !snap.linked && LooksHTML(dec.Body) {
+			res = c.discoverFeed(ctx, res, dec.Body, now)
+			return res
+		}
 		return res.fail(ClassParse, "not a feed: "+err.Error())
 	}
 	res.TTLHintS = PublisherHintSeconds(snap.HonorTTL, feed.TTLMinutes, resp.Header, now)

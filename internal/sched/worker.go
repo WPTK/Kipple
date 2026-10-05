@@ -150,11 +150,9 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			if res.UAFallbackWorked && !f.snap.UAFallback && cerr == nil && !ci.Stale {
 				cctx, cancel := s.commitCtx()
 				defer cancel()
-				moved := ""
-				if ci.Migrated {
-					moved = res.Redirect.To
-				}
-				if uerr := s.db.SetFeedUAFallback(cctx, f.snap.ID, f.snap.URL, moved); uerr != nil {
+				// ci.URL is the feed's URL after the commit: a redirect migration or a discovered feed may
+				// have changed it.
+				if uerr := s.db.SetFeedUAFallback(cctx, f.snap.ID, f.snap.URL, ci.URL); uerr != nil {
 					s.log.Warn("sched: remember browser user agent", "feed", f.snap.ID, "err", uerr)
 				}
 			}
