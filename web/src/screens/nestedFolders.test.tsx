@@ -63,7 +63,6 @@ function routes(extra: Parameters<typeof mockFetch>[0] = {}) {
     "GET /api/filters": () => json({ filters: [] }),
     "GET /api/devices": () => json({ devices: [] }),
     "POST /api/folders": (_u, init) => json({ id: "9", name: JSON.parse(String(init?.body)).name, position: 9, is_default: false, unread: 0 }),
-    "PATCH /api/folders/3": () => json({ id: "3", name: "Apple", parent_id: "5", position: 2, is_default: false, unread: 3 }),
     "POST /api/reorder": () => json({ changed_feeds: [], changed_folders: [] }),
     ...extra,
   });
@@ -184,10 +183,11 @@ describe("managing nested folders", () => {
     await user.selectOptions(select, "5");
     await user.click(within(dialog).getByRole("button", { name: "Move" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/reorder")).toBe(true));
-    const patch = calls.find((c) => c.method === "PATCH" && c.url.pathname === "/api/folders/3");
-    expect(JSON.parse(String(patch?.init?.body))).toEqual({ parent_id: "5" });
-    const order = calls.find((c) => c.url.pathname === "/api/reorder");
-    expect(JSON.parse(String(order?.init?.body)).folders).toEqual(["1", "2", "6", "5", "3", "4"]);
+    // The move and the new order are one request: no PATCH of the folder first.
+    expect(calls.some((c) => c.method === "PATCH" && c.url.pathname.startsWith("/api/folders/"))).toBe(false);
+    const order = calls.filter((c) => c.url.pathname === "/api/reorder");
+    expect(order).toHaveLength(1);
+    expect(JSON.parse(String(order[0]?.init?.body)).folders).toEqual(["1", "2", "6", "5", { id: "3", parent_id: "5" }, "4"]);
   });
 
   it("New subfolder creates the folder inside the chosen one", async () => {
@@ -207,7 +207,7 @@ describe("managing nested folders", () => {
   });
 
   it("a refused move says why", async () => {
-    routes({ "PATCH /api/folders/3": () => json({ error: "folder_exists", message: "exists" }, 409) });
+    routes({ "POST /api/reorder": () => json({ error: "folder_exists", message: "exists" }, 409) });
     media(WIDE);
     go("/feeds");
     const user = userEvent.setup();
@@ -268,8 +268,8 @@ describe("nested folder review fixes", () => {
     expect(document.activeElement).toHaveAttribute("tabindex", "0");
   });
 
-  it("a move whose order fails to save after the folder moved says so", async () => {
-    routes({ "POST /api/reorder": () => json({ error: "internal" }, 500) });
+  it("a move the server fails to save says so, and the screen goes back to what the server has", async () => {
+    const { calls } = routes({ "POST /api/reorder": () => json({ error: "internal" }, 500) });
     media(WIDE);
     go("/feeds");
     const user = userEvent.setup();
@@ -277,8 +277,10 @@ describe("nested folder review fixes", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
     const dialog = await screen.findByRole("dialog", { name: "Move Tech › Apple" });
     await user.selectOptions(within(dialog).getByRole("combobox", { name: "Move into" }), "5");
+    const boots = calls.filter((c) => c.url.pathname === "/api/bootstrap").length;
     await user.click(within(dialog).getByRole("button", { name: "Move" }));
-    expect(await within(dialog).findByText("Moved, but the order couldn't be saved.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("The server returned an error. Try again.")).toBeInTheDocument();
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/bootstrap").length).toBeGreaterThan(boots));
   });
 
   it("after Move to…, the moved folder's actions button has the focus", async () => {

@@ -970,7 +970,31 @@ func unmarshalMember(m map[string]json.RawMessage, key string, into any) error {
 
 const reorderMaxIDs = 20000
 
-// reorder is POST /api/reorder: {folders?:[ids in order], feeds?:[{folder_id, ids}]}.
+// parseFolderOrder reads one folders entry of POST /api/reorder: a folder id (it keeps its parent),
+// or {id, parent_id} (it moves inside parent_id first; null is the top level). Both keys are required
+// in the object form and no other key is allowed.
+func parseFolderOrder(raw json.RawMessage) (store.FolderOrder, bool) {
+	if id, ok := parseID(raw); ok {
+		return store.FolderOrder{ID: id}, true
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || len(m) != 2 {
+		return store.FolderOrder{}, false
+	}
+	rawID, okID := m["id"]
+	rawParent, okParent := m["parent_id"]
+	if !okID || !okParent {
+		return store.FolderOrder{}, false
+	}
+	id, okID := parseID(rawID)
+	parent, okParent := parseParentID(rawParent)
+	if !okID || !okParent {
+		return store.FolderOrder{}, false
+	}
+	return store.FolderOrder{ID: id, Parent: &parent}, true
+}
+
+// reorder is POST /api/reorder: {folders?:[id or {id, parent_id}, in order], feeds?:[{folder_id, ids}]}.
 func (s *Server) reorder(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Folders []json.RawMessage `json:"folders"`
@@ -995,14 +1019,14 @@ func (s *Server) reorder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	total := len(body.Folders)
-	var folders []int64
+	var folders []store.FolderOrder
 	for _, rw := range body.Folders {
-		id, ok := parseID(rw)
+		f, ok := parseFolderOrder(rw)
 		if !ok {
-			bad("folders must be folder ids")
+			bad("folders must be folder ids or {id, parent_id} objects")
 			return
 		}
-		folders = append(folders, id)
+		folders = append(folders, f)
 	}
 	var feeds []store.FeedOrder
 	for _, g := range body.Feeds {
@@ -1030,6 +1054,8 @@ func (s *Server) reorder(w http.ResponseWriter, r *http.Request) {
 	res, err := s.db.Reorder(r.Context(), folders, feeds)
 	var re *store.ErrReorder
 	switch {
+	case writeFolderError(w, err):
+		return
 	case errors.As(err, &re):
 		bad(re.Reason)
 		return

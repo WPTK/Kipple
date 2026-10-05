@@ -462,6 +462,13 @@ type ErrReorder struct{ Reason string }
 
 func (e *ErrReorder) Error() string { return "store: reorder: " + e.Reason }
 
+// FolderOrder is one folder of a Reorder: its position is its index in the list, and Parent, when
+// not nil, moves it inside that folder first (0 = the top level).
+type FolderOrder struct {
+	ID     int64
+	Parent *int64
+}
+
 // FeedOrder is the wanted order of the feeds of one folder.
 type FeedOrder struct {
 	FolderID int64
@@ -471,36 +478,58 @@ type FeedOrder struct {
 // ReorderResult lists what actually changed.
 type ReorderResult struct {
 	Feeds   []int64 // feeds whose position or folder moved
-	Folders []int64 // folders whose position moved
+	Folders []int64 // folders whose position or parent moved
 }
 
-// Reorder sets folder positions (0..n-1 in the order given) and feed positions
-// (0..n-1 inside each named folder, moving a feed into that folder if it is
-// elsewhere) in ONE transaction. Any unknown id, repeated id or the archive feed
-// aborts the whole call with nothing written (*ErrReorder, or ErrArchiveFeed).
-// Only rows whose values change are written.
-func (d *DB) Reorder(ctx context.Context, folders []int64, feeds []FeedOrder) (ReorderResult, error) {
+// Reorder moves folders to new parents and sets folder positions (0..n-1 in the
+// order given), and sets feed positions (0..n-1 inside each named folder, moving
+// a feed into that folder if it is elsewhere), in ONE transaction. A folder move
+// is checked by the folder writer's own rules (placeFolder, as UpdateFolder
+// checks it) against the tree the earlier entries left, so a list in tree order,
+// parents before children, is checked as the tree it describes. Any unknown id,
+// repeated id, the archive feed or a refused move aborts the whole call with
+// nothing written (*ErrReorder, ErrArchiveFeed, or the folder writer's error:
+// ErrFolderCycle, ErrFolderDepth, ErrFolderParent, ErrFolderExists,
+// ErrParentNotFound). Only rows whose values change are written.
+func (d *DB) Reorder(ctx context.Context, folders []FolderOrder, feeds []FeedOrder) (ReorderResult, error) {
 	var res ReorderResult
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		res = ReorderResult{}
 		seenF := map[int64]bool{}
-		for i, id := range folders {
+		moved := false
+		for i, f := range folders {
+			id := f.ID
 			if seenF[id] {
 				return &ErrReorder{fmt.Sprintf("folder %d is listed twice", id)}
 			}
 			seenF[id] = true
 			var pos int64
-			if err := tx.QueryRowContext(ctx, "SELECT position FROM folders WHERE id = ?", id).Scan(&pos); errors.Is(err, sql.ErrNoRows) {
+			var parent sql.NullInt64
+			var name string
+			if err := tx.QueryRowContext(ctx, "SELECT position, parent_id, name FROM folders WHERE id = ?", id).Scan(&pos, &parent, &name); errors.Is(err, sql.ErrNoRows) {
 				return &ErrReorder{fmt.Sprintf("no such folder %d", id)}
 			} else if err != nil {
 				return err
+			}
+			changed := false
+			if f.Parent != nil && *f.Parent != parent.Int64 {
+				if err := placeAndSave(ctx, tx, id, *f.Parent, name); err != nil {
+					return err
+				}
+				moved, changed = true, true
 			}
 			if pos != int64(i) {
 				if _, err := tx.ExecContext(ctx, "UPDATE folders SET position = ? WHERE id = ?", i, id); err != nil {
 					return err
 				}
+				changed = true
+			}
+			if changed {
 				res.Folders = append(res.Folders, id)
 			}
+		}
+		if moved {
+			d.bumpFilters() // folder filters cover subfolders: the feeds a rule matches changed
 		}
 		seenG := map[int64]bool{}
 		seenID := map[int64]bool{}
