@@ -1,4 +1,4 @@
--- Setup wizard (docs/setup-wizard-design.md section 6). The account table is rebuilt because the
+-- Setup wizard (docs/design.md §7.1e). The account table is rebuilt because the
 -- cross-column invariant (open mode never has a web password) needs a table-level CHECK, which
 -- ALTER TABLE ADD COLUMN cannot add. It holds at most one row and no foreign key points at it.
 --

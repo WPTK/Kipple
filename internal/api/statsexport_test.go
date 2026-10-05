@@ -71,7 +71,7 @@ func TestStatsExportCSV(t *testing.T) {
 		item_title, item_url, value, session_key) VALUES (1780000100, '2026-09-21', 9, 1, 'read_time', 'web', 2, ?, '=SUM(A1)', 'a, b "c"
 d', '@x', 12, 's1')`, f)
 	h.exec(`INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, inferred, item_id, feed_id, feed_title)
-		VALUES (1780000200, '2026-09-22', 10, 2, 'open', 'reeder', 1, 3, ?, 'Inf')`, f)
+		VALUES (1780000200, '2026-09-22', 10, 2, 'open', 'api', 1, 3, ?, 'Inf')`, f)
 
 	rec := h.export("")
 	require.Equal(t, 200, rec.Code, rec.Body.String())

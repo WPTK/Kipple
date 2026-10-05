@@ -544,9 +544,9 @@ func TestContentsIDFormsTrimmedAndUnknown(t *testing.T) {
 	h.trim(ids[2], false)
 
 	req := []string{
-		FormatLongID(ids[0]), // NNW long padded
-		longIDPrefix + strings.TrimLeft(FormatHex16(ids[3]), "0"), // NNW legacy unpadded
-		FormatHex16(ids[4]),   // Reeder bare hex
+		FormatLongID(ids[0]), // a client long padded
+		longIDPrefix + strings.TrimLeft(FormatHex16(ids[3]), "0"), // a client legacy unpadded
+		FormatHex16(ids[4]),   // a client bare hex
 		FormatDecimal(ids[5]), // decimal
 		FormatLongID(ids[1]),  // trimmed (stub)
 		FormatLongID(ids[2]),  // trimmed (ledger only)

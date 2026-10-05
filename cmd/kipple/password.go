@@ -117,7 +117,7 @@ func runPassword(args []string) error {
 		return err
 	}
 	fmt.Fprintln(os.Stderr, "Web password changed. Every web session was signed out and every Reader API token revoked:")
-	fmt.Fprintln(os.Stderr, "sign in again in the browser, and re-enter the Reader API password in Reeder and NetNewsWire.")
+	fmt.Fprintln(os.Stderr, "sign in again in the browser, and re-enter the Reader API password in your sync apps.")
 	fmt.Fprintln(os.Stderr, "If KIPPLE_PASSWORD is still set in the environment, remove it: it is only read when the account is first created.")
 	return nil
 }

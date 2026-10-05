@@ -10,15 +10,14 @@ candidate additions for the owner to accept or decline.
 Kipple is a single-maintainer, agent-assisted, self-hosted single-user RSS reader, now a public repository.
 Quality here means: never loses or corrupts the owner's read/starred state or feed data, never leaks personal
 information (scrubbed before the repository went public), behaves correctly against real
-Reader API clients (Reeder Classic, NetNewsWire), stays within its resource budgets, and is safe and
+Reader API clients, stays within its resource budgets, and is safe and
 followable for a stranger to self-host from a clean machine.
 
 ## 2. Reference documents
 
 `CLAUDE.md` (fixed decisions), `docs/design.md` (data model, API contract, design rationale), `docs/README.md`
 (the docs index), `docs/uat-plan.md`, `docs/risk-register.md`, `docs/RELEASING.md`, `docs/deploy.md`,
-`CHANGELOG.md`, `SECURITY.md`, `.env.example`; outside this repository, the master plan (`docs/plan.md`, a local
-planning document) and the private `kipple-history` repo (meetings, decisions, diary, audits — the project's
+`CHANGELOG.md`, `SECURITY.md`, `.env.example`; outside this repository, the private `kipple-history` repo (meetings, decisions, diary, audits — the project's
 institutional memory).
 
 ## 3. Management
@@ -59,7 +58,7 @@ round. Standing rule: fix everything a review finds, no silent "not fixing" list
 - **Unit/property tests:** `go test -race` (CI only — no `-race` locally, no gcc on this box), Vitest.
 - **Fuzz:** `scripts/fuzz.ps1`, run by hand before every release, not in CI; a failure keeps its regression
   seed in `testdata/fuzz/`.
-- **Contract tests:** replay recorded Reeder Classic / NetNewsWire request sequences (unit-level, in CI).
+- **Contract tests:** replay recorded Reader API request sequences (unit-level, in CI).
 - **End-to-end UAT:** `docs/uat-plan.md` Suites 1-5 (scripted Playwright+axe, agent-driven scenarios,
   owner-only device checks, migration rehearsal, restore drill, Reader API regression replay against a real
   deployed build, fresh-machine Docker walkthrough). Planned for phase 5 and not yet executed; the Suite 1
@@ -120,7 +119,7 @@ keeps the design-level risks and their mitigations.
    that get forgotten.
 2. **Code coverage visibility.** Report a coverage percentage from `go test`/Vitest in CI output — visibility
    only, not a gate, so untested areas are at least known rather than invisible.
-3. **A docs index.** One page in `docs/` linking `plan.md`, `design.md`, `uat-plan.md`, `sqa-plan.md`,
+3. **A docs index.** One page in `docs/` linking `design.md`, `uat-plan.md`, `sqa-plan.md`,
    `RELEASING.md`, `deploy.md` with a one-line description each, for a newcomer (self-hoster or future
    contributor) who doesn't already know the project's shape.
 4. **A stated issue-triage expectation for the now-public repo.** Something honest and low-commitment (e.g.,

@@ -13,7 +13,7 @@ If you only use Kipple through these, you can upgrade within 1.x without changin
 
 | Surface | What is promised |
 |---|---|
-| **Reader API** at `/api/greader.php` | The endpoints, parameters and response shapes in the Reader API section of [design.md](design.md#6-google-reader-api-mapping), as Reeder Classic and NetNewsWire use them. Releases may add endpoints, parameters and response fields; they do not remove or reinterpret existing ones. |
+| **Reader API** at `/api/greader.php` | The endpoints, parameters and response shapes in the Reader API section of [design.md](design.md#6-google-reader-api-mapping), as Reader API clients use them. Releases may add endpoints, parameters and response fields; they do not remove or reinterpret existing ones. |
 | **Backup zip** | The layout of an export (`kipple.db`, `feeds.opml`, `settings.json`, `manifest.json`, `RESTORE.txt`) and the manifest `format` number. A newer 1.x restores any export written by an earlier release of the line. An older Kipple refuses a database from a newer one. |
 | **Settings keys** | The keys that appear in a backup's `settings.json`, with their meaning and value format. A key may gain new accepted values; it is not renamed or repurposed without notice. The `sys.*` entries are internal and not covered. |
 | **Environment variables** | The variables in [.env.example](../.env.example) (`KIPPLE_ADDR`, `KIPPLE_DATA`, `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, and the rest) and `TZ`, with the behavior documented there. |
@@ -34,7 +34,7 @@ These may change in any release, including a patch release:
 - The contents of `/data/imgcache`, the nightly snapshot's file name, and other files marked transient in
   [deploy.md](deploy.md#where-things-live).
 - Behavior that no document or test specifies, and a bug that something depends on.
-- Third-party clients other than Reeder Classic and NetNewsWire. Other Google Reader API clients may work, and a
+- Behavior of any particular Reader API client beyond the protocol. A client may work, and a
   fix for one will not be held back by this promise.
 
 Security fixes are exempt from everything on this page. A fix that has to change a covered surface does so, and the

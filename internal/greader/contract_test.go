@@ -1,7 +1,7 @@
 package greader
 
 // Contract tests: each replays a recorded client's request sequence (from
-// docs/research: netnewswire.md, reeder-classic.md, design §10) over a real
+// client research, design §10) over a real
 // HTTP server and asserts the response shapes the client's decoder needs.
 
 import (
@@ -109,9 +109,9 @@ func loginBody() string {
 	return "Email=" + testUser + "&Passwd=" + url.QueryEscape(testPass)
 }
 
-// nnwLogin does NNW's ClientLogin and parses the response the way NNW does:
+// batchClientLogin does a client's ClientLogin and parses the response the way a client does:
 // every line split on every '=' and accepted only with exactly two parts.
-func (c *client) nnwLogin() string {
+func (c *client) batchClientLogin() string {
 	c.t.Helper()
 	r := c.do(http.MethodPost, "/accounts/ClientLogin", loginBody(), nil)
 	require.Equal(c.t, 200, r.code)
@@ -119,7 +119,7 @@ func (c *client) nnwLogin() string {
 	auth := ""
 	for _, line := range strings.Split(strings.TrimSpace(r.body), "\n") {
 		parts := strings.Split(line, "=")
-		require.Len(c.t, parts, 2, "NNW rejects a line with a stray '=': %q", line)
+		require.Len(c.t, parts, 2, "a client rejects a line with a stray '=': %q", line)
 		if parts[0] == "Auth" {
 			auth = parts[1]
 		}
@@ -133,7 +133,7 @@ func decodeIDs(t *testing.T, body string) (ids []string, cont *string) {
 	t.Helper()
 	var v struct {
 		ItemRefs []struct {
-			ID *string `json:"id"` // NNW: String?, used verbatim
+			ID *string `json:"id"` // a client: String?, used verbatim
 		} `json:"itemRefs"`
 		Continuation *string `json:"continuation"` // must be a string when present
 	}
@@ -143,14 +143,14 @@ func decodeIDs(t *testing.T, body string) (ids []string, cont *string) {
 	for _, r := range v.ItemRefs {
 		require.NotNil(t, r.ID)
 		_, err := strconv.ParseInt(*r.ID, 10, 64)
-		require.NoError(t, err, "NNW/Reeder convert the decimal string with Int()")
+		require.NoError(t, err, "clients convert the decimal string with Int()")
 		ids = append(ids, *r.ID)
 	}
 	return ids, v.Continuation
 }
 
-// nnwContents decodes a contents response with NNW's required keys.
-func nnwContents(t *testing.T, body string) []itemJSON {
+// strictContents decodes a contents response with a client's required keys.
+func strictContents(t *testing.T, body string) []itemJSON {
 	t.Helper()
 	var v struct {
 		ID      *string `json:"id"`
@@ -175,22 +175,22 @@ func nnwContents(t *testing.T, body string) []itemJSON {
 		require.NotNil(t, it.Summary.Content)
 		require.NotNil(t, it.Categories, "item %d categories ([String])", i)
 		require.NotNil(t, it.Origin, "item %d origin (object)", i)
-		require.NotNil(t, it.Origin.StreamID, "items without origin.streamId are dropped by NNW")
+		require.NotNil(t, it.Origin.StreamID, "items without origin.streamId are dropped by a client")
 	}
 	var full struct{ Items []itemJSON }
 	require.NoError(t, json.Unmarshal([]byte(body), &full))
 	return full.Items
 }
 
-func TestContractNetNewsWireSequence(t *testing.T) {
+func TestContractBatchingClientSequence(t *testing.T) {
 	h := newHarness(t)
-	c := newClient(t, h, base, "NetNewsWire (RSS Reader; https://netnewswire.com/)")
+	c := newClient(t, h, base, "BatchingClient/1.0")
 
 	news := h.addFeed("https://news.example/feed.xml", "News", "News & Politics+")
 	tech := h.addFeed("https://tech.example/feed.xml", "Tech", "Tech")
 	other := h.addFeed("http://old.example/feed.xml", "Legacy", "")
 	now := h.clk.Now().Unix()
-	ot := now - 90*86400 // NNW: Date minus 3 months when it has no stored start time
+	ot := now - 90*86400 // a client: Date minus 3 months when it has no stored start time
 
 	// 600 items crawled inside the window (one a minute), and two much older
 	// ones whose content changed after ot.
@@ -209,10 +209,10 @@ func TestContractNetNewsWireSequence(t *testing.T) {
 	_ = oldQuiet
 
 	// 1. ClientLogin, 2. token.
-	tok := c.nnwLogin()
+	tok := c.batchClientLogin()
 	r := c.get("/reader/api/0/token")
 	require.Equal(t, "GoogleLogin auth="+strings.TrimSuffix(r.body, "\n"), "GoogleLogin auth="+tok)
-	require.True(t, strings.HasSuffix(r.body, "\n"), "NNW strips exactly one trailing newline")
+	require.True(t, strings.HasSuffix(r.body, "\n"), "a client strips exactly one trailing newline")
 
 	// 3-4. tag/list and subscription/list: 200 then 304 with the stored ETag.
 	tags := c.get("/reader/api/0/tag/list?output=json")
@@ -240,14 +240,14 @@ func TestContractNetNewsWireSequence(t *testing.T) {
 	// 5. reading-list ids since ot with n=1000: the first page includes the
 	// content-changed older items and there is no continuation.
 	first := c.get(fmt.Sprintf("/reader/api/0/stream/items/ids?s=%s&ot=%d&n=1000&output=json", rl, ot))
-	require.NotEmpty(t, first.header.Get("Date"), "NNW takes its next ot from the Date header")
+	require.NotEmpty(t, first.header.Get("Date"), "a client takes its next ot from the Date header")
 	ids, cont := decodeIDs(t, first.body)
 	require.Nil(t, cont)
 	require.Len(t, ids, 602)
 	require.Contains(t, ids, FormatDecimal(oldChanged1))
 	require.Contains(t, ids, FormatDecimal(oldChanged2))
 	require.NotContains(t, ids, FormatDecimal(oldQuiet))
-	// With n=250 NNW loops on the continuation until it is absent, never seeing an empty page.
+	// With n=250 a client loops on the continuation until it is absent, never seeing an empty page.
 	var loop []string
 	cc, pages := "", 0
 	for {
@@ -287,10 +287,10 @@ func TestContractNetNewsWireSequence(t *testing.T) {
 	var form strings.Builder
 	form.WriteString("T=" + tok + "&output=json")
 	for _, id := range req150 {
-		form.WriteString("&i=" + FormatLongID(id)) // NNW leaves ':' ',' and '/' unencoded
+		form.WriteString("&i=" + FormatLongID(id)) // a client leaves ':' ',' and '/' unencoded
 	}
 	got := c.post("/reader/api/0/stream/items/contents", form.String())
-	items := nnwContents(t, got.body)
+	items := strictContents(t, got.body)
 	require.Len(t, items, 145-3, "trimmed and unknown ids are omitted")
 
 	// 9. edit-tag in four passes over 1000-style batches, including ledger and unknown ids.
@@ -314,7 +314,7 @@ func TestContractNetNewsWireSequence(t *testing.T) {
 	stars, _ = decodeIDs(t, c.get("/reader/api/0/stream/items/ids?s="+starred+"&n=1000&output=json").body)
 	require.ElementsMatch(t, []string{FormatDecimal(starredID), FormatDecimal(fresh)}, stars)
 
-	// 11. A stale T is 401 (NNW then re-fetches the token and retries).
+	// 11. A stale T is 401 (a client then re-fetches the token and retries).
 	stale := c.doAny("POST", "/reader/api/0/edit-tag", "T=stale&i="+FormatLongID(recent[1])+"&a="+readSt, nil)
 	require.Equal(t, 401, stale.code)
 	tok2 := strings.TrimSuffix(c.get("/reader/api/0/token").body, "\n")
@@ -372,7 +372,7 @@ func TestContractNetNewsWireSequence(t *testing.T) {
 	require.Contains(t, stars, FormatDecimal(starredID))
 	require.Contains(t, stars, FormatDecimal(fresh))
 	sub := c.get("/reader/api/0/subscription/list?output=json").body
-	c2 := nnwContents(t, c.post("/reader/api/0/stream/items/contents", "T="+tok+"&i="+FormatLongID(starredID)).body)
+	c2 := strictContents(t, c.post("/reader/api/0/stream/items/contents", "T="+tok+"&i="+FormatLongID(starredID)).body)
 	require.Len(t, c2, 1)
 	// The archive feed is not a subscription (an unsubscribed feed shows up nowhere); the item keeps its
 	// original feed's name as origin.title.
@@ -381,10 +381,10 @@ func TestContractNetNewsWireSequence(t *testing.T) {
 	require.Equal(t, q[string](h, "SELECT origin_title FROM items WHERE id = ?", starredID), c2[0].Origin.Title)
 }
 
-// reederSequence replays the reconstructed Reeder Classic sync against one mount.
-func reederSequence(t *testing.T, prefix string) {
+// closedClientSequence replays the reconstructed a client Classic sync against one mount.
+func closedClientSequence(t *testing.T, prefix string) {
 	h := newHarness(t)
-	c := newClient(t, h, prefix, "Reeder/5.4 CFNetwork/1494 Darwin/23.4.0")
+	c := newClient(t, h, prefix, "ClosedClient/5.4")
 	f := h.addFeed("https://a.example/f", "Alpha", "Comics")
 	f2 := h.addFeed("https://b.example/f", "", "") // no site title yet, no icon
 	now := h.clk.Now().Unix()
@@ -398,7 +398,7 @@ func reederSequence(t *testing.T, prefix string) {
 		all = append(all, h.addItem(feed, itemSeed{ID: (now - int64(120-i)*600) * 1_000_000, Title: fmt.Sprintf("post %d", i), Starred: i%40 == 0, Read: i < 20}))
 	}
 
-	// 1. ClientLogin (Reeder only needs the Auth line), 2. user-info right after.
+	// 1. ClientLogin (a client only needs the Auth line), 2. user-info right after.
 	login := c.do("POST", "/accounts/ClientLogin", loginBody(), nil)
 	require.Equal(t, 200, login.code)
 	var tok string
@@ -431,7 +431,7 @@ func reederSequence(t *testing.T, prefix string) {
 	}
 	walkNoNull(t, decodeAny(t, []byte(subs.body)), "$", nil)
 
-	// 4-6. The three id lists Reeder pulls with n=10000.
+	// 4-6. The three id lists a client pulls with n=10000.
 	unread, cont := decodeIDs(t, c.get("/reader/api/0/stream/items/ids?s="+rl+"&xt="+readSt+"&output=json&n=10000").body)
 	require.Nil(t, cont)
 	require.Len(t, unread, 100)
@@ -449,7 +449,7 @@ func reederSequence(t *testing.T, prefix string) {
 		for _, id := range all[batch*50 : batch*50+50] {
 			b.WriteString("&i=" + FormatHex16(id))
 		}
-		for _, it := range nnwContents(t, c.post("/reader/api/0/stream/items/contents", b.String()).body) {
+		for _, it := range strictContents(t, c.post("/reader/api/0/stream/items/contents", b.String()).body) {
 			seen[it.ID] = true
 			require.Regexp(t, `^tag:google\.com,2005:reader/item/[0-9a-f]{16}$`, it.ID)
 		}
@@ -481,9 +481,9 @@ func reederSequence(t *testing.T, prefix string) {
 	require.Equal(t, 0, q[int](h, "SELECT count(*) FROM stats_events"))
 }
 
-func TestContractReederSequence(t *testing.T) {
-	t.Run("api prefix", func(t *testing.T) { reederSequence(t, base) })
-	t.Run("root mount", func(t *testing.T) { reederSequence(t, "") })
-	t.Run("doubled prefix", func(t *testing.T) { reederSequence(t, base+base) })
-	t.Run("double slash", func(t *testing.T) { reederSequence(t, base+"/") })
+func TestContractClosedClientSequence(t *testing.T) {
+	t.Run("api prefix", func(t *testing.T) { closedClientSequence(t, base) })
+	t.Run("root mount", func(t *testing.T) { closedClientSequence(t, "") })
+	t.Run("doubled prefix", func(t *testing.T) { closedClientSequence(t, base+base) })
+	t.Run("double slash", func(t *testing.T) { closedClientSequence(t, base+"/") })
 }

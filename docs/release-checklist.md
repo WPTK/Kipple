@@ -14,7 +14,7 @@ records. `docs/uat-plan.md` describes the suites.
 | 5 | GitHub private vulnerability reporting is on (`SECURITY.md` depends on it) | agent | |
 | 6 | Documentation run: every command in the README and `docs/deploy.md` works as written | agent | |
 | 7 | First-time Docker walkthrough by a person who is not the author (a cold reader) | owner | |
-| 8 | Reeder and NetNewsWire work against the rc | owner | |
+| 8 | A Reader API client works against the rc | owner | |
 | 9 | Firefox and Safari pass | owner | |
 | 10 | Screen-reader pass | owner | |
 | 11 | SBOM is attached to the release; the `cosign verify` and `gh attestation verify` lines in the docs run and pass | agent | |

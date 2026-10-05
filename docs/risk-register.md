@@ -20,7 +20,7 @@ date and how it closed rather than deleting it.
 
 | ID | Risk | Closed | How |
 |---|---|---|---|
-| C1 | Reeder Classic's `mark-all-as-read` `ts` unit (µs/ms/s) was undocumented anywhere public. | 2026-09 (observed in production) | Digit-count parsing (`docs/design.md` §3, mark-all `ts`) has handled real Reeder traffic since the phase 1 deploy with no reported misbehavior; kept as a documented design choice rather than a live risk. |
+| C1 | A Reader API client's `mark-all-as-read` `ts` unit (µs/ms/s) was undocumented anywhere public. | 2026-09 (observed in production) | Digit-count parsing (`docs/design.md` §3, mark-all `ts`) has handled real client traffic since the phase 1 deploy with no reported misbehavior; kept as a documented design choice rather than a live risk. |
 | C2 | 88 `http://` feedburner-hosted feeds were expected to 301 to https on first fetch. | Phase 1 deploy | The redirect-migration rule handled all of them; health view showed the notices as expected, not alarming. |
 | C3 | (Was R4.) The Cloudflare Access JWT + passwordless branch was developed in parallel with the phase 5 code-audit branch, and both touched `internal/api/api.go` and `internal/api/login.go`. | 2026-09-27 | The audit merged first (#26); the JWT/passwordless branch was then brought up to date with `main` and merged as #40. |
 | C4 | (Was R1.) `document.hasFocus()` may report false while the installed iPhone PWA is foregrounded but the phone is locked/backgrounded, silently undercounting reading time on iOS. | 2026-09-27 | Owner confirmed all of UAT Suite 3, including TC-D4, passes on his phone (0.3.0-beta.1 feedback). Issue [#30](https://github.com/WPTK/Kipple/issues/30) closed. |

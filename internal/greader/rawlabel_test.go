@@ -27,7 +27,7 @@ func TestMarkAllAsReadLabelWithTS(t *testing.T) {
 	a := h.addItem(fa, itemSeed{})
 	b := h.addItem(fb, itemSeed{})
 	ts := strconv.FormatInt(time.Now().Add(time.Hour).UnixMicro(), 10)
-	// Reeder: T, s, ts.
+	// a client: T, s, ts.
 	h.post(rd+"mark-all-as-read", "T=x&s=user/-/label/Comics&ts="+ts)
 	require.True(t, isRead(h, a), "folder marked read")
 	require.False(t, isRead(h, b))

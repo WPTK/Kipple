@@ -51,7 +51,7 @@ func tagOps(add, remove []string) []tagOp {
 }
 
 // editTag is POST edit-tag. It is always 200 OK: zero ids, unknown ids, trimmed
-// ids and an empty i all succeed (a non-2xx wedges NetNewsWire's queue).
+// ids and an empty i all succeed (a non-2xx wedges a client's sync queue).
 func (c *call) editTag() {
 	raw := c.p.All("i")
 	if len(raw) > maxEditIDs {

@@ -89,7 +89,7 @@ func TestStatsExportRowsHeaderMatchesRecords(t *testing.T) {
 		h.stat(k, "2026-09-21", 9, int64(i+10), f, "t"+k, 5)
 	}
 	h.exec(`INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, inferred, item_id, feed_id, feed_title)
-		VALUES (1780000900, '2026-09-21', 9, 1, 'open', 'reeder', 1, 50, ?, 'F'), (1780000901, '2026-09-21', 9, 1, 'star', 'reeder', 1, 51, ?, 'F')`, f, f)
+		VALUES (1780000900, '2026-09-21', 9, 1, 'open', 'api', 1, 50, ?, 'F'), (1780000901, '2026-09-21', 9, 1, 'star', 'api', 1, 51, ?, 'F')`, f, f)
 	for _, q := range []string{"", "?include_inferred=1", "?from=2026-09-21&to=2026-09-21", "?from=2026-09-21&to=2026-09-21&include_inferred=1", "?range=week", "?from=2020-01-01&to=2020-01-02"} {
 		rec := h.export(q)
 		recs := readCSV(t, rec.Body.String())
