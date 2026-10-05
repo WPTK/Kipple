@@ -3,6 +3,7 @@ package greader
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"strconv"
 
 	"github.com/WPTK/kipple/internal/events"
@@ -176,7 +177,9 @@ func (c *call) markAllAsRead() {
 		c.serverError("mark-all-as-read", err)
 		return
 	}
-	if f.Empty || len(f.Read) > 0 {
+	// Only unread items are ever marked, so an unread or kept-unread stream is the
+	// reading list (or its scope), and the read stream has nothing to mark.
+	if f.Empty || slices.Contains(f.Read, 1) {
 		c.ok()
 		return
 	}
