@@ -22,7 +22,7 @@ permissions:
 
 env:
   IMAGE: ghcr.io/wptk/kipple
-  # Same policy as ci.yml. Keep in step with the Trivy pin there.
+  # Same policy as ci.yml. Keep in step with .github/actions/audit-image.
   # Anchored to the tag shape the gate accepts (scripts/release-tags.sh), dots escaped.
   COSIGN_IDENTITY_REGEXP: '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$'
   COSIGN_ISSUER: https://token.actions.githubusercontent.com
@@ -82,10 +82,11 @@ jobs:
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
 
-  # 2. Tests: the same jobs as ci.yml, on the tagged commit.
+  # 2. Tests: the same jobs as ci.yml, on the tagged commit. zizmor accepts the local reusable-workflow form inline: the
+  # `$/` spelling it suggests offers nothing here and is not worth changing in the release path.
   ci:
     needs: gate
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/ci.yml # zizmor: ignore[self-repository]
     permissions:
       contents: read
 
@@ -169,6 +170,9 @@ jobs:
             SOURCE_DATE_EPOCH=${{ steps.epoch.outputs.epoch }}
 
   # 4. Scan: Trivy per platform, same policy as ci.yml. A failure stops before any user-facing tag exists.
+  # The severity and ignore-unfixed flags are repeated here, not taken from .github/actions/audit-image, on purpose: a
+  # local action needs a checkout and this job has none, and the shared action also writes a report file and prints it,
+  # which would change what the release log looks like. Keep the policy in step with that action by hand.
   scan:
     needs: [gate, build]
     runs-on: ubuntu-latest

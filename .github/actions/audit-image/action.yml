@@ -1,0 +1,28 @@
+name: Trivy image scan
+description: Fail on fixable HIGH or CRITICAL findings in a built image. scripts/ci-local.ps1 pins the aquasec/trivy image to this action's default Trivy version (v0.70.0 for v0.36.0).
+
+inputs:
+  image-ref:
+    description: Image to scan, already loaded into the local Docker daemon.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: mkdir -p "$RUNNER_TEMP/audit-logs"
+
+    - name: Trivy image scan
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        image-ref: ${{ inputs.image-ref }}
+        severity: HIGH,CRITICAL
+        ignore-unfixed: true
+        exit-code: "1"
+        # Written to a file so the weekly audit can name the advisories; the next step prints it to the job log.
+        output: ${{ runner.temp }}/audit-logs/trivy.log
+
+    - name: Print the Trivy report
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: cat "$RUNNER_TEMP/audit-logs/trivy.log"

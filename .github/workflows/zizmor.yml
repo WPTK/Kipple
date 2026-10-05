@@ -2,7 +2,7 @@ name: zizmor
 
 # Static analysis of the workflows themselves (injection, over-broad permissions, unpinned actions, credential
 # persistence). It fails the PR when it finds something, and it is checked under the "CI green on the exact head" rule.
-# Accepted findings are listed with a reason in .github/zizmor.yml. SARIF upload is off so it needs no
+# Accepted findings carry an inline `# zizmor: ignore[rule]` on the line, with the reason in a comment beside it. SARIF upload is off so it needs no
 # security-events permission.
 on:
   push:

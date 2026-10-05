@@ -80,6 +80,7 @@ Step 'web' 'changelog fragments' { node scripts/changelog.mjs check; if ($LASTEX
 Step 'web' 'release tag rules (scripts/release-tags.test.sh)' { bash scripts/release-tags.test.sh }
 Step 'web' 'toolchain versions (scripts/toolchain.test.mjs)' { node --test scripts/toolchain.test.mjs }
 Step 'web' 'link checker tests (scripts/check-links.test.mjs)' { node --test scripts/check-links.test.mjs }
+Step 'web' 'weekly audit report (scripts/audit-report.test.mjs)' { node --test scripts/audit-report.test.mjs }
 Step 'web' 'npm ci' { Push-Location web; npm ci --ignore-scripts --cache $npmCache --no-audit --no-fund; Pop-Location }
 Step 'web' 'lint' { Push-Location web; npm run lint; Pop-Location }
 Step 'web' 'test and coverage (no threshold)' { Push-Location web; npm run test:coverage; Pop-Location }

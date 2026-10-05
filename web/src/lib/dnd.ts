@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReorderBody } from "@/api/admin";
 
 // Drag-to-reorder by grabbing the row itself, with pointer (mouse, pen), touch (press and hold on the row, or
 // a touch on the grip at once) and keyboard (arrow keys on the grip). Everything that decides WHAT a drop
@@ -86,11 +87,6 @@ export function stepFolder(tree: Tree, folder: string, delta: -1 | 1): Tree {
   return planFolderDrop(tree, folder, { parent, before });
 }
 
-/** Folders whose parent differs between `a` and `b`: the PATCH /api/folders/{id} {parent_id} calls a change needs. */
-export function parentChanges(a: Tree, b: Tree): { id: string; parent: string | null }[] {
-  return b.folders.filter((id) => (a.parents[id] ?? null) !== (b.parents[id] ?? null)).map((id) => ({ id, parent: b.parents[id] ?? null }));
-}
-
 export function planFeedDrop(tree: Tree, feed: string, target: FeedTarget): Tree {
   const feeds: Record<string, string[]> = {};
   for (const [k, v] of Object.entries(tree.feeds)) feeds[k] = v.filter((x) => x !== feed);
@@ -101,12 +97,17 @@ export function planFeedDrop(tree: Tree, feed: string, target: FeedTarget): Tree
 const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /**
- * The POST /api/reorder body for going from `a` to `b`: the folders when their order changed, and the feed list of
- * every folder whose feeds changed (a feed listed under another folder moves there). Null when nothing changed.
+ * The POST /api/reorder body for going from `a` to `b`, one request the server saves in one transaction: every folder
+ * in tree order when their order or any parent changed, a folder whose parent changed as `{id, parent_id}` (it moves
+ * there), and the feed list of every folder whose feeds changed (a feed listed under another folder moves there).
+ * Null when nothing changed.
  */
-export function reorderBody(a: Tree, b: Tree): { folders?: string[]; feeds?: { folder_id: string; ids: string[] }[] } | null {
-  const body: { folders?: string[]; feeds?: { folder_id: string; ids: string[] }[] } = {};
-  if (!sameList(a.folders, b.folders)) body.folders = b.folders;
+export function reorderBody(a: Tree, b: Tree): ReorderBody | null {
+  const body: ReorderBody = {};
+  const moved = (id: string) => (a.parents[id] ?? null) !== (b.parents[id] ?? null);
+  if (!sameList(a.folders, b.folders) || b.folders.some(moved)) {
+    body.folders = b.folders.map((id) => (moved(id) ? { id, parent_id: b.parents[id] ?? null } : id));
+  }
   const feeds = Object.keys(b.feeds)
     .filter((f) => !sameList(a.feeds[f] ?? [], b.feeds[f] ?? []))
     .map((f) => ({ folder_id: f, ids: b.feeds[f] as string[] }));
