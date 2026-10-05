@@ -31,6 +31,49 @@ func TestNormalizeKeyHost(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestNormalizeTypedForms: every way a person types or pastes a feed or site address reads as the
+// absolute URL they meant, in every entry point (they all reach parse).
+func TestNormalizeTypedForms(t *testing.T) {
+	for raw, want := range map[string]string{
+		"example.com":                        "https://example.com",
+		"  example.com/feed.xml \n":          "https://example.com/feed.xml",
+		" https://example.com/rss\t":         "https://example.com/rss",
+		"www.example.com/blog?format=rss":    "https://www.example.com/blog?format=rss",
+		"//example.com/feed":                 "https://example.com/feed",
+		"localhost:8080/feed":                "https://localhost:8080/feed",
+		"example.com:8443/feed":              "https://example.com:8443/feed",
+		"feed://example.com/rss":             "https://example.com/rss",
+		"feed:https://example.com/rss":       "https://example.com/rss",
+		"FEED:http://example.com/rss":        "http://example.com/rss",
+		"feed:example.com/rss":               "https://example.com/rss",
+		"pcast://example.com/podcast.xml":    "https://example.com/podcast.xml",
+		"itpc://example.com/podcast.xml":     "https://example.com/podcast.xml",
+		"podcast://example.com/p.xml":        "https://example.com/p.xml",
+		"rss://example.com/rss":              "https://example.com/rss",
+		"https://example.com/feed#comments":  "https://example.com/feed",
+		"HTTPS://Example.COM/Feed":           "https://example.com/Feed",
+		"HTTP://EXAMPLE.com:80/x":            "http://example.com/x",
+		"http:/example.com/feed":             "http://example.com/feed",
+		"https:example.com/feed":             "https://example.com/feed",
+		"https://bücher.example/feed":        "https://b%C3%BCcher.example/feed",
+		"http://[2001:db8::1]:8080/feed.xml": "http://[2001:db8::1]:8080/feed.xml",
+	} {
+		got, err := Normalize(raw)
+		require.NoError(t, err, raw)
+		require.Equal(t, want, got, raw)
+	}
+	// Still not addresses: a relative path, a lone word, other schemes, the internal pseudo-URLs.
+	for _, bad := range []string{"", "   ", "/relative", "nas", "ftp://example.com/x", "mailto:me",
+		"javascript:alert(1)", "kipple:archive", "kipple:deleting:12", "feed:", "http://", "file:///etc/passwd"} {
+		_, err := Normalize(bad)
+		require.Error(t, err, bad)
+	}
+	// An IDN host is accepted in either spelling and keyed by what was typed.
+	k, err := Key("https://BÜCHER.example/feed")
+	require.NoError(t, err)
+	require.Equal(t, "bücher.example/feed", k)
+}
+
 func TestKeyAndNormalize(t *testing.T) {
 	for _, raw := range []string{"HTTP://Example.COM:80/Feed.xml?a=1#frag", " https://x.org:443/a b ", "https://[::1]:8080/p"} {
 		key, norm, err := KeyAndNormalize(raw)

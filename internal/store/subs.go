@@ -88,7 +88,17 @@ func (d *DB) BoolSetting(ctx context.Context, key string, def bool) bool {
 }
 
 // InvalidURLError is returned by Subscribe for a URL that cannot be a feed.
-type InvalidURLError struct{ Reason string }
+// Private marks a literal private, loopback or otherwise blocked address.
+type InvalidURLError struct {
+	Reason  string
+	Private bool
+}
+
+// The plain-language reasons ValidateFeedURL gives (the Reader API's quickadd error, the web dialog).
+const (
+	MsgNotWebAddress  = "that is not a web address; enter a feed or site address such as https://example.com/feed"
+	MsgPrivateAddress = "that address is on a private network (this computer or your local network), which Kipple does not fetch from unless the feed is allowed to"
+)
 
 func (e *InvalidURLError) Error() string { return e.Reason }
 
@@ -100,6 +110,9 @@ type SubscribeOpts struct {
 	// FolderID places a new feed in that folder (which must exist) when Folder is
 	// empty; the web UI addresses folders by id. 0 = the default folder.
 	FolderID int64
+	// AllowPrivateNet creates a new feed with allow_private_net on (the web add dialog, when the
+	// user allows it; the Reader API never sets it). An existing feed is not changed.
+	AllowPrivateNet bool
 }
 
 // SubscribeResult is what quickadd and ac=subscribe report.
@@ -118,7 +131,7 @@ type SubscribeResult struct {
 // existing feed is moved or renamed only if a folder or title was given.
 func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, error) {
 	raw := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(o.URL), "feed/"))
-	norm, key, host, err := ValidateFeedURL(raw, false)
+	norm, key, host, err := ValidateFeedURL(raw, o.AllowPrivateNet)
 	if err != nil {
 		return SubscribeResult{}, err
 	}
@@ -175,8 +188,8 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 			if t := strings.TrimSpace(o.Title); t != "" {
 				custom = t
 			}
-			r, err := tx.ExecContext(ctx, `INSERT INTO feeds (folder_id, url, url_key, host, title, custom_title, position, next_fetch_at)
-				VALUES (?,?,?,?,?,?,?,?)`, folder, norm, key, host, host, custom, pos, now)
+			r, err := tx.ExecContext(ctx, `INSERT INTO feeds (folder_id, url, url_key, host, title, custom_title, position, next_fetch_at, allow_private_net)
+				VALUES (?,?,?,?,?,?,?,?,?)`, folder, norm, key, host, host, custom, pos, now, o.AllowPrivateNet)
 			if err != nil {
 				return err
 			}
@@ -222,14 +235,14 @@ func subscribeFolder(ctx context.Context, tx *sql.Tx, label string) (id int64, r
 func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err error) {
 	key, norm, nerr := feedurl.KeyAndNormalize(raw)
 	if errors.Is(nerr, feedurl.ErrUserinfo) {
-		return "", "", "", &InvalidURLError{"the URL contains a user name or password; use the feed's HTTP authentication instead"}
+		return "", "", "", &InvalidURLError{Reason: "the URL contains a user name or password; use the feed's HTTP authentication instead"}
 	}
 	if nerr != nil {
-		return "", "", "", &InvalidURLError{"not an absolute http(s) URL"}
+		return "", "", "", &InvalidURLError{Reason: MsgNotWebAddress}
 	}
 	host, _ = feedurl.Host(norm)
 	if ip, perr := netip.ParseAddr(host); perr == nil && !allowPrivate && fetch.Blocked(ip.Unmap()) {
-		return "", "", "", &InvalidURLError{"address not allowed"}
+		return "", "", "", &InvalidURLError{Reason: MsgPrivateAddress, Private: true}
 	}
 	return norm, key, host, nil
 }

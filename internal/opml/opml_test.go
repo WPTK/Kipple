@@ -368,8 +368,11 @@ func TestImportSkipsNonHTTPSchemesAndNeverGrantsExceptions(t *testing.T) {
 	<outline text="g" xmlUrl="http://169.254.169.254/latest/meta-data/" kipple:allow_private_net="1" kipple:allow_insecure_tls="1"/>
 	<outline text="h" xmlUrl="http://2130706433/rss" kipple:allow_private_net="1"/>
 	</body></opml>`, ImportOptions{})
-	require.Len(t, r.Skipped, 6, "%v", r.Skipped)
-	require.Equal(t, 2, r.FeedsAdded, "the metadata address and the numeric spelling are stored, switched off for the guard")
+	require.Len(t, r.Skipped, 5, "%v", r.Skipped)
+	require.Equal(t, 3, r.FeedsAdded, "the scheme-relative address (as https), the metadata address and the numeric spelling are stored, switched off for the guard")
+	var n int
+	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE url = 'https://e.test/rss'").Scan(&n))
+	require.Equal(t, 1, n)
 	var granted int
 	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE allow_private_net != 0 OR allow_insecure_tls != 0").Scan(&granted))
 	require.Zero(t, granted)

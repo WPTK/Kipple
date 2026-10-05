@@ -18,7 +18,7 @@ func TestValidateFeedURLRefusesWhatIsWrongOnItsFace(t *testing.T) {
 	for _, raw := range []string{
 		// scheme
 		"", " ", "ftp://example.com/feed", "file:///etc/passwd", "gopher://127.0.0.1:70/_x", "javascript:alert(1)",
-		"data:text/plain,hi", "//example.com/feed", "/feed", "example.com/feed", "http:///feed", "http://", "ws://example.com/",
+		"data:text/plain,hi", "/feed", "feed", "http:///feed", "http://", "ws://example.com/", "feed:ftp://example.com/",
 		"mailto:a@example.com", "view-source:http://example.com/", "jar:http://example.com!/",
 		// userinfo, including the tricks where the visible host differs from the real one
 		"http://user:pass@example.com/feed", "http://user@example.com/feed", "http://:pass@example.com/feed",
@@ -34,6 +34,28 @@ func TestValidateFeedURLRefusesWhatIsWrongOnItsFace(t *testing.T) {
 	} {
 		_, _, _, err := ValidateFeedURL(raw, false)
 		require.Error(t, err, "%q", raw)
+	}
+}
+
+// What a person types is read as the address they meant (feedurl.Normalize), in every entry point,
+// and the result still gets every check above: a typed private address is refused like a full one.
+func TestValidateFeedURLReadsTypedAddresses(t *testing.T) {
+	for raw, want := range map[string]string{
+		"example.com/feed":            "https://example.com/feed",
+		"//example.com/feed":          "https://example.com/feed",
+		" feed://example.com/rss ":    "https://example.com/rss",
+		"feed:http://example.com/rss": "http://example.com/rss",
+		"Example.COM#top":             "https://example.com",
+	} {
+		norm, _, _, err := ValidateFeedURL(raw, false)
+		require.NoError(t, err, raw)
+		require.Equal(t, want, norm, raw)
+	}
+	for _, raw := range []string{"192.168.1.1/feed", "feed://10.0.0.1/rss", "127.0.0.1:8080"} {
+		_, _, _, err := ValidateFeedURL(raw, false)
+		var bad *InvalidURLError
+		require.ErrorAs(t, err, &bad, raw)
+		require.True(t, bad.Private, raw)
 	}
 }
 
