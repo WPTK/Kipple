@@ -14,7 +14,6 @@ import type { Favorite } from "@/lib/devicePrefs";
 import {
   arrayMove,
   insertBefore,
-  parentChanges,
   planFeedDrop,
   planFolderDrop,
   reorderBody,
@@ -68,12 +67,8 @@ type FolderDialog =
   | { kind: "move"; folder: Folder }
   | { kind: "delete"; folder: Folder };
 
-/** A move whose folders moved (PATCH done) but whose order then failed to save. */
-export class OrderNotSavedError extends Error {}
-
 /** The message for a folder change the server refused. */
 export function folderError(e: unknown): string {
-  if (e instanceof OrderNotSavedError) return "Moved, but the order couldn't be saved.";
   const code = e instanceof ApiError ? e.code : undefined;
   if (code === "folder_exists") return "A folder with that name is already there.";
   if (code === "folder_too_deep") return `Folders nest at most ${MAX_FOLDER_DEPTH} levels deep.`;
@@ -303,19 +298,22 @@ export function FeedsScreen() {
   };
   useEffect(() => () => clearTimeout(savedTimer.current), []);
 
-  // Saves run one after another: a second drop while the first is still saving must not race it on the server.
+  // Saves run one after another: each one sends the whole folder order, so two in flight could commit out of order.
   const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
   const saving = useRef(0);
+  // Counts failed saves. A queued save was planned on top of the tree painted before it; once a save planned earlier
+  // has failed, that tree was never the server's, so the queued save is dropped instead of sent.
+  const failures = useRef(0);
   /**
-   * Save a new tree: paint it at once, then move the folders whose parent changed (PATCH /api/folders/{id}) and save
-   * the order in one POST /api/reorder, after any save still running. Rejects with the server's refusal (an
-   * OrderNotSavedError when the folders moved but the order did not save); the bootstrap is refetched once the last
-   * queued save ends, so the screen ends up showing what the server has.
+   * Save a new tree: paint it at once, then send the moves and the new order as one POST /api/reorder (one server
+   * transaction), after any save still running. Rejects with the server's refusal, which changed nothing; a save
+   * queued behind a failed one is dropped. The bootstrap is refetched once the last queued save ends, so the screen
+   * ends up showing what the server has.
    */
   const saveTree = async (next: Tree) => {
     const body = reorderBody(tree, next);
-    const moves = parentChanges(tree, next);
-    if (!body && moves.length === 0) return;
+    if (!body) return;
+    const planned = failures.current;
     setSaved("saving");
     // A bootstrap refetch in flight would paint the old tree over the new one.
     await qc.cancelQueries({ queryKey: keys.bootstrap });
@@ -339,21 +337,19 @@ export function FeedsScreen() {
     });
     saving.current++;
     const run = saveQueue.current.then(async () => {
-      let moved = false;
+      if (failures.current !== planned) return false;
       try {
-        for (const m of moves) {
-          await patchFolder(m.id, { parent_id: m.parent });
-          moved = true;
-        }
-        if (body) await reorderApi(body);
+        await reorderApi(body);
+        return true;
       } catch (e) {
-        throw moved ? new OrderNotSavedError(errorMessage(e)) : e;
+        failures.current++;
+        throw e;
       }
     });
     saveQueue.current = run.catch(() => undefined);
     try {
-      await run;
-      markSaved();
+      if (await run) markSaved();
+      else setSaved(null);
     } catch (e) {
       setSaved(null);
       throw e;

@@ -513,6 +513,27 @@ describe("manage feeds", () => {
     expect(await screen.findByText("Saved")).toBeInTheDocument();
   });
 
+  it("a save queued behind one the server refused is dropped, not sent, and the server's order comes back", async () => {
+    let refuse: (r: Response) => void = () => {};
+    const { calls } = routes({ "POST /api/reorder": () => new Promise<Response>((r) => (refuse = r)) }, boot3);
+    go("/feeds");
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: /Reorder Alpha/ }), { key: "ArrowDown" });
+    await waitFor(() => expect(reorderCalls(calls)).toHaveLength(1));
+    // A second move while the first is still saving: planned on top of the first, so it waits behind it.
+    fireEvent.keyDown(screen.getByRole("button", { name: /Reorder Alpha/ }), { key: "ArrowDown" });
+    const boots = calls.filter((c) => c.url.pathname === "/api/bootstrap").length;
+    refuse(json({ error: "bad_request", message: "no such feed 9" }, 400));
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/bootstrap").length).toBeGreaterThan(boots));
+    expect(reorderCalls(calls)).toEqual([{ feeds: [{ folder_id: "1", ids: ["2", "1", "3"] }] }]);
+    // The refetch paints the server's order again.
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /^Reorder (Alpha|Bravo|Charlie)\./ })[0]).toHaveAccessibleName(/^Reorder Alpha\./));
+    // Nothing more was sent once the queue drained.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reorderCalls(calls)).toHaveLength(1);
+  });
+
   it("a folder collapsed on this device still shows all its feeds in Edit and Select, and stays collapsed afterwards", async () => {
     routes({}, boot3);
     updateDevicePrefs({ collapsedFolders: ["1"] });

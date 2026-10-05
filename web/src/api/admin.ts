@@ -140,8 +140,17 @@ export const patchFeed = (id: string, body: Record<string, unknown>) =>
 /** The editor's full FeedDetail (custom_title, dedup_mode, user agent, the flags). */
 export const loadFeedDetail = (f: Feed) => api<FeedDetail>(`/api/feeds/${f.id}`);
 
-/** Reorder in one transaction: folders in the given order, and/or the feeds of each listed folder. */
-export const reorder = (body: { folders?: string[]; feeds?: { folder_id: string; ids: string[] }[] }) =>
+/**
+ * A POST /api/reorder body: folders in order, each an id (it keeps its parent) or `{id, parent_id}` (it moves inside
+ * `parent_id`, null: the top level), and/or the feeds of each listed folder in order.
+ */
+export interface ReorderBody {
+  folders?: (string | { id: string; parent_id: string | null })[];
+  feeds?: { folder_id: string; ids: string[] }[];
+}
+
+/** Move folders and reorder in one transaction: a refusal anywhere changes nothing. */
+export const reorder = (body: ReorderBody) =>
   api<{ changed_feeds: string[]; changed_folders: string[] }>("/api/reorder", { method: "POST", body });
 
 export const deleteFeed = (id: string, deleteStarred: boolean) =>
