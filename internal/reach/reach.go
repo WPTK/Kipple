@@ -200,7 +200,11 @@ func (l *Live) install(sec store.Security) {
 			st.HostNames = append(st.HostNames, n)
 		}
 	}
-	if h := Host(st.PublicURL); h != "" {
+	// The public URL's host is an allowed name, except one any device on the local
+	// network can answer (a single label, .local, .lan, .home.arpa, .internal): such
+	// a name is answered in open mode only when listed by name (#254), so a public
+	// URL alone never widens what open mode answers.
+	if h := Host(st.PublicURL); h != "" && !setup.LANClaimable(h) {
 		st.HostNames = append(st.HostNames, h)
 	}
 	old := l.cur.Load()
@@ -302,10 +306,9 @@ func CheckPublicURL(v string) error {
 // NormalizePublicURL is the rule for a public URL that is put in force (the
 // setting, or a seed about to be stored): CheckPublicURL, with an
 // internationalized host written in its ASCII (xn--) form so the Host gate and
-// the User-Agent name the same host, and never a name any device on the local
-// network can answer (setup.LANClaimable): the public URL's host is answered in
-// open mode, so such a name would let a device on the network rebind it. "" is
-// "no public URL".
+// the User-Agent name the same host. "" is "no public URL". A name any device
+// on the local network can answer (http://nas.local:1919) is a fine public URL;
+// install keeps it out of the Host gate's names (see there).
 func NormalizePublicURL(v string) (string, error) {
 	if v == "" {
 		return "", nil
@@ -332,9 +335,6 @@ func NormalizePublicURL(v string) (string, error) {
 	}
 	if err := CheckPublicURL(v); err != nil {
 		return "", err
-	}
-	if h := strings.TrimSuffix(strings.ToLower(u.Hostname()), "."); setup.LANClaimable(h) {
-		return "", fmt.Errorf("%q is a name any device on your network can answer: use the DNS name or IP address your other devices reach Kipple at, or add the name under Allowed host names", h)
 	}
 	return v, nil
 }
@@ -371,9 +371,9 @@ var EnvNames = map[string]string{
 // different value (their variables were not used). This is the one rule: the
 // setting is the only source; a variable only gives a setting its first value.
 // A value about to be stored must pass the same rules as a settings write (a
-// public URL a LAN device could answer, a trusted range that is too wide), and
-// one that does not stops the start with what to do; a variable that would be
-// ignored is never judged.
+// trusted range that is too wide, a public URL host that is not a valid name),
+// and one that does not stops the start with what to do; a variable that would
+// be ignored is never judged.
 func SeedSettings(ctx context.Context, db *store.DB, seed Seed) ([]string, error) {
 	stored, err := db.StoredSettings(ctx, store.ReachKeys)
 	if err != nil {
@@ -384,7 +384,7 @@ func SeedSettings(ctx context.Context, db *store.DB, seed Seed) ([]string, error
 		u := seed.PublicURL
 		if !stored[store.SettingPublicURL] {
 			if u, err = NormalizePublicURL(u); err != nil {
-				return nil, fmt.Errorf("KIPPLE_PUBLIC_URL: %w; set the address your other devices use, or remove the variable", err)
+				return nil, fmt.Errorf("KIPPLE_PUBLIC_URL: %w (fix it, or remove the variable)", err)
 			}
 		}
 		m[store.SettingPublicURL] = u

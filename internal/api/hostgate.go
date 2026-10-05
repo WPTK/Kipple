@@ -142,11 +142,11 @@ const hostRefusedText = "Kipple refused this request because of the address it w
 	"name you allowed. While it runs without a password (open mode), it only answers an IP address, localhost, a\n" +
 	".localhost or .ts.net name, the host of its public URL and the names you allowed: any device on your\n" +
 	"network can answer a single-word or .local-style name with this computer's address and steer your browser into\n" +
-	"Kipple (DNS rebinding), so each such name has to be allowed by name.\n\n" +
+	"Kipple (DNS rebinding), so each such name has to be allowed by name, even when it is the public URL's.\n\n" +
 	"To allow a name, open Kipple by its IP address (that always works), then add the name under Allowed host\n" +
 	"names in Settings, Account & Devices, Address and access (e.g. nas.local, rss.example.com or *.example.com).\n" +
-	"It applies at once. Without a browser on the network (a headless install), KIPPLE_ALLOWED_HOSTS works on a first\n" +
-	"start: it gives the setting its first value.\n"
+	"It applies at once. Without a browser on the network (a headless install), KIPPLE_ALLOWED_HOSTS works on a\n" +
+	"first start: it gives the setting its first value.\n"
 
 // HostGate is the Host-header check (design 5.2), installed ahead of every
 // handler. In setup and open mode a request whose Host is not an allowed name

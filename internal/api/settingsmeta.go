@@ -107,9 +107,8 @@ func checkAllowedHosts(v any) (any, string) {
 }
 
 // checkPublicURL validates server.public_url: "" (none) or an absolute http(s)
-// URL with a host and no user info, query or fragment, and not a name a LAN
-// device can answer (reach.NormalizePublicURL), returned trimmed and with an
-// internationalized host in its xn-- form.
+// URL with a host and no user info, query or fragment (reach.NormalizePublicURL),
+// returned trimmed and with an internationalized host in its xn-- form.
 func checkPublicURL(v any) (any, string) {
 	s, ok := v.(string)
 	if !ok || len(s) > 2048 {
@@ -484,7 +483,7 @@ var settingDefs = withScopes([]settingDef{
 		}},
 
 	// Address and access (package reach): applied at once, no restart.
-	{Key: store.SettingPublicURL, Label: "Public URL", Description: "The address you reach Kipple at from other devices, such as https://rss.example.com. Sync apps get feed icons from it, feed sites see it in Kipple's User-Agent, and its host name is always answered. Leave empty if Kipple has no such address.",
+	{Key: store.SettingPublicURL, Label: "Public URL", Description: "The address you reach Kipple at from other devices, such as https://rss.example.com. Sync apps get feed icons from it, feed sites see it in Kipple's User-Agent, and its host name is answered too (a name any device on your network can answer, such as nas.local, only when it is also under Allowed host names). Leave empty if Kipple has no such address.",
 		Group: groupConnection, Kind: "text", Surface: surfaceSettings, check: checkPublicURL},
 	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides IP addresses, localhost and .localhost and .ts.net names, the host of the public URL (and, during setup only, single-word names and .local, .lan, .home.arpa and .internal names): exact names such as rss.example.com, nas or nas.local, or *.example.com.",
 		Group: groupConnection, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},

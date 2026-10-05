@@ -56,7 +56,7 @@ function CurrentPassword({ what, value, onChange }: { what: string; value: strin
   );
 }
 
-const listText =(v: unknown): string => (Array.isArray(v) ? v.map(String).join("\n") : "");
+const listText = (v: unknown): string => (Array.isArray(v) ? v.map(String).join("\n") : "");
 
 /**
  * Saves one setting and reports the server's answer: the message of its issue for a refused value, or the error's

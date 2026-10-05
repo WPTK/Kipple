@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -338,8 +339,26 @@ func TestWarnUntrustedProxyHeaders(t *testing.T) {
 func TestProxyTooWide(t *testing.T) {
 	for p, want := range map[string]bool{
 		"0.0.0.0/0": true, "10.0.0.0/7": true, "10.0.0.0/8": false, "8.0.0.0/8": false, "172.16.0.0/12": false, "192.0.2.10/32": false,
-		"::/0": true, "2000::/3": true, "2001:db8::/32": false, "fc00::/7": false, "fd00::/8": false, "fe80::/10": false, "fe00::/7": true,
+		"::/0": true, "2000::/3": true, "2001::/16": true, "2001::/19": true, "2001::/20": false, "2001:db8::/32": false, "fc00::/7": false, "fd00::/8": false, "fe80::/10": false, "fe00::/7": true,
 	} {
 		require.Equal(t, want, ProxyTooWide(netip.MustParsePrefix(p)), p)
 	}
+}
+
+// Cloudflare's published ranges (https://www.cloudflare.com/ips-v4 and ips-v6)
+// are what a Cloudflare Tunnel or proxy user lists: every one must be accepted.
+func TestProxyTooWideAcceptsCloudflareRanges(t *testing.T) {
+	v4 := []string{"173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18",
+		"190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+		"104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22"}
+	v6 := []string{"2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32"}
+	for _, p := range append(v4, v6...) {
+		ps, err := ParseProxies(p)
+		require.NoError(t, err, p)
+		require.False(t, ProxyTooWide(ps[0]), p)
+	}
+	// All of them in one list too: the rule is per entry, not a total.
+	ps, err := ParseProxies(strings.Join(append(v4, v6...), ","))
+	require.NoError(t, err)
+	require.Len(t, ps, len(v4)+len(v6))
 }

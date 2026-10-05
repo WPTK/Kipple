@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/WPTK/kipple/internal/access"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -39,7 +40,13 @@ const (
 // accessProof verifies the request's Access token, waiting for a key-set fetch
 // when needed (a sign-in or an account change; the wait ends with the request).
 func (s *Server) accessProof(r *http.Request) accessProof {
-	v := s.reach.Access()
+	return s.accessProofWith(r, s.reach.Get())
+}
+
+// accessProofWith is accessProof against the Access verifier of st, so a caller
+// can tell which Access setting the proof was made under (st.Stored.Access).
+func (s *Server) accessProofWith(r *http.Request, st *reach.State) accessProof {
+	v := st.Access
 	if v == nil {
 		return proofNotConfigured
 	}

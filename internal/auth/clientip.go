@@ -50,16 +50,18 @@ var (
 )
 
 // ProxyTooWide reports whether p is too wide to trust as a proxy: wider than an
-// IPv4 /8 or an IPv6 /32 and covering public addresses. A trusted range lets
+// IPv4 /8 or an IPv6 /20 and covering public addresses. A trusted range lets
 // every address in it name its own client address, so a range that wide could
-// only be a mistake (0.0.0.0/0 above all). Every IPv4 range wider than /8
-// covers public addresses; an IPv6 one is fine only inside fc00::/7 or
-// fe80::/10.
+// only be a mistake (0.0.0.0/0, ::/0, 2000::/3 above all). The IPv6 bound
+// leaves room for a provider's published ranges (Cloudflare's widest is a /29).
+// Every IPv4 range wider than /8 covers public addresses; an IPv6 one is fine
+// only inside fc00::/7 or fe80::/10. The rule is per entry: several narrow
+// ranges are fine.
 func ProxyTooWide(p netip.Prefix) bool {
 	if p.Addr().Is4() {
 		return p.Bits() < 8
 	}
-	if p.Bits() >= 32 {
+	if p.Bits() >= 20 {
 		return false
 	}
 	for _, private := range []netip.Prefix{ula, linkLocal} {

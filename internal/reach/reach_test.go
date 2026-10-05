@@ -133,6 +133,24 @@ func TestUpdateAppliesTheWrittenValues(t *testing.T) {
 	require.Equal(t, l.Get().Stored, again.Get().Stored)
 }
 
+// A public URL at a LAN name is used, but its host is not added to the Host
+// gate's names (open mode answers such a name only when listed).
+func TestLANPublicURLHostIsNotAnAllowedName(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	l, err := Open(ctx, db, Options{NoPrefetch: true})
+	require.NoError(t, err)
+	for _, u := range []string{"http://nas.local:1919", "http://unraid:1919", "https://rss.home.arpa", "https://svc.internal", "http://box.lan"} {
+		set := map[string]any{store.SettingPublicURL: u}
+		require.NoError(t, l.Update(set, nil, func() error { return db.SetSettings(ctx, set) }))
+		require.Equal(t, u, l.PublicURL())
+		require.Empty(t, l.HostNames(), u)
+	}
+	set := map[string]any{store.SettingPublicURL: "https://rss.example.com", store.SettingAllowedHosts: []any{"nas.local"}}
+	require.NoError(t, l.Update(set, nil, func() error { return db.SetSettings(ctx, set) }))
+	require.Equal(t, []string{"nas.local", "rss.example.com"}, l.HostNames())
+}
+
 func TestNilAndFixed(t *testing.T) {
 	var l *Live
 	require.Equal(t, "", l.PublicURL())
@@ -167,13 +185,13 @@ func TestSeedPolicyOnlyWhenStored(t *testing.T) {
 	require.ErrorContains(t, err, "list only the address your proxy connects from (docs/reverse-proxy.md), or remove the variable")
 	_, err = SeedSettings(ctx, openDB(t), Seed{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("2000::/3")}})
 	require.ErrorContains(t, err, "too wide")
+	// A LAN name is a fine public URL, seeded like any other.
 	_, err = SeedSettings(ctx, openDB(t), Seed{PublicURL: "http://nas.local:1919"})
-	require.ErrorContains(t, err, "KIPPLE_PUBLIC_URL")
-	require.ErrorContains(t, err, "remove the variable")
+	require.NoError(t, err)
 
 	db := openDB(t)
 	require.NoError(t, db.SetSettings(ctx, map[string]any{store.SettingTrustedProxies: []any{"192.0.2.10"}, store.SettingPublicURL: ""}))
-	ignored, err := SeedSettings(ctx, db, Seed{PublicURL: "http://nas.local:1919", TrustedProxies: wide.TrustedProxies})
+	ignored, err := SeedSettings(ctx, db, Seed{PublicURL: "https://seed.example.com", TrustedProxies: wide.TrustedProxies})
 	require.NoError(t, err, "ignored variables are not judged")
 	require.Equal(t, []string{store.SettingTrustedProxies, store.SettingPublicURL}, ignored)
 
@@ -200,7 +218,7 @@ func TestNormalizePublicURL(t *testing.T) {
 		require.NoError(t, err, in)
 		require.Equal(t, want, got, in)
 	}
-	for _, bad := range []string{"http://nas", "http://nas.local", "http://NAS.LAN:1919", "https://x.home.arpa", "https://x.internal", "rss.example.com", "https://"} {
+	for _, bad := range []string{"rss.example.com", "https://", "ftp://x.example", "https://u@x.example"} {
 		_, err := NormalizePublicURL(bad)
 		require.Error(t, err, bad)
 	}

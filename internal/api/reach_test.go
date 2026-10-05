@@ -110,11 +110,6 @@ func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
 		{store.SettingPublicURL, `"https://rss.example.com/?a=1"`, "query"},
 		{store.SettingPublicURL, `"https://"`, "no host"},
 		{store.SettingPublicURL, `42`, "https://rss.example.com"},
-		// Names any device on the network can answer would widen the open-mode Host gate.
-		{store.SettingPublicURL, `"http://nas.local:1919"`, "any device on your network"},
-		{store.SettingPublicURL, `"http://nas:1919"`, "any device on your network"},
-		{store.SettingPublicURL, `"https://box.home.arpa"`, "any device on your network"},
-		{store.SettingPublicURL, `"https://svc.internal"`, "any device on your network"},
 		{store.SettingTrustedProxies, `"192.0.2.10"`, "list"},
 		{store.SettingTrustedProxies, `["192.0.2.10,192.0.2.11"]`, "list"},
 		{store.SettingTrustedProxies, `["proxy.example.com"]`, `"proxy.example.com" is not an IP address or a range`},
@@ -123,6 +118,7 @@ func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
 		{store.SettingTrustedProxies, `["10.0.0.0/7"]`, "too wide to trust"},
 		{store.SettingTrustedProxies, `["::/0"]`, "too wide to trust"},
 		{store.SettingTrustedProxies, `["2000::/3"]`, "too wide to trust"},
+		{store.SettingTrustedProxies, `["2001::/16"]`, "too wide to trust"},
 		{store.SettingTrustedProxies, `[1]`, "list"},
 		{store.SettingCloudflareAccess, `{"team_domain":"myteam.cloudflareaccess.com"}`, "audience (AUD) tag is missing"},
 		{store.SettingCloudflareAccess, `{"aud":"abc"}`, "team domain is missing"},
@@ -305,6 +301,25 @@ func TestPasswordRemovalAndAccessOffNeverBothWin(t *testing.T) {
 	}
 }
 
+// The removal is bound to the Access setting it was proven under: a write that
+// points Access at another team between the proof and the write makes the
+// removal fail (409 access_changed), and the password stays.
+func TestPasswordRemovalRefusedWhenAccessChangesUnderIt(t *testing.T) {
+	k, _ := accessKeys(t)
+	h := newHarness(t, withAccess(t))
+	ca, cb := h.login(), h.login()
+	h.srv.removeProved = func() {
+		rec := h.do("PATCH", "/api/settings", withCurrent(`{"security.cloudflare_access":{"team_domain":"other.cloudflareaccess.com","aud":"`+accAUD+`"}}`), withCookie(cb), peer("10.20.30.12:5555"))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+	rec := h.do("POST", "/api/account/password", `{"current":"`+testPass+`","remove":true}`, withCookie(ca), withJWT(h.jwt(k, nil)), peer("10.20.30.11:5555"))
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Equal(t, "access_changed", decode(t, rec)["error"])
+	acct, _, err := h.db.Account(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, acct.PasswordHash)
+}
+
 // Once Access is off, removing the password is refused, even with a token that
 // was verified before (the check is made again, under the lock, at the write).
 func TestPasswordRemovalRefusedOnceAccessIsOff(t *testing.T) {
@@ -318,6 +333,23 @@ func TestPasswordRemovalRefusedOnceAccessIsOff(t *testing.T) {
 	acct, _, err := h.db.Account(context.Background())
 	require.NoError(t, err)
 	require.NotEmpty(t, acct.PasswordHash)
+}
+
+// A LAN name is a fine public URL (sync apps on the network get icons from it),
+// but it is not added to the Host gate's names: open mode answers such a name
+// only when it is listed by name (#254), as the refusal says.
+func TestLANPublicURLDoesNotWidenOpenMode(t *testing.T) {
+	h := newSetupHarness(t)
+	sess := h.openAccount(nil)
+	for _, u := range []string{"http://nas.local:1919", "http://unraid:1919", "https://rss.home.arpa"} {
+		rec := h.req("PATCH", "/api/settings", `{"server.public_url":"`+u+`"}`, withCookies(sess))
+		require.Equal(t, http.StatusOK, rec.Code, u+": "+rec.Body.String())
+		require.Equal(t, u, h.srv.reach.PublicURL())
+		require.Empty(t, h.srv.reach.HostNames(), u)
+	}
+	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host("rss.home.arpa")).Code)
+	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.allowed_hosts":["rss.home.arpa"]}`, withCookies(sess)).Code)
+	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host("rss.home.arpa")).Code, "listed by name, it is answered")
 }
 
 // The public URL's host opens in open mode once an authenticated write sets it,

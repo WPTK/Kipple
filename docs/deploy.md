@@ -289,12 +289,12 @@ The trusted proxies are a list of single addresses and CIDR ranges (`192.0.2.10`
 client is: for such a peer the client is the rightmost `X-Forwarded-For` hop that is not itself listed (each proxy appends
 the address it received from, so the entries to its left are whatever the client chose to send), or `CF-Connecting-IP`
 when there is no `X-Forwarded-For`; for any other peer the forwarding headers are ignored and the client is the peer.
-List every proxy in the chain and nothing wider: a range wider than an IPv4 /8 or an IPv6 /32 that covers public addresses (`0.0.0.0/0`,
-`::/0`) is refused, since every address in a trusted range can choose its own client address. Saving the trusted
-proxies or Cloudflare Access asks for your web password (an account without one proves itself through Access or open
-mode's own rules). In open mode a list that holds your own address is refused, since open mode refuses a trusted proxy
-and you would be locked out. Trust a Docker
-network, or any range that clients can reach directly, only when the published port is reachable by the proxy alone;
+List every proxy in the chain and nothing wider. A range wider than an IPv4 `/8` or an IPv6 `/20` that covers public
+addresses (`0.0.0.0/0`, `::/0`) is refused, per entry (Cloudflare's published ranges all pass), since every address
+in a trusted range can choose its own client address; in `KIPPLE_TRUSTED_PROXY_IPS` such a range stops the start when
+it would be stored, and says what to do. Saving the trusted proxies or Cloudflare Access asks for your web password (an
+account without one proves itself through Access or open mode's own rules). In open mode a list that holds your own
+address is refused, since open mode refuses a trusted proxy and you would be locked out. Trust a Docker network, or any range that clients can reach directly, only when the published port is reachable by the proxy alone;
 otherwise any client in the range can write its own `X-Forwarded-For` or `CF-Connecting-IP` and be believed. A trusted
 peer also makes open mode refuse the request as `forwarded` (it fails closed), so a trusted Docker gateway cannot be used
 with open mode.

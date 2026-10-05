@@ -30,6 +30,13 @@ const (
 // an account that already has no password it reports alreadyNone without
 // proving anything, as there is nothing to change.
 func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current string, removing bool) (alreadyNone, ok bool) {
+	return s.checkCurrentWith(w, r, current, removing, s.reach.Get())
+}
+
+// checkCurrentWith is checkCurrent with an Access proof made against st (the
+// reachability state the caller read), so the caller knows which Access setting
+// was proven.
+func (s *Server) checkCurrentWith(w http.ResponseWriter, r *http.Request, current string, removing bool, st *reach.State) (alreadyNone, ok bool) {
 	t, ok := s.admit(w, r)
 	if !ok {
 		return false, false
@@ -59,7 +66,7 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 		}
 		// No web password to prove: a verified Access token on this request
 		// stands in for it; nothing else does.
-		if p := s.accessProof(r); p != proofOK {
+		if p := s.accessProofWith(r, st); p != proofOK {
 			s.writeProofError(w, t, p, false)
 			return false, false
 		}
@@ -70,7 +77,7 @@ func (s *Server) checkCurrent(w http.ResponseWriter, r *http.Request, current st
 		// Proves passwordless sign-in works for the caller right now, so the
 		// removal can neither lock the owner out nor be made from an address
 		// that bypasses Access.
-		if p := s.accessProof(r); p != proofOK {
+		if p := s.accessProofWith(r, st); p != proofOK {
 			s.writeProofError(w, t, p, true)
 			return false, false
 		}
@@ -165,7 +172,10 @@ func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 	if !body.Remove && badNewPassword(w, body.New) {
 		return
 	}
-	alreadyNone, ok := s.checkCurrent(w, r, body.Current, body.Remove)
+	// The removal is proven against this state's Access setting, and written only
+	// while that same setting is in force (below).
+	proven := s.reach.Get()
+	alreadyNone, ok := s.checkCurrentWith(w, r, body.Current, body.Remove, proven)
 	if !ok {
 		return
 	}
@@ -179,16 +189,23 @@ func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 		if s.removeProved != nil {
 			s.removeProved()
 		}
-		// Under the reach lock, re-checked: a settings write that turns Access off
-		// cannot slip between the proof above and this write and leave an account
-		// that nothing can sign in to.
+		// Under the reach lock, re-checked: a settings write that turns Access off,
+		// or points it at another team or audience, cannot slip between the proof
+		// above and this write and leave an account that the proven Access sign-in
+		// no longer opens.
 		err := s.reach.Locked(func(cur *reach.State) error {
 			if cur.Access == nil {
 				return errAccessOff
 			}
+			if cur.Stored.Access != proven.Stored.Access {
+				return errAccessChanged
+			}
 			return s.storePassword(r, "", store.AuthStandard)
 		})
 		switch {
+		case errors.Is(err, errAccessChanged):
+			writeErrorMsg(w, http.StatusConflict, "access_changed",
+				"the Cloudflare Access setting changed while this was checked: open Kipple through Access again and retry")
 		case errors.Is(err, errAccessOff):
 			writeErrorMsg(w, http.StatusBadRequest, "access_not_configured",
 				"a web password can only be removed when Cloudflare Access validation is on (Settings, Account & Devices, Address and access)")
@@ -219,8 +236,12 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request, hash, mode 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// errAccessOff refuses removing the web password once Access validation is off.
-var errAccessOff = errors.New("cloudflare access is off")
+// errAccessOff refuses removing the web password once Access validation is off;
+// errAccessChanged once it names another team or audience than the one proven.
+var (
+	errAccessOff     = errors.New("cloudflare access is off")
+	errAccessChanged = errors.New("cloudflare access changed")
+)
 
 // storePassword stores the web password hash and auth mode, signing out every
 // other session.
