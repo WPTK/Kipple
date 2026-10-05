@@ -76,7 +76,7 @@ type settingView struct {
 }
 
 // maxAllowedHosts bounds security.allowed_hosts.
-const maxAllowedHosts = 64
+const maxAllowedHosts = store.MaxAllowedHosts
 
 // checkAllowedHosts validates security.allowed_hosts: a list of at most 64
 // host names or *.suffix entries (setup.CheckHostEntry), returned normalized

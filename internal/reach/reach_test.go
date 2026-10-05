@@ -62,6 +62,43 @@ func TestSeedOnceThenTheSettingDecides(t *testing.T) {
 	require.Empty(t, ignored)
 }
 
+// An install from before the seed rule answered the variable's names and the
+// stored ones together. Its first start under the seed rule adds the variable's
+// names to the stored list once, so no name is lost; a name later removed in
+// Settings is not added back.
+func TestUpgradeMergesAllowedHostsOnce(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	// The row as an older Kipple stored it, with no merge recorded.
+	require.NoError(t, db.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: []any{"rss.example.com"}}))
+	seed := Seed{AllowedHosts: []string{"nas.local", "rss.example.com"}}
+
+	_, err := SeedSettings(ctx, db, seed)
+	require.NoError(t, err)
+	sec, err := db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"rss.example.com", "nas.local"}, sec.AllowedHosts, "the union, once")
+
+	require.NoError(t, db.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: []any{"rss.example.com"}}))
+	ignored, err := SeedSettings(ctx, db, seed)
+	require.NoError(t, err)
+	require.Equal(t, []string{store.SettingAllowedHosts}, ignored, "the variable is named as not used")
+	sec, err = db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"rss.example.com"}, sec.AllowedHosts, "a removal in Settings sticks")
+
+	// A new install: the seed stores the variable, and a later removal sticks too.
+	fresh := openDB(t)
+	_, err = SeedSettings(ctx, fresh, seed)
+	require.NoError(t, err)
+	require.NoError(t, fresh.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: []any{}}))
+	_, err = SeedSettings(ctx, fresh, seed)
+	require.NoError(t, err)
+	sec, err = fresh.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Empty(t, sec.AllowedHosts)
+}
+
 func TestOpenBuildsTheState(t *testing.T) {
 	ctx := context.Background()
 	db := openDB(t)

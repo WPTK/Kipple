@@ -377,6 +377,11 @@ var EnvNames = map[string]string{
 // and one that does not stops the start with what to do; a variable that would
 // be ignored is never judged.
 func SeedSettings(ctx context.Context, db *store.DB, seed Seed) ([]string, error) {
+	// Before the seed rule: an upgrade from the rule that answered the variable's
+	// names and the stored ones together keeps every name (once).
+	if err := db.MergeAllowedHostsOnce(ctx, seed.AllowedHosts); err != nil {
+		return nil, err
+	}
 	stored, err := db.StoredSettings(ctx, store.ReachKeys)
 	if err != nil {
 		return nil, err

@@ -26,6 +26,52 @@ const (
 	SettingCloudflareAccess = "security.cloudflare_access"
 )
 
+// MaxAllowedHosts bounds security.allowed_hosts.
+const MaxAllowedHosts = 64
+
+// settingAllowedHostsMerged records that MergeAllowedHostsOnce ran (its value is
+// the time). Contract: it can go, with MergeAllowedHostsOnce, once an upgrade
+// from 0.8.0-beta.2 or older is no longer supported.
+const settingAllowedHostsMerged = "sys.allowed_hosts_env_merged"
+
+// MergeAllowedHostsOnce is the one-time step from the rule of 0.8.0-beta.2 and
+// older (the Host gate answered KIPPLE_ALLOWED_HOSTS and security.allowed_hosts
+// together) to the seed rule (the variable only gives the setting its first
+// value). On the first start that runs it, a stored security.allowed_hosts gets
+// the entries of names it lacks appended, so an upgrade loses no allowed name;
+// then the marker is stored, and from then on only the seed rule applies, so a
+// name removed in Settings stays removed. With no stored row it only stores the
+// marker (the seed stores the variable as usual). A union over MaxAllowedHosts
+// is not stored (the seed then reports the variable as not used). names are
+// normalized entries (setup.CheckHostEntry).
+func (d *DB) MergeAllowedHostsOnce(ctx context.Context, names []string) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if _, done, err := settingRawErr(ctx, tx, settingAllowedHostsMerged); err != nil || done {
+			return err
+		}
+		set := map[string]any{settingAllowedHostsMerged: d.clock.Now().Unix()}
+		raw, ok, err := settingRawErr(ctx, tx, SettingAllowedHosts)
+		if err != nil {
+			return err
+		}
+		if ok && len(names) > 0 {
+			var have []string
+			if json.Unmarshal(raw, &have) == nil {
+				union := slices.Clone(have)
+				for _, n := range names {
+					if !slices.Contains(union, n) {
+						union = append(union, n)
+					}
+				}
+				if len(union) > len(have) && len(union) <= MaxAllowedHosts {
+					set[SettingAllowedHosts] = union
+				}
+			}
+		}
+		return setSettingsTx(ctx, tx, set)
+	})
+}
+
 // ReachKeys are the reachability settings, in a fixed order.
 var ReachKeys = []string{SettingPublicURL, SettingAllowedHosts, SettingTrustedProxies, SettingCloudflareAccess}
 
