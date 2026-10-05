@@ -608,8 +608,9 @@ upgrade is lost.
 releases `<from>` can be several schemas below `<to>` (`pre-migration-8-11-<ns>.db`). Each migration commits on its own,
 so an upgrade that fails partway leaves the database at the last schema that committed (between `<from>` and `<to>`),
 and the next start writes another snapshot from there (`pre-migration-9-11-<ns>.db`). The previous version refuses
-either state. Restore the snapshot whose `<from>` is the schema of the version you go back to: the refusal names it,
-and it is the lowest `<from>` among the snapshots of that upgrade.
+either state. Restore the snapshot with the highest `<from>` that is at most the schema of the version you go back to
+and whose `<to>` is above it (the newest, if there are several): the refusal names it when it is in the backup folder.
+That version migrates it up to its own schema on its first start.
 
 Always go back through `kipple restore`. Never copy a snapshot over `kipple.db` by hand, and never edit the schema by
 hand (drop a column, table or index) to make an older binary start.
@@ -620,13 +621,14 @@ keeps restarting) and nothing is changed on the volume. `docker logs kipple` sho
 versions names the Kipple that wrote the database and what to do:
 
     kipple: store: store: database schema version 11 is newer than this binary (10); refusing to start. The last Kipple
-    that started on this database is v0.7.0. To run Kipple v0.6.0 (schema 10), restore the snapshot
-    pre-migration-10-<to>-<time>.db from the backup folder (docs/deploy.md, Rolling back); otherwise run a Kipple whose
-    schema is 11 or newer.
+    that started on this database is v0.7.0. To run Kipple v0.6.0 (schema 10), restore
+    pre-migration-10-11-1759700000000000000.db from the backup folder (docs/deploy.md, Rolling back). Otherwise run
+    v0.7.0 or newer.
 
-(The numbers are examples. A database that never recorded its version has no "last Kipple" sentence. After an upgrade
-that failed partway, the last Kipple named can be the version you are starting: the snapshot named by its schema is
-still the one to restore.) A binary that does not record versions prints only
+(The numbers are examples. A database that never recorded its version has no "last Kipple" sentence. When no
+matching snapshot is in the backup folder the refusal describes the one to look for. After an upgrade that failed
+partway, the last Kipple on record can be the version you are starting; the refusal then says to run a Kipple whose
+schema is the database's or newer.) A binary that does not record versions prints only
 `database schema version N is newer than this binary (M); refusing to start`. Either way, stop it, then:
 
     # 1. Stop the service and find the pre-migration snapshot the refusal names.

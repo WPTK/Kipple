@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -41,12 +42,13 @@ func (d *DB) SQLiteVersion(ctx context.Context) string {
 
 // downgradeError explains a database that is newer than this binary: what this binary is, the Kipple that last
 // started on the database when that is on record (read best-effort: the settings table exists at every schema, and
-// any failure just leaves the sentence out), and the two ways out. The recorded version is not assumed to be newer
-// than this binary: an upgrade that failed partway leaves the schema between two versions while the version on
-// record is still the old one, so the way back names the snapshot by this binary's schema, which is always right.
+// any failure just leaves the sentence out), and the two ways out. The recorded version is named as the one to run
+// only when it is not this binary: an upgrade that failed partway leaves the schema ahead of the version on record.
+// The way back is the snapshot rollbackSnapshot finds, or a description of it when the backup folder has none.
 func (d *DB) downgradeError(ctx context.Context, cur, latest int) error {
 	this := "this binary"
-	if v := strings.TrimSpace(d.version); v != "" {
+	v := strings.TrimSpace(d.version)
+	if v != "" {
 		this = "Kipple " + v
 	}
 	msg := fmt.Sprintf("store: database schema version %d is newer than this binary (%d); refusing to start.", cur, latest)
@@ -57,7 +59,38 @@ func (d *DB) downgradeError(ctx context.Context, cur, latest int) error {
 	if last != "" {
 		msg += fmt.Sprintf(" The last Kipple that started on this database is %s.", last)
 	}
-	msg += fmt.Sprintf(" To run %s (schema %d), restore the snapshot pre-migration-%d-<to>-<time>.db from the backup folder"+
-		" (docs/deploy.md, Rolling back); otherwise run a Kipple whose schema is %d or newer.", this, latest, latest, cur)
+	snap := rollbackSnapshot(d.backupDir, latest)
+	if snap == "" {
+		snap = fmt.Sprintf("the newest pre-migration-<from>-<to>-<time>.db whose <from> is at most %d", latest)
+	}
+	msg += fmt.Sprintf(" To run %s (schema %d), restore %s from the backup folder (docs/deploy.md, Rolling back).", this, latest, snap)
+	if last != "" && last != v {
+		msg += fmt.Sprintf(" Otherwise run %s or newer.", last)
+	} else {
+		msg += fmt.Sprintf(" Otherwise run a Kipple whose schema is %d or newer.", cur)
+	}
 	return fmt.Errorf("%s", msg)
+}
+
+// rollbackSnapshot is the name of the pre-migration snapshot in dir that a binary at schema latest can open: the
+// highest <from> at most latest whose <to> is above it (taken before an upgrade past latest), the newest of those.
+// "" when there is none or the folder cannot be read.
+func rollbackSnapshot(dir string, latest int) string {
+	matches, _ := filepath.Glob(filepath.Join(dir, "pre-migration-*-*-*.db"))
+	best, bestFrom, bestAt := "", -1, int64(-1)
+	for _, m := range matches {
+		name := filepath.Base(m)
+		var from, to int
+		var at int64
+		if n, err := fmt.Sscanf(name, "pre-migration-%d-%d-%d.db", &from, &to, &at); err != nil || n != 3 {
+			continue
+		}
+		if from > latest || to <= latest {
+			continue
+		}
+		if from > bestFrom || (from == bestFrom && at > bestAt) {
+			best, bestFrom, bestAt = name, from, at
+		}
+	}
+	return best
 }
