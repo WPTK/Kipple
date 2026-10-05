@@ -85,7 +85,7 @@ export type FilterMode = FilterAction | "only";
 export const ONLY_MATCHING = {
   id: "only" as const,
   label: "Only show matching",
-  help: "Mutes every article that does not match, so only articles with these words are left in Unread, All and search. The others are kept in Muted, and you can restore any of them. Pick a feed or folder under Where it applies to keep the others everywhere else.",
+  help: "Mutes every article that does not match, so only articles with these words are left in Unread, All and search. The others are kept in Muted, and you can restore any of them. To limit it to one feed or folder, pick it under Where it applies.",
 };
 export const MODES: readonly { id: FilterMode; label: string; help: string }[] = [ACTIONS[0]!, ONLY_MATCHING, ...ACTIONS.slice(1)];
 export const modeOf = (f: Pick<FilterDraft, "action" | "invert">): FilterMode => (f.action === "mute" && f.invert ? "only" : f.action);
