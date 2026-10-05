@@ -24,7 +24,7 @@ var (
 
 const (
 	discoverWait  = 10 * time.Second
-	maxTitleRunes = 200
+	maxTitleRunes = fetch.MaxTitleRunes
 	maxFolderName = 100
 	maxUAAuthLen  = 500
 )

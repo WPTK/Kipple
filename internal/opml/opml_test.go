@@ -63,6 +63,27 @@ func TestParseNestedEntitiesTextOverTitle(t *testing.T) {
 	require.Empty(t, d.Feeds[3].Folder, "root-level feeds go to the default folder")
 }
 
+// An imported feed without a name is named after its host until its first fetch, like a feed added any
+// other way; a name in the file is kept as the feed's custom name, on one line and at most 200 characters.
+func TestImportNamesFeeds(t *testing.T) {
+	db := openDB(t)
+	long := strings.Repeat("y", 250)
+	importString(t, db, `<opml><body>
+	<outline xmlUrl="https://untitled.test/rss"/>
+	<outline text="  Two
+	  lines  " xmlUrl="https://two.test/rss"/>
+	<outline text="`+long+`" xmlUrl="https://long.test/rss"/>
+	</body></opml>`, ImportOptions{})
+	name := func(host string) string {
+		var n string
+		require.NoError(t, db.Reader().QueryRow("SELECT COALESCE(custom_title, title) FROM feeds WHERE host = ?", host).Scan(&n))
+		return n
+	}
+	require.Equal(t, "untitled.test", name("untitled.test"))
+	require.Equal(t, "Two lines", name("two.test"))
+	require.Len(t, []rune(name("long.test")), 200)
+}
+
 func TestImportReportsAndDedup(t *testing.T) {
 	db := openDB(t)
 	r := importString(t, db, `<opml><body>

@@ -114,7 +114,9 @@ type SubscribeResult struct {
 
 // Subscribe is the API subscribe path (design §6.9, decision 33): idempotent on
 // FindFeedByURL, no outbound HTTP and no discovery. A new feed is inserted with
-// next_fetch_at = now and its host as title; the scheduler picks it up. An
+// next_fetch_at = now and its host as title; the scheduler picks it up, and the
+// first successful fetch replaces the host with the title the document gives
+// itself (CommitFetch). A given title is the custom title, which always wins. An
 // existing feed is moved or renamed only if a folder or title was given.
 func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, error) {
 	raw := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(o.URL), "feed/"))
@@ -188,6 +190,13 @@ func (d *DB) Subscribe(ctx context.Context, o SubscribeOpts) (SubscribeResult, e
 		return tx.QueryRowContext(ctx, "SELECT COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&res.Title)
 	})
 	return res, err
+}
+
+// FeedName is a feed's display name, COALESCE(custom_title, title), as Subscriptions lists it.
+func (d *DB) FeedName(ctx context.Context, id int64) (string, error) {
+	var name string
+	err := d.reader.QueryRowContext(ctx, "SELECT COALESCE(custom_title, title) FROM feeds WHERE id = ?", id).Scan(&name)
+	return name, err
 }
 
 // subscribeFolder is resolveFolderPath for a subscribe. A label the folder writer refuses (an empty

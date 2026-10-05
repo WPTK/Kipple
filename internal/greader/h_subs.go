@@ -276,8 +276,14 @@ func (c *call) quickAdd() {
 		c.serverError("quickadd", err)
 		return
 	}
-	c.afterSubscribe(res)
-	c.json(http.StatusOK, quickAddJSON{NumResults: 1, Query: q, StreamID: feedID(res.FeedID), StreamName: res.Title})
+	name := res.Title
+	if c.afterSubscribe(res) {
+		// The first fetch ran (greader.subscribe_fetch_now): answer with the name it may have given the feed.
+		if n, err := c.a.db.FeedName(c.r.Context(), res.FeedID); err == nil {
+			name = n
+		}
+	}
+	c.json(http.StatusOK, quickAddJSON{NumResults: 1, Query: q, StreamID: feedID(res.FeedID), StreamName: name})
 }
 
 // subscribeFetchWait bounds the optional synchronous first fetches of greader.subscribe_fetch_now for one
@@ -289,7 +295,9 @@ func (c *call) fetchLeft() time.Duration { return max(0, subscribeFetchWait-c.fe
 
 func (c *call) publishFolders() { c.a.publish("folder.changed", map[string]any{}) }
 
-func (c *call) afterSubscribe(res store.SubscribeResult) {
+// afterSubscribe starts a new feed's first fetch and announces the feed. fetched reports whether that
+// fetch ran in this request (greader.subscribe_fetch_now); otherwise the scheduler runs it.
+func (c *call) afterSubscribe(res store.SubscribeResult) (fetched bool) {
 	if !res.Existed {
 		// With fetch-now on, the priority fetch replaces the wake: a wake first could start an ordinary fetch
 		// of the just-due feed, and the Full job would then run behind it as a second fetch.
@@ -297,11 +305,13 @@ func (c *call) afterSubscribe(res store.SubscribeResult) {
 			start := c.a.now()
 			c.a.opt.FetchNow(c.r.Context(), res.FeedID, left)
 			c.fetchSpent += c.a.now().Sub(start)
+			fetched = true
 		} else {
 			c.a.wake()
 		}
 	}
 	c.a.publish("feed.changed", map[string]any{"feed_id": strconv.FormatInt(res.FeedID, 10)})
+	return fetched
 }
 
 // subscriptionEdit is POST subscription/edit (ac=subscribe|edit|unsubscribe).

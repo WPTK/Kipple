@@ -298,6 +298,36 @@ describe("Add feed", () => {
     expect(posts).toHaveLength(2);
   });
 
+  it("leaves a blank title to the feed and shows the name the feed gives itself", async () => {
+    const posts: Record<string, unknown>[] = [];
+    let added = false;
+    const fresh = { ...bootstrap.feeds[0], id: "99", title: "Daily News", unread: 0 };
+    base({
+      // Once added, the feed list has the name the first fetch gave the feed (it finished after the add answered).
+      "GET /api/bootstrap": () => json(added ? { ...bootstrap, feeds: [...bootstrap.feeds, fresh] } : bootstrap),
+      "POST /api/feeds": (_u, init) => {
+        posts.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        added = true;
+        return json({ status: "ok", feed: feedDetail({ id: "99", title: "news.example" }), fetch: { pending: true } });
+      },
+    });
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add feed" }));
+    const dlg = await screen.findByRole("dialog", { name: "Add feed" });
+    const title = within(dlg).getByLabelText("Title (optional)");
+    expect(title).toHaveAttribute("placeholder", "Filled in from the feed");
+    expect(title).toHaveAccessibleDescription(/filled in from the feed/);
+    await user.type(title, "Mine");
+    expect(title).toHaveAccessibleDescription(/instead of the feed's own/);
+    await user.clear(title);
+    await user.type(within(dlg).getByLabelText("Feed or website address"), "https://news.example/feed.xml");
+    await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
+    const done = await screen.findByRole("dialog", { name: "Feed added" });
+    expect(posts).toEqual([{ url: "https://news.example/feed.xml" }]);
+    expect(await within(done).findByText("Daily News")).toBeInTheDocument();
+  });
+
   it("says a feed already exists, and explains a failed discovery", async () => {
     base({
       "POST /api/feeds": (_u, init) => {

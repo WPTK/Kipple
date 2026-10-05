@@ -6,6 +6,7 @@ import (
 	stdhtml "html"
 	"net/url"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -106,7 +107,7 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 
 	out := &Feed{
 		Format:      formatName(gf.FeedType),
-		Title:       strings.TrimSpace(gf.Title),
+		Title:       FeedTitle(gf.Title),
 		SiteURL:     sanitize.ResolveURL(gf.Link, opt.FeedURL),
 		Description: strings.TrimSpace(gf.Description),
 		Charset:     dec.Source,
@@ -359,6 +360,27 @@ const (
 	MaxCategories    = 20
 	MaxCategoryRunes = 100
 )
+
+// MaxTitleRunes is the longest feed name: a title a feed gives itself is cut to it, and a name the
+// user types may not be longer.
+const MaxTitleRunes = 200
+
+// leftEntity matches a complete character reference still in a decoded title: the publisher escaped
+// the title twice ("&amp;amp;", "&amp;#8217;"), so the parser's own decoding left one level behind.
+var leftEntity = regexp.MustCompile(`&(?:[a-zA-Z][a-zA-Z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6});`)
+
+// FeedTitle is the name a feed document gives itself, as Kipple stores it: plain text with any
+// character reference left by double escaping decoded, whitespace runs (a title written over several
+// lines of XML) collapsed to one space, and cut to MaxTitleRunes with an ellipsis. "" means the
+// document names no title.
+func FeedTitle(raw string) string {
+	t := leftEntity.ReplaceAllStringFunc(raw, stdhtml.UnescapeString)
+	t = strings.Join(strings.Fields(t), " ")
+	if r := []rune(t); len(r) > MaxTitleRunes {
+		t = strings.TrimRight(string(r[:MaxTitleRunes-1]), " ") + "…"
+	}
+	return t
+}
 
 // itemCategories trims, drops blanks and repeats (case-insensitively) and caps the list.
 func itemCategories(in []string) []string {

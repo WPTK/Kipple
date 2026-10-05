@@ -181,12 +181,12 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
 
 33. **API subscribe paths and outbound HTTP** (default unchanged, opt-in added in phase 3). The brief says API clients never trigger fetches.
     - **Behaviour** (`greader.subscribe_fetch_now` off, the default): `quickadd`, `subscription/edit ac=subscribe` and `subscription/import` do **no** outbound HTTP and no discovery. They insert the feed with `next_fetch_at = now` and return at once. The scheduler's next tick (≤ 30 s) fetches the feed like any other due feed.
-    - The first NNW or Reeder sync after that shows the feed title as its host and no items. The next sync fills both in.
+    - A client's first sync after that shows the feed named after its host, with no items. The next sync fills both in: the first fetch names the feed with the title the document gives itself (§4.5). With `greader.subscribe_fetch_now` on, `quickadd` answers with the name that fetch gave the feed.
     - The revision-1 behaviour (synchronous discovery plus a priority first fetch that waits up to 8 s) is **not built**. `greader.subscribe_fetch_now` (default off) turns on a bounded synchronous first fetch for a feed a client just added, in place of the scheduler wake: 8 s in total per request, however many feeds it subscribes, and it also ends on shutdown. With it off the default above applies.
     - The web UI's add-feed and OPML import are not API clients and keep synchronous discovery and runs.
 
 34. **OPML fidelity.**
-    - **Titles.** On import, a non-empty OPML title goes to `custom_title`. After the first successful fetch it is cleared if it equals the document title, so later title changes in the feed still flow through.
+    - **Titles.** On import, a non-empty OPML title goes to `custom_title`, cleaned up like a document title (§4.5); a feed without one is named after its host, like any new feed, until its first fetch. After the first successful fetch it is cleared if it equals the document title, so later title changes in the feed still flow through.
     - **Order.** Folder and feed `position` come from document order.
     - **Tree.** Nested outlines are nested folders, both ways: import keeps every named outline as a folder at its level (at most 8 levels), and export writes the folder tree as nested outlines, each named by its own name. OPML 2.0 nests natively, so no `kipple:` attribute carries the tree.
     - **Export.** `COALESCE(custom_title, title)` goes out as both `text` and `title`. Folders are nested outlines only; the comma-separated `category` attribute is never used. Disabled and gone feeds are included; the archive feed is not.
@@ -961,6 +961,8 @@ doneCh <- workerExit
 - **`last_error*` is kept**. The UI shows it as resolved when `last_error_at < last_success_at`.
 - The retention trim (§5) runs.
 - On the feed's first `ok` success (`last_success_at IS NULL` before the commit), `custom_title` is cleared if it equals the document title. Every successful commit clears `initial_read_before`.
+- The document title is stored as plain text (`fetch.FeedTitle`): a character reference left by double escaping is decoded, whitespace runs become one space, and it is cut to 200 characters with an ellipsis. An empty one keeps the stored title (a new feed's host). A user's `custom_title` is never touched by a fetch, except the first-success clear above.
+- An `ok` commit that changes the display name (`COALESCE(custom_title, title)`) publishes `feed.changed` for the feed, so a new feed's name reaches open web clients when its first fetch lands.
 
 "Error bookkeeping" means:
 
@@ -1938,7 +1940,7 @@ A client that recreates its `EventSource` (the watchdog reconnect) cannot set `L
 | `saved_searches.changed` | `{}`, after any saved-search create, patch, delete or reorder, or a `PATCH /api/settings` that replaces or resets the list, so other tabs refetch `GET /api/saved-searches` (§7.1d). Not sent when a feed or folder deletion drops scopes (only `feed.changed` / `folder.changed` go out) |
 | `fulltext.ready` | `{ids, source: "ingest"}`: ids (strings) whose background extraction finished, with text or an error; at most 500 per event, coalesced over about 300 ms. The UI refetches those items if it shows them |
 | `counts` | `{unread_total, muted, feeds: {id: unread}}`, coalesced to at most 1 per second. The web client recomputes each folder's `unread` from these feed counts over the folder's subtree, the same number the bootstrap gives |
-| `feed.changed` | `{feed_id?}`: a feed was created, edited (any notifying PATCH, including position or folder), reordered, moved by a folder delete, migrated, found gone by the scheduler, archived or purged, or deleted, from the web or the Reader API. `feed_id` (string) is absent (`{}`) when the Reader API renamed or disabled a label (`rename-tag`, `disable-tag`), where several feeds may have changed |
+| `feed.changed` | `{feed_id?}`: a feed was created, edited (any notifying PATCH, including position or folder), reordered, moved by a folder delete, migrated, renamed by a fetch (§4.5), found gone by the scheduler, archived or purged, or deleted, from the web or the Reader API. `feed_id` (string) is absent (`{}`) when the Reader API renamed or disabled a label (`rename-tag`, `disable-tag`), where several feeds may have changed |
 | `folder.changed` | `{folder_id?}`: any folder mutation, so other tabs refetch folders (the bootstrap). `folder_id` (a string) is present for a single-folder web change (create, rename or reposition, delete); it is absent when several folders or memberships changed or the folder is unknown (`{}`): `POST /api/reorder` with any change, a feed moved to another folder by `PATCH /api/feeds/{id}`, an OPML import (web or Reader API) that created folders or moved existing feeds (each moved feed also gets `feed.changed`), and the Reader API paths `rename-tag`, `disable-tag`, `subscription/edit` subscribe or edit that names a folder or moves to Uncategorized. A refused or no-op request publishes nothing |
 | `heartbeat` | `{t: <unix seconds>}`, every 15 s, sent with **no `id`** so it never advances `Last-Event-ID`. It exists only so `EventSource` can see the stream is alive (a `: ping` comment is invisible to it) |
 | `resync` | `{}`, on buffer overflow or failed replay |

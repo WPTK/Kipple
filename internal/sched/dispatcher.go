@@ -397,7 +397,7 @@ func (s *Scheduler) handleDone(r result) {
 		ev["next_fetch_at"] = r.nextFetch.Unix()
 	}
 	s.hub.Publish("fetch.done", ev)
-	if r.migrated || r.gone {
+	if r.migrated || r.retitled || r.gone {
 		s.hub.Publish("feed.changed", map[string]any{"feed_id": idStr(r.feedID)})
 	}
 	for _, run := range f.runs {

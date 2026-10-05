@@ -2,6 +2,7 @@ package greader
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -699,13 +700,24 @@ func TestQuickAddFetchNowOnlyWhenSettingOn(t *testing.T) {
 		require.Equal(t, 200, w.Code)
 		return jsonBody(t, w)
 	}
-	add("https://off.example/feed.xml")
+	res := add("https://off.example/feed.xml")
 	require.Empty(t, calls, "default: no synchronous fetch")
+	require.Equal(t, "off.example", res["streamName"], "named after its host until the scheduler's first fetch")
 
 	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"greader.subscribe_fetch_now": true}))
-	res := add("https://on.example/feed.xml")
+	h.api.opt.FetchNow = func(_ context.Context, id int64, wait time.Duration) {
+		require.Equal(t, subscribeFetchWait, wait)
+		calls = append(calls, id)
+		// What a successful first fetch does to the name.
+		require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, "UPDATE feeds SET title = 'On Air' WHERE id = ?", id)
+			return err
+		}))
+	}
+	res = add("https://on.example/feed.xml")
 	require.Len(t, calls, 1)
 	require.Equal(t, "feed/"+strconv.FormatInt(calls[0], 10), res["streamId"])
+	require.Equal(t, "On Air", res["streamName"], "the name the synchronous first fetch gave the feed")
 
 	add("https://on.example/feed.xml")
 	require.Len(t, calls, 1, "an existing feed is never fetched by a client")
