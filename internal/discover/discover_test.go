@@ -24,7 +24,7 @@ func serve(t *testing.T, ct, body string) string {
 
 func find(t *testing.T, ct, body string) (Result, error) {
 	t.Helper()
-	return Find(context.Background(), http.DefaultTransport, "ua", "", serve(t, ct, body))
+	return Find(context.Background(), http.DefaultTransport, "ua", "", serve(t, ct, body), false)
 }
 
 // sized returns a valid feed padded (inside a comment) to exactly n bytes.
@@ -50,6 +50,39 @@ func TestHTMLPageStillListsCandidatesWhateverItsContentType(t *testing.T) {
 		require.False(t, res.IsFeed, ct)
 		require.NotEmpty(t, res.Candidates, ct)
 	}
+}
+
+// Each way an address fails to be a feed has its own error, so the add dialog can say which.
+func TestNotAFeedErrors(t *testing.T) {
+	_, err := find(t, "text/html", `<!doctype html><html><head><title>x</title></head><body>no feed</body></html>`)
+	require.ErrorIs(t, err, ErrNoFeed)
+	_, err = find(t, "text/plain", "just some text")
+	require.ErrorIs(t, err, ErrNotFeed)
+	_, err = find(t, "image/png", "\x89PNG\r\n\x1a\n")
+	require.ErrorIs(t, err, ErrNotFeed)
+
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	_, err = Find(context.Background(), http.DefaultTransport, "ua", "", srv.URL+"/x", false)
+	var se *StatusError
+	require.ErrorAs(t, err, &se)
+	require.Equal(t, 404, se.Code)
+	require.ErrorContains(t, err, "HTTP 404 Not Found")
+}
+
+// A page with several feeds lists them all, in the page's order, for the dialog to offer.
+func TestSeveralFeedsInPageOrder(t *testing.T) {
+	page := `<!doctype html><html><head>
+<link rel="alternate" type="application/rss+xml" title="Posts" href="https://blog.example.com/feed/">
+<link rel="alternate" type="application/rss+xml" title="Comments" href="https://blog.example.com/comments/feed/">
+<link rel="alternate" type="application/atom+xml" title="Posts (Atom)" href="https://blog.example.com/atom.xml">
+</head><body></body></html>`
+	res, err := find(t, "text/html", page)
+	require.NoError(t, err)
+	require.Len(t, res.Candidates, 3)
+	require.Equal(t, "Posts", res.Candidates[0].Title)
+	require.Equal(t, "Comments", res.Candidates[1].Title)
+	require.Equal(t, "https://blog.example.com/atom.xml", res.Candidates[2].URL)
 }
 
 func TestFeedBeyondOldTwoMiBLimit(t *testing.T) {
@@ -91,13 +124,13 @@ func TestRetriesOnceWithTheRetryUserAgent(t *testing.T) {
 	t.Cleanup(srv.Close)
 	for _, path := range []string{"/403", "/406", "/cf"} {
 		uas = nil
-		res, err := Find(context.Background(), http.DefaultTransport, "kipple", "browser", srv.URL+path)
+		res, err := Find(context.Background(), http.DefaultTransport, "kipple", "browser", srv.URL+path, false)
 		require.NoError(t, err, path)
 		require.True(t, res.IsFeed, path)
 		require.Equal(t, []string{"kipple", "browser"}, uas, path)
 	}
 	uas = nil
-	_, err := Find(context.Background(), http.DefaultTransport, "kipple", "", srv.URL+"/403")
+	_, err := Find(context.Background(), http.DefaultTransport, "kipple", "", srv.URL+"/403", false)
 	require.ErrorContains(t, err, "HTTP 403")
 	require.Len(t, uas, 1, "no retry UA, no retry")
 }

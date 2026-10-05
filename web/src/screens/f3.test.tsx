@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
-import { authStore } from "@/api/client";
+import { ApiError, authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import type { HealthResponse, SettingMeta } from "@/api/admin";
 import { DEFAULT_PREFS, applyPrefs, parsePrefs, prefsStore } from "@/lib/prefs";
@@ -13,6 +13,7 @@ import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { healthFilter, healthSort } from "./HealthScreen";
 import * as toasts from "@/shell/toasts";
 import { diffForm, grantNotice, grantsDropped, savedAddressMessage } from "./feeds/FeedEditor";
+import { addError } from "./feeds/AddFeedDialog";
 
 class NoES {
   addEventListener() {}
@@ -302,7 +303,9 @@ describe("Add feed", () => {
     base({
       "POST /api/feeds": (_u, init) => {
         const b = JSON.parse(String(init?.body)) as { url: string };
-        return b.url.includes("dup") ? json({ status: "exists", feed: feedDetail() }) : json({ error: "no_feed", message: "no feed found" }, 422);
+        return b.url.includes("dup")
+          ? json({ status: "exists", feed: feedDetail() })
+          : json({ error: "no_feed", message: "Kipple found a web page at that address, but the page does not link to a feed." }, 422);
       },
     });
     go("/feeds");
@@ -311,11 +314,47 @@ describe("Add feed", () => {
     const dlg = await screen.findByRole("dialog", { name: "Add feed" });
     await user.type(within(dlg).getByLabelText("Feed or website address"), "https://nothing.test");
     await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
-    expect(await within(dlg).findByRole("alert")).toHaveTextContent("couldn't find a feed");
+    expect(await within(dlg).findByRole("alert")).toHaveTextContent("the page does not link to a feed");
     await user.clear(within(dlg).getByLabelText("Feed or website address"));
     await user.type(within(dlg).getByLabelText("Feed or website address"), "https://dup.test");
     await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
     await screen.findByRole("dialog", { name: "You already have this feed" });
+  });
+
+  it("takes a bare site address, and offers the private-network switch after a refusal", async () => {
+    const posts: Record<string, unknown>[] = [];
+    base({
+      "POST /api/feeds": (_u, init) => {
+        const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        posts.push(b);
+        if (!b.allow_private_net)
+          return json({ error: "private_address", message: 'That address is on a private network. Turn on "Allow addresses on my own network" and add it again.' }, 400);
+        return json({ status: "ok", feed: feedDetail({ title: "NAS" }), fetch: { outcome: "ok", new_items: 1 } });
+      },
+    });
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add feed" }));
+    const dlg = await screen.findByRole("dialog", { name: "Add feed" });
+    expect(within(dlg).queryByRole("switch")).toBeNull();
+    await user.type(within(dlg).getByLabelText("Feed or website address"), "nas.lan/feed");
+    await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
+    expect(await within(dlg).findByRole("alert")).toHaveTextContent("private network");
+    expect(posts[0]).toEqual({ url: "nas.lan/feed" });
+    await user.click(within(dlg).getByRole("switch", { name: /Allow addresses on my own network/ }));
+    await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
+    await screen.findByRole("dialog", { name: "Feed added" });
+    expect(posts[1]).toEqual({ url: "nas.lan/feed", allow_private_net: true });
+  });
+
+  it("explains each kind of failed add in plain words", () => {
+    const err = (code: string, message?: string) => new ApiError(422, code, message ? { error: code, message } : { error: code });
+    expect(addError(err("timeout"))).toBe("The site took too long to answer. Try again later.");
+    expect(addError(err("unreachable", "the site answered HTTP 404 Not Found"))).toBe("The site answered HTTP 404 Not Found.");
+    expect(addError(err("not_feed"))).toMatch(/doesn't answer with a feed/);
+    expect(addError(err("invalid_url", "that is not a web address; enter a feed or site address such as https://example.com/feed"))).toBe(
+      "That is not a web address; enter a feed or site address such as https://example.com/feed.",
+    );
   });
 
   it("shows the first-run state when there are no feeds", async () => {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -155,9 +156,16 @@ func outcomeOf(rep sched.Reply) fetchOutcome {
 // ---- POST /api/feeds ----
 
 func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
-	m, ok := readObject(w, r, "url", "folder_id", "title")
+	m, ok := readObject(w, r, "url", "folder_id", "title", "allow_private_net")
 	if !ok {
 		return
+	}
+	allowPrivate := false
+	if raw, present := m["allow_private_net"]; present && !isNull(raw) {
+		if err := json.Unmarshal(raw, &allowPrivate); err != nil {
+			writeErrorMsg(w, http.StatusBadRequest, "bad_request", "allow_private_net must be true or false")
+			return
+		}
 	}
 	rawURL, ok := rawString(m["url"])
 	if !ok || strings.TrimSpace(rawURL) == "" {
@@ -189,8 +197,14 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		}
 		opts.Title = t
 	}
-	norm, _, _, err := store.ValidateFeedURL(rawURL, false)
+	opts.AllowPrivateNet = allowPrivate
+	norm, _, _, err := store.ValidateFeedURL(rawURL, allowPrivate)
 	if err != nil {
+		var bad *store.InvalidURLError
+		if errors.As(err, &bad) && bad.Private {
+			writeErrorMsg(w, http.StatusBadRequest, "private_address", msgPrivateAddress)
+			return
+		}
 		writeErrorMsg(w, http.StatusBadRequest, "invalid_url", err.Error())
 		return
 	}
@@ -210,14 +224,11 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	if ua == "" {
 		ua = s.outgoingUA()
 	}
-	found, err := discover.Find(dctx, s.opt.Guard(false, false, false), ua, retryUA, norm)
+	found, err := discover.Find(dctx, s.opt.Guard(allowPrivate, false, false), ua, retryUA, norm, allowPrivate)
 	cancel()
 	if err != nil {
-		if errors.Is(err, discover.ErrNoFeed) {
-			writeErrorMsg(w, http.StatusUnprocessableEntity, "no_feed", err.Error())
-		} else {
-			writeErrorMsg(w, http.StatusUnprocessableEntity, "discovery_failed", err.Error())
-		}
+		code, msg := discoveryError(err)
+		writeErrorMsg(w, http.StatusUnprocessableEntity, code, msg)
 		return
 	}
 	if len(found.Candidates) > 1 {
@@ -265,6 +276,42 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "feed": fd, "fetch": fo})
+}
+
+// msgPrivateAddress explains a private address refused by the add dialog and how to allow it.
+const msgPrivateAddress = "That address is on a private network (this computer or your local network). Kipple does not " +
+	"fetch from private addresses unless you allow it for the feed. If this feed is on your own network, turn on " +
+	"\"Allow addresses on my own network\" and add it again."
+
+// discoveryError maps a failed discovery to the add dialog's error code and a plain-language message.
+func discoveryError(err error) (code, msg string) {
+	var se *discover.StatusError
+	switch {
+	case errors.Is(err, discover.ErrNoFeed):
+		return "no_feed", "Kipple found a web page at that address, but the page does not link to a feed. " +
+			"Look on the site for its feed address (often /feed or /rss.xml)."
+	case errors.Is(err, discover.ErrNotFeed):
+		return "not_feed", "That address does not answer with a feed or a web page. Check the address."
+	case errors.Is(err, discover.ErrTooLarge):
+		return "not_feed", "That address answered with something too large to be a feed (" + err.Error() + ")."
+	case errors.As(err, &se):
+		return "unreachable", "The site answered, but with an error: HTTP " + strconv.Itoa(se.Code) + " " + http.StatusText(se.Code) +
+			". Check the address, or try again later."
+	}
+	switch class, detail := fetch.Classify(err); class {
+	case fetch.ClassSSRF:
+		return "private_address", msgPrivateAddress
+	case fetch.ClassTimeout:
+		return "timeout", "The site took too long to answer. Try again later."
+	case fetch.ClassDNS:
+		return "unreachable", "Kipple could not find that site: its name does not resolve. Check the spelling of the address."
+	case fetch.ClassTLS:
+		return "unreachable", "Kipple could not make a secure connection to that site (" + detail + ")."
+	case fetch.ClassRedirectLoop:
+		return "unreachable", "That address redirects too many times."
+	default:
+		return "unreachable", "Kipple could not reach that site (" + detail + ")."
+	}
 }
 
 func (s *Server) writeExisting(w http.ResponseWriter, r *http.Request, id int64) {

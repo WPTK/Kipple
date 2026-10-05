@@ -211,7 +211,7 @@ func TestAddFeedDiscovery(t *testing.T) {
 		require.Equal(t, sid(id), body["feed"].(map[string]any)["id"])
 	})
 	t.Run("pages without usable feeds", func(t *testing.T) {
-		for path, kind := range map[string]string{"/plain": "no_feed", "/missing": "discovery_failed"} {
+		for path, kind := range map[string]string{"/plain": "no_feed", "/missing": "unreachable"} {
 			code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": srv + path}))
 			require.Equal(t, 422, code, path)
 			require.Equal(t, kind, body["error"], path)
@@ -237,14 +237,17 @@ func TestAddFeedValidation(t *testing.T) {
 		{"javascript", `{"url":"javascript:alert(1)"}`, "invalid_url"},
 		{"no host", `{"url":"http:///f"}`, "invalid_url"},
 		{"file", `{"url":"file:///etc/passwd"}`, "invalid_url"},
-		{"loopback literal", `{"url":"http://127.0.0.1/f"}`, "invalid_url"},
-		{"loopback with port", `{"url":"http://127.0.0.1:8080/f"}`, "invalid_url"},
-		{"private literal", `{"url":"http://192.168.1.5/f"}`, "invalid_url"},
-		{"10/8 literal", `{"url":"http://10.1.2.3/f"}`, "invalid_url"},
-		{"link-local metadata", `{"url":"http://169.254.169.254/latest/meta-data"}`, "invalid_url"},
-		{"ipv6 loopback", `{"url":"http://[::1]/f"}`, "invalid_url"},
-		{"ipv4-mapped ipv6", `{"url":"http://[::ffff:127.0.0.1]/f"}`, "invalid_url"},
-		{"unspecified", `{"url":"http://0.0.0.0/f"}`, "invalid_url"},
+		{"loopback literal", `{"url":"http://127.0.0.1/f"}`, "private_address"},
+		{"loopback with port", `{"url":"http://127.0.0.1:8080/f"}`, "private_address"},
+		{"private literal", `{"url":"http://192.168.1.5/f"}`, "private_address"},
+		{"private literal typed without a scheme", `{"url":"192.168.1.5/f"}`, "private_address"},
+		{"10/8 literal", `{"url":"http://10.1.2.3/f"}`, "private_address"},
+		{"link-local metadata", `{"url":"http://169.254.169.254/latest/meta-data"}`, "private_address"},
+		{"ipv6 loopback", `{"url":"http://[::1]/f"}`, "private_address"},
+		{"ipv4-mapped ipv6", `{"url":"http://[::ffff:127.0.0.1]/f"}`, "private_address"},
+		{"unspecified", `{"url":"http://0.0.0.0/f"}`, "private_address"},
+		{"lone word", `{"url":"feeds"}`, "invalid_url"},
+		{"allow_private_net not a boolean", `{"url":"https://a.example/f","allow_private_net":"yes"}`, "bad_request"},
 		{"folder not a number", `{"url":"https://a.example/f","folder_id":"x"}`, "bad_request"},
 		{"folder missing", `{"url":"https://a.example/f","folder_id":"99"}`, "folder_not_found"},
 		{"title too long", `{"url":"https://a.example/f","title":"` + strings.Repeat("x", 201) + `"}`, "bad_request"},
@@ -266,10 +269,55 @@ func TestAddFeedSSRFThroughHostnameIsBlocked(t *testing.T) {
 	u := srv + "/feed.xml"
 	code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": u}))
 	require.Equal(t, 422, code, body)
-	require.Equal(t, "discovery_failed", body["error"])
-	require.Contains(t, body["message"], "not allowed")
+	require.Equal(t, "private_address", body["error"])
+	require.Contains(t, body["message"], "private network")
 	require.Zero(t, hits.Load(), "the server was never reached")
 	require.Zero(t, h.count("SELECT count(*) FROM feeds"))
+}
+
+// The add dialog's "Allow addresses on my own network" adds a feed on a private address: discovery goes through
+// the guard with the exception on, and the feed is created with it.
+func TestAddFeedAllowPrivateNet(t *testing.T) {
+	srv, hits := site(t)
+	h := newHarness(t) // the real dial guard
+	c := h.login()
+	code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": srv + "/one", "allow_private_net": true}))
+	require.Equal(t, 200, code, body)
+	require.Equal(t, "ok", body["status"])
+	feed := body["feed"].(map[string]any)
+	require.Equal(t, srv+"/feed.xml", feed["url"])
+	require.Equal(t, true, feed["allow_private_net"])
+	require.EqualValues(t, 1, hits.Load(), "the page was reached through the guard")
+
+	// A literal private address is accepted with the exception, too.
+	lit := strings.Replace(srv, "localhost", "127.0.0.1", 1) + "/one"
+	h.exec("DELETE FROM feeds")
+	code, body, _ = h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": lit}))
+	require.Equal(t, 400, code, body)
+	require.Equal(t, "private_address", body["error"])
+	require.Contains(t, body["message"], "Allow addresses on my own network")
+	code, body, _ = h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": lit, "allow_private_net": true}))
+	require.Equal(t, 200, code, body)
+	require.Equal(t, true, body["feed"].(map[string]any)["allow_private_net"])
+}
+
+// Whatever form the address is typed or pasted in, the dialog adds the feed it names.
+func TestAddFeedTypedAddressForms(t *testing.T) {
+	srv, _ := site(t)
+	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
+	c := h.login()
+	hostPort := strings.TrimPrefix(srv, "http://")
+	for _, typed := range []string{
+		"  " + srv + "/feed.xml\n",
+		"feed:" + srv + "/feed.xml",
+		srv + "/feed.xml#latest",
+		"HTTP://" + strings.ToUpper(hostPort) + "/feed.xml",
+	} {
+		h.exec("DELETE FROM feeds")
+		code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": typed}))
+		require.Equal(t, 200, code, "%q: %v", typed, body)
+		require.Equal(t, srv+"/feed.xml", body["feed"].(map[string]any)["url"], typed)
+	}
 }
 
 func TestAddFeedFirstFetchPendingAndSchedulerDown(t *testing.T) {
@@ -326,7 +374,8 @@ func TestAddFeedDiscoveryRetriesWithBrowserUserAgent(t *testing.T) {
 	h.exec(`INSERT INTO settings (key, value) VALUES ('fetch.user_agent_mode', '"default"')`)
 	code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": base + "/feed.xml"}))
 	require.Equal(t, 422, code, body)
-	require.Equal(t, "discovery_failed", body["error"])
+	require.Equal(t, "unreachable", body["error"])
+	require.Contains(t, body["message"], "HTTP 403 Forbidden")
 	require.Len(t, uas, 1)
 
 	uas = nil

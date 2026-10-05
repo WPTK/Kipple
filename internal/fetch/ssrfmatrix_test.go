@@ -291,7 +291,7 @@ func entries() []entry {
 				// A web "add feed" has no exceptions; the origin's grant stands in for a public first hop.
 				rt = hopGrant{host: "127.0.0.1", granted: e.fc.Transport(true, false, false), guarded: guarded}
 			}
-			_, err := discover.Find(c, rt, "ua", "", start)
+			_, err := discover.Find(c, rt, "ua", "", start, false)
 			return result{err: err, blocked: isBlocked(err)}
 		}},
 		{"full-text extraction", func(t *testing.T, e *matrixEnv, start string, grant bool) result {

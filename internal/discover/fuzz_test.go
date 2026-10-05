@@ -18,8 +18,8 @@ func FuzzLinks(f *testing.F) {
 		f.Add(s, "https://example.com/page")
 	}
 	f.Fuzz(func(t *testing.T, body, base string) {
-		cs := links([]byte(body), base, "https://example.com/self")
-		if len(cs) > maxCandidates {
+		cs := candidates([]byte(body), base, "https://example.com/self", false)
+		if len(cs) > 20 {
 			t.Fatalf("%d candidates", len(cs))
 		}
 		for _, c := range cs {
