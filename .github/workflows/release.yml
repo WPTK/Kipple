@@ -296,6 +296,18 @@ jobs:
             --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
             --certificate-oidc-issuer "$COSIGN_ISSUER" >/dev/null
 
+      # The SBOM file is signed too (keyless, same identity), so the Release carries a signature that can be checked
+      # offline next to the file it covers. The bundle is also what OpenSSF Scorecard's Signed-Releases check looks for
+      # among release assets. Before the Tag step like the image signature: a failure here stops the release.
+      - name: Sign the SBOM
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          sbom="kipple-$VERSION.sbom.json"
+          cosign sign-blob --yes --bundle "$sbom.sigstore.json" "$sbom"
+          cosign verify-blob "$sbom" --bundle "$sbom.sigstore.json"             --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP"             --certificate-oidc-issuer "$COSIGN_ISSUER"
+
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
@@ -360,17 +372,25 @@ jobs:
             echo '```'
             echo "docker buildx imagetools inspect $IMAGE@$DIGEST --format '{{ json .SBOM }}' | sha256sum"
             echo '```'
+            echo
+            echo "The SBOM file is signed too (kipple-$VERSION.sbom.json.sigstore.json, attached next to it):"
+            echo
+            echo '```'
+            echo "cosign verify-blob kipple-$VERSION.sbom.json --bundle kipple-$VERSION.sbom.json.sigstore.json \\"
+            echo "  --certificate-identity-regexp '$COSIGN_IDENTITY_REGEXP' \\"
+            echo "  --certificate-oidc-issuer $COSIGN_ISSUER"
+            echo '```'
           } > image-notes.md
           cat image-notes.md >> "$GITHUB_STEP_SUMMARY"
           if body="$(gh release view "$TAG" --json body --jq .body 2>/dev/null)"; then
-            gh release upload "$TAG" "kipple-$VERSION.sbom.json" --clobber
+            gh release upload "$TAG" "kipple-$VERSION.sbom.json" "kipple-$VERSION.sbom.json.sigstore.json" --clobber
             # One block per Release: the X.Y.Z tag is immutable, so a block that is already there is the right one.
             if ! grep -qF "$DIGEST" <<<"$body" && ! grep -qxF "## Container image" <<<"$body"; then
               printf '%s\n\n%s\n' "$body" "$(cat image-notes.md)" > release-body.md
               gh release edit "$TAG" --notes-file release-body.md
             fi
           else
-            echo "No GitHub Release for $TAG yet; create it with the image-notes artifact appended and the SBOM file attached (docs/RELEASING.md, step 11)."
+            echo "No GitHub Release for $TAG yet; create it with the image-notes artifact appended and the SBOM file and its .sigstore.json bundle attached (docs/RELEASING.md, step 11)."
           fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -381,6 +401,7 @@ jobs:
           path: |
             image-notes.md
             kipple-${{ needs.gate.outputs.version }}.sbom.json
+            kipple-${{ needs.gate.outputs.version }}.sbom.json.sigstore.json
 
   # 9. Floating tags: latest, X.Y and X move only onto the highest stable tag they could point at, so an older patch or
   # a re-run never moves them backwards. Decided here, after the lock is taken, from the tags as they are now. The lock

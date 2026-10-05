@@ -7,7 +7,7 @@ FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci
+    npm ci --ignore-scripts
 COPY web/ ./
 # The changelog feeds the "What's new" panel; the build id and version are stamped into the bundle.
 COPY CHANGELOG.md /app/CHANGELOG.md

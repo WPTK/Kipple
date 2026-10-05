@@ -167,16 +167,16 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
     release also `latest`, `X` and `X.Y` **only when this tag is the highest stable tag overall, in its major, or in
     its minor respectively**, so an older patch or a re-run never moves them backwards; a prerelease never moves `latest`
     or a floating tag), extracts the SBOM BuildKit embedded in the image (`kipple-X.Y.Z.sbom.json`, SPDX per platform),
-    signs the digest with cosign (keyless) and writes an "image-notes" block (the digest, the verify command and the
-    SBOM's sha256) to its job summary and to the `image-notes` artifact, which also holds the SBOM file. The Release is
+    signs the digest and the SBOM file with cosign (keyless; `kipple-X.Y.Z.sbom.json.sigstore.json`) and writes an "image-notes" block (the digest, the verify command and the
+    SBOM's sha256) to its job summary and to the `image-notes` artifact, which also holds the SBOM file and its signature bundle. The Release is
     normally created after the run, so download the artifact, append `image-notes.md` to the notes and attach the SBOM
-    file, so each version maps to exactly one digest and one SBOM:
+    file and the bundle, so each version maps to exactly one digest and one SBOM:
 
         gh run download <run-id> -n image-notes
         cat image-notes.md >> notes.md
-        gh release create vX.Y.Z --notes-file notes.md kipple-X.Y.Z.sbom.json
+        gh release create vX.Y.Z --notes-file notes.md kipple-X.Y.Z.sbom.json kipple-X.Y.Z.sbom.json.sigstore.json
 
-    (If the Release already exists when the run finishes, the workflow appends the block and uploads the SBOM itself.)
+    (If the Release already exists when the run finishes, the workflow appends the block and uploads the SBOM and its bundle itself.)
     Check the signature by hand:
 
         cosign verify ghcr.io/wptk/kipple:X.Y.Z \
