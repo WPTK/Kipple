@@ -1060,7 +1060,7 @@ describe("Step 6: the address", () => {
     const { suggestedAddress } = await import("./AddressStep");
     expect(suggestedAddress({ origin: "https://rss.example.com", hostname: "rss.example.com" })).toBe("https://rss.example.com");
     expect(suggestedAddress({ origin: "https://box.tail1234.ts.net", hostname: "box.tail1234.ts.net" })).toBe("https://box.tail1234.ts.net");
-    for (const h of ["localhost", "app.localhost", "192.168.1.10", "[::1]", "[fe80::1]", "nas", "nas.local", "NAS.LOCAL.", "box.lan", "x.home.arpa", "svc.internal"]) {
+    for (const h of ["localhost", "app.localhost", "192.168.1.10", "[::1]", "[fe80::1]", "nas", "nas.local", "NAS.LOCAL.", "box.lan", "x.home.arpa", "svc.internal", "nas.home", "box.localdomain", "fritz.box", "nas.fritz.box", "intranet.corp"]) {
       expect(suggestedAddress({ origin: `http://${h}:1919`, hostname: h })).toBe("");
     }
   });

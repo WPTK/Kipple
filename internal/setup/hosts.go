@@ -172,9 +172,14 @@ func hostMatches(host string, suffixes, extra []string) bool {
 	return false
 }
 
+// lanClaimableSuffixes are the name zones a device on the local network can
+// answer: mDNS, router DHCP and search domains, and private-use zones.
+var lanClaimableSuffixes = []string{".local", ".lan", ".home.arpa", ".internal", ".home", ".localdomain", ".fritz.box", ".corp"}
+
 // LANClaimable reports whether any device on the local network can answer host
 // with this computer's address (mDNS, LLMNR or NetBIOS, a router's DHCP names):
-// a single-label name, or one under .local, .lan, .home.arpa or .internal. Such
+// a single-label name, or one under .local, .lan, .home.arpa, .internal, .home,
+// .localdomain, .fritz.box or .corp (router and LAN zones in common use). Such
 // a name is answered in open mode only when listed by name. host is normalized
 // (NormalizeHost or CheckHostEntry).
 func LANClaimable(host string) bool {
@@ -184,8 +189,9 @@ func LANClaimable(host string) bool {
 	if !strings.Contains(host, ".") {
 		return true
 	}
-	for _, suf := range []string{".local", ".lan", ".home.arpa", ".internal"} {
-		if strings.HasSuffix(host, suf) {
+	for _, suf := range lanClaimableSuffixes {
+		// The zone itself too (fritz.box is the router's own name).
+		if strings.HasSuffix(host, suf) || host == suf[1:] {
 			return true
 		}
 	}

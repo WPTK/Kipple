@@ -110,6 +110,8 @@ func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
 		{store.SettingPublicURL, `"https://rss.example.com/?a=1"`, "query"},
 		{store.SettingPublicURL, `"https://"`, "no host"},
 		{store.SettingPublicURL, `42`, "https://rss.example.com"},
+		{store.SettingPublicURL, `"http://*.example.com"`, "one name or IP address, such as rss.example.com (no wildcards)"},
+		{store.SettingPublicURL, `"http://*.home:1919"`, "no wildcards"},
 		{store.SettingTrustedProxies, `"192.0.2.10"`, "list"},
 		{store.SettingTrustedProxies, `["192.0.2.10,192.0.2.11"]`, "list"},
 		{store.SettingTrustedProxies, `["proxy.example.com"]`, `"proxy.example.com" is not an IP address or a range`},

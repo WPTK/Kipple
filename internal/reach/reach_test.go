@@ -218,11 +218,13 @@ func TestNormalizePublicURL(t *testing.T) {
 		require.NoError(t, err, in)
 		require.Equal(t, want, got, in)
 	}
-	for _, bad := range []string{"rss.example.com", "https://", "ftp://x.example", "https://u@x.example"} {
+	for _, bad := range []string{"rss.example.com", "https://", "ftp://x.example", "https://u@x.example", "http://*.example.com", "http://*.home", "https://a_b%2A.example"} {
 		_, err := NormalizePublicURL(bad)
 		require.Error(t, err, bad)
 	}
 	require.ErrorContains(t, CheckPublicURL("https://bücher.example"), "xn--")
+	require.ErrorContains(t, CheckPublicURL("http://*.example.com"), "one name or IP address")
+	require.Equal(t, "", Host("http://*.example.com"), "never a wildcard entry")
 }
 
 // Reads never see a half-applied state while writes swap it: every State read

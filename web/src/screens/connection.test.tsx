@@ -7,6 +7,8 @@ import { makeQueryClient } from "@/App";
 import type { SettingMeta } from "@/api/admin";
 import { bootstrap, json, mockFetch } from "@/test/mockApi";
 import { ConnectionSection, parseList } from "./ConnectionSection";
+import { accountError } from "./AccountSection";
+import { ApiError } from "@/api/client";
 
 // Settings, Account & Devices, "Address and access": the public URL, the allowed host names, the trusted proxies and
 // Cloudflare Access, each saved on its own through PATCH /api/settings.
@@ -205,5 +207,12 @@ describe("Address and access: the web password", () => {
     expect(team.getAttribute("aria-describedby")?.split(" ")).toContain(holder.id);
     expect(team).toHaveAttribute("aria-invalid", "true");
     expect(within(access).getByLabelText("Application audience (AUD) tag").getAttribute("aria-describedby")?.split(" ")).toContain(holder.id);
+  });
+});
+
+describe("accountError", () => {
+  it("says what access_changed means", () => {
+    const e = new ApiError(409, "access_changed", { error: "access_changed", message: "x" });
+    expect(accountError(e)).toMatch(/Cloudflare Access settings changed while this was being checked/);
   });
 });

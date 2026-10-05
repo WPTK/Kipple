@@ -264,11 +264,11 @@ func Host(publicURL string) string {
 	if err != nil {
 		return ""
 	}
-	e, err := setup.CheckHostEntry(u.Hostname())
-	if err != nil {
+	h, ok := setup.NormalizeHost(u.Host)
+	if !ok {
 		return ""
 	}
-	return e
+	return h
 }
 
 // CheckPublicURL accepts an empty value or an absolute http(s) URL with a host
@@ -299,6 +299,11 @@ func CheckPublicURL(v string) error {
 		return fmt.Errorf("%q must not have a query or fragment", v)
 	case u.Opaque != "":
 		return fmt.Errorf("%q is not an absolute URL", v)
+	}
+	// The host is one exact name or address, the way a browser sends it: never a
+	// wildcard or anything else the Host gate would read as more than one name.
+	if _, ok := setup.NormalizeHost(u.Host); !ok {
+		return fmt.Errorf("%q: the host must be one name or IP address, such as rss.example.com (no wildcards)", v)
 	}
 	return nil
 }

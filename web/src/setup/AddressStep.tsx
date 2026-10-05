@@ -10,14 +10,18 @@ import { stepById } from "./steps";
 
 /**
  * Never a suggestion: an IP address or localhost (only this computer or this network uses them), and a name any device
- * on the local network can answer (a single-word name, .local, .lan, .home.arpa, .internal), which the server refuses
- * as a public URL: open mode answers the public URL's host, so such a name would let a device on the network rebind it.
+ * on the local network can answer (a single-word name, or one under .local, .lan, .home.arpa, .internal, .home,
+ * .localdomain, .fritz.box or .corp). Such a name is still accepted when typed, but open mode answers it only once it is
+ * listed under Allowed host names, so suggesting it would offer an address that may not open without a password.
  */
 function notSuggested(hostname: string): boolean {
   const h = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   if (h === "localhost" || h.endsWith(".localhost") || /^[0-9.]+$/.test(h) || h.includes(":")) return true;
-  return !h.includes(".") || [".local", ".lan", ".home.arpa", ".internal"].some((s) => h.endsWith(s));
+  return !h.includes(".") || LAN_ZONES.some((z) => h === z || h.endsWith(`.${z}`));
 }
+
+/** The name zones a device on the local network can answer (the server's setup.LANClaimable list). */
+const LAN_ZONES = ["local", "lan", "home.arpa", "internal", "home", "localdomain", "fritz.box", "corp"];
 
 /** The address this page was opened at, when it is a name worth keeping (see notSuggested). */
 export function suggestedAddress(loc: Pick<Location, "origin" | "hostname"> = window.location): string {

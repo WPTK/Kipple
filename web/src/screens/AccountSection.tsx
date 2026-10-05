@@ -19,6 +19,8 @@ export function accountError(e: unknown): string {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.code === "bad_password") return "The current password isn't right.";
     if (e.code === "access_required") return "This needs your Cloudflare Access sign-in. Open Kipple through its Access address and try again.";
+    if (e.code === "access_changed")
+      return "The Cloudflare Access settings changed while this was being checked. Open Kipple through Access again and try again.";
     if (e.code === "access_unavailable") return "Kipple can't check your Cloudflare Access sign-in right now. Try again in a moment.";
     if (e.code === "access_not_configured")
       // The server words it for the case: removing a password, or an account without one.
