@@ -11,7 +11,7 @@ import { apiPasswordMade, setupSecret } from "./session";
 import { stepById } from "./steps";
 
 /**
- * Step 6: done. Optionally makes the API password that sync apps (Reeder, NetNewsWire) sign in with, shown once with a
+ * Step 6: done. Optionally makes the API password that sync apps sign in with, shown once with a
  * copy button, then Finish ends the wizard. For a password account the web password typed in step 1 is still in memory
  * and is used; after a reload it is asked for again, as Settings does. An account with no password (open mode) needs none.
  */
@@ -63,7 +63,7 @@ export function FinishStep({ onBack, onFinish, busy }: { onBack: () => void; onF
           <h2 id="api-heading" className="text-lg font-bold">
             Connect a reading app (optional)
           </h2>
-          <p className="text-sm text-fg2">Apps like Reeder and NetNewsWire sign in with a separate API password, so your web password never leaves this browser. You can make one now or later in Settings, Account &amp; Devices.</p>
+          <p className="text-sm text-fg2">Sync apps sign in with a separate API password, so your web password never leaves this browser. You can make one now or later in Settings, Account &amp; Devices.</p>
           {error ? <Notice tone="error">{error}</Notice> : null}
           {pw ? (
             <div className="flex flex-col gap-3">
@@ -75,7 +75,7 @@ export function FinishStep({ onBack, onFinish, busy }: { onBack: () => void; onF
                 <Button onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</Button>
               </div>
               <div className="text-sm">
-                <p className="font-semibold">In Reeder or NetNewsWire</p>
+                <p className="font-semibold">In your sync app</p>
                 <p className="mt-1 text-fg2">
                   Add a FreshRSS (Google Reader compatible) account. Server URL: <span className="font-mono break-all text-fg">{server}</span>. Username: <span className="font-mono text-fg">{user?.username ?? ""}</span>. Password: the one above.
                 </p>

@@ -147,6 +147,7 @@ type result struct {
 	newItems   int
 	migrated   bool // the commit rewrote feeds.url (redirect migration, discovery)
 	discovered bool // the commit adopted a discovered URL: the feed is due again at once
+	retitled   bool // the commit changed the feed's display name (store.CommitInfo.Retitled)
 	gone       bool // a 410 disabled the feed
 	retry      time.Duration
 	nextFetch  time.Time

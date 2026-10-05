@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 )
 
-// Security settings (docs/setup-wizard-design.md 5.2, 5.4).
+// Security settings (docs/design.md §7.1e).
 const (
 	// SettingAllowedHosts is a JSON array of extra host names the Host gate
 	// accepts: exact names or "*.suffix". The API validates the entries.

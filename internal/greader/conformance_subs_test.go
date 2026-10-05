@@ -141,8 +141,10 @@ func TestConformanceQuickAdd(t *testing.T) {
 	require.Equal(t, "https://added.example/feed.xml", m["query"])
 	sid := m["streamId"].(string)
 	require.True(t, strings.HasPrefix(sid, "feed/"))
-	require.IsType(t, "", m["streamName"])
+	// Not fetched yet, the feed is named by its URL (never an empty name), the same in the list.
+	require.Equal(t, "https://added.example/feed.xml", m["streamName"])
 	require.Contains(t, c.confSubs(), sid, "the new feed is in the next subscription/list")
+	require.Equal(t, "https://added.example/feed.xml", c.confSubs()[sid]["title"])
 
 	// [FR] a leading feed/ is stripped; adding the same URL again returns the same stream.
 	require.Equal(t, sid, quick("feed/https://added.example/feed.xml")["streamId"])

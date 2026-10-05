@@ -11,7 +11,7 @@ compose file; `kipple` is the container name both example compose files set. For
 - [Sign-in says "busy"](#sign-in-says-busy)
 - [Sign-in works but actions fail behind a proxy](#sign-in-works-but-actions-fail-behind-a-proxy)
 - [Feeds are not updating](#feeds-are-not-updating)
-- [Reeder or NetNewsWire will not connect](#reeder-or-netnewswire-will-not-connect)
+- [A Reader API client will not connect](#a-reader-api-client-will-not-connect)
 - [Kipple will not start after an upgrade](#kipple-will-not-start-after-an-upgrade)
 - [Restore a backup](#restore-a-backup)
 - [Reset a forgotten password](#reset-a-forgotten-password)
@@ -104,7 +104,7 @@ a trusted `X-Forwarded-Proto: https`, makes every action fail with 403 while the
 
 - **Kipple fetches on its own schedule.** It polls in the background (every 30 minutes by default, or the per-feed
   interval) with conditional requests, and backs off feeds that keep failing. The web app's refresh button fetches all
-  feeds now. A sync client's refresh does not fetch existing feeds, so Reeder showing nothing new right after you pulled
+  feeds now. A sync client's refresh does not fetch existing feeds, so a sync app showing nothing new right after you pulled
   to refresh is expected; new items appear when Kipple has fetched them.
 - **See why one feed is stuck.** Feed Health in the web app lists feeds with errors, the last error and the next
   attempt. Common causes: the site blocks the fetch (HTTP 403 or 429), a certificate problem, a feed that moved, or a feed
@@ -118,7 +118,7 @@ a trusted `X-Forwarded-Proto: https`, makes every action fail with 403 while the
 - **Disk full.** A full volume stops writes. See the disk-space notes in [deploy.md](deploy.md#disk-space-during-an-upgrade)
   and [Database size](deploy.md#database-size-and-compacting).
 
-## Reeder or NetNewsWire will not connect
+## A Reader API client will not connect
 
 - The server address is your Kipple address plus `/api/greader.php`, for example `https://rss.example.com/api/greader.php`.
   The user name is the account's. The password is the **Reader API password**, not the web password. Make or replace it in

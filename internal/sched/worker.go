@@ -146,7 +146,7 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			ci, cerr := s.commitFetch(context.WithoutCancel(s.fetchCtx), res)
 			err = cerr
 			out.newIDs, out.updated, out.trimmed, out.newItems = ci.NewIDs, ci.Updated, ci.Trimmed, ci.New
-			out.migrated = ci.Migrated
+			out.migrated, out.retitled = ci.Migrated, ci.Retitled
 			out.mutedIDs, out.muted = ci.MutedIDs, ci.Muted
 			out.trimPending = ci.TrimPending && cerr == nil
 			if cerr == nil {

@@ -9,7 +9,7 @@ reader: one account, one container, one SQLite database. Design detail is in `do
 | Asset | Why it matters |
 |---|---|
 | The web session and the account password hash (argon2id) | Control of the reader and everything it can reach. |
-| The Reader API password and tokens | A second way in for apps such as Reeder and NetNewsWire. |
+| The Reader API password and tokens | A second way in for sync apps. |
 | The database (`/data`): subscriptions, read and star state, reading statistics, saved filters | Private reading history. Also holds feed HTTP credentials set per feed. |
 | Backups (the export zip, scheduled snapshots) | A copy of the database. Mode 0600, in `/data`. |
 | The host's network position | Kipple fetches arbitrary URLs from inside your network. A fetcher is a way to reach what only your server can. |

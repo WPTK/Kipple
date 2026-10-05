@@ -1,4 +1,4 @@
-// The setup wizard's calls (docs/setup-wizard-design.md, sections 3 and 4) and the plain-English wording of what they
+// The setup wizard's calls (docs/design.md §7.1e) and the plain-English wording of what they
 // can answer. Nothing here knows about React.
 import { ApiError, api } from "@/api/client";
 
