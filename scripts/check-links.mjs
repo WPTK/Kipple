@@ -239,14 +239,27 @@ async function pool(items, hostOf, workers, perHost, fn) {
   await Promise.all(Array.from({ length: Math.max(1, workers) }, run));
 }
 
+// A release is merged before its tag is pushed (the tag goes on the deployed commit), so the compare links that
+// CHANGELOG.md gains for the newest version point at a tag that does not exist yet. Returns a matcher for those links,
+// or null for any other file.
+function unpushedCompareTag(name, text) {
+  if (!/(^|[\\/])CHANGELOG\.md$/.test(name)) return null;
+  const top = /^## \[(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]/m.exec(text);
+  if (!top) return null;
+  const tag = top[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`/compare/(?:[^/]*\\.\\.\\.)?v${tag}(?:\\.\\.\\.[^/]*)?$`);
+}
+
 // files: [{ name, text }]. Returns { results: [{ url, bucket, detail, where: ['file:line'] }], counts }.
 export async function checkTexts(files, settings, { clock = Date.now, ...deps } = {}) {
   const deadline = clock() + settings.deadlineMs;
   deps = { ...deps, expired: () => clock() > deadline };
   const byUrl = new Map();
   for (const { name, text } of files) {
+    const unpushed = unpushedCompareTag(name, text);
     for (const { url, line } of extractLinks(text)) {
       if (isExampleHost(new URL(url).hostname)) continue;
+      if (unpushed && unpushed.test(url)) continue;
       if (settings.ignoredUrls.some((i) => url === i.url)) continue;
       if (!byUrl.has(url)) byUrl.set(url, []);
       byUrl.get(url).push(`${name}:${line}`);

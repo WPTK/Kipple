@@ -184,7 +184,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
           --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
         cosign verify-blob kipple-X.Y.Z.sbom.json --bundle kipple-X.Y.Z.sbom.json.sigstore.json \
-          --certificate-identity-regexp '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$'           \
+          --certificate-identity-regexp '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$' \
           --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
     The image's `org.opencontainers.image.version` is `X.Y.Z` (the tag without its `v`, the string you pull), `created`

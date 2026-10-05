@@ -184,7 +184,7 @@ To check the image before you run it (optional; needs [cosign](https://docs.sigs
 
 ```
 cosign verify ghcr.io/wptk/kipple:0.8.0-beta.3 \
-  --certificate-identity-regexp '^https://github.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
