@@ -1,1 +1,0 @@
-Moving a folder saves its new place and the new folder order in one step, so a move can no longer half-complete, and rapid moves or a refresh in between no longer show a folder in the wrong place. `POST /api/reorder` accepts `{id, parent_id}` in its `folders` list to move a folder; a bare folder id still keeps its parent. (#236)

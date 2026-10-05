@@ -1,1 +1,0 @@
-Sync app wording is neutral: the Account and setup screens, the command-line password messages, the Reader API settings text and the unread-cap warning no longer name particular apps, because any client that speaks the Google Reader API can sync.

@@ -1,1 +1,0 @@
-Reader API: items carry the article as `content.content` as well as `summary.content`, so a client that reads either one gets it. With compression the second copy of an article up to about 30 KB costs almost nothing; a longer one, such as a full-text extraction, about doubles on the wire. (#266)
