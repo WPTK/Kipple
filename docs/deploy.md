@@ -97,6 +97,11 @@ stored, and the setting decides from then on. `TZ` seeds the time zone; `KIPPLE_
 `KIPPLE_TRUSTED_PROXY_IPS` and the two `KIPPLE_ACCESS_*` variables seed the settings under Settings, Account & Devices,
 Address and access. A restored backup brings its own settings back, and the variables do not override them; Kipple
 logs a warning at start for each variable whose setting holds something else, so you can remove the stale line.
+A value that would be stored and is not valid (such as a trusted proxy range that is too wide) stops the start with a
+message naming the variable, and none of the address and access seeds is stored. The database has already been
+upgraded by then: after a new version's first start it is at the new schema, and the pre-migration snapshot is in the
+backup folder. Fix or remove the variable and start again. Going back to the previous version instead means restoring
+that snapshot ([Roll back an upgrade that migrated the schema](#roll-back-an-upgrade-that-migrated-the-schema)).
 Checklist, for a rebuild to be a copy and paste:
 
 1. The data volume, as an export zip (above) or a tarball of the volume (below).
