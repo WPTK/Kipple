@@ -684,6 +684,13 @@ describe("Feed health", () => {
     expect(await screen.findByText(/A sync app was last seen 5 minutes ago/)).toBeInTheDocument();
   });
 
+  it("never says a sync app will be seen in the future when the browser clock is behind the server's", async () => {
+    base({ "GET /api/health/feeds": () => json({ ...HEALTH, reader_last_seen_at: Math.floor(Date.now() / 1000) + 600 }) });
+    go("/health");
+    expect(await screen.findByText(/A sync app was last seen just now/)).toBeInTheDocument();
+    expect(screen.queryByText(/sync app was last seen (in |any moment)/i)).toBeNull();
+  });
+
   it("names no sync app when none has called", async () => {
     base({ "GET /api/health/feeds": () => json(HEALTH) });
     go("/health");

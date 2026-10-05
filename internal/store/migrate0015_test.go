@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,73 +117,66 @@ func tableShape(sqlText string) string {
 	return strings.NewReplacer(" ", "", "\t", "", "\r", "", `"`, "").Replace(b.String())
 }
 
-// 0015 rewrites the Reader API client values to 'api' and keeps every other column of every row, the
-// sequence high-water mark, every other schema object byte for byte and a pre-migration snapshot. The
-// seeded row count is large enough to time the rebuild.
+// statsRows is the seeded stats row count: large enough to time the rebuild, smaller under the race
+// detector (CI), where it would take minutes.
+func statsRows() int {
+	if raceEnabled {
+		return 20_000
+	}
+	return 200_000
+}
+
+// 0015, applied by the runner's transaction to a real schema-14 database, rewrites the Reader API
+// client values to 'api' and keeps every other column of every row, the sequence high-water mark and
+// every other schema object byte for byte. It is applied on its own, so a later migration cannot
+// change what this test compares.
 func TestMigration0015OneAPIClient(t *testing.T) {
-	const n = 200_000
+	n := statsRows()
 	raw, path := schema14(t)
 	seedStats14(t, raw, n)
 	seq := scalar[int64](t, raw, "SELECT seq FROM sqlite_sequence WHERE name = 'stats_events'")
 	require.EqualValues(t, n, seq)
-	byClient := func(q Querier) string {
-		return scalar[string](t, q, `SELECT group_concat(client || '=' || c, ',') FROM
+	byClient := func() string {
+		return scalar[string](t, raw, `SELECT group_concat(client || '=' || c, ',') FROM
 			(SELECT client, count(*) AS c FROM stats_events GROUP BY client ORDER BY client)`)
 	}
-	require.Contains(t, byClient(raw), "reeder=", "the old values are seeded")
+	require.Contains(t, byClient(), "reeder=", "the old values are seeded")
 	oldSchema := schemaObjects(t, raw)
 	require.Contains(t, oldSchema["table stats_events"], oldClientCheck)
-	require.NoError(t, raw.Close())
-	st, err := os.Stat(path)
+	before := filepath.Join(filepath.Dir(path), "schema14.db")
+	_, err := raw.Exec("VACUUM INTO ?", before)
 	require.NoError(t, err)
-	sizeBefore := st.Size()
 
+	ms, err := loadMigrations()
+	require.NoError(t, err)
 	start := time.Now()
-	db, err := Open(t.Context(), Options{Path: path})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	t.Logf("open, snapshot and migrate schema 14 to %d with %d stats rows: %s", LatestVersion(), n-10, time.Since(start))
-	require.Equal(t, LatestVersion(), scalar[int](t, db.Reader(), "PRAGMA user_version"))
-	requireCleanIntegrity(t, db.Reader())
-	r := db.Reader()
-	snaps, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "backup", "pre-migration-14-*.db"))
-	require.Len(t, snaps, 1, "a pre-migration snapshot")
+	require.NoError(t, (&DB{writer: raw}).applyMigration(t.Context(), ms[14]))
+	t.Logf("migration 0015 alone, %d stats rows: %s", n-10, time.Since(start))
+	require.Equal(t, 15, scalar[int](t, raw, "PRAGMA user_version"))
+	requireCleanIntegrity(t, raw)
 
-	// The database and its WAL grew within what the free-space check reserves for the migration.
-	var after int64
-	for _, f := range []string{path, path + "-wal"} {
-		if st, err := os.Stat(f); err == nil {
-			after += st.Size()
-		}
-	}
-	t.Logf("database %d bytes before, database and WAL %d bytes after", sizeBefore, after)
-	require.LessOrEqual(t, after-sizeBefore, int64(migrateRewriteFactor)*sizeBefore+migrateHeadroom)
-
-	// Row by row against the snapshot, both ways: every column but client is unchanged (a swapped or
-	// altered column makes a row differ) and client is mapped.
-	cmp, err := sql.Open("sqlite", buildDSN(path, "reader"))
-	require.NoError(t, err)
-	cmp.SetMaxOpenConns(1)
-	t.Cleanup(func() { _ = cmp.Close() })
-	_, err = cmp.Exec("ATTACH DATABASE ? AS old", snaps[0])
+	// Row by row against the copy taken before, both ways: every column but client is unchanged (a
+	// swapped or altered column makes a row differ) and client is mapped.
+	_, err = raw.Exec("ATTACH DATABASE ? AS old", before)
 	require.NoError(t, err)
 	oldRows := "SELECT " + clientAfter0015 + ", " + statsCols + " FROM old.stats_events"
 	newRows := "SELECT client, " + statsCols + " FROM main.stats_events"
-	require.Equal(t, n-10, scalar[int](t, cmp, "SELECT count(*) FROM old.stats_events"))
-	require.Equal(t, n-10, scalar[int](t, cmp, "SELECT count(*) FROM main.stats_events"))
-	require.Zero(t, scalar[int](t, cmp, "SELECT count(*) FROM ("+oldRows+" EXCEPT "+newRows+")"))
-	require.Zero(t, scalar[int](t, cmp, "SELECT count(*) FROM ("+newRows+" EXCEPT "+oldRows+")"))
-	require.NoError(t, cmp.Close())
+	require.Equal(t, n-10, scalar[int](t, raw, "SELECT count(*) FROM old.stats_events"))
+	require.Equal(t, n-10, scalar[int](t, raw, "SELECT count(*) FROM main.stats_events"))
+	require.Zero(t, scalar[int](t, raw, "SELECT count(*) FROM ("+oldRows+" EXCEPT "+newRows+")"))
+	require.Zero(t, scalar[int](t, raw, "SELECT count(*) FROM ("+newRows+" EXCEPT "+oldRows+")"))
+	_, err = raw.Exec("DETACH DATABASE old")
+	require.NoError(t, err)
 
 	// n-10 rows over six client values: web and pwa keep theirs, the other four become api.
 	per := (n - 10) / 6
-	require.Equal(t, fmt.Sprintf("api=%d,pwa=%d,web=%d", n-10-2*per-1, per+1, per), byClient(r))
-	require.Equal(t, seq, scalar[int64](t, r, "SELECT seq FROM sqlite_sequence WHERE name = 'stats_events'"), "ids are never reused")
-	require.Zero(t, scalar[int](t, r, "SELECT count(*) FROM sqlite_sequence WHERE name = 'stats_events_new'"))
+	require.Equal(t, fmt.Sprintf("api=%d,pwa=%d,web=%d", n-10-2*per-1, per+1, per), byClient())
+	require.Equal(t, seq, scalar[int64](t, raw, "SELECT seq FROM sqlite_sequence WHERE name = 'stats_events'"), "ids are never reused")
+	require.Zero(t, scalar[int](t, raw, "SELECT count(*) FROM sqlite_sequence WHERE name = 'stats_events_new'"))
 
 	// The schema is schema 14's with only the client CHECK changed: every index (the INDEXED BY ones
 	// included), trigger, view and other table byte for byte, and stats_events the same columns.
-	newSchema := schemaObjects(t, r)
+	newSchema := schemaObjects(t, raw)
 	oldTable, newTable := oldSchema["table stats_events"], newSchema["table stats_events"]
 	delete(oldSchema, "table stats_events")
 	delete(newSchema, "table stats_events")
@@ -191,7 +185,7 @@ func TestMigration0015OneAPIClient(t *testing.T) {
 
 	// The CHECK allows only the surviving values.
 	ins := func(client string) error {
-		_, err := db.writer.Exec(`INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, item_id, feed_id, feed_title)
+		_, err := raw.Exec(`INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, item_id, feed_id, feed_title)
 			VALUES (1, '2026-01-01', 0, 4, 'open', ?, 5, 1, 'F')`, client)
 		return err
 	}
@@ -201,37 +195,112 @@ func TestMigration0015OneAPIClient(t *testing.T) {
 	for _, c := range []string{"reeder", "netnewswire", "unread", "other", ""} {
 		require.ErrorContains(t, ins(c), "CHECK", c)
 	}
-	require.EqualValues(t, seq+3, scalar[int64](t, r, "SELECT max(id) FROM stats_events"), "the next id follows the carried mark")
+	require.EqualValues(t, seq+3, scalar[int64](t, raw, "SELECT max(id) FROM stats_events"), "the next id follows the carried mark")
 
 	// The unique event id index still refuses a repeat.
-	_, err = db.writer.Exec(`INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, item_id, feed_id, feed_title, event_id)
+	_, err = raw.Exec(`INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, item_id, feed_id, feed_title, event_id)
 		VALUES (1, '2026-01-01', 0, 4, 'scroll', 'web', 5, 1, 'F', 'ev00000000000004')`)
 	require.ErrorContains(t, err, "UNIQUE")
 }
 
-// The free-space check reserves room for a table rebuild: twice the database plus the headroom on its
-// volume, and the snapshot on top when both share it (the fake reports one shared volume).
-func TestMigration0015SpaceCheckCoversARebuild(t *testing.T) {
+// The upgrade path through Open: the free-space check passes, a pre-migration snapshot is taken, and
+// the peak disk use while it runs (sampled every few milliseconds) stays inside what the check
+// reserves: the database file and its WAL grow by at most migrateRewriteFactor times the database plus
+// the headroom, and everything with the snapshot by at most the whole reservation.
+func TestMigration0015PeakSpaceWithinTheReservation(t *testing.T) {
+	n := statsRows()
+	raw, path := schema14(t)
+	seedStats14(t, raw, n)
+	_, err := raw.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
+	st, err := os.Stat(path)
+	require.NoError(t, err)
+	size := st.Size()
+	dir := filepath.Dir(path)
+	dbAndWAL := func() (total int64) {
+		for _, f := range []string{path, path + "-wal"} {
+			if st, err := os.Stat(f); err == nil {
+				total += st.Size()
+			}
+		}
+		return total
+	}
+	all := func() (total int64) {
+		_ = filepath.WalkDir(dir, func(_ string, e fs.DirEntry, err error) error {
+			if err == nil && !e.IsDir() {
+				if fi, err := e.Info(); err == nil {
+					total += fi.Size()
+				}
+			}
+			return nil
+		})
+		return total
+	}
+	baseDB, baseAll := dbAndWAL(), all()
+	var peakDB, peakAll int64
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			peakDB, peakAll = max(peakDB, dbAndWAL()), max(peakAll, all())
+			select {
+			case <-stop:
+				return
+			case <-time.After(2 * time.Millisecond):
+			}
+		}
+	}()
+	start := time.Now()
+	db, err := Open(t.Context(), Options{Path: path})
+	close(stop)
+	<-done
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	snaps, _ := filepath.Glob(filepath.Join(dir, "backup", "pre-migration-14-*.db"))
+	require.Len(t, snaps, 1, "a pre-migration snapshot")
+	t.Logf("open, snapshot and migrate from schema 14, %d stats rows, %d MB database: %s; peak growth of the database and WAL %.2fx, of everything with the snapshot %.2fx",
+		n-10, size>>20, time.Since(start), float64(peakDB-baseDB)/float64(size), float64(peakAll-baseAll)/float64(size))
+	require.LessOrEqual(t, peakDB-baseDB, migrateRewriteFactor*size+migrateHeadroom)
+	require.LessOrEqual(t, peakAll-baseAll, migrateRewriteFactor*size+migrateHeadroom+int64(float64(size)*snapshotFreeFactor))
+}
+
+// The free-space reservation is declared per migration: a pending set without a table rebuild needs
+// the database's size plus the headroom on its volume, one with a rebuild (0015) twice the size plus
+// the headroom, each plus the snapshot when both share a volume. The refusal names the shortfall.
+func TestMigrationSpaceFollowsTheDeclaredRebuild(t *testing.T) {
 	raw, path := schema14(t)
 	seedStats14(t, raw, 20_000)
 	require.NoError(t, raw.Close())
-	need := func() uint64 { // from the file's size when the check runs (opening may checkpoint into it)
-		st, err := os.Stat(path)
-		require.NoError(t, err)
-		size := uint64(st.Size())
-		return migrateRewriteFactor*size + migrateHeadroom + uint64(float64(size)*snapshotFreeFactor)
-	}
+	st, err := os.Stat(path)
+	require.NoError(t, err)
+	size := uint64(st.Size())
+	ms, err := loadMigrations()
+	require.NoError(t, err)
+	require.False(t, ms[13].marked(rebuildsTableMarker), "0014 only updates rows")
+	require.True(t, ms[14].marked(rebuildsTableMarker), "0015 rebuilds stats_events")
+	require.True(t, ms[11].marked(rebuildsTableMarker), "0012 rebuilds folders")
+	require.True(t, ms[11].marked(foreignKeysOffMarker))
 
 	orig := migrationFreeBytes
 	t.Cleanup(func() { migrationFreeBytes = orig })
-	migrationFreeBytes = func(string) (uint64, error) { return need() - 1, nil }
-	_, err := Open(t.Context(), Options{Path: path})
-	require.ErrorContains(t, err, "not enough free disk space")
-	migrationFreeBytes = func(string) (uint64, error) { return need(), nil }
-	db, err := Open(t.Context(), Options{Path: path})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.Equal(t, LatestVersion(), scalar[int](t, db.Reader(), "PRAGMA user_version"))
+	d := &DB{path: path, backupDir: filepath.Join(filepath.Dir(path), "backup")}
+	snap := uint64(float64(size) * snapshotFreeFactor)
+	for _, tc := range []struct {
+		name    string
+		pending []migration
+		need    uint64
+	}{
+		{"no rebuild", ms[13:14], size + migrateHeadroom + snap},
+		{"with a rebuild", ms[13:15], migrateRewriteFactor*size + migrateHeadroom + snap},
+	} {
+		migrationFreeBytes = func(string) (uint64, error) { return tc.need - 3<<20, nil }
+		err := d.checkMigrationSpace(13, 15, tc.pending)
+		require.ErrorContains(t, err, "not enough free disk space", tc.name)
+		require.ErrorContains(t, err, fmt.Sprintf("of the %d MB needed, so free at least 3 MB more", mbCeil(tc.need)), tc.name)
+		migrationFreeBytes = func(string) (uint64, error) { return tc.need, nil }
+		require.NoError(t, d.checkMigrationSpace(13, 15, tc.pending), tc.name)
+	}
 }
 
 // An empty schema-14 table whose rows were all deleted keeps its sequence mark through the rebuild.

@@ -17,7 +17,27 @@ import (
 // ApplicationID is 'KIPL' = 0x4B49504C, stamped by 0001_init.sql.
 const ApplicationID = 1263095884
 
-const foreignKeysOffMarker = "-- kipple:foreign-keys-off"
+// Markers a migration declares on its leading comment lines: foreignKeysOffMarker runs it with
+// foreign keys off; rebuildsTableMarker says it copies a whole table (CREATE new, copy, DROP, RENAME),
+// which the free-space check sizes for.
+const (
+	foreignKeysOffMarker = "-- kipple:foreign-keys-off"
+	rebuildsTableMarker  = "-- kipple:rebuilds-table"
+)
+
+// marked reports whether the migration's leading comment lines include marker.
+func (m migration) marked(marker string) bool {
+	for _, line := range strings.Split(m.sql, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "--") {
+			return false
+		}
+		if line == marker {
+			return true
+		}
+	}
+	return false
+}
 
 //go:embed migrations/*.sql
 var migrationFS embed.FS
@@ -119,7 +139,7 @@ func (d *DB) migrate(ctx context.Context) error {
 	}
 
 	if cur < latest && !fresh {
-		if err := d.preMigrationSnapshot(ctx, cur, latest); err != nil {
+		if err := d.preMigrationSnapshot(ctx, cur, latest, ms[cur:]); err != nil {
 			return err
 		}
 	}
@@ -141,22 +161,34 @@ var migrationFreeBytes = diskFree
 
 // Extra free space (not peak total usage) a migration needs on top of what the database already
 // occupies: the pre-migration snapshot (VACUUM INTO) is a copy of about 1x the database file, taken
-// with 10% slack, and the migration itself needs room for its WAL and file growth. The worst case is
-// a table rebuild (0012, 0015): the WAL holds the new copy of the table and its indexes until the
-// checkpoint, and the checkpoint then grows the file by the new table before the old pages are
-// reused, so up to twice the rebuilt table, bounded by twice the database file
-// (migrateRewriteFactor), plus a fixed migrateHeadroom. When the backup directory is on the same
-// volume as the database the two requirements add up. The check refuses before anything is written,
-// so a full volume ends in a clear error and an untouched database; it fails open when free space
-// cannot be read.
+// with 10% slack, and the migrations themselves need room for their WAL and file growth: 1x the
+// database plus a fixed migrateHeadroom (an index build; 0009 adds about a quarter of the database),
+// or migrateRewriteFactor times the database plus the headroom when a pending migration declares
+// rebuildsTableMarker (its WAL holds the new copy of the table and its indexes until the checkpoint,
+// and the checkpoint then grows the file by the new table before the old pages are reused). When the
+// backup directory is on the same volume as the database the two requirements add up. The check
+// refuses before anything is written, so a full volume ends in a clear error and an untouched
+// database; it fails open when free space cannot be read.
 const (
 	snapshotFreeFactor   = 1.1
 	migrateRewriteFactor = 2
 	migrateHeadroom      = 64 << 20
 )
 
-// checkMigrationSpace refuses to migrate when the volumes are too full for the snapshot and the migration.
-func (d *DB) checkMigrationSpace(from, to int) error {
+// migrateFactor is the multiple of the database size the pending migrations need for their WAL and
+// growth: the largest any of them declares.
+func migrateFactor(pending []migration) uint64 {
+	for _, m := range pending {
+		if m.marked(rebuildsTableMarker) {
+			return migrateRewriteFactor
+		}
+	}
+	return 1
+}
+
+// checkMigrationSpace refuses to migrate when the volumes are too full for the snapshot and the
+// pending migrations.
+func (d *DB) checkMigrationSpace(from, to int, pending []migration) error {
 	var size int64 // the database file alone, without the WAL
 	if st, err := os.Stat(d.path); err == nil {
 		size = st.Size()
@@ -170,15 +202,15 @@ func (d *DB) checkMigrationSpace(from, to int) error {
 	if err1 != nil || err2 != nil {
 		return nil // cannot tell: do not block the upgrade on the check itself
 	}
-	dbNeed := migrateRewriteFactor*uint64(size) + migrateHeadroom
+	dbNeed := migrateFactor(pending)*uint64(size) + migrateHeadroom
 	snapNeed := uint64(float64(size) * snapshotFreeFactor)
 	same := dbFree == snapFree
 	if rel, err := filepath.Rel(dbDir, d.backupDir); err == nil && !strings.HasPrefix(rel, "..") {
 		same = true
 	}
 	fail := func(free, need uint64, what string) error {
-		return fmt.Errorf("store: not enough free disk space to migrate the database from schema %d to %d: %d bytes free %s, at least %d more needed; free some space and start again (nothing was changed)",
-			from, to, free, what, need)
+		return fmt.Errorf("store: not enough free disk space to migrate the database from schema %d to %d: %s, %d MB free of the %d MB needed, so free at least %d MB more and start again (nothing was changed)",
+			from, to, what, free>>20, mbCeil(need), mbCeil(need-free))
 	}
 	if same {
 		if need := dbNeed + snapNeed; dbFree < need {
@@ -195,8 +227,11 @@ func (d *DB) checkMigrationSpace(from, to int) error {
 	return nil
 }
 
-func (d *DB) preMigrationSnapshot(ctx context.Context, from, to int) error {
-	if err := d.checkMigrationSpace(from, to); err != nil {
+// mbCeil is n bytes in whole megabytes, rounded up, so a shortfall is never shown as 0 MB.
+func mbCeil(n uint64) uint64 { return (n + 1<<20 - 1) >> 20 }
+
+func (d *DB) preMigrationSnapshot(ctx context.Context, from, to int, pending []migration) error {
+	if err := d.checkMigrationSpace(from, to, pending); err != nil {
 		return err
 	}
 	snap, err := d.openSnapshot()
@@ -238,7 +273,7 @@ func (d *DB) applyMigration(ctx context.Context, m migration) (err error) {
 	}
 	defer conn.Close()
 
-	fkOff := strings.HasPrefix(m.sql, foreignKeysOffMarker)
+	fkOff := m.marked(foreignKeysOffMarker)
 	// Restore and verify foreign keys on every path, including panic.
 	defer func() {
 		p := recover()

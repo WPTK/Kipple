@@ -1,3 +1,4 @@
+-- kipple:rebuilds-table
 -- Kipple schema v15: one stats client value for every Reader API client (docs/design.md §2.2a, §8).
 -- stats_events.client allowed three values named after particular apps beside 'api'. Every Reader API
 -- client is now treated the same, so the stored rows carrying those values become 'api' and the CHECK

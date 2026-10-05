@@ -326,7 +326,7 @@ func TestPreMigrationSnapshotKeepsThree(t *testing.T) {
 	ctx := context.Background()
 	db, _ := openTest(t)
 	for i := 0; i < 5; i++ {
-		require.NoError(t, db.preMigrationSnapshot(ctx, 1, 2+i)) // distinct names within the same second
+		require.NoError(t, db.preMigrationSnapshot(ctx, 1, 2+i, nil)) // distinct names within the same second
 	}
 	files, err := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-*.db"))
 	require.NoError(t, err)
@@ -423,7 +423,7 @@ func TestSnapshotRetentionKeepsNewest(t *testing.T) {
 		require.NoError(t, os.WriteFile(p, []byte("x"), 0o644))
 		require.NoError(t, os.Chtimes(p, base.Add(time.Duration(i)*time.Hour), base.Add(time.Duration(i)*time.Hour)))
 	}
-	require.NoError(t, db.preMigrationSnapshot(ctx, 1, 2)) // newest now, so 3 kept = new + c + b
+	require.NoError(t, db.preMigrationSnapshot(ctx, 1, 2, nil)) // newest now, so 3 kept = new + c + b
 	files, err := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-*.db"))
 	require.NoError(t, err)
 	var got []string
