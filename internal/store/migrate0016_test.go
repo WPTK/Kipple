@@ -124,8 +124,67 @@ func TestMigration0016OverTheLimits(t *testing.T) {
 	require.Contains(t, logged, "migration 0016: 2 device profile(s) lost their per-feed and per-folder layouts")
 	require.Contains(t, logged, "migration 0016: the defaults for new devices lost their per-feed and per-folder layouts")
 	require.Contains(t, logged, "level=WARN")
-	// The notice table lived on the migration's connection only.
-	require.Zero(t, scalar[int](t, db.Reader(), "SELECT count(*) FROM sqlite_temp_master WHERE name = 'migration_notice'"))
+	// The temp tables lived on the migration's connection, which is the writer's only one: none is left there.
+	require.Empty(t, writerTempTables(t, db))
+}
+
+// writerTempTables lists the temp tables on the writer's connection (it has one: SetMaxOpenConns(1)).
+func writerTempTables(t *testing.T, db *DB) []string {
+	t.Helper()
+	conn, err := db.writer.Conn(context.Background())
+	require.NoError(t, err)
+	defer conn.Close()
+	rows, err := conn.QueryContext(context.Background(), "SELECT name FROM sqlite_temp_master WHERE type = 'table'")
+	require.NoError(t, err)
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		require.NoError(t, rows.Scan(&s))
+		out = append(out, s)
+	}
+	require.NoError(t, rows.Err())
+	return out
+}
+
+// A migration that fails after creating temp.migration_notice rolls back whole: an error, user_version unchanged
+// and no temp table left on the writer, so the next migration can create the table again and commit.
+func TestMigrationNoticeRollback(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	before, err := e.db.Version(ctx)
+	require.NoError(t, err)
+	bad := migration{version: before + 1, name: "9998_bad.sql", sql: `CREATE TEMP TABLE migration_notice (message TEXT NOT NULL);
+INSERT INTO migration_notice VALUES ('should never be logged');
+INSERT INTO no_such_table VALUES (1);`}
+	require.Error(t, e.db.applyMigration(ctx, bad))
+	v, err := e.db.Version(ctx)
+	require.NoError(t, err)
+	require.Equal(t, before, v)
+	require.Empty(t, writerTempTables(t, e.db))
+
+	good := migration{version: before + 1, name: "9999_good.sql", sql: `CREATE TEMP TABLE migration_notice (message TEXT NOT NULL);
+INSERT INTO migration_notice VALUES ('a notice');`}
+	require.NoError(t, e.db.applyMigration(ctx, good))
+	v, err = e.db.Version(ctx)
+	require.NoError(t, err)
+	require.Equal(t, before+1, v)
+	require.Empty(t, writerTempTables(t, e.db))
+}
+
+// The 8192 cap is bytes, as the API measures ui.device_defaults: defaults whose text is under 8192 characters
+// but over 8192 bytes once converted (non-ASCII voice name) lose their layout overrides.
+func TestMigration0016DefaultsCountBytes(t *testing.T) {
+	voice := strings.Repeat("é", 3000) // 3000 characters, 6000 bytes
+	old := `{"client.voice":"` + voice + `","client.layout_overrides":` + oldOverrides(70) + `}`
+	converted := len(`{"client.voice":"`+voice+`","client.list_overrides":{"feed":{}}}`) + 70*len(`"1000000":{"layout":"headlines"},`)
+	require.Less(t, len([]rune(old))+70*len(`{"layout":}`), 8192, "under the cap counted in characters")
+	require.Greater(t, converted, 8192, "over it counted in bytes")
+	db, logged := reopenLogged(t, schema15WithDevices(t, map[string]string{"ui.device_defaults": old}, nil))
+	dd, ok := settingRow(t, db, "ui.device_defaults")
+	require.True(t, ok)
+	require.JSONEq(t, `{"client.voice":"`+voice+`"}`, dd)
+	require.Contains(t, logged, "the defaults for new devices lost their per-feed and per-folder layouts")
 }
 
 // A migration without anything to report logs no warning.

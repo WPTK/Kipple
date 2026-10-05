@@ -14,8 +14,8 @@ import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { clearListMemory } from "./ListPane";
 import { ListOverrideFields } from "./feeds/ListOverrideFields";
-import { OpenList } from "./ReaderRoute";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { DeviceSaveStatus } from "@/shell/SaveStatus";
+import { syncStore } from "@/lib/deviceSync";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 
 // Issue #38: per-feed and per-folder order and opening view, the reading-time filter, and "Only show matching".
@@ -78,29 +78,6 @@ describe("the view a feed or folder opens in", () => {
     go("/l?feed=1");
     await screen.findByText("Article number 1");
     expect(window.location.pathname + window.location.search).toBe("/l/unread?feed=1");
-  });
-
-  it("never waits on a bootstrap that cannot load (offline cold start): the feed's own view, else Unread", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {}))); // never answers
-    const qc = new QueryClient({ defaultOptions: { queries: { networkMode: "online", retry: false } } });
-    const Where = () => <p data-testid="where">{useLocation().pathname + useLocation().search}</p>;
-    const at = (path: string) =>
-      render(
-        <QueryClientProvider client={qc}>
-          <MemoryRouter initialEntries={[path]}>
-            <Routes>
-              <Route path="l" element={<OpenList />} />
-              <Route path="l/:view" element={<Where />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
-    const r = at("/l?feed=1");
-    expect(await screen.findByTestId("where")).toHaveTextContent("/l/unread?feed=1");
-    r.unmount();
-    setListOverride("feed", "1", "view", "all");
-    at("/l?feed=1");
-    expect(await screen.findByTestId("where")).toHaveTextContent("/l/all?feed=1");
   });
 
   it("the sidebar links leave the view to the list", async () => {
@@ -221,12 +198,22 @@ describe("the feed and folder editors", () => {
   });
 
   it("a write drops the overrides of feeds and folders the library no longer has", async () => {
-    setListOverride("feed", "99", "layout", "cards"); // a deleted feed
-    setListOverride("folder", "77", "view", "all"); // a deleted folder
+    const boot: Bootstrap = {
+      ...bootstrap,
+      feeds: [...bootstrap.feeds, { ...bootstrap.feeds[0]!, id: "100", title: "Later feed" }],
+      folders: [...bootstrap.folders, { id: "80", name: "Later folder", position: 1, is_default: false, unread: 0 }],
+    };
+    setListOverride("feed", "99", "layout", "cards"); // deleted: below the highest feed id (100) and not listed
+    setListOverride("folder", "77", "view", "all"); // deleted: below the highest folder id (80)
+    setListOverride("feed", "150", "order", "oldest"); // above it: maybe created in another tab since this bootstrap
+    setListOverride("folder", "90", "layout", "cards"); // the same for a folder
     setListOverride("folder", "1", "layout", "inbox");
-    renderFields("feed", "1");
+    renderFields("feed", "1", boot);
     await userEvent.setup().selectOptions(screen.getByLabelText("Opens in"), "all");
-    expect(devicePrefsStore.get().overrides).toEqual({ feed: { "1": { view: "all" } }, folder: { "1": { layout: "inbox" } } });
+    expect(devicePrefsStore.get().overrides).toEqual({
+      feed: { "1": { view: "all" }, "150": { order: "oldest" } },
+      folder: { "1": { layout: "inbox" }, "90": { layout: "cards" } },
+    });
   });
 
   it("a bootstrap from the offline copy prunes nothing", async () => {
@@ -313,5 +300,26 @@ describe("Only show matching", () => {
     expect(ruleLabel({ action: "mute", invert: true })).toBe("Only show matching");
     expect(ruleLabel({ action: "star", invert: true })).toBe("Star when it does not match");
     expect(ruleLabel({ action: "mute", invert: false })).toBe("Mute");
+  });
+});
+
+describe("the save notice", () => {
+  afterEach(() => syncStore.set({ status: "off", refused: [] }));
+
+  it("names the per-list settings when they are what the server refused", () => {
+    syncStore.set({ status: "idle", refused: ["client.list_overrides"] });
+    const r = render(<DeviceSaveStatus />);
+    expect(screen.getByTestId("save-status")).toHaveTextContent("Too many per-list settings; remove some");
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+    r.unmount();
+    syncStore.set({ status: "idle", refused: ["client.voice"] });
+    render(<DeviceSaveStatus />);
+    expect(screen.getByTestId("save-status")).toHaveTextContent("1 setting not saved");
+  });
+
+  it("counts several refused settings", () => {
+    syncStore.set({ status: "idle", refused: ["client.list_overrides", "client.voice"] });
+    render(<DeviceSaveStatus />);
+    expect(screen.getByTestId("save-status")).toHaveTextContent("2 settings not saved");
   });
 });

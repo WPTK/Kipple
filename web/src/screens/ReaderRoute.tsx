@@ -429,7 +429,6 @@ export function OpenList() {
   const dp = useDevicePrefs();
   const target = { feed: sp.get("feed") ?? undefined, folder: sp.get("feed") ? undefined : (sp.get("folder") ?? undefined) };
   const ctx = useListContext(target);
-  // The folder chain comes from the bootstrap, which the app shell waits for before it shows any route. Without one (a
-  // fetch paused or failed offline) this never waits: the feed's own view, else Unread, rather than a blank screen.
+  // The folder chain comes from the bootstrap; the app shell shows no route until it has bootstrap data, so it is here.
   return <Navigate to={listTo({ view: resolveList(dp, ctx, "view").value, ...target })} replace />;
 }

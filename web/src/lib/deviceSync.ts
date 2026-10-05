@@ -189,10 +189,10 @@ export interface SyncState {
    * docs/design.md 7.1c). Nothing can be written, so nothing is sent and the local values are all there is.
    */
   status: "off" | "idle" | "saving" | "error" | "unsaved";
-  /** How many settings the server refused (they keep their local value). */
-  refused: number;
+  /** The settings the server refused, sorted (they keep their local value). */
+  refused: readonly string[];
 }
-export const syncStore = createStore<SyncState>({ status: "off", refused: 0 });
+export const syncStore = createStore<SyncState>({ status: "off", refused: [] });
 
 let enabled = false;
 let applying = false;
@@ -237,7 +237,8 @@ function pruneRefused(): void {
 
 function setStatus(status: SyncState["status"]): void {
   pruneRefused();
-  syncStore.set((s) => (s.status === status && s.refused === Object.keys(refused).length ? s : { status, refused: Object.keys(refused).length }));
+  const keys = Object.keys(refused).sort();
+  syncStore.set((s) => (s.status === status && s.refused.join() === keys.join() ? s : { status, refused: keys }));
 }
 
 /**
@@ -547,7 +548,7 @@ export function hydrateDevice(device: DeviceView | undefined): void {
     refused = {};
     unsavedBase = profileOf(store());
     // Whatever was left unsent before stays: it is still the person's choice.
-    syncStore.set({ status: "unsaved", refused: 0 });
+    syncStore.set({ status: "unsaved", refused: [] });
     return;
   }
   const cur = store();
@@ -645,5 +646,5 @@ export function resetDeviceSync(): void {
   again = false;
   themeHeld = false;
   overridden = new Set();
-  syncStore.set({ status: "off", refused: 0 });
+  syncStore.set({ status: "off", refused: [] });
 }

@@ -290,6 +290,14 @@ export function resetDevicePrefs(): void {
   sessionLayoutStore.set(null);
 }
 
+const isId = (x: string): boolean => /^[0-9]{1,19}$/.test(x);
+/** The highest numeric id in `ids`, or null for none. */
+function maxId(ids: ReadonlySet<string>): bigint | null {
+  let top: bigint | null = null;
+  for (const x of ids) if (isId(x) && (top === null || BigInt(x) > top)) top = BigInt(x);
+  return top;
+}
+
 /** The feeds and folders the library has (the bootstrap), for dropping overrides of deleted ones. */
 export interface KnownLists {
   feeds: ReadonlySet<string>;
@@ -298,15 +306,22 @@ export interface KnownLists {
 
 /**
  * Set (or with null clear) one field of a feed's or folder's override; an override with no field left is removed.
- * With `known`, overrides of feeds and folders that no longer exist are dropped in the same write: the profile key has
+ * With `known`, overrides of feeds and folders that no longer exist (absent from `known` and below its highest id of
+ * that kind) are dropped in the same write: the profile key has
  * a byte budget, and a deleted list's override would otherwise hold its share forever. Pruning happens here, where
  * the key grows, rather than on the server's feed and folder deletes: the server stores this key without reading it,
  * and every device prunes its own profile the next time it writes one.
  */
 export function setListOverride<F extends ListField>(kind: "feed" | "folder", id: string, field: F, value: ListOverride[F] | null, known?: KnownLists): void {
   devicePrefsStore.set((p) => {
-    const keep = (k: "feed" | "folder", m: Record<string, ListOverride>) =>
-      known ? Object.fromEntries(Object.entries(m).filter(([x]) => (k === kind && x === id) || (k === "feed" ? known.feeds : known.folders).has(x))) : { ...m };
+    const keep = (k: "feed" | "folder", m: Record<string, ListOverride>) => {
+      if (!known) return { ...m };
+      const ids = k === "feed" ? known.feeds : known.folders;
+      const top = maxId(ids);
+      // Only an id below the highest one this bootstrap knows can be a deleted list: ids only grow, so a higher one
+      // may be a feed or folder another tab created after this tab's bootstrap was loaded.
+      return Object.fromEntries(Object.entries(m).filter(([x]) => (k === kind && x === id) || ids.has(x) || top === null || !isId(x) || BigInt(x) > top));
+    };
     const overrides = { feed: keep("feed", p.overrides.feed), folder: keep("folder", p.overrides.folder) };
     const map = overrides[kind];
     const entry: ListOverride = { ...map[id] };

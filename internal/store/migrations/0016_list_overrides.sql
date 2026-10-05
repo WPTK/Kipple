@@ -38,10 +38,11 @@ CREATE TEMP TABLE m0016 AS
          json_remove(json_set(val, '$."client.list_overrides"', json(lists)), '$."client.layout_overrides"') AS next
   FROM conv;
 
--- A row that does not fit keeps everything but the old key.
+-- A row that does not fit keeps everything but the old key. Sizes are bytes (the API measures its caps in
+-- bytes of JSON); for a profile that is also at least the characters the devices CHECK counts.
 UPDATE m0016
 SET next = json_remove(next, '$."client.list_overrides"')
-WHERE length(lists) > 4096 OR length(next) > 8192;
+WHERE length(CAST(lists AS BLOB)) > 4096 OR length(CAST(next AS BLOB)) > 8192;
 
 INSERT INTO migration_notice (message)
   SELECT 'migration 0016: ' || count(*) || ' device profile(s) lost their per-feed and per-folder layouts: too large for the new override format'

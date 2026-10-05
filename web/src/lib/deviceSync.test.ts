@@ -381,7 +381,7 @@ describe("saving", () => {
     expect(patches).toHaveLength(2);
     expect(patches[1]).toEqual({ "client.rate": 1.5 });
     expect(prefsStore.get().voice).toBe("some voice");
-    expect(syncStore.get()).toMatchObject({ refused: 1 });
+    expect(syncStore.get()).toMatchObject({ refused: ["client.voice"] });
     updatePrefs({ textSize: 1.25 });
     await vi.advanceTimersByTimeAsync(600);
     expect(patches[2]).toEqual({ "client.text_size": 1.25 }); // the refused voice is not re-sent
@@ -593,11 +593,11 @@ describe("refused settings (review finding 4)", () => {
     const patches = refusing();
     updatePrefs({ voice: "bad" });
     await vi.advanceTimersByTimeAsync(600);
-    expect(syncStore.get().refused).toBe(1);
+    expect(syncStore.get().refused).toHaveLength(1);
     updatePrefs({ voice: "good" });
     await vi.advanceTimersByTimeAsync(600);
     expect(patches.at(-1)).toEqual({ "client.voice": "good" });
-    expect(syncStore.get()).toMatchObject({ refused: 0, status: "idle" });
+    expect(syncStore.get()).toMatchObject({ refused: [], status: "idle" });
   });
 
   it("changing the value back to the confirmed one also clears it", async () => {
@@ -606,7 +606,7 @@ describe("refused settings (review finding 4)", () => {
     await vi.advanceTimersByTimeAsync(600);
     updatePrefs({ voice: "" });
     await vi.advanceTimersByTimeAsync(600);
-    expect(syncStore.get().refused).toBe(0);
+    expect(syncStore.get().refused).toEqual([]);
   });
 
   it("Retry does not re-send the known-bad value; Discard puts the server's value back", async () => {
@@ -616,10 +616,10 @@ describe("refused settings (review finding 4)", () => {
     const n = patches.length;
     await retrySave();
     expect(patches).toHaveLength(n);
-    expect(syncStore.get().refused).toBe(1);
+    expect(syncStore.get().refused).toHaveLength(1);
     discardRefused();
     expect(prefsStore.get().voice).toBe("");
-    expect(syncStore.get()).toMatchObject({ refused: 0 });
+    expect(syncStore.get()).toMatchObject({ refused: [] });
     await vi.advanceTimersByTimeAsync(2000);
     expect(patches).toHaveLength(n);
   });
@@ -671,7 +671,7 @@ describe("list overrides across builds and limits (#38 review)", () => {
     hydrateDevice(device());
     setListOverride("feed", "5", "layout", "cards");
     await vi.advanceTimersByTimeAsync(600);
-    expect(syncStore.get()).toMatchObject({ status: "idle", refused: 1 });
+    expect(syncStore.get()).toMatchObject({ status: "idle", refused: ["client.list_overrides"] });
     updatePrefs({ textSize: 1.25 });
     await vi.advanceTimersByTimeAsync(600);
     expect(patches.at(-1)).toEqual({ "client.text_size": 1.25 });
@@ -693,7 +693,7 @@ describe("list overrides across builds and limits (#38 review)", () => {
     hydrateDevice(device());
     setListOverride("feed", "5", "layout", "cards");
     await vi.advanceTimersByTimeAsync(600);
-    expect(syncStore.get()).toMatchObject({ status: "error", refused: 0 });
+    expect(syncStore.get()).toMatchObject({ status: "error", refused: [] });
     expect(JSON.parse(localStorage.getItem(SYNC_DIRTY_KEY) ?? "{}")).toHaveProperty("client.list_overrides");
     tooLarge = false;
     await retrySave();
