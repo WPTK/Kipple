@@ -176,7 +176,7 @@ func TestStatsDisabledRecordsNothing(t *testing.T) {
 		require.Equal(t, ErrDropped, r.record(ev), ev.Kind)
 	}
 	require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
-		return r.rec.RecordStars(tx, KindStar, "reeder", []int64{itemID})
+		return r.rec.RecordStars(tx, KindStar, "api", []int64{itemID})
 	}))
 	require.Equal(t, 1, r.count("1 = 1"), "only the row from before the switch")
 
@@ -184,7 +184,7 @@ func TestStatsDisabledRecordsNothing(t *testing.T) {
 	r.setSetting("stats.enabled", nil)
 	require.NoError(t, r.record(Event{Kind: KindReadTime, Client: "web", ItemID: itemID, SessionKey: "sk", Value: 10, HasValue: true}))
 	require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
-		return r.rec.RecordStars(tx, KindStar, "reeder", []int64{itemID})
+		return r.rec.RecordStars(tx, KindStar, "api", []int64{itemID})
 	}))
 	require.Equal(t, 3, r.count("1 = 1"))
 }

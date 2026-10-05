@@ -10,7 +10,7 @@
 //
 //   KIPPLE_SEED_SET=fresh npm run seed
 //                                a server with NO account and no feeds, so it starts in setup mode: the setup wizard
-//                                (docs/setup-wizard-design.md): open the address and create the account. Its stderr is also
+//                                (docs/design.md §7.1e): open the address and create the account. Its stderr is also
 //                                written to <data dir>/server-stderr.log. Nothing is imported.
 //
 // Then, in another terminal, `npm run dev` (Vite proxies /api and /img to

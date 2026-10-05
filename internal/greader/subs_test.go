@@ -159,7 +159,7 @@ func TestEditMoveRenameAndDefaultFolder(t *testing.T) {
 	require.Equal(t, "OK", w.Body.String())
 	require.Equal(t, []string{"Uncategorized"}, labelsOf(findSub(subsOf(t, h), fid)))
 
-	// a= and r= together (NNW move between folders).
+	// a= and r= together (a move between folders).
 	h.post(rd+"subscription/edit", "ac=edit&s="+fid+"&r=user/-/label/Old&a=user/-/label/Comics")
 	require.Equal(t, []string{"Comics"}, labelsOf(findSub(subsOf(t, h), fid)))
 
@@ -204,7 +204,7 @@ func TestBatchEditTitles(t *testing.T) {
 func TestFolderNameWithSemicolonSurvives(t *testing.T) {
 	h := newHarness(t)
 	id := h.addFeed("https://a.example/feed.xml", "Alpha", "")
-	// NNW leaves ';' unencoded in a= values.
+	// Some clients leave ';' unencoded in a= values.
 	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(id)+"&a=user/-/label/Tech;News,Etc$")
 	require.Equal(t, []string{"Tech;News,Etc$"}, labelsOf(findSub(subsOf(t, h), feedID(id))))
 	w := h.get(rd + "tag/list")
@@ -369,7 +369,7 @@ func TestDisableTagRawBodyFallback(t *testing.T) {
 	// A different folder that the '&'-split value ("News ") could hit by mistake.
 	h.addFolder("News")
 
-	// NNW: T first, s last, no re-encoding of the folder id.
+	// Parameter order: T first, s last, no re-encoding of the folder id.
 	w := h.do(http.MethodPost, base+rd+"disable-tag", "T="+h.tok+"&s=user/-/label/News & Politics+", nil)
 	require.Equal(t, 200, w.Code)
 	require.Equal(t, "OK", w.Body.String())
@@ -394,7 +394,7 @@ func TestSubscriptionImportOPML(t *testing.T) {
 	<outline text="Tech; News &amp; More">
 	  <outline type="rss" text="Alpha &amp; Omega; Inc" xmlUrl="https://a.example/rss?x=1;y=2"/>
 	</outline></body></opml>`
-	// NNW: raw OPML, text/xml, no T, exactly 200.
+	// Raw OPML body: text/xml, no T, exactly 200.
 	w := h.do(http.MethodPost, base+rd+"subscription/import", opmlBody, map[string]string{"Content-Type": "text/xml"})
 	require.Equal(t, 200, w.Code)
 	require.Equal(t, int32(1), h.wakes.Load())
@@ -530,7 +530,7 @@ func TestFeedChangedEventsCarryStringFeedID(t *testing.T) {
 	requireStrings(feedChanged(), 1, "import")
 }
 
-// NNW sends folder names with '&' and '+' unencoded; every label-carrying
+// Some clients send folder names with '&' and '+' unencoded; every label-carrying
 // parameter must see the whole name and never create a truncated folder.
 var rawFolderNames = []string{"News & Politics+", "R&D", "A+B", "Tom & Jerry", "Café & Thé", "日本&ニュース", "Plain Name"}
 
@@ -542,8 +542,8 @@ func TestRawLabelNamesSubscriptionEdit(t *testing.T) {
 			h := newHarness(t)
 			f := h.addFeed("https://a.example/f", "A", "")
 			before := folderCount(h)
-			id := "user/-/label/" + nnwEnc(name)
-			// NNW encodes '&' and '+', so the name arrives exactly (phase 1 parser).
+			id := "user/-/label/" + clientEnc(name)
+			// Some clients encode '&' and '+', so the name arrives exactly (phase 1 parser).
 			want := name
 			// edit, a= last and in the middle (before T=), then r= to go back.
 			h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s=feed/"+strconv.FormatInt(f, 10)+"&a="+id)
@@ -573,13 +573,13 @@ func TestRawLabelNamesRenameAndDisable(t *testing.T) {
 			h.addFolder("A")
 			h.addFolder("Tom ")
 			before := folderCount(h)
-			id := "user/-/label/" + nnwEnc(name)
-			// rename-tag: s= raw in the middle, dest= raw last (NNW order is T, s, dest).
-			h.post(rd+"rename-tag", "T="+h.tok+"&s="+id+"&dest=user/-/label/"+nnwEnc("Renamed & Co+"))
+			id := "user/-/label/" + clientEnc(name)
+			// rename-tag: s= raw in the middle, dest= raw last (the order is T, s, dest).
+			h.post(rd+"rename-tag", "T="+h.tok+"&s="+id+"&dest=user/-/label/"+clientEnc("Renamed & Co+"))
 			require.Equal(t, before, folderCount(h), "rename creates nothing")
 			require.Equal(t, []string{"Renamed & Co+"}, labelsOf(findSub(subsOf(t, h), feedID(f))))
 			// and back, dest carrying the odd name.
-			h.post(rd+"rename-tag", "s=user/-/label/"+nnwEnc("Renamed & Co+")+"&T="+h.tok+"&dest="+id)
+			h.post(rd+"rename-tag", "s=user/-/label/"+clientEnc("Renamed & Co+")+"&T="+h.tok+"&dest="+id)
 			require.Equal(t, before, folderCount(h))
 			require.Equal(t, []string{name}, labelsOf(findSub(subsOf(t, h), feedID(f))))
 			// disable-tag, raw last and raw in the middle.
@@ -606,9 +606,9 @@ func TestParseUserPath(t *testing.T) {
 	require.False(t, ok)
 }
 
-// nnwEnc encodes a folder name the way NNW does for a=/r=/t=/rename-tag: percent
-// encoding with '&' and '+' encoded too (netnewswire.md section 4).
-func nnwEnc(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") }
+// clientEnc encodes a folder name the way some clients do for a=/r=/t=/rename-tag: percent
+// encoding with '&' and '+' encoded too (client research).
+func clientEnc(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") }
 
 // A rename-tag merge that turns folder filters into feed filters announces
 // filters.changed, so an open Filters screen reloads; a plain rename does not.

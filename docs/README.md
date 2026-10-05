@@ -1,13 +1,11 @@
 # Docs index
 
 A map of everything under `docs/`, for a newcomer (self-hoster or future contributor) who doesn't already know
-the project's shape. Each links to more detail; nothing here duplicates it. Older records under `docs/` (plans, meeting notes, handoffs, past test results) use the
-owner's own host labels (Host-A, Host-B); they are history and say nothing about how you should run Kipple.
+the project's shape. Each links to more detail; nothing here duplicates it. Records such as the UAT results in `docs/uat-plan.md` use the owner's own host labels (Host-A, Host-B); they are history and say nothing about how you should run Kipple.
 
 | Doc | What it's for |
 |---|---|
 | [design.md](design.md) | The source of truth for how Kipple actually works today: data model, item ids, scheduler, retention, the Reader API contract, the web API (including optional Cloudflare Access sign-in, §7.0), stats. |
-| [setup-wizard-design.md](setup-wizard-design.md) | The design of the 0.5 setup wizard, open mode, the time zone and port rules and the GHCR image, with the owner's decisions (section 15). Merged by PR #91; `design.md` carries the authoritative text once shipped. |
 | [ui-decisions.md](ui-decisions.md) | The record of every UI/UX and project-scope decision made in planning meetings, in the order they were decided. |
 | [uat-plan.md](uat-plan.md) | The user-acceptance-testing plan: roles, entry/exit criteria, test suites, defect severity, sign-off. |
 | [sqa-plan.md](sqa-plan.md) | The software-quality-assurance plan, mapped to IEEE 730: what already ensures quality (CI, reviews, release discipline) and open candidate additions. |
