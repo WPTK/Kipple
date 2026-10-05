@@ -8,7 +8,7 @@ import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, ItemsPage, Scope, View } from "@/api/types";
 import { useSearchHighlight } from "@/lib/useHighlights";
-import { useListContext, useResolvedLayout } from "@/layouts";
+import { useListContext, useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
   DEFAULT_DEVICE_PREFS,
   LIST_WIDTH_MAX,
@@ -17,7 +17,6 @@ import {
   inheritedList,
   overrideTarget,
   resolveList,
-  setListOverride,
   updateDevicePrefs,
   useDevicePrefs,
   type OrderPref,
@@ -98,6 +97,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   const wide = useWide();
   const { prev, next } = useNeighbours(scope);
   const ctx = useListContext(scope);
+  const setListOverride = useSetListOverride();
   const oldest = scope.order === "oldest";
   // The order is the list's resolved one (readerScope). On a feed or folder list the toggle sets that list's own order,
   // and dropping back to what it would inherit clears its override; elsewhere it sets the device default.
@@ -426,11 +426,10 @@ export function ReaderRoute() {
  */
 export function OpenList() {
   const [sp] = useSearchParams();
-  const boot = useBootstrap();
   const dp = useDevicePrefs();
   const target = { feed: sp.get("feed") ?? undefined, folder: sp.get("feed") ? undefined : (sp.get("folder") ?? undefined) };
   const ctx = useListContext(target);
-  // The folder chain comes from the bootstrap; while it loads the view could resolve differently.
-  if (boot.isPending) return null;
+  // The folder chain comes from the bootstrap, which the app shell waits for before it shows any route. Without one (a
+  // fetch paused or failed offline) this never waits: the feed's own view, else Unread, rather than a blank screen.
   return <Navigate to={listTo({ view: resolveList(dp, ctx, "view").value, ...target })} replace />;
 }

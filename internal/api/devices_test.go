@@ -270,18 +270,55 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	require.NotContains(t, out["merged"], "client.shortcuts")
 }
 
+// listOverridesOf is a valid client.list_overrides value whose compact JSON is as long as it can be
+// without passing n bytes (feed entries of {"layout":"headlines"}).
+func listOverridesOf(n int) string {
+	var parts []string
+	for i := 1; ; i++ {
+		next := append(parts, fmt.Sprintf(`"%d":{"layout":"headlines"}`, 1000000+i))
+		if len(`{"feed":{`+strings.Join(next, ",")+`},"folder":{}}`) > n {
+			break
+		}
+		parts = next
+	}
+	return `{"feed":{` + strings.Join(parts, ",") + `},"folder":{}}`
+}
+
+// client.list_overrides has its own byte budget: over it, the key alone is refused (400 naming it,
+// so a client puts aside only that key), and the rest of the patch is not applied either (all or nothing).
+func TestListOverridesBudget(t *testing.T) {
+	h := newHarness(t)
+	d := h.newDev()
+	fits := listOverridesOf(store.MaxListOverridesBytes)
+	code, out, _ := d.call("PATCH", "/api/device", `{"client.list_overrides":`+fits+`}`)
+	require.Equal(t, http.StatusOK, code, out)
+
+	over := listOverridesOf(store.MaxListOverridesBytes + 40)
+	require.Greater(t, len(over), store.MaxListOverridesBytes)
+	code, out, _ = d.call("PATCH", "/api/device", `{"client.layout":"cards","client.list_overrides":`+over+`}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Equal(t, "invalid_settings", out["error"])
+	require.Equal(t, []any{"client.list_overrides"}, out["keys"])
+	_, out, _ = d.call("GET", "/api/device", "")
+	require.NotContains(t, out["profile"], "client.layout")
+
+	// The defaults for new devices are held to the same budget.
+	c := h.login()
+	code, out, _ = h.api(c, "PATCH", "/api/settings", `{"ui.device_defaults":{"client.list_overrides":`+over+`}}`)
+	require.Equal(t, http.StatusBadRequest, code, out)
+}
+
 func TestDeviceProfileSizeLimit413(t *testing.T) {
 	h := newHarness(t)
 	d := h.newDev()
-	// Two full override maps (200 entries each, each valid on its own) exceed 8 KB together.
-	big := func(n int) string {
-		parts := make([]string, n)
-		for i := range parts {
-			parts[i] = fmt.Sprintf(`"%019d":{"layout":"headlines"}`, i+1)
-		}
-		return "{" + strings.Join(parts, ",") + "}"
+	// The list overrides fit their own budget (just under 4 KB) and the collapsed folders fit too,
+	// but together they pass the 8 KB the stored profile is held to.
+	overrides := listOverridesOf(store.MaxListOverridesBytes - 100)
+	folders := make([]string, 200)
+	for i := range folders {
+		folders[i] = fmt.Sprintf(`"%019d"`, i+1)
 	}
-	body := `{"client.list_overrides":{"feed":` + big(200) + `,"folder":` + big(200) + `}}`
+	body := `{"client.list_overrides":` + overrides + `,"client.collapsed_folders":[` + strings.Join(folders, ",") + `]}`
 	code, _, _ := d.call("PATCH", "/api/device", body)
 	require.Equal(t, http.StatusRequestEntityTooLarge, code)
 	_, out, _ := d.call("GET", "/api/device", "")
@@ -409,17 +446,13 @@ func TestMakeDeviceDefault(t *testing.T) {
 func TestMakeDeviceDefaultSizeCap(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
-	feeds := make([]string, 150)
-	for i := range feeds {
-		feeds[i] = fmt.Sprintf(`"%015d":{"view":"all"}`, i)
-	}
-	stored := `{"ui.device_defaults":{"client.list_overrides":{"feed":{` + strings.Join(feeds, ",") + `}}}}`
+	stored := `{"ui.device_defaults":{"client.list_overrides":` + listOverridesOf(store.MaxListOverridesBytes) + `}}`
 	code, _, _ := h.api(c, "PATCH", "/api/settings", stored)
 	require.Equal(t, http.StatusOK, code, "under the cap on its own")
 
 	folders := make([]string, 200)
 	for i := range folders {
-		folders[i] = fmt.Sprintf(`"%015d"`, i)
+		folders[i] = fmt.Sprintf(`"%019d"`, i)
 	}
 	phone := h.newDev()
 	code, _, _ = phone.call("PATCH", "/api/device", `{"client.collapsed_folders":[`+strings.Join(folders, ",")+`]}`)

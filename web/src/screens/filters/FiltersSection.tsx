@@ -166,7 +166,7 @@ function FilterRow({
       <Switch label={f.name || "Untitled filter"} checked={f.enabled} onChange={(v) => void toggle(v)} />
       <div className="min-w-0">
         <p className="text-xs text-fg2">
-          {ruleLabel(f)} ·{scopeText(f, folders, feeds)} · {f.kind === "regex" ? "Regular expression" : "Words"} in {f.fields.map(fieldLabel).join(", ").toLowerCase()}
+          {ruleLabel(f)} · {scopeText(f, folders, feeds)} · {f.kind === "regex" ? "Regular expression" : "Words"} in {f.fields.map(fieldLabel).join(", ").toLowerCase()}
         </p>
         <p className="truncate text-xs text-fg2">{terms}</p>
         {f.disabled_reason ? (

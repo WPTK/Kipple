@@ -52,7 +52,7 @@ resolved on its own by `resolveList` in `src/lib/devicePrefs.ts`). Sidebar and f
 
 **Device prefs** (`src/lib/devicePrefs.ts`, `src/lib/prefs.ts`, `src/theme/`): layout, overrides, order, Inbox
 thumbnails, the swipe peek, widths, density, font, text size, theme, motion, spacing, listen and the rest are
-the server's **device profile** (docs/design.md 7.1c). `localStorage` (`kipple.device.v1`, `kipple.prefs.v1`,
+the server's **device profile** (docs/design.md 7.1c). `localStorage` (`kipple.device.v2`, read once from `kipple.device.v1`, `kipple.prefs.v1`,
 `kipple.theme.v1`) is only the instant-paint cache, so the theme boot script still avoids a flash. See
 "Device profile sync" below.
 

@@ -52,6 +52,23 @@ describe("search order migration", () => {
   });
 });
 
+describe("the v1 cache (overrides were a layout per id)", () => {
+  it("the first paint after the upgrade keeps the layouts: v1 is read once, converted and left for older tabs", async () => {
+    const v1 = JSON.stringify({ layout: "compact", order: "oldest", overrides: { feed: { "3": "cards", "4": "bogus" }, folder: { "10": "inbox" } } });
+    localStorage.setItem("kipple.device.v1", v1);
+    vi.resetModules();
+    const m = await import("./devicePrefs");
+    expect(m.DEVICE_PREFS_KEY).toBe("kipple.device.v2");
+    expect(m.devicePrefsStore.get()).toMatchObject({ layout: "compact", order: "oldest", overrides: { feed: { "3": { layout: "cards" } }, folder: { "10": { layout: "inbox" } } } });
+    expect(JSON.parse(localStorage.getItem("kipple.device.v2") ?? "{}").overrides.feed).toEqual({ "3": { layout: "cards" } });
+    expect(localStorage.getItem("kipple.device.v1")).toBe(v1);
+    // Once v2 exists, v1 is never read again.
+    localStorage.setItem("kipple.device.v1", JSON.stringify({ layout: "inbox" }));
+    vi.resetModules();
+    expect((await import("./devicePrefs")).devicePrefsStore.get().layout).toBe("compact");
+  });
+});
+
 describe("layout override resolution", () => {
   it("Magazine is the default", () => {
     expect(resolveLayout(devicePrefsStore.get(), {})).toBe("magazine");

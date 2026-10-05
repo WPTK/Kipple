@@ -24,6 +24,10 @@ const (
 	DeviceMaxAgeDays = 400
 	// MaxDeviceProfileBytes is the size limit of the stored overrides (also a CHECK in 0004).
 	MaxDeviceProfileBytes = 8192
+	// MaxListOverridesBytes is the budget of the client.list_overrides key (its compact JSON), half the
+	// profile: one key that grows with the library is refused on its own (400 naming the key) instead of
+	// pushing the whole profile past MaxDeviceProfileBytes. Migration 0016 holds to the same budget.
+	MaxListOverridesBytes = 4096
 	// DeviceTouchInterval is the minimum gap between last_seen_at updates, in seconds.
 	DeviceTouchInterval = 24 * 60 * 60
 )

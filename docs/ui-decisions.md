@@ -176,9 +176,12 @@ Choices made where the decisions above were silent; the owner may overrule any o
   current view.
 - **Per-feed order** resolves like the layout: feed, then the nearest folder up the tree, then the device default. The
   list header's oldest-first toggle acts at the list's level (the feed or folder on its list, the device on Unread,
-  All, Starred and Muted), and toggling back to the inherited order removes the override.
+  All, Starred and Muted), and toggling back to the inherited order removes the override. The menu's Order radio is
+  the explicit form: picking Newest first or Oldest first there keeps that override even when it equals what the list
+  would inherit (so a later change above does not move it), and its first choice removes it.
 - Layout, order and view of one list are one object per feed or folder in the device profile
-  (`client.list_overrides`), set from the list header's layout menu and from the feed and folder editors.
+  (`client.list_overrides`), set from the list header's options menu (its button reads "List options, Cards layout")
+  and from the feed and folder editors, whose first choice names what the list inherits, as the menu does.
 ### Working agreement
 - Commit and open PRs without asking. Merge docs-only PRs when CI is green. Code PR for `phase-2` opens at
   deploy time. Reviews (Opus, high) after every two or three backend steps; fix all findings.

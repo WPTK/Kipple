@@ -22,7 +22,7 @@ import {
   syncStore,
   type LocalState,
 } from "./deviceSync";
-import { DEVICE_PREFS_KEY, devicePrefsStore, resetDevicePrefs, updateDevicePrefs } from "./devicePrefs";
+import { DEVICE_PREFS_KEY, LEGACY_DEVICE_PREFS_KEY, devicePrefsStore, resetDevicePrefs, setListOverride, updateDevicePrefs } from "./devicePrefs";
 import { DEFAULT_PREFS, PREFS_KEY, prefsStore, updatePrefs } from "./prefs";
 
 const local = (): LocalState => ({ theme: themeStore.get(), prefs: prefsStore.get(), dp: devicePrefsStore.get() });
@@ -622,5 +622,82 @@ describe("refused settings (review finding 4)", () => {
     expect(syncStore.get()).toMatchObject({ refused: 0 });
     await vi.advanceTimersByTimeAsync(2000);
     expect(patches).toHaveLength(n);
+  });
+});
+
+describe("list overrides across builds and limits (#38 review)", () => {
+  const withOverrides = { "client.list_overrides": { feed: { "5": { layout: "cards", order: "oldest" } }, folder: {} } };
+
+  it("a v1 cache written by a tab of the older build is not followed, so nothing is sent", async () => {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    const s = server(withOverrides);
+    hydrateDevice(s.view());
+    expect(devicePrefsStore.get().overrides.feed).toEqual({ "5": { layout: "cards", order: "oldest" } });
+    // The older build writes its whole cache, overrides in its own shape, and another field changed.
+    const v1 = { ...devicePrefsStore.get(), layout: "inbox", overrides: { feed: { "5": "cards" }, folder: {} } };
+    window.dispatchEvent(new StorageEvent("storage", { key: LEGACY_DEVICE_PREFS_KEY, newValue: JSON.stringify(v1) }));
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(s.patches).toEqual([]);
+    expect(devicePrefsStore.get().overrides.feed).toEqual({ "5": { layout: "cards", order: "oldest" } });
+    expect(devicePrefsStore.get().layout).toBe("magazine");
+  });
+
+  it("the unsaved default device keeps this device's overrides and sends nothing", async () => {
+    setListOverride("feed", "5", "view", "all");
+    const s = server();
+    hydrateDevice({ ...s.view(), id: "" });
+    expect(syncStore.get().status).toBe("unsaved");
+    expect(devicePrefsStore.get().overrides.feed).toEqual({ "5": { view: "all" } });
+    setListOverride("feed", "6", "order", "oldest");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(s.patches).toEqual([]);
+    expect(JSON.parse(localStorage.getItem(SYNC_DIRTY_KEY) ?? "{}")["client.list_overrides"]).toEqual({
+      feed: { "5": { view: "all" }, "6": { order: "oldest" } },
+      folder: {},
+    });
+  });
+
+  it("over its budget the overrides key alone is put aside (400 naming it); other changes still sync", async () => {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    const patches: Record<string, unknown>[] = [];
+    mockFetch({
+      "PATCH /api/device": (_u, init) => {
+        const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        patches.push(b);
+        if ("client.list_overrides" in b) return json({ error: "invalid_settings", keys: ["client.list_overrides"] }, 400);
+        return json(device({ merged: { ...DEFAULTS, ...b } }));
+      },
+    });
+    hydrateDevice(device());
+    setListOverride("feed", "5", "layout", "cards");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(syncStore.get()).toMatchObject({ status: "idle", refused: 1 });
+    updatePrefs({ textSize: 1.25 });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(patches.at(-1)).toEqual({ "client.text_size": 1.25 });
+    expect(devicePrefsStore.get().overrides.feed).toEqual({ "5": { layout: "cards" } }); // kept on this device
+  });
+
+  it("a 413 for the whole profile is an error with Retry, and nothing is dropped", async () => {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    let tooLarge = true;
+    const patches: Record<string, unknown>[] = [];
+    mockFetch({
+      "PATCH /api/device": (_u, init) => {
+        const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        patches.push(b);
+        if (tooLarge) return json({ error: "too_large", message: "The device profile would be larger than 8 KB." }, 413);
+        return json(device({ merged: { ...DEFAULTS, ...b } }));
+      },
+    });
+    hydrateDevice(device());
+    setListOverride("feed", "5", "layout", "cards");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(syncStore.get()).toMatchObject({ status: "error", refused: 0 });
+    expect(JSON.parse(localStorage.getItem(SYNC_DIRTY_KEY) ?? "{}")).toHaveProperty("client.list_overrides");
+    tooLarge = false;
+    await retrySave();
+    expect(patches.at(-1)).toHaveProperty("client.list_overrides");
+    expect(syncStore.get().status).toBe("idle");
   });
 });

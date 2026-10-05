@@ -5,13 +5,17 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { modeFields, modeOf, ruleLabel } from "@/api/filters";
-import { parseScopeKey, scopeKey } from "@/api/queries";
+import { keys, parseScopeKey, scopeKey } from "@/api/queries";
+import type { Bootstrap } from "@/api/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { devicePrefsStore, resetDevicePrefs, setListOverride, updateDevicePrefs } from "@/lib/devicePrefs";
 import { updatePrefs } from "@/lib/prefs";
 import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { clearListMemory } from "./ListPane";
 import { ListOverrideFields } from "./feeds/ListOverrideFields";
+import { OpenList } from "./ReaderRoute";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 
 // Issue #38: per-feed and per-folder order and opening view, the reading-time filter, and "Only show matching".
@@ -76,6 +80,29 @@ describe("the view a feed or folder opens in", () => {
     expect(window.location.pathname + window.location.search).toBe("/l/unread?feed=1");
   });
 
+  it("never waits on a bootstrap that cannot load (offline cold start): the feed's own view, else Unread", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {}))); // never answers
+    const qc = new QueryClient({ defaultOptions: { queries: { networkMode: "online", retry: false } } });
+    const Where = () => <p data-testid="where">{useLocation().pathname + useLocation().search}</p>;
+    const at = (path: string) =>
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="l" element={<OpenList />} />
+              <Route path="l/:view" element={<Where />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    const r = at("/l?feed=1");
+    expect(await screen.findByTestId("where")).toHaveTextContent("/l/unread?feed=1");
+    r.unmount();
+    setListOverride("feed", "1", "view", "all");
+    at("/l?feed=1");
+    expect(await screen.findByTestId("where")).toHaveTextContent("/l/all?feed=1");
+  });
+
   it("the sidebar links leave the view to the list", async () => {
     routes();
     go("/feeds");
@@ -88,7 +115,7 @@ describe("the view a feed or folder opens in", () => {
     go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^Layout:/ }));
+    await user.click(screen.getByRole("button", { name: /^List options,/ }));
     const group = screen.getByRole("group", { name: "View this feed opens in" });
     expect(within(group).getByRole("menuitemradio", { name: "Use the default (Unread)" })).toBeChecked();
     await user.click(within(group).getByRole("menuitemradio", { name: "All" }));
@@ -99,7 +126,7 @@ describe("the view a feed or folder opens in", () => {
     routes();
     go("/l/all");
     await screen.findByText("Article number 1");
-    await userEvent.setup().click(screen.getByRole("button", { name: /^Layout:/ }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /^List options,/ }));
     expect(screen.queryByRole("group", { name: /opens in/ })).toBeNull();
     expect(screen.getByRole("group", { name: "Order" })).toBeInTheDocument();
   });
@@ -155,15 +182,26 @@ describe("per-feed order", () => {
     routes();
     go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
-    await userEvent.setup().click(screen.getByRole("button", { name: /^Layout:/ }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /^List options,/ }));
     const group = screen.getByRole("group", { name: "Order of this feed" });
     expect(within(group).getByRole("menuitemradio", { name: "Inherited from News (Oldest first)" })).toBeChecked();
   });
 });
 
 describe("the feed and folder editors", () => {
+  function renderFields(kind: "feed" | "folder", id: string, boot: Bootstrap = bootstrap) {
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, boot);
+    return render(
+      <QueryClientProvider client={qc}>
+        <ListOverrideFields kind={kind} id={id} />
+      </QueryClientProvider>,
+    );
+  }
+
   it("set and clear each field of the override", async () => {
-    render(<ListOverrideFields kind="folder" id="4" />);
+    const boot = { ...bootstrap, folders: [...bootstrap.folders, { id: "4", name: "Tech", position: 1, is_default: false, unread: 0 }] };
+    renderFields("folder", "4", boot);
     const user = userEvent.setup();
     await user.selectOptions(screen.getByLabelText("Order on this device"), "oldest");
     await user.selectOptions(screen.getByLabelText("Opens in"), "all");
@@ -171,6 +209,31 @@ describe("the feed and folder editors", () => {
     await user.selectOptions(screen.getByLabelText("Order on this device"), "default");
     await user.selectOptions(screen.getByLabelText("Opens in"), "default");
     expect(devicePrefsStore.get().overrides.folder["4"]).toBeUndefined();
+  });
+
+  it("name what a feed inherits, as the header menu does", () => {
+    setListOverride("folder", "1", "order", "oldest");
+    updateDevicePrefs({ layout: "cards" });
+    renderFields("feed", "1");
+    expect(within(screen.getByLabelText("Order on this device")).getByRole("option", { name: "Inherited from News (Oldest first)" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Layout on this device")).getByRole("option", { name: "Use device default (Cards)" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Opens in")).getByRole("option", { name: "Use the default (Unread)" })).toBeInTheDocument();
+  });
+
+  it("a write drops the overrides of feeds and folders the library no longer has", async () => {
+    setListOverride("feed", "99", "layout", "cards"); // a deleted feed
+    setListOverride("folder", "77", "view", "all"); // a deleted folder
+    setListOverride("folder", "1", "layout", "inbox");
+    renderFields("feed", "1");
+    await userEvent.setup().selectOptions(screen.getByLabelText("Opens in"), "all");
+    expect(devicePrefsStore.get().overrides).toEqual({ feed: { "1": { view: "all" } }, folder: { "1": { layout: "inbox" } } });
+  });
+
+  it("a bootstrap from the offline copy prunes nothing", async () => {
+    setListOverride("feed", "99", "layout", "cards");
+    renderFields("feed", "1", { ...bootstrap, fromCache: true } as Bootstrap);
+    await userEvent.setup().selectOptions(screen.getByLabelText("Opens in"), "all");
+    expect(devicePrefsStore.get().overrides.feed).toEqual({ "99": { layout: "cards" }, "1": { view: "all" } });
   });
 });
 
@@ -238,13 +301,12 @@ describe("Only show matching", () => {
     expect(modeOf({ action: "mute", invert: true })).toBe("only");
     expect(modeOf({ action: "mute", invert: false })).toBe("mute");
     expect(modeOf({ action: "star", invert: true })).toBe("star");
-    expect(modeFields("only", { action: "star", invert: false })).toEqual({ action: "mute", invert: true });
-    // Leaving it clears the inversion; Mute and Highlight are never inverted.
-    expect(modeFields("star", { action: "mute", invert: true })).toEqual({ action: "star", invert: false });
-    expect(modeFields("mute", { action: "star", invert: true })).toEqual({ action: "mute", invert: false });
-    expect(modeFields("highlight", { action: "star", invert: true })).toEqual({ action: "highlight", invert: false });
-    // Between Mark as read and Star the invert option keeps its value.
-    expect(modeFields("mark_read", { action: "star", invert: true })).toEqual({ action: "mark_read", invert: true });
+    expect(modeFields("only", false)).toEqual({ action: "mute", invert: true });
+    // Mute and Highlight are never inverted; Mark as read and Star take the editor's invert option.
+    expect(modeFields("mute", true)).toEqual({ action: "mute", invert: false });
+    expect(modeFields("highlight", true)).toEqual({ action: "highlight", invert: false });
+    expect(modeFields("star", false)).toEqual({ action: "star", invert: false });
+    expect(modeFields("mark_read", true)).toEqual({ action: "mark_read", invert: true });
   });
 
   it("is named in the rule list", () => {

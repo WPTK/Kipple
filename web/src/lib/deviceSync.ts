@@ -9,6 +9,7 @@ import { isFontId } from "./fonts";
 import {
   DEFAULT_DEVICE_PREFS,
   DEVICE_PREFS_KEY,
+  LEGACY_DEVICE_PREFS_KEY,
   devicePrefsStore,
   parseDevicePrefs,
   replaceDevicePrefs,
@@ -42,7 +43,7 @@ export const DEBOUNCE_MS = 500;
 /** localStorage keys: the one-time migration flag, and the unsent changes (so a reload does not lose them). */
 export const SYNC_FLAG_KEY = "kipple.deviceSync.v1";
 export const SYNC_DIRTY_KEY = "kipple.deviceSync.dirty.v1";
-const LEGACY_KEYS = [DEVICE_PREFS_KEY, PREFS_KEY, THEME_STORAGE_KEY];
+const LEGACY_KEYS = [DEVICE_PREFS_KEY, LEGACY_DEVICE_PREFS_KEY, PREFS_KEY, THEME_STORAGE_KEY];
 
 const store = (): LocalState => ({ theme: themeStore.get(), prefs: prefsStore.get(), dp: devicePrefsStore.get() });
 
@@ -434,6 +435,8 @@ function onStorage(e: StorageEvent): void {
     const n = parsePrefs(e.newValue);
     if (stable(n) !== stable(prefsStore.get())) prefsStore.set(n);
   } else if (e.key === DEVICE_PREFS_KEY) {
+    // Only this build's key: a tab of an older build writes LEGACY_DEVICE_PREFS_KEY, whose overrides this build
+    // cannot read, and following it would send an emptied client.list_overrides to the server.
     const n = parseDevicePrefs(e.newValue);
     if (stable(n) !== stable(devicePrefsStore.get())) replaceDevicePrefs(n);
   } else if (e.key === THEME_STORAGE_KEY) {
@@ -503,7 +506,8 @@ function legacyProfileKeys(): Set<string> {
   // Never held before F4, so only a true value is a choice; false is just the field's default.
   if (p?.markReadOnScroll === true) out.add("ui.mark_read_on_scroll");
   if (p && parsePrefs(JSON.stringify(p)).shortcutsChosen) out.add("client.shortcuts");
-  add(read(DEVICE_PREFS_KEY), {
+  // The v1 cache counts when this build has not written its own yet (devicePrefs converts it on load).
+  add(read(DEVICE_PREFS_KEY) ?? read(LEGACY_DEVICE_PREFS_KEY), {
     layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], searchOrder: ["client.search_order"], inboxThumbs: ["client.inbox_thumbs"],
     peekSeen: ["client.peek_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
     sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],

@@ -345,6 +345,9 @@ function EditorForm({
   qc: ReturnType<typeof useQueryClient>;
 }) {
   const [d, setD] = useState<FilterDraft>(initial);
+  // The invert option of Mark as read and Star, kept while the rule passes through a mode that has none (Mute, Only
+  // show matching, Highlight), so picking Mark as read or Star again brings the choice back.
+  const [invertChoice, setInvertChoice] = useState(initial.action === "mark_read" || initial.action === "star" ? initial.invert : false);
   const [includeRead, setIncludeRead] = useState(false);
   const [apply, setApply] = useState(false);
   const [issue, setIssue] = useState<Issue | null>(null);
@@ -544,14 +547,17 @@ function EditorForm({
           checked={d.invert && d.action !== "mute"}
           // Mute inverted is the "Only show matching" choice below, so it has exactly one control.
           disabled={d.action === "highlight" || d.action === "mute"}
-          onChange={(v) => set({ invert: v })}
+          onChange={(v) => {
+            setInvertChoice(v);
+            set({ invert: v });
+          }}
         />
       </Group>
 
       <Group legend="What it does" error={at("action")}>
         <div className="grid gap-2">
           {MODES.map((a) => (
-            <Choice key={a.id} name={actionName} value={a.id} current={modeOf(d)} label={a.label} help={a.help} onPick={(v) => set(modeFields(v as FilterMode, d))} />
+            <Choice key={a.id} name={actionName} value={a.id} current={modeOf(d)} label={a.label} help={a.help} onPick={(v) => set(modeFields(v as FilterMode, invertChoice))} />
           ))}
         </div>
         {regex && d.action === "highlight" ? <p className="text-xs text-fg2">Highlight works with words or phrases only.</p> : null}

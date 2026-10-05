@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	"errors"
 	"fmt"
@@ -307,6 +308,10 @@ func (d *DB) applyMigration(ctx context.Context, m migration) (err error) {
 	if _, err := conn.ExecContext(ctx, m.sql); err != nil {
 		return fmt.Errorf("store: %s: %w", m.name, err)
 	}
+	notices, err := migrationNotices(ctx, conn)
+	if err != nil {
+		return fmt.Errorf("store: %s: %w", m.name, err)
+	}
 	rows, err := conn.QueryContext(ctx, "PRAGMA foreign_key_check")
 	if err != nil {
 		return fmt.Errorf("store: %s: foreign_key_check: %w", m.name, err)
@@ -328,7 +333,44 @@ func (d *DB) applyMigration(ctx context.Context, m migration) (err error) {
 		return fmt.Errorf("store: %s: commit: %w", m.name, err)
 	}
 	committed = true
+	for _, n := range notices {
+		d.log.Warn("store: "+n, "migration", m.name)
+	}
 	return nil
+}
+
+// migrationNotices reads and drops temp.migration_notice, the table a migration creates (on the
+// migration's own connection, so it never reaches the database file) when it has something to tell
+// the operator, such as data it had to drop. The runner logs each message as a warning once the
+// migration has committed. A migration without notices creates no table.
+func migrationNotices(ctx context.Context, conn *sql.Conn) ([]string, error) {
+	var n int
+	if err := conn.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_temp_master WHERE type = 'table' AND name = 'migration_notice'").Scan(&n); err != nil {
+		return nil, fmt.Errorf("migration notices: %w", err)
+	}
+	if n == 0 {
+		return nil, nil
+	}
+	rows, err := conn.QueryContext(ctx, "SELECT message FROM temp.migration_notice ORDER BY rowid")
+	if err != nil {
+		return nil, fmt.Errorf("migration notices: %w", err)
+	}
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("migration notices: %w", err)
+		}
+		out = append(out, s)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, fmt.Errorf("migration notices: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "DROP TABLE temp.migration_notice"); err != nil {
+		return nil, fmt.Errorf("migration notices: %w", err)
+	}
+	return out, nil
 }
 
 // Version returns PRAGMA user_version (used by tests and diagnostics).

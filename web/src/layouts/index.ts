@@ -2,7 +2,17 @@ import { useMemo } from "react";
 import { useBootstrap, useFolderTree } from "@/api/queries";
 import { chainOf, type FolderTree } from "@/lib/folderTree";
 import type { Scope } from "@/api/types";
-import { resolveLayout, sessionLayoutStore, useDevicePrefs, type LayoutContext, type LayoutId } from "@/lib/devicePrefs";
+import {
+  resolveLayout,
+  sessionLayoutStore,
+  setListOverride,
+  useDevicePrefs,
+  type KnownLists,
+  type LayoutContext,
+  type LayoutId,
+  type ListField,
+  type ListOverride,
+} from "@/lib/devicePrefs";
 import { useStore } from "@/lib/store";
 import { cards } from "./cards";
 import { compact } from "./compact";
@@ -38,6 +48,19 @@ export function useListContext(scope: Pick<Scope, "feed" | "folder">): LayoutCon
   const feeds = boot.data?.feeds;
   const { feed, folder } = scope;
   return useMemo(() => layoutContext({ view: "unread", feed, folder }, feeds ?? [], tree), [feed, folder, feeds, tree]);
+}
+
+/**
+ * setListOverride bound to the library the bootstrap lists, so a write also drops overrides of deleted feeds and
+ * folders. A bootstrap the service worker answered from its stored copy may predate a new feed, so it prunes nothing.
+ */
+export function useSetListOverride(): <F extends ListField>(kind: "feed" | "folder", id: string, field: F, value: ListOverride[F] | null) => void {
+  const data = useBootstrap().data;
+  return useMemo(() => {
+    const known: KnownLists | undefined =
+      data && !data.fromCache ? { feeds: new Set(data.feeds.map((f) => f.id)), folders: new Set(data.folders.map((f) => f.id)) } : undefined;
+    return (kind, id, field, value) => setListOverride(kind, id, field, value, known);
+  }, [data]);
 }
 
 /** The layout in effect for a list: `c` toggle, then feed override, folder overrides up the tree, device default. */

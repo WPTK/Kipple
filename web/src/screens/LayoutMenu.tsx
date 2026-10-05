@@ -3,7 +3,7 @@ import { Check, LayoutGrid, Star } from "lucide-react";
 import type { Scope } from "@/api/types";
 import { useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
-import { useResolvedLayout } from "@/layouts";
+import { useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
   LAYOUT_HINTS,
   LAYOUT_IDS,
@@ -14,7 +14,6 @@ import {
   inheritedList,
   overrideTarget,
   sessionLayoutStore,
-  setListOverride,
   updateDevicePrefs,
   useDevicePrefs,
   type LayoutContext,
@@ -35,7 +34,7 @@ const FIELD_LABELS: { [F in ListField]: Record<string, string> } = { layout: LAY
  * The first choice of a feed's or folder's group, which clears its own value: it names what the list then gets, "Inherited
  * from Tech › Apple (Cards)" when a folder above sets it, else the device default ("Unread" for the view).
  */
-function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
+export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
   const dp = useDevicePrefs();
   const tree = useFolderTree();
   const up = inheritedList(dp, ctx, field);
@@ -45,7 +44,7 @@ function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
 }
 
 /**
- * The view menu in the list header (its button is named after the layout). Layout: one list; the star beside each
+ * The list options menu in the list header (its button names the layout in effect). Layout: one list; the star beside each
  * layout makes it this device's default (a filled star is the default). Order, and on a feed or folder list the view it
  * opens in. On a feed or folder list each radio choice is that list's own override (the first choice clears it), under
  * its own heading; on the other lists the layout and order choices are the device defaults themselves. Everything is
@@ -53,6 +52,7 @@ function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
  */
 export function LayoutMenu({ scope }: { scope: Scope }) {
   const dp = useDevicePrefs();
+  const setListOverride = useSetListOverride();
   const { layout, ctx } = useResolvedLayout(scope);
   const target = overrideTarget(ctx);
   const own = target ? dp.overrides[target.kind][target.id] : undefined;
@@ -72,7 +72,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label={`Layout: ${layout.label}`}
+          aria-label={`List options, ${layout.label} layout`}
           className="hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection"
         >
           <LayoutGrid className="size-5" aria-hidden="true" />

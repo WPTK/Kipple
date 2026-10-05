@@ -806,10 +806,10 @@ describe("keyboard shortcut default and layouts", () => {
     media(WIDE);
     go("/l/unread");
     await screen.findByText("Article number 1");
-    expect(screen.getByRole("button", { name: "Layout: Editorial" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "List options, Editorial layout" })).toBeInTheDocument();
     act(() => updatePrefs({ shortcuts: true }));
     act(() => updateDevicePrefs({ layout: "headlines" }));
-    expect(await screen.findByRole("button", { name: "Layout: Email - Compact" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "List options, Email - Compact layout" })).toBeInTheDocument();
     expect(devicePrefsStore.get().layout).toBe("headlines");
   });
 });

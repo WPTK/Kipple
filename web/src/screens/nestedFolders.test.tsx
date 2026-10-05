@@ -300,7 +300,7 @@ describe("nested folder review fixes", () => {
     setLayoutOverride("folder", "2", "cards");
     go("/l/unread?folder=4");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Layout:/ }));
+    await user.click(await screen.findByRole("button", { name: /^List options,/ }));
     expect(await screen.findByRole("menuitemradio", { name: `Inherited from Tech (${LAYOUT_LABELS.cards})` })).toBeChecked();
   });
 

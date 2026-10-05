@@ -163,6 +163,24 @@ describe("Settings > Filters list", () => {
     }
   });
 
+  it("names what each rule does in words, separated from its scope and parts", async () => {
+    routes({
+      "GET /api/filters": () =>
+        json({
+          filters: [
+            filter(5, { scope: "feed", feed_id: "1", invert: true }),
+            filter(6, { action: "star", invert: true }),
+            filter(7, { action: "mark_read", fields: ["title", "author"] }),
+          ],
+        }),
+    });
+    go("/settings/filters");
+    const list = await screen.findByRole("list", { name: "Your filters" });
+    expect(within(list).getByText("Only show matching · Feed: Example Feed · Words in title")).toBeInTheDocument();
+    expect(within(list).getByText("Star when it does not match · Everywhere · Words in title")).toBeInTheDocument();
+    expect(within(list).getByText("Mark as read · Everywhere · Words in title, author")).toBeInTheDocument();
+  });
+
   it("says so when there are none", async () => {
     routes({ "GET /api/filters": () => json({ filters: [] }) });
     go("/settings/filters");
@@ -245,6 +263,24 @@ describe("filter editor", () => {
     expect(create.apply_existing).toBeUndefined();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "New filter" })).toBeNull());
   }, 20000);
+
+  it("the invert option of Mark as read survives a pass through Mute and Only show matching", async () => {
+    routes({ "GET /api/filters": () => json({ filters: [] }), "POST /api/filters/preview": () => json(previewOf(0)) });
+    go("/settings/filters");
+    const { user, dialog } = await openNew();
+    const w = within(dialog);
+    const invert = () => w.getByRole("checkbox", { name: /Act when it does NOT match/ });
+    await user.click(w.getByRole("radio", { name: /Mark as read/ }));
+    await user.click(invert());
+    expect(invert()).toBeChecked();
+    await user.click(w.getByRole("radio", { name: /^Mute/ }));
+    expect(invert()).toBeDisabled();
+    await user.click(w.getByRole("radio", { name: /Only show matching/ }));
+    expect(w.getByText(/for several topics put all the words in one rule/)).toBeInTheDocument();
+    await user.click(w.getByRole("radio", { name: /Mark as read/ }));
+    expect(invert()).toBeChecked();
+    expect(invert()).toBeEnabled();
+  });
 
   it("picks a folder or a feed for the scope", async () => {
     const boot: Bootstrap = { ...bootstrap, folders: [{ id: "1", name: "News", position: 0, is_default: true, unread: 0 }, { id: "2", name: "Tech", position: 1, is_default: false, unread: 0 }] };

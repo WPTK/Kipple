@@ -128,7 +128,14 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   layoutBeforeTitlesOnly: null,
 };
 
-export const DEVICE_PREFS_KEY = "kipple.device.v1";
+/**
+ * The cache of this device's prefs. Versioned by the shape of `overrides`: v1 held `{id: layout}`, v2 holds
+ * `{id: {layout?, order?, view?}}`. A tab of the other build writes the other key, so neither reads the other's
+ * values back as its own (a v1 writer's cache read as v2 would drop every override and send that up).
+ */
+export const DEVICE_PREFS_KEY = "kipple.device.v2";
+/** The v1 cache: read once, when there is no v2 cache yet, and never written. */
+export const LEGACY_DEVICE_PREFS_KEY = "kipple.device.v1";
 
 const isLayoutId = (v: unknown): v is LayoutId => LAYOUT_IDS.includes(v as LayoutId);
 
@@ -200,12 +207,33 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
   }
 }
 
+/** A v1 cache, whose overrides were a layout id per feed or folder: each becomes `{layout}`. */
+export function parseLegacyDevicePrefs(raw: string | null): DevicePrefs {
+  try {
+    const v = JSON.parse(raw ?? "null") as { overrides?: Record<string, unknown> } | null;
+    if (v && typeof v === "object" && v.overrides && typeof v.overrides === "object") {
+      const wrap = (m: unknown) =>
+        m && typeof m === "object" ? Object.fromEntries(Object.entries(m as Record<string, unknown>).map(([k, l]) => [k, { layout: l }])) : {};
+      v.overrides = { feed: wrap(v.overrides.feed), folder: wrap(v.overrides.folder) };
+    }
+    return parseDevicePrefs(JSON.stringify(v));
+  } catch {
+    return parseDevicePrefs(null);
+  }
+}
+
 /** The only place that knows where device prefs live. */
 const storage = {
   load(): DevicePrefs {
     try {
-      const raw = localStorage.getItem(DEVICE_PREFS_KEY);
-      const p = parseDevicePrefs(raw);
+      let raw = localStorage.getItem(DEVICE_PREFS_KEY);
+      let p: DevicePrefs;
+      if (raw === null && (raw = localStorage.getItem(LEGACY_DEVICE_PREFS_KEY)) !== null) {
+        // First load of this build: the first paint keeps the layouts the v1 cache held. The v1 key stays for a tab
+        // of the older build still open.
+        p = parseLegacyDevicePrefs(raw);
+        localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(p));
+      } else p = parseDevicePrefs(raw);
       // One-time migration: the search ordering used to be its own localStorage key. Adopt it when the device
       // cache has no value yet, then drop the old key (deviceSync sends it up like any other held value).
       const old = localStorage.getItem(LEGACY_SEARCH_ORDER_KEY);
@@ -262,16 +290,31 @@ export function resetDevicePrefs(): void {
   sessionLayoutStore.set(null);
 }
 
-/** Set (or with null clear) one field of a feed's or folder's override; an override with no field left is removed. */
-export function setListOverride<F extends ListField>(kind: "feed" | "folder", id: string, field: F, value: ListOverride[F] | null): void {
+/** The feeds and folders the library has (the bootstrap), for dropping overrides of deleted ones. */
+export interface KnownLists {
+  feeds: ReadonlySet<string>;
+  folders: ReadonlySet<string>;
+}
+
+/**
+ * Set (or with null clear) one field of a feed's or folder's override; an override with no field left is removed.
+ * With `known`, overrides of feeds and folders that no longer exist are dropped in the same write: the profile key has
+ * a byte budget, and a deleted list's override would otherwise hold its share forever. Pruning happens here, where
+ * the key grows, rather than on the server's feed and folder deletes: the server stores this key without reading it,
+ * and every device prunes its own profile the next time it writes one.
+ */
+export function setListOverride<F extends ListField>(kind: "feed" | "folder", id: string, field: F, value: ListOverride[F] | null, known?: KnownLists): void {
   devicePrefsStore.set((p) => {
-    const map = { ...p.overrides[kind] };
+    const keep = (k: "feed" | "folder", m: Record<string, ListOverride>) =>
+      known ? Object.fromEntries(Object.entries(m).filter(([x]) => (k === kind && x === id) || (k === "feed" ? known.feeds : known.folders).has(x))) : { ...m };
+    const overrides = { feed: keep("feed", p.overrides.feed), folder: keep("folder", p.overrides.folder) };
+    const map = overrides[kind];
     const entry: ListOverride = { ...map[id] };
     if (value) entry[field] = value;
     else delete entry[field];
     if (Object.keys(entry).length) map[id] = entry;
     else delete map[id];
-    const next = { ...p, overrides: { ...p.overrides, [kind]: map } };
+    const next = { ...p, overrides };
     storage.save(next);
     return next;
   });

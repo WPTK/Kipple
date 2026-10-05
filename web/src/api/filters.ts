@@ -85,18 +85,19 @@ export type FilterMode = FilterAction | "only";
 export const ONLY_MATCHING = {
   id: "only" as const,
   label: "Only show matching",
-  help: "Mutes every article that does not match, so only articles with these words are left in Unread, All and search. The others are kept in Muted, and you can restore any of them. To limit it to one feed or folder, pick it under Where it applies.",
+  help: "Mutes every article that does not match, so only articles with these words are left in Unread, All and search. The others are kept in Muted, and you can restore any of them. To limit it to one feed or folder, pick it under Where it applies. Each such rule has to match on its own, so for several topics put all the words in one rule.",
 };
 export const MODES: readonly { id: FilterMode; label: string; help: string }[] = [ACTIONS[0]!, ONLY_MATCHING, ...ACTIONS.slice(1)];
 export const modeOf = (f: Pick<FilterDraft, "action" | "invert">): FilterMode => (f.action === "mute" && f.invert ? "only" : f.action);
 /**
- * The stored fields for picking mode `m` on draft `d`: Mute and Highlight are never inverted, and leaving "Only show
- * matching" clears the inversion; between Mark as read and Star the invert option keeps its value.
+ * The stored fields for picking mode `m`: Only show matching is the inverted Mute, Mute and Highlight are never
+ * inverted, and Mark as read and Star take `invertChoice`, the editor's invert option for them (kept while the rule
+ * passes through the other modes, so the choice is not lost on the way).
  */
-export function modeFields(m: FilterMode, d: Pick<FilterDraft, "action" | "invert">): Pick<FilterDraft, "action" | "invert"> {
+export function modeFields(m: FilterMode, invertChoice: boolean): Pick<FilterDraft, "action" | "invert"> {
   if (m === "only") return { action: "mute", invert: true };
   if (m === "mute" || m === "highlight") return { action: m, invert: false };
-  return { action: m, invert: modeOf(d) === "only" ? false : d.invert };
+  return { action: m, invert: invertChoice };
 }
 /** A rule's action in words: "Only show matching", "Star when it does not match", "Mute". */
 export const ruleLabel = (f: Pick<FilterDraft, "action" | "invert">): string =>
