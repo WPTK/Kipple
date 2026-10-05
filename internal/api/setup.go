@@ -48,8 +48,8 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"setup": true, "auth": nil,
 			"access": map[string]bool{
-				"enabled":  s.opt.Access != nil,
-				"verified": s.opt.Access != nil && s.accessProof(r) == proofOK,
+				"enabled":  s.reach.Access() != nil,
+				"verified": s.reach.Access() != nil && s.accessProof(r) == proofOK,
 			},
 			"open": map[string]any{
 				"reason": orNull(s.gateRefusal(r, snap, false)),
@@ -130,7 +130,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 			return
 		default:
 			writeErrorMsg(w, http.StatusForbidden, "access_required",
-				"no password with Cloudflare Access needs Access configured (KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD) and Kipple opened through it")
+				"no password with Cloudflare Access needs Access configured and Kipple opened through it: create the account with a password, set up Cloudflare Access in Settings, then remove the password")
 			return
 		}
 	default:

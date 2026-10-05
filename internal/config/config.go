@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -16,28 +15,32 @@ import (
 
 	"github.com/WPTK/kipple/internal/access"
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/setup"
 )
 
 // Config holds every setting Kipple reads at startup. See .env.example for
 // a full description of each field.
 type Config struct {
-	Addr            string         // KIPPLE_ADDR, default DefaultAddr (":1919")
-	DataDir         string         // KIPPLE_DATA, default "/data"
-	Username        string         // KIPPLE_USERNAME
-	Password        string         // KIPPLE_PASSWORD, initial web password
-	APIPassword     string         // KIPPLE_API_PASSWORD, optional initial
-	PublicURL       string         // KIPPLE_PUBLIC_URL
-	TrustedProxyIPs []netip.Prefix // KIPPLE_TRUSTED_PROXY_IPS, comma-separated addresses or CIDR ranges
+	Addr        string // KIPPLE_ADDR, default DefaultAddr (":1919")
+	DataDir     string // KIPPLE_DATA, default "/data"
+	Username    string // KIPPLE_USERNAME
+	Password    string // KIPPLE_PASSWORD, initial web password
+	APIPassword string // KIPPLE_API_PASSWORD, optional initial
+	// The reachability values only seed their settings when those were never
+	// stored (reach.SeedSettings); the settings decide from then on.
+	PublicURL       string         // KIPPLE_PUBLIC_URL, seeds server.public_url
+	TrustedProxyIPs []netip.Prefix // KIPPLE_TRUSTED_PROXY_IPS, comma-separated addresses or CIDR ranges; seeds security.trusted_proxies
 	TZ              string         // TZ: "" when unset. Only seeds the tz setting of a new install (store.SeedZone)
-	AllowedHosts    []string       // KIPPLE_ALLOWED_HOSTS, comma-separated host names or *.suffix (normalized)
+	AllowedHosts    []string       // KIPPLE_ALLOWED_HOSTS, comma-separated host names or *.suffix (normalized); seeds security.allowed_hosts
 	SchedTick       time.Duration  // KIPPLE_SCHED_TICK, default 30s
 	FetchWorkers    int            // KIPPLE_FETCH_WORKERS, default 8
 	FetchPerHost    int            // KIPPLE_FETCH_PER_HOST, default 2
 	LogLevel        slog.Level     // KIPPLE_LOG_LEVEL, default info
 	LogGreaderForms bool           // KIPPLE_LOG_GREADER_FORMS, default false
 	// Cloudflare Access token validation (optional, both or neither): the team
-	// domain as a bare host (normalized) and the application AUD tag.
+	// domain as a bare host (normalized) and the application AUD tag. They seed
+	// security.cloudflare_access.
 	AccessTeamDomain string // KIPPLE_ACCESS_TEAM_DOMAIN
 	AccessAUD        string // KIPPLE_ACCESS_AUD
 }
@@ -77,7 +80,7 @@ func load(getenv func(string) string) (Config, error) {
 	}
 
 	var err error
-	if err = checkPublicURL(cfg.PublicURL); err != nil {
+	if err = reach.CheckPublicURL(cfg.PublicURL); err != nil {
 		return Config{}, fmt.Errorf("KIPPLE_PUBLIC_URL: %w", err)
 	}
 	if cfg.AllowedHosts, err = setup.ParseAllowedHosts(getenv("KIPPLE_ALLOWED_HOSTS")); err != nil {
@@ -112,8 +115,11 @@ func load(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
-// AccessEnabled reports whether Cloudflare Access token validation is configured.
-func (c Config) AccessEnabled() bool { return c.AccessTeamDomain != "" && c.AccessAUD != "" }
+// ReachSeed is the environment's seed for the reachability settings.
+func (c Config) ReachSeed() reach.Seed {
+	return reach.Seed{PublicURL: c.PublicURL, AllowedHosts: c.AllowedHosts, TrustedProxies: c.TrustedProxyIPs,
+		AccessTeam: c.AccessTeamDomain, AccessAUD: c.AccessAUD}
+}
 
 // parseAccess validates the Cloudflare Access pair: both unset (the feature is
 // off) or both set. One without the other stops startup, so a half-done setup
@@ -137,35 +143,6 @@ func parseAccess(team, aud string) (string, string, error) {
 		return "", "", fmt.Errorf("KIPPLE_ACCESS_AUD: %w", err)
 	}
 	return host, aud, nil
-}
-
-// checkPublicURL accepts an empty value or an absolute http(s) URL with a host
-// and nothing that cannot be a base for other URLs: no user info, query or
-// fragment, and no spaces or control characters.
-func checkPublicURL(v string) error {
-	if v == "" {
-		return nil
-	}
-	if strings.TrimSpace(v) != v || strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
-		return fmt.Errorf("%q has spaces or control characters", v)
-	}
-	u, err := url.Parse(v)
-	if err != nil {
-		return err
-	}
-	switch {
-	case u.Scheme != "http" && u.Scheme != "https":
-		return fmt.Errorf("%q must start with http:// or https://", v)
-	case u.Host == "" || u.Hostname() == "":
-		return fmt.Errorf("%q has no host", v)
-	case u.User != nil:
-		return fmt.Errorf("%q must not contain user info", v)
-	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(v, "?#"):
-		return fmt.Errorf("%q must not have a query or fragment", v)
-	case u.Opaque != "":
-		return fmt.Errorf("%q is not an absolute URL", v)
-	}
-	return nil
 }
 
 func orDefault(v, def string) string {

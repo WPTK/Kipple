@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import { generateApiPassword } from "@/api/admin";
+import { generateApiPassword, useSettings } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { accountError } from "@/screens/AccountSection";
 import { announce, toast } from "@/shell/toasts";
@@ -11,7 +11,7 @@ import { apiPasswordMade, setupSecret } from "./session";
 import { stepById } from "./steps";
 
 /**
- * Step 6: done. Optionally makes the API password that sync apps sign in with, shown once with a
+ * Step 7: done. Optionally makes the API password that sync apps sign in with, shown once with a
  * copy button, then Finish ends the wizard. For a password account the web password typed in step 1 is still in memory
  * and is used; after a reload it is asked for again, as Settings does. An account with no password (open mode) needs none.
  */
@@ -29,7 +29,10 @@ export function FinishStep({ onBack, onFinish, busy }: { onBack: () => void; onF
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const server = `${window.location.origin}/api/greader.php`;
+  // Sync apps connect at the public URL when there is one (step 6), else at the address of this page.
+  const publicUrl = useSettings().data?.values["server.public_url"];
+  const base = typeof publicUrl === "string" && publicUrl !== "" ? publicUrl.replace(/\/+$/, "") : window.location.origin;
+  const server = `${base}/api/greader.php`;
 
   const current = hasPassword ? (remembered ?? typed) : open ? undefined : "";
   const needsPassword = known && hasPassword && remembered === null;

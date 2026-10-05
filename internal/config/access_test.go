@@ -9,7 +9,7 @@ import (
 func TestAccessOffByDefault(t *testing.T) {
 	cfg, err := load(env(nil))
 	require.NoError(t, err)
-	require.False(t, cfg.AccessEnabled())
+	require.Equal(t, "", cfg.ReachSeed().AccessTeam)
 	require.Empty(t, cfg.AccessTeamDomain)
 	require.Empty(t, cfg.AccessAUD)
 }
@@ -18,7 +18,7 @@ func TestAccessBothSet(t *testing.T) {
 	for _, team := range []string{"myteam.cloudflareaccess.com", "https://MyTeam.cloudflareaccess.com/", " myteam.cloudflareaccess.com "} {
 		cfg, err := load(env(map[string]string{"KIPPLE_ACCESS_TEAM_DOMAIN": team, "KIPPLE_ACCESS_AUD": " abc123 "}))
 		require.NoError(t, err, team)
-		require.True(t, cfg.AccessEnabled())
+		require.Equal(t, "myteam.cloudflareaccess.com", cfg.ReachSeed().AccessTeam)
 		require.Equal(t, "myteam.cloudflareaccess.com", cfg.AccessTeamDomain)
 		require.Equal(t, "abc123", cfg.AccessAUD)
 	}

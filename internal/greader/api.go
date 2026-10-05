@@ -11,7 +11,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/events"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/stats"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -45,10 +45,10 @@ type Options struct {
 	// only). Tests inject fakes.
 	Failures *auth.FailureTracker
 	Verifier *auth.Verifier
-	// TrustedProxies are the peers allowed to set CF-Connecting-IP.
-	TrustedProxies []netip.Prefix
-	// PublicURL builds iconUrl when greader.icon_urls is on.
-	PublicURL string
+	// Reach is the reachability settings in force: the trusted proxies (the peers
+	// allowed to set CF-Connecting-IP) and the public URL (the base of iconUrl when
+	// greader.icon_urls is on). Nil: none of either.
+	Reach *reach.Live
 	// LogForms (KIPPLE_LOG_GREADER_FORMS) adds redacted, truncated form values to the debug log.
 	LogForms bool
 	// FulltextHold is how long a new item of a full-text feed is held back from
@@ -438,7 +438,7 @@ func (c *call) unauthorized() {
 func (c *call) clientLogin() {
 	a := c.a
 	ctx := c.r.Context()
-	ip := auth.ClientIP(c.r, a.opt.TrustedProxies)
+	ip := auth.ClientIP(c.r, a.opt.Reach.Trusted())
 	bad := func() {
 		c.w.Header().Set("Google-Bad-Token", "true")
 		c.w.Header().Set("X-Reader-Google-Bad-Token", "true")

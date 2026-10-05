@@ -233,8 +233,9 @@ Traefik, see [docs/reverse-proxy.md](docs/reverse-proxy.md).
 
 ## Configuration
 
-Almost everything is set in the browser: the setup wizard covers the account, time zone, theme and feeds, and
-Settings covers themes, fonts, layouts, retention, sync behavior and the rest, per device or for the account,
+Almost everything is set in the browser: the setup wizard covers the account, time zone, theme, feeds and the public
+address, and Settings covers themes, fonts, layouts, retention, sync behavior, the reverse proxy and Cloudflare Access
+settings and the rest, per device or for the account,
 without touching the container again. Environment variables are optional advanced overrides;
 [.env.example](.env.example) documents every one, and [docker-compose.example.yml](docker-compose.example.yml) shows
 a hardened container setup with resource limits.
@@ -244,10 +245,7 @@ The ones self-hosters most often want:
 | Variable | Purpose |
 | --- | --- |
 | `KIPPLE_ADDR` | Listen address, default `:1919`. Change the container side of the port mapping with it (see [docs/deploy.md](docs/deploy.md#ports)). |
-| `KIPPLE_PUBLIC_URL` | Public URL, used for feed icons in sync clients. |
-| `KIPPLE_TRUSTED_PROXY_IPS` | Required if Kipple sits behind a reverse proxy or tunnel. |
-| `KIPPLE_ALLOWED_HOSTS` | Extra host names Kipple answers to during setup and without a password. |
-| `KIPPLE_ACCESS_TEAM_DOMAIN` / `KIPPLE_ACCESS_AUD` | Optional Cloudflare Access integration. |
+| `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS`, `KIPPLE_ACCESS_TEAM_DOMAIN` / `KIPPLE_ACCESS_AUD` | Optional seeds for a scripted first start: the public URL, the reverse proxy addresses, extra host names and Cloudflare Access. Each is stored as its setting once, when that setting was never set; after that Settings, Account & Devices, Address and access decides, with no restart. |
 | `TZ` | IANA time zone for a new install: stored as the time zone setting on the first start only. Choose it in Kipple afterwards. |
 | `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` | Create the account from the environment instead of the wizard (scripted deploys). |
 

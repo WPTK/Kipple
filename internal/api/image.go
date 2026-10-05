@@ -75,7 +75,7 @@ func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 	} else {
 		s.imgHSecret = secret
 		s.imgH = imgproxy.New(imgproxy.Options{
-			Secret: secret, UserAgent: s.outgoingUA(), Logger: s.log, Cache: s.opt.ImgCache,
+			Secret: secret, UserAgent: s.opt.UserAgent, Logger: s.log, Cache: s.opt.ImgCache,
 			BrowserUA: func() string { return store.BrowserUA(s.db.FetchSettings(context.Background())) },
 			Transport: func(allowPrivate, insecure bool) http.RoundTripper { return s.opt.Guard(allowPrivate, insecure, false) },
 		})
@@ -84,7 +84,7 @@ func (s *Server) imageHandler(ctx context.Context) (*imgproxy.Handler, bool) {
 }
 
 // outgoingUA is Kipple's own User-Agent, the one string shared with the fetcher.
-func (s *Server) outgoingUA() string { return s.opt.UserAgent }
+func (s *Server) outgoingUA() string { return s.opt.UserAgent() }
 
 // image is GET /img/{sig}/{flags}/{u}; authed supplies the session check.
 func (s *Server) image(w http.ResponseWriter, r *http.Request) {

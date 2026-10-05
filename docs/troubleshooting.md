@@ -72,11 +72,11 @@ Then check, in order:
 
 This is the Host check; it protects against DNS rebinding. During setup Kipple answers an IP address, `localhost`, a
 single-word name such as `nas`, `.localhost`, `.local`, `.lan`, `.home.arpa`, `.internal` and `.ts.net` names, the host of
-`KIPPLE_PUBLIC_URL`, and the names you allowed. Without a password (open mode) it answers an IP address, `localhost`, `.localhost` and `.ts.net` names, the host of
-`KIPPLE_PUBLIC_URL`, and the names you allowed; other single-word and `.local`-style names are refused because any
-device on your network could answer them with your computer's address. To allow a name, add it to
-`KIPPLE_ALLOWED_HOSTS` (comma-separated, for example `nas.local` or `rss.example.com`) and restart Kipple, or open
-Kipple by its IP address. With a password the check only logs.
+the public URL, and the names you allowed. Without a password (open mode) it answers an IP address, `localhost`, `.localhost` and `.ts.net` names, the host of
+the public URL, and the names you allowed; other single-word and `.local`-style names are refused because any
+device on your network could answer them with your computer's address. To allow a name, open Kipple by its IP
+address, then add the name (for example `nas.local` or `rss.example.com`) under **Allowed host names** in Settings,
+Account & Devices, Address and access. It applies at once. With a password the check only logs.
 
 ## Sign-in says "busy"
 
@@ -87,9 +87,9 @@ causes:
   correct password clears the count, and it is forgotten after an hour with no failure. Wait and try again.
 - **A shared address.** Behind a reverse proxy or tunnel that Kipple does not know about, every visitor looks like the
   proxy and shares one budget, so one guesser (or your own typos) slows everyone. The log says so with a `WARN`: `proxy
-  headers from an untrusted peer are ignored ... add its address to KIPPLE_TRUSTED_PROXY_IPS`. Set
-  `KIPPLE_TRUSTED_PROXY_IPS` to the address your proxy connects from, as Kipple sees it (see
-  [reverse-proxy.md](reverse-proxy.md)), and restart. Docker Desktop's gateway counts as such a shared address too.
+  headers from an untrusted peer are ignored ... add its address to the trusted proxies`. Add the address your proxy
+  connects from, as Kipple sees it, under **Trusted proxies** in Settings, Account & Devices, Address and access (see
+  [reverse-proxy.md](reverse-proxy.md)); it applies at once. Docker Desktop's gateway counts as such a shared address too.
 
 The pacing is in memory; a restart clears it.
 
@@ -98,7 +98,7 @@ The pacing is in memory; a restart clears it.
 Kipple refuses a state-changing request whose `Origin` does not match the address it was sent to, and for a browser
 that sends no `Sec-Fetch-Site` it compares the scheme too. A proxy that rewrites `Host`, or that terminates HTTPS without
 a trusted `X-Forwarded-Proto: https`, makes every action fail with 403 while the pages still load. Pass the original
-`Host` through, send `X-Forwarded-Proto`, and list the proxy in `KIPPLE_TRUSTED_PROXY_IPS`
+`Host` through, send `X-Forwarded-Proto`, and list the proxy under **Trusted proxies** in Settings, Account & Devices
 ([reverse-proxy.md](reverse-proxy.md)).
 
 ## Feeds are not updating

@@ -302,7 +302,7 @@ func TestWarnUntrustedProxyHeaders(t *testing.T) {
 	trusted := []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")}
 	served := 0
 	h := WarnUntrustedProxyHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { served++ }),
-		trusted, func(r *http.Request) bool { return r.Header.Get("X-Test-Expected") != "" }, log, func() time.Time { return now })
+		func() []netip.Prefix { return trusted }, func(r *http.Request) bool { return r.Header.Get("X-Test-Expected") != "" }, log, func() time.Time { return now })
 	send := func(peer string, hdr map[string]string) {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.RemoteAddr = peer
@@ -318,7 +318,7 @@ func TestWarnUntrustedProxyHeaders(t *testing.T) {
 
 	send("198.51.100.7:1", map[string]string{"CF-Connecting-IP": "203.0.113.5"})
 	require.Contains(t, buf.String(), "level=WARN")
-	require.Contains(t, buf.String(), "KIPPLE_TRUSTED_PROXY_IPS")
+	require.Contains(t, buf.String(), "trusted proxies (Settings")
 	require.Contains(t, buf.String(), "198.51.100.7:1")
 	require.NotContains(t, buf.String(), "203.0.113.5", "the spoofable value is not logged")
 

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/url"
 
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/setup"
@@ -45,18 +44,4 @@ func listen(addr string) (net.Listener, error) {
 		return nil, fmt.Errorf("cannot listen on %q (set KIPPLE_ADDR to use another address): %w", addr, err)
 	}
 	return ln, nil
-}
-
-// allowedHosts is the Host gate's configured list: KIPPLE_ALLOWED_HOSTS plus the
-// host of KIPPLE_PUBLIC_URL.
-func allowedHosts(cfg config.Config) []string {
-	out := append([]string(nil), cfg.AllowedHosts...)
-	if cfg.PublicURL != "" {
-		if u, err := url.Parse(cfg.PublicURL); err == nil {
-			if e, err := setup.CheckHostEntry(u.Hostname()); err == nil {
-				out = append(out, e)
-			}
-		}
-	}
-	return out
 }

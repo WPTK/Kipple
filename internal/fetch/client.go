@@ -20,8 +20,8 @@ const (
 
 // ClientOptions configure NewClient. Zero timeouts take the design values.
 type ClientOptions struct {
-	Version   string // for the default User-Agent
-	PublicURL string // "+url" part of the default User-Agent, omitted when empty
+	Version   string        // for the default User-Agent
+	PublicURL func() string // the "+url" part of the default User-Agent (the public URL in force); nil or "" leaves it out
 
 	DialTimeout     time.Duration // 10 s
 	TLSTimeout      time.Duration // 10 s
@@ -37,7 +37,7 @@ type variant struct{ noHTTP2, insecureTLS, allowPrivate bool }
 // variant (design §4.4).
 type Client struct {
 	opt ClientOptions
-	ua  string
+	ua  string // the default User-Agent up to the public URL
 
 	mu         sync.Mutex
 	transports map[variant]*http.Transport
@@ -64,12 +64,7 @@ func NewClient(opt ClientOptions) *Client {
 	if ver == "" {
 		ver = "dev"
 	}
-	ua := "Mozilla/5.0 (compatible; Kipple/" + ver
-	if opt.PublicURL != "" {
-		ua += "; +" + opt.PublicURL
-	}
-	ua += ")"
-	return &Client{opt: opt, ua: ua, transports: map[variant]*http.Transport{}}
+	return &Client{opt: opt, ua: "Mozilla/5.0 (compatible; Kipple/" + ver, transports: map[variant]*http.Transport{}}
 }
 
 // BrowserUserAgent is the common desktop-browser string used for feeds that
@@ -78,8 +73,16 @@ func NewClient(opt ClientOptions) *Client {
 const BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 
 // DefaultUserAgent is the User-Agent used when neither the feed nor the
-// user-agent mode overrides it.
-func (c *Client) DefaultUserAgent() string { return c.ua }
+// user-agent mode overrides it. It names the public URL in force, so it is read
+// per request (cheap) rather than kept.
+func (c *Client) DefaultUserAgent() string {
+	if c.opt.PublicURL != nil {
+		if u := c.opt.PublicURL(); u != "" {
+			return c.ua + "; +" + u + ")"
+		}
+	}
+	return c.ua + ")"
+}
 
 func (c *Client) transport(v variant) *http.Transport {
 	c.mu.Lock()

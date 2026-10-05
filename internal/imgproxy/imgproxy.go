@@ -110,7 +110,9 @@ type Options struct {
 	// Transport returns the SSRF-guarded transport for a flags variant
 	// (fetch.Client.Transport).
 	Transport func(allowPrivate, insecureTLS bool) http.RoundTripper
-	UserAgent string
+	// UserAgent returns Kipple's own User-Agent, read per request (it names the
+	// public URL in force). Nil is a generic Kipple one.
+	UserAgent func() string
 	// BrowserUA returns the plain browser User-Agent of the hotlink retries; it
 	// never names Kipple. It is read per request so a settings change applies
 	// at once. The default is fetch.BrowserUserAgent.
@@ -201,8 +203,8 @@ func New(opt Options) *Handler {
 	if opt.SlotHold <= 0 {
 		opt.SlotHold = opt.Timeout + slotHoldGrace
 	}
-	if opt.UserAgent == "" {
-		opt.UserAgent = "Mozilla/5.0 (compatible; Kipple)"
+	if opt.UserAgent == nil {
+		opt.UserAgent = func() string { return "Mozilla/5.0 (compatible; Kipple)" }
 	}
 	if opt.BrowserUA == nil {
 		opt.BrowserUA = func() string { return fetch.BrowserUserAgent }

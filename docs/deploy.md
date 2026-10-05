@@ -83,20 +83,20 @@ Kipple's state is split in two places, and a backup of one does not cover the ot
 | Lives in the database (in every export zip and snapshot) | Lives in your compose file or `.env` (in no backup) |
 |---|---|
 | The account: user name, password hashes, account secret | `KIPPLE_ADDR` and the compose port mapping |
-| Every setting, including the time zone (`tz`) and `security.allowed_hosts` | `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS` |
-| Feeds, folders, per-feed options, filters, feed logins | `KIPPLE_ACCESS_TEAM_DOMAIN`, `KIPPLE_ACCESS_AUD` |
-| Read and starred state, the statistics history | `TZ`, `KIPPLE_DATA`, and the other tuning and logging variables |
+| Every setting, including the time zone (`tz`) and the address and access settings (public URL, allowed host names, trusted proxies, Cloudflare Access) | `KIPPLE_DATA`, and the tuning and logging variables |
+| Feeds, folders, per-feed options, filters, feed logins | |
+| Read and starred state, the statistics history | |
 | Device profiles | Image tag, resource limits (`mem_limit`, `GOMEMLIMIT`), the reverse proxy or tunnel setup |
 
 `KIPPLE_USERNAME`, `KIPPLE_PASSWORD` and `KIPPLE_API_PASSWORD` are read only on the first start of an empty database and
 ignored once an account exists, so they are not part of the state. If you set them, the plain text sits in `.env`:
 remove the lines after setup, and keep `.env` somewhere private either way.
 
-`security.allowed_hosts` has no precedence rule between the two places: the names in `KIPPLE_ALLOWED_HOSTS` and the
-names in the setting are added together, so a restore brings back the setting's names and your `.env` must bring back
-the rest. `TZ` only seeds the zone: it is stored when no `tz` setting exists yet, so a restored backup's zone wins, and
-`TZ` applies only when the backup has none.
-
+The other variables that name a setting are seeds, with one rule: a seed is stored only when its setting has never been
+stored, and the setting decides from then on. `TZ` seeds the time zone; `KIPPLE_PUBLIC_URL`, `KIPPLE_ALLOWED_HOSTS`,
+`KIPPLE_TRUSTED_PROXY_IPS` and the two `KIPPLE_ACCESS_*` variables seed the settings under Settings, Account & Devices,
+Address and access. A restored backup brings its own settings back, and the variables do not override them; Kipple
+logs a warning at start for each variable whose setting holds something else, so you can remove the stale line.
 Checklist, for a rebuild to be a copy and paste:
 
 1. The data volume, as an export zip (above) or a tarball of the volume (below).
@@ -279,15 +279,18 @@ the host:
     docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' <container>
 
 The README's compose files publish `127.0.0.1:1919:1919`, this machine only. For the LAN use `1919:1919`, for Tailscale
-your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx) is what gives Kipple HTTPS; set
-`KIPPLE_TRUSTED_PROXY_IPS` to the address it connects from, and `KIPPLE_PUBLIC_URL` to the public address.
+your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx) is what gives Kipple HTTPS; in
+Settings, Account & Devices, Address and access, add the address it connects from to **Trusted proxies** and set the
+**Public URL** to the public address. Both apply at once, without a restart. (For a scripted first start,
+`KIPPLE_TRUSTED_PROXY_IPS` and `KIPPLE_PUBLIC_URL` seed the two settings; see .env.example.)
 
-`KIPPLE_TRUSTED_PROXY_IPS` is a comma-separated list of single addresses and CIDR ranges (`192.0.2.10`,
-`198.51.100.0/24`, `2001:db8::/32`), empty by default. Only a connection from a listed address is believed about who the
+The trusted proxies are a list of single addresses and CIDR ranges (`192.0.2.10`, `198.51.100.0/24`,
+`2001:db8::/32`), empty by default. Only a connection from a listed address is believed about who the
 client is: for such a peer the client is the rightmost `X-Forwarded-For` hop that is not itself listed (each proxy appends
 the address it received from, so the entries to its left are whatever the client chose to send), or `CF-Connecting-IP`
 when there is no `X-Forwarded-For`; for any other peer the forwarding headers are ignored and the client is the peer.
-List every proxy in the chain and nothing wider: `0.0.0.0/0` would let anyone choose their own address. Trust a Docker
+List every proxy in the chain and nothing wider: a range of every address (`0.0.0.0/0`) is refused, since it would let
+anyone choose their own address. Trust a Docker
 network, or any range that clients can reach directly, only when the published port is reachable by the proxy alone;
 otherwise any client in the range can write its own `X-Forwarded-For` or `CF-Connecting-IP` and be believed. A trusted
 peer also makes open mode refuse the request as `forwarded` (it fails closed), so a trusted Docker gateway cannot be used
@@ -315,11 +318,12 @@ Sign-in then happens by itself when the app opens: it asks the server for a sess
 the request passes the **open gate**:
 
 1. **The name is expected.** Open mode answers a `Host` header that is an IP address, `localhost`, a `.localhost` or
-   `.ts.net` name, the host of `KIPPLE_PUBLIC_URL`, or a name you allowed. Anything else gets
+   `.ts.net` name, the host of the public URL, or a name you allowed. Anything else gets
    `421 Misdirected Request`, which says how to allow the name. `http://<ip>:1919` always works.
 
-   To use a local network name such as `nas.local` or `nas` without a password, allow it: add it to
-   `KIPPLE_ALLOWED_HOSTS` (comma-separated, for example `KIPPLE_ALLOWED_HOSTS=nas.local`) and restart Kipple.
+   To use a local network name such as `nas.local` or `nas` without a password, allow it: open Kipple by its IP
+   address, then add the name under **Allowed host names** in Settings, Account & Devices, Address and access. It
+   applies at once.
 
    This defeats DNS rebinding, where a hostile web page points a name it controls at your computer so your browser
    treats Kipple as part of that page. A public name is the usual tool, but a device on your network can do the same
@@ -330,8 +334,8 @@ the request passes the **open gate**:
    broader (single-word names and those suffixes are answered, so the wizard opens at whatever name you use); with a
    password it only logs, once an hour.
 2. **Not forwarded.** A request that came through a proxy or tunnel (a `CF-Connecting-IP`, `Cf-Access-Jwt-Assertion`,
-   `Forwarded`, `X-Real-IP` or `X-Forwarded-*` header, a `Tailscale-Funnel-Request`, or a peer listed in
-   `KIPPLE_TRUSTED_PROXY_IPS`) is refused, because a tunnel means the port is published to people you did not pick.
+   `Forwarded`, `X-Real-IP` or `X-Forwarded-*` header, a `Tailscale-Funnel-Request`, or a peer in the trusted
+   proxies) is refused, because a tunnel means the port is published to people you did not pick.
    The one exception is Tailscale Serve (tailnet-only HTTPS to a `.ts.net` name), recognised by exactly what
    `tailscaled` sends and nothing a client can choose alone: a loopback peer, a `.ts.net` Host, one `X-Forwarded-For`
    address in Tailscale's range, `X-Forwarded-Host` equal to the Host, `X-Forwarded-Proto` `https` if present, and a
@@ -463,14 +467,19 @@ validation was then turned off (see "Cloudflare Access (optional)" below).
 ## Cloudflare Access (optional)
 
 If Cloudflare Access sits in front of Kipple, Kipple can verify the `Cf-Access-Jwt-Assertion` header Access adds
-to every request it lets through (design §7.0). In your `.env` set both (or neither; one without the
-other stops startup):
+to every request it lets through (design §7.0). In Settings, Account & Devices, Address and access, fill in both
+fields under **Cloudflare Access** and save:
 
-    KIPPLE_ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com   # Zero Trust > Settings > Custom Pages; https:// optional, no path
-    KIPPLE_ACCESS_AUD=<Application Audience (AUD) tag>          # Zero Trust > Access > Applications > your Kipple app > Overview
+- Team domain: Zero Trust > Settings > Custom Pages, for example `yourteam.cloudflareaccess.com` (`https://` optional,
+  no path).
+- Application audience (AUD) tag: Zero Trust > Access > Applications > your Kipple application > Overview.
 
-then `docker compose up -d kipple`. The startup log says
-`Cloudflare Access token validation on` with the issuer, and Settings > Account shows the Access email you are
+It applies at once. For a scripted first start, `KIPPLE_ACCESS_TEAM_DOMAIN` and `KIPPLE_ACCESS_AUD` (both or neither)
+seed the setting instead:
+
+    KIPPLE_ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
+    KIPPLE_ACCESS_AUD=<Application Audience (AUD) tag>
+The log says `Cloudflare Access token validation on` with the issuer, and Settings > Account shows the Access email you are
 signed in with. Kipple checks the RS256 signature against `https://<team domain>/cdn-cgi/access/certs` (cached for
 an hour and refreshed in the background), the issuer, the audience and the expiry; a verified token never replaces
 the session cookie. The Reader API keeps its own API password either way, and its path (`/api/greader.php`) is
@@ -484,9 +493,10 @@ Anyone your Access policy admits can, so keep the policy to your own email. The 
 request carries a verified token. Open mode (see "Open mode" above)
 is a different thing: it has no Access involved and refuses requests that came through Access.
 
-**Before you unset the two variables, set a password again**: Settings > Account > Set web password, or
-afterwards `kipple password` (see "Reset the web password" above). With Access off and no password, web sign-in
-is impossible and the startup log warns about it.
+While the account has no web password, Settings refuses to change or turn off Cloudflare Access (`access_in_use`):
+set a password first (Settings > Account > Set web password), then change Access. If Access ends up off with no
+password anyway (a restored backup), web sign-in is impossible, the startup log warns about it, and
+`kipple password` (see "Reset the web password" above) sets one.
 
 ## Restore a backup
 
@@ -572,7 +582,7 @@ that were current when the backup was taken. `KIPPLE_USERNAME`, `KIPPLE_PASSWORD
 "There was no previous database to keep." on an empty volume. The Reader API answered ClientLogin
 and `unread-count` with the backup's password on the rehearsal; if a Reader API client reports an
 authentication error, sign in again in the app with that password. If the backed-up account had no web
-password (removed through Cloudflare Access), sign in through Access with the same `KIPPLE_ACCESS_*` values, or set
+password (removed through Cloudflare Access), sign in through Access (the backup keeps its Access setting), or set
 one first with `kipple password` (it works on the stopped service:
 `docker compose run --rm -T --no-deps kipple password --stdin`).
 

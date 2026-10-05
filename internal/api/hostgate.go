@@ -10,18 +10,19 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// modeTTL bounds how stale the cached auth mode and allowed-host list may be.
+// modeTTL bounds how stale the cached auth mode may be.
 // Changes made through this API invalidate the cache at once; the TTL only
 // covers `kipple password` from another process, which can only move open mode
 // back to standard (so a stale value enforces the Host gate a little longer).
 const modeTTL = 5 * time.Second
 
-// modeSnapshot is what the Host gate needs on every request.
+// modeSnapshot is the auth mode the Host gate needs on every request. The
+// allowed names are not cached here: they are the reachability settings in
+// force (s.reach), which change only through this API.
 type modeSnapshot struct {
-	mode    string   // store.AuthStandard or store.AuthOpen ("" without an account)
-	allowed []string // security.allowed_hosts plus Options.AllowedHosts
-	loaded  time.Time
-	failed  bool // the read failed and nothing was known before (not cached): enforce
+	mode   string // store.AuthStandard or store.AuthOpen ("" without an account)
+	loaded time.Time
+	failed bool // the read failed and nothing was known before (not cached): enforce
 }
 
 type modeCache struct {
@@ -58,10 +59,6 @@ func (s *Server) snapshot(ctx context.Context) *modeSnapshot {
 		return cur
 	}
 	acct, ok, err := s.db.Account(ctx)
-	var sec store.Security
-	if err == nil {
-		sec, err = s.db.SecuritySettings(ctx)
-	}
 	if err != nil {
 		s.log.Warn("api: reading the auth mode for the Host gate", "err", err)
 		if cur != nil {
@@ -69,7 +66,7 @@ func (s *Server) snapshot(ctx context.Context) *modeSnapshot {
 		}
 		return &modeSnapshot{failed: true}
 	}
-	snap := &modeSnapshot{loaded: now, allowed: s.allowedWith(sec.AllowedHosts)}
+	snap := &modeSnapshot{loaded: now}
 	if ok {
 		snap.mode = acct.AuthMode
 	}
@@ -79,19 +76,6 @@ func (s *Server) snapshot(ctx context.Context) *modeSnapshot {
 	}
 	s.mode.mu.Unlock()
 	return snap
-}
-
-// allowedWith is the configured names plus the valid entries of a stored
-// security.allowed_hosts list (the PATCH validator already normalized them; a
-// hand-edited row is filtered).
-func (s *Server) allowedWith(stored []string) []string {
-	out := append([]string(nil), s.opt.AllowedHosts...)
-	for _, e := range stored {
-		if n, err := setup.CheckHostEntry(e); err == nil {
-			out = append(out, n)
-		}
-	}
-	return out
 }
 
 // noteMode records a mode, account or security-setting change made here and
@@ -105,7 +89,6 @@ func (s *Server) noteMode(ctx context.Context, apply func(*modeSnapshot)) {
 	s.mode.stale = true
 	if s.mode.snap != nil && apply != nil {
 		c := *s.mode.snap
-		c.allowed = append([]string(nil), c.allowed...)
 		apply(&c)
 		s.mode.snap = &c
 	}
@@ -133,17 +116,17 @@ func (s *Server) enforceHosts(snap *modeSnapshot) bool {
 // (fail closed), else by the setup-mode list (setup.HostAllowed).
 func (s *Server) hostAllowed(r *http.Request, snap *modeSnapshot) (host string, ok bool) {
 	if s.openHosts(snap) {
-		return s.openHostAllowed(r, snap)
+		return s.openHostAllowed(r)
 	}
 	host, valid := setup.NormalizeHost(r.Host)
-	return host, valid && setup.HostAllowed(host, snap.allowed)
+	return host, valid && setup.HostAllowed(host, s.reach.HostNames())
 }
 
 // openHostAllowed judges r's Host by open mode's list, whatever the mode:
 // the open gate always uses it, including for the switch to open mode.
-func (s *Server) openHostAllowed(r *http.Request, snap *modeSnapshot) (host string, ok bool) {
+func (s *Server) openHostAllowed(r *http.Request) (host string, ok bool) {
 	host, valid := setup.NormalizeHost(r.Host)
-	return host, valid && setup.OpenHostAllowed(host, snap.allowed)
+	return host, valid && setup.OpenHostAllowed(host, s.reach.HostNames())
 }
 
 // openHosts reports whether the Host gate uses open mode's list: an open-mode
@@ -155,13 +138,14 @@ func (s *Server) openHosts(snap *modeSnapshot) bool {
 // hostRefusedText is the 421 body: what happened and the settings that fix it.
 const hostRefusedText = "Kipple refused this request because of the address it was sent to.\n\n" +
 	"While Kipple is being set up, it only answers requests addressed to an IP address, localhost, a single-word\n" +
-	"name, a .localhost, .local, .lan, .home.arpa, .internal or .ts.net name, the host of KIPPLE_PUBLIC_URL or a\n" +
+	"name, a .localhost, .local, .lan, .home.arpa, .internal or .ts.net name, the host of its public URL or a\n" +
 	"name you allowed. While it runs without a password (open mode), it only answers an IP address, localhost, a\n" +
-	".localhost or .ts.net name, the host of KIPPLE_PUBLIC_URL and the names you allowed: any device on your\n" +
+	".localhost or .ts.net name, the host of its public URL and the names you allowed: any device on your\n" +
 	"network can answer a single-word or .local-style name with this computer's address and steer your browser into\n" +
 	"Kipple (DNS rebinding), so each such name has to be allowed by name.\n\n" +
-	"To allow a name, add it to KIPPLE_ALLOWED_HOSTS (comma-separated, e.g. nas.local, rss.example.com or\n" +
-	"*.example.com) and restart Kipple. Opening Kipple by its IP address always works.\n"
+	"To allow a name, open Kipple by its IP address (that always works), then add the name under Allowed host\n" +
+	"names in Settings, Account & Devices, Address and access (e.g. nas.local, rss.example.com or *.example.com).\n" +
+	"It applies at once.\n"
 
 // HostGate is the Host-header check (design 5.2), installed ahead of every
 // handler. In setup and open mode a request whose Host is not an allowed name
@@ -198,7 +182,7 @@ func (s *Server) warnHost() {
 	}
 	s.hostWarnMu.Unlock()
 	if warn {
-		s.log.Warn("a request named a host that is not in the allowed list; it is served because Kipple has a password, but setup and open mode would refuse it: add the name to KIPPLE_ALLOWED_HOSTS or security.allowed_hosts")
+		s.log.Warn("a request named a host that is not in the allowed list; it is served because Kipple has a password, but setup and open mode would refuse it: add the name under Allowed host names in Settings (Account & Devices)")
 	}
 }
 
@@ -210,7 +194,7 @@ func (s *Server) warnHost() {
 // part (authed), so a session never outlives the network position that
 // admitted it.
 func (s *Server) gateRefusal(r *http.Request, snap *modeSnapshot, signIn bool) string {
-	host, ok := s.openHostAllowed(r, snap)
+	host, ok := s.openHostAllowed(r)
 	if signIn {
 		return s.opt.Gate.SignInRefusal(r, host, ok)
 	}
@@ -227,7 +211,7 @@ func writeOpenRefused(w http.ResponseWriter, reason string) {
 	msg := "open mode (no password) only works from this computer, your local network or Tailscale"
 	switch reason {
 	case setup.RefuseHost:
-		msg = "open mode does not answer this name: open Kipple by its IP address or localhost, or allow the name by adding it to KIPPLE_ALLOWED_HOSTS and restarting Kipple"
+		msg = "open mode does not answer this name: open Kipple by its IP address or localhost, then allow the name under Allowed host names in Settings (Account & Devices, Address and access)"
 	case setup.RefuseForwarded:
 		msg = "open mode refuses requests through a proxy or tunnel: reach Kipple directly (localhost, your local network or Tailscale), or set a password"
 	case setup.RefusePeer:

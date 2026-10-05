@@ -215,11 +215,11 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
   — confirm the digit-count parsing picks the right cut).
 
 **Settings and accounts**
-- TC-C1: Cloudflare Access sign-in (shipped in #40; design §7.0): with `KIPPLE_ACCESS_TEAM_DOMAIN` and
-  `KIPPLE_ACCESS_AUD` set, Settings shows the Access email and offers Remove web password (asking for the
+- TC-C1: Cloudflare Access sign-in (shipped in #40; design §7.0): with Cloudflare Access set in Settings
+  (Account & Devices, Address and access), Settings shows the Access email and offers Remove web password (asking for the
   current password); afterwards sign-in with an empty password succeeds only through Access with a verified
-  token, and a LAN request that bypasses Access is refused. Negative cases: with the variables unset a password is
-  always required, and an account that still has a password always needs it. Setting a password again (Settings,
+  token, and a LAN request that bypasses Access is refused. Negative cases: with Access off a password is
+  always required, Settings refuses to change or turn off Access while the account has no password (`access_in_use`), and an account that still has a password always needs it. Setting a password again (Settings,
   or `kipple password`) restores normal sign-in.
 - TC-C2: API password generate-and-copy button works; the Reader API accepts the generated password.
 - TC-C3: Backup export → `kipple restore` on a copy of the volume restores identically (this is also Suite 4's
@@ -589,7 +589,7 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 | B1 | Read the notice; try to continue without ticking the acknowledgement. | The notice says anyone who can reach the address can read and change everything, and to use it only when Kipple is reachable from this computer, your local network or Tailscale and the Docker bind rule (publish only on a local or Tailscale address, never a public one); it cannot be skipped without ticking the box. |
 | B2 | Note that there is no extra checkbox (this run is in Docker). | Only the acknowledgement is asked: nothing about a local-network switch, because open mode has no such setting. Tick it and continue; the account is created. |
 | B3 | Finish the wizard, close the browser, reopen the address. | It opens straight into the app with no sign-in screen (a session is minted silently). Settings has no "Sign out". |
-| B4 | Send a request with an unexpected `Host`, for example `curl -H 'Host: evil.example' http://127.0.0.1:<port>/`; put a reverse proxy (or any request carrying `X-Forwarded-For`) in front and open the app through it. | The unexpected `Host` gets `421 Misdirected Request` naming `KIPPLE_ALLOWED_HOSTS`. The proxied request is refused as `forwarded`. With the default `127.0.0.1:` mapping another machine cannot reach the port at all. |
+| B4 | Send a request with an unexpected `Host`, for example `curl -H 'Host: evil.example' http://127.0.0.1:<port>/`; put a reverse proxy (or any request carrying `X-Forwarded-For`) in front and open the app through it. | The unexpected `Host` gets `421 Misdirected Request` naming Allowed host names in Settings. The proxied request is refused as `forwarded`. With the default `127.0.0.1:` mapping another machine cannot reach the port at all. |
 | B5 | Settings > Account & Devices > Set web password. | Gives the account a password and signs every other session out; a reload shows the sign-in screen. |
 
 **Run C: verify.** `cosign verify ghcr.io/wptk/kipple:<version> ...` exactly as the README prints it succeeds and names the

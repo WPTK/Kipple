@@ -160,7 +160,7 @@ func TestExtractTimeout(t *testing.T) {
 func TestExtractUserAgent(t *testing.T) {
 	var ua atomic.Value
 	srv := page(t, func(w http.ResponseWriter, r *http.Request) { ua.Store(r.Header.Get("User-Agent")); w.WriteHeader(404) })
-	ex := newExtractor(func(o *Options) { o.UserAgent = "Default/1" })
+	ex := newExtractor(func(o *Options) { o.UserAgent = func() string { return "Default/1" } })
 	_, _ = ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
 	require.Equal(t, "Default/1", ua.Load())
 	_, _ = ex.Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1", UserAgent: "Feed/2"})

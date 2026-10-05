@@ -179,7 +179,7 @@ func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p
 		req.Header.Set("User-Agent", h.opt.BrowserUA())
 	} else {
 		req.Header.Set("Accept", "image/*")
-		req.Header.Set("User-Agent", h.opt.UserAgent)
+		req.Header.Set("User-Agent", h.opt.UserAgent())
 	}
 	if p.referer == "self" {
 		req.Header.Set("Referer", u.Scheme+"://"+u.Host+"/")

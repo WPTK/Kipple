@@ -8,7 +8,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/sched"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -68,7 +70,21 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	before := s.db.FetchSettings(ctx)
-	if err := s.writeAccountSettings(ctx, set); err != nil {
+	write := func() error { return s.writeAccountSettings(ctx, set) }
+	reachSet := touchesReach(set)
+	var err error
+	if reachSet {
+		// The reachability settings in force change with the write, under one lock.
+		err = s.reach.Update(set, func(cur *reach.State) error { return s.checkAccessChange(ctx, cur, set) }, write)
+	} else {
+		err = write()
+	}
+	if err != nil {
+		if errors.Is(err, errAccessInUse) {
+			writeErrorMsg(w, http.StatusConflict, "access_in_use",
+				"this account has no web password and signs in through Cloudflare Access: set a web password first (Account), then change or turn off Access")
+			return
+		}
 		var ve *store.SavedSearchError
 		if errors.As(err, &ve) {
 			// A saved search names a feed or folder that does not exist (checked in the write).
@@ -88,20 +104,10 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := set["imgproxy.mode"]; ok {
 		s.refreshImgMode(ctx) // the CSP img-src follows it
 	}
-	hosts, hostsSet := set[store.SettingAllowedHosts]
-	if hostsSet {
-		// The Host gate reads it: re-read, with the new value already in the fallback.
-		s.noteMode(r.Context(), func(sn *modeSnapshot) {
-			var stored []string
-			if l, ok := hosts.([]any); ok {
-				for _, e := range l {
-					if h, ok := e.(string); ok {
-						stored = append(stored, h)
-					}
-				}
-			}
-			sn.allowed = s.allowedWith(stored)
-		})
+	if reachSet {
+		// The Host gate and the open gate read them: wake long-lived requests (an
+		// /api/events stream) so they re-check the open gate at once.
+		s.noteMode(ctx, nil)
 	}
 	if _, ok := set["imgproxy.cache_mb"]; ok {
 		s.applyImgCacheCap(ctx) // a lower cap evicts, 0 turns the cache off and purges it
@@ -150,4 +156,44 @@ func (s *Server) retentionApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"run_id": fmt.Sprint(info.RunID), "total": info.Total})
+}
+
+// errAccessInUse refuses a change to the Cloudflare Access setting while the
+// account signs in through it (no web password).
+var errAccessInUse = errors.New("cloudflare access in use")
+
+// touchesReach reports whether set writes a reachability setting.
+func touchesReach(set map[string]any) bool {
+	for _, k := range store.ReachKeys {
+		if _, ok := set[k]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// checkAccessChange refuses to change or turn off Cloudflare Access while the
+// account has no web password and signs in through it: that would lock the
+// owner out, or hand sign-in to whoever the new team admits. A password is set
+// first (Account), which needs a verified Access sign-in anyway. Any other
+// change passes.
+func (s *Server) checkAccessChange(ctx context.Context, cur *reach.State, set map[string]any) error {
+	v, ok := set[store.SettingCloudflareAccess]
+	if !ok {
+		return nil
+	}
+	m, _ := v.(map[string]any) // nil (a reset) is off
+	team, _ := m["team_domain"].(string)
+	aud, _ := m["aud"].(string)
+	if (store.AccessConfig{TeamDomain: team, AUD: aud}) == cur.Stored.Access {
+		return nil
+	}
+	acct, exists, err := s.db.Account(ctx)
+	if err != nil {
+		return err
+	}
+	if exists && setup.DisplayMode(acct) == "access" {
+		return errAccessInUse
+	}
+	return nil
 }

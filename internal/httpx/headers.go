@@ -15,9 +15,10 @@ type Options struct {
 	// cheap (an atomic read): it runs on every HTML response. Nil means "all", the
 	// strictest policy.
 	ImgMode func() string
-	// TrustedProxies are the peers whose X-Forwarded-Proto is believed when
+	// TrustedProxies returns the peers whose X-Forwarded-Proto is believed when
 	// deciding whether the effective scheme is https (HSTS, upgrade-insecure-requests).
-	TrustedProxies []netip.Prefix
+	// It must be cheap (an atomic read). Nil trusts none.
+	TrustedProxies func() []netip.Prefix
 }
 
 const (
@@ -85,7 +86,7 @@ func Secure(h http.Handler, opt Options) http.Handler {
 		hd.Set("Referrer-Policy", "no-referrer")
 		hd.Set("X-Content-Type-Options", "nosniff")
 		hd.Set("X-Frame-Options", "DENY")
-		secure := auth.EffectiveScheme(r, opt.TrustedProxies) == "https"
+		secure := auth.EffectiveScheme(r, trusted(opt)) == "https"
 		if secure {
 			hd.Set("Strict-Transport-Security", "max-age=31536000")
 		}
@@ -184,4 +185,12 @@ func (s *secureWriter) decorate(code int) {
 	default:
 		h.Set("Content-Security-Policy", cspFrameOnly)
 	}
+}
+
+// trusted is opt.TrustedProxies(), or none.
+func trusted(opt Options) []netip.Prefix {
+	if opt.TrustedProxies == nil {
+		return nil
+	}
+	return opt.TrustedProxies()
 }

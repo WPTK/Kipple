@@ -13,13 +13,11 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/WPTK/kipple/internal/access"
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/backup"
 	"github.com/WPTK/kipple/internal/buildinfo"
@@ -29,6 +27,7 @@ import (
 	"github.com/WPTK/kipple/internal/ftrun"
 	"github.com/WPTK/kipple/internal/imgcache"
 	"github.com/WPTK/kipple/internal/imgproxy"
+	"github.com/WPTK/kipple/internal/reach"
 	"github.com/WPTK/kipple/internal/sched"
 	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/stats"
@@ -64,11 +63,14 @@ type Scheduler interface {
 
 // Options configures New.
 type Options struct {
-	DB             *store.DB
-	Sched          Scheduler
-	Hub            *events.Hub
-	Logger         *slog.Logger
-	TrustedProxies []netip.Prefix
+	DB     *store.DB
+	Sched  Scheduler
+	Hub    *events.Hub
+	Logger *slog.Logger
+	// Reach is the reachability settings in force (public URL, allowed host names,
+	// trusted proxies, Cloudflare Access; package reach). PATCH /api/settings
+	// updates it. Nil opens one on DB (tests).
+	Reach *reach.Live
 	// ReaderLastSeen reports when a Reader API client last called (greader.API.LastSeen; the zero
 	// time if none has); optional.
 	ReaderLastSeen func() time.Time
@@ -80,10 +82,6 @@ type Options struct {
 	// OnAPIPasswordChange runs after the Reader API password changes (drops the
 	// Reader API cached token at once); optional.
 	OnAPIPasswordChange func()
-	// Access verifies Cloudflare Access tokens (design §7.0); nil when
-	// KIPPLE_ACCESS_TEAM_DOMAIN and KIPPLE_ACCESS_AUD are unset, and then no
-	// request ever counts as Access-verified.
-	Access *access.Verifier
 	// Backups builds and serves backup exports; nil builds one on DB (tests).
 	Backups *backup.Manager
 	// Stats records open and star events; nil builds the SQL recorder on Now.
@@ -98,12 +96,10 @@ type Options struct {
 	WebBuild string
 	// DataDir is the data directory; /api/about only reports whether it is writable, never where it is.
 	DataDir string
-	// PublicURL is the "+url" of the outgoing User-Agent; optional. Only used to
-	// build UserAgent when the caller leaves it empty.
-	PublicURL string
-	// UserAgent is Kipple's own outgoing User-Agent (fetch.Client.DefaultUserAgent);
-	// the image proxy, web feed discovery and article extraction send it.
-	UserAgent string
+	// UserAgent returns Kipple's own outgoing User-Agent (fetch.Client.DefaultUserAgent,
+	// which names the public URL in force); the image proxy, web feed discovery and
+	// article extraction send it. Nil builds one from Reach (tests).
+	UserAgent func() string
 	// Guard supplies the SSRF-guarded HTTP transports of the image proxy and
 	// full-text extraction (fetch.Client.Transport); nil builds a private client.
 	Guard func(allowPrivate, insecureTLS, noHTTP2 bool) http.RoundTripper
@@ -125,10 +121,7 @@ type Options struct {
 	// Setup is setup mode (docs/design.md §7.1e): when it is pending at
 	// Register, the setup route is mounted. Nil means never in setup mode.
 	Setup *setup.Manager
-	// AllowedHosts are the Host gate's configured names (KIPPLE_ALLOWED_HOSTS and
-	// the host of KIPPLE_PUBLIC_URL), normalized by setup.CheckHostEntry.
-	AllowedHosts []string
-	// Gate is the open gate's fixed part; its Trusted defaults to TrustedProxies.
+	// Gate is the open gate; its Trusted defaults to the trusted proxies of Reach.
 	Gate setup.Gate
 }
 
@@ -140,6 +133,7 @@ type Server struct {
 	log     *slog.Logger
 	now     func() time.Time
 	fails   *auth.FailureTracker
+	reach   *reach.Live // the reachability settings in force (Options.Reach)
 	// setupSlot admits one account creation at a time (setupAccount).
 	setupSlot chan struct{}
 
@@ -200,28 +194,40 @@ func New(opt Options) *Server {
 		s.fails.Now = s.now
 	}
 	s.setupSlot = make(chan struct{}, 1)
+	s.reach = opt.Reach
+	if s.reach == nil {
+		// Tests only: production passes the process's one Live in.
+		s.reach = reach.Fixed(reach.State{})
+		if s.db != nil {
+			l, err := reach.Open(context.Background(), s.db, reach.Options{Logger: s.log, NoPrefetch: true})
+			if err != nil {
+				panic(err)
+			}
+			s.reach = l
+		}
+	}
 	if s.opt.Gate.Trusted == nil {
-		s.opt.Gate.Trusted = opt.TrustedProxies
+		s.opt.Gate.Trusted = s.reach.Trusted
 	}
 	if s.verifier == nil {
 		s.verifier = auth.NewVerifier(nil, auth.VerifierOptions{})
 	}
-	if s.opt.Guard == nil || s.opt.UserAgent == "" {
+	if s.opt.Guard == nil || s.opt.UserAgent == nil {
 		// Tests only: production passes the process's fetch.Client pieces in. The
 		// User-Agent string is built in one place, fetch.NewClient.
-		c := fetch.NewClient(fetch.ClientOptions{Version: opt.Version, PublicURL: opt.PublicURL})
+		c := fetch.NewClient(fetch.ClientOptions{Version: opt.Version, PublicURL: s.reach.PublicURL})
 		if s.opt.Guard == nil {
 			s.opt.Guard = c.Transport
 		}
-		if s.opt.UserAgent == "" {
-			s.opt.UserAgent = c.DefaultUserAgent()
+		if s.opt.UserAgent == nil {
+			s.opt.UserAgent = c.DefaultUserAgent
 		}
 	}
 	s.runner = opt.Runner
 	if s.runner == nil {
 		s.runner = ftrun.New(ftrun.Options{
 			DB: s.db, Log: s.log,
-			Extractor: extract.New(extract.Options{Transport: s.opt.Guard, UserAgent: s.outgoingUA(), Timeout: extractBudget}),
+			Extractor: extract.New(extract.Options{Transport: s.opt.Guard, UserAgent: s.opt.UserAgent, Timeout: extractBudget}),
 		})
 	}
 	s.backups = opt.Backups
@@ -434,7 +440,7 @@ func (s *Server) sameOrigin(r *http.Request) bool {
 	return c == "web" || c == "pwa"
 }
 
-func (s *Server) scheme(r *http.Request) string { return auth.EffectiveScheme(r, s.opt.TrustedProxies) }
+func (s *Server) scheme(r *http.Request) string { return auth.EffectiveScheme(r, s.reach.Trusted()) }
 
 // sessionOK validates the cookie, sliding the session (and re-issuing the
 // cookie) at most hourly. An error is a failed lookup, not a missing session.
@@ -495,4 +501,4 @@ func writeError(w http.ResponseWriter, code int, kind string) {
 	writeJSON(w, code, map[string]string{"error": kind})
 }
 
-func (s *Server) clientIP(r *http.Request) string { return auth.ClientIP(r, s.opt.TrustedProxies) }
+func (s *Server) clientIP(r *http.Request) string { return auth.ClientIP(r, s.reach.Trusted()) }

@@ -35,11 +35,11 @@ var (
 	tailscaleV6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
 )
 
-// Gate is the fixed part of the open gate, worked out once at start.
+// Gate is the open gate's configuration: the trusted proxies in force and this machine's tailnet addresses.
 type Gate struct {
-	// Trusted are the configured proxies: a request from one is forwarded by
-	// definition.
-	Trusted []netip.Prefix
+	// Trusted returns the trusted proxies in force: a request from one is
+	// forwarded by definition. Nil trusts none.
+	Trusted func() []netip.Prefix
 
 	// Tailnet lists this machine's Tailscale addresses (nil or empty: none).
 	// A peer in Tailscale's ranges counts as a tailnet device only when its
@@ -167,7 +167,11 @@ func (g Gate) OpenRefusal(r *http.Request, host string, hostOK bool) string {
 	if !ok {
 		return RefusePeer
 	}
-	for _, t := range g.Trusted {
+	var trusted []netip.Prefix
+	if g.Trusted != nil {
+		trusted = g.Trusted()
+	}
+	for _, t := range trusted {
 		if t.Contains(peer) {
 			return RefuseForwarded
 		}

@@ -287,7 +287,7 @@ func New(db *store.DB, client *fetch.Client, hub *events.Hub, clk clock.Clock, l
 		// Runner, with its own extractor, for the scheduler and the API.
 		if opt.Extractor == nil {
 			opt.Extractor = extract.New(extract.Options{
-				Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: opt.FulltextItemTimeout,
+				Transport: client.Transport, UserAgent: client.DefaultUserAgent, Timeout: opt.FulltextItemTimeout,
 			})
 		}
 		opt.Runner = ftrun.New(ftrun.Options{DB: db, Extractor: opt.Extractor, PerHost: opt.FulltextPerHost, Log: log})

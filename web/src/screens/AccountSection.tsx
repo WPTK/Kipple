@@ -360,7 +360,7 @@ export function AccountActions() {
         <Button disabled={busy === "setup"} onClick={() => void runSetupAgain()}>
           Run setup again
         </Button>
-        <p className="mt-1 text-xs text-fg2">Walks through the first-run steps again: time zone, look, importing feeds and recommended feeds. Your account and feeds stay as they are.</p>
+        <p className="mt-1 text-xs text-fg2">Walks through the first-run steps again: time zone, look, importing feeds, recommended feeds and the address. Your account and feeds stay as they are.</p>
       </div>
       {/* Without a password there is nothing to sign out of: Kipple would sign this browser straight back in. */}
       {user?.auth_mode === "open" ? null : (

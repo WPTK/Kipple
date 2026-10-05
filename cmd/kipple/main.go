@@ -168,6 +168,12 @@ func runServe() error {
 		logger.Warn("recording the running version", "err", err)
 	}
 
+	// The reachability settings, seeded from their variables the first time.
+	reachLive, err := openReach(context.Background(), db, cfg, logger)
+	if err != nil {
+		return fmt.Errorf("reachability settings: %w", err)
+	}
+
 	if err := ensureAccount(context.Background(), db, cfg, logger); err != nil {
 		return fmt.Errorf("account: %w", err)
 	}
@@ -185,10 +191,6 @@ func runServe() error {
 	setupMgr, err := startSetupMode(context.Background(), db, cfg, logger, func() { startWork() })
 	if err != nil {
 		return fmt.Errorf("setup: %w", err)
-	}
-	accessV, err := accessVerifier(cfg, logger)
-	if err != nil {
-		return fmt.Errorf("access: %w", err)
 	}
 
 	// The image cache is optional: if it cannot open (a read-only volume, say), the
@@ -210,12 +212,12 @@ func runServe() error {
 	// One verifier for the whole process: the web login and ClientLogin share its
 	// single argon2id slot, so they can never hash at the same time.
 	verifier := auth.NewVerifier(nil, auth.VerifierOptions{})
-	client := fetch.NewClient(fetch.ClientOptions{Version: version, PublicURL: cfg.PublicURL})
+	client := fetch.NewClient(fetch.ClientOptions{Version: version, PublicURL: reachLive.PublicURL})
 	// One full-text runner for the process: the ingest pool and the on-demand
 	// endpoint join each other's extractions and share the per-article-host limit.
 	ftRunner := ftrun.New(ftrun.Options{
 		DB: db, Log: logger,
-		Extractor: extract.New(extract.Options{Transport: client.Transport, UserAgent: client.DefaultUserAgent(), Timeout: 15 * time.Second, Logger: logger}),
+		Extractor: extract.New(extract.Options{Transport: client.Transport, UserAgent: client.DefaultUserAgent, Timeout: 15 * time.Second, Logger: logger}),
 	})
 	scheduler := sched.New(db, client, hub, nil, logger, sched.Options{
 		Workers: cfg.FetchWorkers, PerHost: cfg.FetchPerHost, Tick: cfg.SchedTick, Runner: ftRunner,
@@ -225,7 +227,7 @@ func runServe() error {
 	// through the same guarded transport, and never while a scheduler run is
 	// active (Busy is a lock-free read that also reports busy once stopping).
 	icons := favicon.New(favicon.Options{
-		DB: db, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Logger: logger,
+		DB: db, Guard: client.Transport, UserAgent: client.DefaultUserAgent, Logger: logger,
 		Busy: scheduler.Busy,
 	})
 	// Joined before the store closes on every return path (defers unwind last-in
@@ -237,7 +239,7 @@ func runServe() error {
 	recorder := stats.New(time.Now)
 	readerAPI := greader.New(greader.Options{
 		DB: db, Logger: logger, Wake: scheduler.Wake, Events: hub, Stats: recorder,
-		TrustedProxies: cfg.TrustedProxyIPs, PublicURL: cfg.PublicURL, LogForms: cfg.LogGreaderForms,
+		Reach: reachLive, LogForms: cfg.LogGreaderForms,
 		Verifier: verifier,
 		FetchNow: func(ctx context.Context, feedID int64, wait time.Duration) {
 			ch, err := scheduler.Submit(sched.Priority{FeedID: feedID, Full: true, Trigger: fetch.TriggerSubscribe})
@@ -258,15 +260,15 @@ func runServe() error {
 
 	tailnet := setup.TailnetCheck()
 	_ = tailnet() // the first scan now, not on the first request
-	openGate := setup.Gate{Trusted: cfg.TrustedProxyIPs, Tailnet: tailnet}
+	openGate := setup.Gate{Trusted: reachLive.Trusted, Tailnet: tailnet}
 	mux := http.NewServeMux()
 	uiAPI := api.New(api.Options{
 		DB: db, Sched: scheduler, Hub: hub, Logger: logger,
-		TrustedProxies: cfg.TrustedProxyIPs, ReaderLastSeen: readerAPI.LastSeen, Verifier: verifier,
-		Stats: recorder, Version: version, Build: buildInfo(), WebBuild: kweb.BuildID(), DataDir: cfg.DataDir, PublicURL: cfg.PublicURL, Guard: client.Transport, UserAgent: client.DefaultUserAgent(), Runner: ftRunner, ImgCache: imgc,
-		OnAPIPasswordChange: readerAPI.InvalidateAccount, Access: accessV,
-		Setup: setupMgr, AllowedHosts: allowedHosts(cfg),
-		Gate: openGate,
+		Reach: reachLive, ReaderLastSeen: readerAPI.LastSeen, Verifier: verifier,
+		Stats: recorder, Version: version, Build: buildInfo(), WebBuild: kweb.BuildID(), DataDir: cfg.DataDir, Guard: client.Transport, UserAgent: client.DefaultUserAgent, Runner: ftRunner, ImgCache: imgc,
+		OnAPIPasswordChange: readerAPI.InvalidateAccount,
+		Setup:               setupMgr,
+		Gate:                openGate,
 	})
 	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API
@@ -286,7 +288,7 @@ func runServe() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, cfg.TrustedProxyIPs, openGate.TailscaleServeRequest, logger, uiAPI.HostGate),
+		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, reachLive.Trusted, openGate.TailscaleServeRequest, logger, uiAPI.HostGate),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
 		// WriteTimeout would kill /api/events; the SSE handler replaces it with a
@@ -359,7 +361,7 @@ var startBackground = func(s *sched.Scheduler, m *maint.Maint, icons *favicon.Fi
 // hostGate (the UI API's HostGate, design 5.2) runs inside httpx.Secure, so a
 // refused request still carries the security headers; nil installs none.
 func rootHandler(readerFront func(http.Handler) http.Handler, mux http.Handler, imgMode func() string,
-	trusted []netip.Prefix, tailscaleServe func(*http.Request) bool, logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
+	trusted func() []netip.Prefix, tailscaleServe func(*http.Request) bool, logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
 	h := auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, tailscaleServe, logger, nil)
 	if hostGate != nil {
 		h = hostGate(h)

@@ -4,7 +4,7 @@ import { Button } from "@/ui/button";
 import { STEP_COUNT, type StepInfo } from "./steps";
 
 /**
- * The page every wizard step sits in: a narrow column with "Step 2 of 6", the step's heading (focused when the step
+ * The page every wizard step sits in: a narrow column with "Step 2 of 7", the step's heading (focused when the step
  * appears, so a screen reader says where it is) and the step's content. Scrolls on its own so a phone's keyboard or
  * a long list never traps the buttons.
  */

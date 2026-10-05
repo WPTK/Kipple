@@ -8,9 +8,11 @@ import (
 	"strings"
 )
 
-// ParseProxies parses KIPPLE_TRUSTED_PROXY_IPS: comma-separated single
+// ParseProxies parses a list of trusted proxies (the security.trusted_proxies
+// setting, or its KIPPLE_TRUSTED_PROXY_IPS seed): comma-separated single
 // addresses and CIDR ranges. An address is the range of one. IPv4-mapped IPv6
-// forms are unmapped, like the peer address they are compared with.
+// forms are unmapped, like the peer address they are compared with. A range
+// that covers every address (/0) is refused.
 func ParseProxies(v string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
 	for _, part := range strings.Split(v, ",") {
@@ -36,6 +38,9 @@ func ParseProxies(v string) ([]netip.Prefix, error) {
 				return nil, fmt.Errorf("invalid address range %q: an IPv4-mapped range needs at least 96 bits", part)
 			}
 			p = netip.PrefixFrom(a.Unmap(), p.Bits()-96)
+		}
+		if p.Bits() == 0 {
+			return nil, fmt.Errorf("invalid address range %q: it covers every address, so any client could choose its own address", part)
 		}
 		out = append(out, p.Masked())
 	}

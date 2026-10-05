@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/WPTK/kipple/internal/reach"
 )
 
 // confSubs returns subscription/list keyed by stream id.
@@ -81,7 +83,7 @@ func TestConformanceSubscriptionList(t *testing.T) {
 
 	// [FR][MF] iconUrl is an absolute URL a client fetches without credentials.
 	require.NoError(t, execSQL(h, "INSERT INTO feed_icons (feed_id, data, content_type, hash, fetched_at) VALUES (?, x'89504e47', 'image/png', 'abc123', 1)", l.tech))
-	h.api.opt.PublicURL = c.base[:len(c.base)-len(base)]
+	h.api.opt.Reach = reach.Fixed(reach.State{PublicURL: c.base[:len(c.base)-len(base)]})
 	icon := c.confSubs()[feedID(l.tech)]["iconUrl"].(string)
 	require.True(t, strings.HasPrefix(icon, c.base+"/icon/"), icon)
 	anon := *c.client

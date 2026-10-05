@@ -40,8 +40,9 @@ type Options struct {
 	// Transport returns the SSRF-guarded transport for a variant
 	// (fetch.Client.Transport).
 	Transport func(allowPrivate, insecureTLS, noHTTP2 bool) http.RoundTripper
-	// UserAgent is the default request User-Agent.
-	UserAgent string
+	// UserAgent returns the default request User-Agent (read per request, so it
+	// follows the public URL in force). Nil is a generic Kipple one.
+	UserAgent func() string
 	Timeout   time.Duration // default 15 s, the whole exchange
 	MaxBody   int64         // default 10 MiB of raw page bytes
 	// Logger receives a warning when a feed's network exception is withheld
@@ -60,8 +61,8 @@ func New(opt Options) *Extractor {
 	if opt.MaxBody <= 0 {
 		opt.MaxBody = defaultMaxBody
 	}
-	if opt.UserAgent == "" {
-		opt.UserAgent = "Mozilla/5.0 (compatible; Kipple)"
+	if opt.UserAgent == nil {
+		opt.UserAgent = func() string { return "Mozilla/5.0 (compatible; Kipple)" }
 	}
 	if opt.Logger == nil {
 		opt.Logger = slog.Default()
@@ -186,7 +187,7 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 	defer cancel()
 	ua := t.UserAgent
 	if ua == "" {
-		ua = e.opt.UserAgent
+		ua = e.opt.UserAgent()
 	}
 	client := &http.Client{
 		Transport: e.transport(t),

@@ -81,15 +81,15 @@ describe("open mode availability", () => {
   it("works from here, or cannot work and says why", () => {
     expect(openAvailability({ reason: null })).toEqual({ ok: true, why: null });
     expect(openAvailability({ reason: "forwarded" })).toMatchObject({ ok: false, why: openReasonText("forwarded") });
-    expect(openAvailability({ reason: "host" }).why).toMatch(/KIPPLE_ALLOWED_HOSTS/);
+    expect(openAvailability({ reason: "host" }).why).toMatch(/Allowed host names in Settings/);
   });
 });
 
 describe("step registry", () => {
-  it("has six steps in order, the account first (before sign-in) and five after", () => {
-    expect(STEPS.map((s) => s.id)).toEqual(["account", "timezone", "theme", "import", "feeds", "finish"]);
-    expect(STEPS.map((s) => s.n)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(STEP_COUNT).toBe(6);
+  it("has seven steps in order, the account first (before sign-in) and six after", () => {
+    expect(STEPS.map((s) => s.id)).toEqual(["account", "timezone", "theme", "import", "feeds", "address", "finish"]);
+    expect(STEPS.map((s) => s.n)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(STEP_COUNT).toBe(7);
     expect(STEPS.filter((s) => s.phase === "setup").map((s) => s.id)).toEqual(["account"]);
     expect(FIRST_WELCOME.id).toBe("timezone");
   });
@@ -104,13 +104,14 @@ describe("step registry", () => {
 
   it("walks forward and back, with no way back from the first and none forward from the last", () => {
     expect(nextWelcome("timezone")?.id).toBe("theme");
-    expect(nextWelcome("feeds")?.id).toBe("finish");
+    expect(nextWelcome("feeds")?.id).toBe("address");
+    expect(nextWelcome("address")?.id).toBe("finish");
     expect(nextWelcome("finish")).toBeNull();
     expect(prevWelcome("timezone")).toBeNull();
-    expect(prevWelcome("finish")?.id).toBe("feeds");
+    expect(prevWelcome("finish")?.id).toBe("address");
   });
 
-  it("only lets steps 2 to 5 be skipped", () => {
-    expect(STEPS.filter((s) => s.skippable).map((s) => s.id)).toEqual(["timezone", "theme", "import", "feeds"]);
+  it("only lets steps 2 to 6 be skipped", () => {
+    expect(STEPS.filter((s) => s.skippable).map((s) => s.id)).toEqual(["timezone", "theme", "import", "feeds", "address"]);
   });
 });

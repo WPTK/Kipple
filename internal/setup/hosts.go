@@ -172,8 +172,8 @@ func hostMatches(host string, suffixes, extra []string) bool {
 	return false
 }
 
-// CheckHostEntry validates one allowed-host entry (KIPPLE_ALLOWED_HOSTS or the
-// security.allowed_hosts setting) and returns it normalized: an exact host
+// CheckHostEntry validates one allowed-host entry (the security.allowed_hosts
+// setting, or its KIPPLE_ALLOWED_HOSTS seed) and returns it normalized: an exact host
 // name or IP address, or "*." followed by a name that is not itself a public
 // suffix (so "*.example.com" or "*.home", but not "*.com", "*.co.uk" or
 // "*.github.io", where anyone can register a name) and does not end in a
@@ -210,7 +210,7 @@ func CheckHostEntry(e string) (string, error) {
 	return s, nil
 }
 
-// ParseAllowedHosts parses a comma-separated KIPPLE_ALLOWED_HOSTS value.
+// ParseAllowedHosts parses a comma-separated KIPPLE_ALLOWED_HOSTS value (the seed of security.allowed_hosts).
 func ParseAllowedHosts(v string) ([]string, error) {
 	var out []string
 	for _, part := range strings.Split(v, ",") {

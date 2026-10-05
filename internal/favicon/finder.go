@@ -50,7 +50,7 @@ type Options struct {
 	// (fetch.Client.Transport), so the SSRF check applies. The flags are used
 	// only for the feed's own host (ScopedTransport).
 	Guard     func(allowPrivate, insecureTLS, noHTTP2 bool) http.RoundTripper
-	UserAgent string // the client default, used when the feed resolves to ""
+	UserAgent func() string // the client default (read per lookup), used when the feed resolves to ""; nil sends none
 	Clock     clock.Clock
 	Logger    *slog.Logger
 	// Busy, when set, is asked before each lookup; true (a refresh-all, import
@@ -255,8 +255,8 @@ func (f *Finder) runOnce(ctx context.Context, beforeFetch func() error) (did, fe
 		}
 		fetched = true
 		ua := job.UserAgent
-		if ua == "" {
-			ua = f.opt.UserAgent
+		if ua == "" && f.opt.UserAgent != nil {
+			ua = f.opt.UserAgent()
 		}
 		lctx, cancel := context.WithTimeout(ctx, jobTimeout)
 		icon, lerr = Lookup(lctx, Request{

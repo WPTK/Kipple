@@ -1,0 +1,1 @@
+A trusted proxy range that covers every address (`0.0.0.0/0` or `::/0`) is refused, in Settings and in `KIPPLE_TRUSTED_PROXY_IPS` (where it stops the start): it would let any client choose its own address. (#265)
