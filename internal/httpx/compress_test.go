@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -75,8 +76,8 @@ func TestCompressSkips(t *testing.T) {
 		"font":               {serveTyped("font/woff2", bigJSON), http.MethodGet, "gzip", nil, false},
 		"no content type":    {http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, bigJSON) }), http.MethodGet, "gzip", nil, false},
 		"event stream":       {serveTyped("text/event-stream", bigJSON), http.MethodGet, "gzip", nil, false},
-		"HEAD":               {serveTyped("application/json", bigJSON), http.MethodHead, "gzip", nil, false},
-		"Range":              {serveTyped("application/json", bigJSON), http.MethodGet, "gzip", []string{"Range", "bytes=0-9"}, false},
+		"HEAD":               {serveTyped("application/json", bigJSON), http.MethodHead, "gzip", nil, true},
+		"Range":              {serveTyped("application/json", bigJSON), http.MethodGet, "gzip", []string{"Range", "bytes=0-9"}, true},
 		"already encoded": {http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Content-Encoding", "br")
@@ -86,7 +87,7 @@ func TestCompressSkips(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(404)
 			_, _ = io.WriteString(w, bigJSON)
-		}), http.MethodGet, "gzip", nil, false},
+		}), http.MethodGet, "gzip", nil, true},
 		"declared small size": {http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/plain")
 			w.Header().Set("Content-Length", "2")
@@ -132,15 +133,90 @@ func TestCompressWithServeContent(t *testing.T) {
 	rec = doCompress(t, h, http.MethodGet, "gzip", "If-None-Match", `W/"abc"`)
 	require.Equal(t, http.StatusNotModified, rec.Code)
 	require.Empty(t, rec.Body.String())
+	require.Equal(t, "Accept-Encoding", rec.Header().Get("Vary"), "a 304 repeats the Vary of the 200")
 
 	rec = doCompress(t, h, http.MethodGet, "gzip", "Range", "bytes=0-9")
 	require.Equal(t, http.StatusPartialContent, rec.Code)
 	require.Equal(t, bigJSON[:10], rec.Body.String())
 	require.Empty(t, rec.Header().Get("Content-Encoding"))
+	require.Equal(t, "Accept-Encoding", rec.Header().Get("Vary"))
 
+	// A HEAD describes the uncompressed response, consistently: its length, no encoding, and the Vary.
 	rec = doCompress(t, h, http.MethodHead, "gzip")
 	require.Equal(t, 200, rec.Code)
-	require.NotEmpty(t, rec.Header().Get("Content-Length"))
+	require.Equal(t, strconv.Itoa(len(bigJSON)), rec.Header().Get("Content-Length"))
+	require.Empty(t, rec.Header().Get("Content-Encoding"))
+	require.Equal(t, "Accept-Encoding", rec.Header().Get("Vary"))
+
+	// A handler's own Vary is kept and not repeated.
+	rec = doCompress(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Vary", "Origin, accept-encoding")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, bigJSON)
+	}), http.MethodGet, "gzip")
+	require.Equal(t, []string{"Origin, accept-encoding"}, rec.Header().Values("Vary"))
+}
+
+// Past maxCompressors responses in progress, a response goes out uncompressed (with its Vary)
+// instead of waiting; once a slot frees, compression resumes.
+func TestCompressBoundsConcurrentCompressors(t *testing.T) {
+	saved := compressSlots
+	compressSlots = make(chan struct{}, 1)
+	t.Cleanup(func() { compressSlots = saved })
+
+	release := make(chan struct{})
+	started := make(chan struct{})
+	slow := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, bigJSON)
+		close(started)
+		<-release // a slow reader: the compressor stays in use
+	})
+	done := make(chan *httptest.ResponseRecorder)
+	go func() { done <- doCompress(t, slow, http.MethodGet, "gzip") }()
+	<-started
+
+	rec := doCompress(t, serveTyped("text/css", bigJSON), http.MethodGet, "gzip")
+	require.Empty(t, rec.Header().Get("Content-Encoding"), "the bound is reached")
+	require.Equal(t, bigJSON, rec.Body.String())
+	require.Equal(t, "Accept-Encoding", rec.Header().Get("Vary"))
+	rec = doCompress(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript")
+		w.Header().Set("Content-Length", strconv.Itoa(len(bigJSON)))
+		_, _ = io.WriteString(w, bigJSON)
+	}), http.MethodGet, "gzip")
+	require.Empty(t, rec.Header().Get("Content-Encoding"), "a declared length takes the same way")
+	require.Equal(t, strconv.Itoa(len(bigJSON)), rec.Header().Get("Content-Length"))
+
+	close(release)
+	first := <-done
+	require.Equal(t, "gzip", first.Header().Get("Content-Encoding"))
+	require.Equal(t, bigJSON, gunzip(t, first.Body.Bytes()))
+	rec = doCompress(t, serveTyped("text/css", bigJSON), http.MethodGet, "gzip")
+	require.Equal(t, "gzip", rec.Header().Get("Content-Encoding"), "the slot was given back")
+	require.Empty(t, compressSlots, "every slot is released")
+}
+
+// A first write larger than the threshold, and one that crosses it after buffered bytes, both
+// arrive intact.
+func TestCompressWriteSplits(t *testing.T) {
+	for name, parts := range map[string][]string{
+		"one large write":      {bigJSON},
+		"small then large":     {bigJSON[:100], bigJSON[100:]},
+		"many small writes":    strings.SplitAfter(bigJSON, "},"),
+		"exactly at threshold": {bigJSON[:compressMin], bigJSON[compressMin:]},
+	} {
+		rec := doCompress(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			for _, p := range parts {
+				n, err := io.WriteString(w, p)
+				require.NoError(t, err)
+				require.Equal(t, len(p), n)
+			}
+		}), http.MethodGet, "gzip")
+		require.Equal(t, "gzip", rec.Header().Get("Content-Encoding"), name)
+		require.Equal(t, bigJSON, gunzip(t, rec.Body.Bytes()), name)
+	}
 }
 
 type flushRecorder struct {

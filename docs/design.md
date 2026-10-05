@@ -2075,8 +2075,14 @@ every route. A response is gzip-compressed (the standard library's `compress/gzi
 when the client's `Accept-Encoding` accepts gzip and the response is a `200` whose `Content-Type` is text (not
 `text/event-stream`), JSON, JavaScript or XML (never an image, SVG included, an archive or a font) without a
 `Content-Encoding` of its own, of at least 1400 bytes (the decision waits for that much or for a declared
-`Content-Length`). `HEAD` and `Range` requests are never compressed, so byte ranges and `Content-Length` mean the
-identity bytes. Every compressible `200` carries `Vary: Accept-Encoding`; a compressed one drops `Content-Length` and
+`Content-Length`). At most 16 responses are compressed at once: a gzip writer holds most of a megabyte for as long as
+its client takes to read, so past the bound (slow readers, anyone fetching the static assets) a response goes out
+uncompressed instead of waiting. `HEAD` and `Range` requests are never compressed, so byte ranges and
+`Content-Length` mean the identity bytes; a `HEAD` therefore describes the uncompressed response (its length, no
+`Content-Encoding`), as a `GET` without `Accept-Encoding` would get it, rather than compressing a body to learn a
+length. `Vary: Accept-Encoding` is on every response whose `200` would be compressible (by its type: a `HEAD`, a
+`206` and an error included, compressed or not) and on every `304`, which has no type to judge by and must repeat the
+`Vary` of the `200` it revalidates; a handler's own `Vary` is kept. A compressed response drops `Content-Length` and
 `Accept-Ranges` and gets a weak `ETag` (`W/"…"`; `If-None-Match` compares weakly, so revalidation still answers `304`).
 `Flush` and `Unwrap` reach the real writer, so Server-Sent Events stream as before. `BestSpeed` keeps most of the default
 level's saving at half its CPU (docs/performance.md). No compressed response combines a secret with reflected request
