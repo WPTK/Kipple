@@ -484,3 +484,28 @@ func TestSearchTooBroad(t *testing.T) {
 	_, _, _, err := e.db.ListCardsFB(e.ctx, CardQuery{View: "all", Query: "apple ", Limit: 10})
 	require.ErrorIs(t, err, ErrSearchTooBroad)
 }
+
+// A search whose first page matches more items than searchScanLimit is refused at once, in either order;
+// one that matches exactly the limit is answered, and so are its later pages.
+func TestSearchScanLimit(t *testing.T) {
+	e := newEnv(t)
+	items := make([]sitem, 0, 8)
+	for i := 0; i < 8; i++ {
+		items = append(items, sitem{fmt.Sprintf("Apple %d", i), "Ann", "apple pie"})
+	}
+	seedSearch(t, e, items...)
+	old := searchScanLimit
+	t.Cleanup(func() { searchScanLimit = old })
+
+	searchScanLimit = 8
+	for _, rank := range []bool{false, true} {
+		cards, cur, _, err := e.db.ListCardsFB(e.ctx, CardQuery{View: "all", Query: "apple ", Rank: rank, Limit: 3})
+		require.NoError(t, err)
+		require.Len(t, cards, 3)
+		require.NotNil(t, cur)
+		searchScanLimit = 7
+		_, _, _, err = e.db.ListCardsFB(e.ctx, CardQuery{View: "all", Query: "apple ", Rank: rank, Limit: 3})
+		require.ErrorIs(t, err, ErrSearchTooBroad)
+		searchScanLimit = 8
+	}
+}

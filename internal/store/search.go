@@ -59,7 +59,15 @@ func searchScope(q CardQuery) (where []string, args []any) {
 // a reader connection. A variable so tests can shrink it.
 var searchBudget = 500 * time.Millisecond
 
-// ErrSearchTooBroad is returned by a search that ran out of searchBudget.
+// searchScanLimit is the most matching items a search takes on. Date order has to see every match
+// before it can pick the newest page, so a search's cost grows with its matches, and a time budget
+// alone refuses a common word only when the machine happens to be busy. The first page counts the
+// matches up to this bound (a bounded walk, not the whole result) and a search above it is
+// ErrSearchTooBroad at once, whatever the load. A variable so tests can shrink it.
+var searchScanLimit = 75000
+
+// ErrSearchTooBroad is returned by a search that ran out of searchBudget or matches more than
+// searchScanLimit items.
 var ErrSearchTooBroad = errors.New("store: search too broad")
 
 // searchCards runs a Query card list and reports whether it ran in partial-match (fallback) mode.
@@ -121,6 +129,18 @@ func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card
 		if q.Cursor != nil {
 			where = append(where, "(i.sort_at, i.id) "+keysetOp(q.Oldest)+" (?, ?)")
 			args = append(args, q.Cursor.SortAt, q.Cursor.ID)
+		}
+	}
+	if q.Cursor == nil {
+		// The first page of a search: refuse one that matches more than searchScanLimit items.
+		var n int
+		probe := `SELECT count(*) FROM (SELECT 1 FROM items_fts JOIN items i ON i.id = items_fts.rowid WHERE ` +
+			strings.Join(where, " AND ") + ` LIMIT ?)`
+		if err := d.reader.QueryRowContext(ctx, probe, append(append([]any{}, args...), searchScanLimit+1)...).Scan(&n); err != nil {
+			return nil, nil, false, fmt.Errorf("store: search scan: %w", err)
+		}
+		if n > searchScanLimit {
+			return nil, nil, false, ErrSearchTooBroad
 		}
 	}
 	// Pass 1: the ids of the page (one extra row says whether a next page exists).

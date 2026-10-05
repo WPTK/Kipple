@@ -143,8 +143,11 @@ in about 1.0 s.
 | Word that is not in the library | 0.6 |
 
 Forty common-word searches in a row had a median of 190 ms and a slowest of 237 ms (450 ms in the worst run of an
-earlier series). A search that outruns the 500 ms budget is answered with `422 search_too_broad`. See
-[#229](https://github.com/WPTK/Kipple/issues/229).
+earlier series). A search that outruns the 500 ms budget, or whose first page matches more than 75,000 items, is answered with `422 search_too_broad`. See
+[#229](https://github.com/WPTK/Kipple/issues/229). On this library the planted common words match well over
+75,000 items, so they are now refused as too broad in about 70 ms each time (median over 20 searches, date order and
+rank order), instead of 190 to 270 ms and sometimes past the budget; the two-common-word search still matches fewer
+and answers in about 240 ms (280 ms by rank).
 
 Search is the call that varies most from run to run. Across three series of runs (nine runs, with and without
 `GOMEMLIMIT`), some searches were refused in four of them, in loops of 40 up to 33 refused, while the median of the
@@ -251,7 +254,9 @@ Rules of thumb from the numbers above. They scale with item count and content si
   the write-heavy jobs (trim, backup, upgrade, restore) to take several times longer, and check #228 and #229
   before running a library at this size on such a disk.
 - **Search.** Common-word search cost grows with the number of matching items, and 150,000 items is the size where it
-  comes within 2 times of its 500 ms budget on this machine (smaller libraries were not measured).
+  came within 2 times of its 500 ms budget on this machine (smaller libraries were not measured). A search that
+  matches more than 75,000 items is refused as too broad however fast the machine is, so a common word stops being
+  refused only when the machine is busy; add a more specific word.
 
 ## What is not measured
 
