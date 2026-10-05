@@ -36,6 +36,7 @@ jobs:
       # A pull request checks the *.md files it changes (or all of them when the checker itself changed); every other
       # run checks them all. The base ref goes through the environment, never into the script text.
       - name: Check links
+        shell: bash # adds pipefail, so a failing check is not hidden by tee
         env:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
@@ -49,4 +50,12 @@ jobs:
               if [ "${#files[@]}" -eq 0 ]; then echo "no changed *.md"; exit 0; fi
             fi
           fi
-          node scripts/check-links.mjs "${files[@]}"
+          node scripts/check-links.mjs "${files[@]}" | tee "$RUNNER_TEMP/links.out"
+
+      # Runs even when the check failed, so a weekly failure shows on the run page and not only in the log.
+      - name: Summarise
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/links.out" ]; then
+            { echo '### Link check'; echo '```'; cat "$RUNNER_TEMP/links.out"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi

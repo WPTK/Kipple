@@ -91,7 +91,8 @@ Step 'web' 'npm audit signatures' { Push-Location web; npm audit signatures --ca
 # ---- links (network; only the *.md changed against origin/main, since CI runs the full set weekly) ----
 Step 'links' 'markdown links (scripts/check-links.mjs)' {
   if ($AllLinks) { node scripts/check-links.mjs; return }
-  $changed = @(git diff --name-only --diff-filter=d origin/main -- '*.md'; git ls-files --others --exclude-standard -- '*.md') | Sort-Object -Unique
+  # The outer @() keeps a single changed file an array, so it is passed as one name and not splatted into characters.
+  $changed = @(@(git diff --name-only --diff-filter=d --merge-base origin/main -- '*.md'; git ls-files --others --exclude-standard -- '*.md') | Sort-Object -Unique)
   if ($changed.Count -eq 0) { Write-Host 'no changed *.md'; $global:LASTEXITCODE = 0; return }
   node scripts/check-links.mjs @changed
 }
