@@ -367,7 +367,7 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupLibrary, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: "library.favorites", Label: "Sidebar favorites", Description: "The folders and feeds you pinned to the top of the sidebar.",
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkFavorites},
-	{Key: "library.auto_read_days", Label: "Mark old articles as read after…", Description: "Articles you have not read are marked read once they are this many days old, which keeps your unread list (and the one sync apps such as Reeder load) from growing without end. Starred articles and muted ones are never touched, and an article you mark unread again stays unread. Zero turns this off. A feed can set its own number in its settings. Changing this never marks anything at once: use the catch-up button to clear what is already older.",
+	{Key: "library.auto_read_days", Label: "Mark old articles as read after…", Description: "Articles you have not read are marked read once they are this many days old, which keeps your unread list (and the one some sync apps load) from growing without end. Starred articles and muted ones are never touched, and an article you mark unread again stays unread. Zero turns this off. A feed can set its own number in its settings. Changing this never marks anything at once: use the catch-up button to clear what is already older.",
 		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(365), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, 365)},
 	{Key: "library.saved_searches", Label: "Saved searches", Description: "The searches you saved to the sidebar.",
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkSavedSearches},
@@ -398,7 +398,7 @@ var settingDefs = withScopes([]settingDef{
 	// Advanced: shown in an Advanced section of the Settings screen.
 	{Key: "fetch.honor_publisher_ttl", Label: "Follow publisher refresh hints", Description: "Wait longer between checks when a site asks readers not to check too often.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceSettings, check: boolVal},
-	{Key: "greader.icon_urls", Label: "Send feed icons to sync apps", Description: "Let apps like Reeder show each feed's icon. On by default.",
+	{Key: "greader.icon_urls", Label: "Send feed icons to sync apps", Description: "Let sync apps show each feed's icon. On by default.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Hidden plumbing: validated and PATCH-able, never shown by default.

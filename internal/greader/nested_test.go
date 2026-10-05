@@ -108,7 +108,7 @@ func TestNestedLabelScopeIsOwnFeeds(t *testing.T) {
 func TestNestedLabelWrites(t *testing.T) {
 	h := newHarness(t)
 	w := h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/"+url.QueryEscape("https://one.example/rss")+
-		"&a="+nnwEnc("user/-/label/Work/Clients"))
+		"&a="+clientEnc("user/-/label/Work/Clients"))
 	require.Equal(t, http.StatusOK, w.Code)
 	clients := q[int64](h, "SELECT id FROM folder_paths WHERE path = 'Work/Clients'")
 	work := q[int64](h, "SELECT id FROM folders WHERE name = 'Work' AND parent_id IS NULL")
@@ -116,7 +116,7 @@ func TestNestedLabelWrites(t *testing.T) {
 	feed := q[int64](h, "SELECT id FROM feeds WHERE folder_id = ?", clients)
 
 	// ac=edit into a deeper path below an existing folder
-	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(feed)+"&a="+nnwEnc("user/-/label/Work/Clients/Acme"))
+	h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(feed)+"&a="+clientEnc("user/-/label/Work/Clients/Acme"))
 	require.Equal(t, "Work/Clients/Acme", q[string](h, "SELECT fp.path FROM feeds f JOIN folder_paths fp ON fp.id = f.folder_id WHERE f.id = ?", feed))
 	h.addItem(feed, itemSeed{Title: "x"})
 	m := jsonBody(t, h.get(rd+"stream/contents/user/-/state/com.google/reading-list?output=json"))
@@ -125,7 +125,7 @@ func TestNestedLabelWrites(t *testing.T) {
 	// A path past the depth cap is refused, logged and answered OK with nothing changed.
 	deep := "user/-/label/1/2/3/4/5/6/7/8/9"
 	before := q[int](h, "SELECT count(*) FROM folders")
-	w = h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(feed)+"&a="+nnwEnc(deep))
+	w = h.post(rd+"subscription/edit", "T="+h.tok+"&ac=edit&s="+feedID(feed)+"&a="+clientEnc(deep))
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, before, q[int](h, "SELECT count(*) FROM folders"))
 }
@@ -156,13 +156,13 @@ func TestNestedRenameTag(t *testing.T) {
 	path := func(feed int64) string {
 		return q[string](h, "SELECT fp.path FROM feeds f JOIN folder_paths fp ON fp.id = f.folder_id WHERE f.id = ?", feed)
 	}
-	h.post(rd+"rename-tag", "T="+h.tok+"&s="+nnwEnc("user/-/label/Tech/Apple")+"&dest="+nnwEnc("user/-/label/Apple Stuff"))
+	h.post(rd+"rename-tag", "T="+h.tok+"&s="+clientEnc("user/-/label/Tech/Apple")+"&dest="+clientEnc("user/-/label/Apple Stuff"))
 	require.Equal(t, "Apple Stuff", path(feeds["Tech/Apple"]))
 	require.Equal(t, "Apple Stuff/Mac", path(feeds["Tech/Apple/Mac"]))
 	h.post(rd+"rename-tag", "T="+h.tok+"&s=user/-/label/Tech&dest=user/-/label/Gear")
 	require.Equal(t, "Gear", path(feeds["Tech"]))
 
-	w := h.post(rd+"rename-tag", "T="+h.tok+"&s="+nnwEnc("user/-/label/Apple Stuff")+"&dest=user/-/label/Gear")
+	w := h.post(rd+"rename-tag", "T="+h.tok+"&s="+clientEnc("user/-/label/Apple Stuff")+"&dest=user/-/label/Gear")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, logs.String(), "folder change refused")
 	require.Equal(t, "Apple Stuff", path(feeds["Tech/Apple"]), "nothing changed")
@@ -180,7 +180,7 @@ func TestSubscribeWithRefusedLabelUsesTheDefaultFolder(t *testing.T) {
 			h := newHarness(t, harnessOpts{logger: debugLogger(&logs)})
 			before := q[int](h, "SELECT count(*) FROM folders")
 			w := h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/"+url.QueryEscape("https://one.example/rss")+
-				"&s=feed/"+url.QueryEscape("https://two.example/rss")+"&a="+nnwEnc(label))
+				"&s=feed/"+url.QueryEscape("https://two.example/rss")+"&a="+clientEnc(label))
 			require.Equal(t, http.StatusOK, w.Code)
 			require.Equal(t, 2, q[int](h, "SELECT count(*) FROM feeds WHERE folder_id = 1 AND host IN ('one.example', 'two.example')"))
 			require.Equal(t, before, q[int](h, "SELECT count(*) FROM folders"), "no folder half-created")

@@ -105,7 +105,8 @@ func (c *call) streamContents() {
 	rawSID := firstOrEmpty(c.p.AllRaw("s"))
 	if rest := strings.TrimPrefix(c.name, "stream/contents"); rest != "" {
 		if path := strings.TrimPrefix(rest, "/"); path != "" && sid == "" {
-			sid, rawSID = path, path
+			sid = pathStream(path)
+			rawSID = sid
 		}
 	}
 	f, err := c.resolveStream(sid, rawSID)
@@ -204,7 +205,7 @@ type enclosureJSON struct {
 }
 
 // itemJSON is one stream item (design §6.6). Strings are never null; summary,
-// categories and origin are always present (NetNewsWire's decoder needs them).
+// categories and origin are always present (some clients' decoders need them).
 type itemJSON struct {
 	ID            string          `json:"id"`
 	CrawlTimeMsec string          `json:"crawlTimeMsec"`

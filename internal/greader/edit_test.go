@@ -11,7 +11,7 @@ import (
 	"github.com/WPTK/kipple/internal/events"
 )
 
-// editBody builds an edit-tag body the way Reeder 4 does: T=x plus a valid header.
+// editBody builds an edit-tag body the way a client does: T=x plus a valid header.
 func editBody(tag string, ids ...string) string {
 	var b strings.Builder
 	b.WriteString("T=x")
@@ -145,7 +145,7 @@ func TestEditTagOnTrimmedIDs(t *testing.T) {
 	require.Equal(t, 2, q[int](h, "SELECT count(*) FROM items_fts WHERE items_fts MATCH 'item' AND rowid IN (?, ?)", ids[0], ids[1]))
 }
 
-func TestNNWEditTagFourPassesThousandIDs(t *testing.T) {
+func TestEditTagFourPassesThousandIDs(t *testing.T) {
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	ids := seedN(h, f, 60, nil)
@@ -164,7 +164,7 @@ func TestNNWEditTagFourPassesThousandIDs(t *testing.T) {
 		var b strings.Builder
 		b.WriteString("T=" + h.tok)
 		for _, id := range long {
-			b.WriteString("&i=" + id) // NNW leaves ':' ',' '/' unencoded
+			b.WriteString("&i=" + id) // a client leaves ':' ',' '/' unencoded
 		}
 		b.WriteString("&" + pass)
 		w := h.post(rd+"edit-tag", b.String())
@@ -240,8 +240,9 @@ func TestMarkAllAsReadScopes(t *testing.T) {
 	tr := h.addItem(fc, itemSeed{})
 	h.trim(tr, true)
 
-	// Read, unread, broadcast, unknown streams: OK, nothing changes.
-	for _, s := range []string{readSt, "user/-/state/com.google/unread", "user/-/state/com.google/broadcast", "user/-/label/Nope", "feed/9999", "garbage"} {
+	// Read, broadcast, unknown streams: OK, nothing changes (the unread stream is the reading list,
+	// covered by the conformance suite).
+	for _, s := range []string{readSt, "user/-/state/com.google/broadcast", "user/-/label/Nope", "feed/9999", "garbage"} {
 		w := h.post(rd+"mark-all-as-read", "T=x&s="+url.QueryEscape(s))
 		require.Equal(t, "OK", w.Body.String(), s)
 	}

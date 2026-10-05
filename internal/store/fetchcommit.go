@@ -38,6 +38,9 @@ type CommitInfo struct {
 	Held map[string]int64
 	// Migrated is set when the commit rewrote feeds.url (design §4.7).
 	Migrated bool
+	// Retitled is set when the feed's display name (feedTitleSQL) changed: the first fetch naming a
+	// new feed, or the feed renaming itself while it has no custom name.
+	Retitled bool
 	// TrimPending is set when the retention trim filled its bounded batch, so the
 	// feed may still hold more than its cap; the scheduler queues a trim job for it.
 	TrimPending bool
@@ -49,6 +52,7 @@ type CommitInfo struct {
 
 type commitState struct {
 	migrated   bool
+	retitled   bool
 	before     int // items in the feed before the fetch
 	firstNewID int64
 	firstID    int64
@@ -133,7 +137,7 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 				held[h.uid] = h.id
 			}
 		}
-		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Stale: st.stale, TrimPending: st.trimMore,
+		return CommitInfo{New: len(st.newIDs), Updated: st.updated, Trimmed: st.trimmed, NewIDs: st.newIDs, Migrated: st.migrated, Retitled: st.retitled, Stale: st.stale, TrimPending: st.trimMore,
 			MutedIDs: st.mutedIDs, Muted: len(st.mutedIDs), MarkedRead: st.fMarked, Starred: st.fStarred, Held: held}
 	}
 	for i, ch := range chunks {
@@ -311,6 +315,11 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 
 	if res.Outcome == fetch.OutcomeOK && res.Feed != nil {
 		f := res.Feed
+		var before, after string
+		nameSQL := "SELECT " + feedTitleSQL("feeds") + " FROM feeds WHERE id = ?"
+		if err := tx.QueryRowContext(ctx, nameSQL, feedID).Scan(&before); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE feeds SET
 			title = CASE WHEN ?2 != '' THEN ?2 ELSE title END,
 			site_url = CASE WHEN ?3 != '' THEN ?3 ELSE site_url END, description = ?4,
@@ -319,6 +328,10 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 			WHERE id = ?1`, feedID, f.Title, f.SiteURL, f.Description); err != nil {
 			return err
 		}
+		if err := tx.QueryRowContext(ctx, nameSQL, feedID).Scan(&after); err != nil {
+			return err
+		}
+		st.retitled = after != before
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE feeds SET
 		etag = CASE WHEN ?2 THEN NULLIF(?3,'') ELSE etag END,

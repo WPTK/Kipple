@@ -9,7 +9,7 @@ reader: one account, one container, one SQLite database. Design detail is in `do
 | Asset | Why it matters |
 |---|---|
 | The web session and the account password hash (argon2id) | Control of the reader and everything it can reach. |
-| The Reader API password and tokens | A second way in for apps such as Reeder and NetNewsWire. |
+| The Reader API password and tokens | A second way in for sync apps. |
 | The database (`/data`): subscriptions, read and star state, reading statistics, saved filters | Private reading history. Also holds feed HTTP credentials set per feed. |
 | Backups (the export zip, scheduled snapshots) | A copy of the database. Mode 0600, in `/data`. |
 | The host's network position | Kipple fetches arbitrary URLs from inside your network. A fetcher is a way to reach what only your server can. |
@@ -40,7 +40,7 @@ the owner's password or a shell on the host; denial of service by someone who ca
 | Session theft and fixation | 256-bit random cookie value, stored only as its hash; HttpOnly, SameSite=Lax, Secure when the effective scheme is https; logout deletes the row; a password change signs out other sessions; `kipple password` signs out all | `internal/api/api.go`, `login.go`, `account.go`, `internal/store/sessions.go`; tests `internal/api/session_security_test.go` |
 | Password guessing | argon2id, per-client escalating wait, one hashing slot, same for Reader API login | `internal/auth`, `internal/api/login.go`, design section 6.3 |
 | Spoofed client address or Access header | Forwarded headers are honoured only from `KIPPLE_TRUSTED_PROXY_IPS`; Access tokens are verified against the team's keys | `internal/auth/clientip.go`, `internal/access` |
-| DNS rebinding against the app | Host header gate in setup and open mode | `internal/setup/hosts.go`, `internal/api/hostgate.go` |
+| DNS rebinding against the app | Host header gate in setup and open mode; open mode answers single-label and `.local`-style names only when listed, and choosing open mode never lists one (design §7.1e) | `internal/setup/hosts.go`, `internal/api/hostgate.go` |
 | Image proxy abuse (bombs, huge files) | Signed URLs, size and time caps, strict JPEG walk and decode-cost budget before transcoding | `internal/imgproxy` |
 | Hostile OPML or backup archive | Go's XML decoder has no external entities; imported feeds never get the private-network or insecure-TLS exceptions; archive entry names are flat and bounded | `internal/opml`, `internal/backup/archive.go` |
 | Container compromise | Non-root, read-only root, no capabilities, no-new-privileges, memory and process limits | `docker-compose.example.yml`, `docs/deploy.md` |
@@ -53,7 +53,10 @@ the owner's password or a shell on the host; denial of service by someone who ca
 - **Cookie is not `__Host-` prefixed**, because Secure must stay conditional so plain-HTTP LAN use works.
 - **`style-src 'unsafe-inline'`** in the page CSP (component library inline styles). Scripts stay `'self'` only.
 - **Open mode** means anything that reaches the port is signed in. It is limited to loopback, tailnet and private
-  addresses by the open gate, but the LAN is trusted when you choose it.
+  addresses by the open gate, but the LAN is trusted when you choose it. A LAN name you list (`nas.local`) can be
+  answered, and so rebound, by any device on the network.
+- **Setup has no secret**: until the account exists, whoever reaches the setup page first, including a DNS-rebinding
+  page at a LAN name, can claim the instance.
 - **The SSRF guard is application-level.** A bug in it is a reach into your network. If your network has sensitive
   internal services, add an egress firewall or put Kipple on its own Docker network: the guard should never be the only
   barrier.

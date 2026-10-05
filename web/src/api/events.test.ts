@@ -142,7 +142,7 @@ describe("cache reconciliation", () => {
 
   it("items.state patches read and starred in lists and details, without refetching", () => {
     const qc = seeded();
-    handleServerEvent(qc, { type: "items.state", data: { ids: ["1001", "1003"], read: true, source: "reeder" } });
+    handleServerEvent(qc, { type: "items.state", data: { ids: ["1001", "1003"], read: true, source: "api" } });
     expect(rows(qc).map((i) => i.read)).toEqual([true, false, true]);
     expect(qc.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(true);
     handleServerEvent(qc, { type: "items.state", data: { ids: ["1002"], starred: true, source: "web" } });

@@ -11,7 +11,7 @@ actual devices, doing his actual reading?" It is a phase 5 release-readiness ste
 | Standard role | Here |
 |---|---|
 | QA professional (orchestrates) | Claude: writes test cases, executes what can be automated or agent-driven, tracks and triages defects |
-| End user | The owner — the only user, on desktop Chrome and an installed iPhone PWA, plus Reeder Classic and NetNewsWire as Reader API clients |
+| End user | The owner — the only user, on desktop Chrome and an installed iPhone PWA, plus a Reader API client |
 | Business analyst / product owner | The owner (same person) — decisions already recorded in `docs/ui-decisions.md` and `kipple-history` are the "requirements" test cases trace to |
 | Development team | Claude, via fix PRs against defects found |
 | Sign-off authority | The owner, against `docs/release-checklist.md` |
@@ -28,7 +28,7 @@ triage scheme since it's a reasonable, well-known scale), each with steps to rep
 - A representative test environment: either the Host-A deployment on a pre-release build, or the local dev stack
   (`npm run seed` / `KIPPLE_ADDR`+`KIPPLE_DATA` per CLAUDE.md) seeded with a realistic OPML set (the existing
   138-feed NewsBlur export works, or a smaller fixture for faster runs).
-- Reeder Classic and NetNewsWire available on the owner's devices, already configured against the test instance.
+- A Reader API client available on the owner's devices, already configured against the test instance.
 
 ## Exit criteria
 
@@ -207,9 +207,9 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
   again" instead of hanging (also just fixed — re-verify).
 
 **Reader API clients**
-- TC-A1: Reeder Classic (FreshRSS type) connects, syncs reading-list/unread/starred; mark read/unread/star in
-  Reeder and confirm it appears in the web app within 60s, and vice versa.
-- TC-A2: NetNewsWire connects the same way; add a feed from NetNewsWire, confirm it appears after the next
+- TC-A1: a Reader API client (FreshRSS type) connects, syncs reading-list/unread/starred; mark read/unread/star in
+  the client and confirm it appears in the web app within 60s, and vice versa.
+- TC-A2: a second Reader API client connects the same way; add a feed from it, confirm it appears after the next
   scheduler tick; `subscription/quickadd` re-list shows it immediately (ETag behavior).
 - TC-A3: `mark-all-as-read` from each client behaves correctly (the `ts` unit question; `docs/design.md` §3
   — confirm the digit-count parsing picks the right cut).
@@ -295,7 +295,7 @@ Kipple defect. Defects found: three fixed in PR #45, two copy questions filed as
 - TC-T4 **pass.** Your year gives a plausible summary, the share sheet copies the text (top sources only when
   switched on) and saves a PNG; a failing summary request shows "Try again", which recovers. When a year has
   opens but no reads, the "Only 1 day of reading" notice contradicts "No days with reading" (issue #43).
-- TC-A1, TC-A2, TC-A3 **skipped.** They need Reeder Classic and NetNewsWire on the owner's devices; not
+- TC-A1, TC-A2, TC-A3 **skipped.** They need a Reader API client on the owner's devices; not
   executable by an agent.
 - TC-C1 **pass (negative case only).** Without Access configured the login form requires the password: an empty
   password is refused, including with a forged `Cf-Access-Jwt-Assertion` header. The positive case needs a real
@@ -379,7 +379,7 @@ Defects are numbered B2-1 to B2-9 below for the findings doc.
 - TC-T4 **pass.** Your year shows a plausible summary; the share sheet copies the text (top sources and longest read
   only when switched on) and downloads `kipple-2026.png`, which looks right; a failing summary request shows "The
   server returned an error. Try again." and Try again recovers.
-- TC-A1, TC-A2, TC-A3 **skipped.** They need Reeder Classic and NetNewsWire on the owner's devices. As a substitute,
+- TC-A1, TC-A2, TC-A3 **skipped.** They need a Reader API client on the owner's devices. As a substitute,
   the Reader API regression replay (below) was run by hand with curl against the instance: ClientLogin with the API
   password (the web password is refused), token, user-info, subscription/list with ETag (304 on a match, 200 after a
   change), tag/list, unread-count (244, the same as the unread ids), stream/items/ids paging (6 pages of 50, 275 ids)
@@ -576,7 +576,7 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 | A7 | Step 1: create the account with a password (try one that is too short first). | The short one is refused with a reason; a valid one signs you in and moves to the time zone step. | |
 | A8 | Step 2, time zone. | Preselected from the browser's zone (UTC with a note if the server does not know it); searchable; Continue saves it. `docker exec <container> /kipple version -v` and Settings > About agree with the tag and show the zone. | The zone shown. |
 | A9 | Steps 3 to 5: pick a theme, import a small OPML file (or skip), tick a few recommended feeds. | Each saves as you go; imported and subscribed feeds start fetching; "Skip" on each step works and lands on the next. | Feeds added, time to the first article. |
-| A10 | Step 6: generate the Reader API password and connect NetNewsWire (or Reeder) with the server address the wizard shows, the user name and that password. | The password is shown once with a copy button; the app signs in and lists the feeds. | Client and version. |
+| A10 | Step 6: generate the Reader API password and connect a Reader API client with the server address the wizard shows, the user name and that password. | The password is shown once with a copy button; the app signs in and lists the feeds. | Client and version. |
 | A11 | Finish, sign out and in again, Settings > Account & Devices > **Export backup** and save the zip, then `docker exec <container> /kipple healthcheck; echo $?`. | Lands on the feed list; the password works; the backup downloads; the health check exits 0. | Backup size, and the version and schema in its manifest. |
 | A12 | On a second throwaway volume, reload the page between steps 2 and 5 (or use Settings > Account & Devices > Run setup again). | The wizard resumes where it was; what was saved is kept. | |
 | A13 | After completion `POST /api/setup/account` again (a browser tab or `curl`). | `404`: the setup route is gone. | |
@@ -625,7 +625,7 @@ the wizard script (`npm run uat:wizard`) covers them against a source build.
 - **Also:** the container runs read-only as uid 65532 with all capabilities dropped; a bind mount without the `chown`
   fails with `data dir lock ... permission denied`, as the README says.
 - **Not run:** Run D (arm64; no arm64 machine), Run E (the tag was built from source with Docker alone for the deploy, and
-  reports `v0.7.0-beta.1`), the NetNewsWire/Reeder connection (A10) and the manual browser steps above.
+  reports `v0.7.0-beta.1`), the Reader API client connection (A10) and the manual browser steps above.
 - **Findings:** none. One note: the `no account yet` line says the container "listens on :1919", which is the in-container
   port, not the published one.
 
@@ -677,8 +677,8 @@ throwaway value.
 
 ## Reader API regression replay
 
-Separate from the client suites above, but part of the same release-readiness gap: replay the recorded Reeder
-Classic and NetNewsWire request sequences from the client research (kept outside this repository;
+Separate from the client suites above, but part of the same release-readiness gap: replay the recorded Reader API client
+request sequences from the client research (kept outside this repository;
 `stream/items/ids` paging, `edit-tag`, `subscription/quickadd`, `mark-all-as-read`) as a contract test against
 the build under test, not just the unit-level contract tests already in CI (`internal/greader/contract_test.go`)
 — this is the end-to-end version, run once per release against the actual deployed instance.

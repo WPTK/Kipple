@@ -12,8 +12,8 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// startSetupMode derives the mode from the database (docs/setup-wizard-design.md
-// 3.1): with an account the process is in normal mode for good; without one it
+// startSetupMode derives the mode from the database (docs/design.md §7.1e):
+// with an account the process is in normal mode for good; without one it
 // is in setup mode, which is only "no account row" (there is no setup code).
 // then runs once, when the account appears: it starts the background work, so
 // nothing fetches before an account exists. A `setup-token` file left by a

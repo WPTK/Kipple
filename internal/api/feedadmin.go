@@ -24,7 +24,7 @@ var (
 
 const (
 	discoverWait  = 10 * time.Second
-	maxTitleRunes = 200
+	maxTitleRunes = fetch.MaxTitleRunes
 	maxFolderName = 100
 	maxUAAuthLen  = 500
 )
@@ -100,6 +100,17 @@ func hasControl(s string) bool {
 		}
 	}
 	return false
+}
+
+// titleInput checks a feed name the user typed and returns it cleaned by the one name rule
+// (fetch.CleanName): refused for a real control character (hasControl, outside the surrounding
+// whitespace) or for more than maxTitleRunes characters once invisible ones are gone, so a trailing
+// zero-width character never turns a valid name into an error. "" means no name.
+func titleInput(s string, ok bool) (string, bool) {
+	if !ok || hasControl(strings.TrimSpace(s)) || fetch.NameRunes(s) > maxTitleRunes {
+		return "", false
+	}
+	return fetch.CleanName(s), true
 }
 
 // awaitReply waits for a priority job's reply, the timer, scheduler shutdown or
@@ -182,8 +193,7 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	if raw, present := m["title"]; present && !isNull(raw) {
 		t, ok := rawString(raw)
-		t = strings.TrimSpace(t)
-		if !ok || utf8.RuneCountInString(t) > maxTitleRunes || hasControl(t) {
+		if t, ok = titleInput(t, ok); !ok {
 			writeErrorMsg(w, http.StatusBadRequest, "bad_request", "title must be text up to 200 characters")
 			return
 		}
@@ -296,8 +306,7 @@ func parsePatch(m map[string]json.RawMessage) (p store.FeedPatch, msg string) {
 				continue
 			}
 			t, ok := rawString(raw)
-			t = strings.TrimSpace(t)
-			if !ok || utf8.RuneCountInString(t) > maxTitleRunes || hasControl(t) {
+			if t, ok = titleInput(t, ok); !ok {
 				return p, "custom_title must be null or text up to 200 characters"
 			}
 			if t == "" {

@@ -46,7 +46,7 @@ body:
     id: what
     attributes:
       label: What happened, and what you expected
-      description: Include the steps to reproduce it, and the client (browser and version, Reeder Classic, NetNewsWire) if it matters.
+      description: Include the steps to reproduce it, and the client (the browser, or the sync app, and its version) if it matters.
     validations:
       required: true
   - type: textarea

@@ -50,7 +50,7 @@ Something not working? See [troubleshooting.md](troubleshooting.md). Behind HTTP
   image cache (at most 1 GiB by default, `imgproxy.cache_mb`) and room for upgrades and exports, below. A database
   of about 140 feeds and 5,600 stored articles was 53 MB, so plan on roughly 10 KB per stored article. The default
   keeps the newest 250 per feed (`retention.default`) and never trims starred articles.
-- A browser for the web app. Reeder Classic and NetNewsWire are the tested sync clients.
+- A browser for the web app. Any client that speaks the Google Reader API can sync.
 
 ## Where things live
 
@@ -449,7 +449,7 @@ From a script or a pipe (one line on standard input; mind shell history and the 
 
 Rules: 5 to 256 characters. It signs out every web session **and revokes every Reader API token**
 (it rotates the account secret), so afterwards: sign in again in the browser, and re-enter the
-Reader API password in Reeder and NetNewsWire (that password itself is unchanged; if you have lost
+Reader API password in your sync apps (that password itself is unchanged; if you have lost
 it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login pacing is in
 memory: it clears after an hour with no failure or on a restart. If `KIPPLE_PASSWORD` is still in
 your `.env`, remove it: it is read only when the account is first created. On an account in open mode
@@ -570,7 +570,7 @@ The account comes from the backup: sign in with the web password and use the Rea
 that were current when the backup was taken. `KIPPLE_USERNAME`, `KIPPLE_PASSWORD` and
 `KIPPLE_API_PASSWORD` in `.env` are ignored because the account already exists. The restore prints
 "There was no previous database to keep." on an empty volume. The Reader API answered ClientLogin
-and `unread-count` with the backup's password on the rehearsal; if Reeder or NetNewsWire reports an
+and `unread-count` with the backup's password on the rehearsal; if a Reader API client reports an
 authentication error, sign in again in the app with that password. If the backed-up account had no web
 password (removed through Cloudflare Access), sign in through Access with the same `KIPPLE_ACCESS_*` values, or set
 one first with `kipple password` (it works on the stopped service:

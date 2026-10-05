@@ -31,8 +31,7 @@
 
 Kipple is an RSS reader you run yourself, for yourself. It keeps your feeds in a small database on your own
 server, shows them in a clean reading app, and has no ads, no recommendations and nobody else's data in it. It
-runs as a single Docker container on one port, and any app that speaks the Google Reader sync API (Reeder,
-NetNewsWire and others) can read the same account.
+runs as a single Docker container on one port, and any app that speaks the Google Reader sync API can read the same account.
 
 > **Status: prerelease (beta).** The fetch and sync core, the reading UI, an installable offline-capable app,
 > and reading statistics with a yearly Wrapped summary are all done and in daily use; testing before 1.0 is
@@ -72,7 +71,7 @@ use.
 - Per-feed and global limits on how many articles to keep.
 - Installable on a phone's home screen, with already-read articles available offline.
 - Reading statistics, including a yearly summary, kept on your own server.
-- A Google Reader-compatible sync API for Reeder, NetNewsWire and similar apps.
+- A Google Reader-compatible sync API for any client that speaks it.
 - Backups you can download from the web app, and a command-line tool to restore them.
 - One account, with an optional password, and no tracking of any kind.
 
@@ -154,7 +153,7 @@ Then:
    3. **Theme**: one look for day and one for night.
    4. **Import** an OPML file from your old reader (or skip).
    5. **Recommended feeds**, a few good ones to start with (or skip).
-   6. **Done**, with an optional Reader API password for Reeder or NetNewsWire.
+   6. **Done**, with an optional Reader API password for sync apps.
 
 **Until you have created your account, anyone who can reach the port can create it.** That is how every
 self-hosted app that sets itself up in the browser works, and it is why the examples publish the port on `127.0.0.1`
@@ -210,7 +209,7 @@ To stamp it with the release you cloned, set `KIPPLE_VERSION=$(git describe --ta
 
 ### After setup
 
-To sync with a Google Reader-API client (Reeder Classic, NetNewsWire), use the API password from the last wizard
+To sync with a Google Reader-API client, use the API password from the last wizard
 step, or make one any time in Settings, Account & Devices (or `docker exec -it kipple /kipple api-password`). The
 server address is your Kipple address plus `/api/greader.php`; the user name is the one you chose.
 
@@ -275,8 +274,7 @@ mailing list. Start with [docs/troubleshooting.md](docs/troubleshooting.md). If 
 `docker exec kipple /kipple version -v`, how you run Kipple, what sits in front of it, and the logs. A vulnerability goes
 through [SECURITY.md](SECURITY.md), not an issue.
 
-Supported: the published Docker image on `linux/amd64` and `linux/arm64`, one user, the web app, and Reeder Classic and
-NetNewsWire as sync clients. Not supported: a hosted service, other container runtimes and NAS platforms (they may
+Supported: the published Docker image on `linux/amd64` and `linux/arm64`, one user, the web app, and any Google Reader API client as a sync client. Not supported: a hosted service, other container runtimes and NAS platforms (they may
 work), running the bare binary, other sync clients (they may work), your reverse proxy or tunnel beyond what
 [docs/reverse-proxy.md](docs/reverse-proxy.md) says, and builds from source (best effort).
 

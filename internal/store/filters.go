@@ -105,10 +105,11 @@ func normalizeFields(f *Filter) {
 	}
 }
 
-// feedTitleSQL is the feed title a rule's `feed` field sees, for the feeds table under alias a: the
-// custom title, else the stored title, else the feed URL (both titles trimmed of ASCII whitespace,
-// blank counts as absent). The ingest hook (loadFeed), the retroactive scan and the stats snapshots
-// all use it, so a rule and a stats row name a feed the same way.
+// feedTitleSQL is the one rule for a feed's display name, for the feeds table under alias a (use
+// "feeds" for an unaliased query): the custom title, else the title the feed gives itself, else the
+// feed URL (both titles trimmed of ASCII whitespace, blank counts as absent). Every list, the Reader
+// API, a rule's `feed` field, the stats snapshots and the fetch commit's rename check use it, so they
+// all name a feed the same way. A new feed stores no title until its first fetch, so it shows its URL.
 func feedTitleSQL(a string) string {
 	return "COALESCE(" + feedOwnTitleSQL(a) + ", " + a + ".url)"
 }
@@ -117,6 +118,10 @@ func feedTitleSQL(a string) string {
 func feedOwnTitleSQL(a string) string {
 	return "COALESCE(NULLIF(trim(" + a + ".custom_title, " + sqlSpace + "), ''), NULLIF(trim(" + a + ".title, " + sqlSpace + "), ''))"
 }
+
+// FeedOwnTitleSQL is feedOwnTitleSQL for other packages (the OPML export writes no name for a feed
+// that has none yet, rather than a placeholder a re-import would keep as a custom name).
+func FeedOwnTitleSQL(a string) string { return feedOwnTitleSQL(a) }
 
 // sqlSpace and goSpace are the same set of whitespace, for SQL trim() and strings.Trim.
 const (

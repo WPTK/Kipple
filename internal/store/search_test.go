@@ -484,3 +484,100 @@ func TestSearchTooBroad(t *testing.T) {
 	_, _, _, err := e.db.ListCardsFB(e.ctx, CardQuery{View: "all", Query: "apple ", Limit: 10})
 	require.ErrorIs(t, err, ErrSearchTooBroad)
 }
+
+// One page of a search walks at most searchScanLimit matches: over it the search is refused, on the
+// first page and on any later one (a client-supplied cursor included), in both orders, in a feed or folder
+// scope and in the partial-match (OR) mode; exactly the limit is answered.
+func TestSearchScanLimit(t *testing.T) {
+	e := newEnv(t)
+	items := make([]sitem, 0, 8)
+	for i := 0; i < 8; i++ {
+		items = append(items, sitem{fmt.Sprintf("Apple %d", i), "Ann", "apple pie"})
+	}
+	ids := seedSearch(t, e, items...)
+	old := searchScanLimit
+	t.Cleanup(func() { searchScanLimit = old })
+	list := func(q CardQuery) ([]Card, *Cursor, bool, error) {
+		q.View, q.Limit = "all", 3
+		return e.db.ListCardsFB(e.ctx, q)
+	}
+
+	for _, rank := range []bool{false, true} {
+		searchScanLimit = 8
+		cards, cur, _, err := list(CardQuery{Query: "apple ", Rank: rank})
+		require.NoError(t, err)
+		require.Len(t, cards, 3)
+		require.NotNil(t, cur)
+		// A later page of a search at the limit is answered (it walks what remains, or all of it by rank).
+		cards, _, _, err = list(CardQuery{Query: "apple ", Rank: rank, Cursor: cur})
+		require.NoError(t, err)
+		require.NotEmpty(t, cards)
+
+		searchScanLimit = 7
+		_, _, _, err = list(CardQuery{Query: "apple ", Rank: rank})
+		require.ErrorIs(t, err, ErrSearchTooBroad, "first page, rank=%v", rank)
+		if !rank {
+			// By date a cursor that skips nothing (as a client can forge one) walks everything and is refused
+			// too. By relevance a later page is bounded by the time budget alone.
+			forged := &Cursor{SortAt: 1 << 40, ID: 1 << 60}
+			_, _, _, err = list(CardQuery{Query: "apple ", Cursor: forged})
+			require.ErrorIs(t, err, ErrSearchTooBroad, "forged cursor")
+		}
+	}
+	// By date a real cursor leaves fewer than the limit to walk, so the later page of a series is answered.
+	searchScanLimit = 8
+	_, cur, _, err := list(CardQuery{Query: "apple "})
+	require.NoError(t, err)
+	searchScanLimit = 5
+	cards, _, _, err := list(CardQuery{Query: "apple ", Cursor: cur})
+	require.NoError(t, err)
+	require.Len(t, cards, 3)
+
+	// A feed or folder scope counts its own matches only.
+	other := e.addFeed("https://ex.com/other")
+	folder := e.mkFolder(0, "Scoped")
+	e.exec("UPDATE feeds SET folder_id = ? WHERE id = ?", folder, other)
+	for _, id := range ids[:3] {
+		e.exec("UPDATE items SET feed_id = ? WHERE id = ?", other, id)
+	}
+	searchScanLimit = 5
+	_, _, _, err = list(CardQuery{Query: "apple "})
+	require.ErrorIs(t, err, ErrSearchTooBroad)
+	for _, scope := range []CardQuery{{FeedID: other}, {FolderID: folder}} {
+		scope.Query = "apple "
+		cards, _, _, err = list(scope)
+		require.NoError(t, err, "%+v", scope)
+		require.Len(t, cards, 3)
+	}
+	_, _, _, err = list(CardQuery{Query: "apple ", FeedID: 1})
+	require.NoError(t, err, "the other feed holds five")
+
+	// The partial-match mode (no item has both words, so they are ORed) is held to the limit as well.
+	searchScanLimit = 8
+	cards, _, fb, err := list(CardQuery{Query: "apple pear "})
+	require.NoError(t, err)
+	require.True(t, fb)
+	require.Len(t, cards, 3)
+	searchScanLimit = 7
+	_, _, _, err = list(CardQuery{Query: "apple pear "})
+	require.ErrorIs(t, err, ErrSearchTooBroad)
+
+	// A scroll that was answered on its first page is never refused later, in either order, even when
+	// matches arrive between the pages.
+	for _, rank := range []bool{false, true} {
+		searchScanLimit = e.count("SELECT count(*) FROM items")
+		_, cur, _, err := list(CardQuery{Query: "apple ", Rank: rank})
+		require.NoError(t, err)
+		require.NotNil(t, cur)
+		seedMore := e.addFeed(fmt.Sprintf("https://ex.com/grow%v", rank))
+		for i := 0; i < 3; i++ {
+			e.exec(`INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, word_count, uid, content_hash, text_hash, url, title, author)
+				VALUES (?,?,0,0,?,?,10,?,?,?,?,?,?)`, int64(1_800_000_000_000_000)+int64(i)+map[bool]int64{false: 0, true: 100}[rank], seedMore, 50, 50,
+				fmt.Sprintf("grow%v%d", rank, i), "c", "t", fmt.Sprintf("https://x/grow%v%d", rank, i), "Apple grown", "Ann")
+			e.exec(`INSERT INTO item_content (item_id, content_html, content_text) VALUES (?,?,?)`,
+				int64(1_800_000_000_000_000)+int64(i)+map[bool]int64{false: 0, true: 100}[rank], "<p>apple</p>", "apple")
+		}
+		_, _, _, err = list(CardQuery{Query: "apple ", Rank: rank, Cursor: cur})
+		require.NoError(t, err, "page 2 of a scroll answered on page 1, rank=%v", rank)
+	}
+}
