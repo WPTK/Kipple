@@ -121,7 +121,8 @@ copy of the real database, whose feeds are whatever the owner reads.
 
 Screens after the first in each browser are reached the way a reader moves: the app's own link when one is on
 screen, otherwise a router history entry; each screen must show its expected heading, which proves the right screen
-was checked. The in-page probes live in `web/uat/probes.mjs` (linted with browser globals only), the runner in
+was checked. The list header's two menus are checked open, as screens of their own: `list-options` (its Layout and
+Order choices must be there) and `list-length` (the reading-time filter). The in-page probes live in `web/uat/probes.mjs` (linted with browser globals only), the runner in
 `web/uat/run.mjs`. S5 also looks for `Invalid Date`
 and in form field values. A screen still loading after 15 s is an error, not a pass.
 

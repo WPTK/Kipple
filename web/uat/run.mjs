@@ -171,6 +171,21 @@ const SEARCH_Q = "the";
 // screen (and that in-app navigation reached it).
 const SCREENS = [
   ...LAYOUTS.map((l) => ({ id: `list-${l.id}`, title: `List: ${l.label}`, path: "/l/all", layout: l, heading: "All articles", font: "menu" })),
+  // The list header's menus, open: checked like a screen (axe, overflow, literals) with the menu on top.
+  {
+    id: "list-options",
+    title: "List options menu open",
+    path: "/l/all",
+    heading: "All articles",
+    open: (page) => openMenu(page, 'button[aria-label^="List options, "]', ["Layout", "Order"]),
+  },
+  {
+    id: "list-length",
+    title: "Reading time menu open",
+    path: "/l/all",
+    heading: "All articles",
+    open: (page) => openMenu(page, 'button[aria-label^="Reading time: "]', []),
+  },
   { id: "unread", title: "Unread list", path: "/l/unread", heading: "Unread", font: "menu" },
   { id: "starred", title: "Starred (empty)", path: "/l/starred", heading: "Starred", font: "menu" },
   { id: "article", title: "Article", path: (ctx) => ctx.articlePath, heading: (ctx) => ctx.articleTitle, font: "menu" },
@@ -303,16 +318,38 @@ async function runAxe(page) {
 
 // ---- navigation helpers ----
 
+// The list header's options button names the layout in effect ("List options, Cards layout"); its menu also holds
+// the order and, on a feed or folder, the view.
+const optionsLabel = (layout) => `List options, ${layout} layout`;
+
 async function setLayout(page, layout) {
-  const btn = page.locator('button[aria-label^="Layout: "]').first();
+  const btn = page.locator('button[aria-label^="List options, "]').first();
   await btn.waitFor({ timeout: 15000 });
-  if ((await btn.getAttribute("aria-label")) === `Layout: ${layout.label}`) return;
+  if ((await btn.getAttribute("aria-label")) === optionsLabel(layout.label)) return;
   await btn.click();
-  // The radio's name is the label plus its hint; anchor it so "Compact" does not match "Email - Compact".
+  // Only the Layout group's radios (the menu also has Order radios). A radio's name is the label plus its hint; anchor
+  // it so "Compact" does not match "Email - Compact".
   const esc = escapeRe(layout.label);
-  await page.getByRole("menuitemradio", { name: new RegExp(`^${esc}\\b`) }).click();
-  await page.locator(`button[aria-label="Layout: ${layout.label}"]`).first().waitFor({ timeout: 10000 });
+  await page
+    .getByRole("group", { name: "Layout" })
+    .getByRole("menuitemradio", { name: new RegExp(`^${esc}\\b`) })
+    .click();
+  await page.locator(`button[aria-label="${optionsLabel(layout.label)}"]`).first().waitFor({ timeout: 10000 });
   if (await page.getByRole("menu").isVisible().catch(() => false)) await page.keyboard.press("Escape");
+}
+
+// Open one of the list header's menus and leave it open, so the screen's checks (axe, overflow, literals) cover it.
+// Throws when the button, the menu or a group of choices the menu must hold is missing.
+async function openMenu(page, button, groups) {
+  const btn = page.locator(button).first();
+  await btn.waitFor({ timeout: 15000 });
+  await btn.click();
+  const menu = page.getByRole("menu");
+  await menu.waitFor({ state: "visible", timeout: 5000 });
+  if ((await menu.getByRole("menuitemradio").count()) < 2) throw new Error(`the menu of ${button} has no choices`);
+  for (const g of groups) {
+    if ((await menu.getByRole("group", { name: g }).getByRole("menuitemradio").count()) < 2) throw new Error(`the menu of ${button} has no "${g}" choices`);
+  }
 }
 
 // Wait for the lazy screen and its queries: no busy skeleton, no boot splash, then a short beat for late renders.
@@ -715,6 +752,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         await setLayout(page, screen.layout);
         await settle(page);
       }
+      if (screen.open) await screen.open(page);
 
       const scheme = await page.evaluate(activeScheme);
       if (scheme !== theme.scheme)
@@ -739,6 +777,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         if (s7) report("S7", where, "font-choice", s7);
       }
       await page.waitForTimeout(100); // late console errors from the last render
+      if (screen.open) await page.keyboard.press("Escape");
 
       flush(where);
       prev = where;
