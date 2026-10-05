@@ -294,7 +294,7 @@ describe("Feeds and Search", () => {
   it("lists folders and feeds with unread counts", async () => {
     routes();
     const { container } = go("/feeds");
-    expect(await screen.findByRole("link", { name: /Example Feed/ })).toHaveAttribute("href", "/l/unread?feed=1");
+    expect(await screen.findByRole("link", { name: /Example Feed/ })).toHaveAttribute("href", "/l?feed=1");
     expect(await axe(container)).toHaveNoViolations();
   });
 

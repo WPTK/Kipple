@@ -8,7 +8,7 @@ import { failedWhileOffline, prefetchUnread } from "@/lib/offline";
 import { offlineStore } from "@/lib/offlineState";
 import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
-import { ReaderRoute } from "@/screens/ReaderRoute";
+import { OpenList, ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { AppShell } from "@/shell/AppShell";
 import { RoutedErrorBoundary } from "@/shell/ErrorBoundary";
@@ -181,6 +181,7 @@ function Gate() {
       <Route path="welcome/*" element={<Lazy><Welcome /></Lazy>} />
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/l/unread" replace />} />
+        <Route path="l" element={<OpenList />} />
         <Route element={<ReaderRoute />}>
           <Route path="l/:view" />
           <Route path="i/:id" />

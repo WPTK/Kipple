@@ -45,11 +45,14 @@ list plus reader pane), **Cards** (a grid of 1 to 3 columns from the list's own 
 else 3; on a wide screen an open article shows in the reader pane with the list beside it as one column), **Compact**
 (one dense line per article), **Inbox** (mail-style rows with an optional trailing thumbnail) and **Email - Compact**
 (id `headlines`; titles only). The choice is per device, with a per-feed and
-per-folder override (feed beats folder beats device default). `c` toggles Compact for the session only.
+per-folder override (feed beats folder beats device default). `c` toggles Compact for the session only. The same
+menu sets a feed's or folder's order and the view it opens in (`client.list_overrides`, one object per list, each field
+resolved on its own by `resolveList` in `src/lib/devicePrefs.ts`). Sidebar and feed-list links go to `/l?feed=` or
+`/l?folder=`, which `OpenList` replaces with the list in its resolved view.
 
 **Device prefs** (`src/lib/devicePrefs.ts`, `src/lib/prefs.ts`, `src/theme/`): layout, overrides, order, Inbox
 thumbnails, the swipe peek, widths, density, font, text size, theme, motion, spacing, listen and the rest are
-the server's **device profile** (docs/design.md 7.1c). `localStorage` (`kipple.device.v1`, `kipple.prefs.v1`,
+the server's **device profile** (docs/design.md 7.1c). `localStorage` (`kipple.device.v2`, read once from `kipple.device.v1`, `kipple.prefs.v1`,
 `kipple.theme.v1`) is only the instant-paint cache, so the theme boot script still avoids a flash. See
 "Device profile sync" below.
 
@@ -86,7 +89,7 @@ to 30 s with jitter). The backoff restarts only after a delivered message or a s
 stream is down (a proxy 502 during a deploy) it polls `/api/status`, resyncs when it is back, and a heartbeat watchdog
 detects a hung stream. Tests: `api/events.hook.test.tsx`.
 
-**Bulk read API.** `POST /api/items/mark-read` with `{scope:{view, feed_id|folder_id|all:true, q?, fallback?}, bound?:{order: "date"|"oldest",
+**Bulk read API.** `POST /api/items/mark-read` with `{scope:{view, feed_id|folder_id|all:true, q?, fallback?, min_minutes?, max_minutes?}, bound?:{order: "date"|"oldest",
 side, anchor:{sort_at,id}, inclusive:false}, max_id, read:true, reason}`, answered by `{changed, restored, count,
 undoable, ledger_ids?}` (docs/design.md 7.1). Undoing sends `{ids, ledger_ids?, read:false, reason:"bulk"}`. Toasts and announcements go through the shell's persistent live regions.
 
@@ -135,7 +138,10 @@ change. Text spacing (WCAG 1.4.12: Less, Default, More) is in Accessibility, not
 **Layouts.** Editorial is image-forward (a large lead image, a big title and excerpt, more whitespace; in a wide list
 the image sits beside the text). Inbox is text-first (sender, subject, snippet, time, small optional thumbnail).
 The layout menu is one list: the radio is the choice (a feed or folder's own override on those lists, the device default
-elsewhere) and the star beside each layout makes it the device default. On a wide screen an open article always keeps
+elsewhere) and the star beside each layout makes it the device default; Order and, on a feed or folder list, Opens in
+follow under it. The oldest-first button sets the order at the list's level (the feed or folder there, the device on
+the other lists). The timer button filters the list by reading time (`?len=short|medium|long`, `src/lib/readingLength.ts`,
+sent as `min_minutes`/`max_minutes`); a chip under the view pills clears it. On a wide screen an open article always keeps
 its list beside it, so switching layouts (Cards included, as a single column) never drops either; a grid list with
 nothing open fills the width. The list header's controls are capped at 25rem and left-aligned in every layout, and
 on a wide screen Settings has a gear beside them.
@@ -147,10 +153,10 @@ marks the cached Unread lists stale so it is there the next time one is shown. M
 by their action ("Mark as read", "Mark as unread") and the article header shows the state.
 
 **Feeds** (`FeedsScreen`, `screens/feeds/`): add (address, optional title and folder; the exists, choose and ok
-flows, then the first-fetch result), edit (title, address, folder, layout on this device, interval, retention, full
+flows, then the first-fetch result), edit (title, address, folder, layout, order and opening view on this device, interval, retention, full
 text, enabled; Advanced: duplicate detection, user agent, login, ignore HTTP cache, no HTTP/2; "Unsafe options" for
 insecure TLS and private network, with warnings), delete with the starred count and "delete starred too", refresh
-now, folders (create, rename, delete, layout override), OPML import
+now, folders (create, rename, delete, layout, order and view overrides), OPML import
 (with `mark_read_older_than_days` and a result summary) and export (a plain download link). **Changing the feed URL**
 is the address field: `PATCH /api/feeds/{id}` with `url`.
 
@@ -201,8 +207,8 @@ each behind a confirm.
 count and an on/off switch (PATCH). The editor (one instance, mounted in the shell, opened from Settings, a row menu or a
 muted article) has name, scope (everywhere, a folder, a feed), words or a regular expression, terms as chips (limits from
 `internal/filter`), the parts to look in, options with the inverted labels (Ignore capitalization is `case_sensitive`
-false, Ignore accents is `fold_diacritics`, Match whole words only), "Act when it does NOT match", the four actions with
-plain descriptions, and a live preview (`POST /api/filters/preview`, 600 ms after the last change, count, warnings, up to
+false, Ignore accents is `fold_diacritics`, Match whole words only), "Act when it does NOT match" (Mark as read and Star), the actions with plain descriptions (Mute, Only show matching,
+which is an inverted Mute, Mark as read, Star, Highlight), and a live preview (`POST /api/filters/preview`, 600 ms after the last change, count, warnings, up to
 20 sample cards, "Include already-read articles"). Save can also apply the rule to stored articles; the run shows as a
 progress bar under the top of the screen from `run.*` events. Deleting offers restore as read (the default), restore as
 unread (explicit) or leave muted (`DELETE ?unmute=`). `400 bad_filter` shows next to the field it names. Rule order is

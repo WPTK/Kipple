@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"slices"
@@ -107,18 +108,37 @@ func floatOneOf(vals ...float64) func(any) (any, string) {
 
 var layoutIDs = []string{"magazine", "cards", "compact", "inbox", "headlines"}
 
-func layoutMap(v any, max int) (map[string]any, bool) {
+// listOverrideFields are what one feed or folder list may set for itself: its layout, its sort order
+// and the view it opens in. A field left out is inherited (the nearest folder above, then the device).
+var listOverrideFields = map[string][]string{
+	"layout": layoutIDs,
+	"order":  {"newest", "oldest"},
+	"view":   {"unread", "all"},
+}
+
+// listOverrideMap checks one side ("feed" or "folder") of client.list_overrides: numeric-string
+// ids, each an object naming at least one known field with a known value. The size is bounded by
+// the key's byte budget (store.MaxListOverridesBytes), not by a count.
+func listOverrideMap(v any) (map[string]any, bool) {
 	m, ok := v.(map[string]any)
-	if !ok || len(m) > max {
+	if !ok {
 		return nil, false
 	}
 	out := make(map[string]any, len(m))
 	for k, x := range m {
-		s, isStr := x.(string)
-		if !idKeyRe.MatchString(k) || !isStr || !slices.Contains(layoutIDs, s) {
+		entry, isObj := x.(map[string]any)
+		if !idKeyRe.MatchString(k) || !isObj || len(entry) == 0 {
 			return nil, false
 		}
-		out[k] = s
+		clean := make(map[string]any, len(entry))
+		for f, fv := range entry {
+			s, isStr := fv.(string)
+			if !isStr || !slices.Contains(listOverrideFields[f], s) {
+				return nil, false
+			}
+			clean[f] = s
+		}
+		out[k] = clean
 	}
 	return out, true
 }
@@ -130,8 +150,8 @@ func boundedInt(lo, hi int) func(any) (any, string) { return intIn(lo, hi) }
 // magazine/headlines internally (their labels are Editorial and Email - Compact).
 var clientDefs = map[string]clientDef{
 	"client.layout": {oneOf(layoutIDs...), "magazine"},
-	"client.layout_overrides": {func(v any) (any, string) {
-		const msg = `must be {"feed":{id:layout},"folder":{id:layout}} with numeric-string ids and known layouts (at most 200 each)`
+	"client.list_overrides": {func(v any) (any, string) {
+		const msg = `must be {"feed":{id:{layout,order,view}},"folder":{id:{layout,order,view}}} with numeric-string ids, at least one known field per id and known values`
 		m, ok := v.(map[string]any)
 		if !ok || len(m) > 2 {
 			return nil, msg
@@ -141,11 +161,14 @@ var clientDefs = map[string]clientDef{
 			if k != "feed" && k != "folder" {
 				return nil, msg
 			}
-			lm, ok := layoutMap(x, 200)
+			lm, ok := listOverrideMap(x)
 			if !ok {
 				return nil, msg
 			}
 			out[k] = lm
+		}
+		if b, err := json.Marshal(out); err != nil || len(b) > store.MaxListOverridesBytes {
+			return nil, fmt.Sprintf("is larger than %d bytes", store.MaxListOverridesBytes)
 		}
 		return out, ""
 	}, map[string]any{"feed": map[string]any{}, "folder": map[string]any{}}},
