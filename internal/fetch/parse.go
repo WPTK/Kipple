@@ -404,47 +404,94 @@ func FeedTitle(raw string) string {
 	return CleanName(leftEntity.ReplaceAllStringFunc(raw, decodeReference))
 }
 
-// invisible reports the format characters a name never keeps: zero-width space and non-joiner, word
-// joiner, byte order mark, soft hyphen, and the bidi marks, embeddings, overrides and isolates. A
-// zero-width joiner is kept inside a word (it joins emoji sequences) and dropped at a word's edge.
+// invisible reports the characters a name never keeps because they show nothing on their own and
+// carry no meaning in a name: zero-width space and non-joiner, word joiner, invisible math operators,
+// byte order mark, soft hyphen, combining grapheme joiner, Mongolian variation selectors and vowel
+// separator, interlinear annotation marks, the Hangul fillers, the braille blank, and the bidi marks,
+// embeddings, overrides and isolates.
 func invisible(r rune) bool {
 	switch {
-	case r == 0x00AD, r == 0x061C, r == 0x180E, r == 0x200B, r == 0x200C, r == 0x200E, r == 0x200F,
-		r == 0x2060, r == 0xFEFF, r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069:
+	case r == 0x00AD, r == 0x034F, r == 0x061C, r == 0x115F, r == 0x1160, r == 0x180E, r == 0x200B, r == 0x200C,
+		r == 0x200E, r == 0x200F, r == 0x2800, r == 0x3164, r == 0xFEFF, r == 0xFFA0,
+		r >= 0x180B && r <= 0x180D, r >= 0x202A && r <= 0x202E, r >= 0x2060 && r <= 0x2064,
+		r >= 0x2066 && r <= 0x2069, r >= 0xFFF9 && r <= 0xFFFB:
 		return true
 	}
 	return false
 }
 
-const zwj = '\u200D'
+const (
+	zwj       = rune(0x200D)  // zero-width joiner
+	blackFlag = rune(0x1F3F4) // the base of a flag tag sequence
+)
 
-// CleanName is the one rule for a feed name, whoever supplies it (a document, an OPML file, a sync
-// app or the web app): one line of plain text, with control characters, U+FFFD and invisible format
-// characters dropped, Unicode whitespace runs collapsed to one space, a zero-width joiner kept only
-// inside a word, and cut to MaxTitleRunes with an ellipsis, never inside a combined character. A
-// name that is blank once cleaned is "", which every caller stores as no name, so a stored name is
-// never invisible and the display rule's ASCII-blank check (feedTitleSQL) is enough.
-func CleanName(raw string) string {
-	t := strings.Map(func(r rune) rune {
+// isTag reports a tag character (U+E0000 to U+E007F): only meaningful inside a flag tag sequence.
+func isTag(r rune) bool { return r >= 0xE0000 && r <= 0xE007F }
+
+// needsBase reports a character that only shows attached to the one before it: a combining mark or a
+// variation selector. Without a base (at a word's start, or after a joiner) it is dropped.
+func needsBase(r rune) bool {
+	return unicode.In(r, unicode.Mn, unicode.Me) || (r >= 0xFE00 && r <= 0xFE0F) || (r >= 0xE0100 && r <= 0xE01EF)
+}
+
+// normalizeName is CleanName without the length cut.
+func normalizeName(raw string) string {
+	out := make([]rune, 0, len(raw))
+	for _, r := range raw {
+		last := ' '
+		if len(out) > 0 {
+			last = out[len(out)-1]
+		}
 		switch {
 		case unicode.IsSpace(r):
-			return ' '
+			out = append(out, ' ')
 		case unicode.IsControl(r), r == utf8.RuneError, invisible(r):
-			return -1
+		case isTag(r):
+			// Kept only in a flag tag sequence: the black flag, then tag characters.
+			if last == blackFlag || isTag(last) {
+				out = append(out, r)
+			}
+		case needsBase(r):
+			if last != ' ' && last != zwj {
+				out = append(out, r)
+			}
+		default:
+			out = append(out, r)
 		}
-		return r
-	}, raw)
-	words := strings.Fields(t)
+	}
+	words := strings.Fields(string(out))
 	kept := words[:0]
 	for _, w := range words {
 		if w = strings.Trim(w, string(zwj)); w != "" {
 			kept = append(kept, w)
 		}
 	}
-	t = strings.Join(kept, " ")
+	return strings.Join(kept, " ")
+}
+
+// NameRunes is the length of a name in characters (code points) once cleaned, before any cut: what a
+// limit on a name a person types is checked against.
+func NameRunes(raw string) int { return utf8.RuneCountInString(normalizeName(raw)) }
+
+// CleanName is the one rule for a feed name, whoever supplies it (a document, an OPML file, a sync
+// app or the web app): one line of plain text, with control characters, U+FFFD and the invisible
+// characters above dropped, a combining mark or variation selector without a base dropped, tag
+// characters kept only in a flag sequence, Unicode whitespace runs collapsed to one space, a
+// zero-width joiner kept only inside a word, and cut to MaxTitleRunes with an ellipsis, never inside
+// a combined character. A name that is blank once cleaned is "", which every caller stores as no
+// name, so a stored name is never blank or made only of those characters, and the display rule's
+// ASCII-blank check (feedTitleSQL) is enough.
+func CleanName(raw string) string {
+	t := normalizeName(raw)
 	if r := []rune(t); len(r) > MaxTitleRunes {
 		cut := clusterStart(r, MaxTitleRunes-1)
-		t = strings.TrimRight(strings.TrimRight(string(r[:cut]), " "), string(zwj)) + "…"
+		body := strings.TrimRight(strings.TrimRight(string(r[:cut]), " "), string(zwj))
+		if body == "" {
+			// One combined character longer than the limit (a letter under hundreds of marks, a long
+			// tag sequence): cut it at the limit rather than leave a name that is only an ellipsis.
+			body = string(r[:MaxTitleRunes-1])
+		}
+		t = body + "…"
 	}
 	return t
 }

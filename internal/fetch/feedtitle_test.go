@@ -41,7 +41,7 @@ func TestCleanNameInvisibles(t *testing.T) {
 func TestCleanNameCutsWholeCharacters(t *testing.T) {
 	pad := strings.Repeat("a", MaxTitleRunes-2) // the cut keeps MaxTitleRunes-1 runes: pad plus one more
 	cases := map[string]string{
-		"combining accent": "éxyz",
+		"combining accent": "e\u0301xyz",
 		"zwj sequence":     "👨\u200D👩\u200D👧 more",
 		"skin tone":        "👋\U0001F3FD more",
 		"flag":             "\U0001F1EB\U0001F1F7 more",
