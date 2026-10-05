@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/WPTK/kipple/internal/auth"
 )
 
 func TestConformanceClientLogin(t *testing.T) {
@@ -152,16 +154,7 @@ func TestConformanceAuthFailures(t *testing.T) {
 	tok := c.token
 	edit := "i=" + l.dec("tech-unread") + "&a=" + url.QueryEscape(stateStarred)
 
-	unauthorized := func(t *testing.T, r resp, what string) {
-		t.Helper()
-		// [GR] 401 with X-Reader-Google-Bad-Token so the client signs in again; [FR] Google-Bad-Token and
-		// "Unauthorized!"; [MF] X-Reader-Google-Bad-Token. Never 403.
-		require.Equal(t, 401, r.code, what)
-		require.Equal(t, "true", r.header.Get("X-Reader-Google-Bad-Token"), what)
-		require.Equal(t, "true", r.header.Get("Google-Bad-Token"), what)
-		require.Contains(t, r.header.Get("Content-Type"), "text/plain", what)
-		require.Equal(t, "Unauthorized!", r.body, what)
-	}
+	unauthorized := requireUnauthorized
 
 	t.Run("GET without, or with a wrong, Authorization header", func(t *testing.T) {
 		for name, hdr := range map[string]string{
@@ -199,6 +192,10 @@ func TestConformanceAuthFailures(t *testing.T) {
 		require.Equal(t, 200, r.code, r.body)
 		unauthorized(t, cc.doAny(http.MethodPost, rd+"edit-tag", edit, nil), "POST with neither header nor T")
 		unauthorized(t, cc.doAny(http.MethodPost, rd+"edit-tag", edit+"&T=wrong", nil), "POST with a wrong T")
+		// Trimming never turns a blank T into a credential [K §6.3].
+		unauthorized(t, cc.doAny(http.MethodPost, rd+"edit-tag", edit+"&T=%20%0A", nil), "POST with a whitespace-only T")
+		unauthorized(t, cc.doAny(http.MethodPost, rd+"edit-tag", edit+"&T=", nil), "POST with an empty T")
+		unauthorized(t, cc.doAny(http.MethodPost, rd+"edit-tag", edit+"&T=x", nil), "POST with T=x and no header")
 	})
 
 	t.Run("T exactly as GET token returned it", func(t *testing.T) {
@@ -222,15 +219,48 @@ func TestConformanceAuthFailures(t *testing.T) {
 		unauthorized(t, c.call(http.MethodPost, rd+"edit-tag", edit+"&T=stale", nil), "header with a wrong T")
 	})
 
-	t.Run("a revoked token is 401 until the client signs in again", func(t *testing.T) {
-		// Tokens do not expire on a timer; changing the API password revokes every token [K §6.3].
-		require.NoError(t, h.db.SetAPIPasswordHash(context.Background(), "another-hash"))
-		h.api.InvalidateAccount()
-		unauthorized(t, c.call(http.MethodGet, rd+"subscription/list", "", nil), "old token on GET")
-		unauthorized(t, c.call(http.MethodPost, rd+"edit-tag", edit+"&T="+url.QueryEscape(tok), nil), "old token on POST")
-		r := c.call(http.MethodPost, "/accounts/ClientLogin", loginBody(), map[string]string{"Authorization": ""})
-		require.Equal(t, 401, r.code, "the old password no longer signs in")
-	})
+}
+
+// requireUnauthorized checks the answer to a missing, wrong or revoked credential.
+func requireUnauthorized(t *testing.T, r resp, what string) {
+	t.Helper()
+	// [GR] 401 with X-Reader-Google-Bad-Token so the client signs in again; [FR] Google-Bad-Token and
+	// "Unauthorized!"; [MF] X-Reader-Google-Bad-Token. Never 403.
+	require.Equal(t, 401, r.code, what)
+	require.Equal(t, "true", r.header.Get("X-Reader-Google-Bad-Token"), what)
+	require.Equal(t, "true", r.header.Get("Google-Bad-Token"), what)
+	require.Contains(t, r.header.Get("Content-Type"), "text/plain", what)
+	require.Equal(t, "Unauthorized!", r.body, what)
+}
+
+func TestConformanceRevokedTokenUntilSignInAgain(t *testing.T) {
+	// Tokens do not expire on a timer; changing the API password revokes every token at once, and
+	// the client gets a working token by signing in with the new password [K §6.3].
+	const newPass, newHash = "a-new-api-password", "another-hash"
+	h := newHarness(t)
+	l := seedConf(h)
+	h.api.ver = auth.NewVerifier([]byte(testSecret), auth.VerifierOptions{Check: func(pw, phc string) bool {
+		return (pw == testPass && phc == testHash) || (pw == newPass && phc == newHash)
+	}})
+	c := newConf(t, h)
+	old := c.token
+	edit := "i=" + l.dec("tech-unread") + "&a=" + url.QueryEscape(stateStarred)
+
+	require.NoError(t, h.db.SetAPIPasswordHash(context.Background(), newHash))
+	h.api.InvalidateAccount()
+	requireUnauthorized(t, c.call(http.MethodGet, rd+"subscription/list", "", nil), "old token on GET")
+	requireUnauthorized(t, c.call(http.MethodPost, rd+"edit-tag", edit+"&T="+url.QueryEscape(old), nil), "old token on POST")
+	r := c.call(http.MethodPost, "/accounts/ClientLogin", loginBody(), map[string]string{"Authorization": ""})
+	require.Equal(t, 401, r.code, "the old password no longer signs in")
+
+	r = c.call(http.MethodPost, "/accounts/ClientLogin", "Email="+testUser+"&Passwd="+url.QueryEscape(newPass), map[string]string{"Authorization": ""})
+	require.Equal(t, 200, r.code, r.body)
+	tok := parseLoginLines(t, r.body)["Auth"]
+	require.NotEmpty(t, tok)
+	require.NotEqual(t, old, tok)
+	c.auth = "GoogleLogin auth=" + tok
+	require.Equal(t, 200, c.call(http.MethodGet, rd+"subscription/list", "", nil).code)
+	require.Equal(t, 200, c.call(http.MethodPost, rd+"edit-tag", edit+"&T="+url.QueryEscape(tok), nil).code)
 }
 
 func TestConformanceAPIDisabled(t *testing.T) {

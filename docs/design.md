@@ -1619,7 +1619,7 @@ Scope from `s`:
 | `feed/<url>` | `FindFeedByURL` |
 | label | `feed_id IN (folder feeds)` |
 | starred | `starred = 1` (**no ledger statement**) |
-| unread, `kept-unread` | reading-list (only unread items are ever marked, so the unread stream is the reading list) |
+| unread, `kept-unread` | reading-list. Only unread items are ever marked, so these streams name exactly the items the request is about; a client that offers "mark all read" on its unread view sends them, and a no-op would silently drop that action. FreshRSS marks the unread stream the same way; Miniflux ignores both (compatibility.md, endpoint notes) |
 | read, unknown | no-op, `OK` |
 | empty `s` | reading-list |
 

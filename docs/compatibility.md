@@ -32,7 +32,10 @@ on which client is calling.
 
 - **Base URL.** Point a client at `https://your-server/api/greader.php`. The root forms `/accounts/ClientLogin` and
   `/reader/api/0/…` (without the prefix) answer too, for clients that only take a server address. Doubled slashes and a
-  repeated prefix are tolerated; nothing on these paths ever redirects.
+  repeated prefix are tolerated; nothing on these paths ever redirects. Because every `//` in a path is read as `/`, a
+  feed URL given in the path (`stream/contents/feed/<url>`) is restored only after its scheme: a URL with an
+  unencoded `?` or another `//` cannot be recovered there. Send such a stream as an encoded `s=` value, which always
+  works.
 - **Sign-in.** `ClientLogin` with the account's user name as `Email` and its Reader API password (set in Settings or
   with `kipple api-password`) as `Passwd`. The `Auth` value it returns is the token.
 - **Authentication.** Send `Authorization: GoogleLogin auth=<token>` on every call. A `POST` may instead carry the token
@@ -122,6 +125,9 @@ Where the Google Reader API, FreshRSS and Miniflux differ, or where Kipple does 
 might not expect:
 
 - **ClientLogin failure** is `401`, as on FreshRSS and Miniflux. The original Google service answered `403`.
+- **`mark-all-as-read` on the `unread` or `kept-unread` stream** marks every unread item in it read, the same as the
+  reading list. FreshRSS does this for `unread`; Miniflux treats both as a no-op. Only unread items are ever marked,
+  so these streams hold exactly the items the request is about, and doing nothing would drop the user's action.
 - **The token** is the same value from `ClientLogin` and `token`, and it is not 57 characters long. `T` is compared
   after trimming surrounding whitespace, so the `token` body may be sent back as it came.
 - **`subscription/list`** has no `firstitemmsec` or `sortid`, and categories carry `id` and `label` but no `type`

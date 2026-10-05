@@ -118,7 +118,7 @@ func TestConformanceQuickAdd(t *testing.T) {
 	h := newHarness(t)
 	c := newConf(t, h)
 
-	// [FR][MF][theoldreader] quickadd=<url> → {numResults:1, query, streamId:"feed/<id>", streamName}.
+	// [GR][FR][MF] quickadd=<url> → {numResults:1, query, streamId:"feed/<id>", streamName}.
 	quick := func(v string) map[string]any {
 		t.Helper()
 		r := c.call(http.MethodPost, rd+"subscription/quickadd", q1("quickadd", v)+"&T="+url.QueryEscape(c.token), nil)
@@ -211,7 +211,7 @@ func TestConformanceRenameAndDisableTag(t *testing.T) {
 	l := seedConf(h)
 	c := newConf(t, h)
 
-	// rename-tag: s=<old label>, dest=<new label> [FR][MF][theoldreader].
+	// rename-tag: s=<old label>, dest=<new label> [GR][FR][MF].
 	c.write("rename-tag", q1("s", "user/-/label/Tech")+"&"+q1("dest", "user/-/label/Technology"))
 	labels := c.confLabels()
 	require.Contains(t, labels, "user/-/label/Technology")

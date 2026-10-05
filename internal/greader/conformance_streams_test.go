@@ -121,7 +121,7 @@ func TestConformanceStreamContents(t *testing.T) {
 		return decodeStream(t, c.call(http.MethodGet, rd+path, "", nil))
 	}
 
-	// The stream may be in the path or in s= [GR][FR BazQux form]; no stream is the reading list.
+	// The stream may be in the path or in s= [GR][FR]; no stream is the reading list.
 	forms := map[string][]string{
 		"stream/contents/user/-/state/com.google/reading-list?n=50": confAllDesc,
 		"stream/contents?n=50&" + q1("s", stateReadingList):         confAllDesc,
@@ -144,6 +144,20 @@ func TestConformanceStreamContents(t *testing.T) {
 	require.Equal(t, h.clk.Now().Unix(), st.Updated)
 	st = get("stream/contents/feed/https://tech.example/feed.xml")
 	require.Equal(t, "feed/https://tech.example/feed.xml", st.ID, "the envelope names the stream the client asked for")
+
+	// A feed URL with a query string and a "//" after the scheme cannot travel in the path (the "?"
+	// starts the query, and every "//" in a path is collapsed), but always resolves as an encoded s=
+	// value, on every endpoint that takes a stream [GR][FR][MF].
+	odd := "https://odd.example/a//b/feed?format=rss&x=1"
+	oddFeed := h.addFeed(odd, "Odd", "")
+	oddItem := h.addItem(oddFeed, itemSeed{ID: baseID - 5*confHour, Title: "odd"})
+	st = get("stream/contents?" + q1("s", "feed/"+odd))
+	require.Equal(t, "feed/"+odd, st.ID)
+	require.Equal(t, []string{strconv.FormatInt(oddItem, 10)}, streamDecimals(t, st))
+	refs, _ := itemRefs(t, c.call(http.MethodGet, rd+"stream/items/ids?"+q1("s", "feed/"+odd), "", nil))
+	require.Equal(t, []string{strconv.FormatInt(oddItem, 10)}, refs)
+	c.write("mark-all-as-read", q1("s", "feed/"+odd))
+	require.True(t, isRead(h, oddItem))
 
 	// Item shape [GR][FR][MF].
 	st = get("stream/contents/" + feedID(l.news) + "?n=50")

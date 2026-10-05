@@ -147,8 +147,10 @@ func TestConformanceMarkAllAsRead(t *testing.T) {
 		"label":                           {func(confLib) string { return "user/-/label/News & Politics" }, []string{"tech-new", "tech-unread", "loose-old"}},
 		"label, user id form":             {func(confLib) string { return "user/7/label/Tech" }, []string{"news-unread", "news-unread-starred", "loose-old"}},
 		"starred":                         {func(confLib) string { return stateStarred }, []string{"tech-new", "news-unread", "tech-unread", "loose-old"}},
-		// [FR] the unread stream is every unread item, so marking it read marks them all.
-		"unread state": {func(confLib) string { return "user/-/state/com.google/unread" }, nil},
+		// [FR] marks every unread item on the unread stream (Miniflux does nothing there); [K §6.8] the
+		// kept-unread stream is the same set of items, so it does the same.
+		"unread state":      {func(confLib) string { return "user/-/state/com.google/unread" }, nil},
+		"kept-unread state": {func(confLib) string { return "user/-/state/com.google/kept-unread" }, nil},
 		// The read stream holds only read items: nothing to do.
 		"read state":     {func(confLib) string { return stateRead }, allUnread},
 		"unknown label":  {func(confLib) string { return "user/-/label/Missing" }, allUnread},
