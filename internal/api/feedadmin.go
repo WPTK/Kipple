@@ -463,6 +463,12 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusBadRequest, "bad_request", msg)
 		return
 	}
+	if p.URL != nil {
+		if code, msg := s.resolveEditedURL(r.Context(), id, &p); code != "" {
+			writeErrorMsg(w, http.StatusUnprocessableEntity, code, msg)
+			return
+		}
+	}
 	res, err := s.db.PatchFeed(r.Context(), id, p)
 	var bad *store.InvalidURLError
 	var clash *store.URLCollisionError
@@ -512,6 +518,62 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, fd)
+}
+
+// resolveEditedURL runs the add dialog's discovery on a feed's edited URL, so an edit to a site or
+// page address gets the feed that page links, as adding it would (the first-fetch discovery is
+// only for a URL as it was given). A page that links one feed puts that feed's URL in p; a page
+// that links several, or none, is refused with a code and message for the editor. Anything else
+// (a feed, a site that cannot be reached now, an address the patch refuses anyway) leaves the URL
+// as typed, as an edit always did: the fetch that follows reports any problem.
+func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPatch) (code, msg string) {
+	fd, ok, err := s.db.FeedDetail(ctx, id, s.statusEnv())
+	if err != nil || !ok {
+		return "", ""
+	}
+	flag := func(key string, cur bool) bool {
+		switch v := p.Cols[key].(type) {
+		case bool:
+			return v
+		case int:
+			return v != 0
+		case int64:
+			return v != 0
+		}
+		return cur
+	}
+	private := flag("allow_private_net", fd.AllowPrivateNet)
+	norm, _, _, err := store.ValidateFeedURL(*p.URL, private)
+	if err != nil || norm == fd.URL {
+		return "", ""
+	}
+	if _, found, err := s.db.FindFeedID(ctx, norm); err != nil || found {
+		return "", "" // the patch answers url_exists (or it is this feed's own old address)
+	}
+	dctx, cancel := context.WithTimeout(ctx, discoverWait)
+	defer cancel()
+	ua, retryUA := store.ResolveUserAgent(s.db.FetchSettings(ctx), "", false)
+	if ua == "" {
+		ua = s.outgoingUA()
+	}
+	rt := s.opt.Guard(private, flag("allow_insecure_tls", fd.AllowInsecureTLS), flag("disable_http2", fd.DisableHTTP2))
+	found, err := discover.Find(dctx, rt, ua, retryUA, norm, private)
+	switch {
+	case errors.Is(err, discover.ErrNoFeed):
+		return discoveryError(err)
+	case err != nil || found.IsFeed || len(found.Candidates) == 0:
+		return "", ""
+	case len(found.Candidates) == 1:
+		u := found.Candidates[0].URL
+		p.URL = &u
+		return "", ""
+	}
+	urls := make([]string, len(found.Candidates))
+	for i, c := range found.Candidates {
+		urls[i] = c.URL
+	}
+	return "several_feeds", "That address is a web page that links several feeds: " + strings.Join(urls, ", ") +
+		". Enter the address of the one you want."
 }
 
 // ---- DELETE /api/feeds/{id}, archive purge ----

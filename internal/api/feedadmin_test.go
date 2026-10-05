@@ -301,6 +301,34 @@ func TestAddFeedAllowPrivateNet(t *testing.T) {
 	require.Equal(t, true, body["feed"].(map[string]any)["allow_private_net"])
 }
 
+// Editing a feed's address to a page runs the add dialog's discovery: one linked feed is used, a
+// page with several or none is refused with a message, and an address that cannot be checked now
+// is kept as typed (as an edit always did).
+func TestEditFeedURLToAPage(t *testing.T) {
+	srv, _ := site(t)
+	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
+	c := h.login()
+	id := h.storeFeed("https://old.example/rss")
+	path := "/api/feeds/" + sid(id)
+
+	code, body, _ := h.api(c, "PATCH", path, jsonStr(map[string]any{"url": srv + "/one"}))
+	require.Equal(t, 200, code, body)
+	require.Equal(t, srv+"/feed.xml", body["url"])
+
+	code, body, _ = h.api(c, "PATCH", path, jsonStr(map[string]any{"url": srv + "/multi"}))
+	require.Equal(t, 422, code, body)
+	require.Equal(t, "several_feeds", body["error"])
+	require.Contains(t, body["message"], srv+"/atom.xml")
+
+	code, body, _ = h.api(c, "PATCH", path, jsonStr(map[string]any{"url": srv + "/plain"}))
+	require.Equal(t, 422, code, body)
+	require.Equal(t, "no_feed", body["error"])
+
+	code, body, _ = h.api(c, "PATCH", path, jsonStr(map[string]any{"url": srv + "/missing"}))
+	require.Equal(t, 200, code, body)
+	require.Equal(t, srv+"/missing", body["url"], "a 404 now is kept as typed; the fetch reports it")
+}
+
 // Whatever form the address is typed or pasted in, the dialog adds the feed it names.
 func TestAddFeedTypedAddressForms(t *testing.T) {
 	srv, _ := site(t)
