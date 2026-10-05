@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrayMove, dropSlot, folderSlot, insertBefore, parentChanges, planFeedDrop, planFolderDrop, reorderBody, stepFolder, targetAt, type Tree } from "./dnd";
+import { arrayMove, dropSlot, folderSlot, insertBefore, planFeedDrop, planFolderDrop, reorderBody, stepFolder, targetAt, type Tree } from "./dnd";
 
 const tree: Tree = { folders: ["1", "2", "3"], parents: { "1": null, "2": null, "3": null }, feeds: { "1": ["a", "b", "c"], "2": ["d"], "3": [] } };
 
@@ -70,8 +70,15 @@ describe("nested folder moves", () => {
     expect(next.folders).toEqual(["T", "B", "S", "A", "M"]);
     expect(next.parents.A).toBe("S");
     expect(next.parents.M).toBe("A");
-    expect(parentChanges(nested, next)).toEqual([{ id: "A", parent: "S" }]);
-    expect(reorderBody(nested, next)).toEqual({ folders: ["T", "B", "S", "A", "M"] });
+    // One request: the moved folder carries its new parent; the rest keep theirs.
+    expect(reorderBody(nested, next)).toEqual({ folders: ["T", "B", "S", { id: "A", parent_id: "S" }, "M"] });
+  });
+
+  it("a move that leaves the tree order as it was still sends the move", () => {
+    // B is the last child of T: dropped at the top level before S, it keeps its place in tree order.
+    const next = planFolderDrop(nested, "B", { parent: null, before: "S" });
+    expect(next.folders).toEqual(nested.folders);
+    expect(reorderBody(nested, next)).toEqual({ folders: ["T", "A", "M", { id: "B", parent_id: null }, "S"] });
   });
 
   it("a folder dropped at the end of a parent goes after the parent's last descendant", () => {
@@ -94,7 +101,7 @@ describe("nested folder moves", () => {
     expect(stepFolder(nested, "A", 1).folders).toEqual(["T", "B", "A", "M", "S"]);
     expect(stepFolder(nested, "A", -1)).toBe(nested); // first child
     expect(stepFolder(nested, "T", 1).folders).toEqual(["S", "T", "A", "M", "B"]);
-    expect(parentChanges(nested, stepFolder(nested, "T", 1))).toEqual([]);
+    expect(reorderBody(nested, stepFolder(nested, "T", 1))).toEqual({ folders: ["S", "T", "A", "M", "B"] }); // no moves
   });
 
   it("folderSlot: the middle of a row is inside it, its edges are before or after it", () => {

@@ -50,7 +50,7 @@ func TestGetFeedErrorsAndAuth(t *testing.T) {
 
 func positions(h *harness, table string) map[int64][2]int64 {
 	h.t.Helper()
-	q := "SELECT id, position, 0 FROM folders"
+	q := "SELECT id, position, ifnull(parent_id, 0) FROM folders"
 	if table == "feeds" {
 		q = "SELECT id, position, folder_id FROM feeds"
 	}
