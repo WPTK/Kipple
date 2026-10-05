@@ -21,6 +21,32 @@ If you only use Kipple through these, you can upgrade within 1.x without changin
 | **Image tags** | `ghcr.io/wptk/kipple:X.Y.Z` is immutable once published. `X.Y` and `X` move to the newest release of that line, and `latest` moves only to the newest stable release. A prerelease is tagged only with its exact version and never moves another tag. |
 | **Volume layout** | Your data is the volume mounted at `/data`: `kipple.db`, the `backup/` folder, `imgcache/` and the other paths in [deploy.md](deploy.md#where-things-live). The container runs as uid 65532 and listens on 1919 unless `KIPPLE_ADDR` says otherwise. |
 
+## Folders and flat-folder clients
+
+Folders nest in Kipple (at most 8 levels), but Reader API labels are flat. A Reader API client sees a nested folder as one
+label named by its full path, so `Local` inside `News` is the label `News/Local`, and a flat-folder client shows it as a
+single folder with that name. Three consequences follow, and each is the same on every Reader API client.
+
+- **A label with a slash nests.** When a client subscribes a feed with, or moves a feed to, a label such as `News/Local`,
+  Kipple resolves it against the tree: the longest prefix that is an existing folder's full path becomes the parent, and the
+  rest becomes folders below it. If a top-level `News` exists, the feed lands in `Local` inside `News`, not in a new
+  top-level folder named `News/Local`. A folder's filters (mute, mark as read and the rest) apply to the feeds of its
+  subfolders, so the filters of `News` also apply to the feed in `News/Local`, although the client shows `News/Local` as a
+  separate folder. If no folder matches a prefix, the whole label becomes folders at the top level, split at each `/`.
+  A top-level folder whose name itself contains a slash (`AC/DC`) keeps being found by its full path.
+- **A label with an empty level is refused when it would create a folder.** `News/`, `/News`, `A//B` and a level that is
+  only spaces are not valid folder paths. If the label already names a folder, it is used as it is. If it would create one,
+  Kipple creates nothing: a new feed goes to Uncategorized, and a feed that already exists stays in its folder. The
+  request itself succeeds, so the client shows no error; the server log records why the folder was not created.
+- **Deleting a folder deletes its subfolders.** `disable-tag` on `News` deletes `News/Local` and every other folder below
+  it, moves all their feeds to Uncategorized, and deletes the filters scoped to those folders. A flat-folder client does not
+  show that `News` held other folders, so it cannot warn you. This is the same as deleting the folder in the web app.
+  `rename-tag` is stricter: renaming a folder onto an existing folder merges the two, and Kipple refuses the merge when the
+  renamed folder has subfolders.
+
+To avoid all three, create and rename nested folders in the web app and keep slashes out of the labels you type in a
+flat-folder client.
+
 ## What is not covered
 
 These may change in any release, including a patch release:
