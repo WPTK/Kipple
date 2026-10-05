@@ -134,6 +134,18 @@ func TestCompressWithServeContent(t *testing.T) {
 	require.Equal(t, http.StatusNotModified, rec.Code)
 	require.Empty(t, rec.Body.String())
 	require.Equal(t, "Accept-Encoding", rec.Header().Get("Vary"), "a 304 repeats the Vary of the 200")
+	require.Equal(t, `W/"abc"`, rec.Header().Get("ETag"), "a 304 carries the weak tag the compressed 200 had")
+
+	// A client holding the uncompressed 200 (strong tag) gets the strong tag back, and so does one
+	// that does not accept gzip.
+	rec = doCompress(t, h, http.MethodGet, "gzip", "If-None-Match", `"abc"`)
+	require.Equal(t, http.StatusNotModified, rec.Code)
+	require.Equal(t, `"abc"`, rec.Header().Get("ETag"))
+	rec = doCompress(t, h, http.MethodGet, "", "If-None-Match", `"x", W/"abc"`)
+	require.Equal(t, http.StatusNotModified, rec.Code)
+	require.Equal(t, `"abc"`, rec.Header().Get("ETag"))
+	rec = doCompress(t, h, http.MethodGet, "gzip", "If-None-Match", `"x", W/"abc"`)
+	require.Equal(t, `W/"abc"`, rec.Header().Get("ETag"))
 
 	rec = doCompress(t, h, http.MethodGet, "gzip", "Range", "bytes=0-9")
 	require.Equal(t, http.StatusPartialContent, rec.Code)
