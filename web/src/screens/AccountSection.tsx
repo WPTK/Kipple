@@ -163,7 +163,7 @@ function ApiPasswordDialog({ username, hasPassword, onClose }: { username: strin
       open
       onOpenChange={(o) => !o && onClose()}
       title={pw ? "Your new API password" : "Generate API password"}
-      description={pw ? "Copy it now. Kipple can't show it again." : "Sync apps such as Reeder and NetNewsWire sign in with this. Generating a new one signs those apps out until you enter it."}
+      description={pw ? "Copy it now. Kipple can't show it again." : "Sync apps sign in with this. Generating a new one signs those apps out until you enter it."}
       footer={
         pw ? (
           <Button variant="solid" onClick={onClose}>
@@ -189,7 +189,7 @@ function ApiPasswordDialog({ username, hasPassword, onClose }: { username: strin
             <Button onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</Button>
           </div>
           <div className="text-sm">
-            <p className="font-semibold">In Reeder or NetNewsWire</p>
+            <p className="font-semibold">In your sync app</p>
             <p className="mt-1 text-fg2">
               Add a FreshRSS (Google Reader compatible) account. Server URL: <span className="font-mono break-all text-fg">{server}</span>. Username: <span className="font-mono text-fg">{username}</span>. Password: the one above.
             </p>

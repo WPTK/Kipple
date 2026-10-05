@@ -298,6 +298,47 @@ describe("Add feed", () => {
     expect(posts).toHaveLength(2);
   });
 
+  it("leaves a blank title to the feed and shows the name the feed gives itself", async () => {
+    const posts: Record<string, unknown>[] = [];
+    let added = false;
+    const fresh = { ...bootstrap.feeds[0], id: "99", title: "Daily News", unread: 0 };
+    base({
+      // Once added, the feed list has the name the first fetch gave the feed (it finished after the add answered).
+      "GET /api/bootstrap": () => json(added ? { ...bootstrap, feeds: [...bootstrap.feeds, fresh] } : bootstrap),
+      "POST /api/feeds": (_u, init) => {
+        posts.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        added = true;
+        return json({ status: "ok", feed: feedDetail({ id: "99", title: "news.example" }), fetch: { pending: true } });
+      },
+    });
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add feed" }));
+    const dlg = await screen.findByRole("dialog", { name: "Add feed" });
+    const title = within(dlg).getByLabelText("Title (optional)");
+    expect(title).toHaveAttribute("placeholder", "Filled in from the feed");
+    expect(title).toHaveAccessibleDescription(/filled in from the feed/);
+    await user.type(title, "Mine");
+    expect(title).toHaveAccessibleDescription(/instead of the feed's own/);
+    await user.clear(title);
+    // The limit is the server's: 200 characters, counted as code points (an emoji is one, not two UTF-16 units).
+    await user.type(within(dlg).getByLabelText("Feed or website address"), "https://news.example/feed.xml");
+    await user.click(title);
+    await user.paste("📰".repeat(200));
+    expect(title).toHaveValue("📰".repeat(200));
+    expect(within(dlg).getByRole("button", { name: "Add feed" })).toBeEnabled();
+    await user.paste("x");
+    expect(title).toHaveAccessibleDescription(/at most 200 characters; this one has 201/);
+    expect(within(dlg).getByRole("button", { name: "Add feed" })).toBeDisabled();
+    await user.clear(title);
+    await user.clear(within(dlg).getByLabelText("Feed or website address"));
+    await user.type(within(dlg).getByLabelText("Feed or website address"), "https://news.example/feed.xml");
+    await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
+    const done = await screen.findByRole("dialog", { name: "Feed added" });
+    expect(posts).toEqual([{ url: "https://news.example/feed.xml" }]);
+    expect(await within(done).findByText("Daily News")).toBeInTheDocument();
+  });
+
   it("says a feed already exists, and explains a failed discovery", async () => {
     base({
       "POST /api/feeds": (_u, init) => {
@@ -597,7 +638,7 @@ const HEALTH: HealthResponse = {
     { id: "2", title: "NPR", url: "https://npr.test/feed", url_original: null, status: "failing", redirect_pending: false, notices: [], enabled: true, disabled_reason: null, last_success_at: 500, last_fetch_at: 900, last_error_at: 900, last_error_class: "http", last_error: "HTTP 404", last_status: 404, consecutive_failures: 20, current_delay_s: 86400, next_fetch_at: 90000, redirect_to: null, redirect_kind: null, redirect_count: 0, last_new_items_at: null, trimmed_unread_count: 0, trimmed_unread_since: null, host_throttled_until: null },
     { id: "3", title: "Moved Site", url: "http://old.test/feed", url_original: null, status: "redirecting", redirect_pending: true, notices: ["moved permanently (301) to https://new.test/feed"], enabled: true, disabled_reason: null, last_success_at: 800, last_fetch_at: 900, last_error_at: null, last_error_class: null, last_error: null, last_status: 301, consecutive_failures: 0, current_delay_s: 1800, next_fetch_at: 4000, redirect_to: "https://new.test/feed", redirect_kind: "permanent", redirect_count: 1, last_new_items_at: 800, trimmed_unread_count: 4, trimmed_unread_since: 100, host_throttled_until: null },
   ],
-  clients: [],
+  reader_last_seen_at: null,
   snapshot: { last_at: null, last_error: "disk full" },
   clock: { ahead_s: 600 },
   db: { db_bytes: 1000, wal_bytes: 0, backup_bytes: 0, imgcache_bytes: 0 },
@@ -635,6 +676,27 @@ describe("Feed health", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Fetch log" }));
     const dlg = await screen.findByRole("dialog", { name: "Fetch log for NPR" });
     expect(await within(dlg).findByText("HTTP 404", { selector: "p.break-words" })).toBeInTheDocument();
+  });
+
+  it("says when a sync app last called, the same for every app, and nothing before one has", async () => {
+    base({ "GET /api/health/feeds": () => json({ ...HEALTH, reader_last_seen_at: Math.floor(Date.now() / 1000) - 300 }) });
+    go("/health");
+    expect(await screen.findByText(/A sync app was last seen 5 minutes ago/)).toBeInTheDocument();
+  });
+
+  it("never says a sync app will be seen in the future when the browser clock is behind the server's", async () => {
+    base({ "GET /api/health/feeds": () => json({ ...HEALTH, reader_last_seen_at: Math.floor(Date.now() / 1000) + 600 }) });
+    go("/health");
+    expect(await screen.findByText(/A sync app was last seen just now/)).toBeInTheDocument();
+    expect(screen.queryByText(/sync app was last seen (in |any moment)/i)).toBeNull();
+  });
+
+  it("names no sync app when none has called", async () => {
+    base({ "GET /api/health/feeds": () => json(HEALTH) });
+    go("/health");
+    await screen.findByRole("heading", { name: "Feed health" });
+    expect(await screen.findByText(/of 3 feeds/)).toBeInTheDocument();
+    expect(screen.queryByText(/sync app/i)).toBeNull();
   });
 
   it("Mark this fetch read also marks the loaded article lists stale, not just the counts", async () => {

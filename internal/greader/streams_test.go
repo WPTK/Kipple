@@ -531,7 +531,7 @@ func TestContentsEnvelopeAndSwiftFatalFields(t *testing.T) {
 	n := env.Items[0]
 	require.Equal(t, "", n.Author)
 	require.Equal(t, "", n.Alternate[0].Href, "no link is an empty string")
-	require.Equal(t, "", n.Origin.Title, "untitled feed is an empty string")
+	require.Equal(t, "https://b.example/f", n.Origin.Title, "an untitled feed is named by its URL, as subscription/list names it")
 	require.Nil(t, n.Enclosure)
 	require.NotContains(t, w.Body.String(), `"enclosure":null`)
 }
@@ -544,9 +544,9 @@ func TestContentsIDFormsTrimmedAndUnknown(t *testing.T) {
 	h.trim(ids[2], false)
 
 	req := []string{
-		FormatLongID(ids[0]), // NNW long padded
-		longIDPrefix + strings.TrimLeft(FormatHex16(ids[3]), "0"), // NNW legacy unpadded
-		FormatHex16(ids[4]),   // Reeder bare hex
+		FormatLongID(ids[0]), // long padded ids
+		longIDPrefix + strings.TrimLeft(FormatHex16(ids[3]), "0"), // legacy unpadded ids
+		FormatHex16(ids[4]),   // bare hex ids
 		FormatDecimal(ids[5]), // decimal
 		FormatLongID(ids[1]),  // trimmed (stub)
 		FormatLongID(ids[2]),  // trimmed (ledger only)

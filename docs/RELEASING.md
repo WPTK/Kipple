@@ -56,8 +56,7 @@ the pull-and-run image on GHCR and the build-info screens land in the first beta
 change how a newcomer meets Kipple and are only worth having verified together. The cost is that **the soak clock
 restarts**: the 1-week soak toward rc.1 starts when 0.5.0-beta.1 is deployed, not at the 0.3.0-beta.2 soak (rc.1 was
 not before 2026-10-06; it is now not before a week after the 0.5.0-beta.1 deploy), and Suites 1, 2 and 4 are re-verified
-on that build. The exception is not a precedent: beta.2 onward adds no features again. The design is
-`docs/setup-wizard-design.md` (its section 15 records the owner's decisions).
+on that build. The exception is not a precedent: beta.2 onward adds no features again.
 
 **2026-10-02 (owner):** the soak toward 0.5.0-rc.1 was abandoned. 0.6.0-beta.1 carries breaking cleanup (the removed
 7080 fallback), which is a minor bump under Versioning, and the soak restarts at its own deploy. 0.5.0 never ships as
@@ -96,7 +95,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
   Host-A pulls the signed image by digest instead: after `cosign verify` (step 11), set the service's `image:` to
   `ghcr.io/wptk/kipple@sha256:<digest from the Release notes>` in place of its `build:` and `docker compose ... pull kipple`
   then `up -d kipple` (named service); build-from-tag stays as the fallback.
-- **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and schema 13 (12 in 0.8.0-beta.1, 11 before 0.8);
+- **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and schema 15 (13 in 0.8.0-beta.2, 12 in 0.8.0-beta.1, 11 before 0.8);
   the log shows the port line (listening on the port `KIPPLE_ADDR` names, 1919 if unset) and no setup banner;
   Settings > About matches; the existing account signs in with no wizard.
 - **UAT Suite 5** (`docs/uat-plan.md`, rewritten for the wizard) on a Linux host with Docker, not Host-B, against the pushed
@@ -158,7 +157,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 
    and pass `KIPPLE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` on the build command line next to the other two.
 10. **Verify:** `ssh host-a 'docker exec kipple /kipple version'` prints `vX.Y.Z`; container healthy; `docker logs kipple` shows the migrations that were expected and no errors;
-    `/api/greader.php` answers with Reeder; a refresh completes; memory stays flat after a few minutes (`docker stats`).
+    `/api/greader.php` answers to a Reader API client; a refresh completes; memory stays flat after a few minutes (`docker stats`).
 11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`node scripts/changelog.mjs notes X.Y.Z > notes.md`, then `gh release create vX.Y.Z --notes-file notes.md`). `-alpha`, `-beta` and `-rc` releases are marked pre-release
     (`--prerelease`), unless the owner says otherwise for that release; that choice is per release and is not a default.
     Every pushed tag has one; keep it that way. For 1.0.0 the notes carry a known-issues list.

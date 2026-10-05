@@ -41,17 +41,11 @@ pull to refresh, and Move to folder for reordering feeds.
 
 ## Sync clients
 
-Kipple speaks the Google Reader API at `/api/greader.php`. Reeder Classic (FreshRSS account type) and NetNewsWire
-(FreshRSS account type) are the supported clients; others may work and are not promised.
-
-| Client | Status |
-|---|---|
-| Reeder Classic | Supported. Sign in with the API password from Settings > Account & Devices. The request sequence it makes is replayed against each release by hand, and by the contract tests in CI. |
-| NetNewsWire | Supported, same sign-in. Same replay and tests. |
+Kipple speaks the Google Reader API at `/api/greader.php`. A client that speaks the Google Reader API with the FreshRSS account type works the same way. Sign in with the API password from Settings > Account & Devices. The request sequences the protocol uses are replayed against each release by the contract tests in CI; no client is promised beyond what those tests cover.
 
 ## Still checked by a person
 
 - Installing the web app on a phone and using it there (touch swipes, the share sheet, safe-area spacing, staying
   signed in).
 - A real Safari with its default keyboard setting, and any other browser or version not listed above.
-- Connecting Reeder Classic and NetNewsWire for real: add, read, star, and mark all as read from each.
+- Connecting a real Reader API client: add, read, star, and mark all as read from it.

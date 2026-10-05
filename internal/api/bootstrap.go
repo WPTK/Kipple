@@ -91,7 +91,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		warnings = append(warnings, warning{"snapshot", "The last database snapshot is more than 48 hours old."})
 	}
 	if unread > unreadWarnAt {
-		warnings = append(warnings, warning{"unread_cap", "Unread total is above 10,000: Reeder only syncs the newest 10,000 unread ids."})
+		warnings = append(warnings, warning{"unread_cap", "Unread total is above 10,000: some sync apps only load the newest 10,000 unread ids."})
 	}
 	schedRuns, _ := s.opt.Sched.Status()
 	runs := make([]any, 0, len(schedRuns)+1)

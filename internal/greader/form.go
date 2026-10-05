@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// maxBody caps a form body read (design §6.2). A 1000-id NNW edit-tag is ~60 KB.
+// maxBody caps a form body read (design §6.2). A 1000-id edit-tag is ~60 KB.
 const maxBody = 4 << 20
 
 // maxPairs caps the parsed key=value pairs per part of a request; beyond it the
@@ -30,7 +30,7 @@ type pair struct {
 
 // Params is a Reader API request's parameters: the body pairs and the query
 // pairs, both parsed by splitting on '&' only and on the first '=' only, so the
-// unencoded ';', '=', ',' and '$' NetNewsWire sends survive (design §6.2).
+// unencoded ';', '=', ',' and '$' some clients send survive (design §6.2).
 // r.ParseForm is never used.
 type Params struct {
 	body    []pair
@@ -70,7 +70,7 @@ func (c *capReader) Read(p []byte) (int, error) {
 // splitPairsLimit implements steps 2-3 of §6.2 and refuses (ok false, before
 // allocating the parts) an input with more than maxPairs pairs. With repair
 // false it is exactly the phase 1 parser. With repair true (the POST body of disable-tag, the one
-// endpoint NNW sends a raw folder id to) the run of parts that follows a
+// endpoint some clients send a raw folder id to) the run of parts that follows a
 // label value and is really the tail of its name is glued back onto it.
 func splitPairsLimit(s string, repair bool) (out []pair, ok bool) {
 	if s == "" {

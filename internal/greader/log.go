@@ -58,7 +58,7 @@ func (a *API) logRequest(c *call, dur time.Duration) {
 		return
 	}
 	attrs := []any{
-		"method", c.r.Method, "path", c.path, "ua", c.r.UserAgent(), "family", c.family,
+		"method", c.r.Method, "path", c.path, "ua", c.r.UserAgent(),
 		"content_type", c.r.Header.Get("Content-Type"),
 		"status", c.w.status, "duration_ms", float64(dur.Microseconds()) / 1000,
 	}

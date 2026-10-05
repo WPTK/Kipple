@@ -26,7 +26,15 @@ const (
 	KindShare        = "share"
 )
 
-var clients = map[string]bool{"web": true, "pwa": true, "reeder": true, "netnewswire": true, "unread": true, "api": true}
+// Clients (the stats_events CHECK is the whitelist): the web app in a browser tab, the web app
+// installed as an app, and every Reader API client alike.
+const (
+	ClientWeb = "web"
+	ClientPWA = "pwa"
+	ClientAPI = "api"
+)
+
+var clients = map[string]bool{ClientWeb: true, ClientPWA: true, ClientAPI: true}
 
 // ErrDropped means the event failed validation and was not recorded. It is not
 // a database failure: the transaction may continue.

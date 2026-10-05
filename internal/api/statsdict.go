@@ -24,7 +24,7 @@ var statsColumns = []dictColumn{
 	{"local_hour", "integer", "0-23", "The local hour of ts, same zone as local_date."},
 	{"local_weekday", "integer", "0-6", "The local weekday of ts, 0 = Sunday through 6 = Saturday, same zone as local_date."},
 	{"kind", "text", "", "What happened: open, read_time, scroll, star, unstar, open_original or share (see kinds)."},
-	{"client", "text", "", "Where it came from: web, pwa, reeder, netnewswire, unread or api."},
+	{"client", "text", "", "Where it came from: web (the web app in a browser), pwa (the web app installed as an app) or api (any sync app using the Reader API)."},
 	{"inferred", "integer", "0 or 1", "1 when the event was inferred from a Reader API request rather than reported by the web app. Excluded from an export unless include_inferred=1."},
 	{"item_id", "integer (string in JSON)", "", "The article's id at the time of the event."},
 	{"feed_id", "integer (string in JSON)", "", "The feed's id at the time of the event."},

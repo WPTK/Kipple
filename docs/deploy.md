@@ -50,7 +50,7 @@ Something not working? See [troubleshooting.md](troubleshooting.md). Behind HTTP
   image cache (at most 1 GiB by default, `imgproxy.cache_mb`) and room for upgrades and exports, below. A database
   of about 140 feeds and 5,600 stored articles was 53 MB, so plan on roughly 10 KB per stored article. The default
   keeps the newest 250 per feed (`retention.default`) and never trims starred articles.
-- A browser for the web app. Reeder Classic and NetNewsWire are the tested sync clients.
+- A browser for the web app. Any client that speaks the Google Reader API can sync.
 
 ## Where things live
 
@@ -83,7 +83,7 @@ Kipple's state is split in two places, and a backup of one does not cover the ot
 | Lives in the database (in every export zip and snapshot) | Lives in your compose file or `.env` (in no backup) |
 |---|---|
 | The account: user name, password hashes, account secret | `KIPPLE_ADDR` and the compose port mapping |
-| Every setting in Settings, including the time zone (`tz`) and `security.allowed_hosts` | `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS` |
+| Every setting, including the time zone (`tz`) and `security.allowed_hosts` | `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS` |
 | Feeds, folders, per-feed options, filters, feed logins | `KIPPLE_ACCESS_TEAM_DOMAIN`, `KIPPLE_ACCESS_AUD` |
 | Read and starred state, the statistics history | `TZ`, `KIPPLE_DATA`, and the other tuning and logging variables |
 | Device profiles | Image tag, resource limits (`mem_limit`, `GOMEMLIMIT`), the reverse proxy or tunnel setup |
@@ -314,15 +314,21 @@ everything. It needs a ticked acknowledgement, and it stores the account with no
 Sign-in then happens by itself when the app opens: it asks the server for a session, and the server grants one only if
 the request passes the **open gate**:
 
-1. **The name is expected.** The `Host` header must be an IP address, `localhost`, a `.localhost` or `.ts.net` name,
-   the host of `KIPPLE_PUBLIC_URL`, or in `KIPPLE_ALLOWED_HOSTS` / Settings > Allowed host names. Anything else gets
-   `421 Misdirected Request` naming those settings. This defeats DNS rebinding, where a hostile web page tries to use
-   your browser to reach a private address. `http://<ip>:1919` always works. Setup mode also accepts single-word names
-   and `.local`, `.lan`, `.home.arpa` and `.internal` names; open mode does not, because any device on your network can
-   answer those (a `.local` name over mDNS, a single word over LLMNR or NetBIOS, a DHCP host name under `.lan` on many
-   routers) and so point one at your computer and drive your browser into Kipple. List such a name explicitly
-   (`nas`, `*.local`) if you use one and trust every device on the network. The check is enforced in setup mode and
-   open mode; with a password it only logs, once an hour.
+1. **The name is expected.** Open mode answers a `Host` header that is an IP address, `localhost`, a `.localhost` or
+   `.ts.net` name, the host of `KIPPLE_PUBLIC_URL`, or a name you allowed. Anything else gets
+   `421 Misdirected Request`, which says how to allow the name. `http://<ip>:1919` always works.
+
+   To use a local network name such as `nas.local` or `nas` without a password, allow it: add it to
+   `KIPPLE_ALLOWED_HOSTS` (comma-separated, for example `KIPPLE_ALLOWED_HOSTS=nas.local`) and restart Kipple.
+
+   This defeats DNS rebinding, where a hostile web page points a name it controls at your computer so your browser
+   treats Kipple as part of that page. A public name is the usual tool, but a device on your network can do the same
+   with a single-word or `.local`, `.lan`, `.home.arpa` or `.internal` name (mDNS, LLMNR or NetBIOS, a router's DHCP
+   names), even when it cannot reach Kipple's port itself, as with the default `127.0.0.1:1919` publish. So open mode
+   answers only the names of that kind you allowed, never all of them, and choosing open mode never allows a name for
+   you: the setup wizard has no secret, so a hostile page could make that choice too. During setup the check is
+   broader (single-word names and those suffixes are answered, so the wizard opens at whatever name you use); with a
+   password it only logs, once an hour.
 2. **Not forwarded.** A request that came through a proxy or tunnel (a `CF-Connecting-IP`, `Cf-Access-Jwt-Assertion`,
    `Forwarded`, `X-Real-IP` or `X-Forwarded-*` header, a `Tailscale-Funnel-Request`, or a peer listed in
    `KIPPLE_TRUSTED_PROXY_IPS`) is refused, because a tunnel means the port is published to people you did not pick.
@@ -443,7 +449,7 @@ From a script or a pipe (one line on standard input; mind shell history and the 
 
 Rules: 5 to 256 characters. It signs out every web session **and revokes every Reader API token**
 (it rotates the account secret), so afterwards: sign in again in the browser, and re-enter the
-Reader API password in Reeder and NetNewsWire (that password itself is unchanged; if you have lost
+Reader API password in your sync apps (that password itself is unchanged; if you have lost
 it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login pacing is in
 memory: it clears after an hour with no failure or on a restart. If `KIPPLE_PASSWORD` is still in
 your `.env`, remove it: it is read only when the account is first created. On an account in open mode
@@ -564,7 +570,7 @@ The account comes from the backup: sign in with the web password and use the Rea
 that were current when the backup was taken. `KIPPLE_USERNAME`, `KIPPLE_PASSWORD` and
 `KIPPLE_API_PASSWORD` in `.env` are ignored because the account already exists. The restore prints
 "There was no previous database to keep." on an empty volume. The Reader API answered ClientLogin
-and `unread-count` with the backup's password on the rehearsal; if Reeder or NetNewsWire reports an
+and `unread-count` with the backup's password on the rehearsal; if a Reader API client reports an
 authentication error, sign in again in the app with that password. If the backed-up account had no web
 password (removed through Cloudflare Access), sign in through Access with the same `KIPPLE_ACCESS_*` values, or set
 one first with `kipple password` (it works on the stopped service:
@@ -621,10 +627,11 @@ take a while.
 
 Before the snapshot is written Kipple checks the free space: it refuses to start, with `not enough free disk space to
 migrate the database ... (nothing was changed)`, unless there is enough extra free space: on the database's volume, the
-size of the database file (without the WAL) plus 64 MB of headroom for the migration's WAL and growth, and on the backup
-directory's volume, 1.1 times the database size for the snapshot; when both are on the same volume (the default `/data`
-layout) the two add up. That is the minimum. A migration that builds indexes briefly needs about twice the new indexes'
-size on top (the WAL holds the build until the checkpoint), so leave more than the minimum free. Nothing has been written
+size of the database file (without the WAL) plus 64 MB, or twice that size plus 64 MB when one of the pending migrations
+rebuilds a table (the WAL holds the new copy of the table and its indexes until the checkpoint, and the checkpoint then
+grows the file by the new table before the old table's pages are reused); and on the backup directory's volume, 1.1
+times the database size for the snapshot. When both are on the same volume (the default `/data` layout) the two add
+up: about 2.1 times the database plus 64 MB, or 3.1 times plus 64 MB with a rebuild. Nothing has been written
 when the check refuses, so free some space (older `backup/` files, exported archives, the image cache) and start again.
 If the volume fills up despite the check, the migration transaction fails and is rolled back (the database keeps its
 schema and the previous binary keeps working); a full disk can also fail the snapshot itself, which likewise leaves the
@@ -656,5 +663,5 @@ Space to keep free on the volume:
 |---|---|
 | Steady state | The nightly snapshot lives on the same volume: plan for about 2 times the database in total. |
 | Export | About 2.2 times the database, temporarily (the snapshot copy plus the zip). Over 4 GiB an export is refused: copy the nightly snapshot instead. |
-| Upgrade that migrates the schema | The database size plus 64 MB, plus 1.1 times the database for the pre-migration snapshot. The newest three pre-migration snapshots are kept, each about one more copy of the database. |
+| Upgrade that migrates the schema | The database size plus 64 MB (twice the size plus 64 MB when a migration rebuilds a table), plus 1.1 times the database for the pre-migration snapshot. The newest three pre-migration snapshots are kept, each about one more copy of the database. |
 | Restore | The new database, plus the previous one kept under `backup/pre-restore-*` (newest three kept). |

@@ -99,27 +99,60 @@ func TestOpenModeHostGateRefusesLANAnsweredNames(t *testing.T) {
 	rec := h.req("POST", "/api/setup/account", accountBody(map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}),
 		host("evil.local:1919"), hdr("Origin", "http://evil.local:1919"))
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
-	require.Equal(t, "host", decode(t, rec)["reason"])
+	refused := decode(t, rec)
+	require.Equal(t, "host", refused["reason"])
+	require.Contains(t, refused["message"], "KIPPLE_ALLOWED_HOSTS", "the refusal says how to allow a name")
+	// The refused claim left nothing behind: no account, no allowed name (a
+	// rebinding page that could claim and get its name kept would have lasting
+	// access).
+	_, ok, err := h.db.Account(context.Background())
+	require.NoError(t, err)
+	require.False(t, ok)
+	sec, err := h.db.SecuritySettings(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, sec.AllowedHosts)
 	st := decode(t, h.req("GET", "/api/instance", "", host("nas:1919")))
 	require.Equal(t, map[string]any{"reason": "host"}, st["open"])
 
 	sess := h.openAccount(nil)
-	for _, hv := range []string{"nas:1919", "evil.local:1919", "box.lan", "box.home.arpa", "svc.internal"} {
+	sec, err = h.db.SecuritySettings(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, sec.AllowedHosts, "choosing open mode lists no name")
+	for _, hv := range []string{"nas:1919", "NAS.", "evil.local:1919", "EVIL.LOCAL.", "box.lan", "box.home.arpa", "svc.internal", "xn--bcher-kva.local"} {
 		for _, path := range []string{"/api/instance", "/api/bootstrap", "/", "/healthz"} {
 			rec := h.req("GET", path, "", host(hv), withCookies(sess))
 			require.Equal(t, http.StatusMisdirectedRequest, rec.Code, "%s %s", hv, path)
+			require.Contains(t, rec.Body.String(), "add it to KIPPLE_ALLOWED_HOSTS", "%s %s", hv, path)
 		}
 		rec := h.req("POST", "/api/auth/open", "", host(hv), hdr("Origin", "http://"+hv))
 		require.Equal(t, http.StatusMisdirectedRequest, rec.Code, hv)
 	}
-	for _, hv := range []string{"127.0.0.1:1919", "localhost:1919", "app.localhost:1919", "box.tail1234.ts.net"} {
+	for _, hv := range []string{"127.0.0.1:1919", "[::1]:1919", "[fe80::1]:1919", "localhost:1919", "app.localhost:1919", "box.tail1234.ts.net"} {
 		require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host(hv)).Code, hv)
 	}
-	// The owner may still list such a name explicitly.
+	// The owner may still list such a name explicitly; a listed name works on
+	// every route and for sign-in.
 	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.allowed_hosts":["nas","*.local"]}`, withCookies(sess)).Code)
-	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host("nas:1919")).Code)
-	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host("evil.local:1919")).Code)
+	for _, hv := range []string{"nas:1919", "NAS.:1919", "evil.local:1919", "box.local"} {
+		for _, path := range []string{"/api/instance", "/api/bootstrap", "/", "/healthz"} {
+			require.Equal(t, http.StatusOK, h.req("GET", path, "", host(hv), withCookies(sess)).Code, "%s %s", hv, path)
+		}
+		rec := h.req("POST", "/api/auth/open", "", host(hv), hdr("Origin", "http://"+hv))
+		require.Equal(t, http.StatusNoContent, rec.Code, "%s: %s", hv, rec.Body.String())
+	}
 	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host("box.lan")).Code)
+}
+
+// Allowing a name through KIPPLE_ALLOWED_HOSTS, as the refusal says, works the
+// same: the listed LAN name opens, other LAN names stay refused.
+func TestOpenModeHostGateEnvListedName(t *testing.T) {
+	h := newSetupHarness(t, func(o *Options) { o.AllowedHosts = []string{"nas.local"} })
+	sess := h.openAccount(nil, host("nas.local:1919"), hdr("Origin", "http://nas.local:1919"))
+	require.Equal(t, http.StatusOK, h.req("GET", "/api/bootstrap", "", host("nas.local:1919"), withCookies(sess)).Code)
+	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/bootstrap", "", host("evil.local:1919"), withCookies(sess)).Code)
+	sec, err := h.db.SecuritySettings(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, sec.AllowedHosts, "nothing is copied into the setting")
 }
 
 // A peer in Tailscale's range counts as the tailnet only when it arrived on

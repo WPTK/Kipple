@@ -14,7 +14,7 @@ import (
 
 // The Reader API knows nothing about filters (backend-additions 1.4): a muted item is an ordinary
 // read item. These tests drive real ingest and the retroactive paths through the store and check
-// what Reeder and NetNewsWire would see.
+// what Reader API clients would see.
 
 func (h *harness) mkFilter(action string, terms ...string) store.Filter {
 	h.t.Helper()

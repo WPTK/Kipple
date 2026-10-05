@@ -154,6 +154,6 @@ func runAPIPassword(args []string) error {
 		return err
 	}
 	fmt.Println(pw)
-	fmt.Fprintln(os.Stderr, "Reader API password set (shown once above). Existing sync clients are signed out; enter it in Reeder and NetNewsWire.")
+	fmt.Fprintln(os.Stderr, "Reader API password set (shown once above). Existing sync clients are signed out; enter it in your sync apps.")
 	return nil
 }

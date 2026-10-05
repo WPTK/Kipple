@@ -401,7 +401,7 @@ func generate(ctx context.Context, o genOpts) error {
 		k string
 		w float64
 	}{{"open", .40}, {"read_time", .35}, {"scroll", .15}, {"open_original", .05}, {"star", .03}, {"unstar", .01}, {"share", .01}}
-	clients := []string{"web", "web", "web", "pwa", "reeder", "netnewswire", "api"}
+	clients := []string{"web", "web", "web", "pwa", "api", "api", "api"}
 	nStats := 0
 	if err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		st, err := tx.PrepareContext(ctx, `INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, inferred,

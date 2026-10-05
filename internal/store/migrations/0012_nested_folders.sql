@@ -1,4 +1,5 @@
 -- kipple:foreign-keys-off
+-- kipple:rebuilds-table
 -- Kipple schema v12: nested folders (docs/design.md §2.2a). folders gains parent_id (NULL = top level). The
 -- column-level UNIQUE on name cannot be dropped in place, so the table is rebuilt; feeds and filters keep
 -- pointing at folders(id), and the runner's foreign_key_check verifies them before the commit. No data

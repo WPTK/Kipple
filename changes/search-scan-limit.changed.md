@@ -1,0 +1,1 @@
+Search: a search that matches more than 75,000 items is refused as too broad (`422 search_too_broad`) after one bounded walk of its matches, on every page, instead of running until the 500 ms budget, so a common word no longer works on a quiet machine and fails on a busy one; at 150,000 items the refusal takes about 100 to 200 ms. (#229)

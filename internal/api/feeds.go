@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -104,16 +103,12 @@ func (s *Server) healthFeeds(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "unread total", err)
 		return
 	}
-	type client struct {
-		Family     string `json:"family"`
-		LastSeenAt int64  `json:"last_seen_at"`
-	}
-	clients := []client{}
-	if s.opt.Clients != nil {
-		for fam, t := range s.opt.Clients() {
-			clients = append(clients, client{fam, t.Unix()})
+	var readerSeen *int64 // null until a Reader API client has called since the start
+	if s.opt.ReaderLastSeen != nil {
+		if t := s.opt.ReaderLastSeen(); !t.IsZero() {
+			u := t.Unix()
+			readerSeen = &u
 		}
-		sort.Slice(clients, func(i, j int) bool { return clients[i].Family < clients[j].Family })
 	}
 	snap := s.db.SnapshotStatus(r.Context())
 	type snapshot struct {
@@ -128,7 +123,7 @@ func (s *Server) healthFeeds(w http.ResponseWriter, r *http.Request) {
 		sn.LastError = &snap.LastError
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"feeds": feeds, "clients": clients, "unread_total": unread,
+		"feeds": feeds, "reader_last_seen_at": readerSeen, "unread_total": unread,
 		"snapshot": sn,
 		"clock":    map[string]int64{"ahead_s": int64(s.db.IDs().Skew() / time.Second)},
 		"db":       s.diskUsage(),

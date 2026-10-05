@@ -25,7 +25,7 @@ func TestClientLoginSuccessShape(t *testing.T) {
 	code, body := login(h, "OWNER", testPass) // Email is case-insensitive
 	require.Equal(t, 200, code)
 	require.Equal(t, "SID="+h.tok+"\nLSID=null\nAuth="+h.tok+"\n", body)
-	// NNW splits every line on '=' and needs exactly two parts.
+	// Some clients split every line on '=' and need exactly two parts.
 	for _, line := range strings.Split(strings.TrimSpace(body), "\n") {
 		require.Len(t, strings.Split(line, "="), 2, line)
 	}
@@ -98,7 +98,7 @@ func TestWriteTokenRules(t *testing.T) {
 	}{
 		{"header only", "i=1", nil, 200},
 		{"header + T=token", "T=" + h.tok + "&i=1", nil, 200},
-		{"header + T=x (Reeder 4)", "T=x&i=1", nil, 200},
+		{"header + T=x (older client)", "T=x&i=1", nil, 200},
 		{"header + empty T", "T=&i=1", nil, 200},
 		{"header + stale T", "T=old&i=1", nil, 401},
 		{"no header + T=token", "T=" + h.tok + "&i=1", noHdr, 200},
@@ -274,22 +274,23 @@ func TestVerifierSemaphoreWaitIsBounded(t *testing.T) {
 	require.True(t, <-done)
 }
 
-func TestClientFamilyAndLastSeen(t *testing.T) {
-	require.Equal(t, "reeder", family("Reeder/5.0 CFNetwork"))
-	require.Equal(t, "netnewswire", family("NetNewsWire (RSS Reader; https://netnewswire.com/)"))
-	require.Equal(t, "unread", family("Unread/4.0"))
-	require.Equal(t, "api", family("curl/8"))
-
+// Every Reader API client is the same: whatever its User-Agent, an authenticated call moves the one
+// last-seen time, at most once a minute; an unauthenticated call does not.
+func TestLastSeenIsOneTimeForEveryClient(t *testing.T) {
 	h := newHarness(t)
-	h.do(http.MethodGet, base+rd+"token", "", map[string]string{"User-Agent": "Reeder/5"})
-	first := h.api.LastSeen()["reeder"]
-	require.False(t, first.IsZero())
+	require.True(t, h.api.LastSeen().IsZero(), "no call yet")
+	h.do(http.MethodGet, base+rd+"token", "", map[string]string{"Authorization": ""})
+	require.True(t, h.api.LastSeen().IsZero(), "an unauthenticated call is not a client seen")
+
+	h.do(http.MethodGet, base+rd+"token", "", map[string]string{"User-Agent": "SyncApp/5.0 CFNetwork"})
+	first := h.api.LastSeen()
+	require.Equal(t, h.clk.Now().Unix(), first.Unix())
 	h.clk.Advance(20 * time.Second)
-	h.do(http.MethodGet, base+rd+"token", "", map[string]string{"User-Agent": "Reeder/5"})
-	require.Equal(t, first, h.api.LastSeen()["reeder"], "updated at most once a minute")
+	h.do(http.MethodGet, base+rd+"token", "", map[string]string{"User-Agent": "curl/8"})
+	require.Equal(t, first, h.api.LastSeen(), "updated at most once a minute, whichever client calls")
 	h.clk.Advance(50 * time.Second)
-	h.do(http.MethodGet, base+rd+"token", "", map[string]string{"User-Agent": "Reeder/5"})
-	require.True(t, h.api.LastSeen()["reeder"].After(first))
+	h.do(http.MethodGet, base+rd+"token", "", map[string]string{"User-Agent": "OtherReader/2"})
+	require.True(t, h.api.LastSeen().After(first))
 }
 
 func TestClientLoginBusyHashingSlotIs401WithoutFailureOrRetryAfter(t *testing.T) {

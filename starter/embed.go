@@ -1,5 +1,5 @@
 // Package starter is the recommended-feeds list the setup wizard offers
-// (docs/setup-wizard-design.md section 7). feeds.json is the one source of
+// (docs/design.md §7.1e). feeds.json is the one source of
 // truth: the server parses it once and subscribes only the ids it lists.
 package starter
 

@@ -218,7 +218,7 @@ func TestStatsEventsClientFromBody(t *testing.T) {
 	}
 	beacon(map[string]any{"client": "pwa"})
 	beacon(map[string]any{"client": "web"})
-	beacon(map[string]any{"client": "reeder"}) // not a web client: ignored
+	beacon(map[string]any{"client": "api"}) // not a web client: ignored
 	beacon(map[string]any{})
 	require.Equal(t, 1, h.count("SELECT count(*) FROM stats_events WHERE kind = 'share' AND client = 'pwa'"))
 	require.Equal(t, 3, h.count("SELECT count(*) FROM stats_events WHERE kind = 'share' AND client = 'web'"))

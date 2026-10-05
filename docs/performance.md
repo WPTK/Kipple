@@ -129,28 +129,31 @@ and an import of somewhere between 500 and 1,000 folders cannot finish in one wr
 re-run the bench after it merges. The bootstrap after the failed imports (about 1,000 folders and feeds more) answers
 in about 1.0 s.
 
-### Full-text search (warm, median of 3 runs)
+### Full-text search (warm)
 
-| Search | ms |
-|---|---:|
-| Common word (in most items) | 193 |
-| Common word, relevance order | 241 |
-| Mid-frequency word | 186 |
-| Two common words | 181 |
-| Prefix while typing (`typing=1`) | 202 |
-| Rare word (5 items) | 1.1 |
-| Word in about 450 items | 6.0 |
-| Word that is not in the library | 0.6 |
+A search that matches more than 75,000 items is answered with `422 search_too_broad` after a bounded walk of
+them (date order: every page, counting the matches past its cursor; relevance order: the first page), and so is one
+that outruns the 500 ms budget. The planted common words match
+more than 75,000 of the 150,000 items, so they are refused; a search for two of them matches about 52,000 and is
+answered.
 
-Forty common-word searches in a row had a median of 190 ms and a slowest of 237 ms (450 ms in the worst run of an
-earlier series). A search that outruns the 500 ms budget is answered with `422 search_too_broad`. See
-[#229](https://github.com/WPTK/Kipple/issues/229).
+| Search | Date order (ms) | Relevance order (ms) | Answer |
+|---|---:|---:|---|
+| Common word (in most items) | 141 | 115 | refused (20 of 20) |
+| Mid-frequency word (over 75,000 items) | 141 | 94 | refused (20 of 20) |
+| Prefix while typing (`typing=1`) of a common word | 139 | 96 | refused (20 of 20) |
+| Two common words (about 52,000 items) | 216 | 375 | answered (1 of 20 refused by relevance) |
+| Rare word (5 items) | 1.1 | | answered |
+| Word in about 450 items | 6.0 | | answered |
+| Word that is not in the library | 0.6 | | answered |
 
-Search is the call that varies most from run to run. Across three series of runs (nine runs, with and without
-`GOMEMLIMIT`), some searches were refused in four of them, in loops of 40 up to 33 refused, while the median of the
-other runs was 190 to 230 ms. The slow runs followed the copying of tens of gigabytes of database files, so the file
-cache was competing with them: the same thing happens after a restart, when the first searches read the index from
-disk.
+The first five rows are the median of 20 searches after 4 warm-up searches on one run; the last three rows are the
+median of 3 runs. Date order walks the matches once on every page; relevance order counts them first on the first page without
+ranking them, so a refused search does not pay for ranking, and later pages are bounded by the budget alone. The dev machine was shared with other test runs while this was measured:
+the same searches over three runs varied by 30 percent in median and the two-common-word search by relevance came
+within the budget in only two of them. Search is the call that varies most from run to run, and a cold or contended
+file cache (the first searches after a restart read the index from disk) moves a search of tens of thousands of
+matches past the 500 ms budget. See [#229](https://github.com/WPTK/Kipple/issues/229).
 
 ### Reader API (warm, median of 3 runs)
 
@@ -221,8 +224,8 @@ Anything that failed or was slow enough to matter is an issue:
 
 - [#228](https://github.com/WPTK/Kipple/issues/228): the bulk retention trim runs about 20 times slower than the
   budget in the code and holds the writer for about 4 s a batch against a 10 s deadline.
-- [#229](https://github.com/WPTK/Kipple/issues/229): a common-word search at this size is within 2 times of its 500 ms
-  budget and is refused as too broad when the machine is busy.
+- [#229](https://github.com/WPTK/Kipple/issues/229): a common-word search at this size costs 100 to 200 ms and, matching
+  more than 75,000 items, is refused as too broad (see Full-text search above).
 - [#237](https://github.com/WPTK/Kipple/issues/237): a refresh of 500 feeds takes 20 s with the nested folder tree, 6
   times the flat-tree figure.
 - OPML import of a folder tree fails somewhere between 500 and 1,000 folders (the writer's deadline); known, PR #233.
@@ -236,8 +239,9 @@ Rules of thumb from the numbers above. They scale with item count and content si
 
 - **Disk.** Plan about 10 KB per item for a typical mix of summaries and articles (this library: 11 KB). A feed
   at the default retention keeps 250 items, so 500 feeds is at most 125,000 items, about 1.4 GB. Image
-  thumbnails are cached separately and are not in the database. Keep free space of at least 2.5 times the
-  database: the pre-upgrade snapshot needs 1.1 times plus 64 MB, the in-app backup needs 2.2 times plus 16 MB, and the
+  thumbnails are cached separately and are not in the database. Keep free space of at least 3.1 times the
+  database plus 64 MB: an upgrade that migrates needs 3.1 times the database plus 64 MB when it rebuilds a table (2.1
+  times plus 64 MB otherwise), with the pre-migration snapshot included, the in-app backup needs 2.2 times plus 16 MB, and the
   database needs room to grow.
 - **Memory.** Idle use is about 60 MB and the peak at 500 feeds and 150,000 items was 130 MB. The 256 MB limit in the
   compose example fits this size; memory follows the work in flight (a refresh, a trim), not the library size.
@@ -250,8 +254,10 @@ Rules of thumb from the numbers above. They scale with item count and content si
 - **Slower storage.** Everything above ran on a local SSD. On a network volume, an SD card or a spinning disk, expect
   the write-heavy jobs (trim, backup, upgrade, restore) to take several times longer, and check #228 and #229
   before running a library at this size on such a disk.
-- **Search.** Common-word search cost grows with the number of matching items, and 150,000 items is the size where it
-  comes within 2 times of its 500 ms budget on this machine (smaller libraries were not measured).
+- **Search.** Search cost grows with the number of matching items. A search that matches more than 75,000 items is
+  refused as too broad whatever the load, so in a library over about 75,000 items a common word is always refused
+  and the user adds a more specific word; a search that matches fewer is answered unless it runs past the 500 ms
+  budget, which a slow disk or CPU can cause for tens of thousands of matches.
 
 ## What is not measured
 

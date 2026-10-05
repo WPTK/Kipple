@@ -3,6 +3,7 @@ package greader
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"strconv"
 
 	"github.com/WPTK/kipple/internal/events"
@@ -51,7 +52,7 @@ func tagOps(add, remove []string) []tagOp {
 }
 
 // editTag is POST edit-tag. It is always 200 OK: zero ids, unknown ids, trimmed
-// ids and an empty i all succeed (a non-2xx wedges NetNewsWire's queue).
+// ids and an empty i all succeed (a non-2xx wedges a client's sync queue).
 func (c *call) editTag() {
 	raw := c.p.All("i")
 	if len(raw) > maxEditIDs {
@@ -95,7 +96,7 @@ func (c *call) editTag() {
 				if *op.starred {
 					kind = stats.KindStar
 				}
-				if err := c.a.opt.Stats.RecordStars(tx, kind, c.family, res.Changed); err != nil {
+				if err := c.a.opt.Stats.RecordStars(tx, kind, stats.ClientAPI, res.Changed); err != nil {
 					return err
 				}
 			}
@@ -117,7 +118,7 @@ func (c *call) editTag() {
 			c.a.publish("resync", map[string]any{})
 			continue
 		}
-		ev := map[string]any{"ids": idStrings(ch.res.Changed), "source": c.family}
+		ev := map[string]any{"ids": idStrings(ch.res.Changed), "source": stats.ClientAPI}
 		if ch.op.read != nil {
 			ev["read"] = *ch.op.read
 		}
@@ -168,7 +169,8 @@ func normalizeTS(s string) (us int64, ok bool) {
 }
 
 // markAllAsRead is POST mark-all-as-read. It never produces stats and is
-// always OK; read/unread/broadcast/unknown streams are no-ops.
+// always OK. The unread and kept-unread streams mark like the reading list; the
+// read, broadcast and unknown streams are no-ops.
 func (c *call) markAllAsRead() {
 	ctx := c.r.Context()
 	f, err := c.resolveStream(c.p.Get("s"), firstOrEmpty(c.p.AllRaw("s")))
@@ -176,7 +178,9 @@ func (c *call) markAllAsRead() {
 		c.serverError("mark-all-as-read", err)
 		return
 	}
-	if f.Empty || len(f.Read) > 0 {
+	// Only unread items are ever marked, so an unread or kept-unread stream is the
+	// reading list (or its scope), and the read stream has nothing to mark.
+	if f.Empty || slices.Contains(f.Read, 1) {
 		c.ok()
 		return
 	}

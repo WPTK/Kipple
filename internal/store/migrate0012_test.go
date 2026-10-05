@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,7 +23,7 @@ func schema11(t *testing.T) (*sql.DB, string) {
 	raw.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = raw.Close() })
 	for _, m := range ms[:11] {
-		require.False(t, strings.HasPrefix(m.sql, foreignKeysOffMarker), m.name)
+		require.False(t, m.marked(foreignKeysOffMarker), m.name)
 		tx, err := raw.Begin()
 		require.NoError(t, err)
 		_, err = tx.Exec(m.sql)

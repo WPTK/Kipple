@@ -22,7 +22,7 @@ func TestSnapshotsArePrivate(t *testing.T) {
 	db, _ := openTest(t)
 	seedFeed(t, db)
 
-	require.NoError(t, db.preMigrationSnapshot(ctx, 1, 2))
+	require.NoError(t, db.preMigrationSnapshot(ctx, 1, 2, nil))
 	pre, err := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-*.db"))
 	require.NoError(t, err)
 	require.Len(t, pre, 1)
