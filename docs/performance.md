@@ -131,8 +131,9 @@ in about 1.0 s.
 
 ### Full-text search (warm)
 
-A search walks at most 75,000 matching items per page; a search that matches more is answered with
-`422 search_too_broad` after that walk, and so is one that outruns the 500 ms budget. The planted common words match
+A search that matches more than 75,000 items is answered with `422 search_too_broad` after a bounded walk of
+them (date order: every page, counting the matches past its cursor; relevance order: the first page), and so is one
+that outruns the 500 ms budget. The planted common words match
 more than 75,000 of the 150,000 items, so they are refused; a search for two of them matches about 52,000 and is
 answered.
 
@@ -147,8 +148,8 @@ answered.
 | Word that is not in the library | 0.6 | | answered |
 
 The first five rows are the median of 20 searches after 4 warm-up searches on one run; the last three rows are the
-median of 3 runs. Date order walks the matches once; relevance order counts them first without ranking them, so a
-refused search does not pay for ranking. The dev machine was shared with other test runs while this was measured:
+median of 3 runs. Date order walks the matches once on every page; relevance order counts them first on the first page without
+ranking them, so a refused search does not pay for ranking, and later pages are bounded by the budget alone. The dev machine was shared with other test runs while this was measured:
 the same searches over three runs varied by 30 percent in median and the two-common-word search by relevance came
 within the budget in only two of them. Search is the call that varies most from run to run, and a cold or contended
 file cache (the first searches after a restart read the index from disk) moves a search of tens of thousands of

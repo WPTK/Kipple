@@ -59,11 +59,14 @@ func searchScope(q CardQuery) (where []string, args []any) {
 // a reader connection. A variable so tests can shrink it.
 var searchBudget = 500 * time.Millisecond
 
-// searchScanLimit is the most matching items one page of a search walks. Date order has to see every
-// match before it can pick the newest page, so a search's cost grows with its matches, and a time
-// budget alone refuses a common word only when the machine happens to be busy. The match walk of every
-// page (any cursor included) stops after this many rows plus one, and a walk that reached the extra row
-// is ErrSearchTooBroad whatever the load. A variable so tests can shrink it.
+// searchScanLimit is the most matching items a search takes on. A search's cost grows with its matches
+// (date order has to see every match before it can pick the newest page), and a time budget alone
+// refuses a common word only when the machine happens to be busy. By date every page's match walk
+// stops after this many rows plus one, counting only the matches past the page's cursor, and a walk
+// that reached the extra row is ErrSearchTooBroad. By relevance only the first page counts (all
+// matches, without ranking them); a later page cannot apply its cursor without computing bm25, so it
+// is bounded by searchBudget alone, a forged cursor included. Neither order refuses a scroll that its
+// first page was answered. A variable so tests can shrink it.
 var searchScanLimit = 75000
 
 // ErrSearchTooBroad is returned by a search that ran out of searchBudget or matches more than
@@ -131,21 +134,24 @@ func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card
 			args = append(args, q.Cursor.SortAt, q.Cursor.ID)
 		}
 	}
-	// Pass 1: the ids of the page (one extra row says whether a next page exists). Every page, from any
-	// cursor, walks at most searchScanLimit+1 matches and a walk that reached the extra row is refused.
-	// By date the walk is materialized once and counted from there, so there is no second walk. By
-	// relevance bm25 is computed during the walk, which is the expensive part, so the count comes first
-	// from a walk that does not rank (a second, cheap walk).
+	// Pass 1: the ids of the page (one extra row says whether a next page exists). By date the match walk
+	// is materialized once, stops after searchScanLimit+1 rows and is counted from there, so there is no
+	// second walk; a refused search still materializes and sorts those rows (about 140 ms at 150,000
+	// items), which is accepted: it is bounded and cheaper than the 500 ms budget. By relevance bm25 is
+	// computed during the walk, which is the expensive part, so the first page counts its matches first
+	// with a walk that does not rank (a second, cheap walk); later pages skip it (see searchScanLimit).
 	from := `FROM items_fts JOIN items i ON i.id = items_fts.rowid WHERE ` + strings.Join(where, " AND ")
 	var idSQL string
 	if q.Rank {
-		var n int
-		probe := `SELECT count(*) FROM (SELECT 1 ` + from + ` LIMIT ?)`
-		if err := d.reader.QueryRowContext(ctx, probe, append(append([]any{}, args...), searchScanLimit+1)...).Scan(&n); err != nil {
-			return nil, nil, false, fmt.Errorf("store: search scan: %w", err)
-		}
-		if n > searchScanLimit {
-			return nil, nil, false, ErrSearchTooBroad
+		if q.Cursor == nil {
+			var n int
+			probe := `SELECT count(*) FROM (SELECT 1 ` + from + ` LIMIT ?)`
+			if err := d.reader.QueryRowContext(ctx, probe, append(append([]any{}, args...), searchScanLimit+1)...).Scan(&n); err != nil {
+				return nil, nil, false, fmt.Errorf("store: search scan: %w", err)
+			}
+			if n > searchScanLimit {
+				return nil, nil, false, ErrSearchTooBroad
+			}
 		}
 		idSQL = `SELECT id, r, 0 FROM (SELECT i.id AS id, i.sort_at AS sort_at, ` + rankCol + ` AS r ` + from + `)` +
 			outer + ` ORDER BY ` + order + ` LIMIT ?`

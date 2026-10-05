@@ -516,10 +516,13 @@ func TestSearchScanLimit(t *testing.T) {
 		searchScanLimit = 7
 		_, _, _, err = list(CardQuery{Query: "apple ", Rank: rank})
 		require.ErrorIs(t, err, ErrSearchTooBroad, "first page, rank=%v", rank)
-		// A cursor that skips nothing (as a client can forge one) walks everything and is refused too.
-		forged := &Cursor{SortAt: 1 << 40, ID: 1 << 60, ByRank: rank, Rank: -1e9}
-		_, _, _, err = list(CardQuery{Query: "apple ", Rank: rank, Cursor: forged})
-		require.ErrorIs(t, err, ErrSearchTooBroad, "forged cursor, rank=%v", rank)
+		if !rank {
+			// By date a cursor that skips nothing (as a client can forge one) walks everything and is refused
+			// too. By relevance a later page is bounded by the time budget alone.
+			forged := &Cursor{SortAt: 1 << 40, ID: 1 << 60}
+			_, _, _, err = list(CardQuery{Query: "apple ", Cursor: forged})
+			require.ErrorIs(t, err, ErrSearchTooBroad, "forged cursor")
+		}
 	}
 	// By date a real cursor leaves fewer than the limit to walk, so the later page of a series is answered.
 	searchScanLimit = 8
@@ -558,4 +561,23 @@ func TestSearchScanLimit(t *testing.T) {
 	searchScanLimit = 7
 	_, _, _, err = list(CardQuery{Query: "apple pear "})
 	require.ErrorIs(t, err, ErrSearchTooBroad)
+
+	// A scroll that was answered on its first page is never refused later, in either order, even when
+	// matches arrive between the pages.
+	for _, rank := range []bool{false, true} {
+		searchScanLimit = e.count("SELECT count(*) FROM items")
+		_, cur, _, err := list(CardQuery{Query: "apple ", Rank: rank})
+		require.NoError(t, err)
+		require.NotNil(t, cur)
+		seedMore := e.addFeed(fmt.Sprintf("https://ex.com/grow%v", rank))
+		for i := 0; i < 3; i++ {
+			e.exec(`INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, word_count, uid, content_hash, text_hash, url, title, author)
+				VALUES (?,?,0,0,?,?,10,?,?,?,?,?,?)`, int64(1_800_000_000_000_000)+int64(i)+map[bool]int64{false: 0, true: 100}[rank], seedMore, 50, 50,
+				fmt.Sprintf("grow%v%d", rank, i), "c", "t", fmt.Sprintf("https://x/grow%v%d", rank, i), "Apple grown", "Ann")
+			e.exec(`INSERT INTO item_content (item_id, content_html, content_text) VALUES (?,?,?)`,
+				int64(1_800_000_000_000_000)+int64(i)+map[bool]int64{false: 0, true: 100}[rank], "<p>apple</p>", "apple")
+		}
+		_, _, _, err = list(CardQuery{Query: "apple ", Rank: rank, Cursor: cur})
+		require.NoError(t, err, "page 2 of a scroll answered on page 1, rank=%v", rank)
+	}
 }
