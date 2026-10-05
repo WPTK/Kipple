@@ -1,0 +1,12 @@
+name: npm audit
+description: Fail on high or critical advisories in the production dependencies of the web app. Reads web/package-lock.json only.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      working-directory: web
+      run: |
+        set -o pipefail
+        mkdir -p "$RUNNER_TEMP/audit-logs"
+        npm audit --omit=dev --audit-level=high 2>&1 | tee "$RUNNER_TEMP/audit-logs/npm.log"

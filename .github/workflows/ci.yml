@@ -11,7 +11,6 @@ permissions:
   contents: read
 
 env:
-  GOVULNCHECK_VERSION: v1.8.0
   STATICCHECK_VERSION: v0.8.1
   GOSEC_VERSION: v2.29.0
   GITLEAKS_VERSION: 8.30.1
@@ -81,8 +80,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
+      # Shared with the weekly audit (audit.yml).
+      - uses: ./.github/actions/audit-govulncheck
 
       - name: staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION} ./...
@@ -130,6 +129,8 @@ jobs:
       - run: bash ../scripts/release-tags.test.sh
       # Go and Node versions agree across Dockerfile, go.mod, ci.yml and ci-local.ps1 (one Dependabot bump must not split them).
       - run: node --test ../scripts/toolchain.test.mjs
+      # The weekly audit's issue open/update/close decisions (audit.yml), against a fake gh.
+      - run: node --test ../scripts/audit-report.test.mjs
       # --ignore-scripts: no dependency install script runs; the build and tests call their tools directly.
       - run: npm ci --ignore-scripts
       - run: npm run lint
@@ -146,7 +147,8 @@ jobs:
           fail_ci_if_error: false
       - run: npm run build
       - run: npm run contrast
-      - run: npm audit --omit=dev --audit-level=high
+      # Shared with the weekly audit (audit.yml).
+      - uses: ./.github/actions/audit-npm
       # Registry signatures and provenance of what was installed (a different check from the advisory audit above).
       # A registry hiccup here is fixed by re-running the job.
       - run: npm audit signatures
@@ -181,11 +183,7 @@ jobs:
           # A throttled cache service must not fail the build.
           cache-to: type=gha,scope=ci,mode=max,ignore-error=true
 
-      - name: Trivy image scan
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      # Shared with the weekly audit (audit.yml).
+      - uses: ./.github/actions/audit-image
         with:
-          # scripts/ci-local.ps1 pins the aquasec/trivy image to this action's default Trivy version (v0.70.0 for v0.36.0).
           image-ref: kipple:ci
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
