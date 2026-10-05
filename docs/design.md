@@ -1451,6 +1451,7 @@ Reader routes never call `r.ParseForm`.
   - **Failure:** `401 text/plain "Unauthorized!"` with **both** `X-Reader-Google-Bad-Token: true` and `Google-Bad-Token: true`.
 - **`GET /reader/api/0/token`** returns `text/plain tok + "\n"`.
 - **The T check on write endpoints:**
+  - T is compared after trimming surrounding whitespace, so the `token` body (newline-terminated) sent back verbatim is the token.
   - If the Authorization header authenticated the request, T must be `tok`, `""` or `x`. Any other T returns 401.
   - If there is no header, T must equal `tok`, else 401. Never 400.
 - **Client family.** The `User-Agent` prefix classifies the client: `Reeder` → reeder, `NetNewsWire` → netnewswire, `Unread` → unread, anything else → api. The family is kept on the per-request `call` and passed to the stats recorder and as the SSE `source`; it also goes into greader's mutex-guarded last-seen map, updated at most once a minute per family.
@@ -1585,7 +1586,7 @@ Rules for the item fields:
 - **Required fields.** `summary`, `categories` and `origin` are always present. `origin.streamId` is the item's feed id: the subscription id, or for an archived item the archive feed's id, which is not in `subscription/list` (§6.9, decision 24). An archived item carries no `user/-/label/` category.
 - **Ids.** Trimmed and unknown ids are absent, and so are ids held back by the full-text hold (§6.5).
 
-**stream/contents.** `GET /reader/api/0/stream/contents[/<stream>]` (or `?s=`) runs the §6.5 filter with `n` capped at 1000, then streams contents the same way. The envelope `id` is the requested stream, with a continuation as in §6.5.
+**stream/contents.** `GET /reader/api/0/stream/contents[/<stream>]` (or `?s=`) runs the §6.5 filter with `n` capped at 1000, then streams contents the same way. The envelope `id` is the requested stream, with a continuation as in §6.5. A `feed/<url>` stream in the path gets back the `//` after its scheme that the front handler's slash collapse removed (`pathStream`), so it resolves and is echoed exactly as the same `s=` value would be.
 
 ### 6.7 edit-tag (POST)
 
@@ -1618,7 +1619,8 @@ Scope from `s`:
 | `feed/<url>` | `FindFeedByURL` |
 | label | `feed_id IN (folder feeds)` |
 | starred | `starred = 1` (**no ledger statement**) |
-| read, `kept-unread`, unread, unknown | no-op, `OK` |
+| unread, `kept-unread` | reading-list. Only unread items are ever marked, so these streams name exactly the items the request is about; a client that offers "mark all read" on its unread view sends them, and a no-op would silently drop that action. FreshRSS marks the unread stream the same way; Miniflux ignores both (compatibility.md, endpoint notes) |
+| read, unknown | no-op, `OK` |
 | empty `s` | reading-list |
 
 `ts` is normalized per §3. When it is absent, 0, non-digit or overflowing, the cutoff is the committed maximum id over `items` and `trimmed_items` (`max(max(items.id), max(trimmed_items.id))`) from a reader snapshot. `it` and `xt` are ignored. When any item row changed, it publishes an SSE `resync`.
@@ -2453,6 +2455,8 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
 - **`front`:** `//reader/api/0/edit-tag` under the prefix, a trailing-slash base, a doubled prefix, and root forms. None produces a 3xx, and POST bodies arrive intact.
 - **`ts` normalization:** 10, 13, 14, 15, 16 and 19 digits, 0, absent (committed `max(id)`, not the allocator), and non-digit.
 - **No-null rule:** every golden Reader response is walked and asserted to contain no JSON `null` except `LSID`. Fixtures include a feed with no `site_url`, an item with no link, and `greader.icon_urls` off.
+
+**`internal/greader` conformance suite** (`conformance_*_test.go`, `go test ./internal/greader -run Conformance`). A generic client over a real HTTP server: it signs in with ClientLogin, keeps only the returned token, and exercises every endpoint, parameter and answer listed in [compatibility.md](compatibility.md#reader-api), including the failure paths (401 headers, revoked tokens, T rules, 405), every content type and the GET/POST parameter forms. Each assertion is tagged with the reference it follows: the Google Reader API, FreshRSS `p/api/greader.php`, Miniflux `internal/googlereader`, or this document. A divergence from those references is listed in compatibility.md's endpoint notes, never only in a test.
 
 **`internal/greader` contract tests.** Each test replays a full request sequence against a seeded database and asserts the responses inline (`contract_test.go`; there are no golden files).
 

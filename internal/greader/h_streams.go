@@ -105,7 +105,8 @@ func (c *call) streamContents() {
 	rawSID := firstOrEmpty(c.p.AllRaw("s"))
 	if rest := strings.TrimPrefix(c.name, "stream/contents"); rest != "" {
 		if path := strings.TrimPrefix(rest, "/"); path != "" && sid == "" {
-			sid, rawSID = path, path
+			sid = pathStream(path)
+			rawSID = sid
 		}
 	}
 	f, err := c.resolveStream(sid, rawSID)
