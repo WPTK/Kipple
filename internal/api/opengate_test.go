@@ -86,43 +86,104 @@ func TestOpenGateTSNetHostThroughAProxyIsRefused(t *testing.T) {
 	require.NotNil(t, cookieNamed(rec, cookieName))
 }
 
-// Setup mode and open mode answer the same names: any name that cannot be
-// resolved from public DNS (#254). A local network name (nas, nas.local,
-// box.lan, box.home.arpa, svc.internal) works without being listed; a device
-// that could answer one with this computer's address (mDNS, LLMNR, a router's
-// DHCP names) is on the local network, which open mode admits directly anyway.
-// A public name is refused until listed.
-func TestOpenModeHostGateAcceptsPrivateNames(t *testing.T) {
+// lanNames are names any LAN device can answer (mDNS, LLMNR or NetBIOS, a
+// router's DHCP names) and so rebind to this computer.
+var lanNames = []string{"nas:1919", "evil.local:1919", "box.lan", "box.home.arpa", "svc.internal"}
+
+// requireRefusedInOpenMode checks that every route of an open-mode instance
+// refuses Host hv (421), with and without a session.
+func requireRefusedInOpenMode(t *testing.T, h *setupHarness, sess *http.Cookie, hv string) {
+	t.Helper()
+	for _, path := range []string{"/api/instance", "/api/bootstrap", "/", "/healthz"} {
+		rec := h.req("GET", path, "", host(hv), withCookies(sess))
+		require.Equal(t, http.StatusMisdirectedRequest, rec.Code, "%s %s", hv, path)
+	}
+	rec := h.req("POST", "/api/auth/open", "", host(hv), hdr("Origin", "http://"+hv))
+	require.Equal(t, http.StatusMisdirectedRequest, rec.Code, hv)
+	require.Contains(t, rec.Body.String(), "Allowed host names", hv)
+	require.Contains(t, rec.Body.String(), "KIPPLE_ALLOWED_HOSTS", hv)
+}
+
+// The default install publishes the port on 127.0.0.1 only, so no LAN device
+// can reach it. A LAN device can still answer a .local or single-label name
+// with 127.0.0.1 and drive the owner's browser into an open-mode instance
+// (DNS rebinding), so open mode answers none of those unless listed. Set up
+// from 127.0.0.1, nothing is listed, and every LAN-answered name is refused.
+func TestOpenModeLoopbackSetupRefusesLANAnsweredNames(t *testing.T) {
 	h := newSetupHarness(t)
-	private := []string{"nas:1919", "nas.local:1919", "box.lan", "box.home.arpa", "svc.internal", "127.0.0.1:1919",
-		"[::1]:1919", "localhost:1919", "app.localhost:1919", "box.tail1234.ts.net"}
-	for _, hv := range private {
+	for _, hv := range lanNames {
 		require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host(hv)).Code, "setup mode: %s", hv)
 	}
-	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host("rss.example.com")).Code, "setup mode")
+	sess := h.openAccount(nil) // from 127.0.0.1:1919
+	sec, err := h.db.SecuritySettings(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, sec.AllowedHosts, "an IP literal needs no listing")
+	for _, hv := range lanNames {
+		requireRefusedInOpenMode(t, h, sess, hv)
+	}
+	for _, hv := range []string{"127.0.0.1:1919", "[::1]:1919", "localhost:1919", "app.localhost:1919", "box.tail1234.ts.net"} {
+		require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host(hv)).Code, hv)
+	}
+}
 
-	// Choosing open mode by a local network name works.
-	sess := h.openAccount(nil, host("nas.local:1919"), hdr("Origin", "http://nas.local:1919"))
-	for _, hv := range private {
-		for _, path := range []string{"/api/instance", "/api/bootstrap", "/healthz"} {
-			rec := h.req("GET", path, "", host(hv), withCookies(sess))
-			require.Equal(t, http.StatusOK, rec.Code, "%s %s", hv, path)
-		}
-		rec := h.req("POST", "/api/auth/open", "", host(hv), hdr("Origin", "http://"+hv))
-		require.Equal(t, http.StatusNoContent, rec.Code, "%s: %s", hv, rec.Body.String())
+// Choosing open mode in the wizard under a name open mode would not answer
+// unlisted (nas.local, nas) lists that name with the account, so the owner
+// keeps working there; every other LAN-answered name is still refused.
+func TestOpenModeRemembersTheWizardName(t *testing.T) {
+	for _, tc := range []struct{ hv, remembered string }{
+		{"nas.local:1919", "nas.local"},
+		{"NAS:1919", "nas"},
+		{"box.home.arpa.", "box.home.arpa"},
+	} {
+		t.Run(tc.remembered, func(t *testing.T) {
+			h := newSetupHarness(t)
+			st := decode(t, h.req("GET", "/api/instance", "", host(tc.hv)))
+			require.Equal(t, map[string]any{"reason": nil}, st["open"], "the wizard offers open mode here")
+			sess := h.openAccount(nil, host(tc.hv), hdr("Origin", "http://"+tc.hv))
+			sec, err := h.db.SecuritySettings(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, []string{tc.remembered}, sec.AllowedHosts)
+
+			for _, path := range []string{"/api/instance", "/api/bootstrap", "/", "/healthz"} {
+				require.Equal(t, http.StatusOK, h.req("GET", path, "", host(tc.hv), withCookies(sess)).Code, path)
+			}
+			rec := h.req("POST", "/api/auth/open", "", host(tc.hv), hdr("Origin", "http://"+tc.hv))
+			require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+			for _, hv := range append([]string{"evil.local:1919", "evil", "nas.lan"}, lanNames...) {
+				if n, _, _ := strings.Cut(strings.ToLower(hv), ":"); strings.TrimSuffix(n, ".") == tc.remembered {
+					continue
+				}
+				requireRefusedInOpenMode(t, h, sess, hv)
+			}
+		})
 	}
-	// A public name is refused, and the answer says what to do.
-	for _, hv := range []string{"rss.example.com", "127.0.0.1.nip.io:1919", "nas.local.evil.example"} {
-		rec := h.req("GET", "/api/instance", "", host(hv), withCookies(sess))
-		require.Equal(t, http.StatusMisdirectedRequest, rec.Code, hv)
-		require.Contains(t, rec.Body.String(), "set a password", hv)
-		require.Contains(t, rec.Body.String(), "KIPPLE_ALLOWED_HOSTS", hv)
-		require.Equal(t, http.StatusMisdirectedRequest, h.req("POST", "/api/auth/open", "", host(hv), hdr("Origin", "http://"+hv)).Code, hv)
+}
+
+// A public name is not remembered (setup mode refuses it), and neither is a
+// name open mode already answers.
+func TestOpenModeRemembersNothingOpenModeAnswers(t *testing.T) {
+	for _, hv := range []string{"localhost:1919", "app.localhost", "192.168.1.20:1919", "box.tail1234.ts.net"} {
+		h := newSetupHarness(t)
+		h.openAccount(nil, host(hv), hdr("Origin", "http://"+hv))
+		sec, err := h.db.SecuritySettings(context.Background())
+		require.NoError(t, err)
+		require.Empty(t, sec.AllowedHosts, hv)
 	}
-	// The owner may list a public name that points at their own network.
-	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.allowed_hosts":["rss.example.com"]}`, withCookies(sess)).Code)
-	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host("rss.example.com")).Code)
-	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host("rss.example.net")).Code)
+	h := newSetupHarness(t, func(o *Options) { o.AllowedHosts = []string{"nas.local"} })
+	h.openAccount(nil, host("nas.local"), hdr("Origin", "http://nas.local"))
+	sec, err := h.db.SecuritySettings(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, sec.AllowedHosts, "already listed in KIPPLE_ALLOWED_HOSTS")
+}
+
+// Listed names pass in open mode; the owner may list LAN names explicitly.
+func TestOpenModeHostGateListedNames(t *testing.T) {
+	h := newSetupHarness(t)
+	sess := h.openAccount(nil)
+	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.allowed_hosts":["nas","*.local"]}`, withCookies(sess)).Code)
+	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host("nas:1919")).Code)
+	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host("evil.local:1919")).Code)
+	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host("box.lan")).Code)
 }
 
 // A peer in Tailscale's range counts as the tailnet only when it arrived on
@@ -189,7 +250,7 @@ func streamEnds(t *testing.T, br *bufio.Reader, timeout time.Duration) {
 func TestEventStreamClosesWhenTheOpenGateStopsPassing(t *testing.T) {
 	h := newSetupHarness(t, func(o *Options) { o.Heartbeat = time.Hour })
 	sess := h.openAccount(nil)
-	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.allowed_hosts":["rss.example.com"]}`, withCookies(sess)).Code)
+	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.allowed_hosts":["nas"]}`, withCookies(sess)).Code)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.RemoteAddr = "192.168.1.20:5000" // a LAN device, let in as a local peer
 		h.root.ServeHTTP(w, r)
@@ -197,7 +258,7 @@ func TestEventStreamClosesWhenTheOpenGateStopsPassing(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
-	req.Host = "rss.example.com"
+	req.Host = "nas"
 	req.AddCookie(&http.Cookie{Name: sess.Name, Value: sess.Value})
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

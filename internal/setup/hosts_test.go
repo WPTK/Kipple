@@ -38,86 +38,96 @@ func TestNormalizeHost(t *testing.T) {
 	}
 }
 
-// The Host gate of setup mode and open mode accepts a Host header exactly when
-// its name cannot be resolved from public DNS. A DNS-rebinding attack from the
-// internet needs a public name the attacker controls, resolving to this
-// computer: the browser then calls it same-origin, and only the Host header
-// gives it away.
-func TestHostAllowed(t *testing.T) {
-	for _, tc := range []struct {
-		host string
-		want bool
-	}{
-		// IP literals: a rebinding attack always carries a name.
-		{"127.0.0.1", true},
-		{"127.0.0.1:1919", true},
-		{"127.0.0.1.", true},
-		{"192.168.1.20", true},
-		{"10.0.0.5:1919", true},
-		{"100.101.102.103", true}, // Tailscale or carrier-grade NAT
-		{"169.254.10.20", true},
-		{"[::1]:1919", true},
-		{"[::1]", true},
-		{"[fe80::1]:1919", true},
-		{"[fd7a:115c:a1e0::5]", true},
-		{"[FD00::AB]:80", true},
-		{"[::ffff:192.168.1.20]", true},
-		// Single-label names: LLMNR, NetBIOS, a hosts file or a search domain.
-		{"localhost", true},
-		{"LOCALHOST:1919", true},
-		{"localhost.", true},
-		{"nas", true},
-		{"NAS:1919", true},
-		{"nas.", true},
-		{"my_box", true},
-		{"xn--bcher-kva", true}, // a single-label name in its punycode form is still single-label
-		// The private suffixes.
-		{"app.localhost", true},
-		{"app.localhost:5173", true},
-		{"nas.local", true},
-		{"NAS.LOCAL.:1919", true},
-		{"box.lan", true},
-		{"box.home.arpa", true},
-		{"svc.internal", true},
-		{"a.b.svc.internal", true},
-		{"machine.tailnet-abcd.ts.net", true},
-		{"Machine.Tailnet-ABCD.ts.net.", true},
-		{"xn--bcher-kva.local", true}, // an IDN under a private suffix
-		// Public names: refused.
-		{"rss.example.com", false},
-		{"rss.example.com:443", false},
-		{"RSS.EXAMPLE.COM.", false},
-		{"evil.example", false},
-		{"evil.example:1919", false},
-		{"127.0.0.1.nip.io", false},
-		{"127-0-0-1.sslip.io", false},
-		{"192.168.1.20.nip.io", false},
-		{"localhost.evil.example", false},
-		{"nas.local.evil.example", false},
-		{"svc.internal.evil.example", false},
-		{"box.home.arpa.evil.example", false},
-		{"evil.ts.net.example", false},
-		{"evilts.net", false},
-		{"ts.net.evil.example", false},
-		{"example.lan.com", false},
-		{"evillocal", true}, // single label, whatever it spells
-		{"nas.locals", false},
-		{"box.lan2", false},
-		{"home.arpa.com", false},
-		// Punycode lookalikes of a private suffix are other, public names.
-		{"nas.xn--lcal-6qa", false},
-		{"nas.xn--lca-4na", false},
-		{"nas.xn--ln-1ka", false},
-		{"xn--nas-local-xyz.com", false},
-		// Not IP literals, and not names a browser sends.
-		{"1.2.3", false},
-		{"127.1", false},
-		{"0x7f.0.0.1", false},
+// DNS-rebinding shapes: a name the attacker controls resolves to 127.0.0.1, so
+// the browser calls it same-origin; only the Host header gives it away.
+func TestHostAllowedRefusesRebindingShapes(t *testing.T) {
+	for _, in := range []string{
+		"evil.example:1919", "evil.example.", "EVIL.EXAMPLE", "127.0.0.1.nip.io", "127-0-0-1.sslip.io",
+		"localhost.evil.example", "nas.local.evil.example", "evil.ts.net.example", "1.2.3", "127.1",
+		"0x7f.0.0.1", "rss.example.com", "evilts.net", "example.lan.com",
 	} {
-		host, ok := NormalizeHost(tc.host)
-		require.Equal(t, tc.want, ok && HostAllowed(host, nil), tc.host)
+		host, ok := NormalizeHost(in)
+		require.False(t, ok && HostAllowed(host, nil), in)
 	}
-	require.False(t, HostAllowed("", nil))
+	for _, in := range []string{
+		"127.0.0.1:1919", "[::1]:1919", "192.168.1.20", "localhost:1919", "app.localhost", "nas", "nas:1919",
+		"nas.local", "box.lan", "box.home.arpa", "svc.internal", "machine.tailnet-abcd.ts.net",
+	} {
+		host, ok := NormalizeHost(in)
+		require.True(t, ok && HostAllowed(host, nil), in)
+	}
+}
+
+// Open mode's list is narrower: a .local name (mDNS), a single-label name
+// (LLMNR, NetBIOS) or a router's DHCP name (.lan, .internal, .home.arpa) can be
+// answered by any device on the LAN, which could rebind it to this computer and
+// reach an open-mode instance through the owner's browser. Listed names still
+// pass, and open mode never allows a name setup mode refuses.
+func TestOpenHostAllowedIsNarrower(t *testing.T) {
+	for _, in := range []string{
+		"nas", "nas:1919", "evil.local", "nas.local:1919", "box.lan", "box.home.arpa", "svc.internal",
+		"evil.example", "127.0.0.1.nip.io", "localhost.evil.example", "evilts.net",
+	} {
+		host, ok := NormalizeHost(in)
+		require.False(t, ok && OpenHostAllowed(host, nil), in)
+	}
+	for _, in := range []string{
+		"127.0.0.1:1919", "[::1]:1919", "192.168.1.20", "localhost:1919", "LOCALHOST", "app.localhost",
+		"machine.tailnet-abcd.ts.net",
+	} {
+		host, ok := NormalizeHost(in)
+		require.True(t, ok && OpenHostAllowed(host, nil), in)
+		require.True(t, HostAllowed(host, nil), "setup mode allows everything open mode does: %s", in)
+	}
+	extra := []string{"nas", "*.local", "rss.example.com"}
+	for _, in := range []string{"nas", "box.local", "rss.example.com"} {
+		require.True(t, OpenHostAllowed(in, extra), in)
+	}
+	require.False(t, OpenHostAllowed("box.lan", extra))
+	require.False(t, OpenHostAllowed("", extra))
+}
+
+// The wizard lists the name open mode was chosen under exactly when setup mode
+// answers it and open mode would not: a LAN name. Not an IP literal, localhost
+// or a Tailscale name (open mode answers those), not a listed name, and not a
+// public one (setup mode refuses it, so the wizard never sees it).
+func TestOpenHostToRemember(t *testing.T) {
+	extra := []string{"listed.local", "*.corp.example"}
+	for _, tc := range []struct{ in, want string }{
+		{"nas.local:1919", "nas.local"},
+		{"NAS.LOCAL.", "nas.local"},
+		{"nas", "nas"},
+		{"NAS:1919", "nas"},
+		{"box.lan", "box.lan"},
+		{"box.home.arpa", "box.home.arpa"},
+		{"svc.internal:8080", "svc.internal"},
+		{"xn--bcher-kva.local", "xn--bcher-kva.local"},
+		{"127.0.0.1:1919", ""},
+		{"192.168.1.20", ""},
+		{"[::1]:1919", ""},
+		{"[fe80::1]", ""},
+		{"[FD00::AB]:80", ""},
+		{"localhost:1919", ""},
+		{"LOCALHOST.", ""},
+		{"app.localhost", ""},
+		{"box.tail1234.ts.net", ""},
+		{"listed.local", ""},
+		{"a.corp.example", ""},
+		{"rss.example.com", ""},
+		{"nas.local.evil.example", ""},
+		{"evil.ts.net.example", ""},
+		{"nas.xn--lcal-6qa", ""}, // a punycode lookalike of .local is another, public name
+	} {
+		host, ok := NormalizeHost(tc.in)
+		require.True(t, ok, tc.in)
+		require.Equal(t, tc.want, OpenHostToRemember(host, extra), tc.in)
+		if tc.want != "" {
+			_, err := CheckHostEntry(tc.want)
+			require.NoError(t, err, "a remembered name is a valid allowed_hosts entry: %s", tc.want)
+			require.True(t, OpenHostAllowed(host, append(extra, tc.want)), "once listed, open mode answers %s", tc.in)
+		}
+	}
+	require.Equal(t, "", OpenHostToRemember("", nil))
 }
 
 func TestHostAllowedExtraEntries(t *testing.T) {
@@ -130,8 +140,6 @@ func TestHostAllowedExtraEntries(t *testing.T) {
 		"a.b.example.org":      true,
 		"example.org":          false, // *.suffix is for names under it
 		"badexample.org":       false,
-		"rss.example.net":      false, // a public name nobody listed
-		"box.lan":              true,  // private, listed or not
 	} {
 		host, ok := NormalizeHost(in)
 		require.True(t, ok, in)
@@ -194,6 +202,9 @@ func FuzzHostGate(f *testing.F) {
 			extra = []string{e}
 		}
 		allowed := HostAllowed(host, extra)
+		if OpenHostAllowed(host, extra) {
+			require.True(t, allowed, "open mode allows only what setup mode allows: %q", host)
+		}
 		if !ok {
 			require.False(t, HostAllowed("", extra))
 			return
@@ -201,7 +212,7 @@ func FuzzHostGate(f *testing.F) {
 		// Anything allowed is local by shape or listed.
 		if allowed && strings.Contains(host, ".") && !strings.Contains(host, ":") {
 			local := false
-			for _, suf := range privateHostSuffixes {
+			for _, suf := range defaultHostSuffixes {
 				local = local || strings.HasSuffix(host, suf)
 			}
 			listed := err == nil && (host == e || (strings.HasPrefix(e, "*.") && strings.HasSuffix(host, e[1:])))

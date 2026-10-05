@@ -224,6 +224,7 @@ export function AccountStep({
                 <Notice tone="warn">
                   <p className="font-semibold">Anyone who can reach this address can read and change everything.</p>
                   <p className="mt-1">Only choose this if Kipple is reachable only from this computer, your local network or your Tailscale network. In Docker, Kipple can't tell your network from the internet: publish its port only on your local network or Tailscale address, never on a public one. You can set a password later in Settings.</p>
+                  <p className="mt-1">Without a password Kipple answers its IP address, localhost, Tailscale names and the name in this page's address, which it remembers. To open it by another name later, add that name under Settings &gt; Allowed host names.</p>
                 </Notice>
                 <div className="flex flex-col gap-1">
                   <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm">

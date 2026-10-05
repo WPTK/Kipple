@@ -69,16 +69,13 @@ type settingView struct {
 	Default any `json:"default"`
 }
 
-// maxAllowedHosts bounds security.allowed_hosts.
-const maxAllowedHosts = 64
-
 // checkAllowedHosts validates security.allowed_hosts: a list of at most 64
 // host names or *.suffix entries (setup.CheckHostEntry), returned normalized
 // and without repeats.
 func checkAllowedHosts(v any) (any, string) {
 	const msg = "must be a list (at most 64) of host names such as rss.example.com or *.example.com"
 	arr, ok := v.([]any)
-	if !ok || len(arr) > maxAllowedHosts {
+	if !ok || len(arr) > store.MaxAllowedHosts {
 		return nil, msg
 	}
 	out := make([]any, 0, len(arr))
@@ -384,7 +381,7 @@ var settingDefs = withScopes([]settingDef{
 			}
 			return s, ""
 		}},
-	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides the private ones it always answers (IP addresses, single-word names such as nas, and .localhost, .local, .lan, .home.arpa, .internal and .ts.net names): exact names such as rss.example.com, or *.example.com. List a public name only if it points at your own network.",
+	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and without a password, besides IP addresses, localhost and .localhost and .ts.net names (and, during setup only, single-word names and .local, .lan, .home.arpa and .internal names). Choosing no password in the setup wizard adds the name you used there. Exact names such as nas.local or rss.example.com, or *.example.com.",
 		Group: groupAccount, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},
 
 	// Statistics.

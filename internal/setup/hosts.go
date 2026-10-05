@@ -8,20 +8,23 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// privateHostSuffixes are the name suffixes the Host gate accepts without
-// configuration, in setup mode and open mode alike (design 5.2): names no one
-// can hold in public DNS. A DNS-rebinding attack from the internet needs a name
-// its author controls there. .localhost never leaves the machine (RFC 6761),
-// .local is mDNS (RFC 6762), .home.arpa is for home networks (RFC 8375),
-// .internal is reserved for private use (ICANN, 2024), .lan is the common
-// router default ICANN has never delegated, and a .ts.net name is handed out by
-// Tailscale, not registered by the public.
-//
-// A device on the local network can answer some of these (mDNS, LLMNR or a
-// router's DHCP names) and so rebind one to this computer, but open mode
-// already admits every device on the local network directly (Gate.OpenRefusal),
-// so such a name gives that device nothing it does not have.
-var privateHostSuffixes = []string{".localhost", ".local", ".lan", ".home.arpa", ".internal", ".ts.net"}
+// defaultHostSuffixes are the private-use and tailnet name suffixes the Host gate
+// accepts without configuration in setup mode (design 5.2). A DNS-rebinding
+// attack from the internet needs a name its author controls in public DNS;
+// none of these can be one.
+var defaultHostSuffixes = []string{".localhost", ".local", ".lan", ".home.arpa", ".internal", ".ts.net"}
+
+// openHostSuffixes are the only suffixes open mode accepts without
+// configuration. The other private-use names are answered by whoever is on the
+// local network: any device can claim a .local name over mDNS, a single-label
+// name over LLMNR or NetBIOS, and a DHCP hostname under .lan or .internal on
+// many routers. A LAN peer could then rebind such a name to this computer and
+// drive a browser here into an open-mode instance whose port it cannot reach
+// itself (the default publish is 127.0.0.1 only). .localhost never leaves the
+// machine (RFC 6761) and .ts.net names come from Tailscale, not from the LAN.
+// Open mode answers such a name only when it is listed; the setup wizard lists
+// the one open mode was chosen under (OpenHostToRemember).
+var openHostSuffixes = []string{".localhost", ".ts.net"}
 
 const maxHostLen = 253
 
@@ -119,24 +122,56 @@ func validName(s string) bool {
 	return true
 }
 
-// HostAllowed reports whether a normalized host (NormalizeHost) passes the Host
-// gate of setup mode and open mode: a name that cannot be resolved from public
-// DNS, or one listed in extra. That is an IP literal (a rebinding attack always
-// carries a name), a single-label name (localhost, nas), a name under one of
-// privateHostSuffixes, or a match for one of extra (exact names, or "*.suffix"
-// for any name under suffix; see CheckHostEntry). Every other name is public
-// and refused unless listed.
+// HostAllowed reports whether a normalized host passes the setup-mode Host
+// gate: an IP literal, localhost and *.localhost, a single-label name, a name
+// under one of the private-use or tailnet suffixes, or a match for one of
+// extra (exact names, or "*.suffix" for any name under suffix; see
+// CheckHostEntry).
 func HostAllowed(host string, extra []string) bool {
 	if host == "" {
 		return false
 	}
+	if !strings.Contains(host, ".") {
+		return true // localhost, and single-label names
+	}
+	return hostMatches(host, defaultHostSuffixes, extra)
+}
+
+// OpenHostAllowed is the narrower Host gate of open mode: an IP literal,
+// localhost and *.localhost, a *.ts.net name, or a match for one of extra.
+// Names any LAN device can answer (.local, .lan, .home.arpa, .internal and
+// single-label names; see openHostSuffixes) need to be listed, which the setup
+// wizard does for the name open mode is chosen under (OpenHostToRemember).
+func OpenHostAllowed(host string, extra []string) bool {
+	if host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	return hostMatches(host, openHostSuffixes, extra)
+}
+
+// OpenHostToRemember is the name to add to security.allowed_hosts when open
+// mode is chosen in the setup wizard under host: one setup mode answers but
+// open mode would not (nas, nas.local), so the instance keeps answering the
+// name its owner set it up under, and no other such name. "" when there is
+// nothing to remember: open mode already accepts host (an IP literal,
+// localhost, a listed name), or setup mode refuses it.
+func OpenHostToRemember(host string, extra []string) string {
+	if !HostAllowed(host, extra) || OpenHostAllowed(host, extra) {
+		return ""
+	}
+	return host
+}
+
+// hostMatches is an IP literal, a name under one of suffixes, or a match for
+// one of extra.
+func hostMatches(host string, suffixes, extra []string) bool {
 	if _, err := netip.ParseAddr(host); err == nil {
 		return true
 	}
-	if !strings.Contains(host, ".") {
-		return true
-	}
-	for _, suf := range privateHostSuffixes {
+	for _, suf := range suffixes {
 		if strings.HasSuffix(host, suf) {
 			return true
 		}

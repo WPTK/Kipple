@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/WPTK/kipple/internal/auth"
@@ -45,6 +47,7 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 			}
 			return reason
 		}
+		openReason, _ := s.wizardOpenRefusal(r, snap, false)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"setup": true, "auth": nil,
 			"access": map[string]bool{
@@ -52,7 +55,7 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 				"verified": s.opt.Access != nil && s.accessProof(r) == proofOK,
 			},
 			"open": map[string]any{
-				"reason": orNull(s.gateRefusal(r, snap, false)),
+				"reason": orNull(openReason),
 			},
 		})
 		return
@@ -113,11 +116,12 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 			writeErrorMsg(w, http.StatusBadRequest, "ack_required", "confirm that anyone who can reach this address can read and change everything")
 			return
 		}
-		if reason := s.gateRefusal(r, s.snapshot(r.Context()), true); reason != "" {
+		reason, remember := s.wizardOpenRefusal(r, s.snapshot(r.Context()), true)
+		if reason != "" {
 			writeOpenRefused(w, reason)
 			return
 		}
-		na.AuthMode = store.AuthOpen
+		na.AuthMode, na.AllowHost = store.AuthOpen, remember
 	case *body.Passwordless == "access":
 		// Same rule as design §7.0: an Access-only account is created only by
 		// someone for whom Access sign-in demonstrably works on this request.
@@ -157,7 +161,13 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		// Whatever happened, a row that exists ends setup mode here and now: a
 		// lost race, or an error reported after the insert committed.
 		if a, ok, rerr := s.db.Account(context.WithoutCancel(r.Context())); rerr == nil && ok {
-			s.finishSetup(r.Context(), a)
+			s.finishSetup(r.Context(), a, "")
+		}
+		if errors.Is(err, store.ErrAllowedHostsFull) {
+			writeErrorMsg(w, http.StatusConflict, "allowed_hosts_full", fmt.Sprintf(
+				"open mode needs %q in Allowed host names, which already has %d names: open Kipple by its IP address or localhost, or remove a name from KIPPLE_ALLOWED_HOSTS or security.allowed_hosts",
+				na.AllowHost, store.MaxAllowedHosts))
+			return
 		}
 		if err != nil {
 			s.serverError(w, "setup: create account", err)
@@ -167,7 +177,7 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
 		return
 	}
-	s.finishSetup(r.Context(), acct)
+	s.finishSetup(r.Context(), acct, na.AllowHost)
 	mode := setup.DisplayMode(acct)
 	s.log.Info("account created", "username", acct.Username, "reader_api", false,
 		"created_via", store.CreatedViaWizard, "auth_mode", mode, "client", s.clientIP(r))
@@ -179,8 +189,10 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 
 // finishSetup leaves setup mode once the account row exists: the flag flips (and
 // the background work starts), and every cache that keyed on "no account" is
-// dropped.
-func (s *Server) finishSetup(ctx context.Context, acct store.Account) {
+// dropped. allowed ("" = none) is the name the account's transaction added to
+// security.allowed_hosts, carried into the cached snapshot even if re-reading
+// it fails.
+func (s *Server) finishSetup(ctx context.Context, acct store.Account, allowed string) {
 	s.opt.Setup.Finish()
 	s.verifier.SetSecret([]byte(acct.Secret))
 	s.verifier.ClearMemo()
@@ -189,6 +201,9 @@ func (s *Server) finishSetup(ctx context.Context, acct store.Account) {
 	}
 	s.noteMode(ctx, func(sn *modeSnapshot) {
 		sn.mode = acct.AuthMode
+		if allowed != "" {
+			sn.allowed = append(sn.allowed, allowed)
+		}
 	})
 }
 

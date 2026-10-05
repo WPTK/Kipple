@@ -62,6 +62,15 @@ func (d *DB) Account(ctx context.Context) (a Account, ok bool, err error) {
 // account created from the environment is stamped as set up in the same
 // transaction, so scripted deploys never see onboarding.
 func (d *DB) CreateAccount(ctx context.Context, a Account) (created bool, err error) {
+	return d.CreateAccountAllowingHost(ctx, a, "")
+}
+
+// CreateAccountAllowingHost is CreateAccount that, when it inserts the row and
+// allowHost is not empty, also adds allowHost to security.allowed_hosts in the
+// same transaction (idempotent; ErrAllowedHostsFull, which fails the whole
+// insert, when the list is full): the name the setup wizard was opened under
+// when open mode was chosen, so the instance keeps answering it.
+func (d *DB) CreateAccountAllowingHost(ctx context.Context, a Account, allowHost string) (created bool, err error) {
 	mode, via := a.AuthMode, a.CreatedVia
 	if mode == "" {
 		mode = AuthStandard
@@ -86,6 +95,12 @@ func (d *DB) CreateAccount(ctx context.Context, a Account) (created bool, err er
 		created = n > 0
 		if !created {
 			return nil
+		}
+		if allowHost != "" {
+			if err := allowHostTx(ctx, tx, allowHost); err != nil {
+				created = false
+				return err
+			}
 		}
 		if via == CreatedViaEnv {
 			return stampSetupCompletedTx(ctx, tx, d.clock.Now().Unix())
