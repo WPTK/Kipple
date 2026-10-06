@@ -538,8 +538,8 @@ func (r *Restorer) discardLocked() {
 
 // Confirm prepares the staged database of the checked upload and writes the
 // marker that makes the next start apply it. On the staged copy only: every
-// web session is signed out; the address settings (HostSettings: they describe
-// the old server, not the data) are cleared, so this server's own apply; and
+// web session is signed out; the server settings (ServerSettingPrefixes: they
+// describe the old server, not the data) are replaced by this server's own; and
 // when passwordHash is not empty it becomes the web password, in standard
 // sign-in. The caller must hold setup mode (no account row) for the whole
 // call. ticket is Uploaded's: the upload that was looked at must be the one
