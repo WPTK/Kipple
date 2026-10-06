@@ -1,0 +1,20 @@
+# Prose that no code reads: a pull request that changes only these files skips the build and test jobs in ci.yml
+# (scripts/ci-changes.sh). Every other path counts as code, so a new file runs everything until it is listed here.
+#
+# One glob per line. `*` matches any characters including `/`. A line starting with `!` removes matches from the
+# list, and removals win. A file belongs here only if nothing reads it: not the Dockerfile, a go:embed, a Go or web
+# test, a script, or the web build. scripts/ci-prose.test.mjs fails when a listed file is read by such code. The
+# first such file you add to a test or script must be removed from this list in the same change.
+docs/*.md
+changes/*.md
+CONTRIBUTING.md
+SECURITY.md
+CLAUDE.md
+web/ACCESSIBILITY.md
+web/src/theme/README.md
+.github/pull_request_template.md
+.github/ISSUE_TEMPLATE/*
+
+# Read by cmd/kipple/docs_test.go.
+!docs/design.md
+!docs/deploy.md

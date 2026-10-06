@@ -23,10 +23,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Decides whether the expensive checks run. A pull request that only touches prose (see the filter below) skips them;
-  # every other event (push to main, tags through release.yml) always runs everything. The four required checks (go, web,
-  # security, docker) still each report: a job or step skipped by `if` counts as passed, which is why the filtering is
-  # here and not a workflow-level `paths-ignore` (that would leave the required checks pending and block the merge).
+  # Decides whether the expensive checks run. A pull request that changes only prose nothing reads (scripts/ci-prose.txt
+  # says which files, and how to add one) skips them; every other event (push to main, tags through release.yml) runs
+  # everything. The four required checks (go, web, security, docker) still each report: a job or step skipped by `if`
+  # counts as passed, which is why the filtering is here and not a workflow-level `paths-ignore` (that would leave the
+  # required checks pending and block the merge). The gate fails closed: the jobs below skip only when this job
+  # printed exactly code=false, so a failed or empty gate runs everything.
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -41,26 +43,14 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          code=true
-          if [ "$EVENT_NAME" = pull_request ]; then
-            code=false
-            # Prose only: markdown, docs/, changes/, LICENSE, issue templates. The exceptions are files the Go tests and
-            # the changelog tooling read (cmd/kipple/docs_test.go, scripts/changelog.mjs); editing them can break tests.
-            # Keep this list in step with readRepoFile and userDocs in docs_test.go.
-            while IFS= read -r f; do
-              case "$f" in
-                README.md|CHANGELOG.md|web/README.md|docs/design.md|docs/deploy.md) code=true ;;
-                *.md|docs/*|changes/*|LICENSE|.github/ISSUE_TEMPLATE/*) ;;
-                *) code=true ;;
-              esac
-            done < <(git diff --no-renames --name-only HEAD^1 HEAD)
-          fi
+          code="$(bash scripts/ci-changes.sh "$EVENT_NAME")" || code=true
+          [ "$code" = false ] || code=true
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "code=$code"
 
   go:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     env:
       # Job-level so the step-level `if` below can see it (a step's own env is not in scope for its `if`).
@@ -107,6 +97,7 @@ jobs:
 
   security:
     needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -114,27 +105,27 @@ jobs:
           persist-credentials: false
           fetch-depth: 0 # gitleaks scans history
 
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
       # Shared with the weekly audit (audit.yml).
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         uses: ./.github/actions/audit-govulncheck # zizmor: ignore[self-repository]
 
       - name: staticcheck
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         run: go run honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION} ./...
 
       # Advisory pass: everything stays visible in the log, never fails.
       - name: gosec (all findings, advisory)
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet ./... || true
 
       # Gate: only HIGH severity with HIGH confidence fails the job.
       - name: gosec (gate)
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet -severity high -confidence high ./...
 
       # Binary, not gitleaks-action: the action needs a paid license key for
@@ -149,6 +140,7 @@ jobs:
 
   web:
     needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -168,49 +160,54 @@ jobs:
 
       # Changelog fragments (changes/): names and bodies valid, CHANGELOG.md [Unreleased] untouched, and the tooling's own tests.
       - run: node ../scripts/changelog.mjs check
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: node --test ../scripts/changelog.test.mjs
       # The release workflow's tag rules (floating tags, tag shape, base image digest) live in a script with its own test.
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: bash ../scripts/release-tags.test.sh
       # Go and Node versions agree across Dockerfile, go.mod, ci.yml and ci-local.ps1 (one Dependabot bump must not split them).
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: node --test ../scripts/toolchain.test.mjs
       # The weekly audit's issue open/update/close decisions (audit.yml), against a fake gh.
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: node --test ../scripts/audit-report.test.mjs
+      # Which pull requests count as prose-only (ci.yml job `changes`) and that no code reads a file on that list.
+      - if: needs.changes.outputs.code != 'false'
+        run: bash ../scripts/ci-changes.test.sh
+      - if: needs.changes.outputs.code != 'false'
+        run: node --test ../scripts/ci-prose.test.mjs
       # --ignore-scripts: no dependency install script runs; the build and tests call their tools directly.
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: npm ci --ignore-scripts
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: npm run lint
       # Runs the whole suite (a failing test fails the step) and prints a coverage summary; no threshold gate (SQA plan).
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: npm run test:coverage
 
       - name: Upload web coverage to Codecov
-        if: needs.changes.outputs.code == 'true' && env.CODECOV_TOKEN != ''
+        if: needs.changes.outputs.code != 'false' && env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: web/coverage/lcov.info
           flags: web
           fail_ci_if_error: false
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: npm run build
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: npm run contrast
       # Shared with the weekly audit (audit.yml).
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         uses: ./.github/actions/audit-npm # zizmor: ignore[self-repository]
       # Registry signatures and provenance of what was installed (a different check from the advisory audit above).
       # A registry hiccup here is fixed by re-running the job.
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: npm audit signatures
 
   docker:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -41,7 +41,8 @@ triaged best-effort (see [SECURITY.md](SECURITY.md)).
    names.
 7. **CI must be green** on the exact commit: the `go`, `web`, `security` and `docker` checks are required before
    anything merges to `main`, which only accepts changes through a pull request. A pull request that only changes
-   prose (docs, `changes/`, markdown files the tests do not read) skips the heavy steps and the checks still pass.
+   prose (files under `docs/` and `changes/`, and Markdown files no test or build reads, listed in
+   `scripts/ci-prose.txt`) skips the build and test steps; the required checks still report as passed.
 8. The maintainer merges. Releases are tagged by the maintainer only ([docs/RELEASING.md](docs/RELEASING.md)).
 
 ## Design and quality notes
