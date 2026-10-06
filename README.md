@@ -1,327 +1,111 @@
 # Kipple
 
+> *When nobody's around, kipple reproduces itself.*
+>
+> Philip K. Dick, *Do Androids Dream of Electric Sheep?* (1968)
+
+A self-hosted RSS reader. That I want to use.
+
 [![CI](https://github.com/WPTK/Kipple/actions/workflows/ci.yml/badge.svg)](https://github.com/WPTK/Kipple/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/WPTK/Kipple?include_prereleases&label=release)](https://github.com/WPTK/Kipple/releases)
-[![SemVer](https://img.shields.io/badge/semver-2.0.0-blue)](https://semver.org/)
-[![Release date](https://img.shields.io/github/release-date/WPTK/Kipple?include_prereleases)](https://github.com/WPTK/Kipple/releases)
-[![Last commit](https://img.shields.io/github/last-commit/WPTK/Kipple)](https://github.com/WPTK/Kipple/commits/main)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/WPTK/Kipple)](https://github.com/WPTK/Kipple/graphs/commit-activity)
-[![Open issues](https://img.shields.io/github/issues/WPTK/Kipple)](https://github.com/WPTK/Kipple/issues)
-
-[![Test coverage](https://codecov.io/gh/WPTK/Kipple/graph/badge.svg)](https://codecov.io/gh/WPTK/Kipple)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15120/badge)](https://www.bestpractices.dev/projects/15120)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/WPTK/Kipple/badge)](https://scorecard.dev/viewer/?uri=github.com/WPTK/Kipple)
-[![Signed with cosign](https://img.shields.io/badge/signed-cosign%20(sigstore)-success)](#quickstart)
-[![Security policy](https://img.shields.io/badge/security-policy-success)](SECURITY.md)
 [![License: Blue Oak 1.0.0](https://img.shields.io/badge/license-Blue%20Oak%201.0.0-blueviolet)](LICENSE)
-[![Go](https://img.shields.io/github/go-mod/go-version/WPTK/Kipple?logo=go&logoColor=white&color=00ADD8)](go.mod)
-[![Repo size](https://img.shields.io/github/repo-size/WPTK/Kipple)](https://github.com/WPTK/Kipple)
-
 [![Container image](https://img.shields.io/badge/image-ghcr.io%2Fwptk%2Fkipple-blue?logo=docker&logoColor=white)](https://github.com/WPTK/Kipple/pkgs/container/kipple)
-[![Image tags](https://ghcr-badge.egpl.dev/wptk/kipple/tags?ignore=sha*&n=3)](https://github.com/WPTK/Kipple/pkgs/container/kipple)
-[![Platforms](https://img.shields.io/badge/platforms-linux%2Famd64%20%7C%20linux%2Farm64-informational)](https://github.com/WPTK/Kipple/pkgs/container/kipple)
-[![Sync API](https://img.shields.io/badge/sync-Google%20Reader%20API-orange)](#what-its-like-to-use)
-[![Keep a Changelog 1.1.0](https://img.shields.io/badge/changelog-Keep%20a%20Changelog%201.1.0-E05735)](CHANGELOG.md)
-[![Conventional Commits 1.0.0](https://img.shields.io/badge/commits-Conventional%201.0.0-FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/en/v1.0.0/)
-[![Website: kipple.cc](https://img.shields.io/badge/website-kipple.cc-informational)](https://kipple.cc)
-[![Views](https://hits.sh/github.com/WPTK/Kipple.svg?style=flat&label=views&color=lightgrey)](https://hits.sh/github.com/WPTK/Kipple/)
 
-> "Kipple drives out nonkipple."
-> (Philip K. Dick, *Do Androids Dream of Electric Sheep?*)
+<table>
+  <tr>
+    <td width="560" align="center" valign="bottom">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/desktop-dark.webp">
+        <img src="docs/screenshots/desktop-light.webp" alt="Kipple in a desktop browser: feeds on the left, a list of articles with thumbnails in the middle, and an article open on the right." width="560">
+      </picture>
+    </td>
+    <td width="170" align="center" valign="bottom">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/phone-dark.webp">
+        <img src="docs/screenshots/phone-light.webp" alt="Kipple on a phone: article cards with large photos, one per row, and a tab bar along the bottom." width="170">
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <td width="560" align="center"><sub><b>Web app.</b> Feeds on the left, the article list in the middle, the open article on the right.</sub></td>
+    <td width="170" align="center"><sub><b>On a phone.</b> Add Kipple to the home screen and it opens full screen, like an app.</sub></td>
+  </tr>
+</table>
 
-Kipple is an RSS reader you run yourself, for yourself. It keeps your feeds in a small database on your own
-server, shows them in a clean reading app, and has no ads, no recommendations and nobody else's data in it. It
-runs as a single Docker container on one port, and any app that speaks the Google Reader sync API can read the same account.
+Kipple is in beta. It is in daily use, and 1.0 follows more testing. [CHANGELOG.md](CHANGELOG.md) lists what shipped in
+each release.
 
-> **Status: prerelease (beta).** The fetch and sync core, the reading UI, an installable offline-capable app,
-> and reading statistics with a yearly Wrapped summary are all done and in daily use; testing before 1.0 is
-> under way (see [docs/RELEASING.md](docs/RELEASING.md)). See [CHANGELOG.md](CHANGELOG.md) for what has
-> shipped release by release.
+## What you get
 
-<!-- TODO: drop in a real screenshot or GIF of the reading UI (e.g. docs/screenshots/reading.png).
-     None exists in the repo yet; the Editorial or Cards layout would make the strongest first impression. -->
+- Five ways to browse a feed: large lead images with an excerpt, a grid of photo cards, a plain list without pictures,
+  email-style rows, or one line per title. Set it per device or per feed.
+- 20 color themes, with separate picks for day and night, and 11 bundled reading fonts.
+- Nested folders for organizing feeds.
+- Import feeds from your old reader and export them any time (OPML).
+- Search, saved searches, and keyword filters that mute, star, highlight or mark articles read.
+- Choose how many articles each feed keeps, from 50 to unlimited. Starred articles are never deleted.
+- Runs as a phone app, installed from your browser. Articles you have opened still read offline.
+- Syncs with RSS apps on your phone or computer.
+- Reading statistics and a yearly Wrapped summary, stored only in your own database.
+- Backup and restore are built in.
+- Designed for a single-user environment.
 
-## Contents
+## Install
 
-- [Why Kipple](#why-kipple)
-- [Features](#features)
-- [What it's like to use](#what-its-like-to-use)
-- [Quickstart](#quickstart)
-- [Configuration](#configuration)
-- [What Kipple will not do](#what-kipple-will-not-do)
-- [Support](#support)
-- [Roadmap](#roadmap)
-- [For developers](#for-developers)
-- [License](#license)
-
-## Why Kipple
-
-I wanted a feed reader that feels like a good reading app and that I could leave running without looking after
-it. Kipple is one Go program with its database built in, so there is nothing else to install or keep up. It
-shows articles as a magazine would, with real images up front, and it works with the sync apps you may already
-use.
-
-## Features
-
-- Your feeds in nested folders, with OPML import and export.
-- Five ways to browse a feed: magazine, photo cards, two dense list views and an inbox view.
-- 20 color themes, automatic day and night themes, 11 bundled reading fonts and adjustable text size and density.
-- Full-text extraction for feeds that only publish a summary.
-- Search, starred articles, saved searches and rules that mute, star or mark articles as read.
-- Per-feed and global limits on how many articles to keep.
-- Installable on a phone's home screen, with already-read articles available offline.
-- Reading statistics, including a yearly summary, kept on your own server.
-- A Google Reader-compatible sync API for any client that speaks it.
-- Backups you can download from the web app, restored from the setup wizard on a new server or from the command line.
-- One account, with an optional password, and no tracking of any kind.
-
-## What it's like to use
-
-- Switch anytime, from the layout button in the header, between five ways of browsing a feed: Editorial (a
-  magazine layout with big lead images), Cards (a photo grid), Compact and Email - Compact (dense,
-  text-first views at two densities), or Inbox (sender, subject, and snippet, like an email inbox). Set per
-  device or per feed.
-- 20 color themes, "Follow system," and an optional day/night schedule that switches themes on its own
-  clock. 11 bundled reading fonts (serif and sans, including a dyslexia-friendly option), your device's own
-  system fonts, five text sizes, and five density presets from Dense to Airy.
-- Add Kipple to your phone's home screen and it runs as a PWA: full screen, no browser chrome, already-read
-  articles available offline, and it updates itself in the background.
-- When a feed only publishes a summary, Kipple can fetch and extract the full article automatically, so
-  short feeds still read like full ones.
-- Reading stats stay on your server, including a yearly Wrapped summary of how much you read and which
-  feeds you spent the most time on. Wrapped's share sheet is opt-in; nothing is shared or sent anywhere on
-  its own.
-- Any app that speaks the Google Reader sync API works against the same account, keeping read and starred
-  state in sync with the web app.
-- No ads, no tracking, no account anywhere else, no social features (no other people's data, no
-  comparisons), no AI.
-
-## Quickstart
-
-Kipple is one container with one port. There are no configuration files to edit: Kipple asks for what it needs in
-your browser the first time you open it.
-
-> **Which image?** The published image is `ghcr.io/wptk/kipple`. It is signed and built for `linux/amd64` and
-> `linux/arm64`. If you would rather build it yourself, use [Build from source](#build-from-source) below; the steps
-> after starting the container are the same either way. Releases before 1.0 are prereleases, and a prerelease is only
-> ever tagged with its exact version (`latest` moves only on a stable release), so the examples name a version: use
-> the newest one on the [releases page](https://github.com/WPTK/Kipple/releases).
-
-### Run the published image
-
-One command:
+Pull the image and start it. Replace `<version>` with the newest tag on the
+[releases page](https://github.com/WPTK/Kipple/releases) (the `latest` tag exists from the first stable release).
 
 ```
-docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.8.0-beta.3
+docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data ghcr.io/wptk/kipple:<version>
 ```
 
-Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
-[docker-compose.pull.example.yml](docker-compose.pull.example.yml)) and run `docker compose up -d`:
+Open <http://127.0.0.1:1919>. The first screen creates your account, or restores a backup from another Kipple. The
+setup wizard after the account asks for your time zone, a theme, an OPML import from your old reader, a few starter
+feeds, and the address your other devices will use. Every step after the account can be skipped.
 
-```yaml
-services:
-  kipple:
-    image: ghcr.io/wptk/kipple:0.8.0-beta.3
-    container_name: kipple
-    restart: unless-stopped
-    ports: ["127.0.0.1:1919:1919"]
-    volumes: ["kipple_data:/data"]
-    # Kipple finishes shutting down within 25 s of SIGTERM; 30 s leaves margin.
-    stop_grace_period: 30s
-    # Hard memory and process caps; GOMEMLIMIT makes the Go GC work harder before the cap is hit.
-    mem_limit: 256m
-    pids_limit: 200
-    environment: ["GOMEMLIMIT=64MiB"]
-    read_only: true
-    tmpfs: ["/tmp:size=64m,mode=1777"]
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    logging:
-      driver: json-file
-      options: {max-size: "10m", max-file: "3"}
-volumes:
-  kipple_data:
-```
+Until you create the account, anyone who can reach the port can. The command above publishes the port on `127.0.0.1`
+only, so only this machine can. Widen it after you have an account.
 
-Then:
+The [deploy guide](docs/deploy.md) covers the compose file, reaching Kipple from your phone or over HTTPS, backups,
+upgrades, verifying the image signature and building from source.
 
-1. Open **http://127.0.0.1:1919**. A new Kipple has no account, so the first screen is the form that creates it. (If something looks wrong, `docker logs kipple` shows what Kipple is doing;
-   `kipple` is the container name both example files set.)
-2. Follow the wizard. It takes about a minute, and every step after the account can be skipped:
-   1. **Account**: a user name, then a password (or one of the two ways to go without, below).
-   2. **Time zone**, preselected from your browser.
-   3. **Theme**: one look for day and one for night.
-   4. **Import** an OPML file from your old reader (or skip).
-   5. **Recommended feeds**, a few good ones to start with (or skip).
-   6. **Address**: the public URL your other devices open Kipple at (or skip).
-   7. **Done**, with an optional Reader API password for sync apps.
+## Sync with other apps
 
-**Until you have created your account, anyone who can reach the port can create it.** That is how every
-self-hosted app that sets itself up in the browser works, and it is why the examples publish the port on `127.0.0.1`
-(this machine only): create your account first, then widen the port if you want to. A headless install that has to
-listen on a network before you can open a browser should create the account from the environment instead: set
-`KIPPLE_USERNAME` and `KIPPLE_PASSWORD` for the first start and Kipple never shows the form. Whoever creates the
-account owns the instance, including its feed network settings, so if you ever find Kipple already set up when you did
-not do it, take the container down, delete its data volume and start again.
+Kipple can sync read and starred articles with RSS apps on your phone or computer. In the app, add a Google Reader
+compatible account with:
 
-**Going without a password.** The account step offers "No password at all". Read its notice: anyone who can reach
-Kipple's address can then read and change everything, so choose it only when Kipple is reachable from this computer,
-your local network and [Tailscale](https://tailscale.com/) and nowhere else. Kipple refuses open sign-in through a reverse
-proxy or tunnel and from public addresses. In Docker every connection arrives from Docker's own network, so Kipple cannot
-tell your network from the internet: the address you publish the port on (`127.0.0.1:` in the examples above) is what
-keeps other machines out, so never publish an open-mode Kipple on a public interface. You can set a password later in Settings, Account & Devices. Details:
-[docs/deploy.md](docs/deploy.md), "Open mode".
+- Server: your Kipple address plus `/api/greader.php`
+- User name: the one you chose during setup
+- Password: the API password. The last setup step shows it, and Settings, Account & Devices can make a new one.
 
-**Reaching Kipple from your phone or another computer.** The examples publish the port on `127.0.0.1`, which is this
-machine only. To use Kipple from your LAN or tailnet, change `127.0.0.1:1919:1919` to `1919:1919` (LAN) or to your
-Tailscale address (`100.x.y.z:1919:1919`); with a password that is all it takes. Kipple speaks plain HTTP: for HTTPS
-put a reverse proxy or tunnel in front (see [docs/deploy.md](docs/deploy.md)). If port 1919 is taken, change the left-hand
-number (`127.0.0.1:8080:1919`); nothing else changes. A named volume (as above) is ready to use. A bind mount
-(`-v /srv/kipple:/data`) needs `chown 65532:65532 /srv/kipple` first, because the container runs as that
-unprivileged user.
+## What Kipple leaves out
 
-To check the image before you run it (optional; needs [cosign](https://docs.sigstore.dev/cosign/) 3 or later). This
-accepts any Kipple release; the release notes of each version give the same command with that release's exact identity,
-which also proves the tag points at that release's image:
+These are left out on purpose, and requests for them are closed.
 
-```
-cosign verify ghcr.io/wptk/kipple:0.8.0-beta.3 \
-  --certificate-identity-regexp '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-```
+- Native support for podcasts, audio and video. A media link in an article still opens.
+- Webhooks and other integrations with outside services.
+- Tags. Feeds live in folders, and articles can be starred.
+- AI features.
+- Notifications.
+- Social features. You can still share an article from the web app: it opens your device's share sheet, or copies the link.
+- Monitoring or analytics.\*
+- More than one user.
 
-### Build from source
+\* _Kipple keeps reading statistics, but they live in your own database, only you see them, and nothing sends them anywhere._
 
-Use this to run your own changes, or if you would rather not pull the published image. It needs Docker and Git only (no Go or Node).
+## Documentation
 
-```
-git clone https://github.com/WPTK/Kipple.git
-cd Kipple
-cp docker-compose.example.yml docker-compose.yml
-docker compose build
-docker compose up -d
-```
+- [Deploy guide](docs/deploy.md): install options, ports, backups, restore, upgrades, Cloudflare Access.
+- [Reverse proxy](docs/reverse-proxy.md): HTTPS with Caddy, nginx or Traefik.
+- [Troubleshooting](docs/troubleshooting.md)
+- [Design](docs/design.md) and [UI decisions](docs/ui-decisions.md): how it works and why.
+- [Performance](docs/performance.md): 500 feeds and 150,000 articles, measured.
+- [All docs](docs/README.md)
 
-Then open **http://127.0.0.1:1919** and create your account, exactly as above. There is no
-`.env` to create; [.env.example](.env.example) lists the optional overrides for people who want them, and the compose
-file reads it when it exists (Docker Compose 2.24 or newer).
-
-The image reports its version as `dev` unless you pass it (it shows in `kipple version`, the startup log and backups).
-To stamp it with the release you cloned, set `KIPPLE_VERSION=$(git describe --tags --always)` and
-`KIPPLE_VCS_REF=$(git rev-parse HEAD)` in the environment of the build step.
-
-### After setup
-
-To sync with a Google Reader-API client, use the API password from the last wizard
-step, or make one any time in Settings, Account & Devices (or `docker exec -it kipple /kipple api-password`). The
-server address is your Kipple address plus `/api/greader.php`; the user name is the one you chose.
-
-To put it on your phone, open Kipple's address in Safari (iPhone/iPad) or Chrome (Android), then use "Add
-to Home Screen" (Safari's share sheet) or "Install app" (Chrome's menu). It launches full-screen from your
-home screen from then on, like any other app, and keeps already-read articles available without a
-connection. The phone has to be able to reach Kipple (see above), and installing needs HTTPS or `127.0.0.1`.
-
-**Back up.** Settings > Account > Export backup downloads a zip (database, OPML, readable settings, manifest). Save it
-somewhere other than the server: that is your off-machine copy. It holds password hashes and feed logins, so keep it
-private. Kipple also writes a snapshot nightly at 04:10 to the same volume, a local safety net that is lost with the
-volume. The backup holds your account, settings and feeds but not your compose file or `.env` (port, proxy and Access
-settings, `TZ`): keep those too. The full checklist is in [docs/deploy.md](docs/deploy.md#what-to-back-up).
-
-**Restore.** On a new server, start Kipple on an empty data volume and open it: the first screen offers "Restore from
-a backup". Pick the zip, check the date and counts it shows, and choose Everything (account, settings, feeds and
-history; Kipple restarts to apply it, then you sign in with the backup's account) or Feeds only (then create a new
-account). An OPML file from any reader works there too, as feeds only. The restart needs a restart policy such as
-`restart: unless-stopped`, as in the examples. The backup's public URL, allowed host names and trusted proxies are not
-restored, since they describe the old server; this server's own are kept. To restore over an existing library, stop the container and run
-`docker compose run --rm -T --no-deps kipple restore - --yes < kipple-backup-YYYYMMDD-HHMMSS.zip` (without `--yes` it
-only verifies); see [docs/deploy.md](docs/deploy.md#restore-a-backup).
-
-**Reset.** Settings > Account & Devices > Reset Kipple erases the library and the account and returns Kipple to setup,
-where you create a new account or restore a backup. It asks for your password and for you to type `reset kipple`, keeps
-a safety copy of the old library in `backup/pre-restore-*` (restorable with `kipple restore`), keeps your address and
-access settings, and restarts through your restart policy. See [docs/deploy.md](docs/deploy.md#reset-kipple-and-start-over).
-
-For anything past this (backups, restoring, upgrading, running behind a reverse proxy or
-tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md).
-If something does not work, start with [docs/troubleshooting.md](docs/troubleshooting.md); for HTTPS with Caddy, nginx or
-Traefik, see [docs/reverse-proxy.md](docs/reverse-proxy.md).
-
-## Configuration
-
-Almost everything is set in the browser: the setup wizard covers the account, time zone, theme, feeds and the public
-address, and Settings covers themes, fonts, layouts, retention, sync behavior, the reverse proxy and Cloudflare Access
-settings and the rest, per device or for the account,
-without touching the container again. Environment variables are optional advanced overrides;
-[.env.example](.env.example) documents every one, and [docker-compose.example.yml](docker-compose.example.yml) shows
-a hardened container setup with resource limits.
-
-The ones self-hosters most often want:
-
-| Variable | Purpose |
-| --- | --- |
-| `KIPPLE_ADDR` | Listen address, default `:1919`. Change the container side of the port mapping with it (see [docs/deploy.md](docs/deploy.md#ports)). |
-| `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS`, `KIPPLE_ACCESS_TEAM_DOMAIN` / `KIPPLE_ACCESS_AUD` | Optional seeds for a scripted first start: the public URL, the reverse proxy addresses, extra host names and Cloudflare Access. Each is stored as its setting once, when that setting was never set; after that Settings, Account & Devices, Address and access decides, with no restart. |
-| `TZ` | IANA time zone for a new install: stored as the time zone setting on the first start only. Choose it in Kipple afterwards. |
-| `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` | Create the account from the environment instead of the wizard (scripted deploys). |
-
-## What Kipple will not do
-
-Kipple is a reader for one person, and some things are left out on purpose. Requests for these will be closed:
-
-- No podcasts, and no audio or video players.
-- No webhook or other integrations with outside services.
-- No tags (feeds live in folders, and articles can be starred).
-- No AI features.
-- No notifications.
-- No social features.
-- No monitoring or analytics of any kind.\*
-- No multiple users: one account per server.
-
-\* Kipple does keep reading statistics, but they live in your own database, are shown only to you, and are never sent anywhere.
-
-## Support
-
-Kipple has one maintainer and is supported on a best-effort basis: there is no response time, and no chat room or
-mailing list. Start with [docs/troubleshooting.md](docs/troubleshooting.md). If that does not solve it, open an issue on
-[GitHub Issues](https://github.com/WPTK/Kipple/issues) and fill in the bug form: it asks for the output of
-`docker exec kipple /kipple version -v`, how you run Kipple, what sits in front of it, and the logs. A vulnerability goes
-through [SECURITY.md](SECURITY.md), not an issue.
-
-Supported: the published Docker image on `linux/amd64` and `linux/arm64`, one user, the web app, and any Google Reader API client as a sync client. Not supported: a hosted service, other container runtimes and NAS platforms (they may
-work), running the bare binary, other sync clients (they may work), your reverse proxy or tunnel beyond what
-[docs/reverse-proxy.md](docs/reverse-proxy.md) says, and builds from source (best effort).
-
-Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Roadmap
-
-Kipple is working toward a 1.0 release; see [docs/RELEASING.md](docs/RELEASING.md) for what that involves
-and [CHANGELOG.md](CHANGELOG.md) (plus the pending entries in [changes/](changes/)) for what's landed.
-
-## For developers
-
-Everything above is all a self-hoster needs. This section is for changing Kipple itself.
-
-- `cmd/kipple/` and `internal/` are the Go server (fetching, storage, the sync API, the web API).
-- `web/` is the React app, built into the Go binary.
-- `docs/design.md` is the source of truth for how it works;
-  `docs/ui-decisions.md` records the design decisions; `docs/deploy.md` covers backups, recovery and deploys.
-  See [docs/README.md](docs/README.md) for a full index of everything under `docs/`.
-- [docs/performance.md](docs/performance.md) records how Kipple behaves with 500 feeds and 150,000 items (start, upgrade, search, backup, memory), how to size a server for it, and how to repeat the measurement with `scripts/scalegen`.
-- `CLAUDE.md` holds the project rules used when working on the code with Claude.
-- [CONTRIBUTING.md](CONTRIBUTING.md) covers how to report a bug, propose a change and send a pull request.
-
-### Build and test
-
-- Go tests: `go test ./...`
-- Web app: `cd web && npm ci && npm test && npm run build`
-- Image: `docker build -t kipple:dev .`
-- Local development with sample feeds is described in `web/README.md`.
+To report a bug, open an [issue](https://github.com/WPTK/Kipple/issues). To send a change, read
+[CONTRIBUTING.md](CONTRIBUTING.md). Vulnerabilities go through [SECURITY.md](SECURITY.md).
 
 ## License
 
-Kipple is licensed under the [Blue Oak Model License 1.0.0](LICENSE), a short, plain-English
-permissive license: use, modify and share it freely, including commercially, as long as everyone you pass
-it on to also gets the license text.
-Third-party components and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
-(regenerate with `node scripts/gen-notices.mjs` after `cd web && npm ci`).
+[Blue Oak Model License 1.0.0](LICENSE): use, modify and share it, including commercially. Third-party licenses are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -1,7 +1,14 @@
-// Captures the kipple.cc screenshots (and, with --site, the social preview) from a seeded local instance.
+// Captures the kipple.cc screenshots (and, with --site, the social preview) and the README screenshots from a seeded
+// local instance.
 //
 //   KIPPLE_SEED_SET=site npm run seed              (in one terminal; wait a minute for the feeds to fetch)
 //   node scripts/site-shots.mjs --out ../../kipple-website/screenshots [--site ../../kipple-website]
+//   node scripts/site-shots.mjs --readme ../docs/screenshots
+//
+// --readme writes the four WebP files README.md shows, deliberately not the site's: the Inbox layout with an article
+// open on a 1100x700 desktop at 1.5x (1650x1050), and the Cards layout on a 390x844 phone at 1.5x (585x1266), each in Paper and in Midnight so
+// the README can switch with GitHub's theme. Choosing a layout is saved to the seeded account, so re-seed before capturing
+// the site's shots after the README's (the site's shots use the default layout).
 //
 // Writes the four WebP files the site uses, at the sizes the site's design system (DESIGN-SYSTEM.md, "Screenshots")
 // names: desktop-paper.webp and desktop-midnight.webp 1800x1125 (a 1440x900 viewport at 1.25x), phone-paper-reader.webp
@@ -20,6 +27,7 @@ const { values: opt } = parseArgs({
   options: {
     url: { type: "string", default: "http://127.0.0.1:1919" },
     out: { type: "string" },
+    readme: { type: "string" },
     site: { type: "string" },
     feed: { type: "string", default: "Wikimedia Picture of the Day" },
     user: { type: "string", default: "dev" },
@@ -27,8 +35,8 @@ const { values: opt } = parseArgs({
     password: { type: "string", default: "dev-password-only-for-local-testing" },
   },
 });
-if (!opt.out) {
-  console.error("usage: node scripts/site-shots.mjs --out <screenshots dir> [--site <kipple-website dir>] [--feed <feed title>]");
+if (!opt.out && !opt.readme) {
+  console.error("usage: node scripts/site-shots.mjs [--out <site screenshots dir> [--site <kipple-website dir>]] [--readme <README screenshots dir>] [--feed <feed title>]");
   process.exit(2);
 }
 const origin = new URL(opt.url);
@@ -39,12 +47,20 @@ if (!["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname)) {
 
 const DESKTOP = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1.25, size: [1800, 1125] };
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 1.5, size: [585, 1266], mobile: true };
+// A narrower, shorter window than the site's, so the text stays legible when GitHub scales the image down.
+const README_DESKTOP = { viewport: { width: 1100, height: 700 }, deviceScaleFactor: 1.5, size: [1650, 1050] };
+// `dir` says which output directory a shot goes to; `layout` (a name from the layout menu) is chosen before the capture;
+// `feed` (part of a feed title) opens that feed instead of the --feed default.
 const SHOTS = [
-  { file: "desktop-paper", device: DESKTOP, scheme: "light", view: "reader" },
-  { file: "desktop-midnight", device: DESKTOP, scheme: "dark", view: "reader" },
-  { file: "phone-paper-reader", device: PHONE, scheme: "light", view: "article" },
-  { file: "phone-midnight-list", device: PHONE, scheme: "dark", view: "list" },
-];
+  { dir: "out", file: "desktop-paper", device: DESKTOP, scheme: "light", view: "reader" },
+  { dir: "out", file: "desktop-midnight", device: DESKTOP, scheme: "dark", view: "reader" },
+  { dir: "out", file: "phone-paper-reader", device: PHONE, scheme: "light", view: "article" },
+  { dir: "out", file: "phone-midnight-list", device: PHONE, scheme: "dark", view: "list" },
+  { dir: "readme", file: "desktop-light", device: README_DESKTOP, scheme: "light", view: "reader", layout: "Inbox", feed: "Wikipedia Featured Article" },
+  { dir: "readme", file: "desktop-dark", device: README_DESKTOP, scheme: "dark", view: "reader", layout: "Inbox", feed: "Wikipedia Featured Article" },
+  { dir: "readme", file: "phone-light", device: PHONE, scheme: "light", view: "list", layout: "Cards" },
+  { dir: "readme", file: "phone-dark", device: PHONE, scheme: "dark", view: "list", layout: "Cards" },
+].filter((shot) => opt[shot.dir]);
 
 const browser = await chromium.launch();
 try {
@@ -57,12 +73,16 @@ try {
   await lp.getByRole("button", { name: "Sign in" }).click();
   await lp.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
   const boot = await (await lp.request.get(origin.origin + "/api/bootstrap")).json();
-  const feed = boot.feeds.find((f) => f.title.includes(opt.feed));
-  if (!feed) throw new Error(`no feed titled like "${opt.feed}" (seed with KIPPLE_SEED_SET=site and wait for the first fetch)`);
+  const findFeed = (title) => {
+    const found = boot.feeds.find((f) => f.title.includes(title));
+    if (!found) throw new Error(`no feed titled like "${title}" (seed with KIPPLE_SEED_SET=site and wait for the first fetch)`);
+    return found;
+  };
+  const feed = findFeed(opt.feed);
   const storageState = await login.storageState();
   await login.close();
 
-  mkdirSync(opt.out, { recursive: true });
+  for (const dir of [opt.out, opt.readme]) if (dir) mkdirSync(dir, { recursive: true });
   for (const shot of SHOTS) {
     const { device } = shot;
     const ctx = await browser.newContext({
@@ -76,20 +96,32 @@ try {
       serviceWorkers: "block",
     });
     const page = await ctx.newPage();
-    await page.goto(`/l/all?feed=${encodeURIComponent(feed.id)}`);
+    await page.goto(`/l/all?feed=${encodeURIComponent((shot.feed ? findFeed(shot.feed) : feed).id)}`);
     const first = page.locator('article[data-item-id] a[href^="/i/"]').first();
     await first.waitFor({ timeout: 20000 });
+    if (shot.layout) {
+      await page.getByRole("button", { name: /^List options/ }).click();
+      await page.getByRole("menuitemradio", { name: new RegExp(`^${shot.layout}`) }).click();
+      await page.keyboard.press("Escape");
+      // Close the first-run swipe hint on a phone and drop the focus ring the menu left on its button.
+      await page.getByRole("button", { name: /^(dismiss|close)/i }).first().click({ timeout: 1000 }).catch(() => {});
+      await page.evaluate(() => document.activeElement?.blur());
+      await page.waitForTimeout(500);
+    }
     if (shot.view !== "list") await first.click();
     if (shot.view === "reader") await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 15000 });
     if (shot.view === "article") await page.getByRole("article").or(page.locator("article, main")).first().waitFor({ timeout: 15000 });
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.waitForTimeout(1500); // lazy images
     const png = await page.screenshot({ type: "png" });
-    const webp = await toWebp(png);
+    // README shots get rounded corners and a thin border in GitHub's own border colors, so a white screenshot on a white
+    // page shows where it ends. The corners are transparent.
+    const frame = shot.dir === "readme" ? { radius: device.mobile ? 54 : 24, width: 3, color: shot.scheme === "dark" ? "#3d444d" : "#d0d7de" } : null;
+    const webp = await toWebp(png, frame);
     const [w, h] = device.size;
     const got = pngSize(png);
     if (got.width !== w || got.height !== h) throw new Error(`${shot.file}: captured ${got.width}x${got.height}, expected ${w}x${h}`);
-    writeFileSync(resolve(opt.out, `${shot.file}.webp`), webp);
+    writeFileSync(resolve(opt[shot.dir], `${shot.file}.webp`), webp);
     console.log(`${shot.file}.webp  ${w}x${h}  ${(webp.length / 1024).toFixed(0)} KB`);
     await ctx.close();
   }
@@ -113,21 +145,36 @@ function pngSize(buf) {
   return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
 }
 
-/** Encodes a PNG as WebP with the browser's own encoder, so no image library is needed. */
-async function toWebp(png) {
+/** Encodes a PNG as WebP with the browser's own encoder, so no image library is needed. `frame` rounds the corners and
+ * draws a border of that width and color just inside the edge. */
+async function toWebp(png, frame) {
   const page = await browser.newPage();
   try {
-    const b64 = await page.evaluate(async (data) => {
+    const b64 = await page.evaluate(async ({ data, frame }) => {
       const bin = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
       const bmp = await createImageBitmap(new Blob([bin], { type: "image/png" }));
       const canvas = new OffscreenCanvas(bmp.width, bmp.height);
-      canvas.getContext("2d").drawImage(bmp, 0, 0);
+      const ctx = canvas.getContext("2d");
+      if (frame) {
+        ctx.beginPath();
+        ctx.roundRect(0, 0, bmp.width, bmp.height, frame.radius);
+        ctx.clip();
+      }
+      ctx.drawImage(bmp, 0, 0);
+      if (frame) {
+        // Half of a centered stroke falls outside the clip, so double the width.
+        ctx.beginPath();
+        ctx.roundRect(0, 0, bmp.width, bmp.height, frame.radius);
+        ctx.lineWidth = frame.width * 2;
+        ctx.strokeStyle = frame.color;
+        ctx.stroke();
+      }
       const blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.85 });
       const bytes = new Uint8Array(await blob.arrayBuffer());
       let s = "";
       for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       return btoa(s);
-    }, png.toString("base64"));
+    }, { data: png.toString("base64"), frame });
     return Buffer.from(b64, "base64");
   } finally {
     await page.close();
