@@ -64,14 +64,24 @@ test('web and security gate their heavy steps the same way and keep gitleaks and
   assert.doesNotMatch(step('web', 'changelog.mjs check'), /if:/, 'the changelog check must always run');
 });
 
-test('the prune step runs in go, web and docker before the build and test steps', () => {
+test('the prune step runs in go, web and docker, for real, before the build and test steps', () => {
+  const STEP = /^      - (?:if: .*\n        )?run: bash (?:[.][.]\/)?scripts\/ci-prune-prose[.]sh --delete$/m;
   for (const j of ['go', 'web', 'docker']) {
-    const i = jobs[j].indexOf('ci-prune-prose.sh --delete');
-    assert.ok(i >= 0, `${j}: no prune step`);
-    const later = jobs[j].slice(i);
-    assert.ok(/go vet|npm ci|build-image/.test(later), `${j}: the prune step must come before the build and test steps`);
+    const m = STEP.exec(jobs[j]);
+    assert.ok(m, `${j}: no run step that is exactly the prune with --delete (a dry run or a comment does not count)`);
+    const rest = jobs[j].slice(m.index);
+    assert.ok(/go vet|npm ci|build-image/.test(rest), `${j}: the prune step must come before the build and test steps`);
+    const end = rest.indexOf('\n      - ', 1);
+    const block = end < 0 ? rest : rest.slice(0, end);
+    assert.doesNotMatch(block, /continue-on-error|[|][|]/, `${j}: the prune step must be able to fail the job`);
   }
   assert.ok(!jobs.security.includes('ci-prune-prose'), 'security keeps the full tree (gitleaks scans history)');
+});
+
+test('web checks the changelog fragments before the prune deletes them', () => {
+  const check = jobs.web.indexOf('changelog.mjs check');
+  const prune = jobs.web.indexOf('ci-prune-prose.sh --delete');
+  assert.ok(check >= 0 && prune >= 0 && check < prune, 'the changelog fragment check must come before the prune step: changelog.mjs reads changes/');
 });
 
 // The checks above must fail on the regressions they name.

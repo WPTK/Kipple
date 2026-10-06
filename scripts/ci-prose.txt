@@ -6,8 +6,8 @@
 # as code even if a line here says otherwise.
 #
 # A file belongs here only if nothing reads it: not the Dockerfile, a go:embed, a Go or web test, a script, or the web
-# build. CI checks that by deleting every listed file (scripts/ci-prune-prose.sh) before the build and test steps of
-# each run that is not prose-only, so a reader fails its own test. If that step breaks after you add a reader, take
+# build. The go, web and docker jobs check that by deleting every listed file (scripts/ci-prune-prose.sh) before their
+# build and test steps on each run that is not prose-only, so a reader there fails its own test. If that step breaks after you add a reader, take
 # the file off this list.
 docs/*.md
 changes/*.md

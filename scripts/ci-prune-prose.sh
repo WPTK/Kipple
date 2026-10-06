@@ -3,7 +3,8 @@
 # fails its own test or build. ci.yml runs this before the build and test steps of every run that is not prose-only: the
 # prose list is then checked by what the code does, not by a guess at what reads what.
 #   ci-prune-prose.sh            lists what would be deleted
-#   ci-prune-prose.sh --delete   deletes it
+#   ci-prune-prose.sh --delete   deletes it. Refused unless GITHUB_ACTIONS=true, or the second argument is --discard-edits:
+#                                deleting removes uncommitted edits to the listed files from your checkout.
 # Run it from inside the repository. It deletes only tracked files that the list names, never anything under .git,
 # never an absolute path or one with a `..` segment, and it fails if the list is unusable or names nothing.
 set -euo pipefail
@@ -11,7 +12,11 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$(git rev-parse --show-toplevel)"
 
 mode="${1:-}"
-case "$mode" in '' | --delete) ;; *) echo "usage: ci-prune-prose.sh [--delete]" >&2; exit 2 ;; esac
+case "$mode" in '' | --delete) ;; *) echo "usage: ci-prune-prose.sh [--delete [--discard-edits]]" >&2; exit 2 ;; esac
+if [ "$mode" = --delete ] && [ "${GITHUB_ACTIONS:-}" != true ] && [ "${2:-}" != --discard-edits ]; then
+  echo "ci-prune-prose: --delete throws away uncommitted edits to the listed files; it runs in CI. To run it here anyway, add --discard-edits." >&2
+  exit 2
+fi
 
 files="$(git -c core.quotePath=false ls-files | bash "$here/ci-changes.sh" --list)"
 if [ -z "$files" ]; then

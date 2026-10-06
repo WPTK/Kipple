@@ -19,7 +19,7 @@ newrepo() {
   echo m > "$1/main.go"; echo w > "$1/.github/workflows/ci.yml"; echo s > "$1/scripts/lib/x.md"; echo r > "$1/src/readme.md"
   (cd "$1" && git init -q && git config core.autocrlf false && git config user.email t@example.com && git config user.name t && git add -A && git commit -qm base)
 }
-prune() { (cd "$1" && bash scripts/ci-prune-prose.sh "${@:2}" 2>&1); }
+prune() { (cd "$1" && GITHUB_ACTIONS=true bash scripts/ci-prune-prose.sh "${@:2}" 2>&1); }
 remaining() { (cd "$1" && find . -path ./.git -prune -o -type f -print | sort | paste -sd' ' -); }
 
 r1="$tmp/r1"; newrepo "$r1" $'docs/*.md\n!docs/keep.md\nsrc/readme.md\n'
@@ -31,6 +31,23 @@ prune "$r1" --delete > /dev/null
 ok delete-removes-globs-spaces-nested "./.github/workflows/ci.yml ./docs/keep.md ./main.go ./scripts/ci-changes.sh ./scripts/ci-prose.txt ./scripts/ci-prune-prose.sh ./scripts/lib/x.md" "$(remaining "$r1")"
 ok git-dir-intact 0 "$(cd "$r1" && git status > /dev/null 2>&1; echo $?)"
 ok git-still-tracks-deleted "4" "$(cd "$r1" && git status --short | grep -c '^ D')"
+
+# By hand it refuses without the explicit flag, and deletes nothing.
+r0="$tmp/r0"; newrepo "$r0" $'docs/*.md
+'
+(cd "$r0" && env -u GITHUB_ACTIONS bash scripts/ci-prune-prose.sh --delete > /dev/null 2>&1); ok refuses-by-hand 2 "$?"
+ok refusal-deletes-nothing 1 "$([ -f "$r0/docs/a.md" ] && echo 1 || echo 0)"
+(cd "$r0" && env -u GITHUB_ACTIONS bash scripts/ci-prune-prose.sh --delete --discard-edits > /dev/null 2>&1); ok discard-edits-flag-allows 0 "$?"
+ok flag-deleted 0 "$([ -f "$r0/docs/a.md" ] && echo 1 || echo 0)"
+
+# A tracked symlink under a listed name is refused (only where the checkout can make symlinks).
+r6="$tmp/r6"; newrepo "$r6" $'docs/*.md
+'
+if (cd "$r6" && ln -s ../main.go docs/link.md 2>/dev/null && [ -L docs/link.md ]); then
+  (cd "$r6" && git add -A && git commit -qm link)
+  prune "$r6" --delete > /dev/null; ok symlink-refused 1 "$?"
+  ok symlink-target-intact 1 "$([ -f "$r6/main.go" ] && echo 1 || echo 0)"
+fi
 
 # Nothing outside the list: a pattern that tries scripts/ and the workflows deletes neither.
 r2="$tmp/r2"; newrepo "$r2" $'*\n'
