@@ -81,6 +81,7 @@ Step 'web' 'release tag rules (scripts/release-tags.test.sh)' { bash scripts/rel
 Step 'web' 'toolchain versions (scripts/toolchain.test.mjs)' { node --test scripts/toolchain.test.mjs }
 Step 'web' 'link checker tests (scripts/check-links.test.mjs)' { node --test scripts/check-links.test.mjs }
 Step 'web' 'weekly audit report (scripts/audit-report.test.mjs)' { node --test scripts/audit-report.test.mjs }
+Step 'web' 'UAT label guard (scripts/uat-labels.mjs)' { node --test scripts/uat-labels.test.mjs; if ($LASTEXITCODE -eq 0) { node scripts/uat-labels.mjs } }
 Step 'web' 'npm ci' { Push-Location web; npm ci --ignore-scripts --cache $npmCache --no-audit --no-fund; Pop-Location }
 Step 'web' 'lint' { Push-Location web; npm run lint; Pop-Location }
 Step 'web' 'test and coverage (no threshold)' { Push-Location web; npm run test:coverage; Pop-Location }
@@ -143,4 +144,5 @@ $results | Format-Table Group, Step, Ok, Seconds -AutoSize | Out-String | Write-
 $failed = @($results | Where-Object { -not $_.Ok })
 if ($failed.Count) { Write-Host "$($failed.Count) step(s) failed" -ForegroundColor Red; exit 1 }
 Write-Host 'all steps passed' -ForegroundColor Green
+
 

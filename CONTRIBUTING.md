@@ -50,8 +50,11 @@ triaged best-effort (see [SECURITY.md](SECURITY.md)).
   that way.
 - [docs/sqa-plan.md](docs/sqa-plan.md) and [docs/uat-plan.md](docs/uat-plan.md) describe how changes are tested
   and accepted.
+- If you rename or remove an ria-label in web/src, update web/uat/*.mjs to match: the UAT screens find\n  controls by that name. 
+ode scripts/uat-labels.mjs checks it in a second (CI runs it on pull requests).
 
 ## License
 
 By contributing you agree that your contribution is licensed under the project's license, the
 [Blue Oak Model License 1.0.0](LICENSE).
+

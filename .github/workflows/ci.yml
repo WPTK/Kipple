@@ -131,6 +131,17 @@ jobs:
       - run: node --test ../scripts/toolchain.test.mjs
       # The weekly audit's issue open/update/close decisions (audit.yml), against a fake gh.
       - run: node --test ../scripts/audit-report.test.mjs
+      # A renamed or removed aria-label that web/uat still looks for breaks the UAT screens without failing any other check.
+      # A pure text check on the PR's own diff (the checkout is the merge commit, so origin/<base>..HEAD is the PR's change).
+      - run: node --test ../scripts/uat-labels.test.mjs
+      - name: UAT label guard
+        if: github.event_name == 'pull_request'
+        working-directory: .
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+          node scripts/uat-labels.mjs "origin/$BASE_REF..HEAD"
       # --ignore-scripts: no dependency install script runs; the build and tests call their tools directly.
       - run: npm ci --ignore-scripts
       - run: npm run lint
@@ -170,3 +181,4 @@ jobs:
       - uses: ./.github/actions/audit-image # zizmor: ignore[self-repository]
         with:
           image-ref: kipple:ci
+

@@ -74,6 +74,14 @@ MERGED and every `Closes #n` issue is CLOSED.
 If this breaks: it depends on the `gh pr view --json` fields listed in the script help, the compare API's `status` field
 and `gh pr merge --match-head-commit`. The decision logic is `Get-PrVerdict`.
 
+## Node tools
+
+`changelog.mjs`, `audit-report.mjs`, `check-links.mjs` and `uat-labels.mjs` each have a `*.test.mjs` beside them
+(`node --test scripts/<name>.test.mjs`). `uat-labels.mjs [<git range>]` is read-only: it fails (exit 1) when an
+`aria-label` removed or changed in `web/src` is still used by `web/uat/*.mjs` (see docs/uat-plan.md). If it breaks: it
+reads `git diff -U0 <range> -- web/src` and only sees labels written on the same line as the attribute
+(`extractFragments`).
+
 ## Tests for the tools
 
     pwsh -NoProfile -Command "Invoke-Pester scripts/lib/Kipple.Tools.Tests.ps1, scripts/release-gates.Tests.ps1, scripts/release-publish.Tests.ps1, scripts/branch-cleanup.Tests.ps1, scripts/pr-ready.Tests.ps1"
@@ -81,6 +89,7 @@ and `gh pr merge --match-head-commit`. The decision logic is `Get-PrVerdict`.
 Pester 5.5 or later (`Install-PSResource Pester -Scope CurrentUser`). Native commands are mocked: no network, no push.
 Lint: `pwsh scripts/ci-local.ps1 -Lint` (PSScriptAnalyzer with `scripts/PSScriptAnalyzerSettings.psd1`; findings of
 severity Warning or Error fail it; fix them rather than suppress them).
+
 
 
 
