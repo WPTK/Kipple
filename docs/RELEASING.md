@@ -18,7 +18,7 @@ the kind of release.
 | What changed | Gates |
 |---|---|
 | Docs, test-only, release-commit, dependency or log-line changes | CI green on the exact head; govulncheck for any dependency change. No fuzz, no Suite 1, no review. |
-| Code that parses, authenticates, migrates or renders UI | The full set, once, on the commit being tagged: two Go test runs, fuzz, Suite 1 and an Opus whole-diff review. Not repeated on every rc patch. |
+| Code that parses, authenticates, migrates or renders UI | The full set, once, on the commit being tagged: the Opus whole-diff review first, the fixes, then (once, on the final commit) two Go test runs, fuzz and Suite 1. Gates are re-run only if code changed after the last run; not repeated on every rc patch. |
 | Anything that changes the schema | The above plus the migration rehearsal on a copy of the live snapshot (Suite 4). |
 
 Kept for every release because they paid for themselves: tag only on the exact green commit, the off-box copy before a
@@ -106,8 +106,16 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 ## Before the tag
 
 1. **CI is green on the exact commit** you will deploy (not on a nearby one). Push first; nothing deploys from an unpushed tree.
-2. **Fuzz and Suite 1, only for the second tier above** (code that parses, authenticates, migrates or renders UI, once,
-   on the commit being tagged; skip both for docs, test-only, release-commit, dependency or log-line changes).
+2. **Review first, then fix, then the gates.** `/code-review high` (an Opus whole-diff review) on the diff since the last gated commit, for the second tier
+   above. Fix every finding. Not needed for the first tier. When every PR in the release already had a high review, this
+   release-gate review is scoped to what per-PR reviews cannot see (cross-PR interactions, migrations, the release workflow,
+   new tooling); a delta review after the fixes covers only the fix commits.
+3. **The expensive gates, once, on the final commit, only for the second tier above** (code that parses, authenticates, migrates
+   or renders UI; skip them for docs, test-only, release-commit, dependency or log-line changes). They are two Go test runs, fuzz,
+   Suite 1 and, for a schema change, the migration rehearsal (Suite 4). Run them after the review in step 2 and its fixes, never
+   before, and re-run them only if code changed after the last run. `scripts\release-gates.ps1 [-Ref <sha>]` runs everything except
+   Suite 1 and Suite 4, one at a time (timing tests flake under load), on a detached worktree of a printed full sha and prints a
+   pass/fail table.
    **Fuzz, by hand:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean. The weekly
    `Fuzz` workflow runs the same script on the default branch, but until it has run green for several weeks the
    manual run stays the gate.
@@ -115,8 +123,6 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
    **UAT Suite 1, also by hand:** in `web/`, `npm run build`, then `npm run seed` (it stays in the foreground), then
    in a second terminal, once the feeds have fetched (about a minute), `npm run uat` against that seeded local instance (never the live one; see `docs/uat-plan.md`, Suite 1). It must finish with exit code 0, or every
    remaining finding must be in `web/uat/waivers.json` with the owner's reason.
-3. **`/code-review high`** (an Opus whole-diff review) on the diff since the last gated commit, for the second tier
-   above. Fix every finding. Not needed for the first tier.
 4. **CHANGELOG.md:** `node scripts/changelog.mjs preview` shows what is pending; add a one-paragraph
    `changes/_intro.md` if the release needs an intro. `node scripts/changelog.mjs release X.Y.Z` (`--dry-run` first) folds
    the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links, deletes the
@@ -171,7 +177,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
     image, the SBOM's sha256 and how to regenerate it, and the `cosign verify-blob` command for the SBOM and its bundle)
     to its job summary and to the `image-notes` artifact, which also holds the SBOM file and its signature
     bundle. The Release is normally created after the run, so download the artifact, append `image-notes.md` to the
-    notes and attach the SBOM file and the bundle, so each version maps to exactly one digest and one SBOM:
+    notes and attach the SBOM file and the bundle, so each version maps to exactly one digest and one SBOM. `scripts\release-publish.ps1 -Tag vX.Y.Z (-Prerelease | -Full) [-WhatIf]` does the steps below in order, with the exact per-tag identity, and stops before creating the release if a check fails; the manual commands follow:
 
         gh run download <run-id> -n image-notes
         cat image-notes.md >> notes.md
