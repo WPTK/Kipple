@@ -49,3 +49,7 @@ web/dist-*/
 # Coverage output (uploaded by CI, never committed)
 /coverage.out
 web/coverage/
+
+# The owner's own server helpers and scrub terms (host names, aliases, paths); never committed
+/scripts/local/
+/.scrub-terms.local

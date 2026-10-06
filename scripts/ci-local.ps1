@@ -2,6 +2,7 @@
 #
 #   pwsh scripts/ci-local.ps1               everything except the Docker build and Trivy
 #   pwsh scripts/ci-local.ps1 -Docker       also build the image and scan it with Trivy
+#   pwsh scripts/ci-local.ps1 -Lint         also lint (PSScriptAnalyzer) and test (Pester) the PowerShell tooling in scripts/
 #   pwsh scripts/ci-local.ps1 -Skip web,security     skip a group (go, security, web, links, docker)
 #   pwsh scripts/ci-local.ps1 -AllLinks     check every link in every *.md, not only the *.md changed against origin/main
 #
@@ -9,7 +10,7 @@
 # machine has no C compiler), gofmt is checked on LF-normalized copies (CRLF working copies hide
 # formatting failures), and gitleaks/Trivy run through pinned Docker images. The GitHub Actions run on the exact
 # commit is what "CI green" means; this is the check before pushing. Exit code is non-zero on any failure.
-param([switch]$Docker, [switch]$AllLinks, [string[]]$Skip = @())
+param([switch]$Docker, [switch]$Lint, [switch]$AllLinks, [string[]]$Skip = @())
 
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
@@ -82,6 +83,7 @@ Step 'web' 'toolchain versions (scripts/toolchain.test.mjs)' { node --test scrip
 Step 'web' 'link checker tests (scripts/check-links.test.mjs)' { node --test scripts/check-links.test.mjs }
 Step 'web' 'weekly audit report (scripts/audit-report.test.mjs)' { node --test scripts/audit-report.test.mjs }
 Step 'web' 'prose-only filter (scripts/ci-changes.test.sh, ci-prune-prose.test.sh, ci-prose.test.mjs, ci-gate.test.mjs)' { bash scripts/ci-changes.test.sh; if ($LASTEXITCODE -eq 0) { bash scripts/ci-prune-prose.test.sh }; if ($LASTEXITCODE -eq 0) { node --test scripts/ci-prose.test.mjs scripts/ci-gate.test.mjs } }
+Step 'web' 'UAT label guard (scripts/uat-labels.mjs)' { node --test scripts/uat-labels.test.mjs; if ($LASTEXITCODE -eq 0) { node scripts/uat-labels.mjs } }
 Step 'web' 'npm ci' { Push-Location web; npm ci --ignore-scripts --cache $npmCache --no-audit --no-fund; Pop-Location }
 Step 'web' 'lint' { Push-Location web; npm run lint; Pop-Location }
 Step 'web' 'test and coverage (no threshold)' { Push-Location web; npm run test:coverage; Pop-Location }
@@ -99,6 +101,25 @@ Step 'links' 'markdown links (scripts/check-links.mjs)' {
   node scripts/check-links.mjs @changed
 }
 
+# ---- lint (opt-in: PSScriptAnalyzer and Pester for the PowerShell tooling; ci-local.ps1 and fuzz.ps1 predate the rules) ----
+if ($Lint) {
+  Step 'lint' 'PSScriptAnalyzer (Warning and Error fail)' {
+    $settings = Join-Path $root 'scripts/PSScriptAnalyzerSettings.psd1'
+    $legacy = @('ci-local.ps1', 'fuzz.ps1')
+    $files = Get-ChildItem -Path (Join-Path $root 'scripts') -Recurse -Filter '*.ps1' | Where-Object { $legacy -notcontains $_.Name }
+    $findings = foreach ($f in $files) { Invoke-ScriptAnalyzer -Path $f.FullName -Settings $settings }
+    $findings | Format-Table RuleName, ScriptName, Line, Message -Wrap | Out-String | Write-Host
+    $global:LASTEXITCODE = [int]([bool]$findings)
+  }
+  Step 'lint' 'Pester (scripts/**/*.Tests.ps1)' {
+    $cfg = New-PesterConfiguration
+    $cfg.Run.Path = Join-Path $root 'scripts'
+    $cfg.Run.PassThru = $true
+    $cfg.Output.Verbosity = 'Minimal'
+    $r = Invoke-Pester -Configuration $cfg
+    $global:LASTEXITCODE = [int]($r.FailedCount -gt 0 -or $r.Result -ne 'Passed')
+  }
+}
 # ---- docker (opt-in: slow) ----
 if ($Docker) {
   Step 'docker' 'build image' {

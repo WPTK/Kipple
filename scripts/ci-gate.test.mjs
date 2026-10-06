@@ -64,6 +64,21 @@ test('web and security gate their heavy steps the same way and keep gitleaks and
   assert.doesNotMatch(step('web', 'changelog.mjs check'), /if:/, 'the changelog check must always run');
 });
 
+test('the tooling job waits for the gate, skips only on an explicit false and survives the gate failing', () => {
+  assert.ok(jobs.tooling, 'job tooling is missing from ci.yml');
+  assert.ok(needsChanges('tooling'), 'tooling: needs changes');
+  const cond = jobIf('tooling');
+  assert.ok(cond, 'tooling: needs a job-level if, or a failed gate skips it');
+  assert.ok(cond.includes('!cancelled()'), 'tooling: the job-level if must contain !cancelled()');
+  assert.ok(cond.includes("needs.changes.outputs.scripts != 'false'"), "tooling: must skip only on scripts == 'false'");
+  assert.ok(cond.includes("github.event_name == 'pull_request'"), 'tooling: no Windows runner outside pull requests');
+  assert.doesNotMatch(cond, /(^|[^!])\bsuccess\(\)/, 'tooling: success() in the job-level if skips the job when the gate fails');
+  assert.doesNotMatch(cond, /needs\.changes\.result/, 'tooling: needs.changes.result skips the job when the gate fails');
+  assert.doesNotMatch(text, /outputs\.scripts\s*==/, 'no condition tests the scripts output for "true"');
+  assert.match(jobs.changes, /scripts: \$\{\{ steps\.filter\.outputs\.scripts \}\}/, 'the changes job must export scripts');
+  assert.match(jobs.changes, /^          scripts=true$/m, 'scripts must default to true (fail open)');
+});
+
 test('the prune step runs in go, web and docker, for real, before the build and test steps', () => {
   const STEP = /^      - (?:if: .*\n        )?run: bash (?:[.][.]\/)?scripts\/ci-prune-prose[.]sh --delete$/m;
   for (const j of ['go', 'web', 'docker']) {

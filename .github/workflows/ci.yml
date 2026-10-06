@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      scripts: ${{ steps.filter.outputs.scripts }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,15 +50,19 @@ jobs:
           RULES: ${{ runner.temp }}/base-rules
         run: |
           code=true
+          scripts=true
           if [ "$EVENT_NAME" = pull_request ]; then
             if mkdir -p "$RULES" && git show HEAD^1:scripts/ci-changes.sh > "$RULES/ci-changes.sh" && git show HEAD^1:scripts/ci-prose.txt > "$RULES/ci-prose.txt" && out="$(bash "$RULES/ci-changes.sh" "$EVENT_NAME")"; then
               if [ "$out" = false ]; then code=false; fi
             else
               echo "::warning::the base commit has no usable scripts/ci-changes.sh; running every check"
             fi
+            # The tooling job's gate, from the same base rules. A base without the --scripts mode prints true (not false).
+            if sc="$(bash "$RULES/ci-changes.sh" --scripts "$EVENT_NAME")" && [ "$sc" = false ]; then scripts=false; fi
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "code=$code"
+          echo "scripts=$scripts" >> "$GITHUB_OUTPUT"
+          echo "code=$code scripts=$scripts"
 
   go:
     needs: changes
@@ -251,3 +256,73 @@ jobs:
       - uses: ./.github/actions/audit-image # zizmor: ignore[self-repository]
         with:
           image-ref: kipple:ci
+
+  # --- Release tooling (scripts/): own jobs so they merge cleanly next to the others ---
+
+  # A renamed or removed aria-label that web/uat still looks for breaks the UAT screens without failing any other check.
+  # Pure text check on this PR's own change: the checkout is the merge commit, so HEAD^1..HEAD is exactly the PR.
+  uat-labels:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - run: node --test scripts/uat-labels.test.mjs
+      - run: node scripts/uat-labels.mjs HEAD^1..HEAD
+
+  # PSScriptAnalyzer and the Pester tests of the PowerShell tooling. Pull requests only (so no Windows runner starts on a
+  # push to main or inside a release, which calls this workflow), and only when the `changes` job found scripts/, this
+  # file or a .gitignore (the tests copy them) changed (its `scripts` output, from scripts/ci-changes.sh --scripts, run
+  # from the base commit). Fail-open like the required checks: it skips only on an explicit false, and !cancelled()
+  # keeps it running when `changes` failed.
+  # Windows, because the tooling is used there and its paths are written for Windows. Tool versions are pinned.
+  tooling:
+    needs: changes
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.scripts != 'false' }}
+    runs-on: windows-latest
+    env:
+      PESTER_VERSION: 5.7.1
+      PSSCRIPTANALYZER_VERSION: 1.25.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # PSGallery versions are immutable, so -RequiredVersion is the pin; there is no hash check, and the accepted risk is a
+      # wrong CI verdict (this job has contents: read, no secrets and no persisted credentials). -SkipPublisherCheck is
+      # needed because the Pester 3.4 that ships with Windows is signed by a different publisher than Pester 5.
+      - name: Install Pester and PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -RequiredVersion $env:PESTER_VERSION -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module -Name PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION -Scope CurrentUser -Force
+
+      - name: PSScriptAnalyzer (Warning and Error fail)
+        shell: pwsh
+        run: |
+          # The runner image ships its own PSScriptAnalyzer; load exactly the pinned one, not the highest installed.
+          Import-Module PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION
+          Write-Host "PSScriptAnalyzer $((Get-Module PSScriptAnalyzer).Version)"
+          $legacy = @('ci-local.ps1', 'fuzz.ps1')
+          $files = Get-ChildItem -Path scripts -Recurse -Filter '*.ps1' | Where-Object { $legacy -notcontains $_.Name }
+          $findings = foreach ($f in $files) { Invoke-ScriptAnalyzer -Path $f.FullName -Settings scripts/PSScriptAnalyzerSettings.psd1 }
+          $findings | Format-Table RuleName, ScriptName, Line, Message -Wrap | Out-String | Write-Host
+          if ($findings) { exit 1 }
+
+      - name: Pester
+        shell: pwsh
+        run: |
+          Import-Module Pester -RequiredVersion $env:PESTER_VERSION
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path = 'scripts'
+          $cfg.Run.Exit = $true
+          $cfg.Output.Verbosity = 'Minimal'
+          Invoke-Pester -Configuration $cfg

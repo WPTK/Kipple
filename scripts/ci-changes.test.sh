@@ -87,10 +87,41 @@ ok list-question-mark-is-literal true "$(altcls 'docs/x?.md' 'docs/xa.md')"
 ok list-question-mark-matches-itself false "$(altcls 'docs/x?.md' 'docs/x?.md')"
 ok list-bracket-is-literal true "$(altcls 'docs/[ab].md' 'docs/a.md')"
 
+# --scripts: the gate of the `tooling` job.
+scl() { printf '%s' "$1" | bash "$cc" --scripts-classify; }
+ok scripts-file true "$(scl 'scripts/release-gates.ps1')"
+ok scripts-lib true "$(scl 'scripts/lib/Kipple.Tools.ps1')"
+ok scripts-workflow true "$(scl '.github/workflows/ci.yml')"
+ok scripts-other-workflow false "$(scl '.github/workflows/release.yml')"
+ok scripts-docs-only false "$(scl 'docs/RELEASING.md')"
+ok scripts-go-code false "$(scl 'internal/api/api.go')"
+ok scripts-mixed true "$(scl $'internal/api/api.go\nscripts/x.ps1')"
+ok scripts-gitignore true "$(scl '.gitignore')"
+ok scripts-web-gitignore true "$(scl 'web/.gitignore')"
+ok scripts-other-gitignore false "$(scl 'docs/.gitignore')"
+ok scripts-quoted-name true "$(scl '"scripts/caf\303\251.ps1"')"
+ok scripts-quoted-name-outside true "$(scl '"docs/a\tb.md"')"
+ok scripts-lookalike false "$(scl 'myscripts/x.ps1')"
+ok scripts-empty-list true "$(scl '')"
+ok scripts-non-pr-event true "$(run --scripts push)"
+ok scripts-no-event true "$(run --scripts)"
+mkdir -p scripts && echo s > scripts/t.ps1 && commit tool
+ok scripts-git-tooling true "$(run --scripts pull_request HEAD~1 HEAD)"
+echo z >> scripts/t.ps1 && echo q > other.txt && commit tool2
+ok scripts-git-mixed true "$(run --scripts pull_request HEAD~1 HEAD)"
+echo w > other.txt && commit nontool
+ok scripts-git-none false "$(run --scripts pull_request HEAD~1 HEAD)"
+ok scripts-git-empty-diff true "$(run --scripts pull_request HEAD HEAD)"
+ok scripts-git-diff-fails true "$(run --scripts pull_request nonexistent-ref HEAD)"
+ok scripts-git-default-range false "$(run --scripts pull_request)"
+echo n > "scripts/caf$(printf '\303\251').ps1" && commit nonascii
+ok scripts-git-nonascii-name true "$(run --scripts pull_request HEAD~1 HEAD)"
+
 # The workflow must call the script through bash (a lost executable bit must not disable the skip) and must say so
 # loudly when the script cannot run, then run everything.
 wf="$here/../.github/workflows/ci.yml"
-ok workflow-calls-through-bash 1 "$(grep -c 'bash "$RULES/ci-changes.sh"' "$wf")"
+# Two calls: the prose filter and the tooling gate (--scripts), both through bash.
+ok workflow-calls-through-bash 2 "$(grep -c 'bash "$RULES/ci-changes.sh"' "$wf")"
 ok workflow-warns-when-script-cannot-run 1 "$(grep -c '::warning::.*ci-changes' "$wf")"
 bash "$cc" pull_request >/dev/null 2>&1
 ok script-exits-zero-when-it-runs 0 "$?"
