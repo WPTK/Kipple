@@ -59,9 +59,9 @@ Pull the image and start it. Replace `<version>` with the newest tag on the
 docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data ghcr.io/wptk/kipple:<version>
 ```
 
-Open <http://127.0.0.1:1919>. The first screen creates your account. The setup wizard after it asks for your
-time zone, a theme, an OPML import from your old reader, a few starter feeds, and the address your other devices will
-use. Every step after the account can be skipped.
+Open <http://127.0.0.1:1919>. The first screen creates your account, or restores a backup from another Kipple. The
+setup wizard after the account asks for your time zone, a theme, an OPML import from your old reader, a few starter
+feeds, and the address your other devices will use. Every step after the account can be skipped.
 
 Until you create the account, anyone who can reach the port can. The command above publishes the port on `127.0.0.1`
 only, so only this machine can. Widen it after you have an account.

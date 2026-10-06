@@ -15,7 +15,7 @@ import (
 	"github.com/WPTK/kipple/internal/sched"
 )
 
-const maxOPMLBody = 8 << 20
+const maxOPMLBody = opml.MaxFileBytes
 
 // opmlImport is POST /api/opml: raw OPML or a multipart upload (first file
 // part), optional ?mark_read_older_than_days=N (1-365) and ?move_existing=true
