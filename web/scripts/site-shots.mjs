@@ -6,7 +6,7 @@
 //   node scripts/site-shots.mjs --readme ../docs/screenshots
 //
 // --readme writes the four WebP files README.md shows, deliberately not the site's: the Inbox layout with an article
-// open on a 1440x900 desktop, and the Cards layout on a 390x844 phone at 1.5x (585x1266), each in Paper and in Midnight so
+// open on a 1100x700 desktop at 1.5x (1650x1050), and the Cards layout on a 390x844 phone at 1.5x (585x1266), each in Paper and in Midnight so
 // the README can switch with GitHub's theme. Choosing a layout is saved to the seeded account, so re-seed before capturing
 // the site's shots after the README's (the site's shots use the default layout).
 //
@@ -47,15 +47,17 @@ if (!["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname)) {
 
 const DESKTOP = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1.25, size: [1800, 1125] };
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 1.5, size: [585, 1266], mobile: true };
-const README_DESKTOP = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, size: [1440, 900] };
-// `dir` says which output directory a shot goes to; `layout` (a name from the layout menu) is chosen before the capture.
+// A narrower, shorter window than the site's, so the text stays legible when GitHub scales the image down.
+const README_DESKTOP = { viewport: { width: 1100, height: 700 }, deviceScaleFactor: 1.5, size: [1650, 1050] };
+// `dir` says which output directory a shot goes to; `layout` (a name from the layout menu) is chosen before the capture;
+// `feed` (part of a feed title) opens that feed instead of the --feed default.
 const SHOTS = [
   { dir: "out", file: "desktop-paper", device: DESKTOP, scheme: "light", view: "reader" },
   { dir: "out", file: "desktop-midnight", device: DESKTOP, scheme: "dark", view: "reader" },
   { dir: "out", file: "phone-paper-reader", device: PHONE, scheme: "light", view: "article" },
   { dir: "out", file: "phone-midnight-list", device: PHONE, scheme: "dark", view: "list" },
-  { dir: "readme", file: "desktop-light", device: README_DESKTOP, scheme: "light", view: "reader", layout: "Inbox" },
-  { dir: "readme", file: "desktop-dark", device: README_DESKTOP, scheme: "dark", view: "reader", layout: "Inbox" },
+  { dir: "readme", file: "desktop-light", device: README_DESKTOP, scheme: "light", view: "reader", layout: "Inbox", feed: "Wikipedia Featured Article" },
+  { dir: "readme", file: "desktop-dark", device: README_DESKTOP, scheme: "dark", view: "reader", layout: "Inbox", feed: "Wikipedia Featured Article" },
   { dir: "readme", file: "phone-light", device: PHONE, scheme: "light", view: "list", layout: "Cards" },
   { dir: "readme", file: "phone-dark", device: PHONE, scheme: "dark", view: "list", layout: "Cards" },
 ].filter((shot) => opt[shot.dir]);
@@ -71,8 +73,12 @@ try {
   await lp.getByRole("button", { name: "Sign in" }).click();
   await lp.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
   const boot = await (await lp.request.get(origin.origin + "/api/bootstrap")).json();
-  const feed = boot.feeds.find((f) => f.title.includes(opt.feed));
-  if (!feed) throw new Error(`no feed titled like "${opt.feed}" (seed with KIPPLE_SEED_SET=site and wait for the first fetch)`);
+  const findFeed = (title) => {
+    const found = boot.feeds.find((f) => f.title.includes(title));
+    if (!found) throw new Error(`no feed titled like "${title}" (seed with KIPPLE_SEED_SET=site and wait for the first fetch)`);
+    return found;
+  };
+  const feed = findFeed(opt.feed);
   const storageState = await login.storageState();
   await login.close();
 
@@ -90,7 +96,7 @@ try {
       serviceWorkers: "block",
     });
     const page = await ctx.newPage();
-    await page.goto(`/l/all?feed=${encodeURIComponent(feed.id)}`);
+    await page.goto(`/l/all?feed=${encodeURIComponent((shot.feed ? findFeed(shot.feed) : feed).id)}`);
     const first = page.locator('article[data-item-id] a[href^="/i/"]').first();
     await first.waitFor({ timeout: 20000 });
     if (shot.layout) {
