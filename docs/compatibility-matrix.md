@@ -41,7 +41,7 @@ pull to refresh, and Move to folder for reordering feeds.
 
 ## Sync clients
 
-Kipple speaks the Google Reader API at `/api/greader.php`. A client that speaks the Google Reader API as a Google Reader compatible account works the same way. Sign in with the API password from Settings > Account & Devices. The request sequences the protocol uses are replayed against each release by the contract tests in CI; no client is promised beyond what those tests cover.
+Kipple speaks the Google Reader API at `/api/greader.php`. Add a Google Reader compatible account and enter the full server URL, `/api/greader.php` included; a client that drops the path and uses only the host cannot sign in through a tunnel that protects the rest of the site. Sign in with the API password from Settings > Account & Devices. The request sequences the protocol uses are replayed against each release by the contract tests in CI; no client is promised beyond what those tests cover.
 
 ## Still checked by a person
 

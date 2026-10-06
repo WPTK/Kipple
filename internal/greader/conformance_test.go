@@ -11,8 +11,10 @@ package greader
 //   - [GR]   the historical Google Reader API as clients implement it
 //            (ClientLogin, the GoogleLogin header, T tokens, stream ids,
 //            itemRefs and item shapes).
-//   - [RS]   the reference server implementations of the API, the ones
-//            clients are most commonly used against.
+//   - [RS]   the two reference server implementations of the API, the ones
+//            clients are most commonly used against. Where they disagree,
+//            the assertion says which one Kipple follows and
+//            docs/compatibility.md lists the divergence.
 //   - [K §x] docs/design.md, where Kipple decides between them or goes
 //            further. Deliberate divergences are listed endpoint by endpoint in
 //            docs/compatibility.md.

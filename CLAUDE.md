@@ -27,7 +27,7 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 
 - **Stack:** Go backend, React + TypeScript + Vite + Tailwind + shadcn frontend, SQLite in WAL mode. The frontend build
   is embedded in the Go binary. One image, one container, one port.
-- **Sync API:** Google Reader API (as the reference servers implement it) only. **No Fever.** The web app is the preferred client
+- **Sync API:** Google Reader API (as the two most widely used open source servers implement it, called the reference servers) only. **No Fever.** The web app is the preferred client
   (reading stats are web-only); any client that speaks the Google Reader API works. Test against the protocol, not named apps; build nothing special for any one app (issues #256, #260).
 - **Refresh:** background poll every 30 min (global + per-feed override), ETag/Last-Modified, exponential backoff on
   failing feeds, manual refresh fetches all now. API clients never trigger fetches of existing feeds; a feed added from
@@ -44,7 +44,7 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 - **Themes:** 20 color schemes (`web/src/theme/schemes.json` is the source of truth) plus follow-system with separate
   day and night picks (default Paper and Midnight). The original seven names are aliases (white=Paper, off-white=Linen,
   sepia=Parchment, soft green=Directory, brown=Cocoa Kraft, dark=Graphite, OLED=Midnight).
-- **Look:** Magazine and cards, images up front. Not a dense text list.
+- **Look:** The reference is a hosted commercial reader with magazine and cards, images up front (named in the history repo's UI decisions). Not the dense text-list readers.
 - **Non-goals:** no AI features, no notifications, no social (an opt-in share of the reader's own yearly summary,
   Wrapped, is allowed), no monitoring, no multi-user. Per-device appearance profiles are not multi-user. No podcasts or media players, no
   read-later or webhook integrations, no tags. Kipple is not trying to match what other readers have.
