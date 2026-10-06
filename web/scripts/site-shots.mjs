@@ -1,7 +1,14 @@
-// Captures the kipple.cc screenshots (and, with --site, the social preview) from a seeded local instance.
+// Captures the kipple.cc screenshots (and, with --site, the social preview) and the README screenshots from a seeded
+// local instance.
 //
 //   KIPPLE_SEED_SET=site npm run seed              (in one terminal; wait a minute for the feeds to fetch)
 //   node scripts/site-shots.mjs --out ../../kipple-website/screenshots [--site ../../kipple-website]
+//   node scripts/site-shots.mjs --readme ../docs/screenshots
+//
+// --readme writes the four WebP files README.md shows, deliberately not the site's: the Cards layout over every feed
+// on a 1440x900 desktop, and the Inbox layout on a 390x844 phone at 1.5x (585x1266), each in Paper and in Midnight so
+// the README can switch with GitHub's theme. Choosing a layout is saved to the seeded account, so re-seed before capturing
+// the site's shots after the README's (the site's shots use the default layout).
 //
 // Writes the four WebP files the site uses, at the sizes the site's design system (DESIGN-SYSTEM.md, "Screenshots")
 // names: desktop-paper.webp and desktop-midnight.webp 1800x1125 (a 1440x900 viewport at 1.25x), phone-paper-reader.webp
@@ -9,7 +16,7 @@
 // colour-scheme setting. The list uses the device's default layout (Editorial), as the site's shots always have. With --site <dir> it also renders <dir>/design-system/social-preview.html to <dir>/og.png
 // (1280x640). Only a loopback address is accepted, with the seed's throwaway credentials. Needs Chromium
 // (`npx playwright install chromium`, as for `npm run uat`). Run by hand at each release (docs/RELEASING.md).
-/* global document, createImageBitmap, OffscreenCanvas -- used inside page.evaluate, which runs in the browser */
+/* global document, window, createImageBitmap, OffscreenCanvas -- used inside page.evaluate, which runs in the browser */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -20,6 +27,7 @@ const { values: opt } = parseArgs({
   options: {
     url: { type: "string", default: "http://127.0.0.1:1919" },
     out: { type: "string" },
+    readme: { type: "string" },
     site: { type: "string" },
     feed: { type: "string", default: "Wikimedia Picture of the Day" },
     user: { type: "string", default: "dev" },
@@ -27,8 +35,8 @@ const { values: opt } = parseArgs({
     password: { type: "string", default: "dev-password-only-for-local-testing" },
   },
 });
-if (!opt.out) {
-  console.error("usage: node scripts/site-shots.mjs --out <screenshots dir> [--site <kipple-website dir>] [--feed <feed title>]");
+if (!opt.out && !opt.readme) {
+  console.error("usage: node scripts/site-shots.mjs [--out <site screenshots dir> [--site <kipple-website dir>]] [--readme <README screenshots dir>] [--feed <feed title>]");
   process.exit(2);
 }
 const origin = new URL(opt.url);
@@ -39,12 +47,19 @@ if (!["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname)) {
 
 const DESKTOP = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1.25, size: [1800, 1125] };
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 1.5, size: [585, 1266], mobile: true };
+const README_DESKTOP = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, size: [1440, 900] };
+// `dir` says which output directory a shot goes to; `layout` (a name from the layout menu) is chosen before the capture,
+// and `all` shows every feed instead of the site's one picture feed.
 const SHOTS = [
-  { file: "desktop-paper", device: DESKTOP, scheme: "light", view: "reader" },
-  { file: "desktop-midnight", device: DESKTOP, scheme: "dark", view: "reader" },
-  { file: "phone-paper-reader", device: PHONE, scheme: "light", view: "article" },
-  { file: "phone-midnight-list", device: PHONE, scheme: "dark", view: "list" },
-];
+  { dir: "out", file: "desktop-paper", device: DESKTOP, scheme: "light", view: "reader" },
+  { dir: "out", file: "desktop-midnight", device: DESKTOP, scheme: "dark", view: "reader" },
+  { dir: "out", file: "phone-paper-reader", device: PHONE, scheme: "light", view: "article" },
+  { dir: "out", file: "phone-midnight-list", device: PHONE, scheme: "dark", view: "list" },
+  { dir: "readme", file: "desktop-light", device: README_DESKTOP, scheme: "light", view: "list", layout: "Cards", all: true },
+  { dir: "readme", file: "desktop-dark", device: README_DESKTOP, scheme: "dark", view: "list", layout: "Cards", all: true },
+  { dir: "readme", file: "phone-light", device: PHONE, scheme: "light", view: "list", layout: "Inbox", all: true },
+  { dir: "readme", file: "phone-dark", device: PHONE, scheme: "dark", view: "list", layout: "Inbox", all: true },
+].filter((shot) => opt[shot.dir]);
 
 const browser = await chromium.launch();
 try {
@@ -62,7 +77,7 @@ try {
   const storageState = await login.storageState();
   await login.close();
 
-  mkdirSync(opt.out, { recursive: true });
+  for (const dir of [opt.out, opt.readme]) if (dir) mkdirSync(dir, { recursive: true });
   for (const shot of SHOTS) {
     const { device } = shot;
     const ctx = await browser.newContext({
@@ -76,9 +91,23 @@ try {
       serviceWorkers: "block",
     });
     const page = await ctx.newPage();
-    await page.goto(`/l/all?feed=${encodeURIComponent(feed.id)}`);
+    await page.goto(shot.all ? "/l/all" : `/l/all?feed=${encodeURIComponent(feed.id)}`);
     const first = page.locator('article[data-item-id] a[href^="/i/"]').first();
     await first.waitFor({ timeout: 20000 });
+    if (shot.layout) {
+      await page.getByRole("button", { name: /^List options/ }).click();
+      await page.getByRole("menuitemradio", { name: new RegExp(`^${shot.layout}`) }).click();
+      await page.keyboard.press("Escape");
+      // Close the first-run swipe hint on a phone, drop the focus ring the menu left on its button, and start the
+      // desktop grid at a day with a full row of cards.
+      await page.getByRole("button", { name: /^(dismiss|close)/i }).first().click({ timeout: 1000 }).catch(() => {});
+      await page.evaluate(() => {
+        document.activeElement?.blur();
+        const day = [...document.querySelectorAll("*")].find((e) => e.children.length === 0 && e.textContent.trim().toUpperCase() === "YESTERDAY");
+        if (day && window.innerWidth > 800) day.scrollIntoView({ block: "start" });
+      });
+      await page.waitForTimeout(500);
+    }
     if (shot.view !== "list") await first.click();
     if (shot.view === "reader") await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 15000 });
     if (shot.view === "article") await page.getByRole("article").or(page.locator("article, main")).first().waitFor({ timeout: 15000 });
@@ -89,7 +118,7 @@ try {
     const [w, h] = device.size;
     const got = pngSize(png);
     if (got.width !== w || got.height !== h) throw new Error(`${shot.file}: captured ${got.width}x${got.height}, expected ${w}x${h}`);
-    writeFileSync(resolve(opt.out, `${shot.file}.webp`), webp);
+    writeFileSync(resolve(opt[shot.dir], `${shot.file}.webp`), webp);
     console.log(`${shot.file}.webp  ${w}x${h}  ${(webp.length / 1024).toFixed(0)} KB`);
     await ctx.close();
   }

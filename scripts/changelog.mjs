@@ -7,7 +7,7 @@
 //   node scripts/changelog.mjs preview                     print the section the pending fragments would make
 //   node scripts/changelog.mjs release X.Y.Z[-pre.N] [--date YYYY-MM-DD] [--dry-run]
 //                                                          fold fragments into CHANGELOG.md, delete them, update compare links and the
-//                                                          example image tags (README.md, docker-compose.pull.example.yml, docs/deploy.md)
+//                                                          example image tags (docker-compose.pull.example.yml, docs/deploy.md)
 //   node scripts/changelog.mjs notes X.Y.Z[-pre.N]         print one version's CHANGELOG section (GitHub Release notes)
 //
 // Run from anywhere; paths resolve against the repository root. See changes/README.md for the fragment format.
@@ -30,7 +30,6 @@ const REPO = 'https://github.com/WPTK/Kipple';
 // rewrites them and `check` fails when one names another version than the newest CHANGELOG section. A file with
 // `required` must contain at least one tag (an empty match would make the check pass by seeing nothing).
 export const EXAMPLE_FILES = [
-  { path: 'README.md', required: true },
   { path: 'docker-compose.pull.example.yml', required: true },
   { path: 'docs/deploy.md', required: false },
 ];
