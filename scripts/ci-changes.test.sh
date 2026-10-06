@@ -78,6 +78,10 @@ alt="$tmp/alt"; mkdir "$alt"; cp "$cc" "$alt/ci-changes.sh"
 altcls() { printf '%s\n' "$1" > "$alt/ci-prose.txt"; printf '%s' "$2" | bash "$alt/ci-changes.sh" --classify; }
 ok list-cannot-bless-scripts true "$(altcls '*' 'scripts/ci-prose.txt')"
 ok list-cannot-bless-workflows true "$(altcls '*' '.github/workflows/ci.yml')"
+ok list-cannot-bless-actions true "$(altcls '*' '.github/actions/audit-image/action.yml')"
+ok list-cannot-bless-nested-scripts true "$(altcls '*' 'scripts/lib/x.ps1')"
+ok list-minus-line-still-wins true "$(altcls $'*
+!docs/keep.md' 'docs/keep.md')"
 ok list-star-matches-others false "$(altcls '*' 'main.go')"
 ok list-question-mark-is-literal true "$(altcls 'docs/x?.md' 'docs/xa.md')"
 ok list-question-mark-matches-itself false "$(altcls 'docs/x?.md' 'docs/x?.md')"
@@ -86,7 +90,7 @@ ok list-bracket-is-literal true "$(altcls 'docs/[ab].md' 'docs/a.md')"
 # The workflow must call the script through bash (a lost executable bit must not disable the skip) and must say so
 # loudly when the script cannot run, then run everything.
 wf="$here/../.github/workflows/ci.yml"
-ok workflow-calls-through-bash 1 "$(grep -c 'bash scripts/ci-changes.sh' "$wf")"
+ok workflow-calls-through-bash 1 "$(grep -c 'bash "$RULES/ci-changes.sh"' "$wf")"
 ok workflow-warns-when-script-cannot-run 1 "$(grep -c '::warning::.*ci-changes' "$wf")"
 bash "$cc" pull_request >/dev/null 2>&1
 ok script-exits-zero-when-it-runs 0 "$?"

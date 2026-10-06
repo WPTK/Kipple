@@ -39,17 +39,22 @@ jobs:
           persist-credentials: false
           fetch-depth: 2 # on a pull request HEAD is the merge commit and HEAD^1 is the base tip
 
+      # The rules come from the base commit, so a pull request cannot loosen its own classification (an edit to
+      # scripts/ci-changes.sh or scripts/ci-prose.txt takes effect from the next pull request). Run through bash, so a
+      # lost executable bit cannot matter. A script that ran prints true or false and exits 0; anything else (no rules on
+      # the base yet, a missing file, a crash) is "could not run": warn, then run everything.
       - id: filter
         env:
           EVENT_NAME: ${{ github.event_name }}
+          RULES: ${{ runner.temp }}/base-rules
         run: |
-          # Run through bash so a lost executable bit cannot matter. A script that ran prints true or false and exits 0;
-          # anything else (missing file, crash) is "could not run": warn, then run everything.
-          if code="$(bash scripts/ci-changes.sh "$EVENT_NAME")"; then
-            [ "$code" = false ] || code=true
-          else
-            echo "::warning::scripts/ci-changes.sh could not run; running every check"
-            code=true
+          code=true
+          if [ "$EVENT_NAME" = pull_request ]; then
+            if mkdir -p "$RULES" && git show HEAD^1:scripts/ci-changes.sh > "$RULES/ci-changes.sh" && git show HEAD^1:scripts/ci-prose.txt > "$RULES/ci-prose.txt" && out="$(bash "$RULES/ci-changes.sh" "$EVENT_NAME")"; then
+              if [ "$out" = false ]; then code=false; fi
+            else
+              echo "::warning::the base commit has no usable scripts/ci-changes.sh; running every check"
+            fi
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "code=$code"
@@ -65,6 +70,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # Prose is only skippable if nothing reads it: delete it, so a test that does fails here.
+      - run: bash scripts/ci-prune-prose.sh --delete
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -167,6 +175,9 @@ jobs:
 
       # Changelog fragments (changes/): names and bodies valid, CHANGELOG.md [Unreleased] untouched, and the tooling's own tests.
       - run: node ../scripts/changelog.mjs check
+      # After the fragment check above (it reads changes/): delete the prose files so a reader of one fails here.
+      - if: needs.changes.outputs.code != 'false'
+        run: bash ../scripts/ci-prune-prose.sh --delete
       - if: needs.changes.outputs.code != 'false'
         run: node --test ../scripts/changelog.test.mjs
       # The release workflow's tag rules (floating tags, tag shape, base image digest) live in a script with its own test.
@@ -178,9 +189,11 @@ jobs:
       # The weekly audit's issue open/update/close decisions (audit.yml), against a fake gh.
       - if: needs.changes.outputs.code != 'false'
         run: node --test ../scripts/audit-report.test.mjs
-      # Which pull requests count as prose-only (ci.yml job `changes`) and that no code reads a file on that list.
+      # Which pull requests count as prose-only (ci.yml job `changes`), the step that deletes the prose files, and the list's entries.
       - if: needs.changes.outputs.code != 'false'
         run: bash ../scripts/ci-changes.test.sh
+      - if: needs.changes.outputs.code != 'false'
+        run: bash ../scripts/ci-prune-prose.test.sh
       - if: needs.changes.outputs.code != 'false'
         run: node --test ../scripts/ci-prose.test.mjs
       # The required checks fail open to running everything, not to skipped.
@@ -224,6 +237,10 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0 # tags, for git describe
+
+      # Delete the prose files before the build context is sent, so a COPY of one fails the build. The version in this
+      # throwaway image gets a -dirty suffix from it; only a release build (release.yml) carries a version that matters.
+      - run: bash scripts/ci-prune-prose.sh --delete
 
       # Build and scan are shared with the weekly audit (audit.yml). Local actions are accepted by zizmor inline.
       - uses: ./.github/actions/build-image # zizmor: ignore[self-repository]
