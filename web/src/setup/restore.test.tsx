@@ -12,7 +12,7 @@ import { resetDeviceSync } from "@/lib/deviceSync";
 import { updatePrefs } from "@/lib/prefs";
 import { forgetWizardMemory, restoredFeeds } from "./session";
 import { resetOpenSignInGuard } from "./SetupFlow";
-import { silenceLimitSeconds } from "./RestoreWaiting";
+import { RestoreWaiting, silenceLimitSeconds } from "./RestoreWaiting";
 
 class NoES {
   addEventListener() {}
@@ -387,5 +387,18 @@ describe("restore in the setup wizard", () => {
       await vi.advanceTimersByTimeAsync(20_000);
     });
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Kipple stopped. Start it again and the restore will finish."));
+  });
+
+  it("says a reset was not applied, not that Kipple stopped, when Kipple keeps answering as set up", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server({ restore: "none", setup: false, signedIn: false }, {
+      "GET /api/instance": () => json({ setup: false, auth: null, access: { enabled: false, verified: false }, open: { reason: null }, restore: "none" }),
+    });
+    render(<RestoreWaiting kind="reset" estimateSeconds={30} username={null} onSignIn={() => {}} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(310_000);
+    });
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("the reset was not applied"));
+    expect(screen.queryByText(/Kipple stopped/)).toBeNull();
   });
 });

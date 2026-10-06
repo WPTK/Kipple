@@ -140,7 +140,7 @@ func TestRunServeAppliesARestoreConfirmedInTheWizard(t *testing.T) {
 	require.Equal(t, 0, countSessions(t, dataDir), "restore signs every session out")
 	dirs, err := filepath.Glob(filepath.Join(dataDir, "backup", "pre-restore-*"))
 	require.NoError(t, err)
-	require.Len(t, dirs, 1, "the empty database of setup mode is kept, as with kipple restore")
+	require.Empty(t, dirs, "the empty database of setup mode holds nothing, so no safety copy is kept")
 }
 
 // `kipple restore` and the web restore share one swap, and the CLI, the newer

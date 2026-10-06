@@ -3,27 +3,96 @@ package backup
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/WPTK/kipple/internal/store"
 )
 
 // KeepPreRestore is how many backup/pre-restore-* directories are kept.
 const KeepPreRestore = 3
 
 // Swap installs the verified database tmp as <dataDir>/kipple.db: the live
-// database (and its -wal and -shm) moves into a new backup/pre-restore-<ts>/
-// directory first, then tmp is renamed over kipple.db. Any failure puts
+// database moves into a new backup/pre-restore-<ts>/ directory first (unless it
+// is provably empty, see keepLive), then tmp is renamed over kipple.db. Any failure puts
 // everything back. pre is the directory the old database went to, "" when there
 // was none to keep. It is the one swap of `kipple restore` and of a restore
 // confirmed in the setup wizard.
 func Swap(dataDir, tmp string, now time.Time) (pre string, err error) {
+	pre, undo, err := keepLive(dataDir, now)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, filepath.Join(dataDir, "kipple.db")); err != nil {
+		undo()
+		return "", fmt.Errorf("install the restored database (the current one was put back): %w", err)
+	}
+	return pre, nil
+}
+
+// keepLive moves the live database into a new pre-restore directory. undo puts
+// it back. From one clean open of the file (journal mode DELETE, which
+// checkpoints it and removes its -wal and -shm, so the database is one file and
+// moves with one atomic rename) it first learns whether the database is
+// provably empty (liveState). Only then is it deleted instead of kept: what
+// setup mode creates holds nothing, and empty databases must never take the
+// newest-3 places of real safety copies. On any doubt (a read error, a row
+// anywhere, a file that is not a Kipple database, a failed open) it is kept.
+//
+// A file SQLite takes for garbage is opened with its -wal and -shm beside it,
+// and SQLite deletes those, so copies of them wait in the pre-restore directory
+// meanwhile and go back when the open failed (the file is not a SQLite database
+// at all). When the open worked, the checkpointed single file is what is kept
+// and the copies are deleted. A crash in between leaves the copies; the next
+// call puts them back (recoverCopies) and never deletes one while the original
+// is missing.
+func keepLive(dataDir string, now time.Time) (pre string, undo func(), err error) {
 	live := filepath.Join(dataDir, "kipple.db")
+	backupDir := filepath.Join(dataDir, "backup")
+	recoverCopies(dataDir, backupDir)
+	if _, err := os.Stat(live); err != nil {
+		// No main file: any -wal or -shm is moved as it is, below.
+		return keepFiles(dataDir, live, "", now)
+	}
+	if pre, err = newPreRestoreDir(backupDir, now); err != nil {
+		return "", nil, fmt.Errorf("pre-restore directory: %w", err)
+	}
+	copies := map[string]string{} // suffix -> copy in pre
+	for _, s := range []string{"-wal", "-shm"} {
+		if c, err := copyAside(live+s, pre); err == nil && c != "" {
+			copies[s] = c
+		}
+	}
+	state, opened := liveState(live)
+	for s, c := range copies {
+		if !opened {
+			if _, err := os.Stat(live + s); err != nil {
+				_ = os.Rename(c, live+s) // the open took it: put it back
+				continue
+			}
+		}
+		_ = os.Remove(c)
+	}
+	if state == liveEmpty {
+		for _, s := range []string{"", "-wal", "-shm"} {
+			_ = os.Remove(live + s)
+		}
+		_ = os.Remove(pre)
+		return "", func() {}, nil
+	}
+	return keepFiles(dataDir, live, pre, now)
+}
+
+// keepFiles moves kipple.db, -wal and -shm (those that exist) into pre, creating
+// it when pre is "".
+func keepFiles(dataDir, live, pre string, now time.Time) (string, func(), error) {
 	var done []string // suffixes moved so far
-	rollback := func() {
+	undo := func() {
 		for _, s := range done {
 			_ = os.Rename(filepath.Join(pre, "kipple.db"+s), live+s)
 		}
@@ -38,26 +107,75 @@ func Swap(dataDir, tmp string, now time.Time) (pre string, err error) {
 		if _, err := os.Stat(live + s); err != nil {
 			continue
 		}
-		if len(done) == 0 {
+		if pre == "" {
 			var err error
 			if pre, err = newPreRestoreDir(filepath.Join(dataDir, "backup"), now); err != nil {
-				return "", fmt.Errorf("pre-restore directory: %w", err)
+				return "", nil, fmt.Errorf("pre-restore directory: %w", err)
 			}
 		}
 		if err := os.Rename(live+s, filepath.Join(pre, "kipple.db"+s)); err != nil {
-			rollback()
-			return "", fmt.Errorf("keep the current database: %w", err)
+			undo()
+			return "", nil, fmt.Errorf("keep the current database: %w", err)
 		}
 		done = append(done, s)
 	}
-	if err := os.Rename(tmp, live); err != nil {
-		rollback()
-		return "", fmt.Errorf("install the restored database (the current one was put back): %w", err)
-	}
 	if len(done) == 0 {
+		if pre != "" {
+			_ = os.Remove(pre)
+		}
+		return "", func() {}, nil
+	}
+	return pre, undo, nil
+}
+
+// copyPrefix names the copies of a -wal or -shm made while a database is opened
+// to be looked at: copyPrefix, then the suffix ("wal" or "shm"), then a unique
+// part. recoverCopies handles any a crash left.
+const copyPrefix = "walcopy-"
+
+// copyAside copies src into dir under a unique name ("" when src is absent).
+func copyAside(src, dir string) (string, error) {
+	in, err := os.Open(src)
+	if err != nil {
 		return "", nil
 	}
-	return pre, nil
+	defer in.Close()
+	out, err := os.CreateTemp(dir, copyPrefix+strings.TrimPrefix(filepath.Ext(src), ".")+"-*")
+	if err != nil {
+		return "", err
+	}
+	_, err = io.Copy(out, in)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(out.Name())
+		return "", err
+	}
+	return out.Name(), nil
+}
+
+// recoverCopies finishes what a crash left in the pre-restore directories: a
+// copy whose original -wal or -shm is missing beside a live kipple.db is put
+// back (the open had deleted it), one whose original is there is removed. A
+// copy is never deleted while its original is missing.
+func recoverCopies(dataDir, backupDir string) {
+	live := filepath.Join(dataDir, "kipple.db")
+	if _, err := os.Stat(live); err != nil {
+		return
+	}
+	left, _ := filepath.Glob(filepath.Join(backupDir, "pre-restore-*", copyPrefix+"*"))
+	for _, c := range left {
+		suffix := "-wal"
+		if strings.HasPrefix(filepath.Base(c), copyPrefix+"shm-") {
+			suffix = "-shm"
+		}
+		if _, err := os.Stat(live + suffix); err != nil {
+			_ = os.Rename(c, live+suffix)
+		} else {
+			_ = os.Remove(c)
+		}
+	}
 }
 
 // preRestoreLayout is the timestamp in a pre-restore directory name. New names
@@ -163,4 +281,51 @@ func preRestoreKey(name string, local *time.Location) (at time.Time, n int, ok b
 		}
 	}
 	return at, n, true
+}
+
+type liveKind int
+
+const (
+	liveUnknown liveKind = iota // absent, unreadable or not provably empty: keep whatever is there
+	liveEmpty                   // provably empty: a Kipple database with no account, feed or item
+	liveHolds                   // a database that holds something
+)
+
+// liveState opens the live database once, checkpointing it into one file, and
+// says whether it is provably empty: a Kipple database (application id) whose
+// account, feeds and items tables all read as zero rows without an error, and
+// that passes a quick integrity check (a damaged b-tree can read as no rows).
+// Everything else is liveHolds or liveUnknown, and is kept. opened is whether
+// the file is a SQLite database at all (the first read worked), as opposed to
+// garbage SQLite cannot open.
+func liveState(live string) (state liveKind, opened bool) {
+	if _, err := os.Stat(live); err != nil {
+		return liveUnknown, false
+	}
+	db, err := openFile(live)
+	if err != nil {
+		return liveUnknown, false
+	}
+	defer db.Close()
+	var appID int
+	if err := db.QueryRow("PRAGMA application_id").Scan(&appID); err != nil {
+		return liveUnknown, false
+	}
+	if appID != store.ApplicationID {
+		return liveUnknown, true
+	}
+	for _, table := range []string{"account", "feeds", "items"} {
+		var n int
+		if err := db.QueryRow("SELECT count(*) FROM " + table).Scan(&n); err != nil {
+			return liveUnknown, true
+		}
+		if n > 0 {
+			return liveHolds, true
+		}
+	}
+	var check string
+	if err := db.QueryRow("PRAGMA quick_check").Scan(&check); err != nil || check != "ok" {
+		return liveUnknown, true
+	}
+	return liveEmpty, true
 }

@@ -11,6 +11,8 @@ export class ApiError extends Error {
   readonly body: Record<string, unknown> | null;
   /** Retry-After of an error answer, in milliseconds (0 when absent). */
   readonly retryAfterMs: number;
+  /** The answer came from Kipple itself (it carries Kipple's API header), not from a proxy or tunnel in front of it. */
+  fromKipple = false;
   constructor(status: number, code: string, body: Record<string, unknown> | null = null, retryAfterMs = 0) {
     super(`${status} ${code}`);
     this.name = "ApiError";
@@ -167,7 +169,9 @@ async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
       openRefusedStore.set({ reason: typeof body?.reason === "string" ? body.reason : null });
     }
     const ra = Number(res.headers.get("Retry-After"));
-    throw new ApiError(res.status, code, body, Number.isFinite(ra) && ra > 0 ? ra * 1000 : 0);
+    const err = new ApiError(res.status, code, body, Number.isFinite(ra) && ra > 0 ? ra * 1000 : 0);
+    err.fromKipple = res.headers.has("X-Kipple-API");
+    throw err;
   }
   if ((!opts.anon || opts.signsIn) && authStore.get() !== "in") authStore.set("in");
   if ((!opts.anon || opts.signsIn) && openRefusedStore.get()) openRefusedStore.set(null);
