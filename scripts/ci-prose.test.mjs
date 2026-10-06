@@ -27,15 +27,21 @@ export function proseFiles(listText, files) {
   return files.filter((f) => allow.some((r) => r.test(f)) && !deny.some((r) => r.test(f)));
 }
 
-const stripRelative = (v) => v.replace(/^(\.{1,2}\/)+/, '');
+const BS = String.fromCharCode(92);
+const stripRelative = (v) => v.split(BS).join('/').replace(/^(\.{1,2}\/)+/, '');
 const isEmbed = (l) => /^\s*\/\/go:embed\b/.test(l);
 const isComment = (l) => !isEmbed(l) && /^\s*(\/\/|#|\*|\/\*)/.test(l);
 const SHELLISH = /(\.(sh|ps1)|(^|\/)Dockerfile)$/;
+// A bare word ("changes", "docs", "web") is not a path: a job, a label or a client name can be spelled the same.
+const pathLike = (v) => v.includes('/') || /[.][A-Za-z0-9]+$/.test(v) || v.includes('*');
+// Commands whose bare words are paths.
+const FILE_COMMAND = /\b(COPY|ADD|cat|cp|mv|ls|cd|source|Get-Content|Copy-Item|tar|rsync)\b/;
 
-// Does this value name a listed file, a directory holding one, or a glob matching one?
-function namesProse(value, prose, all) {
+// Does this value name a listed file, a directory holding one, or a glob matching one? `bareOk` says a bare word is a
+// path here because it is an argument of a join call or of a file command.
+function namesProse(value, prose, all, bareOk = false) {
   const v = stripRelative(value.trim());
-  if (!v) return null;
+  if (!v || (!bareOk && !pathLike(v))) return null;
   if (prose.includes(v)) return v;
   const dir = v.replace(/\/+$/, '');
   // A directory holding listed files. A bare word such as "web" is only a directory when most of what is tracked
@@ -72,11 +78,20 @@ export function findReaders(sources, prose, all) {
     text.split('\n').forEach((line, i) => {
       if (isComment(line)) return;
       const values = [];
-      for (const m of line.matchAll(/(["'`])((?:(?!\1)[^\n])*)\1/g)) values.push(m[2]);
-      if (isEmbed(line)) values.push(...line.split(/\s+/).slice(1));
-      if (SHELLISH.test(name)) values.push(...line.split(/[\s"'`()=,;|<>]+/));
-      for (const v of values) {
-        const hit = namesProse(v, prose, all);
+      const literals = [...line.matchAll(/(["'`])((?:(?!\1)[^\n])*)\1/g)].map((m) => m[2]);
+      for (const v of literals) values.push([v, false]);
+      // join("..", "docs", "x.md") reads docs/x.md; join("changes", f) reads the changes directory.
+      for (const m of line.matchAll(/\b(?:join|Join|resolve|Resolve)\s*\(([^\n]*)/g)) {
+        const parts = [...m[1].matchAll(/(["'`])((?:(?!\1)[^\n])*)\1/g)].map((x) => x[2]).filter((x) => x !== '.' && x !== '..');
+        if (parts.length) values.push([parts.join('/'), true]);
+      }
+      if (isEmbed(line)) values.push(...line.split(/\s+/).slice(1).map((v) => [v, false]));
+      if (SHELLISH.test(name)) {
+        const bare = FILE_COMMAND.test(line);
+        values.push(...line.split(/[\s"'`()=,;|<>]+/).map((v) => [v, bare]));
+      }
+      for (const [v, bareOk] of values) {
+        const hit = namesProse(v, prose, all, bareOk);
         if (hit && !allowed.includes(stripRelative(v.trim()))) out.push(`${name}:${i + 1} names ${hit}: ${line.trim().slice(0, 100)}`);
       }
     });
@@ -120,6 +135,12 @@ test('the guard catches the ways code reads a file', () => {
     ['a.sh', 'cat SECURITY.md'],
     ['a.ps1', 'Get-Content docs/RELEASING.md'],
     ['a.go', '//go:embed docs/RELEASING.md'],
+    ['a_test.go', 'os.ReadFile(filepath.Join("..", "..", "docs", "RELEASING.md"))'],
+    ['a_test.go', 'entries, _ := os.ReadDir(filepath.Join("..", "..", "docs"))'],
+    ['a.mjs', "readdirSync(path.join(root, 'docs'))"],
+    ['a.mjs', "fs.readFileSync(path.join('docs', name))"],
+    ['a.mjs', "const f = 'docs" + BS + "RELEASING.md'; // a Windows path"],
+    ['Dockerfile', 'COPY docs /app/docs'],
   ];
   for (const [name, text] of caught) {
     assert.notDeepEqual(findReaders([{ name, text }], p), [], `not caught: ${name}: ${text}`);
@@ -129,6 +150,9 @@ test('the guard catches the ways code reads a file', () => {
     ['a.ts', '// docs/RELEASING.md describes this'],
     ['a.sh', '# cat SECURITY.md'],
     ['a.ts', 'const x = "README.md"'],
+    ['a.mjs', "for (const j of ['docs', 'changes', 'go']) run(j);"],
+    ['a.go', 'client := "docs"; label("changes")'],
+    ['a.sh', 'echo docs changes'],
   ];
   for (const [name, text] of mentions) {
     assert.deepEqual(findReaders([{ name, text }], p), [], `false alarm: ${name}: ${text}`);
