@@ -300,6 +300,10 @@ func TestApplyStagedDiscardsAStaleMarker(t *testing.T) {
 			done, err := ApplyStaged(dir, now, time.UTC)
 			require.NoError(t, err)
 			require.Equal(t, tc.stale, done.Stale)
+			if tc.stale {
+				require.NoError(t, done.StaleErr)
+				require.True(t, done.MarkerTime.Equal(at), "the log names when the marker was written")
+			}
 			require.Equal(t, !tc.stale, done.Restored)
 			require.NoFileExists(t, filepath.Join(dir, MarkerFile))
 			require.NoFileExists(t, filepath.Join(dir, StagedFile))

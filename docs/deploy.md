@@ -617,7 +617,8 @@ its date, the feed, item and starred counts, and the user name you will sign in 
 Things to know:
 
 - **Sign-in.** You sign in as the backup's account with its password. If that account had no password (Cloudflare
-  Access or open mode) and that sign-in would not work from where you are, the wizard asks for a new password first.
+  Access or open mode) and that sign-in would not work from where you are (this server's own Cloudflare Access does not
+  verify the request, or the open-mode gate refuses it), the wizard asks for a new password first.
   You can set a new password in any case.
 - **The address is not restored.** The public URL, allowed host names and trusted proxies describe the old server, so
   a wizard restore drops the backup's and keeps this server's own (from `KIPPLE_PUBLIC_URL`, `KIPPLE_ALLOWED_HOSTS` and
@@ -668,7 +669,7 @@ whenever convenient.
 
 Confirming a restore in the setup wizard or a reset in Settings does not change the database at once. It leaves two
 files in the data folder, `restore-staged.db` (the database to install) and `restore-pending.json` (the confirmation),
-and stops Kipple; the next start of any Kipple 0.8.0-beta.4 or newer installs it before the database opens. Until then
+and stops Kipple; the next start installs it before the database opens. Until then
 nothing has changed, so you can cancel: stop Kipple, delete both files, and start it again. If installing fails (the
 `backup` folder is not writable, say), the reason is in the log at every start and the files stay, so fix the cause or
 delete the files. A confirmation older than seven days is not applied: the next start deletes it and says so in the log,

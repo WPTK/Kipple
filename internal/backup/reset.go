@@ -19,7 +19,7 @@ import (
 // wizard restore both replace the staged copy's value for every key in it with
 // the live database's, so Kipple answers at the same address and a backup's
 // server settings never carry over. An entry matches a key it is a prefix of.
-var ServerSettingPrefixes = []string{"server.", "security.", "sys.allowed_hosts_env_merged"}
+var ServerSettingPrefixes = []string{"server.", "security.", store.SettingAllowedHostsMerged}
 
 // stageMu orders resets: one intent at a time, in this process.
 var stageMu sync.Mutex

@@ -328,8 +328,12 @@ const MaxMarkerAge = 7 * 24 * time.Hour
 type Applied struct {
 	// Restored: a confirmed restore was installed now.
 	Restored bool
-	// Stale: a confirmed marker older than MaxMarkerAge was discarded, not applied.
-	Stale bool
+	// Stale: a confirmed marker older than MaxMarkerAge was not applied. MarkerTime is
+	// when it was written (its file time) and StaleErr why removing it failed (nil:
+	// it and the staged database were removed).
+	Stale      bool
+	MarkerTime time.Time
+	StaleErr   error
 	// Pre is the directory the replaced database went to ("" when there was none).
 	Pre string
 	// KippleVersion, CreatedAt and Username describe the backup, from the marker.
@@ -370,9 +374,12 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 	// A marker that outlived days of use (a rollback to a Kipple that ignores it,
 	// then an upgrade again) is a decision nobody still means: drop it.
 	if fi, err := os.Stat(mpath); err == nil && now.Sub(fi.ModTime()) > MaxMarkerAge {
-		_ = os.Remove(mpath)
+		out.Stale, out.MarkerTime = true, fi.ModTime()
+		if err := os.Remove(mpath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			out.StaleErr = err // it is not applied, and removed at a later start
+			return out, nil
+		}
 		removeStaged(dataDir)
-		out.Stale = true
 		return out, nil
 	}
 	staged := filepath.Join(dataDir, StagedFile)
