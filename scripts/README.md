@@ -17,6 +17,7 @@ bad input). PowerShell itself exits `1` when it rejects a parameter before the s
 | `release-gates.ps1` | Runs the release test gates one at a time on a detached worktree of an exact commit | A temp worktree and logs folder, removed at the end. Nothing in your checkout, nothing remote | `-WhatIf` |
 | `release-publish.ps1` | Verifies the image and SBOM signatures of a pushed tag, then creates the GitHub Release | One new GitHub Release (the only change); a temp folder | `-WhatIf` (verifies, prints the create command) |
 | `branch-cleanup.ps1` | Deletes branches and agent worktrees whose pull request is merged | Local branches and worktrees; with `-IncludeRemote` also branches on origin. Asks for a typed yes | `-WhatIf` (prints the plan only) |
+| `pr-ready.ps1` | Prints READY or BLOCKED because ... for a PR; with `-Merge` squash-merges a READY one and verifies | Read-only, except `-Merge` merges that one PR (never deletes the branch) | `-WhatIf` with `-Merge` prints the merge command |
 
 ### release-gates.ps1
 
@@ -60,13 +61,27 @@ It runs `git fetch --prune origin` first (this updates remote-tracking refs only
 If this breaks: it depends on `gh pr list --json headRefName,headRefOid,mergedAt`, `git for-each-ref` and `git worktree
 list --porcelain` output. The decision logic is `Get-CleanupPlan`; every reason a branch is kept is a line in its tests.
 
+### pr-ready.ps1
+
+    pwsh scripts/pr-ready.ps1 -Number N [-Merge] [-Repo owner/name] [-WhatIf]
+
+One verdict: `READY` or `BLOCKED because ...` (open, not a draft, no failing or pending checks and at least one
+reported, base branch merged into the head, merge state CLEAN, no review requesting changes). The base-in-head check asks
+GitHub's compare API, so no local fetch happens and `FETCH_HEAD` is untouched. With `-Merge` and READY it runs `gh pr merge N
+--squash --match-head-commit <full head sha>` (a push after the verdict makes GitHub refuse), then checks the PR is
+MERGED and every `Closes #n` issue is CLOSED.
+
+If this breaks: it depends on the `gh pr view --json` fields listed in the script help, the compare API's `status` field
+and `gh pr merge --match-head-commit`. The decision logic is `Get-PrVerdict`.
+
 ## Tests for the tools
 
-    pwsh -NoProfile -Command "Invoke-Pester scripts/lib/Kipple.Tools.Tests.ps1, scripts/release-gates.Tests.ps1, scripts/release-publish.Tests.ps1, scripts/branch-cleanup.Tests.ps1"
+    pwsh -NoProfile -Command "Invoke-Pester scripts/lib/Kipple.Tools.Tests.ps1, scripts/release-gates.Tests.ps1, scripts/release-publish.Tests.ps1, scripts/branch-cleanup.Tests.ps1, scripts/pr-ready.Tests.ps1"
 
 Pester 5.5 or later (`Install-PSResource Pester -Scope CurrentUser`). Native commands are mocked: no network, no push.
 Lint: `pwsh scripts/ci-local.ps1 -Lint` (PSScriptAnalyzer with `scripts/PSScriptAnalyzerSettings.psd1`; findings of
 severity Warning or Error fail it; fix them rather than suppress them).
+
 
 
 
