@@ -152,7 +152,7 @@ func TestRestoreIntoAnEmptyDataDir(t *testing.T) {
 	empty := t.TempDir()
 	out, err := doRestore(empty, zipPath, true)
 	require.NoError(t, err)
-	require.Contains(t, out, "no previous database")
+	require.Contains(t, out, "no previous library")
 	require.NotContains(t, out, "To undo", "there is no pre-restore directory to undo from")
 	require.Equal(t, 12, countItems(t, empty))
 }
@@ -241,7 +241,7 @@ func TestRestoreRefusesBadInput(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, raw.Close())
 	_, err = doRestore(dir, newer, true)
-	require.ErrorContains(t, err, "newer than this Kipple binary")
+	require.ErrorContains(t, err, "made by a newer Kipple")
 
 	// A damaged backup: kipple.db rewritten with one byte of its decompressed content changed and
 	// the manifest's checksum left stale. (Flipping a raw byte of the zip is not deterministic: it
@@ -280,7 +280,7 @@ func TestPreRestoreDirsArePruned(t *testing.T) {
 	}
 	dirs, err := filepath.Glob(filepath.Join(dir, "backup", "pre-restore-*"))
 	require.NoError(t, err)
-	require.Len(t, dirs, keepPreRestore)
+	require.Len(t, dirs, backup.KeepPreRestore)
 }
 
 func TestRunRestoreArgs(t *testing.T) {
@@ -298,44 +298,6 @@ func TestRunRestoreArgs(t *testing.T) {
 	}
 }
 
-func TestFailedSwapLeavesNoEmptyPreRestoreDir(t *testing.T) {
-	dir := t.TempDir()
-	live := filepath.Join(dir, "kipple.db")
-	require.NoError(t, os.WriteFile(live, []byte("live"), 0o600))
-	require.NoError(t, os.WriteFile(live+"-wal", []byte("wal"), 0o600))
-
-	var pre string
-	moved, err := swap(dir, filepath.Join(dir, "missing-tmp.db"), live, time.Now(), &pre)
-	require.Error(t, err)
-	require.False(t, moved)
-	b, err := os.ReadFile(live)
-	require.NoError(t, err)
-	require.Equal(t, "live", string(b), "the live database was put back")
-	require.FileExists(t, live+"-wal")
-	dirs, err := filepath.Glob(filepath.Join(dir, "backup", "pre-restore-*"))
-	require.NoError(t, err)
-	require.Empty(t, dirs, "the rollback removed the empty pre-restore directory")
-}
-
-func TestPruneIgnoresEmptyPreRestoreDirs(t *testing.T) {
-	backupDir := filepath.Join(t.TempDir(), "backup")
-	full := func(name string) string {
-		d := filepath.Join(backupDir, name)
-		require.NoError(t, os.MkdirAll(d, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(d, "kipple.db"), []byte("x"), 0o600))
-		return d
-	}
-	oldest := full("pre-restore-20260101-000000")
-	full("pre-restore-20260102-000000")
-	full("pre-restore-20260103-000000")
-	empty := filepath.Join(backupDir, "pre-restore-20260104-000000")
-	require.NoError(t, os.MkdirAll(empty, 0o755))
-
-	prunePreRestore(backupDir)
-	require.DirExists(t, oldest, "an empty directory does not push a real copy out")
-	require.NoDirExists(t, empty)
-}
-
 func TestRestoreFromStandardInput(t *testing.T) {
 	src := newData(t, 9)
 	zipPath := export(t, src)
@@ -349,96 +311,4 @@ func TestRestoreFromStandardInput(t *testing.T) {
 	require.Contains(t, out.String(), "standard input")
 	require.Equal(t, 9, countItems(t, dir))
 	require.NoFileExists(t, filepath.Join(dir, "restore-upload.tmp"), "the spool is removed")
-}
-
-// The -N suffix orders as a number (-10 is newer than -2) and a name that is
-// not ours is never pruned.
-func TestPrunePreRestoreOrdersSuffixNumerically(t *testing.T) {
-	backupDir := filepath.Join(t.TempDir(), "backup")
-	full := func(name string) string {
-		d := filepath.Join(backupDir, name)
-		require.NoError(t, os.MkdirAll(d, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(d, "kipple.db"), []byte("x"), 0o600))
-		return d
-	}
-	var all []string
-	all = append(all, full("pre-restore-20260101-000000"))
-	for i := 2; i <= 10; i++ {
-		all = append(all, full(fmt.Sprintf("pre-restore-20260101-000000-%d", i)))
-	}
-	foreign := full("pre-restore-keep-me")
-	prunePreRestore(backupDir)
-	for _, d := range all[:len(all)-3] {
-		require.NoDirExists(t, d)
-	}
-	for _, d := range all[len(all)-3:] {
-		require.DirExists(t, d, "the three newest (-8, -9, -10) are kept")
-	}
-	require.DirExists(t, foreign, "a name that does not parse is left alone")
-
-	// The timestamp is compared as a time, not as text.
-	at, n, ok := preRestoreKey("pre-restore-20260101-000000Z-12")
-	require.True(t, ok)
-	require.Equal(t, 12, n)
-	require.Equal(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), at)
-	for _, bad := range []string{"pre-restore-2026", "pre-restore-20260101-000000-", "pre-restore-20260101-000000-x", "pre-restore-20261301-000000", "pre-restore-20260101-000000Z-", "pre-restore-20260101-000000ZZ", "pre-restore-20260101-000000z"} {
-		_, _, ok := preRestoreKey(bad)
-		require.False(t, ok, bad)
-	}
-}
-
-// Names are UTC, so the repeated hour at the end of daylight saving time can
-// never make the newer directory sort first.
-func TestPreRestoreNamesAreUTC(t *testing.T) {
-	ny, err := time.LoadLocation("America/New_York")
-	require.NoError(t, err)
-	backupDir := filepath.Join(t.TempDir(), "backup")
-	// 2026-11-01 01:30 EDT, then 01:10 EST (40 minutes later in real time).
-	first := time.Date(2026, 11, 1, 5, 30, 0, 0, time.UTC).In(ny)
-	second := time.Date(2026, 11, 1, 6, 10, 0, 0, time.UTC).In(ny)
-	require.True(t, first.Format("150405") > second.Format("150405"), "local wall clock goes backwards")
-	a, err := newPreRestoreDir(backupDir, first)
-	require.NoError(t, err)
-	b, err := newPreRestoreDir(backupDir, second)
-	require.NoError(t, err)
-	require.Equal(t, "pre-restore-20261101-053000Z", filepath.Base(a))
-	require.Equal(t, "pre-restore-20261101-061000Z", filepath.Base(b))
-	ka, _, _ := preRestoreKey(filepath.Base(a))
-	kb, _, _ := preRestoreKey(filepath.Base(b))
-	require.True(t, ka.Before(kb))
-}
-
-// Across the upgrade the backup directory holds zone-less names written in the
-// server's local time by older versions next to new UTC (Z) names. On a host
-// east of UTC the old names read as UTC would look hours newer than they are
-// and pruning would delete the new copy; they are read as local time instead.
-func TestPrunePreRestoreMixesLegacyLocalAndUTCNames(t *testing.T) {
-	fakeLocalZone(t, time.FixedZone("UTC+3", 3*3600))
-
-	at, _, ok := preRestoreKey("pre-restore-20260926-120000")
-	require.True(t, ok)
-	require.Equal(t, time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC), at, "a legacy name is local time")
-	at, _, ok = preRestoreKey("pre-restore-20260926-120000Z")
-	require.True(t, ok)
-	require.Equal(t, time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC), at)
-
-	backupDir := filepath.Join(t.TempDir(), "backup")
-	full := func(name string) string {
-		d := filepath.Join(backupDir, name)
-		require.NoError(t, os.MkdirAll(d, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(d, "kipple.db"), []byte("x"), 0o600))
-		return d
-	}
-	oldest := full("pre-restore-20260926-110000") // 08:00 UTC
-	full("pre-restore-20260926-120000")           // 09:00 UTC
-	full("pre-restore-20260926-130000")           // 10:00 UTC
-	// The first restore after the upgrade, at 10:30 UTC (13:30 local).
-	newest, err := newPreRestoreDir(backupDir, time.Date(2026, 9, 26, 10, 30, 0, 0, time.UTC))
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(newest, "kipple.db"), []byte("x"), 0o600))
-	require.Equal(t, "pre-restore-20260926-103000Z", filepath.Base(newest))
-
-	prunePreRestore(backupDir)
-	require.DirExists(t, newest, "the newest copy is kept")
-	require.NoDirExists(t, oldest, "the oldest (a legacy one) goes")
 }

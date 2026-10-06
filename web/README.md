@@ -117,8 +117,8 @@ pair; the schedule switches at "Night starts" (default 21:00) and "Day starts" (
 clock, whatever the OS says), font, text size, one Density choice with an
 "Adjust separately" disclosure, and "Highlight keywords" (the Aa menu; Settings > Appearance has theme, the Reading
 font with a sample paragraph, text size and Density; the setup wizard's step 3, "Look and feel", has the theme pair and
-the Reading font). The font is THE font: it applies at once to lists, the reader and the sidebar
-(`--kp-app-font`, and `--kp-reading-font` for articles); Settings, Manage feeds, Health and every menu, popover and
+the Reading font). The font styles articles at once (`--kp-reading-font`); the switch "Use it everywhere"
+(`client.font_everywhere`, off by default) extends it to lists and the sidebar (`--kp-app-font`); Settings, Manage feeds, Health and every menu, popover and
 dialog keep the system UI font (`.ui-font` and the role selectors in `index.css`). "Default" leaves lists and chrome in
 the system font and articles in the reading serif. Segmented controls are pressed-style buttons over hidden native
 radios (arrow keys work); choosing one holds the control where it was on screen even when the page above reflows

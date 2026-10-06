@@ -23,6 +23,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/api"
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/backup"
 	"github.com/WPTK/kipple/internal/buildinfo"
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/events"
@@ -146,6 +147,11 @@ func runServe() error {
 		return fmt.Errorf("data dir lock: %w", err)
 	}
 	defer func() { _ = dataLock.Release() }()
+	// A restore confirmed in the setup wizard is applied now, under the lock and
+	// before the database opens (it is idempotent: an interrupted one finishes).
+	if err := applyStagedRestore(cfg.DataDir, logger); err != nil {
+		return err
+	}
 	// One shutdown budget (shutdown.go): started by the stop signal, drawn on by
 	// every stage and by the deferred closes below.
 	var budget shutdownBudget
@@ -188,7 +194,13 @@ func runServe() error {
 	// The background work (fetching, maintenance, icons) starts only once an
 	// account exists: at once when there is one, else when the claim creates it.
 	var startWork func()
-	setupMgr, err := startSetupMode(context.Background(), db, cfg, logger, func() { startWork() })
+	setupMgr, err := startSetupMode(context.Background(), db, cfg, logger, func() {
+		// The account exists now: a reset's request to ignore the environment is spent.
+		if err := setup.SetIgnoreEnvAccount(cfg.DataDir, false); err != nil {
+			logger.Warn("cannot remove "+setup.NoEnvAccountFile, "err", err)
+		}
+		startWork()
+	})
 	if err != nil {
 		return fmt.Errorf("setup: %w", err)
 	}
@@ -258,6 +270,13 @@ func runServe() error {
 		},
 	})
 
+	// The stop signal, or a confirmed restore (Options.Restart): both run the
+	// same clean shutdown, and the restart policy starts Kipple again.
+	sigCtx, stop := stopSignals()
+	defer stop()
+	ctx, restart := context.WithCancel(sigCtx)
+	defer restart()
+
 	tailnet := setup.TailnetCheck()
 	_ = tailnet() // the first scan now, not on the first request
 	openGate := setup.Gate{Trusted: reachLive.Trusted, Tailnet: tailnet}
@@ -269,6 +288,11 @@ func runServe() error {
 		OnAPIPasswordChange: readerAPI.InvalidateAccount,
 		Setup:               setupMgr,
 		Gate:                openGate,
+		EnvAccount:          cfg.Username != "" && cfg.Password != "",
+		Restart: func() {
+			logger.Info("stopping so the next start applies the restore or reset")
+			restart()
+		},
 	})
 	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API
@@ -296,9 +320,6 @@ func runServe() error {
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-
-	ctx, stop := stopSignals()
-	defer stop()
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -330,6 +351,28 @@ func runServe() error {
 	}
 
 	return superviseServe(ctx, serveErr, stopAll, &budget, logger)
+}
+
+// applyStagedRestore applies a restore confirmed in the setup wizard or a reset
+// confirmed in Settings (backup.ApplyStaged) and logs what it did.
+func applyStagedRestore(dataDir string, logger *slog.Logger) error {
+	done, err := backup.ApplyStaged(dataDir, time.Now(), localZone())
+	if err != nil {
+		return err
+	}
+	if done.Stale && done.StaleErr != nil {
+		logger.Error("a restore or reset confirmed more than a week ago is not applied, but its marker could not be removed; delete restore-pending.json and restore-staged.db in the data folder",
+			"confirmed_at", done.MarkerTime.UTC().Format(time.RFC3339), "err", done.StaleErr)
+	} else if done.Stale {
+		logger.Warn("discarded a restore or reset confirmed more than a week ago and never applied; nothing was changed",
+			"confirmed_at", done.MarkerTime.UTC().Format(time.RFC3339))
+	}
+	if done.Restored {
+		logger.Info("applied the restore or reset confirmed in the browser; every web session was signed out",
+			"username", done.Username, "backup_created_at", done.CreatedAt, "backup_kipple_version", done.KippleVersion,
+			"previous_database", done.Pre)
+	}
+	return nil
 }
 
 // stopSignals is the context the stop signal (SIGINT, SIGTERM) cancels (a seam

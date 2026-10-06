@@ -8,6 +8,21 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.8.0-beta.4] - 2026-10-06
+
+### Added
+
+- Reset Kipple and start over: Settings > Account & Devices > Reset Kipple erases the feeds, folders, history, settings and account and returns Kipple to setup, where you create a new account or restore a backup. It asks for your password and for you to type `reset kipple`, keeps a safety copy of the old library in `backup/pre-restore-*` (restorable with `kipple restore`), keeps your public address, allowed host names, trusted proxies and Cloudflare Access settings, and restarts through your restart policy while the page waits. If your compose file or `.env` sets `KIPPLE_USERNAME` and `KIPPLE_PASSWORD`, Kipple ignores them until you create a new account. Only the newest three safety copies are kept, so repeated resets or restores push older ones out: export a backup first if you want one you keep. A provably empty database is never kept as a safety copy. A restore or reset left pending for more than seven days is discarded instead of applied. (#283)
+- Restore a backup from the setup wizard: on a new server with no account yet, the first screen offers "Restore from a backup". Upload the export zip with a progress bar, check its date, counts and the account you will sign in as, then restore everything (Kipple restarts to apply it) or only the feeds; an OPML file from any reader works as feeds only. The zip is checked before anything changes, the public address, allowed host names, trusted proxies and Cloudflare Access settings of the backup are dropped because they describe the old server, and this server's own are kept, and a new password can be set (it is required when the account's sign-in would not work from here). `kipple restore` and its messages now name the Kipple version that made a backup instead of internal numbers, and it refuses a zip with more than ten files. (#246)
+
+### Changed
+
+- Developer tooling: `web/scripts/site-shots.mjs --readme <dir>` captures the four screenshots the README shows, and `node scripts/changelog.mjs` no longer pins an image tag in `README.md`, which now names none.
+
+### Fixed
+
+- The reading font now styles articles only. Lists and the sidebar keep the system font, and a new per-device setting, Use it everywhere (off by default), applies the reading font to them as well.
+
 ## [0.8.0-beta.3] - 2026-10-05
 
 ### Added
@@ -863,7 +878,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.3...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.4...HEAD
+[0.8.0-beta.4]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.3...v0.8.0-beta.4
 [0.8.0-beta.3]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.2...v0.8.0-beta.3
 [0.8.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.1...v0.8.0-beta.2
 [0.8.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.7.0-beta.2...v0.8.0-beta.1

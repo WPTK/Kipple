@@ -1,6 +1,7 @@
 // The setup wizard's calls (docs/design.md §7.1e) and the plain-English wording of what they
 // can answer. Nothing here knows about React.
 import { ApiError, api } from "@/api/client";
+import type { RestoreState } from "./restoreApi";
 
 /** Why open mode (no password) is refused for a request. */
 export type OpenReason = "host" | "peer" | "forwarded";
@@ -12,6 +13,8 @@ export interface SetupOptions {
     /** Null: open mode works from here. */
     reason: OpenReason | null;
   };
+  /** Whether a restore from a backup is waiting (uploaded) or has been confirmed and is being applied. */
+  restore?: RestoreState;
 }
 
 /** GET /api/instance: the one fact the signed-out app needs to pick its first screen. */

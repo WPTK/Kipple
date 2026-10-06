@@ -31,6 +31,11 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 		return fmt.Errorf("read account: %w", err)
 	}
 	if exists {
+		// A reset that kept the variables asked to ignore them until an account
+		// exists; one does, so the request is spent.
+		if err := setup.SetIgnoreEnvAccount(cfg.DataDir, false); err != nil {
+			logger.Warn("cannot remove "+setup.NoEnvAccountFile, "err", err)
+		}
 		if acc.APIPasswordHash == "" && cfg.APIPassword != "" {
 			if err := checkEnvPassword("KIPPLE_API_PASSWORD", cfg.APIPassword, auth.MinAPIPasswordLen); err != nil {
 				// Usually a leftover variable meeting an account without an API
@@ -50,6 +55,10 @@ func ensureAccount(ctx context.Context, db *store.DB, cfg config.Config, logger 
 			logger.Info("Reader API password set from KIPPLE_API_PASSWORD")
 		}
 		warnPasswordless(ctx, db, acc, logger)
+		return nil
+	}
+	if setup.IgnoreEnvAccount(cfg.DataDir) {
+		logger.Info("not creating the account from KIPPLE_USERNAME and KIPPLE_PASSWORD: Kipple was reset and told to ignore them until an account exists")
 		return nil
 	}
 	// A new account always gets a web password, Access or not: an empty

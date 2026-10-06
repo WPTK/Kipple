@@ -7,8 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,9 +14,6 @@ import (
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/lock"
 )
-
-// keepPreRestore is how many pre-restore-* directories are kept.
-const keepPreRestore = 3
 
 type restoreOptions struct {
 	DataDir string
@@ -157,7 +152,7 @@ func restore(ctx context.Context, o restoreOptions) error {
 	// container's user cannot read a bind-mounted /import, and a zip needs random
 	// access), and removes the spool afterwards.
 	if o.Src == "-" {
-		upload := filepath.Join(o.DataDir, "restore-upload.tmp")
+		upload := filepath.Join(o.DataDir, backup.UploadFile)
 		_ = os.Remove(upload)
 		defer os.Remove(upload)
 		if o.In == nil {
@@ -212,8 +207,8 @@ func restore(ctx context.Context, o restoreOptions) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
-	fmt.Fprintf(out, "Backup: %s\n  taken: %s\n  schema version %d, %d feeds, %d items, %d starred; passes the integrity checks.\n",
-		label, created, info.SchemaVersion, info.Feeds, info.Items, info.Starred)
+	fmt.Fprintf(out, "Backup: %s\n  taken: %s\n  %d feeds, %d items, %d starred; passes the integrity checks.\n",
+		label, created, info.Feeds, info.Items, info.Starred)
 	if !o.Yes {
 		return errNotConfirmed
 	}
@@ -227,166 +222,32 @@ func restore(ctx context.Context, o restoreOptions) error {
 	if !backupExisted {
 		owned = append(owned, backupDir) // a swap creates it; chown ignores a missing path
 	}
-	var pre string
-	moved, err := swap(o.DataDir, tmp, live, o.Now(), &pre)
+	// A restore confirmed in the setup wizard and not applied yet (Kipple was
+	// stopped before it started again) would replace this one at the next start:
+	// this restore is the newer decision, so that one is dropped first. Done
+	// before the swap, so a crash in between can never leave both in place.
+	if backup.DiscardStaged(o.DataDir) {
+		fmt.Fprintln(out, "A restore or reset that was waiting to be applied at the next start was dropped; this restore replaces it.")
+	}
+	pre, err := backup.Swap(o.DataDir, tmp, o.Now())
 	if err != nil {
 		return err
 	}
+	moved := pre != ""
 	owned = append(owned, live)
 	if moved {
 		owned = append(owned, pre)
 	}
-	prunePreRestore(backupDir)
+	backup.PrunePreRestore(backupDir, localZone())
 	if moved {
 		fmt.Fprintf(out, "The previous database was moved to %s\n", pre)
 	} else {
-		fmt.Fprintln(out, "There was no previous database to keep.")
+		fmt.Fprintln(out, "There was no previous library to keep (the database was absent or empty).")
 	}
-	fmt.Fprintln(out, "Restored. Next: start Kipple (it migrates an older schema after taking its own pre-migration snapshot),")
+	fmt.Fprintln(out, "Restored. Next: start Kipple (a backup from an older Kipple is upgraded on that start, after a safety copy),")
 	fmt.Fprintln(out, "sign in again (all sessions were signed out), and check the feed count on the status page.")
 	if moved {
 		fmt.Fprintln(out, "To undo, stop Kipple and restore the file in that pre-restore directory (kipple.db, with its -wal if present).")
 	}
 	return nil
-}
-
-// swap moves the live database (and its -wal/-shm) into a new
-// backup/pre-restore-<ts>/ directory and renames tmp over kipple.db. Any
-// failure puts everything back.
-func swap(dataDir, tmp, live string, now time.Time, preOut *string) (moved bool, err error) {
-	var pre string
-	var done []string // suffixes moved so far
-	rollback := func() {
-		for _, s := range done {
-			_ = os.Rename(filepath.Join(pre, "kipple.db"+s), live+s)
-		}
-		// Remove the now-empty pre-restore directory: left behind, it would count
-		// toward keepPreRestore and prune a real safety copy early. os.Remove
-		// refuses a non-empty directory, so a file that failed to move back stays.
-		if pre != "" {
-			_ = os.Remove(pre)
-		}
-	}
-	for _, s := range []string{"", "-wal", "-shm"} {
-		if _, err := os.Stat(live + s); err != nil {
-			continue
-		}
-		if len(done) == 0 {
-			var err error
-			if pre, err = newPreRestoreDir(filepath.Join(dataDir, "backup"), now); err != nil {
-				return false, fmt.Errorf("pre-restore directory: %w", err)
-			}
-		}
-		if err := os.Rename(live+s, filepath.Join(pre, "kipple.db"+s)); err != nil {
-			rollback()
-			return false, fmt.Errorf("keep the current database: %w", err)
-		}
-		done = append(done, s)
-	}
-	if err := os.Rename(tmp, live); err != nil {
-		rollback()
-		return false, fmt.Errorf("install the restored database (the current one was put back): %w", err)
-	}
-	*preOut = pre
-	return len(done) > 0, nil
-}
-
-// preRestoreLayout is the timestamp in a pre-restore directory name. New names
-// are UTC and end in Z (preRestoreUTC), so a daylight saving change can never
-// make a newer name look older; names without the Z were written by older
-// versions in the server's local time and are read as such.
-const (
-	preRestoreLayout = "20060102-150405"
-	preRestoreUTC    = "Z"
-)
-
-// newPreRestoreDir creates backup/pre-restore-<second>, or <second>-2, -3, ...
-// when that name is taken: two restores in one second must never share (and
-// overwrite) a directory. prunePreRestore orders them by preRestoreKey.
-func newPreRestoreDir(backupDir string, now time.Time) (string, error) {
-	if err := os.MkdirAll(backupDir, 0o755); err != nil {
-		return "", err
-	}
-	base := filepath.Join(backupDir, "pre-restore-"+now.UTC().Format(preRestoreLayout)+preRestoreUTC)
-	dir := base
-	for i := 2; i < 1000; i++ {
-		err := os.Mkdir(dir, 0o755)
-		if err == nil {
-			return dir, nil
-		}
-		if !errors.Is(err, os.ErrExist) {
-			return "", err
-		}
-		dir = fmt.Sprintf("%s-%d", base, i)
-	}
-	return "", errors.New("too many pre-restore directories with the same timestamp")
-}
-
-func prunePreRestore(backupDir string) {
-	found, _ := filepath.Glob(filepath.Join(backupDir, "pre-restore-*"))
-	// An empty directory (a leftover of an interrupted restore) holds nothing to
-	// keep: remove it rather than let it take one of the keepPreRestore places.
-	var dirs []string
-	for _, d := range found {
-		if ents, err := os.ReadDir(d); err == nil && len(ents) == 0 {
-			_ = os.Remove(d)
-			continue
-		}
-		dirs = append(dirs, d)
-	}
-	// Oldest first by the parsed timestamp, then the -N suffix (as a number:
-	// -10 is newer than -2). A name that does not parse is not ours: never pruned.
-	type entry struct {
-		dir string
-		at  time.Time
-		n   int
-	}
-	var list []entry
-	for _, d := range dirs {
-		if at, n, ok := preRestoreKey(filepath.Base(d)); ok {
-			list = append(list, entry{d, at, n})
-		}
-	}
-	sort.Slice(list, func(i, j int) bool {
-		if !list[i].at.Equal(list[j].at) {
-			return list[i].at.Before(list[j].at)
-		}
-		return list[i].n < list[j].n
-	})
-	for len(list) > keepPreRestore {
-		_ = os.RemoveAll(list[0].dir)
-		list = list[1:]
-	}
-}
-
-// preRestoreKey parses pre-restore-<YYYYMMDD-HHMMSS>[Z][-N]: the time, as UTC
-// with the Z and as the server's local time without it (the zone-less names of
-// older versions), normalised to UTC so both kinds sort together; and N (1
-// without a suffix).
-func preRestoreKey(name string) (at time.Time, n int, ok bool) {
-	rest, ok := strings.CutPrefix(name, "pre-restore-")
-	if !ok || len(rest) < len(preRestoreLayout) {
-		return time.Time{}, 0, false
-	}
-	loc := localZone()
-	stamp, suf := rest[:len(preRestoreLayout)], rest[len(preRestoreLayout):]
-	if after, utc := strings.CutPrefix(suf, preRestoreUTC); utc {
-		loc, suf = time.UTC, after
-	}
-	at, err := time.ParseInLocation(preRestoreLayout, stamp, loc)
-	if err != nil {
-		return time.Time{}, 0, false
-	}
-	at = at.UTC()
-	n = 1
-	if suf != "" {
-		digits, ok := strings.CutPrefix(suf, "-")
-		if !ok || digits == "" || strings.TrimLeft(digits, "0123456789") != "" {
-			return time.Time{}, 0, false
-		}
-		if n, err = strconv.Atoi(digits); err != nil {
-			return time.Time{}, 0, false
-		}
-	}
-	return at, n, true
 }

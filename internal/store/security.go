@@ -30,10 +30,10 @@ const (
 // MaxAllowedHosts bounds security.allowed_hosts.
 const MaxAllowedHosts = 64
 
-// settingAllowedHostsMerged records that MergeAllowedHostsOnce ran (its value is
+// SettingAllowedHostsMerged records that MergeAllowedHostsOnce ran (its value is
 // the time). Contract: it can go, with MergeAllowedHostsOnce, once an upgrade
 // from 0.8.0-beta.2 or older is no longer supported.
-const settingAllowedHostsMerged = "sys.allowed_hosts_env_merged"
+const SettingAllowedHostsMerged = "sys.allowed_hosts_env_merged"
 
 // MergeAllowedHostsOnce is the one-time step from the rule of 0.8.0-beta.2 and
 // older (the Host gate answered KIPPLE_ALLOWED_HOSTS and security.allowed_hosts
@@ -54,10 +54,10 @@ func (d *DB) MergeAllowedHostsOnce(ctx context.Context, names []string) error {
 	var dropped []string
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		dropped = nil
-		if _, done, err := settingRawErr(ctx, tx, settingAllowedHostsMerged); err != nil || done {
+		if _, done, err := settingRawErr(ctx, tx, SettingAllowedHostsMerged); err != nil || done {
 			return err
 		}
-		set := map[string]any{settingAllowedHostsMerged: d.clock.Now().Unix()}
+		set := map[string]any{SettingAllowedHostsMerged: d.clock.Now().Unix()}
 		raw, ok, err := settingRawErr(ctx, tx, SettingAllowedHosts)
 		if err != nil {
 			return err

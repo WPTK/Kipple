@@ -123,6 +123,15 @@ type Options struct {
 	Setup *setup.Manager
 	// Gate is the open gate; its Trusted defaults to the trusted proxies of Reach.
 	Gate setup.Gate
+	// Restore is the setup wizard's restore (setup mode only); nil builds one on
+	// DataDir when there is one.
+	Restore *backup.Restorer
+	// Restart shuts the process down cleanly after a restore or reset is
+	// confirmed, so the next start applies it; nil does nothing (tests).
+	Restart func()
+	// EnvAccount: KIPPLE_USERNAME and KIPPLE_PASSWORD are set, so a start with no
+	// account would create one from them (the reset dialog warns about it).
+	EnvAccount bool
 }
 
 // Server holds the handlers.
@@ -134,7 +143,8 @@ type Server struct {
 	now     func() time.Time
 	fails   *auth.FailureTracker
 	reach   *reach.Live // the reachability settings in force (Options.Reach)
-	// setupSlot admits one account creation at a time (setupAccount).
+	// setupSlot admits one account creation or restore confirm at a time
+	// (setupAccount, restoreConfirm), so the two exclude each other.
 	setupSlot chan struct{}
 
 	mode       modeCache // the Host gate's cached auth mode and allowed hosts
@@ -150,6 +160,7 @@ type Server struct {
 	runner *ftrun.Runner // full-text extraction, shared with the ingest pool
 
 	backups *backup.Manager
+	restore *backup.Restorer // the setup wizard's restore; nil outside setup mode
 
 	imgMu       sync.Mutex // guards imgSecret and imgH
 	imgSecret   []byte
@@ -234,6 +245,14 @@ func New(opt Options) *Server {
 	s.backups = opt.Backups
 	if s.backups == nil {
 		s.backups = backup.New(backup.Options{DB: s.db, Logger: s.log, Version: opt.Version})
+	}
+	s.restore = opt.Restore
+	if s.restore == nil && opt.Setup.Pending() && opt.DataDir != "" {
+		ro := backup.RestorerOptions{DataDir: opt.DataDir, Logger: s.log}
+		if s.db != nil {
+			ro.Live = s.db.Reader()
+		}
+		s.restore = backup.NewRestorer(ro)
 	}
 	s.rec = opt.Stats
 	if s.rec == nil {
@@ -323,6 +342,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/onboarding/restart", s.authed(s.onboardingRestart))
 	handle("GET /api/starter-feeds", s.authed(s.starterFeeds))
 	handle("POST /api/starter-feeds", s.authed(s.starterSubscribe))
+	handle("GET /api/reset", s.authed(s.resetInfo))
+	handle("POST /api/reset", s.authed(s.resetKipple))
 	handle("POST /api/backup", s.authed(s.backupCreate))
 	handle("GET /api/backup/jobs/{id}", s.authed(s.backupJob))
 	handle("GET /api/backup/{token}", s.authed(s.backupDownload))

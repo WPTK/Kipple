@@ -76,6 +76,7 @@ export function profileOf(l: LocalState): Profile {
     "ui.theme_night_start": theme.nightStart,
     "ui.theme_day_start": theme.dayStart,
     "ui.font_body": font,
+    "client.font_everywhere": p.fontEverywhere,
     "ui.list_density": p.listDensity,
     "ui.reading_density": p.readingDensity,
     "ui.mark_read_on_scroll": p.markReadOnScroll,
@@ -125,6 +126,7 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
   const has = (k: string) => m[k] !== undefined && m[k] !== null;
   const raw = {
     font: isFontId(fontId) ? fontId : cur.prefs.font,
+    fontEverywhere: g("client.font_everywhere"),
     textSize: g("client.text_size"),
     listDensity: stepFrom(g("ui.list_density"), cur.prefs.listDensity),
     readingDensity: stepFrom(g("ui.reading_density"), cur.prefs.readingDensity),
@@ -502,7 +504,7 @@ function legacyProfileKeys(): Set<string> {
   add(p, {
     font: ["ui.font_body"], textSize: ["client.text_size"], listDensity: ["ui.list_density"], readingDensity: ["ui.reading_density"],
     adjustSeparately: ["client.adjust_separately"], spacing: ["client.spacing"], motion: ["client.motion"],
-    largeTargets: ["client.large_targets"], listen: ["client.listen"], voice: ["client.voice"], rate: ["client.rate"],
+    fontEverywhere: ["client.font_everywhere"], largeTargets: ["client.large_targets"], listen: ["client.listen"], voice: ["client.voice"], rate: ["client.rate"],
   }, DEFAULT_PREFS);
   // Never held before F4, so only a true value is a choice; false is just the field's default.
   if (p?.markReadOnScroll === true) out.add("ui.mark_read_on_scroll");

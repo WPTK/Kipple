@@ -12,7 +12,8 @@ import { OpenList, ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { AppShell } from "@/shell/AppShell";
 import { RoutedErrorBoundary } from "@/shell/ErrorBoundary";
-import { forgetWizardMemory, welcomeEntry } from "@/setup/session";
+import { forgetWizardMemory, resetting, welcomeEntry } from "@/setup/session";
+import { RestoreWaiting } from "@/setup/RestoreWaiting";
 import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
 import { lazyScreen } from "@/lib/lazyScreen";
@@ -70,6 +71,7 @@ function Gate() {
   const qc = useQueryClient();
   const boot = useBootstrap(auth !== "out");
   const refused = useStore(openRefusedStore);
+  const reset = useStore(resetting);
   const { pathname } = useLocation();
 
   // Signed out: drop everything cached so nothing from the last session shows.
@@ -128,6 +130,7 @@ function Gate() {
     if (ready) void prefetchUnread();
   }, [ready]);
 
+  if (reset) return <RestoreWaiting kind="reset" estimateSeconds={reset.estimateSeconds} username={null} onSignIn={() => window.location.reload()} />;
   if (auth === "out") return <SignedOut />;
   // An account with no password, reached from somewhere the server does not allow: say why, and how to get in.
   if (refused) {

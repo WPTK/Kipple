@@ -18,19 +18,18 @@ func readRepoFile(t *testing.T, name string) string {
 	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
 
-// #124: the README and docs/deploy.md tell a newcomer to run `docker logs
-// kipple` and `docker exec kipple /kipple ...`, so the pull-and-run
-// compose file (and the README's copy of it) must name the container kipple.
-func TestPullAndRunComposeNamesTheContainer(t *testing.T) {
+// #124: the docs tell a newcomer to run `docker logs kipple` and `docker exec
+// kipple /kipple ...`, so every way they are told to start Kipple (both
+// compose files, and the docker run in the README and in docs/deploy.md) must
+// name the container kipple.
+func TestInstallPathsNameTheContainer(t *testing.T) {
 	require.Contains(t, readRepoFile(t, "docker-compose.pull.example.yml"), "\n    container_name: kipple\n")
 	require.Contains(t, readRepoFile(t, "docker-compose.example.yml"), "\n    container_name: kipple\n")
-	readme := readRepoFile(t, "README.md")
-	i := strings.Index(readme, "image: ghcr.io/wptk/kipple:")
-	require.Positive(t, i)
-	block := readme[i:]
-	block = block[:strings.Index(block, "```")]
-	require.Contains(t, block, "container_name: kipple", "the README's copy of the pull-and-run file")
-	require.Contains(t, readme, "docker logs kipple")
+	dockerRun := regexp.MustCompile(`(?m)^\s*docker run [^\n]*--name kipple `)
+	require.Regexp(t, dockerRun, readRepoFile(t, "README.md"), "the README's docker run")
+	deploy := readRepoFile(t, "docs/deploy.md")
+	require.Regexp(t, dockerRun, deploy, "deploy.md's docker run")
+	require.Contains(t, deploy, "docker logs kipple")
 }
 
 // #132: the docs describe TZ and the port as they work.
@@ -44,7 +43,7 @@ func TestDocsDescribeTheZoneAndPortAsTheyWork(t *testing.T) {
 		"docker-compose.example.yml":      `"127\.0\.0\.1:1919:1919"`,
 		"docker-compose.pull.example.yml": `"127\.0\.0\.1:1919:1919"`,
 		".env.example":                    `(?m)^# KIPPLE_ADDR=:1919$`,
-		"README.md":                       "(?m)^\\| `KIPPLE_ADDR` \\|[^\\n]*`:1919`",
+		"README.md":                       `-p 127\.0\.0\.1:1919:1919`,
 		"docs/deploy.md":                  "default listen address is `:1919`",
 	} {
 		require.Regexp(t, re, readRepoFile(t, name), name)

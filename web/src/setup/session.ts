@@ -13,6 +13,19 @@ import type { StepId } from "./steps";
  */
 export const setupSecret = createStore<string | null>(null);
 
+/**
+ * The feeds file from a restore that took "Feeds only": held here (in this page's memory) from the restore screen,
+ * through the account step, to the import step, which offers it. Dropped when setup ends.
+ */
+export const restoredFeeds = createStore<File | null>(null);
+
+/**
+ * A reset was confirmed in Settings and Kipple is restarting: the app shows the waiting page until the instance
+ * answers that it is in setup mode. Held here, not in a screen, because the sign-in screen that follows the
+ * restart would otherwise replace the page that is waiting.
+ */
+export const resetting = createStore<{ estimateSeconds: number } | null>(null);
+
 /** An API password was made in step 7 during this setup (it is shown once, so a second one would silently replace it). */
 export const apiPasswordMade = createStore<boolean>(false);
 
@@ -95,6 +108,7 @@ export const welcomeEntry = (): string => `/welcome/${welcomeTarget ?? "timezone
 export function forgetWizardMemory(): void {
   setupSecret.set(null);
   apiPasswordMade.set(false);
+  restoredFeeds.set(null);
   settleThemePreview();
   themeBaseline = null;
   themeSaved = null;

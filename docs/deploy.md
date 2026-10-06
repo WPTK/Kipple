@@ -1,7 +1,8 @@
 # Kipple: deploy, backups and recovery
 
-Commands here run on the machine that runs Kipple, in the directory of your compose file (the README's
-`docker-compose.pull.example.yml`, or `docker-compose.example.yml` to build from source). Anything that is yours to
+Commands here run on the machine that runs Kipple, in the directory of your compose file
+([`docker-compose.pull.example.yml`](../docker-compose.pull.example.yml), or
+[`docker-compose.example.yml`](../docker-compose.example.yml) to build from source). Anything that is yours to
 choose is written `<like this>`. Always name the service (`kipple`) in `docker compose` commands, never a bare `up` or
 `down`, in case the file also runs other services. To run them from another machine, wrap the command in
 `ssh your-server '...'`.
@@ -28,11 +29,13 @@ not use a PowerShell pipe, which can re-encode them).
 - [Open mode (no password)](#open-mode-no-password)
 - [Time zone](#time-zone)
 - [About, debug info and versions](#about-debug-info-and-versions)
-- [The published image](#the-published-image)
+- [The published image](#the-published-image), [plain docker](#run-the-image-with-plain-docker), [verify the signature](#verify-the-signature)
+- [Build from source](#build-from-source)
+- [Environment variables](#environment-variables)
 - [Installing the app and offline reading](#installing-the-app-and-offline-reading)
 - [Reset the web password](#reset-the-web-password)
 - [Cloudflare Access (optional)](#cloudflare-access-optional)
-- [Restore a backup](#restore-a-backup), [onto a new volume](#restore-onto-a-new-empty-volume-lost-volume-new-host)
+- [Restore a backup](#restore-a-backup): [in the setup wizard](#restore-in-the-setup-wizard), [from the command line](#restore-from-the-command-line), [onto a new volume](#restore-onto-a-new-empty-volume-lost-volume-new-host)
 - [Roll back an upgrade](#roll-back-an-upgrade-that-migrated-the-schema) and [disk space during an upgrade](#disk-space-during-an-upgrade)
 - [Database size and compacting](#database-size-and-compacting)
 - [What stays the same across 1.x](compatibility.md)
@@ -52,6 +55,13 @@ Something not working? See [troubleshooting.md](troubleshooting.md). Behind HTTP
   keeps the newest 250 per feed (`retention.default`) and never trims starred articles.
 - A browser for the web app. Any client that speaks the Google Reader API can sync.
 
+What is supported: the published image on `linux/amd64` and `linux/arm64`, one user, the web app, and any Google Reader
+API client for sync. Kipple has one maintainer and answers issues on a best-effort basis, with no response time. Other
+container runtimes and NAS platforms, other sync clients, running the bare binary, and builds from source may work and
+are best effort. Your reverse proxy or tunnel is yours beyond what [reverse-proxy.md](reverse-proxy.md) says, and
+there is no hosted service. A bug report asks for the output of `docker exec kipple /kipple version -v`, how you run
+Kipple, what sits in front of it, and the logs.
+
 ## Where things live
 
 Everything is on the `kipple_data` volume, mounted at `/data`. Compose prefixes the volume with the project name
@@ -63,10 +73,12 @@ Everything is on the `kipple_data` volume, mounted at `/data`. Compose prefixes 
 | `/data/kipple.lock` | Held by `serve` (an OS lock: it vanishes with the process, no stale lock) | live |
 | `/data/backup/kipple-snapshot.db` | Nightly snapshot at 04:10 (`tz` setting), consistent, safe to copy | 1 |
 | `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration (`0600`) | newest 3, one per `<from>` and `<to>` |
-| `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC) | The database that `kipple restore` replaced | newest 3 |
+| `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC) | The database that `kipple restore`, a restore in the setup wizard or a [reset](#reset-kipple-and-start-over) replaced; one that is provably empty (no account, feed or item) is deleted, not kept | newest 3 |
+| `/data/restore-pending.json`, `/data/restore-staged.db` | A restore or reset that was confirmed and waits for the next start ([details](#a-restore-or-reset-that-is-waiting)) | until applied |
 | `/data/backup/export/` | Temporary files of an export in progress. Emptied at startup | transient |
 | `/data/imgcache/` | Image cache (`imgproxy.cache_mb`, default 1024 MiB, least recently used evicted; never in backups or snapshots) | capped |
 | `/data/restore-tmp.db*`, `/data/restore-upload.tmp` | Only while a `kipple restore` runs | transient |
+| `/data/no-env-account` | Written by a reset while `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` are set; removed as soon as an account exists | transient |
 
 These are all on the same disk as the database. They protect against a bad migration or a bad
 restore, not against losing the machine. An off-box copy is the export (below) or a `docker cp` of the
@@ -96,7 +108,10 @@ The other variables that name a setting are seeds, with one rule: a seed is stor
 stored, and the setting decides from then on. `TZ` seeds the time zone; `KIPPLE_PUBLIC_URL`, `KIPPLE_ALLOWED_HOSTS`,
 `KIPPLE_TRUSTED_PROXY_IPS` and the two `KIPPLE_ACCESS_*` variables seed the settings under Settings, Account & Devices,
 Address and access. A restored backup brings its own settings back, and the variables do not override them; Kipple
-logs a warning at start for each variable whose setting holds something else, so you can remove the stale line.
+logs a warning at start for each variable whose setting holds something else, so you can remove the stale line. The
+one exception is a restore from the setup wizard: the backup's public URL, allowed host names and trusted proxies
+describe the old server, so they are dropped and this server's own (the ones it was started with, or set in Settings
+before the restore) are kept.
 A value that would be stored and is not valid (such as a trusted proxy range that is too wide) stops the start with a
 message naming the variable, and none of the address and access seeds is stored. The database has already been
 upgraded by then: after a new version's first start it is at the new schema, and the pre-migration snapshot is in the
@@ -104,7 +119,8 @@ backup folder. Fix or remove the variable and start again. Going back to the pre
 that snapshot ([Roll back an upgrade that migrated the schema](#roll-back-an-upgrade-that-migrated-the-schema)).
 Checklist, for a rebuild to be a copy and paste:
 
-1. The data volume, as an export zip (above) or a tarball of the volume (below).
+1. The data volume, as an export zip (Settings > Account > Export backup, saved off the server) or a tarball of the
+   volume (below).
 2. The compose file and the `.env`, with the image tag you ran (`docker inspect kipple --format '{{.Config.Image}}'`
    or `docker exec kipple /kipple version`).
 3. Your reverse proxy or tunnel configuration, and any Cloudflare Access application settings.
@@ -216,7 +232,7 @@ it). Use it for `docker ps`, monitoring and `depends_on: condition: service_heal
 | logging `json-file` 10m x 3 | Bounded container logs. |
 
 If you run the image with plain `docker run`, the same flags are `--read-only --tmpfs /tmp --cap-drop ALL
---security-opt no-new-privileges:true --pids-limit 200`. The README's pull-and-run file
+--security-opt no-new-privileges:true --pids-limit 200`. The pull-and-run file
 (`docker-compose.pull.example.yml`) carries the same limits, log rotation and hardening as `docker-compose.example.yml`, the
 build-from-source file, which also reads an optional `.env`.
 
@@ -225,7 +241,18 @@ build-from-source file, which also reads an optional `.env`.
 A Kipple with no account starts in **setup mode**. It is the normal server, but the browser shows the setup wizard
 instead of a sign-in screen, and its first step is the form that creates your account. Open the address and create your
 account, then the wizard takes you the rest of the way (time zone, theme, OPML import,
-recommended feeds, an optional Reader API password).
+recommended feeds, an optional Reader API password). The same first screen offers "Restore from a backup" instead
+([Restore in the setup wizard](#restore-in-the-setup-wizard)). The steps of the account path, in order, each skippable after the account:
+
+1. **Account**: a user name, then a password (or one of the two ways to go without, under "Open mode" below).
+2. **Time zone**, preselected from your browser.
+3. **Theme**: one look for day and one for night.
+4. **Import** an OPML file from your old reader.
+5. **Recommended feeds**, a few to start with.
+6. **Address**: the public URL your other devices open Kipple at.
+7. **Done**, with an optional Reader API password for sync apps. Make one any time in Settings, Account & Devices, or
+   with `docker exec -it kipple /kipple api-password`. A sync app's server address is your Kipple address plus
+   `/api/greader.php`, and the user name is the one you chose.
 
 - **Who can create the account.** Whoever gets there first. An unclaimed Kipple is simply "no account yet": the one
   request that creates the account succeeds for exactly one caller, and any other that arrives at the same moment is
@@ -243,8 +270,8 @@ recommended feeds, an optional Reader API password).
   browser cannot reach the form by DNS rebinding), the request must be same-origin and carry `X-Kipple-Client`, and
   only one account is created at a time. There is no per-address counting, so a noisy neighbour behind the same Docker
   gateway can never keep you out.
-- **What answers while there is no account.** Only `GET /api/instance`, `POST /api/setup/account`, `/healthz` and the
-  app itself. Every other `/api` route answers 401, sign-in answers 409 `setup_required`, and the Reader API answers
+- **What answers while there is no account.** Only `GET /api/instance`, `POST /api/setup/account`, the restore routes
+  under `/api/setup/restore`, `/healthz` and the app itself. Every other `/api` route answers 401, sign-in answers 409 `setup_required`, and the Reader API answers
   401, apart from its static probe paths, which return no data (`/api/greader.php` and `/api/greader.php/` answer
   `200 OK`, `/check/compatibility` answers `200 PASS`, and `/icon/...` answers 404). Nothing is fetched and no maintenance runs until the account exists: the scheduler starts at the claim.
 - **What signed-out visitors can see.** `GET /api/instance` answers without signing in (from an address the Host gate
@@ -257,8 +284,10 @@ recommended feeds, an optional Reader API password).
 - **Setup is not health.** `/healthz` and the container's health check answer `ok` in setup mode: healthy means serving,
   not configured. `/_status` says "Setup is pending" until an account exists.
 - **Env credentials skip it.** With both `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` set on a first start, Kipple creates the
-  account from them and starts in normal mode, with no wizard onboarding and no unclaimed window. A lone
-  `KIPPLE_USERNAME` is ignored and the wizard asks.
+  account from them and starts in normal mode, with no wizard onboarding and no unclaimed window, and so no restore in
+  the wizard either: remove them before the first start to restore there, or use `kipple restore`. A lone
+  `KIPPLE_USERNAME` is ignored and the wizard asks. After a [reset](#reset-kipple-and-start-over) Kipple ignores them
+  until a new account exists, so the wizard appears even though they are set.
 - **Cloudflare Access.** Access proves who may reach the app, not who owns this instance, so it does not replace
   creating the account. The wizard offers "No password, through Cloudflare Access" only on a request that came through
   Access and carries a verified token.
@@ -283,7 +312,7 @@ the host:
 
     docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' <container>
 
-The README's compose files publish `127.0.0.1:1919:1919`, this machine only. For the LAN use `1919:1919`, for Tailscale
+The example compose files and the README's `docker run` command publish `127.0.0.1:1919:1919`, this machine only. For the LAN use `1919:1919`, for Tailscale
 your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx) is what gives Kipple HTTPS; in
 Settings, Account & Devices, Address and access, add the address it connects from to **Trusted proxies** and set the
 **Public URL** to the public address. Both apply at once, without a restart. (For a scripted first start,
@@ -425,7 +454,7 @@ upgrade Kipple shows what changed once ("What's new"), and an open browser tab t
 A tag push publishes a signed, multi-arch (`linux/amd64`, `linux/arm64`) image at
 `ghcr.io/wptk/kipple:<version>` (`docker-compose.pull.example.yml` in the repository is the ready file). Stable releases
 also move `latest` and the `X.Y` and `X` tags; **a prerelease is tagged only with its exact version**, so until the first
-stable release name the version. Verify a pull with cosign (the command is in the README and in each release's notes);
+stable release name the version. Verify a pull with cosign (below, and in each release's notes);
 the signature identity is the release workflow of this repository. Upgrade by changing the tag and
 `docker compose pull kipple && docker compose up -d kipple` (name the service). It is built from the same source
 as a source build (a different build: single-architecture there, no provenance), so `kipple restore`, rollbacks and everything else in this file apply unchanged; for a rollback
@@ -440,6 +469,57 @@ The first confirms the image digest was built by this repository's release workf
 prints the SPDX package list BuildKit attached to the image, one per platform. Both are part of the signed image index,
 so the digest the signature covers covers them too. The threat model and a checklist for testing an instance yourself are
 in [threat-model.md](threat-model.md).
+
+### Run the image with plain docker
+
+The README's command is the short form. With the hardening from [the table above](#health-check-and-container-hardening):
+
+    docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data \
+      --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges \
+      ghcr.io/wptk/kipple:<version>
+
+A named volume works as is. A bind mount (`-v /srv/kipple:/data`) needs `chown 65532:65532 /srv/kipple` first, because
+the container runs as that unprivileged user.
+
+### Verify the signature
+
+Needs [cosign](https://docs.sigstore.dev/cosign/) 3 or later. This accepts any Kipple release; each release's notes give
+the same command with that release's exact identity, which also proves the tag points at that release's image:
+
+    cosign verify ghcr.io/wptk/kipple:<version> \
+      --certificate-identity-regexp '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+## Build from source
+
+Use this to run your own changes, or if you would rather not pull the published image. It needs Docker and Git only (no
+Go or Node).
+
+    git clone https://github.com/WPTK/Kipple.git
+    cd Kipple
+    cp docker-compose.example.yml docker-compose.yml
+    docker compose build
+    docker compose up -d
+
+Then open <http://127.0.0.1:1919> and create your account, as in "First run" above. There is no `.env` to create;
+[.env.example](../.env.example) lists the optional overrides, and the compose file reads it when it exists (Docker
+Compose 2.24 or newer).
+
+The image reports its version as `dev` unless you pass it (it shows in `kipple version`, the startup log and backups).
+To stamp it with the release you cloned, set `KIPPLE_VERSION=$(git describe --tags --always)` and
+`KIPPLE_VCS_REF=$(git rev-parse HEAD)` in the environment of the build step.
+
+## Environment variables
+
+Almost everything is set in the browser, in the wizard or in Settings. Environment variables are optional overrides, and
+[.env.example](../.env.example) documents every one. The ones people most often want:
+
+| Variable | Purpose |
+| --- | --- |
+| `KIPPLE_ADDR` | Listen address, default `:1919`. Change the container side of the port mapping with it (see [Ports](#ports)). |
+| `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS`, `KIPPLE_ACCESS_TEAM_DOMAIN` / `KIPPLE_ACCESS_AUD` | Seeds for a scripted first start: the public URL, the reverse proxy addresses, extra host names and Cloudflare Access. Each is stored as its setting once, when that setting was never set. After that, Settings, Account & Devices, Address and access decides, with no restart. |
+| `TZ` | IANA time zone for a new install. Stored as the time zone setting on the first start only. Choose it in Kipple afterwards. |
+| `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` | Create the account from the environment instead of the wizard (scripted deploys). |
 
 ## Installing the app and offline reading
 
@@ -510,10 +590,97 @@ password anyway (a restored backup), web sign-in is impossible, the startup log 
 
 ## Restore a backup
 
+There are two ways. On a new server with no account yet, the setup wizard restores from the browser. Over an existing
+library, `kipple restore` does it from the command line (to empty an existing library from the browser instead, see
+[Reset Kipple and start over](#reset-kipple-and-start-over)). Both keep the database they replace under
+`/data/backup/pre-restore-<timestamp>/`, sign every web session out, and bring back everything in the database column
+of [What to back up](#what-to-back-up).
+
+### Restore in the setup wizard
+
+Start Kipple on an empty data volume and open it. The first screen offers "Create an account" or "Restore from a
+backup". Pick the export zip (Settings > Account > Export backup on the old server); the upload shows a progress bar.
+Then Kipple checks the file before anything changes, while the page waits: the manifest and every checksum, the
+integrity checks, and that the database holds exactly what a Kipple of its version creates, nothing more or less. It
+then shows the Kipple version that made the backup,
+its date, the feed, item and starred counts, and the user name you will sign in with, and offers two choices:
+
+- **Everything**: the account, settings, feeds, read and starred state and statistics. Confirm, and Kipple keeps the
+  checked database next to the empty one and stops; your restart policy (`restart: unless-stopped` in the examples)
+  starts it again, and the restore is applied before the database opens. The page waits, shows an estimate for the
+  backup's size, and tells you when to sign in. Without a restart policy, start the container again yourself: the
+  restore finishes on that start.
+- **Feeds only**: the zip's `feeds.opml` (subscriptions and folders). Read and starred items, settings and the account
+  stay behind; you create a new account and the import step brings the feeds in. A bare OPML file from any reader
+  takes this path too.
+
+Things to know:
+
+- **Sign-in.** You sign in as the backup's account with its password. If that account had no password (Cloudflare
+  Access or open mode) and that sign-in would not work from where you are (this server's own Cloudflare Access does not
+  verify the request, or the open-mode gate refuses it), the wizard asks for a new password first.
+  You can set a new password in any case.
+- **The address is not restored.** The public URL, allowed host names and trusted proxies describe the old server, so
+  a wizard restore drops the backup's and keeps this server's own (from `KIPPLE_PUBLIC_URL`, `KIPPLE_ALLOWED_HOSTS` and
+  `KIPPLE_TRUSTED_PROXY_IPS`, or set in Settings, Account & Devices, Address and access, before the restore, as after a
+  reset). The same goes for the Cloudflare Access sign-in settings: the backup's are dropped, which is why a backup whose
+  account has no password asks for a new one here.
+- **Disk space.** The data volume needs room for the zip while it arrives, then for the database inside it (its size is
+  read from the backup's manifest before anything is extracted), and for a backup from an older Kipple about 3.1 times
+  the database for the upgrade on the next start. The zip is deleted as soon as the database is out of it. A shortfall
+  says how much room is needed.
+- **Images and icons** are not in a backup; they are downloaded again when first shown.
+- **A backup from a newer Kipple** is refused: update Kipple first. One from an older Kipple is upgraded on the start
+  that applies it, after the usual `pre-migration-*` snapshot.
+- **One restore at a time.** A second upload while one is arriving, being checked or waiting is refused until the
+  first is cancelled; a second browser tab sees it and can cancel it. A checked upload you do not confirm is deleted
+  after an hour, or at the next start. Once you confirm, creating an account is
+  refused until the restore is applied; if someone creates the account first, the restore is refused and the upload
+  deleted.
+- **Large files.** The wizard takes backups up to the 4 GiB database limit. A proxy or tunnel in front of Kipple may
+  refuse a large file before it arrives; open Kipple by its local address (`http://127.0.0.1:1919` on the server) and
+  try again, or use `kipple restore`.
+- The nightly snapshot (`kipple-snapshot.db`) is not accepted here; restore it with `kipple restore`.
+
+### Reset Kipple and start over
+
+Settings > Account & Devices > Reset Kipple returns Kipple to setup mode, where you create a new account or restore a
+backup in the wizard. It is the browser twin of `kipple restore` over an existing library, and it is a restore of an
+empty database: the dialog says what is erased (all feeds, folders, history, settings and the account), asks for your web
+password (an account without one needs the sign-in it uses for changing its password instead) and for you to type
+`reset kipple`. Kipple then answers, stops cleanly and your restart policy starts it again; that start moves your library
+to `/data/backup/pre-restore-<timestamp>/` (the same folder, naming and newest-3 retention as a restore) and begins empty.
+Only the newest three safety copies are kept, so repeated resets or restores push older ones out: export a backup
+first if you want one you can keep elsewhere. (A database that is provably empty, with no account, feed or item, is
+never kept as a safety copy.) The page waits and offers setup when Kipple is back. Without a restart policy, start the container
+again yourself: the reset finishes on that start. `kipple restore` brings the kept library back.
+
+The address and access settings (public address, allowed host names, trusted proxies, Cloudflare Access) describe your
+server and not the library, so a reset keeps them and Kipple answers at the same address afterwards. That also means
+that, if a public address is set, anyone who can reach it can create the new account until you do: do the setup right
+away.
+
+If `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` are set, Kipple ignores them until a new account exists (it writes
+`/data/no-env-account` and removes the file once an account exists), because a restart reuses the same environment and
+would otherwise create that account again and skip setup. You can delete the variables from your compose file or `.env`
+whenever convenient.
+
+### A restore or reset that is waiting
+
+Confirming a restore in the setup wizard or a reset in Settings does not change the database at once. It leaves two
+files in the data folder, `restore-staged.db` (the database to install) and `restore-pending.json` (the confirmation),
+and stops Kipple; the next start installs it before the database opens. Until then
+nothing has changed, so you can cancel: stop Kipple, delete both files, and start it again. If installing fails (the
+`backup` folder is not writable, say), the reason is in the log at every start and the files stay, so fix the cause or
+delete the files. A confirmation older than seven days is not applied: the next start deletes it and says so in the log,
+so an old one cannot surprise you after a downgrade and a later upgrade.
+
+### Restore from the command line
+
 `kipple restore` replaces the database with a backup zip (or a bare `.db` such as a snapshot). It
 refuses while the server runs (the lock), verifies checksums and integrity, refuses a database
 from a newer Kipple than this binary, keeps the current database under
-`/data/backup/pre-restore-<timestamp>/`, and signs every web session out. Without `--yes` it only
+`/data/backup/pre-restore-<timestamp>/` (unless it is provably empty: no account, feed or item), and signs every web session out. Without `--yes` it only
 verifies and reports (and then exits with status 1 and "nothing was changed", which is expected).
 
 Runbook, with the backup zip in the current directory (it is piped in; the container user cannot read `/import`):
@@ -530,7 +697,7 @@ Runbook, with the backup zip in the current directory (it is piped in; the conta
     # 4. Start it and check the feed count and last fetch on /_status.
     docker compose up -d kipple && docker logs --tail 20 kipple
 
-An older schema is migrated on that start, after the usual `pre-migration-*` snapshot. Then sign in
+A backup from an older Kipple is upgraded on that start, after the usual `pre-migration-*` snapshot. Then sign in
 again. A restore never touches a backup `.zip`.
 
 **What a zip restore brings back, and what it does not.** Back: everything in the database column of "What to back up"
@@ -539,9 +706,9 @@ again. A restore never touches a backup `.zip`.
 web sessions (all signed out). Things kept in each browser or installed app, such as the offline queue and the local
 appearance cache, stay on that device and are not part of any backup.
 
-**Same version first.** The restore refuses a database from a newer Kipple but migrates an older one. For a new host,
-look up the version in the zip's `manifest.json` (`kipple_version`, `schema_version`), restore with that image tag, check
-it, and only then upgrade; an upgrade is then a normal one with its own `pre-migration-*` snapshot.
+**Same version first.** The restore refuses a database from a newer Kipple but upgrades an older one. For a careful
+move to a new host, look up the version in the zip's `manifest.json` (`kipple_version`), restore with that image tag,
+check it, and only then upgrade; an upgrade is then a normal one with its own `pre-migration-*` snapshot.
 
 **Test your backup.** The verify run (`restore -` without `--yes`, step 2 above) checks checksums and integrity and changes
 nothing. It needs the service stopped and the volume it names; to test without touching your real one, run it against a
@@ -568,9 +735,11 @@ a second `run` is open. Do not delete `kipple.lock`; it is not a file marker, th
 
 Other refusals change nothing on the volume (no `pre-restore-*` directory, no temporary files
 left): a damaged or truncated zip ("not a readable zip", "checksum mismatch"), a zip that is not a
-Kipple backup (no `manifest.json`, or an entry with a directory part), and a backup from a newer
-Kipple ("the database schema version N is newer than this Kipple binary (M): upgrade Kipple
-first"). All exit with status 1.
+Kipple backup (no `manifest.json`, more than ten files, or an entry with a directory part), and a backup from a newer
+Kipple ("This backup was made by a newer Kipple (x.y). Update Kipple first."). All exit with status 1.
+
+A restore from the command line also drops a wizard restore that was confirmed but not applied yet (Kipple was stopped
+before it started again), and says so: the command is the newer decision.
 
 ### Restore onto a new, empty volume (lost volume, new host)
 
@@ -596,7 +765,7 @@ password (removed through Cloudflare Access), sign in through Access (the backup
 one first with `kipple password` (it works on the stopped service:
 `docker compose run --rm -T --no-deps kipple password --stdin`).
 
-Do not start the server on the empty volume first: it would start in setup mode with a new database, and the restore then replaces that database anyway (it is kept under `pre-restore-*`), so it only adds a step.
+Starting the server on the empty volume first is the other route: it starts in setup mode, and the wizard restores the same zip from the browser ([Restore in the setup wizard](#restore-in-the-setup-wizard)).
 
 ## Roll back an upgrade that migrated the schema
 
@@ -642,7 +811,7 @@ schema is the database's or newer.) A binary that does not record versions print
     #    Built from source: check out the old tag, then
     KIPPLE_VERSION=<old tag> KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose build kipple && docker compose up -d kipple
 
-The restore prints `schema version <from>` for the snapshot and moves the migrated database to
+The restore prints the snapshot's counts and moves the migrated database to
 `backup/pre-restore-<ts>/`, so the roll-forward is one more restore away. Sign in again afterwards.
 
 ### Disk space during an upgrade
@@ -693,4 +862,4 @@ Space to keep free on the volume:
 | Steady state | The nightly snapshot lives on the same volume: plan for about 2 times the database in total. |
 | Export | About 2.2 times the database, temporarily (the snapshot copy plus the zip). Over 4 GiB an export is refused: copy the nightly snapshot instead. |
 | Upgrade that migrates the schema | The database size plus 64 MB (twice the size plus 64 MB when a migration rebuilds a table), plus 1.1 times the database for the pre-migration snapshot. The newest three pre-migration snapshots are kept, each about one more copy of the database. |
-| Restore | The new database, plus the previous one kept under `backup/pre-restore-*` (newest three kept). |
+| Restore | The new database, plus the previous one kept under `backup/pre-restore-*` (the newest three are kept; an empty one is not kept). |

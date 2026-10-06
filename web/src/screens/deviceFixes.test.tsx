@@ -763,7 +763,7 @@ describe("Settings and the Aa menu", () => {
     expect(screen.queryByText("Reading spacing")).toBeNull();
   });
 
-  it("a font chosen in the Aa menu applies to the whole app the moment it is picked", async () => {
+  it("a font chosen in the Aa menu applies to articles at once, and to the whole app with Use it everywhere", async () => {
     routes();
     media(WIDE);
     go("/l/unread");
@@ -775,8 +775,11 @@ describe("Settings and the Aa menu", () => {
     expect(prefsStore.get().font).toBe("inter"); // one store write: nothing to refresh
     applyPrefs(prefsStore.get()); // what initPrefs' subscription does on every change
     const root = document.documentElement;
-    expect(root.style.getPropertyValue("--kp-app-font")).toContain("Inter");
     expect(root.style.getPropertyValue("--kp-reading-font")).toContain("Inter");
+    expect(root.style.getPropertyValue("--kp-app-font")).toBe("");
+    await user.click(within(dlg).getByRole("switch", { name: /Use it everywhere/ }));
+    applyPrefs(prefsStore.get());
+    expect(root.style.getPropertyValue("--kp-app-font")).toContain("Inter");
     // Text spacing lives in Settings, so the Aa menu has one density control only.
     expect(within(dlg).queryByRole("group", { name: /spacing/i })).toBeNull();
   });

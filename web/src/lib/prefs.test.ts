@@ -74,10 +74,13 @@ describe("single-key shortcuts default", () => {
   });
 });
 
-describe("one font for everything but Settings and menus", () => {
-  it("sets the app font and the article font together, and clears both for Default", () => {
+describe("the reading font", () => {
+  it("styles articles only unless Use it everywhere is on, and Default clears both", () => {
     const root = document.createElement("div");
     applyPrefs({ ...DEFAULT_PREFS, font: "inter" }, root);
+    expect(root.style.getPropertyValue("--kp-reading-font")).toContain("Inter Variable");
+    expect(root.style.getPropertyValue("--kp-app-font")).toBe("");
+    applyPrefs({ ...DEFAULT_PREFS, font: "inter", fontEverywhere: true }, root);
     expect(root.style.getPropertyValue("--kp-app-font")).toContain("Inter Variable");
     expect(root.style.getPropertyValue("--kp-reading-font")).toBe(root.style.getPropertyValue("--kp-app-font"));
     applyPrefs({ ...DEFAULT_PREFS, font: "default" }, root);

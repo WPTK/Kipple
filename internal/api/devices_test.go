@@ -192,6 +192,7 @@ func TestPatchDeviceValidation(t *testing.T) {
 		{"width fractional", `{"client.list_width":300.5}`, "client.list_width"},
 		{"text size", `{"client.text_size":1.3}`, "client.text_size"},
 		{"bool type", `{"client.large_targets":"yes"}`, "client.large_targets"},
+		{"font_everywhere type", `{"client.font_everywhere":"yes"}`, "client.font_everywhere"},
 		{"highlight type", `{"client.highlight_keywords":"no"}`, "client.highlight_keywords"},
 		{"voice newline", `{"client.voice":"a\nb"}`, "client.voice"},
 		{"voice long", `{"client.voice":"` + strings.Repeat("v", 201) + `"}`, "client.voice"},
@@ -233,7 +234,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	 "client.order":"oldest","client.search_order":"relevance","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
 	 "client.text_size":0.875,"client.adjust_separately":true,"client.shortcuts":false,"client.spacing":"roomy",
-	 "client.motion":"on","client.large_targets":true,"client.highlight_keywords":false,"client.listen":true,"client.voice":"Samantha","client.rate":1.2,
+	 "client.motion":"on","client.font_everywhere":true,"client.large_targets":true,"client.highlight_keywords":false,"client.listen":true,"client.voice":"Samantha","client.rate":1.2,
 	 "client.collapsed_folders":["4","9"]}`
 	code, out, _ := d.call("PATCH", "/api/device", body)
 	require.Equal(t, http.StatusOK, code, out)

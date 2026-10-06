@@ -63,10 +63,16 @@ function Option({
  */
 export function AccountStep({
   state,
+  feedsReady,
+  onRestore,
   onCreated,
   onDone,
 }: {
   state: SetupOptions;
+  /** Feeds from a backup or OPML file were taken in the restore screen: they are offered in the import step. */
+  feedsReady?: boolean;
+  /** Opens the restore screen. */
+  onRestore?: () => void;
   onCreated: () => void;
   onDone: () => void;
 }) {
@@ -155,6 +161,17 @@ export function AccountStep({
     <WizardFrame step={stepById("account")} description="Kipple has no account yet. This is the one you'll sign in with. There is only one, and it's yours.">
       <form onSubmit={(e) => void submit(e)} className="flex flex-1 flex-col gap-5" noValidate>
         {formError ? <Notice tone="error">{formError}</Notice> : null}
+        {feedsReady ? (
+          <Notice role="status">Your feeds are ready. Create an account first, and the import step offers them.</Notice>
+        ) : null}
+        {onRestore ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface p-3">
+            <p className="text-sm">{feedsReady ? "Chose the wrong file?" : "Already have a Kipple backup or an OPML file?"}</p>
+            <Button onClick={onRestore} disabled={busy}>
+              Restore from a backup
+            </Button>
+          </div>
+        ) : null}
         <Field label="User name" help="Letters, digits, dots, dashes and underscores, up to 64. Your sync apps use this too." error={fieldError?.field === "username" ? fieldError.message : usernameBad}>
           {(a) => (
             <input

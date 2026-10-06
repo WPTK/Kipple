@@ -6,7 +6,10 @@ import { Button } from "@/ui/button";
 import { INSTANCE_KEY, isOpenRefused, openRefusedReason, signInOpen, type OpenReason, type SetupOptions } from "./api";
 import { AccountStep } from "./AccountStep";
 import { OpenRefusedScreen } from "./OpenRefused";
-import { welcomeEntry } from "./session";
+import { fetchRestoreStatus } from "./restoreApi";
+import { RestoreStep } from "./RestoreStep";
+import { RestoreWaiting } from "./RestoreWaiting";
+import { restoredFeeds, welcomeEntry } from "./session";
 
 /**
  * Step 1, before there is an account: the account form is the first screen. It signs the browser in; the app then
@@ -23,9 +26,47 @@ export function SetupFlow({ options }: { options: SetupOptions }) {
     if (pathname === "/welcome" || pathname.startsWith("/welcome/")) navigate("/", { replace: true });
   }, [pathname, navigate]);
 
+  // The restore screens come before the account form; a reload lands on the waiting page while a restore is being applied.
+  const [view, setView] = useState<"account" | "restore">(options.restore === "confirmed" || options.restore === "none" || options.restore === undefined ? "account" : "restore");
+  // Only a page that loaded with a restore under way resumes it; coming back to the restore screen later starts at the picker.
+  const [resume, setResume] = useState(options.restore !== undefined && options.restore !== "none" && options.restore !== "confirmed");
+  const [seeded, setSeeded] = useState(false);
+  const [applying, setApplying] = useState<{ estimateSeconds: number; username: string | null } | null>(
+    options.restore === "confirmed" ? { estimateSeconds: 300, username: null } : null,
+  );
+
+  // A reload while a restore is being applied: the server may still know the size and the account, which sharpens the waiting text.
+  useEffect(() => {
+    if (options.restore !== "confirmed") return;
+    fetchRestoreStatus()
+      .then((st) => setApplying({ estimateSeconds: st.estimate_seconds ?? st.summary?.estimate_seconds ?? 300, username: st.summary?.username ?? null }))
+      .catch(() => undefined);
+  }, [options.restore]);
+
+  if (applying) return <RestoreWaiting estimateSeconds={applying.estimateSeconds} username={applying.username} onSignIn={() => window.location.reload()} />;
+  if (view === "restore") {
+    return (
+      <RestoreStep
+        resume={resume}
+        onBack={() => {
+          setResume(false);
+          setView("account");
+        }}
+        onFeedsOnly={(f) => {
+          restoredFeeds.set(f);
+          setSeeded(true);
+          setResume(false);
+          setView("account");
+        }}
+        onConfirmed={setApplying}
+      />
+    );
+  }
   return (
     <AccountStep
       state={options}
+      feedsReady={seeded}
+      onRestore={() => setView("restore")}
       onCreated={() => {
         // The sign-in has just turned the app to signed in; step 2 comes first whatever address this page was opened at.
         navigate(welcomeEntry(), { replace: true });

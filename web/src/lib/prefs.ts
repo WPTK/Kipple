@@ -33,6 +33,8 @@ export const RATES = [0.8, 1, 1.2, 1.5] as const;
 
 export interface Prefs {
   font: FontId;
+  /** Also use the reading font for lists, the sidebar and the rest of the app (off: only articles use it). */
+  fontEverywhere: boolean;
   textSize: number;
   /** One "Density" choice drives both by default; "Adjust separately" splits them. */
   listDensity: Step;
@@ -57,6 +59,7 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = {
   font: "default",
+  fontEverywhere: false,
   textSize: 1,
   listDensity: "standard",
   readingDensity: "standard",
@@ -99,6 +102,7 @@ export function parsePrefs(raw: string | null): Prefs {
     const chosen = typeof v?.shortcuts === "boolean" && (v.shortcutsChosen === true || (v.shortcutsChosen === undefined && v.shortcuts === false));
     return {
       font: isFontId(v?.font) ? v.font : d.font,
+      fontEverywhere: v?.fontEverywhere === true,
       textSize: (TEXT_SIZES as readonly number[]).includes(v?.textSize as number) ? (v?.textSize as number) : d.textSize,
       listDensity: isStep(v?.listDensity) ? v.listDensity : d.listDensity,
       readingDensity: isStep(v?.readingDensity) ? v.readingDensity : d.readingDensity,
@@ -164,17 +168,13 @@ export function applyPrefs(p: Prefs, root: HTMLElement = document.documentElemen
   root.dataset.listDensity = p.listDensity;
   root.dataset.readingDensity = p.readingDensity;
   root.style.setProperty("--kp-scale", String(p.textSize));
-  // One font choice (the Aa menu) is both the article font and the app font. "Default" keeps the system UI
-  // font for lists and chrome and the reading serif for articles; any other choice applies to both, at once.
-  // Settings and the menus opt out in CSS (.ui-font), so they always stay in the system UI font.
+  // The reading font (the Aa menu) styles articles. Lists, the sidebar and the rest of the app keep the system UI
+  // font unless "Use it everywhere" is on. Settings and the menus opt out in CSS (.ui-font) and always keep it.
   const stack = fontById(p.font).stack;
-  if (stack) {
-    root.style.setProperty("--kp-reading-font", stack);
-    root.style.setProperty("--kp-app-font", stack);
-  } else {
-    root.style.removeProperty("--kp-reading-font");
-    root.style.removeProperty("--kp-app-font");
-  }
+  if (stack) root.style.setProperty("--kp-reading-font", stack);
+  else root.style.removeProperty("--kp-reading-font");
+  if (stack && p.fontEverywhere) root.style.setProperty("--kp-app-font", stack);
+  else root.style.removeProperty("--kp-app-font");
   root.dataset.spacing = p.spacing;
   root.dataset.motion = p.motion;
   root.dataset.targets = p.largeTargets ? "large" : "normal";

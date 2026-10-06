@@ -91,7 +91,8 @@ func TestExtractRefusesWhenDiskTooSmall(t *testing.T) {
 
 	out := filepath.Join(dir, "o.db")
 	_, err := ExtractDB(src, out)
-	require.ErrorContains(t, err, "not enough free space")
+	var space *UploadSpaceError
+	require.ErrorAs(t, err, &space)
 	require.Equal(t, dir, asked)
 	_, statErr := os.Stat(out)
 	require.True(t, os.IsNotExist(statErr))

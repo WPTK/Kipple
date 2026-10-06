@@ -54,6 +54,7 @@ const DEFAULTS: Record<string, unknown> = {
   "client.spacing": "normal",
   "client.motion": "system",
   "client.large_targets": false,
+  "client.font_everywhere": false,
   "client.listen": false,
   "client.voice": "",
   "client.rate": 1,
