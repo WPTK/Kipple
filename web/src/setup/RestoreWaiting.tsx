@@ -6,6 +6,9 @@ import { fetchInstance } from "./api";
 import { WizardFrame } from "./Frame";
 import { estimateMinutes } from "./restoreApi";
 
+/** Said before and after a reset: until setup is finished, a new instance has no owner. */
+export const UNCLAIMED_NOTICE = "After the reset, Kipple stays open to first-time setup for anyone who can reach it until setup is finished. Finish setup right away.";
+
 /** How often the page asks whether Kipple is back. */
 export const POLL_MS = 3000;
 
@@ -103,6 +106,7 @@ export function RestoreWaiting({
               ? `Restored. Sign in as ${username}.`
               : "Restored. Sign in with the account from your backup."}
           </Notice>
+          {kind === "reset" ? <Notice tone="warn">{UNCLAIMED_NOTICE}</Notice> : null}
           <div className="mt-auto flex justify-end border-t border-line pt-4">
             <Button variant="solid" onClick={onSignIn}>
               {k.action}
@@ -123,6 +127,7 @@ export function RestoreWaiting({
             ? "Resetting Kipple. It is working, you can leave this page open."
             : `Restoring your library. This usually takes about ${minutes} ${minutes === 1 ? "minute" : "minutes"} for a backup this size. It is working, you can leave this page open.`}
         </p>
+        {kind === "reset" ? <Notice tone="warn">{UNCLAIMED_NOTICE}</Notice> : null}
         <p className="text-sm text-fg2" data-testid="elapsed">
           Elapsed {clock(elapsed)}
         </p>
