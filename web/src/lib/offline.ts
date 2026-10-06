@@ -1,9 +1,9 @@
 import { onlineManager, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, authStore, buildPath } from "@/api/client";
-import { itemsParams, keys, PAGE_SIZE, patchItems } from "@/api/queryKeys";
+import { itemsParams, keys, PAGE_SIZE, patchItems, shiftUnread } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
 import { devicePrefsStore } from "./devicePrefs";
-import type { MarkReadResponse } from "@/api/types";
+import type { Bootstrap, MarkReadResponse } from "@/api/types";
 import { offlineStore, setOnline, setPending, setUpdateReady } from "./offlineState";
 import { wipeStatsQueue } from "./statsSender";
 
@@ -24,7 +24,10 @@ import { wipeStatsQueue } from "./statsSender";
  */
 export type Queued =
   | { kind: "star"; id: string; starred: boolean; at: number }
-  | { kind: "read"; ids: string[]; read: boolean };
+  | { kind: "read"; ids: string[]; read: boolean; from?: ReadFrom };
+
+/** What the queued read marks started from: per article, its feed and whether it was read before the first change. */
+export type ReadFrom = Record<string, { feed: string; read: boolean }>;
 
 type Row = Queued & { seq: number };
 
@@ -216,8 +219,8 @@ export async function queueStar(id: string, starred: boolean, at = Math.floor(Da
  * Queue a read or unread mark for ids; answers the way the server would for a plain by-id mark. Rejects with
  * QueueWriteError when the change could not be stored.
  */
-export async function queueRead(ids: string[], read: boolean): Promise<MarkReadResponse> {
-  await put({ kind: "read", ids, read, seq: nextSeq() });
+export async function queueRead(ids: string[], read: boolean, from?: ReadFrom): Promise<MarkReadResponse> {
+  await put({ kind: "read", ids, read, ...(from && { from }), seq: nextSeq() });
   await refreshCount();
   return { changed: ids, restored: [] };
 }
@@ -235,6 +238,33 @@ export async function overlayPending<T extends { id: string; read: boolean; star
     else for (const id of r.ids) read.set(id, r.read);
   }
   return items.map((i) => (read.has(i.id) || starred.has(i.id) ? { ...i, read: read.get(i.id) ?? i.read, starred: starred.get(i.id) ?? i.starred } : i));
+}
+
+/**
+ * The same for the unread counts of a stored bootstrap: it counts what the server had when it was stored, so each
+ * article the queue changed moves its feed, folders and the total by one, from the state it started in (the first
+ * queued change that names it) to the state it ends in (the last). Articles the queue has no start for (stored by an
+ * older build, or not on the device) are left out.
+ */
+export async function overlayCounts(b: Bootstrap): Promise<Bootstrap> {
+  const start = new Map<string, { feed: string; read: boolean }>();
+  const end = new Map<string, boolean>();
+  for (const r of await safe((x) => x.all(), [])) {
+    if (r.kind !== "read") continue;
+    for (const id of r.ids) {
+      const f = r.from?.[id];
+      if (f && !start.has(id)) start.set(id, f);
+      end.set(id, r.read);
+    }
+  }
+  const delta = new Map<string, number>();
+  for (const [id, f] of start) {
+    const now = end.get(id);
+    if (now !== undefined && now !== f.read) delta.set(f.feed, (delta.get(f.feed) ?? 0) + (now ? -1 : 1));
+  }
+  let out = b;
+  for (const [feed, d] of delta) out = shiftUnread(out, feed, d);
+  return out;
 }
 
 /**

@@ -17,13 +17,13 @@ import type {
   OpenResponse,
   Scope,
 } from "./types";
-import { failedWhileOffline, isOffline, queueRead, queueStar, QueueWriteError, overlayPending, supersede } from "@/lib/offline";
+import { failedWhileOffline, isOffline, queueRead, queueStar, QueueWriteError, overlayCounts, overlayPending, supersede } from "@/lib/offline";
 import { serverRebuilt } from "@/lib/buildInfo";
-import { chainOf, folderTree, type FolderTree } from "@/lib/folderTree";
-import { useMemo } from "react";
+import { folderTree, type FolderTree } from "@/lib/folderTree";
+import { useMemo, useRef } from "react";
 import { setUpdateReady } from "@/lib/offlineState";
 import { toast } from "@/shell/toasts";
-import { itemsParams, keys, patchItems } from "./queryKeys";
+import { itemsParams, keys, patchItems, shiftUnread } from "./queryKeys";
 
 export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams, patchItems, type ItemPatch } from "./queryKeys";
 
@@ -45,9 +45,10 @@ export function useBootstrap(enabled = true) {
     queryFn: async ({ signal }): Promise<BootstrapAnswer> => {
       const meta: { cached?: boolean } = {};
       const b = await api<Bootstrap>("/api/bootstrap", { signal, meta });
-      // Only an answer from the network says anything about the server: the worker's stored copy is old by design.
+      // Only an answer from the network says anything about the server: the worker's stored copy is old by design,
+      // so what was queued since is laid over its counts, as overlayPending does for its lists.
       if (!meta.cached && serverRebuilt(b.web_build)) setUpdateReady();
-      return meta.cached ? { ...b, fromCache: true } : b;
+      return meta.cached ? { ...(await overlayCounts(b)), fromCache: true } : b;
     },
     enabled,
     retry: (n, e) => (e as { status?: number }).status !== 401 && !failedWhileOffline(e) && n < 2,
@@ -133,17 +134,7 @@ export function resetCountsGuard(): void {
  */
 export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void {
   lastBumpAt = Date.now();
-  qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => {
-    if (!old) return old;
-    const feed = old.feeds.find((f) => f.id === feedId);
-    const above = new Set(feed ? chainOf(folderTree(old.folders), feed.folder_id) : []);
-    return {
-      ...old,
-      counts: { ...old.counts, unread: Math.max(0, old.counts.unread + delta) },
-      feeds: old.feeds.map((f) => (f.id === feedId ? { ...f, unread: Math.max(0, f.unread + delta) } : f)),
-      folders: old.folders.map((fo) => (above.has(fo.id) ? { ...fo, unread: Math.max(0, fo.unread + delta) } : fo)),
-    };
-  });
+  qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? shiftUnread(old, feedId, delta) : old));
 }
 
 /** Adjust the muted count locally (a restore) before the `counts` event lands. */
@@ -164,6 +155,16 @@ export function findCached(qc: QueryClient, id: string): Pick<Card, "feed_id" | 
   return undefined;
 }
 
+/** Feed and read state of the cached articles among `ids`, as they are before a change is made to them. */
+function readStates(qc: QueryClient, ids: string[]): Record<string, { feed: string; read: boolean }> {
+  const out: Record<string, { feed: string; read: boolean }> = {};
+  for (const id of ids) {
+    const c = findCached(qc, id);
+    if (c) out[id] = { feed: c.feed_id, read: c.read };
+  }
+  return out;
+}
+
 /**
  * Opening marks the item read. The badge moves optimistically in onMutate, before the request, so a
  * server `counts` event that arrives ahead of the response (absolute numbers) simply overwrites it
@@ -171,6 +172,8 @@ export function findCached(qc: QueryClient, id: string): Pick<Card, "feed_id" | 
  */
 export function useOpenItem() {
   const qc = useQueryClient();
+  // What each article being opened looked like before onMutate marked it read, for a read queued offline.
+  const before = useRef(new Map<string, { feed: string; read: boolean }>());
   return useMutation({
     mutationFn: async ({ id, via }: { id: string; via: "tap" | "key" | "nav" }) => {
       await supersede({ read: [id] });
@@ -180,12 +183,13 @@ export function useOpenItem() {
         // Offline with the article on the device: it reads, and the read is sent when the network is back.
         const held = qc.getQueryData<ItemDetail>(keys.item(id));
         if (!isOffline(e) || !held) throw e;
-        await queueRead([id], true);
+        await queueRead([id], true, before.current.get(id) ? { [id]: before.current.get(id)! } : undefined);
         return { session_key: "", item: { ...held, read: true } } satisfies OpenResponse;
       }
     },
     onMutate: ({ id }) => {
       const cached = findCached(qc, id);
+      if (cached) before.current.set(id, { feed: cached.feed_id, read: cached.read });
       if (!cached || cached.read) return { bumped: null as string | null };
       patchItems(qc, [id], { read: true });
       bumpUnread(qc, cached.feed_id, -1);
@@ -270,6 +274,7 @@ export async function applyRead(
   reason: "swipe" | "key" | "scroll" | "bulk",
   opts: { onError?: (e: unknown) => void } = {},
 ): Promise<MarkReadResponse | undefined> {
+  const from = readStates(qc, ids);
   patchItems(qc, ids, { read });
   await supersede({ read: ids });
   try {
@@ -278,7 +283,7 @@ export async function applyRead(
     } catch (e) {
       // No network: keep the change on screen and send it when the connection returns (lib/offline.ts). A
       // change that could not be stored for later is a failure like any other.
-      if (isOffline(e)) return await queueRead(ids, read);
+      if (isOffline(e)) return await queueRead(ids, read, from);
       throw e;
     }
   } catch (e) {

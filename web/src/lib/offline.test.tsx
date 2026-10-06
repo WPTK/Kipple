@@ -5,14 +5,15 @@ import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { useRefreshAll } from "@/api/refresh";
 import { ApiError, api, authStore } from "@/api/client";
-import { applyRead, applyStar, flattenItems, keys, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
+import { applyRead, applyStar, flattenItems, keys, useBootstrap, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import App, { makeQueryClient } from "@/App";
-import { card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
+import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 import {
   FLUSH_REQUEST_MS,
   flushQueue,
   initOffline,
+  overlayCounts,
   isOffline,
   memoryBackendForTests,
   SUPERSEDE_WAIT_MS,
@@ -679,5 +680,54 @@ describe("the queue laid over the worker's stored copy", () => {
     qc.setQueryData(keys.items(unread), { pages: [pageOf([card(1)])], pageParams: [""] });
     await flushQueue(qc);
     expect(flattenItems(qc.getQueryData(keys.items(unread)))[0]?.read).toBe(true);
+  });
+
+  describe("the unread counts of the stored bootstrap", () => {
+    const from = (read: boolean) => ({ "1001": { feed: "1", read } });
+
+    it("drop for an article read offline and rise again for one marked unread", async () => {
+      await queueRead(["1001"], true, from(false));
+      const read = await overlayCounts(bootstrap);
+      expect([read.counts.unread, read.feeds[0]?.unread, read.folders[0]?.unread]).toEqual([2, 2, 2]);
+      await wipeOfflineData();
+      await queueRead(["1001"], false, from(true));
+      expect((await overlayCounts(bootstrap)).counts.unread).toBe(4);
+    });
+
+    it("count an article once however often it was toggled, from where it started to where it ended", async () => {
+      await queueRead(["1001"], true, from(false));
+      await queueRead(["1001"], false, from(true));
+      expect(await overlayCounts(bootstrap)).toBe(bootstrap);
+      await queueRead(["1001"], true, from(false));
+      expect((await overlayCounts(bootstrap)).counts.unread).toBe(2);
+    });
+
+    it("are left alone for a change that starts where it ends, or whose start is unknown", async () => {
+      await queueRead(["1001"], true, from(true));
+      await queueRead(["1002"], true);
+      expect(await overlayCounts(bootstrap)).toBe(bootstrap);
+    });
+
+    it("are applied by useBootstrap to the stored copy only", async () => {
+      await queueRead(["1001"], true, from(false));
+      const run = async (headers?: Record<string, string>) => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(bootstrap, 200, headers)));
+        const { result } = renderHook(() => useBootstrap(), {
+          wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={makeQueryClient()}>{children}</QueryClientProvider>,
+        });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        return result.current.data?.counts.unread;
+      };
+      expect(await run({ "X-Kipple-Cache": "1" })).toBe(2);
+      expect(await run()).toBe(3);
+    });
+
+    it("a read made offline records where the article started", async () => {
+      netFail();
+      const c = new QueryClient();
+      c.setQueryData(keys.item("1001"), detail(1));
+      await applyRead(c, ["1001"], true, "key");
+      expect((await overlayCounts(bootstrap)).counts.unread).toBe(2);
+    });
   });
 });
