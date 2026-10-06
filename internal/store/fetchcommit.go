@@ -481,6 +481,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		}
 		defer insContent.Close()
 
+		unreadNew := 0
 		for _, it := range fresh {
 			id := d.alloc.Next()
 			crawl := id / 1_000_000
@@ -561,10 +562,16 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				st.firstID = id
 			}
 			st.lastID = id
+			if read == 0 && mutedBy == nil {
+				unreadNew++
+			}
 			// Every row this commit adds is counted here: trimFeedBatch skips on st.before+len(newIDs).
 			st.newIDs = append(st.newIDs, id)
 		}
 		if err := writeHits(ctx, tx, hits, now); err != nil {
+			return err
+		}
+		if err := addFeedDailyNew(ctx, tx, feedID, now, unreadNew); err != nil {
 			return err
 		}
 	}
@@ -768,6 +775,19 @@ func (d *DB) FeedSnapshotsByID(ctx context.Context, set FetchSettings, ids []int
 		}
 	}
 	return out, nil
+}
+
+// addFeedDailyNew adds n to the feed's count of new, unread items for today in the `tz` zone (the
+// read-rate denominator, migration 0017). Same transaction as the inserts, so the count and the items
+// commit or roll back together.
+func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID, now int64, n int) error {
+	if n == 0 {
+		return nil
+	}
+	day := time.Unix(now, 0).In(Zone(ctx, tx)).Format("2006-01-02")
+	_, err := tx.ExecContext(ctx, `INSERT INTO feed_daily_new (feed_id, local_date, new_items) VALUES (?,?,?)
+		ON CONFLICT(feed_id, local_date) DO UPDATE SET new_items = new_items + excluded.new_items`, feedID, day, n)
+	return err
 }
 
 func (d *DB) saveHighWater(ctx context.Context, tx *sql.Tx) error {

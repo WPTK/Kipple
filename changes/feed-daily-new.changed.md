@@ -1,0 +1,1 @@
+Statistics: the database now keeps how many new unread items each feed brings in per day, so a later release can show what share of a feed you open. It adds schema 17 (a small table; nothing changes on screen), and rolling back to 0.8 is by the pre-migration snapshot the first start writes, as with every migration. (#37)

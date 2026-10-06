@@ -216,9 +216,16 @@ Decided in a design discussion. No code yet; both issues keep the roadmap label.
 - **Read rate per feed: built for pruning.** The share of a feed's new items that were opened. Retention trims the items
   table, so the published count per feed per day has to be recorded at fetch time, in a table that survives trims.
   Not built until that table is designed.
-- **Screen: design A.** One Stats screen. Adds a compare toggle, a Months range with bars covering every month on record
+- **Screen: design A.** One Stats screen. Adds comparison, a Months range with bars covering every month on record
   (not capped at 12), and a source row that opens a per-feed drill-down sheet. Design B (a separate Feeds page) is the
-  fallback if the sheet outgrows the screen.
+  fallback if the sheet outgrows the screen; promote the sheet then.
+- **Comparison has no toggle.** Tiles show plain numbers by default. Tapping a tile shows that stat's previous-period
+  value and change (for example "+18% from 120") and says which period it was compared with; tapping again hides it.
+  A settings-style on/off control inside content was rejected as non-standard (issue #286 holds the wider UI audit).
+- **Read rate shows as a percentage.** The counts ("31 of 50 new") appear on tap. A feed with no recorded days shows a
+  dash, never 0%. Per-feed deltas appear only in the drill-down sheet, not in the Sources list.
+- **Build order.** The published-counts table (migration 0017, `feed_daily_new`) goes first, because its history cannot
+  be recovered later. Comparison, Months, the drill-down and read rate follow in separate PRs.
 - **Reader API reads (#36): closed as not planned.** Kipple measures reading time only in its own web app. A sync client
   sends no read time or scroll, so its reads can never meet the read definition (10 s active, or 25% scroll with 3 s),
   and no request log can change that. The Stats screen and the docs say: "Statistics count reading in the Kipple web app.
