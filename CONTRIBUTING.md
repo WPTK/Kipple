@@ -14,7 +14,7 @@ triaged best-effort (see [SECURITY.md](SECURITY.md)).
   vulnerability reporting).
 - **Propose a change:** open an issue first for anything bigger than a fix, so you don't spend time on
   something that is out of scope. What was decided against is listed in [CLAUDE.md](CLAUDE.md) ("Decisions").
-- **Send a pull request:** small and focused, against `main`, as described below.
+- **Send a pull request:** small and focused, against `main`, following the steps below.
 
 ## Getting set up
 
