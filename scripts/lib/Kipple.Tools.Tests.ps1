@@ -117,7 +117,7 @@ Describe 'Invoke-ToolMain' {
     $script:lib = Join-Path $PSScriptRoot 'Kipple.Tools.ps1'
     function script:Invoke-Child([string]$Body) {
       $cmd = ". '$script:lib'; Invoke-ToolMain -Name 't' -Body { $Body }"
-      $out = & $script:pwshExe -NoProfile -Command $cmd 2>&1
+      $out = & $script:pwshExe -NoProfile -NonInteractive -Command $cmd 2>&1
       [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($out -join "`n") }
     }
   }

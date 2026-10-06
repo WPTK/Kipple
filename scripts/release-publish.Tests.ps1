@@ -11,20 +11,20 @@ BeforeAll {
 
 Describe 'argument validation' {
   It 'refuses a malformed tag' {
-    $null = & $script:pwshExe -NoProfile -File $script:script -Tag 1.2.3 -Prerelease -WhatIf 2>&1
+    $null = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -Tag 1.2.3 -Prerelease -WhatIf 2>&1
     $LASTEXITCODE | Should -Not -Be 0
   }
   It 'refuses a tag with a leading zero' {
-    $null = & $script:pwshExe -NoProfile -File $script:script -Tag v01.2.3 -Full -WhatIf 2>&1
+    $null = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -Tag v01.2.3 -Full -WhatIf 2>&1
     $LASTEXITCODE | Should -Not -Be 0
   }
   It 'requires -Prerelease or -Full: there is no default' {
-    $out = & $script:pwshExe -NoProfile -File $script:script -Tag v1.2.3 -WhatIf 2>&1
+    $out = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -Tag v1.2.3 -WhatIf 2>&1
     $LASTEXITCODE | Should -Not -Be 0
     ($out -join ' ') | Should -Match 'Prerelease|Full|parameter'
   }
   It 'refuses -Prerelease and -Full together' {
-    $null = & $script:pwshExe -NoProfile -File $script:script -Tag v1.2.3 -Prerelease -Full -WhatIf 2>&1
+    $null = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -Tag v1.2.3 -Prerelease -Full -WhatIf 2>&1
     $LASTEXITCODE | Should -Not -Be 0
   }
 }

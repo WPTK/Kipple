@@ -22,15 +22,15 @@ BeforeAll {
 
 Describe 'argument validation' {
   It 'requires a PR number' {
-    $null = & $script:pwshExe -NoProfile -File $script:script -WhatIf 2>&1
+    $null = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -WhatIf 2>&1
     $LASTEXITCODE | Should -Not -Be 0
   }
   It 'rejects a malformed repository name' {
-    $null = & $script:pwshExe -NoProfile -File $script:script -Number 3 -Repo 'not a repo' 2>&1
+    $null = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -Number 3 -Repo 'not a repo' 2>&1
     $LASTEXITCODE | Should -Not -Be 0
   }
   It 'rejects a PR number below 1' {
-    $null = & $script:pwshExe -NoProfile -File $script:script -Number 0 2>&1
+    $null = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -Number 0 2>&1
     $LASTEXITCODE | Should -Not -Be 0
   }
 }

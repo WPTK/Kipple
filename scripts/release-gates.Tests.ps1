@@ -11,12 +11,12 @@ BeforeAll {
 
 Describe 'argument validation' {
   It 'rejects an abbreviated sha before doing anything' {
-    $out = & $script:pwshExe -NoProfile -File $script:script -Ref abc1234 -WhatIf 2>&1
+    $out = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -Ref abc1234 -WhatIf 2>&1
     $LASTEXITCODE | Should -Not -Be 0
     ($out -join ' ') | Should -Match 'does not match'
   }
   It 'rejects an unknown step name in -Only' {
-    $null = & $script:pwshExe -NoProfile -File $script:script -Only bogus -WhatIf 2>&1
+    $null = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -Only bogus -WhatIf 2>&1
     $LASTEXITCODE | Should -Not -Be 0
   }
 }
