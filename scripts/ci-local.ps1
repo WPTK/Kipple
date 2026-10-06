@@ -2,14 +2,14 @@
 #
 #   pwsh scripts/ci-local.ps1               everything except the Docker build and Trivy
 #   pwsh scripts/ci-local.ps1 -Docker       also build the image and scan it with Trivy
-#   pwsh scripts/ci-local.ps1 -Skip web,security     skip a group (go, security, web, links, docker)
+#   pwsh scripts/ci-local.ps1 -Lint         also lint (PSScriptAnalyzer) and test (Pester) the PowerShell tooling in scripts/\n#   pwsh scripts/ci-local.ps1 -Skip web,security     skip a group (go, security, web, links, docker)
 #   pwsh scripts/ci-local.ps1 -AllLinks     check every link in every *.md, not only the *.md changed against origin/main
 #
 # It runs the same commands and pinned tool versions as the workflow. Differences: no `-race` (this
 # machine has no C compiler), gofmt is checked on LF-normalized copies (CRLF working copies hide
 # formatting failures), and gitleaks/Trivy run through pinned Docker images. The GitHub Actions run on the exact
 # commit is what "CI green" means; this is the check before pushing. Exit code is non-zero on any failure.
-param([switch]$Docker, [switch]$AllLinks, [string[]]$Skip = @())
+param([switch]$Docker, [switch]$Lint, [switch]$AllLinks, [string[]]$Skip = @())
 
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
@@ -98,6 +98,25 @@ Step 'links' 'markdown links (scripts/check-links.mjs)' {
   node scripts/check-links.mjs @changed
 }
 
+# ---- lint (opt-in: PSScriptAnalyzer and Pester for the PowerShell tooling; ci-local.ps1 and fuzz.ps1 predate the rules) ----
+if ($Lint) {
+  Step 'lint' 'PSScriptAnalyzer (Warning and Error fail)' {
+    $settings = Join-Path $root 'scripts/PSScriptAnalyzerSettings.psd1'
+    $legacy = @('ci-local.ps1', 'fuzz.ps1')
+    $files = Get-ChildItem -Path (Join-Path $root 'scripts') -Recurse -Filter '*.ps1' | Where-Object { $legacy -notcontains $_.Name }
+    $findings = foreach ($f in $files) { Invoke-ScriptAnalyzer -Path $f.FullName -Settings $settings }
+    $findings | Format-Table RuleName, ScriptName, Line, Message -Wrap | Out-String | Write-Host
+    $global:LASTEXITCODE = [int]([bool]$findings)
+  }
+  Step 'lint' 'Pester (scripts/**/*.Tests.ps1)' {
+    $cfg = New-PesterConfiguration
+    $cfg.Run.Path = Join-Path $root 'scripts'
+    $cfg.Run.PassThru = $true
+    $cfg.Output.Verbosity = 'Minimal'
+    $r = Invoke-Pester -Configuration $cfg
+    $global:LASTEXITCODE = [int]($r.FailedCount -gt 0 -or $r.Result -ne 'Passed')
+  }
+}
 # ---- docker (opt-in: slow) ----
 if ($Docker) {
   Step 'docker' 'build image' {
@@ -124,3 +143,4 @@ $results | Format-Table Group, Step, Ok, Seconds -AutoSize | Out-String | Write-
 $failed = @($results | Where-Object { -not $_.Ok })
 if ($failed.Count) { Write-Host "$($failed.Count) step(s) failed" -ForegroundColor Red; exit 1 }
 Write-Host 'all steps passed' -ForegroundColor Green
+
