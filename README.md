@@ -71,8 +71,8 @@ upgrades, verifying the image signature and building from source.
 
 ## Sync with other apps
 
-Kipple can sync read and starred articles with RSS apps on your phone or computer. In the app, add a FreshRSS (Google
-Reader compatible) account with:
+Kipple can sync read and starred articles with RSS apps on your phone or computer. In the app, add a Google Reader
+compatible account with:
 
 - Server: your Kipple address plus `/api/greader.php`
 - User name: the one you chose during setup
