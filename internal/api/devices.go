@@ -186,6 +186,7 @@ var clientDefs = map[string]clientDef{
 	"client.shortcuts":          {boolVal, nil},
 	"client.spacing":            {oneOf("snug", "normal", "roomy"), "normal"},
 	"client.motion":             {oneOf("system", "on", "off"), "system"},
+	"client.font_everywhere":    {boolVal, false},
 	"client.large_targets":      {boolVal, false},
 	"client.highlight_keywords": {boolVal, true},
 	"client.listen":             {boolVal, false},

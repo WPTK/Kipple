@@ -118,7 +118,7 @@ export function ThemeStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
           <Sample heading="Day" scheme={schemeById(day)} />
           <Sample heading="Night" scheme={schemeById(night)} />
         </div>
-        <FontPicker value={font} onChange={pickFont} preview="large" help="Used for every list, article and the sidebar." />
+        <FontPicker value={font} onChange={pickFont} preview="large" help="Used for article text. Settings can extend it to lists and the sidebar." />
         <p className="text-xs text-fg2">
           This page already shows your pick for this device. You can also choose a schedule, a single theme or another font in Settings, Appearance &amp; Reading, or from the Aa button above any list or
           article, any time.

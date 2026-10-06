@@ -177,18 +177,26 @@ export function FontPicker({ value, onChange, label = "Reading font", help, prev
   );
 }
 
-/** The reading font of this device: the one font of the app (lists, reader and sidebar; Settings and menus keep the system font). */
+/** The reading font of this device, with the switch that extends it to lists and the sidebar (Settings and menus always keep the system font). */
 export function FontSelect({ preview = "compact" }: { preview?: "compact" | "large" }) {
   const p = useStore(prefsStore);
   const meta = useMeta("ui.font_body", "Reading font");
   return (
-    <FontPicker
-      value={p.font}
-      onChange={(font) => updatePrefs({ font })}
-      label={meta.label}
-      help={preview === "large" ? "Used for every list, article and the sidebar on this device. Settings and menus keep the system font." : undefined}
-      preview={preview}
-    />
+    <div className="flex flex-col gap-3">
+      <FontPicker
+        value={p.font}
+        onChange={(font) => updatePrefs({ font })}
+        label={meta.label}
+        help={preview === "large" ? "Used for article text on this device." : undefined}
+        preview={preview}
+      />
+      <Switch
+        label="Use it everywhere"
+        help="Also use this font for lists and the sidebar. Settings and menus keep the system font."
+        checked={p.fontEverywhere}
+        onChange={(fontEverywhere) => updatePrefs({ fontEverywhere })}
+      />
+    </div>
   );
 }
 
@@ -265,9 +273,9 @@ export function HighlightToggle() {
 
 /**
  * The Kindle-style "Aa" panel: theme, font, text size and density. Everything applies at once (the page behind is
- * the live preview), is stored per device, and has no sliders. The font chosen here is THE font (the same setting
- * as Settings > Appearance & Reading > Reading font): it applies to every list, the reader and the sidebar
- * (Settings and menus keep the system font). It sits above every list (feeds, folders, Unread, All, Starred,
+ * the live preview), is stored per device, and has no sliders. The font chosen here is the same setting as
+ * Settings > Appearance & Reading > Reading font: it styles articles, and "Use it everywhere" extends it to the
+ * lists and the sidebar (Settings and menus keep the system font). It sits above every list (feeds, folders, Unread, All, Starred,
  * Search) and every article. Text spacing, an accessibility control, lives in Settings so it never looks like a
  * second density picker.
  */
