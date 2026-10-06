@@ -1,0 +1,24 @@
+# Prose that no code reads: a pull request that changes only these files skips the build and test jobs in ci.yml
+# (scripts/ci-changes.sh). Every other path counts as code, so a new file runs everything until it is listed here.
+#
+# One pattern per line. `*` matches any characters including `/`; it is the only special character. A line starting
+# with `!` removes matches, and removals win. Anything under scripts/ or the workflows and actions in .github/ counts
+# as code even if a line here says otherwise.
+#
+# A file belongs here only if nothing reads it: not the Dockerfile, a go:embed, a Go or web test, a script, or the web
+# build. The go, web and docker jobs check that by deleting every listed file (scripts/ci-prune-prose.sh) before their
+# build and test steps on each run that is not prose-only, so a reader there fails its own test. If that step breaks after you add a reader, take
+# the file off this list.
+docs/*.md
+changes/*.md
+CONTRIBUTING.md
+SECURITY.md
+CLAUDE.md
+web/ACCESSIBILITY.md
+web/src/theme/README.md
+.github/pull_request_template.md
+.github/ISSUE_TEMPLATE/*.yml
+
+# Read by cmd/kipple/docs_test.go.
+!docs/design.md
+!docs/deploy.md
