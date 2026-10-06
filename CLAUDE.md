@@ -113,8 +113,14 @@ Most of the cost is context re-read on every turn, so keep each context small.
 - **Do not re-verify what CI already proved.** A release or docs-only commit needs the CI run on that commit and nothing
   more. Fuzz, UAT suites and a delta review run once, on the commit being tagged, and only if code changed since the
   last run.
+- **Batch small PRs:** related tiny changes (docs, `changes/` entries, wording, config tweaks) go in one PR on one branch:
+  one high review, one CI wait, one merge, and the description lists each item. Code fixes with different root causes stay
+  separate. The auto-fix monitor (`bind_pr` + `set_monitor`) is for PRs that touch code, workflows or dependencies; a
+  docs-only or `changes/`-only PR gets one `gh pr checks <n> --watch --fail-fast`.
 - **Keep output small:** prefer the scripts that print one-line verdicts (`release-gates`, `pr-ready`); pipe test, CI,
-  npm and changelog-preview output through `head`/`tail`/`grep`, read docs by line range, search before reading.
+  npm and changelog-preview output through `head`/`tail`/`grep`, read docs by line range, search before reading. Cheap checks first: `git diff --shortstat`, `gh pr checks <n>` or a
+  script verdict before opening any file or log; read only the failing step's log tail, and never a whole large test file
+  when grep or a line range answers it.
   Do not re-read a file just edited.
 - **Sessions:** one task or release per session; start a new one after a release or when the context passes about
   300K tokens instead of carrying a week of history. Put state in memory and the history repo, not in the chat.

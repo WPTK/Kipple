@@ -25,6 +25,9 @@ Kept for every release because they paid for themselves: tag only on the exact g
 deploy, the migration rehearsal (Suite 4), the Opus review of large diffs, and deterministic tests (no wall-clock
 waits).
 
+Related tiny changes (docs, `changes/` entries, wording, config tweaks) land as one batch PR, so the release has one review
+and one CI wait for them; code fixes with different root causes stay separate PRs.
+
 ### Version path to 1.0.0 (decided 2026-10-03)
 
 `0.8.0-beta.1`, `0.8.0-beta.2`, then `1.0.0-rc.N`, then `1.0.0`. A candidate for 1.0.0 is named `1.0.0-rc.N`, never `0.8.0-rc.N`. A

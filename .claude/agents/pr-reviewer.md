@@ -38,6 +38,8 @@ Skip style nits and anything CI already proves (formatting, lint, the existing t
 
 ## Report
 
+Your hand-back is at most 15 lines. Write any detail to a file in the scratchpad directory and return its path.
+
 At most 10 findings, most severe first. For each: `file:line`, severity (blocker, high, medium, low), a one-line
 summary, and the failure scenario (what input or sequence makes it go wrong). Say "no findings" if there are none.
 End with the shas you reviewed and whether your worktree was removed. Nothing else.
