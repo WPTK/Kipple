@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchResetInfo, resetKipple } from "@/api/admin";
 import { wipeOfflineData } from "@/lib/offline";
+import { UNCLAIMED_NOTICE } from "@/setup/RestoreWaiting";
 import { resetting } from "@/setup/session";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, inputCls } from "@/ui/kit";
@@ -10,7 +11,7 @@ import { accountError } from "./AccountSection";
 /** The phrase that confirms a reset (the server compares it without regard to case or surrounding spaces). */
 export const RESET_PHRASE = "reset kipple";
 
-function ResetDialog({ hasPassword, envAccount, publicAddressSet, onClose }: { hasPassword: boolean; envAccount: boolean; publicAddressSet: boolean; onClose: () => void }) {
+function ResetDialog({ hasPassword, envAccount, onClose }: { hasPassword: boolean; envAccount: boolean; onClose: () => void }) {
   const [password, setPassword] = useState("");
   const [phrase, setPhrase] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,7 +53,7 @@ function ResetDialog({ hasPassword, envAccount, publicAddressSet, onClose }: { h
       <p className="text-sm text-fg2">
         Kipple keeps a safety copy of your library in <code>backup/pre-restore-*</code> in your data folder, and <code>kipple restore</code> can bring it back. Export a backup first if you want one you can keep elsewhere. The address and access settings (public address, allowed host names, trusted proxies, Cloudflare Access) are kept.
       </p>
-      {publicAddressSet ? <Notice tone="warn">Until you create the new account, anyone who can reach your public address can create it. Do the setup right away.</Notice> : null}
+      <Notice tone="warn">{UNCLAIMED_NOTICE}</Notice>
       {envAccount ? (
         <Notice>Kipple will ignore KIPPLE_USERNAME and KIPPLE_PASSWORD until you create a new account. You can delete them from your compose file whenever convenient.</Notice>
       ) : null}
@@ -79,7 +80,7 @@ export function ResetSection({ hasPassword }: { hasPassword: boolean }) {
       <Button className="self-start" onClick={() => setOpen(true)}>
         Reset Kipple and start over
       </Button>
-      {open && info.isSuccess ? <ResetDialog hasPassword={hasPassword} envAccount={info.data.env_account} publicAddressSet={info.data.public_address_set} onClose={() => setOpen(false)} /> : null}
+      {open && info.isSuccess ? <ResetDialog hasPassword={hasPassword} envAccount={info.data.env_account} onClose={() => setOpen(false)} /> : null}
       {open && info.isError ? (
         <Modal open onOpenChange={(o) => !o && setOpen(false)} title="Reset Kipple and start over" footer={<Button onClick={() => setOpen(false)}>Close</Button>}>
           <Notice tone="error">{accountError(info.error)}</Notice>

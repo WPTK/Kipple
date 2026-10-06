@@ -1,0 +1,1 @@
+Reset Kipple and start over: the confirmation dialog, the page that waits for the restart and the docs now say plainly that, until setup is finished, anyone who can reach Kipple can claim it, so setup should be finished right away.
