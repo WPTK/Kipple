@@ -91,7 +91,7 @@ These are left out on purpose, and requests for them are closed.
 - Monitoring or analytics.\*
 - More than one user.
 
-\* Kipple keeps reading statistics, but they live in your own database, only you see them, and nothing sends them anywhere.
+\* _Kipple keeps reading statistics, but they live in your own database, only you see them, and nothing sends them anywhere._
 
 ## Documentation
 
