@@ -380,32 +380,52 @@ func TestAccountClaimCancelsTheCheck(t *testing.T) {
 }
 
 // A second tab sees an upload while its body arrives, and a DELETE from there
-// stops it; the first tab is told it was cancelled.
+// stops it; the first tab is told it was cancelled. The last byte of the body
+// is never sent, so the upload cannot finish before the DELETE whatever the
+// timing (the race detector slows the test enough to expose that): only the
+// DELETE ends it.
 func TestSecondTabSeesAndCancelsAnUpload(t *testing.T) {
 	h := newRestoreHarness(t)
+	srv := httptest.NewServer(h.root)
+	defer srv.Close()
 	b := backupZip(t, "h", store.AuthStandard)
-	pr, pw := io.Pipe()
-	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() {
-		r := httptest.NewRequest("POST", "/api/setup/restore/upload", pr)
-		r.ContentLength = int64(len(b))
-		r.Host, r.RemoteAddr = setupHost, setupPeer
-		r.Header.Set("Sec-Fetch-Site", "same-origin")
-		r.Header.Set("X-Kipple-Client", "web")
-		rec := httptest.NewRecorder()
-		h.root.ServeHTTP(rec, r)
-		done <- rec
-	}()
-	_, err := pw.Write(b[:100])
+	addr := srv.Listener.Addr().String()
+	conn, err := net.Dial("tcp", addr)
 	require.NoError(t, err)
-	require.Equal(t, "uploading", h.status()["state"])
+	defer conn.Close()
+	_, err = fmt.Fprintf(conn, "POST /api/setup/restore/upload HTTP/1.1\r\nHost: %s\r\nSec-Fetch-Site: same-origin\r\nX-Kipple-Client: web\r\n"+
+		"Content-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n", addr, len(b))
+	require.NoError(t, err)
+	_, err = conn.Write(b[:len(b)-1])
+	require.NoError(t, err)
+
+	call := func(method string) (int, map[string]any) {
+		req, err := http.NewRequest(method, srv.URL+"/api/setup/restore", nil)
+		require.NoError(t, err)
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		req.Header.Set("X-Kipple-Client", "web")
+		resp, err := srv.Client().Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	require.Eventually(t, func() bool { _, st := call("GET"); return st["state"] == "uploading" }, 5*time.Second, 5*time.Millisecond)
 	require.Equal(t, "uploading", h.restoreState())
-	go func() { _, _ = pw.Write(b[100:]); _ = pw.Close() }()
-	require.Equal(t, http.StatusNoContent, h.req("DELETE", "/api/setup/restore", "").Code)
-	rec := <-done
-	require.Equal(t, http.StatusConflict, rec.Code)
-	require.Equal(t, "restore_cancelled", decode(t, rec)["error"])
-	require.Equal(t, "none", h.status()["state"])
+	code, _ := call("DELETE")
+	require.Equal(t, http.StatusNoContent, code)
+
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	require.NoError(t, err, "the first tab gets an answer")
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.Equal(t, "restore_cancelled", out["error"])
+	_, st := call("GET")
+	require.Equal(t, "none", st["state"])
 }
 
 // A client that stalls mid-upload does not hold the slot: a cancel from
