@@ -109,8 +109,8 @@ implementing anything. Commit and PR as needed without asking." (Host-A deploys 
 
 ### Layouts
 - Ship **all five**: Magazine (default), Cards, Compact, Inbox, Headlines (shipped; Magazine is labelled
-  Editorial and Headlines Email - Compact, ids unchanged). Parked: Columns, Reader list,
-  Expanded stream.
+  Editorial and Headlines Email - Compact, ids unchanged). Columns, Reader list and Expanded
+  stream were parked, then replaced by the layouts in "Additional layouts (#39)" below.
 - Layout is choosable **per feed and per folder** (override), plus a global/device default. UI in phase 2.
 - A folder's layout override applies to its subfolders and their feeds too; the nearest override up the tree wins
   (feed, then its folder, then each folder above, then the device default).
@@ -265,3 +265,73 @@ passwordless, in parallel with A (DONE, PR #40); (C) auto-night theme (DONE, PR 
 (DONE, #42; a further pass for the 0.5 setup wizard is PR D of the setup wizard work) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
 Suites 1-4, migration rehearsal, restore drill, Reader API regression replay); (E) final go/no-go meeting, fed by
 D and F's sign-off.
+
+---
+
+## Additional layouts (#39, 2026-10-06)
+
+Design discussion with the owner. Mockups were reviewed in the session; nothing is built yet. Columns, Reader list and
+Expanded stream (the parked names) are dropped; Expanded stream may return later. The ideas below replace them.
+
+### Rules for every new layout
+- Every layout joins the `c` toggle and the per-feed and per-folder override, and has a defined iPhone behavior.
+- These layouts arrange many articles at once, so they need a list-level page contract beside the one-row-per-item
+  contract. The owner does not want the existing row contract to limit the designs.
+- Colors come from the active theme. The unread accent is the theme's accent, never a fixed blue.
+
+### 1. Newspaper (first priority): "The Gazette"
+- A front page and numbered inner pages, laid out like a printed paper. Fixed rules decide the layout from the content,
+  so the same articles always give the same page, and different days look different. No AI, no randomness.
+- **Name:** "The Gazette" by default, with a Settings text field to rename it (per device, like other appearance settings).
+- **Lead:** the newest article with an image from a pinned source. A pin is a Favorite (feed or folder), the same list as
+  the top of the sidebar; there is no separate pin list. No pin icon is drawn on the page. In a single feed or folder
+  list there is no pin, so the lead is the newest article with an image in that list.
+- **Front-page types**, first match wins: (1) co-leads: two pinned feeds both have images, side by side; (2) lead with
+  image: about 26 px headline over the picture, a second column of stories, a row of columns; (3) big headline: the
+  pinned feed has no image, so the headline grows to about 40 px and runs the full width with a longer standfirst, and
+  with nothing from a pinned feed the longest recent headline leads; (4) quiet day: fewer than about 6 stories, two
+  columns and no briefs; (5) busy day: a photo row (at least three more stories with images) and four columns;
+  (6) text-only day: no images anywhere, a typographic page. A "picture day" type for very wide images was dropped:
+  Kipple does not store image sizes, and adding them needs a migration and a fetch at ingest.
+- **Lead window:** the newest image article from a Favorite among the first 100 articles loaded; none means a no-lead type.
+- **Order:** always newest first; the per-device sort order is ignored in this layout.
+- **Reading:** a story marked read fades in place and the page does not reflow; the page re-plans on refresh or when you
+  leave and return. A page's contents are fixed once planned, so loading more never reflows earlier pages.
+- **Paging:** all loaded pages stack in one scroll with a page rule and a small header between them.
+- **Columns:** two for a few stories up to four for many. Stories that do not fit become headline-only "In brief" lines.
+  Unread titles are bold, read ones fade.
+- **Inner pages (2, 3, ...):** no masthead; a small header line (name, page number, date), a section header, columns,
+  and at most one feature with a picture per section. The last page is briefs only and ends the paper: "That's the
+  Gazette."
+- **Sections:** the next level down from the list's scope. A list of everything or a parent folder groups by folder; a
+  single folder groups by feed name.
+- **Finite:** the paper ends. The last page appears once all of the list's articles are loaded.
+- **iPhone:** one column in the same order (lead, next stories, then sections), a compact masthead and no folio row.
+
+### 2. Source rows
+- One horizontal strip of tiles per feed (image, title, age), newest first, feeds in sidebar order, feeds with nothing
+  unread at the bottom. A tile opens the article; the feed name opens that feed's list. Feeds without images get text-only
+  tiles. iPhone: each strip swipes sideways with the next tile partly visible.
+
+### 3. Triage stack
+- One article card at a time (image, source, title, excerpt), the next card showing behind it. Swipe directions follow the
+  rest of the app: right marks read, left stars; tap opens the article; each action advances and shows the undo toast.
+  Desktop: arrow keys and Enter. A "N left" counter. iPhone-first.
+
+### 4. Daily edition: parked
+- A finite page for one calendar day was mocked and dropped for now. The approach needs rethinking; do not build it from
+  these notes.
+
+### 5. Inbox and Email - Compact: mail-client look
+- **Inbox** takes a full-density mail look: a round favicon avatar, source name and time on the first line, the title in
+  the theme accent while unread (also bold, with a bar or dot at the left edge), a one-line preview, a pale accent fill
+  for the selected row. On hover the time gives way to star, mark read and menu. Date groups (Today, Yesterday, then
+  older), an Unread / All tab strip with a Filter control, and a reader pane with a large title, an avatar header and
+  an icon toolbar.
+- **Email - Compact** becomes the single-line density of the same look: source, title and time in one row, like a table.
+- No other product is named in the UI or docs.
+
+### Still open
+- Whether a Columns-style text layout is worth shipping next to Cards (no owner intent yet).
+- Whether Expanded stream returns (full text under each headline, collapsed by default, no scroll-based read marking).
+
