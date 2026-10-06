@@ -8,8 +8,18 @@
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# literal PATTERN: the pattern with every glob character except `*` backslash-escaped.
+literal() {
+  local s="$1" out= c i
+  for ((i = 0; i < ${#s}; i++)); do
+    c="${s:i:1}"
+    case "$c" in '?' | '[' | ']' | '(' | ')' | '|' | '@' | '+' | '!' | '\') out+="\\$c" ;; *) out+="$c" ;; esac
+  done
+  printf '%s' "$out"
+}
+
 classify() {
-  local allow=() deny=() line f p matched
+  local allow=() deny=() line f p g matched
   [ -r "$here/ci-prose.txt" ] || { echo true; return; }
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"
@@ -25,9 +35,13 @@ classify() {
     [ -n "$f" ] || continue
     n=$((n + 1))
     matched=
-    # [[ == ]] with an unquoted pattern is a glob in which `*` also matches `/`.
-    for p in "${allow[@]}"; do [[ "$f" == $p ]] && { matched=1; break; }; done
-    for p in ${deny[@]+"${deny[@]}"}; do [[ "$f" == $p ]] && { matched=; break; }; done
+    # Never prose, whatever the list says: the list, this script, the tests beside them, the workflows and actions. A
+    # pull request that edits the rules is judged by the rules, not by its own edit of them.
+    case "$f" in scripts/* | .github/workflows/* | .github/actions/*) echo true; return ;; esac
+    # [[ == ]] with an unquoted pattern is a glob in which `*` also matches `/`. Only `*` is special in a list line,
+    # so the other glob characters are escaped to match themselves.
+    for p in "${allow[@]}"; do g="$(literal "$p")"; [[ "$f" == $g ]] && { matched=1; break; }; done
+    for p in ${deny[@]+"${deny[@]}"}; do g="$(literal "$p")"; [[ "$f" == $g ]] && { matched=; break; }; done
     [ -n "$matched" ] || { echo true; return; }
   done
   # No paths at all cannot be a real pull request; run everything.
@@ -44,7 +58,8 @@ event="${1:-}"
 shift
 [ "$#" -gt 0 ] || set -- HEAD^1 HEAD
 # Captured, not read through process substitution, so a failing git is seen here. core.quotePath=false keeps
-# non-ASCII names literal; names containing a newline split into pieces that match nothing, which counts as code.
+# non-ASCII names literal; git still quotes names with control characters, a double quote or a backslash, and a quoted
+# name matches no pattern, so it counts as code.
 if ! files="$(git -c core.quotePath=false diff --no-renames --name-only "$@" 2>/dev/null)"; then
   echo true
   exit 0

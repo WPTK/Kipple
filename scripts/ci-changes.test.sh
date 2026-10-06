@@ -59,13 +59,35 @@ ok git-empty-diff true "$(run pull_request HEAD HEAD)"
 ok git-diff-fails true "$(run pull_request nonexistent-ref HEAD)"
 ok git-default-range false "$(run pull_request)"
 
+# Mutation guards: each fails if the behaviour it names is reverted.
+# A failing git must give true even when it printed a prose path first (a process substitution would lose the status).
+mkdir "$tmp/bin"
+printf '#!/bin/sh\necho docs/a.md\nexit 1\n' > "$tmp/bin/git"; chmod +x "$tmp/bin/git"
+ok git-failure-after-output true "$(PATH="$tmp/bin:$PATH" bash "$cc" pull_request)"
+# Non-ASCII names must be asked for literally (core.quotePath=false), or git quotes them and they count as code.
+printf '#!/bin/sh\necho "$@" > "%s/args"\necho docs/a.md\n' "$tmp" > "$tmp/bin/git"
+PATH="$tmp/bin:$PATH" bash "$cc" pull_request > /dev/null
+ok git-asks-for-literal-names 1 "$(grep -c 'core.quotePath=false' "$tmp/args")"
+rm "$tmp/bin/git"
+cd "$repo" && mkdir -p docs && echo x > $'docs/caf\xc3\xa9.md' && commit unicode
+ok git-unicode-doc false "$(run pull_request HEAD~1 HEAD)"
+
+# The rules judge a pull request that edits them: scripts/ and the workflows are code whatever the list says, and
+# only * is special in a list line.
+alt="$tmp/alt"; mkdir "$alt"; cp "$cc" "$alt/ci-changes.sh"
+altcls() { printf '%s\n' "$1" > "$alt/ci-prose.txt"; printf '%s' "$2" | bash "$alt/ci-changes.sh" --classify; }
+ok list-cannot-bless-scripts true "$(altcls '*' 'scripts/ci-prose.txt')"
+ok list-cannot-bless-workflows true "$(altcls '*' '.github/workflows/ci.yml')"
+ok list-star-matches-others false "$(altcls '*' 'main.go')"
+ok list-question-mark-is-literal true "$(altcls 'docs/x?.md' 'docs/xa.md')"
+ok list-question-mark-matches-itself false "$(altcls 'docs/x?.md' 'docs/x?.md')"
+ok list-bracket-is-literal true "$(altcls 'docs/[ab].md' 'docs/a.md')"
+
 # The workflow must call the script through bash (a lost executable bit must not disable the skip) and must say so
 # loudly when the script cannot run, then run everything.
 wf="$here/../.github/workflows/ci.yml"
 ok workflow-calls-through-bash 1 "$(grep -c 'bash scripts/ci-changes.sh' "$wf")"
 ok workflow-warns-when-script-cannot-run 1 "$(grep -c '::warning::.*ci-changes' "$wf")"
-bash "$tmp/missing.sh" >/dev/null 2>&1
-ok missing-script-exits-nonzero 1 "$([ $? -ne 0 ] && echo 1 || echo 0)"
 bash "$cc" pull_request >/dev/null 2>&1
 ok script-exits-zero-when-it-runs 0 "$?"
 

@@ -161,7 +161,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-          cache: npm
+          # No npm install runs on a prose-only pull request, so there is nothing to restore or save.
+          cache: ${{ needs.changes.outputs.code != 'false' && 'npm' || '' }}
           cache-dependency-path: web/package-lock.json
 
       # Changelog fragments (changes/): names and bodies valid, CHANGELOG.md [Unreleased] untouched, and the tooling's own tests.
@@ -182,6 +183,9 @@ jobs:
         run: bash ../scripts/ci-changes.test.sh
       - if: needs.changes.outputs.code != 'false'
         run: node --test ../scripts/ci-prose.test.mjs
+      # The required checks fail open to running everything, not to skipped.
+      - if: needs.changes.outputs.code != 'false'
+        run: node --test ../scripts/ci-gate.test.mjs
       # --ignore-scripts: no dependency install script runs; the build and tests call their tools directly.
       - if: needs.changes.outputs.code != 'false'
         run: npm ci --ignore-scripts
