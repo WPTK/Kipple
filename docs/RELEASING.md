@@ -84,10 +84,10 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 - **Changelog:** the `changes/` fragments of A, B, C and E are all there (`node scripts/changelog.mjs preview`); D adds
   none (docs only). The `changed` entries (port 1919, new installs in UTC and `TZ` now governing statistics, Host gate)
   are the ones an upgrader needs to read.
-- **Release commit:** `README.md`, `docker-compose.pull.example.yml` and the "published image" text in `docs/deploy.md`
+- **Release commit:** `docker-compose.pull.example.yml` and the "published image" text in `docs/deploy.md`
   name the image tag `0.5.0-beta.1` as an example of the version to pull: update them to the version being released
-  (`grep -rn "0\.5\.0-beta\.1" README.md docker-compose.pull.example.yml docs/deploy.md`), and once a stable release
-  exists, say `latest` works.
+  (`grep -rn "0\.5\.0-beta\.1" docker-compose.pull.example.yml docs/deploy.md`). The README names no version
+  (`ghcr.io/wptk/kipple:<version>`); once a stable release exists, change that to `latest` and drop the sentence about it.
 - **One-time, owner, after the first image is pushed:** make the GHCR package `kipple` public and confirm it is linked to
   `WPTK/Kipple` (step 11); until then anonymous pulls, and the README quickstart, fail.
 - **On Host-A, before the upgrade** (docs/deploy.md, "Roll back an upgrade that migrated the schema"): confirm the `kipple`
@@ -132,7 +132,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 4. **CHANGELOG.md:** `node scripts/changelog.mjs preview` shows what is pending; add a one-paragraph
    `changes/_intro.md` if the release needs an intro. `node scripts/changelog.mjs release X.Y.Z` (`--dry-run` first) folds
    the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links, deletes the
-   fragments and sets the example image tag in `README.md`, `docker-compose.pull.example.yml` and `docs/deploy.md` to
+   fragments and sets the example image tag in `docker-compose.pull.example.yml` and `docs/deploy.md` to
    X.Y.Z (`changelog.mjs check`, run by CI, fails when one differs from the top CHANGELOG version). Review the diff
    (`changes/README.md`).
 5. **THIRD_PARTY_NOTICES.md:** regenerate with `node scripts/gen-notices.mjs` (after `cd web && npm ci`; after any dependency change at least).
@@ -233,6 +233,11 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
       site's design system names and re-renders `og.png`. Look at all five before committing. Update the capture note
       in the site's `design-system/DESIGN-SYSTEM.md` (section 10, `screenshots/`) with the new commit and the article shown.
     - Open a PR in the site repo and merge it; the merge is what publishes.
+    - **README screenshots, same condition** (only when the UI visibly changed): re-seed first
+      (`KIPPLE_SEED_SET=site npm run seed`), because the README shots choose a layout and that is saved to the seeded
+      account. Then `node scripts/site-shots.mjs --readme ../docs/screenshots` writes `desktop-light`, `desktop-dark`,
+      `phone-light` and `phone-dark` (WebP) into the Kipple repo. They show different views than the site's. Look at
+      all four, and commit them in the next docs PR.
 
 ## Rolling back `latest`
 
@@ -263,7 +268,8 @@ across a migration always goes through the snapshot. Record what happened in the
 
 ## Badges and supply-chain checks
 
-The README badges are all live except two that need a one-time setup by the owner:
+The README shows four badges: CI, release, license and the image. Two more checks need a one-time setup by the owner
+(they no longer have a README badge, but the checks still run):
 
 - **Test coverage (Codecov).** Sign in to codecov.io with GitHub, add `WPTK/Kipple`, and put the upload token in the
   repository secret `CODECOV_TOKEN` (Settings > Secrets and variables > Actions). CI uploads the Go profile and the web
@@ -273,6 +279,3 @@ The README badges are all live except two that need a one-time setup by the owne
 - **OpenSSF Scorecard.** `.github/workflows/scorecard.yml` needs no secret. It publishes after its first run on main
   (Actions > Scorecard > Run workflow to trigger it by hand); until then the badge says "invalid repo path". It then
   reruns weekly and on branch protection changes.
-- **Views** is a hits.sh counter and is approximate.
-- The GHCR tags badge (ghcr-badge) lists the newest three non-`sha*` tags. Do not switch it to the `latest_tag` or
-  `size` endpoints: the first shows a signature tag and the second fails on a multi-arch image.

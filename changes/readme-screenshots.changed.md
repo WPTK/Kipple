@@ -1,0 +1,1 @@
+Developer tooling: `web/scripts/site-shots.mjs --readme <dir>` captures the four screenshots the README shows, and `node scripts/changelog.mjs` no longer pins an image tag in `README.md`, which now names none.

@@ -180,11 +180,11 @@ test('pinExamples rewrites every image tag, prerelease or not, and nothing else'
 });
 
 test('checkExamples flags a stale tag and a required file with none', () => {
-  const file = { path: 'README.md', required: true };
+  const file = { path: 'docker-compose.pull.example.yml', required: true };
   assert.deepEqual(checkExamples(DOC('0.3.0'), '0.3.0', file), []);
   const stale = checkExamples(DOC('0.2.0'), '0.3.0', file);
   assert.equal(stale.length, 3);
-  assert.match(stale[0], /README\.md: example image tag is 0\.2\.0, the newest CHANGELOG version is 0\.3\.0/);
+  assert.match(stale[0], /docker-compose\.pull\.example\.yml: example image tag is 0\.2\.0, the newest CHANGELOG version is 0\.3\.0/);
   assert.match(checkExamples('nothing here', '0.3.0', file)[0], /no example image tag/);
   assert.deepEqual(checkExamples('nothing here', '0.3.0', { path: 'docs/deploy.md', required: false }), []);
 });
@@ -193,5 +193,5 @@ test('release then check: the example files end up consistent with the new top v
   const out = release(CHANGELOG, { version: '0.4.0', date: '2026-10-01', fragments: [{ id: 'a', kind: 'fixed', text: 'A fix.' }] });
   const v = topVersion(out);
   assert.equal(v, '0.4.0');
-  assert.equal(checkExamples(pinExamples(DOC('0.3.0-beta.1'), v), v, { path: 'README.md', required: true }).length, 0);
+  assert.equal(checkExamples(pinExamples(DOC('0.3.0-beta.1'), v), v, { path: 'docker-compose.pull.example.yml', required: true }).length, 0);
 });
