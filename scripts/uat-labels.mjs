@@ -97,6 +97,7 @@ export function parseDiff(diffText) {
   }
   return files;
 }
+
 /** True when a fragment is long enough to be a meaningful search string. */
 export const isSearchable = (fragment) => fragment.trim().length >= MIN_LENGTH;
 

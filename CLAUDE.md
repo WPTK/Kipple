@@ -59,7 +59,7 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 - Test: `go test ./...` and `cd web && npm test`. Local CI: `pwsh scripts/ci-local.ps1` (`-Docker` adds the image build
   and Trivy). "CI green" means the GitHub Actions run on the exact commit; the local run is the fast pre-push check.
   Fuzz: `scripts/fuzz.ps1` once per release, not per PR.
-- Before a deploy of code that parses, authenticates, migrates or renders UI, run `/code-review high` (the gate tiers and their order are in docs/RELEASING.md).
+- Before every deploy run `/code-review high`.
 
 ## Deploy and releases
 

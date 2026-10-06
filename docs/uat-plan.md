@@ -176,6 +176,7 @@ changed `aria-label`, and fails when that text no longer appears in any label in
 `web/uat/*.mjs`, naming the file and line. A UAT line that matches only by coincidence can carry the comment
 `uat-labels: ignore`. It runs in `scripts/ci-local.ps1` and in its own CI job on pull requests, takes a second, and
 does not replace running Suite 1.
+
 ## Suite 2 — Agent-driven scenario walkthroughs
 
 Test case format (per the standard guide): ID, title, precondition, steps, expected result.

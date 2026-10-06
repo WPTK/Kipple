@@ -144,6 +144,12 @@ Describe 'Invoke-ReleaseGate cleanup' {
     { Invoke-ReleaseGate -Ref ('a' * 40) -Only changelog } | Should -Throw
     Should -Invoke Remove-DetachedWorktree -Times 1
   }
+  It 'removes the worktree when the run is stopped mid-step (what Ctrl-C does to a step), without sending a real Ctrl-C' {
+    Mock Invoke-GateStep { throw [System.OperationCanceledException]::new('stopped') }
+    Mock Remove-DetachedWorktree { $true }
+    { Invoke-ReleaseGate -Ref ('a' * 40) -Only changelog } | Should -Throw
+    Should -Invoke Remove-DetachedWorktree -Times 1
+  }
   It 'keeps the logs and says so when the worktree cannot be removed' {
     Mock Invoke-GateStep { [pscustomobject]@{ Step = 'x'; Status = 'PASS'; Seconds = 0; Note = '' } }
     Mock Remove-DetachedWorktree { $false }

@@ -212,6 +212,7 @@ func TestRegexWorstCaseCeiling(t *testing.T) {
 	t.Logf("250-item first fetch, 25 regex rules: %v (fastest of 3 batches)", took)
 	require.Less(t, took, 2*time.Second)
 }
+
 func TestEvaluateIsConcurrencySafe(t *testing.T) {
 	s, err := NewSet(benchRules())
 	require.NoError(t, err)

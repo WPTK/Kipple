@@ -85,6 +85,7 @@ Describe 'Get-VerifyArgument' {
       $set | Should -Contain 'https://token.actions.githubusercontent.com'
       $set | Should -Not -Contain '--certificate-identity-regexp'
     }
+    $a.ImageTag | Should -Contain 'ghcr.io/owner/name:1.2.3'
     $a.Image[0] | Should -Be 'verify'
     $a.Image[1] | Should -Be ('ghcr.io/owner/name@sha256:' + ('c' * 64))
     $a.Blob[0] | Should -Be 'verify-blob'
@@ -118,9 +119,13 @@ Describe 'Get-ReleaseCreateArgument' {
 
 Describe 'Get-ImageDigest' {
   It 'reads the digest from the image line of the notes' {
-    Get-ImageDigest -ImageNotes ("ghcr.io/o/n:1.2.3`nghcr.io/o/n@sha256:" + ('e' * 64)) | Should -Be ('sha256:' + ('e' * 64))
+    Get-ImageDigest -Repo 'o/n' -ImageNotes ("ghcr.io/o/n:1.2.3`nghcr.io/o/n@sha256:" + ('e' * 64)) | Should -Be ('sha256:' + ('e' * 64))
   }
-  It 'throws when the notes name no digest' { { Get-ImageDigest -ImageNotes 'nothing' } | Should -Throw '*no <image>@sha256*' }
+  It 'throws when the notes name no digest' { { Get-ImageDigest -Repo 'o/n' -ImageNotes 'nothing' } | Should -Throw '*no ghcr.io/<repo>@sha256*'
+  }
+  It 'ignores a digest of another image and takes the one after this repository''s image name' {
+    $notes = ('ghcr.io/other/img@sha256:' + ('1' * 64)) + "`n" + ('ghcr.io/o/n@sha256:' + ('2' * 64))
+    Get-ImageDigest -Repo 'O/N' -ImageNotes $notes | Should -Be ('sha256:' + ('2' * 64)) }
 }
 
 Describe 'Assert-ReleaseKind' {
@@ -139,11 +144,24 @@ Describe 'Test-ReleaseAbsent' {
   }
   It 'throws on another gh failure instead of calling it absent' {
     Mock Invoke-Native { [pscustomobject]@{ ExitCode = 4; Output = @('HTTP 401: Bad credentials'); CommandLine = 'gh' } }
-    { Test-ReleaseAbsent -Repo 'o/n' -Tag 'v1.0.0' } | Should -Throw '*could not tell*'
+    { Test-ReleaseAbsent -Repo 'o/n' -Tag 'v1.0.0' } | Should -Throw '*could not tell (HTTP 401: Bad credentials)*'
   }
   It 'is false when the release exists' {
     Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @('v1.0.0'); CommandLine = 'gh' } }
     Test-ReleaseAbsent -Repo 'o/n' -Tag 'v1.0.0' | Should -BeFalse
+  }
+}
+
+Describe 'Test-TagPushed' {
+  It 'is true when gh finds the tag ref' {
+    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @('{}'); CommandLine = 'gh' } }
+    Test-TagPushed -Repo 'o/n' -Tag 'v1.0.0' | Should -BeTrue
+  }
+  It 'is false on a 404 and throws on another failure' {
+    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 1; Output = @('gh: Not Found (HTTP 404)'); CommandLine = 'gh' } }
+    Test-TagPushed -Repo 'o/n' -Tag 'v1.0.0' | Should -BeFalse
+    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 4; Output = @('HTTP 401'); CommandLine = 'gh' } }
+    { Test-TagPushed -Repo 'o/n' -Tag 'v1.0.0' } | Should -Throw '*could not tell*'
   }
 }
 
@@ -173,6 +191,7 @@ Describe 'Invoke-ReleasePublish' {
     Mock Get-RepoRoot { $TestDrive }
     Mock Find-Cosign { 'cosign' }
     Mock Test-ReleaseAbsent { $true }
+    Mock Test-TagPushed { $true }
     Mock Assert-ChangelogMatchesTag {}
     Mock Wait-ReleaseRun { [pscustomobject]@{ databaseId = 42; status = 'completed'; conclusion = 'success' } }
     Mock Save-ImageNotesArtifact {
@@ -217,7 +236,7 @@ Describe 'Invoke-ReleasePublish' {
     { Invoke-ReleasePublish -Tag 'v1.2.3-beta.1' -IsFull $false -Repo 'o/n' -TimeoutMinutes 1 } | Should -Throw -ExpectedMessage '*exists already*'
   }
   It 'refuses when the tag is not on origin' {
-    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @(); CommandLine = 'git' } }
+    Mock Test-TagPushed { $false }
     { Invoke-ReleasePublish -Tag 'v1.2.3-beta.1' -IsFull $false -Repo 'o/n' -TimeoutMinutes 1 } | Should -Throw -ExpectedMessage '*is not in o/n*'
   }
 }

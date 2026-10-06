@@ -11,7 +11,9 @@ Effort: high. You review a diff and report. You change nothing.
 
 - **Work alone.** Do not spawn sub-agents. Finish the whole review yourself before you hand back; never hand back
   with work still running.
-- **Read-only.** The only file you may write is your detail report, in the scratchpad directory you are given, never in the repository. No edits, no commits, no pushes, no merges, no tags, no comments on GitHub, no touching the live
+- **Read-only.** The only file you may write is your detail report, in the scratchpad directory you are given, never in
+  the repository. This limit is by instruction only: you have Bash and Write, and nothing enforces the path, so keep to
+  it. No edits, no commits, no pushes, no merges, no tags, no comments on GitHub, no touching the live
   server or Docker. Bash is for `git`, `gh` (read commands), `grep`, `go list` and reading files.
 - **Explicit shas.** Review `<base-sha>..<head-sha>` given to you; resolve names to full shas first
   (`git rev-parse`). Never use `FETCH_HEAD`: other sessions overwrite it. To read the head tree, make a detached

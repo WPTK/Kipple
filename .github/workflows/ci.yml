@@ -191,10 +191,12 @@ jobs:
       - run: node --test scripts/uat-labels.test.mjs
       - run: node scripts/uat-labels.mjs HEAD^1..HEAD
 
-  # PSScriptAnalyzer and the Pester tests of the PowerShell tooling. Runs only when scripts/ or this file changed
-  # (the check is inside the job so a skipped run does not leave a required check pending). Windows, because the
-  # tooling is used and its paths are written for Windows. Tool versions are pinned.
+  # PSScriptAnalyzer and the Pester tests of the PowerShell tooling. Pull requests only (so no Windows runner starts on a
+  # push to main or inside a release, which calls this workflow), and then only when the PR changed scripts/ or this file:
+  # the in-job check below. A job skipped by its `if:` reports success, so it never blocks a merge. Windows, because the
+  # tooling is used there and its paths are written for Windows. Tool versions are pinned.
   tooling:
+    if: github.event_name == 'pull_request'
     runs-on: windows-latest
     env:
       PESTER_VERSION: 5.7.1
@@ -214,6 +216,9 @@ jobs:
           "run=$($hit.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           if (-not $hit) { 'No change under scripts/ or in ci.yml: skipping.' }
 
+      # PSGallery versions are immutable, so -RequiredVersion is the pin; there is no hash check, and the accepted risk is a
+      # wrong CI verdict (this job has contents: read, no secrets and no persisted credentials). -SkipPublisherCheck is
+      # needed because the Pester 3.4 that ships with Windows is signed by a different publisher than Pester 5.
       - name: Install Pester and PSScriptAnalyzer
         if: steps.gate.outputs.run == 'true'
         shell: pwsh
@@ -226,6 +231,9 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         shell: pwsh
         run: |
+          # The runner image ships its own PSScriptAnalyzer; load exactly the pinned one, not the highest installed.
+          Import-Module PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION
+          Write-Host "PSScriptAnalyzer $((Get-Module PSScriptAnalyzer).Version)"
           $legacy = @('ci-local.ps1', 'fuzz.ps1')
           $files = Get-ChildItem -Path scripts -Recurse -Filter '*.ps1' | Where-Object { $legacy -notcontains $_.Name }
           $findings = foreach ($f in $files) { Invoke-ScriptAnalyzer -Path $f.FullName -Settings scripts/PSScriptAnalyzerSettings.psd1 }

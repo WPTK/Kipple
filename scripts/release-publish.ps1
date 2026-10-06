@@ -184,7 +184,7 @@ function Get-VerifyArgument {
   .SYNOPSIS
     The cosign arguments for the image check (by digest) and the SBOM check, with the exact identity.
   .OUTPUTS
-    Hashtable with Image and Blob argument arrays.
+    Hashtable with Image (by digest), ImageTag (by version tag) and Blob argument arrays.
   #>
   [CmdletBinding()]
   [OutputType([hashtable])]
@@ -198,7 +198,9 @@ function Get-VerifyArgument {
   $sbom = Join-Path $Directory "kipple-$version.sbom.json"
   return @{
     # By digest, the one the release notes name, so the verified image is the object the notes describe.
-    Image = @('verify', ((Get-ImageReference -Repo $Repo -Version $version).Split(':')[0] + '@' + $Digest)) + $common
+    Image    = @('verify', ((Get-ImageReference -Repo $Repo -Version $version).Split(':')[0] + '@' + $Digest)) + $common
+    # The version tag as well, so the tag the notes tell people to pull is proven to be signed by this release's run.
+    ImageTag = @('verify', (Get-ImageReference -Repo $Repo -Version $version)) + $common
     Blob  = @('verify-blob', $sbom, '--bundle', "$sbom.sigstore.json") + $common
   }
 }
@@ -210,10 +212,11 @@ function Get-ImageDigest {
   #>
   [CmdletBinding()]
   [OutputType([string])]
-  param([Parameter(Mandatory)][AllowEmptyString()][string]$ImageNotes)
-  $m = [regex]::Match($ImageNotes, '@(sha256:[0-9a-f]{64})')
+  param([Parameter(Mandatory)][AllowEmptyString()][string]$ImageNotes, [Parameter(Mandatory)][string]$Repo)
+  # Anchored on this repository's image name, so another image's digest in the text cannot be picked up.
+  $m = [regex]::Match($ImageNotes, [regex]::Escape("ghcr.io/$($Repo.ToLowerInvariant())") + '@(sha256:[0-9a-f]{64})')
   if (-not $m.Success) {
-    throw "Step 'read the image digest' failed: image-notes.md has no <image>@sha256:<digest> line. Likely fix: the notes format changed in .github/workflows/release.yml (Release notes block); update Get-ImageDigest."
+    throw "Step 'read the image digest' failed: image-notes.md has no ghcr.io/<repo>@sha256:<digest> line. Likely fix: the notes format changed in .github/workflows/release.yml (Release notes block); update Get-ImageDigest."
   }
   return $m.Groups[1].Value
 }
@@ -257,6 +260,20 @@ function Get-ReleaseCreateArgument {
   return $a + $Assets
 }
 
+function Test-TagPushed {
+  <#
+  .SYNOPSIS
+    True when the tag exists in the repository on GitHub. Asked through gh, so it uses gh's login like every other step.
+  #>
+  [CmdletBinding()]
+  [OutputType([bool])]
+  param([Parameter(Mandatory)][string]$Repo, [Parameter(Mandatory)][string]$Tag)
+  $r = Invoke-Native -FilePath gh -Arguments 'api', "repos/$Repo/git/ref/tags/$Tag" -Step 'check the tag is on the repository' -AllowFailure -Fix 'gh auth status'
+  if ($r.ExitCode -eq 0) { return $true }
+  if (($r.Output -join ' ') -match 'Not Found|HTTP 404') { return $false }
+  throw "Step 'check the tag is on the repository' failed: gh could not tell ($(@($r.Output)[0])). Likely fix: gh auth status, then check the network."
+}
+
 function Test-ReleaseAbsent {
   [CmdletBinding()]
   [OutputType([bool])]
@@ -265,7 +282,7 @@ function Test-ReleaseAbsent {
   if ($r.ExitCode -eq 0) { return $false }
   # Only "release not found" means there is none; an expired login or a network error must not look like absence.
   if (($r.Output -join ' ') -match 'release not found') { return $true }
-  throw "Step 'check for an existing release' failed: gh could not tell (($r.Output | Select-Object -First 1)). Likely fix: gh auth status, then check the network."
+  throw "Step 'check for an existing release' failed: gh could not tell ($(@($r.Output)[0])). Likely fix: gh auth status, then check the network."
 }
 
 function Assert-ChangelogMatchesTag {
@@ -297,9 +314,7 @@ function Invoke-ReleasePublish {
   Assert-ReleaseKind -Tag $Tag -IsFull $IsFull
   Write-KippleInfo "Release $Tag of $Repo ($(if ($IsFull) { 'full release' } else { 'pre-release' }))"
 
-  $remote = Invoke-Native -FilePath git -Arguments '-C', $root, 'ls-remote', '--tags', "https://github.com/$Repo.git", "refs/tags/$Tag" -Step 'check the tag is on the repository' `
-    -Fix 'push the tag first (docs/RELEASING.md step 8); this script never creates it'
-  if (-not ($remote.Output -join '')) { throw "Step 'check the tag is on the repository' failed: $Tag is not in $Repo. Likely fix: push the tag first." }
+  if (-not (Test-TagPushed -Repo $Repo -Tag $Tag)) { throw "Step 'check the tag is on the repository' failed: $Tag is not in $Repo. Likely fix: push the tag first (docs/RELEASING.md step 8); this script never creates it." }
   if (-not (Test-ReleaseAbsent -Repo $Repo -Tag $Tag)) {
     throw "Step 'check for an existing release' failed: a GitHub Release for $Tag exists already (the workflow appends its notes to an existing release itself). Likely fix: nothing to do, or edit it by hand."
   }
@@ -316,10 +331,11 @@ function Invoke-ReleasePublish {
     $null = New-Item -ItemType Directory -Path $work -WhatIf:$false
     Save-ImageNotesArtifact -Repo $Repo -RunId $run.databaseId -Version $version -Directory $work
     $imageNotes = Get-Content -LiteralPath (Join-Path $work 'image-notes.md') -Raw
-    $digest = Get-ImageDigest -ImageNotes $imageNotes
+    $digest = Get-ImageDigest -ImageNotes $imageNotes -Repo $Repo
     $verify = Get-VerifyArgument -Repo $Repo -Tag $Tag -Directory $work -Digest $digest
     $checks = @(
-      Test-Signature -Cosign $cosign -Step 'cosign verify (image)' -Arguments $verify.Image
+      Test-Signature -Cosign $cosign -Step 'cosign verify (image digest)' -Arguments $verify.Image
+      Test-Signature -Cosign $cosign -Step 'cosign verify (image tag)' -Arguments $verify.ImageTag
       Test-Signature -Cosign $cosign -Step 'cosign verify-blob (SBOM)' -Arguments $verify.Blob
     )
     $checks | ForEach-Object { Write-KippleInfo ('{0,-28} {1}' -f $_.Step, $(if ($_.Ok) { 'ok' } else { 'FAILED: ' + $_.Detail })) }

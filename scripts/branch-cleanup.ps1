@@ -9,16 +9,19 @@
     - no open pull request uses it as its head branch or as its base branch (a stacked PR's base);
     - a MERGED pull request used it as its head, and the branch tip equals that pull request's final head commit
       (so a branch with later commits that were never merged is kept);
-    - it is not checked out in this checkout, and its worktree (if any, under .claude/worktrees) is not locked,
+    - it is not checked out in the worktree this script file lives in (not necessarily your current directory), and
+      its worktree (if any, under .claude/worktrees) is not locked,
       has no uncommitted changes, its status can be read, and it holds no ignored files other than build output
-      (node_modules, web/dist, coverage), because removing a worktree deletes ignored files too.
-  For each such branch, in this order: remove its worktree under .claude/worktrees (`git worktree remove --force`;
-  a locked worktree is never removed), then `git branch -D`, and with -IncludeRemote
-  `git push origin --delete <branch>` when origin's copy is at the same commit as the merged pull request's head.
+      (node_modules, web/dist, coverage, tsbuildinfo, the built binary, .claude/settings.local.json), because removing a worktree deletes ignored files too.
+  For each such branch, in this order: remove its worktree under .claude/worktrees (`git worktree remove`, no --force,
+  after a fresh status check; a locked worktree is never removed), then delete the local branch with
+  `git update-ref -d` at the planned sha (refused if the tip moved), and with -IncludeRemote `git push` with
+  `--force-with-lease` at the planned sha, only when origin's copy is at the same commit as the merged PR's head.
 
   What it can change: local branches and worktrees, and with -IncludeRemote branches on origin. That is
   destructive, so the script prints exactly what it will do and, unless -WhatIf, asks you to type yes.
-  -WhatIf prints the plan and changes nothing, except that it first runs `git fetch --prune origin` (remote-tracking refs only). Run it yourself; an automated agent should only use -WhatIf.
+  -WhatIf prints the plan and changes nothing, except that it first runs
+  `git fetch --prune origin` (remote-tracking refs only). Run it yourself; an automated agent should only use -WhatIf.
 .PARAMETER IncludeRemote
   Also delete the merged branches on origin.
 .EXAMPLE
@@ -120,7 +123,7 @@ function Get-WorktreeBlocker {
   .DESCRIPTION
     Returns $null when the worktree may be removed, else the reason to keep it. A status that could not be read
     (non-zero exit: lock file, ownership refusal, corrupt index) is a reason, never "clean". Ignored files
-    (lines starting "!! ") are unrecoverable once the worktree is removed, so they block too, except build output.
+    (lines starting "!! ") are unrecoverable once the worktree is removed, so they block too, except build output and tool state (see $buildOutput).
   #>
   [CmdletBinding()]
   [OutputType([string])]
@@ -131,7 +134,10 @@ function Get-WorktreeBlocker {
   }
   $changed = @($Lines | Where-Object { $_ -and $_ -notmatch '^!! ' })
   if ($changed.Count) { return "its worktree has uncommitted changes (e.g. $($changed[0].Trim()))" }
-  $buildOutput = '^!! (web/)?(node_modules|dist|coverage)/$'
+  # Build output and per-worktree tool state that can be regenerated. Patterns are matched against what git really prints:
+  # one line per file under web/dist (it holds a tracked placeholder, so the directory is never collapsed), the TypeScript
+  # build info, the built binary, and the worktree's Claude permission file.
+  $buildOutput = '^!! (web/)?(node_modules|dist|coverage)(/|$)|^!! (web/)?[^/]+\.tsbuildinfo$|^!! kipple(\.exe)?$|^!! \.claude/settings\.local\.json(\.bak[^/]*)?$'
   $ignored = @($Lines | Where-Object { $_ -match '^!! ' -and $_ -notmatch $buildOutput })
   if ($ignored.Count) { return "its worktree has ignored files that removal would delete (e.g. $($ignored[0].Substring(3)))" }
   return $null
@@ -240,13 +246,13 @@ function Get-CleanupAction {
   $doomed = @($Plan | Where-Object { $_.Delete })
   $actions = [System.Collections.Generic.List[object]]::new()
   foreach ($row in $doomed | Where-Object { $_.WorktreePath }) {
-    $actions.Add([pscustomobject]@{ Kind = 'RemoveWorktree'; Branch = $row.Branch; Target = $row.WorktreePath; Text = "remove worktree $($row.WorktreePath)" })
+    $actions.Add([pscustomobject]@{ Kind = 'RemoveWorktree'; Branch = $row.Branch; Target = $row.WorktreePath; Sha = $row.LocalSha; Text = "remove worktree $($row.WorktreePath)" })
   }
   foreach ($row in $doomed | Where-Object { $_.LocalSha }) {
-    $actions.Add([pscustomobject]@{ Kind = 'DeleteLocal'; Branch = $row.Branch; Target = $row.Branch; Text = "git branch -D $($row.Branch)" })
+    $actions.Add([pscustomobject]@{ Kind = 'DeleteLocal'; Branch = $row.Branch; Target = $row.Branch; Sha = $row.LocalSha; Text = "delete local branch $($row.Branch) (tip $($row.LocalSha.Substring(0, 9)))" })
   }
   foreach ($row in $doomed | Where-Object { $_.DeleteRemote }) {
-    $actions.Add([pscustomobject]@{ Kind = 'DeleteRemote'; Branch = $row.Branch; Target = $row.Branch; Text = "git push origin --delete $($row.Branch)" })
+    $actions.Add([pscustomobject]@{ Kind = 'DeleteRemote'; Branch = $row.Branch; Target = $row.Branch; Sha = $row.RemoteSha; Text = "delete origin/$($row.Branch) (tip $($row.RemoteSha.Substring(0, 9)))" })
   }
   return $actions.ToArray()
 }
@@ -266,29 +272,39 @@ function Read-TypedYes {
 function Invoke-CleanupAction {
   <#
   .SYNOPSIS
-    Runs one action. Returns $true on success; failures are reported, not thrown, so the rest can continue.
+    Runs one action, re-checking what the plan assumed. Returns $true on success; failures are reported, not thrown.
+  .DESCRIPTION
+    Minutes can pass between the printed plan and the typed yes, so nothing is deleted on the plan's word alone:
+    a worktree is removed without --force only after a fresh status shows it still holds nothing to lose; a local
+    branch is deleted with `git update-ref -d <ref> <planned sha>`, which fails when the tip has moved, and never
+    while it is checked out in a worktree; a remote branch with `--force-with-lease=<ref>:<planned sha>`, which
+    fails when someone pushed to it since the plan.
   #>
   [CmdletBinding()]
   [OutputType([bool])]
   param([Parameter(Mandatory)][pscustomobject]$Action, [Parameter(Mandatory)][string]$RepoRoot)
   switch ($Action.Kind) {
     'RemoveWorktree' {
-      # A locked worktree is never planned (see Get-CleanupPlan), so there is no second --force.
-      $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'remove', '--force', $Action.Target -Step $Action.Text -AllowFailure -Fix 'close any program using the folder, then retry'
+      $s = Invoke-Native -FilePath git -Arguments '-C', $Action.Target, 'status', '--porcelain', '--ignored=matching' -Step "re-check $($Action.Target)" -AllowFailure
+      $reason = Get-WorktreeBlocker -ExitCode $s.ExitCode -Lines $s.Output
+      if ($reason) { Write-KippleInfo "  kept: $($Action.Target) changed since the plan: $reason"; return $false }
+      # No --force: git itself refuses a worktree with modified or untracked files, and a locked one needs two.
+      $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'remove', $Action.Target -Step $Action.Text -AllowFailure -Fix 'close any program using the folder, then retry'
       return ($r.ExitCode -eq 0)
     }
     'DeleteLocal' {
-      $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'branch', '-D', $Action.Target -Step $Action.Text -AllowFailure -Fix 'the branch may be checked out somewhere (git worktree list)'
+      $w = Get-WorktreeEntry -Lines (Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'list', '--porcelain' -Step 'list worktrees').Output
+      if ($w | Where-Object { $_.Branch -eq $Action.Target }) { Write-KippleInfo "  kept: $($Action.Target) is still checked out in a worktree"; return $false }
+      $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'update-ref', '-d', "refs/heads/$($Action.Target)", $Action.Sha -Step $Action.Text -AllowFailure -Fix 'the branch tip moved since the plan; run this script again'
       return ($r.ExitCode -eq 0)
     }
     'DeleteRemote' {
-      $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'push', 'origin', '--delete', $Action.Target -Step $Action.Text -AllowFailure -Fix 'check your push access; the branch may already be gone'
+      $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'push', "--force-with-lease=refs/heads/$($Action.Target):$($Action.Sha)", 'origin', ":refs/heads/$($Action.Target)" -Step $Action.Text -AllowFailure -Fix 'someone pushed to the branch since the plan, or you lack push access; run this script again'
       return ($r.ExitCode -eq 0)
     }
   }
   throw "Unknown action kind '$($Action.Kind)'."
 }
-
 function Invoke-BranchCleanup {
   <#
   .SYNOPSIS

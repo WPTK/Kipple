@@ -185,6 +185,7 @@ function Remove-DetachedWorktree {
   Write-Warning "Could not remove the worktree $Path (git exit $($r.ExitCode)). Remove it by hand: git -C '$RepoRoot' worktree remove --force --force '$Path'; git -C '$RepoRoot' worktree prune"
   return $false
 }
+
 function Find-Cosign {
   <#
   .SYNOPSIS
@@ -209,6 +210,7 @@ function Find-Cosign {
   }
   throw "Step 'find cosign' failed: cosign is not on PATH$(if ($WinGetRoot) { " or under $WinGetRoot" }). Likely fix: install cosign 3 or later (winget install Sigstore.Cosign, or brew install cosign) and put it on PATH."
 }
+
 function Get-GoFailure {
   <#
   .SYNOPSIS

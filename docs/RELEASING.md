@@ -17,7 +17,7 @@ the kind of release.
 
 | What changed | Gates |
 |---|---|
-| Docs, test-only, release-commit, dependency or log-line changes | CI green on the exact head; govulncheck for any dependency change. No fuzz, no Suite 1, no review. |
+| Docs, test-only, release-commit, dependency or log-line changes | CI green on the exact head; govulncheck for any dependency change. No fuzz, no Suite 1; the review is a short one of the small diff (step 2). |
 | Code that parses, authenticates, migrates or renders UI | The full set, once, on the commit being tagged: the Opus whole-diff review first, the fixes, then (once, on the final commit) two Go test runs, fuzz and Suite 1. Gates are re-run only if code changed after the last run; not repeated on every rc patch. |
 | Anything that changes the schema | The above plus the migration rehearsal on a copy of the live snapshot (Suite 4). |
 
@@ -108,11 +108,14 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 
 ## Before the tag
 
-1. **CI is green on the exact commit** you will deploy (not on a nearby one), checked again after the review fixes of step 2 and the release commit of step 6. Push first; nothing deploys from an unpushed tree.
-2. **Review first, then fix, then the gates.** `/code-review high` (an Opus whole-diff review) on the diff since the last gated commit, for the second tier
-   above. Fix every finding. Not needed for the first tier. When every PR in the release already had a high review, this
-   release-gate review is scoped to what per-PR reviews cannot see (cross-PR interactions, migrations, the release workflow,
-   new tooling); a delta review after the fixes covers only the fix commits.
+1. **CI is green on the exact commit** you will deploy (not on a nearby one), checked again after the review fixes of
+   step 2 and the release commit of step 6. Push first; nothing deploys from an unpushed tree.
+2. **Review first, then fix, then the gates.** Every deploy gets `/code-review high` (an Opus whole-diff review) on the
+   diff since the last deployed commit (CLAUDE.md); fix every finding. The tier only sets how much more is run: for the
+   second tier below the review covers the whole diff, for the first it is a short review of a small diff. When every PR in
+   the release already had a high review, this release-gate review is scoped to what per-PR reviews cannot see (cross-PR
+   interactions, migrations, the release workflow, new tooling); a delta review after the fixes covers only the fix
+   commits.
 3. **The expensive gates, once, on the final commit, only for the second tier above** (code that parses, authenticates, migrates
    or renders UI; skip them for docs, test-only, release-commit, dependency or log-line changes). They are two Go test runs, fuzz,
    Suite 1 and, for a schema change, the migration rehearsal (Suite 4). Run them after the review in step 2 and its fixes, never
