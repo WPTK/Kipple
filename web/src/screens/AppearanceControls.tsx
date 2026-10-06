@@ -193,7 +193,8 @@ export function FontSelect({ preview = "compact" }: { preview?: "compact" | "lar
       <Switch
         label="Use it everywhere"
         help="Also use this font for lists and the sidebar. Settings and menus keep the system font."
-        checked={p.fontEverywhere}
+        checked={p.fontEverywhere && p.font !== "default"}
+        disabled={p.font === "default"}
         onChange={(fontEverywhere) => updatePrefs({ fontEverywhere })}
       />
     </div>
