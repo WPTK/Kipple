@@ -247,3 +247,63 @@ func TestRestoreKeepsTheLiveAddressSettings(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok, "the backup's library came")
 }
+
+// The server settings are one list: a reset carries the "merged once" marker of
+// KIPPLE_ALLOWED_HOSTS too (a host removed in Settings must not return from the
+// variable), and a restore replaces the backup's Cloudflare Access config with
+// this server's own, which here is none.
+func TestServerSettingsAreOneList(t *testing.T) {
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	t.Run("a reset keeps the merge marker", func(t *testing.T) {
+		dir := t.TempDir()
+		library(t, dir, true, map[string]any{store.SettingAllowedHosts: []string{"a.example.test"}})
+		execSQL(t, filepath.Join(dir, "kipple.db"), `INSERT INTO settings (key, value) VALUES ('sys.allowed_hosts_env_merged', '1760000000')`)
+		live := openLive(t, dir)
+		require.NoError(t, StageReset(ctx, dir, live.Reader(), "1.0.0", "owner", now))
+		keys := settingKeys(t, filepath.Join(dir, StagedFile))
+		require.True(t, keys["sys.allowed_hosts_env_merged"])
+		require.True(t, keys[store.SettingAllowedHosts])
+	})
+	t.Run("a restore drops the backup's Access config", func(t *testing.T) {
+		dir := t.TempDir()
+		library(t, dir, false, map[string]any{store.SettingPublicURL: "https://rss.example.test"})
+		stagedLibrary(t, dir, map[string]any{
+			store.SettingCloudflareAccess: map[string]any{"team_domain": "old.example.test", "aud": "x"},
+			store.SettingAllowedHosts:     []string{"old.example.test"},
+		})
+		live := openLive(t, dir)
+		require.NoError(t, prepareStaged(ctx, filepath.Join(dir, StagedFile), "", live.Reader()))
+		keys := settingKeys(t, filepath.Join(dir, StagedFile))
+		require.False(t, keys[store.SettingCloudflareAccess], "the old server's Access config does not carry over")
+		require.False(t, keys[store.SettingAllowedHosts])
+		require.True(t, keys[store.SettingPublicURL])
+	})
+}
+
+// A confirmed marker older than a week is discarded, not applied: a rollback to
+// a Kipple that ignores it and a later upgrade must not apply a stale decision.
+func TestApplyStagedDiscardsAStaleMarker(t *testing.T) {
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name  string
+		age   time.Duration
+		stale bool
+	}{{"six days", 6 * 24 * time.Hour, false}, {"eight days", 8 * 24 * time.Hour, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			library(t, dir, true, nil)
+			stagedLibrary(t, dir, nil)
+			at := now.Add(-tc.age)
+			require.NoError(t, os.Chtimes(filepath.Join(dir, MarkerFile), at, at))
+			done, err := ApplyStaged(dir, now, time.UTC)
+			require.NoError(t, err)
+			require.Equal(t, tc.stale, done.Stale)
+			require.Equal(t, !tc.stale, done.Restored)
+			require.NoFileExists(t, filepath.Join(dir, MarkerFile))
+			require.NoFileExists(t, filepath.Join(dir, StagedFile))
+			require.Equal(t, tc.stale, len(preDirs(dir)) == 0)
+		})
+	}
+}
