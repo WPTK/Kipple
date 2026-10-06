@@ -144,17 +144,48 @@ Describe 'Invoke-ReleaseGate cleanup' {
     { Invoke-ReleaseGate -Ref ('a' * 40) -Only changelog } | Should -Throw
     Should -Invoke Remove-DetachedWorktree -Times 1
   }
-  It 'removes the worktree when the run is stopped mid-step (what Ctrl-C does to a step), without sending a real Ctrl-C' {
-    Mock Invoke-GateStep { throw [System.OperationCanceledException]::new('stopped') }
-    Mock Remove-DetachedWorktree { $true }
-    { Invoke-ReleaseGate -Ref ('a' * 40) -Only changelog } | Should -Throw
-    Should -Invoke Remove-DetachedWorktree -Times 1
-  }
   It 'keeps the logs and says so when the worktree cannot be removed' {
     Mock Invoke-GateStep { [pscustomobject]@{ Step = 'x'; Status = 'PASS'; Seconds = 0; Note = '' } }
     Mock Remove-DetachedWorktree { $false }
     $null = Invoke-ReleaseGate -Ref ('a' * 40) -Only changelog
     Should -Invoke Remove-Item -Times 0
     Should -Invoke Write-KippleInfo -ParameterFilter { $Message -match 'stays at' }
+  }
+}
+
+Describe 'Invoke-ReleaseGate with a real worktree' {
+  # Real git, real worktree: only the gates' own commands fail. The temp repository has no scripts/changelog.mjs, so
+  # the changelog step fails in the middle of the run, after the worktree exists.
+  BeforeAll {
+    $script:repo = Join-Path $TestDrive 'repo'
+    $null = New-Item -ItemType Directory -Path $script:repo
+    $null = Invoke-Native -FilePath git -Arguments '-C', $script:repo, 'init', '--quiet' -Step 'git init'
+    Set-Content -LiteralPath (Join-Path $script:repo 'README.md') -Value 'x'
+    $null = Invoke-Native -FilePath git -Arguments '-C', $script:repo, 'add', '-A' -Step 'git add'
+    $null = Invoke-Native -FilePath git -Arguments '-C', $script:repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '--quiet', '-m', 'init' -Step 'git commit'
+    $script:sha = (Invoke-Native -FilePath git -Arguments '-C', $script:repo, 'rev-parse', 'HEAD' -Step 'rev-parse').Output[0].Trim()
+  }
+  BeforeEach {
+    Mock Write-KippleInfo {}
+    Mock Get-RepoRoot { $script:repo }
+  }
+  It 'removes the worktree and its logs after a step fails in the middle, and the exit code is 1' {
+    $out = @(Invoke-ReleaseGate -Ref $script:sha -Only changelog)
+    $out[-1] | Should -Be 1
+    $rows = @($out | Where-Object { $_ -isnot [int] })
+    $rows.Count | Should -Be 1 -Because ($out | ForEach-Object { $_.GetType().Name } | Out-String)
+    $rows[0].Status | Should -Be 'FAIL'
+    $left = Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Filter "kipple-gates-$($script:sha.Substring(0, 12))-*" -ErrorAction SilentlyContinue
+    @($left).Count | Should -Be 0
+    (Invoke-Native -FilePath git -Arguments '-C', $script:repo, 'worktree', 'list' -Step 'list').Output.Count | Should -Be 1
+  }
+  It 'keeps the worktree when asked to, and reports where' {
+    $null = Invoke-ReleaseGate -Ref $script:sha -Only changelog -KeepWorktree
+    Should -Invoke Write-KippleInfo -ParameterFilter { $Message -match '^Kept: ' }
+    foreach ($d in Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Filter "kipple-gates-$($script:sha.Substring(0, 12))-*") {
+      if ($d.Name -like '*-logs') { Microsoft.PowerShell.Management\Remove-Item -LiteralPath $d.FullName -Recurse -Force } else {
+        $null = Invoke-Native -FilePath git -Arguments '-C', $script:repo, 'worktree', 'remove', '--force', $d.FullName -Step 'cleanup' -AllowFailure
+      }
+    }
   }
 }

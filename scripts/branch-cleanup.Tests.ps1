@@ -14,19 +14,24 @@ BeforeAll {
     Get-CleanupPlan -Local $Local -Remote $Remote -Merged $Merged -Open $Open -Worktrees $Worktrees `
       -WorktreeRoot $script:wtRoot -CurrentPath 'C:/repo/.claude/worktrees/me' -Blocked $Blocked -DefaultBranch $DefaultBranch -IncludeRemote:$IncludeRemote
   }
-  # A real repository whose .gitignore mirrors the ignore rules of the project that matter here, so the tests feed the
-  # blocker what git really prints rather than made-up lines.
+  # A real repository carrying this repository's own .gitignore files, so the tests feed the blocker what git really
+  # prints for the real ignore rules, whatever they become. The machine's global excludes file is neutralised.
   function script:New-TempRepo {
     $dir = Join-Path $TestDrive ([guid]::NewGuid().ToString('N').Substring(0, 8))
     $null = New-Item -ItemType Directory -Path $dir
-    $null = Invoke-Native -FilePath git -Arguments '-C', $dir, 'init', '--quiet' -Step 'git init'
-    Set-Content -LiteralPath (Join-Path $dir '.gitignore') -Value @('/scripts/local/', '.env', '.claude/settings.local.json', 'web/node_modules/', 'web/dist/*', '!web/dist/.gitkeep', 'web/*.tsbuildinfo', '/kipple.exe', 'coverage/')
+    $none = Join-Path $TestDrive 'no-global-excludes'
+    Set-Content -LiteralPath $none -Value ''
+    $repoRoot = Split-Path -Parent $PSScriptRoot
+    Copy-Item -LiteralPath (Join-Path $repoRoot '.gitignore') -Destination (Join-Path $dir '.gitignore')
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $dir 'web')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'web/.gitignore') -Destination (Join-Path $dir 'web/.gitignore')
     $null = New-Item -ItemType File -Force -Path (Join-Path $dir 'web/dist/.gitkeep')
+    $null = Invoke-Native -FilePath git -Arguments '-C', $dir, 'init', '--quiet' -Step 'git init'
+    $null = Invoke-Native -FilePath git -Arguments '-C', $dir, 'config', 'core.excludesFile', $none -Step 'git config'
     $null = Invoke-Native -FilePath git -Arguments '-C', $dir, 'add', '-A' -Step 'git add'
     $null = Invoke-Native -FilePath git -Arguments '-C', $dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '--quiet', '-m', 'init' -Step 'git commit'
     return $dir
-  }
-  function script:Merged([string]$Name, [string]$Oid) { [pscustomobject]@{ headRefName = $Name; headRefOid = $Oid; mergedAt = '2026-01-01T00:00:00Z' } }
+  }  function script:Merged([string]$Name, [string]$Oid) { [pscustomobject]@{ headRefName = $Name; headRefOid = $Oid; mergedAt = '2026-01-01T00:00:00Z' } }
 }
 
 Describe 'Get-CleanupPlan: which branches may go' {
@@ -127,12 +132,15 @@ Describe 'Get-WorktreeBlocker' {
   }
   It 'allows the ignored lines of a real built agent worktree, as git prints them' {
     $repo = New-TempRepo
-    foreach ($p in 'web/dist/assets/app.js', 'web/dist/apple-touch-icon.png', 'web/node_modules/pkg/index.js', 'web/tsconfig.tsbuildinfo', 'kipple.exe', 'coverage/lcov.info', '.claude/settings.local.json') {
+    foreach ($p in 'web/dist/assets/app.js', 'web/dist/apple-touch-icon.png', 'web/node_modules/pkg/index.js', 'web/tsconfig.tsbuildinfo', 'kipple.exe', 'web/coverage/lcov.info', '.claude/settings.local.json') {
       $null = New-Item -ItemType File -Force -Path (Join-Path $repo $p)
     }
     $status = Invoke-Native -FilePath git -Arguments '-C', $repo, 'status', '--porcelain', '--ignored=matching' -Step 'status'
     ($status.Output | Where-Object { $_ -match '^!! ' }).Count | Should -BeGreaterThan 3   # the fixture really produced ignored lines
     Get-WorktreeBlocker -ExitCode 0 -Lines $status.Output | Should -BeNullOrEmpty
+  }
+  It 'keeps a worktree that holds a backup of the permission file (a backup exists because someone wanted it)' {
+    Get-WorktreeBlocker -ExitCode 0 -Lines @('!! .claude/settings.local.json.bak.20261005') | Should -Match 'ignored files'
   }
   It 'blocks on a real ignored file that is not build output, and on a real untracked one' {
     $repo = New-TempRepo
@@ -145,6 +153,7 @@ Describe 'Get-WorktreeBlocker' {
     Get-WorktreeBlocker -ExitCode 0 -Lines $status.Output | Should -Match 'uncommitted'
   }
 }
+
 Describe 'Get-CleanupPlan: remote branches' {
   It 'ignores origin branches without -IncludeRemote' {
     $p = Get-Plan -Local @{} -Remote @{ 'feat/a' = $sha1 } -Merged @(Merged 'feat/a' $sha1)
@@ -192,58 +201,80 @@ Describe 'parsers' {
 }
 
 Describe 'Invoke-CleanupAction: nothing is deleted on the word of the plan alone' {
-  BeforeEach { Mock Write-KippleInfo {} }
-  It 'removes a worktree without --force after a fresh clean status' {
-    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @(); CommandLine = 'git' } }
-    $a = [pscustomobject]@{ Kind = 'RemoveWorktree'; Branch = 'a'; Target = 'C:/x'; Sha = $sha1; Text = 'remove worktree C:/x' }
-    Invoke-CleanupAction -Action $a -RepoRoot 'C:/repo' | Should -BeTrue
+  BeforeEach {
+    Mock Write-KippleInfo {}
+    # git as the worktree and the repository answer it: clean, on feat/a at $sha1, one worktree listed.
+    $script:status = @(); $script:statusCode = 0
+    $script:symref = 'refs/heads/feat/a'; $script:headSha = $sha1
+    $script:listCode = 0; $script:listOut = @('worktree C:/repo', "HEAD $sha1", 'branch refs/heads/main')
+    $script:updateCode = 0
+    Mock Invoke-Native {
+      $out = @(); $code = 0
+      if ($Arguments -contains 'status') { $out = $script:status; $code = $script:statusCode }
+      elseif ($Arguments -contains 'symbolic-ref') { $out = @($script:symref) }
+      elseif ($Arguments -contains 'rev-parse') { $out = @($script:headSha) }
+      elseif ($Arguments -contains 'list') { $out = $script:listOut; $code = $script:listCode }
+      elseif ($Arguments -contains 'update-ref') { $code = $script:updateCode }
+      [pscustomobject]@{ ExitCode = $code; Output = $out; CommandLine = 'git' }
+    }
+    $script:wt = [pscustomobject]@{ Kind = 'RemoveWorktree'; Branch = 'feat/a'; Target = 'C:/x'; Sha = $sha1; Text = 'remove worktree C:/x' }
+    $script:del = [pscustomobject]@{ Kind = 'DeleteLocal'; Branch = 'feat/a'; Target = 'feat/a'; Sha = $sha1; Text = 'delete local branch feat/a' }
+    $script:rem = [pscustomobject]@{ Kind = 'DeleteRemote'; Branch = 'feat/a'; Target = 'feat/a'; Sha = $sha1; Text = 'delete origin/feat/a' }
+  }
+  It 'removes a worktree without --force after a fresh clean status, still on its branch at the planned commit' {
+    Invoke-CleanupAction -Action $wt -RepoRoot 'C:/repo' | Should -BeTrue
     Should -Invoke Invoke-Native -Times 1 -ParameterFilter { $Arguments -contains 'remove' -and $Arguments -notcontains '--force' }
   }
   It 'keeps a worktree that became dirty after the plan and removes nothing' {
-    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @('?? new-work.txt'); CommandLine = 'git' } }
-    $a = [pscustomobject]@{ Kind = 'RemoveWorktree'; Branch = 'a'; Target = 'C:/x'; Sha = $sha1; Text = 'remove worktree C:/x' }
-    Invoke-CleanupAction -Action $a -RepoRoot 'C:/repo' | Should -BeFalse
+    $script:status = @('?? new-work.txt')
+    Invoke-CleanupAction -Action $wt -RepoRoot 'C:/repo' | Should -BeFalse
     Should -Invoke Invoke-Native -Times 0 -ParameterFilter { $Arguments -contains 'remove' }
   }
   It 'keeps a worktree whose status can no longer be read' {
-    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 128; Output = @('fatal: index.lock'); CommandLine = 'git' } }
-    $a = [pscustomobject]@{ Kind = 'RemoveWorktree'; Branch = 'a'; Target = 'C:/x'; Sha = $sha1; Text = 'remove worktree C:/x' }
-    Invoke-CleanupAction -Action $a -RepoRoot 'C:/repo' | Should -BeFalse
+    $script:statusCode = 128
+    Invoke-CleanupAction -Action $wt -RepoRoot 'C:/repo' | Should -BeFalse
     Should -Invoke Invoke-Native -Times 0 -ParameterFilter { $Arguments -contains 'remove' }
   }
-  It 'deletes a local branch only at the planned sha (update-ref with the old value)' {
-    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @(); CommandLine = 'git' } }
-    $a = [pscustomobject]@{ Kind = 'DeleteLocal'; Branch = 'feat/a'; Target = 'feat/a'; Sha = $sha1; Text = 'delete local branch feat/a' }
-    Invoke-CleanupAction -Action $a -RepoRoot 'C:/repo' | Should -BeTrue
-    Should -Invoke Invoke-Native -Times 1 -ParameterFilter { $Arguments -contains 'update-ref' -and $Arguments -contains '-d' -and $Arguments -contains 'refs/heads/feat/a' -and $Arguments[-1] -eq $sha1 }
+  It 'keeps a worktree whose HEAD was detached after the plan (a commit there would be lost with it)' {
+    $script:symref = ''
+    Invoke-CleanupAction -Action $wt -RepoRoot 'C:/repo' | Should -BeFalse
+    Should -Invoke Invoke-Native -Times 0 -ParameterFilter { $Arguments -contains 'remove' }
   }
-  It 'reports a local branch that gained a commit since the plan as not deleted' {
-    Mock Invoke-Native { [pscustomobject]@{ ExitCode = $(if ($Arguments -contains 'update-ref') { 1 } else { 0 }); Output = @(); CommandLine = 'git' } }
-    $a = [pscustomobject]@{ Kind = 'DeleteLocal'; Branch = 'feat/a'; Target = 'feat/a'; Sha = $sha1; Text = 'delete local branch feat/a' }
-    Invoke-CleanupAction -Action $a -RepoRoot 'C:/repo' | Should -BeFalse
+  It 'keeps a worktree whose HEAD moved to another commit after the plan' {
+    $script:headSha = $sha2
+    Invoke-CleanupAction -Action $wt -RepoRoot 'C:/repo' | Should -BeFalse
+    Should -Invoke Invoke-Native -Times 0 -ParameterFilter { $Arguments -contains 'remove' }
+  }
+  It 'deletes a local branch only at the planned sha (update-ref with the old value) and removes its branch config' {
+    Invoke-CleanupAction -Action $del -RepoRoot 'C:/repo' | Should -BeTrue
+    Should -Invoke Invoke-Native -Times 1 -ParameterFilter { $Arguments -contains 'update-ref' -and $Arguments -contains '-d' -and $Arguments -contains 'refs/heads/feat/a' -and $Arguments[-1] -eq $sha1 }
+    Should -Invoke Invoke-Native -Times 1 -ParameterFilter { $Arguments -contains 'config' -and $Arguments -contains '--remove-section' -and $Arguments -contains 'branch.feat/a' }
+  }
+  It 'reports a local branch that gained a commit since the plan as not deleted, and leaves its config alone' {
+    $script:updateCode = 1
+    Invoke-CleanupAction -Action $del -RepoRoot 'C:/repo' | Should -BeFalse
+    Should -Invoke Invoke-Native -Times 0 -ParameterFilter { $Arguments -contains '--remove-section' }
   }
   It 'does not delete a local branch that is checked out in a worktree' {
-    Mock Invoke-Native {
-      $out = if ($Arguments -contains 'list') { @('worktree C:/repo', "HEAD $script:sha1", 'branch refs/heads/feat/a') } else { @() }
-      [pscustomobject]@{ ExitCode = 0; Output = $out; CommandLine = 'git' }
-    }
-    $a = [pscustomobject]@{ Kind = 'DeleteLocal'; Branch = 'feat/a'; Target = 'feat/a'; Sha = $sha1; Text = 'delete local branch feat/a' }
-    Invoke-CleanupAction -Action $a -RepoRoot 'C:/repo' | Should -BeFalse
+    $script:listOut = @('worktree C:/repo', "HEAD $sha1", 'branch refs/heads/feat/a')
+    Invoke-CleanupAction -Action $del -RepoRoot 'C:/repo' | Should -BeFalse
+    Should -Invoke Invoke-Native -Times 0 -ParameterFilter { $Arguments -contains 'update-ref' }
+  }
+  It 'returns false instead of throwing when the worktrees cannot be listed' {
+    $script:listCode = 128
+    { Invoke-CleanupAction -Action $del -RepoRoot 'C:/repo' } | Should -Not -Throw
+    Invoke-CleanupAction -Action $del -RepoRoot 'C:/repo' | Should -BeFalse
     Should -Invoke Invoke-Native -Times 0 -ParameterFilter { $Arguments -contains 'update-ref' }
   }
   It 'deletes a remote branch with a lease on the planned sha' {
-    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @(); CommandLine = 'git' } }
-    $a = [pscustomobject]@{ Kind = 'DeleteRemote'; Branch = 'feat/a'; Target = 'feat/a'; Sha = $sha1; Text = 'delete origin/feat/a' }
-    Invoke-CleanupAction -Action $a -RepoRoot 'C:/repo' | Should -BeTrue
+    Invoke-CleanupAction -Action $rem -RepoRoot 'C:/repo' | Should -BeTrue
     Should -Invoke Invoke-Native -Times 1 -ParameterFilter { $Arguments -contains "--force-with-lease=refs/heads/feat/a:$sha1" -and $Arguments -contains ':refs/heads/feat/a' -and $Arguments -notcontains '--delete' }
   }
   It 'reports a remote branch that moved since the plan as not deleted' {
     Mock Invoke-Native { [pscustomobject]@{ ExitCode = 1; Output = @('stale info'); CommandLine = 'git' } }
-    $a = [pscustomobject]@{ Kind = 'DeleteRemote'; Branch = 'feat/a'; Target = 'feat/a'; Sha = $sha1; Text = 'delete origin/feat/a' }
-    Invoke-CleanupAction -Action $a -RepoRoot 'C:/repo' | Should -BeFalse
+    Invoke-CleanupAction -Action $rem -RepoRoot 'C:/repo' | Should -BeFalse
   }
 }
-
 Describe 'Invoke-BranchCleanup' {
   BeforeEach {
     Mock Write-KippleInfo {}
@@ -301,7 +332,7 @@ Describe 'Invoke-BranchCleanup' {
       Mock Read-TypedYes { $true }
     }
     It 'plans nothing when git status fails in that worktree (fail closed at the call site)' {
-      $script:statusLines = @('fatal: index.lock exists'); $script:statusCode = 128
+      $script:statusLines = @(); $script:statusCode = 128   # no output: only the exit code can block
       $null = Invoke-BranchCleanup
       Should -Invoke Invoke-CleanupAction -Times 0
     }

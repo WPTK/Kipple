@@ -12,7 +12,8 @@
     - it is not checked out in the worktree this script file lives in (not necessarily your current directory), and
       its worktree (if any, under .claude/worktrees) is not locked,
       has no uncommitted changes, its status can be read, and it holds no ignored files other than build output
-      (node_modules, web/dist, coverage, tsbuildinfo, the built binary, .claude/settings.local.json), because removing a worktree deletes ignored files too.
+      (node_modules, web/dist, coverage, tsbuildinfo, the built binary, .claude/settings.local.json), because removing
+      a worktree deletes ignored files too.
   For each such branch, in this order: remove its worktree under .claude/worktrees (`git worktree remove`, no --force,
   after a fresh status check; a locked worktree is never removed), then delete the local branch with
   `git update-ref -d` at the planned sha (refused if the tip moved), and with -IncludeRemote `git push` with
@@ -32,7 +33,8 @@
   Exit codes: 0 done (or nothing to do, or -WhatIf, or you did not type yes), 1 an action failed,
   2 usage or environment error.
   If this breaks: it depends on `gh pr list --json headRefName,baseRefName,mergedAt,headRefOid` (Get-PullRequestHead),
-  `gh repo view --json defaultBranchRef` (Get-DefaultBranch), `git status --porcelain --ignored=matching` (Get-WorktreeBlocker),
+  `gh repo view --json defaultBranchRef` (Get-DefaultBranch),
+  `git status --porcelain --ignored=matching` (Get-WorktreeBlocker),
   `git for-each-ref` and `git worktree list --porcelain` output (Get-WorktreeEntry). The decision logic is
   Get-CleanupPlan and is covered by scripts/branch-cleanup.Tests.ps1.
 #>
@@ -123,7 +125,8 @@ function Get-WorktreeBlocker {
   .DESCRIPTION
     Returns $null when the worktree may be removed, else the reason to keep it. A status that could not be read
     (non-zero exit: lock file, ownership refusal, corrupt index) is a reason, never "clean". Ignored files
-    (lines starting "!! ") are unrecoverable once the worktree is removed, so they block too, except build output and tool state (see $buildOutput).
+    (lines starting "!! ") are unrecoverable once the worktree is removed, so they block too, except
+    build output and tool state (see $buildOutput).
   #>
   [CmdletBinding()]
   [OutputType([string])]
@@ -136,8 +139,8 @@ function Get-WorktreeBlocker {
   if ($changed.Count) { return "its worktree has uncommitted changes (e.g. $($changed[0].Trim()))" }
   # Build output and per-worktree tool state that can be regenerated. Patterns are matched against what git really prints:
   # one line per file under web/dist (it holds a tracked placeholder, so the directory is never collapsed), the TypeScript
-  # build info, the built binary, and the worktree's Claude permission file.
-  $buildOutput = '^!! (web/)?(node_modules|dist|coverage)(/|$)|^!! (web/)?[^/]+\.tsbuildinfo$|^!! kipple(\.exe)?$|^!! \.claude/settings\.local\.json(\.bak[^/]*)?$'
+  # build info, the built binary, and the worktree's Claude permission file (its backups, .bak, are kept).
+  $buildOutput = '^!! (web/)?(node_modules|dist|coverage)(/|$)|^!! (web/)?[^/]+\.tsbuildinfo$|^!! kipple(\.exe)?$|^!! \.claude/settings\.local\.json$'
   $ignored = @($Lines | Where-Object { $_ -match '^!! ' -and $_ -notmatch $buildOutput })
   if ($ignored.Count) { return "its worktree has ignored files that removal would delete (e.g. $($ignored[0].Substring(3)))" }
   return $null
@@ -288,14 +291,27 @@ function Invoke-CleanupAction {
       $s = Invoke-Native -FilePath git -Arguments '-C', $Action.Target, 'status', '--porcelain', '--ignored=matching' -Step "re-check $($Action.Target)" -AllowFailure
       $reason = Get-WorktreeBlocker -ExitCode $s.ExitCode -Lines $s.Output
       if ($reason) { Write-KippleInfo "  kept: $($Action.Target) changed since the plan: $reason"; return $false }
+      # The worktree must still be on the planned branch at the planned commit: a commit made on a detached HEAD after the
+      # plan is reachable only from this worktree and would go with it.
+      $sym = Invoke-Native -FilePath git -Arguments '-C', $Action.Target, 'symbolic-ref', '-q', 'HEAD' -Step "read HEAD of $($Action.Target)" -AllowFailure
+      $head = Invoke-Native -FilePath git -Arguments '-C', $Action.Target, 'rev-parse', 'HEAD' -Step "read the commit of $($Action.Target)" -AllowFailure
+      if ($sym.ExitCode -ne 0 -or @($sym.Output)[0] -ne "refs/heads/$($Action.Branch)" -or $head.ExitCode -ne 0 -or @($head.Output)[0] -ne $Action.Sha) {
+        Write-KippleInfo "  kept: $($Action.Target) is no longer on $($Action.Branch) at the planned commit"; return $false
+      }
       # No --force: git itself refuses a worktree with modified or untracked files, and a locked one needs two.
       $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'remove', $Action.Target -Step $Action.Text -AllowFailure -Fix 'close any program using the folder, then retry'
       return ($r.ExitCode -eq 0)
     }
     'DeleteLocal' {
-      $w = Get-WorktreeEntry -Lines (Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'list', '--porcelain' -Step 'list worktrees').Output
+      $list = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'list', '--porcelain' -Step 'list worktrees' -AllowFailure
+      if ($list.ExitCode -ne 0) { Write-KippleInfo "  kept: $($Action.Target) (could not list the worktrees)"; return $false }
+      $w = Get-WorktreeEntry -Lines $list.Output
       if ($w | Where-Object { $_.Branch -eq $Action.Target }) { Write-KippleInfo "  kept: $($Action.Target) is still checked out in a worktree"; return $false }
       $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'update-ref', '-d', "refs/heads/$($Action.Target)", $Action.Sha -Step $Action.Text -AllowFailure -Fix 'the branch tip moved since the plan; run this script again'
+      if ($r.ExitCode -eq 0) {
+        # update-ref, unlike `git branch -D`, leaves the branch's upstream settings; remove them (exit 128 = none, fine).
+        $null = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'config', '--remove-section', "branch.$($Action.Target)" -Step "remove the config of $($Action.Target)" -AllowFailure
+      }
       return ($r.ExitCode -eq 0)
     }
     'DeleteRemote' {
@@ -305,6 +321,7 @@ function Invoke-CleanupAction {
   }
   throw "Unknown action kind '$($Action.Kind)'."
 }
+
 function Invoke-BranchCleanup {
   <#
   .SYNOPSIS

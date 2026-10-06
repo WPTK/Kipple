@@ -177,14 +177,28 @@ Describe 'Assert-ChangelogMatchesTag' {
 }
 
 Describe 'Test-Signature' {
+  BeforeAll { $script:want = 'sha256:' + ('a' * 64) }
   It 'reports a failed verification as a result, with the cosign output' {
     Mock Invoke-Native { [pscustomobject]@{ ExitCode = 1; Output = @('no matching signatures'); CommandLine = 'cosign' } }
     $r = Test-Signature -Cosign 'cosign' -Step 'verify' -Arguments @('verify', 'x')
     $r.Ok | Should -BeFalse
     $r.Detail | Should -Match 'no matching signatures'
   }
+  It 'passes a tag check whose verified digest equals the notes digest' {
+    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @('[{"critical":{"image":{"docker-manifest-digest":"' + $script:want + '"}}}]'); CommandLine = 'cosign' } }
+    (Test-Signature -Cosign 'cosign' -Step 'tag' -Arguments @('verify', 'x') -ExpectDigest $script:want).Ok | Should -BeTrue
+  }
+  It 'fails a tag check that resolves to another digest' {
+    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @('[{"critical":{"image":{"docker-manifest-digest":"sha256:' + ('b' * 64) + '"}}}]'); CommandLine = 'cosign' } }
+    $r = Test-Signature -Cosign 'cosign' -Step 'tag' -Arguments @('verify', 'x') -ExpectDigest $script:want
+    $r.Ok | Should -BeFalse
+    $r.Detail | Should -Match 'tag resolves to sha256:b'
+  }
+  It 'fails a tag check when cosign prints no digest at all' {
+    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @('Verification for x --'); CommandLine = 'cosign' } }
+    (Test-Signature -Cosign 'cosign' -Step 'tag' -Arguments @('verify', 'x') -ExpectDigest $script:want).Ok | Should -BeFalse
+  }
 }
-
 Describe 'Invoke-ReleasePublish' {
   BeforeEach {
     Mock Write-KippleInfo {}
@@ -215,11 +229,17 @@ Describe 'Invoke-ReleasePublish' {
     $code | Should -Be 1
     Should -Invoke Invoke-Native -Times 0 -ParameterFilter { $FilePath -eq 'gh' -and $Arguments -contains 'create' }
   }
+  It 'stops before creating anything when only the image tag check fails (tag resolves elsewhere)' {
+    Mock Test-Signature { [pscustomobject]@{ Step = $Step; Ok = ($Step -ne 'cosign verify (image tag)'); Detail = 'x' } }
+    (Invoke-ReleasePublish -Tag 'v1.2.3-beta.1' -IsFull $false -Repo 'o/n' -TimeoutMinutes 1 | Select-Object -Last 1) | Should -Be 1
+    Should -Invoke Test-Signature -Times 1 -ParameterFilter { $Step -eq 'cosign verify (image tag)' -and $ExpectDigest -match '^sha256:d{64}$' }
+    Should -Invoke Invoke-Native -Times 0 -ParameterFilter { $FilePath -eq 'gh' -and $Arguments -contains 'create' }
+  }
   It 'with -WhatIf verifies but does not create the release' {
     Mock Test-Signature { [pscustomobject]@{ Step = $Step; Ok = $true; Detail = 'verified' } }
     $code = Invoke-ReleasePublish -Tag 'v1.2.3-beta.1' -IsFull $false -Repo 'o/n' -TimeoutMinutes 1 -WhatIf | Select-Object -Last 1
     $code | Should -Be 0
-    Should -Invoke Test-Signature -Times 2
+    Should -Invoke Test-Signature -Times 3
     Should -Invoke Invoke-Native -Times 0 -ParameterFilter { $FilePath -eq 'gh' -and $Arguments -contains 'create' }
   }
   It 'returns 1 without verifying when the workflow run failed' {

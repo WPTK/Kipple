@@ -165,20 +165,43 @@ function Save-ImageNotesArtifact {
   }
 }
 
+function Get-VerifiedDigest {
+  <#
+  .SYNOPSIS
+    The image digests named in the JSON `cosign verify` prints (critical.image.docker-manifest-digest), unique.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([string[]]$Lines = @())
+  $found = [regex]::Matches(($Lines -join "`n"), '"docker-manifest-digest"\s*:\s*"(sha256:[0-9a-f]{64})"') | ForEach-Object { $_.Groups[1].Value }
+  return @($found | Sort-Object -Unique)
+}
+
 function Test-Signature {
   <#
   .SYNOPSIS
     Runs one cosign verification. Returns an object with Ok and Detail; a failed check is an answer, not an exception.
+  .PARAMETER ExpectDigest
+    For a check by tag: the digest the tag must resolve to. cosign prints the digest it verified; any other digest, or
+    none, fails the check (a re-run of the workflow could sign a second image under the same identity).
   #>
   [CmdletBinding()]
   [OutputType([pscustomobject])]
-  param([Parameter(Mandatory)][string]$Cosign, [Parameter(Mandatory)][string]$Step, [Parameter(Mandatory)][string[]]$Arguments)
+  param([Parameter(Mandatory)][string]$Cosign, [Parameter(Mandatory)][string]$Step, [Parameter(Mandatory)][string[]]$Arguments, [string]$ExpectDigest = '')
   $r = Invoke-Native -FilePath $Cosign -Arguments $Arguments -Step $Step -AllowFailure `
     -Fix 'cosign 3 or later is needed; check the tag is the one the workflow signed'
-  $detail = if ($r.ExitCode -eq 0) { 'verified' } else { ($r.Output | Select-Object -Last 5) -join ' | ' }
-  return [pscustomobject]@{ Step = $Step; Ok = ($r.ExitCode -eq 0); Detail = $detail }
+  if ($r.ExitCode -ne 0) {
+    return [pscustomobject]@{ Step = $Step; Ok = $false; Detail = (($r.Output | Select-Object -Last 5) -join ' | ') }
+  }
+  if ($ExpectDigest) {
+    $seen = @(Get-VerifiedDigest -Lines $r.Output)
+    if ($seen.Count -eq 0 -or @($seen | Where-Object { $_ -ne $ExpectDigest }).Count) {
+      $shown = if ($seen.Count) { $seen -join ', ' } else { 'no digest in the cosign output' }
+      return [pscustomobject]@{ Step = $Step; Ok = $false; Detail = "the tag resolves to $shown, the release notes say $ExpectDigest" }
+    }
+  }
+  return [pscustomobject]@{ Step = $Step; Ok = $true; Detail = 'verified' }
 }
-
 function Get-VerifyArgument {
   <#
   .SYNOPSIS
@@ -314,7 +337,7 @@ function Invoke-ReleasePublish {
   Assert-ReleaseKind -Tag $Tag -IsFull $IsFull
   Write-KippleInfo "Release $Tag of $Repo ($(if ($IsFull) { 'full release' } else { 'pre-release' }))"
 
-  if (-not (Test-TagPushed -Repo $Repo -Tag $Tag)) { throw "Step 'check the tag is on the repository' failed: $Tag is not in $Repo. Likely fix: push the tag first (docs/RELEASING.md step 8); this script never creates it." }
+  if (-not (Test-TagPushed -Repo $Repo -Tag $Tag)) { throw "Step 'check the tag is on the repository' failed: $Tag is not in $Repo (or the repository name or your access is wrong). Likely fix: push the tag first (docs/RELEASING.md step 8; this script never creates it), or check -Repo and gh auth status." }
   if (-not (Test-ReleaseAbsent -Repo $Repo -Tag $Tag)) {
     throw "Step 'check for an existing release' failed: a GitHub Release for $Tag exists already (the workflow appends its notes to an existing release itself). Likely fix: nothing to do, or edit it by hand."
   }
@@ -335,7 +358,7 @@ function Invoke-ReleasePublish {
     $verify = Get-VerifyArgument -Repo $Repo -Tag $Tag -Directory $work -Digest $digest
     $checks = @(
       Test-Signature -Cosign $cosign -Step 'cosign verify (image digest)' -Arguments $verify.Image
-      Test-Signature -Cosign $cosign -Step 'cosign verify (image tag)' -Arguments $verify.ImageTag
+      Test-Signature -Cosign $cosign -Step 'cosign verify (image tag)' -Arguments $verify.ImageTag -ExpectDigest $digest
       Test-Signature -Cosign $cosign -Step 'cosign verify-blob (SBOM)' -Arguments $verify.Blob
     )
     $checks | ForEach-Object { Write-KippleInfo ('{0,-28} {1}' -f $_.Step, $(if ($_.Ok) { 'ok' } else { 'FAILED: ' + $_.Detail })) }
