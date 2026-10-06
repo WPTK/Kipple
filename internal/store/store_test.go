@@ -333,6 +333,23 @@ func TestPreMigrationSnapshotKeepsThree(t *testing.T) {
 	require.Len(t, files, 3)
 }
 
+// An upgrade that stopped partway (13 to 16, failing after 14 committed) and then fails the same migration on every
+// restart keeps one 14-16 snapshot, so the 13-16 one (the only one the previous version can open) is never pruned.
+func TestPreMigrationSnapshotRestartsDoNotPushOutTheRollback(t *testing.T) {
+	ctx := context.Background()
+	db, _ := openTest(t)
+	require.NoError(t, db.preMigrationSnapshot(ctx, 13, 16, nil))
+	for i := 0; i < 5; i++ {
+		require.NoError(t, db.preMigrationSnapshot(ctx, 14, 16, nil))
+	}
+	first, err := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-13-16-*.db"))
+	require.NoError(t, err)
+	require.Len(t, first, 1, "the snapshot of the schema the upgrade started from is kept")
+	again, err := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-14-16-*.db"))
+	require.NoError(t, err)
+	require.Len(t, again, 1, "a repeated start replaces its own copy")
+}
+
 func TestForeignFileUntouchedOnRefusal(t *testing.T) {
 	ctx := context.Background()
 	foreign := filepath.Join(t.TempDir(), "other.db")

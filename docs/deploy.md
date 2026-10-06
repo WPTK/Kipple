@@ -62,7 +62,7 @@ Everything is on the `kipple_data` volume, mounted at `/data`. Compose prefixes 
 | `/data/kipple.db` (+ `-wal`, `-shm`) | The database. Never copy it while the server runs | live |
 | `/data/kipple.lock` | Held by `serve` (an OS lock: it vanishes with the process, no stale lock) | live |
 | `/data/backup/kipple-snapshot.db` | Nightly snapshot at 04:10 (`tz` setting), consistent, safe to copy | 1 |
-| `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration (`0600`) | newest 3 |
+| `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration (`0600`) | newest 3, one per `<from>` and `<to>` |
 | `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC) | The database that `kipple restore` replaced | newest 3 |
 | `/data/backup/export/` | Temporary files of an export in progress. Emptied at startup | transient |
 | `/data/imgcache/` | Image cache (`imgproxy.cache_mb`, default 1024 MiB, least recently used evicted; never in backups or snapshots) | capped |
@@ -97,6 +97,11 @@ stored, and the setting decides from then on. `TZ` seeds the time zone; `KIPPLE_
 `KIPPLE_TRUSTED_PROXY_IPS` and the two `KIPPLE_ACCESS_*` variables seed the settings under Settings, Account & Devices,
 Address and access. A restored backup brings its own settings back, and the variables do not override them; Kipple
 logs a warning at start for each variable whose setting holds something else, so you can remove the stale line.
+A value that would be stored and is not valid (such as a trusted proxy range that is too wide) stops the start with a
+message naming the variable, and none of the address and access seeds is stored. The database has already been
+upgraded by then: after a new version's first start it is at the new schema, and the pre-migration snapshot is in the
+backup folder. Fix or remove the variable and start again. Going back to the previous version instead means restoring
+that snapshot ([Roll back an upgrade that migrated the schema](#roll-back-an-upgrade-that-migrated-the-schema)).
 Checklist, for a rebuild to be a copy and paste:
 
 1. The data volume, as an export zip (above) or a tarball of the volume (below).
@@ -321,7 +326,8 @@ Sign-in then happens by itself when the app opens: it asks the server for a sess
 the request passes the **open gate**:
 
 1. **The name is expected.** Open mode answers a `Host` header that is an IP address, `localhost`, a `.localhost` or
-   `.ts.net` name, the host of the public URL, or a name you allowed. Anything else gets
+   `.ts.net` name, the host of the public URL (unless it is a local network name, below), or a name you allowed.
+   Anything else gets
    `421 Misdirected Request`, which says how to allow the name. `http://<ip>:1919` always works.
 
    To use a local network name such as `nas.local` or `nas` without a password, allow it: open Kipple by its IP
@@ -334,8 +340,9 @@ the request passes the **open gate**:
    names), even when it cannot reach Kipple's port itself, as with the default `127.0.0.1:1919` publish. So open mode
    answers only the names of that kind you allowed, never all of them, and choosing open mode never allows a name for
    you: the setup wizard has no secret, so a hostile page could make that choice too. During setup the check is
-   broader (single-word names and those suffixes are answered, so the wizard opens at whatever name you use); with a
-   password it only logs, once an hour.
+   broader (single-word names, those suffixes and the host of the public URL whatever it is, such as
+   `kipple.fritz.box` or `rss.home`, are answered, so the wizard opens at the name you use); with a password it only
+   logs, once an hour.
 2. **Not forwarded.** A request that came through a proxy or tunnel (a `CF-Connecting-IP`, `Cf-Access-Jwt-Assertion`,
    `Forwarded`, `X-Real-IP` or `X-Forwarded-*` header, a `Tailscale-Funnel-Request`, or a peer in the trusted
    proxies) is refused, because a tunnel means the port is published to people you did not pick.
@@ -597,9 +604,13 @@ There are no down migrations. An older binary refuses a newer schema, so going b
 `pre-migration-<from>-<to>-<ns>.db` that the upgrade wrote before migrating. Anything read, starred or fetched since the
 upgrade is lost.
 
-`<from>` is the schema the database had and `<to>` the schema the upgrade migrated it to. After skipping releases
-`<from>` can be several schemas below `<to>` (`pre-migration-8-11-<ns>.db`). Restore the newest snapshot whose `<to>` is
-the current schema of the database.
+`<from>` is the schema the database had when that start began and `<to>` the schema it was migrating to. After skipping
+releases `<from>` can be several schemas below `<to>` (`pre-migration-8-11-<ns>.db`). Each migration commits on its own,
+so an upgrade that fails partway leaves the database at the last schema that committed (between `<from>` and `<to>`),
+and the next start writes another snapshot from there (`pre-migration-9-11-<ns>.db`). The previous version refuses
+either state. Restore the snapshot with the highest `<from>` that is at most the schema of the version you go back to
+and whose `<to>` is above it (the newest, if there are several): the refusal names it when it is in the backup folder.
+That version migrates it up to its own schema on its first start.
 
 Always go back through `kipple restore`. Never copy a snapshot over `kipple.db` by hand, and never edit the schema by
 hand (drop a column, table or index) to make an older binary start.
@@ -609,15 +620,18 @@ database without these steps, it does not start, the container exits with status
 keeps restarting) and nothing is changed on the volume. `docker logs kipple` shows the refusal. A binary that records
 versions names the Kipple that wrote the database and what to do:
 
-    kipple: store: store: database schema version 11 is newer than this binary (10); refusing to start. This database
-    was last opened by Kipple v0.7.0 (schema 11); this is Kipple v0.6.0 (schema 10). Run v0.7.0 or newer, or restore the
-    pre-migration snapshot from the backup folder (docs/deploy.md, Rolling back).
+    kipple: store: store: database schema version 11 is newer than this binary (10); refusing to start. The last Kipple
+    that started on this database is v0.7.0. To run Kipple v0.6.0 (schema 10), restore
+    pre-migration-10-11-1759700000000000000.db from the backup folder (docs/deploy.md, Rolling back). Otherwise run
+    v0.7.0 or newer.
 
-(The numbers are examples. A database that never recorded its version gets "It was written by a newer Kipple than this
-binary." in place of the second sentence.) A binary that does not record versions prints only
+(The numbers are examples. A database that never recorded its version has no "last Kipple" sentence. When no
+matching snapshot is in the backup folder the refusal describes the one to look for. After an upgrade that failed
+partway, the last Kipple on record can be the version you are starting; the refusal then says to run a Kipple whose
+schema is the database's or newer.) A binary that does not record versions prints only
 `database schema version N is newer than this binary (M); refusing to start`. Either way, stop it, then:
 
-    # 1. Stop the service and find the newest pre-migration snapshot.
+    # 1. Stop the service and find the pre-migration snapshot the refusal names.
     docker compose stop kipple
     docker run --rm -v <project>_kipple_data:/data:ro alpine ls -la /data/backup
     # 2. Restore it with the NEW image (it is still on the machine; old releases may have no restore command).
@@ -646,9 +660,11 @@ grows the file by the new table before the old table's pages are reused); and on
 times the database size for the snapshot. When both are on the same volume (the default `/data` layout) the two add
 up: about 2.1 times the database plus 64 MB, or 3.1 times plus 64 MB with a rebuild. Nothing has been written
 when the check refuses, so free some space (older `backup/` files, exported archives, the image cache) and start again.
-If the volume fills up despite the check, the migration transaction fails and is rolled back (the database keeps its
-schema and the previous binary keeps working); a full disk can also fail the snapshot itself, which likewise leaves the
-database untouched. The check is skipped when the free space cannot be read.
+If the volume fills up despite the check, the migration that was running fails and is rolled back. Each migration commits
+on its own, so the database stays at the last schema that committed: if that is newer than the previous version's, the
+previous version refuses it, and going back means restoring the snapshot (see Roll back an upgrade that migrated the
+schema). Free some space and start the new version again to finish the upgrade. A full disk can also fail the snapshot
+itself, which leaves the database untouched. The check is skipped when the free space cannot be read.
 
 What each migration changes is in that release's notes in `CHANGELOG.md`. Before upgrading, read the top paragraph of
 every release you skip in `CHANGELOG.md`.

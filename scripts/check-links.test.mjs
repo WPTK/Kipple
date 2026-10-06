@@ -341,6 +341,37 @@ test('an ignore is exact: a longer URL with the same start is still checked', as
   assert.equal(out.counts.ok, 1);
 });
 
+test('CHANGELOG compare links to the newest version are skipped (its tag is pushed after the merge), older ones are checked', async () => {
+  const log = [
+    '## [Unreleased]',
+    '## [1.2.3-beta.4] - 2026-01-02',
+    '## [1.2.3-beta.3] - 2026-01-01',
+    '[Unreleased]: https://github.com/o/r/compare/v1.2.3-beta.4...HEAD',
+    '[1.2.3-beta.4]: https://github.com/o/r/compare/v1.2.3-beta.3...v1.2.3-beta.4',
+    '[1.2.3-beta.3]: https://github.com/o/r/compare/v1.2.3-beta.2...v1.2.3-beta.3',
+  ].join('\n');
+  const fetchFn = stub({ 'https://github.com/o/r/compare/v1.2.3-beta.2...v1.2.3-beta.3': 200 });
+  const out = await checkTexts([{ name: 'CHANGELOG.md', text: log }], settings, { fetchFn, sleepFn: noSleep });
+  assert.deepEqual(fetchFn.calls, ['https://github.com/o/r/compare/v1.2.3-beta.2...v1.2.3-beta.3']);
+  assert.equal(out.counts.broken, 0);
+  const other = await checkTexts([{ name: 'README.md', text: log }], settings, { fetchFn: stub({}), sleepFn: noSleep });
+  assert.equal(other.results.length, 3);
+
+  // Once the newest tag is pushed its links are checked too (a typo in the "from" tag is reported); a tag list
+  // without it still skips them.
+  const all = {
+    'https://github.com/o/r/compare/v1.2.3-beta.4...HEAD': 200,
+    'https://github.com/o/r/compare/v1.2.3-beta.3...v1.2.3-beta.4': 200,
+    'https://github.com/o/r/compare/v1.2.3-beta.2...v1.2.3-beta.3': 200,
+  };
+  const pushed = stub(all);
+  await checkTexts([{ name: 'CHANGELOG.md', text: log }], settings, { fetchFn: pushed, sleepFn: noSleep, tags: new Set(['v1.2.3-beta.3', 'v1.2.3-beta.4']) });
+  assert.equal(pushed.calls.length, 3);
+  const absent = stub(all);
+  await checkTexts([{ name: 'CHANGELOG.md', text: log }], settings, { fetchFn: absent, sleepFn: noSleep, tags: new Set(['v1.2.3-beta.3']) });
+  assert.deepEqual(absent.calls, ['https://github.com/o/r/compare/v1.2.3-beta.2...v1.2.3-beta.3']);
+});
+
 const urls = (md) => extractLinks(md).map((l) => l.url);
 
 test('extractLinks: a longer outer fence is not closed by a shorter inner one', () => {

@@ -7,7 +7,7 @@ import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import type { Bootstrap } from "@/api/types";
 import { rowMenuStore } from "@/gestures/rowMenu";
-import { LAYOUT_LABELS, devicePrefsStore, resetDevicePrefs, setLayoutOverride, updateDevicePrefs } from "@/lib/devicePrefs";
+import { LAYOUT_LABELS, devicePrefsStore, resetDevicePrefs, setListOverride, updateDevicePrefs } from "@/lib/devicePrefs";
 import { QueryClient } from "@tanstack/react-query";
 import { bumpUnread, keys } from "@/api/queries";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
@@ -299,7 +299,7 @@ describe("nested folder review fixes", () => {
   it("a subfolder's layout menu names the folder it inherits from", async () => {
     routes();
     media(WIDE);
-    setLayoutOverride("folder", "2", "cards");
+    setListOverride("folder", "2", "layout", "cards");
     go("/l/unread?folder=4");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^List options,/ }));

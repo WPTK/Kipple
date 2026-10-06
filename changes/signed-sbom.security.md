@@ -1,1 +1,0 @@
-Each release now attaches its software bill of materials (SPDX) as a signed Release asset (`kipple-X.Y.Z.sbom.json` with a cosign bundle you can verify without the registry), and SECURITY.md states a 14-day target for the first response to a security report.

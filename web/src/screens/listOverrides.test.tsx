@@ -309,7 +309,7 @@ describe("the save notice", () => {
   it("names the per-list settings when they are what the server refused", () => {
     syncStore.set({ status: "idle", refused: ["client.list_overrides"] });
     const r = render(<DeviceSaveStatus />);
-    expect(screen.getByTestId("save-status")).toHaveTextContent("Too many per-list settings; remove some");
+    expect(screen.getByTestId("save-status")).toHaveTextContent("Too many per-list settings: clear them in Settings, Account & Devices");
     expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
     r.unmount();
     syncStore.set({ status: "idle", refused: ["client.voice"] });

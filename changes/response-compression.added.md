@@ -1,1 +1,0 @@
-Responses are gzip-compressed for clients that accept it: JSON, text, scripts and styles of 1400 bytes or more, never images, archives or the live event stream. A page of 50 Reader API items with articles of typical length is about a quarter of its uncompressed size, and the web app's start-up data about an eighth. (#266)

@@ -3,6 +3,7 @@ package reach
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"path/filepath"
 	"sync"
@@ -62,6 +63,100 @@ func TestSeedOnceThenTheSettingDecides(t *testing.T) {
 	require.Empty(t, ignored)
 }
 
+// KIPPLE_PUBLIC_URL is judged only when it would be stored: an internationalized
+// host is converted and stored, a bad value stops the start, and either one is
+// only compared (and named as not used, when it differs) once the setting is
+// stored.
+func TestPublicURLSeedIsJudgedOnlyWhenStored(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	_, err := SeedSettings(ctx, db, Seed{PublicURL: "https://rss.bücher.example"})
+	require.NoError(t, err)
+	sec, err := db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "https://rss.xn--bcher-kva.example", sec.PublicURL)
+	ignored, err := SeedSettings(ctx, db, Seed{PublicURL: "https://rss.bücher.example"})
+	require.NoError(t, err)
+	require.Empty(t, ignored, "the same address in either form is not reported")
+
+	ignored, err = SeedSettings(ctx, db, Seed{PublicURL: "ftp://rss.example.com"})
+	require.NoError(t, err, "a value that would be ignored never stops a start")
+	require.Equal(t, []string{store.SettingPublicURL}, ignored)
+
+	_, err = SeedSettings(ctx, openDB(t), Seed{PublicURL: "ftp://rss.example.com"})
+	require.ErrorContains(t, err, "KIPPLE_PUBLIC_URL")
+}
+
+// An install from before the seed rule answered the variable's names and the
+// stored ones together. Its first start under the seed rule adds the variable's
+// names to the stored list once, so no name is lost; a name later removed in
+// Settings is not added back.
+func TestUpgradeMergesAllowedHostsOnce(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	// The row as an older Kipple stored it, with no merge recorded.
+	require.NoError(t, db.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: []any{"rss.example.com"}}))
+	seed := Seed{AllowedHosts: []string{"nas.local", "rss.example.com"}}
+
+	ignored, err := SeedSettings(ctx, db, seed)
+	require.NoError(t, err)
+	require.Empty(t, ignored, "after the merge the variable is what the setting holds")
+	sec, err := db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"rss.example.com", "nas.local"}, sec.AllowedHosts, "the union, once")
+	// Later starts: the same names in another order are the same list, so nothing is reported.
+	ignored, err = SeedSettings(ctx, db, seed)
+	require.NoError(t, err)
+	require.Empty(t, ignored)
+
+	require.NoError(t, db.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: []any{"rss.example.com"}}))
+	ignored, err = SeedSettings(ctx, db, seed)
+	require.NoError(t, err)
+	require.Equal(t, []string{store.SettingAllowedHosts}, ignored, "the variable is named as not used")
+	sec, err = db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"rss.example.com"}, sec.AllowedHosts, "a removal in Settings sticks")
+
+	// A new install: the seed stores the variable, and a later removal sticks too.
+	fresh := openDB(t)
+	_, err = SeedSettings(ctx, fresh, seed)
+	require.NoError(t, err)
+	require.NoError(t, fresh.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: []any{}}))
+	_, err = SeedSettings(ctx, fresh, seed)
+	require.NoError(t, err)
+	sec, err = fresh.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Empty(t, sec.AllowedHosts)
+}
+
+// A stored row that is not a list (a hand edit) reads as empty, so the merge
+// replaces it with the variable's names. Names past the 64-name limit are not
+// added (and are logged), and the merge still runs only once.
+func TestUpgradeMergeOfABadOrFullRow(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	require.NoError(t, db.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: "not a list"}))
+	_, err := SeedSettings(ctx, db, Seed{AllowedHosts: []string{"nas.local"}})
+	require.NoError(t, err)
+	sec, err := db.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"nas.local"}, sec.AllowedHosts)
+
+	full := openDB(t)
+	have := make([]any, store.MaxAllowedHosts-1)
+	for i := range have {
+		have[i] = fmt.Sprintf("h%d.example.com", i)
+	}
+	require.NoError(t, full.SetSettings(ctx, map[string]any{store.SettingAllowedHosts: have}))
+	_, err = SeedSettings(ctx, full, Seed{AllowedHosts: []string{"a.example.net", "b.example.net"}})
+	require.NoError(t, err)
+	sec, err = full.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Len(t, sec.AllowedHosts, store.MaxAllowedHosts)
+	require.Equal(t, "a.example.net", sec.AllowedHosts[store.MaxAllowedHosts-1], "the first name that fits is added")
+	require.NotContains(t, sec.AllowedHosts, "b.example.net")
+}
+
 func TestOpenBuildsTheState(t *testing.T) {
 	ctx := context.Background()
 	db := openDB(t)
@@ -74,7 +169,8 @@ func TestOpenBuildsTheState(t *testing.T) {
 	require.NoError(t, err)
 	st := l.Get()
 	require.Equal(t, "https://RSS.example.com/kipple", st.PublicURL)
-	require.Equal(t, []string{"nas", "*.example.org", "rss.example.com"}, st.HostNames, "hand-edited bad entries are dropped")
+	require.Equal(t, []string{"nas", "*.example.org"}, st.HostNames, "hand-edited bad entries are dropped")
+	require.Equal(t, "rss.example.com", st.PublicHost)
 	require.Equal(t, []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32"), netip.MustParsePrefix("198.51.100.0/24")}, st.Trusted)
 	require.Nil(t, st.Access)
 
@@ -108,7 +204,7 @@ func TestUpdateAppliesTheWrittenValues(t *testing.T) {
 	url := map[string]any{store.SettingPublicURL: "https://rss.example.com"}
 	require.NoError(t, l.Update(url, nil, write(url)))
 	require.Same(t, v, l.Access())
-	require.Equal(t, []string{"rss.example.com"}, l.HostNames())
+	require.Equal(t, "rss.example.com", l.Get().PublicHost)
 
 	// A refused check and a failed write change nothing.
 	off := map[string]any{store.SettingCloudflareAccess: nil, store.SettingPublicURL: ""}
@@ -125,7 +221,7 @@ func TestUpdateAppliesTheWrittenValues(t *testing.T) {
 	require.NoError(t, l.Update(off, nil, write(off)))
 	require.Nil(t, l.Access())
 	require.Equal(t, "", l.PublicURL())
-	require.Empty(t, l.HostNames())
+	require.Empty(t, l.Get().PublicHost)
 
 	// What Update put in force is what a fresh read of the database gives.
 	again, err := Open(ctx, db, Options{NoPrefetch: true})
@@ -133,22 +229,25 @@ func TestUpdateAppliesTheWrittenValues(t *testing.T) {
 	require.Equal(t, l.Get().Stored, again.Get().Stored)
 }
 
-// A public URL at a LAN name is used, but its host is not added to the Host
-// gate's names (open mode answers such a name only when listed).
-func TestLANPublicURLHostIsNotAnAllowedName(t *testing.T) {
+// A public URL at a LAN name is used, and its host is the state's public host
+// like any other (the Host gate decides per mode; see setup.OpenHostAllowed).
+// The allowed names stay what was listed.
+func TestPublicHostIsKeptApartFromListedNames(t *testing.T) {
 	ctx := context.Background()
 	db := openDB(t)
 	l, err := Open(ctx, db, Options{NoPrefetch: true})
 	require.NoError(t, err)
-	for _, u := range []string{"http://nas.local:1919", "http://unraid:1919", "https://rss.home.arpa", "https://svc.internal", "http://box.lan"} {
+	for u, h := range map[string]string{"http://nas.local:1919": "nas.local", "http://unraid:1919": "unraid", "https://rss.home.arpa": "rss.home.arpa", "http://kipple.fritz.box:1919": "kipple.fritz.box"} {
 		set := map[string]any{store.SettingPublicURL: u}
 		require.NoError(t, l.Update(set, nil, func() error { return db.SetSettings(ctx, set) }))
 		require.Equal(t, u, l.PublicURL())
+		require.Equal(t, h, l.Get().PublicHost)
 		require.Empty(t, l.HostNames(), u)
 	}
 	set := map[string]any{store.SettingPublicURL: "https://rss.example.com", store.SettingAllowedHosts: []any{"nas.local"}}
 	require.NoError(t, l.Update(set, nil, func() error { return db.SetSettings(ctx, set) }))
-	require.Equal(t, []string{"nas.local", "rss.example.com"}, l.HostNames())
+	require.Equal(t, []string{"nas.local"}, l.HostNames())
+	require.Equal(t, "rss.example.com", l.Get().PublicHost)
 }
 
 func TestNilAndFixed(t *testing.T) {
@@ -259,7 +358,7 @@ func TestConcurrentUpdatesAndReads(t *testing.T) {
 				if st.PublicURL == "" {
 					continue
 				}
-				if len(st.Trusted) != 1 || st.Trusted[0].String() != want[st.PublicURL] || len(st.HostNames) != 1 || "https://"+st.HostNames[0] != st.PublicURL || st.Stored.PublicURL != st.PublicURL {
+				if len(st.Trusted) != 1 || st.Trusted[0].String() != want[st.PublicURL] || "https://"+st.PublicHost != st.PublicURL || st.Stored.PublicURL != st.PublicURL {
 					t.Errorf("a torn state: %+v", st)
 					return
 				}

@@ -1,1 +1,0 @@
-Reader API: browser-based clients on another origin can use it. Every Reader API response allows any origin (no credentials: the API authenticates by token, never by cookie), and an `OPTIONS` preflight is answered `204` without signing in. The web app's own API is unchanged. (#266)

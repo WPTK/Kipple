@@ -193,14 +193,18 @@ export function literalProbe(feed) {
   return hits.slice(0, 30);
 }
 
-// S3. axe-core's WCAG 2.0/2.1/2.2 A and AA rules over the document, each failing element marked as the feed's own
-// markup or Kipple's.
-export async function axeProbe(feed) {
+// Whether focus is inside an element matching sel (an open menu), and whether el has focus.
+export const focusInMenu = (sel) => !!document.activeElement?.closest(sel);
+export const isFocused = (el) => el === document.activeElement;
+
+// S3. axe-core's WCAG 2.0/2.1/2.2 A and AA rules over the document (or, with include, over the elements that selector
+// matches), each failing element marked as the feed's own markup or Kipple's.
+export async function axeProbe({ feed, include }) {
   // A target is a list of selectors, one per frame or shadow root on the way (a shadow step is itself a list):
   // the first one names the element in this document, which says whose content it is.
   const top = (t) => (Array.isArray(t[0]) ? t[0][0] : t[0]);
   const flat = (t) => t.map((s) => (Array.isArray(s) ? s.join(" >>> ") : s)).join(" | ");
-  const r = await window.axe.run(document, {
+  const r = await window.axe.run(include ? { include: [[include]] } : document, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"] },
     resultTypes: ["violations"],
   });

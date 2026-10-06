@@ -10,7 +10,6 @@ import {
   resetDevicePrefs,
   resolveLayout,
   resolveList,
-  setLayoutOverride,
   setListOverride,
   updateDevicePrefs,
 } from "./devicePrefs";
@@ -76,8 +75,8 @@ describe("layout override resolution", () => {
 
   it("resolves feed > folder > device default", () => {
     updateDevicePrefs({ layout: "compact" });
-    setLayoutOverride("folder", "10", "inbox");
-    setLayoutOverride("feed", "2", "cards");
+    setListOverride("folder", "10", "layout", "inbox");
+    setListOverride("feed", "2", "layout", "cards");
     const p = devicePrefsStore.get();
     expect(resolveLayout(p, layoutContext({ view: "unread", feed: "2" }, feeds, tree))).toBe("cards"); // feed wins
     expect(resolveLayout(p, layoutContext({ view: "unread", feed: "1" }, feeds, tree))).toBe("inbox"); // folder of the feed
@@ -88,24 +87,24 @@ describe("layout override resolution", () => {
 
   it("a subfolder and its feeds inherit the nearest folder override up the tree", () => {
     updateDevicePrefs({ layout: "compact" });
-    setLayoutOverride("folder", "10", "inbox");
+    setListOverride("folder", "10", "layout", "inbox");
     const p = () => devicePrefsStore.get();
     expect(resolveLayout(p(), layoutContext({ view: "unread", folder: "13" }, feeds, tree))).toBe("inbox"); // two levels up
     expect(resolveLayout(p(), layoutContext({ view: "unread", feed: "4" }, feeds, tree))).toBe("inbox");
-    setLayoutOverride("folder", "12", "headlines");
+    setListOverride("folder", "12", "layout", "headlines");
     expect(resolveLayout(p(), layoutContext({ view: "unread", folder: "13" }, feeds, tree))).toBe("headlines"); // the nearest wins
     expect(resolveLayout(p(), layoutContext({ view: "unread", folder: "10" }, feeds, tree))).toBe("inbox"); // never from below
     expect(overrideTarget(layoutContext({ view: "unread", folder: "13" }, feeds, tree))).toEqual({ kind: "folder", id: "13" });
   });
 
   it("the c toggle beats every override", () => {
-    setLayoutOverride("feed", "2", "cards");
+    setListOverride("feed", "2", "layout", "cards");
     expect(resolveLayout(devicePrefsStore.get(), { feedId: "2" }, "compact")).toBe("compact");
   });
 
   it("clearing an override falls back", () => {
-    setLayoutOverride("feed", "2", "cards");
-    setLayoutOverride("feed", "2", null);
+    setListOverride("feed", "2", "layout", "cards");
+    setListOverride("feed", "2", "layout", null);
     expect(resolveLayout(devicePrefsStore.get(), { feedId: "2" })).toBe("magazine");
   });
 
@@ -121,7 +120,7 @@ describe("order and view overrides (#38)", () => {
     updateDevicePrefs({ order: "oldest" });
     setListOverride("folder", "10", "view", "all");
     setListOverride("folder", "12", "order", "newest");
-    setLayoutOverride("folder", "13", "cards");
+    setListOverride("folder", "13", "layout", "cards");
     const p = () => devicePrefsStore.get();
     const ctx4 = layoutContext({ view: "unread", feed: "4" }, feeds, tree); // feed 4 is in 13, inside 12, inside 10
     expect(resolveList(p(), ctx4, "layout")).toEqual({ value: "cards", from: { kind: "folder", id: "13" } });
@@ -152,7 +151,7 @@ describe("order and view overrides (#38)", () => {
 
 describe("storage", () => {
   it("persists through the storage seam and survives a reload", () => {
-    setLayoutOverride("feed", "7", "headlines");
+    setListOverride("feed", "7", "layout", "headlines");
     setListOverride("folder", "3", "order", "oldest");
     updateDevicePrefs({ order: "oldest" });
     const back = parseDevicePrefs(localStorage.getItem(DEVICE_PREFS_KEY));

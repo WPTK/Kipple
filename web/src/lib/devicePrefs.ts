@@ -335,8 +335,18 @@ export function setListOverride<F extends ListField>(kind: "feed" | "folder", id
   });
 }
 
-/** Set (or with null clear) the layout of one feed or folder. */
-export const setLayoutOverride = (kind: "feed" | "folder", id: string, layout: LayoutId | null): void => setListOverride(kind, id, "layout", layout);
+/**
+ * Clear every feed's and folder's override on this device, so each list follows the device defaults again. The way out
+ * when the overrides outgrow the profile key's byte budget: no screen lists them all, so removing them one by one is
+ * not something a person can do.
+ */
+export function clearListOverrides(): void {
+  devicePrefsStore.set((p) => {
+    const next = { ...p, overrides: { feed: {}, folder: {} } };
+    storage.save(next);
+    return next;
+  });
+}
 
 /** Transient layout used by the `c` key (not persisted, cleared by any explicit choice). */
 export const sessionLayoutStore = createStore<LayoutId | null>(null);

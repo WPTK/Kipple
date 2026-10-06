@@ -185,7 +185,7 @@ func TestSignInRefusalChecksTheOrigin(t *testing.T) {
 			r.Header.Set("Origin", origin)
 		}
 		h, ok := NormalizeHost(host)
-		return g.SignInRefusal(r, h, ok && HostAllowed(h, nil))
+		return g.SignInRefusal(r, h, ok && HostAllowed(h, "", nil))
 	}
 	require.Equal(t, "", req("127.0.0.1:1919", "http://127.0.0.1:1919"))
 	require.Equal(t, "", req("localhost:1919", "http://LOCALHOST:1919"))

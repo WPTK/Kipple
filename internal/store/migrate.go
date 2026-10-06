@@ -248,6 +248,17 @@ func (d *DB) preMigrationSnapshot(ctx context.Context, from, to int, pending []m
 		_ = os.Remove(target)
 		return fmt.Errorf("store: pre-migration snapshot: %w", err)
 	}
+	// One snapshot per from and to: a start that fails the same migration again (a restart loop after an upgrade
+	// that stopped partway) replaces its own copy instead of stacking new ones, which would push the snapshot of the
+	// schema the upgrade started from (the one a rollback needs) out of the newest 3. Of two copies of the same pair
+	// the newer is the better rollback: usually the database did not change between them, and when it did (a restore
+	// and some use of the older version in between, then the same upgrade again) the newer copy holds that use.
+	same, _ := filepath.Glob(filepath.Join(d.backupDir, fmt.Sprintf("pre-migration-%d-%d-*.db", from, to)))
+	for _, m := range same {
+		if m != target {
+			_ = os.Remove(m)
+		}
+	}
 	// Keep the newest 3 by mtime.
 	matches, _ := filepath.Glob(filepath.Join(d.backupDir, "pre-migration-*.db"))
 	type f struct {

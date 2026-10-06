@@ -260,8 +260,8 @@ UAT plan, and to add these release-process gaps as phase 5 line items:
 - The first-time Docker setup walkthrough treated as literal UAT (follow it verbatim on a clean machine, log
   every stuck point) rather than a documentation paraphrase exercise.
 
-**Phase 5 outline, updated:** (A) code audit + changelog review — DONE, PR #26; (B) Cloudflare Access JWT +
-passwordless, in parallel with A — DONE, PR #40; (C) auto-night theme — DONE, PR #41; (D) documentation run
-— DONE, #42 (a further pass for the 0.5 setup wizard is PR D of the setup wizard work) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
+**Phase 5 outline, updated:** (A) code audit + changelog review (DONE, PR #26); (B) Cloudflare Access JWT +
+passwordless, in parallel with A (DONE, PR #40); (C) auto-night theme (DONE, PR #41); (D) documentation run
+(DONE, #42; a further pass for the 0.5 setup wizard is PR D of the setup wizard work) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
 Suites 1-4, migration rehearsal, restore drill, Reader API regression replay); (E) final go/no-go meeting, fed by
 D and F's sign-off.

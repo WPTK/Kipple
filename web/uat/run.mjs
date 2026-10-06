@@ -50,7 +50,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { activeScheme, axeProbe, hasAxe, installPageHelpers, literalProbe, overflowProbe, pushRoute, screenReady } from "./probes.mjs";
+import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady } from "./probes.mjs";
 
 /** The first line of an error's message. */
 const firstLine = (e) => String(e?.message ?? e).split("\n")[0];
@@ -171,6 +171,22 @@ const SEARCH_Q = "the";
 // screen (and that in-app navigation reached it).
 const SCREENS = [
   ...LAYOUTS.map((l) => ({ id: `list-${l.id}`, title: `List: ${l.label}`, path: "/l/all", layout: l, heading: "All articles", font: "menu" })),
+  // The list header's menus, open: checked like a screen (overflow, literals, and axe on the menu, see MENU) with the
+  // menu on top.
+  {
+    id: "list-options",
+    title: "List options menu open",
+    path: "/l/all",
+    heading: "All articles",
+    menu: { button: 'button[aria-label^="List options, "]', groups: ["Layout", "Order"] },
+  },
+  {
+    id: "list-length",
+    title: "Reading time menu open",
+    path: "/l/all",
+    heading: "All articles",
+    menu: { button: 'button[aria-label^="Reading time: "]', groups: [] },
+  },
   { id: "unread", title: "Unread list", path: "/l/unread", heading: "Unread", font: "menu" },
   { id: "starred", title: "Starred (empty)", path: "/l/starred", heading: "Starred", font: "menu" },
   { id: "article", title: "Article", path: (ctx) => ctx.articlePath, heading: (ctx) => ctx.articleTitle, font: "menu" },
@@ -293,26 +309,72 @@ const decodeSnippet = (h) => {
   return h.replace(/&(amp|lt|gt|quot|#39|#34);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#34": '"' })[e]);
 };
 
-async function runAxe(page) {
+async function runAxe(page, include) {
   // The screen checks get axe from an init script (checkScreens); the self-test page, filled by setContent, gets it
   // here. Both go over the DevTools protocol rather than a <script>: Kipple's CSP (script-src 'self') would block an
   // inline script, and turning the CSP off would hide the app's own CSP violations from S1.
   if (!(await page.evaluate(hasAxe))) await page.evaluate(PAGE_SCRIPT);
-  return page.evaluate(axeProbe, FEED);
+  return page.evaluate(axeProbe, { feed: FEED, include });
 }
 
 // ---- navigation helpers ----
 
+// The list header's options button names the layout in effect ("List options, Cards layout"); its menu also holds
+// the order and, on a feed or folder, the view.
+const optionsLabel = (layout) => `List options, ${layout} layout`;
+
 async function setLayout(page, layout) {
-  const btn = page.locator('button[aria-label^="Layout: "]').first();
+  const btn = page.locator('button[aria-label^="List options, "]').first();
   await btn.waitFor({ timeout: 15000 });
-  if ((await btn.getAttribute("aria-label")) === `Layout: ${layout.label}`) return;
+  if ((await btn.getAttribute("aria-label")) === optionsLabel(layout.label)) return;
   await btn.click();
-  // The radio's name is the label plus its hint; anchor it so "Compact" does not match "Email - Compact".
+  // Only the Layout group's radios (the menu also has Order radios). A radio's name is the label plus its hint; anchor
+  // it so "Compact" does not match "Email - Compact".
   const esc = escapeRe(layout.label);
-  await page.getByRole("menuitemradio", { name: new RegExp(`^${esc}\\b`) }).click();
-  await page.locator(`button[aria-label="Layout: ${layout.label}"]`).first().waitFor({ timeout: 10000 });
+  await page
+    .getByRole("group", { name: "Layout" })
+    .getByRole("menuitemradio", { name: new RegExp(`^${esc}\\b`) })
+    .click();
+  await page.locator(`button[aria-label="${optionsLabel(layout.label)}"]`).first().waitFor({ timeout: 10000 });
   if (await page.getByRole("menu").isVisible().catch(() => false)) await page.keyboard.press("Escape");
+}
+
+// The open menus are modal: the page behind them is aria-hidden and cannot be reached. So with a menu open, axe runs on
+// the menu only (MENU), and these checks prove the scoping honest: focus is inside the menu, Tab keeps it there, and
+// Escape closes it and gives focus back to its button (closeMenu). The closed screens keep the full-page axe run.
+const MENU = '[role="menu"]';
+
+// Open one of the list header's menus and leave it open, so the screen's checks (axe on the menu, overflow, literals)
+// cover it. Throws when the button, the menu or a group of choices the menu must hold is missing, or focus is not held
+// in the menu.
+async function openMenu(page, button, groups) {
+  const btn = page.locator(button).first();
+  await btn.waitFor({ timeout: 15000 });
+  await btn.click();
+  const menu = page.getByRole("menu");
+  await menu.waitFor({ state: "visible", timeout: 5000 });
+  if ((await menu.getByRole("menuitemradio").count()) < 2) throw new Error(`the menu of ${button} has no choices`);
+  for (const g of groups) {
+    if ((await menu.getByRole("group", { name: g }).getByRole("menuitemradio").count()) < 2) throw new Error(`the menu of ${button} has no "${g}" choices`);
+  }
+  if (!(await page.evaluate(focusInMenu, MENU))) throw new Error(`focus is not inside the open menu of ${button}`);
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press("Tab");
+    if (!(await menu.isVisible()) || !(await page.evaluate(focusInMenu, MENU))) throw new Error(`Tab leaves the open menu of ${button}`);
+  }
+}
+
+// Escape closes the open menu and gives focus back to its button. Throws when it does not.
+async function closeMenu(page, button) {
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("menu")
+    .waitFor({ state: "hidden", timeout: 3000 })
+    .catch(() => {
+      throw new Error(`Escape does not close the menu of ${button}`);
+    });
+  const back = await page.locator(button).first().evaluate(isFocused);
+  if (!back) throw new Error(`after Escape, focus is not back on ${button}`);
 }
 
 // Wait for the lazy screen and its queries: no busy skeleton, no boot splash, then a short beat for late renders.
@@ -715,6 +777,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         await setLayout(page, screen.layout);
         await settle(page);
       }
+      if (screen.menu) await openMenu(page, screen.menu.button, screen.menu.groups);
 
       const scheme = await page.evaluate(activeScheme);
       if (scheme !== theme.scheme)
@@ -733,12 +796,13 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       }
       await Promise.all([...harvesting]); // this screen's API answers are in FEED.names
       const s5 = await page.evaluate(literalProbe, FEED);
-      const axe = await runAxe(page);
+      const axe = await runAxe(page, screen.menu ? MENU : undefined);
       if (screen.font) {
         const s7 = await fontCheck(page, screen.font);
         if (s7) report("S7", where, "font-choice", s7);
       }
       await page.waitForTimeout(100); // late console errors from the last render
+      if (screen.menu) await closeMenu(page, screen.menu.button);
 
       flush(where);
       prev = where;

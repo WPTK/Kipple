@@ -122,31 +122,32 @@ func validName(s string) bool {
 
 // HostAllowed reports whether a normalized host passes the setup-mode Host
 // gate: an IP literal, localhost and *.localhost, a single-label name, a name
-// under one of the private-use or tailnet suffixes, or a match for one of
-// extra (exact names, or "*.suffix" for any name under suffix; see
+// under one of the private-use or tailnet suffixes, public (the host of the
+// public URL, "" when none: the operator typed it), or a match for one of
+// listed (exact names, or "*.suffix" for any name under suffix; see
 // CheckHostEntry).
-func HostAllowed(host string, extra []string) bool {
+func HostAllowed(host, public string, listed []string) bool {
 	if host == "" {
 		return false
 	}
-	if !strings.Contains(host, ".") {
+	if !strings.Contains(host, ".") || host == public {
 		return true // localhost, and single-label names
 	}
-	return hostMatches(host, defaultHostSuffixes, extra)
+	return hostMatches(host, defaultHostSuffixes, listed)
 }
 
 // OpenHostAllowed is the narrower Host gate of open mode: an IP literal,
-// localhost and *.localhost, a *.ts.net name, or a match for one of extra.
-// Names any LAN device can answer (.local, .lan, .home.arpa, .internal and
-// single-label names; see openHostSuffixes) need to be listed explicitly.
-func OpenHostAllowed(host string, extra []string) bool {
+// localhost and *.localhost, a *.ts.net name, public unless any LAN device can
+// answer it (LANClaimable), or a match for one of listed. Names any LAN device
+// can answer need to be listed by name, even when public is one (#254).
+func OpenHostAllowed(host, public string, listed []string) bool {
 	if host == "" {
 		return false
 	}
-	if host == "localhost" {
+	if host == "localhost" || host == public && !LANClaimable(public) {
 		return true
 	}
-	return hostMatches(host, openHostSuffixes, extra)
+	return hostMatches(host, openHostSuffixes, listed)
 }
 
 // hostMatches is an IP literal, a name under one of suffixes, or a match for
@@ -180,7 +181,8 @@ var lanClaimableSuffixes = []string{".local", ".lan", ".home.arpa", ".internal",
 // with this computer's address (mDNS, LLMNR or NetBIOS, a router's DHCP names):
 // a single-label name, or one under .local, .lan, .home.arpa, .internal, .home,
 // .localdomain, .fritz.box or .corp (router and LAN zones in common use). Such
-// a name is answered in open mode only when listed by name. host is normalized
+// a name is answered in open mode only when listed by name, even when it is the
+// public URL's host (setup mode answers that host). host is normalized
 // (NormalizeHost or CheckHostEntry).
 func LANClaimable(host string) bool {
 	if _, err := netip.ParseAddr(host); err == nil || host == "localhost" {

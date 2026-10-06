@@ -17,7 +17,7 @@ followable for a stranger to self-host from a clean machine.
 
 `CLAUDE.md` (fixed decisions), `docs/design.md` (data model, API contract, design rationale), `docs/README.md`
 (the docs index), `docs/uat-plan.md`, `docs/risk-register.md`, `docs/RELEASING.md`, `docs/deploy.md`,
-`CHANGELOG.md`, `SECURITY.md`, `.env.example`; outside this repository, the private `kipple-history` repo (meetings, decisions, diary, audits — the project's
+`CHANGELOG.md`, `SECURITY.md`, `.env.example`; outside this repository, the private `kipple-history` repo (meetings, decisions, diary, audits: the project's
 institutional memory).
 
 ## 3. Management

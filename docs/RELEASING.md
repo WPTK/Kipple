@@ -167,8 +167,9 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
     its minor respectively**, so an older patch or a re-run never moves them backwards; a prerelease never moves `latest`
     or a floating tag), extracts the SBOM BuildKit embedded in the image (`kipple-X.Y.Z.sbom.json`, SPDX per platform),
     signs the digest and the SBOM file with cosign (keyless; `kipple-X.Y.Z.sbom.json.sigstore.json`; the verify
-    commands need cosign 3 or later) and writes an "image-notes" block (the digest, the verify command and the SBOM's
-    sha256) to its job summary and to the `image-notes` artifact, which also holds the SBOM file and its signature
+    commands need cosign 3 or later) and writes an "image-notes" block (the digest, the `cosign verify` command for the
+    image, the SBOM's sha256 and how to regenerate it, and the `cosign verify-blob` command for the SBOM and its bundle)
+    to its job summary and to the `image-notes` artifact, which also holds the SBOM file and its signature
     bundle. The Release is normally created after the run, so download the artifact, append `image-notes.md` to the
     notes and attach the SBOM file and the bundle, so each version maps to exactly one digest and one SBOM:
 
@@ -177,14 +178,18 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
         gh release create vX.Y.Z --notes-file notes.md kipple-X.Y.Z.sbom.json kipple-X.Y.Z.sbom.json.sigstore.json
 
     (If the Release already exists when the run finishes, the workflow appends the block and uploads the SBOM and its
-    bundle itself.) Check the signatures by hand (cosign 3 or later):
+    bundle itself.) The notes block uses the exact identity of that release's run
+    (`--certificate-identity https://github.com/WPTK/Kipple/.github/workflows/release.yml@refs/tags/vX.Y.Z`): the regexp
+    below accepts any release run, so it would still pass if `X.Y.Z` were re-pointed at another release's digest or
+    another release's SBOM and bundle were renamed, while the exact identity fails then. The regexp stays the general
+    policy (README, the workflow's own checks). Check the signatures by hand (cosign 3 or later):
 
         cosign verify ghcr.io/wptk/kipple:X.Y.Z \
           --certificate-identity-regexp '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$' \
           --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
         cosign verify-blob kipple-X.Y.Z.sbom.json --bundle kipple-X.Y.Z.sbom.json.sigstore.json \
-          --certificate-identity-regexp '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$'           \
+          --certificate-identity-regexp '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$' \
           --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
     The image's `org.opencontainers.image.version` is `X.Y.Z` (the tag without its `v`, the string you pull), `created`

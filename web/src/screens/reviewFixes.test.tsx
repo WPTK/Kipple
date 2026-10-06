@@ -5,7 +5,7 @@ import { Virtualizer } from "@tanstack/virtual-core";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
-import { resetDevicePrefs, setLayoutOverride, updateDevicePrefs } from "@/lib/devicePrefs";
+import { resetDevicePrefs, setListOverride, updateDevicePrefs } from "@/lib/devicePrefs";
 import { updatePrefs } from "@/lib/prefs";
 import { resetUndo } from "@/lib/undo";
 import { gestureLock } from "@/gestures/lock";
@@ -127,7 +127,7 @@ describe("review fixes", () => {
       go("/l/unread?feed=1");
       await screen.findByText("Article number 1");
       spy.mockClear();
-      act(() => setLayoutOverride("feed", "1", "headlines"));
+      act(() => setListOverride("feed", "1", "layout", "headlines"));
       await waitFor(() => expect(spy).toHaveBeenCalled());
     } finally {
       delete (Virtualizer.prototype as unknown as Record<string, unknown>).measure;

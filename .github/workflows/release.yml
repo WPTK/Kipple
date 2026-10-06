@@ -289,15 +289,35 @@ jobs:
         with:
           cosign-release: v3.0.6
 
+      # The exact identity the signatures below carry: this run's own workflow ref, which must be release.yml at this
+      # tag. Built once here; the self-checks and the release notes all use it, so a printed command cannot drift from
+      # the identity a signature really has.
+      - name: Signing identity
+        env:
+          TAG: ${{ needs.gate.outputs.tag }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          identity="https://github.com/$WORKFLOW_REF"
+          if [ "$identity" != "https://github.com/WPTK/Kipple/.github/workflows/release.yml@refs/tags/$TAG" ]; then
+            echo "::error::this run's identity is $identity, not release.yml at refs/tags/$TAG"; exit 1
+          fi
+          echo "COSIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
       - name: Sign
         env:
           DIGEST: ${{ needs.build.outputs.digest }}
         run: cosign sign --yes "$IMAGE@$DIGEST"
 
+      # Both forms: the exact identity the release notes print, and the general policy (README).
       - name: Check our own signature
         env:
           DIGEST: ${{ needs.build.outputs.digest }}
         run: |
+          set -euo pipefail
+          cosign verify "$IMAGE@$DIGEST" \
+            --certificate-identity "$COSIGN_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_ISSUER" >/dev/null
           cosign verify "$IMAGE@$DIGEST" \
             --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
             --certificate-oidc-issuer "$COSIGN_ISSUER" >/dev/null
@@ -313,6 +333,9 @@ jobs:
           set -euo pipefail
           sbom="kipple-$VERSION.sbom.json"
           cosign sign-blob --yes --bundle "$sbom.sigstore.json" "$sbom"
+          cosign verify-blob "$sbom" --bundle "$sbom.sigstore.json" \
+            --certificate-identity "$COSIGN_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_ISSUER"
           cosign verify-blob "$sbom" --bundle "$sbom.sigstore.json" \
             --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
             --certificate-oidc-issuer "$COSIGN_ISSUER"
@@ -359,6 +382,10 @@ jobs:
           DIGEST: ${{ needs.build.outputs.digest }}
         run: |
           set -euo pipefail
+          # The exact identity of this release's own run (the Signing identity step; both signatures were checked
+          # against it): unlike the regexp (any release tag), it also fails when the X.Y.Z tag or the SBOM files were
+          # swapped for another release's.
+          identity="$COSIGN_IDENTITY"
           {
             echo "## Container image"
             echo
@@ -367,11 +394,11 @@ jobs:
             echo "$IMAGE@$DIGEST"
             echo '```'
             echo
-            echo "Verify the signature:"
+            echo "Verify the signature (cosign 3 or later). The identity names this release's tag, so the check also fails for another release's image:"
             echo
             echo '```'
             echo "cosign verify $IMAGE:$VERSION \\"
-            echo "  --certificate-identity-regexp '$COSIGN_IDENTITY_REGEXP' \\"
+            echo "  --certificate-identity '$identity' \\"
             echo "  --certificate-oidc-issuer $COSIGN_ISSUER"
             echo '```'
             echo
@@ -382,11 +409,11 @@ jobs:
             echo "docker buildx imagetools inspect $IMAGE@$DIGEST --format '{{ json .SBOM }}' | sha256sum"
             echo '```'
             echo
-            echo "The SBOM file is signed too (kipple-$VERSION.sbom.json.sigstore.json, attached next to it; cosign 3 or later):"
+            echo "The SBOM file is signed too (kipple-$VERSION.sbom.json.sigstore.json, attached next to it; cosign 3 or later, same identity):"
             echo
             echo '```'
             echo "cosign verify-blob kipple-$VERSION.sbom.json --bundle kipple-$VERSION.sbom.json.sigstore.json \\"
-            echo "  --certificate-identity-regexp '$COSIGN_IDENTITY_REGEXP' \\"
+            echo "  --certificate-identity '$identity' \\"
             echo "  --certificate-oidc-issuer $COSIGN_ISSUER"
             echo '```'
           } > image-notes.md
@@ -406,6 +433,8 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: image-notes
+          # "Re-run failed jobs" runs this again in the same run, where the name is already taken.
+          overwrite: true
           if-no-files-found: warn
           path: |
             image-notes.md

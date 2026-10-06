@@ -11,7 +11,7 @@ actual devices, doing his actual reading?" It is a phase 5 release-readiness ste
 | Standard role | Here |
 |---|---|
 | QA professional (orchestrates) | Claude: writes test cases, executes what can be automated or agent-driven, tracks and triages defects |
-| End user | The owner — the only user, on desktop Chrome and an installed iPhone PWA, plus a Reader API client |
+| End user | The owner (the only user), on desktop Chrome and an installed iPhone PWA, plus a Reader API client |
 | Business analyst / product owner | The owner (same person) — decisions already recorded in `docs/ui-decisions.md` and `kipple-history` are the "requirements" test cases trace to |
 | Development team | Claude, via fix PRs against defects found |
 | Sign-off authority | The owner, against `docs/release-checklist.md` |
@@ -121,7 +121,14 @@ copy of the real database, whose feeds are whatever the owner reads.
 
 Screens after the first in each browser are reached the way a reader moves: the app's own link when one is on
 screen, otherwise a router history entry; each screen must show its expected heading, which proves the right screen
-was checked. The in-page probes live in `web/uat/probes.mjs` (linted with browser globals only), the runner in
+was checked. The list header's two menus are checked open, as screens of their own: `list-options` (its Layout and
+Order choices must be there) and `list-length` (the reading-time filter). These menus are modal: while one is open the
+page behind it is `aria-hidden` and cannot be reached, so on these two screens S3 runs axe on the open menu only
+(`[role="menu"]`, axe's own advice for a modal that hides the page). A full-page run would flag the page behind the
+menu (`aria-hidden-focus`), which nobody can reach then. What makes the scoping honest is checked on the same screens:
+with the menu open, focus is inside it and Tab keeps it there, and Escape closes it and puts focus back on its button;
+a failure there is an error for the screen. Every other screen, the list screens with their menus closed included,
+keeps the full-page axe run. The in-page probes live in `web/uat/probes.mjs` (linted with browser globals only), the runner in
 `web/uat/run.mjs`. S5 also looks for `Invalid Date`
 and in form field values. A screen still loading after 15 s is an error, not a pass.
 

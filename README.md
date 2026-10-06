@@ -112,7 +112,7 @@ your browser the first time you open it.
 One command:
 
 ```
-docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.8.0-beta.2
+docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges ghcr.io/wptk/kipple:0.8.0-beta.3
 ```
 
 Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
@@ -121,7 +121,7 @@ Or the same thing as a compose file. Save it as `docker-compose.yml` (it is
 ```yaml
 services:
   kipple:
-    image: ghcr.io/wptk/kipple:0.8.0-beta.2
+    image: ghcr.io/wptk/kipple:0.8.0-beta.3
     container_name: kipple
     restart: unless-stopped
     ports: ["127.0.0.1:1919:1919"]
@@ -180,11 +180,13 @@ number (`127.0.0.1:8080:1919`); nothing else changes. A named volume (as above) 
 (`-v /srv/kipple:/data`) needs `chown 65532:65532 /srv/kipple` first, because the container runs as that
 unprivileged user.
 
-To check the image before you run it (optional; needs [cosign](https://docs.sigstore.dev/cosign/)):
+To check the image before you run it (optional; needs [cosign](https://docs.sigstore.dev/cosign/) 3 or later). This
+accepts any Kipple release; the release notes of each version give the same command with that release's exact identity,
+which also proves the tag points at that release's image:
 
 ```
-cosign verify ghcr.io/wptk/kipple:0.8.0-beta.2 \
-  --certificate-identity-regexp '^https://github.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v' \
+cosign verify ghcr.io/wptk/kipple:0.8.0-beta.3 \
+  --certificate-identity-regexp '^https://github\.com/WPTK/Kipple/\.github/workflows/release\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 

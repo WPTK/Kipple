@@ -50,7 +50,10 @@ var compressSlots = make(chan struct{}, maxCompressors)
 //     to judge by, and must repeat the Vary of the 200 it revalidates);
 //   - a compressed response drops Content-Length and Accept-Ranges and has its ETag made weak (the
 //     bytes differ; a conditional request with the weak tag still matches, as If-None-Match
-//     compares weakly).
+//     compares weakly). A 304 cannot tell whether its 200 would have been compressed (that also
+//     depends on the body's size and on a free compressor), so its ETag takes the form the client
+//     holds: weak when the request's If-None-Match names the weak form of it and the client accepts
+//     gzip, so a cache matches the 304 to the stored response it revalidates (RFC 9111 4.3.4).
 //
 // Server-Sent Events pass straight through (text/event-stream), and Flush and Unwrap reach the real
 // writer. No response that reflects request input carries a secret (sign-in tokens, the backup
@@ -58,7 +61,8 @@ var compressSlots = make(chan struct{}, maxCompressors)
 func Compress(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		identity := r.Method == http.MethodHead || r.Header.Get("Range") != ""
-		cw := &compressWriter{ResponseWriter: w, accept: !identity && acceptsGzip(r.Header.Get("Accept-Encoding"))}
+		cw := &compressWriter{ResponseWriter: w, accept: !identity && acceptsGzip(r.Header.Get("Accept-Encoding")),
+			ifNoneMatch: r.Header.Get("If-None-Match")}
 		defer cw.finish()
 		h.ServeHTTP(cw, r)
 	})
@@ -66,13 +70,14 @@ func Compress(h http.Handler) http.Handler {
 
 type compressWriter struct {
 	http.ResponseWriter
-	accept    bool
-	code      int
-	started   bool // the handler sent its status
-	buffering bool // eligible; waiting for compressMin bytes before deciding
-	buf       []byte
-	gz        *gzip.Writer
-	slot      bool // holds a compressSlots token
+	accept      bool
+	ifNoneMatch string // the request's, for the ETag of a 304
+	code        int
+	started     bool // the handler sent its status
+	buffering   bool // eligible; waiting for compressMin bytes before deciding
+	buf         []byte
+	gz          *gzip.Writer
+	slot        bool // holds a compressSlots token
 }
 
 func (c *compressWriter) WriteHeader(code int) {
@@ -88,6 +93,11 @@ func (c *compressWriter) WriteHeader(code int) {
 	eligible := h.Get("Content-Encoding") == "" && compressible(h.Get("Content-Type"))
 	if eligible || code == http.StatusNotModified {
 		addVary(h, "Accept-Encoding")
+	}
+	if code == http.StatusNotModified && c.accept {
+		if et := h.Get("ETag"); strings.HasPrefix(et, `"`) && listsTag(c.ifNoneMatch, "W/"+et) {
+			h.Set("ETag", "W/"+et)
+		}
 	}
 	if code != http.StatusOK || !eligible || !c.accept {
 		c.ResponseWriter.WriteHeader(code)
@@ -129,6 +139,16 @@ func (c *compressWriter) Write(p []byte) (int, error) {
 		c.buf = nil
 	}
 	return c.gz.Write(p)
+}
+
+// listsTag reports whether an If-None-Match value names tag exactly.
+func listsTag(inm, tag string) bool {
+	for _, t := range strings.Split(inm, ",") {
+		if strings.TrimSpace(t) == tag {
+			return true
+		}
+	}
+	return false
 }
 
 // startGzip commits to a compressed response, or reports false (nothing written) when

@@ -12,6 +12,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/access"
 	"github.com/WPTK/kipple/internal/reach"
+	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -93,7 +94,7 @@ func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
 	code, _ = patchIssue(t, h, c, `{"server.public_url":"https://bücher.example:8443/r"}`, "")
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, "https://xn--bcher-kva.example:8443/r", values()[store.SettingPublicURL])
-	require.Contains(t, h.srv.reach.HostNames(), "xn--bcher-kva.example")
+	require.Equal(t, "xn--bcher-kva.example", h.srv.reach.Get().PublicHost)
 	require.Contains(t, h.srv.outgoingUA(), "+https://xn--bcher-kva.example:8443/r)")
 
 	// Empty values turn each one off.
@@ -195,7 +196,7 @@ func TestConnectionSettingsApplyAtOnce(t *testing.T) {
 	require.Contains(t, h.srv.outgoingUA(), "; +https://rss.example.com)")
 	_, about, _ = h.api(c, "GET", "/api/about", "")
 	require.Equal(t, true, about["public_url_set"])
-	require.Contains(t, h.srv.reach.HostNames(), "rss.example.com", "the public URL's host is an allowed name")
+	require.Equal(t, "rss.example.com", h.srv.reach.Get().PublicHost, "the public URL's host is a Host gate name")
 
 	// A reset (null) is the default, off again, and stored as such: the row stays,
 	// so a seed variable can never fill it again.
@@ -203,7 +204,7 @@ func TestConnectionSettingsApplyAtOnce(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	require.False(t, login())
 	require.NotContains(t, h.srv.outgoingUA(), "+https://")
-	require.Empty(t, h.srv.reach.HostNames())
+	require.Empty(t, h.srv.reach.Get().PublicHost)
 	stored, err := h.db.StoredSettings(context.Background(), store.ReachKeys)
 	require.NoError(t, err)
 	require.True(t, stored[store.SettingTrustedProxies])
@@ -338,8 +339,8 @@ func TestPasswordRemovalRefusedOnceAccessIsOff(t *testing.T) {
 }
 
 // A LAN name is a fine public URL (sync apps on the network get icons from it),
-// but it is not added to the Host gate's names: open mode answers such a name
-// only when it is listed by name (#254), as the refusal says.
+// but open mode does not answer it unless it is listed by name (#254), as the
+// refusal says.
 func TestLANPublicURLDoesNotWidenOpenMode(t *testing.T) {
 	h := newSetupHarness(t)
 	sess := h.openAccount(nil)
@@ -352,6 +353,25 @@ func TestLANPublicURLDoesNotWidenOpenMode(t *testing.T) {
 	require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host("rss.home.arpa")).Code)
 	require.Equal(t, http.StatusOK, h.req("PATCH", "/api/settings", `{"security.allowed_hosts":["rss.home.arpa"]}`, withCookies(sess)).Code)
 	require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host("rss.home.arpa")).Code, "listed by name, it is answered")
+}
+
+// Setup mode answers the public URL's host whatever its zone (the operator
+// typed it, for example in KIPPLE_PUBLIC_URL), including router and LAN zones
+// setup mode does not answer by shape; open mode does not (#254).
+func TestSetupModeAnswersThePublicURLHost(t *testing.T) {
+	for _, name := range []string{"kipple.fritz.box", "rss.home", "rss.corp", "nas.localdomain", "nas.local", "reader.example.net"} {
+		h := newSetupHarness(t, func(o *Options) {
+			o.Reach = reach.Fixed(reach.State{PublicURL: "http://" + name + ":1919", PublicHost: name})
+		})
+		require.Equal(t, http.StatusOK, h.req("GET", "/api/instance", "", host(name+":1919")).Code, name)
+		require.Equal(t, http.StatusMisdirectedRequest, h.req("GET", "/api/instance", "", host("other.fritz.box")).Code, name)
+		h.openAccount(nil)
+		want := http.StatusOK
+		if setup.LANClaimable(name) {
+			want = http.StatusMisdirectedRequest
+		}
+		require.Equal(t, want, h.req("GET", "/api/instance", "", host(name+":1919")).Code, "open mode: %s", name)
+	}
 }
 
 // The public URL's host opens in open mode once an authenticated write sets it,
