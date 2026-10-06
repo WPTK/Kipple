@@ -1,6 +1,5 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
-import type { Bootstrap, Card, ItemDetail, ItemsPage, Scope } from "./types";
-import { chainOf, folderTree } from "@/lib/folderTree";
+import type { Card, ItemDetail, ItemsPage, Scope } from "./types";
 import { READING_LENGTH_MINUTES, isReadingLength } from "@/lib/readingLength";
 
 /**
@@ -94,20 +93,4 @@ export function patchItems(qc: QueryClient, ids: string[], patch: ItemPatch): vo
   for (const id of ids) {
     qc.setQueryData<ItemDetail>(keys.item(id), (old) => (old ? { ...old, ...patch } : old));
   }
-}
-
-/**
- * The bootstrap with the unread counts of one feed moved by `delta`: the total, the feed, its folder and the folders
- * above it. The one place the counts are arithmetic, shared by the live badge change (bumpUnread) and the queued
- * offline changes laid over a stored bootstrap (offline.ts overlayCounts).
- */
-export function shiftUnread(b: Bootstrap, feedId: string, delta: number): Bootstrap {
-  const feed = b.feeds.find((f) => f.id === feedId);
-  const above = new Set(feed ? chainOf(folderTree(b.folders), feed.folder_id) : []);
-  return {
-    ...b,
-    counts: { ...b.counts, unread: Math.max(0, b.counts.unread + delta) },
-    feeds: b.feeds.map((f) => (f.id === feedId ? { ...f, unread: Math.max(0, f.unread + delta) } : f)),
-    folders: b.folders.map((fo) => (above.has(fo.id) ? { ...fo, unread: Math.max(0, fo.unread + delta) } : fo)),
-  };
 }

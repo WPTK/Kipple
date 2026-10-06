@@ -9,7 +9,8 @@
  *  - /assets/*: cache first (hashed names never change);
  *  - a few read-only API GETs (bootstrap, item lists, one item): network first, the last good answer when
  *    the network is down or slow, marked X-Kipple-Cache: 1. A list fetched with include=content is also
- *    stored as one entry per item, so each article opens offline;
+ *    stored as one entry per item, so each article opens offline. The bootstrap's copy is written by the page,
+ *    not here, so it carries the counts the app last showed;
  *  - images (/img/*, feed icons): cache first, bounded;
  *  - every other request, and every write, goes straight to the network.
  * Sign-out sends {type:"clear-data"} and everything read from the API is dropped. Each clear starts a new
@@ -213,8 +214,9 @@ async function dataFirst(event, req, url) {
     const hit = await cache.match(keyOf(url));
     return hit ? marked(hit) : undefined;
   };
-  // A search being typed is not worth a slot: it would push saved articles out of the cache.
-  const keep = !url.searchParams.has("typing");
+  // A search being typed is not worth a slot: it would push saved articles out of the cache. The bootstrap is
+  // stored by the page (lib/offline.ts storeBootstrap), with the badge changes made since the server answered.
+  const keep = !url.searchParams.has("typing") && url.pathname !== "/api/bootstrap";
   const network = fetch(req);
   let res;
   try {

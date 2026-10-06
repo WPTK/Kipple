@@ -1,1 +1,1 @@
-The unread counts in the sidebar and badges now include articles you read or marked unread offline, also after reloading the app before the network is back. (#253)
+Marking articles read or unread while offline now moves the unread counts in the sidebar and badges at once, and an app opened while still offline shows the counts as you last saw them, those changes included. (#253)

@@ -1,6 +1,6 @@
-import { onlineManager, type QueryClient } from "@tanstack/react-query";
+import { hashKey, onlineManager, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, authStore, buildPath } from "@/api/client";
-import { itemsParams, keys, PAGE_SIZE, patchItems, shiftUnread } from "@/api/queryKeys";
+import { itemsParams, keys, PAGE_SIZE, patchItems } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
 import { devicePrefsStore } from "./devicePrefs";
 import type { Bootstrap, MarkReadResponse } from "@/api/types";
@@ -24,10 +24,7 @@ import { wipeStatsQueue } from "./statsSender";
  */
 export type Queued =
   | { kind: "star"; id: string; starred: boolean; at: number }
-  | { kind: "read"; ids: string[]; read: boolean; from?: ReadFrom };
-
-/** What the queued read marks started from: per article, its feed and whether it was read before the first change. */
-export type ReadFrom = Record<string, { feed: string; read: boolean }>;
+  | { kind: "read"; ids: string[]; read: boolean };
 
 type Row = Queued & { seq: number };
 
@@ -219,8 +216,8 @@ export async function queueStar(id: string, starred: boolean, at = Math.floor(Da
  * Queue a read or unread mark for ids; answers the way the server would for a plain by-id mark. Rejects with
  * QueueWriteError when the change could not be stored.
  */
-export async function queueRead(ids: string[], read: boolean, from?: ReadFrom): Promise<MarkReadResponse> {
-  await put({ kind: "read", ids, read, ...(from && { from }), seq: nextSeq() });
+export async function queueRead(ids: string[], read: boolean): Promise<MarkReadResponse> {
+  await put({ kind: "read", ids, read, seq: nextSeq() });
   await refreshCount();
   return { changed: ids, restored: [] };
 }
@@ -238,33 +235,6 @@ export async function overlayPending<T extends { id: string; read: boolean; star
     else for (const id of r.ids) read.set(id, r.read);
   }
   return items.map((i) => (read.has(i.id) || starred.has(i.id) ? { ...i, read: read.get(i.id) ?? i.read, starred: starred.get(i.id) ?? i.starred } : i));
-}
-
-/**
- * The same for the unread counts of a stored bootstrap: it counts what the server had when it was stored, so each
- * article the queue changed moves its feed, folders and the total by one, from the state it started in (the first
- * queued change that names it) to the state it ends in (the last). Articles the queue has no start for (stored by an
- * older build, or not on the device) are left out.
- */
-export async function overlayCounts(b: Bootstrap): Promise<Bootstrap> {
-  const start = new Map<string, { feed: string; read: boolean }>();
-  const end = new Map<string, boolean>();
-  for (const r of await safe((x) => x.all(), [])) {
-    if (r.kind !== "read") continue;
-    for (const id of r.ids) {
-      const f = r.from?.[id];
-      if (f && !start.has(id)) start.set(id, f);
-      end.set(id, r.read);
-    }
-  }
-  const delta = new Map<string, number>();
-  for (const [id, f] of start) {
-    const now = end.get(id);
-    if (now !== undefined && now !== f.read) delta.set(f.feed, (delta.get(f.feed) ?? 0) + (now ? -1 : 1));
-  }
-  let out = b;
-  for (const [feed, d] of delta) out = shiftUnread(out, feed, d);
-  return out;
 }
 
 /**
@@ -384,12 +354,55 @@ async function doFlush(qc?: QueryClient): Promise<void> {
  * explicit sign-out does this. An expired session (401) keeps the queue so the changes survive logging back in.
  */
 export async function wipeOfflineData(): Promise<void> {
+  wipes++;
+  nextBootstrap = undefined;
   await safe((b) => b.clear(), undefined);
   setPending(0);
   wipeStatsQueue();
   // From the page, not only through the worker: a page that is not controlled (hard reload) cannot message it.
-  if (typeof caches !== "undefined") await Promise.all([caches.delete("kipple-data"), caches.delete("kipple-images")]).catch(() => {});
+  if (typeof caches !== "undefined") await Promise.all([caches.delete(DATA_CACHE), caches.delete("kipple-images")]).catch(() => {});
   navigator.serviceWorker?.controller?.postMessage({ type: "clear-data" });
+}
+
+// ---- The bootstrap kept on the device -----------------------------------------------------------
+
+/** The service worker's cache of API answers (web/sw/sw.js), where it looks for /api/bootstrap offline. */
+const DATA_CACHE = "kipple-data";
+const bootstrapHash = hashKey(keys.bootstrap);
+let wipes = 0;
+let nextBootstrap: Bootstrap | undefined;
+let writingBootstrap: Promise<void> | undefined;
+
+/**
+ * The bootstrap the service worker answers with offline (the sidebar, the badges, the counts) is written by the page,
+ * never by the worker: each time the app's own copy changes (an answer from the server, a `counts` event, a badge
+ * moved by a change made on this device, online or queued offline), the stored copy is replaced by it. An offline
+ * launch therefore shows the counts the screen showed last, queued changes included, and there is no second copy of
+ * read state to reconcile with the queue. Writes run one at a time; while one runs, only the newest copy waits.
+ */
+export function storeBootstrap(b: Bootstrap & { fromCache?: true }): Promise<void> {
+  if (typeof caches === "undefined") return Promise.resolve();
+  const plain = { ...b };
+  delete plain.fromCache;
+  nextBootstrap = plain;
+  writingBootstrap ??= (async () => {
+    while (nextBootstrap) {
+      const next = nextBootstrap;
+      nextBootstrap = undefined;
+      const gen = wipes;
+      try {
+        const cache = await caches.open(DATA_CACHE);
+        // A sign-out meanwhile dropped the device's data: the signed-out session's copy must not come back.
+        if (gen !== wipes || authStore.get() === "out") continue;
+        await cache.put("/api/bootstrap", new Response(JSON.stringify(next), { headers: { "Content-Type": "application/json" } }));
+      } catch {
+        // Storage refused (quota, blocked): the next change tries again.
+      }
+    }
+    // In the same step as the last check above, so a copy handed over after it starts a new run.
+    writingBootstrap = undefined;
+  })();
+  return writingBootstrap;
 }
 
 // ---- Prefetch for offline reading ------------------------------------------------------------
@@ -467,6 +480,15 @@ export function initOffline(qc: QueryClient): () => void {
     wasOnline = now;
   });
   cleanups.push(unsubNet);
+
+  // Every change to the app's bootstrap, whoever made it, becomes the copy an offline launch starts from.
+  cleanups.push(
+    qc.getQueryCache().subscribe((e) => {
+      if (e.type !== "updated" || e.action.type !== "success" || e.query.queryHash !== bootstrapHash) return;
+      const b = e.query.state.data as Bootstrap | undefined;
+      if (b) void storeBootstrap(b);
+    }),
+  );
 
   if (import.meta.env.PROD && "serviceWorker" in navigator) {
     cleanups.push(watchForUpdates(navigator.serviceWorker));

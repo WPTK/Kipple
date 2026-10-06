@@ -5,7 +5,8 @@ import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { useRefreshAll } from "@/api/refresh";
 import { ApiError, api, authStore } from "@/api/client";
-import { applyRead, applyStar, flattenItems, keys, useBootstrap, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
+import { applyRead, applyStar, bumpMuted, flattenItems, keys, useBootstrap, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
+import type { Bootstrap } from "@/api/types";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import App, { makeQueryClient } from "@/App";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
@@ -13,7 +14,6 @@ import {
   FLUSH_REQUEST_MS,
   flushQueue,
   initOffline,
-  overlayCounts,
   isOffline,
   memoryBackendForTests,
   SUPERSEDE_WAIT_MS,
@@ -24,6 +24,7 @@ import {
   resetOfflineForTests,
   resetPrefetchForTests,
   setOfflineBackendForTests,
+  storeBootstrap,
   supersede,
   watchForUpdates,
   wipeOfflineData,
@@ -681,53 +682,127 @@ describe("the queue laid over the worker's stored copy", () => {
     await flushQueue(qc);
     expect(flattenItems(qc.getQueryData(keys.items(unread)))[0]?.read).toBe(true);
   });
+});
 
-  describe("the unread counts of the stored bootstrap", () => {
-    const from = (read: boolean) => ({ "1001": { feed: "1", read } });
-
-    it("drop for an article read offline and rise again for one marked unread", async () => {
-      await queueRead(["1001"], true, from(false));
-      const read = await overlayCounts(bootstrap);
-      expect([read.counts.unread, read.feeds[0]?.unread, read.folders[0]?.unread]).toEqual([2, 2, 2]);
-      await wipeOfflineData();
-      await queueRead(["1001"], false, from(true));
-      expect((await overlayCounts(bootstrap)).counts.unread).toBe(4);
+describe("the bootstrap kept on the device", () => {
+  afterEach(() => {
+    onlineManager.setOnline(true);
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const unread = { view: "unread" } as const;
+  const cached = { "X-Kipple-Cache": "1" };
+  /** The page's Cache Storage; opening a cache takes a turn of the event loop, as it does in a browser. */
+  function fakeCaches() {
+    const stores = new Map<string, Map<string, string>>();
+    vi.stubGlobal("caches", {
+      open: async (name: string) => {
+        await new Promise((r) => setTimeout(r, 0));
+        if (!stores.has(name)) stores.set(name, new Map());
+        const m = stores.get(name)!;
+        return { put: async (key: string, res: Response) => void m.set(key, await res.text()) };
+      },
+      delete: async (name: string) => stores.delete(name),
     });
-
-    it("count an article once however often it was toggled, from where it started to where it ended", async () => {
-      await queueRead(["1001"], true, from(false));
-      await queueRead(["1001"], false, from(true));
-      expect(await overlayCounts(bootstrap)).toBe(bootstrap);
-      await queueRead(["1001"], true, from(false));
-      expect((await overlayCounts(bootstrap)).counts.unread).toBe(2);
+    return {
+      stored: () => {
+        const s = stores.get("kipple-data")?.get("/api/bootstrap");
+        return s ? (JSON.parse(s) as Bootstrap) : undefined;
+      },
+    };
+  }
+  /** A client wired like the app's, holding the bootstrap and an Unread list of articles 1001 to 1003. */
+  function app(items = [card(1), card(2), card(3)]) {
+    const c = new QueryClient();
+    const stop = initOffline(c);
+    c.setQueryData(keys.bootstrap, bootstrap);
+    c.setQueryData(keys.items(unread), { pages: [pageOf(items)], pageParams: [""] });
+    return { c, stop };
+  }
+  const counts = (b: Bootstrap | undefined) => [b?.counts.unread, b?.feeds[0]?.unread, b?.folders[0]?.unread];
+  /** What an offline launch gets: the worker's answer from the stored copy, through useBootstrap. */
+  async function launchOffline(stored: Bootstrap | undefined) {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(stored, 200, cached)));
+    const { result } = renderHook(() => useBootstrap(), {
+      wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={makeQueryClient()}>{children}</QueryClientProvider>,
     });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    return result.current.data;
+  }
 
-    it("are left alone for a change that starts where it ends, or whose start is unknown", async () => {
-      await queueRead(["1001"], true, from(true));
-      await queueRead(["1002"], true);
-      expect(await overlayCounts(bootstrap)).toBe(bootstrap);
-    });
+  it("a mark queued offline (swipe, key, scroll, bulk) moves the badges at once, and only for articles it changed", async () => {
+    fakeCaches();
+    const { c, stop } = app([card(1), card(2), card(3, { read: true })]);
+    netFail();
+    await applyRead(c, ["1001", "1002", "1003"], true, "swipe");
+    expect(counts(c.getQueryData(keys.bootstrap))).toEqual([1, 1, 1]);
+    await applyRead(c, ["1001"], false, "scroll");
+    expect(counts(c.getQueryData(keys.bootstrap))).toEqual([2, 2, 2]);
+    expect(offlineStore.get().pending).toBe(2);
+    stop();
+  });
 
-    it("are applied by useBootstrap to the stored copy only", async () => {
-      await queueRead(["1001"], true, from(false));
-      const run = async (headers?: Record<string, string>) => {
-        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(bootstrap, 200, headers)));
-        const { result } = renderHook(() => useBootstrap(), {
-          wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={makeQueryClient()}>{children}</QueryClientProvider>,
-        });
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-        return result.current.data?.counts.unread;
-      };
-      expect(await run({ "X-Kipple-Cache": "1" })).toBe(2);
-      expect(await run()).toBe(3);
-    });
+  it("opening an article offline moves the badges, and the stored copy follows", async () => {
+    const fake = fakeCaches();
+    const { c, stop } = app();
+    c.setQueryData(keys.item("1001"), detail(1));
+    netFail();
+    const { result } = renderHook(() => useOpenItem(), { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={c}>{children}</QueryClientProvider> });
+    result.current.mutate({ id: "1001", via: "tap" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(counts(c.getQueryData(keys.bootstrap))).toEqual([2, 2, 2]);
+    await waitFor(() => expect(counts(fake.stored())).toEqual([2, 2, 2]));
+    stop();
+  });
 
-    it("a read made offline records where the article started", async () => {
-      netFail();
-      const c = new QueryClient();
-      c.setQueryData(keys.item("1001"), detail(1));
-      await applyRead(c, ["1001"], true, "key");
-      expect((await overlayCounts(bootstrap)).counts.unread).toBe(2);
+  it("every change to the app's copy replaces the stored one: a counts event, a muted restore", async () => {
+    const fake = fakeCaches();
+    const { c, stop } = app();
+    c.setQueryData<Bootstrap>(keys.bootstrap, (b) => b && { ...b, counts: { ...b.counts, unread: 7, muted: 2 } });
+    await waitFor(() => expect(fake.stored()?.counts).toEqual({ unread: 7, starred: 0, muted: 2 }));
+    bumpMuted(c, -1);
+    await waitFor(() => expect(fake.stored()?.counts.muted).toBe(1));
+    stop();
+  });
+
+  it("an offline launch shows the stored copy as it is, whatever the queue holds", async () => {
+    const fake = fakeCaches();
+    const { c, stop } = app();
+    netFail();
+    await applyRead(c, ["1001", "1002"], true, "bulk");
+    await applyRead(c, ["1002"], false, "key"); // narrows the first row through supersede
+    await queueRead(["1003"], true); // a row with nothing on screen behind it: the badge never moved for it
+    await waitFor(() => expect(counts(fake.stored())).toEqual([2, 2, 2]));
+    expect(counts(await launchOffline(fake.stored()))).toEqual([2, 2, 2]);
+    stop();
+  });
+
+  it("a partly sent queue leaves the stored copy as the screen showed it", async () => {
+    const fake = fakeCaches();
+    const { c, stop } = app();
+    netFail();
+    await applyRead(c, ["1001"], true, "swipe");
+    await applyRead(c, ["1002"], true, "swipe");
+    await waitFor(() => expect(counts(fake.stored())).toEqual([1, 1, 1]));
+    let marks = 0;
+    mockFetch({
+      "POST /api/items/mark-read": () => {
+        if (marks++ > 0) throw new TypeError("offline");
+        return json({ changed: ["1001"], restored: [] });
+      },
+      "GET /api/bootstrap": () => json(fake.stored(), 200, cached),
     });
+    await flushQueue(c);
+    expect(offlineStore.get().pending).toBe(1);
+    expect(counts(await launchOffline(fake.stored()))).toEqual([1, 1, 1]);
+    stop();
+  });
+
+  it("a sign-out drops a copy still on its way to the device", async () => {
+    const fake = fakeCaches();
+    const writing = storeBootstrap(bootstrap);
+    await wipeOfflineData();
+    await writing;
+    expect(fake.stored()).toBeUndefined();
   });
 });
