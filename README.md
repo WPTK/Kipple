@@ -4,7 +4,7 @@
 >
 > Philip K. Dick, *Do Androids Dream of Electric Sheep?* (1968)
 
-A self-hosted RSS reader. One Docker container, one port, one SQLite database.
+A self-hosted RSS reader. That I want to use.
 
 [![CI](https://github.com/WPTK/Kipple/actions/workflows/ci.yml/badge.svg)](https://github.com/WPTK/Kipple/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/WPTK/Kipple?include_prereleases&label=release)](https://github.com/WPTK/Kipple/releases)
@@ -13,13 +13,13 @@ A self-hosted RSS reader. One Docker container, one port, one SQLite database.
 
 <table>
   <tr>
-    <td valign="bottom">
+    <td width="560" align="center" valign="bottom">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/desktop-dark.webp">
         <img src="docs/screenshots/desktop-light.webp" alt="Kipple in a desktop browser: feeds on the left, a list of articles with thumbnails in the middle, and an article open on the right." width="560">
       </picture>
     </td>
-    <td valign="bottom">
+    <td width="170" align="center" valign="bottom">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/phone-dark.webp">
         <img src="docs/screenshots/phone-light.webp" alt="Kipple on a phone: article cards with large photos, one per row, and a tab bar along the bottom." width="170">
@@ -27,8 +27,8 @@ A self-hosted RSS reader. One Docker container, one port, one SQLite database.
     </td>
   </tr>
   <tr>
-    <td><sub><b>Web app.</b> Feeds on the left, the article list in the middle, the open article on the right.</sub></td>
-    <td><sub><b>On a phone.</b> Add Kipple to the home screen and it opens full screen, like an app.</sub></td>
+    <td width="560" align="center"><sub><b>Web app.</b> Feeds on the left, the article list in the middle, the open article on the right.</sub></td>
+    <td width="170" align="center"><sub><b>On a phone.</b> Add Kipple to the home screen and it opens full screen, like an app.</sub></td>
   </tr>
 </table>
 

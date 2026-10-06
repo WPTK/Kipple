@@ -114,7 +114,10 @@ try {
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.waitForTimeout(1500); // lazy images
     const png = await page.screenshot({ type: "png" });
-    const webp = await toWebp(png);
+    // README shots get rounded corners and a thin border in GitHub's own border colors, so a white screenshot on a white
+    // page shows where it ends. The corners are transparent.
+    const frame = shot.dir === "readme" ? { radius: device.mobile ? 54 : 24, width: 3, color: shot.scheme === "dark" ? "#3d444d" : "#d0d7de" } : null;
+    const webp = await toWebp(png, frame);
     const [w, h] = device.size;
     const got = pngSize(png);
     if (got.width !== w || got.height !== h) throw new Error(`${shot.file}: captured ${got.width}x${got.height}, expected ${w}x${h}`);
@@ -142,21 +145,36 @@ function pngSize(buf) {
   return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
 }
 
-/** Encodes a PNG as WebP with the browser's own encoder, so no image library is needed. */
-async function toWebp(png) {
+/** Encodes a PNG as WebP with the browser's own encoder, so no image library is needed. `frame` rounds the corners and
+ * draws a border of that width and color just inside the edge. */
+async function toWebp(png, frame) {
   const page = await browser.newPage();
   try {
-    const b64 = await page.evaluate(async (data) => {
+    const b64 = await page.evaluate(async ({ data, frame }) => {
       const bin = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
       const bmp = await createImageBitmap(new Blob([bin], { type: "image/png" }));
       const canvas = new OffscreenCanvas(bmp.width, bmp.height);
-      canvas.getContext("2d").drawImage(bmp, 0, 0);
+      const ctx = canvas.getContext("2d");
+      if (frame) {
+        ctx.beginPath();
+        ctx.roundRect(0, 0, bmp.width, bmp.height, frame.radius);
+        ctx.clip();
+      }
+      ctx.drawImage(bmp, 0, 0);
+      if (frame) {
+        // Half of a centered stroke falls outside the clip, so double the width.
+        ctx.beginPath();
+        ctx.roundRect(0, 0, bmp.width, bmp.height, frame.radius);
+        ctx.lineWidth = frame.width * 2;
+        ctx.strokeStyle = frame.color;
+        ctx.stroke();
+      }
       const blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.85 });
       const bytes = new Uint8Array(await blob.arrayBuffer());
       let s = "";
       for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       return btoa(s);
-    }, png.toString("base64"));
+    }, { data: png.toString("base64"), frame });
     return Buffer.from(b64, "base64");
   } finally {
     await page.close();
