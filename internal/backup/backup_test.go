@@ -570,7 +570,7 @@ func TestInspectRefusesNewerSchemaAndForeignFiles(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 	_, err = Inspect(context.Background(), snap, true)
-	require.ErrorContains(t, err, "newer than this Kipple binary")
+	require.ErrorContains(t, err, "made by a newer Kipple")
 
 	other := filepath.Join(t.TempDir(), "o.db")
 	g, err := openFile(other)

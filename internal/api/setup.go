@@ -5,20 +5,28 @@ import (
 	"net/http"
 
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/backup"
 	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
 )
 
 const maxSetupBody = 4 << 10
 
-// registerSetup mounts the one setup route. It exists only in a process that
-// started without an account; the handler also checks the one-way flag, so once
-// the account exists it answers 404 like any unknown /api/ route.
+// registerSetup mounts the setup routes: the account form and the restore. They
+// exist only in a process that started without an account; each handler also
+// checks the one-way flag, so once the account exists they answer 404 like any
+// unknown /api/ route.
 func (s *Server) registerSetup(mux *http.ServeMux) {
 	if !s.opt.Setup.Pending() {
 		return
 	}
 	mux.HandleFunc("POST /api/setup/account", s.setupAccount)
+	if s.restore != nil {
+		mux.HandleFunc("POST /api/setup/restore/upload", s.restoreUpload)
+		mux.HandleFunc("POST /api/setup/restore/confirm", s.restoreConfirm)
+		mux.HandleFunc("GET /api/setup/restore/feeds", s.restoreFeeds)
+		mux.HandleFunc("DELETE /api/setup/restore", s.restoreCancel)
+	}
 }
 
 // setupGone answers a setup route once setup has finished (or in a process
@@ -35,9 +43,14 @@ func (s *Server) setupGone(w http.ResponseWriter) bool {
 // first screen. No version, no user name. While Kipple has no account it also
 // says what the account form can offer from where this browser is: whether
 // Cloudflare Access sign-in works here, and whether open mode would (reason is
-// the open gate's answer as things are, null when it would let this browser in).
+// the open gate's answer as things are, null when it would let this browser in),
+// and where a restore stands ("none", "uploaded" or "confirmed").
 func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if s.opt.Setup.Pending() {
+		restore := backup.RestoreNone
+		if s.restore != nil {
+			restore = s.restore.State()
+		}
 		snap := s.snapshot(r.Context())
 		orNull := func(reason string) any {
 			if reason == "" {
@@ -54,6 +67,7 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 			"open": map[string]any{
 				"reason": orNull(s.gateRefusal(r, snap, false)),
 			},
+			"restore": restore,
 		})
 		return
 	}
@@ -152,6 +166,10 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
 		return
 	}
+	if s.restore != nil && s.restore.State() == backup.RestoreConfirmed {
+		s.writeRestoreError(w, "setup", backup.ErrRestorePending)
+		return
+	}
 	created, acct, err := setup.CreateAccount(r.Context(), s.db, na)
 	if err != nil || !created {
 		// Whatever happened, a row that exists ends setup mode here and now: a
@@ -182,6 +200,9 @@ func (s *Server) setupAccount(w http.ResponseWriter, r *http.Request) {
 // dropped.
 func (s *Server) finishSetup(ctx context.Context, acct store.Account) {
 	s.opt.Setup.Finish()
+	if s.restore != nil {
+		s.restore.Drop() // an upload waiting for a confirm can no longer be restored
+	}
 	s.verifier.SetSecret([]byte(acct.Secret))
 	s.verifier.ClearMemo()
 	if s.opt.OnAPIPasswordChange != nil {

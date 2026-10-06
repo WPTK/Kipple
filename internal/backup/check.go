@@ -20,6 +20,18 @@ type DBInfo struct {
 	Starred       int64
 }
 
+// NewerError refuses a backup made by a newer Kipple than this one: its
+// database has tables this version does not know. KippleVersion is the version
+// the backup's manifest names ("" for a bare database file).
+type NewerError struct{ KippleVersion string }
+
+func (e *NewerError) Error() string {
+	if e.KippleVersion == "" {
+		return "This backup was made by a newer Kipple. Update Kipple first."
+	}
+	return fmt.Sprintf("This backup was made by a newer Kipple (%s). Update Kipple first.", e.KippleVersion)
+}
+
 // openFile opens a database file for inspection on one connection. The journal
 // mode is DELETE so that neither a -wal nor a -shm is left behind next to it
 // and a read-only directory copy still opens.
@@ -64,11 +76,11 @@ func inspect(ctx context.Context, db *sql.DB, full bool) (DBInfo, error) {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&info.SchemaVersion); err != nil {
 		return info, err
 	}
-	if latest := store.LatestVersion(); info.SchemaVersion > latest {
-		return info, fmt.Errorf("the database schema version %d is newer than this Kipple binary (%d): upgrade Kipple first", info.SchemaVersion, latest)
+	if info.SchemaVersion > store.LatestVersion() {
+		return info, &NewerError{}
 	}
 	if info.SchemaVersion < 1 {
-		return info, errors.New("the database has no schema (user_version 0)")
+		return info, errors.New("not a Kipple database (it is empty)")
 	}
 
 	check := "quick_check"

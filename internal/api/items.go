@@ -759,6 +759,9 @@ func (s *Server) Close() {
 	s.apply.stop()
 	s.apply.wg.Wait()
 	s.backups.Close()
+	if s.restore != nil {
+		s.restore.Close()
+	}
 	s.imgMu.Lock()
 	imgH := s.imgH
 	s.imgClosed = true

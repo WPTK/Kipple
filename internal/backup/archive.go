@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/WPTK/kipple/internal/store"
 )
 
 // Names inside the zip.
@@ -23,7 +25,14 @@ const (
 
 	// ManifestFormat is the manifest layout version.
 	ManifestFormat = 1
+
+	// MaxEntries is the most entries a backup zip may hold before it is refused
+	// unread: a real one has len(backupFiles).
+	MaxEntries = 10
 )
+
+// backupFiles is every file a backup zip holds.
+var backupFiles = []string{DBFile, OPMLFile, SettingsFile, ReadmeFile, ManifestFile}
 
 // FileEntry is one file's size and checksum in the manifest.
 type FileEntry struct {
@@ -55,15 +64,25 @@ This zip holds a consistent copy of your Kipple database (kipple.db), your
 subscriptions as OPML (feeds.opml), a readable copy of your settings
 (settings.json) and manifest.json with a SHA-256 for every file.
 
-kipple.db is the only file a restore uses. The rest is for humans: feeds.opml
-imports into any feed reader.
+kipple.db is the only file a full restore uses. The rest is for humans:
+feeds.opml imports into any feed reader.
 
-To restore, stop Kipple, then run
+To restore on a new Kipple, open it in a browser before creating an account,
+choose "Restore from a backup" and pick this file. "Everything" brings back
+your account, settings, feeds and history; Kipple restarts to apply it, then
+you sign in with this backup's account. "Feeds only" takes just feeds.opml.
+The public URL, allowed host names and trusted proxies are not restored: they
+describe the old server, so set them again for the new one.
+
+To restore over an existing library, use the command line: stop Kipple, run
     kipple restore <this file> --yes
 (with Docker, from where you keep this file, with the kipple service stopped:
     docker compose run --rm -T --no-deps kipple restore - --yes < <this file>)
 and start Kipple again. The current database is moved to backup/pre-restore-*
-first. Every web session is signed out by a restore.
+first.
+
+Either way every web session is signed out, and images and icons are
+downloaded again when they are first shown.
 
 This file contains your password hashes and any feed logins. Keep it private.
 `
@@ -110,6 +129,11 @@ func ExtractDB(src, dst string) (mf Manifest, err error) {
 		return Manifest{}, fmt.Errorf("not a readable zip: %w", err)
 	}
 	defer zr.Close()
+	// A real backup has five entries. Many more means it was not made by Kipple,
+	// and each one would cost a check below.
+	if len(zr.File) > MaxEntries {
+		return Manifest{}, fmt.Errorf("the zip holds %d files; a Kipple backup holds %d: it is not a Kipple backup", len(zr.File), len(backupFiles))
+	}
 	byName := map[string]*zip.File{}
 	for _, f := range zr.File {
 		// A Kipple backup is flat. Restore never writes an entry by its own name,
@@ -136,6 +160,11 @@ func ExtractDB(src, dst string) (mf Manifest, err error) {
 	}
 	if mf.App != "kipple" || mf.Format != ManifestFormat {
 		return Manifest{}, fmt.Errorf("unsupported backup (app %q, format %d)", mf.App, mf.Format)
+	}
+	// Refused before anything is extracted. Inspect checks the database itself
+	// again, so a manifest that understates this changes nothing.
+	if mf.SchemaVersion > store.LatestVersion() {
+		return Manifest{}, &NewerError{KippleVersion: mf.KippleVersion}
 	}
 	// The declared size is checked (and later matched against the zip entry and
 	// the bytes actually written) before anything is extracted: a crafted or

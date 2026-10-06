@@ -6,7 +6,9 @@ import { Button } from "@/ui/button";
 import { INSTANCE_KEY, isOpenRefused, openRefusedReason, signInOpen, type OpenReason, type SetupOptions } from "./api";
 import { AccountStep } from "./AccountStep";
 import { OpenRefusedScreen } from "./OpenRefused";
-import { welcomeEntry } from "./session";
+import { RestoreStep } from "./RestoreStep";
+import { RestoreWaiting } from "./RestoreWaiting";
+import { restoredFeeds, welcomeEntry } from "./session";
 
 /**
  * Step 1, before there is an account: the account form is the first screen. It signs the browser in; the app then
@@ -23,9 +25,33 @@ export function SetupFlow({ options }: { options: SetupOptions }) {
     if (pathname === "/welcome" || pathname.startsWith("/welcome/")) navigate("/", { replace: true });
   }, [pathname, navigate]);
 
+  // The restore screens come before the account form; a reload lands on the waiting page while a restore is being applied.
+  const [view, setView] = useState<"account" | "restore">(options.restore === "uploaded" ? "restore" : "account");
+  const [seeded, setSeeded] = useState(false);
+  const [applying, setApplying] = useState<{ estimateSeconds: number; username: string | null } | null>(
+    options.restore === "confirmed" ? { estimateSeconds: 300, username: null } : null,
+  );
+
+  if (applying) return <RestoreWaiting estimateSeconds={applying.estimateSeconds} username={applying.username} onSignIn={() => window.location.reload()} />;
+  if (view === "restore") {
+    return (
+      <RestoreStep
+        resume={options.restore === "uploaded"}
+        onBack={() => setView("account")}
+        onFeedsOnly={(f) => {
+          restoredFeeds.set(f);
+          setSeeded(true);
+          setView("account");
+        }}
+        onConfirmed={setApplying}
+      />
+    );
+  }
   return (
     <AccountStep
       state={options}
+      feedsReady={seeded}
+      onRestore={() => setView("restore")}
       onCreated={() => {
         // The sign-in has just turned the app to signed in; step 2 comes first whatever address this page was opened at.
         navigate(welcomeEntry(), { replace: true });

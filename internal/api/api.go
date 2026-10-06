@@ -123,6 +123,12 @@ type Options struct {
 	Setup *setup.Manager
 	// Gate is the open gate; its Trusted defaults to the trusted proxies of Reach.
 	Gate setup.Gate
+	// Restore is the setup wizard's restore (setup mode only); nil builds one on
+	// DataDir when there is one.
+	Restore *backup.Restorer
+	// Restart shuts the process down cleanly after a restore is confirmed, so
+	// the next start applies it; nil does nothing (tests).
+	Restart func()
 }
 
 // Server holds the handlers.
@@ -150,6 +156,7 @@ type Server struct {
 	runner *ftrun.Runner // full-text extraction, shared with the ingest pool
 
 	backups *backup.Manager
+	restore *backup.Restorer // the setup wizard's restore; nil outside setup mode
 
 	imgMu       sync.Mutex // guards imgSecret and imgH
 	imgSecret   []byte
@@ -234,6 +241,10 @@ func New(opt Options) *Server {
 	s.backups = opt.Backups
 	if s.backups == nil {
 		s.backups = backup.New(backup.Options{DB: s.db, Logger: s.log, Version: opt.Version})
+	}
+	s.restore = opt.Restore
+	if s.restore == nil && opt.Setup.Pending() && opt.DataDir != "" {
+		s.restore = backup.NewRestorer(backup.RestorerOptions{DataDir: opt.DataDir, Logger: s.log})
 	}
 	s.rec = opt.Stats
 	if s.rec == nil {

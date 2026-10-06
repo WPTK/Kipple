@@ -15,7 +15,7 @@ export function WizardFrame({
   skipAllBusy,
   children,
 }: {
-  step: StepInfo;
+  step: Pick<StepInfo, "n" | "title"> & { id: string };
   description?: ReactNode;
   /** Finishes setup without the remaining steps (POST /api/onboarding/complete). Offered on the signed-in steps. */
   onSkipAll?: () => void;
@@ -38,7 +38,7 @@ export function WizardFrame({
               </Button>
             ) : null}
           </div>
-          <Progress n={step.n} />
+          {step.n > 0 ? <Progress n={step.n} /> : null}
           <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold outline-none">
             {step.title}
           </h1>

@@ -13,6 +13,12 @@ import type { StepId } from "./steps";
  */
 export const setupSecret = createStore<string | null>(null);
 
+/**
+ * The feeds file from a restore that took "Feeds only": held here (in this page's memory) from the restore screen,
+ * through the account step, to the import step, which offers it. Dropped when setup ends.
+ */
+export const restoredFeeds = createStore<File | null>(null);
+
 /** An API password was made in step 7 during this setup (it is shown once, so a second one would silently replace it). */
 export const apiPasswordMade = createStore<boolean>(false);
 
@@ -95,6 +101,7 @@ export const welcomeEntry = (): string => `/welcome/${welcomeTarget ?? "timezone
 export function forgetWizardMemory(): void {
   setupSecret.set(null);
   apiPasswordMade.set(false);
+  restoredFeeds.set(null);
   settleThemePreview();
   themeBaseline = null;
   themeSaved = null;

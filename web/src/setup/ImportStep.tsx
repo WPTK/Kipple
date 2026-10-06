@@ -6,6 +6,7 @@ import { announce } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Field, Notice, inputCls } from "@/ui/kit";
 import { StepActions, WizardFrame } from "./Frame";
+import { restoredFeeds } from "./session";
 import { stepById } from "./steps";
 
 /**
@@ -14,7 +15,9 @@ import { stepById } from "./steps";
  */
 export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: () => void; onNext: () => void; onSkipAll: () => void; skipAllBusy?: boolean }) {
   const qc = useQueryClient();
-  const [file, setFile] = useState<File | null>(null);
+  // Feeds taken from a backup or OPML file on the restore screen are already chosen.
+  const [file, setFile] = useState<File | null>(() => restoredFeeds.get());
+  const [chosen, setChosen] = useState(() => restoredFeeds.get() !== null);
   const [days, setDays] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +35,7 @@ export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack:
     try {
       const r = await importOpml(file, { markReadOlderThanDays: daysNum });
       setResult(r);
+      restoredFeeds.set(null);
       invalidateFeeds(qc);
       announce(`Imported ${r.feeds_added} feed${r.feeds_added === 1 ? "" : "s"}`);
     } catch (e) {
@@ -57,6 +61,7 @@ export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack:
           </div>
         ) : (
           <>
+            {chosen ? <Notice role="status">The feeds from your backup are ready. Choose Import to add them, or pick a different file below.</Notice> : null}
             <Field label="OPML file" help="Feeds you already have are left alone.">
               {(a) => (
                 <input
@@ -68,6 +73,7 @@ export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack:
                     const mine = ++pick.current;
                     setError(null);
                     setFile(null);
+                    setChosen(false);
                     if (!f) return;
                     void opmlFileProblem(f).then((problem) => {
                       if (mine !== pick.current) return;
