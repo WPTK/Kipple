@@ -219,12 +219,11 @@ Decided in a design discussion. No code yet; both issues keep the roadmap label.
 - **Screen: design A.** One Stats screen. Adds a compare toggle, a Months range with bars covering every month on record
   (not capped at 12), and a source row that opens a per-feed drill-down sheet. Design B (a separate Feeds page) is the
   fallback if the sheet outgrows the screen.
-- **Reader API reads (#36): stay out of stats.** An API read mark carries no read time or scroll, so even a perfect
-  single-versus-bulk test cannot meet the read definition (10 s active, or 25% scroll with 3 s). The most it could give
-  is a separate "synced reads" count. Revisit only with a controlled capture per client (`KIPPLE_LOG_GREADER_FORMS=1`):
-  20 tapped opens, 20 mark-on-scroll reads, one mark-all, noting ids per `edit-tag`, gaps between marks and whether a
-  `stream/items/contents` call comes first. The capture goes to the debug log only. No read-state write gets the
-  Recorder, and `TestMarkReadNeverTouchesRecorder` stays as is.
+- **Reader API reads (#36): closed as not planned.** Kipple measures reading time only in its own web app. A sync client
+  sends no read time or scroll, so its reads can never meet the read definition (10 s active, or 25% scroll with 3 s),
+  and no request log can change that. The Stats screen and the docs say: "Statistics count reading in the Kipple web app.
+  Reading in other apps isn't measured." (a `changes/` entry rides with the stats build). Reopen only if a client starts
+  sending read time. No read-state write gets the Recorder, and `TestMarkReadNeverTouchesRecorder` stays as is.
 
 ## Phase 5 planning meeting (2026-09-27)
 
