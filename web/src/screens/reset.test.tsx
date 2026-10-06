@@ -14,7 +14,7 @@ class NoES {
 
 const bodyOf = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body)) as Record<string, unknown>;
 
-function server(env: boolean, extra: Parameters<typeof mockFetch>[0] = {}, publicUrl = false) {
+function server(env: boolean, extra: Parameters<typeof mockFetch>[0] = {}) {
   return mockFetch({
     "GET /api/bootstrap": () => json(bootstrap),
     "GET /api/items": () => json(pageOf([card(1)])),
@@ -22,7 +22,7 @@ function server(env: boolean, extra: Parameters<typeof mockFetch>[0] = {}, publi
     "GET /api/filters": () => json({ filters: [] }),
     "GET /api/devices": () => json({ devices: [] }),
     "GET /api/auth/me": () => json({ username: "reader", api_enabled: false, password_set: true, access_enabled: false, access_email: null, auth_mode: "password" }),
-    "GET /api/reset": () => json({ env_account: env, public_address_set: publicUrl }),
+    "GET /api/reset": () => json({ env_account: env }),
     "POST /api/reset": () => json({ restarting: true, estimate_seconds: 30 }, 202),
     ...extra,
   });
@@ -104,7 +104,7 @@ describe("reset Kipple", () => {
   });
 
   it("always warns that setup stays open to anyone who can reach Kipple", async () => {
-    server(false, {}, false);
+    server(false);
     await openDialog();
     expect(screen.getByRole("dialog")).toHaveTextContent("stays open to first-time setup for anyone who can reach it until setup is finished");
   });

@@ -37,8 +37,7 @@ func TestResetInfoReportsTheEnvironmentAccount(t *testing.T) {
 		h, _, _ := newResetHarness(t, env)
 		code, out, _ := h.api(h.login(), "GET", "/api/reset", "")
 		require.Equal(t, http.StatusOK, code)
-		require.Equal(t, env, out["env_account"])
-		require.Equal(t, false, out["public_address_set"])
+		require.Equal(t, map[string]any{"env_account": env}, out)
 	}
 	h, _, _ := newResetHarness(t, false)
 	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/reset", "").Code, "signed in only")
@@ -128,16 +127,6 @@ func TestResetEnvironmentAccountIsAlwaysIgnored(t *testing.T) {
 	})
 }
 
-func TestResetInfoSaysWhetherAPublicAddressIsSet(t *testing.T) {
-	h, _, _ := newResetHarness(t, false)
-	require.NoError(t, h.db.SetSettings(t.Context(), map[string]any{store.SettingPublicURL: "https://rss.example.test"}))
-	require.NoError(t, h.srv.reach.Reload(t.Context()))
-	code, out, rec := h.api(h.login(), "GET", "/api/reset", "")
-	require.Equal(t, http.StatusOK, code)
-	require.Equal(t, true, out["public_address_set"])
-	require.NotContains(t, rec.Body.String(), "example.test", "never the address itself")
-}
-
 func TestResetTwoAtOnceGiveOne202AndOne409(t *testing.T) {
 	h, _, restarts := newResetHarness(t, false)
 	me := h.login()
@@ -159,15 +148,6 @@ func TestResetIsNotOfferedInSetupMode(t *testing.T) {
 		code := h.req(m, "/api/reset", "{}").Code
 		require.Contains(t, []int{http.StatusUnauthorized, http.StatusNotFound}, code, "setup mode has nothing to reset")
 	}
-}
-
-func TestResetInfoCountsAllowedHostsAsAnAddress(t *testing.T) {
-	h, _, _ := newResetHarness(t, false)
-	require.NoError(t, h.db.SetSettings(t.Context(), map[string]any{store.SettingAllowedHosts: []string{"rss.example.test"}}))
-	require.NoError(t, h.srv.reach.Reload(t.Context()))
-	code, out, _ := h.api(h.login(), "GET", "/api/reset", "")
-	require.Equal(t, http.StatusOK, code)
-	require.Equal(t, true, out["public_address_set"])
 }
 
 // A wizard restore through api.New (which builds its own Restorer) keeps the

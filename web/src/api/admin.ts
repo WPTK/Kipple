@@ -299,7 +299,7 @@ export const removePassword = (current: string) => api("/api/account/password", 
 export const generateApiPassword = (current?: string) =>
   api<{ api_password: string }>("/api/account/api-password", { method: "POST", body: current === undefined ? { generate: true } : { current, generate: true } });
 /** GET /api/reset: whether KIPPLE_USERNAME and KIPPLE_PASSWORD are set (a reset ignores them until a new account exists) and whether a public address is set (it stays set, so setup is reachable there). */
-export const fetchResetInfo = () => api<{ env_account: boolean; public_address_set: boolean }>("/api/reset");
+export const fetchResetInfo = () => api<{ env_account: boolean }>("/api/reset");
 /** Confirms a reset: Kipple stops and the next start begins empty, in setup mode. `password` is "" for an account without one. */
 export const resetKipple = (body: { password: string; phrase: string }) =>
   api<{ restarting: true; estimate_seconds: number }>("/api/reset", { method: "POST", body });

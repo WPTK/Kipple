@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,7 +75,9 @@ func TestRunServeAppliesARestoreConfirmedInTheWizard(t *testing.T) {
 	defer stop()
 	tr := &http.Transport{Proxy: nil}
 	t.Cleanup(tr.CloseIdleConnections)
-	cl := &http.Client{Transport: tr}
+	jar, err := cookiejar.New(nil) // the upload's owner cookie, as a browser keeps it
+	require.NoError(t, err)
+	cl := &http.Client{Transport: tr, Jar: jar}
 	call := func(method, path, ctype string, body []byte) (int, map[string]any) {
 		req, err := http.NewRequest(method, base+path, bytes.NewReader(body))
 		require.NoError(t, err)
