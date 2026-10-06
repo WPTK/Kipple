@@ -40,7 +40,11 @@ triaged best-effort (see [SECURITY.md](SECURITY.md)).
 6. **No secrets, hostnames, addresses or personal names** in code, docs or test data. Use `example.com`-style
    names.
 7. **CI must be green** on the exact commit: the `go`, `web`, `security` and `docker` checks are required before
-   anything merges to `main`, which only accepts changes through a pull request.
+   anything merges to `main`, which only accepts changes through a pull request. A pull request that only changes
+   prose (only files listed in `scripts/ci-prose.txt`: most of `docs/` and `changes/`, and a few other Markdown
+   and issue-template files) skips the build and test steps; the required checks still report as passed. On every other
+   run CI deletes those files before building and testing, so code that reads one fails; take it off the list then.
+   The PowerShell tooling checks (`tooling` job) run only when `scripts/` or the CI workflow changed.
 8. The maintainer merges. Releases are tagged by the maintainer only ([docs/RELEASING.md](docs/RELEASING.md)).
 
 ## Design and quality notes

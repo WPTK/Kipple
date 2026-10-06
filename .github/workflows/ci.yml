@@ -23,7 +23,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decides whether the expensive checks run. A pull request that changes only prose nothing reads (scripts/ci-prose.txt
+  # says which files, and how to add one) skips them; every other event (push to main, tags through release.yml) runs
+  # everything. The four required checks (go, web, security, docker) still each report: a job or step skipped by `if`
+  # counts as passed, which is why the filtering is here and not a workflow-level `paths-ignore` (that would leave the
+  # required checks pending and block the merge). The gate fails closed: the jobs below skip only when this job
+  # printed exactly code=false, so a failed or empty gate runs everything.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      scripts: ${{ steps.filter.outputs.scripts }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2 # on a pull request HEAD is the merge commit and HEAD^1 is the base tip
+
+      # The rules come from the base commit, so a pull request cannot loosen its own classification (an edit to
+      # scripts/ci-changes.sh or scripts/ci-prose.txt takes effect from the next pull request). Run through bash, so a
+      # lost executable bit cannot matter. A script that ran prints true or false and exits 0; anything else (no rules on
+      # the base yet, a missing file, a crash) is "could not run": warn, then run everything.
+      - id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RULES: ${{ runner.temp }}/base-rules
+        run: |
+          code=true
+          scripts=true
+          if [ "$EVENT_NAME" = pull_request ]; then
+            if mkdir -p "$RULES" && git show HEAD^1:scripts/ci-changes.sh > "$RULES/ci-changes.sh" && git show HEAD^1:scripts/ci-prose.txt > "$RULES/ci-prose.txt" && out="$(bash "$RULES/ci-changes.sh" "$EVENT_NAME")"; then
+              if [ "$out" = false ]; then code=false; fi
+            else
+              echo "::warning::the base commit has no usable scripts/ci-changes.sh; running every check"
+            fi
+            # The tooling job's gate, from the same base rules. A base without the --scripts mode prints true (not false).
+            if sc="$(bash "$RULES/ci-changes.sh" --scripts "$EVENT_NAME")" && [ "$sc" = false ]; then scripts=false; fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "scripts=$scripts" >> "$GITHUB_OUTPUT"
+          echo "code=$code scripts=$scripts"
+
   go:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     env:
       # Job-level so the step-level `if` below can see it (a step's own env is not in scope for its `if`).
@@ -32,6 +75,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # Prose is only skippable if nothing reads it: delete it, so a test that does fails here.
+      - run: bash scripts/ci-prune-prose.sh --delete
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -69,6 +115,8 @@ jobs:
           fail_ci_if_error: false
 
   security:
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -76,22 +124,27 @@ jobs:
           persist-credentials: false
           fetch-depth: 0 # gitleaks scans history
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - if: needs.changes.outputs.code != 'false'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
       # Shared with the weekly audit (audit.yml).
-      - uses: ./.github/actions/audit-govulncheck # zizmor: ignore[self-repository]
+      - if: needs.changes.outputs.code != 'false'
+        uses: ./.github/actions/audit-govulncheck # zizmor: ignore[self-repository]
 
       - name: staticcheck
+        if: needs.changes.outputs.code != 'false'
         run: go run honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION} ./...
 
       # Advisory pass: everything stays visible in the log, never fails.
       - name: gosec (all findings, advisory)
+        if: needs.changes.outputs.code != 'false'
         run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet ./... || true
 
       # Gate: only HIGH severity with HIGH confidence fails the job.
       - name: gosec (gate)
+        if: needs.changes.outputs.code != 'false'
         run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet -severity high -confidence high ./...
 
       # Binary, not gitleaks-action: the action needs a paid license key for
@@ -105,6 +158,8 @@ jobs:
           ./gitleaks detect --source . --config .gitleaks.toml --redact --verbose
 
   web:
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -119,47 +174,78 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-          cache: npm
+          # No npm install runs on a prose-only pull request, so there is nothing to restore or save.
+          cache: ${{ needs.changes.outputs.code != 'false' && 'npm' || '' }}
           cache-dependency-path: web/package-lock.json
 
       # Changelog fragments (changes/): names and bodies valid, CHANGELOG.md [Unreleased] untouched, and the tooling's own tests.
       - run: node ../scripts/changelog.mjs check
-      - run: node --test ../scripts/changelog.test.mjs
+      # After the fragment check above (it reads changes/): delete the prose files so a reader of one fails here.
+      - if: needs.changes.outputs.code != 'false'
+        run: bash ../scripts/ci-prune-prose.sh --delete
+      - if: needs.changes.outputs.code != 'false'
+        run: node --test ../scripts/changelog.test.mjs
       # The release workflow's tag rules (floating tags, tag shape, base image digest) live in a script with its own test.
-      - run: bash ../scripts/release-tags.test.sh
+      - if: needs.changes.outputs.code != 'false'
+        run: bash ../scripts/release-tags.test.sh
       # Go and Node versions agree across Dockerfile, go.mod, ci.yml and ci-local.ps1 (one Dependabot bump must not split them).
-      - run: node --test ../scripts/toolchain.test.mjs
+      - if: needs.changes.outputs.code != 'false'
+        run: node --test ../scripts/toolchain.test.mjs
       # The weekly audit's issue open/update/close decisions (audit.yml), against a fake gh.
-      - run: node --test ../scripts/audit-report.test.mjs
+      - if: needs.changes.outputs.code != 'false'
+        run: node --test ../scripts/audit-report.test.mjs
+      # Which pull requests count as prose-only (ci.yml job `changes`), the step that deletes the prose files, and the list's entries.
+      - if: needs.changes.outputs.code != 'false'
+        run: bash ../scripts/ci-changes.test.sh
+      - if: needs.changes.outputs.code != 'false'
+        run: bash ../scripts/ci-prune-prose.test.sh
+      - if: needs.changes.outputs.code != 'false'
+        run: node --test ../scripts/ci-prose.test.mjs
+      # The required checks fail open to running everything, not to skipped.
+      - if: needs.changes.outputs.code != 'false'
+        run: node --test ../scripts/ci-gate.test.mjs
       # --ignore-scripts: no dependency install script runs; the build and tests call their tools directly.
-      - run: npm ci --ignore-scripts
-      - run: npm run lint
+      - if: needs.changes.outputs.code != 'false'
+        run: npm ci --ignore-scripts
+      - if: needs.changes.outputs.code != 'false'
+        run: npm run lint
       # Runs the whole suite (a failing test fails the step) and prints a coverage summary; no threshold gate (SQA plan).
-      - run: npm run test:coverage
+      - if: needs.changes.outputs.code != 'false'
+        run: npm run test:coverage
 
       - name: Upload web coverage to Codecov
-        if: env.CODECOV_TOKEN != ''
+        if: needs.changes.outputs.code != 'false' && env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: web/coverage/lcov.info
           flags: web
           fail_ci_if_error: false
-      - run: npm run build
-      - run: npm run contrast
+      - if: needs.changes.outputs.code != 'false'
+        run: npm run build
+      - if: needs.changes.outputs.code != 'false'
+        run: npm run contrast
       # Shared with the weekly audit (audit.yml).
-      - uses: ./.github/actions/audit-npm # zizmor: ignore[self-repository]
+      - if: needs.changes.outputs.code != 'false'
+        uses: ./.github/actions/audit-npm # zizmor: ignore[self-repository]
       # Registry signatures and provenance of what was installed (a different check from the advisory audit above).
       # A registry hiccup here is fixed by re-running the job.
-      - run: npm audit signatures
+      - if: needs.changes.outputs.code != 'false'
+        run: npm audit signatures
 
   docker:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0 # tags, for git describe
+
+      # Delete the prose files before the build context is sent, so a COPY of one fails the build. The version in this
+      # throwaway image gets a -dirty suffix from it; only a release build (release.yml) carries a version that matters.
+      - run: bash scripts/ci-prune-prose.sh --delete
 
       # Build and scan are shared with the weekly audit (audit.yml). Local actions are accepted by zizmor inline.
       - uses: ./.github/actions/build-image # zizmor: ignore[self-repository]
@@ -192,11 +278,13 @@ jobs:
       - run: node scripts/uat-labels.mjs HEAD^1..HEAD
 
   # PSScriptAnalyzer and the Pester tests of the PowerShell tooling. Pull requests only (so no Windows runner starts on a
-  # push to main or inside a release, which calls this workflow), and then only when the PR changed scripts/ or this file:
-  # the in-job check below. A job skipped by its `if:` reports success, so it never blocks a merge. Windows, because the
-  # tooling is used there and its paths are written for Windows. Tool versions are pinned.
+  # push to main or inside a release, which calls this workflow), and only when the `changes` job found scripts/ or this
+  # file changed (its `scripts` output, from scripts/ci-changes.sh --scripts, run from the base commit). Fail-open like
+  # the required checks: it skips only on an explicit false, and !cancelled() keeps it running when `changes` failed.
+  # Windows, because the tooling is used there and its paths are written for Windows. Tool versions are pinned.
   tooling:
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.scripts != 'false' }}
     runs-on: windows-latest
     env:
       PESTER_VERSION: 5.7.1
@@ -205,22 +293,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 2
-
-      - name: Did scripts/ or this workflow change?
-        id: gate
-        shell: pwsh
-        run: |
-          $changed = git diff --name-only HEAD^1 HEAD
-          $hit = @($changed | Where-Object { $_ -like 'scripts/*' -or $_ -eq '.github/workflows/ci.yml' }).Count -gt 0
-          "run=$($hit.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          if (-not $hit) { 'No change under scripts/ or in ci.yml: skipping.' }
 
       # PSGallery versions are immutable, so -RequiredVersion is the pin; there is no hash check, and the accepted risk is a
       # wrong CI verdict (this job has contents: read, no secrets and no persisted credentials). -SkipPublisherCheck is
       # needed because the Pester 3.4 that ships with Windows is signed by a different publisher than Pester 5.
       - name: Install Pester and PSScriptAnalyzer
-        if: steps.gate.outputs.run == 'true'
         shell: pwsh
         run: |
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
@@ -228,7 +305,6 @@ jobs:
           Install-Module -Name PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION -Scope CurrentUser -Force
 
       - name: PSScriptAnalyzer (Warning and Error fail)
-        if: steps.gate.outputs.run == 'true'
         shell: pwsh
         run: |
           # The runner image ships its own PSScriptAnalyzer; load exactly the pinned one, not the highest installed.
@@ -241,7 +317,6 @@ jobs:
           if ($findings) { exit 1 }
 
       - name: Pester
-        if: steps.gate.outputs.run == 'true'
         shell: pwsh
         run: |
           Import-Module Pester -RequiredVersion $env:PESTER_VERSION

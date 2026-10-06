@@ -84,9 +84,11 @@ reads `git diff -U0 <range> -- web/src` and only sees labels written on the same
 
 ## CI
 
-The label guard (`uat-labels`) runs on every pull request. The `tooling` job (Windows, Pester 5.7.1 and
-PSScriptAnalyzer 1.25.0, pinned) runs on pull requests only, and does its work only when `scripts/` or
-`.github/workflows/ci.yml` changed. Both are separate jobs at the end of `.github/workflows/ci.yml`.
+The label guard (`uat-labels`) runs on every pull request (a 5 second text check, so it has no gate). The `tooling`
+job (Windows, Pester 5.7.1 and PSScriptAnalyzer 1.25.0, pinned) runs on pull requests only, and only when the
+`changes` job reports that `scripts/` or `.github/workflows/ci.yml` changed (`scripts/ci-changes.sh --scripts`,
+run from the base commit like the prose filter; it skips only on an explicit `false`, so a failed gate runs it).
+Both are separate jobs at the end of `.github/workflows/ci.yml`.
 
 ## Tests for the tools
 
