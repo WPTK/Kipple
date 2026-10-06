@@ -72,7 +72,7 @@ use.
 - Installable on a phone's home screen, with already-read articles available offline.
 - Reading statistics, including a yearly summary, kept on your own server.
 - A Google Reader-compatible sync API for any client that speaks it.
-- Backups you can download from the web app, and a command-line tool to restore them.
+- Backups you can download from the web app, restored from the setup wizard on a new server or from the command line.
 - One account, with an optional password, and no tracking of any kind.
 
 ## What it's like to use
@@ -221,13 +221,20 @@ to Home Screen" (Safari's share sheet) or "Install app" (Chrome's menu). It laun
 home screen from then on, like any other app, and keeps already-read articles available without a
 connection. The phone has to be able to reach Kipple (see above), and installing needs HTTPS or `127.0.0.1`.
 
-**Back up.** Settings > Account > Export backup downloads a zip (database, OPML, readable settings, manifest). It holds
-password hashes and feed logins, so keep it private. Kipple also writes a snapshot nightly at 04:10 to the same volume,
-which does not survive losing the volume, so copy it off the machine on a schedule:
-`docker cp kipple:/data/backup/kipple-snapshot.db ./kipple-snapshot.db`. To restore, stop the container and run
-`docker compose run --rm -T --no-deps kipple restore - --yes < kipple-backup-YYYYMMDD-HHMMSS.zip` (without `--yes` it only
-verifies). The backup holds your account, settings and feeds but not your compose file or `.env` (port, public URL, proxy
-and Access settings, `TZ`): keep those too. The full checklist is in [docs/deploy.md](docs/deploy.md#what-to-back-up).
+**Back up.** Settings > Account > Export backup downloads a zip (database, OPML, readable settings, manifest). Save it
+somewhere other than the server: that is your off-machine copy. It holds password hashes and feed logins, so keep it
+private. Kipple also writes a snapshot nightly at 04:10 to the same volume, a local safety net that is lost with the
+volume. The backup holds your account, settings and feeds but not your compose file or `.env` (port, proxy and Access
+settings, `TZ`): keep those too. The full checklist is in [docs/deploy.md](docs/deploy.md#what-to-back-up).
+
+**Restore.** On a new server, start Kipple on an empty data volume and open it: the first screen offers "Restore from
+a backup". Pick the zip, check the date and counts it shows, and choose Everything (account, settings, feeds and
+history; Kipple restarts to apply it, then you sign in with the backup's account) or Feeds only (then create a new
+account). An OPML file from any reader works there too, as feeds only. The restart needs a restart policy such as
+`restart: unless-stopped`, as in the examples. The public URL, allowed host names and trusted proxies are not
+restored, since they describe the old server. To restore over an existing library, stop the container and run
+`docker compose run --rm -T --no-deps kipple restore - --yes < kipple-backup-YYYYMMDD-HHMMSS.zip` (without `--yes` it
+only verifies); see [docs/deploy.md](docs/deploy.md#restore-a-backup).
 
 For anything past this (backups, restoring, upgrading, running behind a reverse proxy or
 tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md).

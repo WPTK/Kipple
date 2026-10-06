@@ -23,6 +23,7 @@ import (
 
 	"github.com/WPTK/kipple/internal/api"
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/backup"
 	"github.com/WPTK/kipple/internal/buildinfo"
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/events"
@@ -146,6 +147,11 @@ func runServe() error {
 		return fmt.Errorf("data dir lock: %w", err)
 	}
 	defer func() { _ = dataLock.Release() }()
+	// A restore confirmed in the setup wizard is applied now, under the lock and
+	// before the database opens (it is idempotent: an interrupted one finishes).
+	if err := applyStagedRestore(cfg.DataDir, logger); err != nil {
+		return err
+	}
 	// One shutdown budget (shutdown.go): started by the stop signal, drawn on by
 	// every stage and by the deferred closes below.
 	var budget shutdownBudget
@@ -258,6 +264,13 @@ func runServe() error {
 		},
 	})
 
+	// The stop signal, or a confirmed restore (Options.Restart): both run the
+	// same clean shutdown, and the restart policy starts Kipple again.
+	sigCtx, stop := stopSignals()
+	defer stop()
+	ctx, restart := context.WithCancel(sigCtx)
+	defer restart()
+
 	tailnet := setup.TailnetCheck()
 	_ = tailnet() // the first scan now, not on the first request
 	openGate := setup.Gate{Trusted: reachLive.Trusted, Tailnet: tailnet}
@@ -269,6 +282,10 @@ func runServe() error {
 		OnAPIPasswordChange: readerAPI.InvalidateAccount,
 		Setup:               setupMgr,
 		Gate:                openGate,
+		Restart: func() {
+			logger.Info("stopping so the next start applies the restore")
+			restart()
+		},
 	})
 	defer closeWithin(&budget, logger, "closing the UI API", storeCloseReserve, func() error { uiAPI.Close(); return nil })
 	maintenance.SetOnAutoRead(uiAPI.PublishAutoRead) // the nightly auto-read step publishes through the API
@@ -296,9 +313,6 @@ func runServe() error {
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-
-	ctx, stop := stopSignals()
-	defer stop()
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -330,6 +344,21 @@ func runServe() error {
 	}
 
 	return superviseServe(ctx, serveErr, stopAll, &budget, logger)
+}
+
+// applyStagedRestore applies a restore confirmed in the setup wizard
+// (backup.ApplyStaged) and logs what it did.
+func applyStagedRestore(dataDir string, logger *slog.Logger) error {
+	done, err := backup.ApplyStaged(dataDir, time.Now(), localZone())
+	if err != nil {
+		return err
+	}
+	if done.Restored {
+		logger.Info("restored the backup confirmed in the setup wizard; every web session was signed out",
+			"username", done.Username, "backup_created_at", done.CreatedAt, "backup_kipple_version", done.KippleVersion,
+			"previous_database", done.Pre)
+	}
+	return nil
 }
 
 // stopSignals is the context the stop signal (SIGINT, SIGTERM) cancels (a seam
