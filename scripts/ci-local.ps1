@@ -164,6 +164,7 @@ Step 'web' 'link checker tests (scripts/check-links.test.mjs)' { node --test scr
 Step 'web' 'prose-only filter (scripts/ci-changes.test.sh, ci-prose.test.mjs)' { bash scripts/ci-changes.test.sh; if ($LASTEXITCODE -eq 0) { node --test scripts/ci-prose.test.mjs } }
 Step 'web' 'weekly audit report (scripts/audit-report.test.mjs)' { node --test scripts/audit-report.test.mjs }
 Step 'web' 'prose-only filter (scripts/ci-changes.test.sh, ci-prose.test.mjs)' { bash scripts/ci-changes.test.sh; if ($LASTEXITCODE -eq 0) { node --test scripts/ci-prose.test.mjs } }
+Step 'web' 'prose-only filter (scripts/ci-changes.test.sh, ci-prose.test.mjs)' { bash scripts/ci-changes.test.sh; if ($LASTEXITCODE -eq 0) { node --test scripts/ci-prose.test.mjs } }
 Step 'web' 'npm ci' { Push-Location web; npm ci --ignore-scripts --cache $npmCache --no-audit --no-fund; Pop-Location }
 Step 'web' 'prose-only filter (scripts/ci-changes.test.sh, ci-prose.test.mjs)' { bash scripts/ci-changes.test.sh; if ($LASTEXITCODE -eq 0) { node --test scripts/ci-prose.test.mjs } }
 Step 'web' 'lint' { Push-Location web; npm run lint; Pop-Location }
