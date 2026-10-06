@@ -658,7 +658,7 @@ again yourself: the reset finishes on that start. `kipple restore` brings the ke
 The address and access settings (public address, allowed host names, trusted proxies, Cloudflare Access) describe your
 server and not the library, so a reset keeps them and Kipple answers at the same address afterwards. That also means
 that, after a reset, Kipple has no owner: an unclaimed instance is open to first-time setup for anyone who can reach it
-(on your network, or through a public address if you have one), and there is no secret to claim it with. The dialog and
+(anyone who can open the address Kipple listens on, including through a public address or tunnel if you have one), and there is no secret to claim it with. The dialog and
 the page that waits for the restart both say so. Finish setup right away, and if you cannot, stop Kipple or close its
 port until you can.
 

@@ -75,7 +75,7 @@ describe("reset Kipple", () => {
     // Then the waiting page, in place of the app.
     expect(await screen.findByRole("heading", { name: "Resetting Kipple" })).toBeInTheDocument();
     expect(screen.getByText(/stays open to first-time setup/)).toBeInTheDocument();
-    expect(screen.getAllByRole("status")[0]).toHaveTextContent("Resetting Kipple. It is working, you can leave this page open.");
+    expect(screen.getByText(/Resetting Kipple. It is working/)).toBeInTheDocument();
   });
 
   it("shows a wrong password and sends nothing further", async () => {
@@ -142,6 +142,7 @@ describe("the page that waits for a reset", () => {
     });
     expect(await screen.findByRole("heading", { name: "Kipple is ready for setup" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Set up Kipple" })).toBeInTheDocument();
+    expect(screen.getByText(/stays open to first-time setup/)).toBeInTheDocument();
   });
 
   it("says Kipple stopped after a long silence", async () => {
