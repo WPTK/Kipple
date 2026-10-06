@@ -55,7 +55,7 @@ describe("front-page type", () => {
     const front = planGazette(input(list, { favorites: [fav("feed", "f2")] })).pages[0]!;
     expect(front.type).toBe("lead-image");
     const first = front.blocks[0]!;
-    expect(first.slots[0]).toEqual({ kind: "lead", id: "a0004", column: 0 });
+    expect(first.slots[0]).toEqual({ kind: "lead", id: "a0004", column: 0, picture: true });
     expect(first.slots.slice(1).map((s) => [s.id, s.column])).toEqual([
       ["a0001", 1],
       ["a0002", 1],
@@ -93,7 +93,7 @@ describe("front-page type", () => {
     const list = many(20, (n) => (n === 7 ? { feed_id: "f2" } : n === 1 ? { image: IMG } : {}));
     const front = planGazette(input(list, { favorites: [fav("feed", "f2")] })).pages[0]!;
     expect(front.type).toBe("big-headline");
-    expect(front.blocks[0]!.slots).toEqual([{ kind: "lead", id: "a0007", column: 0 }]);
+    expect(front.blocks[0]!.slots).toEqual([{ kind: "lead", id: "a0007", column: 0, picture: false }]);
   });
 
   it("big headline: with nothing from a pinned feed the longest recent headline leads, newest on a tie", () => {
@@ -185,7 +185,7 @@ describe("edge counts", () => {
     const plan = planGazette(input([art(1)]));
     expect(plan.pages).toHaveLength(1);
     expect(plan.pages[0]!.type).toBe("quiet");
-    expect(plan.pages[0]!.blocks).toEqual([{ title: null, columns: 1, slots: [{ kind: "lead", id: "a0001", column: 0 }] }]);
+    expect(plan.pages[0]!.blocks).toEqual([{ title: null, columns: 1, slots: [{ kind: "lead", id: "a0001", column: 0, picture: false }] }]);
   });
 
   it("1 article with a picture and no pin in a list: a lead with no stories beside it", () => {
@@ -214,9 +214,9 @@ describe("edge counts", () => {
 
 describe("inner pages", () => {
   it("full chunks of articles, numbered from 2, the last one briefs only when the paper is complete", () => {
-    const plan = planGazette(input(many(150, (n) => (n === 1 ? { image: IMG } : {})), { favorites: [fav("feed", "f1")] }));
+    const plan = planGazette(input(many(140, (n) => (n === 1 ? { image: IMG } : {})), { favorites: [fav("feed", "f1")] }));
     expect(plan.pages.map((p) => p.number)).toEqual(plan.pages.map((_, i) => i + 1));
-    expect(plan.pages.map((p) => p.kind)).toEqual(["front", "inner", "inner", "inner", "inner", "briefs"]); // 150 less 30 on the front is 120, five chunks
+    expect(plan.pages.map((p) => p.kind)).toEqual(["front", "inner", "inner", "inner", "inner", "briefs"]); // 140 less 30 on the front is 110: four chunks and 14 left
     const last = plan.pages.at(-1)!;
     expect(new Set(kinds(last))).toEqual(new Set(["brief"]));
     expect(plan.complete).toBe(true);
@@ -242,6 +242,52 @@ describe("inner pages", () => {
     expect(done.pages.slice(0, 5)).toEqual(waiting.pages);
     expect(done.pages[5]!.kind).toBe("briefs");
     expect(ids(done.pages[5]!)).toHaveLength(14);
+  });
+
+  it("a full last chunk stays an inner page when the list completes; no page already shown becomes briefs", () => {
+    const list = many(150, (n) => (n === 1 ? { image: IMG } : {})); // 150 less 30 on the front is 120: five full chunks
+    const opts = { favorites: [fav("feed", "f1")] };
+    const waiting = planGazette(input(list, { ...opts, more: true }));
+    const done = planGazette(input(list, opts));
+    expect(done.pages.map((p) => p.kind)).toEqual(["front", "inner", "inner", "inner", "inner", "inner"]);
+    expect(done.pages).toEqual(waiting.pages);
+  });
+
+  it("returns no pages until the lead window is loaded or the list is complete", () => {
+    expect(planGazette(input(many(LEAD_WINDOW - 1), { more: true })).pages).toEqual([]);
+    expect(planGazette(input(many(LEAD_WINDOW), { more: true })).pages.length).toBeGreaterThan(0);
+    expect(planGazette(input(many(LEAD_WINDOW - 1))).pages.length).toBeGreaterThan(0);
+  });
+
+  it("equal times order by id descending, numerically, like the server", () => {
+    const same = (id: string): PlanCard => ({ id, feed_id: "f1", title: "t", image: null, sort_at: 5 });
+    const plan = planGazette(input([same("9"), same("100"), same("10")]));
+    expect(ids(plan.pages[0]!)).toEqual(["100", "10", "9"]);
+  });
+
+  it("a lead that does not come from a pinned picture never draws a picture", () => {
+    const pinned = { favorites: [fav("feed", "f2")] };
+    const lead = (list: PlanCard[]) => planGazette(input(list, pinned)).pages[0]!.blocks[0]!.slots[0]!;
+    expect(lead(many(20, (n) => (n === 1 ? { image: IMG } : {}))).picture).toBe(false); // big headline
+    expect(lead(many(5, (n) => (n === 1 ? { image: IMG } : {}))).picture).toBe(false); // quiet
+    expect(lead(many(40, (n) => (n <= 5 ? { image: IMG } : {}))).picture).toBe(false); // busy
+    expect(lead(many(20, (n) => (n === 3 ? { feed_id: "f2", image: IMG } : {}))).picture).toBe(true);
+  });
+
+  it("busy needs three pictures besides the lead for the photo row", () => {
+    const withPictures = (count: number) => planGazette(input(many(40, (n) => (n <= count ? { image: IMG } : {})))).pages[0]!;
+    expect(withPictures(3).type).toBe("big-headline"); // the lead takes one, only two are left
+    const four = withPictures(4);
+    expect(four.type).toBe("busy");
+    expect(four.blocks.find((b) => b.slots[0]!.kind === "photo")!.slots).toHaveLength(3);
+  });
+
+  it("a block never has an empty column when it holds fewer items than columns", () => {
+    const front = planGazette(input(many(6, () => ({ image: IMG })))).pages[0]!; // busy: lead, three photos, two stories
+    expect(front.type).toBe("busy");
+    for (const b of front.blocks) expect(new Set(b.slots.map((s) => s.column)).size).toBe(b.columns);
+    const stories = front.blocks.find((b) => b.slots[0]!.kind === "story")!;
+    expect(stories.columns).toBe(2);
   });
 
   it("loading more never changes a page already planned", () => {

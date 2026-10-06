@@ -6,9 +6,13 @@ import { chainOf, folderTree, subtreeOf } from "@/lib/folderTree";
 // favorites, scope and screen class always give the same pages, whatever order the input arrives in. It knows nothing
 // about React, read state or the network; a renderer draws what it returns, in the order it returns it.
 //
-// Pages are prefix-stable so that loading more never reflows an earlier page. The front page is planned from the
-// newest LEAD_WINDOW articles; inner pages are fixed chunks of INNER_PAGE_SIZE articles in newest-first order, and
-// while the server still has more, a trailing partial chunk is withheld rather than shown and later changed.
+// Pages never reflow: a page that has been returned is returned unchanged by every later call, as long as the
+// loaded articles are a prefix of the server's list (sort_at DESC, id DESC). The caller must therefore always fetch
+// newest first, whatever order the reader displays; with oldest-first fetching the loaded set is not a prefix.
+// To make that true the planner returns no pages until LEAD_WINDOW articles are loaded or the list is complete,
+// plans the front page from the newest LEAD_WINDOW articles only, cuts inner pages as fixed chunks of
+// INNER_PAGE_SIZE, withholds a trailing partial chunk while the server has more, and makes the closing briefs page
+// only from a partial chunk (a full last chunk stays an inner page).
 
 /** The lead is looked for among this many of the newest articles. */
 export const LEAD_WINDOW = 100;
@@ -36,6 +40,8 @@ export interface Slot {
   id: string;
   /** Zero-based column inside its block. Slots are listed in reading order, which is column by column. */
   column: number;
+  /** Lead and co-lead slots only: draw the article's picture. False when the story leads as a headline. */
+  picture?: boolean;
 }
 
 export interface Block {
@@ -75,13 +81,17 @@ export interface GazetteInput {
   more: boolean;
 }
 
-/** Newest first; equal times by id, so the order never depends on how the input arrived. */
-const newest = (a: PlanCard, b: PlanCard) => b.sort_at - a.sort_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+/** Ids compare numerically (shorter is smaller, then by text), as the server's integer ids do. */
+const idCmp = (a: string, b: string) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+/** Newest first; equal times by id descending, the server's order (sort_at DESC, id DESC). */
+const newest = (a: PlanCard, b: PlanCard) => b.sort_at - a.sort_at || idCmp(b.id, a.id);
 const hasImage = (a: PlanCard) => !!a.image;
 
-/** Spread slots over columns in contiguous runs, so reading order is column by column. */
-function fill(kinds: { kind: SlotKind; id: string }[], columns: number): Slot[] {
-  return kinds.map((k, i) => ({ ...k, column: Math.floor((i * columns) / kinds.length) }));
+/** A block of slots spread over columns in contiguous runs, so reading order is column by column. Never more
+ * columns than slots, so no column is empty. */
+function block(title: string | null, kinds: { kind: SlotKind; id: string }[], columns: number): Block {
+  const n = Math.max(1, Math.min(columns, kinds.length));
+  return { title, columns: n, slots: kinds.map((k, i) => ({ ...k, column: Math.floor((i * n) / kinds.length) })) };
 }
 
 /** Two columns for a few stories, up to four for many. */
@@ -122,9 +132,10 @@ function chooseFront(input: GazetteInput, win: readonly PlanCard[]): Front {
   if (pinnedNews) return { type: "big-headline", lead: pinnedNews, co: null };
   const newestOne = win[0] ?? null;
   if (win.length < QUIET_BELOW) return { type: "quiet", lead: newestOne, co: null };
-  const pictures = win.filter(hasImage).length;
+  // The photo row needs PHOTO_ROW pictures besides the lead.
+  const pictures = win.filter((a) => a !== newestOne && hasImage(a)).length;
   if (pictures >= PHOTO_ROW) return { type: "busy", lead: newestOne, co: null };
-  if (pictures === 0) return { type: "text-only", lead: newestOne, co: null };
+  if (!win.some(hasImage)) return { type: "text-only", lead: newestOne, co: null };
   let longest = win[0]!;
   for (const a of win.slice(0, HEADLINE_WINDOW)) if (a.title.length > longest.title.length) longest = a;
   return { type: "big-headline", lead: longest, co: null };
@@ -138,6 +149,7 @@ function frontPage(input: GazetteInput, sorted: readonly PlanCard[], used: Set<s
   const blocks: Block[] = [];
   const take = (a: PlanCard) => used.add(a.id);
   const cols = (n: number) => (phone ? 1 : n);
+  const picture = type === "co-leads" || type === "lead-image";
   const pool = () => win.filter((a) => !used.has(a.id));
 
   if (lead) take(lead);
@@ -146,33 +158,30 @@ function frontPage(input: GazetteInput, sorted: readonly PlanCard[], used: Set<s
     // The lead's picture and a second column of stories beside it.
     const beside = pool().slice(0, BESIDE_LEAD);
     beside.forEach(take);
-    const slots: Slot[] = [{ kind: "lead", id: lead!.id, column: 0 }, ...beside.map((a) => ({ kind: "story" as const, id: a.id, column: phone ? 0 : 1 }))];
-    blocks.push({ title: null, columns: cols(2), slots });
+    const slots: Slot[] = [{ kind: "lead", id: lead!.id, column: 0, picture }, ...beside.map((a) => ({ kind: "story" as const, id: a.id, column: phone ? 0 : 1 }))];
+    blocks.push({ title: null, columns: beside.length ? cols(2) : 1, slots });
   } else if (lead) {
-    const slots: Slot[] = [{ kind: "lead", id: lead.id, column: 0 }];
-    if (co) slots.push({ kind: "co-lead", id: co.id, column: phone ? 0 : 1 });
+    const slots: Slot[] = [{ kind: "lead", id: lead.id, column: 0, picture }];
+    if (co) slots.push({ kind: "co-lead", id: co.id, column: phone ? 0 : 1, picture });
     blocks.push({ title: null, columns: cols(slots.length), slots });
   }
 
   if (type === "busy") {
     const photos = pool().filter(hasImage).slice(0, PHOTO_ROW);
     photos.forEach(take);
-    const n = cols(photos.length);
-    if (photos.length) blocks.push({ title: null, columns: n, slots: fill(photos.map((a) => ({ kind: "photo", id: a.id })), n) });
+    if (photos.length) blocks.push(block(null, photos.map((a) => ({ kind: "photo", id: a.id })), cols(photos.length)));
   }
 
   const rest = pool();
   const wide = type === "quiet" ? 2 : type === "busy" ? 4 : columnsFor(rest.length);
   const stories = type === "quiet" ? rest : rest.slice(0, wide * STORIES_PER_COLUMN);
   stories.forEach(take);
-  const n = cols(wide);
-  if (stories.length) blocks.push({ title: null, columns: n, slots: fill(stories.map((a) => ({ kind: "story", id: a.id })), n) });
+  if (stories.length) blocks.push(block(null, stories.map((a) => ({ kind: "story", id: a.id })), cols(wide)));
 
   if (type !== "quiet") {
     const briefs = pool().slice(0, FRONT_BRIEFS);
     briefs.forEach(take);
-    const b = cols(2);
-    if (briefs.length) blocks.push({ title: "In brief", columns: b, slots: fill(briefs.map((a) => ({ kind: "brief", id: a.id })), b) });
+    if (briefs.length) blocks.push(block("In brief", briefs.map((a) => ({ kind: "brief", id: a.id })), cols(2)));
   }
   return { number: 1, kind: "front", type, blocks };
 }
@@ -199,8 +208,7 @@ function sectioner(input: GazetteInput): (a: PlanCard) => { key: string; title: 
 function innerPage(input: GazetteInput, chunk: readonly PlanCard[], number: number, last: boolean, sectionOf: ReturnType<typeof sectioner>): PagePlan {
   const phone = input.screen === "phone";
   if (last) {
-    const n = phone ? 1 : 3;
-    return { number, kind: "briefs", type: null, blocks: [{ title: "In brief", columns: n, slots: fill(chunk.map((a) => ({ kind: "brief", id: a.id })), n) }] };
+    return { number, kind: "briefs", type: null, blocks: [block("In brief", chunk.map((a) => ({ kind: "brief", id: a.id })), phone ? 1 : 3)] };
   }
   // Sections in the order their newest article appears; the chunk is already newest first.
   const groups = new Map<string, { title: string; items: PlanCard[] }>();
@@ -215,8 +223,7 @@ function innerPage(input: GazetteInput, chunk: readonly PlanCard[], number: numb
     // At most one picture feature per section: the newest article with an image, shown first.
     const feature = items.find(hasImage);
     const ordered = feature ? [feature, ...items.filter((a) => a !== feature)] : items;
-    const n = phone ? 1 : items.length >= 6 ? 3 : 2;
-    blocks.push({ title, columns: n, slots: fill(ordered.map((a) => ({ kind: a === feature ? "photo" : "story", id: a.id })), n) });
+    blocks.push(block(title, ordered.map((a) => ({ kind: a === feature ? "photo" : "story", id: a.id })), phone ? 1 : items.length >= 6 ? 3 : 2));
   }
   return { number, kind: "inner", type: null, blocks };
 }
@@ -224,7 +231,8 @@ function innerPage(input: GazetteInput, chunk: readonly PlanCard[], number: numb
 export function planGazette(input: GazetteInput): GazettePlan {
   const sorted = [...input.articles].sort(newest);
   const complete = !input.more;
-  if (!sorted.length) return { pages: [], complete };
+  // Until the lead window is loaded (or nothing more exists) the front page could still change, so show nothing.
+  if (!sorted.length || (!complete && sorted.length < LEAD_WINDOW)) return { pages: [], complete };
 
   const used = new Set<string>();
   const pages = [frontPage(input, sorted, used)];
@@ -235,7 +243,7 @@ export function planGazette(input: GazetteInput): GazettePlan {
   const chunks = complete ? Math.ceil(rest.length / INNER_PAGE_SIZE) : Math.floor(rest.length / INNER_PAGE_SIZE);
   for (let i = 0; i < chunks; i++) {
     const chunk = rest.slice(i * INNER_PAGE_SIZE, (i + 1) * INNER_PAGE_SIZE);
-    pages.push(innerPage(input, chunk, i + 2, complete && i === chunks - 1, sectionOf));
+    pages.push(innerPage(input, chunk, i + 2, complete && i === chunks - 1 && chunk.length < INNER_PAGE_SIZE, sectionOf));
   }
   return { pages, complete };
 }
