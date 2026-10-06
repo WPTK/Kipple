@@ -235,9 +235,9 @@ describe("slow and failing networks", () => {
     try {
       const w = setup();
       w.setNetwork(() => json({ v: 1 }));
-      await w.fetch("/api/items?view=all");
+      await w.fetch("/api/bootstrap");
       w.setNetwork(() => new Promise<Response>((resolve) => setTimeout(() => resolve(json({ v: 2 })), 8000)));
-      const pending = w.fetch("/api/items?view=all");
+      const pending = w.fetch("/api/bootstrap");
       await vi.advanceTimersByTimeAsync(9000);
       const res = (await pending)!;
       expect(res.headers.get("X-Kipple-Cache")).toBe("1");
@@ -245,7 +245,7 @@ describe("slow and failing networks", () => {
       w.setNetwork(() => {
         throw new TypeError("offline");
       });
-      expect(await (await w.fetch("/api/items?view=all"))!.json()).toEqual({ v: 2 });
+      expect(await (await w.fetch("/api/bootstrap"))!.json()).toEqual({ v: 2 });
     } finally {
       vi.useRealTimers();
     }
@@ -304,29 +304,15 @@ describe("read-only API answers", () => {
   it("a server error falls back to the copy; a 401 is the answer and is never kept", async () => {
     const w = setup();
     w.setNetwork(() => json({ ok: 1 }));
-    await w.fetch("/api/items?view=all");
+    await w.fetch("/api/bootstrap");
     w.setNetwork(() => json({ error: "internal" }, 503));
-    expect((await w.fetch("/api/items?view=all"))!.headers.get("X-Kipple-Cache")).toBe("1");
+    expect((await w.fetch("/api/bootstrap"))!.headers.get("X-Kipple-Cache")).toBe("1");
     w.setNetwork(() => json({ error: "auth" }, 401));
     expect((await w.fetch("/api/items/9"))!.status).toBe(401);
     w.setNetwork(() => {
       throw new TypeError("offline");
     });
     await expect(w.fetch("/api/items/9")).rejects.toThrow();
-  });
-
-  it("the bootstrap is answered from the copy the page stored, never from one the worker kept", async () => {
-    const w = setup();
-    w.setNetwork(() => json({ counts: { unread: 3 } }));
-    await w.fetch("/api/bootstrap");
-    w.setNetwork(() => {
-      throw new TypeError("offline");
-    });
-    await expect(w.fetch("/api/bootstrap")).rejects.toThrow("offline");
-    await w.stores.get("kipple-data")!.put("/api/bootstrap", json({ counts: { unread: 2 } }));
-    const off = (await w.fetch("/api/bootstrap"))!;
-    expect(off.headers.get("X-Kipple-Cache")).toBe("1");
-    expect(await off.json()).toEqual({ counts: { unread: 2 } });
   });
 
   it("include=content is stored as one entry per item and as the plain list", async () => {
@@ -348,7 +334,7 @@ describe("read-only API answers", () => {
   it("clear-data drops the API copies and the images, and nothing else", async () => {
     const w = setup();
     w.setNetwork(() => json({ n: 1 }));
-    await w.fetch("/api/items?view=all");
+    await w.fetch("/api/bootstrap");
     w.setNetwork(() => new Response("png"));
     await w.fetch("/img/abc");
     w.stores.set("kipple-shell-0000000000001-aaaa", fakeCache());
@@ -385,7 +371,7 @@ describe("clear-data while requests are still out", () => {
   const entries = async (w: ReturnType<typeof setup>, name: string) => ((await w.stores.get(name)?.keys()) ?? []).map((k) => k.url);
 
   it("an API answer from before the clear is returned but not kept", async () => {
-    const { w, res } = await lateAnswer("/api/items?view=all", () => json({ user: "old session" }));
+    const { w, res } = await lateAnswer("/api/bootstrap", () => json({ user: "old session" }));
     expect(res.status).toBe(200);
     expect(await entries(w, "kipple-data")).toEqual([]);
   });
