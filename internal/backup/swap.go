@@ -21,9 +21,34 @@ const KeepPreRestore = 3
 // was none to keep. It is the one swap of `kipple restore` and of a restore
 // confirmed in the setup wizard.
 func Swap(dataDir, tmp string, now time.Time) (pre string, err error) {
+	pre, undo, err := keepLive(dataDir, now)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, filepath.Join(dataDir, "kipple.db")); err != nil {
+		undo()
+		return "", fmt.Errorf("install the restored database (the current one was put back): %w", err)
+	}
+	return pre, nil
+}
+
+// Retire moves the live database (and its -wal and -shm) into a new
+// backup/pre-restore-<ts>/ directory and installs nothing: the next store.Open
+// creates a fresh database, which starts in setup mode. It is the swap of a
+// reset (Kipple has "swapped the database for nothing"), kept in the same place
+// and under the same retention as a restore's safety copy. pre is "" when there
+// was no database.
+func Retire(dataDir string, now time.Time) (pre string, err error) {
+	pre, _, err = keepLive(dataDir, now)
+	return pre, err
+}
+
+// keepLive moves the live database into a new pre-restore directory. undo puts
+// it back.
+func keepLive(dataDir string, now time.Time) (pre string, undo func(), err error) {
 	live := filepath.Join(dataDir, "kipple.db")
 	var done []string // suffixes moved so far
-	rollback := func() {
+	undo = func() {
 		for _, s := range done {
 			_ = os.Rename(filepath.Join(pre, "kipple.db"+s), live+s)
 		}
@@ -41,23 +66,16 @@ func Swap(dataDir, tmp string, now time.Time) (pre string, err error) {
 		if len(done) == 0 {
 			var err error
 			if pre, err = newPreRestoreDir(filepath.Join(dataDir, "backup"), now); err != nil {
-				return "", fmt.Errorf("pre-restore directory: %w", err)
+				return "", nil, fmt.Errorf("pre-restore directory: %w", err)
 			}
 		}
 		if err := os.Rename(live+s, filepath.Join(pre, "kipple.db"+s)); err != nil {
-			rollback()
-			return "", fmt.Errorf("keep the current database: %w", err)
+			undo()
+			return "", nil, fmt.Errorf("keep the current database: %w", err)
 		}
 		done = append(done, s)
 	}
-	if err := os.Rename(tmp, live); err != nil {
-		rollback()
-		return "", fmt.Errorf("install the restored database (the current one was put back): %w", err)
-	}
-	if len(done) == 0 {
-		return "", nil
-	}
-	return pre, nil
+	return pre, undo, nil
 }
 
 // preRestoreLayout is the timestamp in a pre-restore directory name. New names

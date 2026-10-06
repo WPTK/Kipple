@@ -194,7 +194,13 @@ func runServe() error {
 	// The background work (fetching, maintenance, icons) starts only once an
 	// account exists: at once when there is one, else when the claim creates it.
 	var startWork func()
-	setupMgr, err := startSetupMode(context.Background(), db, cfg, logger, func() { startWork() })
+	setupMgr, err := startSetupMode(context.Background(), db, cfg, logger, func() {
+		// The account exists now: a reset's request to ignore the environment is spent.
+		if err := setup.SetIgnoreEnvAccount(cfg.DataDir, false); err != nil {
+			logger.Warn("cannot remove "+setup.NoEnvAccountFile, "err", err)
+		}
+		startWork()
+	})
 	if err != nil {
 		return fmt.Errorf("setup: %w", err)
 	}
@@ -282,8 +288,9 @@ func runServe() error {
 		OnAPIPasswordChange: readerAPI.InvalidateAccount,
 		Setup:               setupMgr,
 		Gate:                openGate,
+		EnvAccount: cfg.Username != "" && cfg.Password != "",
 		Restart: func() {
-			logger.Info("stopping so the next start applies the restore")
+			logger.Info("stopping so the next start applies the restore or reset")
 			restart()
 		},
 	})
@@ -346,8 +353,8 @@ func runServe() error {
 	return superviseServe(ctx, serveErr, stopAll, &budget, logger)
 }
 
-// applyStagedRestore applies a restore confirmed in the setup wizard
-// (backup.ApplyStaged) and logs what it did.
+// applyStagedRestore applies a restore confirmed in the setup wizard or a reset
+// confirmed in Settings (backup.ApplyStaged) and logs what it did.
 func applyStagedRestore(dataDir string, logger *slog.Logger) error {
 	done, err := backup.ApplyStaged(dataDir, time.Now(), localZone())
 	if err != nil {
@@ -356,6 +363,10 @@ func applyStagedRestore(dataDir string, logger *slog.Logger) error {
 	if done.Restored {
 		logger.Info("restored the backup confirmed in the setup wizard; every web session was signed out",
 			"username", done.Username, "backup_created_at", done.CreatedAt, "backup_kipple_version", done.KippleVersion,
+			"previous_database", done.Pre)
+	}
+	if done.Reset {
+		logger.Info("reset: the database was moved aside and Kipple starts empty, in setup mode",
 			"previous_database", done.Pre)
 	}
 	return nil

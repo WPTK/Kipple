@@ -126,9 +126,12 @@ type Options struct {
 	// Restore is the setup wizard's restore (setup mode only); nil builds one on
 	// DataDir when there is one.
 	Restore *backup.Restorer
-	// Restart shuts the process down cleanly after a restore is confirmed, so
-	// the next start applies it; nil does nothing (tests).
+	// Restart shuts the process down cleanly after a restore or reset is
+	// confirmed, so the next start applies it; nil does nothing (tests).
 	Restart func()
+	// EnvAccount: KIPPLE_USERNAME and KIPPLE_PASSWORD are set, so a start with no
+	// account would create one from them (the reset dialog warns about it).
+	EnvAccount bool
 }
 
 // Server holds the handlers.
@@ -335,6 +338,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/onboarding/restart", s.authed(s.onboardingRestart))
 	handle("GET /api/starter-feeds", s.authed(s.starterFeeds))
 	handle("POST /api/starter-feeds", s.authed(s.starterSubscribe))
+	handle("GET /api/reset", s.authed(s.resetInfo))
+	handle("POST /api/reset", s.authed(s.resetKipple))
 	handle("POST /api/backup", s.authed(s.backupCreate))
 	handle("GET /api/backup/jobs/{id}", s.authed(s.backupJob))
 	handle("GET /api/backup/{token}", s.authed(s.backupDownload))

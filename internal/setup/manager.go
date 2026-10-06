@@ -54,3 +54,28 @@ func RemoveStaleTokenFile(dataDir string) error {
 	}
 	return nil
 }
+
+// NoEnvAccountFile is the file in the data directory that makes a start ignore
+// KIPPLE_USERNAME and KIPPLE_PASSWORD while no account exists. A reset writes it
+// when you choose to keep those variables in your compose file or .env; its
+// presence is the whole state, and it goes as soon as an account exists.
+const NoEnvAccountFile = "no-env-account"
+
+// IgnoreEnvAccount reports whether the start must skip creating the account
+// from the environment.
+func IgnoreEnvAccount(dataDir string) bool {
+	_, err := os.Stat(filepath.Join(dataDir, NoEnvAccountFile))
+	return err == nil
+}
+
+// SetIgnoreEnvAccount writes (on) or removes (off) NoEnvAccountFile.
+func SetIgnoreEnvAccount(dataDir string, on bool) error {
+	p := filepath.Join(dataDir, NoEnvAccountFile)
+	if !on {
+		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	return os.WriteFile(p, []byte("Kipple ignores KIPPLE_USERNAME and KIPPLE_PASSWORD until an account exists.\n"), 0o600)
+}
