@@ -59,7 +59,7 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 - Test: `go test ./...` and `cd web && npm test`. Local CI: `pwsh scripts/ci-local.ps1` (`-Docker` adds the image build
   and Trivy). "CI green" means the GitHub Actions run on the exact commit; the local run is the fast pre-push check.
   Fuzz: `scripts/fuzz.ps1` once per release, not per PR.
-- Before every deploy run `/code-review high`.
+- Before a deploy of code that parses, authenticates, migrates or renders UI, run `/code-review high` (the gate tiers and their order are in docs/RELEASING.md).
 
 ## Deploy and releases
 
@@ -118,10 +118,10 @@ Most of the cost is context re-read on every turn, so keep each context small.
   separate. The auto-fix monitor (`bind_pr` + `set_monitor`) is for PRs that touch code, workflows or dependencies; a
   docs-only or `changes/`-only PR gets one `gh pr checks <n> --watch --fail-fast`.
 - **Keep output small:** prefer the scripts that print one-line verdicts (`release-gates`, `pr-ready`); pipe test, CI,
-  npm and changelog-preview output through `head`/`tail`/`grep`, read docs by line range, search before reading. Cheap checks first: `git diff --shortstat`, `gh pr checks <n>` or a
-  script verdict before opening any file or log; read only the failing step's log tail, and never a whole large test file
-  when grep or a line range answers it.
-  Do not re-read a file just edited.
+  npm and changelog-preview output through `head`/`tail`/`grep`, read docs by line range, search before reading.
+  Cheap checks first: `git diff --shortstat`, `gh pr checks <n>` or a script verdict before opening any file or log;
+  read only the failing step's log tail, never a whole large test file when grep or a line range answers it. Do not
+  re-read a file just edited.
 - **Sessions:** one task or release per session; start a new one after a release or when the context passes about
   300K tokens instead of carrying a week of history. Put state in memory and the history repo, not in the chat.
 - **Replies:** short and plain, result first, the decision the owner must make second.

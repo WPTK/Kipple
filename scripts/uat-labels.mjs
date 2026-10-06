@@ -67,10 +67,27 @@ export function extractFragments(line) {
 export function parseDiff(diffText) {
   const files = [];
   let current = null;
+  let inHeader = false;
+  let sawGitHeader = false;
   for (const line of diffText.replace(/\r\n/g, '\n').split('\n')) {
-    const header = /^\+\+\+ b\/(.+)$/.exec(line);
-    if (header) {
-      current = { file: header[1], removed: [], added: [] };
+    // A real git diff starts each file with "diff --git a/X b/Y". Y is the path for a deleted file too (its "+++" line is
+    // /dev/null), so the removed labels of a deleted component are attributed to it. The "+++ b/X" form below is for
+    // hand-written input without that line.
+    const git = /^diff --git a\/.+ b\/(.+)$/.exec(line);
+    if (git) {
+      current = { file: git[1], removed: [], added: [] };
+      files.push(current);
+      inHeader = true;
+      sawGitHeader = true;
+      continue;
+    }
+    if (inHeader) {
+      if (line.startsWith('@@')) inHeader = false;
+      continue;
+    }
+    const plain = !sawGitHeader && /^\+\+\+ b\/(.+)$/.exec(line);
+    if (plain) {
+      current = { file: plain[1], removed: [], added: [] };
       files.push(current);
       continue;
     }
@@ -80,7 +97,6 @@ export function parseDiff(diffText) {
   }
   return files;
 }
-
 /** True when a fragment is long enough to be a meaningful search string. */
 export const isSearchable = (fragment) => fragment.trim().length >= MIN_LENGTH;
 

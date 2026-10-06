@@ -1,4 +1,4 @@
-#requires -Version 7
+#requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
 # Tests for scripts/lib/Kipple.Tools.ps1. Run: Invoke-Pester scripts/lib/Kipple.Tools.Tests.ps1
 # Each test is Arrange / Act / Assert and names the behavior it protects, so a repair can be checked against it.
@@ -134,3 +134,41 @@ Describe 'Invoke-ToolMain' {
   }
 }
 
+
+Describe 'Find-Cosign without -WinGetRoot' {
+  It 'finds cosign on PATH on any OS without touching LOCALAPPDATA' {
+    Mock Get-Command { [pscustomobject]@{ Source = '/usr/local/bin/cosign' } } -ParameterFilter { $Name -eq 'cosign' }
+    $saved = $env:LOCALAPPDATA
+    try {
+      $env:LOCALAPPDATA = $null
+      Find-Cosign | Should -Be '/usr/local/bin/cosign'
+    } finally { $env:LOCALAPPDATA = $saved }
+  }
+  It 'throws the install hint, not a null-path error, when cosign is missing and LOCALAPPDATA is unset' {
+    Mock Get-Command { $null } -ParameterFilter { $Name -eq 'cosign' }
+    $saved = $env:LOCALAPPDATA
+    try {
+      $env:LOCALAPPDATA = $null
+      { Find-Cosign } | Should -Throw -ExpectedMessage '*install cosign*'
+    } finally { $env:LOCALAPPDATA = $saved }
+  }
+}
+
+Describe 'Remove-DetachedWorktree' {
+  It 'returns true when the path is already gone' {
+    Remove-DetachedWorktree -RepoRoot 'r' -Path (Join-Path $TestDrive 'nope') | Should -BeTrue
+  }
+  It 'warns with the manual command and returns false when git cannot remove it' {
+    $dir = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'wt')
+    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 128; Output = @('locked'); CommandLine = 'git' } }
+    $r = Remove-DetachedWorktree -RepoRoot 'r' -Path $dir.FullName -WarningVariable w -WarningAction SilentlyContinue
+    $r | Should -BeFalse
+    ($w -join ' ') | Should -Match 'Remove it by hand'
+  }
+}
+
+Describe 'Invoke-Native error wording' {
+  It 'says the tool is missing only when the command is not found' {
+    { Invoke-Native -FilePath 'kipple-no-such-tool' -Step 's' } | Should -Throw -ExpectedMessage '*not installed or not on PATH*'
+  }
+}

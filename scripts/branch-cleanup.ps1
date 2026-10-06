@@ -1,23 +1,24 @@
-#requires -Version 7
+#requires -Version 7.2
 <#
 .SYNOPSIS
   Deletes local (and optionally remote) branches whose pull request is merged, and their agent worktrees.
 .DESCRIPTION
   Run it by hand now and then, after merges. It asks GitHub which pull requests are merged and open, and only
   touches a branch when ALL of these hold:
-    - it is not main or master;
-    - no open pull request uses it as its head branch;
+    - it is not main, master or the repository's default branch;
+    - no open pull request uses it as its head branch or as its base branch (a stacked PR's base);
     - a MERGED pull request used it as its head, and the branch tip equals that pull request's final head commit
       (so a branch with later commits that were never merged is kept);
-    - it is not checked out in this checkout, and its worktree (if any, under .claude/worktrees) has no
-      uncommitted changes.
-  For each such branch, in this order: remove its worktree under .claude/worktrees (`git worktree remove --force`,
-  repeated once for a locked worktree), then `git branch -D`, and with -IncludeRemote
+    - it is not checked out in this checkout, and its worktree (if any, under .claude/worktrees) is not locked,
+      has no uncommitted changes, its status can be read, and it holds no ignored files other than build output
+      (node_modules, web/dist, coverage), because removing a worktree deletes ignored files too.
+  For each such branch, in this order: remove its worktree under .claude/worktrees (`git worktree remove --force`;
+  a locked worktree is never removed), then `git branch -D`, and with -IncludeRemote
   `git push origin --delete <branch>` when origin's copy is at the same commit as the merged pull request's head.
 
   What it can change: local branches and worktrees, and with -IncludeRemote branches on origin. That is
   destructive, so the script prints exactly what it will do and, unless -WhatIf, asks you to type yes.
-  -WhatIf prints the plan and changes nothing. Run it yourself; an automated agent should only use -WhatIf.
+  -WhatIf prints the plan and changes nothing, except that it first runs `git fetch --prune origin` (remote-tracking refs only). Run it yourself; an automated agent should only use -WhatIf.
 .PARAMETER IncludeRemote
   Also delete the merged branches on origin.
 .EXAMPLE
@@ -27,7 +28,8 @@
 .NOTES
   Exit codes: 0 done (or nothing to do, or -WhatIf, or you did not type yes), 1 an action failed,
   2 usage or environment error.
-  If this breaks: it depends on `gh pr list --json headRefName,mergedAt,headRefOid` (Get-PullRequestHead),
+  If this breaks: it depends on `gh pr list --json headRefName,baseRefName,mergedAt,headRefOid` (Get-PullRequestHead),
+  `gh repo view --json defaultBranchRef` (Get-DefaultBranch), `git status --porcelain --ignored=matching` (Get-WorktreeBlocker),
   `git for-each-ref` and `git worktree list --porcelain` output (Get-WorktreeEntry). The decision logic is
   Get-CleanupPlan and is covered by scripts/branch-cleanup.Tests.ps1.
 #>
@@ -104,11 +106,48 @@ function Get-PullRequestHead {
   #>
   [CmdletBinding()]
   param([Parameter(Mandatory)][ValidateSet('merged', 'open')][string]$State, [Parameter(Mandatory)][string]$RepoRoot)
-  $r = Invoke-Native -FilePath gh -Arguments 'pr', 'list', '--state', $State, '--limit', '1000', '--json', 'headRefName,headRefOid,mergedAt' `
+  $r = Invoke-Native -FilePath gh -Arguments 'pr', 'list', '--state', $State, '--limit', '1000', '--json', 'headRefName,baseRefName,headRefOid,mergedAt' `
     -Step "list $State pull requests" -Fix 'gh auth status, and run inside the checkout' -WorkingDirectory $RepoRoot
   $text = ($r.Output -join "`n")
   if ([string]::IsNullOrWhiteSpace($text)) { return @() }
   return @($text | ConvertFrom-Json)
+}
+
+function Get-WorktreeBlocker {
+  <#
+  .SYNOPSIS
+    Decides from `git status --porcelain --ignored=matching` whether a worktree must be kept. Fails closed.
+  .DESCRIPTION
+    Returns $null when the worktree may be removed, else the reason to keep it. A status that could not be read
+    (non-zero exit: lock file, ownership refusal, corrupt index) is a reason, never "clean". Ignored files
+    (lines starting "!! ") are unrecoverable once the worktree is removed, so they block too, except build output.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([Parameter(Mandatory)][int]$ExitCode, [string[]]$Lines = @())
+  if ($ExitCode -ne 0) {
+    $first = ($Lines | Select-Object -First 1)
+    return "could not read the worktree status ($first)"
+  }
+  $changed = @($Lines | Where-Object { $_ -and $_ -notmatch '^!! ' })
+  if ($changed.Count) { return "its worktree has uncommitted changes (e.g. $($changed[0].Trim()))" }
+  $buildOutput = '^!! (web/)?(node_modules|dist|coverage)/$'
+  $ignored = @($Lines | Where-Object { $_ -match '^!! ' -and $_ -notmatch $buildOutput })
+  if ($ignored.Count) { return "its worktree has ignored files that removal would delete (e.g. $($ignored[0].Substring(3)))" }
+  return $null
+}
+
+function Get-DefaultBranch {
+  <#
+  .SYNOPSIS
+    The repository's default branch name from GitHub.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([Parameter(Mandatory)][string]$RepoRoot)
+  $r = Invoke-Native -FilePath gh -Arguments 'repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name' `
+    -Step 'read the default branch' -Fix 'gh auth status, and run inside the checkout' -WorkingDirectory $RepoRoot
+  return $r.Output[0].Trim()
 }
 
 function Get-CleanupPlan {
@@ -131,8 +170,10 @@ function Get-CleanupPlan {
     The .claude/worktrees directory; only worktrees under it are ever removed.
   .PARAMETER CurrentPath
     The worktree this script runs from; its branch is never deleted.
-  .PARAMETER Dirty
-    Worktree paths with uncommitted changes.
+  .PARAMETER Blocked
+    Hashtable of worktree path to the reason it must be kept (dirty, unreadable status, ignored files).
+  .PARAMETER DefaultBranch
+    The repository's default branch name, protected like main.
   .OUTPUTS
     Rows with Branch, Delete (bool), Reason, LocalSha, RemoteSha, DeleteRemote (bool), WorktreePath.
   #>
@@ -146,7 +187,8 @@ function Get-CleanupPlan {
     [object[]]$Worktrees = @(),
     [string]$WorktreeRoot = '',
     [string]$CurrentPath = '',
-    [string[]]$Dirty = @(),
+    [hashtable]$Blocked = @{},
+    [string]$DefaultBranch = '',
     [switch]$IncludeRemote
   )
   $names = @($Local.Keys)
@@ -158,14 +200,16 @@ function Get-CleanupPlan {
     $wt = $Worktrees | Where-Object { $_.Branch -eq $name } | Select-Object -First 1
     $mergedForBranch = @($Merged | Where-Object { $_.headRefName -eq $name })
     $reason = $null
-    if ($name -in $script:ProtectedBranches) { $reason = 'protected branch' }
+    if ($name -in $script:ProtectedBranches -or ($DefaultBranch -and $name -eq $DefaultBranch)) { $reason = 'protected branch' }
     elseif (@($Open | Where-Object { $_.headRefName -eq $name }).Count) { $reason = 'has an open pull request' }
+    elseif (@($Open | Where-Object { $_.PSObject.Properties.Name -contains 'baseRefName' -and $_.baseRefName -eq $name }).Count) { $reason = 'is the base branch of an open pull request' }
     elseif ($mergedForBranch.Count -eq 0) { $reason = 'no merged pull request' }
     elseif ($wt -and $CurrentPath -and ($wt.Path -eq $CurrentPath)) { $reason = 'checked out in the worktree this script runs from' }
     elseif ($wt -and -not $wt.Path.StartsWith($WorktreeRoot + '/', [StringComparison]::OrdinalIgnoreCase)) {
       $reason = "checked out in a worktree outside .claude/worktrees ($($wt.Path))"
     }
-    elseif ($wt -and ($Dirty -contains $wt.Path)) { $reason = 'its worktree has uncommitted changes' }
+    elseif ($wt -and $wt.Locked) { $reason = 'its worktree is locked (in use by another session or tool)' }
+    elseif ($wt -and $Blocked.ContainsKey($wt.Path)) { $reason = $Blocked[$wt.Path] }
     else {
       $okLocal = (-not $localSha) -or [bool]($mergedForBranch | Where-Object { $_.headRefOid -eq $localSha })
       $okRemote = (-not $remoteSha) -or [bool]($mergedForBranch | Where-Object { $_.headRefOid -eq $remoteSha })
@@ -229,11 +273,8 @@ function Invoke-CleanupAction {
   param([Parameter(Mandatory)][pscustomobject]$Action, [Parameter(Mandatory)][string]$RepoRoot)
   switch ($Action.Kind) {
     'RemoveWorktree' {
-      $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'remove', '--force', $Action.Target -Step $Action.Text -AllowFailure -Fix 'unlock it: git worktree unlock <path>'
-      if ($r.ExitCode -ne 0) {
-        # A locked worktree needs --force twice.
-        $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'remove', '--force', '--force', $Action.Target -Step "$($Action.Text) (locked)" -AllowFailure -Fix 'close any program using the folder, then retry'
-      }
+      # A locked worktree is never planned (see Get-CleanupPlan), so there is no second --force.
+      $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'remove', '--force', $Action.Target -Step $Action.Text -AllowFailure -Fix 'close any program using the folder, then retry'
       return ($r.ExitCode -eq 0)
     }
     'DeleteLocal' {
@@ -267,13 +308,15 @@ function Invoke-BranchCleanup {
   $mainRoot = $worktrees[0].Path
   $worktreeRoot = "$mainRoot/.claude/worktrees"
   $agentWorktrees = @($worktrees | Where-Object { $_.Path.StartsWith($worktreeRoot + '/', [StringComparison]::OrdinalIgnoreCase) })
-  $dirty = foreach ($w in $agentWorktrees) {
-    $s = Invoke-Native -FilePath git -Arguments '-C', $w.Path, 'status', '--porcelain' -Step "check $($w.Path) for changes" -AllowFailure
-    if ($s.ExitCode -eq 0 -and ($s.Output -join '')) { $w.Path }
+  $blocked = @{}
+  foreach ($w in $agentWorktrees) {
+    $s = Invoke-Native -FilePath git -Arguments '-C', $w.Path, 'status', '--porcelain', '--ignored=matching' -Step "check $($w.Path) for changes" -AllowFailure
+    $reason = Get-WorktreeBlocker -ExitCode $s.ExitCode -Lines $s.Output
+    if ($reason) { $blocked[$w.Path] = $reason }
   }
-
+  $defaultBranch = Get-DefaultBranch -RepoRoot $root
   $plan = Get-CleanupPlan -Local $local -Remote $remote -Merged $merged -Open $open -Worktrees $worktrees `
-    -WorktreeRoot $worktreeRoot -CurrentPath (ConvertTo-NormalPath -Path $root) -Dirty @($dirty) -IncludeRemote:$IncludeRemote
+    -WorktreeRoot $worktreeRoot -CurrentPath (ConvertTo-NormalPath -Path $root) -Blocked $blocked -DefaultBranch $defaultBranch -IncludeRemote:$IncludeRemote
   Write-KippleInfo 'Branches:'
   foreach ($p in $plan) { Write-KippleInfo ('  {0,-6} {1}  ({2})' -f $(if ($p.Delete) { 'DELETE' } else { 'keep' }), $p.Branch, $p.Reason) }
   $plan
@@ -298,6 +341,3 @@ if ($MyInvocation.InvocationName -ne '.') {
   $boundArgs = @{ IncludeRemote = $IncludeRemote; DryRun = [bool]$WhatIfPreference }
   Invoke-ToolMain -Name 'branch-cleanup' -Body { Invoke-BranchCleanup @boundArgs }
 }
-
-
-

@@ -1,4 +1,4 @@
-#requires -Version 7
+#requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
 # Tests for scripts/release-gates.ps1. Run: Invoke-Pester scripts/release-gates.Tests.ps1
 # The script is dot-sourced (it only defines functions then) and native commands are mocked: nothing real runs.
@@ -110,3 +110,45 @@ Describe 'Invoke-GateStep' {
   }
 }
 
+
+Describe 'Invoke-GoGate shuffle seed' {
+  BeforeEach { Mock Show-LogTail {} }
+  It 're-runs a failing package alone with the same shuffle seed as the full run' {
+    $script:n = 0
+    Mock Invoke-Native {
+      $script:n++
+      if ($script:n -eq 1) { return [pscustomobject]@{ ExitCode = 1; Output = @("FAIL`texample.com/p/a`t1s"); CommandLine = 'go' } }
+      [pscustomobject]@{ ExitCode = 0; Output = @('ok'); CommandLine = 'go' }
+    }
+    $r = Invoke-GoGate -Work 'w' -Logs $TestDrive -Run 1 -Seed 4242
+    Should -Invoke Invoke-Native -Times 2 -ParameterFilter { $Arguments -contains '-shuffle=4242' }
+    $r.Note | Should -Match 'shuffle seed 4242'
+  }
+  It 'calls an order-dependent failure FAIL when it fails alone under the same seed' {
+    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 1; Output = @("FAIL`texample.com/p/a`t1s"); CommandLine = 'go' } }
+    (Invoke-GoGate -Work 'w' -Logs $TestDrive -Run 1 -Seed 7).Status | Should -Be 'FAIL'
+  }
+}
+
+Describe 'Invoke-ReleaseGate cleanup' {
+  BeforeEach {
+    Mock Write-KippleInfo {}
+    Mock Get-RepoRoot { 'C:/repo' }
+    Mock Resolve-CommitSha { 'a' * 40 }
+    Mock New-DetachedWorktree {}
+    Mock Remove-Item {}
+  }
+  It 'removes the worktree even when a step throws' {
+    Mock Invoke-GateStep { throw 'boom' }
+    Mock Remove-DetachedWorktree { $true }
+    { Invoke-ReleaseGate -Ref ('a' * 40) -Only changelog } | Should -Throw
+    Should -Invoke Remove-DetachedWorktree -Times 1
+  }
+  It 'keeps the logs and says so when the worktree cannot be removed' {
+    Mock Invoke-GateStep { [pscustomobject]@{ Step = 'x'; Status = 'PASS'; Seconds = 0; Note = '' } }
+    Mock Remove-DetachedWorktree { $false }
+    $null = Invoke-ReleaseGate -Ref ('a' * 40) -Only changelog
+    Should -Invoke Remove-Item -Times 0
+    Should -Invoke Write-KippleInfo -ParameterFilter { $Message -match 'stays at' }
+  }
+}

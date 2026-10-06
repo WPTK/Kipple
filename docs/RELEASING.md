@@ -108,7 +108,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 
 ## Before the tag
 
-1. **CI is green on the exact commit** you will deploy (not on a nearby one). Push first; nothing deploys from an unpushed tree.
+1. **CI is green on the exact commit** you will deploy (not on a nearby one), checked again after the review fixes of step 2 and the release commit of step 6. Push first; nothing deploys from an unpushed tree.
 2. **Review first, then fix, then the gates.** `/code-review high` (an Opus whole-diff review) on the diff since the last gated commit, for the second tier
    above. Fix every finding. Not needed for the first tier. When every PR in the release already had a high review, this
    release-gate review is scoped to what per-PR reviews cannot see (cross-PR interactions, migrations, the release workflow,

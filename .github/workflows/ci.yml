@@ -131,17 +131,6 @@ jobs:
       - run: node --test ../scripts/toolchain.test.mjs
       # The weekly audit's issue open/update/close decisions (audit.yml), against a fake gh.
       - run: node --test ../scripts/audit-report.test.mjs
-      # A renamed or removed aria-label that web/uat still looks for breaks the UAT screens without failing any other check.
-      # A pure text check on the PR's own diff (the checkout is the merge commit, so origin/<base>..HEAD is the PR's change).
-      - run: node --test ../scripts/uat-labels.test.mjs
-      - name: UAT label guard
-        if: github.event_name == 'pull_request'
-        working-directory: .
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          git fetch --no-tags --depth=1 origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-          node scripts/uat-labels.mjs "origin/$BASE_REF..HEAD"
       # --ignore-scripts: no dependency install script runs; the build and tests call their tools directly.
       - run: npm ci --ignore-scripts
       - run: npm run lint
@@ -182,3 +171,74 @@ jobs:
         with:
           image-ref: kipple:ci
 
+  # --- Release tooling (scripts/): own jobs so they merge cleanly next to the others ---
+
+  # A renamed or removed aria-label that web/uat still looks for breaks the UAT screens without failing any other check.
+  # Pure text check on this PR's own change: the checkout is the merge commit, so HEAD^1..HEAD is exactly the PR.
+  uat-labels:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - run: node --test scripts/uat-labels.test.mjs
+      - run: node scripts/uat-labels.mjs HEAD^1..HEAD
+
+  # PSScriptAnalyzer and the Pester tests of the PowerShell tooling. Runs only when scripts/ or this file changed
+  # (the check is inside the job so a skipped run does not leave a required check pending). Windows, because the
+  # tooling is used and its paths are written for Windows. Tool versions are pinned.
+  tooling:
+    runs-on: windows-latest
+    env:
+      PESTER_VERSION: 5.7.1
+      PSSCRIPTANALYZER_VERSION: 1.25.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Did scripts/ or this workflow change?
+        id: gate
+        shell: pwsh
+        run: |
+          $changed = git diff --name-only HEAD^1 HEAD
+          $hit = @($changed | Where-Object { $_ -like 'scripts/*' -or $_ -eq '.github/workflows/ci.yml' }).Count -gt 0
+          "run=$($hit.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if (-not $hit) { 'No change under scripts/ or in ci.yml: skipping.' }
+
+      - name: Install Pester and PSScriptAnalyzer
+        if: steps.gate.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -RequiredVersion $env:PESTER_VERSION -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module -Name PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION -Scope CurrentUser -Force
+
+      - name: PSScriptAnalyzer (Warning and Error fail)
+        if: steps.gate.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          $legacy = @('ci-local.ps1', 'fuzz.ps1')
+          $files = Get-ChildItem -Path scripts -Recurse -Filter '*.ps1' | Where-Object { $legacy -notcontains $_.Name }
+          $findings = foreach ($f in $files) { Invoke-ScriptAnalyzer -Path $f.FullName -Settings scripts/PSScriptAnalyzerSettings.psd1 }
+          $findings | Format-Table RuleName, ScriptName, Line, Message -Wrap | Out-String | Write-Host
+          if ($findings) { exit 1 }
+
+      - name: Pester
+        if: steps.gate.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          Import-Module Pester -RequiredVersion $env:PESTER_VERSION
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path = 'scripts'
+          $cfg.Run.Exit = $true
+          $cfg.Output.Verbosity = 'Minimal'
+          Invoke-Pester -Configuration $cfg

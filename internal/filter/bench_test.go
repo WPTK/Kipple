@@ -168,14 +168,16 @@ func TestThroughputCeiling10kItems50Rules(t *testing.T) {
 	s, err := NewSet(benchRules())
 	require.NoError(t, err)
 	items := benchItems(10000, 400)
-	start := time.Now()
 	hits := 0
-	for _, it := range items {
-		if s.Evaluate(it).Any() {
-			hits++
+	// Fastest of two passes (about 1.6 s each alone): load only slows a pass, so the minimum is the work itself.
+	took := fastest(2, func(int) {
+		hits = 0
+		for _, it := range items {
+			if s.Evaluate(it).Any() {
+				hits++
+			}
 		}
-	}
-	took := time.Since(start)
+	})
 	t.Logf("10000 items x 50 rules: %v total, %v per item, %d items matched something", took, took/10000, hits)
 	require.Less(t, took, 10*time.Second)
 }
@@ -199,21 +201,17 @@ func TestRegexWorstCaseCeiling(t *testing.T) {
 	t.Logf("25 regex rules x 5 patterns, 8 KiB scan: %v per item", per)
 	require.Less(t, per, 50*time.Millisecond)
 
-	// A 250-item first fetch must finish well under the 2 s budget. It is timed as five chunks of 50 items and the
-	// fastest chunk is scaled up, so a scheduling stall in one chunk does not decide the result.
+	// A 250-item first fetch must finish well under the 2 s budget. Fastest of three complete 250-item batches, so a
+	// stall under load does not fail it, and a slowdown in any part of the batch still shows in every run.
 	items := benchItems(250, 400)
-	const chunks = 5
-	chunk := len(items) / chunks
-	best := fastest(chunks, func(c int) {
-		for _, x := range items[c*chunk : (c+1)*chunk] {
+	took := fastest(3, func(int) {
+		for _, x := range items {
 			s.Evaluate(x)
 		}
 	})
-	took := best * chunks
-	t.Logf("250-item first fetch, 25 regex rules: %v (fastest %d-item chunk x %d)", took, chunk, chunks)
+	t.Logf("250-item first fetch, 25 regex rules: %v (fastest of 3 batches)", took)
 	require.Less(t, took, 2*time.Second)
 }
-
 func TestEvaluateIsConcurrencySafe(t *testing.T) {
 	s, err := NewSet(benchRules())
 	require.NoError(t, err)

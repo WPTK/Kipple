@@ -1,4 +1,4 @@
-#requires -Version 7
+#requires -Version 7.2
 <#
 .SYNOPSIS
   Shared helpers for the release tooling scripts (release-gates, release-publish, branch-cleanup, pr-ready).
@@ -91,8 +91,10 @@ function Invoke-Native {
     if ($WorkingDirectory) { Push-Location -LiteralPath $WorkingDirectory; $pushed = $true }
     $lines = @(& $FilePath @Arguments 2>&1 | ForEach-Object { "$_" })
     $code = $LASTEXITCODE
+  } catch [System.Management.Automation.CommandNotFoundException] {
+    throw "Step '$Step' could not start '$FilePath': it is not installed or not on PATH. Likely fix: install it and put it on PATH."
   } catch {
-    throw "Step '$Step' could not start '$FilePath': $($_.Exception.Message). Likely fix: install it and put it on PATH."
+    throw "Step '$Step' failed while running '$commandLine': $($_.Exception.Message). Likely fix: $Fix."
   } finally {
     if ($pushed) { Pop-Location }
   }
@@ -156,7 +158,7 @@ function New-DetachedWorktree {
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Sha
   )
   if (Test-Path -LiteralPath $Path) {
-    throw "Step 'create worktree' failed: $Path already exists. Likely fix: git worktree remove --force '$Path' (a previous run crashed or kept it)."
+    throw "Step 'create worktree' failed: $Path already exists. Likely fix: use another path, or, when no other run is using it, git worktree remove --force '$Path' (a previous run crashed or kept it)."
   }
   if ($PSCmdlet.ShouldProcess($Path, "git worktree add --detach $Sha")) {
     $null = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'add', '--detach', '--quiet', $Path, $Sha `
@@ -167,37 +169,46 @@ function New-DetachedWorktree {
 function Remove-DetachedWorktree {
   <#
   .SYNOPSIS
-    Removes a worktree made by New-DetachedWorktree. Does nothing when it is already gone.
+    Removes a worktree made by New-DetachedWorktree and returns $true when it is gone.
+  .DESCRIPTION
+    A failed removal is reported as a warning with the exact command to finish it by hand, and returns $false, so the
+    caller can keep its logs. A path that does not exist counts as removed.
   #>
   [CmdletBinding(SupportsShouldProcess)]
+  [OutputType([bool])]
   param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Path)
-  if (-not (Test-Path -LiteralPath $Path)) { return }
-  if ($PSCmdlet.ShouldProcess($Path, 'git worktree remove --force')) {
-    $null = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'remove', '--force', $Path `
-      -Step 'remove worktree' -Fix "git worktree remove --force --force '$Path', then git worktree prune" -AllowFailure
-  }
+  if (-not (Test-Path -LiteralPath $Path)) { return $true }
+  if (-not $PSCmdlet.ShouldProcess($Path, 'git worktree remove --force')) { return $true }
+  $r = Invoke-Native -FilePath git -Arguments '-C', $RepoRoot, 'worktree', 'remove', '--force', $Path `
+    -Step 'remove worktree' -AllowFailure -Fix "git worktree remove --force --force '$Path', then git worktree prune"
+  if ($r.ExitCode -eq 0 -and -not (Test-Path -LiteralPath $Path)) { return $true }
+  Write-Warning "Could not remove the worktree $Path (git exit $($r.ExitCode)). Remove it by hand: git -C '$RepoRoot' worktree remove --force --force '$Path'; git -C '$RepoRoot' worktree prune"
+  return $false
 }
-
 function Find-Cosign {
   <#
   .SYNOPSIS
-    Finds the cosign executable on PATH, or in the WinGet package folder, and returns its full path.
+    Finds the cosign executable on PATH (any OS), or on Windows in the WinGet package folder, and returns its full path.
+  .PARAMETER WinGetRoot
+    The WinGet packages folder to probe when cosign is not on PATH. Default: the current user's, on Windows only.
   #>
   [CmdletBinding()]
   [OutputType([string])]
-  param([string]$WinGetRoot = (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'))
+  param([string]$WinGetRoot = '')
   $onPath = Get-Command -Name cosign -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($onPath) { return $onPath.Source }
-  if (Test-Path -LiteralPath $WinGetRoot) {
+  if (-not $WinGetRoot -and $IsWindows -and $env:LOCALAPPDATA) {
+    $WinGetRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
+  }
+  if ($WinGetRoot -and (Test-Path -LiteralPath $WinGetRoot)) {
     $packages = Get-ChildItem -LiteralPath $WinGetRoot -Directory -Filter 'Sigstore.Cosign*'
     foreach ($p in $packages) {
       $exe = Get-ChildItem -LiteralPath $p.FullName -File -Filter 'cosign*.exe' | Select-Object -First 1
       if ($exe) { return $exe.FullName }
     }
   }
-  throw "Step 'find cosign' failed: cosign is not on PATH or under $WinGetRoot. Likely fix: winget install Sigstore.Cosign (version 3 or later)."
+  throw "Step 'find cosign' failed: cosign is not on PATH$(if ($WinGetRoot) { " or under $WinGetRoot" }). Likely fix: install cosign 3 or later (winget install Sigstore.Cosign, or brew install cosign) and put it on PATH."
 }
-
 function Get-GoFailure {
   <#
   .SYNOPSIS
@@ -238,7 +249,9 @@ function Invoke-ToolMain {
   .SYNOPSIS
     Runs a script's body and turns the outcome into the process exit code. Calls exit.
   .DESCRIPTION
-    The body returns its exit code as the last [int] it emits (0 ok, 1 a gate or check failed); other output
+    The body returns its exit code as the last [int] it emits (0 ok, 1 a gate or check failed). HAZARD: any other [int]
+    that leaks to the output (a helper returning a count, an ArrayList.Add result) becomes the exit code, so assign
+    such results to $null. Other output
     passes through as the script's result objects. An exception is printed (name, message) and exits 2.
     Call it as the last line of a script, behind the dot-source guard, so tests can load the functions.
   #>
@@ -257,4 +270,3 @@ function Invoke-ToolMain {
   }
   exit $code
 }
-

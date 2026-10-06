@@ -1,4 +1,4 @@
-#requires -Version 7
+#requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
 # Tests for scripts/pr-ready.ps1. Run: Invoke-Pester scripts/pr-ready.Tests.ps1
 # The script is dot-sourced (it only defines functions then). gh is mocked: nothing is merged.
@@ -125,6 +125,18 @@ Describe 'Invoke-PrReady' {
     }
     Mock Test-IssueClosed { $false }
     (Invoke-PrReady -Number 7 -DoMerge $true -Repo 'o/n' | Select-Object -Last 1) | Should -Be 1
+  }
+  It 'looks a closing issue up in its own repository and reports a failed lookup without throwing' {
+    $script:reads = 0
+    Mock Get-PullRequestState {
+      $script:reads++
+      $other = [pscustomobject]@{ name = 'other'; owner = [pscustomobject]@{ login = 'them' } }
+      if ($script:reads -eq 1) { return New-Pr @{ closingIssuesReferences = @([pscustomobject]@{ number = 5; repository = $other }) } }
+      New-Pr @{ state = 'MERGED' }
+    }
+    Mock Test-IssueClosed { throw 'not found' }
+    (Invoke-PrReady -Number 7 -DoMerge $true -Repo 'o/n' | Select-Object -Last 1) | Should -Be 1
+    Should -Invoke Test-IssueClosed -Times 1 -ParameterFilter { $Repo -eq 'them/other' }
   }
   It 'returns 1 when the PR is not MERGED after the merge command' {
     Mock Get-PullRequestState { New-Pr }

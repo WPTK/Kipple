@@ -1,4 +1,4 @@
-#requires -Version 7
+#requires -Version 7.2
 <#
 .SYNOPSIS
   Reports whether a pull request is ready to merge, and with -Merge squash-merges it safely.
@@ -142,6 +142,21 @@ function Get-AncestorStatus {
   return $r.Output[0].Trim()
 }
 
+function Get-IssueRepo {
+  <#
+  .SYNOPSIS
+    The owner/name an issue reference lives in; closing references can point at another repository.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([Parameter(Mandatory)][pscustomobject]$Issue, [Parameter(Mandatory)][string]$DefaultRepo)
+  $repo = $Issue.PSObject.Properties['repository']
+  if ($repo -and $repo.Value -and $repo.Value.PSObject.Properties['owner'] -and $repo.Value.owner -and $repo.Value.PSObject.Properties['name']) {
+    return "$($repo.Value.owner.login)/$($repo.Value.name)"
+  }
+  return $DefaultRepo
+}
+
 function Test-IssueClosed {
   <#
   .SYNOPSIS
@@ -191,11 +206,18 @@ function Invoke-PrReady {
   Write-KippleInfo "Verified: PR #$Number is MERGED."
   $unclosed = @()
   foreach ($issue in @($pr.closingIssuesReferences)) {
-    if (Test-IssueClosed -Repo $Repo -IssueNumber $issue.number) { Write-KippleInfo "Verified: issue #$($issue.number) is CLOSED." }
-    else { $unclosed += $issue.number }
+    $issueRepo = Get-IssueRepo -Issue $issue -DefaultRepo $Repo
+    # The merge has happened by now: a failed lookup is reported per issue and must not look like a failed merge.
+    try {
+      if (Test-IssueClosed -Repo $issueRepo -IssueNumber $issue.number) { Write-KippleInfo "Verified: issue $issueRepo#$($issue.number) is CLOSED." }
+      else { $unclosed += "$issueRepo#$($issue.number)" }
+    } catch {
+      Write-KippleInfo "Could not check issue $issueRepo#$($issue.number) (the PR is merged): $($_.Exception.Message)"
+      $unclosed += "$issueRepo#$($issue.number)"
+    }
   }
   if ($unclosed.Count) {
-    Write-KippleInfo "Verification failed: issue(s) $($unclosed -join ', ') still open after the merge. Close them by hand if the PR text does not close them."
+    Write-KippleInfo "Verification failed: issue(s) $($unclosed -join ', ') not confirmed closed after the merge (the PR itself is MERGED). Close them by hand if the PR text does not close them."
     return 1
   }
   return 0
@@ -205,4 +227,3 @@ if ($MyInvocation.InvocationName -ne '.') {
   $boundArgs = @{ Number = $Number; DoMerge = [bool]$Merge; Repo = $Repo; WhatIf = $WhatIfPreference }
   Invoke-ToolMain -Name 'pr-ready' -Body { Invoke-PrReady @boundArgs }
 }
-

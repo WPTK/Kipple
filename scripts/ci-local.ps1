@@ -2,7 +2,8 @@
 #
 #   pwsh scripts/ci-local.ps1               everything except the Docker build and Trivy
 #   pwsh scripts/ci-local.ps1 -Docker       also build the image and scan it with Trivy
-#   pwsh scripts/ci-local.ps1 -Lint         also lint (PSScriptAnalyzer) and test (Pester) the PowerShell tooling in scripts/\n#   pwsh scripts/ci-local.ps1 -Skip web,security     skip a group (go, security, web, links, docker)
+#   pwsh scripts/ci-local.ps1 -Lint         also lint (PSScriptAnalyzer) and test (Pester) the PowerShell tooling in scripts/
+#   pwsh scripts/ci-local.ps1 -Skip web,security     skip a group (go, security, web, links, docker)
 #   pwsh scripts/ci-local.ps1 -AllLinks     check every link in every *.md, not only the *.md changed against origin/main
 #
 # It runs the same commands and pinned tool versions as the workflow. Differences: no `-race` (this
@@ -144,5 +145,3 @@ $results | Format-Table Group, Step, Ok, Seconds -AutoSize | Out-String | Write-
 $failed = @($results | Where-Object { -not $_.Ok })
 if ($failed.Count) { Write-Host "$($failed.Count) step(s) failed" -ForegroundColor Red; exit 1 }
 Write-Host 'all steps passed' -ForegroundColor Green
-
-

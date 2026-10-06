@@ -89,3 +89,33 @@ test('check: passes when a removed label was never used by the UAT scripts', () 
 test('check: passes for a diff with no aria-label changes', () => {
   assert.deepEqual(check('+++ b/web/src/A.tsx\n-const a = 1;\n+const a = 2;', new Set(), uat('')), []);
 });
+
+test('parseDiff: a deleted file (+++ /dev/null) is attributed to its own path, also when it is first in the diff', () => {
+  const diff = [
+    'diff --git a/web/src/Gone.tsx b/web/src/Gone.tsx',
+    'deleted file mode 100644',
+    'index 1234567..0000000',
+    '--- a/web/src/Gone.tsx',
+    '+++ /dev/null',
+    '@@ -1,3 +0,0 @@',
+    '-<button aria-label="Layout: Gone">',
+    'diff --git a/web/src/Kept.tsx b/web/src/Kept.tsx',
+    'index 1234567..89abcde 100644',
+    '--- a/web/src/Kept.tsx',
+    '+++ b/web/src/Kept.tsx',
+    '@@ -5 +5 @@',
+    '-<b aria-label="Old">',
+    '+<b aria-label="New">',
+  ].join('\n');
+  assert.deepEqual(parseDiff(diff), [
+    { file: 'web/src/Gone.tsx', removed: ['Layout: Gone'], added: [] },
+    { file: 'web/src/Kept.tsx', removed: ['Old'], added: ['New'] },
+  ]);
+});
+
+test('check: deleting a component whose label the UAT scripts still use fails the guard', () => {
+  const diff = ['diff --git a/web/src/Gone.tsx b/web/src/Gone.tsx', '--- a/web/src/Gone.tsx', '+++ /dev/null', '@@ -1 +0,0 @@', '-<b aria-label="Gone label">'].join('\n');
+  const problems = check(diff, new Set(), uat('click("Gone label")'));
+  assert.equal(problems.length, 1);
+  assert.equal(problems[0].file, 'web/src/Gone.tsx');
+});

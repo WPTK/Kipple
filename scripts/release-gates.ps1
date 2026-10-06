@@ -1,4 +1,4 @@
-#requires -Version 7
+#requires -Version 7.2
 <#
 .SYNOPSIS
   Runs the release test gates, one at a time, on a detached worktree of an exact commit.
@@ -7,16 +7,16 @@
   docs/RELEASING.md ("Gates scale with what changed"). Docs-only and release-commit tiers need only CI.
 
   Steps, in this order and never in parallel (timing tests flake under load):
-    go (twice)   go test -shuffle=on ./... , two runs
+    go (twice)   go test -shuffle=<seed> ./... , two runs, each with its own random seed
     fuzz         scripts/fuzz.ps1 (left out by -SkipFuzz)
     web          npm ci --ignore-scripts, then npm test, in web/
     changelog    node scripts/changelog.mjs check
     node         node --test scripts/*.test.mjs
 
-  If a go test run fails, each failing package is re-run alone. A package that passes alone is reported as
-  FLAKY (both results appear in the table) and does not fail the run; one that fails alone is a real FAIL.
-  The web step refuses to start while another heavy step, in this or another run of this script, holds the
-  heavy-step lock. No -race: this machine has no C compiler.
+  If a go test run fails, each failing package is re-run alone with the same shuffle seed. A package that passes
+  alone is reported as FLAKY (both results appear in the table) and does not fail the run; one that fails alone
+  is a real FAIL. Every step takes a heavy-step lock and refuses to start while another heavy step, in this or
+  another run of this script, holds it. No -race: this machine has no C compiler.
 
   What it can change: it adds a detached git worktree and a logs folder under the temp directory and removes
   both at the end (-KeepWorktree keeps them). It never touches your working tree, the network (beyond
@@ -156,9 +156,12 @@ function Show-LogTail {
 function Invoke-GoGate {
   [CmdletBinding()]
   [OutputType([pscustomobject])]
-  param([Parameter(Mandatory)][string]$Work, [Parameter(Mandatory)][string]$Logs, [Parameter(Mandatory)][int]$Run)
+  param(
+    [Parameter(Mandatory)][string]$Work, [Parameter(Mandatory)][string]$Logs, [Parameter(Mandatory)][int]$Run,
+    [int]$Seed = (Get-Random -Minimum 1 -Maximum 2147483647)
+  )
   $log = Join-Path $Logs "gotest$Run.log"
-  $r = Invoke-Native -FilePath go -Arguments 'test', '-shuffle=on', '-timeout', '15m', './...' -WorkingDirectory $Work `
+  $r = Invoke-Native -FilePath go -Arguments 'test', "-shuffle=$Seed", '-timeout', '15m', './...' -WorkingDirectory $Work `
     -Step "go test run $Run" -Fix 'read the log tail above' -AllowFailure -LogPath $log
   if ($r.ExitCode -eq 0) { return [pscustomobject]@{ Status = 'PASS'; Note = '' } }
   Show-LogTail -Path $log -Lines 25
@@ -166,14 +169,15 @@ function Invoke-GoGate {
   $alone = @{}
   foreach ($pkg in $failure.Packages) {
     $aloneLog = Join-Path $Logs ("gotest$Run-alone-" + ($pkg -replace '[^\w]', '_') + '.log')
-    $a = Invoke-Native -FilePath go -Arguments 'test', '-count=1', '-timeout', '15m', $pkg -WorkingDirectory $Work `
+    $a = Invoke-Native -FilePath go -Arguments 'test', '-count=1', "-shuffle=$Seed", '-timeout', '15m', $pkg -WorkingDirectory $Work `
       -Step "re-run $pkg alone" -Fix 'read the log tail above' -AllowFailure -LogPath $aloneLog
     $alone[$pkg] = ($a.ExitCode -eq 0)
     if ($a.ExitCode -ne 0) { Show-LogTail -Path $aloneLog -Lines 25 }
   }
   $outcome = Get-GateOutcome -Packages $failure.Packages -AlonePassed $alone
   $tests = if ($failure.Tests.Count) { " (failed tests: $($failure.Tests -join ', '))" } else { '' }
-  return [pscustomobject]@{ Status = $outcome.Status; Note = $outcome.Note + $tests }
+  # The alone re-run uses the same shuffle seed, so an order-dependent failure fails again and is not called FLAKY.
+  return [pscustomobject]@{ Status = $outcome.Status; Note = $outcome.Note + $tests + " (shuffle seed $Seed)" }
 }
 
 function Get-StatusRow {
@@ -245,8 +249,10 @@ function Invoke-ReleaseGate {
     $sha = Resolve-CommitSha -Ref 'origin/main' -RepoRoot $repo
   }
   $short = $sha.Substring(0, 12)
-  $work = Join-Path ([IO.Path]::GetTempPath()) "kipple-gates-$short"
-  $logs = Join-Path ([IO.Path]::GetTempPath()) "kipple-gates-$short-logs"
+  # A random suffix keeps two runs on the same sha (or a kept worktree from an earlier run) from colliding.
+  $unique = '{0}-{1}' -f $short, ([guid]::NewGuid().ToString('N').Substring(0, 6))
+  $work = Join-Path ([IO.Path]::GetTempPath()) "kipple-gates-$unique"
+  $logs = Join-Path ([IO.Path]::GetTempPath()) "kipple-gates-$unique-logs"
   $npmCache = Join-Path ([IO.Path]::GetTempPath()) 'kipple-npm-cache'   # the shared npm cache gives EPERM on the dev machine
   $plan = Get-GatePlan -Only $Only -SkipFuzz:$SkipFuzz
 
@@ -259,11 +265,9 @@ function Invoke-ReleaseGate {
   }
 
   $rows = [System.Collections.Generic.List[object]]::new()
-  $created = $false
   try {
     $null = New-Item -ItemType Directory -Force -Path $logs
     New-DetachedWorktree -RepoRoot $repo -Path $work -Sha $sha
-    $created = $true
     Write-KippleInfo "Worktree: $work   logs: $logs"
     $common = @{ Work = $work; Logs = $logs }
     foreach ($s in $plan) {
@@ -274,11 +278,13 @@ function Invoke-ReleaseGate {
       $rows.Add((Invoke-GateStep -Name $s.Name -Gate $gate -GateArgs $gateArgs))
     }
   } finally {
-    if ($created -and -not $KeepWorktree) {
-      Remove-DetachedWorktree -RepoRoot $repo -Path $work
+    # Whatever is on disk is cleaned up, also a half-created worktree (git worktree add can fail part way).
+    if ($KeepWorktree) {
+      if (Test-Path -LiteralPath $work) { Write-KippleInfo "Kept: $work and $logs" }
+    } elseif (Remove-DetachedWorktree -RepoRoot $repo -Path $work) {
       Remove-Item -LiteralPath $logs -Recurse -Force -ErrorAction SilentlyContinue
-    } elseif ($created) {
-      Write-KippleInfo "Kept: $work and $logs"
+    } else {
+      Write-KippleInfo "The worktree stays at $work and the logs at $logs (see the warning above)."
     }
   }
 
@@ -297,6 +303,3 @@ if ($MyInvocation.InvocationName -ne '.') {
     Invoke-ReleaseGate @boundArgs
   }
 }
-
-
-

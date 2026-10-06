@@ -25,7 +25,7 @@ bad input). PowerShell itself exits `1` when it rejects a parameter before the s
 
 Prints the full sha it tests, runs `go test` twice, fuzz, the web tests, the changelog check and the Node script tests,
 and prints a pass/fail table. A Go package that fails in the full run but passes alone is shown as FLAKY (both
-results are in the table) and does not fail the run. The web step refuses to start while another heavy step holds the
+results are in the table) and does not fail the run. Every step refuses to start while another heavy step holds the
 lock.
 
 If this breaks: it parses `go test` output (`FAIL <package>` and `--- FAIL: <test>` lines, `Get-GoFailure` in the
@@ -82,6 +82,10 @@ and `gh pr merge --match-head-commit`. The decision logic is `Get-PrVerdict`.
 reads `git diff -U0 <range> -- web/src` and only sees labels written on the same line as the attribute
 (`extractFragments`).
 
+## CI
+
+The web label guard (`uat-labels`) runs on every pull request. The `tooling` job (Windows, Pester 5.7.1 and PSScriptAnalyzer 1.25.0, pinned) runs when `scripts/` or `.github/workflows/ci.yml` changed. Both are separate jobs at the end of `.github/workflows/ci.yml`.
+
 ## Tests for the tools
 
     pwsh -NoProfile -Command "Invoke-Pester scripts/lib/Kipple.Tools.Tests.ps1, scripts/release-gates.Tests.ps1, scripts/release-publish.Tests.ps1, scripts/branch-cleanup.Tests.ps1, scripts/pr-ready.Tests.ps1"
@@ -89,8 +93,3 @@ reads `git diff -U0 <range> -- web/src` and only sees labels written on the same
 Pester 5.5 or later (`Install-PSResource Pester -Scope CurrentUser`). Native commands are mocked: no network, no push.
 Lint: `pwsh scripts/ci-local.ps1 -Lint` (PSScriptAnalyzer with `scripts/PSScriptAnalyzerSettings.psd1`; findings of
 severity Warning or Error fail it; fix them rather than suppress them).
-
-
-
-
-

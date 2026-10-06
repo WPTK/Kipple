@@ -1,4 +1,4 @@
-#requires -Version 7
+#requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
 # Tests for scripts/branch-cleanup.ps1. Run: Invoke-Pester scripts/branch-cleanup.Tests.ps1
 # The script is dot-sourced (it only defines functions then). git and gh are mocked: no branch is ever deleted.
@@ -10,9 +10,9 @@ BeforeAll {
   $script:sha3 = '3' * 40
   $script:wtRoot = 'C:/repo/.claude/worktrees'
 
-  function script:Get-Plan([hashtable]$Local, [object[]]$Merged = @(), [object[]]$Open = @(), [hashtable]$Remote = @{}, [object[]]$Worktrees = @(), [string[]]$Dirty = @(), [switch]$IncludeRemote) {
+  function script:Get-Plan([hashtable]$Local, [object[]]$Merged = @(), [object[]]$Open = @(), [hashtable]$Remote = @{}, [object[]]$Worktrees = @(), [hashtable]$Blocked = @{}, [string]$DefaultBranch = '', [switch]$IncludeRemote) {
     Get-CleanupPlan -Local $Local -Remote $Remote -Merged $Merged -Open $Open -Worktrees $Worktrees `
-      -WorktreeRoot $script:wtRoot -CurrentPath 'C:/repo/.claude/worktrees/me' -Dirty $Dirty -IncludeRemote:$IncludeRemote
+      -WorktreeRoot $script:wtRoot -CurrentPath 'C:/repo/.claude/worktrees/me' -Blocked $Blocked -DefaultBranch $DefaultBranch -IncludeRemote:$IncludeRemote
   }
   function script:Merged([string]$Name, [string]$Oid) { [pscustomobject]@{ headRefName = $Name; headRefOid = $Oid; mergedAt = '2026-01-01T00:00:00Z' } }
 }
@@ -55,9 +55,23 @@ Describe 'Get-CleanupPlan: worktrees' {
   }
   It 'keeps a branch whose worktree has uncommitted changes' {
     $wt = [pscustomobject]@{ Path = "$wtRoot/old"; Branch = 'feat/a'; Locked = $false }
-    $p = Get-Plan -Local @{ 'feat/a' = $sha1 } -Merged @(Merged 'feat/a' $sha1) -Worktrees @($wt) -Dirty @("$wtRoot/old")
+    $p = Get-Plan -Local @{ 'feat/a' = $sha1 } -Merged @(Merged 'feat/a' $sha1) -Worktrees @($wt) -Blocked @{ "$wtRoot/old" = 'its worktree has uncommitted changes (e.g. M a)' }
     $p[0].Delete | Should -BeFalse
     $p[0].Reason | Should -Match 'uncommitted'
+  }
+  It 'keeps a branch whose worktree is locked and never plans to remove it' {
+    $wt = [pscustomobject]@{ Path = "$wtRoot/busy"; Branch = 'feat/a'; Locked = $true }
+    $p = Get-Plan -Local @{ 'feat/a' = $sha1 } -Merged @(Merged 'feat/a' $sha1) -Worktrees @($wt)
+    $p[0].Delete | Should -BeFalse
+    $p[0].Reason | Should -Match 'locked'
+    @(Get-CleanupAction -Plan $p).Count | Should -Be 0
+  }
+  It 'keeps a branch whose worktree status could not be read' {
+    $wt = [pscustomobject]@{ Path = "$wtRoot/old"; Branch = 'feat/a'; Locked = $false }
+    $blocked = @{ "$wtRoot/old" = (Get-WorktreeBlocker -ExitCode 128 -Lines @('fatal: Unable to create index.lock')) }
+    $p = Get-Plan -Local @{ 'feat/a' = $sha1 } -Merged @(Merged 'feat/a' $sha1) -Worktrees @($wt) -Blocked $blocked
+    $p[0].Delete | Should -BeFalse
+    $p[0].Reason | Should -Match 'could not read'
   }
   It 'keeps a branch checked out in a worktree outside .claude/worktrees' {
     $wt = [pscustomobject]@{ Path = 'C:/elsewhere/x'; Branch = 'feat/a'; Locked = $false }
@@ -69,6 +83,38 @@ Describe 'Get-CleanupPlan: worktrees' {
     $wt = [pscustomobject]@{ Path = "$wtRoot/me"; Branch = 'feat/a'; Locked = $false }
     $p = Get-Plan -Local @{ 'feat/a' = $sha1 } -Merged @(Merged 'feat/a' $sha1) -Worktrees @($wt)
     $p[0].Delete | Should -BeFalse
+  }
+}
+
+Describe 'Get-CleanupPlan: protected and stacked branches' {
+  It 'keeps a merged branch that is the base of an open stacked pull request' {
+    $open = @([pscustomobject]@{ headRefName = 'feat/child'; baseRefName = 'feat/parent' })
+    $p = Get-Plan -Local @{ 'feat/parent' = $sha1 } -Merged @(Merged 'feat/parent' $sha1) -Open $open
+    $p[0].Delete | Should -BeFalse
+    $p[0].Reason | Should -Match 'base branch of an open pull request'
+  }
+  It 'keeps the repository default branch even when it is not called main' {
+    $p = Get-Plan -Local @{ trunk = $sha1 } -Merged @(Merged 'trunk' $sha1) -DefaultBranch 'trunk'
+    $p[0].Delete | Should -BeFalse
+    $p[0].Reason | Should -Be 'protected branch'
+  }
+}
+
+Describe 'Get-WorktreeBlocker' {
+  It 'treats a failed git status as a reason to keep the worktree, never as clean' {
+    Get-WorktreeBlocker -ExitCode 128 -Lines @('fatal: detected dubious ownership') | Should -Match 'could not read the worktree status'
+  }
+  It 'returns nothing for a clean worktree' { Get-WorktreeBlocker -ExitCode 0 -Lines @() | Should -BeNullOrEmpty }
+  It 'blocks on modified and untracked files' {
+    Get-WorktreeBlocker -ExitCode 0 -Lines @(' M a.go') | Should -Match 'uncommitted'
+    Get-WorktreeBlocker -ExitCode 0 -Lines @('?? new.txt') | Should -Match 'uncommitted'
+  }
+  It 'blocks on ignored files that removal would delete' {
+    Get-WorktreeBlocker -ExitCode 0 -Lines @('!! scripts/local/') | Should -Match 'ignored files'
+    Get-WorktreeBlocker -ExitCode 0 -Lines @('!! .env') | Should -Match 'ignored files'
+  }
+  It 'allows ignored build output' {
+    Get-WorktreeBlocker -ExitCode 0 -Lines @('!! web/node_modules/', '!! web/dist/', '!! coverage/') | Should -BeNullOrEmpty
   }
 }
 
@@ -119,18 +165,14 @@ Describe 'parsers' {
 }
 
 Describe 'Invoke-CleanupAction' {
-  It 'retries a locked worktree with --force twice' {
-    $script:calls = 0
-    Mock Invoke-Native {
-      $script:calls++
-      [pscustomobject]@{ ExitCode = $(if ($script:calls -eq 1) { 128 } else { 0 }); Output = @(); CommandLine = 'git' }
-    }
+  It 'removes a worktree with a single --force and never retries with a second one' {
+    Mock Invoke-Native { [pscustomobject]@{ ExitCode = 128; Output = @(); CommandLine = 'git' } }
     $a = [pscustomobject]@{ Kind = 'RemoveWorktree'; Branch = 'a'; Target = 'C:/x'; Text = 'remove worktree C:/x' }
-    Invoke-CleanupAction -Action $a -RepoRoot 'C:/repo' | Should -BeTrue
-    Should -Invoke Invoke-Native -Times 1 -ParameterFilter { @($Arguments | Where-Object { $_ -eq '--force' }).Count -eq 2 }
+    Invoke-CleanupAction -Action $a -RepoRoot 'C:/repo' | Should -BeFalse
+    Should -Invoke Invoke-Native -Times 1
+    Should -Invoke Invoke-Native -Times 0 -ParameterFilter { @($Arguments | Where-Object { $_ -eq '--force' }).Count -gt 1 }
   }
 }
-
 Describe 'Invoke-BranchCleanup' {
   BeforeEach {
     Mock Write-KippleInfo {}
@@ -150,6 +192,7 @@ Describe 'Invoke-BranchCleanup' {
       @()
     }
     Mock Invoke-CleanupAction { $true }
+    Mock Get-DefaultBranch { 'main' }
   }
   It 'with -DryRun prints the plan and deletes nothing, without asking' {
     Mock Read-TypedYes { throw 'must not ask' }

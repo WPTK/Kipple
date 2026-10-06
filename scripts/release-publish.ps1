@@ -1,4 +1,4 @@
-#requires -Version 7
+#requires -Version 7.2
 <#
 .SYNOPSIS
   Creates the GitHub Release for a tag that is already pushed, after verifying the image and SBOM signatures.
@@ -6,7 +6,7 @@
   Run it after you pushed the release tag (docs/RELEASING.md, step 11). The tag itself is never created here.
 
   Steps:
-    1. Checks the tag exists on origin and that no GitHub Release exists for it yet.
+    1. Checks the tag kind matches -Prerelease/-Full, the tag exists in the repository and no GitHub Release exists for it yet.
     2. Waits (polling, not busy-looping) for the Release workflow run of that tag to finish, and requires success.
     3. Downloads the run's `image-notes` artifact (image-notes.md, the SBOM and its signature bundle).
     4. Runs `cosign verify` on the image and `cosign verify-blob` on the SBOM, both with the exact identity
@@ -182,21 +182,52 @@ function Test-Signature {
 function Get-VerifyArgument {
   <#
   .SYNOPSIS
-    The cosign arguments for the image check and the SBOM check, with the exact identity.
+    The cosign arguments for the image check (by digest) and the SBOM check, with the exact identity.
   .OUTPUTS
     Hashtable with Image and Blob argument arrays.
   #>
   [CmdletBinding()]
   [OutputType([hashtable])]
-  param([Parameter(Mandatory)][string]$Repo, [Parameter(Mandatory)][string]$Tag, [Parameter(Mandatory)][string]$Directory)
+  param(
+    [Parameter(Mandatory)][string]$Repo, [Parameter(Mandatory)][string]$Tag, [Parameter(Mandatory)][string]$Directory,
+    [Parameter(Mandatory)][ValidatePattern('^sha256:[0-9a-f]{64}$')][string]$Digest
+  )
   $version = Get-ReleaseVersion -Tag $Tag
   $identity = Get-CosignIdentity -Repo $Repo -Tag $Tag
   $common = @('--certificate-identity', $identity, '--certificate-oidc-issuer', $script:OidcIssuer)
   $sbom = Join-Path $Directory "kipple-$version.sbom.json"
   return @{
-    Image = @('verify', (Get-ImageReference -Repo $Repo -Version $version)) + $common
+    # By digest, the one the release notes name, so the verified image is the object the notes describe.
+    Image = @('verify', ((Get-ImageReference -Repo $Repo -Version $version).Split(':')[0] + '@' + $Digest)) + $common
     Blob  = @('verify-blob', $sbom, '--bundle', "$sbom.sigstore.json") + $common
   }
+}
+
+function Get-ImageDigest {
+  <#
+  .SYNOPSIS
+    The image digest the release notes name (the `<image>@sha256:...` line the Release workflow writes).
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([Parameter(Mandatory)][AllowEmptyString()][string]$ImageNotes)
+  $m = [regex]::Match($ImageNotes, '@(sha256:[0-9a-f]{64})')
+  if (-not $m.Success) {
+    throw "Step 'read the image digest' failed: image-notes.md has no <image>@sha256:<digest> line. Likely fix: the notes format changed in .github/workflows/release.yml (Release notes block); update Get-ImageDigest."
+  }
+  return $m.Groups[1].Value
+}
+
+function Assert-ReleaseKind {
+  <#
+  .SYNOPSIS
+    Refuses -Full for a prerelease tag and -Prerelease for a stable tag.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$Tag, [Parameter(Mandatory)][bool]$IsFull)
+  $isPre = $Tag -match '-(alpha|beta|rc)\.'
+  if ($isPre -and $IsFull) { throw "Tag $Tag is a prerelease (alpha, beta or rc) but -Full was given. Likely fix: use -Prerelease." }
+  if (-not $isPre -and -not $IsFull) { throw "Tag $Tag is a stable version but -Prerelease was given. Likely fix: use -Full." }
 }
 
 function Build-ReleaseNote {
@@ -231,7 +262,26 @@ function Test-ReleaseAbsent {
   [OutputType([bool])]
   param([Parameter(Mandatory)][string]$Repo, [Parameter(Mandatory)][string]$Tag)
   $r = Invoke-Native -FilePath gh -Arguments 'release', 'view', $Tag, '-R', $Repo -Step 'check for an existing release' -AllowFailure -Fix 'gh auth status'
-  return ($r.ExitCode -ne 0)
+  if ($r.ExitCode -eq 0) { return $false }
+  # Only "release not found" means there is none; an expired login or a network error must not look like absence.
+  if (($r.Output -join ' ') -match 'release not found') { return $true }
+  throw "Step 'check for an existing release' failed: gh could not tell (($r.Output | Select-Object -First 1)). Likely fix: gh auth status, then check the network."
+}
+
+function Assert-ChangelogMatchesTag {
+  <#
+  .SYNOPSIS
+    Checks that this checkout's CHANGELOG.md is the one in the tag, because the notes are read from the checkout.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Tag)
+  $inTag = Invoke-Native -FilePath git -Arguments '-C', $Root, 'rev-parse', '--verify', '--quiet', "refs/tags/${Tag}:CHANGELOG.md" -Step 'read CHANGELOG.md of the tag' -AllowFailure `
+    -Fix "git fetch origin tag $Tag, then run this script again"
+  if ($inTag.ExitCode -ne 0) { throw "Step 'read CHANGELOG.md of the tag' failed: the tag $Tag is not in this checkout. Likely fix: git fetch origin tag $Tag." }
+  $here = Invoke-Native -FilePath git -Arguments '-C', $Root, 'hash-object', 'CHANGELOG.md' -Step 'hash CHANGELOG.md' -Fix 'run from a Kipple checkout'
+  if ($here.Output[0].Trim() -ne $inTag.Output[0].Trim()) {
+    throw "Step 'check the changelog' failed: this checkout's CHANGELOG.md differs from the one in $Tag, and the notes are read from it. Likely fix: git switch --detach $Tag (or use a clean checkout at the tag), then run this script again."
+  }
 }
 
 function Invoke-ReleasePublish {
@@ -244,11 +294,12 @@ function Invoke-ReleasePublish {
   $root = Get-RepoRoot -Path $PSScriptRoot
   if (-not $Repo) { $Repo = Get-RepoSlug -RepoRoot $root }
   $version = Get-ReleaseVersion -Tag $Tag
+  Assert-ReleaseKind -Tag $Tag -IsFull $IsFull
   Write-KippleInfo "Release $Tag of $Repo ($(if ($IsFull) { 'full release' } else { 'pre-release' }))"
 
-  $remote = Invoke-Native -FilePath git -Arguments '-C', $root, 'ls-remote', '--tags', 'origin', "refs/tags/$Tag" -Step 'check the tag is on origin' `
+  $remote = Invoke-Native -FilePath git -Arguments '-C', $root, 'ls-remote', '--tags', "https://github.com/$Repo.git", "refs/tags/$Tag" -Step 'check the tag is on the repository' `
     -Fix 'push the tag first (docs/RELEASING.md step 8); this script never creates it'
-  if (-not ($remote.Output -join '')) { throw "Step 'check the tag is on origin' failed: $Tag is not on origin. Likely fix: push the tag first." }
+  if (-not ($remote.Output -join '')) { throw "Step 'check the tag is on the repository' failed: $Tag is not in $Repo. Likely fix: push the tag first." }
   if (-not (Test-ReleaseAbsent -Repo $Repo -Tag $Tag)) {
     throw "Step 'check for an existing release' failed: a GitHub Release for $Tag exists already (the workflow appends its notes to an existing release itself). Likely fix: nothing to do, or edit it by hand."
   }
@@ -264,7 +315,9 @@ function Invoke-ReleasePublish {
   try {
     $null = New-Item -ItemType Directory -Path $work -WhatIf:$false
     Save-ImageNotesArtifact -Repo $Repo -RunId $run.databaseId -Version $version -Directory $work
-    $verify = Get-VerifyArgument -Repo $Repo -Tag $Tag -Directory $work
+    $imageNotes = Get-Content -LiteralPath (Join-Path $work 'image-notes.md') -Raw
+    $digest = Get-ImageDigest -ImageNotes $imageNotes
+    $verify = Get-VerifyArgument -Repo $Repo -Tag $Tag -Directory $work -Digest $digest
     $checks = @(
       Test-Signature -Cosign $cosign -Step 'cosign verify (image)' -Arguments $verify.Image
       Test-Signature -Cosign $cosign -Step 'cosign verify-blob (SBOM)' -Arguments $verify.Blob
@@ -275,9 +328,10 @@ function Invoke-ReleasePublish {
       return 1
     }
 
+    Assert-ChangelogMatchesTag -Root $root -Tag $Tag
     $section = (Invoke-Native -FilePath node -Arguments 'scripts/changelog.mjs', 'notes', $version -WorkingDirectory $root -Step 'read the changelog section' `
         -Fix "CHANGELOG.md needs a section for $version (node scripts/changelog.mjs release $version)").Output -join "`n"
-    $body = Build-ReleaseNote -ChangelogSection $section -ImageNotes (Get-Content -LiteralPath (Join-Path $work 'image-notes.md') -Raw)
+    $body = Build-ReleaseNote -ChangelogSection $section -ImageNotes $imageNotes
     $notesFile = Join-Path $work 'notes.md'
     Set-Content -LiteralPath $notesFile -Value $body -NoNewline -WhatIf:$false
     $assets = @((Join-Path $work "kipple-$version.sbom.json"), (Join-Path $work "kipple-$version.sbom.json.sigstore.json"))
