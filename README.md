@@ -14,11 +14,11 @@ A self-hosted RSS reader for one person. One Docker container, one port, one SQL
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/desktop-dark.webp">
-    <img src="docs/screenshots/desktop-light.webp" alt="Kipple on a desktop in the Cards layout: a folder tree on the left, and a grid of article cards with large photos." width="640">
+    <img src="docs/screenshots/desktop-light.webp" alt="Kipple on a desktop in the Inbox layout: a folder tree on the left, a list of articles with thumbnails in the middle, and a photo article open on the right." width="640">
   </picture>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/phone-dark.webp">
-    <img src="docs/screenshots/phone-light.webp" alt="Kipple on a phone in the Inbox layout: one article per row with the feed name, headline, snippet and a thumbnail." width="190">
+    <img src="docs/screenshots/phone-light.webp" alt="Kipple on a phone in the Cards layout: article cards with large photos, one per row." width="190">
   </picture>
 </p>
 
@@ -48,7 +48,7 @@ Pull the image and start it. Replace `<version>` with the newest tag on the
 docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data ghcr.io/wptk/kipple:<version>
 ```
 
-Open <http://127.0.0.1:1919>. The first screen creates your account. The setup wizard after it takes about a minute:
+Open <http://127.0.0.1:1919>. The first screen creates your account. The setup wizard after it asks for a
 time zone, themes, an OPML import from your old reader, a few starter feeds, and the address your other devices use.
 Every step after the account can be skipped.
 

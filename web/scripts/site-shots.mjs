@@ -5,8 +5,8 @@
 //   node scripts/site-shots.mjs --out ../../kipple-website/screenshots [--site ../../kipple-website]
 //   node scripts/site-shots.mjs --readme ../docs/screenshots
 //
-// --readme writes the four WebP files README.md shows, deliberately not the site's: the Cards layout over every feed
-// on a 1440x900 desktop, and the Inbox layout on a 390x844 phone at 1.5x (585x1266), each in Paper and in Midnight so
+// --readme writes the four WebP files README.md shows, deliberately not the site's: the Inbox layout with an article
+// open on a 1440x900 desktop, and the Cards layout on a 390x844 phone at 1.5x (585x1266), each in Paper and in Midnight so
 // the README can switch with GitHub's theme. Choosing a layout is saved to the seeded account, so re-seed before capturing
 // the site's shots after the README's (the site's shots use the default layout).
 //
@@ -16,7 +16,7 @@
 // colour-scheme setting. The list uses the device's default layout (Editorial), as the site's shots always have. With --site <dir> it also renders <dir>/design-system/social-preview.html to <dir>/og.png
 // (1280x640). Only a loopback address is accepted, with the seed's throwaway credentials. Needs Chromium
 // (`npx playwright install chromium`, as for `npm run uat`). Run by hand at each release (docs/RELEASING.md).
-/* global document, window, createImageBitmap, OffscreenCanvas -- used inside page.evaluate, which runs in the browser */
+/* global document, createImageBitmap, OffscreenCanvas -- used inside page.evaluate, which runs in the browser */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -48,17 +48,16 @@ if (!["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname)) {
 const DESKTOP = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1.25, size: [1800, 1125] };
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 1.5, size: [585, 1266], mobile: true };
 const README_DESKTOP = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, size: [1440, 900] };
-// `dir` says which output directory a shot goes to; `layout` (a name from the layout menu) is chosen before the capture,
-// and `all` shows every feed instead of the site's one picture feed.
+// `dir` says which output directory a shot goes to; `layout` (a name from the layout menu) is chosen before the capture.
 const SHOTS = [
   { dir: "out", file: "desktop-paper", device: DESKTOP, scheme: "light", view: "reader" },
   { dir: "out", file: "desktop-midnight", device: DESKTOP, scheme: "dark", view: "reader" },
   { dir: "out", file: "phone-paper-reader", device: PHONE, scheme: "light", view: "article" },
   { dir: "out", file: "phone-midnight-list", device: PHONE, scheme: "dark", view: "list" },
-  { dir: "readme", file: "desktop-light", device: README_DESKTOP, scheme: "light", view: "list", layout: "Cards", all: true },
-  { dir: "readme", file: "desktop-dark", device: README_DESKTOP, scheme: "dark", view: "list", layout: "Cards", all: true },
-  { dir: "readme", file: "phone-light", device: PHONE, scheme: "light", view: "list", layout: "Inbox", all: true },
-  { dir: "readme", file: "phone-dark", device: PHONE, scheme: "dark", view: "list", layout: "Inbox", all: true },
+  { dir: "readme", file: "desktop-light", device: README_DESKTOP, scheme: "light", view: "reader", layout: "Inbox" },
+  { dir: "readme", file: "desktop-dark", device: README_DESKTOP, scheme: "dark", view: "reader", layout: "Inbox" },
+  { dir: "readme", file: "phone-light", device: PHONE, scheme: "light", view: "list", layout: "Cards" },
+  { dir: "readme", file: "phone-dark", device: PHONE, scheme: "dark", view: "list", layout: "Cards" },
 ].filter((shot) => opt[shot.dir]);
 
 const browser = await chromium.launch();
@@ -91,21 +90,16 @@ try {
       serviceWorkers: "block",
     });
     const page = await ctx.newPage();
-    await page.goto(shot.all ? "/l/all" : `/l/all?feed=${encodeURIComponent(feed.id)}`);
+    await page.goto(`/l/all?feed=${encodeURIComponent(feed.id)}`);
     const first = page.locator('article[data-item-id] a[href^="/i/"]').first();
     await first.waitFor({ timeout: 20000 });
     if (shot.layout) {
       await page.getByRole("button", { name: /^List options/ }).click();
       await page.getByRole("menuitemradio", { name: new RegExp(`^${shot.layout}`) }).click();
       await page.keyboard.press("Escape");
-      // Close the first-run swipe hint on a phone, drop the focus ring the menu left on its button, and start the
-      // desktop grid at a day with a full row of cards.
+      // Close the first-run swipe hint on a phone and drop the focus ring the menu left on its button.
       await page.getByRole("button", { name: /^(dismiss|close)/i }).first().click({ timeout: 1000 }).catch(() => {});
-      await page.evaluate(() => {
-        document.activeElement?.blur();
-        const day = [...document.querySelectorAll("*")].find((e) => e.children.length === 0 && e.textContent.trim().toUpperCase() === "YESTERDAY");
-        if (day && window.innerWidth > 800) day.scrollIntoView({ block: "start" });
-      });
+      await page.evaluate(() => document.activeElement?.blur());
       await page.waitForTimeout(500);
     }
     if (shot.view !== "list") await first.click();
