@@ -205,6 +205,27 @@ Decisions are recorded in full in the private history repository. Summary of wha
   (unique index) for dedup, offline events queued, losses accepted.
 - **Delivery:** alpha.4 sender and settings, alpha.5 screen, alpha.6 export and data controls, alpha.7 Wrapped.
 
+### Stats follow-up (2026-10-06, issues #37 and #36)
+
+Decided in a design discussion. No code yet; both issues keep the roadmap label.
+
+- **Reading pace: dropped.** Words per minute would need a word count per item that trimming removes. Average read
+  length per source already covers "how long articles take".
+- **Period comparison: both levels.** Items, minutes and active days against the previous equal period, as deltas on the
+  summary strip, plus per-feed deltas in the drill-down to show feeds started or abandoned.
+- **Read rate per feed: built for pruning.** The share of a feed's new items that were opened. Retention trims the items
+  table, so the published count per feed per day has to be recorded at fetch time, in a table that survives trims.
+  Not built until that table is designed.
+- **Screen: design A.** One Stats screen. Adds a compare toggle, a Months range with bars covering every month on record
+  (not capped at 12), and a source row that opens a per-feed drill-down sheet. Design B (a separate Feeds page) is the
+  fallback if the sheet outgrows the screen.
+- **Reader API reads (#36): stay out of stats.** An API read mark carries no read time or scroll, so even a perfect
+  single-versus-bulk test cannot meet the read definition (10 s active, or 25% scroll with 3 s). The most it could give
+  is a separate "synced reads" count. Revisit only with a controlled capture per client (`KIPPLE_LOG_GREADER_FORMS=1`):
+  20 tapped opens, 20 mark-on-scroll reads, one mark-all, noting ids per `edit-tag`, gaps between marks and whether a
+  `stream/items/contents` call comes first. The capture goes to the debug log only. No read-state write gets the
+  Recorder, and `TestMarkReadNeverTouchesRecorder` stays as is.
+
 ## Phase 5 planning meeting (2026-09-27)
 
 Not a UI meeting — recorded here per the owner's instruction that all planning decisions land in this file plus
