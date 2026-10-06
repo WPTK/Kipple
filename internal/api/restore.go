@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/WPTK/kipple/internal/auth"
@@ -30,21 +31,50 @@ const (
 
 // deadlineReader moves the connection's read deadline forward before each read
 // of an upload, and removes it once the whole body has arrived: from then on
-// the checks run, and an expired deadline would cancel the request.
+// an expired deadline would cancel the request. stop (a cancel from another
+// tab, an account claim, shutdown) sets the deadline to now, so a read waiting
+// on a stalled client returns at once, and refuses every later read.
 type deadlineReader struct {
-	r    io.Reader
-	rc   *http.ResponseController
-	left int64
+	r  io.Reader
+	rc *http.ResponseController
+
+	mu      sync.Mutex // orders stop against the deadline each read sets
+	stopped bool
+	left    int64
 }
 
+var errUploadStopped = errors.New("restore: upload stopped")
+
 func (d *deadlineReader) Read(p []byte) (int, error) {
+	d.mu.Lock()
+	if d.stopped {
+		d.mu.Unlock()
+		return 0, errUploadStopped
+	}
 	_ = d.rc.SetReadDeadline(time.Now().Add(restoreReadIdle))
+	d.mu.Unlock()
 	n, err := d.r.Read(p)
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.left -= int64(n)
-	if d.left <= 0 || err != nil {
+	if (d.left <= 0 || err != nil) && !d.stopped {
 		_ = d.rc.SetReadDeadline(time.Time{})
 	}
 	return n, err
+}
+
+func (d *deadlineReader) stop() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.stopped = true
+	_ = d.rc.SetReadDeadline(time.Now())
+}
+
+// unread reports whether part of the body was never read.
+func (d *deadlineReader) unread() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.left > 0
 }
 
 // restoreUpload is POST /api/setup/restore/upload: the raw file as the body,
@@ -64,10 +94,10 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	_ = rc.SetWriteDeadline(time.Time{}) // the server-wide one started with the request
 	body := &deadlineReader{r: r.Body, rc: rc, left: r.ContentLength}
-	up, err := s.restore.Upload(r.Context(), body, r.ContentLength)
+	up, err := s.restore.Upload(r.Context(), body, r.ContentLength, body.stop)
 	_ = rc.SetWriteDeadline(time.Now().Add(restoreAnswerWait))
 	if err != nil {
-		if body.left > 0 {
+		if body.unread() {
 			// Refused before the whole file arrived (not a backup, too large, no
 			// room): say so and close the connection after the answer. net/http
 			// then shuts down its sending side and waits briefly before closing,
@@ -111,7 +141,7 @@ func (s *Server) restoreStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	st := s.restore.Status()
 	out := map[string]any{"state": st.State, "summary": nil, "error": nil, "estimate_seconds": st.EstimateSeconds}
-	if st.Summary != nil && st.State == backup.RestoreReady {
+	if st.Summary != nil { // ready and confirmed
 		out["summary"] = s.restoreSummary(r, *st.Summary)
 	}
 	if st.Err != nil {

@@ -36,7 +36,7 @@ func newRestorer(t *testing.T, tune ...func(*RestorerOptions)) (*Restorer, strin
 // upload sends b and, for a zip, waits for the background check: it returns
 // the checked summary, or the error the check failed with.
 func upload(r *Restorer, b []byte) (Upload, error) {
-	up, err := r.Upload(context.Background(), bytes.NewReader(b), int64(len(b)))
+	up, err := r.Upload(context.Background(), bytes.NewReader(b), int64(len(b)), nil)
 	if err != nil || up.Kind != KindBackup {
 		return up, err
 	}
@@ -208,12 +208,12 @@ func TestUploadKinds(t *testing.T) {
 
 	// A file over the cap is refused before it is read.
 	r2, dir2 := newRestorer(t, func(o *RestorerOptions) { o.MaxBytes = 100 })
-	_, err = r2.Upload(context.Background(), strings.NewReader(strings.Repeat("x", 101)), 101)
+	_, err = r2.Upload(context.Background(), strings.NewReader(strings.Repeat("x", 101)), 101, nil)
 	require.ErrorIs(t, err, ErrUploadTooLarge)
 	require.NoFileExists(t, filepath.Join(dir2, UploadFile))
 
 	// A body shorter than announced.
-	_, err = r.Upload(context.Background(), strings.NewReader("PK\x03\x04short"), 1000)
+	_, err = r.Upload(context.Background(), strings.NewReader("PK\x03\x04short"), 1000, nil)
 	require.ErrorIs(t, err, ErrUploadCut)
 
 	for _, f := range []string{UploadFile, StagedFile, MarkerFile} {
@@ -483,24 +483,28 @@ func TestUploadRaces(t *testing.T) {
 	b := hostBackup(t)
 	r, dir := newRestorer(t)
 	pr, pw := io.Pipe()
+	stopped := make(chan struct{})
 	first := make(chan error, 1)
 	go func() {
-		_, err := r.Upload(context.Background(), pr, int64(len(b)))
+		// stop is what the HTTP handler passes: it makes the waiting read return.
+		_, err := r.Upload(context.Background(), pr, int64(len(b)), func() {
+			_ = pr.CloseWithError(errors.New("read deadline"))
+			close(stopped)
+		})
 		first <- err
 	}()
-	_, err := pw.Write(b[:100]) // the first upload is now reading
+	_, err := pw.Write(b[:100]) // the first upload is now reading, and the client stalls
 	require.NoError(t, err)
 	require.Equal(t, RestoreUploading, r.State(), "a second tab sees the upload arriving")
 	_, err = upload(r, b)
 	require.ErrorIs(t, err, ErrRestoreBusy)
 	require.Contains(t, err.Error(), "Cancel it first")
 
-	cancelled := make(chan error, 1)
-	go func() { cancelled <- r.Cancel() }()
-	go func() { _, _ = pw.Write(b[100:]); _ = pw.Close() }() // the client keeps sending
+	// A stalled client never sends another byte: the cancel unblocks its read.
+	require.NoError(t, r.Cancel())
+	<-stopped
 	require.ErrorIs(t, <-first, context.Canceled)
-	require.NoError(t, <-cancelled)
-	require.Equal(t, RestoreNone, r.State())
+	require.Equal(t, RestoreNone, r.State(), "none only once the slot is free")
 	require.NoFileExists(t, filepath.Join(dir, UploadFile))
 	require.NoFileExists(t, filepath.Join(dir, StagedFile))
 
@@ -531,7 +535,7 @@ func TestCancelDuringTheCheck(t *testing.T) {
 	b := hostBackup(t)
 	for i := 0; i < 5; i++ {
 		r, dir := newRestorer(t)
-		up, err := r.Upload(context.Background(), bytes.NewReader(b), int64(len(b)))
+		up, err := r.Upload(context.Background(), bytes.NewReader(b), int64(len(b)), nil)
 		require.NoError(t, err)
 		require.Equal(t, Upload{Kind: KindBackup}, up, "answered once the body arrived")
 		if _, _, ok := r.Uploaded(); !ok {
@@ -703,14 +707,14 @@ func TestSniffBeforeSpooling(t *testing.T) {
 	body := append([]byte("not a backup"), bytes.Repeat([]byte("x"), 200<<10)...)
 	pr, pw := io.Pipe()
 	go func() { _, _ = pw.Write(body[:sniffBytes]) }() // the rest never comes
-	_, err := r.Upload(context.Background(), pr, int64(len(body)))
+	_, err := r.Upload(context.Background(), pr, int64(len(body)), nil)
 	require.ErrorIs(t, err, ErrNotBackup, "refused from the first 64 KB, without waiting for the rest")
 	_ = pr.Close()
 
 	big := append([]byte("<opml><body>"), bytes.Repeat([]byte(" "), maxFeedsOPML)...)
 	pr, pw = io.Pipe()
 	go func() { _, _ = pw.Write(big[:sniffBytes]) }()
-	_, err = r.Upload(context.Background(), pr, int64(len(big)))
+	_, err = r.Upload(context.Background(), pr, int64(len(big)), nil)
 	require.ErrorIs(t, err, ErrOPMLTooLarge)
 	_ = pr.Close()
 
@@ -732,4 +736,114 @@ func TestLargeFeedsOPMLDoesNotBlockARestore(t *testing.T) {
 	got, err := r.Feeds()
 	require.NoError(t, err)
 	require.Equal(t, big, got)
+}
+
+// The state and a busy refusal always agree: while a cancelled job still holds
+// the slot the state is not none, and once it is none an upload is accepted.
+func TestStateAndBusyAgreeAfterCancel(t *testing.T) {
+	b := hostBackup(t)
+	r, _ := newRestorer(t)
+	pr, pw := io.Pipe()
+	release := make(chan struct{})
+	first := make(chan error, 1)
+	go func() {
+		// A read that the stop hook does not unblock at once.
+		_, err := r.Upload(context.Background(), pr, int64(len(b)), func() {
+			go func() { <-release; _ = pr.CloseWithError(errors.New("late")) }()
+		})
+		first <- err
+	}()
+	_, err := pw.Write(b[:100])
+	require.NoError(t, err)
+	r.Drop() // returns without waiting
+	require.Equal(t, RestoreUploading, r.State(), "the job still holds the slot")
+	_, err = upload(r, b)
+	require.ErrorIs(t, err, ErrRestoreBusy)
+	close(release)
+	require.ErrorIs(t, <-first, context.Canceled)
+	require.Equal(t, RestoreNone, r.State())
+	_, err = upload(r, b)
+	require.NoError(t, err)
+}
+
+// manyEntries is a zip with n empty stored entries (zip64 records from 65535 on).
+func manyEntries(t *testing.T, n int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for i := 0; i < n; i++ {
+		_, err := zw.CreateHeader(&zip.FileHeader{Name: fmt.Sprint(i), Method: zip.Store})
+		require.NoError(t, err)
+	}
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
+}
+
+// archive/zip reads directory headers from the directory's offset until one
+// fails, whatever count the end record gives, and switches to the zip64 record
+// when the count, the size or the offset is saturated. A crafted end record
+// can claim 3 entries over a real directory of thousands; the directory must
+// end exactly where the end record (or the zip64 record) begins.
+func TestZipDirectoryCannotBeMisdescribed(t *testing.T) {
+	extract := func(b []byte) error {
+		src := filepath.Join(t.TempDir(), "x.zip")
+		require.NoError(t, os.WriteFile(src, b, 0o600))
+		_, err := ExtractDB(src, filepath.Join(t.TempDir(), "o.db"))
+		return err
+	}
+	big := manyEntries(t, 65536*2+3)
+	z64 := bytes.LastIndex(big, []byte{'P', 'K', 6, 6})
+	require.Positive(t, z64)
+	dirOff := binary.LittleEndian.Uint64(big[z64+48:])
+
+	// The reproduction: a plain end record (count 3, size 200) put where the zip64
+	// one was, its offset pointing at the real directory of 131075 headers.
+	plain := func(count uint16, size, off uint32) []byte {
+		out := append([]byte{}, big[:z64]...)
+		e := make([]byte, eocdLen)
+		binary.LittleEndian.PutUint32(e, eocdSig)
+		binary.LittleEndian.PutUint16(e[8:], count)
+		binary.LittleEndian.PutUint16(e[10:], count)
+		binary.LittleEndian.PutUint32(e[12:], size)
+		binary.LittleEndian.PutUint32(e[16:], off)
+		return append(out, e...)
+	}
+	require.ErrorContains(t, extract(plain(3, 200, uint32(dirOff))), "not where its end record says")
+	// Sized honestly, the directory is far too large.
+	require.ErrorContains(t, extract(plain(3, uint32(uint64(z64)-dirOff), uint32(dirOff))), "directory is")
+
+	// The real zip64 file: its zip64 record is read and counted.
+	require.ErrorContains(t, extract(big), "holds 131075 files")
+	// Only the offset saturated (count and size look small): archive/zip still
+	// reads the zip64 record, and so does the check.
+	crafted := bytes.Clone(big)
+	eocd := bytes.LastIndex(crafted, []byte{'P', 'K', 5, 6})
+	binary.LittleEndian.PutUint16(crafted[eocd+8:], 3)
+	binary.LittleEndian.PutUint16(crafted[eocd+10:], 3)
+	binary.LittleEndian.PutUint32(crafted[eocd+12:], 200)
+	binary.LittleEndian.PutUint32(crafted[eocd+16:], 0xffffffff)
+	require.ErrorContains(t, extract(crafted), "holds 131075 files")
+	// Saturated without a zip64 record.
+	small := goodZip([]byte("db"), nil)
+	eocd = bytes.LastIndex(small, []byte{'P', 'K', 5, 6})
+	binary.LittleEndian.PutUint32(small[eocd+16:], 0xffffffff)
+	require.ErrorContains(t, extract(small), "zip64")
+	// Data before the first entry (a non-zero base offset) is refused too.
+	stub := append([]byte("prefix"), goodZip([]byte("db"), nil)...)
+	require.ErrorContains(t, extract(stub), "not where its end record says")
+}
+
+// A real backup whose kipple.db needs zip64 fields (as a 4 GiB one does) has
+// a zip64 record in front of an unsaturated end record: it passes.
+func TestZipDirectoryAcceptsAZip64Writer(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.CreateRaw(&zip.FileHeader{Name: DBFile, Method: zip.Store, CompressedSize64: 1, UncompressedSize64: 1 << 32})
+	require.NoError(t, err)
+	_, _ = w.Write([]byte("x"))
+	require.NoError(t, zw.Close())
+	require.Positive(t, bytes.LastIndex(buf.Bytes(), []byte{'P', 'K', 6, 6}), "the writer added a zip64 record")
+	src := filepath.Join(t.TempDir(), "z.zip")
+	require.NoError(t, os.WriteFile(src, buf.Bytes(), 0o600))
+	require.NoError(t, checkZipDirectory(src))
 }

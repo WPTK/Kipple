@@ -33,7 +33,7 @@ export type RestoreState = "none" | "uploading" | "checking" | "ready" | "failed
 /** GET /api/setup/restore. */
 export interface RestoreStatus {
   state: RestoreState;
-  /** When ready (and still there once confirmed). */
+  /** When ready, and again once confirmed (so a reloaded page can still name the account). */
   summary?: BackupSummary;
   /** When failed. */
   error?: { code: string; message: string };

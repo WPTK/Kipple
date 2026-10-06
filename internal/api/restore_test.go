@@ -1,9 +1,13 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -138,7 +142,7 @@ func TestRestoreEverything(t *testing.T) {
 	require.Equal(t, "confirmed", h.restoreState())
 	st := h.status()
 	require.Equal(t, "confirmed", st["state"])
-	require.Nil(t, st["summary"])
+	require.Equal(t, "restored", st["summary"].(map[string]any)["username"], "the waiting page still knows who signs in")
 	require.Equal(t, float64(30), st["estimate_seconds"], "the waiting page can still read the estimate")
 	require.FileExists(t, filepath.Join(h.dir, backup.MarkerFile))
 
@@ -369,8 +373,8 @@ func TestAccountClaimCancelsTheCheck(t *testing.T) {
 	rec := h.req("POST", "/api/setup/restore/upload", string(backupZip(t, "h", store.AuthStandard)))
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	require.Equal(t, http.StatusCreated, h.createAccount(map[string]any{"username": "reader", "password": setupPass}).Code)
+	h.Restore().Close() // waits for the cancelled check, which held the slot until it stopped
 	require.Equal(t, backup.RestoreNone, h.Restore().State())
-	h.Restore().Close() // waits for the cancelled check
 	require.NoFileExists(t, filepath.Join(h.dir, backup.StagedFile))
 	require.NoFileExists(t, filepath.Join(h.dir, backup.UploadFile))
 }
@@ -402,4 +406,51 @@ func TestSecondTabSeesAndCancelsAnUpload(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 	require.Equal(t, "restore_cancelled", decode(t, rec)["error"])
 	require.Equal(t, "none", h.status()["state"])
+}
+
+// A client that stalls mid-upload does not hold the slot: a cancel from
+// another tab unblocks the waiting read at once (the handler's stop hook sets
+// the connection's read deadline), the state goes to none, and a new upload
+// is accepted.
+func TestCancelUnblocksAStalledUpload(t *testing.T) {
+	h := newRestoreHarness(t)
+	srv := httptest.NewServer(h.root)
+	defer srv.Close()
+	b := backupZip(t, "h", store.AuthStandard)
+	addr := srv.Listener.Addr().String()
+	conn, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	defer conn.Close()
+	_, err = fmt.Fprintf(conn, "POST /api/setup/restore/upload HTTP/1.1\r\nHost: %s\r\nSec-Fetch-Site: same-origin\r\nX-Kipple-Client: web\r\n"+
+		"Content-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n", addr, len(b))
+	require.NoError(t, err)
+	_, err = conn.Write(b[:100]) // then nothing more
+	require.NoError(t, err)
+
+	call := func(method string) (int, map[string]any) {
+		req, err := http.NewRequest(method, srv.URL+"/api/setup/restore", nil)
+		require.NoError(t, err)
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		req.Header.Set("X-Kipple-Client", "web")
+		resp, err := srv.Client().Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	require.Eventually(t, func() bool { _, st := call("GET"); return st["state"] == "uploading" }, 5*time.Second, 5*time.Millisecond)
+	began := time.Now()
+	code, _ := call("DELETE")
+	require.Equal(t, http.StatusNoContent, code)
+	require.Less(t, time.Since(began), 5*time.Second, "not the 2 minute read timeout")
+	_, st := call("GET")
+	require.Equal(t, "none", st["state"])
+
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if resp, err := http.ReadResponse(bufio.NewReader(conn), nil); err == nil {
+		require.Equal(t, http.StatusConflict, resp.StatusCode)
+		_ = resp.Body.Close()
+	}
+	require.EqualValues(t, http.StatusOK, h.upload(b)["status"], "the slot is free")
 }

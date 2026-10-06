@@ -165,7 +165,16 @@ type Restorer struct {
 
 type job struct {
 	cancel context.CancelFunc
+	stop   func() // unblocks a read of the body that is waiting (nil: none)
 	done   chan struct{}
+}
+
+// end cancels the job and unblocks its read, if one waits.
+func (j *job) end() {
+	j.cancel()
+	if j.stop != nil {
+		j.stop()
+	}
 }
 
 // NewRestorer returns a Restorer with no upload. Leftover files of an earlier
@@ -219,8 +228,10 @@ func (r *Restorer) path(name string) string { return filepath.Join(r.o.DataDir, 
 // arrived: the check (manifest and checksums, the schema against a fresh
 // database of its version, the integrity checks) runs in the background, and
 // Status reports checking, then ready or failed. reqCtx ends the upload only
-// while the body arrives.
-func (r *Restorer) Upload(reqCtx context.Context, body io.Reader, size int64) (Upload, error) {
+// while the body arrives. stop (may be nil) must make a read of body that is
+// waiting return at once: Cancel, Drop and Close call it, since a client that
+// stalls would otherwise hold the upload until its read times out.
+func (r *Restorer) Upload(reqCtx context.Context, body io.Reader, size int64, stop func()) (Upload, error) {
 	if size > r.o.MaxBytes {
 		return Upload{}, ErrUploadTooLarge
 	}
@@ -244,7 +255,7 @@ func (r *Restorer) Upload(reqCtx context.Context, body io.Reader, size int64) (U
 	g := r.gen
 	r.state, r.failErr, r.estimate, r.cur, r.feeds = RestoreUploading, nil, 0, nil, nil
 	ctx, cancel := context.WithCancel(context.Background())
-	j := &job{cancel: cancel, done: make(chan struct{})}
+	j := &job{cancel: cancel, stop: stop, done: make(chan struct{})}
 	r.job = j
 	r.mu.Unlock()
 
@@ -268,9 +279,7 @@ func (r *Restorer) Upload(reqCtx context.Context, body io.Reader, size int64) (U
 	// Done here: an OPML file, or a refusal. Nothing is kept.
 	removeStaged(r.o.DataDir)
 	r.mu.Lock()
-	if r.gen == g {
-		r.state = RestoreNone
-	}
+	r.state = RestoreNone // the job held the slot until now: nothing else can have started
 	r.job = nil
 	r.mu.Unlock()
 	cancel()
@@ -348,6 +357,7 @@ func (r *Restorer) check(ctx context.Context, j *job, g int) {
 	switch {
 	case r.gen != g || ctx.Err() != nil:
 		removeStaged(r.o.DataDir) // cancelled: the files are this job's to remove
+		r.state = RestoreNone
 	case err != nil:
 		removeStaged(r.o.DataDir)
 		r.state, r.failErr = RestoreFailed, err
@@ -392,8 +402,8 @@ func (r *Restorer) verify(ctx context.Context, g int) (Upload, []byte, error) {
 		r.estimate = EstimateSeconds(mf.DBBytes, older)
 	}
 	r.mu.Unlock()
-	feeds, ok := x.Files[OPMLFile]
-	if !ok {
+	feeds := x.FeedsOPML
+	if feeds == nil {
 		return Upload{}, nil, &BadUploadError{errors.New("it holds no feeds.opml")}
 	}
 	info, acct, err := checkStaged(ctx, staged, mf.KippleVersion)
@@ -456,7 +466,7 @@ func (r *Restorer) Uploaded() (up Upload, ticket int, ok bool) {
 }
 
 // Cancel ends any upload short of a confirmed one: it stops one arriving or
-// being checked (and waits briefly for it to clean up), removes a checked one,
+// being checked (unblocking its read) and waits briefly for it to clean up, removes a checked one,
 // clears a failed one. Nothing to cancel is fine. A confirmed restore cannot be
 // cancelled (ErrRestorePending).
 func (r *Restorer) Cancel() error {
@@ -482,10 +492,15 @@ func (r *Restorer) drop() (*job, error) {
 	}
 	j := r.job
 	if j != nil {
-		j.cancel() // the job removes its own files when it stops
+		// The job removes its own files and reports none once it has stopped:
+		// until then it holds the slot, and the state says so (uploading or
+		// checking), so the state and a busy refusal always agree.
+		j.end()
+		r.gen++
+		return j, nil
 	}
 	r.discardLocked()
-	return j, nil
+	return nil, nil
 }
 
 // Close stops the expiry timer and any upload or check, and waits for it. The
@@ -500,13 +515,13 @@ func (r *Restorer) Close() {
 	j := r.job
 	r.mu.Unlock()
 	if j != nil {
-		j.cancel()
+		j.end()
 		<-j.done
 	}
 }
 
-// discardLocked forgets the upload. Its files are removed here only when no
-// job runs; a running one removes them itself once it sees it was cancelled.
+// discardLocked forgets the upload and removes its files. Only with no job
+// running (drop handles a running one).
 func (r *Restorer) discardLocked() {
 	if r.timer != nil {
 		r.timer.Stop()
@@ -514,9 +529,7 @@ func (r *Restorer) discardLocked() {
 	}
 	r.gen++
 	r.state, r.cur, r.feeds, r.failErr, r.estimate = RestoreNone, nil, nil, nil, 0
-	if r.job == nil {
-		removeStaged(r.o.DataDir)
-	}
+	removeStaged(r.o.DataDir)
 }
 
 // Confirm prepares the staged database of the checked upload and writes the

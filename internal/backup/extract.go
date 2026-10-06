@@ -2,6 +2,7 @@ package backup
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -10,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/WPTK/kipple/internal/store"
@@ -48,11 +51,12 @@ func readEntry(ctx context.Context, f *zip.File, max int64) ([]byte, error) {
 	return b, nil
 }
 
-// Extracted is what Extract verified: the manifest, and every file of the zip
-// but kipple.db (written to disk), by name.
+// Extracted is what Extract verified: the manifest, and feeds.opml (nil when
+// the backup lists none). The other small files are checked as they stream by
+// and not kept.
 type Extracted struct {
-	Manifest Manifest
-	Files    map[string][]byte
+	Manifest  Manifest
+	FeedsOPML []byte
 }
 
 // ExtractDB is Extract for `kipple restore`: no cancellation, the OS free space.
@@ -97,6 +101,9 @@ func Extract(ctx context.Context, src, dst string, free func(string) (uint64, er
 		if _, dup := byName[f.Name]; dup {
 			return Extracted{}, fmt.Errorf("the zip lists %s twice", f.Name)
 		}
+		if !slices.Contains(backupFiles, f.Name) {
+			return Extracted{}, fmt.Errorf("the zip contains %s, which is not part of a Kipple backup", f.Name)
+		}
 		byName[f.Name] = f
 	}
 	mfile, ok := byName[ManifestFile]
@@ -130,9 +137,13 @@ func Extract(ctx context.Context, src, dst string, free func(string) (uint64, er
 			return Extracted{}, &UploadSpaceError{Need: mf.DBBytes, Free: int64(min(f, 1<<62))}
 		}
 	}
-	x.Files = map[string][]byte{}
 	var sawDB bool
+	listed := map[string]bool{}
 	for _, e := range mf.Files {
+		if listed[e.Name] || e.Name == ManifestFile {
+			return Extracted{}, fmt.Errorf("manifest.json lists %s twice", e.Name)
+		}
+		listed[e.Name] = true
 		f, ok := byName[e.Name]
 		if !ok {
 			return Extracted{}, fmt.Errorf("the manifest lists %s but the zip does not contain it", e.Name)
@@ -150,20 +161,52 @@ func Extract(ctx context.Context, src, dst string, free func(string) (uint64, er
 			}
 			continue
 		}
-		b, err := readEntry(ctx, f, maxSmallEntry)
-		if err != nil {
+		if e.Name == OPMLFile {
+			b, err := readEntry(ctx, f, maxSmallEntry)
+			if err != nil {
+				return Extracted{}, err
+			}
+			if err := checkSum(e, bytes.NewReader(b)); err != nil {
+				return Extracted{}, err
+			}
+			x.FeedsOPML = b
+			continue
+		}
+		if err := checkEntry(ctx, f, e); err != nil {
 			return Extracted{}, err
 		}
-		sum := sha256.Sum256(b)
-		if !strings.EqualFold(hex.EncodeToString(sum[:]), e.SHA256) {
-			return Extracted{}, fmt.Errorf("checksum mismatch for %s: the backup is damaged", e.Name)
-		}
-		x.Files[e.Name] = b
 	}
 	if !sawDB {
 		return Extracted{}, errors.New("the manifest does not list kipple.db")
 	}
 	return x, nil
+}
+
+// checkEntry streams a small entry through its checksum without keeping it.
+func checkEntry(ctx context.Context, f *zip.File, e FileEntry) error {
+	if e.Bytes > maxSmallEntry {
+		return fmt.Errorf("%s is unexpectedly large", e.Name)
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	return checkSum(e, &ctxReader{ctx, rc})
+}
+
+// checkSum reads r (at most e.Bytes+1 bytes) and compares its size and SHA-256
+// with the manifest's.
+func checkSum(e FileEntry, r io.Reader) error {
+	h := sha256.New()
+	n, err := io.Copy(h, io.LimitReader(r, e.Bytes+1))
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", e.Name, err)
+	}
+	if n != e.Bytes || !strings.EqualFold(hex.EncodeToString(h.Sum(nil)), e.SHA256) {
+		return fmt.Errorf("checksum mismatch for %s: the backup is damaged", e.Name)
+	}
+	return nil
 }
 
 func tooManyEntries(n uint64) error {
@@ -183,11 +226,18 @@ const (
 	maxZipDirectory = 64 << 10
 )
 
-// checkZipDirectory reads the entry count and the directory size from the end
-// of the zip at path (the record archive/zip reads, found the same way: the
-// last end-of-directory signature whose comment fits, then the zip64 record
-// when the plain one is saturated) and refuses more than MaxEntries entries or
-// a directory over maxZipDirectory before anything parses the directory.
+// checkZipDirectory sizes the zip's central directory from its end record
+// before archive/zip parses it, and pins it down: at most MaxEntries entries,
+// at most maxZipDirectory bytes, and ending exactly where the end record (or
+// the zip64 end record) begins, with nothing before the first entry. That last
+// rule is what makes the count trustworthy: archive/zip reads directory
+// headers from the directory's offset until one fails, whatever the count
+// says, so a directory placed elsewhere could hold any number of them. The
+// record is found as archive/zip finds it (the last signature whose comment
+// fits), and the zip64 record is used under archive/zip's own rule: when the
+// count, the size or the offset is saturated. Unsaturated, the directory may
+// also end at a zip64 record that precedes the end record (a writer adds one
+// when an entry needed zip64 fields, as a 4 GiB database does).
 func checkZipDirectory(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -217,34 +267,50 @@ func checkZipDirectory(path string) error {
 		return errors.New("not a readable zip: no end of central directory")
 	}
 	rec := buf[at:]
+	eocdAt := uint64(size - tail + int64(at))
 	count := uint64(binary.LittleEndian.Uint16(rec[10:]))
 	dirSize := uint64(binary.LittleEndian.Uint32(rec[12:]))
-	if count == 0xffff || dirSize == 0xffffffff {
-		bad := errors.New("not a readable zip: bad zip64 end record")
-		locAt := size - tail + int64(at) - zip64LocLen
-		if locAt < 0 {
-			return bad
-		}
+	dirOff := uint64(binary.LittleEndian.Uint32(rec[16:]))
+	// A zip64 end record, located as archive/zip locates it: a locator just
+	// before the end record, on disk 0 of 1. A writer adds one whenever an
+	// entry needed zip64 fields, even with the plain record unsaturated.
+	z64 := int64(-1)
+	if eocdAt >= zip64LocLen {
 		loc := make([]byte, zip64LocLen)
-		if _, err := f.ReadAt(loc, locAt); err != nil || binary.LittleEndian.Uint32(loc) != zip64LocSig {
-			return bad
+		if _, err := f.ReadAt(loc, int64(eocdAt-zip64LocLen)); err == nil && binary.LittleEndian.Uint32(loc) == zip64LocSig &&
+			binary.LittleEndian.Uint32(loc[4:]) == 0 && binary.LittleEndian.Uint32(loc[16:]) == 1 {
+			if off := binary.LittleEndian.Uint64(loc[8:]); off <= uint64(size-zip64EOCDLen) {
+				z64 = int64(off)
+			}
 		}
-		off := binary.LittleEndian.Uint64(loc[8:])
-		if off > uint64(size-zip64EOCDLen) {
+	}
+	ends := []uint64{eocdAt} // where the directory may end
+	if z64 >= 0 {
+		ends = append(ends, uint64(z64))
+	}
+	if count == 0xffff || dirSize == 0xffffffff || dirOff == 0xffffffff {
+		// archive/zip's own rule for reading the zip64 record.
+		bad := errors.New("not a readable zip: bad zip64 end record")
+		if z64 < 0 {
 			return bad
 		}
 		rec64 := make([]byte, zip64EOCDLen)
-		if _, err := f.ReadAt(rec64, int64(off)); err != nil || binary.LittleEndian.Uint32(rec64) != zip64EOCDSig {
+		if _, err := f.ReadAt(rec64, z64); err != nil || binary.LittleEndian.Uint32(rec64) != zip64EOCDSig {
 			return bad
 		}
 		count = binary.LittleEndian.Uint64(rec64[32:])
 		dirSize = binary.LittleEndian.Uint64(rec64[40:])
+		dirOff = binary.LittleEndian.Uint64(rec64[48:])
+		ends = []uint64{uint64(z64)}
 	}
 	if count > MaxEntries {
 		return tooManyEntries(count)
 	}
 	if dirSize > maxZipDirectory {
 		return fmt.Errorf("the zip's directory is %d bytes, far more than a Kipple backup's: it is not a Kipple backup", dirSize)
+	}
+	if dirOff > math.MaxInt64-dirSize || !slices.Contains(ends, dirOff+dirSize) {
+		return errors.New("the zip's directory is not where its end record says: it is not a Kipple backup")
 	}
 	return nil
 }

@@ -98,8 +98,6 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
     } else if (st.state === "failed") {
       setError(st.error?.message || "The backup could not be read. Try another file.");
       setView("pick");
-      // The failed attempt is of no use to anyone: clear it so the next upload starts clean.
-      void cancelRestore().catch(() => undefined);
     } else if (st.state === "confirmed") {
       handoff.current.onConfirmed({ estimateSeconds: st.estimate_seconds ?? st.summary?.estimate_seconds ?? 300, username: st.summary?.username ?? null });
     } else if (st.state === "uploading" || st.state === "checking") {

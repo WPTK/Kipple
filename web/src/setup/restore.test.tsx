@@ -320,12 +320,14 @@ describe("restore in the setup wizard", () => {
   });
 
   it("shows the server's message when the check fails, and goes back to the picker", async () => {
-    server({ restore: "none", setup: true, signedIn: false, status: { state: "failed", error: { code: "newer_kipple", message: "This backup was made by a newer Kipple (0.9). Update Kipple first." } } });
+    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: { state: "failed", error: { code: "newer_kipple", message: "This backup was made by a newer Kipple (0.9). Update Kipple first." } } });
     go();
     const user = userEvent.setup();
     await chooseFile(user);
     expect(await screen.findByRole("alert")).toHaveTextContent("This backup was made by a newer Kipple (0.9). Update Kipple first.");
     expect(screen.getByLabelText("Backup or OPML file")).toBeInTheDocument();
+    // Nothing is cancelled for the person: a later upload replaces the failed attempt on the server.
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
   });
 
   it("offers to cancel another upload that is in the way, then lets the user try again", async () => {
@@ -347,7 +349,7 @@ describe("restore in the setup wizard", () => {
 
   it("after a reload while a restore is being applied, waits and then asks to sign in", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const w: World = { restore: "confirmed", setup: true, signedIn: false };
+    const w: World = { restore: "confirmed", setup: true, signedIn: false, status: { ...ready(), state: "confirmed" } };
     const { calls } = server(w);
     go();
     expect(await screen.findByRole("heading", { name: "Restoring your library" })).toBeInTheDocument();

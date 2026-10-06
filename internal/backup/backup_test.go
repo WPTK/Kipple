@@ -280,6 +280,15 @@ func TestExtractRefusesDamage(t *testing.T) {
 	_, _ = w.Write([]byte("hi"))
 	require.NoError(t, zw2.Close())
 	_, err = ExtractDB(write("other.zip", buf2.Bytes()), filepath.Join(t.TempDir(), "o4.db"))
+	require.ErrorContains(t, err, "hello.txt, which is not part of a Kipple backup")
+
+	// A zip of known names without a manifest.
+	var buf2b bytes.Buffer
+	zw2b := zip.NewWriter(&buf2b)
+	w, _ = zw2b.Create(DBFile)
+	_, _ = w.Write([]byte("db"))
+	require.NoError(t, zw2b.Close())
+	_, err = ExtractDB(write("nomf.zip", buf2b.Bytes()), filepath.Join(t.TempDir(), "o5.db"))
 	require.ErrorContains(t, err, "no manifest.json")
 
 	// The good backup plus one entry with a path, listed in the manifest with a
