@@ -13,7 +13,8 @@ import (
 )
 
 // Restore in the setup wizard (docs/design.md §2.6 and §7.1e): upload a backup
-// zip (or an OPML file), then confirm it, or take only its feeds, or cancel.
+// zip (checked in the background; GET /api/setup/restore follows it) or an OPML
+// file, then confirm it, or take only its feeds, or cancel.
 // The routes exist only in setup mode and share the setup guards: the Host gate,
 // same-origin and X-Kipple-Client. A confirmed restore is applied by the next
 // start, so a confirm answers 202 and shuts the process down (Options.Restart).
@@ -67,19 +68,25 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 	_ = rc.SetWriteDeadline(time.Now().Add(restoreAnswerWait))
 	if err != nil {
 		if body.left > 0 {
-			// Refused before the whole file arrived (too large, no room): say so
-			// and close the connection after the answer. net/http then shuts down
-			// its sending side and waits briefly before closing, which gives a
-			// browser still sending the best chance to read the answer instead of
-			// a reset; it cannot be guaranteed while the client keeps sending.
+			// Refused before the whole file arrived (not a backup, too large, no
+			// room): say so and close the connection after the answer. net/http
+			// then shuts down its sending side and waits briefly before closing,
+			// which gives a browser still sending the best chance to read the
+			// answer instead of a reset; it cannot be guaranteed while the client
+			// keeps sending.
 			w.Header().Set("Connection", "close")
 		}
-		s.writeRestoreError(w, "restore upload", err)
+		if !s.opt.Setup.Pending() {
+			// An account was created while the file arrived, which cancelled it.
+			writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
+		} else {
+			s.writeRestoreError(w, "restore upload", err)
+		}
 		_ = rc.Flush()
 		return
 	}
 	if !s.opt.Setup.Pending() {
-		// An account was created while the file arrived: a restore cannot follow.
+		// An account was created as the file arrived: a restore cannot follow.
 		s.restore.Drop()
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
 		return
@@ -88,8 +95,40 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"kind": up.Kind, "feeds": up.Feeds})
 		return
 	}
+	// A zip: it is checked in the background; GET /api/setup/restore follows it.
+	writeJSON(w, http.StatusAccepted, map[string]string{"state": backup.RestoreChecking})
+}
+
+// restoreStatus is GET /api/setup/restore: where the restore stands, with the
+// checked backup's summary when it is ready and the refusal when it failed.
+func (s *Server) restoreStatus(w http.ResponseWriter, r *http.Request) {
+	if s.setupGone(w) {
+		return
+	}
+	if !s.sameOrigin(r) {
+		writeError(w, http.StatusForbidden, "origin")
+		return
+	}
+	st := s.restore.Status()
+	out := map[string]any{"state": st.State, "summary": nil, "error": nil, "estimate_seconds": st.EstimateSeconds}
+	if st.Summary != nil && st.State == backup.RestoreReady {
+		out["summary"] = s.restoreSummary(r, *st.Summary)
+	}
+	if st.Err != nil {
+		_, code, msg := restoreErrorInfo(st.Err)
+		if code == "" {
+			s.log.Error("restore check", "err", st.Err)
+			code, msg = "internal", "The backup could not be checked. Try again."
+		}
+		out["error"] = map[string]string{"code": code, "message": msg}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// restoreSummary is what the wizard shows about a checked backup.
+func (s *Server) restoreSummary(r *http.Request, up backup.Upload) map[string]any {
 	state, reason := s.restorePasswordState(r, up.Account)
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"kind":                up.Kind,
 		"kipple_version":      up.Manifest.KippleVersion,
 		"created_at":          up.Manifest.CreatedAt,
@@ -101,7 +140,7 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		"needs_new_password":  reason != "",
 		"new_password_reason": reason,
 		"estimate_seconds":    up.EstimateSeconds,
-	})
+	}
 }
 
 // restorePasswordState says how the backup's account signs in ("password",
@@ -112,7 +151,9 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 func (s *Server) restorePasswordState(r *http.Request, a backup.BackupAccount) (state, reason string) {
 	switch {
 	case a.Open:
-		if s.gateRefusal(r, s.snapshot(r.Context()), true) != "" {
+		// The network part of the open gate, as GET /api/instance reports it:
+		// a status poll is a GET and carries no Origin for the browser part.
+		if s.gateRefusal(r, s.snapshot(r.Context()), false) != "" {
 			return "open", "open_refused"
 		}
 		return "open", ""
@@ -166,7 +207,7 @@ func (s *Server) restoreConfirm(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
 		return
 	}
-	up, ticket, ok := s.restore.Uploaded()
+	up, ticket, ok := s.restore.Uploaded() // only a checked backup (ready)
 	if !ok {
 		if s.restore.State() == backup.RestoreConfirmed {
 			s.writeRestoreError(w, "restore confirm", backup.ErrRestorePending)
@@ -204,7 +245,7 @@ func (s *Server) restoreConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// restoreFeeds is GET /api/setup/restore/feeds: the uploaded backup's
+// restoreFeeds is GET /api/setup/restore/feeds: the checked backup's
 // feeds.opml (the "feeds only" choice). The upload is discarded.
 func (s *Server) restoreFeeds(w http.ResponseWriter, r *http.Request) {
 	if s.setupGone(w) {
@@ -224,8 +265,9 @@ func (s *Server) restoreFeeds(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
-// restoreCancel is DELETE /api/setup/restore: removes an unconfirmed upload, or
-// stops one still arriving. Idempotent.
+// restoreCancel is DELETE /api/setup/restore: stops an upload arriving or being
+// checked, removes a checked one, clears a failed one. Idempotent; 409 only once
+// confirmed.
 func (s *Server) restoreCancel(w http.ResponseWriter, r *http.Request) {
 	if s.setupGone(w) {
 		return
@@ -242,8 +284,22 @@ func (s *Server) restoreCancel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// writeRestoreError maps a Restorer error to its answer.
+// writeRestoreError answers a Restorer error.
 func (s *Server) writeRestoreError(w http.ResponseWriter, what string, err error) {
+	status, code, msg := restoreErrorInfo(err)
+	if code == "" {
+		s.serverError(w, what, err)
+		return
+	}
+	if code == "no_upload" && what == "restore feeds" {
+		status = http.StatusNotFound
+	}
+	writeErrorMsg(w, status, code, msg)
+}
+
+// restoreErrorInfo maps a Restorer error to its status, code and message; code
+// is "" for an unexpected error.
+func restoreErrorInfo(err error) (status int, code, msg string) {
 	var (
 		space *backup.UploadSpaceError
 		newer *backup.NewerError
@@ -251,31 +307,26 @@ func (s *Server) writeRestoreError(w http.ResponseWriter, what string, err error
 	)
 	switch {
 	case errors.Is(err, context.Canceled):
-		// Cancelled from another tab (DELETE), or the client went away and reads nothing.
-		writeErrorMsg(w, http.StatusConflict, "restore_cancelled", "The upload was cancelled.")
+		// Cancelled (DELETE from another tab), or the client went away.
+		return http.StatusConflict, "restore_cancelled", "The upload was cancelled."
 	case errors.Is(err, backup.ErrRestoreBusy):
-		writeErrorMsg(w, http.StatusConflict, "restore_busy", err.Error())
+		return http.StatusConflict, "restore_busy", err.Error()
 	case errors.Is(err, backup.ErrRestorePending):
-		writeErrorMsg(w, http.StatusConflict, "restore_pending", err.Error())
+		return http.StatusConflict, "restore_pending", err.Error()
 	case errors.Is(err, backup.ErrNoUpload):
-		status := http.StatusConflict
-		if what == "restore feeds" {
-			status = http.StatusNotFound
-		}
-		writeErrorMsg(w, status, "no_upload", err.Error())
+		return http.StatusConflict, "no_upload", err.Error()
 	case errors.Is(err, backup.ErrUploadTooLarge), errors.Is(err, backup.ErrOPMLTooLarge):
-		writeErrorMsg(w, http.StatusRequestEntityTooLarge, "too_large", err.Error())
+		return http.StatusRequestEntityTooLarge, "too_large", err.Error()
 	case errors.Is(err, backup.ErrNotBackup):
-		writeErrorMsg(w, http.StatusBadRequest, "not_a_backup", err.Error())
+		return http.StatusBadRequest, "not_a_backup", err.Error()
 	case errors.Is(err, backup.ErrUploadCut):
-		writeErrorMsg(w, http.StatusBadRequest, "upload_incomplete", err.Error())
+		return http.StatusBadRequest, "upload_incomplete", err.Error()
 	case errors.As(err, &space):
-		writeErrorMsg(w, http.StatusInsufficientStorage, "no_space", err.Error())
+		return http.StatusInsufficientStorage, "no_space", err.Error()
 	case errors.As(err, &newer):
-		writeErrorMsg(w, http.StatusUnprocessableEntity, "newer_kipple", err.Error())
+		return http.StatusUnprocessableEntity, "newer_kipple", err.Error()
 	case errors.As(err, &bad):
-		writeErrorMsg(w, http.StatusBadRequest, "bad_backup", err.Error())
-	default:
-		s.serverError(w, what, err)
+		return http.StatusBadRequest, "bad_backup", err.Error()
 	}
+	return http.StatusInternalServerError, "", ""
 }

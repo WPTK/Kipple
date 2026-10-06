@@ -140,7 +140,8 @@ type Server struct {
 	now     func() time.Time
 	fails   *auth.FailureTracker
 	reach   *reach.Live // the reachability settings in force (Options.Reach)
-	// setupSlot admits one account creation at a time (setupAccount).
+	// setupSlot admits one account creation or restore confirm at a time
+	// (setupAccount, restoreConfirm), so the two exclude each other.
 	setupSlot chan struct{}
 
 	mode       modeCache // the Host gate's cached auth mode and allowed hosts

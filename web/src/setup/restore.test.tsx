@@ -22,6 +22,8 @@ class NoES {
 /** What the next upload answers. */
 let reply: { status: number; body: unknown; network?: boolean } = { status: 200, body: {} };
 let sent: File | null = null;
+/** An upload has been sent in this test: before that, a server with no restore under way answers "none". */
+let uploaded = false;
 
 /** XMLHttpRequest as far as the upload needs it: one progress event, then the canned answer. */
 class FakeXHR {
@@ -39,6 +41,7 @@ class FakeXHR {
   }
   send(f: File) {
     sent = f;
+    uploaded = true;
     setTimeout(() => {
       if (reply.network) return this.onerror?.();
       this.upload.onprogress?.({ lengthComputable: true, loaded: f.size, total: f.size });
@@ -64,11 +67,14 @@ const BACKUP = {
 };
 
 interface World {
-  restore: "none" | "uploaded" | "confirmed";
+  restore: "none" | "uploading" | "checking" | "ready" | "failed" | "confirmed";
+  /** What GET /api/setup/restore answers (default: the state alone). */
+  status?: unknown;
   setup: boolean;
   signedIn: boolean;
 }
 
+const ready = (over: Record<string, unknown> = {}) => ({ state: "ready", summary: { ...BACKUP, ...over }, estimate_seconds: 130 });
 const bodyOf = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body)) as Record<string, unknown>;
 
 function server(w: World, extra: Parameters<typeof mockFetch>[0] = {}) {
@@ -78,8 +84,10 @@ function server(w: World, extra: Parameters<typeof mockFetch>[0] = {}) {
       w.restore = "confirmed";
       return json({ restarting: true, estimate_seconds: 130 }, 202);
     },
+    "GET /api/setup/restore": () => json(w.restore === "none" && !uploaded ? { state: "none" } : (w.status ?? { state: w.restore })),
     "DELETE /api/setup/restore": () => {
       w.restore = "none";
+      w.status = undefined;
       return new Response(null, { status: 204 });
     },
     "GET /api/setup/restore/feeds": () => new Response('<opml version="2.0"><body/></opml>', { status: 200, headers: { "Content-Type": "text/x-opml" } }),
@@ -117,8 +125,9 @@ beforeEach(() => {
   updatePrefs({ font: "default" });
   vi.stubGlobal("EventSource", NoES);
   vi.stubGlobal("XMLHttpRequest", FakeXHR);
-  reply = { status: 200, body: BACKUP };
+  reply = { status: 202, body: { state: "checking" } };
   sent = null;
+  uploaded = false;
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -128,7 +137,7 @@ afterEach(() => {
 
 describe("restore in the setup wizard", () => {
   it("offers the restore on the first screen and keeps the account form", async () => {
-    server({ restore: "none", setup: true, signedIn: false });
+    server({ restore: "none", setup: true, signedIn: false, status: ready() });
     const { container } = go();
     expect(await screen.findByRole("heading", { level: 1, name: "Create your account" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restore from a backup" })).toBeInTheDocument();
@@ -136,7 +145,7 @@ describe("restore in the setup wizard", () => {
   });
 
   it("uploads a backup, shows what is in it and restores everything", async () => {
-    const w: World = { restore: "none", setup: true, signedIn: false };
+    const w: World = { restore: "none", setup: true, signedIn: false, status: ready() };
     const { calls } = server(w);
     const { container } = go();
     const user = userEvent.setup();
@@ -157,8 +166,7 @@ describe("restore in the setup wizard", () => {
   });
 
   it("needs a new password when the backup cannot sign in here, and sends it", async () => {
-    reply = { status: 200, body: { ...BACKUP, password_state: "none_access", needs_new_password: true, new_password_reason: "access_unavailable" } };
-    const { calls } = server({ restore: "none", setup: true, signedIn: false });
+    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready({ password_state: "none_access", needs_new_password: true, new_password_reason: "access_unavailable" }) });
     go();
     const user = userEvent.setup();
     await chooseFile(user);
@@ -177,7 +185,7 @@ describe("restore in the setup wizard", () => {
 
   it("shows the server's message when the file is not a backup", async () => {
     reply = { status: 400, body: { error: "not_a_backup", message: "This is not a Kipple backup zip or an OPML file." } };
-    server({ restore: "none", setup: true, signedIn: false });
+    server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
     const user = userEvent.setup();
     await chooseFile(user, "notes.txt");
@@ -188,7 +196,7 @@ describe("restore in the setup wizard", () => {
 
   it("explains a network failure during the upload", async () => {
     reply = { status: 0, body: {}, network: true };
-    server({ restore: "none", setup: true, signedIn: false });
+    server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
     const user = userEvent.setup();
     await chooseFile(user);
@@ -201,7 +209,7 @@ describe("restore in the setup wizard", () => {
     [409, "restore_cancelled", "The restore was cancelled."],
   ])("shows the server's message for %i %s", async (status, error, message) => {
     reply = { status, body: { error, message } };
-    server({ restore: "none", setup: true, signedIn: false });
+    server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
     const user = userEvent.setup();
     await chooseFile(user);
@@ -210,7 +218,7 @@ describe("restore in the setup wizard", () => {
 
   it("takes an OPML file as feeds only, then the account form says the feeds are ready", async () => {
     reply = { status: 200, body: { kind: "opml", feeds: 12 } };
-    server({ restore: "none", setup: true, signedIn: false });
+    server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
     const user = userEvent.setup();
     await chooseFile(user, "feeds.opml");
@@ -223,7 +231,7 @@ describe("restore in the setup wizard", () => {
   });
 
   it("takes feeds only from a backup by fetching its feeds file", async () => {
-    const { calls } = server({ restore: "none", setup: true, signedIn: false });
+    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
     const user = userEvent.setup();
     await chooseFile(user);
@@ -251,7 +259,7 @@ describe("restore in the setup wizard", () => {
   });
 
   it("cancels an upload on the server", async () => {
-    const w: World = { restore: "none", setup: true, signedIn: false };
+    const w: World = { restore: "none", setup: true, signedIn: false, status: ready() };
     const { calls } = server(w);
     go();
     const user = userEvent.setup();
@@ -262,17 +270,79 @@ describe("restore in the setup wizard", () => {
     expect(calls.filter((c) => c.method === "DELETE" && c.url.pathname === "/api/setup/restore")).toHaveLength(1);
   });
 
-  it("after a reload with an upload waiting, offers to continue or cancel", async () => {
-    const { calls } = server({ restore: "uploaded", setup: true, signedIn: false }, { "POST /api/setup/restore/confirm": () => json({ error: "password_required", message: "Choose a password." }, 400) });
+  it("after a reload with a backup ready, shows its contents before it can be confirmed", async () => {
+    const { calls } = server({ restore: "ready", setup: true, signedIn: false, status: ready() });
     go();
     const user = userEvent.setup();
-    expect(await screen.findByText(/still waiting on this Kipple/)).toBeInTheDocument();
+    const summary = await screen.findByTestId("backup-summary");
+    expect(summary).toHaveTextContent("You will sign in as reader");
+    expect(summary).toHaveTextContent("42 feeds, 1200 items, 7 starred");
     await user.click(screen.getByRole("button", { name: "Restore everything" }));
-    // The page never saw the backup, so the server's answer is what asks for a password.
-    expect(await screen.findByLabelText("New password")).toBeRequired();
+    await screen.findByRole("heading", { name: "Restoring your library" });
     expect(calls.filter((c) => c.url.pathname === "/api/setup/restore/confirm")).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(await screen.findByLabelText("Backup or OPML file")).toBeInTheDocument();
+  });
+
+  it("after a reload with no summary yet, offers no way to confirm", async () => {
+    server({ restore: "checking", setup: true, signedIn: false, status: { state: "checking" } });
+    go();
+    expect(await screen.findByText("Checking your backup...")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restore everything" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("opens the picker at once when the restore screen is reached again after Back", async () => {
+    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: { state: "none" } });
+    go();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Restore from a backup" }));
+    await screen.findByLabelText("Backup or OPML file");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(await screen.findByRole("button", { name: "Restore from a backup" }));
+    expect(screen.getByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(screen.queryByText("Checking your backup...")).toBeNull();
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+  });
+
+  it("polls while the server checks the upload, then shows the summary", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const w: World = { restore: "none", setup: true, signedIn: false, status: { state: "checking" } };
+    const { calls } = server(w);
+    go();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await chooseFile(user);
+    expect(await screen.findByText("Checking your backup...")).toBeInTheDocument();
+    w.status = ready();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+    expect(await screen.findByTestId("backup-summary")).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "GET" && c.url.pathname === "/api/setup/restore").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shows the server's message when the check fails, and goes back to the picker", async () => {
+    server({ restore: "none", setup: true, signedIn: false, status: { state: "failed", error: { code: "newer_kipple", message: "This backup was made by a newer Kipple (0.9). Update Kipple first." } } });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent("This backup was made by a newer Kipple (0.9). Update Kipple first.");
+    expect(screen.getByLabelText("Backup or OPML file")).toBeInTheDocument();
+  });
+
+  it("offers to cancel another upload that is in the way, then lets the user try again", async () => {
+    reply = { status: 409, body: { error: "restore_busy", message: "Another upload is in progress. Cancel it first." } };
+    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Another upload is in progress. Cancel it first.");
+    reply = { status: 202, body: { state: "checking" } };
+    await user.click(screen.getByRole("button", { name: "Cancel the other upload" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(calls.filter((c) => c.method === "DELETE" && c.url.pathname === "/api/setup/restore")).toHaveLength(1);
+    // The picker is back, so another file can be sent (the answer to a retry is the checking state).
+    server({ restore: "none", setup: true, signedIn: false, status: ready() });
+    await user.upload(screen.getByLabelText("Backup or OPML file"), new File(["x"], "again.zip"));
+    expect(await screen.findByTestId("backup-summary")).toBeInTheDocument();
   });
 
   it("after a reload while a restore is being applied, waits and then asks to sign in", async () => {

@@ -18,25 +18,36 @@ type SchemaObject struct {
 // memory and returns its schema objects: what a Kipple database at that version
 // holds and nothing else. A restore compares an uploaded database against it.
 func SchemaAt(ctx context.Context, version int) ([]SchemaObject, error) {
-	ms, err := loadMigrations()
-	if err != nil {
-		return nil, err
-	}
-	if version < 1 || version > len(ms) {
-		return nil, fmt.Errorf("store: no schema %d", version)
-	}
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1) // one connection: one in-memory database
-	for _, m := range ms[:version] {
-		if _, err := db.ExecContext(ctx, m.sql); err != nil {
-			return nil, fmt.Errorf("store: build schema %d: %s: %w", version, m.name, err)
-		}
+	if err := BuildSchema(ctx, db, version); err != nil {
+		return nil, err
 	}
 	return ReadSchema(ctx, db)
+}
+
+// BuildSchema applies the migrations up to version to the empty database db
+// (one connection) and sets its user_version, as a Kipple of that version
+// would have left it.
+func BuildSchema(ctx context.Context, db *sql.DB, version int) error {
+	ms, err := loadMigrations()
+	if err != nil {
+		return err
+	}
+	if version < 1 || version > len(ms) {
+		return fmt.Errorf("store: no schema %d", version)
+	}
+	for _, m := range ms[:version] {
+		if _, err := db.ExecContext(ctx, m.sql); err != nil {
+			return fmt.Errorf("store: build schema %d: %s: %w", version, m.name, err)
+		}
+	}
+	_, err = db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version))
+	return err
 }
 
 // ReadSchema lists the schema objects of the main database of q.

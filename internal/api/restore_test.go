@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -67,12 +69,49 @@ func backupZip(t *testing.T, hash, mode string) []byte {
 	return b
 }
 
+// upload posts b. A zip is answered 202 {"state":"checking"} and checked in
+// the background: upload then follows GET /api/setup/restore and returns the
+// summary (with "status": 200) once ready, or the error object (with
+// "status": "failed") if the check refused it. Anything else is the upload's
+// own answer with its status.
 func (h *restoreHarness) upload(b []byte, mod ...func(*http.Request)) map[string]any {
 	h.t.Helper()
 	rec := h.req("POST", "/api/setup/restore/upload", string(b), append([]func(*http.Request){hdr("Content-Type", "application/octet-stream")}, mod...)...)
 	out := decode(h.t, rec)
-	out["status"] = float64(rec.Code)
-	return out
+	if rec.Code != http.StatusAccepted {
+		out["status"] = float64(rec.Code)
+		return out
+	}
+	require.Equal(h.t, map[string]any{"state": "checking"}, out)
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		st := h.status(mod...)
+		switch st["state"] {
+		case "uploading", "checking":
+			require.Nil(h.t, st["summary"])
+			continue
+		case "ready":
+			require.Nil(h.t, st["error"])
+			sum := st["summary"].(map[string]any)
+			require.Equal(h.t, sum["estimate_seconds"], st["estimate_seconds"])
+			sum["status"] = float64(http.StatusOK)
+			return sum
+		case "failed":
+			require.Nil(h.t, st["summary"])
+			e := st["error"].(map[string]any)
+			return map[string]any{"status": "failed", "error": e["code"], "message": e["message"]}
+		default:
+			h.t.Fatalf("the check ended in %v", st)
+		}
+	}
+	h.t.Fatal("the check did not finish")
+	return nil
+}
+
+func (h *restoreHarness) status(mod ...func(*http.Request)) map[string]any {
+	h.t.Helper()
+	rec := h.req("GET", "/api/setup/restore", "", mod...)
+	require.Equal(h.t, http.StatusOK, rec.Code, rec.Body.String())
+	return decode(h.t, rec)
 }
 
 func (h *restoreHarness) restoreState() any {
@@ -82,6 +121,7 @@ func (h *restoreHarness) restoreState() any {
 func TestRestoreEverything(t *testing.T) {
 	h := newRestoreHarness(t)
 	require.Equal(t, "none", h.restoreState())
+	require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0)}, h.status())
 
 	out := h.upload(backupZip(t, "h", store.AuthStandard))
 	require.EqualValues(t, http.StatusOK, out["status"], out)
@@ -89,13 +129,17 @@ func TestRestoreEverything(t *testing.T) {
 	require.Equal(t, map[string]any{"status": float64(200), "kind": "backup", "kipple_version": "0.8.0", "feeds": float64(1), "items": float64(0),
 		"starred": float64(0), "username": "restored", "password_state": "password", "needs_new_password": false,
 		"new_password_reason": "", "estimate_seconds": float64(30)}, out)
-	require.Equal(t, "uploaded", h.restoreState())
+	require.Equal(t, "ready", h.restoreState())
 
 	rec := h.req("POST", "/api/setup/restore/confirm", `{}`)
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 	require.JSONEq(t, `{"restarting":true,"estimate_seconds":30}`, rec.Body.String())
 	require.EqualValues(t, 1, h.restarts.Load(), "the confirm shuts Kipple down")
 	require.Equal(t, "confirmed", h.restoreState())
+	st := h.status()
+	require.Equal(t, "confirmed", st["state"])
+	require.Nil(t, st["summary"])
+	require.Equal(t, float64(30), st["estimate_seconds"], "the waiting page can still read the estimate")
 	require.FileExists(t, filepath.Join(h.dir, backup.MarkerFile))
 
 	// While it waits, nothing else may happen.
@@ -176,11 +220,17 @@ func TestRestoreUploadKindsAndErrors(t *testing.T) {
 	rec := h.req("POST", "/api/setup/restore/upload", "abc", func(r *http.Request) { r.ContentLength = -1 })
 	require.Equal(t, http.StatusLengthRequired, rec.Code)
 
-	// A damaged zip.
+	// A damaged zip: accepted as a zip, refused by the check.
 	b := backupZip(t, "h", store.AuthStandard)
 	out = h.upload(b[:len(b)/2])
-	require.EqualValues(t, http.StatusBadRequest, out["status"])
+	require.Equal(t, "failed", out["status"])
 	require.Equal(t, "bad_backup", out["error"])
+	require.Contains(t, out["message"], "This backup cannot be restored")
+	rec = h.req("POST", "/api/setup/restore/confirm", `{}`)
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, "no_upload", decode(t, rec)["error"], "only a checked backup can be confirmed")
+	require.Equal(t, http.StatusNoContent, h.req("DELETE", "/api/setup/restore", "").Code, "a failed check is cleared")
+	require.Equal(t, "none", h.restoreState())
 
 	// The guards of the setup routes.
 	rec = h.req("POST", "/api/setup/restore/upload", string(b), hdr("X-Kipple-Client", ""))
@@ -191,8 +241,9 @@ func TestRestoreUploadKindsAndErrors(t *testing.T) {
 
 	// Two uploads: the second is busy until the first is cancelled.
 	require.EqualValues(t, http.StatusOK, h.upload(b)["status"])
-	out = h.upload(b)
-	require.EqualValues(t, http.StatusConflict, out["status"])
+	rec = h.req("POST", "/api/setup/restore/upload", string(b))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	out = decode(t, rec)
 	require.Equal(t, "restore_busy", out["error"])
 	require.Equal(t, http.StatusNoContent, h.req("DELETE", "/api/setup/restore", "").Code)
 	require.Equal(t, http.StatusNoContent, h.req("DELETE", "/api/setup/restore", "").Code, "idempotent")
@@ -210,7 +261,9 @@ func TestRestoreUploadKindsAndErrors(t *testing.T) {
 	h = newRestoreHarness(t, func(o *backup.RestorerOptions) {
 		o.FreeBytes = func(string) (uint64, error) { return 1 << 20, nil }
 	})
-	rec = h.req("POST", "/api/setup/restore/upload", string(b))
+	// A zip by its first bytes, larger than what was read to tell.
+	big := "PK\x03\x04" + strings.Repeat("x", 200<<10)
+	rec = h.req("POST", "/api/setup/restore/upload", big)
 	require.Equal(t, http.StatusInsufficientStorage, rec.Code)
 	out = decode(t, rec)
 	require.Equal(t, "no_space", out["error"])
@@ -224,7 +277,7 @@ func TestRestoreFeedsOnly(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.Equal(t, "no_upload", decode(t, rec)["error"])
 
-	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"])
+	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"], "uploaded and checked")
 	rec = h.req("GET", "/api/setup/restore/feeds", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "text/x-opml; charset=utf-8", rec.Header().Get("Content-Type"))
@@ -238,7 +291,7 @@ func TestRestoreFeedsOnly(t *testing.T) {
 // wins and drops the upload; afterwards every restore route is gone.
 func TestRestoreLosesToAnAccountClaim(t *testing.T) {
 	h := newRestoreHarness(t)
-	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"])
+	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"], "uploaded and checked")
 	rec := h.createAccount(map[string]any{"username": "reader", "password": setupPass})
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.Equal(t, backup.RestoreNone, h.Restore().State())
@@ -259,7 +312,7 @@ func TestRestoreLosesToAnAccountClaim(t *testing.T) {
 // and the confirm, through another process's database) refuses cleanly.
 func TestRestoreConfirmRechecksTheAccountRow(t *testing.T) {
 	h := newRestoreHarness(t)
-	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"])
+	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"], "uploaded and checked")
 	_, err := h.db.CreateAccount(context.Background(), store.Account{Username: "other", PasswordHash: "x", Secret: strings.Repeat("cd", 32)})
 	require.NoError(t, err)
 	rec := h.req("POST", "/api/setup/restore/confirm", `{}`)
@@ -307,4 +360,46 @@ func TestRestoreConfirmRacesAnAccountClaim(t *testing.T) {
 			t.Fatalf("nobody won: %v", got)
 		}
 	}
+}
+
+// An account claim while a backup is being checked cancels the check: the
+// upload is gone and the restore routes with it.
+func TestAccountClaimCancelsTheCheck(t *testing.T) {
+	h := newRestoreHarness(t)
+	rec := h.req("POST", "/api/setup/restore/upload", string(backupZip(t, "h", store.AuthStandard)))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusCreated, h.createAccount(map[string]any{"username": "reader", "password": setupPass}).Code)
+	require.Equal(t, backup.RestoreNone, h.Restore().State())
+	h.Restore().Close() // waits for the cancelled check
+	require.NoFileExists(t, filepath.Join(h.dir, backup.StagedFile))
+	require.NoFileExists(t, filepath.Join(h.dir, backup.UploadFile))
+}
+
+// A second tab sees an upload while its body arrives, and a DELETE from there
+// stops it; the first tab is told it was cancelled.
+func TestSecondTabSeesAndCancelsAnUpload(t *testing.T) {
+	h := newRestoreHarness(t)
+	b := backupZip(t, "h", store.AuthStandard)
+	pr, pw := io.Pipe()
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		r := httptest.NewRequest("POST", "/api/setup/restore/upload", pr)
+		r.ContentLength = int64(len(b))
+		r.Host, r.RemoteAddr = setupHost, setupPeer
+		r.Header.Set("Sec-Fetch-Site", "same-origin")
+		r.Header.Set("X-Kipple-Client", "web")
+		rec := httptest.NewRecorder()
+		h.root.ServeHTTP(rec, r)
+		done <- rec
+	}()
+	_, err := pw.Write(b[:100])
+	require.NoError(t, err)
+	require.Equal(t, "uploading", h.status()["state"])
+	require.Equal(t, "uploading", h.restoreState())
+	go func() { _, _ = pw.Write(b[100:]); _ = pw.Close() }()
+	require.Equal(t, http.StatusNoContent, h.req("DELETE", "/api/setup/restore", "").Code)
+	rec := <-done
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, "restore_cancelled", decode(t, rec)["error"])
+	require.Equal(t, "none", h.status()["state"])
 }

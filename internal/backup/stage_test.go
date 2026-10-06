@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,8 +33,31 @@ func newRestorer(t *testing.T, tune ...func(*RestorerOptions)) (*Restorer, strin
 	return r, dir
 }
 
+// upload sends b and, for a zip, waits for the background check: it returns
+// the checked summary, or the error the check failed with.
 func upload(r *Restorer, b []byte) (Upload, error) {
-	return r.Upload(context.Background(), bytes.NewReader(b), int64(len(b)))
+	up, err := r.Upload(context.Background(), bytes.NewReader(b), int64(len(b)))
+	if err != nil || up.Kind != KindBackup {
+		return up, err
+	}
+	return waitChecked(r)
+}
+
+func waitChecked(r *Restorer) (Upload, error) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		st := r.Status()
+		switch st.State {
+		case RestoreUploading, RestoreChecking:
+			continue
+		case RestoreReady:
+			return *st.Summary, nil
+		case RestoreFailed:
+			return Upload{}, st.Err
+		default:
+			return Upload{}, fmt.Errorf("the check ended in state %s", st.State)
+		}
+	}
+	return Upload{}, errors.New("the check did not finish")
 }
 
 // hostBackup is a real backup whose database holds the address settings and a
@@ -88,7 +112,7 @@ func TestUploadConfirmApply(t *testing.T) {
 	require.EqualValues(t, 1, up.Info.Starred)
 	require.Equal(t, BackupAccount{Username: "owner", HasPassword: true}, up.Account)
 	require.Equal(t, 30, up.EstimateSeconds, "a small backup gets the minimum")
-	require.Equal(t, RestoreUploaded, r.State())
+	require.Equal(t, RestoreReady, r.State())
 	require.False(t, exists(filepath.Join(dir, UploadFile)), "the zip is deleted at once")
 	require.True(t, exists(filepath.Join(dir, StagedFile)))
 	require.False(t, exists(filepath.Join(dir, MarkerFile)), "nothing is confirmed yet")
@@ -198,21 +222,45 @@ func TestUploadKinds(t *testing.T) {
 	require.Equal(t, RestoreNone, r.State())
 }
 
-// Free space is checked against about four times the file before a byte is
-// stored.
+// Free space is checked twice: for the zip itself before a byte is stored,
+// then for the database the manifest declares before it is extracted; a
+// shortfall is a space error either way, never a damaged backup.
 func TestUploadSpaceCheck(t *testing.T) {
 	b := hostBackup(t)
 	var asked string
 	r, dir := newRestorer(t, func(o *RestorerOptions) {
-		o.FreeBytes = func(d string) (uint64, error) { asked = d; return uint64(len(b)) * 3, nil }
+		o.FreeBytes = func(d string) (uint64, error) { asked = d; return uint64(len(b)), nil }
 	})
 	_, err := upload(r, b)
 	var space *UploadSpaceError
 	require.ErrorAs(t, err, &space)
-	require.Equal(t, int64(len(b))*4+16<<20, space.Need)
+	require.Equal(t, int64(len(b))+16<<20, space.Need)
 	require.Contains(t, err.Error(), "Not enough free disk space to restore this backup")
 	require.Equal(t, dir, asked)
 	require.NoFileExists(t, filepath.Join(dir, UploadFile), "nothing was written")
+	require.Equal(t, RestoreNone, r.State(), "refused at once")
+
+	// Room for the zip, not for the database in it.
+	var mf Manifest
+	require.NoError(t, json.Unmarshal(zipEntries(t, b)[ManifestFile], &mf))
+	calls := 0
+	r, dir = newRestorer(t, func(o *RestorerOptions) {
+		o.FreeBytes = func(string) (uint64, error) {
+			calls++
+			if calls == 1 {
+				return 1 << 40, nil
+			}
+			return uint64(mf.DBBytes) - 1, nil
+		}
+	})
+	_, err = upload(r, b)
+	require.ErrorAs(t, err, &space)
+	require.Equal(t, mf.DBBytes, space.Need, "sized from the manifest, not the compressed zip")
+	var bad *BadUploadError
+	require.False(t, errors.As(err, &bad))
+	require.Equal(t, RestoreFailed, r.State())
+	require.NoFileExists(t, filepath.Join(dir, StagedFile))
+	require.NoFileExists(t, filepath.Join(dir, UploadFile))
 
 	// Unknown free space does not block.
 	r, _ = newRestorer(t, func(o *RestorerOptions) {
@@ -266,18 +314,33 @@ func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 		"table":           "CREATE TABLE evil (a)",
 		"index":           "CREATE INDEX evil ON items(title)",
 		"changed trigger": "DROP TRIGGER folders_keep_default; CREATE TRIGGER folders_keep_default BEFORE DELETE ON folders BEGIN DELETE FROM items; END",
+		// SQLite refuses to create an object named sqlite_*, but writable_schema
+		// can plant one, and it fires like any other.
+		"sqlite_ trigger": "PRAGMA writable_schema = ON; INSERT INTO sqlite_master (type, name, tbl_name, rootpage, sql) VALUES ('trigger', 'sqlite_evil', 'sessions', 0, 'CREATE TRIGGER sqlite_evil AFTER INSERT ON sessions BEGIN DELETE FROM items; END'); PRAGMA writable_schema = OFF",
+		"sqlite_ view":    "PRAGMA writable_schema = ON; INSERT INTO sqlite_master (type, name, tbl_name, rootpage, sql) VALUES ('view', 'sqlite_v', 'sqlite_v', 0, 'CREATE VIEW sqlite_v AS SELECT 1'); PRAGMA writable_schema = OFF",
+		"missing index":   "DROP INDEX idx_sessions_expires",
+		"missing trigger": "DROP TRIGGER items_fts_au",
 	} {
 		r, dir := newRestorer(t)
 		_, err := upload(r, rebuilt(t, b, change))
 		var bad *BadUploadError
 		require.ErrorAs(t, err, &bad, name)
 		want := "which Kipple never creates"
-		if name == "changed trigger" {
+		switch name {
+		case "changed trigger":
 			want = `a changed trigger "folders_keep_default"`
+		case "sqlite_ trigger":
+			want = `the trigger "sqlite_evil", which Kipple never creates`
+		case "sqlite_ view":
+			want = `the view "sqlite_v", which Kipple never creates`
+		case "missing index":
+			want = `lacks the index "idx_sessions_expires"`
+		case "missing trigger":
+			want = `lacks the trigger "items_fts_au"`
 		}
 		require.Contains(t, err.Error(), want, name)
 		require.NoFileExists(t, filepath.Join(dir, StagedFile), name)
-		require.Equal(t, RestoreNone, r.State(), name)
+		require.Equal(t, RestoreFailed, r.State(), name)
 	}
 	// The same rebuild without a change passes: the check is not the zip's doing.
 	r, _ := newRestorer(t)
@@ -301,6 +364,33 @@ func TestCheckSchemaMatchesAFreshDatabase(t *testing.T) {
 	require.ErrorContains(t, err, "which Kipple never creates")
 }
 
+// A database made by any older version and upgraded by this one has exactly
+// the objects of a fresh one, both ways, so the two-way check refuses no real
+// backup; and a database left at any older version matches that version.
+// Some migration files were edited after they shipped, so this was also run
+// once against databases made by the code of every release tag (v0.1.0 to
+// v0.8.0-beta.3), as made, upgraded by this binary, and upgraded through every
+// later tag in turn: none was refused (docs/design.md §2.6).
+func TestCheckSchemaAcceptsEveryUpgradePath(t *testing.T) {
+	ctx := context.Background()
+	for v := 1; v <= store.LatestVersion(); v++ {
+		path := filepath.Join(t.TempDir(), "kipple.db")
+		raw, err := openDSN(path, nil)
+		require.NoError(t, err)
+		require.NoError(t, store.BuildSchema(ctx, raw, v))
+		require.NoError(t, CheckSchema(ctx, raw, v), "fresh at %d", v)
+		require.NoError(t, raw.Close())
+
+		db, err := store.Open(ctx, store.Options{Path: path, Logger: quiet})
+		require.NoError(t, err, "upgrade from %d", v)
+		require.NoError(t, db.Close())
+		raw, err = openFile(path)
+		require.NoError(t, err)
+		require.NoError(t, CheckSchema(ctx, raw, store.LatestVersion()), "upgraded from %d", v)
+		require.NoError(t, raw.Close())
+	}
+}
+
 func TestUploadRefusesTooManyEntries(t *testing.T) {
 	extra := map[string][]byte{}
 	for i := 0; i < MaxEntries; i++ {
@@ -312,6 +402,47 @@ func TestUploadRefusesTooManyEntries(t *testing.T) {
 	require.ErrorAs(t, err, &bad)
 	require.Contains(t, err.Error(), "holds 12 files")
 	require.NoFileExists(t, filepath.Join(dir, StagedFile))
+}
+
+// The entry count is read from the zip's end record before the directory is
+// parsed: a zip claiming tens of thousands of entries is refused unread.
+func TestExtractCapsEntriesBeforeParsing(t *testing.T) {
+	z := goodZip([]byte("db"), nil)
+	eocd := bytes.LastIndex(z, []byte("PK\x05\x06"))
+	require.Positive(t, eocd)
+	crafted := bytes.Clone(z)
+	binary.LittleEndian.PutUint16(crafted[eocd+8:], 60000)  // entries on this disk
+	binary.LittleEndian.PutUint16(crafted[eocd+10:], 60000) // entries in total
+	src := filepath.Join(t.TempDir(), "c.zip")
+	require.NoError(t, os.WriteFile(src, crafted, 0o600))
+	_, err := ExtractDB(src, filepath.Join(t.TempDir(), "o.db"))
+	require.ErrorContains(t, err, "holds 60000 files")
+
+	// A directory far larger than a backup's.
+	crafted = bytes.Clone(z)
+	binary.LittleEndian.PutUint32(crafted[eocd+12:], 1<<20)
+	require.NoError(t, os.WriteFile(src, crafted, 0o600))
+	_, err = ExtractDB(src, filepath.Join(t.TempDir(), "o.db"))
+	require.ErrorContains(t, err, "directory is 1048576 bytes")
+
+	// The zip64 record is read when the plain one is saturated.
+	crafted = bytes.Clone(z)
+	binary.LittleEndian.PutUint16(crafted[eocd+10:], 0xffff)
+	require.NoError(t, os.WriteFile(src, crafted, 0o600))
+	_, err = ExtractDB(src, filepath.Join(t.TempDir(), "o.db"))
+	require.ErrorContains(t, err, "zip64")
+}
+
+// Extraction stops when its context ends and leaves nothing behind.
+func TestExtractIsCancellable(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "b.zip")
+	require.NoError(t, os.WriteFile(src, hostBackup(t), 0o600))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dst := filepath.Join(t.TempDir(), "o.db")
+	_, err := Extract(ctx, src, dst, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	require.NoFileExists(t, dst)
 }
 
 func TestUploadRefusesANewerKipple(t *testing.T) {
@@ -346,8 +477,8 @@ func TestUploadRefusesANewerKipple(t *testing.T) {
 	require.NotContains(t, strings.ToLower(err.Error()), "schema")
 }
 
-// One intent at a time: a second upload while one arrives or waits is busy; a
-// cancel stops the one arriving and frees the slot.
+// One intent at a time: a second upload while one arrives, is checked or waits
+// is busy; a cancel stops the one arriving and frees the slot.
 func TestUploadRaces(t *testing.T) {
 	b := hostBackup(t)
 	r, dir := newRestorer(t)
@@ -359,16 +490,17 @@ func TestUploadRaces(t *testing.T) {
 	}()
 	_, err := pw.Write(b[:100]) // the first upload is now reading
 	require.NoError(t, err)
+	require.Equal(t, RestoreUploading, r.State(), "a second tab sees the upload arriving")
 	_, err = upload(r, b)
 	require.ErrorIs(t, err, ErrRestoreBusy)
 	require.Contains(t, err.Error(), "Cancel it first")
-	require.Equal(t, RestoreNone, r.State(), "an upload still arriving is not an upload yet")
 
 	cancelled := make(chan error, 1)
 	go func() { cancelled <- r.Cancel() }()
 	go func() { _, _ = pw.Write(b[100:]); _ = pw.Close() }() // the client keeps sending
 	require.ErrorIs(t, <-first, context.Canceled)
 	require.NoError(t, <-cancelled)
+	require.Equal(t, RestoreNone, r.State())
 	require.NoFileExists(t, filepath.Join(dir, UploadFile))
 	require.NoFileExists(t, filepath.Join(dir, StagedFile))
 
@@ -391,6 +523,48 @@ func TestUploadRaces(t *testing.T) {
 	require.Equal(t, RestoreNone, r.State())
 	require.NoFileExists(t, filepath.Join(dir, StagedFile))
 	require.ErrorIs(t, r.Confirm(context.Background(), ticket, ""), ErrNoUpload)
+}
+
+// The check runs after Upload returns; a cancel during it stops it, removes its
+// files and frees the slot; a confirm is refused until it is ready.
+func TestCancelDuringTheCheck(t *testing.T) {
+	b := hostBackup(t)
+	for i := 0; i < 5; i++ {
+		r, dir := newRestorer(t)
+		up, err := r.Upload(context.Background(), bytes.NewReader(b), int64(len(b)))
+		require.NoError(t, err)
+		require.Equal(t, Upload{Kind: KindBackup}, up, "answered once the body arrived")
+		if _, _, ok := r.Uploaded(); !ok {
+			require.ErrorIs(t, r.Confirm(context.Background(), 0, ""), ErrNoUpload)
+		}
+		require.NoError(t, r.Cancel())
+		require.Equal(t, RestoreNone, r.State())
+		require.NoFileExists(t, filepath.Join(dir, UploadFile))
+		require.NoFileExists(t, filepath.Join(dir, StagedFile))
+		_, err = upload(r, b)
+		require.NoError(t, err, "the slot is free again")
+	}
+}
+
+// A refused check is reported as failed until it is cleared or replaced.
+func TestFailedCheckIsReportedAndCleared(t *testing.T) {
+	b := hostBackup(t)
+	r, dir := newRestorer(t)
+	_, err := upload(r, rebuilt(t, b, "CREATE TABLE evil (a)"))
+	require.Error(t, err)
+	st := r.Status()
+	require.Equal(t, RestoreFailed, st.State)
+	var bad *BadUploadError
+	require.ErrorAs(t, st.Err, &bad)
+	require.Nil(t, st.Summary)
+	require.NoFileExists(t, filepath.Join(dir, StagedFile))
+	require.NoError(t, r.Cancel())
+	require.Equal(t, RestoreNone, r.State())
+
+	_, err = upload(r, rebuilt(t, b, "CREATE TABLE evil (a)"))
+	require.Error(t, err)
+	_, err = upload(r, b)
+	require.NoError(t, err, "a new upload replaces a failed one")
 }
 
 func TestUnconfirmedUploadExpires(t *testing.T) {
@@ -516,4 +690,46 @@ func TestRestoreTextsSayNoSchemaVersion(t *testing.T) {
 		require.NotContains(t, strings.ToLower(e.Error()), "schema", e.Error())
 	}
 	require.NotContains(t, strings.ToLower(restoreText), "schema")
+}
+
+// The first bytes decide before anything is stored or any space is asked
+// for: a file that is neither a zip nor OPML, and an OPML file too large for
+// an import, are refused at once.
+func TestSniffBeforeSpooling(t *testing.T) {
+	asked := 0
+	r, dir := newRestorer(t, func(o *RestorerOptions) {
+		o.FreeBytes = func(string) (uint64, error) { asked++; return 1 << 40, nil }
+	})
+	body := append([]byte("not a backup"), bytes.Repeat([]byte("x"), 200<<10)...)
+	pr, pw := io.Pipe()
+	go func() { _, _ = pw.Write(body[:sniffBytes]) }() // the rest never comes
+	_, err := r.Upload(context.Background(), pr, int64(len(body)))
+	require.ErrorIs(t, err, ErrNotBackup, "refused from the first 64 KB, without waiting for the rest")
+	_ = pr.Close()
+
+	big := append([]byte("<opml><body>"), bytes.Repeat([]byte(" "), maxFeedsOPML)...)
+	pr, pw = io.Pipe()
+	go func() { _, _ = pw.Write(big[:sniffBytes]) }()
+	_, err = r.Upload(context.Background(), pr, int64(len(big)))
+	require.ErrorIs(t, err, ErrOPMLTooLarge)
+	_ = pr.Close()
+
+	require.Zero(t, asked, "no space check for a file that is refused anyway")
+	require.NoFileExists(t, filepath.Join(dir, UploadFile))
+	require.Equal(t, RestoreNone, r.State())
+}
+
+// "Everything" does not depend on the OPML import limit: a backup whose
+// feeds.opml is over 8 MB restores, and "feeds only" hands the file out whole.
+func TestLargeFeedsOPMLDoesNotBlockARestore(t *testing.T) {
+	ents := zipEntries(t, hostBackup(t))
+	big := append([]byte("<opml><body>"), bytes.Repeat([]byte(" "), maxFeedsOPML+1)...)
+	big = append(big, []byte("</body></opml>")...)
+	r, _ := newRestorer(t)
+	up, err := upload(r, goodZip(ents[DBFile], map[string][]byte{OPMLFile: big}))
+	require.NoError(t, err)
+	require.Equal(t, "owner", up.Account.Username)
+	got, err := r.Feeds()
+	require.NoError(t, err)
+	require.Equal(t, big, got)
 }

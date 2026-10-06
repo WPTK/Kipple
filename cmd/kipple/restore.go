@@ -222,6 +222,13 @@ func restore(ctx context.Context, o restoreOptions) error {
 	if !backupExisted {
 		owned = append(owned, backupDir) // a swap creates it; chown ignores a missing path
 	}
+	// A restore confirmed in the setup wizard and not applied yet (Kipple was
+	// stopped before it started again) would replace this one at the next start:
+	// this restore is the newer decision, so that one is dropped first. Done
+	// before the swap, so a crash in between can never leave both in place.
+	if backup.DiscardStaged(o.DataDir) {
+		fmt.Fprintln(out, "A restore that was waiting to be applied at the next start was dropped; this one replaces it.")
+	}
 	pre, err := backup.Swap(o.DataDir, tmp, o.Now())
 	if err != nil {
 		return err
@@ -232,12 +239,6 @@ func restore(ctx context.Context, o restoreOptions) error {
 		owned = append(owned, pre)
 	}
 	backup.PrunePreRestore(backupDir, localZone())
-	// A restore confirmed in the setup wizard and not applied yet (Kipple was
-	// stopped before it started again) would replace this one at the next start:
-	// this restore is the newer decision, so that one is dropped.
-	if backup.DiscardStaged(o.DataDir) {
-		fmt.Fprintln(out, "A restore that was waiting to be applied at the next start was dropped; this one replaces it.")
-	}
 	if moved {
 		fmt.Fprintf(out, "The previous database was moved to %s\n", pre)
 	} else {

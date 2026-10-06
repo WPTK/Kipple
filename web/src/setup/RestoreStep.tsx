@@ -5,14 +5,30 @@ import { Button } from "@/ui/button";
 import { Field, Notice, inputCls } from "@/ui/kit";
 import { passwordProblem } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
-import { cancelRestore, confirmRestore, fetchBackupFeeds, restoreErrorText, sizeText, uploadRestoreFile, type BackupSummary, type UploadSummary } from "./restoreApi";
+import {
+  cancelRestore,
+  confirmRestore,
+  fetchBackupFeeds,
+  fetchRestoreStatus,
+  restoreErrorText,
+  sizeText,
+  uploadRestoreFile,
+  type BackupSummary,
+  type OpmlSummary,
+  type RestoreStatus,
+} from "./restoreApi";
 
 const RESTORE_STEP = { id: "restore", n: 0, title: "Restore from a backup" } as const;
 
 /** A network failure during the upload has no answer to quote: the usual causes are a full disk or a proxy size limit. */
 const UPLOAD_FAILED = "The upload was refused or interrupted. Check that the server has enough free disk space and that any proxy in front of Kipple allows a file this size.";
 
+/** How often the page asks the server whether its check of the backup is done. */
+export const CHECK_POLL_MS = 2000;
+
 type Mode = "everything" | "feeds";
+/** pick: choosing a file. sending: the upload runs. waiting: the server holds an upload (receiving or checking it). review: a backup or OPML file is ready to confirm. */
+type View = "pick" | "sending" | "waiting" | "review";
 
 const EVERYTHING_HELP = "Everything brings back your feeds and folders, your read and starred items, your settings and your account.";
 const FEEDS_HELP = "Feeds only brings your subscriptions and folders. Read and starred items, settings and your account stay behind.";
@@ -27,61 +43,137 @@ export interface RestoreHandlers {
 }
 
 /** Why a backup needs a password chosen here, in the reader's words. */
-function passwordReason(s: BackupSummary | null): string {
-  if (s?.new_password_reason === "open_refused") return "This backup has no password, and Kipple doesn't allow that from this address. Choose a password for it.";
-  if (s?.new_password_reason === "access_unavailable") return "This backup relies on Cloudflare Access to sign in, and Kipple can't see your Access sign-in from this page. Choose a password to use instead.";
+function passwordReason(s: BackupSummary): string {
+  if (s.new_password_reason === "open_refused") return "This backup has no password, and Kipple doesn't allow that from this address. Choose a password for it.";
+  if (s.new_password_reason === "access_unavailable") return "This backup relies on Cloudflare Access to sign in, and Kipple can't see your Access sign-in from this page. Choose a password to use instead.";
   return "This backup needs a password to sign in from this page. Choose one.";
 }
 
 /**
  * Before the account exists: restore a Kipple backup (a zip) or take the feeds of an OPML file. The file goes to the
- * server as it is, with a progress bar. A backup then offers "Everything" (the server replaces itself with it and
- * restarts) or "Feeds only" (the normal setup continues and the import step is offered the feeds).
- * `resume`: the server already holds an upload from before a reload, and this page knows nothing about it.
+ * server as it is, with a progress bar; the server then checks it, which this page waits for. A backup then offers
+ * "Everything" (the server replaces itself with it and restarts) or "Feeds only" (the normal setup continues and the
+ * import step is offered the feeds). Nothing can be confirmed until the backup's contents are on screen.
+ * `resume`: the server already holds a restore from before a reload, and this page asks it where it is.
  */
 export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: RestoreHandlers & { resume: boolean }) {
   const uid = useId();
+  const [view, setView] = useState<View>(resume ? "waiting" : "pick");
+  const viewNow = useRef(view);
+  useEffect(() => {
+    viewNow.current = view;
+  });
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<{ sent: number; total: number } | null>(null);
-  const [summary, setSummary] = useState<UploadSummary | null>(null);
-  const [held, setHeld] = useState(resume);
+  const [serverState, setServerState] = useState<"uploading" | "checking">("checking");
+  const [backup, setBackup] = useState<BackupSummary | null>(null);
+  const [opml, setOpml] = useState<OpmlSummary | null>(null);
   const [mode, setMode] = useState<Mode>("everything");
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
-  const [needsPw, setNeedsPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [busyUpload, setBusyUpload] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const pwInput = useRef<HTMLInputElement>(null);
+  const handoff = useRef({ onConfirmed });
+  useEffect(() => {
+    handoff.current = { onConfirmed };
+  });
 
   // An upload still in flight when this screen goes away is stopped.
   useEffect(() => () => abort.current?.abort(), []);
 
-  const backup = summary?.kind === "backup" ? summary : null;
-  const opml = summary?.kind === "opml" ? summary : null;
-  const uploading = progress !== null && summary === null && error === null;
-  const passwordNeeded = needsPw || backup?.needs_new_password === true;
+  const passwordNeeded = backup?.needs_new_password === true;
   const everything = mode === "everything" && !opml;
+
+  /** Shows what the server says about its restore. */
+  const apply = (st: RestoreStatus) => {
+    if (st.state === "ready" && st.summary) {
+      setBackup(st.summary);
+      setMode("everything");
+      setView("review");
+    } else if (st.state === "failed") {
+      setError(st.error?.message || "The backup could not be read. Try another file.");
+      setView("pick");
+      // The failed attempt is of no use to anyone: clear it so the next upload starts clean.
+      void cancelRestore().catch(() => undefined);
+    } else if (st.state === "confirmed") {
+      handoff.current.onConfirmed({ estimateSeconds: st.estimate_seconds ?? st.summary?.estimate_seconds ?? 300, username: st.summary?.username ?? null });
+    } else if (st.state === "uploading" || st.state === "checking") {
+      setServerState(st.state);
+      setView("waiting");
+    } else {
+      setView("pick");
+    }
+  };
+
+  // Opened at the picker: if the server holds a restore after all, show that, unless the person has already started one here.
+  useEffect(() => {
+    if (resume) return;
+    let stop = false;
+    fetchRestoreStatus()
+      .then((st) => {
+        if (!stop && st.state !== "none" && viewNow.current === "pick") apply(st);
+      })
+      .catch(() => undefined);
+    return () => {
+      stop = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // While the server holds an upload that is not ready (this page's own, or one from before a reload), ask until it is.
+  useEffect(() => {
+    if (view !== "waiting") return;
+    let stop = false;
+    const ask = async () => {
+      try {
+        const st = await fetchRestoreStatus();
+        if (!stop) apply(st);
+      } catch {
+        /* the server is busy or away for a moment: ask again */
+      }
+    };
+    void ask();
+    const t = window.setInterval(() => void ask(), CHECK_POLL_MS);
+    return () => {
+      stop = true;
+      window.clearInterval(t);
+    };
+  }, [view]);
 
   const start = async (f: File) => {
     setFile(f);
     setError(null);
-    setSummary(null);
+    setBusyUpload(false);
+    setBackup(null);
+    setOpml(null);
     setProgress({ sent: 0, total: f.size });
+    setView("sending");
     const ctl = new AbortController();
     abort.current = ctl;
     try {
-      const s = await uploadRestoreFile(f, (sent, total) => setProgress({ sent, total }), ctl.signal);
-      setSummary(s);
-      setMode(s.kind === "backup" ? "everything" : "feeds");
+      const r = await uploadRestoreFile(f, (sent, total) => setProgress({ sent, total }), ctl.signal);
+      if ("kind" in r) {
+        setOpml(r);
+        setMode("feeds");
+        setView("review");
+      } else {
+        setServerState("checking");
+        setView("waiting");
+      }
     } catch (e) {
-      if (e instanceof ApiError && e.status === 0 && e.code !== "aborted") setError(UPLOAD_FAILED);
+      if (e instanceof ApiError && e.code === "aborted") return;
+      if (e instanceof ApiError && e.status === 0) setError(UPLOAD_FAILED);
       // 411 length_required, 400 upload_incomplete, 409 restore_cancelled and the rest carry a message written for the reader.
-      else if (!(e instanceof ApiError && e.code === "aborted")) setError(restoreErrorText(e));
-      setProgress(null);
+      else setError(restoreErrorText(e));
+      setBusyUpload(e instanceof ApiError && e.code === "restore_busy");
       setFile(null);
+      setProgress(null);
+      setView("pick");
     } finally {
       abort.current = null;
     }
@@ -91,7 +183,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
     e.preventDefault();
     setOver(false);
     const f = e.dataTransfer.files[0];
-    if (f && !uploading && !busy) void start(f);
+    if (f && view === "pick" && !busy) void start(f);
   };
 
   /** Throws the upload away (on the server too) and goes back to choosing a file. */
@@ -109,15 +201,16 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
       }
     }
     setBusy(false);
-    setSummary(null);
+    setBackup(null);
+    setOpml(null);
     setProgress(null);
     setFile(null);
-    setHeld(false);
-    setNeedsPw(false);
     setPassword("");
     setAgain("");
     setError(null);
+    setBusyUpload(false);
     setPwError(null);
+    setView("pick");
   };
 
   const submit = async (e: FormEvent) => {
@@ -149,11 +242,6 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
       onConfirmed({ estimateSeconds: r.estimate_seconds, username: backup?.username ?? null });
     } catch (err) {
       setBusy(false);
-      if (err instanceof ApiError && err.code === "password_required") {
-        setNeedsPw(true);
-        setPwError("This backup needs a password. Choose one.");
-        return;
-      }
       if (err instanceof ApiError && err.code === "bad_new_password") {
         setPwError(restoreErrorText(err));
         pwInput.current?.focus();
@@ -163,13 +251,21 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
     }
   };
 
-  const picking = summary === null && !held && !uploading;
   return (
     <WizardFrame step={RESTORE_STEP} description="Restore a Kipple backup, or bring only the feeds from a backup or an OPML file.">
       <div className="flex flex-1 flex-col gap-5">
-        {error ? <Notice tone="error">{error}</Notice> : null}
+        {error ? (
+          <Notice tone="error">
+            <p>{error}</p>
+            {busyUpload ? (
+              <Button className="mt-2" disabled={busy} onClick={() => void discard()}>
+                Cancel the other upload
+              </Button>
+            ) : null}
+          </Notice>
+        ) : null}
 
-        {picking ? (
+        {view === "pick" ? (
           <>
             <div
               onDragOver={(e) => {
@@ -199,7 +295,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
           </>
         ) : null}
 
-        {uploading && file ? (
+        {view === "sending" && file ? (
           <div className="flex flex-1 flex-col gap-3">
             <p className="font-semibold" role="status">
               Uploading {file.name}
@@ -214,7 +310,21 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
           </div>
         ) : null}
 
-        {!picking && !uploading ? (
+        {view === "waiting" ? (
+          <div className="flex flex-1 flex-col gap-3">
+            <p className="font-semibold" role="status">
+              {serverState === "uploading" ? "A backup is being uploaded to this Kipple." : "Checking your backup..."}
+            </p>
+            <p className="text-sm text-fg2">{serverState === "uploading" ? "Wait for it to finish, or cancel it and start again." : "This can take a minute for a large backup. Keep this page open."}</p>
+            <StepActions>
+              <Button disabled={busy} onClick={() => void discard()}>
+                Cancel
+              </Button>
+            </StepActions>
+          </div>
+        ) : null}
+
+        {view === "review" ? (
           <form onSubmit={(e) => void submit(e)} className="flex flex-1 flex-col gap-5" noValidate>
             {backup ? (
               <section className="flex flex-col gap-1 rounded-xl border border-line bg-surface p-3" aria-label="Backup contents" data-testid="backup-summary">
@@ -231,7 +341,6 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
                 <p className="text-sm text-fg2">{opml.feeds} feeds found.</p>
               </section>
             ) : null}
-            {held && !summary ? <Notice>A backup you added earlier is still waiting on this Kipple. Continue with it, or cancel and choose another file.</Notice> : null}
 
             {opml ? (
               <p className="text-sm text-fg2">{FEEDS_HELP}</p>
@@ -243,9 +352,13 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
               </fieldset>
             )}
 
-            {everything ? (
+            {everything && backup ? (
               <div className="flex flex-col gap-3">
-                {passwordNeeded ? <Notice tone="warn" role="status">{passwordReason(backup)}</Notice> : null}
+                {passwordNeeded ? (
+                  <Notice tone="warn" role="status">
+                    {passwordReason(backup)}
+                  </Notice>
+                ) : null}
                 <Field
                   label={passwordNeeded ? "New password" : "Set a new password (optional)"}
                   help={passwordNeeded ? "At least 5 characters." : "Leave empty to keep the password in the backup."}

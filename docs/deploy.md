@@ -525,8 +525,9 @@ of [What to back up](#what-to-back-up).
 
 Start Kipple on an empty data volume and open it. The first screen offers "Create an account" or "Restore from a
 backup". Pick the export zip (Settings > Account > Export backup on the old server); the upload shows a progress bar.
-Kipple checks the file before anything changes: the manifest and every checksum, the integrity checks, and that the
-database holds nothing a Kipple of its version would not create. It then shows the Kipple version that made the backup,
+Then Kipple checks the file before anything changes, while the page waits: the manifest and every checksum, the
+integrity checks, and that the database holds exactly what a Kipple of its version creates, nothing more or less. It
+then shows the Kipple version that made the backup,
 its date, the feed, item and starred counts, and the user name you will sign in with, and offers two choices:
 
 - **Everything**: the account, settings, feeds, read and starred state and statistics. Confirm, and Kipple keeps the
@@ -547,14 +548,16 @@ Things to know:
   a wizard restore clears them; set them again in Settings, Account & Devices, Address and access (or with
   `KIPPLE_PUBLIC_URL`, `KIPPLE_ALLOWED_HOSTS` and `KIPPLE_TRUSTED_PROXY_IPS`, which seed them on that start). Cloudflare
   Access comes back from the backup.
-- **Disk space.** The upload needs about four times the zip's size free on the data volume (the zip, the database in
-  it and, for a backup from an older Kipple, the upgrade on the next start). The zip is deleted as soon as the database
-  is out of it.
+- **Disk space.** The data volume needs room for the zip while it arrives, then for the database inside it (its size is
+  read from the backup's manifest before anything is extracted), and for a backup from an older Kipple about 3.1 times
+  the database for the upgrade on the next start. The zip is deleted as soon as the database is out of it. A shortfall
+  says how much room is needed.
 - **Images and icons** are not in a backup; they are downloaded again when first shown.
 - **A backup from a newer Kipple** is refused: update Kipple first. One from an older Kipple is upgraded on the start
   that applies it, after the usual `pre-migration-*` snapshot.
-- **One restore at a time.** A second upload while one is in progress is refused until the first is cancelled. An
-  upload you do not confirm is deleted after an hour, or at the next start. Once you confirm, creating an account is
+- **One restore at a time.** A second upload while one is arriving, being checked or waiting is refused until the
+  first is cancelled; a second browser tab sees it and can cancel it. A checked upload you do not confirm is deleted
+  after an hour, or at the next start. Once you confirm, creating an account is
   refused until the restore is applied; if someone creates the account first, the restore is refused and the upload
   deleted.
 - **Large files.** The wizard takes backups up to the 4 GiB database limit. A proxy or tunnel in front of Kipple may

@@ -24,16 +24,29 @@ export interface OpmlSummary {
   feeds: number;
 }
 
-export type UploadSummary = BackupSummary | OpmlSummary;
+/** What the upload answers: an OPML file is read at once; a zip is then checked on the server (poll the status). */
+export type UploadResult = OpmlSummary | { state: "checking" };
 
-/** What an unfinished restore looks like to GET /api/instance. */
-export type RestoreState = "none" | "uploaded" | "confirmed";
+/** Where a restore is: the same names in GET /api/instance and GET /api/setup/restore. */
+export type RestoreState = "none" | "uploading" | "checking" | "ready" | "failed" | "confirmed";
+
+/** GET /api/setup/restore. */
+export interface RestoreStatus {
+  state: RestoreState;
+  /** When ready (and still there once confirmed). */
+  summary?: BackupSummary;
+  /** When failed. */
+  error?: { code: string; message: string };
+  estimate_seconds?: number;
+}
+
+export const fetchRestoreStatus = () => api<RestoreStatus>("/api/setup/restore", { anon: true, quiet: true });
 
 /**
  * Sends the file as the raw request body. fetch cannot report upload progress, so this uses XMLHttpRequest. Answers
  * with what the server found, or throws an ApiError (status 0 when the network failed or the upload was cancelled).
  */
-export function uploadRestoreFile(file: File, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<UploadSummary> {
+export function uploadRestoreFile(file: File, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/setup/restore/upload");
@@ -55,7 +68,7 @@ export function uploadRestoreFile(file: File, onProgress: (sent: number, total: 
       }
       if (xhr.status >= 200 && xhr.status < 300 && body) {
         onProgress(file.size, file.size);
-        resolve(body as unknown as UploadSummary);
+        resolve(body as unknown as UploadResult);
         return;
       }
       const code = typeof body?.error === "string" ? body.error : "http_" + xhr.status;

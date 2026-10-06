@@ -99,10 +99,20 @@ func TestRunServeAppliesARestoreConfirmedInTheWizard(t *testing.T) {
 	require.Equal(t, "none", inst["restore"])
 
 	code, up := call("POST", "/api/setup/restore/upload", "application/octet-stream", zipped)
-	require.Equal(t, http.StatusOK, code, up)
-	require.Equal(t, "backup", up["kind"])
-	require.Equal(t, "owner", up["username"])
-	require.EqualValues(t, 4, up["items"])
+	require.Equal(t, http.StatusAccepted, code, up)
+	require.Equal(t, "checking", up["state"])
+	var st map[string]any
+	require.Eventually(t, func() bool {
+		code, st = call("GET", "/api/setup/restore", "", nil)
+		return code == http.StatusOK && st["state"] != "checking"
+	}, 30*time.Second, 10*time.Millisecond)
+	require.Equal(t, "ready", st["state"], st)
+	sum := st["summary"].(map[string]any)
+	require.Equal(t, "backup", sum["kind"])
+	require.Equal(t, "owner", sum["username"])
+	require.EqualValues(t, 4, sum["items"])
+	_, inst = call("GET", "/api/instance", "", nil)
+	require.Equal(t, "ready", inst["restore"])
 
 	code, conf := call("POST", "/api/setup/restore/confirm", "application/json", []byte(`{}`))
 	require.Equal(t, http.StatusAccepted, code, conf)

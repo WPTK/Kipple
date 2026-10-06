@@ -25,6 +25,7 @@ func (s *Server) registerSetup(mux *http.ServeMux) {
 		mux.HandleFunc("POST /api/setup/restore/upload", s.restoreUpload)
 		mux.HandleFunc("POST /api/setup/restore/confirm", s.restoreConfirm)
 		mux.HandleFunc("GET /api/setup/restore/feeds", s.restoreFeeds)
+		mux.HandleFunc("GET /api/setup/restore", s.restoreStatus)
 		mux.HandleFunc("DELETE /api/setup/restore", s.restoreCancel)
 	}
 }
@@ -44,7 +45,7 @@ func (s *Server) setupGone(w http.ResponseWriter) bool {
 // says what the account form can offer from where this browser is: whether
 // Cloudflare Access sign-in works here, and whether open mode would (reason is
 // the open gate's answer as things are, null when it would let this browser in),
-// and where a restore stands ("none", "uploaded" or "confirmed").
+// and where a restore stands (the states of GET /api/setup/restore).
 func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if s.opt.Setup.Pending() {
 		restore := backup.RestoreNone
