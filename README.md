@@ -236,6 +236,11 @@ restored, since they describe the old server. To restore over an existing librar
 `docker compose run --rm -T --no-deps kipple restore - --yes < kipple-backup-YYYYMMDD-HHMMSS.zip` (without `--yes` it
 only verifies); see [docs/deploy.md](docs/deploy.md#restore-a-backup).
 
+**Reset.** Settings > Account & Devices > Reset Kipple erases the library and the account and returns Kipple to setup,
+where you create a new account or restore a backup. It asks for your password and for you to type `reset kipple`, keeps
+a safety copy of the old database in `backup/pre-restore-*` (restorable with `kipple restore`), and restarts through your
+restart policy. See [docs/deploy.md](docs/deploy.md#reset-kipple-and-start-over).
+
 For anything past this (backups, restoring, upgrading, running behind a reverse proxy or
 tunnel, optional Cloudflare Access sign-in), see [docs/deploy.md](docs/deploy.md).
 If something does not work, start with [docs/troubleshooting.md](docs/troubleshooting.md); for HTTPS with Caddy, nginx or

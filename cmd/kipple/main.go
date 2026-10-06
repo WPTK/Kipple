@@ -288,7 +288,7 @@ func runServe() error {
 		OnAPIPasswordChange: readerAPI.InvalidateAccount,
 		Setup:               setupMgr,
 		Gate:                openGate,
-		EnvAccount: cfg.Username != "" && cfg.Password != "",
+		EnvAccount:          cfg.Username != "" && cfg.Password != "",
 		Restart: func() {
 			logger.Info("stopping so the next start applies the restore or reset")
 			restart()

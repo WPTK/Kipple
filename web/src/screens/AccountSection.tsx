@@ -12,6 +12,7 @@ import { Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { useSetupActions } from "@/setup/actions";
+import { ResetSection } from "./ResetSection";
 
 /** Message for a failed account or backup call. */
 export function accountError(e: unknown): string {
@@ -370,6 +371,7 @@ export function AccountActions() {
           Sign out
         </Button>
       )}
+      <ResetSection hasPassword={hasPassword} />
       {dialog === "password" ? <ChangePasswordDialog hasPassword={hasPassword} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
       {dialog === "remove" && accessEmail ? <RemovePasswordDialog email={accessEmail} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
       {dialog === "api" ? <ApiPasswordDialog username={user?.username ?? ""} hasPassword={hasPassword} onClose={() => setDialog(null)} /> : null}

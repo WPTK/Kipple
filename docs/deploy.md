@@ -63,10 +63,11 @@ Everything is on the `kipple_data` volume, mounted at `/data`. Compose prefixes 
 | `/data/kipple.lock` | Held by `serve` (an OS lock: it vanishes with the process, no stale lock) | live |
 | `/data/backup/kipple-snapshot.db` | Nightly snapshot at 04:10 (`tz` setting), consistent, safe to copy | 1 |
 | `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration (`0600`) | newest 3, one per `<from>` and `<to>` |
-| `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC) | The database that `kipple restore` replaced | newest 3 |
+| `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC) | The database that `kipple restore`, a restore in the setup wizard or a [reset](#reset-kipple-and-start-over) replaced | newest 3 |
 | `/data/backup/export/` | Temporary files of an export in progress. Emptied at startup | transient |
 | `/data/imgcache/` | Image cache (`imgproxy.cache_mb`, default 1024 MiB, least recently used evicted; never in backups or snapshots) | capped |
 | `/data/restore-tmp.db*`, `/data/restore-upload.tmp` | Only while a `kipple restore` runs | transient |
+| `/data/no-env-account` | Written by a reset when you choose to keep `KIPPLE_USERNAME` and `KIPPLE_PASSWORD`; removed as soon as an account exists | transient |
 
 These are all on the same disk as the database. They protect against a bad migration or a bad
 restore, not against losing the machine. An off-box copy is the export (below) or a `docker cp` of the
@@ -264,7 +265,9 @@ recommended feeds, an optional Reader API password). The same first screen offer
 - **Env credentials skip it.** With both `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` set on a first start, Kipple creates the
   account from them and starts in normal mode, with no wizard onboarding and no unclaimed window, and so no restore in
   the wizard either: remove them before the first start to restore there, or use `kipple restore`. A lone
-  `KIPPLE_USERNAME` is ignored and the wizard asks.
+  `KIPPLE_USERNAME` is ignored and the wizard asks. The same holds after a [reset](#reset-kipple-and-start-over): with
+  both set, the next start would create that account again, which is why the reset dialog warns about them and can
+  ignore them until a new account exists.
 - **Cloudflare Access.** Access proves who may reach the app, not who owns this instance, so it does not replace
   creating the account. The wizard offers "No password, through Cloudflare Access" only on a request that came through
   Access and carries a verified token.
@@ -517,7 +520,8 @@ password anyway (a restored backup), web sign-in is impossible, the startup log 
 ## Restore a backup
 
 There are two ways. On a new server with no account yet, the setup wizard restores from the browser. Over an existing
-library, `kipple restore` does it from the command line. Both keep the database they replace under
+library, `kipple restore` does it from the command line (to empty an existing library from the browser instead, see
+[Reset Kipple and start over](#reset-kipple-and-start-over)). Both keep the database they replace under
 `/data/backup/pre-restore-<timestamp>/`, sign every web session out, and bring back everything in the database column
 of [What to back up](#what-to-back-up).
 
@@ -564,6 +568,23 @@ Things to know:
   refuse a large file before it arrives; open Kipple by its local address (`http://127.0.0.1:1919` on the server) and
   try again, or use `kipple restore`.
 - The nightly snapshot (`kipple-snapshot.db`) is not accepted here; restore it with `kipple restore`.
+
+### Reset Kipple and start over
+
+Settings > Account & Devices > Reset Kipple returns Kipple to setup mode, where you create a new account or restore a
+backup in the wizard. It is the browser twin of `kipple restore` over an existing library: the same swap, with nothing
+to install. The dialog says what is erased (all feeds, folders, history, settings and the account), asks for your web
+password (an account without one needs the sign-in it uses for changing its password instead) and for you to type
+`reset kipple`. Kipple then answers, stops cleanly and your restart policy starts it again; that start moves
+`kipple.db` into `/data/backup/pre-restore-<timestamp>/` (the same folder, naming and newest-3 retention as a restore)
+and begins with an empty database. The page waits and offers setup when Kipple is back. Without a restart policy, start
+the container again yourself: the reset finishes on that start. `kipple restore` brings the kept database back.
+
+If `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` are set, the next start would create that account again and skip setup, and
+Kipple cannot edit your compose file or `.env`. The dialog warns about it and offers "Ignore them until a new account
+exists" (the default: Kipple writes `/data/no-env-account` and skips them until an account exists, then removes the
+file) or "I removed them" (it asks once more before going on). The variables stay in your file, harmless once an
+account exists.
 
 ### Restore from the command line
 
