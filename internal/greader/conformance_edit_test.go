@@ -20,7 +20,7 @@ func TestConformanceEditTag(t *testing.T) {
 	i := func(names ...string) string {
 		parts := make([]string, len(names))
 		for k, n := range names {
-			// Mix the id forms a client may send in one batch [GR][FR][MF].
+			// Mix the id forms a client may send in one batch [GR][RS].
 			switch k % 3 {
 			case 0:
 				parts[k] = q1("i", longID(l.dec(n)))
@@ -36,7 +36,7 @@ func TestConformanceEditTag(t *testing.T) {
 	starred := func(n string) bool { return isStarred(h, l.ids[n]) }
 	unread3 := []string{"tech-unread", "news-unread", "loose-old"}
 
-	// a=read on a batch marks every id read [GR][FR][MF].
+	// a=read on a batch marks every id read [GR][RS].
 	c.write("edit-tag", i(unread3...)+"&"+q1("a", stateRead))
 	for _, n := range unread3 {
 		require.True(t, read(n), n)
@@ -44,19 +44,19 @@ func TestConformanceEditTag(t *testing.T) {
 	// Replaying the same request is a no-op and still OK.
 	c.write("edit-tag", i(unread3...)+"&"+q1("a", stateRead))
 
-	// r=read marks unread [GR][FR][MF].
+	// r=read marks unread [GR][RS].
 	c.write("edit-tag", i(unread3...)+"&"+q1("r", stateRead))
 	for _, n := range unread3 {
 		require.False(t, read(n), n)
 	}
 
-	// a=kept-unread marks unread, r=kept-unread marks read [GR][MF].
+	// a=kept-unread marks unread, r=kept-unread marks read [GR][RS].
 	c.write("edit-tag", i("tech-old-read")+"&"+q1("a", "user/-/state/com.google/kept-unread"))
 	require.False(t, read("tech-old-read"))
 	c.write("edit-tag", i("tech-old-read")+"&"+q1("r", "user/-/state/com.google/kept-unread"))
 	require.True(t, read("tech-old-read"))
 
-	// a=starred / r=starred [GR][FR][MF].
+	// a=starred / r=starred [GR][RS].
 	c.write("edit-tag", i("tech-new", "loose-old")+"&"+q1("a", stateStarred))
 	require.True(t, starred("tech-new"))
 	require.True(t, starred("loose-old"))
@@ -64,7 +64,7 @@ func TestConformanceEditTag(t *testing.T) {
 	require.False(t, starred("tech-new"))
 	require.False(t, starred("loose-old"))
 
-	// a= and r= together, and repeated a=, in one request [GR][FR].
+	// a= and r= together, and repeated a=, in one request [GR][RS].
 	c.write("edit-tag", i("news-unread-starred")+"&"+q1("a", stateRead)+"&"+q1("r", stateStarred))
 	require.True(t, read("news-unread-starred"))
 	require.False(t, starred("news-unread-starred"))
@@ -82,7 +82,7 @@ func TestConformanceEditTag(t *testing.T) {
 	require.True(t, read("tech-unread"))
 
 	// Labels, broadcast, like and unknown tags are accepted and change no state [K §6.7]; unknown and
-	// unparseable ids, and no ids at all, are still OK so a client's queue never stalls [FR][K §6.7].
+	// unparseable ids, and no ids at all, are still OK so a client's queue never stalls [RS][K §6.7].
 	before := q[int](h, "SELECT count(*) FROM items WHERE read = 1")
 	c.write("edit-tag", i("tech-new")+"&"+q1("a", "user/-/label/Tech")+"&"+q1("a", "user/-/state/com.google/broadcast")+"&"+q1("a", "user/-/state/com.google/like")+"&"+q1("a", "user/-/state/com.google/tracking-body-link-used"))
 	require.Equal(t, before, q[int](h, "SELECT count(*) FROM items WHERE read = 1"))
@@ -117,8 +117,8 @@ func TestConformanceMarkAllAsRead(t *testing.T) {
 	}
 	allUnread := []string{"tech-new", "news-unread", "news-unread-starred", "tech-unread", "loose-old"}
 
-	// ts is "older than": items crawled at or before it are marked [GR][FR][MF]. Units by digit count
-	// [K §3]: seconds (10 digits) [MF], microseconds (16 digits) [FR][MF], milliseconds and
+	// ts is "older than": items crawled at or before it are marked [GR][RS]. Units by digit count
+	// [K §3]: seconds (10 digits) [RS], microseconds (16 digits) [RS], milliseconds and
 	// nanoseconds tolerated.
 	cut := func(l confLib) int64 { return l.ids["news-unread-starred"] } // marks news-unread-starred and older
 	for name, ts := range map[string]func(us int64) string{
@@ -147,7 +147,7 @@ func TestConformanceMarkAllAsRead(t *testing.T) {
 		"label":                           {func(confLib) string { return "user/-/label/News & Politics" }, []string{"tech-new", "tech-unread", "loose-old"}},
 		"label, user id form":             {func(confLib) string { return "user/7/label/Tech" }, []string{"news-unread", "news-unread-starred", "loose-old"}},
 		"starred":                         {func(confLib) string { return stateStarred }, []string{"tech-new", "news-unread", "tech-unread", "loose-old"}},
-		// [FR] marks every unread item on the unread stream (Miniflux does nothing there); [K §6.8] the
+		// [RS] marks every unread item on the unread stream (some servers do nothing there); [K §6.8] the
 		// kept-unread stream is the same set of items, so it does the same.
 		"unread state":      {func(confLib) string { return "user/-/state/com.google/unread" }, nil},
 		"kept-unread state": {func(confLib) string { return "user/-/state/com.google/kept-unread" }, nil},

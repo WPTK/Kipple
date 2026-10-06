@@ -80,7 +80,7 @@ export function FinishStep({ onBack, onFinish, busy }: { onBack: () => void; onF
               <div className="text-sm">
                 <p className="font-semibold">In your sync app</p>
                 <p className="mt-1 text-fg2">
-                  Add a FreshRSS (Google Reader compatible) account. Server URL: <span className="font-mono break-all text-fg">{server}</span>. Username: <span className="font-mono text-fg">{user?.username ?? ""}</span>. Password: the one above.
+                  Add a Google Reader compatible account. Server URL: <span className="font-mono break-all text-fg">{server}</span>. Username: <span className="font-mono text-fg">{user?.username ?? ""}</span>. Password: the one above.
                 </p>
               </div>
             </div>

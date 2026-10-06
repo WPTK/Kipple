@@ -1,10 +1,10 @@
 # Kipple design (2026-09-24, revision 2: after red-team review)
 
-This is the source of truth for how Kipple works today; it was first written as a design and has been kept up to date as the code changed. Files it cites by name without a path in this repository (`greader-freshrss.md`, `go-libraries.md`, the round-2 research) are research notes kept outside the public repository.
+This is the source of truth for how Kipple works today; it was first written as a design and has been kept up to date as the code changed. Files it cites by name without a path in this repository (the Reader API server research, `go-libraries.md`, the round-2 research) are research notes kept outside the public repository.
 
 This design starts from **fetch-first**, which two of the three judges picked. It adds the grafts the judges named and fixes every defect they found. Revision 2 applies the red-team review; §12 gives the disposition of every issue. Where the judges disagreed, the resolution is stated in §1. Three points also correct the brief and all three input designs, based on primary sources in the research files:
 
-- **`ot` semantics.** FreshRSS's `ot` filter is `id >= ot·1e6 OR lastModified >= ot`, where `lastModified` means the server changed the content. User read/star changes are a separate column (`lastUserModified`) that `ot` never consults (greader-freshrss.md §8, verified in `EntryDAO.php`). Kipple follows the verified behaviour (§3, §6).
+- **`ot` semantics.** The reference servers' `ot` filter is `id >= ot·1e6 OR lastModified >= ot`, where `lastModified` means the server changed the content. User read/star changes are a separate column (`lastUserModified`) that `ot` never consults (verified in the reference server's source). Kipple follows the verified behaviour (§3, §6).
 - **`application_id`.** 'KIPL' is `0x4B49504C` = **1263095884**. All three designs had a wrong constant.
 - **Some clients batch status changes.** They queue read/star changes locally and send them in batches of up to 1000 on each sync, roughly every 120 s while the app is active (client research, edit-tag). No id-count threshold separates reads from bulk marks. Revision 2 therefore turns API read inference **off by default** (§8).
 
@@ -50,22 +50,22 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
 4. **Item id = crawl time in microseconds**, from a process-monotonic allocator called *inside* the commit transaction, oldest item first. One integer is then the rowid, `timestampUsec`, the `crawlTimeMsec` source, the continuation cursor, the `ot`/`nt` key and the mark-all `ts` cutoff.
    - **Seeding.** The allocator seeds from a high-water mark persisted in every fetch commit, together with `MAX(items.id)` and `MAX(trimmed_items.id)`. It no longer scans `stats_events`.
    - **Clock check.** At startup it logs an ERROR and shows a health-view banner when the seed is more than 1 h ahead of the wall clock (§3).
-   - *Rejected:* AUTOINCREMENT plus a separate `crawled_at` (two keys, composite cursors). *Rejected:* FreshRSS's temp-table renumbering.
+   - *Rejected:* AUTOINCREMENT plus a separate `crawled_at` (two keys, composite cursors). *Rejected:* a reference server's temp-table renumbering.
 
-5. **Inbound id parsing: a value containing `/` is always hex.** Otherwise: a leading `-` means decimal; all digits with no leading `0` means decimal; anything else is hex. This is correct whatever the id's magnitude. *Rejected:* the decimal-unless-leading-zero rule applied to the long-form suffix. *Rejected:* Miniflux's `len==16` heuristic.
+5. **Inbound id parsing: a value containing `/` is always hex.** Otherwise: a leading `-` means decimal; all digits with no leading `0` means decimal; anything else is hex. This is correct whatever the id's magnitude. *Rejected:* the decimal-unless-leading-zero rule applied to the long-form suffix. *Rejected:* a reference server's `len==16` heuristic.
 
-6. **`ot` means `id >= (ot − 120 s)·1e6 OR content_changed_at >= ot − 120 s`.** It covers arrival time and server-side content edits, which is FreshRSS ≥ 1.29 semantics.
+6. **`ot` means `id >= (ot − 120 s)·1e6 OR content_changed_at >= ot − 120 s`.** It covers arrival time and server-side content edits, which is how the newest reference server behaves.
    - Both legs get the 120 s visibility slack (BazQux uses 180 s). The legs stay disjoint because leg 2 is bounded by `id < ot_us`.
    - An absent `c` binds to MaxInt64 when descending and to 0 when ascending, never to NULL.
-   - Read/star changes are **not** included. Both clients pull the full unread and starred lists without `ot`. Including them would make a client's `s=read&ot=now-30d` list grow with every bulk mark. The verified FreshRSS source does not include them either.
+   - Read/star changes are **not** included. Both clients pull the full unread and starred lists without `ot`. Including them would make a client's `s=read&ot=now-30d` list grow with every bulk mark. The verified reference server source does not include them either.
    - The `greader.ot_includes_user_changes` setting (default `false`) adds user state changes to leg 2: with it on, the `ot` query also returns items whose read or starred state changed since `ot − 120 s`, in either direction (read, unread, star, unstar). The time comes from `items.state_changed_at` (migration 0007), not `read_at`/`starred_at`, which an unread or unstar clears. Every state change after ingest stamps it with the server's time (§6.7); ingest's initial state never does. With the setting off the query, its plan and its `INDEXED BY` are exactly as before.
-   - *Rejected:* `user_modified_at` in `ot`. *Rejected:* published-date `ot` (Miniflux), which causes a client's documented sync gap.
+   - *Rejected:* `user_modified_at` in `ot`. *Rejected:* published-date `ot` (one reference server), which causes a client's documented sync gap.
 
 7. **Continuation uses an n+1 lookahead.** `continuation` is emitted only when `n+1` rows come back, so the last page never carries one. *Rejected:* `LIMIT n` emitting on every full page.
 
 8. **The `subscription/list` and `tag/list` ETag is `sha256` of the rendered body**, truncated to 16 hex. It cannot go stale. *Rejected:* trigger-driven version counters and call-site bumps.
 
-9. **Every feed is in exactly one folder.** `feeds.folder_id` is `NOT NULL DEFAULT 1`, and folder 1 is "Uncategorized", undeletable and unique. Some clients' FreshRSS profiles disallow root-level feeds and feeds in several folders. OPML imports that put a feed in several folders keep the first and **report** the rest (decision 34). *Rejected:* a nullable `folder_id`.
+9. **Every feed is in exactly one folder.** `feeds.folder_id` is `NOT NULL DEFAULT 1`, and folder 1 is "Uncategorized", undeletable and unique. Some clients' Google Reader account profiles disallow root-level feeds and feeds in several folders. OPML imports that put a feed in several folders keep the first and **report** the rest (decision 34). *Rejected:* a nullable `folder_id`.
 
 10. **Reader API auth: a stateless HMAC token over a separate API password hash.** `token = username + "/" + hex(HMAC-SHA256(secret, "greader-token-v1|" + api_password_hash))`: 64 hex, never contains `=`.
     - Password verification is argon2id with **m=19 MiB, t=2, p=1** (the OWASP minimum), for both the web and the API password.
@@ -83,7 +83,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
     - The migration is refused when it would downgrade to http, or when `store.FindFeedByURL` finds another feed at the target.
     - `feeds.url_key` and `feeds.url_original_key` hold the scheme-less normalized form, so every subscribe path (quickadd, `ac=subscribe`, OPML import, `POST /api/feeds`) matches an existing feed whether it was given the old http URL or the migrated https URL.
     - **Typed addresses.** Every entry point (quickadd, `ac=subscribe`, OPML import, `POST /api/feeds`, a URL edit) and every lookup reads an address through one function, `feedurl.Normalize` (via `store.ValidateFeedURL`): surrounding white space is trimmed; a feed pseudo-scheme is unwrapped (`feed://host/p`, `feed:https://host/p`, and `rss:`, `pcast:`, `itpc:`, `podcast:` the same way); `//host/p` gets `https:`; an address with neither a scheme nor `//` gets a scheme only when its first segment is shaped like a host, with an optional numeric port: `https://` for letter-digit-hyphen labels whose last label is a top-level domain in the ICANN section of the public suffix list (`example.com/feed`, `foo.github.io/feed.xml`, `x.blogspot.com/…`, `a.co.uk`), and `http://` for `localhost` or an IP address (`localhost:1919/x`, `192.168.1.5/feed`, `[::1]:8080/x`), which cannot have a publicly trusted certificate, and `http:/host` or `https:host` are repaired; the scheme and host are lowercased, the default port and the fragment dropped. A lone word, a relative path (`../feed.xml`, `index.php?x=1`), a file name (`feed.xml`) or a name under a private suffix without a scheme (`nas.lan/feed`; type `http://nas.lan/feed`) stays invalid, so an OPML outline with such a value is skipped with a reason. A host in Unicode (IDN) is accepted and keyed as typed; its Unicode and punycode spellings are different keys.
-    - *Rejected:* Feedbin's 6-day wait, and never migrating.
+    - *Rejected:* a 6-day wait (one hosted service's choice), and never migrating.
 
 14. **Dedup key: guid, then raw link, then content hash, with a per-feed manual override** (`link`, `link_title`). An override change re-keys the feed through an explicit, user-confirmed "rekey" fetch. GUID-churn and duplicate-guid detection only flag the problem; nothing is automatic. *Rejected:* automatic GUID relink, the auto-mark-read flood guard, and "accept the wall of unread".
 
@@ -176,9 +176,9 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
     - Before sanitizing, every `href`, `src`, `srcset` candidate, `poster`, and audio/video `src` is resolved. The base is `xml:base` (gofeed), then the item link, then the feed `site_url`, then the final feed URL. The item link itself resolves against the feed's final URL.
     - Readability output is resolved against the article URL.
     - bluemonday runs with `RequireParseableURLs(true)` and `AllowRelativeURLs(false)`, so anything still relative is dropped.
-    - Both FreshRSS (SimplePie) and Miniflux do this, so clients have never had to resolve relative URLs from those servers. Resolving against the account origin would hit Access.
+    - Both reference servers do this, so clients have never had to resolve relative URLs from those servers. Resolving against the account origin would hit Access.
 
-32. **No JSON `null` in any Reader API response** except `LSID` in JSON ClientLogin. Every field that may be unknown is emitted as `""`, like Miniflux and FreshRSS: `iconUrl`, `htmlUrl`, `origin.htmlUrl`, `alternate[].href`, `canonical[].href` and `author`. Some clients are closed source and have broken on field types before (FreshRSS #3247, #2620). A golden-test rule enforces this.
+32. **No JSON `null` in any Reader API response** except `LSID` in JSON ClientLogin. Every field that may be unknown is emitted as `""`, like the reference servers: `iconUrl`, `htmlUrl`, `origin.htmlUrl`, `alternate[].href`, `canonical[].href` and `author`. Some clients are closed source and have broken on field types before. A golden-test rule enforces this.
 
 33. **API subscribe paths and outbound HTTP** (default unchanged, opt-in added in phase 3). The brief says API clients never trigger fetches.
     - **Behaviour** (`greader.subscribe_fetch_now` off, the default): `quickadd`, `subscription/edit ac=subscribe` and `subscription/import` do **no** outbound HTTP and no discovery. They insert the feed with `next_fetch_at = now` and return at once. The scheduler's next tick (≤ 30 s) fetches the feed like any other due feed.
@@ -1596,7 +1596,7 @@ There is never a `continuation` here. With zero matches it is still 200 with `it
 
 Rules for the item fields:
 
-- **Content.** The article is `fulltext_html` when the effective full-text mode (§7.5) is 1 and an extraction exists; otherwise `content_html`. Both carry **absolute original** URLs (decision 31). The body is cut UTF-8-safely at 500,000 bytes. It is sent twice, as `summary.content` and as `content.content`: a client reads whichever it expects (the original API used `content` for full articles and `summary` for excerpts; FreshRSS sends `summary`, Miniflux `content`). Under response compression (§7.7) the second copy of an article shorter than gzip's 32 KB window costs almost nothing; a longer one (a full-text extraction, up to the 500,000-byte cap) about doubles on the wire. `writeItem` encodes the article once, into a buffer the response reuses, and writes it twice between the fields before and after it, so the copy costs no memory (docs/performance.md, "Response compression").
+- **Content.** The article is `fulltext_html` when the effective full-text mode (§7.5) is 1 and an extraction exists; otherwise `content_html`. Both carry **absolute original** URLs (decision 31). The body is cut UTF-8-safely at 500,000 bytes. It is sent twice, as `summary.content` and as `content.content`: a client reads whichever it expects (the original API used `content` for full articles and `summary` for excerpts; one reference server sends `summary`, the other `content`). Under response compression (§7.7) the second copy of an article shorter than gzip's 32 KB window costs almost nothing; a longer one (a full-text extraction, up to the 500,000-byte cap) about doubles on the wire. `writeItem` encodes the article once, into a buffer the response reuses, and writes it twice between the fields before and after it, so the copy costs no memory (docs/performance.md, "Response compression").
 - **Strings, never null.** `author`, `title`, `alternate[].href`, `canonical[].href` and `origin.htmlUrl` are always strings, possibly `""`. `enclosure` is omitted when there are none.
 - **Titles are plain JSON strings.** There is no fullwidth `＆＜＞` escaping.
 - **Required fields.** `summary`, `content`, `categories` and `origin` are always present. `origin.streamId` is the item's feed id: the subscription id, or for an archived item the archive feed's id, which is not in `subscription/list` (§6.9, decision 24). An archived item carries no `user/-/label/` category.
@@ -1635,7 +1635,7 @@ Scope from `s`:
 | `feed/<url>` | `FindFeedByURL` |
 | label | `feed_id IN (folder feeds)` |
 | starred | `starred = 1` (**no ledger statement**) |
-| unread, `kept-unread` | reading-list. Only unread items are ever marked, so these streams name exactly the items the request is about; a client that offers "mark all read" on its unread view sends them, and a no-op would silently drop that action. FreshRSS marks the unread stream the same way; Miniflux ignores both (compatibility.md, endpoint notes) |
+| unread, `kept-unread` | reading-list. Only unread items are ever marked, so these streams name exactly the items the request is about; a client that offers "mark all read" on its unread view sends them, and a no-op would silently drop that action. One reference server marks the unread stream the same way; the other ignores both (compatibility.md, endpoint notes) |
 | read, unknown | no-op, `OK` |
 | empty `s` | reading-list |
 
@@ -2536,7 +2536,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
 - **`ts` normalization:** 10, 13, 14, 15, 16 and 19 digits, 0, absent (committed `max(id)`, not the allocator), and non-digit.
 - **No-null rule:** every golden Reader response is walked and asserted to contain no JSON `null` except `LSID`. Fixtures include a feed with no `site_url`, an item with no link, and `greader.icon_urls` off.
 
-**`internal/greader` conformance suite** (`conformance_*_test.go`, `go test ./internal/greader -run Conformance`). A generic client over a real HTTP server: it signs in with ClientLogin, keeps only the returned token, and exercises every endpoint, parameter and answer listed in [compatibility.md](compatibility.md#reader-api), including the failure paths (401 headers, revoked tokens, T rules, 405), CORS preflights, every content type and the GET/POST parameter forms. Each assertion is tagged with the reference it follows: the Google Reader API, FreshRSS `p/api/greader.php`, Miniflux `internal/googlereader`, or this document. A divergence from those references is listed in compatibility.md's endpoint notes, never only in a test.
+**`internal/greader` conformance suite** (`conformance_*_test.go`, `go test ./internal/greader -run Conformance`). A generic client over a real HTTP server: it signs in with ClientLogin, keeps only the returned token, and exercises every endpoint, parameter and answer listed in [compatibility.md](compatibility.md#reader-api), including the failure paths (401 headers, revoked tokens, T rules, 405), CORS preflights, every content type and the GET/POST parameter forms. Each assertion is tagged with the reference it follows: the Google Reader API, the reference servers, or this document. A divergence from those references is listed in compatibility.md's endpoint notes, never only in a test.
 
 **`internal/greader` contract tests.** Each test replays a full request sequence against a seeded database and asserts the responses inline (`contract_test.go`; there are no golden files).
 
@@ -2561,7 +2561,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
   18. `subscription/import` of an OPML with `;` and `&` in titles
   19. a folder name containing `;` survives the trip
   20. `ac=unsubscribe` of a feed with starred items: those ids stay in `ids s=starred`
-- *Closed-source-client sequence* (reconstructed from FreshRSS and Miniflux logs):
+- *Closed-source-client sequence* (reconstructed from reference server logs):
   1. `ClientLogin`
   2. `user-info`
   3. `subscription/list` (`iconUrl` and `htmlUrl` present as strings)
@@ -2620,7 +2620,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
   - no `X-Kipple-Client` → 403;
   - a beacon with `Sec-Fetch-Site: same-origin` and no `X-Kipple-Client` → accepted.
 - **OPML:**
-  - re-importing the original NewsBlur OPML after http→https migrations adds **0** feeds;
+  - re-importing the original 138-feed OPML after http→https migrations adds **0** feeds;
   - import → export → import is a fixed point (names with `&`, `;` and `,`, titles, order, overrides);
   - multi-folder memberships and case merges are reported;
   - `http_auth` is not exported;
@@ -2675,7 +2675,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
 |---|---|
 | **Some Reader API clients are closed source.** The `mark-all-as-read` `ts` unit, continuation behaviour, `T=x` use, its Content-Type, its field-type strictness and its scroll-mark batching are inferred, not observed | Tolerant parsing (`ts` by digit count, any non-multipart POST body parsed as a form), `n` up to 100000, `T` `""`/`x` accepted, no JSON nulls anywhere. The day-1 capture was meant to turn real traffic into contract tests (§10; not yet done) |
 | **Some clients do not follow continuation** (`n=10000`). If more than 10,000 items are unread, the oldest never reach such a client and its counts differ from the web UI | Warned in the bootstrap `warnings` and the health view. The UI OPML import offers "mark items older than N days read" on first fetch as an explicit choice. The default N=250 × 138 feeds can reach 34,500, so the migration import should use that option |
-| **`ot` excludes user state changes** (a deliberate departure from the brief's wording) | Observed clients pull full unread and starred lists without `ot`; FreshRSS behaves this way. `greader.ot_includes_user_changes` (default off) restores it: items whose read or starred state changed since `ot`, unread and unstar included, join leg 2 through `items.state_changed_at` (migration 0007) |
+| **`ot` excludes user state changes** (a deliberate departure from the brief's wording) | Observed clients pull full unread and starred lists without `ot`; The reference server behaves this way. `greader.ot_includes_user_changes` (default off) restores it: items whose read or starred state changed since `ot`, unread and unstar included, join leg 2 through `items.state_changed_at` (migration 0007) |
 | **The `ot` slack of 120 s on both legs** returns up to 2 minutes of already-known ids | Harmless: clients de-duplicate by id |
 | **Some clients' `Date` parsers use a full-weekday pattern** and may fall back to a 3-month `ot` every refresh | A few pages of 1000 ids at worst. Watch the access log for `ot` of about now − 90 d |
 | **Newest-N retention with such clients:** a trimmed unread item vanishes and a client may mark it read locally | Default N=250, `trimmed_unread_count` in the health view, per-feed overrides. A mark-unread within 90 days restores and holds the item |
@@ -2717,7 +2717,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
 | # | Issue | Disposition | Reason |
 |---|---|---|---|
 | 1 | [major] Star or mark-unread on a trimmed item is silently undone by the next sync | **FIX** | 90-day `trimmed_content` restore stubs; `a=starred`/`r=read` restore the row with the same id (mark-unread held 7 d), so the next starred or unread list keeps the change (decision 17, §5). Validated; contract test added |
-| 2 | [major] Null or missing fields where Miniflux/FreshRSS always send strings | **FIX** | `iconUrl` always present (`""` when off); `htmlUrl`/`origin.htmlUrl`/`href`/`author` are `NOT NULL DEFAULT ''` in the schema; a golden-test rule allows no JSON null except `LSID` (decision 32) |
+| 2 | [major] Null or missing fields where the reference servers always send strings | **FIX** | `iconUrl` always present (`""` when off); `htmlUrl`/`origin.htmlUrl`/`href`/`author` are `NOT NULL DEFAULT ''` in the schema; a golden-test rule allows no JSON null except `LSID` (decision 32) |
 | 3 | [minor] Some clients' disable-tag sends the folder id raw, so `&`/`+` names are never deleted | **FIX** | The form parser keeps raw text; label lookup tries decoded, raw and PathUnescape forms; disable-tag glues unencoded name tails in the parser (§6.2). A client test with `News & Politics+` |
 | 4 | [minor] ServeMux 301s `//` paths, dropping POST bodies | **FIX** | A front handler cleans slashes and prefixes and dispatches Reader paths with its own switch; no ServeMux sees them (decision 26, §6.1). Tests plus a release-checklist curl |
 | 5 | [minor] Unrecognized Content-Type silently discards edits | **FIX** | `mime.ParseMediaType` with parameters ignored; every non-multipart POST body is parsed as a form; WARN on zero ids from a non-empty body (§6.1–6.2) |

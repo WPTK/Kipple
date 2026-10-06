@@ -24,26 +24,26 @@ func TestConformanceClientLogin(t *testing.T) {
 	tok := c.token
 
 	t.Run("form POST answers SID, LSID and Auth lines", func(t *testing.T) {
-		// [GR] ClientLogin: text/plain key=value lines; Auth is the token. [FR] LSID=null. [MF] same keys.
+		// [GR] ClientLogin: text/plain key=value lines; Auth is the token. [RS] LSID=null, same keys.
 		r := c.call(http.MethodPost, "/accounts/ClientLogin", loginBody(), map[string]string{"Authorization": ""})
 		require.Equal(t, 200, r.code)
 		require.Contains(t, r.header.Get("Content-Type"), "text/plain")
 		kv := parseLoginLines(t, r.body)
 		require.Equal(t, tok, kv["Auth"])
-		require.Equal(t, tok, kv["SID"], "[FR][MF] SID carries the same token")
+		require.Equal(t, tok, kv["SID"], "[RS] SID carries the same token")
 		require.Contains(t, kv, "LSID")
 		require.NotContains(t, tok, "=", "the token never holds '=', so a line split on every '=' still has two parts")
 	})
 
 	t.Run("GET with query parameters", func(t *testing.T) {
-		// [FR] Email/Passwd are read from POST or GET.
+		// [RS] Email/Passwd are read from POST or GET.
 		r := c.call(http.MethodGet, "/accounts/ClientLogin?"+loginBody(), "", map[string]string{"Authorization": ""})
 		require.Equal(t, 200, r.code)
 		require.Equal(t, tok, parseLoginLines(t, r.body)["Auth"])
 	})
 
 	t.Run("POST with parameters in the query string", func(t *testing.T) {
-		// [FR] $_POST ?? $_GET; [MF] merged form values.
+		// [RS] POST or GET, merged form values.
 		r := c.call(http.MethodPost, "/accounts/ClientLogin?"+loginBody(), "", map[string]string{"Authorization": ""})
 		require.Equal(t, 200, r.code)
 		require.Equal(t, tok, parseLoginLines(t, r.body)["Auth"])
@@ -69,7 +69,7 @@ func TestConformanceClientLogin(t *testing.T) {
 	})
 
 	t.Run("root path without the mount prefix", func(t *testing.T) {
-		// [MF] ClientLogin lives at BASE_URL/accounts/ClientLogin; [K §6.1] the root forms answer too.
+		// [RS] ClientLogin lives at BASE_URL/accounts/ClientLogin; [K §6.1] the root forms answer too.
 		root := &confClient{client: newClient(t, h, "", confUA), h: h}
 		r := root.call(http.MethodPost, "/accounts/ClientLogin", loginBody(), nil)
 		require.Equal(t, 200, r.code)
@@ -77,7 +77,7 @@ func TestConformanceClientLogin(t *testing.T) {
 	})
 
 	t.Run("output=json", func(t *testing.T) {
-		// [MF] JSON with SID, LSID, Auth when output=json.
+		// [RS] JSON with SID, LSID, Auth when output=json.
 		r := c.call(http.MethodPost, "/accounts/ClientLogin", loginBody()+"&output=json", map[string]string{"Authorization": ""})
 		require.Equal(t, 200, r.code)
 		require.Contains(t, r.header.Get("Content-Type"), "application/json")
@@ -94,7 +94,7 @@ func TestConformanceClientLogin(t *testing.T) {
 	})
 
 	t.Run("failures are 401 Error=BadAuthentication", func(t *testing.T) {
-		// [GR] failure body Error=BadAuthentication; [FR][MF] status 401 (Google answered 403; see
+		// [GR] failure body Error=BadAuthentication; [RS] status 401 (Google answered 403; see
 		// docs/compatibility.md). Never a redirect, never 429.
 		for _, body := range []string{
 			"Email=" + testUser + "&Passwd=wrong",
@@ -133,13 +133,13 @@ func TestConformanceTokenAndUserInfo(t *testing.T) {
 	c := newConf(t, h)
 
 	// [GR] GET /reader/api/0/token: the edit token as plain text with a trailing newline.
-	// [MF] the edit token is the auth token.
+	// [RS] the edit token is the auth token.
 	r := c.call(http.MethodGet, rd+"token", "", nil)
 	require.Equal(t, 200, r.code)
 	require.Contains(t, r.header.Get("Content-Type"), "text/plain")
 	require.Equal(t, c.token, strings.TrimSpace(r.body))
 
-	// [FR][MF] user-info: userId, userName, userProfileId, userEmail as strings.
+	// [RS] user-info: userId, userName, userProfileId, userEmail as strings.
 	m := c.getJSON(rd + "user-info")
 	for _, k := range []string{"userId", "userName", "userProfileId", "userEmail"} {
 		require.IsType(t, "", m[k], k)
@@ -175,14 +175,14 @@ func TestConformanceAuthFailures(t *testing.T) {
 	})
 
 	t.Run("GET never authenticates by a T in the query", func(t *testing.T) {
-		// [MF] GET requests do not accept the token from the query string; [K §6.3].
+		// [RS] GET requests do not accept the token from the query string; [K §6.3].
 		cc := *c.client
 		cc.auth = ""
 		unauthorized(t, cc.doAny(http.MethodGet, rd+"subscription/list?T="+url.QueryEscape(tok), "", nil), "T on GET")
 	})
 
 	t.Run("POST authenticates by T alone, in the body or the query", func(t *testing.T) {
-		// [MF] POST requests are authenticated with T from the merged form values.
+		// [RS] POST requests are authenticated with T from the merged form values.
 		cc := *c.client
 		cc.auth = ""
 		r := cc.doAny(http.MethodPost, rd+"edit-tag", edit+"&T="+url.QueryEscape(tok), nil)
@@ -199,7 +199,7 @@ func TestConformanceAuthFailures(t *testing.T) {
 	})
 
 	t.Run("T exactly as GET token returned it", func(t *testing.T) {
-		// [GR] the token endpoint ends its body with a newline; [FR] trims T before comparing, so a
+		// [GR] the token endpoint ends its body with a newline; [RS] trims T before comparing, so a
 		// client that sends the body verbatim is accepted.
 		body := c.call(http.MethodGet, rd+"token", "", nil).body
 		cc := *c.client
@@ -209,7 +209,7 @@ func TestConformanceAuthFailures(t *testing.T) {
 	})
 
 	t.Run("header plus T: T must be the token, empty or x", func(t *testing.T) {
-		// [FR] checkToken accepts "" and "x" for an authenticated user.
+		// [RS] checkToken accepts "" and "x" for an authenticated user.
 		for _, T := range []string{tok, "", "x"} {
 			r := c.call(http.MethodPost, rd+"edit-tag", edit+"&T="+url.QueryEscape(T), nil)
 			require.Equal(t, 200, r.code, "T=%q", T)
@@ -224,8 +224,8 @@ func TestConformanceAuthFailures(t *testing.T) {
 // requireUnauthorized checks the answer to a missing, wrong or revoked credential.
 func requireUnauthorized(t *testing.T, r resp, what string) {
 	t.Helper()
-	// [GR] 401 with X-Reader-Google-Bad-Token so the client signs in again; [FR] Google-Bad-Token and
-	// "Unauthorized!"; [MF] X-Reader-Google-Bad-Token. Never 403.
+	// [GR] 401 with X-Reader-Google-Bad-Token so the client signs in again; [RS] Google-Bad-Token and
+	// "Unauthorized!"; [RS] X-Reader-Google-Bad-Token. Never 403.
 	require.Equal(t, 401, r.code, what)
 	require.Equal(t, "true", r.header.Get("X-Reader-Google-Bad-Token"), what)
 	require.Equal(t, "true", r.header.Get("Google-Bad-Token"), what)
@@ -279,7 +279,7 @@ func TestConformanceMethodsAndContentTypes(t *testing.T) {
 	c := newConf(t, h)
 
 	t.Run("probes", func(t *testing.T) {
-		// [FR] an empty path answers OK; /check/compatibility answers PASS.
+		// [RS] an empty path answers OK; /check/compatibility answers PASS.
 		cc := *c.client
 		cc.auth = ""
 		r := cc.doAny(http.MethodGet, "", "", nil)
@@ -298,7 +298,7 @@ func TestConformanceMethodsAndContentTypes(t *testing.T) {
 	})
 
 	t.Run("read endpoints also answer POST with parameters in the body", func(t *testing.T) {
-		// Some clients POST every call; parameters may then come in the body or the query [MF].
+		// Some clients POST every call; parameters may then come in the body or the query [RS].
 		r := c.call(http.MethodPost, rd+"stream/items/ids", "s="+url.QueryEscape(feedID(l.tech))+"&n=50", nil)
 		ids, _ := itemRefs(t, r)
 		require.Equal(t, l.decs("tech-new", "tech-unread", "tech-old-read"), ids)
@@ -333,7 +333,7 @@ func TestConformanceMethodsAndContentTypes(t *testing.T) {
 	})
 
 	t.Run("unknown endpoints are an empty JSON array after auth", func(t *testing.T) {
-		// [MF] catch-all: 200 []. A client probing an optional endpoint never sees an error.
+		// [RS] catch-all: 200 []. A client probing an optional endpoint never sees an error.
 		r := c.call(http.MethodGet, rd+"preference/stream/list?output=json", "", nil)
 		require.Equal(t, 200, r.code)
 		require.Equal(t, "[]", r.body)

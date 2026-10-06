@@ -11,9 +11,8 @@ package greader
 //   - [GR]   the historical Google Reader API as clients implement it
 //            (ClientLogin, the GoogleLogin header, T tokens, stream ids,
 //            itemRefs and item shapes).
-//   - [FR]   FreshRSS p/api/greader.php, the most widely used server
-//            implementation of the API.
-//   - [MF]   Miniflux internal/googlereader (handler.go and its README).
+//   - [RS]   the reference server implementations of the API, the ones
+//            clients are most commonly used against.
 //   - [K §x] docs/design.md, where Kipple decides between them or goes
 //            further. Deliberate divergences are listed endpoint by endpoint in
 //            docs/compatibility.md.
@@ -162,7 +161,7 @@ func itemRefs(t *testing.T, r resp) (ids []string, cont string) {
 	return got, cont
 }
 
-// confItem is the item shape a generic client decodes [GR][FR][MF].
+// confItem is the item shape a generic client decodes [GR][RS].
 type confItem struct {
 	ID            string `json:"id"`
 	CrawlTimeMsec string `json:"crawlTimeMsec"`

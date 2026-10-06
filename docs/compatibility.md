@@ -24,7 +24,7 @@ If you only use Kipple through these, you can upgrade within 1.x without changin
 
 ## Reader API
 
-Kipple follows the Google Reader API as FreshRSS and Miniflux implement it, the two server implementations sync clients
+Kipple follows the Google Reader API as the widely used server implementations of it do, the ones sync clients
 are built against; where they differ, the [endpoint notes](#endpoint-notes) say which way Kipple goes. Nothing depends
 on which client is calling.
 
@@ -159,17 +159,17 @@ slashes out of the labels you type in a flat-folder client.
 
 ### Endpoint notes
 
-Where the Google Reader API, FreshRSS and Miniflux differ, or where Kipple does something on purpose that a client
+Where the Google Reader API and its server implementations differ, or where Kipple does something on purpose that a client
 might not expect:
 
-- **ClientLogin failure** is `401`, as on FreshRSS and Miniflux. The original Google service answered `403`.
+- **ClientLogin failure** is `401`, as on the reference servers. The original Google service answered `403`.
 - **`mark-all-as-read` on the `unread` or `kept-unread` stream** marks every unread item in it read, the same as the
-  reading list. FreshRSS does this for `unread`; Miniflux treats both as a no-op. Only unread items are ever marked,
+  reading list. Some reference servers do this for `unread` and others treat both as a no-op. Only unread items are ever marked,
   so these streams hold exactly the items the request is about, and doing nothing would drop the user's action.
 - **The token** is the same value from `ClientLogin` and `token`, and it is not 57 characters long. `T` is compared
   after trimming surrounding whitespace, so the `token` body may be sent back as it came.
 - **`subscription/list`** has no `firstitemmsec` or `sortid`, and categories carry `id` and `label` but no `type`
-  (the FreshRSS shape). Each feed has exactly one category, its folder; there are no feeds outside a folder (they are
+  (the reference servers' shape). Each feed has exactly one category, its folder; there are no feeds outside a folder (they are
   in Uncategorized, the default folder).
 - **`tag/list`** lists folders only (`type` `folder`); Kipple has no per-item tags.
 - **`edit-tag`** ignores `user/-/label/…` values: a folder is a property of a feed, never of an item.
@@ -192,7 +192,7 @@ might not expect:
 
 The suite drives the real Reader API handler over HTTP as a client does (sign in, keep the token, list, read, write)
 against a temporary database, and checks every endpoint, parameter and answer above. Each assertion names the
-reference it follows: the Google Reader API, FreshRSS, Miniflux, or Kipple's design document. From a checkout:
+reference it follows: the Google Reader API, the reference servers, or Kipple's design document. From a checkout:
 
 ```
 go test ./internal/greader -run Conformance -v

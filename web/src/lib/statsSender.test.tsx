@@ -603,7 +603,7 @@ describe("the offline queue", () => {
     localStorage.setItem("kipple.stats.queue.v1", JSON.stringify([{ id: 1, at: Date.now(), client: "web", events: [{ kind: "share", item_id: 1 }] }]));
     localStorage.setItem("kipple.stats.q.5", "{not json");
     localStorage.setItem("kipple.stats.q.6", JSON.stringify({ at: Date.now(), client: "web", events: [{ kind: "share", item_id: 1 }] })); // no event_id
-    localStorage.setItem("kipple.stats.q.7", JSON.stringify({ at: Date.now(), client: "fever", events: [ev(1)] }));
+    localStorage.setItem("kipple.stats.q.7", JSON.stringify({ at: Date.now(), client: "bogus", events: [ev(1)] }));
     localStorage.setItem("kipple.stats.q.8", JSON.stringify({ at: Date.now(), client: "web", events: [] }));
     localStorage.setItem("kipple.stats.q.abc", JSON.stringify({ at: Date.now(), client: "web", events: [ev(1)] }));
     localStorage.setItem("kipple.stats.q.9", JSON.stringify({ at: Date.now(), client: "pwa", events: [ev(9)] }));
