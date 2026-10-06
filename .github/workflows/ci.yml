@@ -43,8 +43,14 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          code="$(bash scripts/ci-changes.sh "$EVENT_NAME")" || code=true
-          [ "$code" = false ] || code=true
+          # Run through bash so a lost executable bit cannot matter. A script that ran prints true or false and exits 0;
+          # anything else (missing file, crash) is "could not run": warn, then run everything.
+          if code="$(bash scripts/ci-changes.sh "$EVENT_NAME")"; then
+            [ "$code" = false ] || code=true
+          else
+            echo "::warning::scripts/ci-changes.sh could not run; running every check"
+            code=true
+          fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "code=$code"
 
