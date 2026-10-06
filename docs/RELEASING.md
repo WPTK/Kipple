@@ -22,8 +22,8 @@ the kind of release.
 | Anything that changes the schema | The above plus the migration rehearsal on a copy of the live snapshot (Suite 4). |
 
 Kept for every release because they paid for themselves: tag only on the exact green commit, the off-box copy before a
-deploy, the migration rehearsal (Suite 4), the Opus review of every deploy (CLAUDE.md), and deterministic tests (no wall-clock
-waits).
+deploy, the migration rehearsal (Suite 4), the Opus review of every deploy (CLAUDE.md), and deterministic tests (no
+wall-clock waits).
 
 Related tiny changes (docs, `changes/` entries, wording, config tweaks) land as one batch PR, so the release has one review
 and one CI wait for them; code fixes with different root causes stay separate PRs.
@@ -113,10 +113,9 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
 2. **Review first, then fix, then the gates.** Every deploy gets `/code-review high` (an Opus whole-diff review) on the
    diff since the last gated commit (CLAUDE.md; the same baseline as the tier table); fix every finding. The tier only
    sets how much more is run: for the second tier above the review covers the whole diff, for the first it is a short
-   review of a small diff. When every PR in
-   the release already had a high review, this release-gate review is scoped to what per-PR reviews cannot see (cross-PR
-   interactions, migrations, the release workflow, new tooling); a delta review after the fixes covers only the fix
-   commits.
+   review of a small diff. When every PR in the release already had a high review, this release-gate review is scoped
+   to what per-PR reviews cannot see (cross-PR interactions, migrations, the release workflow, new tooling); a delta
+   review after the fixes covers only the fix commits.
 3. **The expensive gates, once, on the final commit, only for the second tier above** (code that parses, authenticates, migrates
    or renders UI; skip them for docs, test-only, release-commit, dependency or log-line changes). They are two Go test runs, fuzz,
    Suite 1 and, for a schema change, the migration rehearsal (Suite 4). Run them after the review in step 2 and its fixes, never

@@ -202,6 +202,7 @@ function Test-Signature {
   }
   return [pscustomobject]@{ Step = $Step; Ok = $true; Detail = 'verified' }
 }
+
 function Get-VerifyArgument {
   <#
   .SYNOPSIS

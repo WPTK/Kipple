@@ -44,7 +44,7 @@ triaged best-effort (see [SECURITY.md](SECURITY.md)).
    prose (only files listed in `scripts/ci-prose.txt`: most of `docs/` and `changes/`, and a few other Markdown
    and issue-template files) skips the build and test steps; the required checks still report as passed. On every other
    run CI deletes those files before building and testing, so code that reads one fails; take it off the list then.
-   The PowerShell tooling checks (`tooling` job) run only when `scripts/` or the CI workflow changed.
+   The PowerShell tooling checks (`tooling` job) run only when `scripts/`, the CI workflow or a `.gitignore` changed.
 8. The maintainer merges. Releases are tagged by the maintainer only ([docs/RELEASING.md](docs/RELEASING.md)).
 
 ## Design and quality notes

@@ -278,9 +278,10 @@ jobs:
       - run: node scripts/uat-labels.mjs HEAD^1..HEAD
 
   # PSScriptAnalyzer and the Pester tests of the PowerShell tooling. Pull requests only (so no Windows runner starts on a
-  # push to main or inside a release, which calls this workflow), and only when the `changes` job found scripts/ or this
-  # file changed (its `scripts` output, from scripts/ci-changes.sh --scripts, run from the base commit). Fail-open like
-  # the required checks: it skips only on an explicit false, and !cancelled() keeps it running when `changes` failed.
+  # push to main or inside a release, which calls this workflow), and only when the `changes` job found scripts/, this
+  # file or a .gitignore (the tests copy them) changed (its `scripts` output, from scripts/ci-changes.sh --scripts, run
+  # from the base commit). Fail-open like the required checks: it skips only on an explicit false, and !cancelled()
+  # keeps it running when `changes` failed.
   # Windows, because the tooling is used there and its paths are written for Windows. Tool versions are pinned.
   tooling:
     needs: changes

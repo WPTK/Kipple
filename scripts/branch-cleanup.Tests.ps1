@@ -31,7 +31,8 @@ BeforeAll {
     $null = Invoke-Native -FilePath git -Arguments '-C', $dir, 'add', '-A' -Step 'git add'
     $null = Invoke-Native -FilePath git -Arguments '-C', $dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '--quiet', '-m', 'init' -Step 'git commit'
     return $dir
-  }  function script:Merged([string]$Name, [string]$Oid) { [pscustomobject]@{ headRefName = $Name; headRefOid = $Oid; mergedAt = '2026-01-01T00:00:00Z' } }
+  }
+  function script:Merged([string]$Name, [string]$Oid) { [pscustomobject]@{ headRefName = $Name; headRefOid = $Oid; mergedAt = '2026-01-01T00:00:00Z' } }
 }
 
 Describe 'Get-CleanupPlan: which branches may go' {
@@ -215,6 +216,8 @@ Describe 'Invoke-CleanupAction: nothing is deleted on the word of the plan alone
       elseif ($Arguments -contains 'rev-parse') { $out = @($script:headSha) }
       elseif ($Arguments -contains 'list') { $out = $script:listOut; $code = $script:listCode }
       elseif ($Arguments -contains 'update-ref') { $code = $script:updateCode }
+      # Like the real Invoke-Native: a non-zero exit throws unless the caller passed -AllowFailure.
+      if ($code -ne 0 -and -not $AllowFailure) { throw "git failed ($code)" }
       [pscustomobject]@{ ExitCode = $code; Output = $out; CommandLine = 'git' }
     }
     $script:wt = [pscustomobject]@{ Kind = 'RemoveWorktree'; Branch = 'feat/a'; Target = 'C:/x'; Sha = $sha1; Text = 'remove worktree C:/x' }
@@ -275,6 +278,7 @@ Describe 'Invoke-CleanupAction: nothing is deleted on the word of the plan alone
     Invoke-CleanupAction -Action $rem -RepoRoot 'C:/repo' | Should -BeFalse
   }
 }
+
 Describe 'Invoke-BranchCleanup' {
   BeforeEach {
     Mock Write-KippleInfo {}

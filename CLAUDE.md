@@ -116,8 +116,8 @@ Most of the cost is context re-read on every turn, so keep each context small.
 - **Batch small PRs:** related tiny changes (docs, `changes/` entries, wording, config tweaks) go in one PR on one branch:
   one high review, one CI wait, one merge, and the description lists each item. Code fixes with different root causes stay
   separate. The auto-fix monitor (`bind_pr` + `set_monitor`) is for PRs that touch code, workflows or dependencies; a
-  docs-only or `changes/`-only PR gets one `gh pr checks <n> --watch --fail-fast` (CI skips the heavy jobs for a PR
-  that changes only the prose listed in `scripts/ci-prose.txt`, so that wait is short).
+  docs-only or `changes/`-only PR gets one `gh pr checks <n> --watch --fail-fast` (CI skips the build and test steps
+  when every changed file is listed in `scripts/ci-prose.txt`, so that wait is short).
 - **Keep output small:** prefer the scripts that print one-line verdicts (`release-gates`, `pr-ready`); pipe test, CI,
   npm and changelog-preview output through `head`/`tail`/`grep`, read docs by line range, search before reading.
   Cheap checks first: `git diff --shortstat`, `gh pr checks <n>` or a script verdict before opening any file or log;

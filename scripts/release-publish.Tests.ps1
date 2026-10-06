@@ -199,6 +199,7 @@ Describe 'Test-Signature' {
     (Test-Signature -Cosign 'cosign' -Step 'tag' -Arguments @('verify', 'x') -ExpectDigest $script:want).Ok | Should -BeFalse
   }
 }
+
 Describe 'Invoke-ReleasePublish' {
   BeforeEach {
     Mock Write-KippleInfo {}

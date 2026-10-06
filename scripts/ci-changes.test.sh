@@ -96,6 +96,11 @@ ok scripts-other-workflow false "$(scl '.github/workflows/release.yml')"
 ok scripts-docs-only false "$(scl 'docs/RELEASING.md')"
 ok scripts-go-code false "$(scl 'internal/api/api.go')"
 ok scripts-mixed true "$(scl $'internal/api/api.go\nscripts/x.ps1')"
+ok scripts-gitignore true "$(scl '.gitignore')"
+ok scripts-web-gitignore true "$(scl 'web/.gitignore')"
+ok scripts-other-gitignore false "$(scl 'docs/.gitignore')"
+ok scripts-quoted-name true "$(scl '"scripts/caf\303\251.ps1"')"
+ok scripts-quoted-name-outside true "$(scl '"docs/a\tb.md"')"
 ok scripts-lookalike false "$(scl 'myscripts/x.ps1')"
 ok scripts-empty-list true "$(scl '')"
 ok scripts-non-pr-event true "$(run --scripts push)"
@@ -109,6 +114,8 @@ ok scripts-git-none false "$(run --scripts pull_request HEAD~1 HEAD)"
 ok scripts-git-empty-diff true "$(run --scripts pull_request HEAD HEAD)"
 ok scripts-git-diff-fails true "$(run --scripts pull_request nonexistent-ref HEAD)"
 ok scripts-git-default-range false "$(run --scripts pull_request)"
+echo n > "scripts/caf$(printf '\303\251').ps1" && commit nonascii
+ok scripts-git-nonascii-name true "$(run --scripts pull_request HEAD~1 HEAD)"
 
 # The workflow must call the script through bash (a lost executable bit must not disable the skip) and must say so
 # loudly when the script cannot run, then run everything.

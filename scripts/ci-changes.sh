@@ -6,10 +6,11 @@
 #   ci-changes.sh --classify             Reads changed paths from stdin, one per line; prints true or false.
 #   ci-changes.sh --scripts EVENT [DIFF_ARGS...]
 #                                        For the `tooling` job (PowerShell tooling tests): prints `false` only on a pull
-#                                        request whose changed paths are all outside scripts/ and not the CI workflow
-#                                        itself; anything else, and every failure, prints true.
+#                                        request whose changed paths are all outside scripts/, not the CI workflow and not
+#                                        .gitignore or web/.gitignore (inputs of the tooling tests); anything else,
+#                                        and every failure, prints true.
 #   ci-changes.sh --scripts-classify     Reads changed paths from stdin; prints true or false (same rule).
-#   ci-changes.sh --list                Reads paths from stdin and prints the ones that are prose (scripts/ci-prune-prose.sh).
+#   ci-changes.sh --list                 Reads paths from stdin and prints the ones that are prose (scripts/ci-prune-prose.sh).
 # `false` means every changed path is listed in ci-prose.txt beside this script. Anything unexpected (git fails, the
 # list is missing, no paths) prints `true`: running too much costs minutes, running too little skips a required check.
 set -uo pipefail
@@ -64,13 +65,14 @@ classify() {
   [ "$n" -gt 0 ] && echo false || echo true
 }
 
-# classify_scripts: true when any path is under scripts/ or is the CI workflow (the PowerShell tooling's tests run there).
+# classify_scripts: true when any path is under scripts/, is the CI workflow, or is a .gitignore the tooling tests copy.
 classify_scripts() {
   local f n=0
   while IFS= read -r f || [ -n "$f" ]; do
     [ -n "$f" ] || continue
     n=$((n + 1))
-    case "$f" in scripts/* | .github/workflows/ci.yml) echo true; return ;; esac
+    # A name git quotes (control character, double quote, backslash) starts with ": it counts as code, as in is_prose.
+    case "$f" in \"* | scripts/* | .github/workflows/ci.yml | .gitignore | web/.gitignore) echo true; return ;; esac
   done
   [ "$n" -gt 0 ] && echo false || echo true
 }

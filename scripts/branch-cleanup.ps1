@@ -249,7 +249,7 @@ function Get-CleanupAction {
   $doomed = @($Plan | Where-Object { $_.Delete })
   $actions = [System.Collections.Generic.List[object]]::new()
   foreach ($row in $doomed | Where-Object { $_.WorktreePath }) {
-    $actions.Add([pscustomobject]@{ Kind = 'RemoveWorktree'; Branch = $row.Branch; Target = $row.WorktreePath; Sha = $row.LocalSha; Text = "remove worktree $($row.WorktreePath)" })
+    $actions.Add([pscustomobject]@{ Kind = 'RemoveWorktree'; Branch = $row.Branch; Target = $row.WorktreePath; Sha = $row.LocalSha; Text = "remove worktree $($row.WorktreePath) (and its ignored .claude/settings.local.json)" })
   }
   foreach ($row in $doomed | Where-Object { $_.LocalSha }) {
     $actions.Add([pscustomobject]@{ Kind = 'DeleteLocal'; Branch = $row.Branch; Target = $row.Branch; Sha = $row.LocalSha; Text = "delete local branch $($row.Branch) (tip $($row.LocalSha.Substring(0, 9)))" })
