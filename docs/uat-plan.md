@@ -212,7 +212,7 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
 - TC-S1: FTS search returns stemmed matches; a saved search re-runs identically later.
 
 **Stats**
-- TC-T1: A day of real reading produces correct numbers in the Stats screen (Week/Month/Year/All ranges,
+- TC-T1: A day of real reading produces correct numbers in the Stats screen (Week/Month/Year/All/Months ranges, tap a tile to compare it with the previous period,
   Items/Minutes toggle, folder rollup, never-opened list, streaks).
 - TC-T2: Export (CSV/JSON/JSONL raw, JSON summary) produces valid, complete files; the "leave out titles/links"
   toggle actually omits them.

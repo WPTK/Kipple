@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { StatsSource } from "@/api/types";
 import { durationLabel, feedRows, folderRows, heatLevel, hourLabel, mostStarred, parseDay, pctLabel, sortRows, weekOrder } from "./statsFormat";
 
@@ -97,5 +97,33 @@ describe("comparison and months", () => {
       { date: "2026-03-01", items_read: 4, active_seconds: 0 },
     ]);
     expect(bars.map((b) => [b.month, b.items_read])).toEqual([["2026-01", 3], ["2026-02", 0], ["2026-03", 4]]);
+  });
+});
+
+describe("day arithmetic with a pinned time zone", () => {
+  const prevTz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/New_York";
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+
+  it("steps whole calendar days across daylight saving changes and Feb 29", async () => {
+    const { addDays, previousPeriod } = await import("./statsFormat");
+    expect(addDays("2026-03-07", 1)).toBe("2026-03-08");
+    expect(addDays("2026-03-08", 1)).toBe("2026-03-09"); // spring forward: a 23-hour day
+    expect(addDays("2026-11-01", 1)).toBe("2026-11-02"); // fall back: a 25-hour day
+    expect(addDays("2026-11-02", -1)).toBe("2026-11-01");
+    expect(addDays("2028-02-28", 2)).toBe("2028-03-01");
+    expect(addDays("2028-03-01", -1)).toBe("2028-02-29");
+    expect(previousPeriod({ key: "month", from: "2026-03-20", days: 30 })).toEqual({ from: "2026-02-18", to: "2026-03-19", label: "the previous 30 days" });
+    expect(previousPeriod({ key: "year", from: "2028-03-01", days: 365 })?.to).toBe("2028-02-29");
+  });
+
+  it("calls a full week of days 'last week'", async () => {
+    const { previousPeriod } = await import("./statsFormat");
+    expect(previousPeriod({ key: "week", from: "2026-09-20", days: 7 })).toEqual({ from: "2026-09-13", to: "2026-09-19", label: "last week" });
   });
 });

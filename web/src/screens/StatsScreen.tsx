@@ -58,7 +58,19 @@ function Empty({ children }: { children: ReactNode }) {
 
 // ---- 1. Summary strip -------------------------------------------------------------------------------------------
 
-function Stat({ label, value, note, onToggle }: { label: string; value: string; note?: string | null; onToggle?: () => void }) {
+function Stat({
+  label,
+  value,
+  note,
+  onToggle,
+  describedBy,
+}: {
+  label: string;
+  value: string;
+  note?: string | null;
+  onToggle?: () => void;
+  describedBy?: string;
+}) {
   const inner = (
     <>
       <span className="block text-xl font-bold tabular-nums">{value}</span>
@@ -69,7 +81,7 @@ function Stat({ label, value, note, onToggle }: { label: string; value: string; 
   return (
     <div className="min-w-0 rounded-xl bg-surface">
       {onToggle ? (
-        <button type="button" onClick={onToggle} aria-expanded={note != null} className="block w-full min-w-0 rounded-xl px-3 py-3 text-left">
+        <button type="button" onClick={onToggle} aria-expanded={note != null} aria-describedby={note != null ? describedBy : undefined} className="block w-full min-w-0 rounded-xl px-3 py-3 text-left">
           {inner}
         </button>
       ) : (
@@ -88,22 +100,33 @@ type Tile = "items" | "time" | "days";
 export function SummaryStrip({ data, compare = false }: { data: StatsSummary; compare?: boolean }) {
   const t = data.totals;
   const legacy = t?.legacy_opens ?? 0;
+  const noteId = useId();
   // Tiles show plain numbers. Tapping one shows its previous-period value; the earlier period is fetched on the first tap.
   const [open, setOpen] = useState<ReadonlySet<Tile>>(new Set());
   const period = useMemo(() => (compare && data.range ? previousPeriod(data.range) : null), [compare, data.range]);
-  const prev = useSpanSummary(period, open.size > 0).data?.totals;
+  // An earlier period that starts before recording did is missing data, not a quiet stretch: no comparison for it.
+  const thin = period != null && data.first_event_date != null && period.from < data.first_event_date;
+  const span = useSpanSummary(thin ? null : period, open.size > 0);
+  const prev = span.data?.totals;
+  const failed = !thin && open.size > 0 && (span.isError || (span.isSuccess && !span.data?.totals));
   const flip = (k: Tile) =>
     setOpen((o) => {
       const n = new Set(o);
       if (!n.delete(k)) n.add(k);
       return n;
     });
+  const noteFor = (now: number, before: number | undefined, show: (n: number) => string) => {
+    if (thin) return "Not enough history";
+    if (before != null) return changeLabel(now, before, show);
+    return failed ? "Unavailable" : "Loading";
+  };
   const tile = (k: Tile, label: string, now: number, before: number | undefined, show: (n: number) => string) => (
     <Stat
       label={label}
       value={show(now)}
       onToggle={period ? () => flip(k) : undefined}
-      note={period && open.has(k) ? (before == null ? "Loading" : changeLabel(now, before, show)) : null}
+      describedBy={noteId}
+      note={period && open.has(k) ? noteFor(now, before, show) : null}
     />
   );
   const num = (n: number) => String(n);
@@ -114,7 +137,17 @@ export function SummaryStrip({ data, compare = false }: { data: StatsSummary; co
         {tile("time", "Active time", t?.active_seconds ?? 0, prev?.active_seconds, durationLabel)}
         {tile("days", "Days with reading", t?.days_active ?? 0, prev?.days_active, num)}
       </div>
-      {period && open.size > 0 ? <p className="mt-2 text-xs text-fg2">Compared with {period.label}.</p> : null}
+      {period && open.size > 0 ? (
+        <p id={noteId} role="status" className="mt-2 text-xs text-fg2">
+          {thin ? `Recording began after ${period.label} started.` : `Compared with ${period.label}.`}
+        </p>
+      ) : null}
+      {failed ? (
+        <div role="alert" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          Couldn't load the earlier period.
+          <Button onClick={() => void span.refetch()}>Try again</Button>
+        </div>
+      ) : null}
       <p className="mt-2 text-xs text-fg2">
         {READ_RULE}
         {legacy > 0
@@ -207,7 +240,7 @@ export function MonthlyChart({ data, empty }: { data: StatsSummary; empty: boole
           viewBox={`0 0 ${months.length * MONTH_W + PAD * 2} ${CHART_H}`}
           preserveAspectRatio="none"
           className="block h-32 w-full rounded-lg bg-surface"
-          style={{ minWidth: Math.min(months.length * 14, 2000) }}
+          style={{ minWidth: Math.min(months.length * 14, 2000), maxWidth: (months.length * MONTH_W + PAD * 2) * 2 }}
         >
           {months.map((m, i) => {
             const h = m.items_read > 0 ? Math.max(3, (m.items_read / max) * (CHART_H - 6)) : 0;
@@ -585,7 +618,7 @@ export function StatsScreen() {
             Only {plural(history, "day")} of reading so far.
           </p>
         ) : null}
-        <SummaryStrip data={data} compare />
+        <SummaryStrip key={`${data.range?.key}-${data.range?.from}`} data={data} compare />
         {wrapped ? (
           <div className="border-b border-line py-4">
             <Link to="/stats/wrapped" className="flex min-h-11 items-center justify-between gap-3 rounded-xl bg-surface px-4 py-3 text-sm font-medium">

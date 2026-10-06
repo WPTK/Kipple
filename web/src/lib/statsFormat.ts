@@ -235,6 +235,7 @@ export function monthName(month: string, style: "short" | "long" = "short"): str
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: style, year: "numeric" });
 }
 
+/** A local date string moved by whole days (the calendar's days, so DST and month lengths cannot skew it). */
 export function addDays(day: string, n: number): string {
   const d = parseDay(day);
   d.setDate(d.getDate() + n);
@@ -255,7 +256,7 @@ export function previousPeriod(range: { key: StatsRange; from: string; days: num
   return { from: addDays(range.from, -range.days), to: addDays(range.from, -1), label: `the previous ${range.days} days` };
 }
 
-/** "+18% from 120", "-5% from 40", "no change from 7", or "from 0" when the earlier value was zero. */
+/** "+18% from 120", "-5% from 40", "no change from 7", "up from 0" or "no change from 0" when the earlier value was zero. */
 export function changeLabel(now: number, before: number, show: (n: number) => string): string {
   if (before <= 0) return `${now > 0 ? "up" : "no change"} from ${show(before)}`;
   const pct = Math.round(((now - before) / before) * 100);
