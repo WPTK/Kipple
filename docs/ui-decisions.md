@@ -286,12 +286,18 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
 - **Lead:** the newest article with an image from a pinned source. A pin is a Favorite (feed or folder), the same list as
   the top of the sidebar; there is no separate pin list. No pin icon is drawn on the page. In a single feed or folder
   list there is no pin, so the lead is the newest article with an image in that list.
-- **Front-page types**, first match wins: (1) picture day: a pinned article with a very wide image runs across the top;
-  (2) co-leads: two pinned feeds both have images, side by side; (3) lead with image: about 26 px headline over the
-  picture, a second column of stories, a row of columns; (4) big headline: the pinned feed has no image, so the headline
-  grows to about 40 px and runs the full width with a longer standfirst, and with nothing from a pinned feed the longest
-  recent headline leads; (5) quiet day: fewer than about 6 stories, two columns and no briefs; (6) busy day: a photo row
-  (at least three more stories with images) and four columns; (7) text-only day: no images anywhere, a typographic page.
+- **Front-page types**, first match wins: (1) co-leads: two pinned feeds both have images, side by side; (2) lead with
+  image: about 26 px headline over the picture, a second column of stories, a row of columns; (3) big headline: the
+  pinned feed has no image, so the headline grows to about 40 px and runs the full width with a longer standfirst, and
+  with nothing from a pinned feed the longest recent headline leads; (4) quiet day: fewer than about 6 stories, two
+  columns and no briefs; (5) busy day: a photo row (at least three more stories with images) and four columns;
+  (6) text-only day: no images anywhere, a typographic page. A "picture day" type for very wide images was dropped:
+  Kipple does not store image sizes, and adding them needs a migration and a fetch at ingest.
+- **Lead window:** the newest image article from a Favorite among the first 100 articles loaded; none means a no-lead type.
+- **Order:** always newest first; the per-device sort order is ignored in this layout.
+- **Reading:** a story marked read fades in place and the page does not reflow; the page re-plans on refresh or when you
+  leave and return. A page's contents are fixed once planned, so loading more never reflows earlier pages.
+- **Paging:** all loaded pages stack in one scroll with a page rule and a small header between them.
 - **Columns:** two for a few stories up to four for many. Stories that do not fit become headline-only "In brief" lines.
   Unread titles are bold, read ones fade.
 - **Inner pages (2, 3, ...):** no masthead; a small header line (name, page number, date), a section header, columns,
