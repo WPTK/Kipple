@@ -360,6 +360,13 @@ func applyStagedRestore(dataDir string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	if done.Stale && done.StaleErr != nil {
+		logger.Error("a restore or reset confirmed more than a week ago is not applied, but its marker could not be removed; delete restore-pending.json and restore-staged.db in the data folder",
+			"confirmed_at", done.MarkerTime.UTC().Format(time.RFC3339), "err", done.StaleErr)
+	} else if done.Stale {
+		logger.Warn("discarded a restore or reset confirmed more than a week ago and never applied; nothing was changed",
+			"confirmed_at", done.MarkerTime.UTC().Format(time.RFC3339))
+	}
 	if done.Restored {
 		logger.Info("applied the restore or reset confirmed in the browser; every web session was signed out",
 			"username", done.Username, "backup_created_at", done.CreatedAt, "backup_kipple_version", done.KippleVersion,

@@ -172,14 +172,10 @@ func EstimateSeconds(dbBytes int64, older bool) int {
 	return max(s, 30)
 }
 
-// HostSettings are the settings a restore clears: they describe the server a
-// backup was made on, not the library (the trusted proxies also decide who may
-// claim to be which client, so a stale list must not carry over).
-var HostSettings = []string{store.SettingPublicURL, store.SettingAllowedHosts, store.SettingTrustedProxies}
-
 // prepareStaged edits the staged copy before it is installed: every web session
-// is signed out, the backup's address settings (HostSettings) are cleared and
-// replaced by the live instance's own server.* and security.* settings (live may
+// is signed out, the backup's server settings (ServerSettingPrefixes: they
+// describe the server it was made on, and the trusted proxies also decide who
+// may claim to be which client) are replaced by the live instance's own (live may
 // be nil: then they are only cleared), and passwordHash, when not empty, becomes
 // the web password. A restore must not drop the address this instance answers at.
 func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB) error {
@@ -196,12 +192,11 @@ func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB)
 	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions"); err != nil {
 		return fmt.Errorf("restore: sign out sessions: %w", err)
 	}
-	for _, k := range HostSettings {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", k); err != nil {
-			return fmt.Errorf("restore: clear %s: %w", k, err)
+	if live == nil {
+		if err := clearServerSettings(ctx, tx); err != nil {
+			return fmt.Errorf("restore: clear the server settings: %w", err)
 		}
-	}
-	if live != nil {
+	} else {
 		rows, err := readServerSettings(ctx, live)
 		if err != nil {
 			return fmt.Errorf("restore: read this server's settings: %w", err)
@@ -325,10 +320,20 @@ func removeStaged(dataDir string) {
 	}
 }
 
+// MaxMarkerAge is how old a confirmed restore or reset may be and still be
+// applied at start.
+const MaxMarkerAge = 7 * 24 * time.Hour
+
 // Applied is what ApplyStaged did.
 type Applied struct {
 	// Restored: a confirmed restore was installed now.
 	Restored bool
+	// Stale: a confirmed marker older than MaxMarkerAge was not applied. MarkerTime is
+	// when it was written (its file time) and StaleErr why removing it failed (nil:
+	// it and the staged database were removed).
+	Stale      bool
+	MarkerTime time.Time
+	StaleErr   error
 	// Pre is the directory the replaced database went to ("" when there was none).
 	Pre string
 	// KippleVersion, CreatedAt and Username describe the backup, from the marker.
@@ -350,7 +355,9 @@ type Applied struct {
 //     never confirmed, or expired with the process: deleted.
 //
 // A failed swap puts the old database back and keeps the marker, so the next
-// start tries again. local is the server's zone (PrunePreRestore).
+// start tries again. A marker older than MaxMarkerAge (by its file time) is
+// discarded with its staged database instead (Applied.Stale). local is the
+// server's zone (PrunePreRestore).
 func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, error) {
 	mpath := filepath.Join(dataDir, MarkerFile)
 	b, err := os.ReadFile(mpath)
@@ -364,6 +371,17 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 	var m marker
 	_ = json.Unmarshal(b, &m) // only for the log; the file's existence is the confirmation
 	out := Applied{KippleVersion: m.KippleVersion, CreatedAt: m.CreatedAt, Username: m.Username}
+	// A marker that outlived days of use (a rollback to a Kipple that ignores it,
+	// then an upgrade again) is a decision nobody still means: drop it.
+	if fi, err := os.Stat(mpath); err == nil && now.Sub(fi.ModTime()) > MaxMarkerAge {
+		out.Stale, out.MarkerTime = true, fi.ModTime()
+		if err := os.Remove(mpath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			out.StaleErr = err // it is not applied, and removed at a later start
+			return out, nil
+		}
+		removeStaged(dataDir)
+		return out, nil
+	}
 	staged := filepath.Join(dataDir, StagedFile)
 	if _, err := os.Stat(staged); err == nil {
 		pre, err := Swap(dataDir, staged, now)
@@ -385,7 +403,8 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 
 // DiscardStaged deletes a restore staged in the setup wizard, confirmed or not,
 // and reports whether a confirmed one was dropped. `kipple restore` runs it
-// after its own swap: that restore is the newer decision.
+// before its own swap: that restore is the newer decision, and dropping the
+// other first means a crash in between can never leave both in place.
 func DiscardStaged(dataDir string) bool {
 	err := os.Remove(filepath.Join(dataDir, MarkerFile))
 	removeStaged(dataDir)

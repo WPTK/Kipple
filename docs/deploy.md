@@ -74,6 +74,7 @@ Everything is on the `kipple_data` volume, mounted at `/data`. Compose prefixes 
 | `/data/backup/kipple-snapshot.db` | Nightly snapshot at 04:10 (`tz` setting), consistent, safe to copy | 1 |
 | `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration (`0600`) | newest 3, one per `<from>` and `<to>` |
 | `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC) | The database that `kipple restore`, a restore in the setup wizard or a [reset](#reset-kipple-and-start-over) replaced; one that is provably empty (no account, feed or item) is deleted, not kept | newest 3 |
+| `/data/restore-pending.json`, `/data/restore-staged.db` | A restore or reset that was confirmed and waits for the next start ([details](#a-restore-or-reset-that-is-waiting)) | until applied |
 | `/data/backup/export/` | Temporary files of an export in progress. Emptied at startup | transient |
 | `/data/imgcache/` | Image cache (`imgproxy.cache_mb`, default 1024 MiB, least recently used evicted; never in backups or snapshots) | capped |
 | `/data/restore-tmp.db*`, `/data/restore-upload.tmp` | Only while a `kipple restore` runs | transient |
@@ -616,12 +617,14 @@ its date, the feed, item and starred counts, and the user name you will sign in 
 Things to know:
 
 - **Sign-in.** You sign in as the backup's account with its password. If that account had no password (Cloudflare
-  Access or open mode) and that sign-in would not work from where you are, the wizard asks for a new password first.
+  Access or open mode) and that sign-in would not work from where you are (this server's own Cloudflare Access does not
+  verify the request, or the open-mode gate refuses it), the wizard asks for a new password first.
   You can set a new password in any case.
 - **The address is not restored.** The public URL, allowed host names and trusted proxies describe the old server, so
   a wizard restore drops the backup's and keeps this server's own (from `KIPPLE_PUBLIC_URL`, `KIPPLE_ALLOWED_HOSTS` and
   `KIPPLE_TRUSTED_PROXY_IPS`, or set in Settings, Account & Devices, Address and access, before the restore, as after a
-  reset). Cloudflare Access comes back from the backup unless this server has its own.
+  reset). The same goes for the Cloudflare Access sign-in settings: the backup's are dropped, which is why a backup whose
+  account has no password asks for a new one here.
 - **Disk space.** The data volume needs room for the zip while it arrives, then for the database inside it (its size is
   read from the backup's manifest before anything is extracted), and for a backup from an older Kipple about 3.1 times
   the database for the upgrade on the next start. The zip is deleted as soon as the database is out of it. A shortfall
@@ -647,8 +650,9 @@ empty database: the dialog says what is erased (all feeds, folders, history, set
 password (an account without one needs the sign-in it uses for changing its password instead) and for you to type
 `reset kipple`. Kipple then answers, stops cleanly and your restart policy starts it again; that start moves your library
 to `/data/backup/pre-restore-<timestamp>/` (the same folder, naming and newest-3 retention as a restore) and begins empty.
-An empty database is never kept as a safety copy, so repeated resets or restores do not push your real library out of
-the newest three. The page waits and offers setup when Kipple is back. Without a restart policy, start the container
+Only the newest three safety copies are kept, so repeated resets or restores push older ones out: export a backup
+first if you want one you can keep elsewhere. (A database that is provably empty, with no account, feed or item, is
+never kept as a safety copy.) The page waits and offers setup when Kipple is back. Without a restart policy, start the container
 again yourself: the reset finishes on that start. `kipple restore` brings the kept library back.
 
 The address and access settings (public address, allowed host names, trusted proxies, Cloudflare Access) describe your
@@ -660,6 +664,16 @@ If `KIPPLE_USERNAME` and `KIPPLE_PASSWORD` are set, Kipple ignores them until a 
 `/data/no-env-account` and removes the file once an account exists), because a restart reuses the same environment and
 would otherwise create that account again and skip setup. You can delete the variables from your compose file or `.env`
 whenever convenient.
+
+### A restore or reset that is waiting
+
+Confirming a restore in the setup wizard or a reset in Settings does not change the database at once. It leaves two
+files in the data folder, `restore-staged.db` (the database to install) and `restore-pending.json` (the confirmation),
+and stops Kipple; the next start installs it before the database opens. Until then
+nothing has changed, so you can cancel: stop Kipple, delete both files, and start it again. If installing fails (the
+`backup` folder is not writable, say), the reason is in the log at every start and the files stay, so fix the cause or
+delete the files. A confirmation older than seven days is not applied: the next start deletes it and says so in the log,
+so an old one cannot surprise you after a downgrade and a later upgrade.
 
 ### Restore from the command line
 
@@ -848,4 +862,4 @@ Space to keep free on the volume:
 | Steady state | The nightly snapshot lives on the same volume: plan for about 2 times the database in total. |
 | Export | About 2.2 times the database, temporarily (the snapshot copy plus the zip). Over 4 GiB an export is refused: copy the nightly snapshot instead. |
 | Upgrade that migrates the schema | The database size plus 64 MB (twice the size plus 64 MB when a migration rebuilds a table), plus 1.1 times the database for the pre-migration snapshot. The newest three pre-migration snapshots are kept, each about one more copy of the database. |
-| Restore | The new database, plus the previous one kept under `backup/pre-restore-*` (newest three kept; an empty one is not kept). |
+| Restore | The new database, plus the previous one kept under `backup/pre-restore-*` (the newest three are kept; an empty one is not kept). |

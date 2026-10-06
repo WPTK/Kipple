@@ -11,11 +11,15 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// ServerSettingPrefixes are the setting keys that describe this server (its
-// address, allowed host names, trusted proxies and Cloudflare Access sign-in)
-// and not the library. A reset carries them over, so Kipple answers at the same
-// address once it is empty.
-var ServerSettingPrefixes = []string{"server.", "security."}
+// ServerSettingPrefixes is the one list of settings that describe this server
+// and not the library: the server.* and security.* keys (public address,
+// allowed host names, trusted proxies, Cloudflare Access) and the marker that
+// the allowed host names of KIPPLE_ALLOWED_HOSTS were merged once (without it a
+// host removed in Settings would come back from the variable). A reset and a
+// wizard restore both replace the staged copy's value for every key in it with
+// the live database's, so Kipple answers at the same address and a backup's
+// server settings never carry over. An entry matches a key it is a prefix of.
+var ServerSettingPrefixes = []string{"server.", "security.", store.SettingAllowedHostsMerged}
 
 // stageMu orders resets: one intent at a time, in this process.
 var stageMu sync.Mutex
@@ -109,12 +113,26 @@ func readServerSettings(ctx context.Context, live *sql.DB) ([]settingRow, error)
 	return rows, nil
 }
 
-// writeServerSettings stores rows, replacing any of the same key. The one
+// writeServerSettings makes the server settings of tx's database exactly rows:
+// every key of ServerSettingPrefixes is deleted, then rows are stored. The one
 // helper of a reset (into a fresh database) and of a restore (into the staged
 // backup).
 func writeServerSettings(ctx context.Context, tx *sql.Tx, rows []settingRow) error {
+	if err := clearServerSettings(ctx, tx); err != nil {
+		return err
+	}
 	for _, r := range rows {
 		if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", r.key, r.value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// clearServerSettings deletes every key of ServerSettingPrefixes.
+func clearServerSettings(ctx context.Context, tx *sql.Tx) error {
+	for _, p := range ServerSettingPrefixes {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM settings WHERE substr(key, 1, ?) = ?", len(p), p); err != nil {
 			return err
 		}
 	}
