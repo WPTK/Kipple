@@ -54,3 +54,4 @@ Kipple has a single maintainer. A security report filed as above gets a first re
 target, not a guarantee, and a fix has no fixed deadline. Other issues and pull requests are triaged best-effort, in
 whatever order the maintainer gets to them, with no response time promised.
 
+
