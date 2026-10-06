@@ -105,23 +105,92 @@ func TestFeedDailyNewCountsEveryChunk(t *testing.T) {
 	require.Equal(t, 610, e.newsDaily(id, base))
 }
 
-// The count is written in the last chunk's transaction: a commit whose chunk rolls back leaves no count
-// behind. The items of the chunks that did commit stay uncounted (the next fetch finds them present).
-func TestFeedDailyNewRolledBackChunkLeavesNoCount(t *testing.T) {
+// Each chunk counts its own items in its own transaction: a chunk that rolls back takes its count with
+// it, and the chunks that committed before it stay counted (their items are durable and unread).
+func TestFeedDailyNewRolledBackChunkKeepsTheCommittedChunks(t *testing.T) {
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
 	e.fetchBody(id, rss(numbered(10)...))
-	// Oldest first in chunks of 250: g600 is in chunk 3.
+	// Oldest first in chunks of 250: g600 is in chunk 3, so chunks 1 and 2 (g10..g499) commit.
 	e.exec(fmt.Sprintf(`CREATE TRIGGER boom BEFORE INSERT ON items WHEN NEW.uid = 'g:%s' BEGIN SELECT RAISE(ABORT, 'boom'); END`, fetch.H("g600")))
 	_, err := e.db.CommitFetch(e.ctx, e.okResult(e.snap(id), rss(numbered(620)...)))
 	require.ErrorContains(t, err, "chunk 3/3")
-	require.Zero(t, e.count("SELECT count(*) FROM feed_daily_new"))
+	require.Equal(t, 490, e.newsDaily(id, base), "the committed chunks are counted, the failed one is not")
 
 	e.exec("DROP TRIGGER boom")
 	info := e.fetchBody(id, rss(numbered(620)...))
 	require.Equal(t, 120, info.New)
-	require.Equal(t, 120, e.newsDaily(id, base), "the retry counts what it inserts")
+	require.Equal(t, 610, e.newsDaily(id, base), "the retry adds what it inserts")
+}
+
+// A URL edit between chunks stops the commit: the chunks that committed stay counted.
+func TestFeedDailyNewStaleCommitKeepsTheCommittedChunks(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	e.fetchBody(id, rss(numbered(10)...))
+	e.exec(fmt.Sprintf(`CREATE TRIGGER moved AFTER INSERT ON items WHEN NEW.uid = 'g:%s'
+		BEGIN UPDATE feeds SET url = 'http://b.example/feed' WHERE id = %d; END`, fetch.H("g10"), id))
+	info, err := e.db.CommitFetch(e.ctx, e.okResult(e.snap(id), rss(numbered(620)...)))
+	require.NoError(t, err)
+	require.True(t, info.Stale)
+	require.Equal(t, 240, info.New)
+	require.Equal(t, 240, e.newsDaily(id, base))
+}
+
+// A commit counts on the day its first chunk ran, so the trim's correction in the last chunk lands on
+// the same row as the chunks' counts.
+func TestFeedDailyNewTrimCorrectionAcrossChunks(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 100 WHERE id = ?", id)
+	e.fetchBody(id, rss(numbered(10)...))
+	// The commit spans midnight: the clock moves a day on after its first chunk.
+	advanced := false
+	commitChunkTestHook = func() {
+		if !advanced {
+			advanced = true
+			e.clk.Advance(24 * time.Hour)
+		}
+	}
+	t.Cleanup(func() { commitChunkTestHook = nil })
+	// 610 new items in three chunks. The trim keeps the newest 100: the 10 first-fetched items (g0..g9
+	// were published 10 to 1 minutes before base, newer than the 620-item document dates them) and 90 new.
+	info := e.fetchBody(id, rss(numbered(620)...))
+	require.Equal(t, 610, info.New)
+	require.EqualValues(t, 520, info.Trimmed)
+	require.Equal(t, 90, e.newsDaily(id, base), "counted on the first chunk's day, less the 520 trimmed")
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feed_daily_new WHERE feed_id = ?", id))
+}
+
+// A trim that removes every counted item of the day deletes the row rather than leave a 0.
+func TestFeedDailyNewTrimToZeroDeletesTheRow(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
+	e.fetchBody(id, rss(numbered(50)...))
+	// Two new items, both older than the 50 kept: the trim removes both.
+	info := e.fetchBody(id, rss(append(numbered(50), spec{guid: "o1", age: time.Hour}, spec{guid: "o2", age: 2 * time.Hour})...))
+	require.Equal(t, 2, info.New)
+	require.EqualValues(t, 2, info.Trimmed)
+	require.Zero(t, e.count("SELECT count(*) FROM feed_daily_new"))
+}
+
+// Editing a feed's URL points it at a document never fetched: its first success is a backlog, like a
+// new subscription's, and is not counted.
+func TestFeedDailyNewSkipsTheFirstFetchAfterAURLEdit(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.fetchBody(id, rss(numbered(2)...))
+	nu := "http://a.example/other"
+	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &nu, Cols: map[string]any{}})
+	require.NoError(t, err)
+	require.Zero(t, e.count("SELECT count(*) FROM feeds WHERE id = ? AND last_success_at IS NOT NULL", id))
+	e.fetchBody(id, rss(newer(50)...))
+	require.Zero(t, e.count("SELECT count(*) FROM feed_daily_new"), "the new URL's backlog is not counted")
+	e.fetchBody(id, rss(append(newer(50), spec{guid: "next", age: -time.Hour})...))
+	require.Equal(t, 1, e.newsDaily(id, base))
 }
 
 func TestFeedDailyNewSurvivesUnsubscribe(t *testing.T) {

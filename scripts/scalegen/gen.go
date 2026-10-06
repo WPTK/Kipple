@@ -474,10 +474,11 @@ func boolI(b bool) int {
 }
 
 // rewind turns a finished database into one the migrations from schema v up produce the latest
-// shape from. Every version first flattens the folder tree to the shape before migration 0012: each
-// folder becomes a top-level folder named by its full path, so 0012 has a table to rebuild. 11 does
-// only that; 10 also restores the settings rows 0011 deletes; 6 also drops what 0007 to 0009 added,
-// so those migrations do their real work (a full items UPDATE and three stats indexes).
+// shape from. Every version first drops feed_daily_new (0017 creates it and runs once) and flattens
+// the folder tree to the shape before migration 0012: each folder becomes a top-level folder named by
+// its full path, so 0012 has a table to rebuild. 11 does only that; 10 also restores the settings rows
+// 0011 deletes; 6 also drops what 0007 to 0009 added, so those migrations do their real work (a full
+// items UPDATE and three stats indexes).
 func rewind(path string, v int) error {
 	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(OFF)")
 	if err != nil {
@@ -486,6 +487,7 @@ func rewind(path string, v int) error {
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 	stmts := []string{
+		`DROP TABLE feed_daily_new`,
 		`CREATE TABLE folders_old (
 		   id INTEGER PRIMARY KEY AUTOINCREMENT,
 		   name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(trim(name)) > 0),

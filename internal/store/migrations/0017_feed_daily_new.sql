@@ -2,10 +2,11 @@
 -- issue #37). The Stats screen divides a feed's opens by this to get a read rate. fetch_log cannot serve:
 -- it is capped per feed and cascades away on unsubscribe, and retention trims the items themselves.
 -- Like stats_events it has no foreign key, so it survives trims and unsubscribes, and it is never trimmed.
--- The last transaction of a fetch commit writes the row, after its trim (the local date is in the `tz`
--- zone at that moment). Not counted, as none was a choice to open: a feed's first successful fetch (the
--- backlog published before the subscription), items that arrive already read (the initial-read cutoff, a
--- rekey, a filter that marks read) or muted, and items the same commit trims.
+-- Each chunk of a fetch commit adds its items in its own transaction, to the local date (`tz` zone) of
+-- the commit's first chunk; the last chunk takes back the items its trim removed. Not counted, as none
+-- was a choice to open: a feed's first successful fetch, also the first after a URL edit (a backlog),
+-- items that arrive already read (the initial-read cutoff, a rekey, a filter that marks read) or muted,
+-- and items the same commit trims.
 -- The opens (stats_events) have gaps this table does not: days before the first timed event, days while
 -- statistics were off, and ranges the stats delete removed (no record of the range is kept). A read rate
 -- must bound its range by sys.stats_timed_since and must not turn such a gap into 0%: no data shows a dash.
