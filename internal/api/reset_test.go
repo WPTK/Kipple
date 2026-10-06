@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
-	"time"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
