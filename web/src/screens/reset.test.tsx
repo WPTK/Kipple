@@ -197,4 +197,28 @@ describe("the page that waits for a reset", () => {
     });
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Kipple stopped. Start it again and the reset will finish."));
   });
+
+  it("says the page was redirected when the proxy in front of Kipple sends it to a sign-in", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // The client asks for redirects not to be followed: the answer is an opaque redirect.
+    const realFetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/api/instance")) {
+        const r = new Response(null, { status: 200 });
+        Object.defineProperty(r, "type", { value: "opaqueredirect" });
+        return r;
+      }
+      return json({ error: "auth" }, 401);
+    });
+    vi.stubGlobal("fetch", realFetch);
+    authStore.set("in");
+    resetting.set({ estimateSeconds: 30 });
+    window.history.replaceState({ idx: 0 }, "", "/");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    await screen.findByRole("heading", { name: "Resetting Kipple" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(310_000);
+    });
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("The page was redirected, probably to a sign-in for the proxy in front of Kipple. Reload this page."));
+    expect(screen.queryByText(/Kipple stopped/)).toBeNull();
+  });
 });

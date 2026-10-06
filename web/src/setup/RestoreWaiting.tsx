@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError } from "@/api/client";
+import { ApiError, SESSION_EXPIRED } from "@/api/client";
 import { Button } from "@/ui/button";
 import { Notice } from "@/ui/kit";
 import { fetchInstance } from "./api";
@@ -58,7 +58,7 @@ export function RestoreWaiting({
   // What the last poll got: nothing (the network failed: Kipple is away, so "stopped"), an HTTP answer that says
   // neither "setup" nor "not setup" (a refused host name, a proxy error), or an instance answer that is not the one
   // this restart waits for (Kipple is up, but the change was not applied).
-  const [answered, setAnswered] = useState(false);
+  const [answered, setAnswered] = useState<"no" | "kipple" | "redirect">("no");
   const [running, setRunning] = useState(false);
   const [started] = useState(() => Date.now());
 
@@ -70,14 +70,16 @@ export function RestoreWaiting({
       try {
         const i = await fetchInstance();
         if (stop) return;
-        setAnswered(false);
+        setAnswered("no");
         setRunning(!!i && !k.finished(i.setup));
         if (i && k.finished(i.setup)) setDone(true);
       } catch (e) {
         /* Kipple is away while it restarts: keep waiting */
         if (stop) return;
         setRunning(false);
-        setAnswered(e instanceof ApiError && e.fromKipple);
+        // A redirect is the access proxy in front of Kipple sending an expired session to its sign-in page.
+        if (e instanceof ApiError && e.code === SESSION_EXPIRED) setAnswered("redirect");
+        else setAnswered(e instanceof ApiError && e.fromKipple ? "kipple" : "no");
       }
     };
     const t = window.setInterval(() => void poll(), POLL_MS);
@@ -126,7 +128,13 @@ export function RestoreWaiting({
         </p>
         {stopped ? (
           <Notice tone="warn" role="alert">
-            {running ? k.notApplied : answered ? "Kipple answered, but not as expected. Open it by its local address." : k.stopped}
+            {running
+              ? k.notApplied
+              : answered === "redirect"
+                ? "The page was redirected, probably to a sign-in for the proxy in front of Kipple. Reload this page."
+                : answered === "kipple"
+                  ? "Kipple answered, but not as expected. Open it by its local address."
+                  : k.stopped}
           </Notice>
         ) : null}
       </div>

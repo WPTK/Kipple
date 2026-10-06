@@ -46,11 +46,15 @@ func Swap(dataDir, tmp string, now time.Time) (pre string, err error) {
 //
 // A file SQLite takes for garbage is opened with its -wal and -shm beside it,
 // and SQLite deletes those, so copies of them wait in the pre-restore directory
-// meanwhile and go back when the open found nothing usable.
+// meanwhile and go back when the open failed (the file is not a SQLite database
+// at all). When the open worked, the checkpointed single file is what is kept
+// and the copies are deleted. A crash in between leaves the copies; the next
+// call puts them back (recoverCopies) and never deletes one while the original
+// is missing.
 func keepLive(dataDir string, now time.Time) (pre string, undo func(), err error) {
 	live := filepath.Join(dataDir, "kipple.db")
 	backupDir := filepath.Join(dataDir, "backup")
-	cleanCopies(backupDir)
+	recoverCopies(dataDir, backupDir)
 	if _, err := os.Stat(live); err != nil {
 		// No main file: any -wal or -shm is moved as it is, below.
 		return keepFiles(dataDir, live, "", now)
@@ -64,9 +68,9 @@ func keepLive(dataDir string, now time.Time) (pre string, undo func(), err error
 			copies[s] = c
 		}
 	}
-	state := liveState(live)
+	state, opened := liveState(live)
 	for s, c := range copies {
-		if state == liveUnknown {
+		if !opened {
 			if _, err := os.Stat(live + s); err != nil {
 				_ = os.Rename(c, live+s) // the open took it: put it back
 				continue
@@ -125,7 +129,8 @@ func keepFiles(dataDir, live, pre string, now time.Time) (string, func(), error)
 }
 
 // copyPrefix names the copies of a -wal or -shm made while a database is opened
-// to be looked at; cleanCopies removes any a crash left.
+// to be looked at: copyPrefix, then the suffix ("wal" or "shm"), then a unique
+// part. recoverCopies handles any a crash left.
 const copyPrefix = "walcopy-"
 
 // copyAside copies src into dir under a unique name ("" when src is absent).
@@ -135,7 +140,7 @@ func copyAside(src, dir string) (string, error) {
 		return "", nil
 	}
 	defer in.Close()
-	out, err := os.CreateTemp(dir, copyPrefix+"*")
+	out, err := os.CreateTemp(dir, copyPrefix+strings.TrimPrefix(filepath.Ext(src), ".")+"-*")
 	if err != nil {
 		return "", err
 	}
@@ -150,11 +155,26 @@ func copyAside(src, dir string) (string, error) {
 	return out.Name(), nil
 }
 
-// cleanCopies removes copies a crash left in the pre-restore directories.
-func cleanCopies(backupDir string) {
+// recoverCopies finishes what a crash left in the pre-restore directories: a
+// copy whose original -wal or -shm is missing beside a live kipple.db is put
+// back (the open had deleted it), one whose original is there is removed. A
+// copy is never deleted while its original is missing.
+func recoverCopies(dataDir, backupDir string) {
+	live := filepath.Join(dataDir, "kipple.db")
+	if _, err := os.Stat(live); err != nil {
+		return
+	}
 	left, _ := filepath.Glob(filepath.Join(backupDir, "pre-restore-*", copyPrefix+"*"))
-	for _, f := range left {
-		_ = os.Remove(f)
+	for _, c := range left {
+		suffix := "-wal"
+		if strings.HasPrefix(filepath.Base(c), copyPrefix+"shm-") {
+			suffix = "-shm"
+		}
+		if _, err := os.Stat(live + suffix); err != nil {
+			_ = os.Rename(c, live+suffix)
+		} else {
+			_ = os.Remove(c)
+		}
 	}
 }
 
@@ -193,7 +213,6 @@ func newPreRestoreDir(backupDir string, now time.Time) (string, error) {
 // backupDir. local is the zone the zone-less names of older versions were
 // written in (the server's local time).
 func PrunePreRestore(backupDir string, local *time.Location) {
-	cleanCopies(backupDir)
 	found, _ := filepath.Glob(filepath.Join(backupDir, "pre-restore-*"))
 	// An empty directory (a leftover of an interrupted restore) holds nothing to
 	// keep: remove it rather than let it take one of the KeepPreRestore places.
@@ -276,32 +295,37 @@ const (
 // says whether it is provably empty: a Kipple database (application id) whose
 // account, feeds and items tables all read as zero rows without an error, and
 // that passes a quick integrity check (a damaged b-tree can read as no rows).
-// Everything else is liveHolds or liveUnknown, and is kept.
-func liveState(live string) liveKind {
+// Everything else is liveHolds or liveUnknown, and is kept. opened is whether
+// the file is a SQLite database at all (the first read worked), as opposed to
+// garbage SQLite cannot open.
+func liveState(live string) (state liveKind, opened bool) {
 	if _, err := os.Stat(live); err != nil {
-		return liveUnknown
+		return liveUnknown, false
 	}
 	db, err := openFile(live)
 	if err != nil {
-		return liveUnknown
+		return liveUnknown, false
 	}
 	defer db.Close()
 	var appID int
-	if err := db.QueryRow("PRAGMA application_id").Scan(&appID); err != nil || appID != store.ApplicationID {
-		return liveUnknown
+	if err := db.QueryRow("PRAGMA application_id").Scan(&appID); err != nil {
+		return liveUnknown, false
+	}
+	if appID != store.ApplicationID {
+		return liveUnknown, true
 	}
 	for _, table := range []string{"account", "feeds", "items"} {
 		var n int
 		if err := db.QueryRow("SELECT count(*) FROM " + table).Scan(&n); err != nil {
-			return liveUnknown
+			return liveUnknown, true
 		}
 		if n > 0 {
-			return liveHolds
+			return liveHolds, true
 		}
 	}
 	var check string
 	if err := db.QueryRow("PRAGMA quick_check").Scan(&check); err != nil || check != "ok" {
-		return liveUnknown
+		return liveUnknown, true
 	}
-	return liveEmpty
+	return liveEmpty, true
 }

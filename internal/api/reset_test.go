@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -167,4 +168,30 @@ func TestResetInfoCountsAllowedHostsAsAnAddress(t *testing.T) {
 	code, out, _ := h.api(h.login(), "GET", "/api/reset", "")
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, true, out["public_address_set"])
+}
+
+// A wizard restore through api.New (which builds its own Restorer) keeps the
+// address this instance answers at: the Restorer must be given the live database.
+func TestWizardRestoreKeepsTheLiveAddress(t *testing.T) {
+	dir := t.TempDir()
+	restarts := &atomic.Int32{}
+	sh := newSetupHarness(t, func(o *Options) {
+		o.DataDir = dir
+		o.Restart = func() { restarts.Add(1) }
+	})
+	require.NoError(t, sh.db.SetSettings(t.Context(), map[string]any{
+		store.SettingPublicURL: "https://rss.example.test", store.SettingAllowedHosts: []string{"rss.example.test"}}))
+	h := &restoreHarness{setupHarness: sh, dir: dir, restarts: restarts}
+	out := h.upload(backupZip(t, "h", store.AuthStandard))
+	require.EqualValues(t, http.StatusOK, out["status"], out)
+	require.Equal(t, http.StatusAccepted, h.req("POST", "/api/setup/restore/confirm", `{}`).Code)
+	_, err := backup.ApplyStaged(dir, sh.clk.Now(), time.UTC)
+	require.NoError(t, err)
+	db, err := store.Open(t.Context(), store.Options{Path: filepath.Join(dir, "kipple.db")})
+	require.NoError(t, err)
+	defer db.Close()
+	sec, err := db.SecuritySettings(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "https://rss.example.test", sec.PublicURL)
+	require.Equal(t, []string{"rss.example.test"}, sec.AllowedHosts)
 }
