@@ -79,3 +79,23 @@ describe("rollup", () => {
     expect(mostStarred(feedRows(list)).map((r) => r.name)).toEqual(["A", "B"]);
   });
 });
+
+describe("comparison and months", () => {
+  it("names the period before a range", async () => {
+    const { previousPeriod, changeLabel, monthlyBars } = await import("./statsFormat");
+    expect(previousPeriod({ key: "month", from: "2026-08-28", days: 30 })).toEqual({ from: "2026-07-29", to: "2026-08-27", label: "the previous 30 days" });
+    expect(previousPeriod({ key: "week", from: "2026-09-20", days: 3 })).toEqual({ from: "2026-09-13", to: "2026-09-15", label: "the same days last week" });
+    expect(previousPeriod({ key: "all", from: "2026-01-01", days: 200 })).toBeNull();
+    const n = (x: number) => String(x);
+    expect(changeLabel(142, 120, n)).toBe("+18% from 120");
+    expect(changeLabel(38, 40, n)).toBe("-5% from 40");
+    expect(changeLabel(7, 7, n)).toBe("no change from 7");
+    expect(changeLabel(3, 0, n)).toBe("up from 0");
+    const bars = monthlyBars([
+      { date: "2026-01-30", items_read: 2, active_seconds: 10 },
+      { date: "2026-01-31", items_read: 1, active_seconds: 5 },
+      { date: "2026-03-01", items_read: 4, active_seconds: 0 },
+    ]);
+    expect(bars.map((b) => [b.month, b.items_read])).toEqual([["2026-01", 3], ["2026-02", 0], ["2026-03", 4]]);
+  });
+});

@@ -1,10 +1,9 @@
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
-import { useStatsSummary } from "@/api/stats";
+import { useSpanSummary, useStatsSummary } from "@/api/stats";
 import { errorMessage } from "@/api/client";
-import type { StatsRange, StatsSummary } from "@/api/types";
+import type { StatsSummary } from "@/api/types";
 import {
-  RANGES,
   dateWithYear,
   daysBetween,
   durationLabel,
@@ -12,7 +11,14 @@ import {
   folderRows,
   heatLevel,
   hourLabel,
-  loadRange,
+  loadScreenRange,
+  apiRange,
+  SCREEN_RANGES,
+  changeLabel,
+  monthName,
+  monthlyBars,
+  previousPeriod,
+  type ScreenRange,
   mostStarred,
   pctLabel,
   plural,
@@ -52,11 +58,23 @@ function Empty({ children }: { children: ReactNode }) {
 
 // ---- 1. Summary strip -------------------------------------------------------------------------------------------
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, note, onToggle }: { label: string; value: string; note?: string | null; onToggle?: () => void }) {
+  const inner = (
+    <>
+      <span className="block text-xl font-bold tabular-nums">{value}</span>
+      <span className="block text-xs text-fg2">{label}</span>
+      {note ? <span className="mt-1 block text-xs font-medium tabular-nums">{note}</span> : null}
+    </>
+  );
   return (
-    <div className="min-w-0 rounded-xl bg-surface px-3 py-3">
-      <dd className="text-xl font-bold tabular-nums">{value}</dd>
-      <dt className="text-xs text-fg2">{label}</dt>
+    <div className="min-w-0 rounded-xl bg-surface">
+      {onToggle ? (
+        <button type="button" onClick={onToggle} aria-expanded={note != null} className="block w-full min-w-0 rounded-xl px-3 py-3 text-left">
+          {inner}
+        </button>
+      ) : (
+        <div className="px-3 py-3">{inner}</div>
+      )}
     </div>
   );
 }
@@ -65,16 +83,38 @@ function Stat({ label, value }: { label: string; value: string }) {
 export const READ_RULE =
   "An article counts as read after 10 seconds of reading, or 3 seconds once you've scrolled a quarter of the way down.";
 
-export function SummaryStrip({ data }: { data: StatsSummary }) {
+type Tile = "items" | "time" | "days";
+
+export function SummaryStrip({ data, compare = false }: { data: StatsSummary; compare?: boolean }) {
   const t = data.totals;
   const legacy = t?.legacy_opens ?? 0;
+  // Tiles show plain numbers. Tapping one shows its previous-period value; the earlier period is fetched on the first tap.
+  const [open, setOpen] = useState<ReadonlySet<Tile>>(new Set());
+  const period = useMemo(() => (compare && data.range ? previousPeriod(data.range) : null), [compare, data.range]);
+  const prev = useSpanSummary(period, open.size > 0).data?.totals;
+  const flip = (k: Tile) =>
+    setOpen((o) => {
+      const n = new Set(o);
+      if (!n.delete(k)) n.add(k);
+      return n;
+    });
+  const tile = (k: Tile, label: string, now: number, before: number | undefined, show: (n: number) => string) => (
+    <Stat
+      label={label}
+      value={show(now)}
+      onToggle={period ? () => flip(k) : undefined}
+      note={period && open.has(k) ? (before == null ? "Loading" : changeLabel(now, before, show)) : null}
+    />
+  );
+  const num = (n: number) => String(n);
   return (
     <Section title="Summary">
-      <dl className="grid grid-cols-3 gap-2">
-        <Stat label="Items read" value={String(t?.items_read ?? 0)} />
-        <Stat label="Active time" value={durationLabel(t?.active_seconds ?? 0)} />
-        <Stat label="Days with reading" value={String(t?.days_active ?? 0)} />
-      </dl>
+      <div className="grid grid-cols-3 gap-2">
+        {tile("items", "Items read", t?.items_read ?? 0, prev?.items_read, num)}
+        {tile("time", "Active time", t?.active_seconds ?? 0, prev?.active_seconds, durationLabel)}
+        {tile("days", "Days with reading", t?.days_active ?? 0, prev?.days_active, num)}
+      </div>
+      {period && open.size > 0 ? <p className="mt-2 text-xs text-fg2">Compared with {period.label}.</p> : null}
       <p className="mt-2 text-xs text-fg2">
         {READ_RULE}
         {legacy > 0
@@ -148,6 +188,65 @@ export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean
   );
 }
 
+const MONTH_W = 28;
+
+/** One bar per calendar month on record, from the first month with reading through this one. */
+export function MonthlyChart({ data, empty }: { data: StatsSummary; empty: boolean }) {
+  const months = monthlyBars(data.daily ?? []);
+  if (empty || months.length === 0) return <Empty>No reading in this range yet.</Empty>;
+  const max = Math.max(1, ...months.map((m) => m.items_read));
+  const total = months.reduce((a, m) => a + m.items_read, 0);
+  const busiest = months.reduce((a, m) => (m.items_read > a.items_read ? m : a), months[0]!);
+  const summary = `Items read per month, ${monthName(months[0]!.month)} to ${monthName(months[months.length - 1]!.month)}. ${plural(total, "item")} in total. Most in one month: ${busiest.items_read}, in ${monthName(busiest.month)}.`;
+  return (
+    <div>
+      <div className="overflow-x-auto">
+        <svg
+          role="img"
+          aria-label={summary}
+          viewBox={`0 0 ${months.length * MONTH_W + PAD * 2} ${CHART_H}`}
+          preserveAspectRatio="none"
+          className="block h-32 w-full rounded-lg bg-surface"
+          style={{ minWidth: Math.min(months.length * 14, 2000) }}
+        >
+          {months.map((m, i) => {
+            const h = m.items_read > 0 ? Math.max(3, (m.items_read / max) * (CHART_H - 6)) : 0;
+            return (
+              <rect key={m.month} x={PAD + i * MONTH_W + 2} y={CHART_H - h} width={MONTH_W - 4} height={h} fill="var(--color-accent)">
+                <title>{`${monthName(m.month)}: ${plural(m.items_read, "item")}, ${durationLabel(m.active_seconds)}`}</title>
+              </rect>
+            );
+          })}
+        </svg>
+      </div>
+      <div aria-hidden="true" className="mt-1 flex justify-between text-xs text-fg2">
+        <span>{monthName(months[0]!.month)}</span>
+        <span>{monthName(months[months.length - 1]!.month)}</span>
+      </div>
+      <p className="mt-1 text-xs text-fg2">Most in a month: {busiest.items_read}, {monthName(busiest.month)}.</p>
+      <table className="sr-only">
+        <caption>Items read and active time per month</caption>
+        <thead>
+          <tr>
+            <th scope="col">Month</th>
+            <th scope="col">Items read</th>
+            <th scope="col">Active time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {months.map((m) => (
+            <tr key={m.month}>
+              <th scope="row">{monthName(m.month, "long")}</th>
+              <td>{m.items_read}</td>
+              <td>{durationLabel(m.active_seconds)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ---- 3. Streaks -------------------------------------------------------------------------------------------------
 
 export function Streaks({ data }: { data: StatsSummary }) {
@@ -157,10 +256,10 @@ export function Streaks({ data }: { data: StatsSummary }) {
   const running = s.current > 0 && (s.current >= s.longest || (s.longest_end != null && daysBetween(s.longest_end, today) <= 1));
   const longestLabel = running ? "Longest streak, still going" : s.longest_end ? `Longest streak, ended ${shortDate(s.longest_end)}` : "Longest streak";
   return (
-    <dl className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-2 gap-2">
       <Stat label="Current streak" value={plural(s.current, "day")} />
       <Stat label={longestLabel} value={plural(s.longest, "day")} />
-    </dl>
+    </div>
   );
 }
 
@@ -430,11 +529,11 @@ export function NeverOpened({ data }: { data: StatsSummary }) {
 export function StatsScreen() {
   const on = useStatsEnabled();
   const wrapped = useWrappedEnabled();
-  const [range, setRange] = useState<StatsRange>(loadRange);
-  const q = useStatsSummary(range, on);
+  const [range, setRange] = useState<ScreenRange>(loadScreenRange);
+  const q = useStatsSummary(apiRange(range), on);
   const data = q.data;
   const [exporting, setExporting] = useState(false);
-  const pick = (r: StatsRange) => {
+  const pick = (r: ScreenRange) => {
     setRange(r);
     saveRange(r);
   };
@@ -451,7 +550,7 @@ export function StatsScreen() {
           .
         </p>
         <div className="mt-6 text-left">
-          <StatsDataSection defaultRange={range} />
+          <StatsDataSection defaultRange={apiRange(range)} />
         </div>
       </div>
     );
@@ -481,12 +580,12 @@ export function StatsScreen() {
             </Notice>
           </div>
         ) : null}
-        {range !== "all" && !q.isPlaceholderData && history != null && history >= 1 && history < 7 && (t?.days_active ?? 0) > 0 ? (
+        {apiRange(range) !== "all" && !q.isPlaceholderData && history != null && history >= 1 && history < 7 && (t?.days_active ?? 0) > 0 ? (
           <p className="mt-3 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
             Only {plural(history, "day")} of reading so far.
           </p>
         ) : null}
-        <SummaryStrip data={data} />
+        <SummaryStrip data={data} compare />
         {wrapped ? (
           <div className="border-b border-line py-4">
             <Link to="/stats/wrapped" className="flex min-h-11 items-center justify-between gap-3 rounded-xl bg-surface px-4 py-3 text-sm font-medium">
@@ -497,9 +596,15 @@ export function StatsScreen() {
             </Link>
           </div>
         ) : null}
-        <Section title="Daily activity">
-          <DailyChart data={data} empty={empty} />
-        </Section>
+        {range === "months" ? (
+          <Section title="Monthly activity">
+            <MonthlyChart data={data} empty={empty} />
+          </Section>
+        ) : (
+          <Section title="Daily activity">
+            <DailyChart data={data} empty={empty} />
+          </Section>
+        )}
         <Section title="Streaks">
           <Streaks data={data} />
         </Section>
@@ -528,14 +633,14 @@ export function StatsScreen() {
         {on && !(data && !data.enabled) ? (
           <div className="flex items-end gap-3">
             <div className="min-w-0 flex-1">
-              <Segmented legend="Range" value={range} onChange={pick} options={RANGES} />
+              <Segmented legend="Range" value={range} onChange={pick} options={SCREEN_RANGES} />
             </div>
             <Button onClick={() => setExporting(true)}>Export</Button>
           </div>
         ) : null}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">{body}</div>
-      <StatsExportDialog open={exporting} onOpenChange={setExporting} defaultRange={range} />
+      <StatsExportDialog open={exporting} onOpenChange={setExporting} defaultRange={apiRange(range)} />
     </div>
   );
 }

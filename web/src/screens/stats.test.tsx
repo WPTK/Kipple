@@ -370,4 +370,34 @@ describe("Stats screen", () => {
     await waitFor(() => expect(statsCalls(m).length).toBe(3));
     expect(await screen.findByRole("heading", { name: "Daily activity" })).toBeInTheDocument();
   });
+
+  it("tiles show plain numbers; a tap reveals the previous period and a second tap hides it", async () => {
+    const prev: StatsSummary = { ...richStats, totals: { items_read: 70, opens: 90, active_seconds: 4000, days_active: 12 } };
+    const m = mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),
+      "GET /api/stats/summary": (u) => json(u.searchParams.get("from") ? prev : richStats),
+      "GET /api/items": () => json({ items: [], next_cursor: null }),
+    });
+    const user = userEvent.setup();
+    go();
+    const summary = await screen.findByRole("region", { name: "Summary" });
+    expect(within(summary).queryByText(/from 70/)).toBeNull();
+    expect(statsCalls(m).some((c) => c.url.searchParams.get("from"))).toBe(false); // nothing fetched until asked
+    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    expect(await within(summary).findByText("+20% from 70")).toBeInTheDocument();
+    expect(within(summary).getByText("Compared with the previous 30 days.")).toBeInTheDocument();
+    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    expect(within(summary).queryByText(/from 70/)).toBeNull();
+  });
+
+  it("Months fetches everything and draws one bar per month", async () => {
+    const m = setup(() => richStats);
+    const user = userEvent.setup();
+    go();
+    await screen.findByRole("heading", { name: "Daily activity" });
+    await user.click(screen.getByRole("radio", { name: "Months" }));
+    await screen.findByRole("heading", { name: "Monthly activity" });
+    expect(statsCalls(m).at(-1)?.url.searchParams.get("range")).toBe("all");
+    expect(screen.getByRole("img", { name: /Items read per month/ })).toBeInTheDocument();
+  });
 });
