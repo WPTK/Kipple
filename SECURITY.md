@@ -53,4 +53,3 @@ updates do not.
 Kipple has a single maintainer. A security report filed as above gets a first response within 14 days; that is the
 target, not a guarantee, and a fix has no fixed deadline. Other issues and pull requests are triaged best-effort, in
 whatever order the maintainer gets to them, with no response time promised.
-
