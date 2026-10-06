@@ -64,6 +64,7 @@ type commitState struct {
 	firstID    int64
 	lastID     int64
 	newIDs     []int64
+	unreadNew  []int64 // new ids counted in feed_daily_new (see addFeedDailyNew)
 	updated    int
 	rekeyed    int
 	initRead   int
@@ -304,6 +305,9 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, st.firstNewID, trimBatch, total); err != nil {
 		return err
 	}
+	if err := addFeedDailyNew(ctx, tx, feedID, now, st.unreadNew); err != nil {
+		return err
+	}
 
 	docSize := 0
 	if res.Feed != nil {
@@ -481,7 +485,6 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		}
 		defer insContent.Close()
 
-		unreadNew := 0
 		for _, it := range fresh {
 			id := d.alloc.Next()
 			crawl := id / 1_000_000
@@ -562,16 +565,13 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				st.firstID = id
 			}
 			st.lastID = id
-			if read == 0 && mutedBy == nil {
-				unreadNew++
+			if read == 0 && mutedBy == nil && res.Snap.LastSuccessAt != 0 {
+				st.unreadNew = append(st.unreadNew, id)
 			}
 			// Every row this commit adds is counted here: trimFeedBatch skips on st.before+len(newIDs).
 			st.newIDs = append(st.newIDs, id)
 		}
 		if err := writeHits(ctx, tx, hits, now); err != nil {
-			return err
-		}
-		if err := addFeedDailyNew(ctx, tx, feedID, now, unreadNew); err != nil {
 			return err
 		}
 	}
@@ -777,16 +777,24 @@ func (d *DB) FeedSnapshotsByID(ctx context.Context, set FetchSettings, ids []int
 	return out, nil
 }
 
-// addFeedDailyNew adds n to the feed's count of new, unread items for today in the `tz` zone (the
-// read-rate denominator, migration 0017). Same transaction as the inserts, so the count and the items
-// commit or roll back together.
-func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID, now int64, n int) error {
-	if n == 0 {
+// addFeedDailyNew adds to the feed's count of new, unread items for today in the `tz` zone (the
+// read-rate denominator, migration 0017) the ids that are still in items. It runs in the last chunk's
+// transaction after the trim, so an item that the same commit trimmed (never shown) is not counted, and
+// a chunk that rolls back takes its count with it. ids holds no item that arrived read or muted, and
+// none from a feed's first successful fetch: that document is the backlog published before the
+// subscription, not arrivals.
+func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID, now int64, ids []int64) error {
+	if len(ids) == 0 {
 		return nil
 	}
+	b, err := jsonText(ids)
+	if err != nil {
+		return err
+	}
 	day := time.Unix(now, 0).In(Zone(ctx, tx)).Format("2006-01-02")
-	_, err := tx.ExecContext(ctx, `INSERT INTO feed_daily_new (feed_id, local_date, new_items) VALUES (?,?,?)
-		ON CONFLICT(feed_id, local_date) DO UPDATE SET new_items = new_items + excluded.new_items`, feedID, day, n)
+	_, err = tx.ExecContext(ctx, `INSERT INTO feed_daily_new (feed_id, local_date, new_items)
+		SELECT ?1, ?2, count(*) FROM items WHERE id IN (SELECT value FROM json_each(?3)) HAVING count(*) > 0
+		ON CONFLICT(feed_id, local_date) DO UPDATE SET new_items = new_items + excluded.new_items`, feedID, day, b)
 	return err
 }
 

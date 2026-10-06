@@ -169,6 +169,33 @@ func TestConfirmWithoutNewPasswordKeepsTheAccount(t *testing.T) {
 	require.Equal(t, "h", rawQuery(t, filepath.Join(dir, StagedFile), "SELECT password_hash FROM account"))
 }
 
+// A backup made at schema 16 (before feed_daily_new) passes the check at its own version, and the first
+// start after the restore migrates it to the current schema with its items.
+func TestRestoreASchema16Backup(t *testing.T) {
+	r, dir := newRestorer(t)
+	up, err := upload(r, rebuilt(t, hostBackup(t), "DROP TABLE feed_daily_new; PRAGMA user_version = 16"))
+	require.NoError(t, err)
+	require.Equal(t, 16, up.Info.SchemaVersion)
+	_, ticket, _ := r.Uploaded()
+	require.NoError(t, r.Confirm(context.Background(), ticket, ""))
+	live := filepath.Join(dir, "kipple.db")
+	done, err := ApplyStaged(dir, time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC), time.UTC)
+	require.NoError(t, err)
+	require.True(t, done.Restored)
+	require.Equal(t, "16", rawQuery(t, live, "PRAGMA user_version"))
+
+	db, err := store.Open(context.Background(), store.Options{Path: live, Logger: quiet})
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	require.Equal(t, fmt.Sprint(store.LatestVersion()), rawQuery(t, live, "PRAGMA user_version"))
+	require.Equal(t, "7", rawQuery(t, live, "SELECT count(*) FROM items"))
+	require.Equal(t, "0", rawQuery(t, live, "SELECT count(*) FROM feed_daily_new"))
+	raw, err := openFile(live)
+	require.NoError(t, err)
+	defer raw.Close()
+	require.NoError(t, CheckSchema(context.Background(), raw, store.LatestVersion()))
+}
+
 func TestUploadKinds(t *testing.T) {
 	r, dir := newRestorer(t)
 

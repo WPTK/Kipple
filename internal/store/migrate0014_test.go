@@ -45,6 +45,7 @@ func TestMigration0014ClearsPlaceholderTitles(t *testing.T) {
 		_, err := ensureArchiveFeed(ctx, tx)
 		return err
 	}))
+	e.exec(undo0017)
 	e.exec("PRAGMA user_version = 13")
 	path := scalar[string](t, e.db.Reader(), "SELECT file FROM pragma_database_list WHERE name = 'main'")
 	require.NoError(t, e.db.Close())

@@ -9,8 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// undo0009 turns a current database into a schema-8 one: no stats summary covering indexes.
-const undo0009 = `DROP INDEX idx_stats_open_cov;
+// undo0009 turns a current database into a schema-8 one: no stats summary covering indexes (and none of
+// the later additive objects, undo0017).
+const undo0009 = undo0017 + `;
+DROP INDEX idx_stats_open_cov;
 DROP INDEX idx_stats_rt_cov;
 DROP INDEX idx_stats_scroll_cov`
 

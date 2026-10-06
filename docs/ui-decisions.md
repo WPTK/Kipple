@@ -207,15 +207,15 @@ Decisions are recorded in full in the private history repository. Summary of wha
 
 ### Stats follow-up (2026-10-06, issues #37 and #36)
 
-Decided in a design discussion. No code yet; both issues keep the roadmap label.
+Decided in a design discussion. #37 keeps the roadmap label; #36 is closed (below).
 
 - **Reading pace: dropped.** Words per minute would need a word count per item that trimming removes. Average read
   length per source already covers "how long articles take".
 - **Period comparison: both levels.** Items, minutes and active days against the previous equal period, as deltas on the
   summary strip, plus per-feed deltas in the drill-down to show feeds started or abandoned.
 - **Read rate per feed: built for pruning.** The share of a feed's new items that were opened. Retention trims the items
-  table, so the published count per feed per day has to be recorded at fetch time, in a table that survives trims.
-  Not built until that table is designed.
+  table, so the published count per feed per day has to be recorded at fetch time, in a table that survives trims
+  (`feed_daily_new`, migration 0017, built first; the rate itself is a later PR).
 - **Screen: design A.** One Stats screen. Adds comparison, a Months range with bars covering every month on record
   (not capped at 12), and a source row that opens a per-feed drill-down sheet. Design B (a separate Feeds page) is the
   fallback if the sheet outgrows the screen; promote the sheet then.

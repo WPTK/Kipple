@@ -11,7 +11,8 @@ import (
 
 // undo0010 turns a current database into a schema-9 one: the account table of
 // 0001 (no auth_mode, no created_via) and none of the rows 0010 stamps.
-const undo0010 = `CREATE TABLE account_old (
+const undo0010 = undo0017 + `;
+CREATE TABLE account_old (
   id                INTEGER PRIMARY KEY CHECK (id = 1),
   username          TEXT NOT NULL CHECK (length(username) BETWEEN 1 AND 64
                                          AND username NOT GLOB '*[^A-Za-z0-9._-]*'),
