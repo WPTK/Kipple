@@ -14,7 +14,7 @@ class NoES {
 
 const bodyOf = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body)) as Record<string, unknown>;
 
-function server(env: boolean, extra: Parameters<typeof mockFetch>[0] = {}) {
+function server(env: boolean, extra: Parameters<typeof mockFetch>[0] = {}, publicUrl = false) {
   return mockFetch({
     "GET /api/bootstrap": () => json(bootstrap),
     "GET /api/items": () => json(pageOf([card(1)])),
@@ -22,7 +22,7 @@ function server(env: boolean, extra: Parameters<typeof mockFetch>[0] = {}) {
     "GET /api/filters": () => json({ filters: [] }),
     "GET /api/devices": () => json({ devices: [] }),
     "GET /api/auth/me": () => json({ username: "reader", api_enabled: false, password_set: true, access_enabled: false, access_email: null, auth_mode: "password" }),
-    "GET /api/reset": () => json({ env_account: env }),
+    "GET /api/reset": () => json({ env_account: env, public_url_set: publicUrl }),
     "POST /api/reset": () => json({ restarting: true, estimate_seconds: 30 }, 202),
     ...extra,
   });
@@ -66,11 +66,13 @@ describe("reset Kipple", () => {
     await user.type(within(dialog).getByLabelText(/Type "reset kipple"/), " kipple");
     expect(go).toBeEnabled();
     expect(within(dialog).queryByText(/KIPPLE_USERNAME/)).toBeNull();
+    expect(within(dialog).queryByText(/anyone who can reach your public address/)).toBeNull();
+    expect(within(dialog).queryByRole("radio")).toBeNull();
     await user.click(go);
     await waitFor(() => expect(resetting.get()).toEqual({ estimateSeconds: 30 }));
     const post = calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/reset");
     expect(post).toHaveLength(1);
-    expect(bodyOf(post[0]!)).toEqual({ password: "pw-pw-pw", phrase: "reset kipple", ignore_env_account: false });
+    expect(bodyOf(post[0]!)).toEqual({ password: "pw-pw-pw", phrase: "reset kipple" });
     // Then the waiting page, in place of the app.
     expect(await screen.findByRole("heading", { name: "Resetting Kipple" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Resetting Kipple. It is working, you can leave this page open.");
@@ -87,37 +89,24 @@ describe("reset Kipple", () => {
     expect(resetting.get()).toBeNull();
   });
 
-  it("warns about the environment account and ignores it by default", async () => {
+  it("says the environment account is ignored, with no choice and no second step", async () => {
     const { calls } = server(true);
     const user = await openDialog();
     const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent("Your compose file or .env sets KIPPLE_USERNAME and KIPPLE_PASSWORD. Without a change, Kipple would create that account again after the reset.");
-    expect(within(dialog).getByRole("radio", { name: "Ignore them until a new account exists (recommended)" })).toBeChecked();
+    expect(dialog).toHaveTextContent("Kipple will ignore KIPPLE_USERNAME and KIPPLE_PASSWORD until you create a new account. You can delete them from your compose file whenever convenient.");
+    expect(within(dialog).queryByRole("radio")).toBeNull();
     await user.type(within(dialog).getByLabelText("Your web password"), "pw-pw-pw");
     await user.type(within(dialog).getByLabelText(/Type "reset kipple"/), "reset kipple");
     await user.click(within(dialog).getByRole("button", { name: "Reset Kipple" }));
     await waitFor(() => expect(resetting.get()).not.toBeNull());
     const post = calls.find((c) => c.method === "POST" && c.url.pathname === "/api/reset")!;
-    expect(bodyOf(post).ignore_env_account).toBe(true);
+    expect(bodyOf(post)).toEqual({ password: "pw-pw-pw", phrase: "reset kipple" });
   });
 
-  it("asks once more when you say the variables are removed", async () => {
-    const { calls } = server(true);
-    const user = await openDialog();
-    const dialog = screen.getByRole("dialog");
-    await user.click(within(dialog).getByRole("radio", { name: "I removed them" }));
-    await user.type(within(dialog).getByLabelText("Your web password"), "pw-pw-pw");
-    await user.type(within(dialog).getByLabelText(/Type "reset kipple"/), "reset kipple");
-    await user.click(within(dialog).getByRole("button", { name: "Reset Kipple" }));
-    // Nothing was sent: the extra step comes first.
-    const sure = await screen.findByRole("dialog", { name: "Are you sure?" });
-    expect(calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/reset")).toHaveLength(0);
-    await user.click(within(sure).getByRole("button", { name: "Back" }));
-    await user.click(await screen.findByRole("button", { name: "Reset Kipple" }));
-    await user.click(await within(await screen.findByRole("dialog", { name: "Are you sure?" })).findByRole("button", { name: "Reset Kipple" }));
-    await waitFor(() => expect(resetting.get()).not.toBeNull());
-    const post = calls.find((c) => c.method === "POST" && c.url.pathname === "/api/reset")!;
-    expect(bodyOf(post)).toEqual({ password: "pw-pw-pw", phrase: "reset kipple", ignore_env_account: false });
+  it("warns that a public address leaves setup open to anyone who can reach it", async () => {
+    server(false, {}, true);
+    await openDialog();
+    expect(screen.getByRole("dialog")).toHaveTextContent("Until you create the new account, anyone who can reach your public address can create it. Do the setup right away.");
   });
 });
 
@@ -172,5 +161,23 @@ describe("the page that waits for a reset", () => {
       await vi.advanceTimersByTimeAsync(310_000);
     });
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Kipple stopped. Start it again and the reset will finish."));
+  });
+
+  it("tells apart Kipple being away from Kipple answering with something else", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockFetch({
+      "GET /api/bootstrap": () => json({ error: "auth" }, 401),
+      "GET /api/instance": () => new Response("This address is not allowed", { status: 421 }),
+    });
+    authStore.set("in");
+    resetting.set({ estimateSeconds: 30 });
+    window.history.replaceState({ idx: 0 }, "", "/");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    await screen.findByRole("heading", { name: "Resetting Kipple" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(310_000);
+    });
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Kipple answered, but not as expected. Open it by its local address."));
+    expect(screen.queryByText(/Kipple stopped/)).toBeNull();
   });
 });

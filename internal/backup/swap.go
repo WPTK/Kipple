@@ -15,8 +15,8 @@ import (
 const KeepPreRestore = 3
 
 // Swap installs the verified database tmp as <dataDir>/kipple.db: the live
-// database (and its -wal and -shm) moves into a new backup/pre-restore-<ts>/
-// directory first, then tmp is renamed over kipple.db. Any failure puts
+// database moves into a new backup/pre-restore-<ts>/ directory first (unless it
+// holds no account, see keepLive), then tmp is renamed over kipple.db. Any failure puts
 // everything back. pre is the directory the old database went to, "" when there
 // was none to keep. It is the one swap of `kipple restore` and of a restore
 // confirmed in the setup wizard.
@@ -32,21 +32,25 @@ func Swap(dataDir, tmp string, now time.Time) (pre string, err error) {
 	return pre, nil
 }
 
-// Retire moves the live database (and its -wal and -shm) into a new
-// backup/pre-restore-<ts>/ directory and installs nothing: the next store.Open
-// creates a fresh database, which starts in setup mode. It is the swap of a
-// reset (Kipple has "swapped the database for nothing"), kept in the same place
-// and under the same retention as a restore's safety copy. pre is "" when there
-// was no database.
-func Retire(dataDir string, now time.Time) (pre string, err error) {
-	pre, _, err = keepLive(dataDir, now)
-	return pre, err
-}
-
 // keepLive moves the live database into a new pre-restore directory. undo puts
-// it back.
+// it back. Two things happen first, from one clean open of the file (journal
+// mode DELETE, which checkpoints it and removes its -wal and -shm, so the
+// database is one file and moves with one atomic rename):
+//
+//   - a database with no account row holds nothing (it is what setup mode
+//     creates), so it is deleted instead of kept: empty databases must never
+//     take the newest-3 places of real safety copies;
+//   - one that cannot be opened (corrupt) is kept as it is, all three files.
 func keepLive(dataDir string, now time.Time) (pre string, undo func(), err error) {
 	live := filepath.Join(dataDir, "kipple.db")
+	state := liveStateKeeping(live)
+	switch state {
+	case liveEmpty:
+		for _, s := range []string{"", "-wal", "-shm"} {
+			_ = os.Remove(live + s)
+		}
+		return "", func() {}, nil
+	}
 	var done []string // suffixes moved so far
 	undo = func() {
 		for _, s := range done {
@@ -181,4 +185,57 @@ func preRestoreKey(name string, local *time.Location) (at time.Time, n int, ok b
 		}
 	}
 	return at, n, true
+}
+
+// liveStateKeeping is liveState, except that a database which cannot be opened
+// keeps its -wal and -shm: SQLite deletes ones it finds beside a file it takes
+// for garbage, and they must reach the safety copy with it. They are hard
+// linked aside first and put back when the open found nothing usable.
+func liveStateKeeping(live string) liveKind {
+	var aside []string
+	for _, s := range []string{"-wal", "-shm"} {
+		if os.Link(live+s, live+s+".keep") == nil {
+			aside = append(aside, s)
+		}
+	}
+	state := liveState(live)
+	for _, s := range aside {
+		if state == liveUnknown {
+			if _, err := os.Stat(live + s); err != nil {
+				_ = os.Rename(live+s+".keep", live+s)
+				continue
+			}
+		}
+		_ = os.Remove(live + s + ".keep")
+	}
+	return state
+}
+
+type liveKind int
+
+const (
+	liveUnknown liveKind = iota // absent or unreadable: keep whatever is there
+	liveEmpty                   // a Kipple database with no account row
+	liveHolds                   // a database with an account
+)
+
+// liveState opens the live database once, checkpointing it into one file, and
+// says whether it holds an account.
+func liveState(live string) liveKind {
+	if _, err := os.Stat(live); err != nil {
+		return liveUnknown
+	}
+	db, err := openFile(live)
+	if err != nil {
+		return liveUnknown
+	}
+	defer db.Close()
+	var n int
+	if err := db.QueryRow("SELECT count(*) FROM account").Scan(&n); err != nil {
+		return liveUnknown
+	}
+	if n == 0 {
+		return liveEmpty
+	}
+	return liveHolds
 }

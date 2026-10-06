@@ -361,12 +361,8 @@ func applyStagedRestore(dataDir string, logger *slog.Logger) error {
 		return err
 	}
 	if done.Restored {
-		logger.Info("restored the backup confirmed in the setup wizard; every web session was signed out",
+		logger.Info("applied the restore or reset confirmed in the browser; every web session was signed out",
 			"username", done.Username, "backup_created_at", done.CreatedAt, "backup_kipple_version", done.KippleVersion,
-			"previous_database", done.Pre)
-	}
-	if done.Reset {
-		logger.Info("reset: the database was moved aside and Kipple starts empty, in setup mode",
 			"previous_database", done.Pre)
 	}
 	return nil

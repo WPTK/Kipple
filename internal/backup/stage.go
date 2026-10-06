@@ -555,7 +555,7 @@ func (r *Restorer) Confirm(ctx context.Context, ticket int, passwordHash string)
 		return err
 	}
 	mf := r.cur.Manifest
-	if err := writeMarker(r.path(MarkerFile), marker{KippleVersion: mf.KippleVersion, CreatedAt: mf.CreatedAt, Username: r.cur.Account.Username}); err != nil {
+	if err := writeMarker(r.path(MarkerFile), marker{KippleVersion: mf.KippleVersion, CreatedAt: mf.CreatedAt, Username: r.cur.Account.Username}, false); err != nil {
 		return err
 	}
 	if r.timer != nil {

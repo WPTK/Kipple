@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ApiError } from "@/api/client";
 import { Button } from "@/ui/button";
 import { Notice } from "@/ui/kit";
 import { fetchInstance } from "./api";
@@ -52,6 +53,9 @@ export function RestoreWaiting({
   const k = KINDS[kind];
   const [elapsed, setElapsed] = useState(0);
   const [done, setDone] = useState(false);
+  // What the last poll got: nothing (the network failed: Kipple is away), or an HTTP answer that says neither
+  // "setup" nor "not setup" (a refused host name, a proxy error). Only the first is "Kipple stopped".
+  const [answered, setAnswered] = useState(false);
   const [started] = useState(() => Date.now());
 
   useEffect(() => {
@@ -61,9 +65,12 @@ export function RestoreWaiting({
     const poll = async () => {
       try {
         const i = await fetchInstance();
-        if (!stop && i && k.finished(i.setup)) setDone(true);
-      } catch {
+        if (stop) return;
+        setAnswered(false);
+        if (i && k.finished(i.setup)) setDone(true);
+      } catch (e) {
         /* Kipple is away while it restarts: keep waiting */
+        if (!stop) setAnswered(e instanceof ApiError && e.status > 0);
       }
     };
     const t = window.setInterval(() => void poll(), POLL_MS);
@@ -112,7 +119,7 @@ export function RestoreWaiting({
         </p>
         {stopped ? (
           <Notice tone="warn" role="alert">
-            {k.stopped}
+            {answered ? "Kipple answered, but not as expected. Open it by its local address." : k.stopped}
           </Notice>
         ) : null}
       </div>

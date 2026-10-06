@@ -224,19 +224,10 @@ func prepareStaged(ctx context.Context, path, passwordHash string) error {
 // marker is MarkerFile: what was confirmed, for the log of the start that
 // applies it. Its existence is the confirmation.
 type marker struct {
-	// Kind is KindRestoreMarker (or empty) for a confirmed restore and
-	// KindResetMarker for a reset, which has no staged database.
-	Kind          string `json:"kind,omitempty"`
 	KippleVersion string `json:"kipple_version"`
 	CreatedAt     string `json:"created_at"`
 	Username      string `json:"username"`
 }
-
-// Marker kinds: what the next start does with the live database.
-const (
-	KindRestoreMarker = "restore" // swap in the staged database
-	KindResetMarker   = "reset"   // swap in nothing: a fresh database, in setup mode
-)
 
 // MarkerPending reports whether a confirmed restore or reset waits for the next
 // start.
@@ -245,22 +236,11 @@ func MarkerPending(dataDir string) bool {
 	return err == nil
 }
 
-// WriteResetMarker confirms a reset: the next start moves the live database to
-// backup/pre-restore-<ts>/ and starts empty. It refuses (ErrRestorePending)
-// when a marker is already there, so a pending restore is never replaced.
-func WriteResetMarker(dataDir, kippleVersion, username string, now time.Time) error {
-	if MarkerPending(dataDir) {
-		return ErrRestorePending
-	}
-	return writeMarker(filepath.Join(dataDir, MarkerFile), marker{
-		Kind: KindResetMarker, KippleVersion: kippleVersion, Username: username,
-		CreatedAt: now.UTC().Format(time.RFC3339),
-	})
-}
-
 // writeMarker writes path atomically (a temporary file, synced, renamed) so a
-// crash leaves either no marker or a whole one.
-func writeMarker(path string, m marker) error {
+// crash leaves either no marker or a whole one. With exclusive the marker is
+// linked into place instead, which fails (ErrRestorePending) when one exists,
+// so two writers can never both win.
+func writeMarker(path string, m marker, exclusive bool) error {
 	b, err := json.Marshal(m)
 	if err != nil {
 		return err
@@ -278,7 +258,13 @@ func writeMarker(path string, m marker) error {
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
-	if err == nil {
+	if err == nil && exclusive {
+		if err = os.Link(tmp, path); errors.Is(err, fs.ErrExist) {
+			_ = os.Remove(tmp)
+			return ErrRestorePending
+		}
+		_ = os.Remove(tmp)
+	} else if err == nil {
 		err = os.Rename(tmp, path)
 	}
 	if err != nil {
@@ -310,8 +296,6 @@ func removeStaged(dataDir string) {
 type Applied struct {
 	// Restored: a confirmed restore was installed now.
 	Restored bool
-	// Reset: a confirmed reset moved the database away now.
-	Reset bool
 	// Pre is the directory the replaced database went to ("" when there was none).
 	Pre string
 	// KippleVersion, CreatedAt and Username describe the backup, from the marker.
@@ -319,16 +303,14 @@ type Applied struct {
 }
 
 // ApplyStaged finishes a restore confirmed in the setup wizard, or a reset
-// confirmed in Settings. Run it at start
+// confirmed in Settings (a reset stages a fresh database that keeps the server
+// settings, so it is a restore like any other). Run it at start
 // under the data lock, before the database is opened. It is idempotent, so a
 // crash at any point is finished or cleaned up by the next start:
 //
 //   - marker and staged database: the staged one replaces kipple.db (the old one
 //     goes to backup/pre-restore-*, as with `kipple restore`), then the marker is
 //     removed;
-//   - a reset marker: the live database (if any) goes to backup/pre-restore-*
-//     and nothing replaces it; without a live database it was already done and
-//     only the marker is removed;
 //   - marker without a staged database: the swap was done and only the marker
 //     was left: it is removed;
 //   - staged database (or a spooled upload) without a marker: an upload that was
@@ -350,15 +332,7 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 	_ = json.Unmarshal(b, &m) // only for the log; the file's existence is the confirmation
 	out := Applied{KippleVersion: m.KippleVersion, CreatedAt: m.CreatedAt, Username: m.Username}
 	staged := filepath.Join(dataDir, StagedFile)
-	if m.Kind == KindResetMarker {
-		pre, err := Retire(dataDir, now)
-		if err != nil {
-			return Applied{}, fmt.Errorf("reset: %w (it is tried again at the next start)", err)
-		}
-		syncDir(dataDir)
-		out.Reset, out.Pre = pre != "", pre
-		PrunePreRestore(filepath.Join(dataDir, "backup"), local)
-	} else if _, err := os.Stat(staged); err == nil {
+	if _, err := os.Stat(staged); err == nil {
 		pre, err := Swap(dataDir, staged, now)
 		if err != nil {
 			return Applied{}, fmt.Errorf("restore: %w (it is tried again at the next start)", err)

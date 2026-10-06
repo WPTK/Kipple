@@ -10,57 +10,26 @@ import { accountError } from "./AccountSection";
 /** The phrase that confirms a reset (the server compares it without regard to case or surrounding spaces). */
 export const RESET_PHRASE = "reset kipple";
 
-const ENV_WARNING = "Your compose file or .env sets KIPPLE_USERNAME and KIPPLE_PASSWORD. Without a change, Kipple would create that account again after the reset.";
-
-function ResetDialog({ hasPassword, envAccount, onClose }: { hasPassword: boolean; envAccount: boolean; onClose: () => void }) {
+function ResetDialog({ hasPassword, envAccount, publicUrlSet, onClose }: { hasPassword: boolean; envAccount: boolean; publicUrlSet: boolean; onClose: () => void }) {
   const [password, setPassword] = useState("");
   const [phrase, setPhrase] = useState("");
-  // Ignoring the variables until a new account exists is the safe choice, so it is the default.
-  const [ignoreEnv, setIgnoreEnv] = useState(true);
-  const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ready = phrase.trim().toLowerCase() === RESET_PHRASE && (!hasPassword || password !== "");
-  // Keeping the variables lets Kipple make the account again, so it asks once more before going on.
-  const needsSure = envAccount && !ignoreEnv;
 
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
-      const r = await resetKipple({ password, phrase: phrase.trim(), ignore_env_account: envAccount && ignoreEnv });
+      const r = await resetKipple({ password, phrase: phrase.trim() });
       // The erased library's offline copies must not outlive it in this browser.
       await wipeOfflineData().catch(() => undefined);
       resetting.set({ estimateSeconds: r.estimate_seconds });
     } catch (e) {
-      setSure(false);
       setError(accountError(e));
       setBusy(false);
     }
   };
-
-  if (sure) {
-    return (
-      <Modal
-        open
-        onOpenChange={(o) => !o && !busy && onClose()}
-        title="Are you sure?"
-        description="You said you removed KIPPLE_USERNAME and KIPPLE_PASSWORD."
-        footer={
-          <>
-            <Button disabled={busy} onClick={() => setSure(false)}>
-              Back
-            </Button>
-            <Button variant="solid" disabled={busy} onClick={() => void submit()}>
-              Reset Kipple
-            </Button>
-          </>
-        }
-      >
-        <Notice tone="warn">If they are still set, Kipple creates that account again when it starts and you will not reach setup. Remove them first, or go back and choose to ignore them.</Notice>
-      </Modal>
-    );
-  }
 
   return (
     <Modal
@@ -73,7 +42,7 @@ function ResetDialog({ hasPassword, envAccount, onClose }: { hasPassword: boolea
           <Button disabled={busy} onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="solid" disabled={!ready || busy} onClick={() => (needsSure ? setSure(true) : void submit())}>
+          <Button variant="solid" disabled={!ready || busy} onClick={() => void submit()}>
             Reset Kipple
           </Button>
         </>
@@ -81,29 +50,18 @@ function ResetDialog({ hasPassword, envAccount, onClose }: { hasPassword: boolea
     >
       {error ? <Notice tone="error">{error}</Notice> : null}
       <p className="text-sm text-fg2">
-        Kipple keeps a safety copy of your library in <code>backup/pre-restore-*</code> in your data folder, and <code>kipple restore</code> can bring it back. Export a backup first if you want one you can keep elsewhere.
+        Kipple keeps a safety copy of your library in <code>backup/pre-restore-*</code> in your data folder, and <code>kipple restore</code> can bring it back. Export a backup first if you want one you can keep elsewhere. The address and access settings (public address, allowed host names, trusted proxies, Cloudflare Access) are kept.
       </p>
+      {publicUrlSet ? <Notice tone="warn">Until you create the new account, anyone who can reach your public address can create it. Do the setup right away.</Notice> : null}
+      {envAccount ? (
+        <Notice>Kipple will ignore KIPPLE_USERNAME and KIPPLE_PASSWORD until you create a new account. You can delete them from your compose file whenever convenient.</Notice>
+      ) : null}
       {hasPassword ? (
         <Field label="Your web password">{(a) => <input {...a} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />}</Field>
       ) : null}
       <Field label={`Type "${RESET_PHRASE}" to confirm`}>
         {(a) => <input {...a} type="text" autoComplete="off" autoCapitalize="none" spellCheck={false} value={phrase} onChange={(e) => setPhrase(e.target.value)} className={inputCls} />}
       </Field>
-      {envAccount ? (
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-sm">
-            <Notice tone="warn">{ENV_WARNING}</Notice>
-          </legend>
-          <label className="flex min-h-11 items-start gap-3 text-sm">
-            <input type="radio" name="reset-env" className="mt-1" checked={ignoreEnv} onChange={() => setIgnoreEnv(true)} />
-            <span>Ignore them until a new account exists (recommended)</span>
-          </label>
-          <label className="flex min-h-11 items-start gap-3 text-sm">
-            <input type="radio" name="reset-env" className="mt-1" checked={!ignoreEnv} onChange={() => setIgnoreEnv(false)} />
-            <span>I removed them</span>
-          </label>
-        </fieldset>
-      ) : null}
     </Modal>
   );
 }
@@ -121,7 +79,7 @@ export function ResetSection({ hasPassword }: { hasPassword: boolean }) {
       <Button className="self-start" onClick={() => setOpen(true)}>
         Reset Kipple and start over
       </Button>
-      {open && info.isSuccess ? <ResetDialog hasPassword={hasPassword} envAccount={info.data.env_account} onClose={() => setOpen(false)} /> : null}
+      {open && info.isSuccess ? <ResetDialog hasPassword={hasPassword} envAccount={info.data.env_account} publicUrlSet={info.data.public_url_set} onClose={() => setOpen(false)} /> : null}
       {open && info.isError ? (
         <Modal open onOpenChange={(o) => !o && setOpen(false)} title="Reset Kipple and start over" footer={<Button onClick={() => setOpen(false)}>Close</Button>}>
           <Notice tone="error">{accountError(info.error)}</Notice>

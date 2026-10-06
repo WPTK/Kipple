@@ -10,30 +10,30 @@ import (
 )
 
 // Reset (docs/design.md §2.6): Settings can return Kipple to setup mode. It is
-// the swap of `kipple restore` with nothing to install: the next start moves
-// the database into backup/pre-restore-<ts>/ and begins empty. The routes exist
-// in normal mode only (setup mode has nothing to reset).
+// a restore of a freshly created database that keeps the server settings: the
+// next start moves the library into backup/pre-restore-<ts>/ and begins empty.
+// In setup mode the routes answer 401 (there is no session).
 
 // resetPhrase is what the person types to confirm.
 const resetPhrase = "reset kipple"
 
 // resetInfo is GET /api/reset: whether KIPPLE_USERNAME and KIPPLE_PASSWORD are
-// set for this process, in which case the next start would create that account
-// again and skip setup mode.
+// set for this process (a reset then ignores them until a new account exists),
+// and whether a public address is set (it stays set, so until the new account
+// is created anyone who can reach that address can create it). Never the URL.
 func (s *Server) resetInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"env_account": s.opt.EnvAccount})
+	writeJSON(w, http.StatusOK, map[string]bool{"env_account": s.opt.EnvAccount, "public_url_set": s.reach.Get().PublicURL != ""})
 }
 
-// resetKipple is POST /api/reset {"password", "phrase", "ignore_env_account"}:
+// resetKipple is POST /api/reset {"password", "phrase"}:
 // the current password is proved exactly as the account password change does
 // (an account without one proves itself the same way it does there), the phrase
 // must be typed, then the marker is written, the answer is 202 and Kipple stops
 // so the next start applies it.
 func (s *Server) resetKipple(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Password         string `json:"password"`
-		Phrase           string `json:"phrase"`
-		IgnoreEnvAccount bool   `json:"ignore_env_account"`
+		Password string `json:"password"`
+		Phrase   string `json:"phrase"`
 	}
 	if !decodeBody(w, r, &body, false) {
 		return
@@ -57,18 +57,20 @@ func (s *Server) resetKipple(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "reset: load account", err)
 		return
 	}
-	// The environment request first: if the marker then fails, an account still
-	// exists and the next start removes the file.
-	if err := setup.SetIgnoreEnvAccount(s.opt.DataDir, s.opt.EnvAccount && body.IgnoreEnvAccount); err != nil {
+	// The variables are always ignored until a new account exists: a restart
+	// reuses this process's environment, so nothing the person edits in their
+	// compose file can take effect before it. Written first: if staging then
+	// fails, an account still exists and the next start removes the file.
+	if err := setup.SetIgnoreEnvAccount(s.opt.DataDir, s.opt.EnvAccount); err != nil {
 		s.serverError(w, "reset: environment account", err)
 		return
 	}
-	if err := backup.WriteResetMarker(s.opt.DataDir, s.opt.Version, acct.Username, s.now()); err != nil {
+	if err := backup.StageReset(r.Context(), s.opt.DataDir, s.db.Reader(), s.opt.Version, acct.Username, s.now()); err != nil {
 		s.writeRestoreError(w, "reset", err)
 		return
 	}
 	s.log.Info("reset confirmed; restarting to apply it", "username", acct.Username,
-		"ignore_env_account", s.opt.EnvAccount && body.IgnoreEnvAccount, "client", s.clientIP(r))
+		"ignore_env_account", s.opt.EnvAccount, "client", s.clientIP(r))
 	writeJSON(w, http.StatusAccepted, map[string]any{"restarting": true, "estimate_seconds": resetEstimateSeconds})
 	_ = http.NewResponseController(w).Flush()
 	if s.opt.Restart != nil {
