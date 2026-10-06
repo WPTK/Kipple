@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -73,13 +74,16 @@ func (e *Refusal) Error() string { return e.Msg }
 
 // Refusals of the Restorer; the API maps each to a status.
 var (
-	ErrRestoreBusy    = &Refusal{"Another restore upload is in progress. Cancel it first, then try again."}
-	ErrRestorePending = &Refusal{"A restore is waiting to be applied: Kipple is restarting to finish it."}
-	ErrNoUpload       = &Refusal{"No checked backup is waiting, or it expired. Upload it again."}
-	ErrNotBackup      = &Refusal{"This is not a Kipple backup zip or an OPML file."}
-	ErrUploadTooLarge = &Refusal{"This file is larger than the " + human(MaxUploadBytes) + " a restore accepts."}
-	ErrOPMLTooLarge   = &Refusal{"This OPML file is larger than the " + human(opml.MaxFileBytes) + " an import accepts."}
-	ErrUploadCut      = &Refusal{"The upload stopped before the whole file arrived. Try again."}
+	ErrRestoreBusy = &Refusal{"Another restore upload is in progress. Cancel it first, then try again."}
+	// ErrRestoreElsewhere: the upload belongs to another browser (see
+	// Restorer), which alone can see, confirm or cancel it.
+	ErrRestoreElsewhere = &Refusal{"Another browser is restoring a backup. Kipple deletes it if it is not confirmed within an hour, and when Kipple restarts."}
+	ErrRestorePending   = &Refusal{"A restore is waiting to be applied: Kipple is restarting to finish it."}
+	ErrNoUpload         = &Refusal{"No checked backup is waiting, or it expired. Upload it again."}
+	ErrNotBackup        = &Refusal{"This is not a Kipple backup zip or an OPML file."}
+	ErrUploadTooLarge   = &Refusal{"This file is larger than the " + human(MaxUploadBytes) + " a restore accepts."}
+	ErrOPMLTooLarge     = &Refusal{"This OPML file is larger than the " + human(opml.MaxFileBytes) + " an import accepts."}
+	ErrUploadCut        = &Refusal{"The upload stopped before the whole file arrived. Try again."}
 )
 
 // BadUploadError is a zip that is damaged, tampered with or not made by Kipple.
@@ -151,6 +155,12 @@ type RestorerOptions struct {
 // Restorer holds the one restore intent of a process in setup mode. One upload
 // (and its check) runs at a time, under a context of its own that Cancel, Drop
 // and Close end.
+//
+// An upload belongs to the browser that sent it: Upload takes an owner key (a
+// random value the caller makes for that request and hands back only to that
+// client), and every later call brings the caller's key. Only the owner sees
+// the summary, takes the feeds, confirms or cancels; to anyone else an upload
+// reads as none, and acting on it is ErrRestoreElsewhere.
 type Restorer struct {
 	o   RestorerOptions
 	log *slog.Logger
@@ -163,7 +173,8 @@ type Restorer struct {
 	failErr  error
 	estimate int
 	timer    *time.Timer
-	gen      int // bumped by each upload, discard and confirm, so stale work changes nothing
+	gen      int    // bumped by each upload, discard and confirm, so stale work changes nothing
+	owner    string // the owner key of the upload; "" with none
 	closed   bool
 }
 
@@ -200,18 +211,39 @@ func NewRestorer(o RestorerOptions) *Restorer {
 	return r
 }
 
-// State is one of the Restore* states.
+// State is one of the Restore* states as the server holds it, whoever the
+// upload belongs to (Status is what one browser sees).
 func (r *Restorer) State() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.state
 }
 
-// Status is the state with what goes with it.
-func (r *Restorer) Status() Status {
+// mine reports whether owner is the key of the current upload. Under mu.
+func (r *Restorer) mine(owner string) bool {
+	return r.owner != "" && subtle.ConstantTimeCompare([]byte(r.owner), []byte(owner)) == 1
+}
+
+// othersLocked reports whether there is an upload that owner may not see or
+// touch: one arriving, checked or refused that another browser sent. A
+// confirmed restore is everyone's to wait for. Under mu.
+func (r *Restorer) othersLocked(owner string) bool {
+	return r.state != RestoreNone && r.state != RestoreConfirmed && !r.mine(owner)
+}
+
+// Status is the state with what goes with it, as the browser with this owner
+// key sees it: another browser's upload reads as none, and only the owner
+// sees the summary and the refusal.
+func (r *Restorer) Status(owner string) Status {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.othersLocked(owner) {
+		return Status{State: RestoreNone}
+	}
 	st := Status{State: r.state, EstimateSeconds: r.estimate}
+	if !r.mine(owner) {
+		return st // none, or confirmed by another browser
+	}
 	if r.cur != nil && (r.state == RestoreReady || r.state == RestoreConfirmed) {
 		up := *r.cur
 		st.Summary = &up
@@ -234,8 +266,13 @@ func (r *Restorer) path(name string) string { return filepath.Join(r.o.DataDir, 
 // Status reports checking, then ready or failed. reqCtx ends the upload only
 // while the body arrives. stop (may be nil) must make a read of body that is
 // waiting return at once: Cancel, Drop and Close call it, since a client that
-// stalls would otherwise hold the upload until its read times out.
-func (r *Restorer) Upload(reqCtx context.Context, body io.Reader, size int64, stop func()) (Upload, error) {
+// stalls would otherwise hold the upload until its read times out. owner is
+// the key every later call must bring to see or act on this upload; it must
+// not be empty.
+func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, size int64, stop func()) (Upload, error) {
+	if owner == "" {
+		return Upload{}, errors.New("restore: an upload needs an owner key")
+	}
 	if size > r.o.MaxBytes {
 		return Upload{}, ErrUploadTooLarge
 	}
@@ -251,13 +288,17 @@ func (r *Restorer) Upload(reqCtx context.Context, body io.Reader, size int64, st
 		r.mu.Unlock()
 		return Upload{}, ErrRestorePending
 	case r.job != nil || r.state == RestoreUploading || r.state == RestoreChecking || r.state == RestoreReady:
+		err := ErrRestoreBusy
+		if !r.mine(owner) {
+			err = ErrRestoreElsewhere
+		}
 		r.mu.Unlock()
-		return Upload{}, ErrRestoreBusy
+		return Upload{}, err
 	}
 	// none, or failed (a new upload replaces a refused one)
 	r.gen++
 	g := r.gen
-	r.state, r.failErr, r.estimate, r.cur, r.feeds = RestoreUploading, nil, 0, nil, nil
+	r.state, r.failErr, r.estimate, r.cur, r.feeds, r.owner = RestoreUploading, nil, 0, nil, nil, owner
 	ctx, cancel := context.WithCancel(context.Background())
 	j := &job{cancel: cancel, stop: stop, done: make(chan struct{})}
 	r.job = j
@@ -283,7 +324,7 @@ func (r *Restorer) Upload(reqCtx context.Context, body io.Reader, size int64, st
 	// Done here: an OPML file, or a refusal. Nothing is kept.
 	removeStaged(r.o.DataDir)
 	r.mu.Lock()
-	r.state = RestoreNone // the job held the slot until now: nothing else can have started
+	r.state, r.owner = RestoreNone, "" // the job held the slot until now: nothing else can have started
 	r.job = nil
 	r.mu.Unlock()
 	cancel()
@@ -361,7 +402,7 @@ func (r *Restorer) check(ctx context.Context, j *job, g int) {
 	switch {
 	case r.gen != g || ctx.Err() != nil:
 		removeStaged(r.o.DataDir) // cancelled: the files are this job's to remove
-		r.state = RestoreNone
+		r.state, r.owner = RestoreNone, ""
 	case err != nil:
 		removeStaged(r.o.DataDir)
 		r.state, r.failErr = RestoreFailed, err
@@ -442,14 +483,16 @@ func (r *Restorer) needSpace(need int64) error {
 }
 
 // Feeds hands out the checked backup's feeds.opml (the "feeds only" choice)
-// and discards the upload: the rest of it will not be used.
-func (r *Restorer) Feeds() ([]byte, error) {
+// to its owner and discards the upload: the rest of it will not be used.
+func (r *Restorer) Feeds(owner string) ([]byte, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.state == RestoreConfirmed {
+	switch {
+	case r.state == RestoreConfirmed:
 		return nil, ErrRestorePending
-	}
-	if r.state != RestoreReady {
+	case r.othersLocked(owner):
+		return nil, ErrRestoreElsewhere
+	case r.state != RestoreReady:
 		return nil, ErrNoUpload
 	}
 	b := r.feeds
@@ -458,23 +501,30 @@ func (r *Restorer) Feeds() ([]byte, error) {
 	return b, nil
 }
 
-// Uploaded is the checked, unconfirmed upload, if there is one, and its ticket
-// for Confirm.
-func (r *Restorer) Uploaded() (up Upload, ticket int, ok bool) {
+// Uploaded is the owner's checked, unconfirmed upload and its ticket for
+// Confirm: ErrRestorePending once confirmed, ErrRestoreElsewhere for another
+// browser's upload, ErrNoUpload without a checked one.
+func (r *Restorer) Uploaded(owner string) (up Upload, ticket int, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.state != RestoreReady {
-		return Upload{}, 0, false
+	switch {
+	case r.state == RestoreConfirmed:
+		return Upload{}, 0, ErrRestorePending
+	case r.othersLocked(owner):
+		return Upload{}, 0, ErrRestoreElsewhere
+	case r.state != RestoreReady:
+		return Upload{}, 0, ErrNoUpload
 	}
-	return *r.cur, r.gen, true
+	return *r.cur, r.gen, nil
 }
 
-// Cancel ends any upload short of a confirmed one: it stops one arriving or
-// being checked (unblocking its read) and waits briefly for it to clean up, removes a checked one,
-// clears a failed one. Nothing to cancel is fine. A confirmed restore cannot be
-// cancelled (ErrRestorePending).
-func (r *Restorer) Cancel() error {
-	j, err := r.drop()
+// Cancel ends the owner's upload short of a confirmed one: it stops one
+// arriving or being checked (unblocking its read) and waits briefly for it to
+// clean up, removes a checked one, clears a failed one. Nothing to cancel is
+// fine. A confirmed restore cannot be cancelled (ErrRestorePending), nor can
+// another browser's upload (ErrRestoreElsewhere).
+func (r *Restorer) Cancel(owner string) error {
+	j, err := r.drop(&owner)
 	if j != nil {
 		select {
 		case <-j.done:
@@ -486,13 +536,17 @@ func (r *Restorer) Cancel() error {
 
 // Drop is Cancel without the wait: an account was created, so no restore can
 // follow.
-func (r *Restorer) Drop() { _, _ = r.drop() }
+func (r *Restorer) Drop() { _, _ = r.drop(nil) }
 
-func (r *Restorer) drop() (*job, error) {
+// drop ends the upload of owner, or anyone's when owner is nil.
+func (r *Restorer) drop(owner *string) (*job, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.state == RestoreConfirmed {
 		return nil, ErrRestorePending
+	}
+	if owner != nil && r.othersLocked(*owner) {
+		return nil, ErrRestoreElsewhere
 	}
 	j := r.job
 	if j != nil {
@@ -532,7 +586,7 @@ func (r *Restorer) discardLocked() {
 		r.timer = nil
 	}
 	r.gen++
-	r.state, r.cur, r.feeds, r.failErr, r.estimate = RestoreNone, nil, nil, nil, 0
+	r.state, r.cur, r.feeds, r.failErr, r.estimate, r.owner = RestoreNone, nil, nil, nil, 0, ""
 	removeStaged(r.o.DataDir)
 }
 

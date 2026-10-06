@@ -14,8 +14,15 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
-// KeepPreRestore is how many backup/pre-restore-* directories are kept.
-const KeepPreRestore = 3
+// Retention of the backup/pre-restore-* directories: the newest KeepPreRestore
+// are kept, and so is every one younger than KeepPreRestoreFor, however many
+// there are. A run of resets or restores in a short time therefore never
+// deletes the copy of a library that was replaced days ago: the age, not the
+// count, decides when a safety copy may go.
+const (
+	KeepPreRestore    = 3
+	KeepPreRestoreFor = 30 * 24 * time.Hour
+)
 
 // Swap installs the verified database tmp as <dataDir>/kipple.db: the live
 // database moves into a new backup/pre-restore-<ts>/ directory first (unless it
@@ -209,10 +216,11 @@ func newPreRestoreDir(backupDir string, now time.Time) (string, error) {
 	return "", errors.New("too many pre-restore directories with the same timestamp")
 }
 
-// PrunePreRestore keeps the newest KeepPreRestore pre-restore directories in
-// backupDir. local is the zone the zone-less names of older versions were
-// written in (the server's local time).
-func PrunePreRestore(backupDir string, local *time.Location) {
+// PrunePreRestore deletes the pre-restore directories in backupDir that are
+// both outside the newest KeepPreRestore and older than KeepPreRestoreFor at
+// now (by the time in their names). local is the zone the zone-less names of
+// older versions were written in (the server's local time).
+func PrunePreRestore(backupDir string, now time.Time, local *time.Location) {
 	found, _ := filepath.Glob(filepath.Join(backupDir, "pre-restore-*"))
 	// An empty directory (a leftover of an interrupted restore) holds nothing to
 	// keep: remove it rather than let it take one of the KeepPreRestore places.
@@ -243,7 +251,7 @@ func PrunePreRestore(backupDir string, local *time.Location) {
 		}
 		return list[i].n < list[j].n
 	})
-	for len(list) > KeepPreRestore {
+	for len(list) > KeepPreRestore && now.Sub(list[0].at) > KeepPreRestoreFor {
 		_ = os.RemoveAll(list[0].dir)
 		list = list[1:]
 	}

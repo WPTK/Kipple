@@ -347,6 +347,18 @@ describe("restore in the setup wizard", () => {
     expect(await screen.findByTestId("backup-summary")).toBeInTheDocument();
   });
 
+  it("says another browser's upload is in the way without offering to cancel it", async () => {
+    const msg = "Another browser is restoring a backup. Kipple deletes it if it is not confirmed within an hour, and when Kipple restarts.";
+    reply = { status: 409, body: { error: "restore_elsewhere", message: msg } };
+    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent(msg);
+    expect(screen.queryByRole("button", { name: "Cancel the other upload" })).toBeNull();
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+  });
+
   it("after a reload while a restore is being applied, waits and then asks to sign in", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const w: World = { restore: "confirmed", setup: true, signedIn: false, status: { ...ready(), state: "confirmed" } };

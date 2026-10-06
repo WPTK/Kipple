@@ -75,11 +75,14 @@ func checkStaged(ctx context.Context, path, kippleVersion string) (DBInfo, Backu
 
 // CheckSchema compares the schema of db (at version) with a fresh database of
 // the same version, in both directions: any table, index, trigger or view the
-// fresh one does not have is refused, and so is one it has that db lacks, and a
-// trigger or view whose definition differs. Tables and indexes are matched by
-// name: their text changes with how a migration was worded, while code that
-// runs by itself lives only in triggers and views. SQLite's own bookkeeping
-// (sqliteInternal) is the only exception; a trigger or view is never one.
+// fresh one does not have is refused, and so is one it has that db lacks, a
+// trigger or view whose definition differs, and a table or index whose shape
+// differs (store.SchemaObject.Shape: its columns and kind as SQLite reads
+// them, not its text, which changes with how a migration was worded). A table
+// redefined with other columns, as a virtual table or with generated columns
+// would pass a check by name and then stop Kipple at every start. SQLite's own
+// bookkeeping (sqliteInternal) is the only exception; a trigger or view is
+// never one.
 func CheckSchema(ctx context.Context, db *sql.DB, version int) error {
 	want, err := store.SchemaAt(ctx, version)
 	if err != nil {
@@ -105,6 +108,8 @@ func CheckSchema(ctx context.Context, db *sql.DB, version int) error {
 		case !strings.EqualFold(w.Table, o.Table):
 			return fmt.Errorf("kipple.db has the %s %q on the wrong table", o.Type, o.Name)
 		case (o.Type == "trigger" || o.Type == "view") && squash(o.SQL) != squash(w.SQL):
+			return fmt.Errorf("kipple.db has a changed %s %q", o.Type, o.Name)
+		case !sqliteInternal(o) && o.Shape != w.Shape:
 			return fmt.Errorf("kipple.db has a changed %s %q", o.Type, o.Name)
 		}
 	}
@@ -390,7 +395,7 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 		}
 		syncDir(dataDir)
 		out.Restored, out.Pre = true, pre
-		PrunePreRestore(filepath.Join(dataDir, "backup"), local)
+		PrunePreRestore(filepath.Join(dataDir, "backup"), now, local)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return Applied{}, fmt.Errorf("restore: %w", err)
 	}

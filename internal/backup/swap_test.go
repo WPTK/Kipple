@@ -28,6 +28,40 @@ func TestFailedSwapLeavesNoEmptyPreRestoreDir(t *testing.T) {
 	require.Empty(t, dirs, "the rollback removed the empty pre-restore directory")
 }
 
+// farFuture is a now at which every copy in these tests is old enough to prune.
+var farFuture = time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// A run of resets or restores in a short time never deletes a copy younger
+// than KeepPreRestoreFor: the library replaced a day ago survives three more
+// swaps in a row, and goes only once it is old and three newer ones exist.
+func TestPruneKeepsRecentPreRestoreCopies(t *testing.T) {
+	backupDir := filepath.Join(t.TempDir(), "backup")
+	day0 := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	mk := func(at time.Time) string {
+		d, err := newPreRestoreDir(backupDir, at)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(d, "kipple.db"), []byte("x"), 0o600))
+		return d
+	}
+	library := mk(day0)
+	var later []string
+	for i := range 4 {
+		later = append(later, mk(day0.Add(24*time.Hour+time.Duration(i)*time.Minute)))
+	}
+	now := day0.Add(24*time.Hour + time.Hour)
+	PrunePreRestore(backupDir, now, time.Local)
+	require.DirExists(t, library, "a day-old copy is kept however many came after it")
+	for _, d := range later {
+		require.DirExists(t, d)
+	}
+	PrunePreRestore(backupDir, now.Add(KeepPreRestoreFor), time.Local)
+	require.NoDirExists(t, library, "old, and three newer copies exist")
+	require.NoDirExists(t, later[0], "old, and three newer copies exist")
+	for _, d := range later[1:] {
+		require.DirExists(t, d, "the newest three are kept at any age")
+	}
+}
+
 func TestPruneIgnoresEmptyPreRestoreDirs(t *testing.T) {
 	backupDir := filepath.Join(t.TempDir(), "backup")
 	full := func(name string) string {
@@ -42,7 +76,7 @@ func TestPruneIgnoresEmptyPreRestoreDirs(t *testing.T) {
 	empty := filepath.Join(backupDir, "pre-restore-20260104-000000")
 	require.NoError(t, os.MkdirAll(empty, 0o755))
 
-	PrunePreRestore(backupDir, time.Local)
+	PrunePreRestore(backupDir, farFuture, time.Local)
 	require.DirExists(t, oldest, "an empty directory does not push a real copy out")
 	require.NoDirExists(t, empty)
 }
@@ -63,7 +97,7 @@ func TestPrunePreRestoreOrdersSuffixNumerically(t *testing.T) {
 		all = append(all, full(fmt.Sprintf("pre-restore-20260101-000000-%d", i)))
 	}
 	foreign := full("pre-restore-keep-me")
-	PrunePreRestore(backupDir, time.Local)
+	PrunePreRestore(backupDir, farFuture, time.Local)
 	for _, d := range all[:len(all)-3] {
 		require.NoDirExists(t, d)
 	}
@@ -134,7 +168,7 @@ func TestPrunePreRestoreMixesLegacyLocalAndUTCNames(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(newest, "kipple.db"), []byte("x"), 0o600))
 	require.Equal(t, "pre-restore-20260926-103000Z", filepath.Base(newest))
 
-	PrunePreRestore(backupDir, local)
+	PrunePreRestore(backupDir, farFuture, local)
 	require.DirExists(t, newest, "the newest copy is kept")
 	require.NoDirExists(t, oldest, "the oldest (a legacy one) goes")
 }

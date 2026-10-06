@@ -238,7 +238,7 @@ func restore(ctx context.Context, o restoreOptions) error {
 	if moved {
 		owned = append(owned, pre)
 	}
-	backup.PrunePreRestore(backupDir, localZone())
+	backup.PrunePreRestore(backupDir, o.Now(), localZone())
 	if moved {
 		fmt.Fprintf(out, "The previous database was moved to %s\n", pre)
 	} else {
