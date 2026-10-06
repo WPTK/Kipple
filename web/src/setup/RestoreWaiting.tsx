@@ -22,6 +22,7 @@ const KINDS = {
     // A restore is over when Kipple answers that setup is over.
     finished: (setup: boolean) => !setup,
     stopped: "Kipple stopped. Start it again and the restore will finish.",
+    notApplied: "Kipple is running, but the restore was not applied. Open Kipple again and restore from the setup steps.",
     action: "Go to sign in",
   },
   reset: {
@@ -30,6 +31,7 @@ const KINDS = {
     // A reset is over when Kipple answers that it is waiting for setup.
     finished: (setup: boolean) => setup,
     stopped: "Kipple stopped. Start it again and the reset will finish.",
+    notApplied: "Kipple is running, but the reset was not applied. Open Kipple, sign in and try the reset again.",
     action: "Set up Kipple",
   },
 } as const;
@@ -53,9 +55,11 @@ export function RestoreWaiting({
   const k = KINDS[kind];
   const [elapsed, setElapsed] = useState(0);
   const [done, setDone] = useState(false);
-  // What the last poll got: nothing (the network failed: Kipple is away), or an HTTP answer that says neither
-  // "setup" nor "not setup" (a refused host name, a proxy error). Only the first is "Kipple stopped".
+  // What the last poll got: nothing (the network failed: Kipple is away, so "stopped"), an HTTP answer that says
+  // neither "setup" nor "not setup" (a refused host name, a proxy error), or an instance answer that is not the one
+  // this restart waits for (Kipple is up, but the change was not applied).
   const [answered, setAnswered] = useState(false);
+  const [running, setRunning] = useState(false);
   const [started] = useState(() => Date.now());
 
   useEffect(() => {
@@ -67,10 +71,13 @@ export function RestoreWaiting({
         const i = await fetchInstance();
         if (stop) return;
         setAnswered(false);
+        setRunning(!!i && !k.finished(i.setup));
         if (i && k.finished(i.setup)) setDone(true);
       } catch (e) {
         /* Kipple is away while it restarts: keep waiting */
-        if (!stop) setAnswered(e instanceof ApiError && e.status > 0);
+        if (stop) return;
+        setRunning(false);
+        setAnswered(e instanceof ApiError && e.fromKipple);
       }
     };
     const t = window.setInterval(() => void poll(), POLL_MS);
@@ -119,7 +126,7 @@ export function RestoreWaiting({
         </p>
         {stopped ? (
           <Notice tone="warn" role="alert">
-            {answered ? "Kipple answered, but not as expected. Open it by its local address." : k.stopped}
+            {running ? k.notApplied : answered ? "Kipple answered, but not as expected. Open it by its local address." : k.stopped}
           </Notice>
         ) : null}
       </div>

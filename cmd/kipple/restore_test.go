@@ -152,7 +152,7 @@ func TestRestoreIntoAnEmptyDataDir(t *testing.T) {
 	empty := t.TempDir()
 	out, err := doRestore(empty, zipPath, true)
 	require.NoError(t, err)
-	require.Contains(t, out, "no previous database")
+	require.Contains(t, out, "no previous library")
 	require.NotContains(t, out, "To undo", "there is no pre-restore directory to undo from")
 	require.Equal(t, 12, countItems(t, empty))
 }

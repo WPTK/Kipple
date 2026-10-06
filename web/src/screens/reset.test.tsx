@@ -22,7 +22,7 @@ function server(env: boolean, extra: Parameters<typeof mockFetch>[0] = {}, publi
     "GET /api/filters": () => json({ filters: [] }),
     "GET /api/devices": () => json({ devices: [] }),
     "GET /api/auth/me": () => json({ username: "reader", api_enabled: false, password_set: true, access_enabled: false, access_email: null, auth_mode: "password" }),
-    "GET /api/reset": () => json({ env_account: env, public_url_set: publicUrl }),
+    "GET /api/reset": () => json({ env_account: env, public_address_set: publicUrl }),
     "POST /api/reset": () => json({ restarting: true, estimate_seconds: 30 }, 202),
     ...extra,
   });
@@ -167,7 +167,7 @@ describe("the page that waits for a reset", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mockFetch({
       "GET /api/bootstrap": () => json({ error: "auth" }, 401),
-      "GET /api/instance": () => new Response("This address is not allowed", { status: 421 }),
+      "GET /api/instance": () => new Response("This address is not allowed", { status: 421, headers: { "X-Kipple-API": "1" } }),
     });
     authStore.set("in");
     resetting.set({ estimateSeconds: 30 });
@@ -179,5 +179,22 @@ describe("the page that waits for a reset", () => {
     });
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Kipple answered, but not as expected. Open it by its local address."));
     expect(screen.queryByText(/Kipple stopped/)).toBeNull();
+  });
+
+  it.each([502, 530])("keeps saying Kipple stopped when a proxy answers %i for it", async (status) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockFetch({
+      "GET /api/bootstrap": () => json({ error: "auth" }, 401),
+      "GET /api/instance": () => new Response("proxy error", { status }),
+    });
+    authStore.set("in");
+    resetting.set({ estimateSeconds: 30 });
+    window.history.replaceState({ idx: 0 }, "", "/");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    await screen.findByRole("heading", { name: "Resetting Kipple" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(310_000);
+    });
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Kipple stopped. Start it again and the reset will finish."));
   });
 });

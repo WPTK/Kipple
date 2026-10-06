@@ -231,8 +231,8 @@ settings, `TZ`): keep those too. The full checklist is in [docs/deploy.md](docs/
 a backup". Pick the zip, check the date and counts it shows, and choose Everything (account, settings, feeds and
 history; Kipple restarts to apply it, then you sign in with the backup's account) or Feeds only (then create a new
 account). An OPML file from any reader works there too, as feeds only. The restart needs a restart policy such as
-`restart: unless-stopped`, as in the examples. The public URL, allowed host names and trusted proxies are not
-restored, since they describe the old server. To restore over an existing library, stop the container and run
+`restart: unless-stopped`, as in the examples. The backup's public URL, allowed host names and trusted proxies are not
+restored, since they describe the old server; this server's own are kept. To restore over an existing library, stop the container and run
 `docker compose run --rm -T --no-deps kipple restore - --yes < kipple-backup-YYYYMMDD-HHMMSS.zip` (without `--yes` it
 only verifies); see [docs/deploy.md](docs/deploy.md#restore-a-backup).
 

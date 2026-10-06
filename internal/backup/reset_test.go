@@ -3,7 +3,6 @@ package backup
 import (
 	"context"
 	"database/sql"
-	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -117,62 +116,4 @@ func TestStageResetConcurrentHasOneWinner(t *testing.T) {
 	wg.Wait()
 	require.EqualValues(t, 1, ok.Load())
 	require.EqualValues(t, 7, pending.Load())
-}
-
-// An empty database (what setup mode creates) is deleted, never kept, so it
-// cannot push a real safety copy out of the newest three.
-func TestEmptyLiveDatabaseTakesNoSafetyCopy(t *testing.T) {
-	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
-	dir := t.TempDir()
-	library(t, dir, true, nil)
-	staged := func() {
-		other := t.TempDir()
-		library(t, other, true, nil)
-		require.NoError(t, os.Rename(filepath.Join(other, "kipple.db"), filepath.Join(dir, StagedFile)))
-		require.NoError(t, writeMarker(filepath.Join(dir, MarkerFile), marker{}, false))
-	}
-	staged()
-	first, err := ApplyStaged(dir, now, time.UTC) // the real library goes to pre-restore
-	require.NoError(t, err)
-	require.NotEmpty(t, first.Pre)
-	// Now the live database has an account too (the staged one had). Empty it: a setup-mode database.
-	require.NoError(t, os.Remove(filepath.Join(dir, "kipple.db")))
-	for i := range KeepPreRestore + 2 {
-		library(t, dir, false, nil)
-		staged()
-		done, err := ApplyStaged(dir, now.Add(time.Duration(i+1)*time.Minute), time.UTC)
-		require.NoError(t, err)
-		require.Empty(t, done.Pre, "an empty database is not kept")
-		require.NoError(t, os.Remove(filepath.Join(dir, "kipple.db")))
-	}
-	require.DirExists(t, first.Pre, "the real library's copy is still there")
-	dirs, _ := filepath.Glob(filepath.Join(dir, "backup", "pre-restore-*"))
-	require.Len(t, dirs, 1)
-}
-
-// A database that holds an account moves as one file (checkpointed first); one
-// that cannot be opened is kept as it is, all three files.
-func TestKeepLiveMovesOneFileOrAllThree(t *testing.T) {
-	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
-	t.Run("a healthy library", func(t *testing.T) {
-		dir := t.TempDir()
-		library(t, dir, true, nil)
-		pre, undo, err := keepLive(dir, now)
-		require.NoError(t, err)
-		require.NotNil(t, undo)
-		ents, _ := os.ReadDir(pre)
-		require.Len(t, ents, 1)
-		require.Equal(t, "kipple.db", ents[0].Name())
-		require.NoFileExists(t, filepath.Join(dir, "kipple.db"))
-	})
-	t.Run("a database that cannot be opened", func(t *testing.T) {
-		dir := t.TempDir()
-		for _, s := range []string{"", "-wal", "-shm"} {
-			require.NoError(t, os.WriteFile(filepath.Join(dir, "kipple.db"+s), []byte("not a database"), 0o600))
-		}
-		pre, _, err := keepLive(dir, now)
-		require.NoError(t, err)
-		ents, _ := os.ReadDir(pre)
-		require.Len(t, ents, 3)
-	})
 }

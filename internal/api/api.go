@@ -248,7 +248,11 @@ func New(opt Options) *Server {
 	}
 	s.restore = opt.Restore
 	if s.restore == nil && opt.Setup.Pending() && opt.DataDir != "" {
-		s.restore = backup.NewRestorer(backup.RestorerOptions{DataDir: opt.DataDir, Logger: s.log})
+		ro := backup.RestorerOptions{DataDir: opt.DataDir, Logger: s.log}
+		if s.db != nil {
+			ro.Live = s.db.Reader()
+		}
+		s.restore = backup.NewRestorer(ro)
 	}
 	s.rec = opt.Stats
 	if s.rec == nil {

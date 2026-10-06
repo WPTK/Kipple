@@ -227,7 +227,7 @@ func restore(ctx context.Context, o restoreOptions) error {
 	// this restore is the newer decision, so that one is dropped first. Done
 	// before the swap, so a crash in between can never leave both in place.
 	if backup.DiscardStaged(o.DataDir) {
-		fmt.Fprintln(out, "A restore that was waiting to be applied at the next start was dropped; this one replaces it.")
+		fmt.Fprintln(out, "A restore or reset that was waiting to be applied at the next start was dropped; this restore replaces it.")
 	}
 	pre, err := backup.Swap(o.DataDir, tmp, o.Now())
 	if err != nil {
@@ -242,7 +242,7 @@ func restore(ctx context.Context, o restoreOptions) error {
 	if moved {
 		fmt.Fprintf(out, "The previous database was moved to %s\n", pre)
 	} else {
-		fmt.Fprintln(out, "There was no previous database to keep.")
+		fmt.Fprintln(out, "There was no previous library to keep (the database was absent or empty).")
 	}
 	fmt.Fprintln(out, "Restored. Next: start Kipple (a backup from an older Kipple is upgraded on that start, after a safety copy),")
 	fmt.Fprintln(out, "sign in again (all sessions were signed out), and check the feed count on the status page.")

@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -141,7 +142,10 @@ type RestorerOptions struct {
 	// FreeBytes reports the free space on the volume of a directory (tests
 	// inject; default the OS call).
 	FreeBytes func(dir string) (uint64, error)
-	Logger    *slog.Logger
+	// Live is the running instance's database: its address settings (server.*
+	// and security.*) are kept through a restore. Nil keeps none.
+	Live   *sql.DB
+	Logger *slog.Logger
 }
 
 // Restorer holds the one restore intent of a process in setup mode. One upload
@@ -551,7 +555,7 @@ func (r *Restorer) Confirm(ctx context.Context, ticket int, passwordHash string)
 		return ErrNoUpload
 	}
 	staged := r.path(StagedFile)
-	if err := prepareStaged(ctx, staged, passwordHash); err != nil {
+	if err := prepareStaged(ctx, staged, passwordHash, r.o.Live); err != nil {
 		return err
 	}
 	mf := r.cur.Manifest

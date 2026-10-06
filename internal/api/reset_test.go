@@ -37,7 +37,7 @@ func TestResetInfoReportsTheEnvironmentAccount(t *testing.T) {
 		code, out, _ := h.api(h.login(), "GET", "/api/reset", "")
 		require.Equal(t, http.StatusOK, code)
 		require.Equal(t, env, out["env_account"])
-		require.Equal(t, false, out["public_url_set"])
+		require.Equal(t, false, out["public_address_set"])
 	}
 	h, _, _ := newResetHarness(t, false)
 	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/reset", "").Code, "signed in only")
@@ -133,7 +133,7 @@ func TestResetInfoSaysWhetherAPublicAddressIsSet(t *testing.T) {
 	require.NoError(t, h.srv.reach.Reload(t.Context()))
 	code, out, rec := h.api(h.login(), "GET", "/api/reset", "")
 	require.Equal(t, http.StatusOK, code)
-	require.Equal(t, true, out["public_url_set"])
+	require.Equal(t, true, out["public_address_set"])
 	require.NotContains(t, rec.Body.String(), "example.test", "never the address itself")
 }
 
@@ -158,4 +158,13 @@ func TestResetIsNotOfferedInSetupMode(t *testing.T) {
 		code := h.req(m, "/api/reset", "{}").Code
 		require.Contains(t, []int{http.StatusUnauthorized, http.StatusNotFound}, code, "setup mode has nothing to reset")
 	}
+}
+
+func TestResetInfoCountsAllowedHostsAsAnAddress(t *testing.T) {
+	h, _, _ := newResetHarness(t, false)
+	require.NoError(t, h.db.SetSettings(t.Context(), map[string]any{store.SettingAllowedHosts: []string{"rss.example.test"}}))
+	require.NoError(t, h.srv.reach.Reload(t.Context()))
+	code, out, _ := h.api(h.login(), "GET", "/api/reset", "")
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, true, out["public_address_set"])
 }

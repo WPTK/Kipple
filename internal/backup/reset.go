@@ -82,34 +82,49 @@ func createStaged(ctx context.Context, path string, live *sql.DB, kippleVersion 
 	return nil
 }
 
-func copyServerSettings(ctx context.Context, fresh *store.DB, live *sql.DB) error {
-	type row struct{ key, value string }
-	var rows []row
+type settingRow struct{ key, value string }
+
+// readServerSettings reads every setting under ServerSettingPrefixes from live.
+func readServerSettings(ctx context.Context, live *sql.DB) ([]settingRow, error) {
+	var rows []settingRow
 	for _, p := range ServerSettingPrefixes {
 		rs, err := live.QueryContext(ctx, "SELECT key, value FROM settings WHERE substr(key, 1, ?) = ?", len(p), p)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for rs.Next() {
-			var r row
+			var r settingRow
 			if err := rs.Scan(&r.key, &r.value); err != nil {
 				_ = rs.Close()
-				return err
+				return nil, err
 			}
 			rows = append(rows, r)
 		}
 		if err := rs.Err(); err != nil {
 			_ = rs.Close()
-			return err
+			return nil, err
 		}
 		_ = rs.Close()
 	}
-	return fresh.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		for _, r := range rows {
-			if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", r.key, r.value); err != nil {
-				return err
-			}
+	return rows, nil
+}
+
+// writeServerSettings stores rows, replacing any of the same key. The one
+// helper of a reset (into a fresh database) and of a restore (into the staged
+// backup).
+func writeServerSettings(ctx context.Context, tx *sql.Tx, rows []settingRow) error {
+	for _, r := range rows {
+		if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", r.key, r.value); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
+}
+
+func copyServerSettings(ctx context.Context, fresh *store.DB, live *sql.DB) error {
+	rows, err := readServerSettings(ctx, live)
+	if err != nil {
+		return err
+	}
+	return fresh.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error { return writeServerSettings(ctx, tx, rows) })
 }

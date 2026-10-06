@@ -19,10 +19,12 @@ const resetPhrase = "reset kipple"
 
 // resetInfo is GET /api/reset: whether KIPPLE_USERNAME and KIPPLE_PASSWORD are
 // set for this process (a reset then ignores them until a new account exists),
-// and whether a public address is set (it stays set, so until the new account
-// is created anyone who can reach that address can create it). Never the URL.
+// and whether a public address is set, a public URL or allowed host names (they
+// stay set, so until the new account is created anyone who can reach that
+// address can create it). Never the address itself.
 func (s *Server) resetInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"env_account": s.opt.EnvAccount, "public_url_set": s.reach.Get().PublicURL != ""})
+	st := s.reach.Get()
+	writeJSON(w, http.StatusOK, map[string]bool{"env_account": s.opt.EnvAccount, "public_address_set": st.PublicURL != "" || len(st.HostNames) > 0})
 }
 
 // resetKipple is POST /api/reset {"password", "phrase"}:

@@ -177,7 +177,12 @@ func EstimateSeconds(dbBytes int64, older bool) int {
 // claim to be which client, so a stale list must not carry over).
 var HostSettings = []string{store.SettingPublicURL, store.SettingAllowedHosts, store.SettingTrustedProxies}
 
-func prepareStaged(ctx context.Context, path, passwordHash string) error {
+// prepareStaged edits the staged copy before it is installed: every web session
+// is signed out, the backup's address settings (HostSettings) are cleared and
+// replaced by the live instance's own server.* and security.* settings (live may
+// be nil: then they are only cleared), and passwordHash, when not empty, becomes
+// the web password. A restore must not drop the address this instance answers at.
+func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB) error {
 	db, err := openUntrusted(path)
 	if err != nil {
 		return err
@@ -194,6 +199,15 @@ func prepareStaged(ctx context.Context, path, passwordHash string) error {
 	for _, k := range HostSettings {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", k); err != nil {
 			return fmt.Errorf("restore: clear %s: %w", k, err)
+		}
+	}
+	if live != nil {
+		rows, err := readServerSettings(ctx, live)
+		if err != nil {
+			return fmt.Errorf("restore: read this server's settings: %w", err)
+		}
+		if err := writeServerSettings(ctx, tx, rows); err != nil {
+			return fmt.Errorf("restore: keep this server's settings: %w", err)
 		}
 	}
 	if passwordHash != "" {
@@ -238,12 +252,37 @@ func MarkerPending(dataDir string) bool {
 
 // writeMarker writes path atomically (a temporary file, synced, renamed) so a
 // crash leaves either no marker or a whole one. With exclusive the marker is
-// linked into place instead, which fails (ErrRestorePending) when one exists,
-// so two writers can never both win.
+// created in place with O_EXCL instead, which fails (ErrRestorePending) when one
+// exists, so two writers can never both win.
 func writeMarker(path string, m marker, exclusive bool) error {
 	b, err := json.Marshal(m)
 	if err != nil {
 		return err
+	}
+	if exclusive {
+		// Created in place with O_EXCL: of two writers one wins, and the file's
+		// content is only for the log, so a crash while it is written leaves a
+		// marker that still means "apply the staged database".
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, fs.ErrExist) {
+			return ErrRestorePending
+		}
+		if err != nil {
+			return fmt.Errorf("restore: marker: %w", err)
+		}
+		_, err = f.Write(b)
+		if err == nil {
+			err = f.Sync()
+		}
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			_ = os.Remove(path)
+			return fmt.Errorf("restore: marker: %w", err)
+		}
+		syncDir(filepath.Dir(path))
+		return nil
 	}
 	tmp := path + ".tmp"
 	_ = os.Remove(tmp)
@@ -258,13 +297,7 @@ func writeMarker(path string, m marker, exclusive bool) error {
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
-	if err == nil && exclusive {
-		if err = os.Link(tmp, path); errors.Is(err, fs.ErrExist) {
-			_ = os.Remove(tmp)
-			return ErrRestorePending
-		}
-		_ = os.Remove(tmp)
-	} else if err == nil {
+	if err == nil {
 		err = os.Rename(tmp, path)
 	}
 	if err != nil {
