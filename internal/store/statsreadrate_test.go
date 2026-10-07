@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,7 +73,7 @@ func TestStatsReadRateCountsOnlyItemsThatArrivedCounted(t *testing.T) {
 	}
 
 	s := e.summary("2026-09-01", "2026-09-24")
-	require.Equal(t, "2026-09-01", *s.ReadRateFrom)
+	require.Equal(t, "2026-09-20", *s.ReadRateFrom, "where counting began, not where statistics did (the 1st)")
 	require.Equal(t, "2026-09-23", *s.ReadRateTo, "today is not a complete day")
 	src := srcByFeed(s)[strconv.FormatInt(id, 10)]
 	require.Equal(t, 22, src.ItemsRead)
@@ -137,8 +138,8 @@ func TestStatsReadRateWindow(t *testing.T) {
 
 	e.read("2026-09-10", 1, 1)
 	s := e.summary("2026-09-01", "2026-09-24")
-	require.Equal(t, "2026-09-10", *s.ReadRateFrom)
-	require.Nil(t, s.ReadRate.Rate, "no arrival was ever counted")
+	require.Nil(t, s.ReadRateFrom, "no arrival was ever counted: no window")
+	require.Nil(t, s.ReadRate.Rate)
 	require.Nil(t, s.Sources[0].ReadRate.Rate)
 
 	// Reads are complete from the 5th.
@@ -214,28 +215,101 @@ func TestStatsArrivalsMergeSpans(t *testing.T) {
 }
 
 // The window of all feeds is one range of the table's key, which holds every column it reads; the window
-// of one feed reads only that feed's rows.
+// of one feed reads only that feed's rows; the first day is one seek. The fetch commit's check for an item
+// between two runs reads the id range of both tables, never a feed_id-leading index, also once the
+// planner has statistics.
 func TestStatsArrivalsPlans(t *testing.T) {
 	e := newEnv(t)
-	for q, want := range map[string]string{
-		sqlDailyNew:     "SEARCH feed_daily_new USING PRIMARY KEY (local_date>? AND local_date<?)",
-		sqlDailyNewFeed: "SEARCH feed_daily_new USING INDEX idx_feed_daily_feed (feed_id=? AND local_date>? AND local_date<?)",
-	} {
-		var plan string
-		args := []any{"2026-01-01", "2026-12-31"}
-		if q == sqlDailyNewFeed {
-			args = append(args, 1)
-		}
+	feed := e.addFeed("http://a.example/feed")
+	lo, hi := "2026-01-01", "2026-12-31"
+	cases := []struct {
+		q    string
+		args []any
+		want []string
+	}{
+		{sqlDailyNewFirst, nil, []string{"SEARCH feed_daily_new"}},
+		{sqlDailyNew, []any{lo, hi}, []string{"SEARCH feed_daily_new USING PRIMARY KEY (local_date>? AND local_date<?)"}},
+		{sqlDailyNewFeed, []any{lo, hi, 1}, []string{"SEARCH feed_daily_new USING INDEX idx_feed_daily_feed (feed_id=? AND local_date>? AND local_date<?)"}},
+		{sqlItemBetween, []any{1, 2, 1}, []string{"SEARCH items USING INTEGER PRIMARY KEY (rowid>? AND rowid<?)",
+			"SEARCH trimmed_items USING INTEGER PRIMARY KEY (rowid>? AND rowid<?)"}},
+	}
+	plan := func(q string, args []any) string {
+		var p string
 		rows, err := e.db.Reader().QueryContext(e.ctx, "EXPLAIN QUERY PLAN "+q, args...)
 		require.NoError(t, err)
 		require.NoError(t, eachRow(rows, func() error {
 			var a, b, c int
 			var d string
 			err := rows.Scan(&a, &b, &c, &d)
-			plan += d + "\n"
+			p += d + "\n"
 			return err
 		}))
-		require.Contains(t, plan, want, q)
+		return p
+	}
+	for _, analyzed := range []bool{false, true} {
+		if analyzed {
+			for f := 1; f <= 100; f++ {
+				e.exec(`INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at) VALUES (?, ?, ?, 1, 0, 0)`, f, feed, fmt.Sprint(f))
+			}
+			e.exec("ANALYZE")
+		}
+		for _, c := range cases {
+			p := plan(c.q, c.args)
+			for _, w := range c.want {
+				require.Contains(t, p, w, "%s (analyzed %v)", c.q, analyzed)
+			}
+		}
+	}
+}
+
+// The fetch commit's between check costs a day's id range, not the feed's items and ledger: a feed with
+// 10,000 items and a 100,000-row ledger among 50,000 other items; see design §2.5 (0018) for the figure.
+func TestFeedDailyNewBetweenPerf(t *testing.T) {
+	if testing.Short() || os.Getenv("KIPPLE_PERF") == "" {
+		t.Skip("seeds 160,000 rows; set KIPPLE_PERF=1")
+	}
+	e := newEnv(t)
+	feed, other := e.addFeed("http://a.example/feed"), e.addFeed("http://b.example/feed")
+	tx, err := e.db.writer.BeginTx(e.ctx, nil)
+	require.NoError(t, err)
+	item, err := tx.PrepareContext(e.ctx, `INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash) VALUES (?, ?, 0, ?, ?, '', '')`)
+	require.NoError(t, err)
+	ledger, err := tx.PrepareContext(e.ctx, `INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at) VALUES (?, ?, ?, 1, 0, 0)`)
+	require.NoError(t, err)
+	id := int64(1)
+	for i := 0; i < 100_000; i++ {
+		_, err := ledger.ExecContext(e.ctx, id, feed, fmt.Sprint("t", i))
+		require.NoError(t, err)
+		id++
+	}
+	for i := 0; i < 60_000; i++ {
+		f := other
+		if i%6 == 0 {
+			f = feed
+		}
+		_, err := item.ExecContext(e.ctx, id, f, id, fmt.Sprint("i", i))
+		require.NoError(t, err)
+		id++
+	}
+	require.NoError(t, item.Close())
+	require.NoError(t, ledger.Close())
+	require.NoError(t, tx.Commit())
+	e.exec("ANALYZE")
+	// The join case: the last 1,000 ids hold none of the feed's items, so EXISTS has to rule them all out.
+	e.exec(`DELETE FROM items WHERE id > ? AND feed_id = ?`, id-1000, feed)
+	unforced := strings.ReplaceAll(sqlItemBetween, "+feed_id", "feed_id")
+	for _, q := range []struct{ name, sql string }{{"forced id range", sqlItemBetween}, {"planner's choice", unforced}} {
+		var b time.Duration
+		for i := 0; i < 5; i++ {
+			s := time.Now()
+			var between bool
+			require.NoError(t, e.db.Reader().QueryRowContext(e.ctx, q.sql, id-1000, id, feed).Scan(&between))
+			require.False(t, between)
+			if d := time.Since(s); i == 0 || d < b {
+				b = d
+			}
+		}
+		t.Logf("between check, %s: %v", q.name, b)
 	}
 }
 

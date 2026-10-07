@@ -28,9 +28,9 @@ func TestStatsSummaryOneFeed(t *testing.T) {
 	require.Len(t, src, 1)
 	require.Equal(t, "Alpha", src[0].(map[string]any)["feed_title"])
 	require.Equal(t, "2026-09-20", out["covered_from"], "coverage is that of all statistics")
-	// No arrival was ever counted: the rate is null (a dash), never 0.
-	require.Equal(t, "2026-09-20", out["read_rate_from"])
-	require.NotNil(t, out["read_rate_to"])
+	// No arrival was ever counted: no window, and the rate is null (a dash), never 0.
+	require.Nil(t, out["read_rate_from"])
+	require.Nil(t, out["read_rate_to"])
 	rr := out["read_rate"].(map[string]any)
 	require.Contains(t, rr, "rate")
 	require.Nil(t, rr["rate"])
@@ -44,6 +44,7 @@ func TestStatsSummaryOneFeed(t *testing.T) {
 		return err
 	}))
 	_, out = h.summary(nil, "?range=month&feed="+strconv.FormatInt(f1, 10))
+	require.Equal(t, "2026-09-20", out["read_rate_from"], "counting began on the 20th")
 	rr = out["read_rate"].(map[string]any)
 	require.EqualValues(t, 4, num(rr["new_items"]))
 	require.InDelta(t, 0.25, num(rr["rate"]), 1e-9)

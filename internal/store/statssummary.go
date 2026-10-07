@@ -260,11 +260,13 @@ const (
 	sqlNameByReadTime = `SELECT feed_title, folder_id, folder_name FROM stats_events INDEXED BY idx_stats_feed
 		WHERE feed_id = ?1 AND kind = 'read_time' AND ts BETWEEN ?2 AND ?3 AND local_date BETWEEN ?4 AND ?5 AND id <= ?6
 		ORDER BY ts DESC, id DESC LIMIT 1`
-	// sqlDailyNew reads a window's rows of all feeds, one range of the key (local_date, feed_id,
-	// first_item) that holds every column read; sqlDailyNewFeed reads one feed's through
-	// idx_feed_daily_feed (feed_id, local_date) (migration 0018).
-	sqlDailyNew     = `SELECT feed_id, new_items, first_item, last_item FROM feed_daily_new WHERE local_date BETWEEN ?1 AND ?2`
-	sqlDailyNewFeed = `SELECT feed_id, new_items, first_item, last_item FROM feed_daily_new WHERE feed_id = ?3 AND local_date BETWEEN ?1 AND ?2`
+	// sqlDailyNewFirst is the day counting began, one seek at the start of the key; sqlDailyNew reads
+	// a window's rows of all feeds, one range of the key (local_date, feed_id, first_item) that holds
+	// every column read; sqlDailyNewFeed reads one feed's through idx_feed_daily_feed (feed_id,
+	// local_date) (migration 0018).
+	sqlDailyNewFirst = `SELECT COALESCE(MIN(local_date), '') FROM feed_daily_new`
+	sqlDailyNew      = `SELECT feed_id, new_items, first_item, last_item FROM feed_daily_new WHERE local_date BETWEEN ?1 AND ?2`
+	sqlDailyNewFeed  = `SELECT feed_id, new_items, first_item, last_item FROM feed_daily_new WHERE feed_id = ?3 AND local_date BETWEEN ?1 AND ?2`
 )
 
 // sqlFeedFirstDate is the local date of one feed's oldest row (its start when the feed row is gone):
@@ -459,18 +461,23 @@ func statsFeedStart(ctx context.Context, q Querier, loc *time.Location, feed, ma
 // statsRateWindow is the read rates' window inside from..to (StatsSummary.ReadRateFrom/To), or ""
 // and "" when it is empty. Only complete days count, as in a comparison: it ends before today (its
 // arrivals are counted as they come, its reads mostly not yet). It starts where reads are complete
-// (covered, the summary's covered_from). Days before arrivals were counted need no bound: their items
-// lie in no feed_daily_new row, so they add neither new items nor reads.
-func statsRateWindow(from, to, today string, covered *string) (string, string) {
+// (covered, the summary's covered_from) and where counting began, the first feed_daily_new row's day:
+// the days before it hold no row, so a window over them would show days that were not counted as
+// days with nothing new. That first day itself is counted exactly (a row holds only counted items).
+func statsRateWindow(ctx context.Context, q Querier, from, to, today string, covered *string) (string, string, error) {
 	if covered == nil {
-		return "", ""
+		return "", "", nil
 	}
-	start := max(from, *covered)
+	var began string
+	if err := q.QueryRowContext(ctx, sqlDailyNewFirst).Scan(&began); err != nil || began == "" {
+		return "", "", err
+	}
+	start := max(from, *covered, began)
 	end := min(to, parseLocalDate(today).AddDate(0, 0, -1).Format(dateLayout))
 	if start > end {
-		return "", ""
+		return "", "", nil
 	}
-	return start, end
+	return start, end, nil
 }
 
 // arrivals is one feed's counted arrivals in the read rates' window: their number and the spans of
@@ -793,7 +800,10 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		}
 	}
 
-	rateFrom, rateTo := statsRateWindow(from, to, today, out.CoveredFrom)
+	rateFrom, rateTo, err := statsRateWindow(ctx, q, from, to, today, out.CoveredFrom)
+	if err != nil {
+		return nil, err
+	}
 	if rateFrom != "" {
 		out.ReadRateFrom, out.ReadRateTo = &rateFrom, &rateTo
 	}

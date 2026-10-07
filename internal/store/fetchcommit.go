@@ -66,22 +66,25 @@ type commitState struct {
 	lastID     int64
 	newIDs     []int64
 	unreadNew  []int64 // new ids counted in feed_daily_new (see addFeedDailyNew)
-	day        string  // the local date the commit counts them on, fixed by its first chunk
-	updated    int
-	rekeyed    int
-	initRead   int
-	seenTomb   int
-	trimmed    int64
-	trimMore   bool // the trim filled its batch: more may be left to trim
-	notes      []string
-	mutedIDs   []int64
-	held       []heldItem // marked pending, in insert order
-	fMarked    int
-	fStarred   int
-	keep       bool
-	begun      bool
-	stale      bool   // the feed's URL changed under the fetch; nothing was written
-	url        string // the feed's URL as this commit leaves it
+	// chunkCounted is where the current chunk's ids start in unreadNew: the last chunk's trim takes
+	// back only those (dropTrimmedDailyNew).
+	chunkCounted int
+	day          string // the local date the commit counts them on, fixed by its first chunk
+	updated      int
+	rekeyed      int
+	initRead     int
+	seenTomb     int
+	trimmed      int64
+	trimMore     bool // the trim filled its batch: more may be left to trim
+	notes        []string
+	mutedIDs     []int64
+	held         []heldItem // marked pending, in insert order
+	fMarked      int
+	fStarred     int
+	keep         bool
+	begun        bool
+	stale        bool   // the feed's URL changed under the fetch; nothing was written
+	url          string // the feed's URL as this commit leaves it
 }
 
 type heldItem struct {
@@ -254,6 +257,7 @@ type existingRow struct {
 func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, last bool, st *commitState, pre *preEval) error {
 	feedID := res.Snap.ID
 	now := d.clock.Now().Unix()
+	st.chunkCounted = len(st.unreadNew)
 	// A URL edit that landed while this fetch was in flight makes its result
 	// stale: the validators, redirect state and schedule belong to the old URL.
 	// Drop this chunk and every later one (the trim, the bookkeeping and the log
@@ -822,21 +826,24 @@ type countRun struct {
 // so the rows commit or roll back with them. The first successful fetch at a URL adds nothing
 // (url_succeeded 0: a new subscription, or a URL edit): that document is a backlog, not arrivals.
 func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, day string, runs []countRun) error {
-	for _, r := range runs {
-		var first, last int64
-		err := tx.QueryRowContext(ctx, `SELECT first_item, last_item FROM feed_daily_new
-			WHERE local_date = ?1 AND feed_id = ?2 ORDER BY first_item DESC LIMIT 1`, day, feedID).Scan(&first, &last)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
+	for i, r := range runs {
+		// Only the chunk's first run can join a row: countRuns ended each earlier run at an uncounted item.
 		between := true
-		if err == nil {
-			if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM items WHERE id > ?1 AND id < ?2 AND feed_id = ?3)
-				OR EXISTS (SELECT 1 FROM trimmed_items WHERE id > ?1 AND id < ?2 AND feed_id = ?3)`, last, r.first, feedID).Scan(&between); err != nil {
+		var first int64
+		if i == 0 {
+			var last int64
+			err := tx.QueryRowContext(ctx, `SELECT first_item, last_item FROM feed_daily_new
+				WHERE local_date = ?1 AND feed_id = ?2 ORDER BY first_item DESC LIMIT 1`, day, feedID).Scan(&first, &last)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return err
 			}
+			if err == nil {
+				if err := tx.QueryRowContext(ctx, sqlItemBetween, last, r.first, feedID).Scan(&between); err != nil {
+					return err
+				}
+			}
 		}
-
+		var err error
 		if !between {
 			_, err = tx.ExecContext(ctx, `UPDATE feed_daily_new SET last_item = ?4, new_items = new_items + ?5
 				WHERE local_date = ?1 AND feed_id = ?2 AND first_item = ?3`, day, feedID, first, r.last, r.n)
@@ -851,15 +858,24 @@ func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, day string, 
 	return nil
 }
 
-// dropTrimmedDailyNew takes back, in the last chunk after the trim, the counted items the same commit
-// trimmed, from the rows that hold them: they were never shown. A row that would reach 0 is deleted
-// (new_items > 0). A row's ids are left as they are: a trimmed item was never opened, so it adds no
-// read inside them.
+// sqlItemBetween reports whether any item of the feed (?3), kept or trimmed, has an id strictly
+// between ?1 and ?2. The unary + on feed_id keeps the planner off the feed_id-leading indexes
+// (idx_items_feed_sort, trimmed_items' UNIQUE (feed_id, uid)), which would walk all the feed's items
+// and its ledger when there is no such item: the id range is a day's inserts at most.
+const sqlItemBetween = `SELECT EXISTS (SELECT 1 FROM items WHERE id > ?1 AND id < ?2 AND +feed_id = ?3)
+	OR EXISTS (SELECT 1 FROM trimmed_items WHERE id > ?1 AND id < ?2 AND +feed_id = ?3)`
+
+// dropTrimmedDailyNew takes back, in the last chunk after the trim, the counted items this chunk both
+// inserted and trimmed, from the rows that hold them: they were never visible, so never opened or
+// restored. Counted items of earlier chunks stay counted even when this trim removes them: they were
+// visible between the chunks and may have been opened. A row that would reach 0 is deleted
+// (new_items > 0). A row's ids are left as they are, which adds no read inside them.
 func dropTrimmedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, st *commitState) error {
-	if len(st.unreadNew) == 0 || st.trimmed == 0 {
+	mine := st.unreadNew[st.chunkCounted:]
+	if len(mine) == 0 || st.trimmed == 0 {
 		return nil
 	}
-	b, err := jsonText(st.unreadNew)
+	b, err := jsonText(mine)
 	if err != nil {
 		return err
 	}
