@@ -445,6 +445,8 @@ func restoreErrorInfo(err error) (status int, code, msg string) {
 		return http.StatusBadRequest, "upload_incomplete", err.Error()
 	case errors.Is(err, backup.ErrUploadTooSlow):
 		return http.StatusRequestTimeout, "upload_too_slow", err.Error()
+	case errors.Is(err, backup.ErrDiskFull):
+		return http.StatusInsufficientStorage, "no_space", err.Error()
 	case errors.As(err, &space):
 		return http.StatusInsufficientStorage, "no_space", err.Error()
 	case errors.As(err, &newer):

@@ -660,3 +660,11 @@ func TestRestoreDeadline(t *testing.T) {
 	require.Equal(t, 8192*time.Second, restoreDeadline(1<<30))
 	require.Equal(t, 4*time.Hour, restoreDeadline(4<<30))
 }
+
+// A full disk while an upload is kept answers no_space, like the free-space check.
+func TestRestoreErrorInfoFullDisk(t *testing.T) {
+	status, code, msg := restoreErrorInfo(fmt.Errorf("wrapped: %w", backup.ErrDiskFull))
+	require.Equal(t, http.StatusInsufficientStorage, status)
+	require.Equal(t, "no_space", code)
+	require.Contains(t, msg, "disk is full")
+}

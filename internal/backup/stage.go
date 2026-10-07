@@ -11,7 +11,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/WPTK/kipple/internal/opml"
@@ -84,6 +86,8 @@ var (
 	ErrUploadTooLarge   = &Refusal{"This file is larger than the " + human(MaxUploadBytes) + " a restore accepts."}
 	ErrOPMLTooLarge     = &Refusal{"This OPML file is larger than the " + human(opml.MaxFileBytes) + " an import accepts."}
 	ErrUploadCut        = &Refusal{"The upload stopped before the whole file arrived. Try again."}
+	// ErrDiskFull: the volume filled up while the upload was being kept.
+	ErrDiskFull = &Refusal{"The disk is full, so the upload could not be kept. Free some space and try again."}
 	// ErrUploadTooSlow: the body reader stopped an upload that sent too slowly
 	// (the API's limits). Unlike the other upload refusals it is kept as the
 	// owner's failed state, because the browser, still sending, may never read
@@ -385,11 +389,11 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 		return Upload{}, err
 	}
 	removeStaged(r.o.DataDir) // a leftover of an upload this process lost track of
-	f, err := os.OpenFile(r.path(UploadFile), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := openSpool(r.path(UploadFile))
 	if err != nil {
 		return Upload{}, fmt.Errorf("restore: spool: %w", err)
 	}
-	sp := &spoolWriter{f: f}
+	sp := &spoolWriter{w: f}
 	_, err = sp.Write(head)
 	n := int64(len(head))
 	if err == nil {
@@ -419,6 +423,8 @@ func ended(ctx context.Context, err error) error {
 		return ErrUploadTooSlow
 	case ctx.Err() != nil:
 		return ctx.Err()
+	case errors.As(err, &se) && diskFull(se.err):
+		return ErrDiskFull
 	case errors.As(err, &se):
 		return fmt.Errorf("restore: spool: %w", se.err)
 	}
@@ -685,11 +691,26 @@ type spoolError struct{ err error }
 func (e *spoolError) Error() string { return e.err.Error() }
 func (e *spoolError) Unwrap() error { return e.err }
 
+// openSpool creates the spool file. A variable so a test can make it fail.
+var openSpool = func(path string) (io.WriteCloser, error) {
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+}
+
+// diskFull reports a write that failed because the volume is full: ENOSPC, or
+// on Windows ERROR_DISK_FULL and ERROR_HANDLE_DISK_FULL.
+func diskFull(err error) bool {
+	if errors.Is(err, syscall.ENOSPC) {
+		return true
+	}
+	var en syscall.Errno
+	return runtime.GOOS == "windows" && errors.As(err, &en) && (en == 112 || en == 39)
+}
+
 // spoolWriter writes the spool file and tells its failures from the body's.
-type spoolWriter struct{ f *os.File }
+type spoolWriter struct{ w io.Writer }
 
 func (w *spoolWriter) Write(p []byte) (int, error) {
-	n, err := w.f.Write(p)
+	n, err := w.w.Write(p)
 	if err != nil {
 		err = &spoolError{err}
 	}

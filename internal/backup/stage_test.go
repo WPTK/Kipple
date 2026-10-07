@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -507,6 +508,38 @@ func TestTooSlowOutranksACancelledContext(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+// failingSpool is a spool file whose writes fail.
+type failingSpool struct{ err error }
+
+func (f failingSpool) Write([]byte) (int, error) { return 0, f.err }
+func (f failingSpool) Close() error              { return nil }
+
+// Through receive: a spool file that cannot be written ends the upload with
+// that failure, not as a cut upload, and a full disk is ErrDiskFull.
+func TestReceiveKeepsASpoolFailure(t *testing.T) {
+	old := openSpool
+	t.Cleanup(func() { openSpool = old })
+	body := append([]byte("PK\x03\x04"), make([]byte, 5000)...)
+	for name, tc := range map[string]struct {
+		cause error
+		want  error
+	}{
+		"disk full": {syscall.ENOSPC, ErrDiskFull},
+		"other":     {errors.New("input/output error"), nil},
+	} {
+		openSpool = func(string) (io.WriteCloser, error) { return failingSpool{tc.cause}, nil }
+		r, _ := newRestorer(t)
+		_, err := r.receive(context.Background(), bytes.NewReader(body), int64(len(body)))
+		require.Error(t, err, name)
+		require.NotErrorIs(t, err, ErrUploadCut, name)
+		if tc.want != nil {
+			require.ErrorIs(t, err, tc.want, name)
+		} else {
+			require.ErrorIs(t, err, tc.cause, name)
+		}
+	}
+}
+
 // A failure of the spool file keeps its cause; it is not a cut upload.
 func TestEndedKeepsASpoolFailure(t *testing.T) {
 	disk := errors.New("no space left on device")
@@ -536,7 +569,7 @@ func TestCheckSchemaMatchesAFreshDatabase(t *testing.T) {
 // the objects of a fresh one, both ways, so the two-way check refuses no real
 // backup; and a database left at any older version matches that version.
 // Some migration files were edited after they shipped, so the check, with its
-// shape comparison, was also run once against databases made by the code of
+// comparison of each object's text (comments and spacing ignored) and shape, was also run once against databases made by the code of
 // every release tag (v0.1.0 to v0.8.0-beta.4), as made, upgraded by this
 // binary, and upgraded through every later tag in turn: none was refused
 // (docs/design.md §2.6).
