@@ -60,17 +60,38 @@ export const RANGES: readonly { value: StatsRange; label: string }[] = [
 
 const RANGE_KEY = "kipple.stats.range";
 
-export function loadRange(): StatsRange {
+/** The Stats screen's ranges: the four the server knows, plus Months, which is "all" shown as one bar per month. */
+export type ScreenRange = StatsRange | "months";
+
+export const SCREEN_RANGES: readonly { value: ScreenRange; label: string }[] = [
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+  { value: "year", label: "Year" },
+  { value: "months", label: "Months" },
+  { value: "all", label: "All" },
+];
+
+/** The server range a screen range is fetched with. */
+export function apiRange(r: ScreenRange): StatsRange {
+  return r === "months" ? "all" : r;
+}
+
+export function loadScreenRange(): ScreenRange {
   try {
     const v = localStorage.getItem(RANGE_KEY);
-    if (v === "week" || v === "month" || v === "year" || v === "all") return v;
+    if (v === "week" || v === "month" || v === "year" || v === "months" || v === "all") return v;
   } catch {
     /* not remembered */
   }
   return "month";
 }
 
-export function saveRange(r: StatsRange): void {
+/** The remembered range as the server names it, for the export's default. */
+export function loadRange(): StatsRange {
+  return apiRange(loadScreenRange());
+}
+
+export function saveRange(r: ScreenRange): void {
   try {
     localStorage.setItem(RANGE_KEY, r);
   } catch {
@@ -173,4 +194,72 @@ export function daysBetween(from: string, to: string): number {
 export function todayString(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export interface MonthBar {
+  /** "YYYY-MM". */
+  month: string;
+  items_read: number;
+  active_seconds: number;
+}
+
+/** Daily rows folded into one row per calendar month, every month from the first through the last, empty ones included. */
+export function monthlyBars(daily: { date: string; items_read: number; active_seconds: number }[]): MonthBar[] {
+  if (daily.length === 0) return [];
+  const by = new Map<string, MonthBar>();
+  for (const d of daily) {
+    const month = d.date.slice(0, 7);
+    const m = by.get(month) ?? { month, items_read: 0, active_seconds: 0 };
+    m.items_read += d.items_read;
+    m.active_seconds += d.active_seconds;
+    by.set(month, m);
+  }
+  const first = daily[0]!.date.slice(0, 7);
+  const last = daily[daily.length - 1]!.date.slice(0, 7);
+  const out: MonthBar[] = [];
+  let [y = 1970, mo = 1] = first.split("-").map(Number);
+  for (;;) {
+    const key = `${y}-${String(mo).padStart(2, "0")}`;
+    out.push(by.get(key) ?? { month: key, items_read: 0, active_seconds: 0 });
+    if (key >= last) break;
+    if (++mo > 12) {
+      mo = 1;
+      y++;
+    }
+  }
+  return out;
+}
+
+export function monthName(month: string, style: "short" | "long" = "short"): string {
+  const [y = 1970, m = 1] = month.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: style, year: "numeric" });
+}
+
+/** A local date string moved by whole days (the calendar's days, so DST and month lengths cannot skew it). */
+export function addDays(day: string, n: number): string {
+  const d = parseDay(day);
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * The span the same-length period before a summary's range covers, and how to say it. A week so far is set against the
+ * same days of the week before; month and year (the last 30 and 365 days) against the stretch just before them. "all"
+ * has nothing before it.
+ */
+export function previousPeriod(range: { key: StatsRange; from: string; days: number }): { from: string; to: string; label: string } | null {
+  if (range.key === "all") return null;
+  if (range.key === "week") {
+    const from = addDays(range.from, -7);
+    return { from, to: addDays(from, range.days - 1), label: range.days >= 7 ? "last week" : "the same days last week" };
+  }
+  return { from: addDays(range.from, -range.days), to: addDays(range.from, -1), label: `the previous ${range.days} days` };
+}
+
+/** "+18% from 120", "-5% from 40", "no change from 7", "up from 0" or "no change from 0" when the earlier value was zero. */
+export function changeLabel(now: number, before: number, show: (n: number) => string): string {
+  if (before <= 0) return `${now > 0 ? "up" : "no change"} from ${show(before)}`;
+  const pct = Math.round(((now - before) / before) * 100);
+  if (pct === 0) return `no change from ${show(before)}`;
+  return `${pct > 0 ? "+" : "-"}${Math.abs(pct)}% from ${show(before)}`;
 }

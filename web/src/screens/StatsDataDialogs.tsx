@@ -3,7 +3,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, errorMessage, ApiError } from "@/api/client";
 import type { StatsRange, StatsSummary } from "@/api/types";
 import { DICTIONARY_MD_URL, exportUrl, rangeProblem, startDownload, type ExportContent, type ExportFormat, type ExportRange } from "@/lib/statsExport";
-import { RANGES, plural, todayString } from "@/lib/statsFormat";
+import { RANGES, addDays, plural, todayString } from "@/lib/statsFormat";
 import { clearStatsQueue } from "@/lib/statsSender";
 import { toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
@@ -42,17 +42,13 @@ function partialCount(e: unknown): number {
  */
 export function serverToday(qc: QueryClient): string {
   const local = todayString();
-  const limit = shiftDay(local, 1);
+  const limit = addDays(local, 1);
   for (const [key, d] of qc.getQueriesData<StatsSummary>({ queryKey: ["stats"] })) {
     const r = key[1];
     const to = d?.range?.to;
     if ((r === "week" || r === "month" || r === "year") && to && /^\d{4}-\d{2}-\d{2}$/.test(to) && to <= limit) return to;
   }
   return local;
-}
-
-function shiftDay(date: string, days: number): string {
-  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }
 
 const LATE_NOTE = "Reading from other devices that hasn't synced yet can still show up later.";
@@ -82,7 +78,7 @@ function ExportBody({ onOpenChange, defaultRange }: { onOpenChange: (o: boolean)
   const [content, setContent] = useState<ExportContent>("raw");
   const [range, setRange] = useState<ExportRange>(defaultRange);
   const [to, setTo] = useState(() => serverToday(qc));
-  const [from, setFrom] = useState(() => shiftDay(serverToday(qc), -30));
+  const [from, setFrom] = useState(() => addDays(serverToday(qc), -30));
   const [titles, setTitles] = useState(true);
   const [bom, setBom] = useState(false);
   const summary = content === "summary";

@@ -29,3 +29,13 @@ export function useWrappedSummary(year: number, span: { from: string; to: string
     placeholderData: keepPreviousData,
   });
 }
+
+/** The summary of an explicit span, such as the period before the one on screen. Fetched only when asked for. */
+export function useSpanSummary(span: { from: string; to: string } | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["stats", "span", span?.from, span?.to] as const,
+    queryFn: ({ signal }) => api<StatsSummary>("/api/stats/summary", { params: { from: span!.from, to: span!.to }, signal }),
+    enabled: enabled && span != null,
+    staleTime: 60_000,
+  });
+}
