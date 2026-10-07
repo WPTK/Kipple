@@ -45,12 +45,12 @@ func (s *Server) setupGone(w http.ResponseWriter) bool {
 // says what the account form can offer from where this browser is: whether
 // Cloudflare Access sign-in works here, and whether open mode would (reason is
 // the open gate's answer as things are, null when it would let this browser in),
-// and where a restore stands (the states of GET /api/setup/restore).
+// and where this browser's restore stands (the states of GET /api/setup/restore).
 func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if s.opt.Setup.Pending() {
 		restore := backup.RestoreNone
 		if s.restore != nil {
-			restore = s.restore.State()
+			restore = s.restore.Status(restoreKey(r)).State
 		}
 		snap := s.snapshot(r.Context())
 		orNull := func(reason string) any {

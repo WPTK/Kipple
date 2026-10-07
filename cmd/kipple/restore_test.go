@@ -270,13 +270,17 @@ func TestRestoreRefusesBadInput(t *testing.T) {
 	require.NoDirExists(t, filepath.Join(dir, "backup", "pre-restore-20260925-120000Z"))
 }
 
+// Restores a month apart: only the newest KeepPreRestore copies stay (copies from
+// the last KeepPreRestoreFor are kept whatever their number, internal/backup).
 func TestPreRestoreDirsArePruned(t *testing.T) {
 	dir := newData(t, 3)
 	zipPath := export(t, dir)
 	for i := 0; i < 5; i++ {
 		var out bytes.Buffer
 		require.NoError(t, restore(context.Background(), restoreOptions{DataDir: dir, Src: zipPath, Yes: true, Out: &out,
-			Now: func() time.Time { return time.Date(2026, 9, 25, 12, 0, i, 0, time.UTC) }}))
+			Now: func() time.Time {
+				return time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC).Add(time.Duration(i) * (backup.KeepPreRestoreFor + time.Hour))
+			}}))
 	}
 	dirs, err := filepath.Glob(filepath.Join(dir, "backup", "pre-restore-*"))
 	require.NoError(t, err)

@@ -113,7 +113,6 @@ func TestRunServeAppliesAReset(t *testing.T) {
 			code, info := c.call("GET", "/api/reset", "")
 			require.Equal(t, http.StatusOK, code)
 			require.Equal(t, tc.env, info["env_account"])
-			require.Equal(t, true, info["public_address_set"])
 
 			code, out = c.call("POST", "/api/reset", `{"password":"`+resetTestPassword+`","phrase":"reset kipple"}`)
 			require.Equal(t, http.StatusAccepted, code, out)

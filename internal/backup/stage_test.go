@@ -33,10 +33,65 @@ func newRestorer(t *testing.T, tune ...func(*RestorerOptions)) (*Restorer, strin
 	return r, dir
 }
 
+// me is the owner key of the uploads in these tests.
+const me = "owner-key"
+
+// An upload belongs to the key that sent it: another key sees no restore and
+// can neither read, confirm nor cancel it, and cannot upload over it.
+func TestUploadBelongsToItsOwner(t *testing.T) {
+	const other = "someone-else"
+	r, dir := newRestorer(t)
+	b := hostBackup(t)
+	_, err := upload(r, b)
+	require.NoError(t, err)
+
+	require.Equal(t, Status{State: RestoreNone}, r.Status(other), "no summary, no state")
+	require.Equal(t, Status{State: RestoreNone}, r.Status(""), "no key is not the owner")
+	_, _, err = r.Uploaded(other)
+	require.ErrorIs(t, err, ErrRestoreElsewhere)
+	_, err = r.Feeds(other)
+	require.ErrorIs(t, err, ErrRestoreElsewhere)
+	require.ErrorIs(t, r.Cancel(other), ErrRestoreElsewhere)
+	_, err = r.Upload(context.Background(), other, bytes.NewReader(b), int64(len(b)), nil)
+	require.ErrorIs(t, err, ErrRestoreElsewhere)
+	_, err = r.Upload(context.Background(), me, bytes.NewReader(b), int64(len(b)), nil)
+	require.ErrorIs(t, err, ErrRestoreBusy, "the owner may cancel its own and try again")
+	require.Equal(t, RestoreReady, r.State(), "nothing another key did changed it")
+	require.FileExists(t, filepath.Join(dir, StagedFile))
+
+	st := r.Status(me)
+	require.Equal(t, RestoreReady, st.State)
+	require.NotNil(t, st.Summary)
+	_, ticket, err := r.Uploaded(me)
+	require.NoError(t, err)
+	require.NoError(t, r.Confirm(context.Background(), ticket, ""))
+	// A confirmed restore is everyone's to wait for; only the owner sees whose.
+	st = r.Status(other)
+	require.Equal(t, RestoreConfirmed, st.State)
+	require.Nil(t, st.Summary)
+	require.NotNil(t, r.Status(me).Summary)
+
+	// A refusal is the owner's to read. To anyone else it is nothing, the same
+	// on every call: none, no upload, and nothing of theirs to cancel.
+	r, _ = newRestorer(t)
+	_, err = upload(r, b[:len(b)/2])
+	require.Error(t, err)
+	require.Equal(t, RestoreFailed, r.Status(me).State)
+	require.Equal(t, Status{State: RestoreNone}, r.Status(other))
+	_, _, err = r.Uploaded(other)
+	require.ErrorIs(t, err, ErrNoUpload)
+	_, err = r.Feeds(other)
+	require.ErrorIs(t, err, ErrNoUpload)
+	require.NoError(t, r.Cancel(other))
+	require.Equal(t, RestoreFailed, r.Status(me).State, "another key's cancel leaves the owner's refusal")
+	_, err = r.Upload(context.Background(), "", bytes.NewReader(b), int64(len(b)), nil)
+	require.Error(t, err, "an upload needs a key")
+}
+
 // upload sends b and, for a zip, waits for the background check: it returns
 // the checked summary, or the error the check failed with.
 func upload(r *Restorer, b []byte) (Upload, error) {
-	up, err := r.Upload(context.Background(), bytes.NewReader(b), int64(len(b)), nil)
+	up, err := r.Upload(context.Background(), me, bytes.NewReader(b), int64(len(b)), nil)
 	if err != nil || up.Kind != KindBackup {
 		return up, err
 	}
@@ -45,7 +100,7 @@ func upload(r *Restorer, b []byte) (Upload, error) {
 
 func waitChecked(r *Restorer) (Upload, error) {
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		st := r.Status()
+		st := r.Status(me)
 		switch st.State {
 		case RestoreUploading, RestoreChecking:
 			continue
@@ -117,8 +172,8 @@ func TestUploadConfirmApply(t *testing.T) {
 	require.True(t, exists(filepath.Join(dir, StagedFile)))
 	require.False(t, exists(filepath.Join(dir, MarkerFile)), "nothing is confirmed yet")
 
-	_, ticket, ok := r.Uploaded()
-	require.True(t, ok)
+	_, ticket, err := r.Uploaded(me)
+	require.NoError(t, err)
 	require.NoError(t, r.Confirm(context.Background(), ticket, "new-hash"))
 	require.Equal(t, RestoreConfirmed, r.State())
 	staged := filepath.Join(dir, StagedFile)
@@ -134,8 +189,8 @@ func TestUploadConfirmApply(t *testing.T) {
 	// Once confirmed, nothing else is accepted.
 	_, err = upload(r, hostBackup(t))
 	require.ErrorIs(t, err, ErrRestorePending)
-	require.ErrorIs(t, r.Cancel(), ErrRestorePending)
-	_, err = r.Feeds()
+	require.ErrorIs(t, r.Cancel(me), ErrRestorePending)
+	_, err = r.Feeds(me)
 	require.ErrorIs(t, err, ErrRestorePending)
 	require.ErrorIs(t, r.Confirm(context.Background(), ticket, ""), ErrRestorePending)
 
@@ -164,7 +219,7 @@ func TestConfirmWithoutNewPasswordKeepsTheAccount(t *testing.T) {
 	r, dir := newRestorer(t)
 	_, err := upload(r, hostBackup(t))
 	require.NoError(t, err)
-	_, ticket, _ := r.Uploaded()
+	_, ticket, _ := r.Uploaded(me)
 	require.NoError(t, r.Confirm(context.Background(), ticket, ""))
 	require.Equal(t, "h", rawQuery(t, filepath.Join(dir, StagedFile), "SELECT password_hash FROM account"))
 }
@@ -176,7 +231,7 @@ func TestRestoreASchema16Backup(t *testing.T) {
 	up, err := upload(r, rebuilt(t, hostBackup(t), "DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded; PRAGMA user_version = 16"))
 	require.NoError(t, err)
 	require.Equal(t, 16, up.Info.SchemaVersion)
-	_, ticket, _ := r.Uploaded()
+	_, ticket, _ := r.Uploaded(me)
 	require.NoError(t, r.Confirm(context.Background(), ticket, ""))
 	live := filepath.Join(dir, "kipple.db")
 	done, err := ApplyStaged(dir, time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC), time.UTC)
@@ -235,12 +290,12 @@ func TestUploadKinds(t *testing.T) {
 
 	// A file over the cap is refused before it is read.
 	r2, dir2 := newRestorer(t, func(o *RestorerOptions) { o.MaxBytes = 100 })
-	_, err = r2.Upload(context.Background(), strings.NewReader(strings.Repeat("x", 101)), 101, nil)
+	_, err = r2.Upload(context.Background(), me, strings.NewReader(strings.Repeat("x", 101)), 101, nil)
 	require.ErrorIs(t, err, ErrUploadTooLarge)
 	require.NoFileExists(t, filepath.Join(dir2, UploadFile))
 
 	// A body shorter than announced.
-	_, err = r.Upload(context.Background(), strings.NewReader("PK\x03\x04short"), 1000, nil)
+	_, err = r.Upload(context.Background(), me, strings.NewReader("PK\x03\x04short"), 1000, nil)
 	require.ErrorIs(t, err, ErrUploadCut)
 
 	for _, f := range []string{UploadFile, StagedFile, MarkerFile} {
@@ -347,6 +402,18 @@ func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 		"sqlite_ view":    "PRAGMA writable_schema = ON; INSERT INTO sqlite_master (type, name, tbl_name, rootpage, sql) VALUES ('view', 'sqlite_v', 'sqlite_v', 0, 'CREATE VIEW sqlite_v AS SELECT 1'); PRAGMA writable_schema = OFF",
 		"missing index":   "DROP INDEX idx_sessions_expires",
 		"missing trigger": "DROP TRIGGER items_fts_au",
+		// Same names, other shapes: each would pass a check by name and then
+		// stop Kipple at the next start or on its first query.
+		"changed table":    "ALTER TABLE sessions ADD COLUMN extra TEXT",
+		"generated column": "ALTER TABLE sessions ADD COLUMN g INTEGER GENERATED ALWAYS AS (1) VIRTUAL",
+		"virtual table":    "DROP TABLE sessions; CREATE VIRTUAL TABLE sessions USING fts5(id, expires_at)",
+		"changed index":    "DROP INDEX idx_sessions_expires; CREATE UNIQUE INDEX idx_sessions_expires ON sessions(expires_at DESC)",
+		// Virtual tables whose module does not exist: reading their shape would
+		// fail with "no such module". The refusals name the object instead,
+		// which shows nothing was read from them before the names and texts
+		// were checked.
+		"unknown virtual table": "PRAGMA writable_schema = ON; INSERT INTO sqlite_master (type, name, tbl_name, rootpage, sql) VALUES ('table', 'evil', 'evil', 0, 'CREATE VIRTUAL TABLE evil USING nosuchmodule()'); PRAGMA writable_schema = OFF",
+		"swapped virtual table": "PRAGMA writable_schema = ON; UPDATE sqlite_master SET sql = 'CREATE VIRTUAL TABLE sessions USING nosuchmodule()', rootpage = 0 WHERE name = 'sessions'; DELETE FROM sqlite_master WHERE name = 'idx_sessions_expires'; PRAGMA writable_schema = OFF",
 	} {
 		r, dir := newRestorer(t)
 		_, err := upload(r, rebuilt(t, b, change))
@@ -364,6 +431,12 @@ func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 			want = `lacks the index "idx_sessions_expires"`
 		case "missing trigger":
 			want = `lacks the trigger "items_fts_au"`
+		case "unknown virtual table":
+			want = `the table "evil", which Kipple never creates`
+		case "changed table", "generated column", "virtual table", "swapped virtual table":
+			want = `a changed table "sessions"`
+		case "changed index":
+			want = `a changed index "idx_sessions_expires"`
 		}
 		require.Contains(t, err.Error(), want, name)
 		require.NoFileExists(t, filepath.Join(dir, StagedFile), name)
@@ -394,10 +467,11 @@ func TestCheckSchemaMatchesAFreshDatabase(t *testing.T) {
 // A database made by any older version and upgraded by this one has exactly
 // the objects of a fresh one, both ways, so the two-way check refuses no real
 // backup; and a database left at any older version matches that version.
-// Some migration files were edited after they shipped, so this was also run
-// once against databases made by the code of every release tag (v0.1.0 to
-// v0.8.0-beta.3), as made, upgraded by this binary, and upgraded through every
-// later tag in turn: none was refused (docs/design.md §2.6).
+// Some migration files were edited after they shipped, so the check, with its
+// shape comparison, was also run once against databases made by the code of
+// every release tag (v0.1.0 to v0.8.0-beta.4), as made, upgraded by this
+// binary, and upgraded through every later tag in turn: none was refused
+// (docs/design.md §2.6).
 func TestCheckSchemaAcceptsEveryUpgradePath(t *testing.T) {
 	ctx := context.Background()
 	for v := 1; v <= store.LatestVersion(); v++ {
@@ -514,7 +588,7 @@ func TestUploadRaces(t *testing.T) {
 	first := make(chan error, 1)
 	go func() {
 		// stop is what the HTTP handler passes: it makes the waiting read return.
-		_, err := r.Upload(context.Background(), pr, int64(len(b)), func() {
+		_, err := r.Upload(context.Background(), me, pr, int64(len(b)), func() {
 			_ = pr.CloseWithError(errors.New("read deadline"))
 			close(stopped)
 		})
@@ -528,7 +602,7 @@ func TestUploadRaces(t *testing.T) {
 	require.Contains(t, err.Error(), "Cancel it first")
 
 	// A stalled client never sends another byte: the cancel unblocks its read.
-	require.NoError(t, r.Cancel())
+	require.NoError(t, r.Cancel(me))
 	<-stopped
 	require.ErrorIs(t, <-first, context.Canceled)
 	require.Equal(t, RestoreNone, r.State(), "none only once the slot is free")
@@ -541,9 +615,9 @@ func TestUploadRaces(t *testing.T) {
 	require.ErrorIs(t, err, ErrRestoreBusy, "an upload waiting for a confirm is busy too")
 
 	// A confirm holding a ticket of an upload that was replaced does nothing.
-	_, ticket, _ := r.Uploaded()
-	require.NoError(t, r.Cancel())
-	require.NoError(t, r.Cancel(), "idempotent")
+	_, ticket, _ := r.Uploaded(me)
+	require.NoError(t, r.Cancel(me))
+	require.NoError(t, r.Cancel(me), "idempotent")
 	_, err = upload(r, b)
 	require.NoError(t, err)
 	require.ErrorIs(t, r.Confirm(context.Background(), ticket, ""), ErrNoUpload)
@@ -562,13 +636,13 @@ func TestCancelDuringTheCheck(t *testing.T) {
 	b := hostBackup(t)
 	for i := 0; i < 5; i++ {
 		r, dir := newRestorer(t)
-		up, err := r.Upload(context.Background(), bytes.NewReader(b), int64(len(b)), nil)
+		up, err := r.Upload(context.Background(), me, bytes.NewReader(b), int64(len(b)), nil)
 		require.NoError(t, err)
 		require.Equal(t, Upload{Kind: KindBackup}, up, "answered once the body arrived")
-		if _, _, ok := r.Uploaded(); !ok {
+		if _, _, err := r.Uploaded(me); err != nil {
 			require.ErrorIs(t, r.Confirm(context.Background(), 0, ""), ErrNoUpload)
 		}
-		require.NoError(t, r.Cancel())
+		require.NoError(t, r.Cancel(me))
 		require.Equal(t, RestoreNone, r.State())
 		require.NoFileExists(t, filepath.Join(dir, UploadFile))
 		require.NoFileExists(t, filepath.Join(dir, StagedFile))
@@ -583,13 +657,13 @@ func TestFailedCheckIsReportedAndCleared(t *testing.T) {
 	r, dir := newRestorer(t)
 	_, err := upload(r, rebuilt(t, b, "CREATE TABLE evil (a)"))
 	require.Error(t, err)
-	st := r.Status()
+	st := r.Status(me)
 	require.Equal(t, RestoreFailed, st.State)
 	var bad *BadUploadError
 	require.ErrorAs(t, st.Err, &bad)
 	require.Nil(t, st.Summary)
 	require.NoFileExists(t, filepath.Join(dir, StagedFile))
-	require.NoError(t, r.Cancel())
+	require.NoError(t, r.Cancel(me))
 	require.Equal(t, RestoreNone, r.State())
 
 	_, err = upload(r, rebuilt(t, b, "CREATE TABLE evil (a)"))
@@ -606,14 +680,35 @@ func TestUnconfirmedUploadExpires(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(dir, StagedFile))
 }
 
+// A refused upload expires like an unconfirmed one, and reading the state does
+// not renew either: the TTL runs from when the upload became ready or failed.
+func TestRefusedUploadExpiresAndNothingRenewsTheTTL(t *testing.T) {
+	r, _ := newRestorer(t, func(o *RestorerOptions) { o.TTL = 300 * time.Millisecond })
+	_, err := upload(r, hostBackup(t)[:100])
+	require.Error(t, err)
+	require.Equal(t, RestoreFailed, r.Status(me).State)
+	require.Eventually(t, func() bool { return r.Status(me).State == RestoreNone }, 5*time.Second, 10*time.Millisecond)
+
+	_, err = upload(r, hostBackup(t))
+	require.NoError(t, err)
+	ready := time.Now()
+	for r.State() == RestoreReady {
+		_ = r.Status(me) // a page polling, and every other read
+		_, _, _ = r.Uploaded(me)
+		require.Less(t, time.Since(ready), 5*time.Second, "the TTL was renewed")
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.Equal(t, RestoreNone, r.State())
+}
+
 func TestFeedsOnlyTakesTheZipsOPML(t *testing.T) {
 	b := hostBackup(t)
 	r, dir := newRestorer(t)
-	_, err := r.Feeds()
+	_, err := r.Feeds(me)
 	require.ErrorIs(t, err, ErrNoUpload)
 	_, err = upload(r, b)
 	require.NoError(t, err)
-	got, err := r.Feeds()
+	got, err := r.Feeds(me)
 	require.NoError(t, err)
 	require.Equal(t, zipEntries(t, b)[OPMLFile], got)
 	require.Contains(t, string(got), "http://a.test/rss")
@@ -734,14 +829,14 @@ func TestSniffBeforeSpooling(t *testing.T) {
 	body := append([]byte("not a backup"), bytes.Repeat([]byte("x"), 200<<10)...)
 	pr, pw := io.Pipe()
 	go func() { _, _ = pw.Write(body[:sniffBytes]) }() // the rest never comes
-	_, err := r.Upload(context.Background(), pr, int64(len(body)), nil)
+	_, err := r.Upload(context.Background(), me, pr, int64(len(body)), nil)
 	require.ErrorIs(t, err, ErrNotBackup, "refused from the first 64 KB, without waiting for the rest")
 	_ = pr.Close()
 
 	big := append([]byte("<opml><body>"), bytes.Repeat([]byte(" "), maxFeedsOPML)...)
 	pr, pw = io.Pipe()
 	go func() { _, _ = pw.Write(big[:sniffBytes]) }()
-	_, err = r.Upload(context.Background(), pr, int64(len(big)), nil)
+	_, err = r.Upload(context.Background(), me, pr, int64(len(big)), nil)
 	require.ErrorIs(t, err, ErrOPMLTooLarge)
 	_ = pr.Close()
 
@@ -760,7 +855,7 @@ func TestLargeFeedsOPMLDoesNotBlockARestore(t *testing.T) {
 	up, err := upload(r, goodZip(ents[DBFile], map[string][]byte{OPMLFile: big}))
 	require.NoError(t, err)
 	require.Equal(t, "owner", up.Account.Username)
-	got, err := r.Feeds()
+	got, err := r.Feeds(me)
 	require.NoError(t, err)
 	require.Equal(t, big, got)
 }
@@ -775,7 +870,7 @@ func TestStateAndBusyAgreeAfterCancel(t *testing.T) {
 	first := make(chan error, 1)
 	go func() {
 		// A read that the stop hook does not unblock at once.
-		_, err := r.Upload(context.Background(), pr, int64(len(b)), func() {
+		_, err := r.Upload(context.Background(), me, pr, int64(len(b)), func() {
 			go func() { <-release; _ = pr.CloseWithError(errors.New("late")) }()
 		})
 		first <- err

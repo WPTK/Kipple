@@ -165,7 +165,11 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
       }
     } catch (e) {
       if (e instanceof ApiError && e.code === "aborted") return;
-      if (e instanceof ApiError && e.status === 0) setError(UPLOAD_FAILED);
+      if (e instanceof ApiError && e.status === 0) {
+        // The connection was cut. If the server stopped the upload (too slow), it says so in the status.
+        const st = await fetchRestoreStatus().catch(() => null);
+        setError(st?.state === "failed" && st.error?.message ? st.error.message : UPLOAD_FAILED);
+      }
       // 411 length_required, 400 upload_incomplete, 409 restore_cancelled and the rest carry a message written for the reader.
       else setError(restoreErrorText(e));
       setBusyUpload(e instanceof ApiError && e.code === "restore_busy");
@@ -311,7 +315,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
         {view === "waiting" ? (
           <div className="flex flex-1 flex-col gap-3">
             <p className="font-semibold" role="status">
-              {serverState === "uploading" ? "A backup is being uploaded to this Kipple." : "Checking your backup..."}
+              {serverState === "uploading" ? "A backup is being uploaded from this browser." : "Checking your backup..."}
             </p>
             <p className="text-sm text-fg2">{serverState === "uploading" ? "Wait for it to finish, or cancel it and start again." : "This can take a minute for a large backup. Keep this page open."}</p>
             <StepActions>

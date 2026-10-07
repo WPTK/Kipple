@@ -1,0 +1,1 @@
+A restore whose database redefines a table or index under its real name (other columns, a virtual table, generated columns) is refused when it is checked, instead of being accepted and then stopping Kipple at every start.

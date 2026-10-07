@@ -1,0 +1,1 @@
+Setup wizard restore: an upload that sends nothing for two minutes, averages under 32 KB/s after the first two, or runs longer than two hours or than its size at 128 KB/s (whichever is longer) is stopped, so it cannot hold the one restore slot for long; the page then says why. A refused upload expires after an hour, like one never confirmed.

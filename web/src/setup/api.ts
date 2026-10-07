@@ -1,6 +1,7 @@
 // The setup wizard's calls (docs/design.md §7.1e) and the plain-English wording of what they
 // can answer. Nothing here knows about React.
 import { ApiError, api } from "@/api/client";
+import { existingRestoreKeyHeaders } from "./restoreKey";
 import type { RestoreState } from "./restoreApi";
 
 /** Why open mode (no password) is refused for a request. */
@@ -53,7 +54,7 @@ export interface StarterList {
 
 /** The query key of GET /api/instance. It starts with "auth" so the app's sign-out cleanup (App.tsx) leaves it alone. */
 export const INSTANCE_KEY = ["auth", "instance"] as const;
-export const fetchInstance = (signal?: AbortSignal) => api<InstanceInfo>("/api/instance", { signal, anon: true, quiet: true });
+export const fetchInstance = (signal?: AbortSignal) => api<InstanceInfo>("/api/instance", { signal, anon: true, quiet: true, headers: existingRestoreKeyHeaders() });
 /** Creates the account (the first request wins; there is no code) and signs this browser in: a success turns the app to signed in. */
 export const createAccount = (body: AccountBody) => api<{ username: string; auth_mode: string }>("/api/setup/account", { method: "POST", body, anon: true, signsIn: true });
 /** Open-mode sign-in. */

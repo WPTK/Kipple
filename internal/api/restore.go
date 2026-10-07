@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -19,31 +21,94 @@ import (
 // The routes exist only in setup mode and share the setup guards: the Host gate,
 // same-origin and X-Kipple-Client. A confirmed restore is applied by the next
 // start, so a confirm answers 202 and shuts the process down (Options.Restart).
+//
+// An uploaded backup belongs to the page that sent it (backup.Restorer). The
+// page makes a random owner key, keeps it in its own origin's storage, and
+// sends it in the X-Kipple-Restore-Key header with the upload and with every
+// later restore call, GET /api/instance included. From its first byte the
+// upload is that key's, so the uploader can cancel it while it arrives; a
+// call without the key sees no restore and cannot read, confirm or cancel it.
+//
+// The key travels only in a header that the page's own script sets. A cookie
+// would also be sent by the browser when someone else put it there (a sibling
+// subdomain can set cookies for this host), and then the owner's page would
+// show and confirm an upload it did not start; nothing outside the page can
+// set this header.
 
-const (
-	// restoreReadIdle is how long an upload may send nothing before it is cut
-	// off. It replaces the server-wide ReadTimeout, which bounds the whole
-	// request and would stop any large file.
+// restoreKeyHeader carries the owner key.
+const restoreKeyHeader = "X-Kipple-Restore-Key"
+
+// restoreKeyBytes is the size of an owner key: 32 random bytes, sent as 43
+// characters of unpadded base64url.
+const restoreKeyBytes = 32
+
+// restoreKey is the caller's owner key, "" when it sent none or one of the
+// wrong form. The decoding is strict, so one key is one string.
+func restoreKey(r *http.Request) string {
+	k := r.Header.Get(restoreKeyHeader)
+	b, err := base64.RawURLEncoding.Strict().DecodeString(k)
+	if err != nil || len(b) != restoreKeyBytes {
+		return ""
+	}
+	return k
+}
+
+// An upload holds the one restore slot while it arrives. The slot is first
+// come, as setup is: whoever can reach setup can hold it for a while, and the
+// bounds below keep that while short and finite. They replace the server-wide
+// ReadTimeout, which bounds the whole request and would stop any large file.
+// Variables so tests can shorten them.
+var (
+	// restoreReadIdle is how long an upload may send nothing.
 	restoreReadIdle = 2 * time.Minute
-	// restoreAnswerWait bounds writing the answer once the checks are done.
-	restoreAnswerWait = 30 * time.Second
+	// restoreMinRate is the slowest average an upload may keep (bytes per
+	// second), judged from restoreRateGrace on.
+	restoreMinRate   = 32 << 10
+	restoreRateGrace = 2 * time.Minute
+	// An upload must also end within restoreMaxFloor, or within its size at
+	// restoreMaxRate when that is longer (restoreDeadline).
+	restoreMaxFloor = 2 * time.Hour
+	restoreMaxRate  = 128 << 10
 )
 
-// deadlineReader moves the connection's read deadline forward before each read
-// of an upload, and removes it once the whole body has arrived: from then on
-// an expired deadline would cancel the request. stop (a cancel from another
-// tab, an account claim, shutdown) sets the deadline to now, so a read waiting
-// on a stalled client returns at once, and refuses every later read.
+// restoreDeadline is how long an upload of size bytes may take at most.
+func restoreDeadline(size int64) time.Duration {
+	return max(restoreMaxFloor, time.Duration(size/int64(restoreMaxRate))*time.Second)
+}
+
+// restoreAnswerWait bounds writing the answer once the checks are done.
+const restoreAnswerWait = 30 * time.Second
+
+// deadlineReader bounds the reads of an upload: before each read it sets the
+// connection's read deadline to the idle limit or the end of the whole upload
+// (restoreDeadline), whichever comes first, and it refuses to go on once the
+// average rate has fallen below the minimum. Any of these ends the upload with
+// backup.ErrUploadTooSlow, which the Restorer keeps as the owner's failed
+// state: a browser still sending may never read the answer, and its page then
+// asks GET /api/setup/restore why. It removes the deadline once the whole body
+// has arrived: from then on an expired deadline would cancel the request.
+// stop (a cancel by the uploader, an account claim, shutdown) sets the
+// deadline to now, so a read waiting on a stalled client returns at once, and
+// refuses every later read.
 type deadlineReader struct {
-	r  io.Reader
-	rc *http.ResponseController
+	r   io.Reader
+	rc  *http.ResponseController
+	end time.Time // the whole upload's deadline
+	// start is when the upload began.
+	start time.Time
 
 	mu      sync.Mutex // orders stop against the deadline each read sets
 	stopped bool
 	left    int64
+	got     int64
 }
 
 var errUploadStopped = errors.New("restore: upload stopped")
+
+func newDeadlineReader(r io.Reader, rc *http.ResponseController, size int64) *deadlineReader {
+	now := time.Now()
+	return &deadlineReader{r: r, rc: rc, left: size, start: now, end: now.Add(restoreDeadline(size))}
+}
 
 func (d *deadlineReader) Read(p []byte) (int, error) {
 	d.mu.Lock()
@@ -51,12 +116,28 @@ func (d *deadlineReader) Read(p []byte) (int, error) {
 		d.mu.Unlock()
 		return 0, errUploadStopped
 	}
-	_ = d.rc.SetReadDeadline(time.Now().Add(restoreReadIdle))
+	now := time.Now()
+	if el := now.Sub(d.start); !now.Before(d.end) || (el > restoreRateGrace && float64(d.got) < float64(restoreMinRate)*el.Seconds()) {
+		d.stopped = true // and the deadline stays in the past, so nothing more is read
+		_ = d.rc.SetReadDeadline(now)
+		d.mu.Unlock()
+		return 0, backup.ErrUploadTooSlow
+	}
+	dl := now.Add(restoreReadIdle)
+	if d.end.Before(dl) {
+		dl = d.end
+	}
+	_ = d.rc.SetReadDeadline(dl)
 	d.mu.Unlock()
 	n, err := d.r.Read(p)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.left -= int64(n)
+	d.got += int64(n)
+	if err != nil && !d.stopped && errors.Is(err, os.ErrDeadlineExceeded) {
+		d.stopped = true // the idle limit or the end: the deadline stays
+		return n, backup.ErrUploadTooSlow
+	}
 	if (d.left <= 0 || err != nil) && !d.stopped {
 		_ = d.rc.SetReadDeadline(time.Time{})
 	}
@@ -91,10 +172,17 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusLengthRequired, "length_required", "Send the file with its length (Content-Length).")
 		return
 	}
+	key := restoreKey(r)
+	if key == "" {
+		// Before the body: close the connection after the answer, as below.
+		w.Header().Set("Connection", "close")
+		writeErrorMsg(w, http.StatusBadRequest, "restore_key_required", "Start the upload again from the setup page.")
+		return
+	}
 	rc := http.NewResponseController(w)
 	_ = rc.SetWriteDeadline(time.Time{}) // the server-wide one started with the request
-	body := &deadlineReader{r: r.Body, rc: rc, left: r.ContentLength}
-	up, err := s.restore.Upload(r.Context(), body, r.ContentLength, body.stop)
+	body := newDeadlineReader(r.Body, rc, r.ContentLength)
+	up, err := s.restore.Upload(r.Context(), key, body, r.ContentLength, body.stop)
 	_ = rc.SetWriteDeadline(time.Now().Add(restoreAnswerWait))
 	if err != nil {
 		if body.unread() {
@@ -106,10 +194,11 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 			// keeps sending.
 			w.Header().Set("Connection", "close")
 		}
-		if !s.opt.Setup.Pending() {
+		switch {
+		case !s.opt.Setup.Pending():
 			// An account was created while the file arrived, which cancelled it.
 			writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
-		} else {
+		default:
 			s.writeRestoreError(w, "restore upload", err)
 		}
 		_ = rc.Flush()
@@ -125,7 +214,8 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"kind": up.Kind, "feeds": up.Feeds})
 		return
 	}
-	// A zip: it is checked in the background; GET /api/setup/restore follows it.
+	// A zip: it is checked in the background; GET /api/setup/restore follows it,
+	// for this browser only.
 	writeJSON(w, http.StatusAccepted, map[string]string{"state": backup.RestoreChecking})
 }
 
@@ -139,7 +229,7 @@ func (s *Server) restoreStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "origin")
 		return
 	}
-	st := s.restore.Status()
+	st := s.restore.Status(restoreKey(r))
 	out := map[string]any{"state": st.State, "summary": nil, "error": nil, "estimate_seconds": st.EstimateSeconds}
 	if st.Summary != nil { // ready and confirmed
 		out["summary"] = s.restoreSummary(r, *st.Summary)
@@ -237,13 +327,9 @@ func (s *Server) restoreConfirm(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
 		return
 	}
-	up, ticket, ok := s.restore.Uploaded() // only a checked backup (ready)
-	if !ok {
-		if s.restore.State() == backup.RestoreConfirmed {
-			s.writeRestoreError(w, "restore confirm", backup.ErrRestorePending)
-			return
-		}
-		s.writeRestoreError(w, "restore confirm", backup.ErrNoUpload)
+	up, ticket, err := s.restore.Uploaded(restoreKey(r)) // only this browser's checked backup
+	if err != nil {
+		s.writeRestoreError(w, "restore confirm", err)
 		return
 	}
 	if _, reason := s.restorePasswordState(r, up.Account); reason != "" && body.NewPassword == "" {
@@ -285,7 +371,7 @@ func (s *Server) restoreFeeds(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "origin")
 		return
 	}
-	b, err := s.restore.Feeds()
+	b, err := s.restore.Feeds(restoreKey(r))
 	if err != nil {
 		s.writeRestoreError(w, "restore feeds", err)
 		return
@@ -306,7 +392,7 @@ func (s *Server) restoreCancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "origin")
 		return
 	}
-	if err := s.restore.Cancel(); err != nil {
+	if err := s.restore.Cancel(restoreKey(r)); err != nil {
 		s.writeRestoreError(w, "restore cancel", err)
 		return
 	}
@@ -341,6 +427,8 @@ func restoreErrorInfo(err error) (status int, code, msg string) {
 		return http.StatusConflict, "restore_cancelled", "The upload was cancelled."
 	case errors.Is(err, backup.ErrRestoreBusy):
 		return http.StatusConflict, "restore_busy", err.Error()
+	case errors.Is(err, backup.ErrRestoreElsewhere):
+		return http.StatusConflict, "restore_elsewhere", err.Error()
 	case errors.Is(err, backup.ErrRestorePending):
 		return http.StatusConflict, "restore_pending", err.Error()
 	case errors.Is(err, backup.ErrNoUpload):
@@ -351,6 +439,8 @@ func restoreErrorInfo(err error) (status int, code, msg string) {
 		return http.StatusBadRequest, "not_a_backup", err.Error()
 	case errors.Is(err, backup.ErrUploadCut):
 		return http.StatusBadRequest, "upload_incomplete", err.Error()
+	case errors.Is(err, backup.ErrUploadTooSlow):
+		return http.StatusRequestTimeout, "upload_too_slow", err.Error()
 	case errors.As(err, &space):
 		return http.StatusInsufficientStorage, "no_space", err.Error()
 	case errors.As(err, &newer):

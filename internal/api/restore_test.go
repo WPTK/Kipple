@@ -3,7 +3,9 @@ package api
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,7 +31,34 @@ type restoreHarness struct {
 	*setupHarness
 	dir      string
 	restarts *atomic.Int32
+	key      string // the wizard page's owner key, sent with every request
 }
+
+// req is setupHarness.req from the wizard's page: it sends the page's owner
+// key with every request. A mod runs last, so stranger or anotherBrowser
+// replaces it.
+func (h *restoreHarness) req(method, path, body string, mod ...func(*http.Request)) *httptest.ResponseRecorder {
+	h.t.Helper()
+	return h.setupHarness.req(method, path, body, append([]func(*http.Request){hdr(restoreKeyHeader, h.key)}, mod...)...)
+}
+
+// testKey is an owner key as a page makes one: 32 random bytes, unpadded
+// base64url.
+func testKey(t *testing.T) string {
+	t.Helper()
+	b := make([]byte, 32)
+	_, err := rand.Read(b)
+	require.NoError(t, err)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// anotherBrowser is a page with its own owner key.
+func anotherBrowser(key string) func(*http.Request) {
+	return func(r *http.Request) { r.Header.Set(restoreKeyHeader, key) }
+}
+
+// stranger is a request with no owner key at all.
+func stranger(r *http.Request) { r.Header.Del(restoreKeyHeader) }
 
 func newRestoreHarness(t *testing.T, tune ...func(*backup.RestorerOptions)) *restoreHarness {
 	t.Helper()
@@ -44,7 +73,7 @@ func newRestoreHarness(t *testing.T, tune ...func(*backup.RestorerOptions)) *res
 		o.Restore = backup.NewRestorer(ro)
 		o.Restart = func() { restarts.Add(1) }
 	})
-	return &restoreHarness{setupHarness: h, dir: dir, restarts: restarts}
+	return &restoreHarness{setupHarness: h, dir: dir, restarts: restarts, key: testKey(t)}
 }
 
 // backupZip exports a real backup of a library whose account has the given
@@ -189,7 +218,7 @@ func TestRestoreNeedsANewPassword(t *testing.T) {
 	out = h.upload(backupZip(t, "", store.AuthOpen))
 	require.Equal(t, "open", out["password_state"])
 	require.Equal(t, false, out["needs_new_password"])
-	require.NoError(t, h.Restore().Cancel())
+	require.Equal(t, http.StatusNoContent, h.req("DELETE", "/api/setup/restore", "").Code)
 	out = h.upload(backupZip(t, "", store.AuthOpen), hdr("X-Forwarded-For", "203.0.113.9"))
 	require.Equal(t, true, out["needs_new_password"])
 	require.Equal(t, "open_refused", out["new_password_reason"])
@@ -379,98 +408,249 @@ func TestAccountClaimCancelsTheCheck(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(h.dir, backup.UploadFile))
 }
 
-// A second tab sees an upload while its body arrives, and a DELETE from there
-// stops it; the first tab is told it was cancelled. The last byte of the body
-// is never sent, so the upload cannot finish before the DELETE whatever the
-// timing (the race detector slows the test enough to expose that): only the
-// DELETE ends it.
-func TestSecondTabSeesAndCancelsAnUpload(t *testing.T) {
+// A checked backup belongs to the page that uploaded it. Anyone else who can
+// reach setup sees no restore (GET /api/instance and GET /api/setup/restore),
+// cannot confirm it with a password of their own, cannot take its feed list
+// and cannot cancel it; the uploader still can.
+func TestRestoreBelongsToTheUploadingBrowser(t *testing.T) {
+	h := newRestoreHarness(t)
+	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"])
+
+	elsewhere := func(rec *httptest.ResponseRecorder) {
+		t.Helper()
+		require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+		require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])
+	}
+	for _, mod := range []func(*http.Request){stranger, anotherBrowser("guess"), anotherBrowser(testKey(t))} {
+		require.Equal(t, "none", decode(t, h.req("GET", "/api/instance", "", mod))["restore"])
+		require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0)}, h.status(mod))
+		elsewhere(h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod))
+		elsewhere(h.req("GET", "/api/setup/restore/feeds", "", mod))
+		elsewhere(h.req("DELETE", "/api/setup/restore", "", mod))
+	}
+	elsewhere(h.req("POST", "/api/setup/restore/upload", string(backupZip(t, "h", store.AuthStandard)), anotherBrowser(testKey(t))))
+	require.Zero(t, h.restarts.Load())
+	require.NoFileExists(t, filepath.Join(h.dir, backup.MarkerFile))
+
+	require.Equal(t, "ready", h.restoreState(), "the uploader still sees it")
+	rec := h.req("POST", "/api/setup/restore/confirm", `{}`)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	require.Equal(t, "confirmed", decode(t, h.req("GET", "/api/instance", "", stranger))["restore"], "everyone waits for the restart")
+	require.Nil(t, h.status(stranger)["summary"], "but only the uploader sees whose account it is")
+}
+
+// A cookie grants nothing. Someone who can set cookies for the owner's
+// browser (a sibling subdomain can) uploads a backup of their own, which is
+// ready under their key K, and plants K in the owner's browser under any name.
+// The owner's page, which sends its own key in the header, sees no restore
+// and cannot confirm or take the attacker's upload; only the header counts.
+func TestACookieGrantsNothing(t *testing.T) {
+	h := newRestoreHarness(t)
+	k := testKey(t)
+	rec := h.req("POST", "/api/setup/restore/upload", string(backupZip(t, "h", store.AuthStandard)), anotherBrowser(k))
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	require.Eventually(t, func() bool { return h.Restore().State() == backup.RestoreReady }, 30*time.Second, 5*time.Millisecond)
+
+	planted := func(r *http.Request) {
+		for _, name := range []string{"kipple_restore", "__Host-kipple_restore", "X-Kipple-Restore-Key"} {
+			r.AddCookie(&http.Cookie{Name: name, Value: k})
+		}
+	}
+	for _, mod := range [][]func(*http.Request){{planted}, {stranger, planted}} {
+		require.Equal(t, "none", decode(t, h.req("GET", "/api/instance", "", mod...))["restore"])
+		require.Equal(t, "none", h.status(mod...)["state"])
+		rec = h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod...)
+		require.Equal(t, http.StatusConflict, rec.Code)
+		require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])
+		require.Equal(t, http.StatusConflict, h.req("GET", "/api/setup/restore/feeds", "", mod...).Code)
+	}
+	require.Zero(t, h.restarts.Load())
+	require.Equal(t, "ready", h.status(anotherBrowser(k))["state"], "it is still the attacker's, under the header")
+}
+
+// The upload refuses, before it reads the file, a request without an owner key
+// of the right form, and closes the connection after the answer. The key must
+// decode strictly: of the four spellings of one key that differ only in their
+// last character's unused bits, only one is accepted.
+func TestUploadNeedsAKey(t *testing.T) {
+	h := newRestoreHarness(t)
+	b := string(backupZip(t, "h", store.AuthStandard))
+	k := testKey(t)
+	last := strings.IndexByte("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", k[42])
+	alias := k[:42] + string("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"[last|1])
+	require.NotEqual(t, k, alias)
+	for _, mod := range []func(*http.Request){stranger, anotherBrowser("short"), anotherBrowser(k + "A"), anotherBrowser(alias)} {
+		rec := h.req("POST", "/api/setup/restore/upload", b, mod)
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		require.Equal(t, "restore_key_required", decode(t, rec)["error"])
+		require.Equal(t, "close", rec.Header().Get("Connection"), "refused before the body: the connection closes")
+	}
+	require.Equal(t, "none", h.restoreState())
+}
+
+// rawUpload starts an upload with key on its own connection and sends the
+// first sent bytes of b: the body does not finish until the caller sends the
+// rest.
+func rawUpload(t *testing.T, srv *httptest.Server, key string, b []byte, sent int) net.Conn {
+	t.Helper()
+	addr := srv.Listener.Addr().String()
+	conn, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	_, err = fmt.Fprintf(conn, "POST /api/setup/restore/upload HTTP/1.1\r\nHost: %s\r\nSec-Fetch-Site: same-origin\r\nX-Kipple-Client: web\r\n"+
+		"%s: %s\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n",
+		addr, restoreKeyHeader, key, len(b))
+	require.NoError(t, err)
+	_, err = conn.Write(b[:sent])
+	require.NoError(t, err)
+	return conn
+}
+
+// call sends a request to srv from the page that holds key ("": none).
+func call(t *testing.T, srv *httptest.Server, key, method, path string) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(method, srv.URL+path, nil)
+	require.NoError(t, err)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("X-Kipple-Client", "web")
+	if key != "" {
+		req.Header.Set(restoreKeyHeader, key)
+	}
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}
+
+// readAnswer reads the upload's answer from conn.
+func readAnswer(t *testing.T, conn net.Conn) (int, map[string]any) {
+	t.Helper()
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	require.NoError(t, err, "the uploader gets an answer")
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}
+
+// While its body arrives an upload is already its browser's: another tab of
+// that browser sees it and can cancel it (the uploader's own "Cancel upload",
+// however late its abort reaches the server), while another browser sees no
+// restore and its cancel is refused. The last byte is held back, so the upload
+// cannot finish first whatever the timing.
+func TestTheUploaderCancelsAnUploadStillArriving(t *testing.T) {
 	h := newRestoreHarness(t)
 	srv := httptest.NewServer(h.root)
 	defer srv.Close()
 	b := backupZip(t, "h", store.AuthStandard)
-	addr := srv.Listener.Addr().String()
-	conn, err := net.Dial("tcp", addr)
-	require.NoError(t, err)
-	defer conn.Close()
-	_, err = fmt.Fprintf(conn, "POST /api/setup/restore/upload HTTP/1.1\r\nHost: %s\r\nSec-Fetch-Site: same-origin\r\nX-Kipple-Client: web\r\n"+
-		"Content-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n", addr, len(b))
-	require.NoError(t, err)
-	_, err = conn.Write(b[:len(b)-1])
-	require.NoError(t, err)
+	key := testKey(t)
+	conn := rawUpload(t, srv, key, b, len(b)-1)
 
-	call := func(method string) (int, map[string]any) {
-		req, err := http.NewRequest(method, srv.URL+"/api/setup/restore", nil)
-		require.NoError(t, err)
-		req.Header.Set("Sec-Fetch-Site", "same-origin")
-		req.Header.Set("X-Kipple-Client", "web")
-		resp, err := srv.Client().Do(req)
-		require.NoError(t, err)
-		defer resp.Body.Close()
-		var out map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&out)
-		return resp.StatusCode, out
-	}
-	require.Eventually(t, func() bool { _, st := call("GET"); return st["state"] == "uploading" }, 5*time.Second, 5*time.Millisecond)
-	require.Equal(t, "uploading", h.restoreState())
-	code, _ := call("DELETE")
+	require.Eventually(t, func() bool {
+		_, st := call(t, srv, key, "GET", "/api/setup/restore")
+		return st["state"] == "uploading"
+	}, 5*time.Second, 5*time.Millisecond)
+	_, inst := call(t, srv, key, "GET", "/api/instance")
+	require.Equal(t, "uploading", inst["restore"])
+	_, st := call(t, srv, "", "GET", "/api/setup/restore")
+	require.Equal(t, "none", st["state"], "another browser sees nothing")
+	code, out := call(t, srv, testKey(t), "DELETE", "/api/setup/restore")
+	require.Equal(t, http.StatusConflict, code)
+	require.Equal(t, "restore_elsewhere", out["error"])
+
+	code, _ = call(t, srv, key, "DELETE", "/api/setup/restore")
 	require.Equal(t, http.StatusNoContent, code)
-
-	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
-	require.NoError(t, err, "the first tab gets an answer")
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusConflict, resp.StatusCode)
-	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	code, out = readAnswer(t, conn)
+	require.Equal(t, http.StatusConflict, code)
 	require.Equal(t, "restore_cancelled", out["error"])
-	_, st := call("GET")
+	_, st = call(t, srv, key, "GET", "/api/setup/restore")
 	require.Equal(t, "none", st["state"])
 }
 
-// A client that stalls mid-upload does not hold the slot: a cancel from
-// another tab unblocks the waiting read at once (the handler's stop hook sets
-// the connection's read deadline), the state goes to none, and a new upload
-// is accepted.
-func TestCancelUnblocksAStalledUpload(t *testing.T) {
+// A client that stalls mid-upload does not hold the slot past an account
+// claim: the claim unblocks the waiting read at once (the handler's stop hook
+// sets the connection's read deadline), and the uploader gets an answer.
+func TestAClaimUnblocksAStalledUpload(t *testing.T) {
 	h := newRestoreHarness(t)
 	srv := httptest.NewServer(h.root)
 	defer srv.Close()
-	b := backupZip(t, "h", store.AuthStandard)
-	addr := srv.Listener.Addr().String()
-	conn, err := net.Dial("tcp", addr)
-	require.NoError(t, err)
-	defer conn.Close()
-	_, err = fmt.Fprintf(conn, "POST /api/setup/restore/upload HTTP/1.1\r\nHost: %s\r\nSec-Fetch-Site: same-origin\r\nX-Kipple-Client: web\r\n"+
-		"Content-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n", addr, len(b))
-	require.NoError(t, err)
-	_, err = conn.Write(b[:100]) // then nothing more
-	require.NoError(t, err)
+	conn := rawUpload(t, srv, testKey(t), backupZip(t, "h", store.AuthStandard), 100) // then nothing more
+	require.Eventually(t, func() bool { return h.Restore().State() == backup.RestoreUploading }, 5*time.Second, 5*time.Millisecond)
 
-	call := func(method string) (int, map[string]any) {
-		req, err := http.NewRequest(method, srv.URL+"/api/setup/restore", nil)
-		require.NoError(t, err)
-		req.Header.Set("Sec-Fetch-Site", "same-origin")
-		req.Header.Set("X-Kipple-Client", "web")
-		resp, err := srv.Client().Do(req)
-		require.NoError(t, err)
-		defer resp.Body.Close()
-		var out map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&out)
-		return resp.StatusCode, out
-	}
-	require.Eventually(t, func() bool { _, st := call("GET"); return st["state"] == "uploading" }, 5*time.Second, 5*time.Millisecond)
 	began := time.Now()
-	code, _ := call("DELETE")
-	require.Equal(t, http.StatusNoContent, code)
-	require.Less(t, time.Since(began), 5*time.Second, "not the 2 minute read timeout")
-	_, st := call("GET")
-	require.Equal(t, "none", st["state"])
-
+	require.Equal(t, http.StatusCreated, h.createAccount(map[string]any{"username": "reader", "password": setupPass}).Code)
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	if resp, err := http.ReadResponse(bufio.NewReader(conn), nil); err == nil {
 		require.Equal(t, http.StatusConflict, resp.StatusCode)
 		_ = resp.Body.Close()
 	}
-	require.EqualValues(t, http.StatusOK, h.upload(b)["status"], "the slot is free")
+	require.Less(t, time.Since(began), 5*time.Second, "not the 2 minute read timeout")
+	require.Eventually(t, func() bool { return h.Restore().State() == backup.RestoreNone }, 5*time.Second, 5*time.Millisecond)
+}
+
+// An upload cannot hold the slot by sending slowly: it is stopped when it
+// sends nothing for restoreReadIdle, or once its average rate falls below
+// restoreMinRate after restoreRateGrace. The owner's page, which may only see
+// a cut connection, reads the reason from GET /api/setup/restore (failed,
+// upload_too_slow), and a new upload replaces it.
+func TestASlowUploadIsStopped(t *testing.T) {
+	tune := func(t *testing.T, idle time.Duration, rate int, grace time.Duration) {
+		oldIdle, oldRate, oldGrace := restoreReadIdle, restoreMinRate, restoreRateGrace
+		restoreReadIdle, restoreMinRate, restoreRateGrace = idle, rate, grace
+		t.Cleanup(func() { restoreReadIdle, restoreMinRate, restoreRateGrace = oldIdle, oldRate, oldGrace })
+	}
+	b := backupZip(t, "h", store.AuthStandard)
+	check := func(t *testing.T, trickle bool) {
+		h := newRestoreHarness(t)
+		srv := httptest.NewServer(h.root)
+		defer srv.Close()
+		key := testKey(t)
+		conn := rawUpload(t, srv, key, b, 100)
+		if trickle { // a byte at a time, never stalling for the idle limit
+			go func() {
+				for i := 100; i < len(b)-1; i++ {
+					if _, err := conn.Write(b[i : i+1]); err != nil {
+						return
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+			}()
+		}
+		code, out := readAnswer(t, conn)
+		require.Equal(t, http.StatusRequestTimeout, code, out)
+		require.Equal(t, "upload_too_slow", out["error"])
+		require.Contains(t, out["message"], "too slow")
+		_, st := call(t, srv, key, "GET", "/api/setup/restore")
+		require.Equal(t, "failed", st["state"], "the owner can read why")
+		require.Equal(t, "upload_too_slow", st["error"].(map[string]any)["code"])
+		_, st = call(t, srv, "", "GET", "/api/setup/restore")
+		require.Equal(t, "none", st["state"])
+		require.Equal(t, http.StatusNoContent, func() int { c, _ := call(t, srv, key, "DELETE", "/api/setup/restore"); return c }())
+		require.Equal(t, backup.RestoreNone, h.Restore().State())
+	}
+	t.Run("nothing sent for the idle limit", func(t *testing.T) {
+		tune(t, 300*time.Millisecond, 0, time.Hour)
+		check(t, false)
+	})
+	t.Run("average rate too low", func(t *testing.T) {
+		tune(t, time.Hour, 1<<20, 200*time.Millisecond)
+		check(t, true)
+	})
+	t.Run("past the whole upload's deadline", func(t *testing.T) {
+		tune(t, time.Hour, 0, time.Hour)
+		oldFloor, oldRate := restoreMaxFloor, restoreMaxRate
+		restoreMaxFloor, restoreMaxRate = 400*time.Millisecond, 1<<40
+		t.Cleanup(func() { restoreMaxFloor, restoreMaxRate = oldFloor, oldRate })
+		check(t, true) // sending all along, but not done in time
+	})
+}
+
+// One upload holds the slot at most max(2 h, its size at 128 KB/s).
+func TestRestoreDeadline(t *testing.T) {
+	require.Equal(t, 2*time.Hour, restoreDeadline(100<<20))
+	require.Equal(t, 8192*time.Second, restoreDeadline(1<<30))
+	require.Equal(t, 32768*time.Second, restoreDeadline(4<<30))
 }

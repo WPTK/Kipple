@@ -75,11 +75,19 @@ func checkStaged(ctx context.Context, path, kippleVersion string) (DBInfo, Backu
 
 // CheckSchema compares the schema of db (at version) with a fresh database of
 // the same version, in both directions: any table, index, trigger or view the
-// fresh one does not have is refused, and so is one it has that db lacks, and a
-// trigger or view whose definition differs. Tables and indexes are matched by
-// name: their text changes with how a migration was worded, while code that
-// runs by itself lives only in triggers and views. SQLite's own bookkeeping
-// (sqliteInternal) is the only exception; a trigger or view is never one.
+// fresh one does not have is refused, and so is one it has that db lacks, a
+// trigger or view whose definition differs, and a table or index whose shape
+// differs (store.SchemaObject.Shape: its columns and kind as SQLite reads
+// them, not its text, which changes with how a migration was worded). A table
+// redefined with other columns, as a virtual table or with generated columns
+// would pass a check by name and then stop Kipple at every start. SQLite's own
+// bookkeeping (sqliteInternal) is the only exception; a trigger or view is
+// never one.
+//
+// Everything that reads only sqlite_master (names, tables, the text of
+// triggers, views and virtual tables) is checked first, and the whole upload
+// refused on any difference, before a shape is read: reading one runs SQLite's
+// own code on the object, which must then be one Kipple made.
 func CheckSchema(ctx context.Context, db *sql.DB, version int) error {
 	want, err := store.SchemaAt(ctx, version)
 	if err != nil {
@@ -95,6 +103,7 @@ func CheckSchema(ctx context.Context, db *sql.DB, version int) error {
 		ref[key(o)] = o
 	}
 	seen := map[string]bool{}
+	var shaped []store.SchemaObject // matched by name and text: their shapes are compared next
 	for _, o := range have {
 		seen[key(o)] = true
 		w, ok := ref[key(o)]
@@ -104,8 +113,10 @@ func CheckSchema(ctx context.Context, db *sql.DB, version int) error {
 			return fmt.Errorf("kipple.db holds the %s %q, which Kipple never creates", o.Type, o.Name)
 		case !strings.EqualFold(w.Table, o.Table):
 			return fmt.Errorf("kipple.db has the %s %q on the wrong table", o.Type, o.Name)
-		case (o.Type == "trigger" || o.Type == "view") && squash(o.SQL) != squash(w.SQL):
+		case (o.Type == "trigger" || o.Type == "view" || virtualTable(o) || virtualTable(w)) && squash(o.SQL) != squash(w.SQL):
 			return fmt.Errorf("kipple.db has a changed %s %q", o.Type, o.Name)
+		case !sqliteInternal(o) && (o.Type == "table" || o.Type == "index"):
+			shaped = append(shaped, o)
 		}
 	}
 	for _, w := range want {
@@ -113,7 +124,22 @@ func CheckSchema(ctx context.Context, db *sql.DB, version int) error {
 			return fmt.Errorf("kipple.db lacks the %s %q", w.Type, w.Name)
 		}
 	}
+	for _, o := range shaped {
+		got, err := store.Shape(ctx, db, o)
+		if err != nil {
+			return fmt.Errorf("kipple.db: read the %s %q: %w", o.Type, o.Name, err)
+		}
+		if got != ref[key(o)].Shape {
+			return fmt.Errorf("kipple.db has a changed %s %q", o.Type, o.Name)
+		}
+	}
 	return nil
+}
+
+// virtualTable reports a CREATE VIRTUAL TABLE, from its text alone.
+func virtualTable(o store.SchemaObject) bool {
+	f := strings.Fields(o.SQL)
+	return o.Type == "table" && len(f) >= 2 && strings.EqualFold(f[0], "CREATE") && strings.EqualFold(f[1], "VIRTUAL")
 }
 
 // sqliteInternal reports SQLite's own bookkeeping, which comes and goes with
@@ -390,7 +416,7 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 		}
 		syncDir(dataDir)
 		out.Restored, out.Pre = true, pre
-		PrunePreRestore(filepath.Join(dataDir, "backup"), local)
+		PrunePreRestore(filepath.Join(dataDir, "backup"), now, local)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return Applied{}, fmt.Errorf("restore: %w", err)
 	}

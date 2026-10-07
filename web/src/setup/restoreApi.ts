@@ -1,5 +1,7 @@
-// The restore calls of the setup wizard (before there is an account). Nothing here knows about React.
+// The restore calls of the setup wizard (before there is an account). Nothing here knows about React. Every call
+// carries this browser's owner key (restoreKey.ts): the server shows and acts on an upload only for the key that sent it.
 import { ApiError, api, clientKind } from "@/api/client";
+import { restoreKey, restoreKeyHeaders } from "./restoreKey";
 
 export type PasswordState = "password" | "none_access" | "open";
 
@@ -40,20 +42,23 @@ export interface RestoreStatus {
   estimate_seconds?: number;
 }
 
-export const fetchRestoreStatus = () => api<RestoreStatus>("/api/setup/restore", { anon: true, quiet: true });
+export const fetchRestoreStatus = () => api<RestoreStatus>("/api/setup/restore", { anon: true, quiet: true, headers: restoreKeyHeaders() });
 
 /**
- * Sends the file as the raw request body. fetch cannot report upload progress, so this uses XMLHttpRequest. Answers
- * with what the server found, or throws an ApiError (status 0 when the network failed or the upload was cancelled).
+ * Sends the file as the raw request body, with the owner key that makes the upload this browser's from its first
+ * byte (so "Cancel upload" can stop it on the server too). fetch cannot report upload progress, so this uses
+ * XMLHttpRequest. Answers with what the server found, or throws an ApiError (status 0 when the network failed or the
+ * upload was cancelled).
  */
 export function uploadRestoreFile(file: File, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<UploadResult> {
+  const key = restoreKey();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/setup/restore/upload");
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.setRequestHeader("X-Kipple-Client", clientKind());
+    xhr.setRequestHeader("X-Kipple-Restore-Key", key);
     xhr.setRequestHeader("Accept", "application/json");
-    xhr.withCredentials = true;
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded, e.total);
     };
@@ -85,16 +90,17 @@ export const confirmRestore = (newPassword?: string) =>
     method: "POST",
     body: newPassword ? { new_password: newPassword } : {},
     anon: true,
+    headers: restoreKeyHeaders(),
   });
 
 /** Cancels an upload that was not confirmed, and removes it from the server. */
-export const cancelRestore = () => api("/api/setup/restore", { method: "DELETE", anon: true });
+export const cancelRestore = () => api("/api/setup/restore", { method: "DELETE", anon: true, headers: restoreKeyHeaders() });
 
 /** The feeds file of the uploaded backup, as a file the import step can send. The server forgets the upload after this. */
 export async function fetchBackupFeeds(): Promise<File> {
   let res: Response;
   try {
-    res = await fetch("/api/setup/restore/feeds", { headers: { "X-Kipple-Client": clientKind() }, credentials: "same-origin", redirect: "manual" });
+    res = await fetch("/api/setup/restore/feeds", { headers: { "X-Kipple-Client": clientKind(), ...restoreKeyHeaders() }, credentials: "same-origin", redirect: "manual" });
   } catch {
     throw new ApiError(0, "network");
   }

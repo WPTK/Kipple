@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -75,6 +76,8 @@ func TestRunServeAppliesARestoreConfirmedInTheWizard(t *testing.T) {
 	tr := &http.Transport{Proxy: nil}
 	t.Cleanup(tr.CloseIdleConnections)
 	cl := &http.Client{Transport: tr}
+	// The page's owner key, sent with every call as the page does.
+	key := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	call := func(method, path, ctype string, body []byte) (int, map[string]any) {
 		req, err := http.NewRequest(method, base+path, bytes.NewReader(body))
 		require.NoError(t, err)
@@ -83,6 +86,7 @@ func TestRunServeAppliesARestoreConfirmedInTheWizard(t *testing.T) {
 		}
 		req.Header.Set("Sec-Fetch-Site", "same-origin")
 		req.Header.Set("X-Kipple-Client", "web")
+		req.Header.Set("X-Kipple-Restore-Key", key)
 		resp, err := cl.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
