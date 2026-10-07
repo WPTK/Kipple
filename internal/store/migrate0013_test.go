@@ -24,6 +24,7 @@ func schema12WithRows(t *testing.T) string {
 	}
 	e.exec("DROP INDEX idx_items_starred_sort")
 	e.exec("DROP INDEX idx_trimmed_unread")
+	e.exec(undo0017)
 	e.exec("PRAGMA user_version = 12")
 	path := scalar[string](t, e.db.Reader(), "SELECT file FROM pragma_database_list WHERE name = 'main'")
 	require.NoError(t, e.db.Close())

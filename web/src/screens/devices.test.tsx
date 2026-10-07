@@ -201,7 +201,7 @@ describe("the bootstrap device profile", () => {
     expect(prefsStore.get().font).toBe("default"); // the server wins
     const user = userEvent.setup();
     await user.click(screen.getByRole("radio", { name: "Larger" }));
-    const status = await screen.findByTestId("save-status", {}, { timeout: 4000 });
+    const status = await screen.findByTestId("save-status");
     expect(status).toHaveTextContent("Couldn't save your settings");
     expect(within(status).getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(prefsStore.get().textSize).toBe(1.25); // the local value stays

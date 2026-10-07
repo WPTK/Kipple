@@ -130,10 +130,10 @@ func (o outline) get(name string) string {
 }
 
 // doubleEscapedAmp matches a literal "&amp;" chain left after XML decoding
-// (NewsBlur writes "&amp;amp;"): only chains with their semicolons are undone.
+// (some exporters write "&amp;amp;"): only chains with their semicolons are undone.
 var doubleEscapedAmp = regexp.MustCompile(`&(?:amp;)+`)
 
-// decode undoes NewsBlur-style double-escaped ampersands on top of the XML
+// decode undoes double-escaped ampersands on top of the XML
 // decoder's own unescaping. Legacy no-semicolon entities are left alone.
 func decode(s string) string {
 	if strings.Contains(s, "&amp;") {

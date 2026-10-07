@@ -55,7 +55,7 @@ describe("Search debounce reads the latest params", () => {
     await screen.findByRole("button", { name: "Search the whole library instead" });
     await user.type(box, "cat");
     await user.click(screen.getByRole("button", { name: "Search the whole library instead" }));
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("q")).toBe("cat"), { timeout: 3000 });
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("q")).toBe("cat"));
     const sp = new URLSearchParams(window.location.search);
     expect(sp.has("feed")).toBe(false);
     expect(sp.has("view")).toBe(false);
@@ -68,7 +68,7 @@ describe("Search debounce reads the latest params", () => {
     const box = await screen.findByRole("searchbox", { name: "Search articles" });
     await user.type(box, "cat");
     await user.selectOptions(screen.getByRole("combobox", { name: "Sort by" }), "date");
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("q")).toBe("cat"), { timeout: 3000 });
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("q")).toBe("cat"));
     expect(new URLSearchParams(window.location.search).has("order")).toBe(false);
   });
 });
@@ -79,12 +79,12 @@ describe("Search typing flag follows the text it was set for", () => {
     go("/search");
     const user = userEvent.setup();
     await user.type(await screen.findByRole("searchbox", { name: "Search articles" }), "rust");
-    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("typing")).toBe("1"), { timeout: 3000 });
+    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("typing")).toBe("1"));
     navigateTo("/search?q=rust&feed=1&ss=s1");
-    await waitFor(() => expect(itemCalls(calls).some((c) => c.url.searchParams.get("feed") === "1")).toBe(true), { timeout: 3000 });
+    await waitFor(() => expect(itemCalls(calls).some((c) => c.url.searchParams.get("feed") === "1")).toBe(true));
     const c = itemCalls(calls).filter((x) => x.url.searchParams.get("feed") === "1");
     expect(c.every((x) => !x.url.searchParams.has("typing"))).toBe(true);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Mark all results as read" })).toBeEnabled(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mark all results as read" })).toBeEnabled());
   });
 
   it("a saved search with a different q never sends one typing=1 request", async () => {
@@ -92,9 +92,9 @@ describe("Search typing flag follows the text it was set for", () => {
     go("/search");
     const user = userEvent.setup();
     await user.type(await screen.findByRole("searchbox", { name: "Search articles" }), "rust");
-    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("typing")).toBe("1"), { timeout: 3000 });
+    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("typing")).toBe("1"));
     navigateTo("/search?q=cats&ss=s2");
-    await waitFor(() => expect(itemCalls(calls).some((c) => c.url.searchParams.get("q") === "cats")).toBe(true), { timeout: 3000 });
+    await waitFor(() => expect(itemCalls(calls).some((c) => c.url.searchParams.get("q") === "cats")).toBe(true));
     expect(itemCalls(calls).filter((c) => c.url.searchParams.get("q") === "cats").every((c) => !c.url.searchParams.has("typing"))).toBe(true);
   });
 });
@@ -108,7 +108,7 @@ describe("Mark all while the search is still being typed", () => {
     });
     go(`/i/1001?from=${encodeURIComponent("all|q:rust|typing:1")}`);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "List actions" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "List actions" }));
     const item = await screen.findByRole("menuitem", { name: /Mark all as read/ });
     expect(item).toHaveAttribute("aria-disabled", "true");
     expect(item).toHaveTextContent("Finish your search first (press Enter)");
@@ -127,6 +127,6 @@ describe("An article opened from a search", () => {
       "POST /api/items/1001/open": () => json({ session_key: "k", item: detail(1) }),
     });
     go(`/i/1001?from=${encodeURIComponent("all|q:red%20dogs")}`);
-    await waitFor(() => expect(searchHighlightStore.get().key).toBe("red dogs|f|"), { timeout: 5000 });
+    await waitFor(() => expect(searchHighlightStore.get().key).toBe("red dogs|f|"));
   });
 });

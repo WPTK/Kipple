@@ -255,7 +255,7 @@ describe("Settings > Saved searches", () => {
     const { calls } = base({ "PATCH /api/saved-searches/s1": () => json({ ...SAVED[0], name: "Rust!" }) });
     go("/settings/filters");
     const user = userEvent.setup();
-    const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
+    const list = await screen.findByRole("list", { name: "Saved searches" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
     await user.click(within(list).getByRole("button", { name: "Edit Rust news" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit saved search" });
@@ -273,7 +273,7 @@ describe("Settings > Saved searches", () => {
     const { calls } = base({ "PATCH /api/saved-searches/s2": () => json(SAVED[1]) });
     go("/settings/filters");
     const user = userEvent.setup();
-    const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
+    const list = await screen.findByRole("list", { name: "Saved searches" });
     await user.click(within(list).getByRole("button", { name: "Edit Big feed cats" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit saved search" });
     await user.selectOptions(within(dlg).getByRole("combobox", { name: "Where" }), "all");
@@ -286,7 +286,7 @@ describe("Settings > Saved searches", () => {
     const { calls } = base({ "DELETE /api/saved-searches/s3": () => new Response(null, { status: 204 }) });
     go("/settings/filters");
     const user = userEvent.setup();
-    const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
+    const list = await screen.findByRole("list", { name: "Saved searches" });
     await user.click(within(list).getByRole("button", { name: "Delete Starred go" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete this saved search?" });
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
@@ -305,7 +305,7 @@ describe("Settings > Saved searches", () => {
     });
     go("/settings/filters");
     const user = userEvent.setup();
-    const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
+    const list = await screen.findByRole("list", { name: "Saved searches" });
     expect(within(list).getByRole("button", { name: "Move Rust news up" })).toBeDisabled();
     await user.click(within(list).getByRole("button", { name: "Move Rust news down" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/saved-searches/reorder")).toBe(true));
@@ -317,7 +317,7 @@ describe("Settings > Saved searches", () => {
   it("reorders with the arrow keys on the grip", async () => {
     const { calls } = base({ "POST /api/saved-searches/reorder": () => json({ saved_searches: SAVED }) });
     go("/settings/filters");
-    const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
+    const list = await screen.findByRole("list", { name: "Saved searches" });
     const grip = within(list).getByRole("button", { name: /Reorder Starred go/ });
     grip.focus();
     await userEvent.setup().keyboard("{ArrowUp}");
@@ -348,7 +348,7 @@ describe("Auto-read (Settings > Library)", () => {
     });
     go("/settings/sync");
     const user = userEvent.setup();
-    const field = (await screen.findByText("Mark old articles as read after…", { selector: "legend" }, { timeout: 5000 })).closest("fieldset") as HTMLElement;
+    const field = (await screen.findByText("Mark old articles as read after…", { selector: "legend" })).closest("fieldset") as HTMLElement;
     for (const l of ["Off", "30 days", "60 days", "90 days", "180 days", "365 days", "Custom"]) expect(within(field).getByRole("radio", { name: l })).toBeInTheDocument();
     expect(within(field).getByRole("radio", { name: "Off" })).toBeChecked();
     await user.click(within(field).getByRole("radio", { name: "90 days" }));
@@ -370,7 +370,7 @@ describe("Auto-read (Settings > Library)", () => {
     });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
     const box = await screen.findByTestId("auto-read-preview");
     expect(within(box).getByText("250")).toBeInTheDocument();
     const feeds = within(box).getAllByRole("listitem").map((li) => li.textContent);
@@ -395,7 +395,7 @@ describe("Auto-read (Settings > Library)", () => {
     });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(true));
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -424,7 +424,7 @@ describe("Auto-read (Settings > Library)", () => {
     });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
     await user.click(await screen.findByRole("button", { name: "Mark 60 older articles as read now" }));
     const dlg = await screen.findByRole("dialog", { name: "Mark 130 older articles as read?" });
     await user.click(within(dlg).getByRole("button", { name: "Mark 130 as read" }));
@@ -445,7 +445,7 @@ describe("Auto-read (Settings > Library)", () => {
     });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
     await user.click(await screen.findByRole("button", { name: "Mark 60 older articles as read now" }));
     const dlg = await screen.findByRole("dialog", { name: "Mark 400 older articles as read?" });
     expect(dlg).toHaveTextContent("The count grew from 60 to 400");
@@ -460,7 +460,7 @@ describe("Auto-read (Settings > Library)", () => {
     const { calls } = base({ "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: 5, feeds: [] }) });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Try a different number of days" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Try a different number of days" }));
     await user.type(await screen.findByRole("textbox", { name: /Preview as if it were set to/ }), "60");
     await user.click(screen.getByRole("button", { name: "Preview" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/preview"))).toBe(true));
@@ -500,7 +500,7 @@ describe("Auto-read per feed", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(await screen.findByRole("button", { name: /Edit Example Feed|More actions for Example Feed|Example Feed options/i }).catch(async () => (await screen.findAllByRole("button", { name: /Example Feed/ }))[0] as HTMLElement));
-    const sel = await screen.findByRole("combobox", { name: "Mark as read after" }, { timeout: 5000 });
+    const sel = await screen.findByRole("combobox", { name: "Mark as read after" });
     expect(sel).toHaveValue("");
     const labels = within(sel).getAllByRole("option").map((o) => o.textContent);
     expect(labels).toEqual(["Use the global setting", "Off for this feed", "30 days", "60 days", "90 days", "180 days", "365 days"]);
@@ -523,7 +523,7 @@ describe("Images (Settings)", () => {
     });
     go("/settings/sync");
     const user = userEvent.setup();
-    const field = (await screen.findByText("Image cache size", { selector: "legend" }, { timeout: 5000 })).closest("fieldset") as HTMLElement;
+    const field = (await screen.findByText("Image cache size", { selector: "legend" })).closest("fieldset") as HTMLElement;
     for (const l of ["256 MB", "512 MB", "1 GB", "2 GB", "Off", "Custom"]) expect(within(field).getByRole("radio", { name: l })).toBeInTheDocument();
     expect(within(field).getByRole("radio", { name: "1 GB" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Only insecure images" })).toBeInTheDocument();
@@ -540,7 +540,7 @@ describe("Images (Settings)", () => {
   it("shows used against the cap, files, hit rate, and refreshes when the section opens", async () => {
     const { calls } = base();
     go("/settings/sync");
-    const card = await screen.findByTestId("imgcache-card", undefined, { timeout: 5000 });
+    const card = await screen.findByTestId("imgcache-card");
     expect(within(card).getByText("256.0 MB")).toBeInTheDocument();
     expect(within(card).getByText(/of 1\.00 GB used/)).toBeInTheDocument();
     expect(within(card).getByRole("progressbar", { name: "Image cache used" })).toHaveAttribute("aria-valuenow", String(256 * 1024 ** 2));
@@ -552,14 +552,14 @@ describe("Images (Settings)", () => {
   it("warns when the disk is low", async () => {
     base({ "GET /api/imgcache": () => json({ ...CACHE, low_disk: true, disk_free_bytes: 3 * 1024 ** 3 }) });
     go("/settings/sync");
-    const card = await screen.findByTestId("imgcache-card", undefined, { timeout: 5000 });
+    const card = await screen.findByTestId("imgcache-card");
     expect(within(card).getByText(/disk is nearly full \(3\.00 GB free\)/)).toBeInTheDocument();
   });
 
   it("says when the cache is off", async () => {
     base({ "GET /api/imgcache": () => json({ ...CACHE, enabled: false, cache_mb: 0, max_bytes: 0, used_bytes: 0, entries: 0, neg_entries: 0 }) });
     go("/settings/sync");
-    const card = await screen.findByTestId("imgcache-card", undefined, { timeout: 5000 });
+    const card = await screen.findByTestId("imgcache-card");
     expect(within(card).getByText(/The image cache is off/)).toBeInTheDocument();
   });
 
@@ -574,7 +574,7 @@ describe("Images (Settings)", () => {
     });
     go("/settings/sync");
     const user = userEvent.setup();
-    const card = await screen.findByTestId("imgcache-card", undefined, { timeout: 5000 });
+    const card = await screen.findByTestId("imgcache-card");
     await user.click(within(card).getByRole("button", { name: "Clear image cache" }));
     const dlg = await screen.findByRole("dialog", { name: "Clear the image cache?" });
     expect(calls.some((c) => c.method === "POST")).toBe(false);
@@ -591,7 +591,7 @@ describe("Health shows the image cache size", () => {
         json({ feeds: [], reader_last_seen_at: null, snapshot: { last_at: null, last_error: null }, clock: { ahead_s: 0 }, db: { db_bytes: 5 * 1024 ** 2, wal_bytes: 0, backup_bytes: 2 * 1024 ** 2, imgcache_bytes: 300 * 1024 ** 2 }, unread_total: 3 }),
     });
     go("/health");
-    expect(await screen.findByText(/image cache 300\.0 MB/, undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText(/image cache 300\.0 MB/)).toBeInTheDocument();
   });
 });
 
@@ -607,7 +607,7 @@ describe("The unsaved default device (id empty)", () => {
       "GET /api/devices": () => json({ devices: [{ id: "d1", name: "Old phone", current: false, user_agent: "", client: "web", created_at: 1, last_seen_at: 2, overrides: 3 }] }),
     });
     go("/settings/account");
-    await screen.findByText(/This browser can't save its own settings yet\. Older browsers will be forgotten automatically/, undefined, { timeout: 5000 });
+    await screen.findByText(/This browser can't save its own settings yet\. Older browsers will be forgotten automatically/);
     expect(syncStore.get().status).toBe("unsaved");
     // No writes to the device, and no actions that would 404.
     expect(screen.queryByRole("button", { name: "Use this device's settings as the default for new devices" })).toBeNull();
@@ -689,7 +689,7 @@ describe("Saved search counts (review 3)", () => {
     });
     go("/feeds");
     const nav = await screen.findByRole("region", { name: "Saved searches" });
-    await waitFor(() => expect(within(nav).getByRole("button", { name: "Try again" })).toBeInTheDocument(), { timeout: 5000 });
+    await waitFor(() => expect(within(nav).getByRole("button", { name: "Try again" })).toBeInTheDocument());
     expect(countCalls).toBe(3); // the first try and two retries
     expect(within(nav).queryByText("Unread count unavailable")).toBeNull();
     fail = false;
@@ -743,7 +743,7 @@ describe("Saved search reorder (review 3)", () => {
     });
     go("/settings/filters");
     const user = userEvent.setup();
-    const list = await screen.findByRole("list", { name: "Saved searches" }, { timeout: 5000 });
+    const list = await screen.findByRole("list", { name: "Saved searches" });
     await user.click(within(list).getByRole("button", { name: "Move Rust news down" }));
     // Rust news is now second; moving it down again must start from that optimistic order.
     await user.click(within(screen.getByRole("list", { name: "Saved searches" })).getByRole("button", { name: "Move Rust news down" }));
@@ -765,7 +765,7 @@ describe("Auto-read catch-up (review 3)", () => {
     base({ "POST /api/library/auto-read/preview": () => json(preview40), "POST /api/library/auto-read/run": () => json(RUN, 202) });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
     const qc = new QueryClient();
     act(() => {
@@ -783,7 +783,7 @@ describe("Auto-read catch-up (review 3)", () => {
     base({ "POST /api/library/auto-read/preview": () => json(preview40), "POST /api/library/auto-read/run": () => json(RUN, 202) });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
     expect(await screen.findByTestId("auto-read-progress")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preview" })).toBeDisabled();
@@ -798,7 +798,7 @@ describe("Auto-read catch-up (review 3)", () => {
     });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
     expect(await screen.findByTestId("auto-read-progress")).toHaveTextContent("7 of 90");
     expect(screen.getByRole("button", { name: "Preview" })).toBeDisabled();
@@ -820,7 +820,7 @@ describe("Auto-read catch-up (review 3)", () => {
       });
       go("/settings/sync");
       const user = userEvent.setup();
-      await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+      await user.click(await screen.findByRole("button", { name: "Preview" }));
       const mark = await screen.findByRole("button", { name: "Mark 60 older articles as read now" });
       skew = 61_000;
       await user.click(mark);
@@ -840,7 +840,7 @@ describe("Auto-read catch-up (review 3)", () => {
       });
       go("/settings/sync");
       const user = userEvent.setup();
-      await user.click(await screen.findByRole("button", { name: "Preview" }, { timeout: 5000 }));
+      await user.click(await screen.findByRole("button", { name: "Preview" }));
       const mark = await screen.findByRole("button", { name: "Mark 60 older articles as read now" });
       skew = 61_000;
       await user.click(mark);
@@ -854,7 +854,7 @@ describe("Auto-read catch-up (review 3)", () => {
     base({ "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: 5, feeds: [] }) });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Try a different number of days" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Try a different number of days" }));
     await user.type(await screen.findByRole("textbox", { name: /Preview as if it were set to/ }), "60");
     await user.click(screen.getByRole("button", { name: "Preview" }));
     expect(await screen.findByText(/using 60 days/)).toBeInTheDocument();

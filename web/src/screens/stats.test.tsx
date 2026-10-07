@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
-import type { StatsSummary } from "@/api/types";
+import type { StatsRange, StatsSummary } from "@/api/types";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -31,6 +31,17 @@ function setup(stats: (range: string) => StatsSummary | Response, settings: Reco
 function go(path = "/stats") {
   window.history.replaceState({ idx: 0 }, "", path);
   return render(<App client={makeQueryClient({ retry: false })} />);
+}
+
+function setupSpan(stats: (u: URL) => StatsSummary | Response) {
+  return mockFetch({
+    "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),
+    "GET /api/stats/summary": (u) => {
+      const r = stats(u);
+      return r instanceof Response ? r : json(r);
+    },
+    "GET /api/items": () => json({ items: [], next_cursor: null }),
+  });
 }
 
 const statsCalls = (m: ReturnType<typeof mockFetch>) => m.calls.filter((c) => c.url.pathname === "/api/stats/summary");
@@ -369,5 +380,89 @@ describe("Stats screen", () => {
     await user.click(await screen.findByRole("button", { name: "Try again" }));
     await waitFor(() => expect(statsCalls(m).length).toBe(3));
     expect(await screen.findByRole("heading", { name: "Daily activity" })).toBeInTheDocument();
+  });
+
+  it("tiles show plain numbers; a tap reveals the previous period and a second tap hides it", async () => {
+    const prev: StatsSummary = { ...richStats, totals: { items_read: 70, opens: 90, active_seconds: 4000, days_active: 12 } };
+    const m = mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),
+      "GET /api/stats/summary": (u) => json(u.searchParams.get("from") ? prev : { ...richStats, first_event_date: "2026-01-01" }),
+      "GET /api/items": () => json({ items: [], next_cursor: null }),
+    });
+    const user = userEvent.setup();
+    go();
+    const summary = await screen.findByRole("region", { name: "Summary" });
+    expect(within(summary).queryByText(/from 70/)).toBeNull();
+    expect(statsCalls(m).some((c) => c.url.searchParams.get("from"))).toBe(false); // nothing fetched until asked
+    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    expect(await within(summary).findByText("+20% from 70")).toBeInTheDocument();
+    expect(within(summary).getByText("Compared with the previous 30 days.")).toBeInTheDocument();
+    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    expect(within(summary).queryByText(/from 70/)).toBeNull();
+  });
+
+  it("Months fetches everything and draws one bar per month", async () => {
+    const m = setup(() => richStats);
+    const user = userEvent.setup();
+    go();
+    await screen.findByRole("heading", { name: "Daily activity" });
+    await user.click(screen.getByRole("radio", { name: "Months" }));
+    await screen.findByRole("heading", { name: "Monthly activity" });
+    expect(statsCalls(m).at(-1)?.url.searchParams.get("range")).toBe("all");
+    expect(screen.getByRole("img", { name: /Items read per month/ })).toBeInTheDocument();
+  });
+
+  const prevTotals = { items_read: 70, opens: 90, active_seconds: 4000, days_active: 12 };
+
+  it("says so, with a retry, when the earlier period cannot be loaded", async () => {
+    let fail = true;
+    setupSpan((u) => (u.searchParams.get("from") ? (fail ? json({ error: "boom" }, 500) : { ...richStats, totals: prevTotals }) : { ...richStats, first_event_date: "2026-01-01" }));
+    const user = userEvent.setup();
+    go();
+    const summary = await screen.findByRole("region", { name: "Summary" });
+    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    expect(await within(summary).findByText("Couldn't load the earlier period.")).toBeInTheDocument();
+    expect(within(summary).queryByText("Loading")).toBeNull();
+    fail = false;
+    await user.click(within(summary).getByRole("button", { name: "Try again" }));
+    expect(await within(summary).findByText("+20% from 70")).toBeInTheDocument();
+  });
+
+  it("makes no comparison for a period that starts before recording did", async () => {
+    setupSpan((u) => (u.searchParams.get("from") ? { ...richStats, totals: { ...prevTotals, items_read: 0 } } : { ...richStats, first_event_date: "2026-09-10" }));
+    const user = userEvent.setup();
+    go();
+    const summary = await screen.findByRole("region", { name: "Summary" });
+    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    expect(await within(summary).findByText("Not enough history")).toBeInTheDocument();
+    expect(within(summary).queryByText(/from 0/)).toBeNull();
+  });
+
+  it("ties the comparison line to the tile, and a week compares with 'last week'", async () => {
+    setupSpan((u) =>
+      u.searchParams.get("from")
+        ? { ...richStats, totals: prevTotals }
+        : { ...richStats, range: { key: "week", from: "2026-09-20", to: "2026-09-26", days: 7 } },
+    );
+    const user = userEvent.setup();
+    go();
+    await screen.findByRole("heading", { name: "Daily activity" });
+    await user.click(screen.getByRole("radio", { name: "Week" }));
+    const summary = await screen.findByRole("region", { name: "Summary" });
+    const tile = within(summary).getByRole("button", { name: /Items read/ });
+    await user.click(tile);
+    const line = await within(summary).findByText("Compared with last week.");
+    expect(tile.getAttribute("aria-describedby")).toBe(line.id);
+  });
+
+  it("All and Months have no tile to tap", async () => {
+    setupSpan((u) => ({ ...richStats, range: { ...richStats.range!, key: (u.searchParams.get("range") ?? "month") as StatsRange } }));
+    const user = userEvent.setup();
+    go();
+    await screen.findByRole("heading", { name: "Daily activity" });
+    for (const name of ["All", "Months"]) {
+      await user.click(screen.getByRole("radio", { name }));
+      await waitFor(() => expect(within(screen.getByRole("region", { name: "Summary" })).queryByRole("button", { name: /Items read/ })).toBeNull());
+    }
   });
 });

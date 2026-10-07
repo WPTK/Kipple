@@ -150,6 +150,10 @@ func TestLegacyHostTitleDoesNotRoundTrip(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, "UPDATE feeds SET title = host"); err != nil { // what an earlier subscribe left
 			return err
 		}
+		// Back to schema 13: drop what the later, run-once migrations add (0017), then rewind.
+		if _, err := tx.ExecContext(ctx, "DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded"); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(ctx, "PRAGMA user_version = 13")
 		return err
 	}))
@@ -288,7 +292,7 @@ func TestRoundTripFixedPoint(t *testing.T) {
 	roundTrip(t, src, 138, 15)
 }
 
-// TestRoundTripRealFile runs the same gate against the live NewsBlur export when
+// TestRoundTripRealFile runs the same gate against a real exported OPML file when
 // KIPPLE_REAL_OPML points at it. The file is personal and is never committed.
 func TestRoundTripRealFile(t *testing.T) {
 	p := os.Getenv("KIPPLE_REAL_OPML")
@@ -362,7 +366,7 @@ func TestParseURLsNotDoubleUnescaped(t *testing.T) {
 	</body></opml>`)
 	require.Equal(t, "http://a.test/rss?a=1&section=x&region=us", d.Feeds[0].URL)
 	require.Equal(t, "http://a.test/?x=1&copy=2&reg=3", d.Feeds[0].SiteURL)
-	require.Equal(t, "B & C", d.Feeds[1].Title, "NewsBlur double-escaped title still decodes")
+	require.Equal(t, "B & C", d.Feeds[1].Title, "double-escaped title still decodes")
 	require.Equal(t, "Fish &chips", d.Feeds[2].Title, "legacy no-semicolon entities are not decoded")
 }
 

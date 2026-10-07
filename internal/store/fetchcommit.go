@@ -64,6 +64,8 @@ type commitState struct {
 	firstID    int64
 	lastID     int64
 	newIDs     []int64
+	unreadNew  []int64 // new ids counted in feed_daily_new (see addFeedDailyNew)
+	day        string  // the local date the commit counts them on, fixed by its first chunk
 	updated    int
 	rekeyed    int
 	initRead   int
@@ -275,6 +277,8 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ?", feedID).Scan(&st.before); err != nil {
 			return err
 		}
+		// One day for the whole commit, so a commit that spans midnight adds to and takes from one row.
+		st.day = time.Unix(now, 0).In(Zone(ctx, tx)).Format("2006-01-02")
 	}
 
 	if len(items) > 0 {
@@ -302,6 +306,9 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	}
 	var err error
 	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, st.firstNewID, trimBatch, total); err != nil {
+		return err
+	}
+	if err := dropTrimmedDailyNew(ctx, tx, feedID, st); err != nil {
 		return err
 	}
 
@@ -351,7 +358,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		last_modified = CASE WHEN ?2 THEN NULLIF(?4,'') ELSE last_modified END,
 		body_hash = CASE WHEN ?5 != '' THEN ?5 ELSE body_hash END,
 		initial_read_before = NULL,
-		last_fetch_at = ?6, last_success_at = ?6, last_status = ?7,
+		last_fetch_at = ?6, last_success_at = ?6, url_succeeded = 1, last_status = ?7,
 		consecutive_failures = 0,
 		next_fetch_at = ?8, current_delay_s = ?9, ttl_hint_s = ?10,
 		last_new_items_at = CASE WHEN ?11 > 0 THEN ?6 ELSE last_new_items_at END,
@@ -481,6 +488,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		}
 		defer insContent.Close()
 
+		counted := len(st.unreadNew)
 		for _, it := range fresh {
 			id := d.alloc.Next()
 			crawl := id / 1_000_000
@@ -561,10 +569,16 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				st.firstID = id
 			}
 			st.lastID = id
+			if read == 0 && mutedBy == nil && res.Snap.URLSucceeded {
+				st.unreadNew = append(st.unreadNew, id)
+			}
 			// Every row this commit adds is counted here: trimFeedBatch skips on st.before+len(newIDs).
 			st.newIDs = append(st.newIDs, id)
 		}
 		if err := writeHits(ctx, tx, hits, now); err != nil {
+			return err
+		}
+		if err := addFeedDailyNew(ctx, tx, feedID, st.day, len(st.unreadNew)-counted); err != nil {
 			return err
 		}
 	}
@@ -768,6 +782,46 @@ func (d *DB) FeedSnapshotsByID(ctx context.Context, set FetchSettings, ids []int
 		}
 	}
 	return out, nil
+}
+
+// addFeedDailyNew adds n to the feed's count of new, unread items for day (the read-rate denominator,
+// migration 0017). Each chunk adds the items it inserted unread and not muted, in its own transaction,
+// so the count commits or rolls back with them. The first successful fetch at a URL adds nothing
+// (url_succeeded 0: a new subscription, or a URL edit): that document is a backlog, not arrivals.
+func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, day string, n int) error {
+	if n == 0 {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO feed_daily_new (feed_id, local_date, new_items) VALUES (?,?,?)
+		ON CONFLICT(feed_id, local_date) DO UPDATE SET new_items = new_items + excluded.new_items`, feedID, day, n)
+	return err
+}
+
+// dropTrimmedDailyNew takes back, in the last chunk after the trim, the counted items the same commit
+// trimmed: they were never shown. A row that would reach 0 is deleted (new_items > 0).
+func dropTrimmedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, st *commitState) error {
+	if len(st.unreadNew) == 0 || st.trimmed == 0 {
+		return nil
+	}
+	b, err := jsonText(st.unreadNew)
+	if err != nil {
+		return err
+	}
+	var gone int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM json_each(?) j WHERE NOT EXISTS (SELECT 1 FROM items WHERE id = j.value)`,
+		b).Scan(&gone); err != nil {
+		return err
+	}
+	if gone == 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM feed_daily_new WHERE feed_id = ?1 AND local_date = ?2 AND new_items <= ?3`,
+		feedID, st.day, gone); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE feed_daily_new SET new_items = new_items - ?3 WHERE feed_id = ?1 AND local_date = ?2`,
+		feedID, st.day, gone)
+	return err
 }
 
 func (d *DB) saveHighWater(ctx context.Context, tx *sql.Tx) error {

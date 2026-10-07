@@ -61,9 +61,9 @@ func TestConformanceSubscriptionList(t *testing.T) {
 	l := seedConf(h)
 	c := newConf(t, h)
 
-	// [FR][MF] {"subscriptions":[{id, title, categories:[{id, label}], url, htmlUrl, iconUrl}]}; the
+	// [RS] {"subscriptions":[{id, title, categories:[{id, label}], url, htmlUrl, iconUrl}]}; the
 	// id is feed/<number> and every feed has its folder as its one category. output=json is the
-	// documented request [MF]; JSON is returned whatever output says.
+	// documented request [RS]; JSON is returned whatever output says.
 	first := c.call(http.MethodGet, rd+"subscription/list?output=json", "", nil)
 	for _, path := range []string{"subscription/list", "subscription/list?output=xml"} {
 		r := c.call(http.MethodGet, rd+path, "", nil)
@@ -76,12 +76,12 @@ func TestConformanceSubscriptionList(t *testing.T) {
 	require.Equal(t, "Tech Daily", tech["title"])
 	require.Equal(t, "https://tech.example/feed.xml", tech["url"])
 	require.Equal(t, "https://tech.example/", tech["htmlUrl"])
-	require.IsType(t, "", tech["iconUrl"], "[FR][MF] iconUrl is a string (empty when there is no icon)")
+	require.IsType(t, "", tech["iconUrl"], "[RS] iconUrl is a string (empty when there is no icon)")
 	require.Equal(t, []any{map[string]any{"id": "user/-/label/Tech", "label": "Tech"}}, tech["categories"])
 	require.Equal(t, "user/-/label/News & Politics", subLabel(subs[feedID(l.news)]), "names are plain JSON strings, never HTML-escaped")
 	require.Equal(t, "user/-/label/Uncategorized", subLabel(subs[feedID(l.loose)]), "a feed outside any folder is in the default folder")
 
-	// [FR][MF] iconUrl is an absolute URL a client fetches without credentials.
+	// [RS] iconUrl is an absolute URL a client fetches without credentials.
 	require.NoError(t, execSQL(h, "INSERT INTO feed_icons (feed_id, data, content_type, hash, fetched_at) VALUES (?, x'89504e47', 'image/png', 'abc123', 1)", l.tech))
 	h.api.opt.Reach = reach.Fixed(reach.State{PublicURL: c.base[:len(c.base)-len(base)]})
 	icon := c.confSubs()[feedID(l.tech)]["iconUrl"].(string)
@@ -107,8 +107,8 @@ func TestConformanceTagList(t *testing.T) {
 	h.addFolder("Empty")
 	c := newConf(t, h)
 
-	// [FR] tags: starred and reading-list states first, then one {"id":"user/-/label/<name>","type":"folder"}
-	// per folder. [MF] lists starred and the labels.
+	// [RS] tags: starred and reading-list states first, then one {"id":"user/-/label/<name>","type":"folder"}
+	// per folder. [RS] lists starred and the labels.
 	tags := c.getJSON(rd + "tag/list?output=json")["tags"].([]any)
 	ids := map[string]map[string]any{}
 	for _, tg := range tags {
@@ -128,7 +128,7 @@ func TestConformanceQuickAdd(t *testing.T) {
 	h := newHarness(t)
 	c := newConf(t, h)
 
-	// [GR][FR][MF] quickadd=<url> → {numResults:1, query, streamId:"feed/<id>", streamName}.
+	// [GR][RS] quickadd=<url> → {numResults:1, query, streamId:"feed/<id>", streamName}.
 	quick := func(v string) map[string]any {
 		t.Helper()
 		r := c.call(http.MethodPost, rd+"subscription/quickadd", q1("quickadd", v)+"&T="+url.QueryEscape(c.token), nil)
@@ -148,20 +148,20 @@ func TestConformanceQuickAdd(t *testing.T) {
 	require.Contains(t, c.confSubs(), sid, "the new feed is in the next subscription/list")
 	require.Equal(t, "https://added.example/feed.xml", c.confSubs()[sid]["title"])
 
-	// [FR] a leading feed/ is stripped; adding the same URL again returns the same stream.
+	// [RS] a leading feed/ is stripped; adding the same URL again returns the same stream.
 	require.Equal(t, sid, quick("feed/https://added.example/feed.xml")["streamId"])
 
-	// [FR][MF] an unusable URL is numResults 0, still 200.
+	// [RS] an unusable URL is numResults 0, still 200.
 	bad := quick("not a url")
 	require.EqualValues(t, 0, bad["numResults"])
 	require.Len(t, c.confSubs(), 1)
 
-	// Parameters in the query string of the POST work too [MF].
+	// Parameters in the query string of the POST work too [RS].
 	r := c.call(http.MethodPost, rd+"subscription/quickadd?"+q1("quickadd", "https://second.example/rss"), "T="+url.QueryEscape(c.token), nil)
 	require.Equal(t, 200, r.code)
 	require.Len(t, c.confSubs(), 2)
 
-	// [FR][MF] a web page or a bare site address subscribes too. [K §6.9] The call makes no network
+	// [RS] a web page or a bare site address subscribes too. [K §6.9] The call makes no network
 	// request: the address is stored as typed (read as a URL), and the scheduler's first fetch finds
 	// the feed the page links and makes it the subscription's url (store and sched tests).
 	for typed, stored := range map[string]string{
@@ -180,7 +180,7 @@ func TestConformanceSubscriptionEdit(t *testing.T) {
 	l := seedConf(h)
 	c := newConf(t, h)
 
-	// subscribe: s=feed/<url>, optional t=<title> and a=<label> [GR][FR][MF]. A new folder is created.
+	// subscribe: s=feed/<url>, optional t=<title> and a=<label> [GR][RS]. A new folder is created.
 	c.write("subscription/edit", "ac=subscribe&"+q1("s", "feed/https://sub.example/feed.xml")+"&"+q1("t", "Chosen Title")+"&"+q1("a", "user/-/label/Reading"))
 	var sid string
 	for id, s := range c.confSubs() {
@@ -193,15 +193,15 @@ func TestConformanceSubscriptionEdit(t *testing.T) {
 	require.NotEmpty(t, sid)
 	require.Contains(t, c.confLabels(), "user/-/label/Reading")
 
-	// edit: s=feed/<id> with t= renames [FR][MF].
+	// edit: s=feed/<id> with t= renames [RS].
 	c.write("subscription/edit", "ac=edit&"+q1("s", sid)+"&"+q1("t", "Renamed"))
 	require.Equal(t, "Renamed", c.confSubs()[sid]["title"])
 
-	// edit: a=<label> moves the feed [FR][MF]; the label may be addressed with the user id form [GR].
+	// edit: a=<label> moves the feed [RS]; the label may be addressed with the user id form [GR].
 	c.write("subscription/edit", "ac=edit&"+q1("s", feedID(l.loose))+"&"+q1("a", "user/1/label/Tech"))
 	require.Equal(t, "user/-/label/Tech", subLabel(c.confSubs()[feedID(l.loose)]))
 
-	// edit: r=<label> without a= moves it out to the default folder [FR].
+	// edit: r=<label> without a= moves it out to the default folder [RS].
 	c.write("subscription/edit", "ac=edit&"+q1("s", feedID(l.loose))+"&"+q1("r", "user/-/label/Tech"))
 	require.Equal(t, "user/-/label/Uncategorized", subLabel(c.confSubs()[feedID(l.loose)]))
 
@@ -209,7 +209,7 @@ func TestConformanceSubscriptionEdit(t *testing.T) {
 	c.write("subscription/edit", "ac=edit&"+q1("s", "feed/https://loose.example/atom")+"&"+q1("t", "By URL"))
 	require.Equal(t, "By URL", c.confSubs()[feedID(l.loose)]["title"])
 
-	// Several s= with one t= each, in one request [FR].
+	// Several s= with one t= each, in one request [RS].
 	c.write("subscription/edit", "ac=edit&"+q1("s", feedID(l.tech))+"&"+q1("t", "T1")+"&"+q1("s", feedID(l.news))+"&"+q1("t", "N1"))
 	subs := c.confSubs()
 	require.Equal(t, "T1", subs[feedID(l.tech)]["title"])
@@ -220,7 +220,7 @@ func TestConformanceSubscriptionEdit(t *testing.T) {
 	require.Equal(t, 200, r.code)
 	require.NotContains(t, c.confSubs(), sid)
 
-	// unsubscribe several at once [GR][FR].
+	// unsubscribe several at once [GR][RS].
 	c.write("subscription/edit", "ac=unsubscribe&"+q1("s", feedID(l.tech))+"&"+q1("s", feedID(l.loose)))
 	subs = c.confSubs()
 	require.Len(t, subs, 1)
@@ -236,7 +236,7 @@ func TestConformanceRenameAndDisableTag(t *testing.T) {
 	l := seedConf(h)
 	c := newConf(t, h)
 
-	// rename-tag: s=<old label>, dest=<new label> [GR][FR][MF].
+	// rename-tag: s=<old label>, dest=<new label> [GR][RS].
 	c.write("rename-tag", q1("s", "user/-/label/Tech")+"&"+q1("dest", "user/-/label/Technology"))
 	labels := c.confLabels()
 	require.Contains(t, labels, "user/-/label/Technology")
@@ -248,7 +248,7 @@ func TestConformanceRenameAndDisableTag(t *testing.T) {
 	ids, _ := itemRefs(t, r)
 	require.Len(t, ids, 3)
 
-	// disable-tag: s repeatable; the folder goes and its feeds move to the default folder [FR][MF].
+	// disable-tag: s repeatable; the folder goes and its feeds move to the default folder [RS].
 	c.write("disable-tag", q1("s", "user/-/label/Technology")+"&"+q1("s", "user/-/label/News & Politics"))
 	labels = c.confLabels()
 	require.NotContains(t, labels, "user/-/label/Technology")
@@ -267,7 +267,7 @@ func TestConformanceUnreadCount(t *testing.T) {
 	l := seedConf(h)
 	c := newConf(t, h)
 
-	// [GR][FR] {"max":n,"unreadcounts":[{"id","count","newestItemTimestampUsec"}]} with one entry for
+	// [GR][RS] {"max":n,"unreadcounts":[{"id","count","newestItemTimestampUsec"}]} with one entry for
 	// the reading list, each label and each feed; counts are numbers, timestamps decimal strings.
 	m := c.getJSON(rd + "unread-count?output=json")
 	require.EqualValues(t, 5, m["max"])
@@ -305,14 +305,14 @@ func TestConformanceOPML(t *testing.T) {
 	seedConf(h)
 	c := newConf(t, h)
 
-	// [FR] subscription/export: an OPML attachment of every subscription.
+	// [RS] subscription/export: an OPML attachment of every subscription.
 	r := c.call(http.MethodGet, rd+"subscription/export", "", nil)
 	require.Equal(t, 200, r.code)
 	require.Contains(t, r.header.Get("Content-Type"), "opml")
 	require.Contains(t, r.body, `xmlUrl="https://tech.example/feed.xml"`)
 	require.Contains(t, r.body, "<opml")
 
-	// [FR] subscription/import: the raw OPML document is the POST body; answers 200 OK.
+	// [RS] subscription/import: the raw OPML document is the POST body; answers 200 OK.
 	opml := `<?xml version="1.0"?><opml version="2.0"><head><title>x</title></head><body>
 <outline text="Imported"><outline type="rss" text="New One" xmlUrl="https://imported.example/feed.xml"/></outline>
 </body></opml>`

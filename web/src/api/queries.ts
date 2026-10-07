@@ -164,6 +164,16 @@ export function findCached(qc: QueryClient, id: string): Pick<Card, "feed_id" | 
   return undefined;
 }
 
+/** How marking `ids` read or unread moves each feed's unread count, from what the cached articles show now. */
+function unreadShift(qc: QueryClient, ids: string[], read: boolean): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const id of new Set(ids)) {
+    const c = findCached(qc, id);
+    if (c && c.read !== read) out.set(c.feed_id, (out.get(c.feed_id) ?? 0) + (read ? -1 : 1));
+  }
+  return out;
+}
+
 /**
  * Opening marks the item read. The badge moves optimistically in onMutate, before the request, so a
  * server `counts` event that arrives ahead of the response (absolute numbers) simply overwrites it
@@ -270,6 +280,7 @@ export async function applyRead(
   reason: "swipe" | "key" | "scroll" | "bulk",
   opts: { onError?: (e: unknown) => void } = {},
 ): Promise<MarkReadResponse | undefined> {
+  const shift = unreadShift(qc, ids, read);
   patchItems(qc, ids, { read });
   await supersede({ read: ids });
   try {
@@ -278,8 +289,11 @@ export async function applyRead(
     } catch (e) {
       // No network: keep the change on screen and send it when the connection returns (lib/offline.ts). A
       // change that could not be stored for later is a failure like any other.
-      if (isOffline(e)) return await queueRead(ids, read);
-      throw e;
+      if (!isOffline(e)) throw e;
+      const res = await queueRead(ids, read);
+      // Online the server's `counts` event moves the badges; offline none comes, so they move here.
+      for (const [feed, d] of shift) bumpUnread(qc, feed, d);
+      return res;
     }
   } catch (e) {
     patchItems(qc, ids, { read: !read });

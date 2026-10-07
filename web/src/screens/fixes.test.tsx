@@ -145,7 +145,7 @@ describe("selection when the selected row leaves the Unread list", () => {
     await waitFor(() => expect(selected()).toBe("1001"));
     act(() => void fireEvent.keyDown(document.body, { key: "m" }));
     // The row leaves after LEAVE_MS and the collapse; the selection moves to the row that took its place.
-    await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull());
     await waitFor(() => expect(selected()).toBe("1002"));
     act(() => void fireEvent.keyDown(document.body, { key: "j" }));
     await waitFor(() => expect(selected()).toBe("1003"));
