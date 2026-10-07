@@ -13,6 +13,7 @@ import { updatePrefs } from "@/lib/prefs";
 import { forgetWizardMemory, restoredFeeds } from "./session";
 import { resetOpenSignInGuard } from "./SetupFlow";
 import { RestoreWaiting, silenceLimitSeconds } from "./RestoreWaiting";
+import { forgetRestoreKeyForTests } from "./restoreKey";
 
 class NoES {
   addEventListener() {}
@@ -124,6 +125,7 @@ beforeEach(() => {
   forgetWizardMemory();
   sessionStorage.clear();
   localStorage.removeItem("kipple.restoreKey");
+  forgetRestoreKeyForTests();
   resetOpenSignInGuard();
   resetDeviceSync();
   liveStore.set(initialLive);
@@ -375,9 +377,12 @@ describe("restore in the setup wizard", () => {
     const key = sentHeaders["X-Kipple-Restore-Key"];
     expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(localStorage.getItem("kipple.restoreKey")).toBe(key);
-    const restoreCalls = calls.filter((c) => c.url.pathname.startsWith("/api/setup/restore") || c.url.pathname === "/api/instance");
+    const restoreCalls = calls.filter((c) => c.url.pathname.startsWith("/api/setup/restore"));
     expect(restoreCalls.length).toBeGreaterThan(1);
     for (const c of restoreCalls) expect((c.init?.headers as Record<string, string>)["X-Kipple-Restore-Key"]).toBe(key);
+    // Loading the page made no key: the first GET /api/instance went without one.
+    const first = calls.find((c) => c.url.pathname === "/api/instance");
+    expect((first?.init?.headers as Record<string, string>)["X-Kipple-Restore-Key"]).toBeUndefined();
   });
 
   it("cancels its own upload on the server while the file is still being sent", async () => {

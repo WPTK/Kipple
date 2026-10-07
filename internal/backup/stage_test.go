@@ -231,7 +231,7 @@ func TestRestoreASchema16Backup(t *testing.T) {
 	up, err := upload(r, rebuilt(t, hostBackup(t), "DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded; PRAGMA user_version = 16"))
 	require.NoError(t, err)
 	require.Equal(t, 16, up.Info.SchemaVersion)
-	_, ticket, _ := r.Uploaded()
+	_, ticket, _ := r.Uploaded(me)
 	require.NoError(t, r.Confirm(context.Background(), ticket, ""))
 	live := filepath.Join(dir, "kipple.db")
 	done, err := ApplyStaged(dir, time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC), time.UTC)
