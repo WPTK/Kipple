@@ -8,6 +8,36 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.8.0-beta.5] - 2026-10-07
+
+This beta adds comparisons to the Stats screen (tap a tile to see how it compares with the previous period) and a Months range, and starts recording how many new items each feed brings in per day, which needs a one-time database migration to schema 17; the first start writes a snapshot you can restore to go back. It also hardens restoring a backup from the setup wizard and keeps more safety copies of a replaced library.
+
+### Added
+
+- Statistics: the database now keeps how many new unread items each feed brings in per day, so a later release can show what share of a feed you open. A feed's first fetch is its backlog and is not counted. It adds schema 17 (a small table; nothing changes on screen). Going back to an earlier version means restoring the pre-migration snapshot the first start writes, as with every migration. (#37)
+- Stats: tap a summary tile to see how that number compares with the previous period (for example "+18% from 120") and which period it was compared with; tap again to hide it. A new Months range shows one bar for every month on record. (#37)
+
+### Changed
+
+- The Settings and setup screens tell you to add a Google Reader compatible account, naming no particular app. (#292)
+- Safety copies of a replaced library (`backup/pre-restore-*`) from the last 30 days are kept, up to ten, along with the newest three of any age, so a few resets or restores in a row can no longer delete a recent one.
+- Reset Kipple and start over: the confirmation dialog, the page that waits for the restart and the docs now say plainly that, until setup is finished, anyone who can reach Kipple can claim it, so setup should be finished right away.
+
+### Removed
+
+- `GET /api/reset` no longer reports `public_address_set`: the reset dialog always warns that setup stays open until the new account is created.
+
+### Fixed
+
+- Marking articles read or unread while offline, by opening, swiping, key, scrolling or a bulk mark, now moves the unread counts in the sidebar and badges at once. (#253)
+- A restore whose database redefines a table or index under its real name (other columns, a virtual table, generated columns, or a dropped UNIQUE, a changed CHECK, DEFAULT or foreign key) is refused when it is checked, instead of being accepted and then stopping Kipple at every start.
+- Setup wizard restore: an upload that sends nothing for two minutes, averages under 32 KB/s after the first two, or runs longer than two hours or than its size at 128 KB/s (whichever is longer, but never over four hours) is stopped, so it cannot hold the one restore slot for long; the page then says why. A refused upload expires after an hour, like one never confirmed.
+- Statistics: comparing a tile with an earlier period no longer reads days when statistics were off, that you deleted, or that a restore replaced, as zero reading ("up from 0"); it says "Not enough history" instead, and Active time waits for the day reading time was first recorded. The comparison also counts complete days only, so today is left out of both periods.
+
+### Security
+
+- Setup wizard restore: an uploaded backup belongs to the page that uploaded it, from its first byte, through a random key the page sends with every restore call. Another browser that can reach setup no longer sees its summary or feed list, cannot confirm it with a password of its own, and cannot cancel it, and a cookie set by another site on the same domain cannot make the owner's page show or confirm an upload it did not start.
+
 ## [0.8.0-beta.4] - 2026-10-06
 
 ### Added
@@ -878,7 +908,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.4...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.5...HEAD
+[0.8.0-beta.5]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.4...v0.8.0-beta.5
 [0.8.0-beta.4]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.3...v0.8.0-beta.4
 [0.8.0-beta.3]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.2...v0.8.0-beta.3
 [0.8.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.1...v0.8.0-beta.2
