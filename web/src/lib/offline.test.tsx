@@ -6,9 +6,10 @@ import { QueryClient } from "@tanstack/react-query";
 import { useRefreshAll } from "@/api/refresh";
 import { ApiError, api, authStore } from "@/api/client";
 import { applyRead, applyStar, flattenItems, keys, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
+import type { Bootstrap } from "@/api/types";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import App, { makeQueryClient } from "@/App";
-import { card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
+import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 import {
   FLUSH_REQUEST_MS,
   flushQueue,
@@ -679,5 +680,57 @@ describe("the queue laid over the worker's stored copy", () => {
     qc.setQueryData(keys.items(unread), { pages: [pageOf([card(1)])], pageParams: [""] });
     await flushQueue(qc);
     expect(flattenItems(qc.getQueryData(keys.items(unread)))[0]?.read).toBe(true);
+  });
+});
+
+describe("the badges while offline", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const unread = { view: "unread" } as const;
+  /** A client holding the bootstrap and an Unread list of articles 1001 to 1003. */
+  function client(items = [card(1), card(2), card(3)]) {
+    const c = new QueryClient();
+    c.setQueryData(keys.bootstrap, bootstrap);
+    c.setQueryData(keys.items(unread), { pages: [pageOf(items)], pageParams: [""] });
+    return c;
+  }
+  const counts = (b: Bootstrap | undefined) => [b?.counts.unread, b?.feeds[0]?.unread, b?.folders[0]?.unread];
+
+  it("a mark queued offline (swipe, key, scroll, bulk) moves them at once, and only for articles it changed", async () => {
+    const c = client([card(1), card(2), card(3, { read: true })]);
+    netFail();
+    await applyRead(c, ["1001", "1002", "1003"], true, "swipe");
+    expect(counts(c.getQueryData(keys.bootstrap))).toEqual([1, 1, 1]);
+    await applyRead(c, ["1001"], false, "scroll");
+    expect(counts(c.getQueryData(keys.bootstrap))).toEqual([2, 2, 2]);
+    expect(offlineStore.get().pending).toBe(2);
+  });
+
+  it("opening an article offline moves them too", async () => {
+    const c = client();
+    c.setQueryData(keys.item("1001"), detail(1));
+    netFail();
+    const { result } = renderHook(() => useOpenItem(), { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={c}>{children}</QueryClientProvider> });
+    result.current.mutate({ id: "1001", via: "tap" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(counts(c.getQueryData(keys.bootstrap))).toEqual([2, 2, 2]);
+  });
+
+  it("a mark sent online leaves them to the server's counts event", async () => {
+    const c = client();
+    mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [] }) });
+    await applyRead(c, ["1001"], true, "key");
+    expect(counts(c.getQueryData(keys.bootstrap))).toEqual([3, 3, 3]);
+  });
+
+  it("a mark that could not be queued leaves them alone", async () => {
+    const c = client();
+    netFail();
+    setOfflineBackendForTests({ ...memoryBackendForTests(), put: async () => Promise.reject(new Error("quota")) });
+    vi.spyOn(toasts, "toast").mockImplementation(() => 0);
+    await applyRead(c, ["1001"], true, "swipe");
+    expect(counts(c.getQueryData(keys.bootstrap))).toEqual([3, 3, 3]);
   });
 });
