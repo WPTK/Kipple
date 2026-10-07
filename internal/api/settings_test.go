@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/auth"
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/greader"
 )
 
@@ -255,17 +256,20 @@ func TestPatchIntervalTakesEffectWithoutRestart(t *testing.T) {
 	code, _, _ := h.api(c, "PATCH", "/api/settings", `{"refresh.interval_minutes":10}`)
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, 10, h.db.FetchSettings(context.Background()).IntervalMinutes)
-	require.Equal(t, now+600, next(inherit), "inheriting feed pulled in to last fetch + 10 min")
+	salt := h.db.FetchSettings(context.Background()).SlotSalt
+	due, _ := fetch.NextOnSuccess(time.Unix(now, 0), fetch.PhaseKey(inherit, salt), 600, 0)
+	require.Equal(t, due.Unix(), next(inherit), "inheriting feed pulled in to its slot after last fetch under 10 min")
+	require.Less(t, due.Unix(), now+1800)
 	require.Equal(t, now+1800, next(override), "per-feed override untouched")
 	require.Equal(t, now+1800, next(failing), "backing-off feed untouched")
 	require.Equal(t, 1, h.sched.wakes)
-	// raising never postpones
+	// raising never moves a due time and needs no wake: it applies from each feed's next fetch
 	h.api(c, "PATCH", "/api/settings", `{"refresh.interval_minutes":600}`)
-	require.Equal(t, now+600, next(inherit))
-	require.Equal(t, 2, h.sched.wakes)
+	require.Equal(t, due.Unix(), next(inherit))
+	require.Equal(t, 1, h.sched.wakes)
 	// an unrelated patch does not wake
 	h.api(c, "PATCH", "/api/settings", `{"ui.theme":"dark"}`)
-	require.Equal(t, 2, h.sched.wakes)
+	require.Equal(t, 1, h.sched.wakes)
 }
 
 func TestRetentionApply(t *testing.T) {

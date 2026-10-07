@@ -68,6 +68,11 @@ type Snapshot struct {
 	Retention       int   // feeds.retention, -1 = inherit, 0 = unlimited
 	IntervalS       int64 // resolved interval in seconds (feed override or global)
 	HonorTTL        bool  // fetch.honor_publisher_ttl
+	SlotSalt        int64 // sys.fetch_slot_salt: offsets the success slots (PhaseKey)
+	// DocTTLS is the RSS <ttl> of the stored document in seconds (feeds.ttl_hint_s,
+	// 0 when none). A 304 or an unchanged body is that same document, so its ttl
+	// still applies.
+	DocTTLS int64
 
 	Redirect            RedirectState
 	ConsecutiveFailures int
@@ -119,7 +124,13 @@ type Result struct {
 	BodyHash      string // decoded-body hash to store (ok and unchanged)
 
 	RetryAfter time.Duration // 429/503
-	TTLHintS   int64
+	// TTLHintS is this response's publisher hint (§4.6), used for the schedule
+	// and not stored: the cache headers count only for the response that sent them.
+	TTLHintS int64
+	// DocTTLS is the RSS <ttl> of the document now stored, in seconds: from the
+	// parsed body, else carried over from the snapshot (a 304 or an unchanged
+	// body). CommitFetch stores it in feeds.ttl_hint_s.
+	DocTTLS int64
 
 	Redirect RedirectDecision
 
@@ -149,7 +160,7 @@ func (r *Result) Schedule(now time.Time, rnd Rand) {
 			r.RetryAfter, r.Snap.HostUntil, rnd)
 		return
 	}
-	r.NextFetchAt, r.CurrentDelayS = NextOnSuccess(now, r.Snap.IntervalS, r.TTLHintS, rnd)
+	r.NextFetchAt, r.CurrentDelayS = NextOnSuccess(now, PhaseKey(r.Snap.ID, r.Snap.SlotSalt), r.Snap.IntervalS, r.TTLHintS)
 }
 
 func (r *Result) fail(class, msg string) *Result {
@@ -244,7 +255,8 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 			res.FinalURL = fu.String()
 		}
 	}
-	res.TTLHintS = PublisherHintSeconds(snap.HonorTTL, 0, resp.Header, now)
+	res.DocTTLS = snap.DocTTLS
+	res.TTLHintS = PublisherHintSeconds(snap.HonorTTL, int(snap.DocTTLS/60), resp.Header, now)
 	res.Redirect = DecideRedirect(snap.URL, snap.Redirect, res.FinalURL, res.Hops)
 
 	switch code := resp.StatusCode; {
@@ -319,6 +331,7 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		}
 		return res.fail(ClassParse, "not a feed: "+err.Error())
 	}
+	res.DocTTLS = int64(feed.TTLMinutes) * 60
 	res.TTLHintS = PublisherHintSeconds(snap.HonorTTL, feed.TTLMinutes, resp.Header, now)
 	res.Feed = feed
 	res.Outcome = OutcomeOK

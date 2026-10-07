@@ -65,11 +65,14 @@ func TestStatus200ParsedAndHeaders(t *testing.T) {
 	require.Equal(t, "Wed, 01 Jan 2026 00:00:00 GMT", res.LastModified)
 	require.NotEmpty(t, res.BodyHash)
 	require.EqualValues(t, 90*60, res.TTLHintS, "RSS ttl is honoured")
+	require.EqualValues(t, 90*60, res.DocTTLS, "and stored as the document's ttl")
 	require.Contains(t, res.Feed.Items[0].ContentHTML, `src="https://example.com/i.png"`, "content is absolutized")
 	require.Equal(t, RedirectClear, res.Redirect.Action)
 
 	res.Schedule(t0, func() float64 { return 0.5 })
-	require.Equal(t, t0.Add(90*60*time.Second), res.NextFetchAt)
+	want, d := NextOnSuccess(t0, PhaseKey(1, 0), 1800, 90*60)
+	require.Equal(t, want, res.NextFetchAt)
+	require.GreaterOrEqual(t, d, int64(90*60), "the RSS ttl is a floor")
 }
 
 func TestConditionalRequests(t *testing.T) {
@@ -103,6 +106,54 @@ func TestConditionalRequests(t *testing.T) {
 	ign.IgnoreHTTPCache = true
 	require.Equal(t, OutcomeOK, doFetch(t, c, ign).Outcome)
 	require.Equal(t, "", ims.Load())
+}
+
+// A 304 and an unchanged body are the stored document, so its RSS ttl still
+// counts (it is carried over from the snapshot); a parsed body replaces it.
+func TestDocumentTTLOutlivesA304(t *testing.T) {
+	var mode atomic.Int32 // 0: 304, 1: the same body, 2: a body without a ttl
+	srv, c := feedServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch mode.Load() {
+		case 0:
+			w.WriteHeader(http.StatusNotModified)
+		case 1:
+			serveRSS(w, r)
+		default:
+			w.Header().Set("Content-Type", "application/rss+xml")
+			_, _ = w.Write([]byte(`<rss version="2.0"><channel><title>T</title><item><guid>g</guid><title>x</title></item></channel></rss>`))
+		}
+	})
+	s := snapFor(srv.URL)
+	s.ETag, s.DocTTLS = `W/"abc"`, 90*60
+	res := doFetch(t, c, s)
+	require.Equal(t, OutcomeNotModified, res.Outcome)
+	require.EqualValues(t, 90*60, res.TTLHintS, "the stored ttl is the hint on a 304")
+	require.EqualValues(t, 90*60, res.DocTTLS, "and stays stored")
+	res.Schedule(t0, nil)
+	require.GreaterOrEqual(t, res.CurrentDelayS, int64(90*60), "a 304 does not cut the ttl short")
+
+	mode.Store(1)
+	first := doFetch(t, c, snapFor(srv.URL))
+	require.Equal(t, OutcomeOK, first.Outcome)
+	s.ETag, s.BodyHash = "", first.BodyHash
+	res = doFetch(t, c, s)
+	require.Equal(t, OutcomeUnchanged, res.Outcome)
+	require.EqualValues(t, 90*60, res.TTLHintS)
+	require.EqualValues(t, 90*60, res.DocTTLS)
+
+	mode.Store(2)
+	s.BodyHash = ""
+	res = doFetch(t, c, s)
+	require.Equal(t, OutcomeOK, res.Outcome)
+	require.Zero(t, res.DocTTLS, "a new document without a ttl drops the old one")
+	require.Zero(t, res.TTLHintS)
+
+	// With the setting off the ttl is not a hint, but it is still the document's.
+	mode.Store(0)
+	s.HonorTTL = false
+	res = doFetch(t, c, s)
+	require.Zero(t, res.TTLHintS)
+	require.EqualValues(t, 90*60, res.DocTTLS)
 }
 
 func Test304OverwritesLastModified(t *testing.T) {

@@ -631,6 +631,25 @@ func TestPatchFeedResetsLearnedUAFallback(t *testing.T) {
 	require.Equal(t, 0, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "changed URL resets it")
 }
 
+// The document's RSS ttl is stored by a commit and read back into the snapshot,
+// which is how a later 304 still honors it.
+func TestDocumentTTLRoundTrips(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.test/f")
+	snap, ok, err := e.db.FeedSnapshot(e.ctx, e.db.FetchSettings(e.ctx), id)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Zero(t, snap.DocTTLS)
+	snap.Trigger = fetch.TriggerScheduled
+	res := e.okResult(snap, []byte(`<rss version="2.0"><channel><title>T</title><ttl>90</ttl><item><guid>g</guid><title>x</title></item></channel></rss>`))
+	res.DocTTLS, res.TTLHintS = 5400, 7200 // the header part of the hint is not stored
+	e.commit(res)
+	require.Equal(t, 5400, e.count("SELECT ttl_hint_s FROM feeds WHERE id = ?", id))
+	snap, _, err = e.db.FeedSnapshot(e.ctx, e.db.FetchSettings(e.ctx), id)
+	require.NoError(t, err)
+	require.EqualValues(t, 5400, snap.DocTTLS)
+}
+
 func TestPullInScheduleRespectsPublisherTTL(t *testing.T) {
 	e := newEnv(t)
 	mk := func(url string, ttl any) int64 {
@@ -639,21 +658,39 @@ func TestPullInScheduleRespectsPublisherTTL(t *testing.T) {
 		return id
 	}
 	noTTL, shortTTL, longTTL, hugeTTL := mk("http://a.test/1", nil), mk("http://a.test/2", 300), mk("http://a.test/3", 3600), mk("http://a.test/4", 999999)
-	next := func(id int64) int { return e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id) }
+	next := func(id int64) int64 { return int64(e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id)) }
+	salt := e.db.FetchSettings(e.ctx).SlotSalt
+	// due is the success schedule (§4.6) of a fetch at 1000 under a 600 s interval.
+	due := func(id, hint int64) int64 {
+		at, _ := fetch.NextOnSuccess(time.Unix(1000, 0), fetch.PhaseKey(id, salt), 600, hint)
+		return at.Unix()
+	}
 
 	_, err := e.db.PullInSchedule(e.ctx, 10) // 600 s
 	require.NoError(t, err)
-	require.Equal(t, 1000+600, next(noTTL))
-	require.Equal(t, 1000+600, next(shortTTL), "a TTL shorter than the interval does not matter")
-	require.Equal(t, 1000+3600, next(longTTL), "held back to the publisher TTL")
-	require.Equal(t, 1000+7200, next(hugeTTL), "TTL capped at a day, and never postponed: 7200 already sooner")
+	require.Equal(t, due(noTTL, 0), next(noTTL), "the feed's slot after its last fetch")
+	require.Less(t, next(noTTL), int64(1000+600+300))
+	require.Equal(t, due(shortTTL, 0), next(shortTTL), "a TTL shorter than the interval does not matter")
+	require.Equal(t, due(longTTL, 3600), next(longTTL), "held back to the publisher TTL")
+	require.GreaterOrEqual(t, next(longTTL), int64(1000+3600))
+	require.EqualValues(t, 1000+7200, next(hugeTTL), "TTL capped at a day, and never postponed: 7200 already sooner")
 
 	// With the setting off the TTL is ignored.
 	require.NoError(t, e.db.SetSettings(e.ctx, map[string]any{"fetch.honor_publisher_ttl": false}))
 	e.exec("UPDATE feeds SET next_fetch_at = 1000 + 7200 WHERE id = ?", longTTL)
 	_, err = e.db.PullInSchedule(e.ctx, 10)
 	require.NoError(t, err)
-	require.Equal(t, 1000+600, next(longTTL))
+	require.Equal(t, due(longTTL, 0), next(longTTL))
+}
+
+// Every database gets one random slot salt at open, and keeps it.
+func TestSlotSaltIsSetOnceAtOpen(t *testing.T) {
+	e := newEnv(t)
+	salt := e.db.FetchSettings(e.ctx).SlotSalt
+	require.NotZero(t, salt)
+	require.Less(t, salt, int64(1)<<53)
+	require.NoError(t, e.db.ensureSlotSalt(e.ctx))
+	require.Equal(t, salt, e.db.FetchSettings(e.ctx).SlotSalt, "a second open keeps it")
 }
 
 // A URL edit landing between chunks of a large fetch: the earlier chunks are

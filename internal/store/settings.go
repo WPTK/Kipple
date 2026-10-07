@@ -5,8 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
+	"math/rand/v2"
+	"strconv"
+	"time"
+
+	"github.com/WPTK/kipple/internal/fetch"
 )
 
 // MaxRestoreDays caps retention.restore_days. The nightly ledger purge removes a
@@ -31,6 +37,7 @@ type FetchSettings struct {
 	UAMode           string // fetch.user_agent_mode, default UAModeOnFailure
 	HonorTTL         bool   // fetch.honor_publisher_ttl, default true
 	FulltextAll      bool   // fetch.fulltext_all, default false
+	SlotSalt         int64  // sys.fetch_slot_salt, written once by Open (ensureSlotSalt)
 }
 
 // LoadFetchSettingsErr reads the fetch-related settings through q. A missing row
@@ -63,6 +70,9 @@ func LoadFetchSettingsErr(ctx context.Context, q Querier) (FetchSettings, error)
 	keep(err)
 	s.FulltextAll, err = settingBoolErr(ctx, q, SettingFulltextAll, false)
 	keep(err)
+	salt, err := settingIntErr(ctx, q, SettingSlotSalt, 0)
+	keep(err)
+	s.SlotSalt = int64(salt)
 	return s, errors.Join(errs...)
 }
 
@@ -302,31 +312,68 @@ func setSettingsTx(ctx context.Context, tx *sql.Tx, set map[string]any) error {
 	return nil
 }
 
-// PullInSchedule makes a lowered refresh.interval_minutes take effect now: every
-// enabled, healthy feed that inherits the interval and is due later than its new
-// due time becomes due then. The new due time is last_fetch_at + interval, or,
-// when fetch.honor_publisher_ttl is on, no earlier than last_fetch_at plus the
-// feed's publisher TTL hint (capped at a day, as scheduling caps it). It never
-// postpones a feed (a raised interval applies from each feed's next fetch).
-// Returns the feeds moved.
+// SettingSlotSalt is the installation's random offset for the success slots
+// (fetch.PhaseKey, design §4.6). Hidden and read-only like every sys.* key.
+const SettingSlotSalt = "sys.fetch_slot_salt"
+
+// ensureSlotSalt stores a random SettingSlotSalt unless the database has one.
+// It runs once per Open, after the migrations, so every database gets one, a
+// restored database keeps its own, and nothing else ever writes it. The salt
+// stays below 2^53 so it round-trips through the JSON settings value exactly.
+func (d *DB) ensureSlotSalt(ctx context.Context) error {
+	_, err := d.writer.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING`,
+		SettingSlotSalt, strconv.FormatInt(rand.Int64N(1<<53), 10))
+	if err != nil {
+		return fmt.Errorf("store: slot salt: %w", err)
+	}
+	return nil
+}
+
+// PullInSchedule makes a lowered refresh.interval_minutes take effect now
+// (callers run it only when the interval goes down): every enabled, healthy
+// feed that inherits the interval and was fetched before gets the due time its
+// last fetch would have had under the new interval (fetch.NextOnSuccess, with
+// its stored publisher hint when fetch.honor_publisher_ttl is on), when that is
+// sooner than its current one. It never postpones a feed. Returns the feeds
+// moved.
 func (d *DB) PullInSchedule(ctx context.Context, intervalMinutes int) (int64, error) {
-	honor := 0
-	if ttl, err := settingBoolErr(ctx, d.reader, "fetch.honor_publisher_ttl", true); err != nil {
+	set, err := LoadFetchSettingsErr(ctx, d.reader)
+	if err != nil {
 		return 0, err
-	} else if ttl {
-		honor = 1
 	}
 	var n int64
-	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE feeds SET next_fetch_at = last_fetch_at + max(?1, CASE WHEN ?2 = 1 THEN min(coalesce(ttl_hint_s, 0), 86400) ELSE 0 END)
-			WHERE enabled = 1 AND interval_minutes IS NULL AND consecutive_failures = 0
-			  AND last_fetch_at IS NOT NULL
-			  AND next_fetch_at > last_fetch_at + max(?1, CASE WHEN ?2 = 1 THEN min(coalesce(ttl_hint_s, 0), 86400) ELSE 0 END)`,
-			intervalMinutes*60, honor)
+	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		n = 0
+		rows, err := tx.QueryContext(ctx, `SELECT id, last_fetch_at, coalesce(ttl_hint_s, 0), next_fetch_at FROM feeds
+			WHERE enabled = 1 AND interval_minutes IS NULL AND consecutive_failures = 0 AND last_fetch_at IS NOT NULL`)
 		if err != nil {
 			return err
 		}
-		n, _ = res.RowsAffected()
+		type move struct{ id, at int64 }
+		var moves []move
+		for rows.Next() {
+			var id, last, hint, next int64
+			if err := rows.Scan(&id, &last, &hint, &next); err != nil {
+				rows.Close()
+				return err
+			}
+			if !set.HonorTTL {
+				hint = 0
+			}
+			due, _ := fetch.NextOnSuccess(time.Unix(last, 0), fetch.PhaseKey(id, set.SlotSalt), fetch.IntervalSeconds(intervalMinutes), hint)
+			if due.Unix() < next {
+				moves = append(moves, move{id, due.Unix()})
+			}
+		}
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+			return err
+		}
+		for _, m := range moves {
+			if _, err := tx.ExecContext(ctx, `UPDATE feeds SET next_fetch_at = ? WHERE id = ?`, m.at, m.id); err != nil {
+				return err
+			}
+			n++
+		}
 		return nil
 	})
 	return n, err
