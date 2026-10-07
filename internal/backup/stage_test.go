@@ -408,6 +408,8 @@ func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 		"generated column": "ALTER TABLE sessions ADD COLUMN g INTEGER GENERATED ALWAYS AS (1) VIRTUAL",
 		"virtual table":    "DROP TABLE sessions; CREATE VIRTUAL TABLE sessions USING fts5(id, expires_at)",
 		"changed index":    "DROP INDEX idx_sessions_expires; CREATE UNIQUE INDEX idx_sessions_expires ON sessions(expires_at DESC)",
+		// An index's condition is in its text only: columns and flags are the same.
+		"changed index condition": "DROP INDEX idx_feeds_one_archive; CREATE UNIQUE INDEX idx_feeds_one_archive ON feeds(disabled_reason) WHERE 1",
 		// Constraints live in a table's text only: no column or index of its own
 		// shows a dropped UNIQUE, a CHECK that always fails or a changed DEFAULT.
 		"table without a unique":   "DROP TABLE trimmed_items; CREATE TABLE trimmed_items (id INTEGER PRIMARY KEY, feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE, uid TEXT NOT NULL, read INTEGER NOT NULL CHECK (read IN (0,1)), trimmed_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL) STRICT; CREATE INDEX idx_trimmed_seen ON trimmed_items(last_seen_at); CREATE INDEX idx_trimmed_trimmed ON trimmed_items(trimmed_at); CREATE INDEX idx_trimmed_unread ON trimmed_items(id) WHERE read = 0",
@@ -440,6 +442,8 @@ func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 			want = `the table "evil", which Kipple never creates`
 		case "changed table", "generated column", "virtual table", "swapped virtual table":
 			want = `a changed table "sessions"`
+		case "changed index condition":
+			want = `a changed index "idx_feeds_one_archive"`
 		case "table without a unique":
 			want = `a changed table "trimmed_items"`
 		case "table with a bad check", "table with a new default":
@@ -455,6 +459,61 @@ func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 	r, _ := newRestorer(t)
 	_, err := upload(r, rebuilt(t, b, "SELECT 1"))
 	require.NoError(t, err)
+}
+
+// stalledBody sends head, then fails as the deadline reader does, cancelling
+// the request context first when asked, as net/http does when a read deadline
+// expires.
+type stalledBody struct {
+	head   []byte
+	err    error
+	cancel func()
+}
+
+func (s *stalledBody) Read(p []byte) (int, error) {
+	if len(s.head) == 0 {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		return 0, s.err
+	}
+	n := copy(p, s.head)
+	s.head = s.head[n:]
+	return n, nil
+}
+
+// When the connection's read deadline expires, net/http cancels the request
+// context as well. Whatever order that happens in, an upload that stalls after
+// its head ends as ErrUploadTooSlow, never as the cancellation.
+func TestTooSlowOutranksACancelledContext(t *testing.T) {
+	size := int64(sniffBytes + 5000)
+	body := append([]byte("PK\x03\x04"), make([]byte, sniffBytes+1000)...)
+	for name, cancelled := range map[string]bool{"context live": false, "context cancelled": true} {
+		r, _ := newRestorer(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		sb := &stalledBody{head: append([]byte(nil), body...), err: ErrUploadTooSlow}
+		if cancelled {
+			sb.cancel = cancel
+		}
+		_, err := r.receive(ctx, sb, size)
+		cancel()
+		require.ErrorIs(t, err, ErrUploadTooSlow, name)
+		require.NotErrorIs(t, err, context.Canceled, name)
+	}
+	// Without the reason, a cancelled context is a cancel.
+	r, _ := newRestorer(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := r.receive(ctx, &stalledBody{head: append([]byte(nil), body...), err: io.ErrUnexpectedEOF, cancel: cancel}, size)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// A failure of the spool file keeps its cause; it is not a cut upload.
+func TestEndedKeepsASpoolFailure(t *testing.T) {
+	disk := errors.New("no space left on device")
+	err := ended(context.Background(), &spoolError{disk})
+	require.ErrorIs(t, err, disk)
+	require.NotErrorIs(t, err, ErrUploadCut)
+	require.ErrorIs(t, ended(context.Background(), io.ErrUnexpectedEOF), ErrUploadCut)
 }
 
 func TestCheckSchemaMatchesAFreshDatabase(t *testing.T) {

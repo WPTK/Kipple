@@ -85,19 +85,16 @@ func ReadSchema(ctx context.Context, q Querier) ([]SchemaObject, error) {
 	return out, nil
 }
 
-// Shape describes what a table or index is, from SQLite's own reading of it
-// rather than its text: for a table its kind (ordinary, virtual or shadow),
-// WITHOUT ROWID and STRICT, and each column's name, declared type, NOT NULL,
-// primary key place and hidden or generated flag; a virtual table adds its
-// definition (module and arguments). For an index, UNIQUE, partial, and each
-// key column's name (or expression), order and collation. "" for the rest.
-// A table also carries its text with comments dropped and whitespace folded
-// (normalizeSQL), the one place UNIQUE and PRIMARY KEY constraints (their
-// autoindexes), CHECK, DEFAULT and foreign keys are written. A migration's
-// comments may be edited after it ships; nothing else in it may be.
+// Shape describes what a table or index is, from SQLite's own reading of it:
+// for a table its kind (ordinary, virtual or shadow), WITHOUT ROWID and STRICT,
+// and each column's name, declared type, NOT NULL, primary key place and hidden
+// or generated flag. For an index, UNIQUE, partial, and each key column's name
+// (or expression), order and collation. "" for the rest. It says nothing of
+// constraints or defaults: those are in an object's text, which a restore
+// compares first, by NormalizeSQL, from sqlite_master alone.
 // Reading it runs SQLite's own code on the object (a virtual table is
-// connected), so a restore reads shapes only of objects whose names, and for a
-// virtual table whose definition, it has already matched.
+// connected), so a restore reads shapes only of objects whose names and text
+// it has already matched.
 func Shape(ctx context.Context, q Querier, o SchemaObject) (string, error) {
 	var b strings.Builder
 	switch o.Type {
@@ -107,7 +104,7 @@ func Shape(ctx context.Context, q Querier, o SchemaObject) (string, error) {
 		if err := q.QueryRowContext(ctx, `SELECT type, wr, strict FROM pragma_table_list(?) WHERE schema = 'main'`, o.Name).Scan(&kind, &wr, &strict); err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&b, "%s wr=%d strict=%d %s", kind, wr, strict, normalizeSQL(o.SQL))
+		fmt.Fprintf(&b, "%s wr=%d strict=%d", kind, wr, strict)
 		rows, err := q.QueryContext(ctx, `SELECT name, upper(type), "notnull", pk, hidden FROM pragma_table_xinfo(?) ORDER BY cid`, o.Name)
 		if err != nil {
 			return "", err
@@ -146,10 +143,10 @@ func Shape(ctx context.Context, q Querier, o SchemaObject) (string, error) {
 	return "", nil
 }
 
-// normalizeSQL is the text of a statement with its comments dropped and each
+// NormalizeSQL is the text of a statement with its comments dropped and each
 // run of whitespace outside quotes folded to one space, so two spellings of one
 // definition compare equal and any other difference does not.
-func normalizeSQL(s string) string {
+func NormalizeSQL(s string) string {
 	var b strings.Builder
 	space := false
 	for i := 0; i < len(s); {

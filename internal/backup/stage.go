@@ -389,15 +389,16 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 	if err != nil {
 		return Upload{}, fmt.Errorf("restore: spool: %w", err)
 	}
-	_, err = f.Write(head)
+	sp := &spoolWriter{f: f}
+	_, err = sp.Write(head)
 	n := int64(len(head))
 	if err == nil {
 		var m int64
-		m, err = io.Copy(f, io.LimitReader(src, size-n))
+		m, err = io.Copy(sp, io.LimitReader(src, size-n))
 		n += m
 	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
+	if cerr := f.Close(); err == nil && cerr != nil {
+		err = &spoolError{cerr}
 	}
 	if err != nil || n != size || ctx.Err() != nil {
 		return Upload{}, ended(ctx, err)
@@ -409,13 +410,17 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 // first: when the connection's read deadline expires, net/http cancels the
 // request, and with it ctx, before the reader's error gets here, and the
 // reason must survive that. Else ctx's own error (the upload was cancelled),
+// else a failure to write the spool file (disk full, I/O) with its real cause,
 // else ErrUploadCut.
 func ended(ctx context.Context, err error) error {
+	var se *spoolError
 	switch {
 	case errors.Is(err, ErrUploadTooSlow):
 		return ErrUploadTooSlow
 	case ctx.Err() != nil:
 		return ctx.Err()
+	case errors.As(err, &se):
+		return fmt.Errorf("restore: spool: %w", se.err)
 	}
 	return ErrUploadCut
 }
@@ -672,4 +677,21 @@ func (r *Restorer) Confirm(ctx context.Context, ticket int, passwordHash string)
 	r.state, r.feeds = RestoreConfirmed, nil
 	r.log.Info("restore: confirmed; it is applied when Kipple starts again", "username", r.cur.Account.Username)
 	return nil
+}
+
+// spoolError marks a failure of the spool file, as opposed to the body.
+type spoolError struct{ err error }
+
+func (e *spoolError) Error() string { return e.err.Error() }
+func (e *spoolError) Unwrap() error { return e.err }
+
+// spoolWriter writes the spool file and tells its failures from the body's.
+type spoolWriter struct{ f *os.File }
+
+func (w *spoolWriter) Write(p []byte) (int, error) {
+	n, err := w.f.Write(p)
+	if err != nil {
+		err = &spoolError{err}
+	}
+	return n, err
 }
