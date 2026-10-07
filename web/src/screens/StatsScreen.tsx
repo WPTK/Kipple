@@ -104,48 +104,59 @@ export function SummaryStrip({ data, compare = false }: { data: StatsSummary; co
   // Tiles show plain numbers. Tapping one shows its previous-period value; the earlier period is fetched on the first tap.
   const [open, setOpen] = useState<ReadonlySet<Tile>>(new Set());
   const period = useMemo(() => (compare && data.range ? previousPeriod(data.range) : null), [compare, data.range]);
-  // An earlier period that starts before recording did is missing data, not a quiet stretch: no comparison for it.
-  const thin = period != null && data.first_event_date != null && period.from < data.first_event_date;
-  const span = useSpanSummary(thin ? null : period, open.size > 0);
-  const prev = span.data?.totals;
-  const failed = !thin && open.size > 0 && (span.isError || (span.isSuccess && !span.data?.totals));
+  // Statistics off, deleted, or not yet timed leave gaps, which are not quiet days: a tile whose earlier span starts
+  // before the server's covered date (opens) or timed date (active time) makes no comparison.
+  const thinFor = (k: Tile) => {
+    const from = k === "time" ? data.timed_from : data.covered_from;
+    return period == null || from == null || period.from < from;
+  };
+  const wanted = (["items", "time", "days"] as const).some((k) => open.has(k) && !thinFor(k));
+  const prevSpan = useSpanSummary(wanted ? period : null, true);
+  const curSpan = useSpanSummary(wanted && period ? period.current : null, true);
+  const prev = prevSpan.data?.totals;
+  const cur = curSpan.data?.totals;
+  const failed = wanted && (prevSpan.isError || curSpan.isError || (prevSpan.isSuccess && !prev) || (curSpan.isSuccess && !cur));
+  const retry = () => {
+    void prevSpan.refetch();
+    void curSpan.refetch();
+  };
   const flip = (k: Tile) =>
     setOpen((o) => {
       const n = new Set(o);
       if (!n.delete(k)) n.add(k);
       return n;
     });
-  const noteFor = (now: number, before: number | undefined, show: (n: number) => string) => {
-    if (thin) return "Not enough history";
-    if (before != null) return changeLabel(now, before, show);
+  const noteFor = (k: Tile, now: number | undefined, before: number | undefined, show: (n: number) => string) => {
+    if (thinFor(k)) return "Not enough history";
+    if (now != null && before != null) return changeLabel(now, before, show);
     return failed ? "Unavailable" : "Loading";
   };
-  const tile = (k: Tile, label: string, now: number, before: number | undefined, show: (n: number) => string) => (
+  const tile = (k: Tile, label: string, total: number, now: number | undefined, before: number | undefined, show: (n: number) => string) => (
     <Stat
       label={label}
-      value={show(now)}
+      value={show(total)}
       onToggle={period ? () => flip(k) : undefined}
-      describedBy={noteId}
-      note={period && open.has(k) ? noteFor(now, before, show) : null}
+      describedBy={wanted ? noteId : undefined}
+      note={period && open.has(k) ? noteFor(k, now, before, show) : null}
     />
   );
   const num = (n: number) => String(n);
   return (
     <Section title="Summary">
       <div className="grid grid-cols-3 gap-2">
-        {tile("items", "Items read", t?.items_read ?? 0, prev?.items_read, num)}
-        {tile("time", "Active time", t?.active_seconds ?? 0, prev?.active_seconds, durationLabel)}
-        {tile("days", "Days with reading", t?.days_active ?? 0, prev?.days_active, num)}
+        {tile("items", "Items read", t?.items_read ?? 0, cur?.items_read, prev?.items_read, num)}
+        {tile("time", "Active time", t?.active_seconds ?? 0, cur?.active_seconds, prev?.active_seconds, durationLabel)}
+        {tile("days", "Days with reading", t?.days_active ?? 0, cur?.days_active, prev?.days_active, num)}
       </div>
-      {period && open.size > 0 ? (
+      {period && wanted ? (
         <p id={noteId} role="status" className="mt-2 text-xs text-fg2">
-          {thin ? `Recording began after ${period.label} started.` : `Compared with ${period.label}.`}
+          {`Complete days only, so today is left out of both: compared with ${period.label}.`}
         </p>
       ) : null}
       {failed ? (
         <div role="alert" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           Couldn't load the earlier period.
-          <Button onClick={() => void span.refetch()}>Try again</Button>
+          <Button onClick={retry}>Try again</Button>
         </div>
       ) : null}
       <p className="mt-2 text-xs text-fg2">

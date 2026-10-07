@@ -83,9 +83,11 @@ describe("rollup", () => {
 describe("comparison and months", () => {
   it("names the period before a range", async () => {
     const { previousPeriod, changeLabel, monthlyBars } = await import("./statsFormat");
-    expect(previousPeriod({ key: "month", from: "2026-08-28", days: 30 })).toEqual({ from: "2026-07-29", to: "2026-08-27", label: "the previous 30 days" });
-    expect(previousPeriod({ key: "week", from: "2026-09-20", days: 3 })).toEqual({ from: "2026-09-13", to: "2026-09-15", label: "the same days last week" });
-    expect(previousPeriod({ key: "all", from: "2026-01-01", days: 200 })).toBeNull();
+    // Today (the range end) is left out of both sides: 29 complete days against the 29 before them.
+    expect(previousPeriod({ key: "month", from: "2026-08-28", to: "2026-09-26" })).toEqual({ current: { from: "2026-08-28", to: "2026-09-25" }, from: "2026-07-30", to: "2026-08-27", label: "the previous 29 days" });
+    expect(previousPeriod({ key: "week", from: "2026-09-20", to: "2026-09-22" })).toEqual({ current: { from: "2026-09-20", to: "2026-09-21" }, from: "2026-09-13", to: "2026-09-14", label: "the same days last week" });
+    expect(previousPeriod({ key: "week", from: "2026-09-20", to: "2026-09-20" })).toBeNull(); // only today: no complete day yet
+    expect(previousPeriod({ key: "all", from: "2026-01-01", to: "2026-07-19" })).toBeNull();
     const n = (x: number) => String(x);
     expect(changeLabel(142, 120, n)).toBe("+18% from 120");
     expect(changeLabel(38, 40, n)).toBe("-5% from 40");
@@ -118,12 +120,7 @@ describe("day arithmetic with a pinned time zone", () => {
     expect(addDays("2026-11-02", -1)).toBe("2026-11-01");
     expect(addDays("2028-02-28", 2)).toBe("2028-03-01");
     expect(addDays("2028-03-01", -1)).toBe("2028-02-29");
-    expect(previousPeriod({ key: "month", from: "2026-03-20", days: 30 })).toEqual({ from: "2026-02-18", to: "2026-03-19", label: "the previous 30 days" });
-    expect(previousPeriod({ key: "year", from: "2028-03-01", days: 365 })?.to).toBe("2028-02-29");
-  });
-
-  it("calls a full week of days 'last week'", async () => {
-    const { previousPeriod } = await import("./statsFormat");
-    expect(previousPeriod({ key: "week", from: "2026-09-20", days: 7 })).toEqual({ from: "2026-09-13", to: "2026-09-19", label: "last week" });
+    expect(previousPeriod({ key: "month", from: "2026-03-20", to: "2026-04-18" })).toEqual({ current: { from: "2026-03-20", to: "2026-04-17" }, from: "2026-02-19", to: "2026-03-19", label: "the previous 29 days" });
+    expect(previousPeriod({ key: "year", from: "2028-03-01", to: "2029-02-28" })?.to).toBe("2028-02-29");
   });
 });

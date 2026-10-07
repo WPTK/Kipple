@@ -257,6 +257,16 @@ func (d *DB) setSettings(ctx context.Context, set map[string]any, theme string) 
 				}
 			}
 		}
+		if v, ok := set["stats.enabled"]; ok && (v == nil || v == true) {
+			// Turning recording back on ends a stretch with no rows: days up to today are a gap, not quiet.
+			if was, err := StatsEnabled(ctx, tx); err != nil {
+				return err
+			} else if !was {
+				if err := RecordStatsGap(ctx, tx, "", d.Clock().Now()); err != nil {
+					return err
+				}
+			}
+		}
 		return setSettingsTx(ctx, tx, set)
 	})
 }

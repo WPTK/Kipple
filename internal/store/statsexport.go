@@ -123,7 +123,8 @@ func StatsCount(ctx context.Context, q Querier, from, to string) (int, error) {
 }
 
 // StatsDelete deletes the stats_events rows whose local_date is in from..to (empty = every row)
-// and returns how many went. It touches no other table. It works in id windows of
+// and returns how many went. It touches no other table, but it records the gap it leaves (a
+// window that removed rows moves SettingStatsGapEnd to the newest local_date it removed). It works in id windows of
 // StatsDeleteBatch, one WithWrite transaction each, so the single writer is never held long and a
 // window with no matches costs an index-bounded probe rather than a table scan. Rows recorded
 // after it starts are not considered. On an error part of the range may already be gone; running
@@ -163,13 +164,22 @@ func StatsDelete(ctx context.Context, d *DB, from, to string, progress func()) (
 			if err := EnsureStatsTimedSince(ctx, tx, d.Clock().Now().Unix()); err != nil {
 				return err
 			}
+			// The gap is exactly the days of the rows that go: through the newest of them.
+			var newest sql.NullString
+			if err := tx.QueryRowContext(ctx, `SELECT MAX(local_date) FROM stats_events WHERE id >= ?1 AND id <= ?2 AND local_date BETWEEN ?3 AND ?4`,
+				next.Int64, upper, from, to).Scan(&newest); err != nil {
+				return err
+			}
 			res, err := tx.ExecContext(ctx, `DELETE FROM stats_events WHERE id >= ?1 AND id <= ?2 AND local_date BETWEEN ?3 AND ?4`,
 				next.Int64, upper, from, to)
 			if err != nil {
 				return err
 			}
 			n, err = res.RowsAffected()
-			return err
+			if err != nil || n == 0 || !newest.Valid {
+				return err
+			}
+			return RecordStatsGap(ctx, tx, newest.String, d.Clock().Now())
 		})
 		if err != nil {
 			return total, err

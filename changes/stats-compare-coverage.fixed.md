@@ -1,0 +1,1 @@
+Statistics: comparing a tile with an earlier period no longer reads days when statistics were off, that you deleted, or that a restore replaced, as zero reading ("up from 0"); it says "Not enough history" instead, and Active time waits for the day reading time was first recorded. The comparison also counts complete days only, so today is left out of both periods.

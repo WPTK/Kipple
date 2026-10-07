@@ -368,6 +368,9 @@ func applyStagedRestore(dataDir string, logger *slog.Logger) error {
 			"confirmed_at", done.MarkerTime.UTC().Format(time.RFC3339))
 	}
 	if done.Restored {
+		if done.GapErr != nil {
+			logger.Warn("the restore is applied; its statistics gap could not be recorded, so comparisons may read the days since the backup as quiet", "err", done.GapErr)
+		}
 		logger.Info("applied the restore or reset confirmed in the browser; every web session was signed out",
 			"username", done.Username, "backup_created_at", done.CreatedAt, "backup_kipple_version", done.KippleVersion,
 			"previous_database", done.Pre)

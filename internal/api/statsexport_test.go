@@ -383,8 +383,13 @@ func TestStatsDelete(t *testing.T) {
 	require.Equal(t, 10, h.count("SELECT count(*) FROM stats_events"))
 	require.Equal(t, 10, h.count("SELECT count(*) FROM stats_events WHERE local_date = '2026-09-25'"), "outside the range is kept")
 	for _, tb := range tables {
-		require.Equal(t, before[tb], h.count("SELECT count(*) FROM "+tb), tb+" is untouched")
+		want := before[tb]
+		if tb == "settings" {
+			want++ // the delete records its gap, so a comparison does not read the range as quiet days
+		}
+		require.Equal(t, want, h.count("SELECT count(*) FROM "+tb), tb+" is untouched")
 	}
+	require.Equal(t, 1, h.count("SELECT count(*) FROM settings WHERE key = 'sys.stats_gap_end' AND value = '\"2026-09-21\"'"))
 	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE starred = 1"))
 
 	// Nothing left in the range: zero, and a later delete works with sparse ids.

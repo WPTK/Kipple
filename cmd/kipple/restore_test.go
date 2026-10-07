@@ -143,7 +143,37 @@ func TestRestoreRoundTripKeepsThePreRestoreCopy(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "owner", acc.Username)
+	var gap string
+	require.NoError(t, db.Reader().QueryRow(`SELECT value FROM settings WHERE key = 'sys.stats_gap_end'`).Scan(&gap), "the restore records the statistics gap")
+	require.Regexp(t, `^"\d{4}-\d{2}-\d{2}"$`, gap)
 	require.NoError(t, db.Close())
+}
+
+// The start-time apply of a restore confirmed in the browser writes the statistics gap into the database
+// it installs, and logs (not returns) a gap it could not write.
+func TestStartTimeApplyRecordsTheStatsGap(t *testing.T) {
+	gapOf := func(dir string) string {
+		db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(dir, "kipple.db"), Logger: quietLog})
+		require.NoError(t, err)
+		defer db.Close()
+		var gap string
+		require.NoError(t, db.Reader().QueryRow(`SELECT value FROM settings WHERE key = 'sys.stats_gap_end'`).Scan(&gap))
+		return gap
+	}
+	dir := t.TempDir()
+	src := newData(t, 3)
+	require.NoError(t, os.Rename(filepath.Join(src, "kipple.db"), filepath.Join(dir, backup.StagedFile)))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, backup.MarkerFile), []byte(`{}`), 0o600))
+	require.NoError(t, applyStagedRestore(dir, quietLog))
+	require.Regexp(t, `^"\d{4}-\d{2}-\d{2}"$`, gapOf(dir), "the restore records the gap")
+
+	// A staged file that is not a database still installs; the failed gap is logged, not returned.
+	bad := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bad, backup.StagedFile), []byte("not a database"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(bad, backup.MarkerFile), []byte(`{}`), 0o600))
+	var logs bytes.Buffer
+	require.NoError(t, applyStagedRestore(bad, slog.New(slog.NewTextHandler(&logs, nil))))
+	require.Contains(t, logs.String(), "statistics gap could not be recorded")
 }
 
 func TestRestoreIntoAnEmptyDataDir(t *testing.T) {

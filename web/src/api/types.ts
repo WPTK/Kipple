@@ -332,6 +332,10 @@ export interface StatsSummary {
   week_start: WeekStart;
   range?: { key: StatsRange; from: string; to: string; days: number };
   first_event_date?: string | null;
+  /** The first date from which every day was recorded (after the first row and any stretch with statistics off or deleted); null with no history. */
+  covered_from?: string | null;
+  /** The same for active time, which also waits for the first timed event; null when nothing was ever timed. */
+  timed_from?: string | null;
   /** `legacy_opens`: opens from before reading time was recorded, counted as reads with nothing measured. */
   totals?: { items_read: number; opens: number; active_seconds: number; days_active: number; legacy_opens?: number };
   daily?: { date: string; items_read: number; active_seconds: number }[];

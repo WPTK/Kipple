@@ -386,7 +386,7 @@ describe("Stats screen", () => {
     const prev: StatsSummary = { ...richStats, totals: { items_read: 70, opens: 90, active_seconds: 4000, days_active: 12 } };
     const m = mockFetch({
       "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),
-      "GET /api/stats/summary": (u) => json(u.searchParams.get("from") ? prev : { ...richStats, first_event_date: "2026-01-01" }),
+      "GET /api/stats/summary": (u) => json(u.searchParams.get("from") ? (isCurrent(u) ? richStats : prev) : { ...richStats, covered_from: "2026-01-01" }),
       "GET /api/items": () => json({ items: [], next_cursor: null }),
     });
     const user = userEvent.setup();
@@ -396,7 +396,11 @@ describe("Stats screen", () => {
     expect(statsCalls(m).some((c) => c.url.searchParams.get("from"))).toBe(false); // nothing fetched until asked
     await user.click(within(summary).getByRole("button", { name: /Items read/ }));
     expect(await within(summary).findByText("+20% from 70")).toBeInTheDocument();
-    expect(within(summary).getByText("Compared with the previous 30 days.")).toBeInTheDocument();
+    expect(within(summary).getByText("Complete days only, so today is left out of both: compared with the previous 29 days.")).toBeInTheDocument();
+    // Both sides are complete days: the range without today, and the 29 days before it.
+    const spans = statsCalls(m).filter((c) => c.url.searchParams.get("from")).map((c) => [c.url.searchParams.get("from"), c.url.searchParams.get("to")]);
+    expect(spans).toContainEqual(["2026-08-28", "2026-09-25"]);
+    expect(spans).toContainEqual(["2026-07-30", "2026-08-27"]);
     await user.click(within(summary).getByRole("button", { name: /Items read/ }));
     expect(within(summary).queryByText(/from 70/)).toBeNull();
   });
@@ -413,10 +417,12 @@ describe("Stats screen", () => {
   });
 
   const prevTotals = { items_read: 70, opens: 90, active_seconds: 4000, days_active: 12 };
+  /** A span request for the range itself less today, not the earlier span. */
+  const isCurrent = (u: URL) => u.searchParams.get("from") === "2026-08-28";
 
   it("says so, with a retry, when the earlier period cannot be loaded", async () => {
     let fail = true;
-    setupSpan((u) => (u.searchParams.get("from") ? (fail ? json({ error: "boom" }, 500) : { ...richStats, totals: prevTotals }) : { ...richStats, first_event_date: "2026-01-01" }));
+    setupSpan((u) => (u.searchParams.get("from") ? (fail ? json({ error: "boom" }, 500) : isCurrent(u) ? richStats : { ...richStats, totals: prevTotals }) : { ...richStats, covered_from: "2026-01-01" }));
     const user = userEvent.setup();
     go();
     const summary = await screen.findByRole("region", { name: "Summary" });
@@ -428,17 +434,34 @@ describe("Stats screen", () => {
     expect(await within(summary).findByText("+20% from 70")).toBeInTheDocument();
   });
 
-  it("makes no comparison for a period that starts before recording did", async () => {
-    setupSpan((u) => (u.searchParams.get("from") ? { ...richStats, totals: { ...prevTotals, items_read: 0 } } : { ...richStats, first_event_date: "2026-09-10" }));
+  it("makes no comparison for a period that starts before recording was complete", async () => {
+    // covered_from is after the earlier span (statistics were off, or the range was deleted): its zeros are gaps.
+    const m = setupSpan((u) => (u.searchParams.get("from") ? { ...richStats, totals: { ...prevTotals, items_read: 0 } } : { ...richStats, covered_from: "2026-09-10" }));
     const user = userEvent.setup();
     go();
     const summary = await screen.findByRole("region", { name: "Summary" });
     await user.click(within(summary).getByRole("button", { name: /Items read/ }));
     expect(await within(summary).findByText("Not enough history")).toBeInTheDocument();
     expect(within(summary).queryByText(/from 0/)).toBeNull();
+    expect(within(summary).queryByText(/Complete days only/)).toBeNull(); // nothing is compared, so nothing to explain
+    expect(within(summary).getByRole("button", { name: /Items read/ })).not.toHaveAttribute("aria-describedby"); // no dangling reference
+    expect(statsCalls(m).some((c) => c.url.searchParams.get("from"))).toBe(false); // nothing to fetch for it
   });
 
-  it("ties the comparison line to the tile, and a week compares with 'last week'", async () => {
+  it("bounds the active time comparison by when time was first recorded", async () => {
+    setupSpan((u) =>
+      u.searchParams.get("from") ? (isCurrent(u) ? richStats : { ...richStats, totals: prevTotals }) : { ...richStats, covered_from: "2026-01-01", timed_from: "2026-09-10" },
+    );
+    const user = userEvent.setup();
+    go();
+    const summary = await screen.findByRole("region", { name: "Summary" });
+    await user.click(within(summary).getByRole("button", { name: /Active time/ }));
+    expect(await within(summary).findByText("Not enough history")).toBeInTheDocument();
+    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    expect(await within(summary).findByText("+20% from 70")).toBeInTheDocument();
+  });
+
+  it("ties the comparison line to the tile, and a week compares with the same days last week", async () => {
     setupSpan((u) =>
       u.searchParams.get("from")
         ? { ...richStats, totals: prevTotals }
@@ -451,7 +474,7 @@ describe("Stats screen", () => {
     const summary = await screen.findByRole("region", { name: "Summary" });
     const tile = within(summary).getByRole("button", { name: /Items read/ });
     await user.click(tile);
-    const line = await within(summary).findByText("Compared with last week.");
+    const line = await within(summary).findByText("Complete days only, so today is left out of both: compared with the same days last week.");
     expect(tile.getAttribute("aria-describedby")).toBe(line.id);
   });
 
