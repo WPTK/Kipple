@@ -68,6 +68,8 @@ func TestStatsSummaryDefinitions(t *testing.T) {
 	require.Equal(t, "America/New_York", out["tz"])
 	require.Equal(t, "sunday", out["week_start"])
 	require.Equal(t, "2026-09-01", out["first_event_date"])
+	require.Equal(t, "2026-09-01", out["covered_from"])
+	require.NotNil(t, out["timed_from"])
 	rg := out["range"].(map[string]any)
 	require.Equal(t, "month", rg["key"])
 	require.Equal(t, "2026-08-26", rg["from"])

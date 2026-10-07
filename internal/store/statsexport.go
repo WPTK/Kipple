@@ -169,7 +169,10 @@ func StatsDelete(ctx context.Context, d *DB, from, to string, progress func()) (
 				return err
 			}
 			n, err = res.RowsAffected()
-			return err
+			if err != nil || n == 0 {
+				return err
+			}
+			return RecordStatsGap(ctx, tx, to, d.Clock().Now().Unix())
 		})
 		if err != nil {
 			return total, err

@@ -243,17 +243,27 @@ export function addDays(day: string, n: number): string {
 }
 
 /**
- * The span the same-length period before a summary's range covers, and how to say it. A week so far is set against the
- * same days of the week before; month and year (the last 30 and 365 days) against the stretch just before them. "all"
- * has nothing before it.
+ * What a summary's range is compared with. Only complete days count, so the range's last day (today, for every range
+ * the screen offers) is left out of both sides: `current` is the range without it, and the earlier span has the same
+ * length. A week so far is set against the same days of the week before; month and year (the last 30 and 365 days)
+ * against the stretch just before. "all" has nothing before it, nor does a range that is only today.
  */
-export function previousPeriod(range: { key: StatsRange; from: string; days: number }): { from: string; to: string; label: string } | null {
+export function previousPeriod(range: { key: StatsRange; from: string; to: string }): {
+  current: { from: string; to: string };
+  from: string;
+  to: string;
+  label: string;
+} | null {
   if (range.key === "all") return null;
+  const to = addDays(range.to, -1);
+  const days = daysBetween(range.from, to) + 1;
+  if (days < 1) return null;
+  const current = { from: range.from, to };
   if (range.key === "week") {
     const from = addDays(range.from, -7);
-    return { from, to: addDays(from, range.days - 1), label: range.days >= 7 ? "last week" : "the same days last week" };
+    return { current, from, to: addDays(from, days - 1), label: days >= 7 ? "last week" : "the same days last week" };
   }
-  return { from: addDays(range.from, -range.days), to: addDays(range.from, -1), label: `the previous ${range.days} days` };
+  return { current, from: addDays(range.from, -days), to: addDays(range.from, -1), label: `the previous ${days} days` };
 }
 
 /** "+18% from 120", "-5% from 40", "no change from 7", "up from 0" or "no change from 0" when the earlier value was zero. */

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"math"
 	"sort"
@@ -130,17 +131,24 @@ type (
 	}
 	// StatsSummary is the whole response.
 	StatsSummary struct {
-		Enabled        bool          `json:"enabled"`
-		TZ             string        `json:"tz"`
-		WeekStart      string        `json:"week_start"`
-		Range          *StatsRange   `json:"range,omitempty"`
-		FirstEventDate *string       `json:"first_event_date"`
-		Totals         StatsTotals   `json:"totals"`
-		Daily          []StatsDaily  `json:"daily"`
-		Streaks        StatsStreaks  `json:"streaks"`
-		Heatmap        []StatsHeat   `json:"heatmap"`
-		Behavior       StatsBehavior `json:"behavior"`
-		Sources        []StatsSource `json:"sources"`
+		Enabled        bool        `json:"enabled"`
+		TZ             string      `json:"tz"`
+		WeekStart      string      `json:"week_start"`
+		Range          *StatsRange `json:"range,omitempty"`
+		FirstEventDate *string     `json:"first_event_date"`
+		// CoveredFrom is the first local date from which every day has been recorded: after the
+		// first row and after the last stretch with statistics off or rows deleted (SettingStatsGapEnd).
+		// A comparison with a span that starts earlier would read a gap as zero. Nil with no history.
+		CoveredFrom *string `json:"covered_from"`
+		// TimedFrom is the same for active time: also after the first read time or scroll was recorded,
+		// as earlier opens have no time. Never before CoveredFrom; nil when nothing was ever timed.
+		TimedFrom *string       `json:"timed_from"`
+		Totals    StatsTotals   `json:"totals"`
+		Daily     []StatsDaily  `json:"daily"`
+		Streaks   StatsStreaks  `json:"streaks"`
+		Heatmap   []StatsHeat   `json:"heatmap"`
+		Behavior  StatsBehavior `json:"behavior"`
+		Sources   []StatsSource `json:"sources"`
 		// SourcesTruncated is true when more than statsSourcesMax feeds had activity and the list was cut.
 		SourcesTruncated bool               `json:"sources_truncated"`
 		NeverOpened      []StatsNeverOpened `json:"never_opened"`
@@ -328,6 +336,53 @@ func EnsureStatsTimedSince(ctx context.Context, q Querier, now int64) error {
 			UNION ALL SELECT MIN(ts) FROM stats_events INDEXED BY idx_stats_kind_ts WHERE kind = 'scroll')) WHERE t IS NOT NULL
 		ON CONFLICT(key) DO NOTHING`, SettingStatsTimedSince, now)
 	return err
+}
+
+// SettingStatsGapEnd is the hidden setting holding the last local date (a JSON string) that may be
+// missing recorded activity: the day statistics were turned back on, or the end of a deleted range.
+// Only the latest gap is kept, which is all a comparison needs: a span is complete when it starts
+// after every gap. Not user-visible.
+const SettingStatsGapEnd = "sys.stats_gap_end"
+
+// RecordStatsGap moves SettingStatsGapEnd forward to through (never back). It runs inside the
+// caller's write transaction.
+func RecordStatsGap(ctx context.Context, q Querier, through string, now int64) error {
+	cur, err := settingStringErr(ctx, q, SettingStatsGapEnd, "")
+	if err != nil || cur >= through {
+		return err
+	}
+	b, _ := json.Marshal(through)
+	_, err = q.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, SettingStatsGapEnd, string(b), now)
+	return err
+}
+
+// statsCoverage reports the dates from which opens, and active time, were recorded without a gap.
+func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first string, cut int64) (covered, timed *string, err error) {
+	if first == "" {
+		return nil, nil, nil
+	}
+	c := first
+	gap, err := settingStringErr(ctx, q, SettingStatsGapEnd, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	if gap != "" {
+		if after := parseLocalDate(gap).AddDate(0, 0, 1).Format(dateLayout); after > c {
+			c = after
+		}
+	}
+	covered = &c
+	if cut != math.MaxInt64 {
+		// The day of the first timed event may hold earlier opens without time: count from the next day.
+		t := time.Unix(cut, 0).In(loc)
+		d := time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, time.UTC).Format(dateLayout)
+		if d < c {
+			d = c
+		}
+		timed = &d
+	}
+	return covered, timed, nil
 }
 
 // statsLegacyCutoff is the ts of the earliest read_time or scroll event ever recorded (the stored
@@ -552,6 +607,9 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 
 	cut, err := statsLegacyCutoff(ctx, q, maxID)
 	if err != nil {
+		return nil, err
+	}
+	if out.CoveredFrom, out.TimedFrom, err = statsCoverage(ctx, q, loc, first, cut); err != nil {
 		return nil, err
 	}
 

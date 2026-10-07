@@ -67,6 +67,7 @@ var statsSummaryFields = [][2]string{
 	{"tz / week_start", "The time zone in force and the first day of the week (sunday or monday)."},
 	{"range", "key (week, month, year, all or custom), from and to (inclusive local dates; for all, the first date present through today), days, and last_event_date (the newest local_date of any row, which can be after today when rows were written under another time zone; null with no rows). A summary covers from..to only, so rows dated after today are not in the all summary; a raw all export has no end and includes them."},
 	{"first_event_date", "Smallest local_date of any row, or null."},
+	{"covered_from / timed_from", "The first local date from which every day was recorded: after the first row and after the last stretch with recording off or rows deleted (covered_from), and also after the first read time or scroll (timed_from, for active time). A span that starts earlier has gaps that are not quiet days. null with no history, and for timed_from when nothing was ever timed."},
 	{"totals.opens", "Count of open rows."},
 	{"totals.items_read", "Distinct items with a read open (see read; legacy opens are included)."},
 	{"totals.active_seconds", "Sum of read_time values."},
