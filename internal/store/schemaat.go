@@ -85,17 +85,16 @@ func ReadSchema(ctx context.Context, q Querier) ([]SchemaObject, error) {
 	return out, nil
 }
 
-// Shape describes what a table or index is, from SQLite's own reading of it
-// rather than its text: for a table its kind (ordinary, virtual or shadow),
-// WITHOUT ROWID and STRICT, and each column's name, declared type, NOT NULL,
-// primary key place and hidden or generated flag; a virtual table adds its
-// definition (module and arguments). For an index, UNIQUE, partial, and each
-// key column's name (or expression), order and collation. "" for the rest.
-// The text of a table can differ between databases of the same schema (a
-// migration's comments were edited after it shipped); its shape cannot.
+// Shape describes what a table or index is, from SQLite's own reading of it:
+// for a table its kind (ordinary, virtual or shadow), WITHOUT ROWID and STRICT,
+// and each column's name, declared type, NOT NULL, primary key place and hidden
+// or generated flag. For an index, UNIQUE, partial, and each key column's name
+// (or expression), order and collation. "" for the rest. It says nothing of
+// constraints or defaults: those are in an object's text, which a restore
+// compares first, by NormalizeSQL, from sqlite_master alone.
 // Reading it runs SQLite's own code on the object (a virtual table is
-// connected), so a restore reads shapes only of objects whose names, and for a
-// virtual table whose definition, it has already matched.
+// connected), so a restore reads shapes only of objects whose names and text
+// it has already matched.
 func Shape(ctx context.Context, q Querier, o SchemaObject) (string, error) {
 	var b strings.Builder
 	switch o.Type {
@@ -106,9 +105,6 @@ func Shape(ctx context.Context, q Querier, o SchemaObject) (string, error) {
 			return "", err
 		}
 		fmt.Fprintf(&b, "%s wr=%d strict=%d", kind, wr, strict)
-		if kind == "virtual" {
-			b.WriteString(" " + strings.Join(strings.Fields(o.SQL), " "))
-		}
 		rows, err := q.QueryContext(ctx, `SELECT name, upper(type), "notnull", pk, hidden FROM pragma_table_xinfo(?) ORDER BY cid`, o.Name)
 		if err != nil {
 			return "", err
@@ -145,4 +141,64 @@ func Shape(ctx context.Context, q Querier, o SchemaObject) (string, error) {
 		return b.String(), rows.Err()
 	}
 	return "", nil
+}
+
+// NormalizeSQL is the text of a statement with its comments dropped and each
+// run of whitespace outside quotes folded to one space, so two spellings of one
+// definition compare equal and any other difference does not.
+func NormalizeSQL(s string) string {
+	var b strings.Builder
+	space := false
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch {
+		case strings.HasPrefix(s[i:], "--"):
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+			space = true
+		case strings.HasPrefix(s[i:], "/*"):
+			if end := strings.Index(s[i+2:], "*/"); end >= 0 {
+				i += end + 4
+			} else {
+				i = len(s)
+			}
+			space = true
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			i++
+			space = true
+		default:
+			if space && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			space = false
+			closing := byte(0) // the closing quote, when c opens one
+			switch c {
+			case '\'', '"', '`':
+				closing = c
+			case '[':
+				closing = ']'
+			}
+			if closing == 0 {
+				b.WriteByte(c)
+				i++
+				break
+			}
+			j := i + 1
+			for j < len(s) {
+				if s[j] == closing {
+					if closing != ']' && j+1 < len(s) && s[j+1] == closing { // a doubled quote is a literal one
+						j += 2
+						continue
+					}
+					break
+				}
+				j++
+			}
+			j = min(j+1, len(s))
+			b.WriteString(s[i:j])
+			i = j
+		}
+	}
+	return b.String()
 }
