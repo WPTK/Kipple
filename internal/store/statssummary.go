@@ -38,7 +38,11 @@ type StatsSummaryParams struct {
 	Key             string // week, month, year, all or custom
 	From, To        string // "" for all: from the first event through today
 	IncludeInferred bool
-	Now             time.Time
+	// FeedID, when not 0, scopes every count of the summary to that one feed: totals, daily, streaks,
+	// heatmap, behavior, sources and never_opened. The dates and coverage stay those of all statistics,
+	// since a stretch with statistics off or deleted is a gap for every feed alike.
+	FeedID int64
+	Now    time.Time
 	// WhenOff computes the summary from the stored rows even while recording is off (the export
 	// does; GET /api/stats/summary leaves it false and gets the empty off shape).
 	WhenOff bool
@@ -223,12 +227,13 @@ const (
 	// sqlStreaks probes each distinct open date once and stops at its first qualifying open. Both
 	// the date list and the probe read idx_stats_open_cov; the session lookups read idx_stats_session.
 	// The read rule is statsIsRead's: legacy (ts < ?1), or read time >= ?4, or a scroll >= ?3 with
-	// read time >= ?6. The scroll probe (one row per session) runs before the second read-time sum,
-	// so that sum is taken again only for a session that scrolled far enough and has under ?4.
+	// read time >= ?6. ?7 is a feed id to count only that feed's opens, or 0 for all. The scroll
+	// probe (one row per session) runs before the second read-time sum, so that sum is taken again
+	// only for a session that scrolled far enough and has under ?4.
 	sqlStreaks = `SELECT d.local_date FROM (
-		SELECT local_date FROM stats_events INDEXED BY idx_stats_open_cov WHERE kind = 'open' AND inferred <= ?2 AND rowid <= ?5 GROUP BY local_date) d
+		SELECT local_date FROM stats_events INDEXED BY idx_stats_open_cov WHERE kind = 'open' AND inferred <= ?2 AND rowid <= ?5 AND (?7 = 0 OR feed_id = ?7) GROUP BY local_date) d
 		WHERE EXISTS (SELECT 1 FROM stats_events e INDEXED BY idx_stats_open_cov
-		 WHERE e.kind = 'open' AND e.inferred <= ?2 AND e.local_date = d.local_date AND e.rowid <= ?5 AND (e.ts < ?1
+		 WHERE e.kind = 'open' AND e.inferred <= ?2 AND e.local_date = d.local_date AND e.rowid <= ?5 AND (?7 = 0 OR e.feed_id = ?7) AND (e.ts < ?1
 		  OR (SELECT SUM(r.value) FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'read_time' AND r.id <= ?5) >= ?4
 		  OR (EXISTS (SELECT 1 FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'scroll' AND r.value >= ?3 AND r.id <= ?5)
 		   AND (SELECT SUM(r.value) FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'read_time' AND r.id <= ?5) >= ?6)))
@@ -269,8 +274,9 @@ func statsHinted() []statsHint {
 		{"scroll", sqlScroll, "idx_stats_scroll_cov", 1, []any{lo, hi, max}},
 		{"stars", sqlStars, "idx_stats_kind_ts", 1, []any{0, 0, 1 << 40, lo, hi, max}},
 		{"open_original", sqlOrig, "idx_stats_kind_ts", 1, []any{0, 0, 1 << 40, lo, hi, max}},
-		{"streaks", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
-		{"streaks sessions", sqlStreaks, "idx_stats_session", 3, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
+		{"streaks", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds, 0}},
+		{"streaks sessions", sqlStreaks, "idx_stats_session", 3, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds, 0}},
+		{"streaks of a feed", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds, 7}},
 		{"name by read time", sqlNameByReadTime, "idx_stats_feed", 1, []any{1, 0, 1 << 40, lo, hi, max}},
 	}
 }
@@ -648,7 +654,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		return
 	})
 	g.Go(func(c context.Context) (e error) {
-		streaks, e = statsStreaks(c, q, cut, inc, today, maxID)
+		streaks, e = statsStreaks(c, q, cut, inc, today, maxID, p.FeedID)
 		return
 	})
 	g.Go(func(c context.Context) error {
@@ -677,6 +683,26 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	})
 	if err := g.Wait(); err != nil {
 		return nil, err
+	}
+	if f := p.FeedID; f != 0 {
+		// One feed: the scans above read every feed (their covering indexes stay exact), and the rows
+		// of the others are dropped before anything is counted, so a feed's numbers follow the same rules.
+		kept := opens[:0]
+		for _, o := range opens {
+			if o.feed == f {
+				kept = append(kept, o)
+			}
+		}
+		opens = kept
+		for k := range rt {
+			if k.feed != f {
+				delete(rt, k)
+			}
+		}
+		stars, origs = map[int64]starAgg{f: stars[f]}, map[int64]int{f: origs[f]}
+		if stars[f].n == 0 {
+			delete(stars, f)
+		}
 	}
 	for i := range opens {
 		o := &opens[i]
@@ -992,7 +1018,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		if err := nRows.Scan(&id, &title, &fname, &created); err != nil {
 			return err
 		}
-		if a := feeds[id]; a != nil && a.opens > 0 {
+		if a := feeds[id]; (a != nil && a.opens > 0) || (p.FeedID != 0 && id != p.FeedID) {
 			return nil
 		}
 		if len(out.NeverOpened) >= statsNeverMax {
@@ -1034,9 +1060,9 @@ func statsCountByFeed(ctx context.Context, q Querier, query string, args ...any)
 // statsStreaks computes the all-time streaks over local dates with at least one read open (see
 // sqlStreaks). A date later than today (rows written under a different time zone, or a clock that
 // moved back) counts as today, so the current streak cannot drop to 0 because of it.
-func statsStreaks(ctx context.Context, q Querier, cut int64, inc int, today string, maxID int64) (StatsStreaks, error) {
+func statsStreaks(ctx context.Context, q Querier, cut int64, inc int, today string, maxID, feed int64) (StatsStreaks, error) {
 	var st StatsStreaks
-	rows, err := q.QueryContext(ctx, sqlStreaks, cut, inc, StatsReadScroll, StatsReadSeconds, maxID, StatsReadScrollSeconds)
+	rows, err := q.QueryContext(ctx, sqlStreaks, cut, inc, StatsReadScroll, StatsReadSeconds, maxID, StatsReadScrollSeconds, feed)
 	if err != nil {
 		return st, err
 	}

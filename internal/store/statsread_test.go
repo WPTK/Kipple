@@ -62,7 +62,7 @@ func (e *env) putCase(i int, c readCase) {
 // checked on its own (the streak numbers alone would hide which dates qualified).
 func (e *env) streakDates(cut int64) map[string]bool {
 	e.t.Helper()
-	rows, err := e.db.Reader().QueryContext(e.ctx, sqlStreaks, cut, 0, StatsReadScroll, StatsReadSeconds, int64(1)<<40, StatsReadScrollSeconds)
+	rows, err := e.db.Reader().QueryContext(e.ctx, sqlStreaks, cut, 0, StatsReadScroll, StatsReadSeconds, int64(1)<<40, StatsReadScrollSeconds, 0)
 	require.NoError(e.t, err)
 	got := map[string]bool{}
 	require.NoError(e.t, eachRow(rows, func() error {

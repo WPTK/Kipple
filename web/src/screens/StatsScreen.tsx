@@ -1,5 +1,6 @@
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
+import { ChevronRight } from "lucide-react";
 import { useSpanSummary, useStatsSummary } from "@/api/stats";
 import { errorMessage } from "@/api/client";
 import type { StatsSummary } from "@/api/types";
@@ -35,18 +36,19 @@ import { HEAT_MIX } from "@/theme/contrast";
 import { useStatsEnabled } from "@/lib/statsSender";
 import { useMedia } from "@/lib/useMedia";
 import { Button } from "@/ui/button";
-import { Notice, Skeleton } from "@/ui/kit";
+import { Modal, Notice, Skeleton } from "@/ui/kit";
 import { Segmented } from "@/ui/segmented";
 import { useWrappedEnabled } from "@/lib/wrapped";
 import { StatsDataSection, StatsExportDialog } from "./StatsDataDialogs";
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, children, sub = false }: { title: string; children: ReactNode; sub?: boolean }) {
   const id = useId();
+  const H = sub ? "h3" : "h2";
   return (
-    <section aria-labelledby={id} className="border-b border-line py-5">
-      <h2 id={id} className="mb-3 text-lg font-bold">
+    <section aria-labelledby={id} className={sub ? "border-t border-line pt-4" : "border-b border-line py-5"}>
+      <H id={id} className={sub ? "mb-3 text-base font-bold" : "mb-3 text-lg font-bold"}>
         {title}
-      </h2>
+      </H>
       {children}
     </section>
   );
@@ -98,8 +100,23 @@ export const READ_RULE =
 type Tile = "items" | "time" | "days";
 
 export function SummaryStrip({ data, compare = false }: { data: StatsSummary; compare?: boolean }) {
+  const legacy = data.totals?.legacy_opens ?? 0;
+  return (
+    <Section title="Summary">
+      <SummaryTiles data={data} compare={compare} />
+      <p className="mt-2 text-xs text-fg2">
+        {READ_RULE}
+        {legacy > 0
+          ? ` ${plural(legacy, "open")} in this range predate reading time. ${legacy === 1 ? "It counts" : "They count"} as read, with no time.`
+          : ""}
+      </p>
+    </Section>
+  );
+}
+
+/** The three summary tiles of `data`, each comparable on a tap. With `feed`, the earlier period is that feed's too. */
+export function SummaryTiles({ data, compare = false, feed }: { data: StatsSummary; compare?: boolean; feed?: string }) {
   const t = data.totals;
-  const legacy = t?.legacy_opens ?? 0;
   const noteId = useId();
   // Tiles show plain numbers. Tapping one shows its previous-period value; the earlier period is fetched on the first tap.
   const [open, setOpen] = useState<ReadonlySet<Tile>>(new Set());
@@ -111,8 +128,8 @@ export function SummaryStrip({ data, compare = false }: { data: StatsSummary; co
     return period == null || from == null || period.from < from;
   };
   const wanted = (["items", "time", "days"] as const).some((k) => open.has(k) && !thinFor(k));
-  const prevSpan = useSpanSummary(wanted ? period : null, true);
-  const curSpan = useSpanSummary(wanted && period ? period.current : null, true);
+  const prevSpan = useSpanSummary(wanted ? period : null, true, feed);
+  const curSpan = useSpanSummary(wanted && period ? period.current : null, true, feed);
   const prev = prevSpan.data?.totals;
   const cur = curSpan.data?.totals;
   const failed = wanted && (prevSpan.isError || curSpan.isError || (prevSpan.isSuccess && !prev) || (curSpan.isSuccess && !cur));
@@ -142,7 +159,7 @@ export function SummaryStrip({ data, compare = false }: { data: StatsSummary; co
   );
   const num = (n: number) => String(n);
   return (
-    <Section title="Summary">
+    <>
       <div className="grid grid-cols-3 gap-2">
         {tile("items", "Items read", t?.items_read ?? 0, cur?.items_read, prev?.items_read, num)}
         {tile("time", "Active time", t?.active_seconds ?? 0, cur?.active_seconds, prev?.active_seconds, durationLabel)}
@@ -159,13 +176,7 @@ export function SummaryStrip({ data, compare = false }: { data: StatsSummary; co
           <Button onClick={retry}>Try again</Button>
         </div>
       ) : null}
-      <p className="mt-2 text-xs text-fg2">
-        {READ_RULE}
-        {legacy > 0
-          ? ` ${plural(legacy, "open")} in this range predate reading time. ${legacy === 1 ? "It counts" : "They count"} as read, with no time.`
-          : ""}
-      </p>
-    </Section>
+    </>
   );
 }
 
@@ -432,7 +443,29 @@ function SourceName({ r, by }: { r: SourceRow; by: "feeds" | "folders" }) {
   );
 }
 
-export function Sources({ data }: { data: StatsSummary }) {
+/** A source's name and amount: for a feed, a button that opens its drill-down sheet. */
+function SourceHead({ r, by, amount, onOpen }: { r: SourceRow; by: "feeds" | "folders"; amount: string; onOpen?: (r: SourceRow) => void }) {
+  const inner = (
+    <>
+      <SourceName r={r} by={by} />
+      <span className="ml-auto shrink-0 tabular-nums">{amount}</span>
+    </>
+  );
+  if (by !== "feeds" || !onOpen) return <div className="flex items-baseline justify-between gap-2">{inner}</div>;
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      onClick={() => onOpen(r)}
+      className="flex min-h-6 w-full min-w-0 items-baseline gap-2 rounded text-left hover:text-link"
+    >
+      {inner}
+      <ChevronRight aria-hidden="true" className="size-4 shrink-0 self-center text-fg2" />
+    </button>
+  );
+}
+
+export function Sources({ data, onOpen }: { data: StatsSummary; onOpen?: (r: SourceRow) => void }) {
   const [metric, setMetric] = useState<SourceMetric>("items");
   const [by, setBy] = useState<"feeds" | "folders">("feeds");
   const [all, setAll] = useState(false);
@@ -444,6 +477,7 @@ export function Sources({ data }: { data: StatsSummary }) {
   }, [sources, metric, by]);
   if (rows.length === 0 && (sources?.length ?? 0) === 0) return <Empty>Nothing read yet.</Empty>;
   const val = (r: SourceRow) => (metric === "items" ? r.items_read : r.active_seconds);
+  const amount = (r: SourceRow) => (metric === "items" ? String(r.items_read) : durationLabel(r.active_seconds));
   const max = Math.max(1, ...rows.map(val));
   const starred = mostStarred(by === "feeds" ? feedRows(sources ?? []) : folderRows(sources ?? []));
   const shown = all ? rows : rows.slice(0, SHOWN);
@@ -502,10 +536,7 @@ export function Sources({ data }: { data: StatsSummary }) {
             {shown.map((r) => (
               <tr key={r.key} className="border-b border-line align-top">
                 <th scope="row" className="min-w-0 py-2 pr-2 text-left font-normal">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <SourceName r={r} by={by} />
-                    <span className="shrink-0 tabular-nums">{metric === "items" ? r.items_read : durationLabel(r.active_seconds)}</span>
-                  </div>
+                  <SourceHead r={r} by={by} amount={amount(r)} onOpen={onOpen} />
                   <div aria-hidden="true" className="mt-1 h-1.5 rounded-full bg-surface">
                     <div className="h-full rounded-full bg-accent" style={{ width: `${Math.max(2, (val(r) / max) * 100)}%`, opacity: val(r) > 0 ? 1 : 0 }} />
                   </div>
@@ -523,10 +554,7 @@ export function Sources({ data }: { data: StatsSummary }) {
       <ul aria-label={`${by === "feeds" ? "Feeds" : "Folders"} by ${metric === "items" ? "items read" : "reading time"}`} className="flex flex-col divide-y divide-line">
         {shown.map((r) => (
           <li key={r.key} className="py-2 text-sm">
-            <div className="flex items-baseline justify-between gap-2">
-              <SourceName r={r} by={by} />
-              <span className="shrink-0 tabular-nums">{metric === "items" ? r.items_read : durationLabel(r.active_seconds)}</span>
-            </div>
+            <SourceHead r={r} by={by} amount={amount(r)} onOpen={onOpen} />
             <div aria-hidden="true" className="mt-1 h-1.5 rounded-full bg-surface">
               <div className="h-full rounded-full bg-accent" style={{ width: `${Math.max(2, (val(r) / max) * 100)}%`, opacity: val(r) > 0 ? 1 : 0 }} />
             </div>
@@ -568,6 +596,89 @@ export function NeverOpened({ data }: { data: StatsSummary }) {
   );
 }
 
+// ---- 8. One feed ------------------------------------------------------------------------------------------------
+
+const RANGE_WORDS: Record<ScreenRange, string> = {
+  week: "This week",
+  month: "The last 30 days",
+  year: "The last 365 days",
+  months: "Every month on record",
+  all: "All time",
+};
+
+/** One feed's numbers over the screen's range, in a sheet opened from its row under Sources. */
+export function FeedSheet({ feed, range, onClose }: { feed: SourceRow | null; range: ScreenRange; onClose: () => void }) {
+  if (!feed) return null;
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+      size="lg"
+      title={feed.name}
+      description={`${RANGE_WORDS[range]}${feed.subscribed ? "" : ". Unsubscribed"}.`}
+      footer={<Button onClick={onClose}>Close</Button>}
+    >
+      <FeedDetail key={feed.key} feed={feed.key} range={range} />
+    </Modal>
+  );
+}
+
+function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
+  const q = useStatsSummary(apiRange(range), true, feed);
+  const data = q.data;
+  if (q.isPending) return <Skeleton rows={4} label="Loading this feed" />;
+  if (!data) {
+    return (
+      <div role="alert" className="flex flex-col items-start gap-3">
+        <Notice tone="error">{errorMessage(q.error)}</Notice>
+        <Button onClick={() => void q.refetch()}>Try again</Button>
+      </div>
+    );
+  }
+  const t = data.totals;
+  const empty = !t || (t.items_read === 0 && t.opens === 0 && t.active_seconds === 0);
+  const s = data.sources?.[0];
+  return (
+    <>
+      <div>
+        <SummaryTiles data={data} compare feed={feed} />
+      </div>
+      {range === "months" ? (
+        <Section sub title="Monthly activity">
+          <MonthlyChart data={data} empty={empty} />
+        </Section>
+      ) : (
+        <Section sub title="Daily activity">
+          <DailyChart data={data} empty={empty} />
+        </Section>
+      )}
+      <Section sub title="Engagement">
+        <dl className="grid grid-cols-2 gap-2 min-[560px]:grid-cols-5">
+          {(
+            [
+              ["Opens", String(t?.opens ?? 0)],
+              ["Avg read", durationLabel(s?.avg_read_seconds)],
+              ["Quick bounce", pctLabel(s?.bounce_rate)],
+              ["Opened original", pctLabel(s?.open_original_rate)],
+              ["Stars", String(s?.stars ?? 0)],
+            ] as const
+          ).map(([k, v]) => (
+            <div key={k} className="rounded-xl bg-surface px-3 py-2">
+              <dt className="text-xs text-fg2">{k}</dt>
+              <dd className="text-base font-bold tabular-nums">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </Section>
+      <Section sub title="Reading habits">
+        <Behavior data={data} empty={empty} />
+      </Section>
+    </>
+  );
+}
+
 // ---- Screen -----------------------------------------------------------------------------------------------------
 
 export function StatsScreen() {
@@ -577,6 +688,7 @@ export function StatsScreen() {
   const q = useStatsSummary(apiRange(range), on);
   const data = q.data;
   const [exporting, setExporting] = useState(false);
+  const [feed, setFeed] = useState<SourceRow | null>(null);
   const pick = (r: ScreenRange) => {
     setRange(r);
     saveRange(r);
@@ -659,7 +771,7 @@ export function StatsScreen() {
           <Behavior data={data} empty={empty} />
         </Section>
         <Section title="Sources">
-          <Sources data={data} />
+          <Sources data={data} onOpen={setFeed} />
         </Section>
         <Section title="Never opened">
           <NeverOpened data={data} />
@@ -685,6 +797,7 @@ export function StatsScreen() {
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">{body}</div>
       <StatsExportDialog open={exporting} onOpenChange={setExporting} defaultRange={apiRange(range)} />
+      <FeedSheet feed={feed} range={range} onClose={() => setFeed(null)} />
     </div>
   );
 }
