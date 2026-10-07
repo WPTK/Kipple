@@ -399,26 +399,41 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const markOnScrollPage = prefs.markReadOnScroll && scope.view !== "starred" && !!Page; // never a search: no Page there
   const markOnScrollPageRef = useRef(markOnScrollPage);
   markOnScrollPageRef.current = markOnScrollPage;
-  /** The page box's geometry (pageGeometry) when pageSeen was last rebuilt; null before the first rebuild. */
-  const pageGeometry = useRef<string | null>(null);
+  /** The page's layout (pageLayoutOf) the seen and passed sets were built over; null before the first rebuild. */
+  const pageGeometry = useRef<PageLayoutSnap | null>(null);
   const pageBox = useRef<HTMLDivElement | null>(null);
   /** Start again from what is on screen: seen is what is in view now, and nothing is passed. */
-  const rebuildSeen = useCallback((el: HTMLElement) => {
+  const rebuildSeen = useCallback((el: HTMLElement, now?: PageLayoutSnap) => {
     pageSeen.current = storiesInView(el);
     pagePassed.current.clear();
-    pageGeometry.current = geometryOf(el, pageBox.current);
+    pageGeometry.current = now ?? pageLayoutOf(el, pageBox.current);
   }, []);
   /**
-   * Look at the stories after a scroll. When the page's geometry changed since the last rebuild (a new plan, more pages,
-   * another width or text size; whichever of the scroll and the ResizeObserver report comes first in the frame), the
-   * stories moved under the reader, so the seen set is rebuilt instead of judged.
+   * Bring the sets up to date with the page's layout; true when they had to be rebuilt. More pages appended below
+   * (the stories already laid out keep their order and place, which the planner guarantees) keep both sets: a story
+   * the reader scrolled past is still passed. Any other change (a new plan, another width or text size, a rotation)
+   * moved stories under the reader, so the sets are rebuilt from what is on screen. Both the scroll's look and the
+   * ResizeObserver call this, so the order in which the browser reports them does not matter.
    */
-  const lookAtStories = useCallback(
-    (el: HTMLElement) => {
-      if (geometryOf(el, pageBox.current) !== pageGeometry.current) rebuildSeen(el);
-      else observeStories(el, pageSeen.current, pagePassed.current);
+  const syncPageLayout = useCallback(
+    (el: HTMLElement): boolean => {
+      const now = pageLayoutOf(el, pageBox.current);
+      const was = pageGeometry.current;
+      if (was && (sameLayout(was, now) || appended(was, now))) {
+        pageGeometry.current = now;
+        return false;
+      }
+      rebuildSeen(el, now);
+      return true;
     },
     [rebuildSeen],
+  );
+  /** Look at the stories after a scroll: judged where they are, unless the layout under them was replaced. */
+  const lookAtStories = useCallback(
+    (el: HTMLElement) => {
+      if (!syncPageLayout(el)) observeStories(el, pageSeen.current, pagePassed.current);
+    },
+    [syncPageLayout],
   );
   useLayoutEffect(() => {
     const el = parentRef.current;
@@ -461,8 +476,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     };
   }, [Page, lookAtStories]);
   // A change in the size of the pages with no scroll after it (a new plan, more pages, another width, a text size
-  // change, the page taking the place of rows) also starts again from what is on screen. A scroll in the same frame
-  // may be looked at before this reports; lookAtStories catches that case by the geometry itself. Not while a restore
+  // change, the page taking the place of rows) is brought up to date here too (syncPageLayout). Not while a restore
   // is pending: the stories at the top are only passing through.
   const pageBoxObserver = useRef<ResizeObserver | null>(null);
   const pageBoxRef = useCallback(
@@ -473,11 +487,12 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       if (!box) return;
       pageBoxObserver.current = new ResizeObserver(() => {
         const el = parentRef.current;
-        if (el && markOnScrollPageRef.current && pageRestored.current && geometryOf(el, box) !== pageGeometry.current) rebuildSeen(el);
+        // A look like a scroll's: what the new layout puts in view is seen (the first pages, more pages below).
+        if (el && markOnScrollPageRef.current && pageRestored.current) lookAtStories(el);
       });
       pageBoxObserver.current.observe(box);
     },
-    [rebuildSeen],
+    [lookAtStories],
   );
 
   // Restore focus to the anchor row when returning to the list.
@@ -1329,17 +1344,35 @@ function pageOrder(container: HTMLElement | null, items: readonly Card[]): Card[
   return ids.flatMap((id) => byId.get(id) ?? []);
 }
 
-/** A page layout's stories whose box is at least partly inside the list's box. */
-/**
- * What the page's stories are laid out over: the page box's size and the stories in DOM order. Any reflow that can move
- * a story under an unchanged scroll position changes one of them.
- */
-function geometryOf(container: HTMLElement, box: HTMLElement | null): string {
-  const r = (box ?? container).getBoundingClientRect();
-  const ids = [...container.querySelectorAll<HTMLElement>("article[data-item-id]")].map((a) => a.dataset.itemId).join(",");
-  return `${Math.round(r.width)}x${Math.round(r.height)}|${ids}`;
+/** How a page layout's stories are laid out: the pages' width, and each story in DOM order with its top in the pages. */
+interface PageLayoutSnap {
+  width: number;
+  ids: string[];
+  tops: number[];
 }
 
+function pageLayoutOf(container: HTMLElement, box: HTMLElement | null): PageLayoutSnap {
+  const b = (box ?? container).getBoundingClientRect();
+  const ids: string[] = [];
+  const tops: number[] = [];
+  for (const a of container.querySelectorAll<HTMLElement>("article[data-item-id]")) {
+    ids.push(a.dataset.itemId ?? "");
+    tops.push(Math.round(a.getBoundingClientRect().top - b.top));
+  }
+  return { width: Math.round(b.width), ids, tops };
+}
+
+/** The first `was.ids.length` stories of `now` are `was`'s, in the same places. */
+function keepsPrefix(was: PageLayoutSnap, now: PageLayoutSnap): boolean {
+  return was.width === now.width && was.ids.length <= now.ids.length && was.ids.every((id, i) => now.ids[i] === id && now.tops[i] === was.tops[i]);
+}
+
+const sameLayout = (was: PageLayoutSnap, now: PageLayoutSnap): boolean => was.ids.length === now.ids.length && keepsPrefix(was, now);
+
+/** More stories were added below and nothing that was laid out moved: more pages loaded. */
+const appended = (was: PageLayoutSnap, now: PageLayoutSnap): boolean => now.ids.length > was.ids.length && keepsPrefix(was, now);
+
+/** A page layout's stories whose box is at least partly inside the list's box. */
 function storiesInView(container: HTMLElement): Set<string> {
   const seen = new Set<string>();
   observeStories(container, seen, new Set());

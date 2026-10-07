@@ -477,6 +477,40 @@ describe("mark as read while scrolling in the Gazette", () => {
     expect(marked(calls)).toHaveLength(0);
   });
 
+  it("more pages appended before scrolling settles keep a story the reader scrolled past", async () => {
+    // The first page is enough for a front page and keeps more to come; the next one waits until the test lets it go.
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const { calls } = routes();
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://127.0.0.1");
+      calls.push({ method: (init?.method ?? "GET").toUpperCase(), url, init });
+      if (url.pathname === "/api/bootstrap") return json(bootstrap);
+      if (url.pathname === "/api/items/mark-read") return json({ changed: JSON.parse(String(init?.body)).ids, restored: [] });
+      if (url.pathname === "/api/items" && url.searchParams.get("cursor") === "c1") {
+        await gate;
+        return json(pageOf(many(LEAD_WINDOW + 1, 60)));
+      }
+      if (url.pathname === "/api/items") return json(pageOf(many(1, LEAD_WINDOW), "c1"));
+      throw new Error(`unmocked request: ${url.pathname}`);
+    });
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const before = storyIds(container);
+    resized();
+    scrollTo(150); // the first story goes above the top
+    await frame();
+    // The next page arrives mid-scroll: new pages are added below, nothing already printed moves.
+    await act(async () => release());
+    await waitFor(() => expect(storyIds(container).length).toBeGreaterThan(before.length));
+    expect(storyIds(container).slice(0, before.length)).toEqual(before);
+    resized();
+    scrollTo(160);
+    await frame();
+    await settle();
+    expect(marked(calls).flatMap((m) => m.ids)).toEqual([before[0]]);
+  });
+
   it("turning the setting off with a settle pending, then on again, marks nothing from before", async () => {
     const { calls } = routes(() => pageOf(many(1, 20)));
     go("/l/unread");
