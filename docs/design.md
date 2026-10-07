@@ -1038,7 +1038,7 @@ next_fetch_at = the first slot phase_s + k × interval_s (unix seconds) at or af
 ttl_hint_s = the stored document's RSS <ttl>×60;  current_delay_s = d = next_fetch_at − now
 ```
 
-- `RSS <ttl>` is the stored document's: on a 200 the parsed body's, on a 304 or an unchanged body (the same document) the one in `feeds.ttl_hint_s`, so a feed's ttl holds across its 304s. `ttl_hint_s` keeps only that ttl, cleared with the validators when the URL changes. The cache headers count only for the response that sent them and are not stored.
+- `RSS <ttl>` is the stored document's: on a 200 the parsed body's, on a 304 or an unchanged body (the same document) the one in `feeds.ttl_hint_s`, so a feed's ttl holds across its 304s. Every success writes only that ttl to `ttl_hint_s`, which is cleared with the validators when the URL changes. The cache headers count only for the response that sent them and are not stored. A row last written by an older Kipple holds the larger of the ttl and that response's cache-header hint (at most 24 h); it is read as the ttl, and so kept across 304s, until the next 200 with a parsed body replaces it. That only spaces a feed's fetches further apart, and it heals itself.
 
 - Each feed has fixed slots, `interval_s` apart, at its own phase. The slots depend on the interval alone, so a hint that changes from fetch to fetch (a cache's growing `Age`, a fixed `Expires`) never moves them.
 - Without a hint longer than the interval, `d` is in [interval_s/2, 3 × interval_s/2). A feed fetched on its slot, or up to half an interval late (queueing, a slow publisher), gets its next slot, one interval on. The longest gap is one and a half intervals, once, while a feed moves onto its slot: 45 minutes at the default, 10.5 days at the 7-day maximum.
