@@ -130,7 +130,7 @@ func TestExtractsNewItemsAfterCommitOnce(t *testing.T) {
 
 	// A later fetch with one more item extracts only the new one.
 	srv.body.Store(ftFeed(srv.URL, 1, 2, 3))
-	r.clk.Advance(31 * time.Minute)
+	r.advanceTo(r.next(id))
 	r.waitEvents("fetch.done", 2)
 	r.waitRows(id, 3, 0)
 	require.Equal(t, 1, srv.count("/a/1"), "no re-extract of an item that already has its text")
@@ -156,7 +156,7 @@ func TestFailuresAreClassifiedIsolatedAndNotRetriedByPolling(t *testing.T) {
 	require.Equal(t, "permanent", c404)
 
 	srv.body.Store(ftFeed(srv.URL, 1, 2, 3, 4))
-	r.clk.Advance(31 * time.Minute)
+	r.advanceTo(r.next(id))
 	r.waitEvents("fetch.done", 2)
 	r.waitRows(id, 2, 2)
 	require.Equal(t, 1, srv.count("/a/1"), "a failed item is not retried by polling")
@@ -560,7 +560,7 @@ func TestFulltextAllSwitchAppliesToNewItemsOnly(t *testing.T) {
 
 	require.NoError(t, r.db.SetSettings(context.Background(), map[string]any{"fetch.fulltext_all": true}))
 	srv.body.Store(ftFeed(srv.URL, 1, 2, 3))
-	r.clk.Advance(31 * time.Minute)
+	r.advanceTo(r.next(id))
 	r.waitEvents("fetch.done", 2)
 	r.waitRows(id, 1, 0)
 	require.Equal(t, 1, srv.count("/a/3"))
@@ -569,7 +569,7 @@ func TestFulltextAllSwitchAppliesToNewItemsOnly(t *testing.T) {
 	// Switching it off again stops extraction of the next new item.
 	require.NoError(t, r.db.SetSettings(context.Background(), map[string]any{"fetch.fulltext_all": false}))
 	srv.body.Store(ftFeed(srv.URL, 1, 2, 3, 4))
-	r.clk.Advance(31 * time.Minute)
+	r.advanceTo(r.next(id))
 	r.waitEvents("fetch.done", 3)
 	require.Equal(t, 0, srv.count("/a/4"))
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM item_fulltext"))

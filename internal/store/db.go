@@ -254,6 +254,12 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 		d.writer.Close()
 		return nil, err
 	}
+	if !opts.NoMigrate {
+		if err := d.ensureSlotSalt(ctx); err != nil {
+			d.writer.Close()
+			return nil, err
+		}
+	}
 
 	d.reader, err = sql.Open("sqlite", buildDSN(opts.Path, "reader"))
 	if err != nil {

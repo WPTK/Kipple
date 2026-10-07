@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/WPTK/kipple/internal/store"
@@ -23,6 +24,12 @@ func (s *Server) statsSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, ok := statsRangeParams(qv, s.now(), loc, weekStart, "month")
+	if f := qv.Get("feed"); ok && f != "" {
+		// One feed's summary (the Stats screen's drill-down). Any feed id that statistics may name is
+		// valid, also one since unsubscribed; an id with no rows has an empty summary.
+		p.FeedID, err = strconv.ParseInt(f, 10, 64)
+		ok = err == nil && p.FeedID > 0
+	}
 	if !ok {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return

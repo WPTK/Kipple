@@ -1,0 +1,1 @@
+Stats: tapping a feed under Sources opens a sheet with that feed's numbers over the same range: items read, active time and days with reading (each compared with the earlier period on a tap), its daily or monthly chart, opens, average read, quick bounce, opened original, stars and reading habits. `GET /api/stats/summary` takes `feed=<id>` for one feed's summary. (#37)
