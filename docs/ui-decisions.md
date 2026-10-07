@@ -157,13 +157,6 @@ implementing anything. Commit and PR as needed without asking." (Host-A deploys 
   searches, auto-read after N days, reading-time filter, per-feed view/order). (Shipped in phase 2: mute,
   mark read, star, highlight, saved searches and auto-read. The rest, only-show-matching, the reading-time
   filter UI and per-feed view and order, shipped with #38; see "Filters follow-ups" below.) Quiet hours rejected.
-- **Mute similar...** opens the new-filter editor on the article's feed with no words chosen: the rule contains only
-  what the reader taps. The editor offers the title's distinctive words and the author as toggle buttons (a second tap
-  takes a word out again); Save stays disabled until a word is in. Suggestions skip words under four letters, bare
-  numbers and a list of English function words, very common verbs and adverbs, and headline filler such as best, apps
-  and alternatives (`web/src/lib/stopwords.ts`). Words a reader may want to mute (free, deals, review, video, live) are
-  not on the list. The list is English only: other languages rely on the length, digit and script rules (unspaced
-  scripts are cut into short pieces).
 - Image cache default cap **1 GiB** (check Host-A free disk before deploy). Default mode: **all images**
   (inline too) through Kipple, matching common RSS-reader practice; enables the strict CSP.
 - Backup export, `kipple restore`, `kipple password`; ship them (and take an off-box export) before the
@@ -189,6 +182,14 @@ Choices made where the decisions above were silent; the owner may overrule any o
 - Layout, order and view of one list are one object per feed or folder in the device profile
   (`client.list_overrides`), set from the list header's options menu (its button reads "List options, Cards layout")
   and from the feed and folder editors, whose first choice names what the list inherits, as the menu does.
+### Mute similar (#320, 2026-10-07)
+- **Mute similar...** opens the new-filter editor on the article's feed with no words chosen: the rule contains only
+  what the reader taps. The editor offers the title's distinctive words and the author as toggle buttons (a second tap
+  takes a word out again); Save stays disabled until a word is in. Suggestions skip words under four letters, bare
+  numbers and a list of English function words, very common verbs and adverbs, and headline filler such as best, apps
+  and alternatives (`web/src/lib/stopwords.ts`). Words a reader may want to mute (free, deals, review, video, live) are
+  not on the list. The list is English only: other languages rely on the length, digit and script rules (unspaced
+  scripts are cut into short pieces).
 ### Working agreement
 - Commit and open PRs without asking. Merge docs-only PRs when CI is green. Code PR for `phase-2` opens at
   deploy time. Reviews (Opus, high) after every two or three backend steps; fix all findings.

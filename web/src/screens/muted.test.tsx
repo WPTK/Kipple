@@ -279,7 +279,7 @@ describe("Mute similar…", () => {
     expect(dialog.queryByRole("list", { name: "Terms in this filter" })).not.toBeInTheDocument();
     expect(dialog.getByRole("button", { name: "Save filter" })).toBeDisabled();
     expect(dialog.getByRole("radio", { name: /^Mute/ })).toBeChecked();
-    // A suggestion adds the author as a term and ticks the author field; a second tap takes both out.
+    // A suggestion adds the author as a term and ticks the author field; a second tap takes the term out.
     await user.click(dialog.getByRole("button", { name: "Author Ada" }));
     const chips = dialog.getByRole("list", { name: "Terms in this filter" });
     expect(within(chips).getByText("Ada")).toBeInTheDocument();
@@ -289,12 +289,12 @@ describe("Mute similar…", () => {
     await user.click(dialog.getByRole("button", { name: "Author Ada" }));
     expect(dialog.getByRole("button", { name: "Author Ada" })).toHaveAttribute("aria-pressed", "false");
     expect(dialog.queryByRole("list", { name: "Terms in this filter" })).not.toBeInTheDocument();
-    expect(dialog.getByRole("checkbox", { name: "Author" })).not.toBeChecked();
-    // An Author field the reader ticked themselves stays ticked when the author chip is toggled off.
-    await user.click(dialog.getByRole("checkbox", { name: "Author" }));
-    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
-    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    // The Author checkbox is the reader's to untick; the chip reads only the terms.
     expect(dialog.getByRole("checkbox", { name: "Author" })).toBeChecked();
+    // Removing the term from the list turns the chip off too.
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    await user.click(dialog.getByRole("button", { name: "Remove Ada" }));
+    expect(dialog.getByRole("button", { name: "Author Ada" })).toHaveAttribute("aria-pressed", "false");
   });
 });
 
@@ -311,6 +311,11 @@ describe("Mute similar… term limit", () => {
     expect(dialog.getByText(/at most 50 words or phrases/)).toBeInTheDocument();
     expect(dialog.getByRole("button", { name: "Word Zebra" })).toHaveAttribute("aria-pressed", "false");
     expect(within(dialog.getByRole("list", { name: "Terms in this filter" })).getAllByRole("listitem")).toHaveLength(50);
+    // The message goes away once a term is removed, and the word can be added.
+    await user.click(dialog.getByRole("button", { name: "Remove term0" }));
+    expect(dialog.queryByText(/at most 50 words or phrases/)).not.toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "Word Zebra" }));
+    expect(dialog.getByRole("button", { name: "Word Zebra" })).toHaveAttribute("aria-pressed", "true");
   });
 });
 

@@ -50,7 +50,11 @@ const WORDS: string[] = [
   "where", "whether", "which", "while", "whilst", "who", "who's", "whole", "whom", "whose", "why", "why's", "will",
   "with", "within", "without", "won't", "work", "works", "would", "wouldn't", "write", "writes", "written", "wrote",
   "year", "yearly", "years", "yes", "yesterday", "yet", "you", "you'll", "you're", "you've", "young", "your", "yours",
-  "yourself", "yourselves",
+  "he'll", "he's", "he'd", "she'll", "she's", "she'd", "we'll", "we'd", "it'll", "it'd", "they'll", "they'd",
+  "you'd", "i'll", "i'd", "could've", "would've", "should've", "might've", "must've", "where's", "who'd", "who'll",
+  "that'll", "that'd", "there'll", "there'd", "what'll", "when's", "anybody", "anywhere", "everybody", "everywhere",
+  "whoever", "whichever", "ago", "neither", "fewer", "yourself",
+  "yourselves",
 ];
 
 export const STOP_WORDS: ReadonlySet<string> = new Set(WORDS);

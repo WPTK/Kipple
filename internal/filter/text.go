@@ -67,6 +67,10 @@ func normalize(s string, fold, lower bool) string {
 			continue
 		}
 		prevSpace = false
+		if r == 0x2019 || r == 0x02BC {
+			// Typographic apostrophes match the plain one, so a term typed with either finds titles using the other.
+			r = 0x27
+		}
 		if fold && unicode.Is(unicode.Mn, r) {
 			continue
 		}

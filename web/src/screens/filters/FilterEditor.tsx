@@ -385,27 +385,25 @@ function EditorForm({
   const ok = d.terms.length > 0 && d.fields.length > 0 && scopeOk && !nameTooLong;
 
   // Suggestions from the article "Mute similar...": a tap adds a word or the author, a second tap takes it out again.
-  // Adding the author also ticks the Author field; taking the author out unticks it (the title field always stays).
-  const [chipNote, setChipNote] = useState<string | null>(null);
-  // True while the Author field is ticked because the author chip ticked it (so only then does the chip untick it).
-  const [authorFieldFromChip, setAuthorFieldFromChip] = useState(false);
+  // Whether a suggestion is on is read from the rule itself (its terms and fields), never kept separately. Adding the
+  // author also ticks the Author field; the checkbox stays the reader's to untick.
+  // A tap the rule cannot take is remembered with a counter, and its message is worked out from the rule each render, so
+  // it goes away once the rule has room again and a repeated tap is announced again.
+  const [blocked, setBlocked] = useState<{ term: string; n: number } | null>(null);
+  const chipNote = blocked ? termProblem(blocked.term, d) : null;
   const has = (t: string) => d.terms.some((x) => x.toLowerCase() === t.toLowerCase());
   const toggleTerm = (t: string, field?: FilterField) => {
-    setChipNote(null);
     if (has(t)) {
-      const keepFields = field && authorFieldFromChip && d.fields.length > 1;
-      set({ terms: d.terms.filter((x) => x.toLowerCase() !== t.toLowerCase()), ...(keepFields ? { fields: d.fields.filter((f) => f !== field) } : {}) });
-      if (field) setAuthorFieldFromChip(false);
+      setBlocked(null);
+      set({ terms: d.terms.filter((x) => x.toLowerCase() !== t.toLowerCase()) });
       return;
     }
-    const bad = termProblem(t, d);
-    if (bad) {
-      setChipNote(bad);
+    if (termProblem(t, d)) {
+      setBlocked((cur) => ({ term: t, n: (cur?.n ?? 0) + 1 }));
       return;
     }
-    const addField = !!field && !d.fields.includes(field);
-    if (field) setAuthorFieldFromChip(addField);
-    set({ terms: [...d.terms, t], ...(addField ? { fields: [...d.fields, field] } : {}) });
+    setBlocked(null);
+    set({ terms: [...d.terms, t], ...(field && !d.fields.includes(field) ? { fields: [...d.fields, field] } : {}) });
   };
   const save = async () => {
     if (!ok) return;
@@ -481,7 +479,7 @@ function EditorForm({
             ))}
             {seed.author ? <SuggestionChip on={has(seed.author)} label={`Author: ${seed.author}`} name={`Author ${seed.author}`} onToggle={() => toggleTerm(seed.author as string, "author")} /> : null}
           </div>
-          <p role="status" className="min-h-4 text-xs text-danger">{chipNote}</p>
+          <p role="status" className="min-h-4 text-xs text-danger">{chipNote ? <span key={blocked?.n}>{chipNote}</span> : null}</p>
         </section>
       ) : null}
 
