@@ -177,6 +177,11 @@ describe("Gazette on the list screen", () => {
       return s!;
     });
     expect(story.querySelector("svg.lucide-check")).not.toBeNull();
+    // Mark above and below mark nothing here, so they leave the tick alone too.
+    act(() => void fireEvent.keyDown(list, { key: "{" }));
+    act(() => void fireEvent.keyDown(list, { key: "}" }));
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent(NO_RANGE_IN_PAGES));
+    expect(story).toHaveAttribute("data-checked", "true");
     act(() => void fireEvent.keyDown(list, { key: "x" }));
     await waitFor(() => expect(story).not.toHaveAttribute("data-checked"));
   });
@@ -241,6 +246,18 @@ describe("coming back to the Gazette", () => {
     expect(scroller.scrollTop).toBe(5000);
   });
 
+  it("never jumps after a scroll that came from elsewhere (the article's next button, find in page)", async () => {
+    const scroller = await leaveAt5000AndReturn(1000);
+    act(() => {
+      scroller.scrollTop = 200;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    tall = 20_000;
+    act(() => updateDevicePrefs({ paperName: "Later" }));
+    await screen.findByRole("heading", { name: "Later" });
+    expect(scroller.scrollTop).toBe(200);
+  });
+
   it("never jumps once the reader has scrolled the shorter page", async () => {
     const scroller = await leaveAt5000AndReturn(1000);
     act(() => {
@@ -256,33 +273,103 @@ describe("coming back to the Gazette", () => {
 });
 
 describe("mark as read while scrolling in the Gazette", () => {
-  it("marks the stories that were on screen and then scrolled above the top, and no others", async () => {
+  // Stories `story` px tall, one under the other in DOM order; the list is 800 px tall from y = 0.
+  let story = 100;
+  beforeEach(() => {
+    story = 100;
     updatePrefs({ markReadOnScroll: true });
-    // Stories 100 px tall, one under the other; the list is 800 px tall from y = 0.
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const all = [...document.querySelectorAll("article[data-item-id]")];
       const i = all.indexOf(this);
       const scroll = document.querySelector<HTMLElement>('[data-testid="list-scroll"]')?.scrollTop ?? 0;
-      const top = i < 0 ? 0 : i * 100 - scroll;
-      const bottom = i < 0 ? 800 : top + 100;
+      const top = i < 0 ? 0 : i * story - scroll;
+      const bottom = i < 0 ? 800 : top + story;
       return { x: 0, y: top, top, bottom, left: 0, right: 375, width: 375, height: bottom - top, toJSON() {} } as DOMRect;
     });
+  });
+
+  const marked = (calls: { method: string; url: URL; init?: RequestInit }[]) =>
+    calls
+      .filter((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")
+      .map((c) => JSON.parse(String(c.init?.body)) as { ids: string[]; reason: string });
+  /** The reader scrolls the list to `y`. */
+  const scrollTo = (y: number) =>
+    act(() => {
+      const s = screen.getByTestId("list-scroll");
+      s.scrollTop = y;
+      s.dispatchEvent(new Event("scroll"));
+    });
+  const settle = () => act(() => new Promise((r) => setTimeout(r, 900)));
+
+  it("marks the stories that were on screen and then scrolled above the top, and no others", async () => {
     const { calls } = routes(() => pageOf(many(1, 20)));
     const { container } = go("/l/unread");
     await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
     const order = storyIds(container);
     expect(order).toHaveLength(20);
-    const scroller = screen.getByTestId("list-scroll");
     // A jump straight to 1500 px: stories 0 to 7 were on screen, 8 to 14 never were, and all of them are above the top.
+    scrollTo(1500);
+    await waitFor(() => expect(marked(calls)).toHaveLength(1), { timeout: 3000 });
+    expect(marked(calls)[0]?.reason).toBe("scroll");
+    expect(new Set(marked(calls)[0]?.ids)).toEqual(new Set(order.slice(0, 8)));
+  });
+
+  it("marks what was scrolled past just before the list closes", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    const view = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const order = storyIds(view.container);
+    scrollTo(1500);
+    view.unmount(); // a phone opening a story, well within the settle time
+    await waitFor(() => expect(marked(calls)).toHaveLength(1));
+    expect(new Set(marked(calls)[0]?.ids)).toEqual(new Set(order.slice(0, 8)));
+  });
+
+  it("a page that reflowed while away marks nothing when its position comes back", async () => {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 20_000 });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 800 });
+    try {
+      const { calls } = routes(() => pageOf(many(1, 20)));
+      const first = go("/l/unread");
+      await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+      const order = storyIds(first.container);
+      // The reader stops at 1000 px: stories 10 to 17 are on screen, unread.
+      scrollTo(1000);
+      await settle();
+      first.unmount();
+      // A rotation or a text size change while away: the stories are half as tall, so 10 to 17 now sit above 1000 px.
+      story = 50;
+      go("/l/unread");
+      await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+      const scroller = screen.getByTestId("list-scroll");
+      expect(scroller.scrollTop).toBe(1000);
+      // The browser reports the restore's own scroll.
+      act(() => void scroller.dispatchEvent(new Event("scroll")));
+      await settle();
+      const ids = marked(calls).flatMap((m) => m.ids);
+      expect(ids.some((id) => order.slice(10, 18).includes(id!))).toBe(false);
+    } finally {
+      delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+      delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    }
+  });
+
+  it("switching to the Gazette with `c` and back starts from what is on screen", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const list = screen.getByTestId("list-scroll");
+    act(() => void fireEvent.keyDown(list, { key: "c" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: DEFAULT_PAPER_NAME })).toBeNull());
     act(() => {
-      scroller.scrollTop = 1500;
-      scroller.dispatchEvent(new Event("scroll"));
+      list.scrollTop = 1500; // where the rows left the list
     });
-    const marks = () => calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read");
-    await waitFor(() => expect(marks()).toHaveLength(1), { timeout: 3000 });
-    const body = JSON.parse(String(marks()[0]?.init?.body)) as { ids: string[]; reason: string };
-    expect(body.reason).toBe("scroll");
-    expect(new Set(body.ids)).toEqual(new Set(order.slice(0, 8)));
+    act(() => void fireEvent.keyDown(list, { key: "c" }));
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    // A scroll event with no movement by the reader: the stories seen at the top before the switch are not passed.
+    act(() => void list.dispatchEvent(new Event("scroll")));
+    await settle();
+    expect(marked(calls)).toHaveLength(0);
   });
 });
 
@@ -296,5 +383,13 @@ describe("the paper's name setting", () => {
     expect(devicePrefsStore.get().paperName).toBe("The Daily Kipple");
     expect(profileOf({ theme: themeStore.get(), prefs: prefsStore.get(), dp: devicePrefsStore.get() })["client.paper_name"]).toBe("The Daily Kipple");
     expect(within(field.parentElement!).getByText(/Leave it empty for The Gazette/)).toBeInTheDocument();
+    // A pasted line separator would break the masthead and the server would refuse it: it is not saved, and says so.
+    fireEvent.change(field, { target: { value: "The Daily\u2028Kipple" } });
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(await within(field.parentElement!).findByRole("alert")).toHaveTextContent(/must fit on one line/);
+    expect(devicePrefsStore.get().paperName).toBe("The Daily Kipple");
+    fireEvent.change(field, { target: { value: "Morning Notes" } });
+    expect(field).not.toHaveAttribute("aria-invalid");
+    expect(devicePrefsStore.get().paperName).toBe("Morning Notes");
   });
 });

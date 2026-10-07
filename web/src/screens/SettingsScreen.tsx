@@ -13,6 +13,7 @@ import {
   LAYOUT_LABELS,
   PAPER_NAME_MAX,
   UNREAD_BADGES,
+  cleanPaperName,
   updateDevicePrefs,
   useDevicePrefs,
   type ArticleWidth,
@@ -204,10 +205,14 @@ function ServerPart({ groups, empty, inline = false }: { groups: { id: SettingGr
   );
 }
 
-/** The Gazette's name on this device. Blank prints the default name. */
+/**
+ * The Gazette's name on this device. Blank prints the default name. Only a name the profile key accepts is saved
+ * (cleanPaperName, the server's rule); anything else stays in the field with the reason, and the saved name is kept.
+ */
 function PaperNameField() {
   const dp = useDevicePrefs();
   const id = useId();
+  const [refused, setRefused] = useState<string | null>(null);
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="text-sm font-semibold">
@@ -216,14 +221,25 @@ function PaperNameField() {
       <input
         id={id}
         type="text"
-        value={dp.paperName}
+        value={refused ?? dp.paperName}
         maxLength={PAPER_NAME_MAX}
         placeholder={DEFAULT_PAPER_NAME}
         autoComplete="off"
-        onChange={(e) => updateDevicePrefs({ paperName: e.target.value })}
-        aria-describedby={`${id}-hint`}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (cleanPaperName(v) !== v) return setRefused(v);
+          setRefused(null);
+          updateDevicePrefs({ paperName: v });
+        }}
+        aria-invalid={refused !== null || undefined}
+        aria-describedby={refused !== null ? `${id}-error ${id}-hint` : `${id}-hint`}
         className={`${inputCls} max-w-sm`}
       />
+      {refused !== null ? (
+        <span id={`${id}-error`} role="alert" className="text-xs text-danger">
+          The name must fit on one line: no tabs, line breaks or other control characters. It was not saved.
+        </span>
+      ) : null}
       <span id={`${id}-hint`} className="text-xs text-fg2">
         Printed at the top of the Gazette layout&apos;s front page and on every page after it. Leave it empty for {DEFAULT_PAPER_NAME}.
       </span>

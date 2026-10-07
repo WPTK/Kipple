@@ -292,7 +292,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     },
     getItemKey: (i) => rows[i]?.key ?? i,
     overscan: 8,
-    initialOffset: saved?.offset ?? 0,
+    // A page layout restores its own offset once its pages are laid out (below); a jump here would land short.
+    initialOffset: Page ? 0 : (saved?.offset ?? 0),
     // The heights from the last visit, so the restored offset points at the rows it was taken over.
     initialMeasurementsCache: saved?.sizes?.items,
   });
@@ -383,27 +384,60 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   }, [key, hidden, checked]);
 
   // A page layout has no virtualizer to restore the offset: its pages appear once the list has a width and enough
-  // articles to plan from, so the offset is put back after the first render that is tall enough to hold it.
-  // The reader moving the page first wins: a restore that is still waiting must not jump them back later, when more
-  // pages load (a page that came back shorter, after a rotation or a text size change, never reaches the offset).
-  useEffect(() => {
-    const el = parentRef.current;
-    if (!el || pageRestored.current) return;
-    const cancel = () => {
-      pageRestored.current = true;
-    };
-    const events = ["wheel", "touchmove", "keydown", "pointerdown"] as const;
-    for (const e of events) el.addEventListener(e, cancel, { passive: true });
-    return () => {
-      for (const e of events) el.removeEventListener(e, cancel);
-    };
-  }, []);
+  // articles to plan from, so the offset is put back after the first render that is tall enough to hold it. Any
+  // scroll the restore did not make (the reader's, the article pane's previous and next, find in page) wins: a restore
+  // still waiting must not jump the page later, when more pages load (a page that came back shorter, after a rotation
+  // or a text size change, never reaches the offset).
+  /** Where the restore put the page, so its own scroll event is told apart from every other. */
+  const restoreTarget = useRef<number | null>(null);
+  // Mark as read while scrolling, on a page: the stories seen in view during this visit of the current page
+  // geometry, and those a later scroll carried above the top after they were seen. Both start empty on every mount
+  // and are rebuilt from what is on screen whenever the geometry is replaced (restore, layout, plan, width), so a
+  // story that only ends up above the top because the page reflowed is never taken for one the reader scrolled past.
+  const pageSeen = useRef(new Set<string>());
+  const pagePassed = useRef(new Set<string>());
+  const markOnScrollPage = prefs.markReadOnScroll && scope.view !== "starred" && !!Page; // never a search: no Page there
+  const markOnScrollPageRef = useRef(markOnScrollPage);
+  markOnScrollPageRef.current = markOnScrollPage;
   useLayoutEffect(() => {
     const el = parentRef.current;
     if (!Page || pageRestored.current || !el || el.scrollHeight - el.clientHeight < (saved?.offset ?? 0)) return;
     pageRestored.current = true;
     el.scrollTop = saved?.offset ?? 0;
+    restoreTarget.current = el.scrollTop;
+    if (markOnScrollPageRef.current) pageSeen.current = storiesInView(el);
   });
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!Page || !el) return;
+    let frame = 0;
+    const onScroll = () => {
+      if (restoreTarget.current !== null && el.scrollTop === restoreTarget.current) {
+        restoreTarget.current = null;
+        return;
+      }
+      restoreTarget.current = null;
+      pageRestored.current = true;
+      if (!markOnScrollPageRef.current || frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        observeStories(el, pageSeen.current, pagePassed.current);
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      el.removeEventListener("scroll", onScroll);
+    };
+  }, [Page]);
+  // The geometry was replaced (a new plan, more pages, another width, the layout itself): start from what is on
+  // screen now. Not while a restore is pending: the stories at the top are only passing through.
+  const bootData = boot.data;
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!markOnScrollPage || !el || !pageRestored.current) return;
+    pageSeen.current = storiesInView(el);
+  }, [markOnScrollPage, allItems, width, bootData]);
 
   // Restore focus to the anchor row when returning to the list.
   const restoredFocus = useRef(false);
@@ -481,32 +515,23 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       else if (row.kind === "group") for (const it of row.items) seenIds.current.add(it.id);
     }
   }, [virtualItems, virtualizer]);
-  // A page layout has no virtual range: its stories are seen when their box is inside the list's, and scrolled past
-  // when their box ends above the list's top. A story beside one still on screen (another column) is judged alone.
+  // A page layout has no virtual range: its stories are judged by their own boxes (pageSeen and pagePassed above),
+  // so a story beside one still on screen, in another column, is judged alone.
   const pageItemsRef = useRef(allItems);
   pageItemsRef.current = allItems;
   const pagedScroll = !!Page;
-  useEffect(() => {
-    const el = parentRef.current;
-    // Not while the offset is still to be restored: the stories at the top are only passing through.
-    if (!markOnScroll || !pagedScroll || !el || !pageRestored.current) return;
-    seeStories(el, seenIds.current);
-  });
-  useEffect(() => {
+  // A layout effect, so its cleanup on unmount (a phone opening a story) still finds the stories' boxes and marks
+  // what was scrolled past in the last moments, as rows do.
+  useLayoutEffect(() => {
     const el = parentRef.current;
     if (!markOnScroll || !el) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let frame = 0;
     const flush = () => {
       if (pagedScroll) {
-        // After an unmount the stories have no boxes left to judge; nothing is marked rather than everything.
-        if (!el.isConnected || !pageRestored.current) return;
-        seeStories(el, seenIds.current);
-        const top = el.getBoundingClientRect().top;
+        if (pageRestored.current && el.isConnected) observeStories(el, pageSeen.current, pagePassed.current);
         const byId = new Map(pageItemsRef.current.map((i) => [i.id, i]));
-        const passed = [...el.querySelectorAll<HTMLElement>("article[data-item-id]")]
-          .filter((a) => a.getBoundingClientRect().bottom <= top && seenIds.current.has(a.dataset.itemId ?? ""))
-          .flatMap((a) => byId.get(a.dataset.itemId ?? "") ?? []);
+        const passed = [...pagePassed.current].flatMap((id) => byId.get(id) ?? []);
+        pagePassed.current.clear();
         void markScrolledPast(qc, passed, sentByScroll.current);
         return;
       }
@@ -518,12 +543,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       void markScrolledPast(qc, passed, sentByScroll.current);
     };
     const onScroll = () => {
-      if (pagedScroll && !frame) {
-        frame = requestAnimationFrame(() => {
-          frame = 0;
-          if (pageRestored.current) seeStories(el, seenIds.current);
-        });
-      }
       if (timer) clearTimeout(timer);
       timer = setTimeout(flush, 700);
     };
@@ -537,7 +556,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         // marked read after the reader turned the feature off.
         if (markOnScrollRef.current) flush();
       }
-      if (frame) cancelAnimationFrame(frame);
       el.removeEventListener("scroll", onScroll);
     };
   }, [markOnScroll, qc, virtualizer, pagedScroll]);
@@ -826,13 +844,16 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       },
       select: toggleChecked,
       // With rows ticked with `x`, the range is around the selection: above its first row, below its last.
+      // Off in a page layout (see range): nothing is marked, so the ticks stay too.
       markAbove: () => {
+        if (Page) return announce(NO_RANGE_IN_PAGES);
         const t = checked.size ? targets() : [];
         const anchor = t.length ? t[0] : selectedItem;
         if (anchor) range(anchor, "above");
         setChecked(new Set());
       },
       markBelow: () => {
+        if (Page) return announce(NO_RANGE_IN_PAGES);
         const t = checked.size ? targets() : [];
         const anchor = t.length ? t[t.length - 1] : selectedItem;
         if (anchor) range(anchor, "below");
@@ -1259,12 +1280,25 @@ function pageOrder(container: HTMLElement | null, items: readonly Card[]): Card[
   return ids.flatMap((id) => byId.get(id) ?? []);
 }
 
-/** Record the page layout's stories whose box is at least partly inside the list's box as seen. */
-function seeStories(container: HTMLElement, seen: Set<string>): void {
+/** A page layout's stories whose box is at least partly inside the list's box. */
+function storiesInView(container: HTMLElement): Set<string> {
+  const seen = new Set<string>();
+  observeStories(container, seen, new Set());
+  return seen;
+}
+
+/**
+ * Look at a page layout's stories after the reader scrolled: one in view is seen; one seen earlier whose box now ends
+ * above the list's top was scrolled past.
+ */
+function observeStories(container: HTMLElement, seen: Set<string>, passed: Set<string>): void {
   const box = container.getBoundingClientRect();
   for (const a of container.querySelectorAll<HTMLElement>("article[data-item-id]")) {
+    const id = a.dataset.itemId;
+    if (!id) continue;
     const r = a.getBoundingClientRect();
-    if (r.bottom > box.top && r.top < box.bottom && a.dataset.itemId) seen.add(a.dataset.itemId);
+    if (r.bottom > box.top && r.top < box.bottom) seen.add(id);
+    else if (r.bottom <= box.top && seen.has(id)) passed.add(id);
   }
 }
 
