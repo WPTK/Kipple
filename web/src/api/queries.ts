@@ -18,12 +18,10 @@ import type {
   Scope,
 } from "./types";
 import {
+  countsForAnswer,
   failedWhileOffline,
-  forgetHeldCounts,
   isOffline,
-  overlayHeldCounts,
   overlayPending,
-  queueIsEmpty,
   queueRead,
   queueStar,
   QueueWriteError,
@@ -59,12 +57,9 @@ export function useBootstrap(enabled = true) {
       const b = await api<Bootstrap>("/api/bootstrap", { signal, meta });
       // Only an answer from the network says anything about the server: the worker's stored copy is old by design.
       if (!meta.cached && serverRebuilt(b.web_build)) setUpdateReady();
-      if (!meta.cached) {
-        if (await queueIsEmpty()) forgetHeldCounts();
-        return b;
-      }
-      // The stored copy predates what this device changed since: its counts are the ones the page shows, or held.
-      return { ...overlayHeldCounts(b, qc.getQueryData<Bootstrap>(keys.bootstrap)), fromCache: true };
+      // While changes wait to be sent, the answer may not have them yet: the badges keep counting them (lib/offline.ts).
+      const shown = await countsForAnswer(b, !meta.cached, { shown: qc.getQueryData<Bootstrap>(keys.bootstrap), busy: qc.isMutating() > 0 });
+      return meta.cached ? { ...shown, fromCache: true } : shown;
     },
     enabled,
     retry: (n, e) => (e as { status?: number }).status !== 401 && !failedWhileOffline(e) && n < 2,

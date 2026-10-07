@@ -16,6 +16,7 @@ import {
   flushQueue,
   initOffline,
   isOffline,
+  countsForAnswer,
   memoryBackendForTests,
   mirrorCounts,
   SUPERSEDE_WAIT_MS,
@@ -749,11 +750,13 @@ describe("the badges while offline", () => {
     };
     /** total, feed 1, feed 2, News, Tech, starred */
     const all = (b: Bootstrap | undefined) => [b?.counts.unread, ...(b?.feeds.map((f) => f.unread) ?? []), ...(b?.folders.map((f) => f.unread) ?? []), b?.counts.starred];
-    function session(over: Partial<Bootstrap> = {}) {
+    /** A tab holding the bootstrap and an Unread list; its queue outlives the page (IndexedDB) unless `durable` is false. */
+    function session(over: Partial<Bootstrap> = {}, { durable = true, mirror = true } = {}) {
+      setOfflineBackendForTests({ ...memoryBackendForTests(), durable });
       const c = new QueryClient();
       c.setQueryData(keys.bootstrap, { ...stored, ...over });
       c.setQueryData(keys.items(unread), { pages: [pageOf([card(1), card(2), card(3), card(4, { feed_id: "2" }), card(5, { feed_id: "2" })])], pageParams: [""] });
-      stops.push(mirrorCounts(c));
+      if (mirror) stops.push(mirrorCounts(c));
       return c;
     }
     const wrapper = (c: QueryClient) =>
@@ -822,7 +825,7 @@ describe("the badges while offline", () => {
       expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);
     });
 
-    it("hold when the worker replaced its copy with a slow answer the page never saw", async () => {
+    it("count a read still waiting even over a newer stored copy the page never saw (its new articles wait for a live answer)", async () => {
       const c = session({ fromCache: true } as Partial<Bootstrap>);
       netFail();
       await applyRead(c, ["1001"], true, "swipe");
@@ -870,12 +873,65 @@ describe("the badges while offline", () => {
       expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
     });
 
+    it("a live bootstrap that does not have the queued changes yet does not replace them", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      // A patchy network: the bootstrap gets through, the queued read has not been sent.
+      expect(all(await relaunch(stored, true))).toEqual([4, 2, 2, 4, 2, 1]);
+      expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
+    });
+
+    it("another tab that queued nothing itself does not overwrite them", async () => {
+      const a = session();
+      netFail();
+      await applyRead(a, ["1001"], true, "swipe");
+      // A second tab: its own module state, its own page, which sees the queue grow and refetches its bootstrap.
+      resetOfflineForTests();
+      const b = session();
+      setPending(1);
+      b.setQueryData(keys.bootstrap, { ...stored });
+      expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
+    });
+
+    it("with nothing queued or kept, an answer keeps its own counts; a refused change drops the kept ones", async () => {
+      const shown: Bootstrap = { ...stored, counts: { unread: 1, starred: 1 } };
+      expect((await countsForAnswer(stored, false, { shown })).counts.unread).toBe(5);
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      vi.spyOn(toasts, "toast").mockImplementation(() => 0);
+      mockFetch({ "POST /api/items/mark-read": () => json({ error: "gone" }, 404) });
+      await flushQueue();
+      expect(localStorage.getItem("kipple-offline-counts")).toBeNull();
+      expect((await countsForAnswer(stored, false, { shown: c.getQueryData(keys.bootstrap) })).counts.unread).toBe(5);
+    });
+
+    it("are not kept when the queue itself would not outlive the page", async () => {
+      const c = session({}, { durable: false });
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      expect(all(c.getQueryData(keys.bootstrap))).toEqual([4, 2, 2, 4, 2, 1]);
+      expect(localStorage.getItem("kipple-offline-counts")).toBeNull();
+    });
+
+    it("the app keeps them from its start (initOffline)", async () => {
+      netFail();
+      const c = session({}, { mirror: false });
+      stops.push(initOffline(c));
+      await applyRead(c, ["1001"], true, "swipe");
+      expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
+    });
+
     it("go with a sign-out, and a value in another shape is ignored", async () => {
       const c = session();
       netFail();
       await applyRead(c, ["1001"], true, "swipe");
       await wipeOfflineData();
       expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);
+      // A value in the right shape is used (nothing queued, but counts kept), so the ones below are refused for their shape.
+      localStorage.setItem("kipple-offline-counts", '{"counts":{"unread":4},"feeds":{},"folders":{}}');
+      expect((await relaunch(stored))?.counts.unread).toBe(4);
       for (const v of ["{", "[1]", '{"counts":{"unread":"4"},"feeds":{},"folders":{}}', '{"counts":{"unread":4},"feeds":null,"folders":{}}', '{"base":1,"counts":{"unread":4}}']) {
         localStorage.setItem("kipple-offline-counts", v);
         expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);

@@ -35,6 +35,8 @@ const STORE = "queue";
 export interface Backend {
   /** Rejects when the store cannot be used at all (private windows, blocked storage). */
   probe?(): Promise<void>;
+  /** The queue outlives the page (IndexedDB), so counts kept for it may outlive the page too. */
+  durable?: boolean;
   all(): Promise<Row[]>;
   put(row: Row): Promise<void>;
   del(seq: number): Promise<void>;
@@ -88,6 +90,7 @@ function idbBackend(): Backend {
     }
   };
   return {
+    durable: true,
     probe: async () => void (await run("readonly", (s) => s.count())),
     all: async () => ((await run("readonly", (s) => s.getAll())) as Row[]).sort((a, b) => a.seq - b.seq),
     put: async (r) => void (await run("readwrite", (s) => s.put(r))),
@@ -131,6 +134,7 @@ function store(): Promise<Backend> {
 /** Tests: start from an empty in-memory queue. */
 export function resetOfflineForTests(): void {
   backend = Promise.resolve(memoryBackend());
+  holdsQueue = false;
   seq = 0;
   sending = undefined;
   setPending(0);
@@ -207,6 +211,7 @@ export async function queueStar(id: string, starred: boolean, at = Math.floor(Da
   // Stored first, so a failed save leaves the earlier queued change in place rather than nothing at all.
   const row: Row = { kind: "star", id, starred, at, seq: nextSeq() };
   await put(row);
+  await queuedHere();
   const rows = await safe((b) => b.all(), []);
   for (const r of rows) if (r.kind === "star" && r.id === id && r.seq !== row.seq) await safe((b) => b.del(r.seq), undefined);
   await refreshCount();
@@ -218,6 +223,7 @@ export async function queueStar(id: string, starred: boolean, at = Math.floor(Da
  */
 export async function queueRead(ids: string[], read: boolean): Promise<MarkReadResponse> {
   await put({ kind: "read", ids, read, seq: nextSeq() });
+  await queuedHere();
   await refreshCount();
   return { changed: ids, restored: [] };
 }
@@ -239,17 +245,17 @@ export async function overlayPending<T extends { id: string; read: boolean; star
 
 /**
  * The unread counts the badges show, kept on the device while changes made offline may be missing from the server's
- * answers. Lists can take the queue as an overlay because a queued mark sets an absolute state, but the stored
- * bootstrap's counts do not say which articles they counted, so no queued change can be added to them without
- * guessing (an article read online since, one that arrived since, a send that reached the server but timed out). The
- * page's own counts already are right: the server's last word plus each queued change, counted once when it was made
- * (applyRead, useOpenItem). So the absolute numbers the page shows are kept, never a difference, and a bootstrap the
- * worker answers from its stored copy takes its counts from them (useBootstrap).
+ * answers. Lists can take the queue as an overlay because a queued mark sets an absolute state, but a bootstrap's
+ * counts do not say which articles they counted, so no queued change can be added to them without guessing (an
+ * article read online since, one that arrived since, a send that reached the server but timed out). The page's own
+ * counts already are right: the server's last word plus each queued change, counted once when it was made
+ * (applyRead, useOpenItem). So the absolute numbers the page shows are kept, never a difference.
  *
- * The page keeps them in step from the moment a change waits in the queue until it sees a live bootstrap with nothing
- * left waiting (mirrorCounts), so an online change in between (a counts event) is kept too. They are not tied to one
- * stored copy: the worker may replace its copy with a slow answer the page never saw, and the page's counts are still
- * the last thing it showed. In localStorage, shared by the tabs (the last tab to change them wins); a sign-out drops them.
+ * Who keeps them: only a tab that queued a change itself, and only while the queue outlives the page (IndexedDB). That
+ * tab keeps them in step with every change to its counts (mirrorCounts) until a live bootstrap arrives with nothing
+ * left in the queue, or a sent change is refused. Another tab that merely sees the queue never writes them. Until
+ * then a bootstrap, live or stored, takes its counts from the page (or, at launch, from the kept ones): see
+ * countsForAnswer. In localStorage, shared by the tabs; a sign-out drops them.
  */
 interface HeldCounts {
   counts: Partial<Bootstrap["counts"]>;
@@ -259,22 +265,31 @@ interface HeldCounts {
 
 const HELD_COUNTS = "kipple-offline-counts";
 
-/** Keep the counts of `b`, the bootstrap as the page holds it (queued changes counted). */
-export function holdCounts(b: Bootstrap): void {
-  const held: HeldCounts = {
+/** This tab queued a change that is kept on the device: its counts are the ones to keep. */
+let holdsQueue = false;
+
+async function queuedHere(): Promise<void> {
+  holdsQueue = (await store()).durable === true;
+}
+
+function countsOf(b: Bootstrap): HeldCounts {
+  return {
     counts: b.counts,
     feeds: Object.fromEntries(b.feeds.map((f) => [f.id, f.unread])),
     folders: Object.fromEntries(b.folders.map((f) => [f.id, f.unread])),
   };
+}
+
+function holdCounts(b: Bootstrap): void {
   try {
-    localStorage.setItem(HELD_COUNTS, JSON.stringify(held));
+    localStorage.setItem(HELD_COUNTS, JSON.stringify(countsOf(b)));
   } catch {
     // Storage full or blocked: the next offline launch shows the stored copy's counts until the queue is sent.
   }
 }
 
-/** A live bootstrap with nothing queued is the server's whole word: what the device held is no longer needed. */
-export function forgetHeldCounts(): void {
+function forgetHeldCounts(): void {
+  holdsQueue = false;
   try {
     localStorage.removeItem(HELD_COUNTS);
   } catch {
@@ -298,13 +313,7 @@ function readHeld(): HeldCounts | undefined {
   return isCountMap(h.counts) && isCountMap(h.feeds) && isCountMap(h.folders) ? { counts: h.counts, feeds: h.feeds, folders: h.folders } : undefined;
 }
 
-/**
- * A bootstrap the worker answered from its stored copy, with the counts the page shows now (`shown`, a refetch in the
- * same session) or else the held ones (a new launch). The stored copy never knows more about this device's changes.
- */
-export function overlayHeldCounts<T extends Bootstrap>(b: T, shown?: Bootstrap): T {
-  const h = shown ? { counts: shown.counts, feeds: Object.fromEntries(shown.feeds.map((f) => [f.id, f.unread])), folders: Object.fromEntries(shown.folders.map((f) => [f.id, f.unread])) } : readHeld();
-  if (!h) return b;
+function overlayCounts<T extends Bootstrap>(b: T, h: HeldCounts): T {
   const unread = (own: Record<string, number>, id: string, n: number) => (Object.hasOwn(own, id) ? own[id]! : n);
   return {
     ...b,
@@ -314,20 +323,38 @@ export function overlayHeldCounts<T extends Bootstrap>(b: T, shown?: Bootstrap):
   };
 }
 
-/** True when no change waits to be sent (read from the store, not this tab's count, which may lag at launch). */
-export async function queueIsEmpty(): Promise<boolean> {
+/**
+ * The counts a bootstrap answer is shown with. With nothing queued, nothing kept and no change of the page's own on its
+ * way (`busy`: opening an article moves the badge before its request, which may end up queued), its own. A live answer with
+ * nothing queued is the server's whole word, so what was kept is dropped. Otherwise the answer (a live one that does
+ * not have the queued changes yet, or the worker's stored copy) takes the counts the page shows (`shown`), or at
+ * launch the kept ones; the rest of it (feeds, folders, settings) is the answer's.
+ */
+export async function countsForAnswer<T extends Bootstrap>(b: T, live: boolean, page: { shown?: Bootstrap; busy?: boolean } = {}): Promise<T> {
+  const queued = !(await queueIsEmpty());
+  if (live && !queued) {
+    forgetHeldCounts();
+    return b;
+  }
+  const held = readHeld();
+  if (!queued && !held && !page.busy) return b;
+  const h = page.shown ? countsOf(page.shown) : held;
+  return h ? overlayCounts(b, h) : b;
+}
+
+async function queueIsEmpty(): Promise<boolean> {
   return (await safe((b) => b.all(), [])).length === 0;
 }
 
 /**
- * Keep the held counts in step with the page's: whenever its bootstrap or the number of waiting changes moves, while
- * a change waits or counts are already held. Called once from initOffline; returns the cleanup.
+ * Keep the held counts in step with the page's, in the tab that queued a change: whenever its bootstrap or the number
+ * of waiting changes moves. Called once from initOffline; returns the cleanup.
  */
 export function mirrorCounts(qc: QueryClient): () => void {
   const mirror = () => {
-    if (authStore.get() === "out") return;
+    if (!holdsQueue || authStore.get() === "out") return;
     const b = qc.getQueryData<Bootstrap>(keys.bootstrap);
-    if (b && (offlineStore.get().pending > 0 || readHeld())) holdCounts(b);
+    if (b) holdCounts(b);
   };
   const unsubCache = qc.getQueryCache().subscribe((e) => {
     if (e.type === "updated" && e.action.type === "success" && e.query.queryKey[0] === keys.bootstrap[0]) mirror();
@@ -448,6 +475,8 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   // What the server just took is what the screen shows, whether or not the event stream is up to say so.
   if (qc) for (const r of confirmed) patchItems(qc, r.kind === "star" ? [r.id] : r.ids, r.kind === "star" ? { starred: r.starred } : { read: r.read });
   if (dropped > 0) {
+    // The kept counts still count the refused change: the next bootstrap's own replace them.
+    forgetHeldCounts();
     // The screen still shows what those changes would have done; reload it from the server.
     if (qc) void qc.invalidateQueries({ queryKey: keys.itemsAll });
     if (qc) void qc.invalidateQueries({ queryKey: ["item"] });
