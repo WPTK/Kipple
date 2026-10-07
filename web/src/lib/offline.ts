@@ -3,7 +3,7 @@ import { api, ApiError, authStore, buildPath } from "@/api/client";
 import { itemsParams, keys, PAGE_SIZE, patchItems } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
 import { devicePrefsStore } from "./devicePrefs";
-import type { MarkReadResponse } from "@/api/types";
+import type { Bootstrap, MarkReadResponse } from "@/api/types";
 import { offlineStore, setOnline, setPending, setUpdateReady } from "./offlineState";
 import { wipeStatsQueue } from "./statsSender";
 
@@ -238,6 +238,69 @@ export async function overlayPending<T extends { id: string; read: boolean; star
 }
 
 /**
+ * The unread counts the badges showed after the last change this device queued, and the bootstrap they were worked
+ * out from (its `server_time`). Lists can take the queue as an overlay because a queued mark sets an absolute state,
+ * but the stored bootstrap's counts do not say which articles they counted, so no queued change can be added to them
+ * without guessing (an article read online since, one that arrived since, a send that reached the server but timed
+ * out). The page's own counts already are right: they are the server's last word plus each queued change, counted
+ * once when it was made (applyRead). So those absolute numbers are kept, never a difference.
+ *
+ * Kept in localStorage, shared by the tabs (the last tab to queue a change wins). Used only over the very bootstrap
+ * they were worked out from, so a copy from an older answer, another tab's newer one or another account never takes
+ * them; a live bootstrap makes them pointless and drops them.
+ */
+interface HeldCounts {
+  base: number;
+  counts: Bootstrap["counts"];
+  feeds: Record<string, number>;
+  folders: Record<string, number>;
+}
+
+const HELD_COUNTS = "kipple-offline-counts";
+
+/** Keep the counts of `b` (the bootstrap as the page holds it, queued changes counted) for the next offline launch. */
+export function holdCounts(b: Bootstrap): void {
+  const held: HeldCounts = {
+    base: b.server_time,
+    counts: b.counts,
+    feeds: Object.fromEntries(b.feeds.map((f) => [f.id, f.unread])),
+    folders: Object.fromEntries(b.folders.map((f) => [f.id, f.unread])),
+  };
+  try {
+    localStorage.setItem(HELD_COUNTS, JSON.stringify(held));
+  } catch {
+    // Storage full or blocked: the next offline launch shows the stored copy's counts until the queue is sent.
+  }
+}
+
+/** A live bootstrap is the server's word: what the device held is no longer needed. */
+export function forgetHeldCounts(): void {
+  try {
+    localStorage.removeItem(HELD_COUNTS);
+  } catch {
+    // Nothing to forget.
+  }
+}
+
+/** The stored bootstrap with the counts this device showed last, when they were worked out from this very copy. */
+export function overlayHeldCounts<T extends Bootstrap>(b: T): T {
+  let held: HeldCounts | undefined;
+  try {
+    held = JSON.parse(localStorage.getItem(HELD_COUNTS) ?? "null") ?? undefined;
+  } catch {
+    return b;
+  }
+  if (!held || held.base !== b.server_time) return b;
+  const h = held;
+  return {
+    ...b,
+    counts: { ...b.counts, ...h.counts },
+    feeds: b.feeds.map((f) => (f.id in h.feeds ? { ...f, unread: h.feeds[f.id]! } : f)),
+    folders: b.folders.map((f) => (f.id in h.folders ? { ...f, unread: h.folders[f.id]! } : f)),
+  };
+}
+
+/**
  * A change made with the network up settles what a queued change to the same articles would have said, so the
  * queued one must not be replayed over it later. Called before an online write; cheap when nothing waits.
  */
@@ -355,6 +418,7 @@ async function doFlush(qc?: QueryClient): Promise<void> {
  */
 export async function wipeOfflineData(): Promise<void> {
   await safe((b) => b.clear(), undefined);
+  forgetHeldCounts();
   setPending(0);
   wipeStatsQueue();
   // From the page, not only through the worker: a page that is not controlled (hard reload) cannot message it.

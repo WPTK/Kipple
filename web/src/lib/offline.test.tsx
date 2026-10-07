@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { useRefreshAll } from "@/api/refresh";
 import { ApiError, api, authStore } from "@/api/client";
-import { applyRead, applyStar, flattenItems, keys, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
+import { applyRead, applyStar, flattenItems, keys, useBootstrap, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import App, { makeQueryClient } from "@/App";
@@ -723,6 +723,103 @@ describe("the badges while offline", () => {
     mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [] }) });
     await applyRead(c, ["1001"], true, "key");
     expect(counts(c.getQueryData(keys.bootstrap))).toEqual([3, 3, 3]);
+  });
+
+  describe("after the app is closed and opened again before the queue is sent", () => {
+    afterEach(() => onlineManager.setOnline(true));
+    // Two folders, Tech inside News, a feed in each; 5 unread, 1 starred.
+    const stored: Bootstrap = {
+      ...bootstrap,
+      server_time: 1_700_000_000,
+      folders: [
+        { id: "1", name: "News", position: 0, is_default: true, unread: 5 },
+        { id: "2", parent_id: "1", name: "Tech", position: 1, is_default: false, unread: 2 },
+      ],
+      feeds: [
+        { ...bootstrap.feeds[0]!, id: "1", folder_id: "1", unread: 3 },
+        { ...bootstrap.feeds[0]!, id: "2", folder_id: "2", unread: 2 },
+      ],
+      counts: { unread: 5, starred: 1 },
+    };
+    /** total, feed 1, feed 2, News, Tech, starred */
+    const all = (b: Bootstrap | undefined) => [b?.counts.unread, ...(b?.feeds.map((f) => f.unread) ?? []), ...(b?.folders.map((f) => f.unread) ?? []), b?.counts.starred];
+    function session(over: Partial<Bootstrap> = {}) {
+      const c = new QueryClient();
+      c.setQueryData(keys.bootstrap, { ...stored, ...over });
+      c.setQueryData(keys.items(unread), { pages: [pageOf([card(1), card(2), card(3), card(4, { feed_id: "2" }), card(5, { feed_id: "2" })])], pageParams: [""] });
+      return c;
+    }
+    /** A new launch: the bootstrap the service worker answers with (its stored copy unless `live`). */
+    async function relaunch(answer: Bootstrap, live = false) {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+      onlineManager.setOnline(live);
+      if (!live) {
+        vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+      }
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(answer, 200, live ? {} : { "X-Kipple-Cache": "1" })));
+      const c = makeQueryClient();
+      const { result } = renderHook(() => useBootstrap(), { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={c}>{children}</QueryClientProvider> });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      return result.current.data;
+    }
+
+    it("the badges count the queued marks across feeds, folders and the total", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001", "1002"], true, "swipe");
+      await applyRead(c, ["1004"], true, "key");
+      await applyStar(c, "1003", true);
+      expect(all(await relaunch(stored))).toEqual([2, 1, 1, 2, 1, 1]);
+    });
+
+    it("a mark undone offline leaves them where the stored copy had them", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001", "1004"], true, "swipe");
+      await applyRead(c, ["1001", "1004"], false, "key");
+      expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);
+    });
+
+    it("a read made online before going offline is not counted twice", async () => {
+      // The server's counts event after reading 1001 online; the stored copy still counts it.
+      const c = session({
+        counts: { unread: 4, starred: 1 },
+        feeds: [{ ...stored.feeds[0]!, unread: 2 }, stored.feeds[1]!],
+        folders: [{ ...stored.folders[0]!, unread: 4 }, stored.folders[1]!],
+      });
+      c.setQueryData(keys.items(unread), { pages: [pageOf([card(1, { read: true }), card(2), card(4, { feed_id: "2" })])], pageParams: [""] });
+      netFail();
+      await applyRead(c, ["1001", "1002"], true, "bulk");
+      expect(all(await relaunch(stored))).toEqual([3, 1, 2, 3, 2, 1]);
+    });
+
+    it("once the queue is sent the server's counts take over, and nothing counts twice", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      // Sent, but the bootstrap could not be fetched again before the app closed: the stored copy predates the
+      // send, and the held counts (which already include it) still apply, once.
+      mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [] }) });
+      await flushQueue();
+      expect(offlineStore.get().pending).toBe(0);
+      expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
+      // The server's own answer (which counts the read) replaces them, and the copy it leaves is not changed again.
+      const after: Bootstrap = { ...stored, server_time: stored.server_time + 60, counts: { unread: 4, starred: 1 }, feeds: [{ ...stored.feeds[0]!, unread: 2 }, stored.feeds[1]!], folders: [{ ...stored.folders[0]!, unread: 4 }, stored.folders[1]!] };
+      expect(all(await relaunch(after, true))).toEqual([4, 2, 2, 4, 2, 1]);
+      expect(all(await relaunch(after))).toEqual([4, 2, 2, 4, 2, 1]);
+      expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);
+    });
+
+    it("are only laid over the copy they were worked out from, and go with a sign-out", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      expect(all(await relaunch({ ...stored, server_time: stored.server_time - 60 }))).toEqual([5, 3, 2, 5, 2, 1]);
+      expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
+      await wipeOfflineData();
+      expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);
+    });
   });
 
   it("a mark that could not be queued leaves them alone", async () => {
