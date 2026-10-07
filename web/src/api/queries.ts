@@ -17,7 +17,16 @@ import type {
   OpenResponse,
   Scope,
 } from "./types";
-import { failedWhileOffline, isOffline, queueRead, queueStar, QueueWriteError, overlayPending, supersede } from "@/lib/offline";
+import {
+  countsForAnswer,
+  failedWhileOffline,
+  isOffline,
+  overlayPending,
+  queueRead,
+  queueStar,
+  QueueWriteError,
+  supersede,
+} from "@/lib/offline";
 import { serverRebuilt } from "@/lib/buildInfo";
 import { chainOf, folderTree, type FolderTree } from "@/lib/folderTree";
 import { useMemo } from "react";
@@ -40,6 +49,7 @@ export function changeError(e: unknown): string {
 export type BootstrapAnswer = Bootstrap & { fromCache?: true };
 
 export function useBootstrap(enabled = true) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: keys.bootstrap,
     queryFn: async ({ signal }): Promise<BootstrapAnswer> => {
@@ -47,7 +57,9 @@ export function useBootstrap(enabled = true) {
       const b = await api<Bootstrap>("/api/bootstrap", { signal, meta });
       // Only an answer from the network says anything about the server: the worker's stored copy is old by design.
       if (!meta.cached && serverRebuilt(b.web_build)) setUpdateReady();
-      return meta.cached ? { ...b, fromCache: true } : b;
+      // While changes wait to be sent, the answer may not have them yet: the badges keep counting them (lib/offline.ts).
+      const shown = await countsForAnswer(b, !meta.cached, { shown: qc.getQueryData<Bootstrap>(keys.bootstrap), busy: qc.isMutating() > 0 });
+      return meta.cached ? { ...shown, fromCache: true } : shown;
     },
     enabled,
     retry: (n, e) => (e as { status?: number }).status !== 401 && !failedWhileOffline(e) && n < 2,
