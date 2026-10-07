@@ -19,15 +19,14 @@ export function pctLabel(rate: number | null | undefined): string {
 
 /**
  * The counts behind a read rate and its window of complete days (the summary's `read_rate_from`..`read_rate_to`),
- * shown on a tap: "31 of 50 new, Sep 2 to Sep 23". No window is not enough history, not 0%.
+ * shown on a tap: "31 of 50 new from Sep 2 to Sep 23", or "on Sep 23" for one day. No window is not enough history,
+ * not 0%.
  */
 export function readRateNote(r: ReadRate | undefined, from: string | null | undefined, to: string | null | undefined): string {
   if (!r || !from || !to) return "Not enough history";
-  const days = from === to ? `on ${shortDate(from)}` : `${shortDate(from)} to ${shortDate(to)}`;
-  if (r.new_items === 0) return `Nothing new arrived, ${days}`;
-  // An item that arrived read or muted can still be read, so the reads can pass the count (the rate stops at 100%).
-  if (r.items_read > r.new_items) return `${r.items_read} read, ${r.new_items} new, ${days}`;
-  return `${r.items_read} of ${r.new_items} new, ${days}`;
+  const days = from === to ? `on ${shortDate(from)}` : `from ${shortDate(from)} to ${shortDate(to)}`;
+  if (r.new_items === 0) return `No new items ${days}`;
+  return `${r.items_read} of ${r.new_items} new ${days}`;
 }
 
 /** "YYYY-MM-DD" as a local date (never through UTC, which would shift the day). */

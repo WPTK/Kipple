@@ -140,13 +140,13 @@ describe("Feed drill-down", () => {
     expect(rate).toHaveAttribute("aria-expanded", "false");
     await user.click(rate);
     expect(rate).toHaveAttribute("aria-expanded", "true");
-    expect(within(sheet).getByText(`10 of 40 new, ${shortDate("2026-09-01")} to ${shortDate("2026-09-24")}`)).toBeInTheDocument();
+    expect(within(sheet).getByText(`10 of 40 new from ${shortDate("2026-09-01")} to ${shortDate("2026-09-24")}`)).toBeInTheDocument();
     expect(rate).toHaveAccessibleName("Read rate 25%"); // the counts do not change its name
   });
 
   it.each([
     ["no window", { read_rate_from: null, read_rate_to: null, read_rate: { items_read: 0, new_items: 0, rate: null } }, "Not enough history"],
-    ["nothing new", { read_rate: { items_read: 3, new_items: 0, rate: null } }, `Nothing new arrived, ${shortDate("2026-09-01")} to ${shortDate("2026-09-24")}`],
+    ["nothing new", { read_rate: { items_read: 0, new_items: 0, rate: null } }, `No new items from ${shortDate("2026-09-01")} to ${shortDate("2026-09-24")}`],
   ])("a feed with %s shows a dash, never 0%%", async (_, over, note) => {
     mockFetch({
       "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),

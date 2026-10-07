@@ -28,23 +28,22 @@ func TestStatsSummaryOneFeed(t *testing.T) {
 	require.Len(t, src, 1)
 	require.Equal(t, "Alpha", src[0].(map[string]any)["feed_title"])
 	require.Equal(t, "2026-09-20", out["covered_from"], "coverage is that of all statistics")
-	// No arrival was ever counted: no window, and the rate is null (a dash), never 0.
-	require.Nil(t, out["read_rate_from"])
+	// No arrival was ever counted: the rate is null (a dash), never 0.
+	require.Equal(t, "2026-09-20", out["read_rate_from"])
+	require.NotNil(t, out["read_rate_to"])
 	rr := out["read_rate"].(map[string]any)
 	require.Contains(t, rr, "rate")
 	require.Nil(t, rr["rate"])
-	require.EqualValues(t, 0, num(rr["items_read"]), "counted over the window only")
+	require.EqualValues(t, 0, num(rr["items_read"]), "only reads of counted items")
 	require.Nil(t, src[0].(map[string]any)["read_rate"].(map[string]any)["rate"])
 
-	// Arrivals counted from the 19th (the window starts the day after): one read of four new.
+	// Four counted arrivals on the 20th, items 1 to 4: one of them read.
 	require.NoError(t, h.db.WithWrite(t.Context(), func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO feed_daily_new (local_date, feed_id, new_items, first_item, last_item)
-			VALUES ('2026-09-19', ?, 1, 0, 0), ('2026-09-20', ?, 4, 1, 4)`, f1, f1)
+		_, err := tx.ExecContext(ctx, `INSERT INTO feed_daily_new (local_date, feed_id, first_item, last_item, new_items)
+			VALUES ('2026-09-20', ?, 1, 4, 4)`, f1)
 		return err
 	}))
 	_, out = h.summary(nil, "?range=month&feed="+strconv.FormatInt(f1, 10))
-	require.Equal(t, "2026-09-20", out["read_rate_from"])
-	require.NotNil(t, out["read_rate_to"])
 	rr = out["read_rate"].(map[string]any)
 	require.EqualValues(t, 4, num(rr["new_items"]))
 	require.InDelta(t, 0.25, num(rr["rate"]), 1e-9)

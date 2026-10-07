@@ -329,7 +329,7 @@ export interface StatsSource {
 
 /**
  * Of the items that arrived new in the summary's `read_rate_from`..`read_rate_to`, how many were read. `rate` is null
- * (shown as a dash, never 0%) when nothing new arrived or there is no window, and at most 1.
+ * (shown as a dash, never 0%) when nothing new arrived or there is no window. The reads are of those items only.
  */
 export interface ReadRate {
   items_read: number;

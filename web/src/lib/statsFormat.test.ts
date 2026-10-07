@@ -17,16 +17,16 @@ import {
 
 describe("readRateNote", () => {
   const r = (items_read: number, new_items: number) => ({ items_read, new_items, rate: new_items ? Math.min(1, items_read / new_items) : null });
-  const span = `${shortDate("2026-09-05")} to ${shortDate("2026-09-23")}`;
+  const span = `from ${shortDate("2026-09-05")} to ${shortDate("2026-09-23")}`;
   it("gives the counts and the window of complete days", () => {
-    expect(readRateNote(r(31, 50), "2026-09-05", "2026-09-23")).toBe(`31 of 50 new, ${span}`);
-    expect(readRateNote(r(1, 2), "2026-09-23", "2026-09-23")).toBe(`1 of 2 new, on ${shortDate("2026-09-23")}`);
-    expect(readRateNote(r(6, 5), "2026-09-05", "2026-09-23")).toBe(`6 read, 5 new, ${span}`);
+    expect(readRateNote(r(31, 50), "2026-09-05", "2026-09-23")).toBe(`31 of 50 new ${span}`);
+    expect(readRateNote(r(1, 2), "2026-09-23", "2026-09-23")).toBe(`1 of 2 new on ${shortDate("2026-09-23")}`);
   });
   it("says why there is no rate", () => {
     expect(readRateNote(r(0, 0), null, null)).toBe("Not enough history");
     expect(readRateNote(undefined, "2026-09-05", "2026-09-23")).toBe("Not enough history");
-    expect(readRateNote(r(2, 0), "2026-09-05", "2026-09-23")).toBe(`Nothing new arrived, ${span}`);
+    expect(readRateNote(r(0, 0), "2026-09-05", "2026-09-23")).toBe(`No new items ${span}`);
+    expect(readRateNote(r(0, 0), "2026-09-23", "2026-09-23")).toBe(`No new items on ${shortDate("2026-09-23")}`);
   });
   it("a folder has no rate, a feed carries its own", () => {
     const base = { feed_id: "1", feed_title: "A", folder_id: "9", folder_name: "F", items_read: 1, opens: 1, active_seconds: 0, avg_read_seconds: null, bounce_rate: null, open_original_rate: null, stars: 0, subscribed: true, timed_seconds: 0, timed_items: 0 };

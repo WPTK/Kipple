@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -488,7 +489,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		}
 		defer insContent.Close()
 
-		counted := len(st.unreadNew)
+		counted, inserted := len(st.unreadNew), len(st.newIDs)
 		for _, it := range fresh {
 			id := d.alloc.Next()
 			crawl := id / 1_000_000
@@ -578,7 +579,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		if err := writeHits(ctx, tx, hits, now); err != nil {
 			return err
 		}
-		if err := addFeedDailyNew(ctx, tx, feedID, st.day, st.unreadNew[counted:]); err != nil {
+		if err := addFeedDailyNew(ctx, tx, feedID, st.day, countRuns(st.newIDs[inserted:], st.unreadNew[counted:])); err != nil {
 			return err
 		}
 	}
@@ -784,26 +785,76 @@ func (d *DB) FeedSnapshotsByID(ctx context.Context, set FetchSettings, ids []int
 	return out, nil
 }
 
-// addFeedDailyNew adds ids, in allocation order, to the feed's count of new, unread items for day (the
-// read-rate denominator, migrations 0017 and 0018) and widens the day's span of counted ids to them (the
-// read rate counts a read only inside such a span). Each chunk adds the items it inserted unread and
-// not muted, in its own transaction, so the count commits or rolls back with them. The first successful
-// fetch at a URL adds nothing (url_succeeded 0: a new subscription, or a URL edit): that document is a
-// backlog, not arrivals.
-func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, day string, ids []int64) error {
-	if len(ids) == 0 {
-		return nil
+// countRuns splits the ids one chunk inserted, in allocation order, into runs of counted ones: an id
+// that is not counted ends a run.
+func countRuns(inserted []int64, counted []int64) []countRun {
+	is := make(map[int64]bool, len(counted))
+	for _, id := range counted {
+		is[id] = true
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO feed_daily_new (local_date, feed_id, new_items, first_item, last_item) VALUES (?,?,?,?,?)
-		ON CONFLICT(local_date, feed_id) DO UPDATE SET new_items = new_items + excluded.new_items,
-			first_item = min(first_item, excluded.first_item), last_item = max(last_item, excluded.last_item)`,
-		day, feedID, len(ids), ids[0], ids[len(ids)-1])
-	return err
+	var runs []countRun
+	open := false
+	for _, id := range inserted {
+		switch {
+		case !is[id]:
+			open = false
+		case open:
+			runs[len(runs)-1].last = id
+			runs[len(runs)-1].n++
+		default:
+			runs, open = append(runs, countRun{first: id, last: id, n: 1}), true
+		}
+	}
+	return runs
+}
+
+// countRun is a run of counted items: the first and last id and how many.
+type countRun struct {
+	first, last int64
+	n           int
+}
+
+// addFeedDailyNew adds a chunk's runs of counted items (countRuns) to the feed's rows for day (the read
+// rate's new items, migrations 0017 and 0018). A run extends the day's latest row of the feed when no
+// item of the feed came in between (in items or trimmed_items: an item that arrived read or muted, a
+// URL edit's first document), else it starts a row; so the ids of the feed inside a row are exactly the
+// ones it counted. Each chunk adds the items it inserted unread and not muted, in its own transaction,
+// so the rows commit or roll back with them. The first successful fetch at a URL adds nothing
+// (url_succeeded 0: a new subscription, or a URL edit): that document is a backlog, not arrivals.
+func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, day string, runs []countRun) error {
+	for _, r := range runs {
+		var first, last int64
+		err := tx.QueryRowContext(ctx, `SELECT first_item, last_item FROM feed_daily_new
+			WHERE local_date = ?1 AND feed_id = ?2 ORDER BY first_item DESC LIMIT 1`, day, feedID).Scan(&first, &last)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		between := true
+		if err == nil {
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM items WHERE id > ?1 AND id < ?2 AND feed_id = ?3)
+				OR EXISTS (SELECT 1 FROM trimmed_items WHERE id > ?1 AND id < ?2 AND feed_id = ?3)`, last, r.first, feedID).Scan(&between); err != nil {
+				return err
+			}
+		}
+
+		if !between {
+			_, err = tx.ExecContext(ctx, `UPDATE feed_daily_new SET last_item = ?4, new_items = new_items + ?5
+				WHERE local_date = ?1 AND feed_id = ?2 AND first_item = ?3`, day, feedID, first, r.last, r.n)
+		} else {
+			_, err = tx.ExecContext(ctx, `INSERT INTO feed_daily_new (local_date, feed_id, first_item, last_item, new_items)
+				VALUES (?,?,?,?,?)`, day, feedID, r.first, r.last, r.n)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // dropTrimmedDailyNew takes back, in the last chunk after the trim, the counted items the same commit
-// trimmed: they were never shown. A row that would reach 0 is deleted (new_items > 0). The span of
-// counted ids is left as it is: a trimmed item was never opened, so it adds no read inside it.
+// trimmed, from the rows that hold them: they were never shown. A row that would reach 0 is deleted
+// (new_items > 0). A row's ids are left as they are: a trimmed item was never opened, so it adds no
+// read inside them.
 func dropTrimmedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, st *commitState) error {
 	if len(st.unreadNew) == 0 || st.trimmed == 0 {
 		return nil
@@ -812,19 +863,20 @@ func dropTrimmedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, st *comm
 	if err != nil {
 		return err
 	}
-	var gone int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM json_each(?) j WHERE NOT EXISTS (SELECT 1 FROM items WHERE id = j.value)`,
+	var gone string
+	if err := tx.QueryRowContext(ctx, `SELECT json_group_array(j.value) FROM json_each(?) j WHERE NOT EXISTS (SELECT 1 FROM items WHERE id = j.value)`,
 		b).Scan(&gone); err != nil {
 		return err
 	}
-	if gone == 0 {
+	if gone == "[]" {
 		return nil
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM feed_daily_new WHERE feed_id = ?1 AND local_date = ?2 AND new_items <= ?3`,
+	const inRow = `(SELECT count(*) FROM json_each(?3) j WHERE j.value BETWEEN first_item AND last_item)`
+	if _, err := tx.ExecContext(ctx, `DELETE FROM feed_daily_new WHERE local_date = ?2 AND feed_id = ?1 AND new_items <= `+inRow,
 		feedID, st.day, gone); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE feed_daily_new SET new_items = new_items - ?3 WHERE feed_id = ?1 AND local_date = ?2`,
+	_, err = tx.ExecContext(ctx, `UPDATE feed_daily_new SET new_items = new_items - `+inRow+` WHERE local_date = ?2 AND feed_id = ?1 AND `+inRow+` > 0`,
 		feedID, st.day, gone)
 	return err
 }

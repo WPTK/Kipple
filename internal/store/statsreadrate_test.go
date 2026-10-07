@@ -54,8 +54,7 @@ func srcByFeed(s *StatsSummary) map[string]StatsSource {
 // A new subscription's first document is a backlog: reading 20 of its 50 items says nothing about the
 // feed's new items. The rate is 2 read of the 5 that arrived since, through the real fetch path.
 func TestStatsReadRateCountsOnlyItemsThatArrivedCounted(t *testing.T) {
-	e := newEnv(t)                            // the summary's today is 2026-09-24
-	e.putDailyNew(999, "2026-09-01", 1, 1, 1) // arrivals were counted from the 2nd
+	e := newEnv(t) // the summary's today is 2026-09-24
 	e.putStat("open", "2026-09-01", 1, 999, "old", nil, "F")
 
 	e.clk.Set(base.AddDate(0, 0, -5)) // the 19th: subscribe, a 50-item backlog
@@ -73,26 +72,76 @@ func TestStatsReadRateCountsOnlyItemsThatArrivedCounted(t *testing.T) {
 	}
 
 	s := e.summary("2026-09-01", "2026-09-24")
-	require.Equal(t, "2026-09-02", *s.ReadRateFrom)
+	require.Equal(t, "2026-09-01", *s.ReadRateFrom)
 	require.Equal(t, "2026-09-23", *s.ReadRateTo, "today is not a complete day")
 	src := srcByFeed(s)[strconv.FormatInt(id, 10)]
 	require.Equal(t, 22, src.ItemsRead)
 	require.Equal(t, StatsReadRate{ItemsRead: 2, NewItems: 5, Rate: src.ReadRate.Rate}, src.ReadRate)
 	require.InDelta(t, 0.4, rateOf(t, src.ReadRate), 1e-9)
+
+	// The first rate is there on the day the data is: a range of only the 20th.
+	s = e.summary("2026-09-20", "2026-09-20")
+	require.Equal(t, "2026-09-20", *s.ReadRateFrom)
+	require.Equal(t, 5, s.ReadRate.NewItems)
 }
 
-// The window runs over complete days from where reads are complete (covered_from) and arrivals counted
-// (the day after the first row). No window or nothing new is no data (nil), never 0%.
+// On one day: a counted fetch, a URL edit, the new URL's first document (a backlog), and a counted fetch.
+// An item muted between two counted ones in one document. Each splits the day into runs of counted ids,
+// so reading the backlog or the muted item adds nothing: the reads are of counted items only.
+func TestStatsReadRateRunsLeaveOutUncountedItemsBetween(t *testing.T) {
+	e := newEnv(t)
+	e.putStat("open", "2026-09-01", 1, 999, "old", nil, "F")
+	e.clk.Set(base.AddDate(0, 0, -4)) // the 20th
+	id := e.addFeed("http://a.example/feed")
+	e.fetchBody(id, rss(numbered(2)...))                      // the subscription's backlog
+	e.fetchBody(id, rss(append(numbered(2), newer(3)...)...)) // counted: n0..n2
+	nu := "http://a.example/other"
+	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &nu})
+	require.NoError(t, err)
+	backlog := []spec{{guid: "b0", age: -10 * time.Second}, {guid: "b1", age: -11 * time.Second}, {guid: "b2", age: -12 * time.Second}}
+	e.fetchBody(id, rss(backlog...)) // the new URL's first document: not counted
+	e.mkFilter(newFilter("mute", "muteme"))
+	e.fetchBody(id, rss(append(backlog,
+		spec{guid: "c0", age: -20 * time.Second},
+		spec{guid: "m", title: "muteme", age: -21 * time.Second},
+		spec{guid: "c1", age: -22 * time.Second})...)) // counted: c0 and c1, with the muted item between
+	require.Equal(t, 5, e.newsDaily(id, e.clk.Now()))
+	require.Equal(t, 3, e.count("SELECT count(*) FROM feed_daily_new WHERE feed_id = ?", id), "n0..n2, c0, c1")
+
+	for _, it := range e.ids(`SELECT id FROM items WHERE feed_id = ? AND (title LIKE 'title b%' OR title = 'muteme' OR title IN ('title n0', 'title c1'))`, id) {
+		e.read("2026-09-21", it, id)
+	}
+	src := srcByFeed(e.summary("2026-09-01", "2026-09-24"))[strconv.FormatInt(id, 10)]
+	require.Equal(t, 6, src.ItemsRead)
+	require.Equal(t, StatsReadRate{ItemsRead: 2, NewItems: 5, Rate: src.ReadRate.Rate}, src.ReadRate)
+	require.InDelta(t, 0.4, rateOf(t, src.ReadRate), 1e-9)
+}
+
+// Counted fetches with nothing of the feed between them extend one row, so a feed that brings an item at
+// every fetch keeps one row a day.
+func TestFeedDailyNewRunsJoinAcrossFetches(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.fetchBody(id, rss(numbered(2)...))
+	for i := 1; i <= 4; i++ {
+		e.fetchBody(id, rss(append(numbered(2), newer(i)...)...))
+	}
+	require.Equal(t, 4, e.newsDaily(id, base))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feed_daily_new WHERE feed_id = ?", id))
+}
+
+// The window runs over complete days from where reads are complete (covered_from). No window or nothing
+// new is no data (nil), never 0%.
 func TestStatsReadRateWindow(t *testing.T) {
 	e := newEnv(t) // today is 2026-09-24
 
 	e.read("2026-09-10", 1, 1)
 	s := e.summary("2026-09-01", "2026-09-24")
-	require.Nil(t, s.ReadRateFrom, "no arrival was ever counted")
-	require.Nil(t, s.ReadRate.Rate)
+	require.Equal(t, "2026-09-10", *s.ReadRateFrom)
+	require.Nil(t, s.ReadRate.Rate, "no arrival was ever counted")
 	require.Nil(t, s.Sources[0].ReadRate.Rate)
 
-	// Arrivals were first counted on the 1st (a day that may be partial); reads are complete from the 5th.
+	// Reads are complete from the 5th.
 	e.putStat("open", "2026-09-05", 9, 2, "early", nil, "F")
 	e.putDailyNew(1, "2026-09-01", 100, 100, 199) // before the window
 	e.putDailyNew(1, "2026-09-10", 4, 1, 4)       // item 1 (read), 2 (a bounce), 3 (read), 4
@@ -152,8 +201,10 @@ func TestStatsArrivalsMergeSpans(t *testing.T) {
 	e.putDailyNew(1, "2026-09-02", 2, 10, 30)
 	e.putDailyNew(1, "2026-09-03", 2, 20, 40)
 	e.putDailyNew(1, "2026-09-04", 1, 50, 50)
-	m, err := statsArrivals(e.ctx, e.db.Reader(), "2026-09-01", "2026-09-30")
+	e.putDailyNew(2, "2026-09-03", 1, 35, 35) // another feed's row: not read for feed 1
+	m, err := statsArrivals(e.ctx, e.db.Reader(), "2026-09-01", "2026-09-30", 1)
 	require.NoError(t, err)
+	require.Len(t, m, 1)
 	a := m[1]
 	require.Equal(t, 5, a.n)
 	require.Equal(t, [][2]int64{{10, 40}, {50, 50}}, a.spans)
@@ -162,17 +213,18 @@ func TestStatsArrivalsMergeSpans(t *testing.T) {
 	}
 }
 
-// The window is one range of the table's key, which holds every column it reads; the first day is one seek.
+// The window of all feeds is one range of the table's key, which holds every column it reads; the window
+// of one feed reads only that feed's rows.
 func TestStatsArrivalsPlans(t *testing.T) {
 	e := newEnv(t)
 	for q, want := range map[string]string{
-		sqlDailyNew:      "SEARCH feed_daily_new USING PRIMARY KEY (local_date>? AND local_date<?)",
-		sqlDailyNewFirst: "SEARCH feed_daily_new",
+		sqlDailyNew:     "SEARCH feed_daily_new USING PRIMARY KEY (local_date>? AND local_date<?)",
+		sqlDailyNewFeed: "SEARCH feed_daily_new USING INDEX idx_feed_daily_feed (feed_id=? AND local_date>? AND local_date<?)",
 	} {
 		var plan string
 		args := []any{"2026-01-01", "2026-12-31"}
-		if q == sqlDailyNewFirst {
-			args = nil
+		if q == sqlDailyNewFeed {
+			args = append(args, 1)
 		}
 		rows, err := e.db.Reader().QueryContext(e.ctx, "EXPLAIN QUERY PLAN "+q, args...)
 		require.NoError(t, err)
@@ -223,14 +275,19 @@ func TestStatsReadRatePerf(t *testing.T) {
 		}
 		return b
 	}
-	t.Logf("all 500,000 arrival rows read alone: %v", best(func() {
-		_, err := statsArrivals(e.ctx, e.db.Reader(), end.AddDate(0, 0, -999).Format(dateLayout), end.Format(dateLayout))
-		require.NoError(t, err)
-	}))
-	for _, r := range []struct{ key, from string }{{"month", end.AddDate(0, 0, -29).Format(dateLayout)}, {"all", ""}} {
-		t.Logf("%s summary: %v", r.key, best(func() {
-			_, err := StatsSummaryFor(e.ctx, e.db.Reader(), StatsSummaryParams{Key: r.key, From: r.from, To: end.Format(dateLayout), Now: end})
+	first := end.AddDate(0, 0, -999).Format(dateLayout)
+	for _, f := range []int64{0, 7} {
+		t.Logf("arrival rows of feed %d (0: all 500,000) read alone: %v", f, best(func() {
+			_, err := statsArrivals(e.ctx, e.db.Reader(), first, end.Format(dateLayout), f)
 			require.NoError(t, err)
 		}))
+	}
+	for _, r := range []struct{ key, from string }{{"month", end.AddDate(0, 0, -29).Format(dateLayout)}, {"all", ""}} {
+		for _, f := range []int64{0, 7} {
+			t.Logf("%s summary, feed %d: %v", r.key, f, best(func() {
+				_, err := StatsSummaryFor(e.ctx, e.db.Reader(), StatsSummaryParams{Key: r.key, From: r.from, To: end.Format(dateLayout), Now: end, FeedID: f})
+				require.NoError(t, err)
+			}))
+		}
 	}
 }
