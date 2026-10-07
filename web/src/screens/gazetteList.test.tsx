@@ -275,8 +275,11 @@ describe("coming back to the Gazette", () => {
 describe("mark as read while scrolling in the Gazette", () => {
   // Stories `story` px tall, one under the other in DOM order; the list is 800 px tall from y = 0.
   let story = 100;
+  /** A fraction of a pixel the stories sit off the whole-pixel grid (device pixel ratio, sub-pixel scrolling). */
+  let subpixel = 0;
   beforeEach(() => {
     story = 100;
+    subpixel = 0;
     updatePrefs({ markReadOnScroll: true });
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const all = [...document.querySelectorAll("article[data-item-id]")];
@@ -284,7 +287,7 @@ describe("mark as read while scrolling in the Gazette", () => {
       const scroll = document.querySelector<HTMLElement>('[data-testid="list-scroll"]')?.scrollTop ?? 0;
       // The pages' box is as tall as its stories.
       const pages = this instanceof HTMLElement && this.hasAttribute("data-page-box");
-      const top = i < 0 ? (pages ? -scroll : 0) : i * story - scroll;
+      const top = i < 0 ? (pages ? -scroll : 0) : i * story - scroll + subpixel;
       const bottom = i < 0 ? (pages ? top + all.length * story : 800) : top + story;
       return { x: 0, y: top, top, bottom, left: 0, right: 375, width: 375, height: bottom - top, toJSON() {} } as DOMRect;
     });
@@ -475,6 +478,24 @@ describe("mark as read while scrolling in the Gazette", () => {
     expect(marked(calls)).toHaveLength(0);
     resized();
     expect(marked(calls)).toHaveLength(0);
+  });
+
+  it("sub-pixel positions that differ between scroll frames are the same layout", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const order = storyIds(container);
+    // The stories sit at x.5 within the pages, and each frame reports them a hair either side of it.
+    subpixel = 0.499;
+    resized();
+    subpixel = 0.501;
+    scrollTo(150); // the first story goes above the top
+    await frame();
+    subpixel = 0.499;
+    scrollTo(160);
+    await frame();
+    await settle();
+    expect(marked(calls).flatMap((m) => m.ids)).toEqual([order[0]]);
   });
 
   it("more pages appended before scrolling settles keep a story the reader scrolled past", async () => {
