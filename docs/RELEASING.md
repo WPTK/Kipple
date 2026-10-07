@@ -98,7 +98,7 @@ Then cut 0.5.0-beta.1 through the normal steps above, plus:
   Host-A pulls the signed image by digest instead: after `cosign verify` (step 11), set the service's `image:` to
   `ghcr.io/wptk/kipple@sha256:<digest from the Release notes>` in place of its `build:` and `docker compose ... pull kipple`
   then `up -d kipple` (named service); build-from-tag stays as the fallback.
-- **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and schema 15 (13 in 0.8.0-beta.2, 12 in 0.8.0-beta.1, 11 before 0.8);
+- **Verify after the deploy** (step 10, plus): `docker exec kipple /kipple version -v` shows the tag, commit and the schema named in the release notes;
   the log shows the port line (listening on the port `KIPPLE_ADDR` names, 1919 if unset) and no setup banner;
   Settings > About matches; the existing account signs in with no wizard.
 - **UAT Suite 5** (`docs/uat-plan.md`, rewritten for the wizard) on a Linux host with Docker, not Host-B, against the pushed

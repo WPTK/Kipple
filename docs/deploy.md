@@ -632,11 +632,18 @@ Things to know:
 - **Images and icons** are not in a backup; they are downloaded again when first shown.
 - **A backup from a newer Kipple** is refused: update Kipple first. One from an older Kipple is upgraded on the start
   that applies it, after the usual `pre-migration-*` snapshot.
-- **One restore at a time.** A second upload while one is arriving, being checked or waiting is refused until the
-  first is cancelled; a second browser tab sees it and can cancel it. A checked upload you do not confirm is deleted
-  after an hour, or at the next start. Once you confirm, creating an account is
+- **One restore at a time, and it belongs to your browser tab.** Only the page that started an upload can see it,
+  confirm it or cancel it; another browser that can reach setup gets a 409 `restore_elsewhere` and sees nothing of it.
+  While an upload is arriving, being checked or waiting for your confirmation, a second upload is refused. A checked
+  upload you do not confirm is deleted after an hour, or at the next start. Once you confirm, creating an account is
   refused until the restore is applied; if someone creates the account first, the restore is refused and the upload
   deleted.
+- **Slow or stalled uploads are stopped** so they cannot hold the one restore slot: nothing received for two minutes,
+  an average under 32 KB/s after the first two minutes, or a transfer that runs past its allowance (its size at
+  128 KB/s, at least two hours, never more than four). The page says why, and a refused upload expires after an hour
+  like an unconfirmed one. If you are refused, try again over a faster connection or by Kipple's local address, or use
+  `kipple restore`; if a stuck upload still blocks you, restarting Kipple clears it. Too little free disk space is
+  refused with 507 `no_space` and says how much room is needed.
 - **Large files.** The wizard takes backups up to the 4 GiB database limit. A proxy or tunnel in front of Kipple may
   refuse a large file before it arrives; open Kipple by its local address (`http://127.0.0.1:1919` on the server) and
   try again, or use `kipple restore`.
