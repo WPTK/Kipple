@@ -38,7 +38,12 @@ type StatsSummaryParams struct {
 	Key             string // week, month, year, all or custom
 	From, To        string // "" for all: from the first event through today
 	IncludeInferred bool
-	Now             time.Time
+	// FeedID, when not 0, scopes every count of the summary to that one feed: totals, daily, heatmap,
+	// behavior, sources and never_opened; streaks are left out (nil). Coverage starts no earlier than
+	// the feed did (statsFeedStart), and no earlier than that of all statistics, since a stretch with
+	// statistics off or deleted is a gap for every feed alike.
+	FeedID int64
+	Now    time.Time
 	// WhenOff computes the summary from the stored rows even while recording is off (the export
 	// does; GET /api/stats/summary leaves it false and gets the empty off shape).
 	WhenOff bool
@@ -142,13 +147,14 @@ type (
 		CoveredFrom *string `json:"covered_from"`
 		// TimedFrom is the same for active time: also after the first read time or scroll was recorded,
 		// as earlier opens have no time. Never before CoveredFrom; nil when nothing was ever timed.
-		TimedFrom *string       `json:"timed_from"`
-		Totals    StatsTotals   `json:"totals"`
-		Daily     []StatsDaily  `json:"daily"`
-		Streaks   StatsStreaks  `json:"streaks"`
-		Heatmap   []StatsHeat   `json:"heatmap"`
-		Behavior  StatsBehavior `json:"behavior"`
-		Sources   []StatsSource `json:"sources"`
+		TimedFrom *string      `json:"timed_from"`
+		Totals    StatsTotals  `json:"totals"`
+		Daily     []StatsDaily `json:"daily"`
+		// Streaks are all time and all feeds; nil (absent) in the summary of one feed.
+		Streaks  *StatsStreaks `json:"streaks,omitempty"`
+		Heatmap  []StatsHeat   `json:"heatmap"`
+		Behavior StatsBehavior `json:"behavior"`
+		Sources  []StatsSource `json:"sources"`
 		// SourcesTruncated is true when more than statsSourcesMax feeds had activity and the list was cut.
 		SourcesTruncated bool               `json:"sources_truncated"`
 		NeverOpened      []StatsNeverOpened `json:"never_opened"`
@@ -240,6 +246,19 @@ const (
 		ORDER BY ts DESC, id DESC LIMIT 1`
 )
 
+// sqlFeedFirstDate is the local date of one feed's oldest row (its start when the feed row is gone):
+// one seek per kind into idx_stats_feed (feed_id, kind, ts) for the oldest row by ts, and the
+// smallest of their dates, so a feed with many rows costs seven index seeks rather than a scan.
+var sqlFeedFirstDate = func() string {
+	kinds := []string{"open", "read_time", "scroll", "star", "unstar", "open_original", "share"}
+	parts := make([]string, len(kinds))
+	for i, k := range kinds {
+		parts[i] = `SELECT (SELECT local_date FROM stats_events INDEXED BY idx_stats_feed
+			WHERE feed_id = ?1 AND kind = '` + k + `' AND id <= ?2 ORDER BY ts LIMIT 1) AS d`
+	}
+	return "SELECT COALESCE(MIN(d), '') FROM (" + strings.Join(parts, " UNION ALL ") + ")"
+}()
+
 // statsHinted is every INDEXED BY query of the summary with representative arguments (for the plan
 // test), keyed by name, with the index each must read.
 type statsHint struct {
@@ -272,6 +291,7 @@ func statsHinted() []statsHint {
 		{"streaks", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
 		{"streaks sessions", sqlStreaks, "idx_stats_session", 3, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
 		{"name by read time", sqlNameByReadTime, "idx_stats_feed", 1, []any{1, 0, 1 << 40, lo, hi, max}},
+		{"feed first date", sqlFeedFirstDate, "idx_stats_feed", 7, []any{1, max}},
 	}
 }
 
@@ -393,6 +413,26 @@ func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first str
 		timed = &d
 	}
 	return covered, timed, nil
+}
+
+// statsFeedStart is the first local date a feed could have statistics: the earlier of the day it
+// was subscribed and its first row (a feed row that is gone leaves only the second; "" when neither).
+func statsFeedStart(ctx context.Context, q Querier, loc *time.Location, feed, maxID int64) (string, error) {
+	var start string
+	if err := q.QueryRowContext(ctx, sqlFeedFirstDate, feed, maxID).Scan(&start); err != nil {
+		return "", err
+	}
+	var created int64
+	err := q.QueryRowContext(ctx, "SELECT created_at FROM feeds WHERE id = ?", feed).Scan(&created)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	if err == nil {
+		if d := time.Unix(created, 0).In(loc).Format(dateLayout); start == "" || d < start {
+			start = d
+		}
+	}
+	return start, nil
 }
 
 // statsLegacyCutoff is the ts of the earliest read_time or scroll event ever recorded (the stored
@@ -622,6 +662,18 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	if out.CoveredFrom, out.TimedFrom, err = statsCoverage(ctx, q, loc, first, cut); err != nil {
 		return nil, err
 	}
+	if p.FeedID != 0 && out.CoveredFrom != nil {
+		// Before the feed existed its days are not zeros either: coverage starts no earlier than it did.
+		start, err := statsFeedStart(ctx, q, loc, p.FeedID, maxID)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range []*string{out.CoveredFrom, out.TimedFrom} {
+			if d != nil && start > *d {
+				*d = start
+			}
+		}
+	}
 
 	// Opens in the range, from the covering index (migration 0009); no table rows are read.
 	type openRow struct {
@@ -637,7 +689,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		rt         map[statsRTKey]int64
 		sessRT     map[string]int64
 		sessScroll map[string]int64
-		streaks    StatsStreaks
+		streaks    *StatsStreaks
 		stars      map[int64]starAgg
 		origs      map[int64]int
 	)
@@ -647,10 +699,14 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		rt, sessRT, e = statsReadTime(c, q, from, to, maxID)
 		return
 	})
-	g.Go(func(c context.Context) (e error) {
-		streaks, e = statsStreaks(c, q, cut, inc, today, maxID)
-		return
-	})
+	if p.FeedID == 0 {
+		g.Go(func(c context.Context) (e error) {
+			var st StatsStreaks
+			st, e = statsStreaks(c, q, cut, inc, today, maxID)
+			streaks = &st
+			return
+		})
+	}
 	g.Go(func(c context.Context) error {
 		rows, err := q.QueryContext(c, sqlOpens, inc, from, to, maxID)
 		if err != nil {
@@ -677,6 +733,26 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	})
 	if err := g.Wait(); err != nil {
 		return nil, err
+	}
+	if f := p.FeedID; f != 0 {
+		// One feed: the scans above read every feed (their covering indexes stay exact), and the rows
+		// of the others are dropped before anything is counted, so a feed's numbers follow the same rules.
+		kept := opens[:0]
+		for _, o := range opens {
+			if o.feed == f {
+				kept = append(kept, o)
+			}
+		}
+		opens = kept
+		for k := range rt {
+			if k.feed != f {
+				delete(rt, k)
+			}
+		}
+		stars, origs = map[int64]starAgg{f: stars[f]}, map[int64]int{f: origs[f]}
+		if stars[f].n == 0 {
+			delete(stars, f)
+		}
 	}
 	for i := range opens {
 		o := &opens[i]
@@ -992,7 +1068,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		if err := nRows.Scan(&id, &title, &fname, &created); err != nil {
 			return err
 		}
-		if a := feeds[id]; a != nil && a.opens > 0 {
+		if a := feeds[id]; (a != nil && a.opens > 0) || (p.FeedID != 0 && id != p.FeedID) {
 			return nil
 		}
 		if len(out.NeverOpened) >= statsNeverMax {
