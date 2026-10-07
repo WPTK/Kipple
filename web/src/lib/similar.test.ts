@@ -13,6 +13,11 @@ describe("titleKeywords", () => {
     expect(titleKeywords("")).toEqual([]);
   });
 
+  it("treats the curly apostrophe like the straight one", () => {
+    expect(titleKeywords("Rust\u2019s Couldn\u2019t Rust's")).toEqual(["Rust's"]);
+    expect(titleKeywords("Golang\u2019s panic")).toEqual(["Golang's", "panic"]);
+  });
+
   it("caps the list", () => {
     expect(titleKeywords("alpha bravo charlie delta echoes foxtrot golfing hotel india juliet", 3)).toHaveLength(3);
   });
@@ -22,7 +27,7 @@ describe("similarSeed", () => {
   it("scopes the rule to the article's feed, starts with no terms and no name, and offers the keywords and the author", () => {
     const s = similarSeed({ title: "Sponsored giveaway: win a free laptop today", author: " Ada ", feed_id: "9", source: "Tech Daily" });
     expect(s.draft).toMatchObject({ scope: "feed", feed_id: "9", action: "mute", fields: ["title"], terms: [], name: "" });
-    expect(s.keywords).toEqual(["Sponsored", "giveaway", "laptop"]);
+    expect(s.keywords).toEqual(["Sponsored", "giveaway", "free", "laptop"]);
     expect(s.author).toBe("Ada");
     expect(s.feedTitle).toBe("Tech Daily");
   });
@@ -65,13 +70,18 @@ describe("unspaced scripts and the term limit (review finding 5)", () => {
 
 describe("stop words", () => {
   it("is a long, lower-case list without repeats", () => {
-    expect(STOP_WORD_LIST.length).toBeGreaterThan(300);
+    expect(STOP_WORD_LIST.length).toBeGreaterThan(400);
     expect(STOP_WORD_LIST.every((w) => w === w.toLowerCase() && w === w.trim() && w !== "")).toBe(true);
     expect(new Set(STOP_WORD_LIST).size).toBe(STOP_WORD_LIST.length);
     expect(STOP_WORDS.size).toBe(STOP_WORD_LIST.length);
   });
 
+  it("leaves out words a reader may want to mute", () => {
+    for (const w of ["free", "deals", "sale", "review", "reviews", "video", "live", "update", "release", "launch", "world", "home", "play"]) expect(STOP_WORDS.has(w)).toBe(false);
+    for (const w of ["best", "top", "like", "apps", "alternatives", "guide", "tips", "ways", "things", "today", "latest"]) expect(STOP_WORDS.has(w)).toBe(true);
+  });
+
   it("is compared without regard to case", () => {
-    expect(titleKeywords("ALTERNATIVES Guide REVIEWS Zebra")).toEqual(["Zebra"]);
+    expect(titleKeywords("ALTERNATIVES Guide Tips Zebra")).toEqual(["Zebra"]);
   });
 });

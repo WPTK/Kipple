@@ -29,7 +29,7 @@ export function titleKeywords(title: string, max = 8): string[] {
     out.push(w);
     return out.length >= max;
   };
-  for (const raw of title.split(/[^\p{L}\p{N}']+/u)) {
+  for (const raw of title.replace(/[\u2019\u02BC]/g, "'").split(/[^\p{L}\p{N}']+/u)) {
     for (const piece of raw.match(UNSPACED_RUN) ?? []) {
       if (IS_UNSPACED.test(piece)) {
         const runes = [...piece];
@@ -59,7 +59,8 @@ export function similarSeed(item: Pick<Card, "title" | "author" | "feed_id" | "s
   const author = item.author.trim() ? item.author.trim() : null;
   return {
     draft: emptyDraft({ scope: "feed", feed_id: item.feed_id, terms: [], fields: ["title"], action: "mute", name: "" }),
-    keywords: titleKeywords(item.title),
+    // A word that is the author's name is offered once, as the author.
+    keywords: titleKeywords(item.title).filter((k) => k.toLowerCase() !== author?.toLowerCase()),
     author,
     feedTitle: feedTitle ?? item.source,
   };

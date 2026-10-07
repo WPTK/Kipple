@@ -166,7 +166,7 @@ function Choice({ name, value, current, label, help, onPick, disabled }: { name:
 /** A suggestion that is a toggle: pressed (with a check mark) while its word is in the rule. */
 function SuggestionChip({ on, label, name, onToggle }: { on: boolean; label: string; name: string; onToggle: () => void }) {
   return (
-    <Button onClick={onToggle} aria-pressed={on} aria-label={`${on ? "Remove" : "Add"} ${name}`} className={cn("min-h-11 gap-1.5", on && "border-[var(--kp-accent)] bg-selection font-semibold")}>
+    <Button onClick={onToggle} aria-pressed={on} aria-label={name} className={cn("min-h-11 gap-1.5", on && "border-[var(--kp-accent)] bg-selection font-semibold")}>
       {on ? <CheckIcon aria-hidden="true" className="size-4" /> : null}
       {label}
     </Button>
@@ -386,13 +386,26 @@ function EditorForm({
 
   // Suggestions from the article "Mute similar...": a tap adds a word or the author, a second tap takes it out again.
   // Adding the author also ticks the Author field; taking the author out unticks it (the title field always stays).
+  const [chipNote, setChipNote] = useState<string | null>(null);
+  // True while the Author field is ticked because the author chip ticked it (so only then does the chip untick it).
+  const [authorFieldFromChip, setAuthorFieldFromChip] = useState(false);
+  const has = (t: string) => d.terms.some((x) => x.toLowerCase() === t.toLowerCase());
   const toggleTerm = (t: string, field?: FilterField) => {
-    if (d.terms.includes(t)) {
-      set({ terms: d.terms.filter((x) => x !== t), ...(field && d.fields.length > 1 ? { fields: d.fields.filter((f) => f !== field) } : {}) });
+    setChipNote(null);
+    if (has(t)) {
+      const keepFields = field && authorFieldFromChip && d.fields.length > 1;
+      set({ terms: d.terms.filter((x) => x.toLowerCase() !== t.toLowerCase()), ...(keepFields ? { fields: d.fields.filter((f) => f !== field) } : {}) });
+      if (field) setAuthorFieldFromChip(false);
       return;
     }
-    if (termProblem(t, d)) return;
-    set({ terms: [...d.terms, t], ...(field && !d.fields.includes(field) ? { fields: [...d.fields, field] } : {}) });
+    const bad = termProblem(t, d);
+    if (bad) {
+      setChipNote(bad);
+      return;
+    }
+    const addField = !!field && !d.fields.includes(field);
+    if (field) setAuthorFieldFromChip(addField);
+    set({ terms: [...d.terms, t], ...(addField ? { fields: [...d.fields, field] } : {}) });
   };
   const save = async () => {
     if (!ok) return;
@@ -464,10 +477,11 @@ function EditorForm({
           <p className="text-xs text-fg2">Tap a word to add it, tap it again to take it out. The rule starts on {seed.feedTitle} only; change that below.</p>
           <div className="flex flex-wrap gap-2">
             {seed.keywords.map((k) => (
-              <SuggestionChip key={k} on={d.terms.includes(k)} label={k} name={k} onToggle={() => toggleTerm(k)} />
+              <SuggestionChip key={k} on={has(k)} label={k} name={`Word ${k}`} onToggle={() => toggleTerm(k)} />
             ))}
-            {seed.author ? <SuggestionChip on={d.terms.includes(seed.author)} label={`Author: ${seed.author}`} name={`author ${seed.author}`} onToggle={() => toggleTerm(seed.author as string, "author")} /> : null}
+            {seed.author ? <SuggestionChip on={has(seed.author)} label={`Author: ${seed.author}`} name={`Author ${seed.author}`} onToggle={() => toggleTerm(seed.author as string, "author")} /> : null}
           </div>
+          <p role="status" className="min-h-4 text-xs text-danger">{chipNote}</p>
         </section>
       ) : null}
 

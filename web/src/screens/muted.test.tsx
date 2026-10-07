@@ -275,20 +275,26 @@ describe("Mute similar…", () => {
     expect(dialog.getByRole("radio", { name: /^A feed/ })).toBeChecked();
     expect(dialog.getByLabelText("Feed")).toHaveValue("1");
     expect(dialog.getByRole("region", { name: "Suggestions from this article" })).toBeInTheDocument();
-    expect(dialog.getByRole("button", { name: "Add author Ada" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Author Ada" })).toBeInTheDocument();
     expect(dialog.queryByRole("list", { name: "Terms in this filter" })).not.toBeInTheDocument();
     expect(dialog.getByRole("button", { name: "Save filter" })).toBeDisabled();
     expect(dialog.getByRole("radio", { name: /^Mute/ })).toBeChecked();
     // A suggestion adds the author as a term and ticks the author field; a second tap takes both out.
-    await user.click(dialog.getByRole("button", { name: "Add author Ada" }));
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
     const chips = dialog.getByRole("list", { name: "Terms in this filter" });
     expect(within(chips).getByText("Ada")).toBeInTheDocument();
     expect(dialog.getByRole("checkbox", { name: "Author" })).toBeChecked();
     expect(dialog.getByRole("button", { name: "Save filter" })).toBeEnabled();
-    await user.click(dialog.getByRole("button", { name: "Remove author Ada" }));
-    expect(dialog.getByRole("button", { name: "Add author Ada" })).toHaveAttribute("aria-pressed", "false");
+    expect(dialog.getByRole("button", { name: "Author Ada" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    expect(dialog.getByRole("button", { name: "Author Ada" })).toHaveAttribute("aria-pressed", "false");
     expect(dialog.queryByRole("list", { name: "Terms in this filter" })).not.toBeInTheDocument();
     expect(dialog.getByRole("checkbox", { name: "Author" })).not.toBeChecked();
+    // An Author field the reader ticked themselves stays ticked when the author chip is toggled off.
+    await user.click(dialog.getByRole("checkbox", { name: "Author" }));
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    expect(dialog.getByRole("checkbox", { name: "Author" })).toBeChecked();
   });
 });
 

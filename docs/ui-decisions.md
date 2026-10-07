@@ -157,6 +157,13 @@ implementing anything. Commit and PR as needed without asking." (Host-A deploys 
   searches, auto-read after N days, reading-time filter, per-feed view/order). (Shipped in phase 2: mute,
   mark read, star, highlight, saved searches and auto-read. The rest, only-show-matching, the reading-time
   filter UI and per-feed view and order, shipped with #38; see "Filters follow-ups" below.) Quiet hours rejected.
+- **Mute similar...** opens the new-filter editor on the article's feed with no words chosen: the rule contains only
+  what the reader taps. The editor offers the title's distinctive words and the author as toggle buttons (a second tap
+  takes a word out again); Save stays disabled until a word is in. Suggestions skip words under four letters, bare
+  numbers and a list of English function words, very common verbs and adverbs, and headline filler such as best, apps
+  and alternatives (`web/src/lib/stopwords.ts`). Words a reader may want to mute (free, deals, review, video, live) are
+  not on the list. The list is English only: other languages rely on the length, digit and script rules (unspaced
+  scripts are cut into short pieces).
 - Image cache default cap **1 GiB** (check Host-A free disk before deploy). Default mode: **all images**
   (inline too) through Kipple, matching common RSS-reader practice; enables the strict CSP.
 - Backup export, `kipple restore`, `kipple password`; ship them (and take an off-box export) before the
@@ -164,11 +171,7 @@ implementing anything. Commit and PR as needed without asking." (Host-A deploys 
 
 ### Filters follow-ups (#38, 0.8.0-beta.3)
 Choices made where the decisions above were silent; the owner may overrule any of them.
-- **Mute similar...** opens the new-filter editor on the article's feed with no words chosen: the rule contains only
-  what the reader taps. The editor offers the title's distinctive words and the author as toggles (a second tap takes a
-  word out again); Save stays disabled until a word is in. Suggestions skip words under four letters, bare numbers and
-  a list of common English words and headline filler (`web/src/lib/stopwords.ts`). The list is English only: other
-  languages rely on the length, digit and script rules (unspaced scripts are cut into short pieces).- **Only show matching** is a choice under "What it does", stored as an inverted Mute (no new action, no schema
+- **Only show matching** is a choice under "What it does", stored as an inverted Mute (no new action, no schema
   change). For Mute the "Act when it does NOT match" option is that choice, so the checkbox is offered for Mark as
   read and Star only.
 - **Reading-time filter:** three lengths, "5 min or less", "6 to 15 min" and "Over 15 min", from a timer button in the
