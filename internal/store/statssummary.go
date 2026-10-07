@@ -244,10 +244,20 @@ const (
 	sqlNameByReadTime = `SELECT feed_title, folder_id, folder_name FROM stats_events INDEXED BY idx_stats_feed
 		WHERE feed_id = ?1 AND kind = 'read_time' AND ts BETWEEN ?2 AND ?3 AND local_date BETWEEN ?4 AND ?5 AND id <= ?6
 		ORDER BY ts DESC, id DESC LIMIT 1`
-	// sqlFeedFirstDate is the first local date with any row of one feed (its start when the feed row
-	// is gone).
-	sqlFeedFirstDate = `SELECT COALESCE(MIN(local_date), '') FROM stats_events INDEXED BY idx_stats_feed WHERE feed_id = ?1 AND id <= ?2`
 )
+
+// sqlFeedFirstDate is the local date of one feed's oldest row (its start when the feed row is gone):
+// one seek per kind into idx_stats_feed (feed_id, kind, ts) for the oldest row by ts, and the
+// smallest of their dates, so a feed with many rows costs seven index seeks rather than a scan.
+var sqlFeedFirstDate = func() string {
+	kinds := []string{"open", "read_time", "scroll", "star", "unstar", "open_original", "share"}
+	parts := make([]string, len(kinds))
+	for i, k := range kinds {
+		parts[i] = `SELECT (SELECT local_date FROM stats_events INDEXED BY idx_stats_feed
+			WHERE feed_id = ?1 AND kind = '` + k + `' AND id <= ?2 ORDER BY ts LIMIT 1) AS d`
+	}
+	return "SELECT COALESCE(MIN(d), '') FROM (" + strings.Join(parts, " UNION ALL ") + ")"
+}()
 
 // statsHinted is every INDEXED BY query of the summary with representative arguments (for the plan
 // test), keyed by name, with the index each must read.
@@ -281,7 +291,7 @@ func statsHinted() []statsHint {
 		{"streaks", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
 		{"streaks sessions", sqlStreaks, "idx_stats_session", 3, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
 		{"name by read time", sqlNameByReadTime, "idx_stats_feed", 1, []any{1, 0, 1 << 40, lo, hi, max}},
-		{"feed first date", sqlFeedFirstDate, "idx_stats_feed", 1, []any{1, max}},
+		{"feed first date", sqlFeedFirstDate, "idx_stats_feed", 7, []any{1, max}},
 	}
 }
 
