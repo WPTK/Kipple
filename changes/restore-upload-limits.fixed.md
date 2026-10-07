@@ -1,1 +1,1 @@
-Setup wizard restore: an upload that sends too slowly (under 32 KB/s on average after two minutes) or takes longer than six hours is stopped, so it cannot hold the one restore slot.
+Setup wizard restore: an upload that sends nothing for two minutes, or averages under 32 KB/s after the first two, is stopped, so it cannot hold the one restore slot; the page then says why.

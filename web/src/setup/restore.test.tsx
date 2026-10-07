@@ -87,6 +87,7 @@ const bodyOf = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body)) a
 function server(w: World, extra: Parameters<typeof mockFetch>[0] = {}) {
   return mockFetch({
     "POST /api/setup/restore/start": () => json({ key: KEY }),
+    "GET /api/setup/restore/cookie": () => new Response(null, { status: 204 }),
     "GET /api/instance": () => json(w.setup ? { setup: true, auth: null, access: { enabled: false, verified: false }, open: { reason: null }, restore: w.restore } : { setup: false, auth: "password" }),
     "POST /api/setup/restore/confirm": () => {
       w.restore = "confirmed";
@@ -391,10 +392,20 @@ describe("restore in the setup wizard", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("says cookies are needed when the browser did not keep the owner cookie", async () => {
+  it("says cookies are needed, before sending the file, when the browser did not keep the owner cookie", async () => {
     const msg = "Kipple needs cookies to restore a backup: it keeps the upload for the browser that sent it. Allow cookies for this site, then try again.";
-    reply = { status: 400, body: { error: "cookies_required", message: msg } };
-    server({ restore: "none", setup: true, signedIn: false });
+    server({ restore: "none", setup: true, signedIn: false }, { "GET /api/setup/restore/cookie": () => json({ error: "cookies_required", message: msg }, 400) });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent(msg);
+    expect(sent).toBeNull();
+  });
+
+  it("shows why the server stopped an upload whose connection it cut", async () => {
+    const msg = "The upload was too slow and was stopped. Try again on a faster connection, or restore on the server with kipple restore.";
+    reply = { status: 0, body: {}, network: true };
+    server({ restore: "none", setup: true, signedIn: false, status: { state: "failed", error: { code: "upload_too_slow", message: msg } } });
     go();
     const user = userEvent.setup();
     await chooseFile(user);

@@ -2,9 +2,14 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -22,18 +27,19 @@ import (
 //
 // An uploaded backup belongs to the browser that sent it (backup.Restorer).
 // Before the file, POST /api/setup/restore/start gives the browser an owner
-// key: a random value made by the server, set as an HttpOnly cookie and also
-// returned to the page. The upload sends the key in a header, and it must
-// match one of the request's cookies; from its first byte the upload is that
-// key's, so the uploader can cancel it while it arrives, and every later route
-// reads the caller's cookies. Anyone else who can reach setup sees no restore
-// and cannot read, confirm or cancel the upload.
+// key, set as an HttpOnly cookie and also returned to the page, and GET
+// /api/setup/restore/cookie lets the page check that the cookie came back. The
+// upload sends the key in a header, and it must match one of the request's
+// cookies; from its first byte the upload is that key's, so the uploader can
+// cancel it while it arrives, and every later route reads the caller's
+// cookies. Anyone else who can reach setup sees no restore and cannot read,
+// confirm or cancel the upload.
 //
-// The header is what makes a cookie planted in the browser by someone else (a
-// sibling subdomain can set one) useless: only the page's own script, which
-// read the key from the start answer, can send it. Requiring the cookie too
-// refuses a browser that does not keep cookies before it sends the file, with
-// a message, instead of losing its upload after the file has arrived.
+// Only keys this process made are accepted (they carry a MAC under a secret of
+// the process), and start always makes a new one: it never hands back a value
+// the browser sent. A cookie planted in the browser by someone else (a sibling
+// subdomain can set one) therefore never becomes the page's key: the upload's
+// header comes only from the page's own script, which read it from start.
 
 const (
 	// restoreCookie carries the owner key of a wizard upload.
@@ -62,24 +68,39 @@ func hasRestoreCookie(r *http.Request, key string) bool {
 	return false
 }
 
-// validRestoreKey reports whether k has the form newCookieValue makes: 32
-// bytes in unpadded base64url.
-func validRestoreKey(k string) bool {
-	if len(k) != 43 {
-		return false
+// restoreKeyLen is the length of a key in bytes: 16 random, then 16 of MAC.
+const restoreKeyLen = 32
+
+// newRestoreKey makes an owner key: 16 random bytes and the first 16 bytes of
+// their HMAC-SHA256 under the process's restoreSecret, in unpadded base64url.
+func (s *Server) newRestoreKey() (string, error) {
+	b := make([]byte, restoreKeyLen)
+	if _, err := rand.Read(b[:16]); err != nil {
+		return "", err
 	}
-	for _, c := range k {
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
-			return false
-		}
-	}
-	return true
+	copy(b[16:], s.restoreMAC(b[:16]))
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// restoreStart is POST /api/setup/restore/start: the owner key for the next
-// upload, as the cookie and as {"key"}. A browser whose key owns the upload
-// there is keeps it, so starting again never cuts it off from its own upload;
-// otherwise the key is new.
+func (s *Server) restoreMAC(nonce []byte) []byte {
+	m := hmac.New(sha256.New, s.restoreSecret)
+	m.Write(nonce)
+	return m.Sum(nil)[:16]
+}
+
+// madeRestoreKey reports whether k is a key newRestoreKey made in this process.
+func (s *Server) madeRestoreKey(k string) bool {
+	b, err := base64.RawURLEncoding.DecodeString(k)
+	if err != nil || len(b) != restoreKeyLen {
+		return false
+	}
+	return hmac.Equal(b[16:], s.restoreMAC(b[:16]))
+}
+
+// restoreStart is POST /api/setup/restore/start: a new owner key for the next
+// upload, as the cookie and as {"key"}. A browser that owns an upload arriving,
+// being checked or ready gets 409 restore_busy and no key: it cancels that
+// one first. Nothing is stored, so calling it costs nothing and holds nothing.
 func (s *Server) restoreStart(w http.ResponseWriter, r *http.Request) {
 	if s.setupGone(w) {
 		return
@@ -88,16 +109,60 @@ func (s *Server) restoreStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "origin")
 		return
 	}
-	key := s.restoreOwner(r)
-	if key == "" {
-		var err error
-		if key, err = newCookieValue(); err != nil {
-			s.serverError(w, "restore start: owner key", err)
+	if owner := s.restoreOwner(r); owner != "" {
+		switch s.restore.Status(owner).State {
+		case backup.RestoreUploading, backup.RestoreChecking, backup.RestoreReady:
+			s.writeRestoreError(w, "restore start", backup.ErrRestoreBusy)
 			return
 		}
 	}
+	if s.restore.State() == backup.RestoreConfirmed {
+		s.writeRestoreError(w, "restore start", backup.ErrRestorePending)
+		return
+	}
+	key, err := s.newRestoreKey()
+	if err != nil {
+		s.serverError(w, "restore start: owner key", err)
+		return
+	}
 	s.setRestoreCookie(w, r, key)
 	writeJSON(w, http.StatusOK, map[string]string{"key": key})
+}
+
+// restoreKeyRefusal is why an upload's key will not do, "" when it will: not
+// one start made, or no cookie with it (the browser did not keep start's).
+func (s *Server) restoreKeyRefusal(w http.ResponseWriter, r *http.Request) bool {
+	key := r.Header.Get(restoreKeyHeader)
+	switch {
+	case !s.madeRestoreKey(key):
+		writeErrorMsg(w, http.StatusBadRequest, "restore_key_required", "Start the upload again from the setup page.")
+	case !hasRestoreCookie(r, key):
+		writeErrorMsg(w, http.StatusBadRequest, "cookies_required",
+			"Kipple needs cookies to restore a backup: it keeps the upload for the browser that sent it. Allow cookies for this site, then try again.")
+	default:
+		return false
+	}
+	return true
+}
+
+// restoreCookieCheck is GET /api/setup/restore/cookie with the key from start
+// in X-Kipple-Restore-Key: 204 when the cookie came back with it, else the
+// refusal the upload would give. The page asks before it sends the file, so a
+// browser that blocks cookies reads the reason instead of a connection cut
+// while it is still sending.
+func (s *Server) restoreCookieCheck(w http.ResponseWriter, r *http.Request) {
+	if s.setupGone(w) {
+		return
+	}
+	if !s.sameOrigin(r) {
+		writeError(w, http.StatusForbidden, "origin")
+		return
+	}
+	if s.restoreKeyRefusal(w, r) {
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // setRestoreCookie hands the owner key to the browser. It lives longer than
@@ -113,12 +178,11 @@ func (s *Server) setRestoreCookie(w http.ResponseWriter, r *http.Request, key st
 // An upload holds the one restore slot while it arrives, so it must not be
 // able to hold it for ever by sending slowly. These replace the server-wide
 // ReadTimeout, which bounds the whole request and would stop any large file.
-// Variables so tests can shorten them.
+// The rate bounds the whole upload too: one that keeps it takes at most its
+// size over the rate, plus the grace. Variables so tests can shorten them.
 var (
 	// restoreReadIdle is how long an upload may send nothing.
 	restoreReadIdle = 2 * time.Minute
-	// restoreUploadMax is how long a whole upload may take.
-	restoreUploadMax = 6 * time.Hour
 	// restoreMinRate is the slowest average an upload may keep (bytes per
 	// second), judged from restoreRateGrace on.
 	restoreMinRate   = 32 << 10
@@ -129,9 +193,11 @@ var (
 const restoreAnswerWait = 30 * time.Second
 
 // deadlineReader bounds the reads of an upload: before each read it sets the
-// connection's read deadline to the idle limit or the end of the whole
-// upload, whichever is first, and it refuses to go on once the average rate
-// has fallen below the minimum. It removes the deadline once the whole body
+// connection's read deadline to the idle limit, and it refuses to go on once
+// the average rate has fallen below the minimum. Either ends the upload with
+// backup.ErrUploadTooSlow, which the Restorer keeps as the owner's failed
+// state: a browser still sending may never read the answer, and its page then
+// asks GET /api/setup/restore why. It removes the deadline once the whole body
 // has arrived: from then on an expired deadline would cancel the request.
 // stop (a cancel by the uploader, an account claim, shutdown) sets the
 // deadline to now, so a read waiting on a stalled client returns at once, and
@@ -143,15 +209,11 @@ type deadlineReader struct {
 
 	mu      sync.Mutex // orders stop against the deadline each read sets
 	stopped bool
-	slow    bool // stopped for taking too long or sending too slowly
 	left    int64
 	got     int64
 }
 
-var (
-	errUploadStopped = errors.New("restore: upload stopped")
-	errUploadSlow    = errors.New("restore: upload too slow")
-)
+var errUploadStopped = errors.New("restore: upload stopped")
 
 func (d *deadlineReader) Read(p []byte) (int, error) {
 	d.mu.Lock()
@@ -160,38 +222,27 @@ func (d *deadlineReader) Read(p []byte) (int, error) {
 		return 0, errUploadStopped
 	}
 	now := time.Now()
-	end := d.start.Add(restoreUploadMax)
-	if el := now.Sub(d.start); !now.Before(end) || (el > restoreRateGrace && float64(d.got) < float64(restoreMinRate)*el.Seconds()) {
-		d.slow, d.stopped = true, true // and the deadline stays in the past, so nothing more is read
+	if el := now.Sub(d.start); el > restoreRateGrace && float64(d.got) < float64(restoreMinRate)*el.Seconds() {
+		d.stopped = true // and the deadline stays in the past, so nothing more is read
 		_ = d.rc.SetReadDeadline(now)
 		d.mu.Unlock()
-		return 0, errUploadSlow
+		return 0, backup.ErrUploadTooSlow
 	}
-	dl := now.Add(restoreReadIdle)
-	if end.Before(dl) {
-		dl = end
-	}
-	_ = d.rc.SetReadDeadline(dl)
+	_ = d.rc.SetReadDeadline(now.Add(restoreReadIdle))
 	d.mu.Unlock()
 	n, err := d.r.Read(p)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.left -= int64(n)
 	d.got += int64(n)
-	if err != nil && !d.stopped && !time.Now().Before(end) {
-		d.slow, d.stopped = true, true // the deadline was the end of the whole upload; it stays
+	if err != nil && !d.stopped && errors.Is(err, os.ErrDeadlineExceeded) {
+		d.stopped = true // the idle limit: the deadline stays
+		return n, backup.ErrUploadTooSlow
 	}
 	if (d.left <= 0 || err != nil) && !d.stopped {
 		_ = d.rc.SetReadDeadline(time.Time{})
 	}
 	return n, err
-}
-
-// tooSlow reports whether the upload was stopped for its time or rate.
-func (d *deadlineReader) tooSlow() bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.slow
 }
 
 func (d *deadlineReader) stop() {
@@ -222,16 +273,14 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusLengthRequired, "length_required", "Send the file with its length (Content-Length).")
 		return
 	}
+	if s.restoreKeyRefusal(w, r) {
+		// Before the body: close after the answer, as for the refusals below.
+		// The page asks GET /api/setup/restore/cookie first, so it does not
+		// rely on reading this one.
+		w.Header().Set("Connection", "close")
+		return
+	}
 	key := r.Header.Get(restoreKeyHeader)
-	if !validRestoreKey(key) {
-		writeErrorMsg(w, http.StatusBadRequest, "restore_key_required", "Start the upload again from the setup page.")
-		return
-	}
-	if !hasRestoreCookie(r, key) {
-		writeErrorMsg(w, http.StatusBadRequest, "cookies_required",
-			"Kipple needs cookies to restore a backup: it keeps the upload for the browser that sent it. Allow cookies for this site, then try again.")
-		return
-	}
 	rc := http.NewResponseController(w)
 	_ = rc.SetWriteDeadline(time.Time{}) // the server-wide one started with the request
 	body := &deadlineReader{r: r.Body, rc: rc, left: r.ContentLength, start: time.Now()}
@@ -251,9 +300,6 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		case !s.opt.Setup.Pending():
 			// An account was created while the file arrived, which cancelled it.
 			writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
-		case body.tooSlow():
-			writeErrorMsg(w, http.StatusRequestTimeout, "upload_too_slow",
-				"The upload was too slow and was stopped. Try again on a faster connection, or restore on the server with kipple restore.")
 		default:
 			s.writeRestoreError(w, "restore upload", err)
 		}
@@ -495,6 +541,8 @@ func restoreErrorInfo(err error) (status int, code, msg string) {
 		return http.StatusBadRequest, "not_a_backup", err.Error()
 	case errors.Is(err, backup.ErrUploadCut):
 		return http.StatusBadRequest, "upload_incomplete", err.Error()
+	case errors.Is(err, backup.ErrUploadTooSlow):
+		return http.StatusRequestTimeout, "upload_too_slow", err.Error()
 	case errors.As(err, &space):
 		return http.StatusInsufficientStorage, "no_space", err.Error()
 	case errors.As(err, &newer):

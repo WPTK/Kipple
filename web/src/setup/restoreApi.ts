@@ -46,13 +46,35 @@ export const fetchRestoreStatus = () => api<RestoreStatus>("/api/setup/restore",
 const startRestore = () => api<{ key: string }>("/api/setup/restore/start", { method: "POST", anon: true });
 
 /**
+ * Checks that the cookie start set came back, before any file is sent: a browser that blocks cookies gets the
+ * server's cookies_required answer here, which it could miss on the upload itself while still sending.
+ */
+async function checkRestoreCookie(key: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/setup/restore/cookie", { headers: { "X-Kipple-Client": clientKind(), "X-Kipple-Restore-Key": key }, credentials: "same-origin" });
+  } catch {
+    throw new ApiError(0, "network");
+  }
+  if (res.ok) return;
+  let body: Record<string, unknown> | null = null;
+  try {
+    body = (await res.json()) as Record<string, unknown>;
+  } catch {
+    /* not JSON */
+  }
+  throw new ApiError(res.status, typeof body?.error === "string" ? body.error : "http_" + res.status, body);
+}
+
+/**
  * Sends the file as the raw request body, after asking for the owner key that makes the upload this browser's from
- * its first byte (so "Cancel upload" can stop it on the server too). fetch cannot report upload progress, so this
- * uses XMLHttpRequest. Answers with what the server found, or throws an ApiError (status 0 when the network failed
- * or the upload was cancelled).
+ * its first byte (so "Cancel upload" can stop it on the server too) and checking that its cookie came back. fetch
+ * cannot report upload progress, so this uses XMLHttpRequest. Answers with what the server found, or throws an
+ * ApiError (status 0 when the network failed or the upload was cancelled).
  */
 export async function uploadRestoreFile(file: File, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<UploadResult> {
   const { key } = await startRestore();
+  await checkRestoreCookie(key);
   if (signal?.aborted) throw new ApiError(0, "aborted");
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

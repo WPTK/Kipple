@@ -84,6 +84,11 @@ var (
 	ErrUploadTooLarge   = &Refusal{"This file is larger than the " + human(MaxUploadBytes) + " a restore accepts."}
 	ErrOPMLTooLarge     = &Refusal{"This OPML file is larger than the " + human(opml.MaxFileBytes) + " an import accepts."}
 	ErrUploadCut        = &Refusal{"The upload stopped before the whole file arrived. Try again."}
+	// ErrUploadTooSlow: the body reader stopped an upload that sent too slowly
+	// (the API's limits). Unlike the other upload refusals it is kept as the
+	// owner's failed state, because the browser, still sending, may never read
+	// the answer.
+	ErrUploadTooSlow = &Refusal{"The upload was too slow and was stopped. Try again on a faster connection, or restore on the server with kipple restore."}
 )
 
 // BadUploadError is a zip that is damaged, tampered with or not made by Kipple.
@@ -334,10 +339,15 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 		r.mu.Unlock()
 		err = context.Canceled
 	}
-	// Done here: an OPML file, or a refusal. Nothing is kept.
+	// Done here: an OPML file, or a refusal. Nothing is kept but a refusal for
+	// slowness, as the owner's failed state (see ErrUploadTooSlow).
 	removeStaged(r.o.DataDir)
 	r.mu.Lock()
-	r.state, r.owner = RestoreNone, "" // the job held the slot until now: nothing else can have started
+	if errors.Is(err, ErrUploadTooSlow) && r.gen == g {
+		r.state, r.failErr = RestoreFailed, err
+	} else {
+		r.state, r.owner = RestoreNone, "" // the job held the slot until now: nothing else can have started
+	}
 	r.job = nil
 	r.mu.Unlock()
 	cancel()
@@ -353,7 +363,7 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 		if ctx.Err() != nil {
 			return Upload{}, ctx.Err()
 		}
-		return Upload{}, ErrUploadCut
+		return Upload{}, cut(err)
 	}
 	switch {
 	case bytes.HasPrefix(head, []byte("PK\x03\x04")):
@@ -367,7 +377,7 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 			if ctx.Err() != nil {
 				return Upload{}, ctx.Err()
 			}
-			return Upload{}, ErrUploadCut
+			return Upload{}, cut(err)
 		}
 		doc, err := opml.Parse(bytes.NewReader(b))
 		if err != nil {
@@ -401,9 +411,18 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 		return Upload{}, ctx.Err()
 	}
 	if err != nil || n != size {
-		return Upload{}, ErrUploadCut
+		return Upload{}, cut(err)
 	}
 	return Upload{Kind: KindBackup}, nil
+}
+
+// cut is the refusal for a body that ended early: ErrUploadTooSlow when the
+// reader stopped it for that, else ErrUploadCut.
+func cut(err error) error {
+	if errors.Is(err, ErrUploadTooSlow) {
+		return ErrUploadTooSlow
+	}
+	return ErrUploadCut
 }
 
 // check verifies a spooled zip in the background and records the outcome,
