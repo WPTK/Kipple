@@ -65,8 +65,8 @@ func TestMigration0017OnAPopulatedSchema16(t *testing.T) {
 	e2 := &env{t: t, db: db, clk: e.clk, ctx: e.ctx}
 	e2.fetchBody(id, rss(append(numbered(5), newer(2)...)...))
 	require.Equal(t, 2, e2.newsDaily(id, base))
-	e2.fetchBody(edited, rss(numbered(3)...))
-	require.Zero(t, e2.newsDaily(edited, base), "the edited URL's first document is a backlog, not arrivals")
+	e2.fetchBody(edited, rss(append(numbered(3), newer(2)...)...))
+	require.Zero(t, e2.newsDaily(edited, base), "the edited URL's first document is a backlog even with guids new to the feed")
 	// Idempotent: opening the migrated database again runs nothing (gated by user_version) and keeps the flags.
 	require.NoError(t, db.Close())
 	again := reopen(t, path)
