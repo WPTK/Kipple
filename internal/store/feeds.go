@@ -171,7 +171,7 @@ func (d *DB) feedSnapshots(ctx context.Context, set FetchSettings, where string,
 		s.IntervalS = fetch.IntervalSeconds(iv)
 		s.UAFallback = uaFallback == 1
 		s.UserAgent, s.RetryUserAgent = ResolveUserAgent(set, strings.TrimSpace(ua.String), s.UAFallback)
-		s.HonorTTL = set.HonorTTL
+		s.HonorTTL, s.SlotSalt = set.HonorTTL, set.SlotSalt
 		out = append(out, s)
 	}
 	return out, rows.Err()

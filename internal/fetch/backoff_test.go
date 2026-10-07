@@ -3,6 +3,7 @@ package fetch
 import (
 	"net/http"
 	"net/netip"
+	"strconv"
 	"testing"
 	"time"
 
@@ -58,36 +59,88 @@ func TestHostUntilAndRetryAfterDominate(t *testing.T) {
 	require.Equal(t, t0.Add(86400*time.Second), next)
 }
 
-// steadyDelay is the gap between fetches made on the feed's slots.
-func steadyDelay(feedID, intervalS, hintS int64) int64 {
-	slot, _ := NextOnSuccess(t0, feedID, intervalS, hintS)
-	_, d := NextOnSuccess(slot, feedID, intervalS, hintS)
-	return d
+const testSalt = 0x2545F4914F6CDD1D
+
+// key is the phase key of feed id on the test installation.
+func key(id int64) uint64 { return PhaseKey(id, testSalt) }
+
+// gaps runs n successes of feed id, each one made on time, and returns the gaps.
+func gaps(id, intervalS, hintS int64, n int) []int64 {
+	at, _ := NextOnSuccess(t0, key(id), intervalS, hintS)
+	var out []int64
+	for range n {
+		next, d := NextOnSuccess(at, key(id), intervalS, hintS)
+		out, at = append(out, d), next
+	}
+	return out
 }
 
 func TestSuccessScheduleHints(t *testing.T) {
-	// hint below the interval loses; above wins; capped at 24 h.
-	require.EqualValues(t, 1800, steadyDelay(7, 1800, 600))
-	require.EqualValues(t, 7200, steadyDelay(7, 1800, 7200))
-	require.EqualValues(t, 86400, steadyDelay(7, 1800, 10*86400))
-	// a 7-day interval is never shortened by a hint
-	require.EqualValues(t, 7*86400, steadyDelay(7, 7*86400, 3600))
+	for id := int64(1); id <= 50; id++ {
+		// A hint at or below the interval does not matter.
+		require.Equal(t, []int64{1800, 1800, 1800}, gaps(id, 1800, 600, 3))
+		require.Equal(t, []int64{1800, 1800, 1800}, gaps(id, 1800, 1800, 3))
+		// A longer hint is a floor: the first slot at or after it, so at most
+		// one interval later.
+		for _, d := range gaps(id, 1800, 7200, 3) {
+			require.GreaterOrEqual(t, d, int64(7200))
+			require.Less(t, d, int64(7200+1800))
+		}
+		// The hint counts for at most 24 h.
+		for _, d := range gaps(id, 1800, 10*86400, 3) {
+			require.GreaterOrEqual(t, d, int64(86400))
+			require.Less(t, d, int64(86400+1800))
+		}
+		// A 7-day interval is never shortened by a hint.
+		require.Equal(t, []int64{7 * 86400, 7 * 86400}, gaps(id, 7*86400, 3600, 2))
+	}
 }
 
 func TestSuccessSlotBounds(t *testing.T) {
 	for id := int64(1); id <= 200; id++ {
 		for off := int64(0); off < 1800; off += 97 {
 			now := t0.Add(time.Duration(off) * time.Second)
-			next, d := NextOnSuccess(now, id, 1800, 0)
-			require.Greater(t, d, int64(900), "id %d: never sooner than half the interval", id)
-			require.LessOrEqual(t, d, int64(2700), "id %d: never later than one and a half intervals", id)
+			next, d := NextOnSuccess(now, key(id), 1800, 0)
+			require.GreaterOrEqual(t, d, int64(900), "id %d: never sooner than half the interval", id)
+			require.Less(t, d, int64(2700), "id %d: always sooner than one and a half intervals", id)
 			require.Equal(t, now.Add(time.Duration(d)*time.Second), next)
-			// The next fetch, made on the slot or up to just under half an
-			// interval late (queueing, a slow publisher), keeps the slot.
-			for _, late := range []int64{0, 1, 300, 899} {
-				_, d2 := NextOnSuccess(next.Add(time.Duration(late)*time.Second), id, 1800, 0)
+			// The next fetch, made on the slot or up to half an interval late
+			// (queueing, a slow publisher), keeps the slot.
+			for _, late := range []int64{0, 1, 300, 900} {
+				_, d2 := NextOnSuccess(next.Add(time.Duration(late)*time.Second), key(id), 1800, 0)
 				require.EqualValues(t, 1800-late, d2, "id %d late %d", id, late)
 			}
+		}
+	}
+}
+
+// A feed behind a cache whose Age grows from fetch to fetch has a different
+// hint every time. The slots stay put (they come from the interval alone) and
+// no fetch comes before a hint longer than the interval runs out.
+func TestSuccessVaryingHintKeepsGridAndFloor(t *testing.T) {
+	const interval = 1800
+	for id := int64(1); id <= 20; id++ {
+		at := t0
+		phase := int64(-1)
+		for k := range 60 {
+			age := (int64(k)*613 + id*97) % 7200
+			h := http.Header{}
+			h.Set("Cache-Control", "public, max-age=7200")
+			h.Set("Age", strconv.FormatInt(age, 10))
+			hint := PublisherHintSeconds(true, 0, h, at)
+			require.EqualValues(t, 7200-age, hint)
+			next, d := NextOnSuccess(at, key(id), interval, hint)
+			if hint > interval {
+				require.GreaterOrEqual(t, d, hint, "id %d fetch %d: never before a hint longer than the interval", id, k)
+			} else {
+				require.GreaterOrEqual(t, d, int64(interval/2), "id %d fetch %d", id, k)
+			}
+			if p := next.Unix() % interval; phase < 0 {
+				phase = p
+			} else {
+				require.Equal(t, phase, p, "id %d fetch %d: the slot did not move", id, k)
+			}
+			at = next.Add(time.Duration(k%7) * time.Second) // a few seconds of lateness
 		}
 	}
 }
@@ -98,19 +151,35 @@ func TestSuccessSlotBounds(t *testing.T) {
 // eight minutes for good.
 func TestSuccessSpreadsABurst(t *testing.T) {
 	const n, interval = 500, 1800
-	perMinute := map[int64]int{}
-	for id := int64(1); id <= n; id++ {
-		done := t0.Add(time.Duration(id) * 400 * time.Millisecond) // 500 fetches in 200 s
-		next, _ := NextOnSuccess(done, id, interval, 0)
-		again, d := NextOnSuccess(next, id, interval, 0)
-		require.EqualValues(t, interval, d, "id %d stays on its slot", id)
-		require.Equal(t, next.Add(interval*time.Second), again)
-		perMinute[next.Unix()/60%(interval/60)]++
+	for _, salt := range []int64{0, testSalt} {
+		perMinute := map[int64]int{}
+		for id := int64(1); id <= n; id++ {
+			done := t0.Add(time.Duration(id) * 400 * time.Millisecond) // 500 fetches in 200 s
+			next, _ := NextOnSuccess(done, PhaseKey(id, salt), interval, 0)
+			again, d := NextOnSuccess(next, PhaseKey(id, salt), interval, 0)
+			require.EqualValues(t, interval, d, "id %d stays on its slot", id)
+			require.Equal(t, next.Add(interval*time.Second), again)
+			perMinute[next.Unix()/60%(interval/60)]++
+		}
+		require.Len(t, perMinute, interval/60, "salt %d: every minute of the interval has fetches", salt)
+		for m, c := range perMinute {
+			require.LessOrEqual(t, c, 2*n/(interval/60), "salt %d: minute %d is not a hot spot", salt, m)
+		}
 	}
-	require.Len(t, perMinute, interval/60, "every minute of the interval has fetches")
-	for m, c := range perMinute {
-		require.LessOrEqual(t, c, 2*n/(interval/60), "minute %d is not a hot spot", m)
+}
+
+// Two installations that imported the same list (the same ids) fetch each
+// feed at different times.
+func TestSlotSaltSeparatesInstallations(t *testing.T) {
+	same := 0
+	for id := int64(1); id <= 500; id++ {
+		a, _ := NextOnSuccess(t0, PhaseKey(id, 12345), 1800, 0)
+		b, _ := NextOnSuccess(t0, PhaseKey(id, 987654321), 1800, 0)
+		if a.Sub(b).Abs() < time.Minute {
+			same++
+		}
 	}
+	require.Less(t, same, 50, "about 1 in 15 by chance, not all of them")
 }
 
 func TestPublisherHint(t *testing.T) {

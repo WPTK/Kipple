@@ -68,6 +68,7 @@ type Snapshot struct {
 	Retention       int   // feeds.retention, -1 = inherit, 0 = unlimited
 	IntervalS       int64 // resolved interval in seconds (feed override or global)
 	HonorTTL        bool  // fetch.honor_publisher_ttl
+	SlotSalt        int64 // sys.fetch_slot_salt: offsets the success slots (PhaseKey)
 
 	Redirect            RedirectState
 	ConsecutiveFailures int
@@ -149,7 +150,7 @@ func (r *Result) Schedule(now time.Time, rnd Rand) {
 			r.RetryAfter, r.Snap.HostUntil, rnd)
 		return
 	}
-	r.NextFetchAt, r.CurrentDelayS = NextOnSuccess(now, r.Snap.ID, r.Snap.IntervalS, r.TTLHintS)
+	r.NextFetchAt, r.CurrentDelayS = NextOnSuccess(now, PhaseKey(r.Snap.ID, r.Snap.SlotSalt), r.Snap.IntervalS, r.TTLHintS)
 }
 
 func (r *Result) fail(class, msg string) *Result {

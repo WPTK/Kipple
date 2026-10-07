@@ -1031,26 +1031,21 @@ hint_s        = fetch.honor_publisher_ttl ? max(RSS <ttl>×60, Cache-Control s-m
               (Date is the response's own Date header, so a publisher clock that is off cancels out;
                without a valid Date it is now. An unparseable Expires contributes nothing)
               (a response with Cache-Control no-cache, no-store or private contributes only the RSS <ttl>)
-period_s      = max(interval_s, min(hint_s, 86400))
-phase_s       = floor(frac(feed_id × 0.6180339887…) × period_s)    (Fibonacci hashing of the id)
-next_fetch_at = the slot phase_s + k × period_s (unix seconds) nearest to now + period_s
+key           = feed_id + sys.fetch_slot_salt   (as uint64)
+phase_s       = floor(frac(key × 0.6180339887…) × interval_s)   (Fibonacci hashing)
+lead_s        = min(hint_s, 86400) > interval_s ? min(hint_s, 86400) : floor(interval_s / 2)
+next_fetch_at = the first slot phase_s + k × interval_s (unix seconds) at or after now + lead_s
 ttl_hint_s = hint_s;  current_delay_s = d = next_fetch_at − now
 ```
 
-- Each feed has fixed slots, `period_s` apart, at its own phase, so the delay `d` is in (period_s/2, 3 × period_s/2]. A feed fetched on its slot, or up to half a period late (queueing, a slow publisher), gets its next slot, exactly `period_s` later.
-- Why slots and not `now + period` with jitter: a schedule anchored on when the last fetch finished keeps feeds that were fetched together (a restore, the first start after downtime, an OPML import, a manual refresh of everything) bunched for good, and a few percent of jitter spreads them by only a minute or two. With slots, one success puts each feed on its own phase, and Fibonacci hashing spreads any set of ids evenly over the period (consecutive ids land far apart). The burst itself is one pass, held to the worker and per-host caps (§4.1, §4.2), the same as a manual refresh. The cost is a single gap as short as half the period while a feed moves onto its slot.
+- Each feed has fixed slots, `interval_s` apart, at its own phase. The slots depend on the interval alone, so a hint that changes from fetch to fetch (a cache's growing `Age`, a fixed `Expires`) never moves them.
+- Without a hint longer than the interval, `d` is in [interval_s/2, 3 × interval_s/2). A feed fetched on its slot, or up to half an interval late (queueing, a slow publisher), gets its next slot, one interval on. The longest gap is one and a half intervals, once, while a feed moves onto its slot: 45 minutes at the default, 10.5 days at the 7-day maximum.
+- A hint longer than the interval is a floor: `d` is in [hint, hint + interval_s), with the hint capped at 24 h, so the longest gap is 24 h plus one interval. A hint at or below the interval does not count; the interval governs.
+- Why slots and not `now + interval` with jitter: a schedule anchored on when the last fetch finished keeps feeds that were fetched together (a restore, the first start after downtime, an OPML import, a manual refresh of everything) bunched for good, and a few percent of jitter spreads them by only a minute or two. With slots, one success puts each feed on its own phase. Fibonacci hashing spreads consecutive ids, which is what an import or a restore creates, evenly over the interval. The burst itself is one pass, held to the worker and per-host caps (§4.1, §4.2), the same as a manual refresh.
+- `sys.fetch_slot_salt` is a random number below 2^53 that `store.Open` writes once when the database has none (hidden and read-only like every `sys.*` key; it travels with the database, so a restore keeps the backup's). Without it every installation that imported the same list would have the same ids and so fetch each feed in the same second, a herd on the publisher; the jitter this schedule replaced was what had kept installations apart. It is state, but it is written once and read in one place (`store.FetchSettings`), and nothing derived from the database is both random and stable.
 - Failures keep the jittered backoff above; the next success puts the feed back on its slot.
 
-Changing `refresh.interval_minutes` runs `store.PullInSchedule`, followed by a scheduler `Wake`:
-
-```sql
-UPDATE feeds SET next_fetch_at = last_fetch_at + max(:new_interval_s, CASE WHEN :honor_ttl THEN min(coalesce(ttl_hint_s, 0), 86400) ELSE 0 END)
-WHERE enabled = 1 AND interval_minutes IS NULL AND consecutive_failures = 0
-  AND last_fetch_at IS NOT NULL
-  AND next_fetch_at > last_fetch_at + max(:new_interval_s, CASE WHEN :honor_ttl THEN min(coalesce(ttl_hint_s, 0), 86400) ELSE 0 END)
-```
-
-`:honor_ttl` is `fetch.honor_publisher_ttl`. The statement never postpones a feed (a raised interval applies from each feed's next fetch) and leaves never-fetched feeds alone. A per-feed interval change takes effect from the feed's next fetch (no reschedule, no wake).
+Lowering `refresh.interval_minutes` runs `store.PullInSchedule`, followed by a scheduler `Wake`. For every enabled feed that inherits the interval, has no consecutive failures and was fetched before, it computes the success schedule above from `last_fetch_at` with the new interval (and the stored `ttl_hint_s` when `fetch.honor_publisher_ttl` is on), and moves `next_fetch_at` there when that is sooner. It never postpones a feed and leaves never-fetched feeds alone. Raising the interval moves nothing and wakes nothing: it applies from each feed's next fetch. A per-feed interval change takes effect from the feed's next fetch (no reschedule, no wake).
 
 Health statuses, computed at read time by one function, `store.FeedStatus(row, hostUntil, now)`, used by `/api/bootstrap` and `/api/health/feeds`. The first matching row wins:
 

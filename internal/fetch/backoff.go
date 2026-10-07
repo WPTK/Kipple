@@ -65,31 +65,39 @@ func NextOnFailure(now time.Time, intervalS int64, n int, retryAfter time.Durati
 	return next, d
 }
 
-// NextOnSuccess implements design §4.6: the period is max(interval, min(hint,
-// 24 h)) and the next fetch is the feed's own slot nearest to now + period. A
-// feed's slots are fixed in time, period apart, at a phase taken from its id,
-// so feeds that were fetched together (a restore, downtime, a refresh of
-// everything) spread over the period within one fetch and stay spread. The
-// delay is in (period/2, 3 period/2]; a feed already on its slot gets exactly
-// the period. hintS is the publisher hint in seconds (0 when none).
-func NextOnSuccess(now time.Time, feedID, intervalS, hintS int64) (time.Time, int64) {
-	period := max(intervalS, min(hintS, maxBackoffS), 1)
-	target := now.Unix() + period
-	// The slot at or before target, then the one after it when that is nearer.
-	t := target - posMod(target-slotPhase(feedID, period), period)
-	if 2*(target-t) >= period {
-		t += period
+// NextOnSuccess implements design §4.6. A feed's slots are fixed in time,
+// interval apart, at a phase taken from phaseKey (PhaseKey), and the next fetch
+// is the first slot at or after now + lead. The lead is the publisher hint
+// (capped at 24 h) when it is longer than the interval, so the hint is a floor;
+// otherwise it is half the interval, so a feed fetched on its slot, or up to
+// half an interval late, gets its next slot one interval on. Feeds fetched
+// together (a restore, downtime, a refresh of everything) therefore spread over
+// the interval within one fetch and stay spread. The grid depends on the
+// interval alone, so a hint that changes from fetch to fetch never moves it.
+// hintS is the publisher hint in seconds (0 when none).
+func NextOnSuccess(now time.Time, phaseKey uint64, intervalS, hintS int64) (time.Time, int64) {
+	intervalS = max(intervalS, 1)
+	lead := intervalS / 2
+	if h := min(hintS, maxBackoffS); h > intervalS {
+		lead = h
 	}
+	earliest := now.Unix() + lead
+	t := earliest + posMod(slotPhase(phaseKey, intervalS)-earliest, intervalS)
 	d := t - now.Unix()
 	return now.Add(time.Duration(d) * time.Second), d
 }
 
-// slotPhase is the feed's offset in [0, period): Fibonacci hashing of the id,
-// so consecutive ids land far apart and any set of feeds covers the period
-// evenly.
-func slotPhase(feedID, period int64) int64 {
-	frac := float64((uint64(feedID)*0x9E3779B97F4A7C15)>>11) / (1 << 53)
-	return int64(frac * float64(period))
+// PhaseKey is what places a feed's slots: its id offset by the installation's
+// random salt (sys.fetch_slot_salt), so two installations that imported the
+// same list, with the same ids, do not fetch a publisher in the same second.
+func PhaseKey(feedID, salt int64) uint64 { return uint64(feedID) + uint64(salt) }
+
+// slotPhase is the slot offset in [0, intervalS): Fibonacci hashing of the key,
+// so consecutive ids (an import, a restore) land far apart and cover the
+// interval evenly.
+func slotPhase(key uint64, intervalS int64) int64 {
+	frac := float64((key*0x9E3779B97F4A7C15)>>11) / (1 << 53)
+	return int64(frac * float64(intervalS))
 }
 
 func posMod(a, m int64) int64 {

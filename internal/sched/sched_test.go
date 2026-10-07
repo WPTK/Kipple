@@ -72,6 +72,12 @@ func newRig(t *testing.T, opt Options) *rig {
 	var err error
 	r.db, err = store.Open(context.Background(), store.Options{Path: t.TempDir() + "/kipple.db", Clock: r.clk, Logger: quiet})
 	require.NoError(t, err)
+	// A fixed slot salt (it is random per database), so every run puts each
+	// feed's success slots at the same times.
+	require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sqlTx) error {
+		_, err := tx.ExecContext(ctx, "UPDATE settings SET value = '7' WHERE key = ?", store.SettingSlotSalt)
+		return err
+	}))
 	if opt.Rand == nil {
 		opt.Rand = func() float64 { return math.Float64frombits(r.jit.Load()) }
 	}
@@ -239,7 +245,8 @@ func (r *rig) next(id int64) int64 { return r.num("SELECT next_fetch_at FROM fee
 
 // slot is when a feed that succeeded now is due again (its own slot, §4.6).
 func (r *rig) slot(id int64, intervalMinutes int) int64 {
-	next, _ := fetch.NextOnSuccess(r.clk.Now(), id, int64(intervalMinutes)*60, 0)
+	salt := r.num("SELECT CAST(value AS INTEGER) FROM settings WHERE key = ?", store.SettingSlotSalt)
+	next, _ := fetch.NextOnSuccess(r.clk.Now(), fetch.PhaseKey(id, salt), int64(intervalMinutes)*60, 0)
 	return next.Unix()
 }
 
@@ -285,6 +292,9 @@ func TestIntervalAndPerFeedOverride(t *testing.T) {
 
 	r.advanceTo(nb)
 	waitFor(t, "b refetched", func() bool { return srv.count("/b") == 2 })
+	want := r.slot(b, 120)
+	waitFor(t, "b's fetch committed", func() bool { return r.next(b) == want })
+	require.EqualValues(t, nb+120*60, want, "on its slot, b's next fetch is one interval later")
 }
 
 func TestInFlightFeedIsNotDispatchedTwice(t *testing.T) {
@@ -1263,7 +1273,7 @@ func TestBrowserUARetryIsRememberedPerFeed(t *testing.T) {
 	require.Equal(t, "ok", r.events("fetch.done")[0]["outcome"])
 	require.EqualValues(t, 1, r.num("SELECT ua_fallback FROM feeds WHERE id = ?", id))
 
-	r.clk.Advance(31 * time.Minute)
+	r.advanceTo(r.next(id))
 	r.waitEvents("fetch.done", 2)
 	require.Len(t, uas(), 3, "the remembered feed goes straight to the browser UA")
 	require.Contains(t, uas()[2], "Chrome")
