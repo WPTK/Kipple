@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/WPTK/kipple/internal/store"
@@ -111,6 +112,20 @@ var layoutIDs = []string{"magazine", "cards", "compact", "inbox", "headlines", "
 // maxPaperName is the longest name, in characters, a device can give the Gazette layout.
 const maxPaperName = 60
 
+// oneLine reports whether s is valid UTF-8 with no control character (C0, DEL, C1, tab included) and no line or
+// paragraph separator (U+2028, U+2029): a name printed on one line. The web app's cleanPaperName applies the same rule.
+func oneLine(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return false
+		}
+	}
+	return true
+}
+
 // listOverrideFields are what one feed or folder list may set for itself: its layout, its sort order
 // and the view it opens in. A field left out is inherited (the nearest folder above, then the device).
 var listOverrideFields = map[string][]string{
@@ -204,8 +219,8 @@ var clientDefs = map[string]clientDef{
 	// The Gazette's name; "" prints the web app's default name, which the server does not need to know.
 	"client.paper_name": {func(v any) (any, string) {
 		s, ok := v.(string)
-		if !ok || utf8.RuneCountInString(s) > maxPaperName || hasControl(s) {
-			return nil, fmt.Sprintf("must be a string of at most %d characters without line breaks", maxPaperName)
+		if !ok || utf8.RuneCountInString(s) > maxPaperName || !oneLine(s) {
+			return nil, fmt.Sprintf("must be a string of at most %d characters without line breaks or control characters", maxPaperName)
 		}
 		return s, ""
 	}, ""},

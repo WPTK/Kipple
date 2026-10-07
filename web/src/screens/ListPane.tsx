@@ -125,6 +125,9 @@ export function clearListMemory(): void {
   memory.clear();
 }
 
+/** Why mark above and below do nothing in a page layout (the Gazette). */
+export const NO_RANGE_IN_PAGES = "Mark above and below are off in the Gazette: its pages are not in date order";
+
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
 export const LEAVE_MS = 1500;
 
@@ -381,6 +384,20 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   // A page layout has no virtualizer to restore the offset: its pages appear once the list has a width and enough
   // articles to plan from, so the offset is put back after the first render that is tall enough to hold it.
+  // The reader moving the page first wins: a restore that is still waiting must not jump them back later, when more
+  // pages load (a page that came back shorter, after a rotation or a text size change, never reaches the offset).
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el || pageRestored.current) return;
+    const cancel = () => {
+      pageRestored.current = true;
+    };
+    const events = ["wheel", "touchmove", "keydown", "pointerdown"] as const;
+    for (const e of events) el.addEventListener(e, cancel, { passive: true });
+    return () => {
+      for (const e of events) el.removeEventListener(e, cancel);
+    };
+  }, []);
   useLayoutEffect(() => {
     const el = parentRef.current;
     if (!Page || pageRestored.current || !el || el.scrollHeight - el.clientHeight < (saved?.offset ?? 0)) return;
@@ -464,11 +481,35 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       else if (row.kind === "group") for (const it of row.items) seenIds.current.add(it.id);
     }
   }, [virtualItems, virtualizer]);
+  // A page layout has no virtual range: its stories are seen when their box is inside the list's, and scrolled past
+  // when their box ends above the list's top. A story beside one still on screen (another column) is judged alone.
+  const pageItemsRef = useRef(allItems);
+  pageItemsRef.current = allItems;
+  const pagedScroll = !!Page;
+  useEffect(() => {
+    const el = parentRef.current;
+    // Not while the offset is still to be restored: the stories at the top are only passing through.
+    if (!markOnScroll || !pagedScroll || !el || !pageRestored.current) return;
+    seeStories(el, seenIds.current);
+  });
   useEffect(() => {
     const el = parentRef.current;
     if (!markOnScroll || !el) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let frame = 0;
     const flush = () => {
+      if (pagedScroll) {
+        // After an unmount the stories have no boxes left to judge; nothing is marked rather than everything.
+        if (!el.isConnected || !pageRestored.current) return;
+        seeStories(el, seenIds.current);
+        const top = el.getBoundingClientRect().top;
+        const byId = new Map(pageItemsRef.current.map((i) => [i.id, i]));
+        const passed = [...el.querySelectorAll<HTMLElement>("article[data-item-id]")]
+          .filter((a) => a.getBoundingClientRect().bottom <= top && seenIds.current.has(a.dataset.itemId ?? ""))
+          .flatMap((a) => byId.get(a.dataset.itemId ?? "") ?? []);
+        void markScrolledPast(qc, passed, sentByScroll.current);
+        return;
+      }
       const start = virtualizer.range?.startIndex ?? 0;
       const passed = rowsRef.current
         .slice(0, start)
@@ -477,6 +518,12 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       void markScrolledPast(qc, passed, sentByScroll.current);
     };
     const onScroll = () => {
+      if (pagedScroll && !frame) {
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          if (pageRestored.current) seeStories(el, seenIds.current);
+        });
+      }
       if (timer) clearTimeout(timer);
       timer = setTimeout(flush, 700);
     };
@@ -490,9 +537,10 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         // marked read after the reader turned the feature off.
         if (markOnScrollRef.current) flush();
       }
+      if (frame) cancelAnimationFrame(frame);
       el.removeEventListener("scroll", onScroll);
     };
-  }, [markOnScroll, qc, virtualizer]);
+  }, [markOnScroll, qc, virtualizer, pagedScroll]);
 
   const move = useCallback(
     (delta: 1 | -1) => {
@@ -504,6 +552,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       const item = order[next];
       if (!item) return;
       setSelectedId(item.id);
+      pageRestored.current = true; // moving by key is the reader moving the page
       if (Page) storyIntoView(parentRef.current, item.id);
       else virtualizer.scrollToIndex(rowIndexOf(item.id), { align: "auto" });
       requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, item.id)));
@@ -684,6 +733,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     (item: Card, side: "above" | "below") => {
       if (scope.view === "muted") return; // nothing to mark in the muted list: those articles are already read
       if (rank || scope.typing) return; // relevance order has no above or below, and a search being typed is not a set the server can mark
+      // A page layout's reading order is not date order (the lead can be older than stories printed on later pages),
+      // and the server marks a side by date: "above" would reach stories the reader has not seen.
+      if (pagedRef.current) return announce(NO_RANGE_IN_PAGES);
       const list = itemsRef.current;
       const at = list.findIndex((i) => i.id === item.id);
       if (at < 0) return;
@@ -720,9 +772,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       restore: restoreRow,
       editRule: (item) => item.muted_by && openFilterEditor({ mode: "edit", id: item.muted_by }),
       manageFeed: (item) => (feedById.has(item.feed_id) ? openFeedEditor(item.feed_id) : toast("This feed no longer exists.", "error")),
-      noRange: rank || !!scope.typing,
+      noRange: rank || !!scope.typing || !!Page,
     }),
-    [act, range, restoreRow, feedById, rank, scope.typing],
+    [act, range, restoreRow, feedById, rank, scope.typing, Page],
   );
 
   const toggleChecked = () => {
@@ -792,8 +844,16 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         else if (layout.id !== "compact") sessionLayoutStore.set("compact");
         else announce("Already using the Compact layout");
       },
-      top: () => (Page ? parentRef.current?.scrollTo({ top: 0 }) : virtualizer.scrollToOffset(0)),
-      bottom: () => (Page ? parentRef.current?.scrollTo({ top: parentRef.current.scrollHeight }) : virtualizer.scrollToIndex(rows.length - 1, { align: "end" })),
+      top: () => {
+        pageRestored.current = true;
+        if (Page) parentRef.current?.scrollTo({ top: 0 });
+        else virtualizer.scrollToOffset(0);
+      },
+      bottom: () => {
+        pageRestored.current = true;
+        if (Page) parentRef.current?.scrollTo({ top: parentRef.current.scrollHeight });
+        else virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+      },
   };
   // An article open beside the list that is not one of its rows (a deep link) has nothing here to drive:
   // the article pane takes j/k/m/s/o/v itself.
@@ -952,7 +1012,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     if (Page) {
       return (
         <>
-          <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} onOpen={openItem} />
+          <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} checked={checked} onOpen={openItem} />
           <div ref={endRef} aria-hidden="true" className="h-px" />
           {q.isFetchingNextPage ? (
             <p className="py-3 text-center text-sm text-fg2" role="status">
@@ -1197,6 +1257,15 @@ function pageOrder(container: HTMLElement | null, items: readonly Card[]): Card[
   const byId = new Map(items.map((i) => [i.id, i]));
   const ids = [...(container?.querySelectorAll<HTMLElement>("article[data-item-id]") ?? [])].map((a) => a.dataset.itemId ?? "");
   return ids.flatMap((id) => byId.get(id) ?? []);
+}
+
+/** Record the page layout's stories whose box is at least partly inside the list's box as seen. */
+function seeStories(container: HTMLElement, seen: Set<string>): void {
+  const box = container.getBoundingClientRect();
+  for (const a of container.querySelectorAll<HTMLElement>("article[data-item-id]")) {
+    const r = a.getBoundingClientRect();
+    if (r.bottom > box.top && r.top < box.bottom && a.dataset.itemId) seen.add(a.dataset.itemId);
+  }
 }
 
 /** Scroll a page layout's story into view, as little as needed. */

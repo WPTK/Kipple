@@ -56,6 +56,8 @@ export interface PageProps {
   width: number;
   /** The article selected with j/k or open in the reader pane. */
   selectedId: string | undefined;
+  /** Stories ticked with `x` for a batch action. */
+  checked: ReadonlySet<string>;
   onOpen: (item: Card) => void;
 }
 

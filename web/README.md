@@ -143,8 +143,9 @@ The Gazette is a page layout (`ListLayout.Page`): the list screen hands it every
 rows, and a marker after the last page loads more. It is always fetched newest first, whatever order the device or the
 list sets (`resolveOrder`), because a page once shown stays fixed only while the loaded articles are the start of a
 newest-first list; the order button is hidden there. A story marked read fades in place and never leaves the page;
-`j`/`k` follow the page's reading order (its DOM order). Under 600 px of list width it prints the one-column phone
-page. A search shows Editorial rows instead.
+in the list, `j`/`k` follow the page's reading order (its DOM order). Mark above and below are off (the page is not
+in date order); mark as read while scrolling works on stories. Under 600 px of list width it prints the one-column
+phone page. A search shows Editorial rows instead. Details: docs/design.md 7.10.
 The layout menu is one list: the radio is the choice (a feed or folder's own override on those lists, the device default
 elsewhere) and the star beside each layout makes it the device default; Order and, on a feed or folder list, Opens in
 follow under it. The oldest-first button sets the order at the list's level (the feed or folder there, the device on

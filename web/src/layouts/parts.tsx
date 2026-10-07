@@ -18,10 +18,10 @@ export function SourceIcon({ src, className }: { src: string | null | undefined;
   return <img src={src} alt="" width={16} height={16} loading="lazy" className={cn("size-4 shrink-0 rounded-sm", className)} />;
 }
 
-export function CheckBadge({ checked }: { checked: boolean }) {
+export function CheckBadge({ checked, className }: { checked: boolean; className?: string }) {
   if (!checked) return null;
   return (
-    <span aria-hidden="true" className="absolute top-1 left-1 z-10 grid size-5 place-items-center rounded-full bg-accent text-bg">
+    <span aria-hidden="true" className={cn("absolute top-1 left-1 z-10 grid size-5 place-items-center rounded-full bg-accent text-bg", className)}>
       <Check className="size-3.5" />
     </span>
   );

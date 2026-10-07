@@ -14,7 +14,7 @@ import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { themeStore } from "@/theme/theme";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
-import { LEAVE_MS, clearListMemory } from "./ListPane";
+import { LEAVE_MS, NO_RANGE_IN_PAGES, clearListMemory, resetScrollReadForTests } from "./ListPane";
 
 // The Gazette as the list screen draws it: the fetch, the paper's name, reading in place, keys and loading more.
 
@@ -51,6 +51,8 @@ const itemCalls = (calls: { method: string; url: URL }[]) => calls.filter((c) =>
 beforeEach(() => {
   clearToasts();
   clearListMemory();
+  resetScrollReadForTests();
+  updatePrefs({ markReadOnScroll: false });
   authStore.set("unknown");
   liveStore.set(initialLive);
   resetDevicePrefs();
@@ -146,6 +148,39 @@ describe("Gazette on the list screen", () => {
     expect(storyIds(container)).toEqual(order);
   });
 
+  it("mark above and below are off: the page is not in date order", async () => {
+    const { calls } = routes();
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const list = screen.getByTestId("list-scroll");
+    const press = (key: string) => act(() => void fireEvent.keyDown(list, { key }));
+    press("j");
+    await waitFor(() => expect(container.querySelector("[data-selected]")).not.toBeNull());
+    press("{");
+    press("}");
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent(NO_RANGE_IN_PAGES));
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+    expect(storyIds(container).every((id) => !container.querySelector(`article[data-item-id="${id}"]`)?.hasAttribute("data-read"))).toBe(true);
+  });
+
+  it("a story ticked with x shows its tick", async () => {
+    routes();
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const order = storyIds(container);
+    const list = screen.getByTestId("list-scroll");
+    act(() => void fireEvent.keyDown(list, { key: "j" }));
+    act(() => void fireEvent.keyDown(list, { key: "x" }));
+    const story = await waitFor(() => {
+      const s = container.querySelector(`article[data-item-id="${order[0]}"]`);
+      expect(s).toHaveAttribute("data-checked", "true");
+      return s!;
+    });
+    expect(story.querySelector("svg.lucide-check")).not.toBeNull();
+    act(() => void fireEvent.keyDown(list, { key: "x" }));
+    await waitFor(() => expect(story).not.toHaveAttribute("data-checked"));
+  });
+
   it("a search shows rows, not a paper", async () => {
     routes(() => pageOf(few()), { "GET /api/saved-searches": () => json({ saved_searches: [] }) });
     const { container } = go("/search?q=article");
@@ -164,6 +199,90 @@ describe("Gazette on the list screen", () => {
       expect(await axe(container)).toHaveNoViolations();
       unmount();
     }
+  });
+});
+
+describe("coming back to the Gazette", () => {
+  // jsdom has no layout: the page's height is what the test says it is.
+  let tall = 20_000;
+  beforeEach(() => {
+    tall = 20_000;
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => tall });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 800 });
+  });
+  afterEach(() => {
+    delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+    delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+  });
+
+  /** Read the paper down to 5000 px, leave, and come back to a page that is only `short` px tall. */
+  async function leaveAt5000AndReturn(short: number) {
+    routes();
+    const first = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const s1 = screen.getByTestId("list-scroll");
+    act(() => {
+      s1.scrollTop = 5000;
+      s1.dispatchEvent(new Event("scroll"));
+    });
+    first.unmount();
+    tall = short;
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    return screen.getByTestId("list-scroll");
+  }
+
+  it("puts the offset back once the pages are tall enough to hold it", async () => {
+    const scroller = await leaveAt5000AndReturn(1000);
+    expect(scroller.scrollTop).toBe(0);
+    tall = 20_000; // more pages loaded
+    act(() => updateDevicePrefs({ paperName: "Later" }));
+    await screen.findByRole("heading", { name: "Later" });
+    expect(scroller.scrollTop).toBe(5000);
+  });
+
+  it("never jumps once the reader has scrolled the shorter page", async () => {
+    const scroller = await leaveAt5000AndReturn(1000);
+    act(() => {
+      fireEvent.wheel(scroller, { deltaY: 300 });
+      scroller.scrollTop = 300;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    tall = 20_000;
+    act(() => updateDevicePrefs({ paperName: "Later" }));
+    await screen.findByRole("heading", { name: "Later" });
+    expect(scroller.scrollTop).toBe(300);
+  });
+});
+
+describe("mark as read while scrolling in the Gazette", () => {
+  it("marks the stories that were on screen and then scrolled above the top, and no others", async () => {
+    updatePrefs({ markReadOnScroll: true });
+    // Stories 100 px tall, one under the other; the list is 800 px tall from y = 0.
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const all = [...document.querySelectorAll("article[data-item-id]")];
+      const i = all.indexOf(this);
+      const scroll = document.querySelector<HTMLElement>('[data-testid="list-scroll"]')?.scrollTop ?? 0;
+      const top = i < 0 ? 0 : i * 100 - scroll;
+      const bottom = i < 0 ? 800 : top + 100;
+      return { x: 0, y: top, top, bottom, left: 0, right: 375, width: 375, height: bottom - top, toJSON() {} } as DOMRect;
+    });
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const order = storyIds(container);
+    expect(order).toHaveLength(20);
+    const scroller = screen.getByTestId("list-scroll");
+    // A jump straight to 1500 px: stories 0 to 7 were on screen, 8 to 14 never were, and all of them are above the top.
+    act(() => {
+      scroller.scrollTop = 1500;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    const marks = () => calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read");
+    await waitFor(() => expect(marks()).toHaveLength(1), { timeout: 3000 });
+    const body = JSON.parse(String(marks()[0]?.init?.body)) as { ids: string[]; reason: string };
+    expect(body.reason).toBe("scroll");
+    expect(new Set(body.ids)).toEqual(new Set(order.slice(0, 8)));
   });
 });
 

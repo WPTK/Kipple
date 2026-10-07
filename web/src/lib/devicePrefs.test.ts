@@ -174,7 +174,9 @@ describe("the Gazette's order and name (#39)", () => {
 
   it("keeps a valid name and blanks one the profile would refuse", () => {
     expect(parseDevicePrefs(null).paperName).toBe("");
-    expect(parseDevicePrefs(JSON.stringify({ paperName: "Morning\tNotes" })).paperName).toBe("Morning\tNotes");
+    expect(parseDevicePrefs(JSON.stringify({ paperName: "Morning Notes" })).paperName).toBe("Morning Notes");
+    // Every control character and line break the server refuses (internal/api/devices_test.go).
+    for (const bad of ["\t", "\n", "\u007f", "\u0085", "\u009b", "\u2028", "\u2029"]) expect(cleanPaperName(`The${bad}Daily`)).toBe("");
     expect(parseDevicePrefs(JSON.stringify({ paperName: "é".repeat(PAPER_NAME_MAX) })).paperName).toHaveLength(PAPER_NAME_MAX);
     expect(cleanPaperName("é".repeat(PAPER_NAME_MAX + 1))).toBe("");
     expect(cleanPaperName("Two\nlines")).toBe("");

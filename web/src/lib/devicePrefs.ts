@@ -30,10 +30,14 @@ export const LAYOUT_HINTS: Record<LayoutId, string> = {
 /** The longest name the Gazette can be given (`client.paper_name`). */
 export const PAPER_NAME_MAX = 60;
 
-/** A name the profile key accepts (at most PAPER_NAME_MAX characters, no control character but tab), else blank. */
+/**
+ * A name the profile key accepts, else blank: at most PAPER_NAME_MAX characters on one line, so no control character
+ * (C0 with tab, DEL, C1 with U+0085) and no line or paragraph separator (U+2028, U+2029). The server applies the same
+ * rule (`oneLine` in internal/api/devices.go).
+ */
 export const cleanPaperName = (v: unknown): string =>
   // eslint-disable-next-line no-control-regex
-  typeof v === "string" && [...v].length <= PAPER_NAME_MAX && !/[\u0000-\u0008\u000a-\u001f\u007f]/.test(v) ? v : "";
+  typeof v === "string" && [...v].length <= PAPER_NAME_MAX && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(v) ? v : "";
 
 export const ARTICLE_WIDTHS = ["narrow", "medium", "wide", "full"] as const;
 export type ArticleWidth = (typeof ARTICLE_WIDTHS)[number];
