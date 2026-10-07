@@ -262,14 +262,21 @@ func TestStatsArrivalsPlans(t *testing.T) {
 	}
 }
 
-// The fetch commit's between check costs a day's id range, not the feed's items and ledger: a feed with
-// 10,000 items and a 100,000-row ledger among 50,000 other items; see design §2.5 (0018) for the figure.
+// The fetch commit's between check walks the ids between the feed's last counted item and its next run,
+// not the feed's items and ledger. A feed with 10,000 items and a 100,000-row ledger, then a day of
+// inserts from 100 other feeds: 200,000 items and 50,000 ledger rows. Measured on a short range (1,000 ids,
+// about one fetch interval) and on the whole day (a feed that posts in the morning and in the evening);
+// see design §2.5 (0018) for the figures.
 func TestFeedDailyNewBetweenPerf(t *testing.T) {
 	if testing.Short() || os.Getenv("KIPPLE_PERF") == "" {
-		t.Skip("seeds 160,000 rows; set KIPPLE_PERF=1")
+		t.Skip("seeds 360,000 rows; set KIPPLE_PERF=1")
 	}
 	e := newEnv(t)
-	feed, other := e.addFeed("http://a.example/feed"), e.addFeed("http://b.example/feed")
+	feed := e.addFeed("http://a.example/feed")
+	others := make([]int64, 100)
+	for i := range others {
+		others[i] = e.addFeed(fmt.Sprintf("http://o%d.example/feed", i))
+	}
 	tx, err := e.db.writer.BeginTx(e.ctx, nil)
 	require.NoError(t, err)
 	item, err := tx.PrepareContext(e.ctx, `INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash) VALUES (?, ?, 0, ?, ?, '', '')`)
@@ -282,12 +289,19 @@ func TestFeedDailyNewBetweenPerf(t *testing.T) {
 		require.NoError(t, err)
 		id++
 	}
-	for i := 0; i < 60_000; i++ {
-		f := other
-		if i%6 == 0 {
-			f = feed
+	for i := 0; i < 10_000; i++ {
+		_, err := item.ExecContext(e.ctx, id, feed, id, fmt.Sprint("f", i))
+		require.NoError(t, err)
+		id++
+	}
+	dayStart := id - 1 // the feed's last counted item
+	for i := 0; i < 250_000; i++ {
+		f := others[i%len(others)]
+		if i%5 == 4 {
+			_, err = ledger.ExecContext(e.ctx, id, f, fmt.Sprint("l", i))
+		} else {
+			_, err = item.ExecContext(e.ctx, id, f, id, fmt.Sprint("o", i))
 		}
-		_, err := item.ExecContext(e.ctx, id, f, id, fmt.Sprint("i", i))
 		require.NoError(t, err)
 		id++
 	}
@@ -295,21 +309,24 @@ func TestFeedDailyNewBetweenPerf(t *testing.T) {
 	require.NoError(t, ledger.Close())
 	require.NoError(t, tx.Commit())
 	e.exec("ANALYZE")
-	// The join case: the last 1,000 ids hold none of the feed's items, so EXISTS has to rule them all out.
-	e.exec(`DELETE FROM items WHERE id > ? AND feed_id = ?`, id-1000, feed)
 	unforced := strings.ReplaceAll(sqlItemBetween, "+feed_id", "feed_id")
-	for _, q := range []struct{ name, sql string }{{"forced id range", sqlItemBetween}, {"planner's choice", unforced}} {
-		var b time.Duration
-		for i := 0; i < 5; i++ {
-			s := time.Now()
-			var between bool
-			require.NoError(t, e.db.Reader().QueryRowContext(e.ctx, q.sql, id-1000, id, feed).Scan(&between))
-			require.False(t, between)
-			if d := time.Since(s); i == 0 || d < b {
-				b = d
+	for _, r := range []struct {
+		name   string
+		lo, hi int64
+	}{{"1,000 ids", id - 1001, id}, {"a day, 250,000 ids", dayStart, id}} {
+		for _, q := range []struct{ name, sql string }{{"forced id range", sqlItemBetween}, {"planner's choice", unforced}} {
+			var b time.Duration
+			for i := 0; i < 5; i++ {
+				s := time.Now()
+				var between bool
+				require.NoError(t, e.db.Reader().QueryRowContext(e.ctx, q.sql, r.lo, r.hi, feed).Scan(&between))
+				require.False(t, between)
+				if d := time.Since(s); i == 0 || d < b {
+					b = d
+				}
 			}
+			t.Logf("between check over %s, %s: %v", r.name, q.name, b)
 		}
-		t.Logf("between check, %s: %v", q.name, b)
 	}
 }
 

@@ -861,13 +861,17 @@ func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, day string, 
 // sqlItemBetween reports whether any item of the feed (?3), kept or trimmed, has an id strictly
 // between ?1 and ?2. The unary + on feed_id keeps the planner off the feed_id-leading indexes
 // (idx_items_feed_sort, trimmed_items' UNIQUE (feed_id, uid)), which would walk all the feed's items
-// and its ledger when there is no such item: the id range is a day's inserts at most.
+// and its ledger when there is no such item. The id range is the inserts of every feed since the feed's
+// last counted item that day: under 1 ms for a fetch interval, about 21 ms for a whole day of 250,000
+// (TestFeedDailyNewBetweenPerf).
 const sqlItemBetween = `SELECT EXISTS (SELECT 1 FROM items WHERE id > ?1 AND id < ?2 AND +feed_id = ?3)
 	OR EXISTS (SELECT 1 FROM trimmed_items WHERE id > ?1 AND id < ?2 AND +feed_id = ?3)`
 
 // dropTrimmedDailyNew takes back, in the last chunk after the trim, the counted items this chunk both
 // inserted and trimmed, from the rows that hold them: they were never visible, so never opened or
-// restored. Counted items of earlier chunks stay counted even when this trim removes them: they were
+// restored. Invariant: their ids stay unreachable. They keep a ledger row and a restore stub inside a
+// row's span, so a star or mark-unread by one of those ids (restoreTrimmed) and then an open would count
+// a read that is not among the new items; no list, stream or UI path returns them. Counted items of earlier chunks stay counted even when this trim removes them: they were
 // visible between the chunks and may have been opened. A row that would reach 0 is deleted
 // (new_items > 0). A row's ids are left as they are, which adds no read inside them.
 func dropTrimmedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, st *commitState) error {
