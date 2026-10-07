@@ -66,7 +66,6 @@ describe("reset Kipple", () => {
     await user.type(within(dialog).getByLabelText(/Type "reset kipple"/), " kipple");
     expect(go).toBeEnabled();
     expect(within(dialog).queryByText(/KIPPLE_USERNAME/)).toBeNull();
-    expect(within(dialog).queryByText(/anyone who can reach your public address/)).toBeNull();
     expect(within(dialog).queryByRole("radio")).toBeNull();
     await user.click(go);
     await waitFor(() => expect(resetting.get()).toEqual({ estimateSeconds: 30 }));
@@ -75,7 +74,8 @@ describe("reset Kipple", () => {
     expect(bodyOf(post[0]!)).toEqual({ password: "pw-pw-pw", phrase: "reset kipple" });
     // Then the waiting page, in place of the app.
     expect(await screen.findByRole("heading", { name: "Resetting Kipple" })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Resetting Kipple. It is working, you can leave this page open.");
+    expect(screen.getByText(/stays open to first-time setup/)).toBeInTheDocument();
+    expect(screen.getByText(/Resetting Kipple. It is working/)).toBeInTheDocument();
   });
 
   it("shows a wrong password and sends nothing further", async () => {
@@ -103,10 +103,10 @@ describe("reset Kipple", () => {
     expect(bodyOf(post)).toEqual({ password: "pw-pw-pw", phrase: "reset kipple" });
   });
 
-  it("warns that a public address leaves setup open to anyone who can reach it", async () => {
-    server(false, {}, true);
+  it("always warns that setup stays open to anyone who can reach Kipple", async () => {
+    server(false, {}, false);
     await openDialog();
-    expect(screen.getByRole("dialog")).toHaveTextContent("Until you create the new account, anyone who can reach your public address can create it. Do the setup right away.");
+    expect(screen.getByRole("dialog")).toHaveTextContent("stays open to first-time setup for anyone who can reach it until setup is finished");
   });
 });
 
@@ -142,6 +142,7 @@ describe("the page that waits for a reset", () => {
     });
     expect(await screen.findByRole("heading", { name: "Kipple is ready for setup" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Set up Kipple" })).toBeInTheDocument();
+    expect(screen.getByText(/stays open to first-time setup/)).toBeInTheDocument();
   });
 
   it("says Kipple stopped after a long silence", async () => {
