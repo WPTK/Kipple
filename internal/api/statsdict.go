@@ -68,6 +68,7 @@ var statsSummaryFields = [][2]string{
 	{"range", "key (week, month, year, all or custom), from and to (inclusive local dates; for all, the first date present through today), days, and last_event_date (the newest local_date of any row, which can be after today when rows were written under another time zone; null with no rows). A summary covers from..to only, so rows dated after today are not in the all summary; a raw all export has no end and includes them."},
 	{"first_event_date", "Smallest local_date of any row, or null."},
 	{"covered_from / timed_from", "The first local date from which every day was recorded: after the first row and after the last stretch with recording off or rows deleted (covered_from), and also after the first read time or scroll (timed_from, for active time). A span that starts earlier has gaps that are not quiet days. In the summary of one feed (feed=), also no earlier than that feed started: the earlier of its subscription day and its first row. null with no history, and for timed_from when nothing was ever timed."},
+	{"read_rate_from / read_rate_to / read_rate", "The read rate: of the items that arrived new in the window read_rate_from..read_rate_to, the share read. The window holds complete days only: it starts at the latest of range.from, covered_from and the day new items were first counted, and ends at range.to or yesterday, whichever is earlier; both are null when that leaves no day. read_rate has new_items (items that arrived unread in the window, leaving out a feed's first document and items that arrived read or muted; this count is feed data, kept after trims, unsubscribes and statistics deletes), items_read (those same items with a read open in the range, so never more than new_items) and rate (items_read / new_items; null when new_items is 0 or there is no window). All feeds, or the one feed with feed=; each entry of sources has its own read_rate over the same window."},
 	{"totals.opens", "Count of open rows."},
 	{"totals.items_read", "Distinct items with a read open (see read; legacy opens are included)."},
 	{"totals.active_seconds", "Sum of read_time values."},
@@ -79,7 +80,7 @@ var statsSummaryFields = [][2]string{
 	{"behavior.busiest_weekday / busiest_hour", "Highest active_seconds, ties by opens; null with no activity."},
 	{"behavior.avg_read_seconds", "Mean read_time of read opens that have any."},
 	{"behavior.longest_read", "The read open with the most read time (title blank with titles=0)."},
-	{"sources", "Per feed with activity: items_read, opens, active_seconds, avg_read_seconds (timed_seconds / timed_items), bounce_rate (bounces / tracked_opens), open_original_rate (items_original / items_opened), stars. At most 300 (sources_truncated)."},
+	{"sources", "Per feed with activity: items_read, opens, active_seconds, avg_read_seconds (timed_seconds / timed_items), bounce_rate (bounces / tracked_opens), open_original_rate (items_original / items_opened), stars, read_rate (see read_rate). At most 300 (sources_truncated)."},
 	{"never_opened", "Subscribed feeds with no open in the range, oldest first, at most 500."},
 }
 

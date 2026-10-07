@@ -1,4 +1,4 @@
-import type { StatsRange, StatsSource, WeekStart } from "@/api/types";
+import type { ReadRate, StatsRange, StatsSource, WeekStart } from "@/api/types";
 
 /** "<1 min", "12 min", "1h 20m", "2h". Minutes are rounded; 0 seconds is "0 min". */
 export function durationLabel(seconds: number | null | undefined): string {
@@ -15,6 +15,18 @@ export function durationLabel(seconds: number | null | undefined): string {
 /** A 0..1 rate as a whole-number percentage; "-" when unknown. */
 export function pctLabel(rate: number | null | undefined): string {
   return rate == null || !Number.isFinite(rate) ? "-" : `${Math.round(rate * 100)}%`;
+}
+
+/**
+ * The counts behind a read rate and its window of complete days (the summary's `read_rate_from`..`read_rate_to`),
+ * shown on a tap: "31 of 50 new from Sep 2 to Sep 23", or "on Sep 23" for one day. No window is not enough history,
+ * not 0%.
+ */
+export function readRateNote(r: ReadRate | undefined, from: string | null | undefined, to: string | null | undefined): string {
+  if (!r || !from || !to) return "Not enough history";
+  const days = from === to ? `on ${shortDate(from)}` : `from ${shortDate(from)} to ${shortDate(to)}`;
+  if (r.new_items === 0) return `No new items ${days}`;
+  return `${r.items_read} of ${r.new_items} new ${days}`;
 }
 
 /** "YYYY-MM-DD" as a local date (never through UTC, which would shift the day). */
@@ -112,6 +124,11 @@ export interface SourceRow {
   subscribed: boolean;
   /** Feeds rolled into this row (1 for a feed row). */
   count: number;
+  /**
+   * A feed's read rate; null for a folder, since Sources lists only the feeds with activity and a folder's quiet
+   * feeds would be missing from its new items.
+   */
+  read_rate: number | null;
 }
 
 export function feedRows(sources: StatsSource[]): SourceRow[] {
@@ -127,6 +144,7 @@ export function feedRows(sources: StatsSource[]): SourceRow[] {
     stars: s.stars,
     subscribed: s.subscribed,
     count: 1,
+    read_rate: s.read_rate?.rate ?? null,
   }));
 }
 
@@ -156,6 +174,7 @@ export function folderRows(sources: StatsSource[]): SourceRow[] {
     stars: list.reduce((a, s) => a + s.stars, 0),
     subscribed: list.some((s) => s.subscribed),
     count: list.length,
+    read_rate: null,
   }));
 }
 
