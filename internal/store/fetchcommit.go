@@ -365,7 +365,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		updated_at = ?6
 		WHERE id = ?1`,
 		feedID, res.SetValidators, res.ETag, res.LastModified, res.BodyHash,
-		now, res.Status, res.NextFetchAt.Unix(), res.CurrentDelayS, res.TTLHintS, len(st.newIDs)); err != nil {
+		now, res.Status, res.NextFetchAt.Unix(), res.CurrentDelayS, res.DocTTLS, len(st.newIDs)); err != nil {
 		return err
 	}
 	if len(st.newIDs) > 0 {

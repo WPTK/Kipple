@@ -1,0 +1,1 @@
+A feed's RSS ttl now still counts after the server answers "not modified" or sends the same document again, instead of only after a changed document. A feed last fetched by an earlier version may wait up to its last cache time (at most a day) between fetches until its content next changes. (#289)
