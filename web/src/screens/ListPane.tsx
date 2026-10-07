@@ -15,7 +15,7 @@ import { openRowMenu } from "@/gestures/rowMenu";
 import { prefersReducedMotion } from "@/gestures/tracking";
 import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib/collapse";
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
-import { useResolvedLayout } from "@/layouts";
+import { pageOf, useResolvedLayout } from "@/layouts";
 import type { ListLayout, RowMenuActions } from "@/layouts";
 import { sessionLayoutStore, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
@@ -220,6 +220,10 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const dp = useDevicePrefs();
   const session = useStore(sessionLayoutStore);
   const { layout } = useResolvedLayout(scope);
+  // A page layout (the Gazette) draws the whole loaded list itself: no virtualized rows, and no row ever leaves it.
+  const Page = pageOf(layout, scope);
+  const pagedRef = useRef(!!Page);
+  pagedRef.current = !!Page;
   // Only the pending-new slices: run progress and fetch ticks must not re-render every row.
   const pendingByFeed = useStoreSelector(liveStore, (s) => s.pendingByFeed);
   const pendingIds = useStoreSelector(liveStore, (s) => s.pendingIds);
@@ -275,7 +279,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   sizeCtx.current.width = width;
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
-    count: rows.length,
+    count: Page ? 0 : rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: (i) => {
       const r = rows[i];
@@ -300,10 +304,13 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   // against, the offset is known good and the check is switched off, so a later refetch (a resync, a bulk mark)
   // never throws a reader back to the top mid-visit.
   const restoredAsOf = useRef(saved?.offsetAsOf);
+  // A page layout's offset waits for its pages (below); a list refetched since then starts at the top instead.
+  const pageRestored = useRef(!saved?.offset);
   useEffect(() => {
     if (restoredAsOf.current === undefined) return;
     if (restoredAsOf.current !== currentAsOf) {
       restoredAsOf.current = undefined;
+      pageRestored.current = true;
       virtualizer.scrollToOffset(0);
     } else if (!q.isFetching) {
       restoredAsOf.current = undefined;
@@ -372,6 +379,15 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     m.checked = checked;
   }, [key, hidden, checked]);
 
+  // A page layout has no virtualizer to restore the offset: its pages appear once the list has a width and enough
+  // articles to plan from, so the offset is put back after the first render that is tall enough to hold it.
+  useLayoutEffect(() => {
+    const el = parentRef.current;
+    if (!Page || pageRestored.current || !el || el.scrollHeight - el.clientHeight < (saved?.offset ?? 0)) return;
+    pageRestored.current = true;
+    el.scrollTop = saved?.offset ?? 0;
+  });
+
   // Restore focus to the anchor row when returning to the list.
   const restoredFocus = useRef(false);
   useEffect(() => {
@@ -385,19 +401,34 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   useEffect(() => {
     if (!activeId || lastActive.current === activeId) return;
     lastActive.current = activeId;
+    if (pagedRef.current) return storyIntoView(parentRef.current, activeId);
     const i = rowIndexOf(activeId);
     if (i >= 0) virtualizer.scrollToIndex(i, { align: "auto" });
   }, [activeId, rowIndexOf, virtualizer]);
 
-  // Infinite scroll: fetch the next page when the tail comes into view.
+  // Infinite scroll: fetch the next page when the tail comes into view. A page layout has no virtual rows: a marker
+  // after its last page says when the end is within reach (and stays in reach while the first page is being planned).
+  const [nearEnd, setNearEnd] = useState(false);
+  const endObserver = useRef<IntersectionObserver | null>(null);
+  const endRef = useCallback((el: HTMLDivElement | null) => {
+    endObserver.current?.disconnect();
+    endObserver.current = null;
+    if (!el) return setNearEnd(false);
+    endObserver.current = new IntersectionObserver(([e]) => setNearEnd(!!e?.isIntersecting), {
+      root: parentRef.current,
+      rootMargin: "0px 0px 1500px 0px",
+    });
+    endObserver.current.observe(el);
+  }, []);
   const virtualItems = virtualizer.getVirtualItems();
   const lastIndex = virtualItems.length ? (virtualItems[virtualItems.length - 1]?.index ?? 0) : 0;
   useEffect(() => {
     // After a failed page the auto-fetch stops (offline would retry every render); the inline Retry row resumes it.
     // Not while the list itself is being refetched (an on-mount refetch of an invalidated list): fetchNextPage would
     // cancel it and append a page to the stale rows, leaving both the stale rows and a restored offset in place.
-    if (q.hasNextPage && !q.isFetching && !q.isFetchNextPageError && rows.length > 0 && lastIndex >= rows.length - 10) void q.fetchNextPage();
-  }, [lastIndex, rows.length, q]);
+    const nearTail = Page ? nearEnd : rows.length > 0 && lastIndex >= rows.length - 10;
+    if (q.hasNextPage && !q.isFetching && !q.isFetchNextPageError && nearTail) void q.fetchNextPage();
+  }, [lastIndex, rows.length, q, Page, nearEnd]);
 
   // The selection is committed to memory before the route changes: on a phone the list unmounts in the
   // same render, before any effect would have saved it, and "back" must land on this row.
@@ -465,20 +496,23 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   const move = useCallback(
     (delta: 1 | -1) => {
-      if (items.length === 0) return;
-      const cur = selected ? items.findIndex((i) => i.id === selected) : -1;
-      const next = Math.min(items.length - 1, Math.max(0, cur < 0 ? (delta === 1 ? 0 : items.length - 1) : cur + delta));
-      const item = items[next];
+      // A page layout's reading order is its DOM order (ListLayout.Page), which is not the list's order.
+      const order = Page ? pageOrder(parentRef.current, allItems) : items;
+      if (order.length === 0) return;
+      const cur = selected ? order.findIndex((i) => i.id === selected) : -1;
+      const next = Math.min(order.length - 1, Math.max(0, cur < 0 ? (delta === 1 ? 0 : order.length - 1) : cur + delta));
+      const item = order[next];
       if (!item) return;
       setSelectedId(item.id);
-      virtualizer.scrollToIndex(rowIndexOf(item.id), { align: "auto" });
+      if (Page) storyIntoView(parentRef.current, item.id);
+      else virtualizer.scrollToIndex(rowIndexOf(item.id), { align: "auto" });
       requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, item.id)));
       onKeyMove?.(item);
     },
-    [items, selected, virtualizer, rowIndexOf, onKeyMove],
+    [Page, allItems, items, selected, virtualizer, rowIndexOf, onKeyMove],
   );
 
-  const selectedItem = items.find((i) => i.id === selected);
+  const selectedItem = (Page ? allItems : items).find((i) => i.id === selected);
 
   // ---- actions -----------------------------------------------------------
 
@@ -499,6 +533,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   /** Take rows out of the list: collapse them, then remove; the still-visible rows stay put on screen. */
   const hide = useCallback((ids: string[]): (() => void) => {
+    // A page layout keeps every story where it was planned: one marked read fades in place instead.
+    if (pagedRef.current) return () => {};
     const commit = () => {
       const el = parentRef.current;
       pendingAnchor.current = el && el.scrollTop > 0 ? captureAnchor(el, ids) : null;
@@ -756,8 +792,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         else if (layout.id !== "compact") sessionLayoutStore.set("compact");
         else announce("Already using the Compact layout");
       },
-      top: () => virtualizer.scrollToOffset(0),
-      bottom: () => virtualizer.scrollToIndex(rows.length - 1, { align: "end" }),
+      top: () => (Page ? parentRef.current?.scrollTo({ top: 0 }) : virtualizer.scrollToOffset(0)),
+      bottom: () => (Page ? parentRef.current?.scrollTo({ top: parentRef.current.scrollHeight }) : virtualizer.scrollToIndex(rows.length - 1, { align: "end" })),
   };
   // An article open beside the list that is not one of its rows (a deep link) has nothing here to drive:
   // the article pane takes j/k/m/s/o/v itself.
@@ -803,10 +839,11 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const [peekOn, setPeekOn] = useState(false);
   const [caption, setCaption] = useState(false);
   useEffect(() => {
-    if (dp.peekSeen || peekOn || !firstItemId || cols > 1 || !isTouch()) return;
+    // The swipe tip shows on rows; a page layout has none.
+    if (dp.peekSeen || peekOn || !firstItemId || cols > 1 || Page || !isTouch()) return;
     setPeekOn(true);
     setCaption(true);
-  }, [dp.peekSeen, peekOn, firstItemId, cols]);
+  }, [dp.peekSeen, peekOn, firstItemId, cols, Page]);
   useEffect(() => {
     if (!caption || peekOn) return;
     const h = setTimeout(() => setCaption(false), 4000);
@@ -882,6 +919,14 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     />
   );
 
+  const moreFailed = q.isFetchNextPageError ? (
+    <div role="alert" className="flex items-center justify-center gap-2 px-4 py-3 text-sm text-fg2">
+      <span>Couldn&apos;t load more.</span>
+      <Button variant="ghost" onClick={() => void q.fetchNextPage()}>
+        Retry
+      </Button>
+    </div>
+  ) : null;
   const body = (() => {
     if (q.isPending) return <Skeleton />;
     // Only a failed first load replaces the list; a failed later page keeps it (and the scroll position).
@@ -895,7 +940,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         </StatusBlock>
       );
     }
-    if (rows.length === 0) {
+    if ((Page ? allItems.length : rows.length) === 0) {
       if (boot.data && visibleFeeds(boot.data.feeds).length === 0 && !scope.q) {
         return (
           <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
@@ -903,6 +948,20 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       }
       const c = emptyCopy(scope, pendingNew);
       return <StatusBlock role="status" title={c.title} body={c.body} />;
+    }
+    if (Page) {
+      return (
+        <>
+          <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} onOpen={openItem} />
+          <div ref={endRef} aria-hidden="true" className="h-px" />
+          {q.isFetchingNextPage ? (
+            <p className="py-3 text-center text-sm text-fg2" role="status">
+              Loading more
+            </p>
+          ) : null}
+          {moreFailed}
+        </>
+      );
     }
     return (
       <>
@@ -941,14 +1000,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
           </p>
         ) : null}
       </div>
-      {q.isFetchNextPageError ? (
-        <div role="alert" className="flex items-center justify-center gap-2 px-4 py-3 text-sm text-fg2">
-          <span>Couldn&apos;t load more.</span>
-          <Button variant="ghost" onClick={() => void q.fetchNextPage()}>
-            Retry
-          </Button>
-        </div>
-      ) : null}
+      {moreFailed}
       </>
     );
   })();
@@ -1138,6 +1190,18 @@ export function focusListRow(id: string): void {
   const list = document.querySelector<HTMLElement>('[data-testid="list-scroll"]');
   const link = list?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`);
   (link ?? list)?.focus({ preventScroll: true });
+}
+
+/** A page layout's stories in reading order, which is their DOM order. */
+function pageOrder(container: HTMLElement | null, items: readonly Card[]): Card[] {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const ids = [...(container?.querySelectorAll<HTMLElement>("article[data-item-id]") ?? [])].map((a) => a.dataset.itemId ?? "");
+  return ids.flatMap((id) => byId.get(id) ?? []);
+}
+
+/** Scroll a page layout's story into view, as little as needed. */
+function storyIntoView(container: HTMLElement | null, id: string): void {
+  container?.querySelector(`[data-item-id="${CSS.escape(id)}"]`)?.scrollIntoView?.({ block: "nearest" });
 }
 
 function focusRow(container: HTMLElement | null, id: string): void {

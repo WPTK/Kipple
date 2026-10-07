@@ -26,7 +26,7 @@ React 19, TypeScript (strict), Vite 8, Tailwind v4, TanStack Query and Virtual, 
 
 ```
 src/api/      fetch client (X-Kipple-Client, 401), types, TanStack Query hooks, SSE + fallback polling
-src/layouts/  the five list layouts behind the ListLayout interface (Editorial, Cards, Compact, Inbox, Email - Compact)
+src/layouts/  the six list layouts behind the ListLayout interface (Editorial, Cards, Compact, Inbox, Email - Compact, Gazette)
 src/gestures/ row swipe, long press, swipe back, pull to refresh (pointer events for row swipe and swipe back, touch events for pull to refresh; no gesture library)
 src/screens/  list pane, article pane, feeds (add, edit, folders, OPML), feed health, search, stats and Wrapped, settings, login
 src/ui/       button, segmented control, kit.tsx (modal, field, switch, stepper, disclosure, notices), FavStar, ResizeHandle (window splitter), UnreadCount
@@ -40,11 +40,12 @@ public/       manifest and icons, copied to the build root
 
 ## Lists: layouts, gestures, keys, device prefs, undo
 
-**Layouts.** Five, chosen from the layout menu in the list header: **Editorial** (id `magazine`; default; wide screens get a
+**Layouts.** Six, chosen from the layout menu in the list header: **Editorial** (id `magazine`; default; wide screens get a
 list plus reader pane), **Cards** (a grid of 1 to 3 columns from the list's own width: under 600 px 1, under 900 px 2,
 else 3; on a wide screen an open article shows in the reader pane with the list beside it as one column), **Compact**
-(one dense line per article), **Inbox** (mail-style rows with an optional trailing thumbnail) and **Email - Compact**
-(id `headlines`; titles only). The choice is per device, with a per-feed and
+(one dense line per article), **Inbox** (mail-style rows with an optional trailing thumbnail), **Email - Compact**
+(id `headlines`; titles only) and **Gazette** (a newspaper: a front page and section pages planned from the list by
+`layouts/gazettePlan.ts`; see below). The choice is per device, with a per-feed and
 per-folder override (feed beats folder beats device default). `c` toggles Compact for the session only. The same
 menu sets a feed's or folder's order and the view it opens in (`client.list_overrides`, one object per list, each field
 resolved on its own by `resolveList` in `src/lib/devicePrefs.ts`). Sidebar and feed-list links go to `/l?feed=` or
@@ -127,7 +128,8 @@ radios (arrow keys work); choosing one holds the control where it was on screen 
 server's `ui.*` metadata also supplies the labels.
 
 **Device settings** (Settings > Lists and reading, all per device): Layout (default; Editorial, Cards, Compact, Inbox,
-Email - Compact; the stored ids are still `magazine` and `headlines`), Article width (Narrow, Medium, Wide, Full;
+Email - Compact, Gazette; the stored ids are still `magazine` and `headlines`), Name of the Gazette (`client.paper_name`;
+empty prints "The Gazette"), Article width (Narrow, Medium, Wide, Full;
 `--kp-col`), Open links in (New tab or Same tab; the default is Same tab on iPhone and iPad, where a link an installed
 app claims otherwise leaves an about:blank tab, New tab elsewhere; `lib/links.ts`), Unread badge (Count capped at
 99+, Dot only, Off; tab bar and sidebar), Thumbnails in Inbox (Auto or Off) and "Show swipe tips again" (resets the first-run peek). The sidebar and the list column of the reader pane are resizable (drag the
@@ -137,6 +139,12 @@ change. Text spacing (WCAG 1.4.12: Less, Default, More) is in Accessibility, not
 
 **Layouts.** Editorial is image-forward (a large lead image, a big title and excerpt, more whitespace; in a wide list
 the image sits beside the text). Inbox is text-first (sender, subject, snippet, time, small optional thumbnail).
+The Gazette is a page layout (`ListLayout.Page`): the list screen hands it every loaded article instead of virtualizing
+rows, and a marker after the last page loads more. It is always fetched newest first, whatever order the device or the
+list sets (`resolveOrder`), because a page once shown stays fixed only while the loaded articles are the start of a
+newest-first list; the order button is hidden there. A story marked read fades in place and never leaves the page;
+`j`/`k` follow the page's reading order (its DOM order). Under 600 px of list width it prints the one-column phone
+page. A search shows Editorial rows instead.
 The layout menu is one list: the radio is the choice (a feed or folder's own override on those lists, the device default
 elsewhere) and the star beside each layout makes it the device default; Order and, on a feed or folder list, Opens in
 follow under it. The oldest-first button sets the order at the list's level (the feed or folder there, the device on

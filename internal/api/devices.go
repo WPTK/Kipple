@@ -106,7 +106,10 @@ func floatOneOf(vals ...float64) func(any) (any, string) {
 	}
 }
 
-var layoutIDs = []string{"magazine", "cards", "compact", "inbox", "headlines"}
+var layoutIDs = []string{"magazine", "cards", "compact", "inbox", "headlines", "gazette"}
+
+// maxPaperName is the longest name, in characters, a device can give the Gazette layout.
+const maxPaperName = 60
 
 // listOverrideFields are what one feed or folder list may set for itself: its layout, its sort order
 // and the view it opens in. A field left out is inherited (the nearest folder above, then the device).
@@ -198,6 +201,14 @@ var clientDefs = map[string]clientDef{
 		return s, ""
 	}, ""},
 	"client.rate": {floatOneOf(0.8, 1, 1.2, 1.5), 1.0},
+	// The Gazette's name; "" prints the web app's default name, which the server does not need to know.
+	"client.paper_name": {func(v any) (any, string) {
+		s, ok := v.(string)
+		if !ok || utf8.RuneCountInString(s) > maxPaperName || hasControl(s) {
+			return nil, fmt.Sprintf("must be a string of at most %d characters without line breaks", maxPaperName)
+		}
+		return s, ""
+	}, ""},
 	"client.collapsed_folders": {func(v any) (any, string) {
 		const msg = "must be a list (at most 200) of numeric-string folder ids without repeats"
 		arr, ok := v.([]any)

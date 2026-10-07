@@ -1,11 +1,11 @@
 import type { ComponentType } from "react";
 import type { To } from "react-router";
-import type { Card, Feed } from "@/api/types";
+import type { Card, Feed, Scope } from "@/api/types";
 import type { LayoutId } from "@/lib/devicePrefs";
 
 /**
- * A list layout is a row component plus sizing hints. The list screen owns
- * data, virtualization, selection, gestures and keyboard; a layout only draws one item.
+ * A list layout is a row component plus sizing hints, or a page that draws the whole list (Page). The list screen
+ * owns data, virtualization, selection, gestures and keyboard; a row layout only draws one item.
  */
 export interface RowMenuActions {
   toggleRead: (item: Card) => void;
@@ -44,9 +44,31 @@ export interface RowProps {
   showThumb?: boolean;
 }
 
+/** What a page layout is given: the whole loaded list, not one row. */
+export interface PageProps {
+  /** Every loaded article of the list in the server's order. Articles marked read stay (they fade in place). */
+  items: readonly Card[];
+  /** The list being shown (never a search). */
+  scope: Scope;
+  /** The server has more articles than are loaded. */
+  more: boolean;
+  /** The list's measured width in px (0 before it is measured). */
+  width: number;
+  /** The article selected with j/k or open in the reader pane. */
+  selectedId: string | undefined;
+  onOpen: (item: Card) => void;
+}
+
 export interface ListLayout {
   id: LayoutId;
   label: string;
+  /**
+   * A layout that arranges the whole list at once. The list screen then hands it every loaded article instead of
+   * virtualizing rows, and keeps the data, keys, loading and empty states. j/k follow the page's DOM order, which a
+   * page layout must keep equal to its reading order. A search still shows `Row`: a page is planned from a
+   * newest-first list, and a search is ordered by relevance or by the reader's choice.
+   */
+  Page?: ComponentType<PageProps>;
   Row: ComponentType<RowProps>;
   /**
    * Initial size guess in px for the virtualizer; rows are measured after render. `ctx` is the list's measured

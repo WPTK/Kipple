@@ -11,6 +11,7 @@ import {
   ARTICLE_WIDTH_LABELS,
   LAYOUT_IDS,
   LAYOUT_LABELS,
+  PAPER_NAME_MAX,
   UNREAD_BADGES,
   updateDevicePrefs,
   useDevicePrefs,
@@ -20,6 +21,7 @@ import {
   type UnreadBadge,
 } from "@/lib/devicePrefs";
 import { fontById } from "@/lib/fonts";
+import { DEFAULT_PAPER_NAME } from "@/layouts/gazette";
 import { resolveLinkTarget } from "@/lib/links";
 import { MOTIONS, MOTION_LABELS, RATES, prefsStore, updatePrefs, type Motion } from "@/lib/prefs";
 import { listVoices, speechSupported } from "@/lib/speech";
@@ -202,6 +204,33 @@ function ServerPart({ groups, empty, inline = false }: { groups: { id: SettingGr
   );
 }
 
+/** The Gazette's name on this device. Blank prints the default name. */
+function PaperNameField() {
+  const dp = useDevicePrefs();
+  const id = useId();
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className="text-sm font-semibold">
+        Name of the Gazette
+      </label>
+      <input
+        id={id}
+        type="text"
+        value={dp.paperName}
+        maxLength={PAPER_NAME_MAX}
+        placeholder={DEFAULT_PAPER_NAME}
+        autoComplete="off"
+        onChange={(e) => updateDevicePrefs({ paperName: e.target.value })}
+        aria-describedby={`${id}-hint`}
+        className={`${inputCls} max-w-sm`}
+      />
+      <span id={`${id}-hint`} className="text-xs text-fg2">
+        Printed at the top of the Gazette layout&apos;s front page and on every page after it. Leave it empty for {DEFAULT_PAPER_NAME}.
+      </span>
+    </div>
+  );
+}
+
 function VoicePicker() {
   const p = useStore(prefsStore);
   const id = useId();
@@ -322,6 +351,7 @@ function AppearancePage() {
           options={LAYOUT_IDS.map((id) => ({ value: id, label: LAYOUT_LABELS[id] }))}
           wrap
         />
+        <PaperNameField />
         <Segmented<ArticleWidth>
           legend="Article width"
           hint="How wide the text of an article is. Full uses the whole pane."

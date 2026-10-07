@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ComponentType } from "react";
 import { useBootstrap, useFolderTree } from "@/api/queries";
 import { chainOf, type FolderTree } from "@/lib/folderTree";
 import type { Scope } from "@/api/types";
@@ -16,15 +16,21 @@ import {
 import { useStore } from "@/lib/store";
 import { cards } from "./cards";
 import { compact } from "./compact";
+import { gazette } from "./gazette";
 import { headlines } from "./headlines";
 import { inbox } from "./inbox";
 import { magazine } from "./magazine";
-import type { ListLayout } from "./types";
+import type { ListLayout, PageProps } from "./types";
 
-const layouts: Record<LayoutId, ListLayout> = { magazine, cards, compact, inbox, headlines };
+const layouts: Record<LayoutId, ListLayout> = { magazine, cards, compact, inbox, headlines, gazette };
 
 function getLayout(id: LayoutId): ListLayout {
   return layouts[id] ?? magazine;
+}
+
+/** The page a list is drawn as, or undefined for rows: a page layout's Page, except in a search (see ListLayout.Page). */
+export function pageOf(layout: ListLayout, scope: Scope): ComponentType<PageProps> | undefined {
+  return scope.q ? undefined : layout.Page;
 }
 
 /**
@@ -71,4 +77,4 @@ export function useResolvedLayout(scope: Scope): { layout: ListLayout; ctx: Layo
   return { layout: getLayout(resolveLayout(dp, ctx, session)), ctx };
 }
 
-export type { ListLayout, RowProps, RowMenuActions } from "./types";
+export type { ListLayout, PageProps, RowProps, RowMenuActions } from "./types";

@@ -11,6 +11,7 @@ import {
   LIST_VIEWS,
   LIST_VIEW_LABELS,
   ORDER_LABELS,
+  followsOrder,
   inheritedList,
   overrideTarget,
   sessionLayoutStore,
@@ -140,6 +141,9 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
               <Radio key={o} value={o} label={ORDER_LABELS[o]} />
             ))}
           </DropdownMenu.RadioGroup>
+          {followsOrder(layout.id) ? null : (
+            <p className="px-3 pt-1 pb-2 text-xs text-fg2">The {layout.label} is always newest first. The order applies to the other layouts.</p>
+          )}
 
           {target ? (
             <>

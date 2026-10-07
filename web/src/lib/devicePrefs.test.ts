@@ -10,8 +10,11 @@ import {
   resetDevicePrefs,
   resolveLayout,
   resolveList,
+  resolveOrder,
   setListOverride,
   updateDevicePrefs,
+  PAPER_NAME_MAX,
+  cleanPaperName,
 } from "./devicePrefs";
 
 beforeEach(() => {
@@ -146,6 +149,36 @@ describe("order and view overrides (#38)", () => {
     expect(devicePrefsStore.get().overrides.feed).toEqual({ "2": { view: "all" } });
     setListOverride("feed", "2", "view", null);
     expect(devicePrefsStore.get().overrides.feed).toEqual({});
+  });
+});
+
+describe("the Gazette's order and name (#39)", () => {
+  it("is always newest first, whatever order the device, a folder or the feed sets", () => {
+    const p = () => devicePrefsStore.get();
+    const ctx4 = layoutContext({ view: "unread", feed: "4" }, feeds, tree);
+    updateDevicePrefs({ order: "oldest" });
+    setListOverride("folder", "12", "order", "oldest");
+    setListOverride("feed", "4", "order", "oldest");
+    expect(resolveOrder(p(), ctx4)).toBe("oldest");
+    // The Gazette from a folder above, from the device default, or from the `c` toggle of this session.
+    setListOverride("folder", "13", "layout", "gazette");
+    expect(resolveOrder(p(), ctx4)).toBe("newest");
+    setListOverride("folder", "13", "layout", null);
+    updateDevicePrefs({ layout: "gazette" });
+    expect(resolveOrder(p(), ctx4)).toBe("newest");
+    updateDevicePrefs({ layout: "magazine" });
+    expect(resolveOrder(p(), ctx4, "gazette")).toBe("newest");
+    // The settings are kept for the other layouts.
+    expect(resolveOrder(p(), ctx4, "compact")).toBe("oldest");
+  });
+
+  it("keeps a valid name and blanks one the profile would refuse", () => {
+    expect(parseDevicePrefs(null).paperName).toBe("");
+    expect(parseDevicePrefs(JSON.stringify({ paperName: "Morning\tNotes" })).paperName).toBe("Morning\tNotes");
+    expect(parseDevicePrefs(JSON.stringify({ paperName: "é".repeat(PAPER_NAME_MAX) })).paperName).toHaveLength(PAPER_NAME_MAX);
+    expect(cleanPaperName("é".repeat(PAPER_NAME_MAX + 1))).toBe("");
+    expect(cleanPaperName("Two\nlines")).toBe("");
+    expect(cleanPaperName(7)).toBe("");
   });
 });
 

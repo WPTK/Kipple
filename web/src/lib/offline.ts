@@ -2,7 +2,7 @@ import { onlineManager, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, authStore, buildPath } from "@/api/client";
 import { itemsParams, keys, PAGE_SIZE, patchItems } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
-import { devicePrefsStore } from "./devicePrefs";
+import { devicePrefsStore, resolveOrder, sessionLayoutStore } from "./devicePrefs";
 import type { MarkReadResponse } from "@/api/types";
 import { offlineStore, setOnline, setPending, setUpdateReady } from "./offlineState";
 import { wipeStatsQueue } from "./statsSender";
@@ -377,7 +377,7 @@ export async function prefetchUnread(now = Date.now()): Promise<void> {
   if (!navigator.onLine || nav.connection?.saveData || now - lastPrefetch < PREFETCH_EVERY_MS) return;
   lastPrefetch = now;
   // The list the app itself asks for first, so the worker files the answer under the same address.
-  const order = devicePrefsStore.get().order === "oldest" ? "oldest" : undefined;
+  const order = resolveOrder(devicePrefsStore.get(), {}, sessionLayoutStore.get()) === "oldest" ? "oldest" : undefined;
   const params = itemsParams({ view: "unread", order }, undefined, PAGE_SIZE);
   try {
     await api(buildPath("/api/items", params) + "&include=content", { quiet: true });

@@ -8,7 +8,7 @@ import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, ItemsPage, Scope, View } from "@/api/types";
 import { useSearchHighlight } from "@/lib/useHighlights";
-import { useListContext, useResolvedLayout, useSetListOverride } from "@/layouts";
+import { pageOf, useListContext, useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
   DEFAULT_DEVICE_PREFS,
   LIST_WIDTH_MAX,
@@ -17,6 +17,9 @@ import {
   inheritedList,
   overrideTarget,
   resolveList,
+  followsOrder,
+  resolveOrder,
+  sessionLayoutStore,
   updateDevicePrefs,
   useDevicePrefs,
   type OrderPref,
@@ -96,7 +99,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   const { canUndo } = useStore(undoStore);
   const wide = useWide();
   const { prev, next } = useNeighbours(scope);
-  const ctx = useListContext(scope);
+  const { layout, ctx } = useResolvedLayout(scope);
   const setListOverride = useSetListOverride();
   const oldest = scope.order === "oldest";
   // The order is the list's resolved one (readerScope). On a feed or folder list the toggle sets that list's own order,
@@ -129,15 +132,18 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           {title}
         </h1>
         <div className="ml-auto flex items-center gap-0.5">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Oldest first"
-          aria-pressed={oldest}
-          onClick={toggleOrder}
-        >
-          {oldest ? <ArrowUpNarrowWide aria-hidden="true" /> : <ArrowDownWideNarrow aria-hidden="true" />}
-        </Button>
+        {/* A layout that is always newest first has no order to toggle (the list options menu says why). */}
+        {followsOrder(layout.id) ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Oldest first"
+            aria-pressed={oldest}
+            onClick={toggleOrder}
+          >
+            {oldest ? <ArrowUpNarrowWide aria-hidden="true" /> : <ArrowDownWideNarrow aria-hidden="true" />}
+          </Button>
+        ) : null}
         <LengthMenu scope={scope} />
         <LayoutMenu scope={scope} />
         <ReadingMenu />
@@ -274,9 +280,10 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
   const dp = useDevicePrefs();
   // On a wide screen an open article always has its list beside it, whatever the layout: switching layouts with an
   // article open keeps both on screen (a grid layout such as Cards becomes a single column in the pane). A grid
-  // list with nothing open is the one case that is not a pane: it fills the width.
-  const paneMode = wide && (!layout.grid || !!articleId);
-  const listOnly = wide && layout.grid && !articleId;
+  // list or a page layout (the Gazette) with nothing open is the one case that is not a pane: it fills the width.
+  const fills = !!layout.grid || !!pageOf(layout, scope);
+  const paneMode = wide && (!fills || !!articleId);
+  const listOnly = wide && fills && !articleId;
   const listKey = scopeKey(scope);
   // An article opened from a search draws the words of that search (on a phone no list is mounted to do it).
   const qc = useQueryClient();
@@ -415,7 +422,7 @@ export function ReaderRoute() {
   const view = list?.params.view;
   const spKey = sp.toString();
   const base = useMemo(() => baseScope(view, new URLSearchParams(spKey), isArticle), [view, spKey, isArticle]);
-  const order = resolveList(dp, useListContext(base), "order").value;
+  const order = resolveOrder(dp, useListContext(base), useStore(sessionLayoutStore));
   const scope = useMemo(() => readerScope(base, order), [base, order]);
   return <ReaderLayout scope={scope} articleId={item?.params.id} hasFrom={sp.has("from")} />;
 }
