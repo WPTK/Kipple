@@ -121,7 +121,8 @@ export function RestoreWaiting({
   const minutes = estimateMinutes(estimateSeconds);
   return (
     <WizardFrame step={{ id: "restarting", n: 0, title: k.working }}>
-      <div className="flex flex-col gap-4" role="status">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4" role="status">
         <p>
           {kind === "reset"
             ? "Resetting Kipple. It is working, you can leave this page open."
@@ -131,6 +132,8 @@ export function RestoreWaiting({
         <p className="text-sm text-fg2" data-testid="elapsed">
           Elapsed {clock(elapsed)}
         </p>
+        </div>
+        {kind === "reset" ? <Notice tone="warn">{UNCLAIMED_NOTICE}</Notice> : null}
         {stopped ? (
           <Notice tone="warn" role="alert">
             {running
