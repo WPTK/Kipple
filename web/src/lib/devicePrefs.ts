@@ -4,7 +4,7 @@ import { createStore, useStore } from "./store";
 // not appearance lives here, behind ONE storage seam (`storage` below): localStorage is the
 // instant-paint cache of the server's device profile, which lib/deviceSync.ts keeps in step.
 
-export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines"] as const;
+export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette"] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
 // The ids are what devices have stored, so they never change; only the labels do. "magazine" is shown as
 // Editorial and "headlines" as Email - Compact (title-only rows in the email style).
@@ -14,6 +14,7 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
   compact: "Compact",
   inbox: "Inbox",
   headlines: "Email - Compact",
+  gazette: "Gazette",
 };
 
 /** One-line description of each layout, shown beside it in the layout menu and settings. */
@@ -23,7 +24,20 @@ export const LAYOUT_HINTS: Record<LayoutId, string> = {
   compact: "Small source line over the title, no pictures",
   inbox: "Email rows: sender, subject, snippet, time",
   headlines: "One line per article, titles only",
+  gazette: "A newspaper: front page and sections, newest first",
 };
+
+/** The longest name the Gazette can be given (`client.paper_name`). */
+export const PAPER_NAME_MAX = 60;
+
+/**
+ * A name the profile key accepts, else blank: at most PAPER_NAME_MAX characters on one line, so no control character
+ * (C0 with tab, DEL, C1 with U+0085) and no line or paragraph separator (U+2028, U+2029). The server applies the same
+ * rule (`oneLine` in internal/api/devices.go).
+ */
+export const cleanPaperName = (v: unknown): string =>
+  // eslint-disable-next-line no-control-regex
+  typeof v === "string" && [...v].length <= PAPER_NAME_MAX && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(v) ? v : "";
 
 export const ARTICLE_WIDTHS = ["narrow", "medium", "wide", "full"] as const;
 export type ArticleWidth = (typeof ARTICLE_WIDTHS)[number];
@@ -104,6 +118,8 @@ export interface DevicePrefs {
   unreadBadge: UnreadBadge;
   /** Draw the words of Highlight filters in lists and articles (the reading menu's "Highlight keywords"). */
   highlightKeywords: boolean;
+  /** The Gazette's name on this device; blank prints the default name (layouts/gazette.tsx). */
+  paperName: string;
   /** The layout to go back to when "Titles only in lists" is turned off. Local to this device (no profile key). */
   layoutBeforeTitlesOnly: LayoutId | null;
 }
@@ -125,6 +141,7 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   linkTarget: null,
   unreadBadge: "count",
   highlightKeywords: true,
+  paperName: "",
   layoutBeforeTitlesOnly: null,
 };
 
@@ -200,6 +217,7 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       linkTarget: v?.linkTarget === "new" || v?.linkTarget === "same" ? v.linkTarget : null,
       unreadBadge: UNREAD_BADGES.includes(v?.unreadBadge as UnreadBadge) ? (v?.unreadBadge as UnreadBadge) : d.unreadBadge,
       highlightKeywords: v?.highlightKeywords !== false,
+      paperName: cleanPaperName(v?.paperName),
       layoutBeforeTitlesOnly: isLayoutId(v?.layoutBeforeTitlesOnly) && v.layoutBeforeTitlesOnly !== "headlines" ? v.layoutBeforeTitlesOnly : null,
     };
   } catch {
@@ -394,6 +412,18 @@ export function inheritedList<F extends ListField>(p: DevicePrefs, ctx: LayoutCo
 export function resolveLayout(p: DevicePrefs, ctx: LayoutContext, session: LayoutId | null = null): LayoutId {
   return session ?? resolveList(p, ctx, "layout").value;
 }
+
+/**
+ * The order a list is fetched and shown in. The Gazette is always newest first: it plans its pages from the newest
+ * articles, and a page it has shown stays the same only while what is loaded is the start of a newest-first list
+ * (layouts/gazettePlan.ts). So in that layout the list's and the device's order settings do not apply.
+ */
+export function resolveOrder(p: DevicePrefs, ctx: LayoutContext, session: LayoutId | null = null): OrderPref {
+  return followsOrder(resolveLayout(p, ctx, session)) ? resolveList(p, ctx, "order").value : "newest";
+}
+
+/** Whether a layout shows the list in the order the reader set (every layout but the Gazette). */
+export const followsOrder = (layout: LayoutId): boolean => layout !== "gazette";
 
 /** Which override a list can carry, if any (a feed list or a folder list). */
 export function overrideTarget(ctx: LayoutContext): { kind: "feed" | "folder"; id: string } | null {

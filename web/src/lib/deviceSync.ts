@@ -102,6 +102,7 @@ export function profileOf(l: LocalState): Profile {
     "client.link_target": dp.linkTarget,
     "client.unread_badge": dp.unreadBadge,
     "client.highlight_keywords": dp.highlightKeywords,
+    "client.paper_name": dp.paperName,
   };
 }
 
@@ -161,6 +162,7 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     linkTarget: g("client.link_target"),
     unreadBadge: g("client.unread_badge"),
     highlightKeywords: g("client.highlight_keywords"),
+    paperName: g("client.paper_name"),
   };
   // Only the layout to return to from "Titles only" has no profile key.
   const dp = { ...parseDevicePrefs(JSON.stringify(dpRaw)), layoutBeforeTitlesOnly: cur.dp.layoutBeforeTitlesOnly };

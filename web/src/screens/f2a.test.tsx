@@ -149,6 +149,12 @@ describe("layouts", () => {
       const read = r.querySelector('[data-item-id="1002"]') as HTMLElement;
       expect(within(read).getByText("Example Feed")).not.toHaveClass("font-bold");
     },
+    gazette: (r) => {
+      // The whole list as one page: a masthead, stories as articles, no virtualized rows.
+      expect(within(r).getByRole("heading", { name: "The Gazette" })).toBeInTheDocument();
+      expect(r.querySelectorAll("article[data-slot]").length).toBe(5);
+      expect(r.querySelector("[data-index]")).toBeNull();
+    },
     headlines: (r) => {
       expect(r.querySelector(".row-headline")).not.toBeNull();
       expect(within(r).queryByText("Excerpt for article 1")).toBeNull();

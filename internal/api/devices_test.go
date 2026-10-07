@@ -196,6 +196,15 @@ func TestPatchDeviceValidation(t *testing.T) {
 		{"highlight type", `{"client.highlight_keywords":"no"}`, "client.highlight_keywords"},
 		{"voice newline", `{"client.voice":"a\nb"}`, "client.voice"},
 		{"voice long", `{"client.voice":"` + strings.Repeat("v", 201) + `"}`, "client.voice"},
+		{"paper name newline", `{"client.paper_name":"The\nDaily"}`, "client.paper_name"},
+		{"paper name tab", `{"client.paper_name":"The\tDaily"}`, "client.paper_name"},
+		{"paper name DEL", `{"client.paper_name":"The\u007fDaily"}`, "client.paper_name"},
+		{"paper name NEL", `{"client.paper_name":"The\u0085Daily"}`, "client.paper_name"},
+		{"paper name C1", `{"client.paper_name":"The\u009bDaily"}`, "client.paper_name"},
+		{"paper name line separator", `{"client.paper_name":"The\u2028Daily"}`, "client.paper_name"},
+		{"paper name paragraph separator", `{"client.paper_name":"The\u2029Daily"}`, "client.paper_name"},
+		{"paper name long", `{"client.paper_name":"` + strings.Repeat("é", 61) + `"}`, "client.paper_name"},
+		{"paper name type", `{"client.paper_name":1}`, "client.paper_name"},
 		{"override bad layout", `{"client.list_overrides":{"feed":{"1":{"layout":"grid"}},"folder":{}}}`, "client.list_overrides"},
 		{"override bad order", `{"client.list_overrides":{"feed":{"1":{"order":"rank"}}}}`, "client.list_overrides"},
 		{"override bad view", `{"client.list_overrides":{"folder":{"1":{"view":"starred"}}}}`, "client.list_overrides"},
@@ -230,7 +239,8 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	d := h.newDev()
 	body := `{"ui.theme":"system","ui.theme_schedule":true,"ui.theme_day":"linen","ui.theme_night":"carbon","ui.theme_night_start":"22:30","ui.theme_day_start":"06:15","ui.font_body":"Atkinson Hyperlegible Next",
 	 "ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
-	 "client.layout":"headlines","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"}}},
+	 "client.layout":"headlines","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"}}},
+	 "client.paper_name":"` + strings.Repeat("é", 60) + `",
 	 "client.order":"oldest","client.search_order":"relevance","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
 	 "client.text_size":0.875,"client.adjust_separately":true,"client.shortcuts":false,"client.spacing":"roomy",
@@ -253,8 +263,11 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	}
 	require.Equal(t, map[string]any{
 		"feed":   map[string]any{"12": map[string]any{"layout": "inbox", "order": "oldest", "view": "all"}},
-		"folder": map[string]any{"3": map[string]any{"layout": "compact"}, "8": map[string]any{"view": "unread"}},
+		"folder": map[string]any{"3": map[string]any{"layout": "compact"}, "8": map[string]any{"view": "unread"}, "5": map[string]any{"layout": "gazette"}},
 	}, m["client.list_overrides"])
+	require.Equal(t, strings.Repeat("é", 60), m["client.paper_name"], "60 characters, not 60 bytes")
+	_, other, _ := h.newDev().call("GET", "/api/device", "")
+	require.Equal(t, "", other["merged"].(map[string]any)["client.paper_name"], "blank (the web app's default name) unless a device names it")
 	require.Equal(t, false, m["client.shortcuts"])
 	require.Equal(t, false, m["client.highlight_keywords"])
 	_, fresh, _ := h.newDev().call("GET", "/api/device", "")

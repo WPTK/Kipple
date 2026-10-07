@@ -32,6 +32,20 @@ class RO {
 }
 globalThis.ResizeObserver = RO as unknown as typeof ResizeObserver;
 
+// Every element is in view (the getBoundingClientRect stub above puts them all in the one 375 x 800 viewport).
+class IO {
+  constructor(private cb: IntersectionObserverCallback) {}
+  observe(el: Element) {
+    this.cb([{ target: el, isIntersecting: true, intersectionRatio: 1 } as unknown as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+  }
+  unobserve() {}
+  disconnect() {}
+  takeRecords() {
+    return [];
+  }
+}
+globalThis.IntersectionObserver = IO as unknown as typeof IntersectionObserver;
+
 if (!window.matchMedia) {
   window.matchMedia = (query: string) =>
     ({

@@ -31,7 +31,7 @@ import {
   watchForUpdates,
   wipeOfflineData,
 } from "./offline";
-import { devicePrefsStore } from "./devicePrefs";
+import { devicePrefsStore, sessionLayoutStore } from "./devicePrefs";
 import * as toasts from "@/shell/toasts";
 import { offlineStore, setOnline, setPending } from "./offlineState";
 
@@ -418,6 +418,25 @@ describe("prefetch for offline reading", () => {
       expect(calls[0]?.url.search).toBe("?view=unread&order=oldest&limit=50&include=content");
     } finally {
       devicePrefsStore.set(prev);
+    }
+  });
+
+  it("asks for newest first when the list shows as the Gazette, whatever order the device sets", async () => {
+    const prev = devicePrefsStore.get();
+    try {
+      const { calls } = mockFetch({ "GET /api/items": () => json({ items: [], next_cursor: null }) });
+      devicePrefsStore.set({ ...prev, order: "oldest", layout: "gazette" });
+      resetPrefetchForTests();
+      await prefetchUnread(9_000_000);
+      // The Gazette from the `c` toggle of this session counts too.
+      devicePrefsStore.set({ ...prev, order: "oldest", layout: "magazine" });
+      sessionLayoutStore.set("gazette");
+      resetPrefetchForTests();
+      await prefetchUnread(9_000_000);
+      expect(calls.map((c) => c.url.search)).toEqual(["?view=unread&limit=50&include=content", "?view=unread&limit=50&include=content"]);
+    } finally {
+      devicePrefsStore.set(prev);
+      sessionLayoutStore.set(null);
     }
   });
 
