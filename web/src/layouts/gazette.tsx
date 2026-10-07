@@ -6,14 +6,19 @@ import { PublishedTime, rowLabel } from "./parts";
 
 // The Gazette's pages (docs/ui-decisions.md, "The Gazette"). It draws what planGazette returns, in that order: a page
 // is a stack of blocks, a block is a grid of columns, and each column lists its slots top to bottom, so the DOM order
-// is the reading order. Colors are theme tokens only (rules and section marks use the theme's accent). Read stories
-// fade in place and keep their size, so marking one read never moves the page.
+// is the reading order. Colors are theme tokens only (rules and section marks use the theme's accent). A read story
+// keeps its weight and size: its picture fades and its text turns to the secondary color (which meets 4.5:1 on the
+// background in every theme), so marking one read never moves the page. A broken picture keeps its box for the same
+// reason.
+
+/** The paper's name when none is set. */
+export const DEFAULT_PAPER_NAME = "The Gazette";
 
 export interface GazetteProps {
   plan: GazettePlan;
   /** The loaded articles by id. A slot whose article is missing is skipped. */
   items: ReadonlyMap<string, Card>;
-  /** The paper's name, shown in the masthead and on every folio line. */
+  /** The paper's name, shown in the masthead and on every folio line. Blank means DEFAULT_PAPER_NAME. */
   name: string;
   /** The edition's date. */
   date: Date;
@@ -24,17 +29,20 @@ export interface GazetteProps {
   onOpen: (item: Card) => void;
 }
 
-/** The closing line: "That's the Gazette." for "The Gazette", "That's Morning Notes." for "Morning Notes". */
+/** The name to print: the given one trimmed, or the default when blank. */
+export const paperName = (name: string) => name.trim() || DEFAULT_PAPER_NAME;
+
+/** The closing line for a printed name: "That's the Gazette." for "The Gazette", "That's Morning Notes." otherwise. */
 export function closingLine(name: string): string {
-  const n = name.trim() || "The Gazette";
-  return `That's ${/^the\s/i.test(n) ? `the${n.slice(3)}` : n}.`;
+  return `That's ${/^the\s/i.test(name) ? `the${name.slice(3)}` : name}.`;
 }
 
 const longDate = (d: Date) => d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 const shortDate = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
-export function Gazette({ plan, items, name, date, screen, to, onOpen }: GazetteProps) {
+export function Gazette({ plan, items, name: given, date, screen, to, onOpen }: GazetteProps) {
   const phone = screen === "phone";
+  const name = paperName(given);
   const last = plan.pages.length - 1;
   return (
     <div data-gazette="" className="gazette bg-bg px-4 pb-10 text-fg">
@@ -56,11 +64,12 @@ interface PageProps extends Omit<GazetteProps, "plan" | "screen"> {
 }
 
 function GazettePage({ page, items, name, date, phone, to, onOpen, ruled }: PageProps) {
-  const id = `gazette-page-${page.number}`;
   const front = page.kind === "front";
   return (
-    <section aria-labelledby={id} data-page={page.number} data-front-type={page.type ?? undefined} className={cn(ruled && "mt-8 border-t-[3px] border-double border-fg pt-2")}>
-      {front ? <Masthead id={id} name={name} date={date} phone={phone} /> : <Folio id={id} name={name} date={date} number={page.number} phone={phone} />}
+    // A plain section with no accessible name, so a long paper does not add one landmark per page; its h2 is what
+    // heading navigation finds.
+    <section data-page={page.number} data-front-type={page.type ?? undefined} className={cn(ruled && "mt-8 border-t-[3px] border-double border-fg pt-2")}>
+      {front ? <Masthead name={name} date={date} phone={phone} /> : <Folio name={name} date={date} number={page.number} phone={phone} />}
       <div className="flex flex-col gap-6">
         {page.blocks.map((b, i) => (
           <GazetteBlock key={i} block={b} items={items} to={to} onOpen={onOpen} phone={phone} />
@@ -70,10 +79,10 @@ function GazettePage({ page, items, name, date, phone, to, onOpen, ruled }: Page
   );
 }
 
-function Masthead({ id, name, date, phone }: { id: string; name: string; date: Date; phone: boolean }) {
+function Masthead({ name, date, phone }: { name: string; date: Date; phone: boolean }) {
   return (
     <header className="mb-5 border-b-[3px] border-double border-fg pt-4 pb-2 text-center">
-      <h2 id={id} className={cn("font-reading leading-none font-bold tracking-tight", phone ? "text-3xl" : "text-6xl")}>
+      <h2 className={cn("font-reading leading-none font-bold tracking-tight", phone ? "text-3xl" : "text-6xl")}>
         {name}
       </h2>
       <p className="mt-2 border-t border-accent pt-1 text-xs tracking-wide text-fg2 uppercase">{longDate(date)}</p>
@@ -82,10 +91,10 @@ function Masthead({ id, name, date, phone }: { id: string; name: string; date: D
 }
 
 /** An inner page's header line: name, page number, date. A phone has no folio row; the page keeps a hidden heading. */
-function Folio({ id, name, date, number, phone }: { id: string; name: string; date: Date; number: number; phone: boolean }) {
+function Folio({ name, date, number, phone }: { name: string; date: Date; number: number; phone: boolean }) {
   if (phone) {
     return (
-      <h2 id={id} className="sr-only">
+      <h2 className="sr-only">
         Page {number}
       </h2>
     );
@@ -93,7 +102,7 @@ function Folio({ id, name, date, number, phone }: { id: string; name: string; da
   return (
     <header className="mb-4 grid grid-cols-3 items-baseline border-b border-line pb-1 text-xs tracking-wide text-fg2 uppercase">
       <span className="truncate font-reading normal-case italic">{name}</span>
-      <h2 id={id} className="text-center font-normal">
+      <h2 className="text-center font-normal">
         Page {number}
       </h2>
       <span className="text-right">{shortDate(date)}</span>
@@ -161,7 +170,6 @@ function headlineClass(slot: Slot, phone: boolean): string {
 }
 
 function Story({ slot, item, heading: H, to, onOpen, phone }: StoryProps) {
-  const unread = !item.read;
   const lead = slot.kind === "lead" || slot.kind === "co-lead";
   const picture = !!item.image && (slot.kind === "photo" || (lead && slot.picture));
   const brief = slot.kind === "brief";
@@ -172,22 +180,24 @@ function Story({ slot, item, heading: H, to, onOpen, phone }: StoryProps) {
       data-item-id={item.id}
       data-slot={slot.kind}
       data-read={item.read || undefined}
-      className={cn("relative flex min-w-0 flex-col gap-1.5 transition-opacity", item.read && "opacity-60", brief && "border-b border-line pb-2")}
+      className={cn("relative flex min-w-0 flex-col gap-1.5", brief && "border-b border-line pb-2")}
     >
       {picture ? (
-        <img
-          src={item.image!}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className={cn("w-full bg-surface object-cover", slot.kind === "photo" ? "aspect-[4/3]" : "aspect-video")}
-          onError={(e) => {
-            // Broken picture: the story keeps its text, no broken icon.
-            e.currentTarget.style.display = "none";
-          }}
-        />
+        // The box holds the picture's place, so a picture that fails to load leaves an empty box, not a gap.
+        <div className={cn("w-full bg-surface", slot.kind === "photo" ? "aspect-[4/3]" : "aspect-video")}>
+          <img
+            src={item.image!}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className={cn("size-full object-cover", item.read && "opacity-60")}
+            onError={(e) => {
+              e.currentTarget.style.visibility = "hidden";
+            }}
+          />
+        </div>
       ) : null}
-      <H className={cn("font-reading", headlineClass(slot, phone), unread ? "font-bold text-fg" : "font-normal text-fg2")}>
+      <H className={cn("font-reading font-bold", headlineClass(slot, phone), item.read ? "text-fg2" : "text-fg")}>
         <Link
           to={to}
           onClick={() => onOpen(item)}

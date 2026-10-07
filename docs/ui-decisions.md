@@ -322,11 +322,12 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
   Kipple does not store image sizes, and adding them needs a migration and a fetch at ingest.
 - **Lead window:** the newest image article from a Favorite among the first 100 articles loaded; none means a no-lead type.
 - **Order:** always newest first; the per-device sort order is ignored in this layout.
-- **Reading:** a story marked read fades in place and the page does not reflow; the page re-plans on refresh or when you
+- **Reading:** a story marked read fades in place and the page does not reflow: its picture fades and its text turns to
+  the secondary color, keeping its weight and size; the page re-plans on refresh or when you
   leave and return. A page's contents are fixed once planned, so loading more never reflows earlier pages.
 - **Paging:** all loaded pages stack in one scroll with a page rule and a small header between them.
 - **Columns:** two for a few stories up to four for many. Stories that do not fit become headline-only "In brief" lines.
-  Unread titles are bold, read ones fade.
+  Titles are bold whether read or not; read ones fade, as in Reading.
 - **Inner pages (2, 3, ...):** no masthead; a small header line (name, page number, date), a section header, columns,
   and at most one feature with a picture per section. The last page is briefs only and ends the paper: "That's the
   Gazette."

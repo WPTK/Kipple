@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { axe } from "vitest-axe";
 import type { Card } from "@/api/types";
 import { card } from "@/test/mockApi";
-import { closingLine, Gazette } from "./gazette";
+import { contrast } from "@/theme/contrast";
+import { SCHEMES } from "@/theme/schemes";
+import { closingLine, DEFAULT_PAPER_NAME, Gazette, paperName } from "./gazette";
 import { planGazette, type GazettePlan } from "./gazettePlan";
 
 const IMG = "https://example.com/i.jpg";
@@ -60,7 +62,19 @@ describe("Gazette pages", () => {
     expect(screen.getByText(DATE.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }))).toBeInTheDocument();
     for (let n = 2; n <= p.pages.length; n++) expect(screen.getByRole("heading", { level: 2, name: `Page ${n}` })).toBeInTheDocument();
     expect(screen.getByText("That's the Gazette.")).toBeInTheDocument();
-    expect(screen.getAllByRole("region")).toHaveLength(p.pages.length);
+    // Pages are found by their headings; a long paper adds no landmark per page.
+    expect(screen.queryAllByRole("region")).toHaveLength(0);
+  });
+
+  it("prints the default name for a blank one, in the masthead and the closing line", () => {
+    const items = new Map(cards.map((c) => [c.id, c]));
+    render(
+      <MemoryRouter>
+        <Gazette plan={p} items={items} name="   " date={DATE} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("heading", { level: 2, name: DEFAULT_PAPER_NAME })).toBeInTheDocument();
+    expect(screen.getByText("That's the Gazette.")).toBeInTheDocument();
   });
 
   it("shows the lead's picture and a headline-sized title", () => {
@@ -80,16 +94,51 @@ describe("Gazette pages", () => {
     expect(lead.querySelector("h3")!.className).toContain("text-[2.5rem]");
   });
 
-  it("marks unread stories bold and fades read ones without removing them", () => {
-    const mixed = cards.map((c, i) => (i === 1 ? { ...c, read: true } : c));
-    const { container } = draw(mixed, p);
-    const read = container.querySelector(`article[data-item-id="${mixed[1]!.id}"]`)!;
-    expect(read.className).toContain("opacity-60");
-    expect(read.querySelector("h3, h4")!.className).toContain("font-normal");
-    const unread = container.querySelector(`article[data-item-id="${mixed[0]!.id}"]`)!;
-    expect(unread.className).not.toContain("opacity-60");
-    expect(within(unread as HTMLElement).getByRole("link").getAttribute("aria-label")).toMatch(/^Unread, /);
+  it("fades a read story in place: the picture dims, the text turns secondary, nothing that sets size changes", () => {
+    // Every class of every element in a story, minus the text colors that tell read from unread.
+    const shape = (root: Element) =>
+      [root, ...root.querySelectorAll("*")].map((el) => [el.tagName, ...[...el.classList].filter((c) => c !== "text-fg" && c !== "text-fg2").sort()].join(" "));
+    const { container, rerender } = draw(cards, p);
+    const before = new Map(cards.map((c) => [c.id, shape(container.querySelector(`article[data-item-id="${c.id}"]`)!)]));
+    const read = cards.map((c) => ({ ...c, read: true }));
+    rerender(
+      <MemoryRouter>
+        <Gazette plan={p} items={new Map(read.map((c) => [c.id, c]))} name="The Gazette" date={DATE} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} />
+      </MemoryRouter>,
+    );
+    for (const c of read) {
+      const el = container.querySelector(`article[data-item-id="${c.id}"]`)!;
+      // Only the picture's opacity may differ, and opacity does not change size.
+      expect(shape(el).map((s) => s.replace(" opacity-60", ""))).toEqual(before.get(c.id));
+      expect(el.className).not.toMatch(/opacity|transition/);
+      expect(el.querySelector("h3, h4")!.classList).toContain("text-fg2");
+      expect(el.querySelector("h3, h4")!.classList).toContain("font-bold");
+      const img = el.querySelector("img");
+      if (img) expect(img.classList).toContain("opacity-60");
+    }
     expect(domOrder(container)).toEqual(planOrder(p));
+  });
+
+  it("names unread stories as unread", () => {
+    const { container } = draw(cards, p);
+    const unread = container.querySelector(`article[data-item-id="${cards[0]!.id}"]`)!;
+    expect(within(unread as HTMLElement).getByRole("link").getAttribute("aria-label")).toMatch(/^Unread, /);
+    expect(unread.querySelector("h3")!.classList).toContain("text-fg");
+  });
+
+  it("keeps a broken picture's box", () => {
+    const { container } = draw(cards, p);
+    const img = container.querySelector<HTMLImageElement>('article[data-slot="lead"] img')!;
+    fireEvent.error(img);
+    expect(img.style.visibility).toBe("hidden");
+    expect(img.style.display).toBe("");
+    expect(img.parentElement!.className).toContain("aspect-video");
+  });
+
+  it("passes axe with read and unread stories", async () => {
+    const mixed = cards.map((c, i) => (i % 3 === 0 ? { ...c, read: true } : c));
+    const { container } = draw(mixed, p);
+    expect(await axe(container)).toHaveNoViolations();
   });
 
   it("opens a story through its link", async () => {
@@ -112,11 +161,6 @@ describe("Gazette pages", () => {
     const { container } = draw(items, p);
     expect(domOrder(container)).toEqual(planOrder(p).filter((id) => id !== cards[0]!.id));
   });
-
-  it("passes axe", async () => {
-    const { container } = draw(cards, p);
-    expect(await axe(container)).toHaveNoViolations();
-  });
 });
 
 describe("Gazette on a phone", () => {
@@ -134,6 +178,12 @@ describe("Gazette on a phone", () => {
     expect(screen.queryByText(DATE.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }))).toBeNull();
     expect(domOrder(container)).toEqual(planOrder(p));
   });
+
+  it("passes axe with read stories", async () => {
+    const mixed = cards.map((c, i) => (i % 3 === 0 ? { ...c, read: true } : c));
+    const { container } = draw(mixed, p, "phone");
+    expect(await axe(container)).toHaveNoViolations();
+  });
 });
 
 describe("closingLine", () => {
@@ -142,6 +192,18 @@ describe("closingLine", () => {
     ["the morning post", "That's the morning post."],
     ["Morning Notes", "That's Morning Notes."],
     ["Theory Weekly", "That's Theory Weekly."],
-    ["  ", "That's the Gazette."],
   ])("%s", (name, line) => expect(closingLine(name)).toBe(line));
+
+  it("prints the default for a blank name", () => {
+    expect(paperName("  ")).toBe(DEFAULT_PAPER_NAME);
+    expect(paperName(" Morning Notes ")).toBe("Morning Notes");
+  });
+});
+
+// jsdom's axe cannot compute colors, so check the read text's colors here: a read story's headline, standfirst and
+// meta line are text2 on bg at full opacity, and that must meet 4.5:1 in every scheme.
+describe("read text contrast", () => {
+  it.each(SCHEMES.map((s) => [s.id, s.tokens] as const))("%s: text2 on bg is at least 4.5:1", (_, t) => {
+    expect(contrast(t.text2, t.bg)).toBeGreaterThanOrEqual(4.5);
+  });
 });
