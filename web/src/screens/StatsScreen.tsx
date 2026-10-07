@@ -148,9 +148,9 @@ export function SummaryStrip({ data, compare = false }: { data: StatsSummary; co
         {tile("time", "Active time", t?.active_seconds ?? 0, cur?.active_seconds, prev?.active_seconds, durationLabel)}
         {tile("days", "Days with reading", t?.days_active ?? 0, cur?.days_active, prev?.days_active, num)}
       </div>
-      {period && open.size > 0 ? (
+      {period && wanted ? (
         <p id={noteId} role="status" className="mt-2 text-xs text-fg2">
-          {`Compared with ${period.label}, today left out.`}
+          {`Complete days only, so today is left out of both: compared with ${period.label}.`}
         </p>
       ) : null}
       {failed ? (

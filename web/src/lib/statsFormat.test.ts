@@ -123,9 +123,4 @@ describe("day arithmetic with a pinned time zone", () => {
     expect(previousPeriod({ key: "month", from: "2026-03-20", to: "2026-04-18" })).toEqual({ current: { from: "2026-03-20", to: "2026-04-17" }, from: "2026-02-19", to: "2026-03-19", label: "the previous 29 days" });
     expect(previousPeriod({ key: "year", from: "2028-03-01", to: "2029-02-28" })?.to).toBe("2028-02-29");
   });
-
-  it("calls a full week of days 'last week'", async () => {
-    const { previousPeriod } = await import("./statsFormat");
-    expect(previousPeriod({ key: "week", from: "2026-09-20", to: "2026-09-27" })).toEqual({ current: { from: "2026-09-20", to: "2026-09-26" }, from: "2026-09-13", to: "2026-09-19", label: "last week" });
-  });
 });

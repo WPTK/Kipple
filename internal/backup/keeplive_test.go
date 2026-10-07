@@ -232,7 +232,7 @@ func TestRestoreKeepsTheLiveAddressSettings(t *testing.T) {
 		"ui.theme":                  "paper",
 	})
 	live := openLive(t, dir)
-	require.NoError(t, prepareStaged(context.Background(), filepath.Join(dir, StagedFile), "", live.Reader()))
+	require.NoError(t, prepareStaged(context.Background(), filepath.Join(dir, StagedFile), "", live.Reader(), now))
 	require.NoError(t, live.Close())
 	done, err := ApplyStaged(dir, now, time.UTC)
 	require.NoError(t, err)
@@ -246,6 +246,9 @@ func TestRestoreKeepsTheLiveAddressSettings(t *testing.T) {
 	_, ok, err := restored.Account(context.Background())
 	require.NoError(t, err)
 	require.True(t, ok, "the backup's library came")
+	var gap string
+	require.NoError(t, restored.Reader().QueryRow(`SELECT value FROM settings WHERE key = 'sys.stats_gap_end'`).Scan(&gap))
+	require.Equal(t, `"2026-10-06"`, gap, "the days since the backup have no rows: a gap through the restore day")
 }
 
 // The server settings are one list: a reset carries the "merged once" marker of
@@ -274,7 +277,7 @@ func TestServerSettingsAreOneList(t *testing.T) {
 			store.SettingAllowedHosts:     []string{"old.example.test"},
 		})
 		live := openLive(t, dir)
-		require.NoError(t, prepareStaged(ctx, filepath.Join(dir, StagedFile), "", live.Reader()))
+		require.NoError(t, prepareStaged(ctx, filepath.Join(dir, StagedFile), "", live.Reader(), time.Now()))
 		keys := settingKeys(t, filepath.Join(dir, StagedFile))
 		require.False(t, keys[store.SettingCloudflareAccess], "the old server's Access config does not carry over")
 		require.False(t, keys[store.SettingAllowedHosts])

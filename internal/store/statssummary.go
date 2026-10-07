@@ -357,6 +357,20 @@ func RecordStatsGap(ctx context.Context, q Querier, through string, now int64) e
 	return err
 }
 
+// RecordStatsGapThrough records a gap through the later of nothing and min(through, today in the
+// stored time zone): a gap never reaches past today, whatever date a caller names (a delete of
+// "every row" ends at the far-future bound). Inside the caller's write transaction.
+func RecordStatsGapThrough(ctx context.Context, q Querier, through string, now time.Time) error {
+	_, loc, _, _, err := StatsSettings(ctx, q)
+	if err != nil {
+		return err
+	}
+	if today := now.In(loc).Format(dateLayout); through == "" || through > today {
+		through = today
+	}
+	return RecordStatsGap(ctx, q, through, now.Unix())
+}
+
 // statsCoverage reports the dates from which opens, and active time, were recorded without a gap.
 func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first string, cut int64) (covered, timed *string, err error) {
 	if first == "" {

@@ -245,7 +245,7 @@ export function addDays(day: string, n: number): string {
 /**
  * What a summary's range is compared with. Only complete days count, so the range's last day (today, for every range
  * the screen offers) is left out of both sides: `current` is the range without it, and the earlier span has the same
- * length. A week so far is set against the same days of the week before; month and year (the last 30 and 365 days)
+ * length. A week so far (at most six complete days) is set against the same days of the week before; month and year (the last 30 and 365 days)
  * against the stretch just before. "all" has nothing before it, nor does a range that is only today.
  */
 export function previousPeriod(range: { key: StatsRange; from: string; to: string }): {
@@ -261,7 +261,7 @@ export function previousPeriod(range: { key: StatsRange; from: string; to: strin
   const current = { from: range.from, to };
   if (range.key === "week") {
     const from = addDays(range.from, -7);
-    return { current, from, to: addDays(from, days - 1), label: days >= 7 ? "last week" : "the same days last week" };
+    return { current, from, to: addDays(from, days - 1), label: "the same days last week" };
   }
   return { current, from: addDays(range.from, -days), to: addDays(range.from, -1), label: `the previous ${days} days` };
 }

@@ -396,7 +396,7 @@ describe("Stats screen", () => {
     expect(statsCalls(m).some((c) => c.url.searchParams.get("from"))).toBe(false); // nothing fetched until asked
     await user.click(within(summary).getByRole("button", { name: /Items read/ }));
     expect(await within(summary).findByText("+20% from 70")).toBeInTheDocument();
-    expect(within(summary).getByText("Compared with the previous 29 days, today left out.")).toBeInTheDocument();
+    expect(within(summary).getByText("Complete days only, so today is left out of both: compared with the previous 29 days.")).toBeInTheDocument();
     // Both sides are complete days: the range without today, and the 29 days before it.
     const spans = statsCalls(m).filter((c) => c.url.searchParams.get("from")).map((c) => [c.url.searchParams.get("from"), c.url.searchParams.get("to")]);
     expect(spans).toContainEqual(["2026-08-28", "2026-09-25"]);
@@ -443,6 +443,7 @@ describe("Stats screen", () => {
     await user.click(within(summary).getByRole("button", { name: /Items read/ }));
     expect(await within(summary).findByText("Not enough history")).toBeInTheDocument();
     expect(within(summary).queryByText(/from 0/)).toBeNull();
+    expect(within(summary).queryByText(/Complete days only/)).toBeNull(); // nothing is compared, so nothing to explain
     expect(statsCalls(m).some((c) => c.url.searchParams.get("from"))).toBe(false); // nothing to fetch for it
   });
 
@@ -472,7 +473,7 @@ describe("Stats screen", () => {
     const summary = await screen.findByRole("region", { name: "Summary" });
     const tile = within(summary).getByRole("button", { name: /Items read/ });
     await user.click(tile);
-    const line = await within(summary).findByText("Compared with the same days last week, today left out.");
+    const line = await within(summary).findByText("Complete days only, so today is left out of both: compared with the same days last week.");
     expect(tile.getAttribute("aria-describedby")).toBe(line.id);
   });
 

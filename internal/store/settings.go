@@ -262,12 +262,7 @@ func (d *DB) setSettings(ctx context.Context, set map[string]any, theme string) 
 			if was, err := StatsEnabled(ctx, tx); err != nil {
 				return err
 			} else if !was {
-				_, loc, _, _, err := StatsSettings(ctx, tx)
-				if err != nil {
-					return err
-				}
-				now := d.Clock().Now()
-				if err := RecordStatsGap(ctx, tx, now.In(loc).Format(dateLayout), now.Unix()); err != nil {
+				if err := RecordStatsGapThrough(ctx, tx, "", d.Clock().Now()); err != nil {
 					return err
 				}
 			}

@@ -203,8 +203,8 @@ func EstimateSeconds(dbBytes int64, older bool) int {
 // describe the server it was made on, and the trusted proxies also decide who
 // may claim to be which client) are replaced by the live instance's own (live may
 // be nil: then they are only cleared), and passwordHash, when not empty, becomes
-// the web password. A restore must not drop the address this instance answers at.
-func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB) error {
+// the web password. It also records, as statistics' gap, the days up to today. A restore must not drop the address this instance answers at.
+func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB, now time.Time) error {
 	db, err := openUntrusted(path)
 	if err != nil {
 		return err
@@ -230,6 +230,11 @@ func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB)
 		if err := writeServerSettings(ctx, tx, rows); err != nil {
 			return fmt.Errorf("restore: keep this server's settings: %w", err)
 		}
+	}
+	// The reading since the backup was made is in the database being replaced: those days have no rows,
+	// and a comparison must not read them as quiet.
+	if err := store.RecordStatsGapThrough(ctx, tx, "", now); err != nil {
+		return fmt.Errorf("restore: record the gap since the backup: %w", err)
 	}
 	if passwordHash != "" {
 		var modes int
