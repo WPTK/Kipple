@@ -298,6 +298,20 @@ describe("Mute similar…", () => {
   });
 });
 
+describe("Mute similar… apostrophes", () => {
+  it("shows a suggestion pressed when the rule already holds it with a typographic apostrophe", async () => {
+    routes({ "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }) });
+    go("/l/unread");
+    const user = userEvent.setup();
+    await screen.findByText("Article number 1");
+    act(() => openFilterEditor({ mode: "create", seed: { draft: emptyDraft({ scope: "global", terms: ["Apple’s"], fields: ["title"], action: "mute" }), keywords: ["Apple's"], author: null, feedTitle: "X" } }));
+    const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
+    expect(dialog.getByRole("button", { name: "Word Apple's" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(dialog.getByRole("button", { name: "Word Apple's" }));
+    expect(dialog.queryByRole("list", { name: "Terms in this filter" })).not.toBeInTheDocument();
+  });
+});
+
 describe("Mute similar… term limit", () => {
   it("says so and adds nothing when a suggestion is tapped at the limit", async () => {
     routes({ "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }) });

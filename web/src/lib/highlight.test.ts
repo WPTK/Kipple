@@ -192,6 +192,12 @@ describe("parity with the rule engine (review finding 10)", () => {
     expect(marked("Un café", ["cafe"])).toEqual(["café"]);
   });
 
+  it("treats typographic apostrophes as plain ones, in both directions, and as punctuation around a whole word", () => {
+    expect(marked("Apple’s event", ["Apple's"])).toEqual(["Apple’s"]);
+    expect(marked("Apple's event", ["Apple’s"])).toEqual(["Apple's"]);
+    expect(marked("Appleʼs event", ["apple"])).toEqual(["Apple"]);
+  });
+
   it("scans the first 32 KiB of an article body, like the engine does for text rules", () => {
     const g = compileHighlights([rule(["needle"])]);
     const body = (words: number) => {

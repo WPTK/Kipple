@@ -45,6 +45,9 @@ const runeCount = (s: string): number => [...s].length;
 const byteCount = (s: string): number => new TextEncoder().encode(s).length;
 
 /** Why a term cannot be added, or null. The server checks again; this saves a round trip. */
+/** A term as the server compares it: lower-case, typographic apostrophes plain. */
+const plain = (t: string): string => t.toLowerCase().replace(/[’ʼ]/g, "'");
+
 export function termProblem(term: string, d: Pick<FilterDraft, "kind" | "terms">): string | null {
   if (d.kind === "regex") {
     if (byteCount(term) > LIMITS.regexBytes) return `A pattern can be at most ${LIMITS.regexBytes} bytes.`;
@@ -391,11 +394,13 @@ function EditorForm({
   // it goes away once the rule has room again and a repeated tap is announced again.
   const [blocked, setBlocked] = useState<{ term: string; n: number } | null>(null);
   const chipNote = blocked ? termProblem(blocked.term, d) : null;
-  const has = (t: string) => d.terms.some((x) => x.toLowerCase() === t.toLowerCase());
+  // Same comparison as the server: case-insensitive, and a typographic apostrophe is a plain one.
+  const same = (a: string, b: string) => plain(a) === plain(b);
+  const has = (t: string) => d.terms.some((x) => same(x, t));
   const toggleTerm = (t: string, field?: FilterField) => {
     if (has(t)) {
       setBlocked(null);
-      set({ terms: d.terms.filter((x) => x.toLowerCase() !== t.toLowerCase()) });
+      set({ terms: d.terms.filter((x) => !same(x, t)) });
       return;
     }
     if (termProblem(t, d)) {
