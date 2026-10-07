@@ -173,7 +173,7 @@ func TestConfirmWithoutNewPasswordKeepsTheAccount(t *testing.T) {
 // start after the restore migrates it to the current schema with its items.
 func TestRestoreASchema16Backup(t *testing.T) {
 	r, dir := newRestorer(t)
-	up, err := upload(r, rebuilt(t, hostBackup(t), "DROP TABLE feed_daily_new; PRAGMA user_version = 16"))
+	up, err := upload(r, rebuilt(t, hostBackup(t), "DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded; PRAGMA user_version = 16"))
 	require.NoError(t, err)
 	require.Equal(t, 16, up.Info.SchemaVersion)
 	_, ticket, _ := r.Uploaded()

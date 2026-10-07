@@ -358,7 +358,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		last_modified = CASE WHEN ?2 THEN NULLIF(?4,'') ELSE last_modified END,
 		body_hash = CASE WHEN ?5 != '' THEN ?5 ELSE body_hash END,
 		initial_read_before = NULL,
-		last_fetch_at = ?6, last_success_at = ?6, last_status = ?7,
+		last_fetch_at = ?6, last_success_at = ?6, url_succeeded = 1, last_status = ?7,
 		consecutive_failures = 0,
 		next_fetch_at = ?8, current_delay_s = ?9, ttl_hint_s = ?10,
 		last_new_items_at = CASE WHEN ?11 > 0 THEN ?6 ELSE last_new_items_at END,
@@ -569,7 +569,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				st.firstID = id
 			}
 			st.lastID = id
-			if read == 0 && mutedBy == nil && res.Snap.LastSuccessAt != 0 {
+			if read == 0 && mutedBy == nil && res.Snap.URLSucceeded {
 				st.unreadNew = append(st.unreadNew, id)
 			}
 			// Every row this commit adds is counted here: trimFeedBatch skips on st.before+len(newIDs).
@@ -786,8 +786,8 @@ func (d *DB) FeedSnapshotsByID(ctx context.Context, set FetchSettings, ids []int
 
 // addFeedDailyNew adds n to the feed's count of new, unread items for day (the read-rate denominator,
 // migration 0017). Each chunk adds the items it inserted unread and not muted, in its own transaction,
-// so the count commits or rolls back with them. A feed's first successful fetch adds nothing: that
-// document is the backlog published before the subscription (or before a URL edit), not arrivals.
+// so the count commits or rolls back with them. The first successful fetch at a URL adds nothing
+// (url_succeeded 0: a new subscription, or a URL edit): that document is a backlog, not arrivals.
 func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, day string, n int) error {
 	if n == 0 {
 		return nil

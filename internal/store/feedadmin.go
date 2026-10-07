@@ -234,7 +234,7 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 					"consecutive_failures = 0", "current_delay_s = 0", "ua_fallback = 0",
 					// The new URL has never been fetched: its first success brings a backlog, not
 					// arrivals, so feed_daily_new leaves it out like a new subscription's.
-					"last_success_at = NULL")
+					"url_succeeded = 0")
 				set("next_fetch_at", now)
 				res.Changed, res.NeedsFetch, res.Notify = true, true, true
 			}

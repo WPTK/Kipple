@@ -170,25 +170,32 @@ func TestFeedDailyNewTrimToZeroDeletesTheRow(t *testing.T) {
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
 	e.fetchBody(id, rss(numbered(50)...))
+	// Record what the chunk writes, so the test sees the row exist before the trim takes it back.
+	e.exec("CREATE TABLE seen (n INTEGER)")
+	e.exec("CREATE TRIGGER seen_daily AFTER INSERT ON feed_daily_new BEGIN INSERT INTO seen VALUES (NEW.new_items); END")
 	// Two new items, both older than the 50 kept: the trim removes both.
 	info := e.fetchBody(id, rss(append(numbered(50), spec{guid: "o1", age: time.Hour}, spec{guid: "o2", age: 2 * time.Hour})...))
 	require.Equal(t, 2, info.New)
 	require.EqualValues(t, 2, info.Trimmed)
-	require.Zero(t, e.count("SELECT count(*) FROM feed_daily_new"))
+	require.Equal(t, 2, e.count("SELECT sum(n) FROM seen"), "the chunk counted both")
+	require.Zero(t, e.count("SELECT count(*) FROM feed_daily_new"), "the trim took both back and deleted the row")
 }
 
 // Editing a feed's URL points it at a document never fetched: its first success is a backlog, like a
-// new subscription's, and is not counted.
+// new subscription's, and is not counted. The edit touches nothing else the first success decides: the
+// feed keeps its last success, and a custom name equal to the new document's title stays.
 func TestFeedDailyNewSkipsTheFirstFetchAfterAURLEdit(t *testing.T) {
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(2)...))
 	nu := "http://a.example/other"
-	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &nu, Cols: map[string]any{}})
+	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &nu, Cols: map[string]any{"custom_title": "Feed"}})
 	require.NoError(t, err)
-	require.Zero(t, e.count("SELECT count(*) FROM feeds WHERE id = ? AND last_success_at IS NOT NULL", id))
-	e.fetchBody(id, rss(newer(50)...))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND last_success_at IS NOT NULL AND url_succeeded = 0", id))
+	e.fetchBody(id, rss(newer(50)...)) // the document's title is "Feed"
 	require.Zero(t, e.count("SELECT count(*) FROM feed_daily_new"), "the new URL's backlog is not counted")
+	require.Equal(t, "Feed", scalar[string](t, e.db.Reader(), "SELECT COALESCE(custom_title, '') FROM feeds WHERE id = ?", id))
+	require.Equal(t, 1, e.count("SELECT url_succeeded FROM feeds WHERE id = ?", id))
 	e.fetchBody(id, rss(append(newer(50), spec{guid: "next", age: -time.Hour})...))
 	require.Equal(t, 1, e.newsDaily(id, base))
 }

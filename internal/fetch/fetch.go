@@ -76,6 +76,9 @@ type Snapshot struct {
 	// URLChanged: the feed's URL is no longer the one it was given (url_original is set: a
 	// discovery, a redirect migration or a URL edit). See Discoverable.
 	URLChanged bool
+	// URLSucceeded: a fetch of the feed's current URL has succeeded (feeds.url_succeeded). The first
+	// success at a URL brings that document's backlog, which feed_daily_new does not count.
+	URLSucceeded bool
 
 	// Full drops validators and the body-hash short circuit for this attempt.
 	Full bool

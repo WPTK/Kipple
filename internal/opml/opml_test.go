@@ -150,8 +150,8 @@ func TestLegacyHostTitleDoesNotRoundTrip(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, "UPDATE feeds SET title = host"); err != nil { // what an earlier subscribe left
 			return err
 		}
-		// Back to schema 13: drop what the later, run-once migrations add (0017's table), then rewind.
-		if _, err := tx.ExecContext(ctx, "DROP TABLE feed_daily_new"); err != nil {
+		// Back to schema 13: drop what the later, run-once migrations add (0017), then rewind.
+		if _, err := tx.ExecContext(ctx, "DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded"); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, "PRAGMA user_version = 13")

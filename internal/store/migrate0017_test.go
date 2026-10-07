@@ -8,16 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// undo0017 turns a current database into a schema-16 one, and is the first step of every downgrade
-// helper below it (0017 has no IF NOT EXISTS: a file runs once, docs/design.md §2.5).
-const undo0017 = `DROP TABLE feed_daily_new`
+// undo0017 turns a current database into a schema-16 one (no feed_daily_new, no feeds.url_succeeded),
+// and is the first step of every downgrade helper below it (a migration file runs once, docs/design.md
+// §2.5).
+const undo0017 = `DROP TABLE feed_daily_new;
+ALTER TABLE feeds DROP COLUMN url_succeeded`
 
-// A populated schema-16 database: 0017 adds the empty table and its index, leaves every row alone, and
-// the result has exactly the objects of a fresh database. The next fetch then counts.
+// A populated schema-16 database: 0017 adds the empty table, its index and url_succeeded (1 where the feed
+// has succeeded), leaves every other value alone, and the result has exactly the objects of a fresh
+// database. The next fetch then counts.
 func TestMigration0017OnAPopulatedSchema16(t *testing.T) {
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(5)...))
+	never := e.addFeed("http://b.example/feed")
 	e.exec("UPDATE items SET read = 1, starred = 1 WHERE title = 'title g1'")
 	e.exec(`INSERT INTO settings (key, value) VALUES ('tz', '"UTC"')`)
 	e.exec(undo0017)
@@ -43,6 +47,8 @@ func TestMigration0017OnAPopulatedSchema16(t *testing.T) {
 	require.Equal(t, 5, scalar[int](t, db.Reader(), "SELECT count(*) FROM items WHERE feed_id = ?", id))
 	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM items WHERE title = 'title g1' AND read = 1 AND starred = 1"))
 	require.Zero(t, scalar[int](t, db.Reader(), "SELECT count(*) FROM feed_daily_new"), "days before the migration have no row")
+	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT url_succeeded FROM feeds WHERE id = ?", id), "a feed that has succeeded starts at 1")
+	require.Zero(t, scalar[int](t, db.Reader(), "SELECT url_succeeded FROM feeds WHERE id = ?", never), "a feed that never succeeded starts at 0")
 
 	fresh, err := sql.Open("sqlite", buildDSN(filepath.Join(t.TempDir(), "fresh.db"), "writer"))
 	require.NoError(t, err)
