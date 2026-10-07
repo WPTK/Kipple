@@ -209,3 +209,33 @@ func TestFeedDailyNewSurvivesUnsubscribe(t *testing.T) {
 	e.exec("DELETE FROM feeds WHERE id = ?", id)
 	require.Equal(t, 2, e.newsDaily(id, base), "no foreign key: the counts outlive the feed")
 }
+
+// A permanent redirect migration moves the same document to a new URL: the feed keeps url_succeeded,
+// so the migrating fetch and the next one count their new items.
+func TestFeedDailyNewRedirectMigrationKeepsCounting(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.fetchBody(id, rss(numbered(2)...))
+	newURL := "https://a.example/feed"
+	res := e.okResult(e.snap(id), rss(append(numbered(2), newer(1)...)...))
+	res.FinalURL = newURL
+	res.Redirect = fetch.RedirectDecision{Action: fetch.RedirectMigrate, To: newURL, Kind: "permanent", Count: 3}
+	require.True(t, e.commit(res).Migrated)
+	require.Equal(t, 1, e.count("SELECT url_succeeded FROM feeds WHERE id = ? AND url = ?", id, newURL))
+	require.Equal(t, 1, e.newsDaily(id, base))
+	e.fetchBody(id, rss(append(numbered(2), newer(3)...)...))
+	require.Equal(t, 3, e.newsDaily(id, base), "the fetch at the migrated URL counts too")
+}
+
+// Discovery turns a page address into the feed it links: the first document of that feed is its backlog
+// and is not counted; the next fetch's new items are.
+func TestFeedDailyNewDiscoveredFeedSkipsItsFirstDocument(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("https://blog.example/")
+	e.commitDiscovered(e.discovered(id, "https://blog.example/feed.xml"))
+	require.Zero(t, e.count("SELECT url_succeeded FROM feeds WHERE id = ?", id))
+	e.fetchBody(id, rss(numbered(20)...))
+	require.Zero(t, e.count("SELECT count(*) FROM feed_daily_new"), "the discovered feed's backlog is not counted")
+	e.fetchBody(id, rss(append(numbered(20), newer(2)...)...))
+	require.Equal(t, 2, e.newsDaily(id, base))
+}

@@ -242,7 +242,7 @@ func generate(ctx context.Context, o genOpts) error {
 	}
 	if err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		for _, p := range plans {
-			if _, err := tx.ExecContext(ctx, `UPDATE feeds SET title = ?, site_url = ?, last_fetch_at = ?, last_success_at = ?,
+			if _, err := tx.ExecContext(ctx, `UPDATE feeds SET title = ?, site_url = ?, last_fetch_at = ?, last_success_at = ?, url_succeeded = 1,
 				last_new_items_at = ?, last_status = 200 WHERE id = ?`,
 				p.title, "https://example.com/site/"+fmt.Sprint(p.id), now-3600, now-3600, now-7200, p.id); err != nil {
 				return err
