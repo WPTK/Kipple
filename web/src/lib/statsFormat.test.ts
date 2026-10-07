@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { StatsSource } from "@/api/types";
 import { durationLabel, feedRows, folderRows, heatLevel, hourLabel, mostStarred, parseDay, pctLabel, sortRows, weekOrder } from "./statsFormat";
 
@@ -77,5 +77,53 @@ describe("rollup", () => {
     expect(sortRows(feedRows(list), "items").map((r) => r.name)).toEqual(["A", "B", "C"]);
     expect(sortRows(feedRows(list), "minutes").map((r) => r.name)[0]).toBe("B");
     expect(mostStarred(feedRows(list)).map((r) => r.name)).toEqual(["A", "B"]);
+  });
+});
+
+describe("comparison and months", () => {
+  it("names the period before a range", async () => {
+    const { previousPeriod, changeLabel, monthlyBars } = await import("./statsFormat");
+    expect(previousPeriod({ key: "month", from: "2026-08-28", days: 30 })).toEqual({ from: "2026-07-29", to: "2026-08-27", label: "the previous 30 days" });
+    expect(previousPeriod({ key: "week", from: "2026-09-20", days: 3 })).toEqual({ from: "2026-09-13", to: "2026-09-15", label: "the same days last week" });
+    expect(previousPeriod({ key: "all", from: "2026-01-01", days: 200 })).toBeNull();
+    const n = (x: number) => String(x);
+    expect(changeLabel(142, 120, n)).toBe("+18% from 120");
+    expect(changeLabel(38, 40, n)).toBe("-5% from 40");
+    expect(changeLabel(7, 7, n)).toBe("no change from 7");
+    expect(changeLabel(3, 0, n)).toBe("up from 0");
+    const bars = monthlyBars([
+      { date: "2026-01-30", items_read: 2, active_seconds: 10 },
+      { date: "2026-01-31", items_read: 1, active_seconds: 5 },
+      { date: "2026-03-01", items_read: 4, active_seconds: 0 },
+    ]);
+    expect(bars.map((b) => [b.month, b.items_read])).toEqual([["2026-01", 3], ["2026-02", 0], ["2026-03", 4]]);
+  });
+});
+
+describe("day arithmetic with a pinned time zone", () => {
+  const prevTz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/New_York";
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+
+  it("steps whole calendar days across daylight saving changes and Feb 29", async () => {
+    const { addDays, previousPeriod } = await import("./statsFormat");
+    expect(addDays("2026-03-07", 1)).toBe("2026-03-08");
+    expect(addDays("2026-03-08", 1)).toBe("2026-03-09"); // spring forward: a 23-hour day
+    expect(addDays("2026-11-01", 1)).toBe("2026-11-02"); // fall back: a 25-hour day
+    expect(addDays("2026-11-02", -1)).toBe("2026-11-01");
+    expect(addDays("2028-02-28", 2)).toBe("2028-03-01");
+    expect(addDays("2028-03-01", -1)).toBe("2028-02-29");
+    expect(previousPeriod({ key: "month", from: "2026-03-20", days: 30 })).toEqual({ from: "2026-02-18", to: "2026-03-19", label: "the previous 30 days" });
+    expect(previousPeriod({ key: "year", from: "2028-03-01", days: 365 })?.to).toBe("2028-02-29");
+  });
+
+  it("calls a full week of days 'last week'", async () => {
+    const { previousPeriod } = await import("./statsFormat");
+    expect(previousPeriod({ key: "week", from: "2026-09-20", days: 7 })).toEqual({ from: "2026-09-13", to: "2026-09-19", label: "last week" });
   });
 });

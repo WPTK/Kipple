@@ -195,9 +195,9 @@ Decisions are recorded in full in the private history repository. Summary of wha
   share sheet, aggregates only by default. No goals, targets, badges, comparisons with other people or directives.
 - **Reading:** every open is recorded; views count an item as read at 10 s active time, or 25% scroll with at least 3 s active time (a scroll alone stopped counting with issue #120). List-preview
   opens count. Reading stats (open, read time, scroll, open original, share) are web-only; Reader API clients are not tracked for reading, though their stars are recorded.
-- **Screen:** one Stats nav entry, phone first. Range Week/Month/Year/All (default Month). Items/Minutes toggle with
+- **Screen:** one Stats nav entry, phone first. Range Week/Month/Year/Months/All (default Month); tapping a summary tile shows its previous-period value (none for Months and All, and none when the earlier period starts before recording did). Items/Minutes toggle with
   folder rollup; average read length, quick-bounce rate, open-original rate, most-starred feeds; never opened.
-  Deferred: per-feed drill-down, period comparison, monthly charts, read rate per feed.
+  Deferred: per-feed drill-down, read rate per feed.
 - **Settings:** first day of week (Sunday or Monday, default Sunday); stats on/off (off stops recording and hides the
   screen, keeps data); Wrapped on/off; delete a range; delete all (typed confirmation).
 - **Export:** raw events as CSV, JSON or JSON Lines; the summary is JSON only (a summary is several tables, so a CSV or JSON Lines summary was not built). Range, a toggle to leave out article titles and links (feed and folder names, times and the time zone stay), and a data dictionary. Export and delete stay available with statistics off.

@@ -1,0 +1,1 @@
+Stats: tap a summary tile to see how that number compares with the previous period (for example "+18% from 120") and which period it was compared with; tap again to hide it. A new Months range shows one bar for every month on record. (#37)
