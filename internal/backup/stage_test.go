@@ -774,14 +774,13 @@ func TestApplyStagedIsIdempotent(t *testing.T) {
 
 	t.Run("crash in the middle of the swap", func(t *testing.T) {
 		dir := t.TempDir()
-		write(filepath.Join(dir, StagedFile), "staged")
-		write(filepath.Join(dir, MarkerFile), `{}`)
+		stagedLibrary(t, dir, map[string]any{}) // a real database: the restore records its gap before installing it
 		// The live database was moved away and the staged one not yet renamed.
 		done, err := ApplyStaged(dir, now, time.UTC)
 		require.NoError(t, err)
 		require.True(t, done.Restored)
 		require.Empty(t, done.Pre)
-		require.Equal(t, "staged", read(filepath.Join(dir, "kipple.db")))
+		require.Equal(t, `"2026-10-06"`, rawQuery(t, filepath.Join(dir, "kipple.db"), "SELECT value FROM settings WHERE key = 'sys.stats_gap_end'"))
 		require.NoFileExists(t, filepath.Join(dir, MarkerFile))
 	})
 

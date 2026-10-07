@@ -660,7 +660,7 @@ func (r *Restorer) Confirm(ctx context.Context, ticket int, passwordHash string)
 		return ErrNoUpload
 	}
 	staged := r.path(StagedFile)
-	if err := prepareStaged(ctx, staged, passwordHash, r.o.Live, time.Now()); err != nil {
+	if err := prepareStaged(ctx, staged, passwordHash, r.o.Live); err != nil {
 		return err
 	}
 	mf := r.cur.Manifest

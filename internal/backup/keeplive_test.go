@@ -232,7 +232,7 @@ func TestRestoreKeepsTheLiveAddressSettings(t *testing.T) {
 		"ui.theme":                  "paper",
 	})
 	live := openLive(t, dir)
-	require.NoError(t, prepareStaged(context.Background(), filepath.Join(dir, StagedFile), "", live.Reader(), now))
+	require.NoError(t, prepareStaged(context.Background(), filepath.Join(dir, StagedFile), "", live.Reader()))
 	require.NoError(t, live.Close())
 	done, err := ApplyStaged(dir, now, time.UTC)
 	require.NoError(t, err)
@@ -249,6 +249,25 @@ func TestRestoreKeepsTheLiveAddressSettings(t *testing.T) {
 	var gap string
 	require.NoError(t, restored.Reader().QueryRow(`SELECT value FROM settings WHERE key = 'sys.stats_gap_end'`).Scan(&gap))
 	require.Equal(t, `"2026-10-06"`, gap, "the days since the backup have no rows: a gap through the restore day")
+}
+
+// A backup that already holds a statistics gap marker after today keeps it (the marker never moves
+// back); the summary reads it as today (store: TestStatsCoverageClampsALaterMarker).
+func TestRestoreKeepsALaterStatsMarker(t *testing.T) {
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	library(t, dir, false, map[string]any{})
+	stagedLibrary(t, dir, map[string]any{store.SettingStatsGapEnd: "9999-12-31"})
+	live := openLive(t, dir)
+	require.NoError(t, prepareStaged(context.Background(), filepath.Join(dir, StagedFile), "", live.Reader()))
+	require.NoError(t, live.Close())
+	done, err := ApplyStaged(dir, now, time.UTC)
+	require.NoError(t, err)
+	require.True(t, done.Restored)
+	restored := openLive(t, dir)
+	var gap string
+	require.NoError(t, restored.Reader().QueryRow(`SELECT value FROM settings WHERE key = 'sys.stats_gap_end'`).Scan(&gap))
+	require.Equal(t, `"9999-12-31"`, gap)
 }
 
 // The server settings are one list: a reset carries the "merged once" marker of
@@ -277,7 +296,7 @@ func TestServerSettingsAreOneList(t *testing.T) {
 			store.SettingAllowedHosts:     []string{"old.example.test"},
 		})
 		live := openLive(t, dir)
-		require.NoError(t, prepareStaged(ctx, filepath.Join(dir, StagedFile), "", live.Reader(), time.Now()))
+		require.NoError(t, prepareStaged(ctx, filepath.Join(dir, StagedFile), "", live.Reader()))
 		keys := settingKeys(t, filepath.Join(dir, StagedFile))
 		require.False(t, keys[store.SettingCloudflareAccess], "the old server's Access config does not carry over")
 		require.False(t, keys[store.SettingAllowedHosts])

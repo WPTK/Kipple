@@ -357,22 +357,18 @@ func RecordStatsGap(ctx context.Context, q Querier, through string, now int64) e
 	return err
 }
 
-// RecordStatsGapThrough records a gap through the later of nothing and min(through, today in the
-// stored time zone): a gap never reaches past today, whatever date a caller names (a delete of
-// "every row" ends at the far-future bound). Inside the caller's write transaction.
-func RecordStatsGapThrough(ctx context.Context, q Querier, through string, now time.Time) error {
+// RecordStatsGapToday records a gap through today in the stored time zone (statistics turned back
+// on, or a restore replacing the days since the backup). Inside the caller's write transaction.
+func RecordStatsGapToday(ctx context.Context, q Querier, now time.Time) error {
 	_, loc, _, _, err := StatsSettings(ctx, q)
 	if err != nil {
 		return err
 	}
-	if today := now.In(loc).Format(dateLayout); through == "" || through > today {
-		through = today
-	}
-	return RecordStatsGap(ctx, q, through, now.Unix())
+	return RecordStatsGap(ctx, q, now.In(loc).Format(dateLayout), now.Unix())
 }
 
 // statsCoverage reports the dates from which opens, and active time, were recorded without a gap.
-func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first string, cut int64) (covered, timed *string, err error) {
+func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first, today string, cut int64) (covered, timed *string, err error) {
 	if first == "" {
 		return nil, nil, nil
 	}
@@ -380,6 +376,9 @@ func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first str
 	gap, err := settingStringErr(ctx, q, SettingStatsGapEnd, "")
 	if err != nil {
 		return nil, nil, err
+	}
+	if gap > today {
+		gap = today // a marker from a backup made under a later clock or zone is no later than today
 	}
 	if gap != "" {
 		if after := parseLocalDate(gap).AddDate(0, 0, 1).Format(dateLayout); after > c {
@@ -623,7 +622,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	if err != nil {
 		return nil, err
 	}
-	if out.CoveredFrom, out.TimedFrom, err = statsCoverage(ctx, q, loc, first, cut); err != nil {
+	if out.CoveredFrom, out.TimedFrom, err = statsCoverage(ctx, q, loc, first, today, cut); err != nil {
 		return nil, err
 	}
 

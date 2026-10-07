@@ -136,7 +136,7 @@ export function SummaryStrip({ data, compare = false }: { data: StatsSummary; co
       label={label}
       value={show(total)}
       onToggle={period ? () => flip(k) : undefined}
-      describedBy={noteId}
+      describedBy={wanted ? noteId : undefined}
       note={period && open.has(k) ? noteFor(k, now, before, show) : null}
     />
   );

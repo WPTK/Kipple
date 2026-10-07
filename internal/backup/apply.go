@@ -203,8 +203,8 @@ func EstimateSeconds(dbBytes int64, older bool) int {
 // describe the server it was made on, and the trusted proxies also decide who
 // may claim to be which client) are replaced by the live instance's own (live may
 // be nil: then they are only cleared), and passwordHash, when not empty, becomes
-// the web password. It also records, as statistics' gap, the days up to today. A restore must not drop the address this instance answers at.
-func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB, now time.Time) error {
+// the web password. A restore must not drop the address this instance answers at.
+func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB) error {
 	db, err := openUntrusted(path)
 	if err != nil {
 		return err
@@ -231,11 +231,6 @@ func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB,
 			return fmt.Errorf("restore: keep this server's settings: %w", err)
 		}
 	}
-	// The reading since the backup was made is in the database being replaced: those days have no rows,
-	// and a comparison must not read them as quiet.
-	if err := store.RecordStatsGapThrough(ctx, tx, "", now); err != nil {
-		return fmt.Errorf("restore: record the gap since the backup: %w", err)
-	}
 	if passwordHash != "" {
 		var modes int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('account') WHERE name = 'auth_mode'").Scan(&modes); err != nil {
@@ -254,6 +249,29 @@ func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB,
 		if n, _ := res.RowsAffected(); n != 1 {
 			return errors.New("restore: the backup holds no account")
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return db.Close()
+}
+
+// recordRestoreGap marks the days up to today as a statistics gap in the staged database: the reading
+// since the backup was made is in the database being replaced, and a comparison must not read those
+// days as quiet. It runs where the restore applies (ApplyStaged), so the day is the one it takes effect.
+func recordRestoreGap(ctx context.Context, path string, now time.Time) error {
+	db, err := openUntrusted(path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := store.RecordStatsGapToday(ctx, tx, now); err != nil {
+		return fmt.Errorf("restore: record the gap since the backup: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return err
@@ -415,6 +433,9 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 	}
 	staged := filepath.Join(dataDir, StagedFile)
 	if _, err := os.Stat(staged); err == nil {
+		if err := recordRestoreGap(context.Background(), staged, now); err != nil {
+			return Applied{}, fmt.Errorf("restore: %w (it is tried again at the next start)", err)
+		}
 		pre, err := Swap(dataDir, staged, now)
 		if err != nil {
 			return Applied{}, fmt.Errorf("restore: %w (it is tried again at the next start)", err)

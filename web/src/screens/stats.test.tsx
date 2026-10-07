@@ -444,6 +444,7 @@ describe("Stats screen", () => {
     expect(await within(summary).findByText("Not enough history")).toBeInTheDocument();
     expect(within(summary).queryByText(/from 0/)).toBeNull();
     expect(within(summary).queryByText(/Complete days only/)).toBeNull(); // nothing is compared, so nothing to explain
+    expect(within(summary).getByRole("button", { name: /Items read/ })).not.toHaveAttribute("aria-describedby"); // no dangling reference
     expect(statsCalls(m).some((c) => c.url.searchParams.get("from"))).toBe(false); // nothing to fetch for it
   });
 
