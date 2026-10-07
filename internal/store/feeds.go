@@ -130,7 +130,8 @@ func SubscribedURLs(ctx context.Context, q Querier, urls []string) (map[string]b
 const snapshotCols = `id, url, host, enabled, etag, last_modified, body_hash, user_agent, http_auth,
 	ignore_http_cache, disable_http2, allow_insecure_tls, allow_private_net, dedup_mode, rekey_pending,
 	interval_minutes, retention, fulltext, redirect_to, redirect_kind, redirect_count,
-	consecutive_failures, initial_read_before, last_success_at, ua_fallback, url_original IS NOT NULL, url_succeeded`
+	consecutive_failures, initial_read_before, last_success_at, ua_fallback, url_original IS NOT NULL, url_succeeded,
+	coalesce(ttl_hint_s, 0)`
 
 // FeedSnapshots runs a snapshot query (`where` is appended after FROM feeds,
 // e.g. "WHERE id = ?") on the reader pool and resolves the settings-dependent
@@ -150,7 +151,7 @@ func (d *DB) feedSnapshots(ctx context.Context, set FetchSettings, where string,
 		if err := rows.Scan(&s.ID, &s.URL, &s.Host, &enabled, &etag, &lm, &bh, &ua, &auth,
 			&ignore, &h2, &insecure, &private, &s.DedupMode, &rekey,
 			&interval, &retention, &ft, &rto, &rkind, &s.Redirect.Count,
-			&s.ConsecutiveFailures, &irb, &lsa, &uaFallback, &changed, &urlOK); err != nil {
+			&s.ConsecutiveFailures, &irb, &lsa, &uaFallback, &changed, &urlOK, &s.DocTTLS); err != nil {
 			return nil, err
 		}
 		s.Enabled = enabled == 1
@@ -171,7 +172,7 @@ func (d *DB) feedSnapshots(ctx context.Context, set FetchSettings, where string,
 		s.IntervalS = fetch.IntervalSeconds(iv)
 		s.UAFallback = uaFallback == 1
 		s.UserAgent, s.RetryUserAgent = ResolveUserAgent(set, strings.TrimSpace(ua.String), s.UAFallback)
-		s.HonorTTL = set.HonorTTL
+		s.HonorTTL, s.SlotSalt = set.HonorTTL, set.SlotSalt
 		out = append(out, s)
 	}
 	return out, rows.Err()

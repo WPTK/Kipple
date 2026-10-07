@@ -65,15 +65,47 @@ func NextOnFailure(now time.Time, intervalS int64, n int, retryAfter time.Durati
 	return next, d
 }
 
-// NextOnSuccess implements design §4.6: max(interval, min(hint, 24 h)) with
-// +-5 % jitter. hintS is the publisher hint in seconds (0 when none).
-func NextOnSuccess(now time.Time, intervalS, hintS int64, rnd Rand) (time.Time, int64) {
-	base := intervalS
-	if h := min(hintS, maxBackoffS); h > base {
-		base = h
+// NextOnSuccess implements design §4.6. A feed's slots are fixed in time,
+// interval apart, at a phase taken from phaseKey (PhaseKey), and the next fetch
+// is the first slot at or after now + lead. The lead is the publisher hint
+// (capped at 24 h) when it is longer than the interval, so the hint is a floor;
+// otherwise it is half the interval, so a feed fetched on its slot, or up to
+// half an interval late, gets its next slot one interval on. Feeds fetched
+// together (a restore, downtime, a refresh of everything) therefore spread over
+// the interval within one fetch and stay spread. The grid depends on the
+// interval alone, so a hint that changes from fetch to fetch never moves it.
+// hintS is the publisher hint in seconds (0 when none).
+func NextOnSuccess(now time.Time, phaseKey uint64, intervalS, hintS int64) (time.Time, int64) {
+	intervalS = max(intervalS, 1)
+	lead := intervalS / 2
+	if h := min(hintS, maxBackoffS); h > intervalS {
+		lead = h
 	}
-	d := jitter(float64(base), 0.95, 1.05, rnd)
+	earliest := now.Unix() + lead
+	t := earliest + posMod(slotPhase(phaseKey, intervalS)-earliest, intervalS)
+	d := t - now.Unix()
 	return now.Add(time.Duration(d) * time.Second), d
+}
+
+// PhaseKey is what places a feed's slots: its id offset by the installation's
+// random salt (sys.fetch_slot_salt), so two installations that imported the
+// same list, with the same ids, do not fetch a publisher in the same second.
+func PhaseKey(feedID, salt int64) uint64 { return uint64(feedID) + uint64(salt) }
+
+// slotPhase is the slot offset in [0, intervalS): Fibonacci hashing of the key,
+// so consecutive ids (an import, a restore) land far apart and cover the
+// interval evenly.
+func slotPhase(key uint64, intervalS int64) int64 {
+	frac := float64((key*0x9E3779B97F4A7C15)>>11) / (1 << 53)
+	return int64(frac * float64(intervalS))
+}
+
+func posMod(a, m int64) int64 {
+	r := a % m
+	if r < 0 {
+		r += m
+	}
+	return r
 }
 
 // PublisherHintSeconds is max(RSS ttl x 60, Cache-Control max-age - Age,
