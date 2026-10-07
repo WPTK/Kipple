@@ -430,14 +430,22 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       el.removeEventListener("scroll", onScroll);
     };
   }, [Page]);
-  // The geometry was replaced (a new plan, more pages, another width, the layout itself): start from what is on
-  // screen now. Not while a restore is pending: the stories at the top are only passing through.
-  const bootData = boot.data;
-  useEffect(() => {
-    const el = parentRef.current;
-    if (!markOnScrollPage || !el || !pageRestored.current) return;
-    pageSeen.current = storiesInView(el);
-  }, [markOnScrollPage, allItems, width, bootData]);
+  // Any change in the size of the pages (a new plan, more pages, another width, a text size change, the page taking
+  // the place of rows) moves the stories under an unchanged scroll position: start again from what is on screen. A
+  // ResizeObserver reports it after layout and before the next frame's scroll events, so a scroll that the reflow
+  // itself causes is judged against the new boxes. Not while a restore is pending: the stories at the top are only
+  // passing through.
+  const pageBoxObserver = useRef<ResizeObserver | null>(null);
+  const pageBoxRef = useCallback((box: HTMLDivElement | null) => {
+    pageBoxObserver.current?.disconnect();
+    pageBoxObserver.current = null;
+    if (!box) return;
+    pageBoxObserver.current = new ResizeObserver(() => {
+      const el = parentRef.current;
+      if (el && markOnScrollPageRef.current && pageRestored.current) pageSeen.current = storiesInView(el);
+    });
+    pageBoxObserver.current.observe(box);
+  }, []);
 
   // Restore focus to the anchor row when returning to the list.
   const restoredFocus = useRef(false);
@@ -526,9 +534,12 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     const el = parentRef.current;
     if (!markOnScroll || !el) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const flush = () => {
+    // `settled`: scrolling stopped and the page is the one on screen, so the stories are judged where they are now. On
+    // a cleanup (the list closing, or `c` putting rows in the page's place) only what the scroll frames already found
+    // passed is marked: the boxes may be gone or belong to another layout.
+    const flush = (settled: boolean) => {
       if (pagedScroll) {
-        if (pageRestored.current && el.isConnected) observeStories(el, pageSeen.current, pagePassed.current);
+        if (settled && pageRestored.current && el.isConnected) observeStories(el, pageSeen.current, pagePassed.current);
         const byId = new Map(pageItemsRef.current.map((i) => [i.id, i]));
         const passed = [...pagePassed.current].flatMap((id) => byId.get(id) ?? []);
         pagePassed.current.clear();
@@ -544,7 +555,10 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     };
     const onScroll = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(flush, 700);
+      timer = setTimeout(() => {
+        timer = undefined; // settled: nothing is left for the cleanup to flush
+        flush(true);
+      }, 700);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
@@ -554,7 +568,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         clearTimeout(timer);
         // Not when the setting was just switched off: this cleanup also runs then, and rows must not be
         // marked read after the reader turned the feature off.
-        if (markOnScrollRef.current) flush();
+        if (markOnScrollRef.current) flush(false);
       }
       el.removeEventListener("scroll", onScroll);
     };
@@ -1033,7 +1047,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     if (Page) {
       return (
         <>
-          <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} checked={checked} onOpen={openItem} />
+          <div ref={pageBoxRef}>
+            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} checked={checked} onOpen={openItem} />
+          </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
           {q.isFetchingNextPage ? (
             <p className="py-3 text-center text-sm text-fg2" role="status">
@@ -1297,8 +1313,11 @@ function observeStories(container: HTMLElement, seen: Set<string>, passed: Set<s
     const id = a.dataset.itemId;
     if (!id) continue;
     const r = a.getBoundingClientRect();
-    if (r.bottom > box.top && r.top < box.bottom) seen.add(id);
-    else if (r.bottom <= box.top && seen.has(id)) passed.add(id);
+    if (r.bottom > box.top && r.top < box.bottom) {
+      // On screen again (pulled back before scrolling settled): not passed after all.
+      seen.add(id);
+      passed.delete(id);
+    } else if (r.bottom <= box.top && seen.has(id)) passed.add(id);
   }
 }
 

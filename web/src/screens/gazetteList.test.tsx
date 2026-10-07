@@ -286,7 +286,33 @@ describe("mark as read while scrolling in the Gazette", () => {
       const bottom = i < 0 ? 800 : top + story;
       return { x: 0, y: top, top, bottom, left: 0, right: 375, width: 375, height: bottom - top, toJSON() {} } as DOMRect;
     });
+    // A ResizeObserver the test can fire again, as a browser does whenever an observed box changes size.
+    observers.clear();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        el: Element | null = null;
+        constructor(public cb: ResizeObserverCallback) {}
+        observe(el: Element) {
+          this.el = el;
+          observers.add(this);
+          this.fire();
+        }
+        fire() {
+          if (this.el) this.cb([{ target: this.el, contentRect: this.el.getBoundingClientRect() } as ResizeObserverEntry], this as unknown as ResizeObserver);
+        }
+        unobserve() {}
+        disconnect() {
+          observers.delete(this);
+        }
+      },
+    );
   });
+  const observers = new Set<{ fire: () => void }>();
+  /** The page's boxes changed size (it was laid out, more pages came, the text size changed). */
+  const resized = () => act(() => observers.forEach((o) => o.fire()));
+  /** One animation frame, in which the list looks at the stories after a scroll. */
+  const frame = () => act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
 
   const marked = (calls: { method: string; url: URL; init?: RequestInit }[]) =>
     calls
@@ -307,6 +333,7 @@ describe("mark as read while scrolling in the Gazette", () => {
     await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
     const order = storyIds(container);
     expect(order).toHaveLength(20);
+    resized();
     // A jump straight to 1500 px: stories 0 to 7 were on screen, 8 to 14 never were, and all of them are above the top.
     scrollTo(1500);
     await waitFor(() => expect(marked(calls)).toHaveLength(1), { timeout: 3000 });
@@ -319,7 +346,9 @@ describe("mark as read while scrolling in the Gazette", () => {
     const view = go("/l/unread");
     await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
     const order = storyIds(view.container);
+    resized();
     scrollTo(1500);
+    await frame();
     view.unmount(); // a phone opening a story, well within the settle time
     await waitFor(() => expect(marked(calls)).toHaveLength(1));
     expect(new Set(marked(calls)[0]?.ids)).toEqual(new Set(order.slice(0, 8)));
@@ -334,6 +363,7 @@ describe("mark as read while scrolling in the Gazette", () => {
       await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
       const order = storyIds(first.container);
       // The reader stops at 1000 px: stories 10 to 17 are on screen, unread.
+      resized();
       scrollTo(1000);
       await settle();
       first.unmount();
@@ -358,6 +388,7 @@ describe("mark as read while scrolling in the Gazette", () => {
     const { calls } = routes(() => pageOf(many(1, 20)));
     go("/l/unread");
     await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
     const list = screen.getByTestId("list-scroll");
     act(() => void fireEvent.keyDown(list, { key: "c" }));
     await waitFor(() => expect(screen.queryByRole("heading", { name: DEFAULT_PAPER_NAME })).toBeNull());
@@ -366,10 +397,63 @@ describe("mark as read while scrolling in the Gazette", () => {
     });
     act(() => void fireEvent.keyDown(list, { key: "c" }));
     await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
     // A scroll event with no movement by the reader: the stories seen at the top before the switch are not passed.
     act(() => void list.dispatchEvent(new Event("scroll")));
     await settle();
     expect(marked(calls)).toHaveLength(0);
+  });
+
+  it("switching from the Gazette to rows with `c` after scrolling marks nothing the rows put above the top", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
+    // The reader scrolls a little and stops: stories 0 to 8 are seen, none is above the top.
+    scrollTo(50);
+    await frame();
+    await settle();
+    const list = screen.getByTestId("list-scroll");
+    act(() => {
+      list.scrollTop = 1500; // the rows are laid out differently: the seen stories' rows land above the top
+    });
+    act(() => void fireEvent.keyDown(list, { key: "c" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: DEFAULT_PAPER_NAME })).toBeNull());
+    await settle();
+    expect(marked(calls)).toHaveLength(0);
+  });
+
+  it("a story pushed just past the top and pulled back before scrolling stops is not marked", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
+    scrollTo(150); // the first story goes above the top
+    await frame();
+    scrollTo(0); // and comes back, within the same gesture
+    await frame();
+    await settle();
+    expect(marked(calls)).toHaveLength(0);
+  });
+
+  it("a text size change while the list is open starts from what is on screen", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const order = storyIds(container);
+    resized();
+    // The reader stops at 450 px: stories 0 to 3 are scrolled past (and marked), 4 to 11 are on screen.
+    scrollTo(450);
+    await frame();
+    await settle();
+    expect(new Set(marked(calls).flatMap((m) => m.ids))).toEqual(new Set(order.slice(0, 4)));
+    // Smaller text from the open article's controls: the stories halve, so 4 to 8 now sit above 450 px.
+    story = 50;
+    resized();
+    scrollTo(451); // the next small scroll
+    await frame();
+    await settle();
+    expect(new Set(marked(calls).flatMap((m) => m.ids))).toEqual(new Set(order.slice(0, 4)));
   });
 });
 
