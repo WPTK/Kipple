@@ -251,11 +251,12 @@ export async function overlayPending<T extends { id: string; read: boolean; star
  * counts already are right: the server's last word plus each queued change, counted once when it was made
  * (applyRead, useOpenItem). So the absolute numbers the page shows are kept, never a difference.
  *
- * Who keeps them: only a tab that queued a change itself, and only while the queue outlives the page (IndexedDB). That
- * tab keeps them in step with every change to its counts (mirrorCounts) until a live bootstrap arrives with nothing
- * left in the queue, or a sent change is refused. Another tab that merely sees the queue never writes them. Until
- * then a bootstrap, live or stored, takes its counts from the page (or, at launch, from the kept ones): see
- * countsForAnswer. In localStorage, shared by the tabs; a sign-out drops them.
+ * Who keeps them: a tab that queued a change itself, while the queue outlives the page (IndexedDB) and still holds a
+ * change. The queue is read again before every write, so a tab never writes them back after another tab sent, refused
+ * or wiped the last change. That tab keeps them in step with every change to its counts (mirrorCounts). They are
+ * dropped when a live bootstrap arrives with nothing left in the queue, when an online change or a refusal leaves it
+ * empty, and at sign-out. Until then a bootstrap takes its counts from the page or the kept ones: see countsForAnswer.
+ * In localStorage, shared by the tabs.
  */
 interface HeldCounts {
   counts: Partial<Bootstrap["counts"]>;
@@ -342,8 +343,13 @@ export async function countsForAnswer<T extends Bootstrap>(b: T, live: boolean, 
   return h ? overlayCounts(b, h) : b;
 }
 
+/** A queue that cannot be read counts as holding changes: the kept counts are worth more than a guess that it is empty. */
 async function queueIsEmpty(): Promise<boolean> {
-  return (await safe((b) => b.all(), [])).length === 0;
+  try {
+    return (await (await store()).all()).length === 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -351,17 +357,17 @@ async function queueIsEmpty(): Promise<boolean> {
  * of waiting changes moves. Called once from initOffline; returns the cleanup.
  */
 export function mirrorCounts(qc: QueryClient): () => void {
-  const mirror = () => {
-    if (!holdsQueue || authStore.get() === "out") return;
+  const mirror = async () => {
+    if (!holdsQueue || authStore.get() === "out" || (await queueIsEmpty())) return;
     const b = qc.getQueryData<Bootstrap>(keys.bootstrap);
     if (b) holdCounts(b);
   };
   const unsubCache = qc.getQueryCache().subscribe((e) => {
-    if (e.type === "updated" && e.action.type === "success" && e.query.queryKey[0] === keys.bootstrap[0]) mirror();
+    if (e.type === "updated" && e.action.type === "success" && e.query.queryKey[0] === keys.bootstrap[0]) void mirror();
   });
   let pending = offlineStore.get().pending;
   const unsubStore = offlineStore.subscribe(() => {
-    if (offlineStore.get().pending !== pending) mirror();
+    if (offlineStore.get().pending !== pending) void mirror();
     pending = offlineStore.get().pending;
   });
   return () => {
@@ -379,8 +385,10 @@ export async function supersede(change: { star?: string; read?: string[] }): Pro
   const rows = await safe((b) => b.all(), []);
   const ids = new Set(change.read ?? []);
   const touches = (r: Queued) => (r.kind === "star" ? r.id === change.star : r.ids.some((i) => ids.has(i)));
+  let touched = false;
   for (const r of rows) {
     if (!touches(r)) continue;
+    touched = true;
     // Narrowed against the row as stored at the moment of the write, never the copy read above: a flush may have
     // sent and removed it meanwhile, and writing that copy back would queue it again.
     await safe(
@@ -393,6 +401,8 @@ export async function supersede(change: { star?: string; read?: string[] }): Pro
       undefined,
     );
   }
+  // Online changes replaced everything that waited: the server's counts say the rest, so nothing is kept.
+  if (touched && (await queueIsEmpty())) forgetHeldCounts();
   await refreshCount();
   // A running flush may already have sent one of those rows: let that request finish first, so the online write
   // that follows lands after it and has the last word. Only a request for the same articles is waited for, and
@@ -475,8 +485,9 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   // What the server just took is what the screen shows, whether or not the event stream is up to say so.
   if (qc) for (const r of confirmed) patchItems(qc, r.kind === "star" ? [r.id] : r.ids, r.kind === "star" ? { starred: r.starred } : { read: r.read });
   if (dropped > 0) {
-    // The kept counts still count the refused change: the next bootstrap's own replace them.
-    forgetHeldCounts();
+    // The kept counts still count the refused change. With nothing left waiting the next bootstrap's own replace them;
+    // with changes still waiting they are kept, since dropping them would lose those too (they cannot be taken apart).
+    if (await queueIsEmpty()) forgetHeldCounts();
     // The screen still shows what those changes would have done; reload it from the server.
     if (qc) void qc.invalidateQueries({ queryKey: keys.itemsAll });
     if (qc) void qc.invalidateQueries({ queryKey: ["item"] });

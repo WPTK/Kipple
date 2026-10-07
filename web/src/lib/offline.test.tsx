@@ -907,6 +907,47 @@ describe("the badges while offline", () => {
       expect((await countsForAnswer(stored, false, { shown: c.getQueryData(keys.bootstrap) })).counts.unread).toBe(5);
     });
 
+    it("a refused change with others still waiting keeps them, so the waiting ones still count", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      await applyRead(c, ["1004"], true, "key");
+      vi.spyOn(toasts, "toast").mockImplementation(() => 0);
+      // The first change is refused for good, the second gets a 503 and waits.
+      mockFetch({
+        "POST /api/items/mark-read": (_u, init) =>
+          (JSON.parse(String(init?.body)) as { ids: string[] }).ids.includes("1001") ? json({ error: "gone" }, 404) : json({ error: "down" }, 503),
+      });
+      await flushQueue();
+      expect(offlineStore.get().pending).toBe(1);
+      expect(all(await relaunch(stored))).toEqual([3, 2, 1, 3, 1, 1]);
+    });
+
+    it("are not written back after another tab emptied the queue", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      await new Promise((r) => setTimeout(r, 0)); // this tab's own writes for that change have landed
+      expect(localStorage.getItem("kipple-offline-counts")).not.toBeNull();
+      // Another tab sent the queue and got a live bootstrap (or signed out): the shared queue is empty, the counts gone.
+      setOfflineBackendForTests({ ...memoryBackendForTests(), durable: true });
+      localStorage.removeItem("kipple-offline-counts");
+      // This tab still thinks it queued a change; its counts move and its pending count catches up.
+      c.setQueryData(keys.bootstrap, { ...c.getQueryData<Bootstrap>(keys.bootstrap)!, counts: { unread: 3, starred: 1 } });
+      setPending(0);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(localStorage.getItem("kipple-offline-counts")).toBeNull();
+    });
+
+    it("a queue that cannot be read counts as holding changes, so a live answer keeps them", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      setOfflineBackendForTests({ ...memoryBackendForTests(), durable: true, all: () => Promise.reject(new Error("blocked")) });
+      expect(all(await relaunch(stored, true))).toEqual([4, 2, 2, 4, 2, 1]);
+      expect(localStorage.getItem("kipple-offline-counts")).not.toBeNull();
+    });
+
     it("are not kept when the queue itself would not outlive the page", async () => {
       const c = session({}, { durable: false });
       netFail();
