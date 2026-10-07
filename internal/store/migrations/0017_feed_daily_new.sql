@@ -24,6 +24,8 @@ CREATE INDEX idx_feed_daily_date ON feed_daily_new(local_date);
 -- feeds.url_succeeded: a fetch of the feed's current URL has succeeded. Set by every successful fetch,
 -- cleared by a URL edit; a redirect migration keeps it (the same document moved). It is not
 -- last_success_at, which says when the feed last succeeded at any URL (Feed Health, and the first-success
--- custom title rule). A feed that has succeeded starts at 1.
+-- custom title rule). A feed starts at 1 when it has succeeded and still holds the body hash of that
+-- success: a successful fetch stores body_hash and a URL edit clears it, so a URL edited but not yet
+-- fetched starts at 0.
 ALTER TABLE feeds ADD COLUMN url_succeeded INTEGER NOT NULL DEFAULT 0 CHECK (url_succeeded IN (0,1));
-UPDATE feeds SET url_succeeded = 1 WHERE last_success_at IS NOT NULL;
+UPDATE feeds SET url_succeeded = 1 WHERE last_success_at IS NOT NULL AND body_hash IS NOT NULL;

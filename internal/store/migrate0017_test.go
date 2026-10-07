@@ -22,7 +22,12 @@ func TestMigration0017OnAPopulatedSchema16(t *testing.T) {
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(5)...))
 	never := e.addFeed("http://b.example/feed")
-	e.exec("UPDATE items SET read = 1, starred = 1 WHERE title = 'title g1'")
+	// A URL edited on schema 16 and not yet fetched: it has succeeded (at the old URL) but the edit cleared
+	// body_hash, as PatchFeed does, so its first document is still a backlog.
+	edited := e.addFeed("http://c.example/feed")
+	e.fetchBody(edited, rss(numbered(3)...))
+	e.exec("UPDATE feeds SET body_hash = NULL, last_fetch_at = last_success_at WHERE id = ?", edited)
+	e.exec("UPDATE items SET read = 1, starred = 1 WHERE title = 'title g1' AND feed_id = ?", id)
 	e.exec(`INSERT INTO settings (key, value) VALUES ('tz', '"UTC"')`)
 	e.exec(undo0017)
 	e.exec("PRAGMA user_version = 16")
@@ -45,10 +50,11 @@ func TestMigration0017OnAPopulatedSchema16(t *testing.T) {
 	require.Equal(t, 17, v)
 	requireCleanIntegrity(t, db.Reader())
 	require.Equal(t, 5, scalar[int](t, db.Reader(), "SELECT count(*) FROM items WHERE feed_id = ?", id))
-	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM items WHERE title = 'title g1' AND read = 1 AND starred = 1"))
+	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM items WHERE feed_id = ? AND title = 'title g1' AND read = 1 AND starred = 1", id))
 	require.Zero(t, scalar[int](t, db.Reader(), "SELECT count(*) FROM feed_daily_new"), "days before the migration have no row")
 	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT url_succeeded FROM feeds WHERE id = ?", id), "a feed that has succeeded starts at 1")
 	require.Zero(t, scalar[int](t, db.Reader(), "SELECT url_succeeded FROM feeds WHERE id = ?", never), "a feed that never succeeded starts at 0")
+	require.Zero(t, scalar[int](t, db.Reader(), "SELECT url_succeeded FROM feeds WHERE id = ?", edited), "an edited, unfetched URL starts at 0")
 
 	fresh, err := sql.Open("sqlite", buildDSN(filepath.Join(t.TempDir(), "fresh.db"), "writer"))
 	require.NoError(t, err)
@@ -59,4 +65,10 @@ func TestMigration0017OnAPopulatedSchema16(t *testing.T) {
 	e2 := &env{t: t, db: db, clk: e.clk, ctx: e.ctx}
 	e2.fetchBody(id, rss(append(numbered(5), newer(2)...)...))
 	require.Equal(t, 2, e2.newsDaily(id, base))
+	e2.fetchBody(edited, rss(append(numbered(3), newer(2)...)...))
+	require.Zero(t, e2.newsDaily(edited, base), "the edited URL's first document is a backlog even with guids new to the feed")
+	// Idempotent: opening the migrated database again runs nothing (gated by user_version) and keeps the flags.
+	require.NoError(t, db.Close())
+	again := reopen(t, path)
+	require.Equal(t, 1, scalar[int](t, again.Reader(), "SELECT url_succeeded FROM feeds WHERE id = ?", edited), "set by its own fetch, kept")
 }
