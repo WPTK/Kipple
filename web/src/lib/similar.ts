@@ -1,17 +1,10 @@
 import type { Card } from "@/api/types";
-import { LIMITS, clipName, emptyDraft, type FilterDraft } from "@/api/filters";
+import { LIMITS, emptyDraft, type FilterDraft } from "@/api/filters";
 import { createStore } from "./store";
+import { STOP_WORDS } from "./stopwords";
 
 // "Mute similar...": a filter rule started from an article. The feed becomes the scope, the author and the
-// distinctive words of the title become suggestions, and the first few words start the rule's terms.
-
-const STOP = new Set(
-  (
-    "about above after again against also among another around because been before being below between both but could does doing down during each " +
-    "from further have having here how into just more most much must not only other over same should since some such than that their them then there these they this those through " +
-    "under until very want was were what when where which while who whom why will with without would your you its it's and are for the new says say said one two"
-  ).split(" "),
-);
+// distinctive words of the title become suggestions the user taps to add. The rule itself starts with no terms.
 
 /** Scripts written without spaces between words: a whole headline is one "word" there, so it is cut into short pieces. */
 const UNSPACED = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Thai}\\p{Script=Lao}\\p{Script=Khmer}\\p{Script=Myanmar}";
@@ -46,7 +39,7 @@ export function titleKeywords(title: string, max = 8): string[] {
         continue;
       }
       const w = [...piece.replace(/^'+|'+$/g, "")].slice(0, LIMITS.termRunes).join("");
-      if ([...w].length < 4 || STOP.has(w.toLowerCase()) || /^\d+$/.test(w)) continue;
+      if ([...w].length < 4 || STOP_WORDS.has(w.toLowerCase()) || /^\d+$/.test(w)) continue;
       if (add(w)) return out;
     }
   }
@@ -61,21 +54,12 @@ export interface SimilarSeed {
   feedTitle: string;
 }
 
-/** The rule "Mute similar..." starts with: this article's feed, its first keywords as terms, action Mute. */
+/** The rule "Mute similar..." starts with: this article's feed, no terms (the user taps the suggestions), action Mute. */
 export function similarSeed(item: Pick<Card, "title" | "author" | "feed_id" | "source">, feedTitle?: string): SimilarSeed {
-  const keywords = titleKeywords(item.title);
-  const terms = keywords.slice(0, 3);
   const author = item.author.trim() ? item.author.trim() : null;
   return {
-    draft: emptyDraft({
-      scope: "feed",
-      feed_id: item.feed_id,
-      terms,
-      fields: ["title"],
-      action: "mute",
-      name: terms.length ? clipName(`Mute: ${terms.join(", ")}`) : "",
-    }),
-    keywords,
+    draft: emptyDraft({ scope: "feed", feed_id: item.feed_id, terms: [], fields: ["title"], action: "mute", name: "" }),
+    keywords: titleKeywords(item.title),
     author,
     feedTitle: feedTitle ?? item.source,
   };

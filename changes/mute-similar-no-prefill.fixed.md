@@ -1,0 +1,1 @@
+Mute similar: the filter editor no longer starts with words already chosen from the title; tap the suggested words to add them (tap again to remove), and common words such as best, apps and alternatives are no longer suggested. (#NNN)

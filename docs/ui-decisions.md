@@ -164,7 +164,11 @@ implementing anything. Commit and PR as needed without asking." (Host-A deploys 
 
 ### Filters follow-ups (#38, 0.8.0-beta.3)
 Choices made where the decisions above were silent; the owner may overrule any of them.
-- **Only show matching** is a choice under "What it does", stored as an inverted Mute (no new action, no schema
+- **Mute similar...** opens the new-filter editor on the article's feed with no words chosen: the rule contains only
+  what the reader taps. The editor offers the title's distinctive words and the author as toggles (a second tap takes a
+  word out again); Save stays disabled until a word is in. Suggestions skip words under four letters, bare numbers and
+  a list of common English words and headline filler (`web/src/lib/stopwords.ts`). The list is English only: other
+  languages rely on the length, digit and script rules (unspaced scripts are cut into short pieces).- **Only show matching** is a choice under "What it does", stored as an inverted Mute (no new action, no schema
   change). For Mute the "Act when it does NOT match" option is that choice, so the checkbox is offered for Mark as
   read and Star only.
 - **Reading-time filter:** three lengths, "5 min or less", "6 to 15 min" and "Over 15 min", from a timer button in the

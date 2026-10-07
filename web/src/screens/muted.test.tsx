@@ -264,7 +264,7 @@ describe("events that carry muted", () => {
 });
 
 describe("Mute similar…", () => {
-  it("opens the filter editor from a row's menu, prefilled with the feed, the author and the title's keywords", async () => {
+  it("opens the filter editor from a row's menu, scoped to the feed with no terms, and toggles suggestions", async () => {
     routes({ "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }) });
     go("/l/unread");
     const user = userEvent.setup();
@@ -276,13 +276,19 @@ describe("Mute similar…", () => {
     expect(dialog.getByLabelText("Feed")).toHaveValue("1");
     expect(dialog.getByRole("region", { name: "Suggestions from this article" })).toBeInTheDocument();
     expect(dialog.getByRole("button", { name: "Add author Ada" })).toBeInTheDocument();
-    const chips = dialog.getByRole("list", { name: "Terms in this filter" });
-    expect(within(chips).getAllByRole("listitem").length).toBeGreaterThan(0);
+    expect(dialog.queryByRole("list", { name: "Terms in this filter" })).not.toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Save filter" })).toBeDisabled();
     expect(dialog.getByRole("radio", { name: /^Mute/ })).toBeChecked();
-    // A suggestion adds the author as a term and ticks the author field.
+    // A suggestion adds the author as a term and ticks the author field; a second tap takes both out.
     await user.click(dialog.getByRole("button", { name: "Add author Ada" }));
+    const chips = dialog.getByRole("list", { name: "Terms in this filter" });
     expect(within(chips).getByText("Ada")).toBeInTheDocument();
     expect(dialog.getByRole("checkbox", { name: "Author" })).toBeChecked();
+    expect(dialog.getByRole("button", { name: "Save filter" })).toBeEnabled();
+    await user.click(dialog.getByRole("button", { name: "Remove author Ada" }));
+    expect(dialog.getByRole("button", { name: "Add author Ada" })).toHaveAttribute("aria-pressed", "false");
+    expect(dialog.queryByRole("list", { name: "Terms in this filter" })).not.toBeInTheDocument();
+    expect(dialog.getByRole("checkbox", { name: "Author" })).not.toBeChecked();
   });
 });
 
