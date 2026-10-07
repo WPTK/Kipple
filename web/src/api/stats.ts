@@ -3,11 +3,14 @@ import { api } from "./client";
 import { keys } from "./queryKeys";
 import type { StatsRange, StatsSummary } from "./types";
 
-/** The Stats screen's data. Held for a minute; the previous range stays on screen while the next one loads. */
-export function useStatsSummary(range: StatsRange, enabled = true) {
+/**
+ * The Stats screen's data, or one feed's (its drill-down sheet) with `feed`. Held for a minute; the previous range
+ * stays on screen while the next one loads.
+ */
+export function useStatsSummary(range: StatsRange, enabled = true, feed?: string) {
   return useQuery({
-    queryKey: keys.stats(range),
-    queryFn: ({ signal }) => api<StatsSummary>("/api/stats/summary", { params: { range }, signal }),
+    queryKey: feed ? (["stats", "feed", feed, range] as const) : keys.stats(range),
+    queryFn: ({ signal }) => api<StatsSummary>("/api/stats/summary", { params: { range, feed }, signal }),
     enabled,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
@@ -30,11 +33,11 @@ export function useWrappedSummary(year: number, span: { from: string; to: string
   });
 }
 
-/** The summary of an explicit span, such as the period before the one on screen. Fetched only when asked for. */
-export function useSpanSummary(span: { from: string; to: string } | null, enabled: boolean) {
+/** The summary of an explicit span (of one feed, with `feed`), such as the period before the one on screen. Fetched only when asked for. */
+export function useSpanSummary(span: { from: string; to: string } | null, enabled: boolean, feed?: string) {
   return useQuery({
-    queryKey: ["stats", "span", span?.from, span?.to] as const,
-    queryFn: ({ signal }) => api<StatsSummary>("/api/stats/summary", { params: { from: span!.from, to: span!.to }, signal }),
+    queryKey: ["stats", "span", span?.from, span?.to, feed] as const,
+    queryFn: ({ signal }) => api<StatsSummary>("/api/stats/summary", { params: { from: span!.from, to: span!.to, feed }, signal }),
     enabled: enabled && span != null,
     staleTime: 60_000,
   });

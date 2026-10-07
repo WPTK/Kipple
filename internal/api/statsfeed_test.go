@@ -1,0 +1,34 @@
+package api
+
+import (
+	"strconv"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// feed= scopes the summary to one feed; anything but a positive id is refused.
+func TestStatsSummaryOneFeed(t *testing.T) {
+	h := newHarness(t)
+	f1 := h.addFeed("Alpha", 0)
+	f2 := h.addFeed("Beta", 0)
+	h.stat("open", "2026-09-20", 9, 1, f1, "s1", nil, "Alpha")
+	h.stat("read_time", "2026-09-20", 9, 1, f1, "s1", 40, "Alpha")
+	h.stat("open", "2026-09-21", 9, 2, f2, "s2", nil, "Beta")
+	h.stat("read_time", "2026-09-21", 9, 2, f2, "s2", 15, "Beta")
+
+	code, out := h.summary(nil, "?range=month&feed="+strconv.FormatInt(f1, 10))
+	require.Equal(t, 200, code, "%v", out)
+	tot := out["totals"].(map[string]any)
+	require.EqualValues(t, 1, num(tot["items_read"]))
+	require.EqualValues(t, 40, num(tot["active_seconds"]))
+	src := out["sources"].([]any)
+	require.Len(t, src, 1)
+	require.Equal(t, "Alpha", src[0].(map[string]any)["feed_title"])
+	require.Equal(t, "2026-09-20", out["covered_from"], "coverage is that of all statistics")
+
+	for _, bad := range []string{"0", "-3", "abc", "1.5"} {
+		code, _ := h.summary(nil, "?range=month&feed="+bad)
+		require.Equal(t, 400, code, bad)
+	}
+}
