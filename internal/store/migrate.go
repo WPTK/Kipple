@@ -248,6 +248,8 @@ func (d *DB) preMigrationSnapshot(ctx context.Context, from, to int, pending []m
 		_ = os.Remove(target)
 		return fmt.Errorf("store: pre-migration snapshot: %w", err)
 	}
+	// The log is where an operator finds the file to restore if the upgrade has to be rolled back.
+	d.log.Info("store: wrote pre-migration snapshot", "file", filepath.Base(target), "from", from, "to", to)
 	// One snapshot per from and to: a start that fails the same migration again (a restart loop after an upgrade
 	// that stopped partway) replaces its own copy instead of stacking new ones, which would push the snapshot of the
 	// schema the upgrade started from (the one a rollback needs) out of the newest 3. Of two copies of the same pair

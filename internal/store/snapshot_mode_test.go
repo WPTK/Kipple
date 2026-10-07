@@ -1,7 +1,9 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -42,4 +44,20 @@ func TestSnapshotsArePrivate(t *testing.T) {
 		require.Equal(t, os.FileMode(0o600), st.Mode().Perm(), p)
 		require.Greater(t, st.Size(), int64(0), "SQLite filled the pre-created file: %s", p)
 	}
+}
+
+// The rollback procedure tells the operator to find the pre-migration snapshot by the name the app logs, so the
+// log line names the file.
+func TestPreMigrationSnapshotIsNamedInTheLog(t *testing.T) {
+	ctx := context.Background()
+	db, _ := openTest(t)
+	var buf bytes.Buffer
+	db.log = slog.New(slog.NewTextHandler(&buf, nil))
+
+	require.NoError(t, db.preMigrationSnapshot(ctx, 16, 18, nil))
+	files, err := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-16-18-*.db"))
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Contains(t, buf.String(), "file="+filepath.Base(files[0]))
+	require.NotContains(t, buf.String(), db.backupDir, "the name only, not the volume layout")
 }
