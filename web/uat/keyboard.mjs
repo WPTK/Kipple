@@ -339,7 +339,7 @@ async function k2(page) {
     ["/l/all", "Reading appearance", (p) => p.getByRole("button", { name: "Reading appearance" }).first(), true],
     ["/l/all", "List actions menu", (p) => p.getByRole("button", { name: "List actions" }).first(), false],
     ["/l/all", "Row More actions menu", (p) => p.getByRole("button", { name: "More actions" }).first(), false],
-    ["/feeds", "Add feed dialog", (p) => p.getByRole("button", { name: "Add feed" }).first(), true],
+    ["/feeds", "Add feed dialog", (p) => p.getByRole("button", { name: "Add feed" }).first(), true], // uat-labels: ignore (the Add feed button, not a filter chip)
     ["/feeds", "Feed actions menu", (p) => p.getByRole("button", { name: "Feed actions" }).first(), false],
     ["/settings/account", "Generate API password dialog", (p) => p.getByRole("button", { name: "Generate API password" }).first(), true],
     ["/settings/account", "Export backup dialog", (p) => p.getByRole("button", { name: "Export backup" }).first(), true],

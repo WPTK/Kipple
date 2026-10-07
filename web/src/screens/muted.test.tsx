@@ -6,13 +6,13 @@ import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { handleServerEvent, initialLive, liveStore } from "@/api/events";
-import type { Filter } from "@/api/filters";
+import { emptyDraft, type Filter } from "@/api/filters";
 import { keys } from "@/api/queries";
 import type { Bootstrap, Card, ItemsPage } from "@/api/types";
 import { rowMenuStore } from "@/gestures/rowMenu";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
-import { closeFilterEditor } from "@/lib/similar";
+import { closeFilterEditor, openFilterEditor } from "@/lib/similar";
 import { closeFeedEditor } from "@/lib/feedEditor";
 import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
@@ -264,7 +264,7 @@ describe("events that carry muted", () => {
 });
 
 describe("Mute similar…", () => {
-  it("opens the filter editor from a row's menu, prefilled with the feed, the author and the title's keywords", async () => {
+  it("opens the filter editor from a row's menu, scoped to the feed with no terms, and toggles suggestions", async () => {
     routes({ "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }) });
     go("/l/unread");
     const user = userEvent.setup();
@@ -275,14 +275,61 @@ describe("Mute similar…", () => {
     expect(dialog.getByRole("radio", { name: /^A feed/ })).toBeChecked();
     expect(dialog.getByLabelText("Feed")).toHaveValue("1");
     expect(dialog.getByRole("region", { name: "Suggestions from this article" })).toBeInTheDocument();
-    expect(dialog.getByRole("button", { name: "Add author Ada" })).toBeInTheDocument();
-    const chips = dialog.getByRole("list", { name: "Terms in this filter" });
-    expect(within(chips).getAllByRole("listitem").length).toBeGreaterThan(0);
+    expect(dialog.getByRole("button", { name: "Author Ada" })).toBeInTheDocument();
+    expect(dialog.queryByRole("list", { name: "Terms in this filter" })).not.toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Save filter" })).toBeDisabled();
     expect(dialog.getByRole("radio", { name: /^Mute/ })).toBeChecked();
-    // A suggestion adds the author as a term and ticks the author field.
-    await user.click(dialog.getByRole("button", { name: "Add author Ada" }));
+    // A suggestion adds the author as a term and ticks the author field; a second tap takes the term out.
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    const chips = dialog.getByRole("list", { name: "Terms in this filter" });
     expect(within(chips).getByText("Ada")).toBeInTheDocument();
     expect(dialog.getByRole("checkbox", { name: "Author" })).toBeChecked();
+    expect(dialog.getByRole("button", { name: "Save filter" })).toBeEnabled();
+    expect(dialog.getByRole("button", { name: "Author Ada" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    expect(dialog.getByRole("button", { name: "Author Ada" })).toHaveAttribute("aria-pressed", "false");
+    expect(dialog.queryByRole("list", { name: "Terms in this filter" })).not.toBeInTheDocument();
+    // The Author checkbox is the reader's to untick; the chip reads only the terms.
+    expect(dialog.getByRole("checkbox", { name: "Author" })).toBeChecked();
+    // Removing the term from the list turns the chip off too.
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    await user.click(dialog.getByRole("button", { name: "Remove Ada" }));
+    expect(dialog.getByRole("button", { name: "Author Ada" })).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+describe("Mute similar… apostrophes", () => {
+  it("shows a suggestion pressed when the rule already holds it with a typographic apostrophe", async () => {
+    routes({ "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }) });
+    go("/l/unread");
+    const user = userEvent.setup();
+    await screen.findByText("Article number 1");
+    act(() => openFilterEditor({ mode: "create", seed: { draft: emptyDraft({ scope: "global", terms: ["Apple’s"], fields: ["title"], action: "mute" }), keywords: ["Apple's"], author: null, feedTitle: "X" } }));
+    const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
+    expect(dialog.getByRole("button", { name: "Word Apple's" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(dialog.getByRole("button", { name: "Word Apple's" }));
+    expect(dialog.queryByRole("list", { name: "Terms in this filter" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Mute similar… term limit", () => {
+  it("says so and adds nothing when a suggestion is tapped at the limit", async () => {
+    routes({ "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }) });
+    go("/l/unread");
+    const user = userEvent.setup();
+    await screen.findByText("Article number 1");
+    const terms = Array.from({ length: 50 }, (_, i) => `term${i}`);
+    act(() => openFilterEditor({ mode: "create", seed: { draft: emptyDraft({ scope: "global", terms, fields: ["title"], action: "mute" }), keywords: ["Zebra"], author: null, feedTitle: "X" } }));
+    const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
+    await user.click(dialog.getByRole("button", { name: "Word Zebra" }));
+    expect(dialog.getByText(/at most 50 words or phrases/)).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Word Zebra" })).toHaveAttribute("aria-pressed", "false");
+    expect(within(dialog.getByRole("list", { name: "Terms in this filter" })).getAllByRole("listitem")).toHaveLength(50);
+    // The message goes away once a term is removed, and the word can be added.
+    await user.click(dialog.getByRole("button", { name: "Remove term0" }));
+    expect(dialog.queryByText(/at most 50 words or phrases/)).not.toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "Word Zebra" }));
+    expect(dialog.getByRole("button", { name: "Word Zebra" })).toHaveAttribute("aria-pressed", "true");
   });
 });
 

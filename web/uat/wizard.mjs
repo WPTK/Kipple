@@ -169,7 +169,7 @@ try {
     await page.getByRole("button", { name: "Skip", exact: true }).click();
 
     await onStep(page, "A", "Recommended feeds", 5);
-    await page.getByRole("button", { name: /^Add \d+ feeds?$/ }).click();
+    await page.getByRole("button", { name: /^Add \d+ feeds?$/ }).click(); // uat-labels: ignore (the wizard Add N feeds button)
 
     // Step 6: the public URL. 127.0.0.1 is never suggested, so the field starts empty; Skip saves nothing.
     await onStep(page, "A", "Your Kipple's address", 6);

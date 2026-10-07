@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { Check as CheckIcon, X } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
 import { ApiError, errorMessage } from "@/api/client";
 import {
@@ -43,6 +43,9 @@ type Issue = { field: string; message: string };
 
 const runeCount = (s: string): number => [...s].length;
 const byteCount = (s: string): number => new TextEncoder().encode(s).length;
+
+/** A term as the server compares it: lower-case, typographic apostrophes plain. */
+const plain = (t: string): string => t.toLowerCase().replace(/[’ʼ]/g, "'");
 
 /** Why a term cannot be added, or null. The server checks again; this saves a round trip. */
 export function termProblem(term: string, d: Pick<FilterDraft, "kind" | "terms">): string | null {
@@ -163,6 +166,15 @@ function Choice({ name, value, current, label, help, onPick, disabled }: { name:
   );
 }
 
+/** A suggestion that is a toggle: pressed (with a check mark) while its word is in the rule. */
+function SuggestionChip({ on, label, name, onToggle }: { on: boolean; label: string; name: string; onToggle: () => void }) {
+  return (
+    <Button onClick={onToggle} aria-pressed={on} aria-label={name} className={cn("min-h-11 gap-1.5", on && "border-[var(--kp-accent)] bg-selection font-semibold")}>
+      {on ? <CheckIcon aria-hidden="true" className="size-4" /> : null}
+      {label}
+    </Button>
+  );
+}
 function Chips({ terms, mono, onRemove }: { terms: string[]; mono: boolean; onRemove: (i: number) => void }) {
   if (terms.length === 0) return null;
   return (
@@ -375,12 +387,29 @@ function EditorForm({
   const previewStale = d.terms.length > 0 && preview.status === "loading";
   const ok = d.terms.length > 0 && d.fields.length > 0 && scopeOk && !nameTooLong;
 
-  // Suggestions from the article "Mute similar..." started from: one click adds a word or the author.
-  const addTerm = (t: string, field?: FilterField) => {
-    if (d.terms.includes(t) || termProblem(t, d)) return;
+  // Suggestions from the article "Mute similar...": a tap adds a word or the author, a second tap takes it out again.
+  // Whether a suggestion is on is read from the rule itself (its terms and fields), never kept separately. Adding the
+  // author also ticks the Author field; the checkbox stays the reader's to untick.
+  // A tap the rule cannot take is remembered with a counter, and its message is worked out from the rule each render, so
+  // it goes away once the rule has room again and a repeated tap is announced again.
+  const [blocked, setBlocked] = useState<{ term: string; n: number } | null>(null);
+  const chipNote = blocked ? termProblem(blocked.term, d) : null;
+  // Same comparison as the server: case-insensitive, and a typographic apostrophe is a plain one.
+  const same = (a: string, b: string) => plain(a) === plain(b);
+  const has = (t: string) => d.terms.some((x) => same(x, t));
+  const toggleTerm = (t: string, field?: FilterField) => {
+    if (has(t)) {
+      setBlocked(null);
+      set({ terms: d.terms.filter((x) => !same(x, t)) });
+      return;
+    }
+    if (termProblem(t, d)) {
+      setBlocked((cur) => ({ term: t, n: (cur?.n ?? 0) + 1 }));
+      return;
+    }
+    setBlocked(null);
     set({ terms: [...d.terms, t], ...(field && !d.fields.includes(field) ? { fields: [...d.fields, field] } : {}) });
   };
-
   const save = async () => {
     if (!ok) return;
     const draft: FilterDraft = { ...d, name: d.name.trim() || autoName(d) };
@@ -448,19 +477,14 @@ function EditorForm({
       {seed ? (
         <section aria-label="Suggestions from this article" className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-3">
           <p className="text-sm font-semibold">Suggestions from this article</p>
-          <p className="text-xs text-fg2">Tap a word to add it. The rule starts on {seed.feedTitle} only; change that below.</p>
+          <p className="text-xs text-fg2">Tap a word to add it, tap it again to take it out. The rule starts on {seed.feedTitle} only; change that below.</p>
           <div className="flex flex-wrap gap-2">
             {seed.keywords.map((k) => (
-              <Button key={k} onClick={() => addTerm(k)} disabled={d.terms.includes(k)} aria-label={`Add ${k}`} className="min-h-9">
-                {k}
-              </Button>
+              <SuggestionChip key={k} on={has(k)} label={k} name={`Word ${k}`} onToggle={() => toggleTerm(k)} />
             ))}
-            {seed.author ? (
-              <Button onClick={() => addTerm(seed.author as string, "author")} disabled={d.terms.includes(seed.author)} aria-label={`Add author ${seed.author}`} className="min-h-9">
-                Author: {seed.author}
-              </Button>
-            ) : null}
+            {seed.author ? <SuggestionChip on={has(seed.author)} label={`Author: ${seed.author}`} name={`Author ${seed.author}`} onToggle={() => toggleTerm(seed.author as string, "author")} /> : null}
           </div>
+          <p role="status" className="min-h-4 text-xs text-danger">{chipNote ? <span key={blocked?.n}>{chipNote}</span> : null}</p>
         </section>
       ) : null}
 

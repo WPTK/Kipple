@@ -1,0 +1,63 @@
+// Words that make poor "Mute similar..." suggestions because they say nothing about the topic: English function words,
+// very common verbs, adverbs and adjectives, and listicle or headline filler (best, top, like, apps, alternatives,
+// guide, tips, ways, things, today, latest). Words people may want to mute (free, deals, review, video, live, update,
+// release) and parts of names (world, cup, home) are deliberately left out. One list, lower-case, compared
+// case-insensitively. Only words of four or more letters are ever offered, so shorter entries are harmless.
+// The list is English only; text in other languages relies on the length, digit and script rules in similar.ts.
+
+const WORDS: string[] = [
+  "about", "above", "absolutely", "according", "across", "actually", "after", "again", "against", "ahead", "all",
+  "along", "already", "also", "alternative", "alternatives", "although", "always", "amid", "among", "and", "announce",
+  "announced", "announcement", "announces", "announcing", "annual", "another", "any", "anyone", "anything", "app",
+  "apparently", "apps", "are", "aren't", "around", "ask", "asked", "asking", "asks", "away", "back", "backs", "basic",
+  "basically", "basics", "because", "become", "becomes", "been", "before", "began", "begin", "beginner", "beginners",
+  "begins", "begun", "behind", "being", "below", "beside", "besides", "best", "better", "between", "beyond", "big",
+  "both", "bring", "brings", "brought", "but", "call", "called", "calls", "came", "can", "can't", "cannot", "certain",
+  "come", "comes", "coming", "complete", "completely", "continue", "continued", "continues", "could", "couldn't",
+  "course", "day", "days", "definitely", "definitive", "did", "didn't", "does", "doesn't", "doing", "don't", "done",
+  "down", "during", "each", "easy", "either", "else", "enough", "entirely", "essential", "essentially", "even",
+  "evening", "ever", "every", "everyone", "everything", "except", "explain", "explained", "explaining", "explains",
+  "extremely", "fact", "false", "far", "fast", "faster", "fastest", "felt", "few", "finally", "find", "finding",
+  "finds", "first", "five", "follow", "following", "for", "form", "found", "four", "from", "full", "further", "gave",
+  "generally", "get", "gets", "getting", "give", "given", "gives", "goes", "going", "gone", "good", "got", "gotten",
+  "great", "guide", "guides", "guys", "had", "hadn't", "half", "hand", "happen", "happens", "hard", "has", "hasn't",
+  "have", "haven't", "having", "help", "helped", "helping", "helps", "her", "here", "here's", "hers", "herself",
+  "high", "him", "himself", "his", "hold", "how", "how's", "however", "hundred", "i'm", "i've", "important",
+  "incredibly", "inside", "instead", "into", "introduce", "introduces", "introducing", "isn't", "it's", "its",
+  "itself", "just", "keep", "keeps", "kept", "kind", "knew", "know", "known", "knows", "large", "larger", "last",
+  "later", "latest", "learn", "learned", "learning", "learns", "least", "leave", "leaves", "left", "less", "let",
+  "let's", "lets", "like", "liked", "likely", "list", "listicle", "lists", "literally", "little", "long", "longer",
+  "look", "looked", "looking", "looks", "made", "mainly", "make", "makes", "making", "many", "matter", "may", "maybe",
+  "mean", "means", "meant", "meet", "meets", "merely", "met", "might", "mind", "month", "monthly", "months", "more",
+  "morning", "most", "mostly", "move", "moved", "moves", "moving", "much", "must", "myself",
+  "near", "nearly", "need", "needed", "needs", "never", "new", "newest", "news", "next", "nobody", "none", "nor",
+  "not", "nothing", "now", "nowhere", "off", "officially", "often", "old", "once", "one", "ones", "only", "onto",
+  "other", "others", "ought", "our", "ours", "ourselves", "out", "outside", "over", "overall", "own", "part", "parts",
+  "past", "people", "per", "perhaps", "place", "places", "possible", "possibly", "probably", "put", "puts", "quick",
+  "quite", "ran", "rather", "really", "right", "roundup", "run", "running", "runs", "said", "same", "saw", "say",
+  "says", "second", "see", "seem", "seemed", "seems", "seen", "set", "sets", "setting", "seven", "several", "shall",
+  "she", "should", "shouldn't", "show", "showed", "showing", "shown", "shows", "side", "sides", "simple", "simply",
+  "since", "single", "six", "small", "smaller", "some", "someone", "something", "sometimes", "somewhere", "soon",
+  "start", "started", "starting", "starts", "still", "stop", "stopped", "stopping", "stops", "such", "sure", "take",
+  "taken", "takes", "taking", "tell", "telling", "tells", "ten", "than", "thank", "that", "that's", "the", "their",
+  "theirs", "them", "themselves", "then", "there", "there's", "therefore", "these", "they", "they're", "they've",
+  "thing", "things", "think", "thinks", "this", "those", "though", "thought", "three", "through", "thus", "time",
+  "times", "tips", "today", "together", "told", "tomorrow", "tonight", "too", "took", "top", "tops", "totally",
+  "toward", "towards", "tricks", "tried", "tries", "truly", "try", "trying", "turn", "turns", "twice", "two",
+  "ultimate", "under", "unless", "until", "unveil", "unveils", "upon", "use", "used", "uses", "using", "usually",
+  "versus", "very", "via", "vs", "want", "wanted", "wants", "was", "wasn't", "way", "ways", "we're", "we've", "week",
+  "weekend", "weekly", "weeks", "well", "went", "were", "weren't", "what", "what's", "whatever", "when", "whenever",
+  "where", "whether", "which", "while", "whilst", "who", "who's", "whole", "whom", "whose", "why", "why's", "will",
+  "with", "within", "without", "won't", "work", "works", "would", "wouldn't", "write", "writes", "written", "wrote",
+  "year", "yearly", "years", "yes", "yesterday", "yet", "you", "you'll", "you're", "you've", "young", "your", "yours",
+  "he'll", "he's", "he'd", "she'll", "she's", "she'd", "we'll", "we'd", "it'll", "it'd", "they'll", "they'd",
+  "you'd", "i'll", "i'd", "could've", "would've", "should've", "might've", "must've", "where's", "who'd", "who'll",
+  "that'll", "that'd", "there'll", "there'd", "what'll", "when's", "anybody", "anywhere", "everybody", "everywhere",
+  "whoever", "whichever", "ago", "neither", "fewer", "yourself",
+  "yourselves",
+];
+
+export const STOP_WORDS: ReadonlySet<string> = new Set(WORDS);
+
+/** The list as written, for tests (lower-case, no repeats). */
+export const STOP_WORD_LIST: readonly string[] = WORDS;

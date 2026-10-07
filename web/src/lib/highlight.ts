@@ -50,7 +50,8 @@ const isWordChar = (ch: string): boolean => WORD.test(ch) && !NO_SPACE_SCRIPT.te
 
 const MARKS = /\p{Mn}/gu;
 function foldChar(ch: string, caseSensitive: boolean, fold: boolean): string {
-  let f = ch;
+  // Typographic apostrophes are plain ones, as in the engine (always on).
+  let f = ch === "’" || ch === "ʼ" ? "'" : ch;
   if (!caseSensitive) f = f.toLowerCase();
   if (fold) f = f.normalize("NFKD").replace(MARKS, "");
   return f;
