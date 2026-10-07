@@ -20,10 +20,10 @@ import type {
 import {
   failedWhileOffline,
   forgetHeldCounts,
-  holdCounts,
   isOffline,
   overlayHeldCounts,
   overlayPending,
+  queueIsEmpty,
   queueRead,
   queueStar,
   QueueWriteError,
@@ -51,6 +51,7 @@ export function changeError(e: unknown): string {
 export type BootstrapAnswer = Bootstrap & { fromCache?: true };
 
 export function useBootstrap(enabled = true) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: keys.bootstrap,
     queryFn: async ({ signal }): Promise<BootstrapAnswer> => {
@@ -58,9 +59,12 @@ export function useBootstrap(enabled = true) {
       const b = await api<Bootstrap>("/api/bootstrap", { signal, meta });
       // Only an answer from the network says anything about the server: the worker's stored copy is old by design.
       if (!meta.cached && serverRebuilt(b.web_build)) setUpdateReady();
-      if (!meta.cached) forgetHeldCounts();
-      // The stored copy predates what this device queued since; the counts its badges showed then are laid over it.
-      return meta.cached ? { ...overlayHeldCounts(b), fromCache: true } : b;
+      if (!meta.cached) {
+        if (await queueIsEmpty()) forgetHeldCounts();
+        return b;
+      }
+      // The stored copy predates what this device changed since: its counts are the ones the page shows, or held.
+      return { ...overlayHeldCounts(b, qc.getQueryData<Bootstrap>(keys.bootstrap)), fromCache: true };
     },
     enabled,
     retry: (n, e) => (e as { status?: number }).status !== 401 && !failedWhileOffline(e) && n < 2,
@@ -159,12 +163,6 @@ export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void
   });
 }
 
-/** Keep the badges as they stand after a queued change, for a launch before the queue is sent (lib/offline.ts). */
-function holdBadges(qc: QueryClient): void {
-  const b = qc.getQueryData<Bootstrap>(keys.bootstrap);
-  if (b) holdCounts(b);
-}
-
 /** Adjust the muted count locally (a restore) before the `counts` event lands. */
 export function bumpMuted(qc: QueryClient, delta: number): void {
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, counts: { ...old.counts, muted: Math.max(0, (old.counts.muted ?? 0) + delta) } } : old));
@@ -210,7 +208,6 @@ export function useOpenItem() {
         const held = qc.getQueryData<ItemDetail>(keys.item(id));
         if (!isOffline(e) || !held) throw e;
         await queueRead([id], true);
-        holdBadges(qc);
         return { session_key: "", item: { ...held, read: true } } satisfies OpenResponse;
       }
     },
@@ -313,7 +310,6 @@ export async function applyRead(
       const res = await queueRead(ids, read);
       // Online the server's `counts` event moves the badges; offline none comes, so they move here.
       for (const [feed, d] of shift) bumpUnread(qc, feed, d);
-      holdBadges(qc);
       return res;
     }
   } catch (e) {

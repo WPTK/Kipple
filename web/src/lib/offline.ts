@@ -238,30 +238,30 @@ export async function overlayPending<T extends { id: string; read: boolean; star
 }
 
 /**
- * The unread counts the badges showed after the last change this device queued, and the bootstrap they were worked
- * out from (its `server_time`). Lists can take the queue as an overlay because a queued mark sets an absolute state,
- * but the stored bootstrap's counts do not say which articles they counted, so no queued change can be added to them
- * without guessing (an article read online since, one that arrived since, a send that reached the server but timed
- * out). The page's own counts already are right: they are the server's last word plus each queued change, counted
- * once when it was made (applyRead). So those absolute numbers are kept, never a difference.
+ * The unread counts the badges show, kept on the device while changes made offline may be missing from the server's
+ * answers. Lists can take the queue as an overlay because a queued mark sets an absolute state, but the stored
+ * bootstrap's counts do not say which articles they counted, so no queued change can be added to them without
+ * guessing (an article read online since, one that arrived since, a send that reached the server but timed out). The
+ * page's own counts already are right: the server's last word plus each queued change, counted once when it was made
+ * (applyRead, useOpenItem). So the absolute numbers the page shows are kept, never a difference, and a bootstrap the
+ * worker answers from its stored copy takes its counts from them (useBootstrap).
  *
- * Kept in localStorage, shared by the tabs (the last tab to queue a change wins). Used only over the very bootstrap
- * they were worked out from, so a copy from an older answer, another tab's newer one or another account never takes
- * them; a live bootstrap makes them pointless and drops them.
+ * The page keeps them in step from the moment a change waits in the queue until it sees a live bootstrap with nothing
+ * left waiting (mirrorCounts), so an online change in between (a counts event) is kept too. They are not tied to one
+ * stored copy: the worker may replace its copy with a slow answer the page never saw, and the page's counts are still
+ * the last thing it showed. In localStorage, shared by the tabs (the last tab to change them wins); a sign-out drops them.
  */
 interface HeldCounts {
-  base: number;
-  counts: Bootstrap["counts"];
+  counts: Partial<Bootstrap["counts"]>;
   feeds: Record<string, number>;
   folders: Record<string, number>;
 }
 
 const HELD_COUNTS = "kipple-offline-counts";
 
-/** Keep the counts of `b` (the bootstrap as the page holds it, queued changes counted) for the next offline launch. */
+/** Keep the counts of `b`, the bootstrap as the page holds it (queued changes counted). */
 export function holdCounts(b: Bootstrap): void {
   const held: HeldCounts = {
-    base: b.server_time,
     counts: b.counts,
     feeds: Object.fromEntries(b.feeds.map((f) => [f.id, f.unread])),
     folders: Object.fromEntries(b.folders.map((f) => [f.id, f.unread])),
@@ -273,7 +273,7 @@ export function holdCounts(b: Bootstrap): void {
   }
 }
 
-/** A live bootstrap is the server's word: what the device held is no longer needed. */
+/** A live bootstrap with nothing queued is the server's whole word: what the device held is no longer needed. */
 export function forgetHeldCounts(): void {
   try {
     localStorage.removeItem(HELD_COUNTS);
@@ -282,21 +282,64 @@ export function forgetHeldCounts(): void {
   }
 }
 
-/** The stored bootstrap with the counts this device showed last, when they were worked out from this very copy. */
-export function overlayHeldCounts<T extends Bootstrap>(b: T): T {
-  let held: HeldCounts | undefined;
+const isCountMap = (v: unknown): v is Record<string, number> =>
+  typeof v === "object" && v !== null && !Array.isArray(v) && Object.values(v).every((n) => typeof n === "number");
+
+/** The held counts, or undefined when there are none or the stored value is not in this shape (another build's). */
+function readHeld(): HeldCounts | undefined {
+  let v: unknown;
   try {
-    held = JSON.parse(localStorage.getItem(HELD_COUNTS) ?? "null") ?? undefined;
+    v = JSON.parse(localStorage.getItem(HELD_COUNTS) ?? "null");
   } catch {
-    return b;
+    return undefined;
   }
-  if (!held || held.base !== b.server_time) return b;
-  const h = held;
+  if (typeof v !== "object" || v === null) return undefined;
+  const h = v as Record<string, unknown>;
+  return isCountMap(h.counts) && isCountMap(h.feeds) && isCountMap(h.folders) ? { counts: h.counts, feeds: h.feeds, folders: h.folders } : undefined;
+}
+
+/**
+ * A bootstrap the worker answered from its stored copy, with the counts the page shows now (`shown`, a refetch in the
+ * same session) or else the held ones (a new launch). The stored copy never knows more about this device's changes.
+ */
+export function overlayHeldCounts<T extends Bootstrap>(b: T, shown?: Bootstrap): T {
+  const h = shown ? { counts: shown.counts, feeds: Object.fromEntries(shown.feeds.map((f) => [f.id, f.unread])), folders: Object.fromEntries(shown.folders.map((f) => [f.id, f.unread])) } : readHeld();
+  if (!h) return b;
+  const unread = (own: Record<string, number>, id: string, n: number) => (Object.hasOwn(own, id) ? own[id]! : n);
   return {
     ...b,
     counts: { ...b.counts, ...h.counts },
-    feeds: b.feeds.map((f) => (f.id in h.feeds ? { ...f, unread: h.feeds[f.id]! } : f)),
-    folders: b.folders.map((f) => (f.id in h.folders ? { ...f, unread: h.folders[f.id]! } : f)),
+    feeds: b.feeds.map((f) => ({ ...f, unread: unread(h.feeds, f.id, f.unread) })),
+    folders: b.folders.map((f) => ({ ...f, unread: unread(h.folders, f.id, f.unread) })),
+  };
+}
+
+/** True when no change waits to be sent (read from the store, not this tab's count, which may lag at launch). */
+export async function queueIsEmpty(): Promise<boolean> {
+  return (await safe((b) => b.all(), [])).length === 0;
+}
+
+/**
+ * Keep the held counts in step with the page's: whenever its bootstrap or the number of waiting changes moves, while
+ * a change waits or counts are already held. Called once from initOffline; returns the cleanup.
+ */
+export function mirrorCounts(qc: QueryClient): () => void {
+  const mirror = () => {
+    if (authStore.get() === "out") return;
+    const b = qc.getQueryData<Bootstrap>(keys.bootstrap);
+    if (b && (offlineStore.get().pending > 0 || readHeld())) holdCounts(b);
+  };
+  const unsubCache = qc.getQueryCache().subscribe((e) => {
+    if (e.type === "updated" && e.action.type === "success" && e.query.queryKey[0] === keys.bootstrap[0]) mirror();
+  });
+  let pending = offlineStore.get().pending;
+  const unsubStore = offlineStore.subscribe(() => {
+    if (offlineStore.get().pending !== pending) mirror();
+    pending = offlineStore.get().pending;
+  });
+  return () => {
+    unsubCache();
+    unsubStore();
   };
 }
 
@@ -462,7 +505,7 @@ export function resetPrefetchForTests(): void {
  * the update check. Called once from main.tsx. Returns a cleanup for tests.
  */
 export function initOffline(qc: QueryClient): () => void {
-  const cleanups: Array<() => void> = [];
+  const cleanups: Array<() => void> = [mirrorCounts(qc)];
   // TanStack Query assumes it starts online and learns otherwise only from an `offline` event, so an app launched
   // offline never sees a change when the network comes back, and its failed screens would not load again by
   // themselves (refetchOnReconnect). Start it from what the browser says.
