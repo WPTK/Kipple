@@ -470,7 +470,6 @@ func TestRestoreBelongsToTheUploadingBrowser(t *testing.T) {
 	require.Nil(t, h.status(stranger)["summary"], "but only the uploader sees whose account it is")
 }
 
-
 // The upload refuses, before it reads the file, a request without the key
 // from start, and one whose browser did not keep the cookie start set (it
 // says cookies are needed, instead of losing the upload once it arrived).
@@ -563,7 +562,10 @@ func TestTheUploaderCancelsAnUploadStillArriving(t *testing.T) {
 	key := startKey(t, srv)
 	conn := rawUpload(t, srv, key, b, len(b)-1)
 
-	require.Eventually(t, func() bool { _, st := call(t, srv, key, "GET", "/api/setup/restore"); return st["state"] == "uploading" }, 5*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool {
+		_, st := call(t, srv, key, "GET", "/api/setup/restore")
+		return st["state"] == "uploading"
+	}, 5*time.Second, 5*time.Millisecond)
 	_, inst := call(t, srv, key, "GET", "/api/instance")
 	require.Equal(t, "uploading", inst["restore"])
 	_, st := call(t, srv, "", "GET", "/api/setup/restore")
