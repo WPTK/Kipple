@@ -357,14 +357,23 @@ func RecordStatsGap(ctx context.Context, q Querier, through string, now int64) e
 	return err
 }
 
-// RecordStatsGapToday records a gap through today in the stored time zone (statistics turned back
-// on, or a restore replacing the days since the backup). Inside the caller's write transaction.
+// RecordStatsGapToday sets the gap marker to today in the stored time zone (statistics turned back
+// on, or a restore replacing the days since the backup). A marker from the future (a backup made
+// under a fast clock, or edited) is pulled back to today. Inside the caller's write transaction.
 func RecordStatsGapToday(ctx context.Context, q Querier, now time.Time) error {
 	_, loc, _, _, err := StatsSettings(ctx, q)
 	if err != nil {
 		return err
 	}
-	return RecordStatsGap(ctx, q, now.In(loc).Format(dateLayout), now.Unix())
+	today := now.In(loc).Format(dateLayout)
+	cur, err := settingStringErr(ctx, q, SettingStatsGapEnd, "")
+	if err != nil || cur == today {
+		return err
+	}
+	b, _ := json.Marshal(today)
+	_, err = q.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, SettingStatsGapEnd, string(b), now.Unix())
+	return err
 }
 
 // statsCoverage reports the dates from which opens, and active time, were recorded without a gap.

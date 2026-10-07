@@ -246,13 +246,16 @@ func TestRestoreKeepsTheLiveAddressSettings(t *testing.T) {
 	_, ok, err := restored.Account(context.Background())
 	require.NoError(t, err)
 	require.True(t, ok, "the backup's library came")
+	require.NoError(t, restored.Close())
+	require.NoError(t, RecordRestoreGap(context.Background(), dir, now))
+	restored = openLive(t, dir)
 	var gap string
 	require.NoError(t, restored.Reader().QueryRow(`SELECT value FROM settings WHERE key = 'sys.stats_gap_end'`).Scan(&gap))
 	require.Equal(t, `"2026-10-06"`, gap, "the days since the backup have no rows: a gap through the restore day")
 }
 
-// A backup that already holds a statistics gap marker after today keeps it (the marker never moves
-// back); the summary reads it as today (store: TestStatsCoverageClampsALaterMarker).
+// A backup that already holds a statistics gap marker after today (a fast clock, or an edited file)
+// has it pulled back to today by the restore, so it cannot hold comparisons off until that date.
 func TestRestoreKeepsALaterStatsMarker(t *testing.T) {
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
@@ -264,10 +267,11 @@ func TestRestoreKeepsALaterStatsMarker(t *testing.T) {
 	done, err := ApplyStaged(dir, now, time.UTC)
 	require.NoError(t, err)
 	require.True(t, done.Restored)
+	require.NoError(t, RecordRestoreGap(context.Background(), dir, now))
 	restored := openLive(t, dir)
 	var gap string
 	require.NoError(t, restored.Reader().QueryRow(`SELECT value FROM settings WHERE key = 'sys.stats_gap_end'`).Scan(&gap))
-	require.Equal(t, `"9999-12-31"`, gap)
+	require.Equal(t, `"2026-10-06"`, gap)
 }
 
 // The server settings are one list: a reset carries the "merged once" marker of

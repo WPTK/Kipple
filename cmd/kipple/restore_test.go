@@ -143,6 +143,9 @@ func TestRestoreRoundTripKeepsThePreRestoreCopy(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "owner", acc.Username)
+	var gap string
+	require.NoError(t, db.Reader().QueryRow(`SELECT value FROM settings WHERE key = 'sys.stats_gap_end'`).Scan(&gap), "the restore records the statistics gap")
+	require.Regexp(t, `^"\d{4}-\d{2}-\d{2}"$`, gap)
 	require.NoError(t, db.Close())
 }
 
